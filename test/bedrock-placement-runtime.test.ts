@@ -58,7 +58,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
 
   // The wrong item must not open or mutate this pack's planner.
   use({ itemStack: { typeId: 'minecraft:stick' }, source: player });
-  responses.push({ selection: 0 }, { selection: 2 }, { canceled: true });
+  responses.push({ selection: 1 }, { selection: 3 }, { canceled: true });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toHaveLength(0);
   drawPreview();
@@ -79,7 +79,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   drawPreview();
   expect(particles).toEqual(firstPreview);
   player.location = { x: 10, y: 20, z: 30 };
-  responses.push({ selection: 4 }, { selection: 0 });
+  responses.push({ selection: 5 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toEqual(['structure load craftmatic:t0 28 20 30 90_degrees none', 'structure load craftmatic:t1 28 20 48 90_degrees none']);
   expect(areaCommands.some(command => command.includes('tickingarea add 28 20 30 29 20 47'))).toBe(true);
@@ -97,13 +97,13 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // Cancel before the next placement mutates anything: the previous complete
   // placement must remain the one available to Undo.
   blockedLoadCall = loadCalls + 1;
-  responses.push({ selection: 4 }, { selection: 0 });
+  responses.push({ selection: 5 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   responses.push({ selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placement stopped: Canceled.'));
   blockedLoadCall = 0;
-  responses.push({ selection: 5 });
+  responses.push({ selection: 6 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(restores.map(args => args[2])).toEqual([{ x: 28, y: 20, z: 30 }, { x: 28, y: 20, z: 48 }]);
   expect(entity.remove).toHaveBeenCalledOnce();
@@ -112,7 +112,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // A pinned origin cannot silently move to the same coordinates in another dimension.
   const nether = { ...dimension, id: 'nether' };
   player.dimension = nether;
-  responses.push({ selection: 4 }, { canceled: true });
+  responses.push({ selection: 5 }, { canceled: true });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toHaveLength(2);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Origin is pinned in overworld'));
@@ -120,7 +120,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
 
   // Cancel while the actor's awaited chunk load is pending: no actor may spawn afterward.
   blockedLoadCall = loadCalls + 3;
-  responses.push({ selection: 4 }, { selection: 0 });
+  responses.push({ selection: 5 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   responses.push({ selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
@@ -131,13 +131,13 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // and preserves the partial placement history produced just before it.
   blockedLoadCall = 0;
   blockEveryLoad = true;
-  responses.push({ selection: 4 }, { selection: 0 });
+  responses.push({ selection: 5 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(800);
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
   expect(loaded).toBe(false);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('probe 28,20,30 returned undefined'));
   blockEveryLoad = false;
-  responses.push({ selection: 5 });
+  responses.push({ selection: 6 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(restores).toHaveLength(4);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Undo complete.'));
@@ -146,7 +146,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // A command that runs but reports no successful ticking area fails immediately
   // with an actionable diagnostic rather than entering the 600-tick poll.
   addSuccessCount = 0;
-  responses.push({ selection: 4 }, { selection: 0 });
+  responses.push({ selection: 5 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('tickingarea command reported successCount 0'));
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
@@ -154,16 +154,16 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // Lighting is an appended player-only aid; existing menu indexes stay stable
   // and neither choice performs a dimension command or block mutation.
   const commandsBeforeLighting = commands.length, snapshotsBeforeLighting = snapshots.length;
-  responses.push({ selection: 7 }, { selection: 0 });
+  responses.push({ selection: 8 }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.addEffect).toHaveBeenCalledWith('minecraft:night_vision', 12000, { showParticles: false });
-  responses.push({ selection: 7 }, { selection: 1 });
+  responses.push({ selection: 8 }, { selection: 1 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.removeEffect).toHaveBeenCalledWith('minecraft:night_vision');
   expect(commands).toHaveLength(commandsBeforeLighting);
   expect(snapshots).toHaveLength(snapshotsBeforeLighting);
   expect(showTimeMachineControls).not.toHaveBeenCalled();
-  responses.push({ selection: 8 });
+  responses.push({ selection: 9 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(showTimeMachineControls).toHaveBeenCalledExactlyOnceWith(player);
   expect(commands).toHaveLength(commandsBeforeLighting);

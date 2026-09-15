@@ -126,7 +126,11 @@ export function ghostCube(box: Box, factor: number, centre: { x: number; z: numb
 export function buildPreviewGhost(id: string, scenery: BlockGrid, components: PreviewComponentPlacement[], options: PreviewGhostOptions = {}): PreviewGhostAssets {
   const maxCubes = options.maxCubes ?? 1536;
   const tint = options.tint ?? [150, 215, 255, 118];
-  const typeId = `${PACK_NAMESPACE}:${id}_preview`;
+  // A Bedrock identifier's name part may not start with a digit (the vehicle
+  // ids carry the same `v_` guard): `craftmatic:75892mclaren_preview` never
+  // registered, so `/testfor` rejected the type and no ghost ever spawned.
+  const safeId = /^[0-9]/.test(id) ? `p_${id}` : id;
+  const typeId = `${PACK_NAMESPACE}:${safeId}_preview`;
   let factor = 1, boxes: Box[] = [];
   for (;;) {
     const { occ, w, h, l } = sceneOccupancy(scenery, components, factor);
@@ -141,7 +145,7 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
   const meshes: unknown[] = [];
   const chunk = 1024;
   for (let offset = 0; offset < Math.max(1, cubes.length); offset += chunk) {
-    const meshId = `geometry.${PACK_NAMESPACE}.${id}_preview_${meshIds.length}`;
+    const meshId = `geometry.${PACK_NAMESPACE}.${safeId}_preview_${meshIds.length}`;
     meshIds.push(meshId);
     meshes.push({
       description: {
@@ -159,7 +163,7 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
   const geometryMap: Record<string, string> = {};
   meshIds.forEach((m, i) => { geometryMap[`mesh_${i}`] = m; });
   const controllers: Record<string, unknown> = {};
-  meshIds.forEach((_, i) => { controllers[`controller.render.${PACK_NAMESPACE}.${id}_preview_${i}`] = { geometry: `Geometry.mesh_${i}`, materials: [{ '*': 'Material.default' }], textures: ['Texture.default'] }; });
+  meshIds.forEach((_, i) => { controllers[`controller.render.${PACK_NAMESPACE}.${safeId}_preview_${i}`] = { geometry: `Geometry.mesh_${i}`, materials: [{ '*': 'Material.default' }], textures: ['Texture.default'] }; });
   return {
     typeId, meshIds, cubeCount: cubes.length, factor, size,
     geometry: { format_version: '1.12.0', 'minecraft:geometry': meshes },
@@ -171,7 +175,6 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
           'minecraft:type_family': { family: ['craftmatic_preview'] },
           'minecraft:collision_box': { width: 0.1, height: 0.1 },
           'minecraft:physics': { has_gravity: false, has_collision: false },
-          'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: false },
           'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
           'minecraft:fire_immune': {},
           'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 400, max_dropped_ticks: 10, use_motion_prediction_hints: false } },
@@ -185,7 +188,7 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
       'minecraft:client_entity': {
         description: {
           identifier: typeId, materials, textures: { default: `textures/entity/${id}_preview` }, geometry: geometryMap,
-          render_controllers: meshIds.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_preview_${i}`),
+          render_controllers: meshIds.map((_, i) => `controller.render.${PACK_NAMESPACE}.${safeId}_preview_${i}`),
         },
       },
     },

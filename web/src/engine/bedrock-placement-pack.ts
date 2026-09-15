@@ -309,7 +309,11 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.Memory });
         backups.push({ name, from });
-        await dim.runCommand(`structure load ${t.identifier} ${from.x} ${from.y} ${from.z} ${s.rotation}_degrees none`);
+        // A failed `structure load` (unknown structure, bad rotation) reports
+        // successCount 0 without throwing; treated as success it placed nothing
+        // and reported 100 %.
+        const loadResult = await dim.runCommand(`structure load ${t.identifier} ${from.x} ${from.y} ${from.z} ${s.rotation}_degrees none`);
+        if (loadResult && loadResult.successCount === 0) throw new Error(`structure ${t.identifier} could not be loaded (piece ${i + 1}/${config.tiles.length}). Is the behavior pack's structures folder intact?`);
         progress(i + 1, `piece ${i + 1}/${config.tiles.length} placed`);
         // Let the chunks tick with the area still alive so the block updates
         // reach every client before the area (and maybe the chunk) goes away.
@@ -357,19 +361,26 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const s = state(p), running = active?.player === p.id;
     const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(s)}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
-    else f.button('Pin at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
+    else f.button('Pin centred on me').button('Pin corner at my feet').button('Edit coordinates').button(`Rotate → ${(s.rotation + 90) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
     if (!running && config.vehicleControls) f.button('DeLorean controls');
     const r = await show(p, f); if (r.canceled) return;
     if (running) { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }
-    if (r.selection === 0) { s.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; s.dimension = p.dimension.id; previews.add(p.id); return menu(p); }
-    if (r.selection === 1) return edit(p);
-    if (r.selection === 2) { s.rotation = rotations[(rotations.indexOf(s.rotation) + 1) % 4]; if (s.anchor) previews.add(p.id); return menu(p); }
-    if (r.selection === 3) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, "Full-size preview fixed at the pin. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Switch away from the wand and back to rotate or place."); }
-    if (r.selection === 4) return confirmPlace(p);
-    if (r.selection === 5) return undo(p);
-    if (r.selection === 6) { previews.delete(p.id); removeGhost(p.id); return tell(p, 'Preview hidden.'); }
-    if (r.selection === 7) return lighting(p);
-    if (r.selection === 8 && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
+    if (r.selection === 0) {
+      // The origin is the model's corner; put the ROTATED footprint centre on the player so a
+      // vehicle-only pack lands where they stand instead of half a model away.
+      const c = pointAt({ x: config.width / 2, y: 0, z: config.length / 2 }, s.rotation);
+      s.anchor = { x: Math.floor(p.location.x - c.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z - c.z) };
+      s.dimension = p.dimension.id; previews.add(p.id); return menu(p);
+    }
+    if (r.selection === 1) { s.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; s.dimension = p.dimension.id; previews.add(p.id); return menu(p); }
+    if (r.selection === 2) return edit(p);
+    if (r.selection === 3) { s.rotation = rotations[(rotations.indexOf(s.rotation) + 1) % 4]; if (s.anchor) previews.add(p.id); return menu(p); }
+    if (r.selection === 4) { try { validate(p, s); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation. Switch away from the wand and back to rotate or place." : "Full-size preview fixed at the pin. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Switch away from the wand and back to rotate or place."); }
+    if (r.selection === 5) return confirmPlace(p);
+    if (r.selection === 6) return undo(p);
+    if (r.selection === 7) { previews.delete(p.id); removeGhost(p.id); return tell(p, 'Preview hidden.'); }
+    if (r.selection === 8) return lighting(p);
+    if (r.selection === 9 && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
   }
   world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => menu(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
   console.warn(`BRICK_WAND_READY ${config.id}`);
