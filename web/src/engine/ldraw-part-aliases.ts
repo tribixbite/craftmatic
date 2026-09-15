@@ -97,6 +97,8 @@
 export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freeze({
   // ── Clip / bar family: LEGO re-tooled these as "thick C-clip" versions and
   //    issued new design ids; LDraw kept the original part numbers.
+  '67687': '4600',    // Plate 2x2 with Wheel Holders (2021 re-tool with cross slots on the pins; LDraw
+                      // 4600 "Plate 2 x 2 with 2 Wheel Pins"). 76240 Tumbler: 2 placements were AABB boxes.
   '42923': '63868',   // Plate 1x2 with Clip Horizontal on End (Thick C-Clip)
   '44860': '60897',   // Plate 1x1 with Clip Vertical (Thick C-Clip).
                       //   NOTE: BrickLink calls this 4085d, but LDraw has no

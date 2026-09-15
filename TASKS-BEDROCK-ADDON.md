@@ -10,19 +10,26 @@ Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 ## State (2026-09-15, second device round)
 
 Verified on the Pixel 8 Pro (Bedrock 1.26.45, QA world `smUmxh2eJjw=`) with
-75892 (car) and 7140 (plane), captures in
+75892, 7140, and the user's own 76240 and 76286, captures in
 `output/bedrock-entity-qa/captures-2026-09-15b/`:
-- nose inferred from parts (`vehicle-facing.ts`): Senna's tail lights face the
-  chase camera, X-wing engines toward the camera (`quad2.jpg`, `quad5.jpg`);
+- nose inferred from parts (`vehicle-facing.ts`): Senna tail lights and Tumbler
+  rear wheels face the chase camera, X-wing engines toward it (`quad2.jpg`,
+  `quad5.jpg`, `quad8.jpg`);
 - joystick left/right steers (`/controlscheme … player_relative` on mount), the
-  free chase camera stays behind through turns (`quad2.jpg`);
+  free chase camera stays behind through turns (`quad2.jpg`; Tumbler
+  `quad8.jpg` top row: +10 blocks forward, then a ~90° turn);
 - Jump = native dash (`dash_action`), Dismount is its own button (`dash3.jpg`);
-- aircraft: forward flies, Jump climbs ~17 blocks/s (`quad5.jpg`);
+- aircraft: forward flies where the rider looks (the Milano dived 26 blocks
+  while looking down, `quad8.jpg` bottom row), Jump climbs ~20 blocks/s;
 - Brick Wand: ghost preview renders (`ghost4.jpg`), progress bar
   (`progress1.jpg`), placement appears at once (`placed4.jpg`), "Pin centred on
   me" puts the build on the player.
-Root and `web/` typecheck clean; vitest 1,585 passing (the two `import-nlcd`
-failures are the live API).
+Prod part census (`check-missing-parts.mjs`): 7140 clean; 76240 `67687`×2 now
+aliased to `4600` and `30426`×1 unresolved; 76286 `28710`×1 unresolved; 10300
+`x346`×2 + one light-brick subassembly (its `.io` CustomParts cover the rest).
+`30426` / `28710` / `x346` exist in neither the official nor the unofficial
+LDraw library. Root and `web/` typecheck clean; vitest 1,596 passing (the two
+`import-nlcd` failures are the live API).
 
 ```
 lego.ts ─► ui/schem-export.ts ─► Worker: schem-pipeline.ts runSchemPipeline()
@@ -73,14 +80,15 @@ only real 76240 source.
 - [ ] **Repeated-part budget** (76240: `70695` ×184 = 4,416 cubes at 16 LDU):
       a stricter per-part cube cap for parts with many placements would let the
       whole model keep a finer cell. Not started.
-- [ ] **Device-verify 76240 and 76286 themselves** (facing, steering at a
-      3.5-wide collision box, Milano climb) — this round verified the mechanism
-      on 75892 and 7140; the heavy packs were not re-imported.
-- [ ] **`67687`** (2 placements on 76240) has no geometry on the prod mirror
-      either (empty response); everything else on the five golden models
-      resolves (242/243 unique parts on 76240).
-- [ ] **Dive / look-pitch on aircraft** and swipe-to-look were not testable over
-      adb (`input swipe` on the look area did nothing); check by hand.
+- [ ] **A ground vehicle summoned at a shoreline stays put**: the Tumbler at
+      (−94, 63, 189) in shallow water / against sand steps read 0.0 mph on
+      every input; the same entity on grass drove and turned. Whether that is
+      the 3.5×2.5 collision box wedged in blocks or water drag is not measured.
+- [ ] **Swipe-to-look** was not testable over adb (`input swipe` on the look
+      area did nothing); check by hand.
+- [ ] `30426` (76240 ×1), `28710` (76286 ×1), `x346` (10300 ×2): design ids with
+      no LDraw part in either library; identify the LDraw mould and add
+      filename aliases, or leave as the documented residue.
 - [ ] **Molang errors `unable to find member variable .r/.g/.b`** appeared in the
       content-log UI while mounting the X-wing (not in the pulled log file);
       source unknown (render controller? vanilla ride UI?).

@@ -483,6 +483,18 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
     steering over adb is a DRAG from the stick centre (`input swipe 337 550 470
     550 1500`); a press at the stick edge does nothing, and look-area swipes did
     not register at all.
+  - **Test ground vehicles on flat open ground.** The Tumbler summoned at a
+    shoreline (shallow water, sand steps) read 0.0 mph on every input; on
+    grass it drove, turned ~90° and kept the camera behind. An aircraft flies
+    where the rider LOOKS: the Milano dived 26 blocks over 32 forward because
+    the free-look pitch was down. `/fill` for a test platform silently does
+    nothing when its chunks are not loaded.
+  - **Silhouette gate scores the placements the compiler kept** (`IoU kept`),
+    with `IoU full` and the stand / detached / internal counts beside it; the
+    old single number blamed the compiler for the display stand it drops on
+    purpose (76240: 0.84 full vs 0.957 kept). `mergeAlignedCuboids` is
+    lossless and worth ~6 %; cell size was never the limit (76240 at 4 LDU /
+    39k cubes still 0.854 full).
 
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
