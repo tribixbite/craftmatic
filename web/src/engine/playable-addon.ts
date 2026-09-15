@@ -388,6 +388,26 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
   const waitTicks = (ticks: number) => new Promise<void>(resolve => system.runTimeout(resolve, ticks));
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   const vehicles = () => dimensions().flatMap(d => { try { return d.getEntities({ type: config.typeId }).filter((e: any) => e.typeId === config.typeId); } catch { return []; } });
+  /**
+   * Speed of a rider-driven vehicle. Its movement is client-authoritative
+   * (`input_ground_controlled`), so the server's `getVelocity()` reads ~0 while
+   * it visibly drives; measure from the position delta over the 2-tick interval
+   * instead, and treat a jump of more than 5 blocks as a teleport, not motion.
+   */
+  const riddenVelocity = (state: any, vehicle: any): { x: number; y: number; z: number } => {
+    let reported = { x: 0, y: 0, z: 0 };
+    try { reported = vehicle.getVelocity?.() ?? reported; } catch {}
+    let loc: any;
+    try { loc = vehicle.location; } catch { return reported; }
+    const last = state.lastPos;
+    state.lastPos = { x: loc.x, y: loc.y, z: loc.z };
+    if (!last) return reported;
+    const measured = { x: (loc.x - last.x) / 2, y: (loc.y - last.y) / 2, z: (loc.z - last.z) / 2 };
+    if (Math.hypot(measured.x, measured.y, measured.z) > 5) return reported; // a teleport, not motion
+    // Whichever channel reports the motion: the server's velocity for script-driven
+    // impulses, the position delta for the client-driven ride.
+    return Math.hypot(measured.x, measured.z) >= Math.hypot(reported.x, reported.z) ? measured : reported;
+  };
   const readNumber = (entity: any, key: string) => { const value = entity.getDynamicProperty?.(key); return typeof value === 'number' && Number.isFinite(value) ? value : undefined; };
   const stateFor = (entity: any) => {
     let state = states.get(entity.id);
@@ -507,7 +527,7 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
       seen.add(vehicle.id);
       const state = stateFor(vehicle), rideable = vehicle.getComponent('minecraft:rideable'), riders = rideable?.getRiders?.() ?? [];
       const rider = riders.find((entity: any) => entity.typeId === 'minecraft:player') ?? riders[0];
-      const velocity = vehicle.getVelocity(), horizontal = Math.hypot(velocity.x, velocity.z), mph = horizontal * MPH_PER_BLOCK_TICK;
+      const velocity = riddenVelocity(state, vehicle), horizontal = Math.hypot(velocity.x, velocity.z), mph = horizontal * MPH_PER_BLOCK_TICK;
       let forward = false;
       try { forward = (rider?.inputInfo?.getMovementVector()?.y ?? 0) > .05; } catch {}
       if (rider) state.hadRider = true;
@@ -552,6 +572,27 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
   const vehiclesByType = new Map(config.vehicles.map((v: any) => [v.typeId, v]));
   const states = new Map<string, any>();
+  /**
+   * Speed of a rider-driven vehicle. Its movement is client-authoritative
+   * (`input_ground_controlled`), so the server's `getVelocity()` reads ~0 while
+   * it visibly drives; measure from the position delta over the 2-tick interval
+   * instead, and treat a jump of more than 5 blocks as a teleport, not motion.
+   */
+  const riddenVelocity = (state: any, vehicle: any): { x: number; y: number; z: number } => {
+    let reported = { x: 0, y: 0, z: 0 };
+    try { reported = vehicle.getVelocity?.() ?? reported; } catch {}
+    let loc: any;
+    try { loc = vehicle.location; } catch { return reported; }
+    const last = state.lastPos;
+    state.lastPos = { x: loc.x, y: loc.y, z: loc.z };
+    if (!last) return reported;
+    const measured = { x: (loc.x - last.x) / 2, y: (loc.y - last.y) / 2, z: (loc.z - last.z) / 2 };
+    if (Math.hypot(measured.x, measured.y, measured.z) > 5) return reported; // a teleport, not motion
+    // Whichever channel reports the motion: the server's velocity for script-driven
+    // impulses, the position delta for the client-driven ride.
+    return Math.hypot(measured.x, measured.z) >= Math.hypot(reported.x, reported.z) ? measured : reported;
+  };
+
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => {
     try { return [world.getDimension(id)]; } catch { return []; }
   });
@@ -583,7 +624,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
       }
       if (state.boostCooldown > 0) state.boostCooldown -= 2;
 
-      const vel = vehicle.getVelocity?.() ?? { x: 0, y: 0, z: 0 };
+      const vel = riddenVelocity(state, vehicle);
       const horizontal = Math.hypot(vel.x, vel.z);
       const mph = horizontal * MPH_PER_BLOCK_TICK;
       const isCar = vConfig.kind === 'car';
@@ -752,10 +793,14 @@ const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: '
  * driving is unchanged. Presets live in the behavior pack's `cameras/presets/`.
  */
 export function chaseCameraPreset(cid: string, size: { width: number; height: number; length: number }): { id: string; radius: number; value: unknown } {
+    // follow_orbit has no block collision (measured on the Pixel: an 8-block
+    // boom behind a car parked at a hillside put the camera inside the hill),
+    // so the boom is kept short and the orbit pivot sits at the vehicle's roof
+    // line, where it clears terrain most of the time.
     const longest = Math.max(size.width, size.length, 1);
-    const radius = Math.min(40, Math.max(6, Math.round((longest * 1.4 + 3) * 10) / 10));
+    const radius = Math.min(30, Math.max(5, Math.round((longest + 2.5) * 10) / 10));
     const id = `${PACK_NAMESPACE}:${cid}_chase`;
-    const pivotY = Math.round(Math.max(0.5, size.height * 0.5) * 100) / 100;
+    const pivotY = Math.round(Math.max(0.8, size.height * 0.75 + 0.5) * 100) / 100;
     return {
         id, radius,
         value: { format_version: '1.21.0', 'minecraft:camera_preset': { identifier: id, inherit_from: 'minecraft:follow_orbit', radius, entity_offset: [0, pivotY, 0] } },

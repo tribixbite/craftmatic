@@ -404,12 +404,33 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   X-wing at 4 LDU and a 1,906-part DeLorean at 8 LDU, both ≥ 0.95 six-view
   silhouette IoU (`scripts/_entity_silhouette.ts`); the spec's 4,096 pushed
   them to 8/16 LDU. `scripts/_playable_ref.ts` is the CLI export gate.
-- **Pixel QA mechanics**: import via
-  `content://com.android.externalstorage.documents/document/primary%3ADownload%2F<f>.mcaddon`
-  with `--grant-read-uri-permission` (a `file://` VIEW imports nothing);
-  activate packs by editing the world's `world_*_packs.json` ONLY after
-  `am force-stop` (the running app rewrites them from memory); type commands
-  by re-opening chat, focusing the field, Ctrl+A, Del, then the full `/cmd`.
+- **Pixel QA mechanics**: import with the game at its main menu via
+  `am start -n com.mojang.minecraftpe/.MainActivity -a android.intent.action.VIEW
+  -d 'content://com.android.externalstorage.documents/document/primary%3ADownload%2F<f>.mcaddon'
+  -t application/octet-stream --grant-read-uri-permission` (a `file://` VIEW
+  imports nothing; an implicit intent lands in the chooser). A re-import of the
+  same pack uuid lands in a `<name>(1)` folder and the world list must name the
+  NEW version. Activate packs by editing the world's `world_*_packs.json` ONLY
+  after `am force-stop` (the running app rewrites them from memory); `adb shell
+  rm` inside `Android/data/com.mojang.minecraftpe` is denied, `adb push` works.
+  Type commands by re-opening chat (tap the chat icon), tapping the field,
+  Ctrl+A, Del, `input text` with spaces as `%s`, Enter — and set
+  `MSYS_NO_PATHCONV=1` first, or Git Bash rewrites `/tp …` into
+  `C:/Program Files/Git/tp` and `/sdcard/…` into a local path. `/ride @s
+  start_riding @e[type=craftmatic:<cid>,c=1] teleport_rider` mounts without a
+  touch; `/execute at @e[type=…,c=1] run tp @s ~ ~5 ~-7 facing ~ ~ ~` places the
+  camera; `/testfor` only sees entities in ticking chunks. Screens are
+  2244×1008 landscape; `adb exec-out screencap` then `magick -resize 1999x1999>`.
+- **Riding facts measured 2026-09-15 (Pixel, 1.26.45)**: a first-person rider
+  sits inside the entity's cuboids, so every vehicle ships a `follow_orbit`
+  camera preset (`cameras/presets/<cid>_chase.json`) that `vehicle-camera.js`
+  applies on mount and clears on dismount — its default control scheme is
+  *locked player relative strafe*, so look input still steers. `follow_orbit`
+  has NO block collision (an 8-block boom behind a car at a hillside put the
+  camera inside the hill): keep the boom short and the pivot at roof height.
+  A rider-driven ground vehicle is client-authoritative: `getVelocity()` reads
+  ~0 while it visibly drives (planes report fine), so speed is measured from
+  the position delta — `riddenVelocity` in both runtimes.
 
 ## Dev / commands
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
