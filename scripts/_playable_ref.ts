@@ -6,7 +6,7 @@
  *
  * Usage: bun scripts/_playable_ref.ts <model.io|.mpd|.ldr> [out.mcaddon]
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
- *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr]
+ *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom]
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
@@ -31,6 +31,7 @@ if (!file) { console.error('usage: bun scripts/_playable_ref.ts <model> [out.mca
 const quality = (flag('quality') ?? 'balanced') as 'balanced' | 'high' | 'ultra';
 const vehicleMode = (flag('mode') ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static';
 const vehicleFacing = (flag('facing') ?? 'auto') as 'auto' | '+x' | '-x' | '+z' | '-z';
+const cameraStyle = (flag('camera') ?? 'orbit') as 'orbit' | 'boom';
 const setMatch = /(\d{4,6})(?:-\d)?/.exec(basename(file));
 const stem = modelExportStem({ name: flag('label') ?? basename(file).replace(/\.[^.]+$/, ''), setNumber: setMatch?.[0] });
 const label = flag('label') ?? basename(file).replace(/\.[^.]+$/, '');
@@ -68,6 +69,7 @@ const result = await runSchemPipeline({
   vehicleMode,
   vehicleFacing,
   entityQuality: quality,
+  cameraStyle,
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 

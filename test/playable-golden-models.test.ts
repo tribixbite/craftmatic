@@ -70,7 +70,7 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       const behavior = (await jsonOf(buffer, `${bp}entities/${g.cid}.json`))['minecraft:entity'];
       expect(behavior.description.identifier).toBe(`craftmatic:${g.cid}`);
       expect(behavior.components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(0);
-      expect(behavior.components[g.kind === 'plane' ? 'minecraft:input_air_controlled' : 'minecraft:input_ground_controlled']).toBeDefined();
+      expect(behavior.components[g.kind === 'plane' ? 'minecraft:free_camera_controlled' : 'minecraft:input_ground_controlled']).toBeDefined();
       // Geometry is deterministic across runs.
       const again = await exportGolden(g);
       const geoA = await extractFile(buffer, `${rp}models/entity/${g.cid}.geo.json`);
