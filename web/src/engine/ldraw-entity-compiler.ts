@@ -362,6 +362,8 @@ export interface CompiledLdrawGeometry {
   extras: EntityExtra[];
   /** Where the entity's origin (floor centre) sits in the LEVELLED LDraw frame: the point a scene maps to the actor position. */
   originLdu: Vec3;
+  /** Blocks the entity's origin sits ABOVE the model's floor (`originAboveModel`); the actor spawns that much higher than `originLdu`. 0 normally. */
+  originLiftBlocks: number;
   /** The level pose the extras share (their `bricks` are already levelled); null when the source was level. */
   levelPose: { rotation: number[]; centre: Vec3 } | null;
   /** Whole-model compiles only: every body cuboid's LDraw AABB (source frame), what a collider grid is measured from. */
@@ -402,6 +404,12 @@ export interface CompileLdrawEntityOptions {
    * bone moves everything on it.
    */
   rig?: EntityRig;
+  /**
+   * Put the entity's origin one block above the model's top instead of at
+   * its floor centre, so the block that lights it is open sky (a building
+   * shell inside its own colliders was lit as light 0). See `originLiftBlocks`.
+   */
+  originAboveModel?: boolean;
 }
 
 // ─── Internal geometry records ────────────────────────────────────────────────
@@ -1385,9 +1393,15 @@ export async function compileLdrawEntityGeometry(
   // 6. Recentre: true geometric bounds in the render frame (floor at y = 0).
   const all = renderCuboids.length ? aabbOfCorners(renderCuboids.flatMap(c => [c.min, c.max])) : { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
   const midX = (all.min[0] + all.max[0]) / 2, midZ = (all.min[2] + all.max[2]) / 2, floorY = all.min[1];
-  const toUnits = (v: Vec3): Vec3 => [(v[0] - midX) * scale, (v[1] - floorY) * scale, (v[2] - midZ) * scale];
   const totalWidth = (all.max[0] - all.min[0]) * scale / 16;
   const totalHeight = (all.max[1] - all.min[1]) * scale / 16;
+  // An entity is lit by the block at its own position. A building shell's
+  // floor centre sits inside its collider volume (light 0: three of four
+  // shells rendered near-black at noon on the Pixel, round 4), so the shell's
+  // origin is put one block ABOVE its roof, in open sky, and the geometry is
+  // authored that many blocks lower. The actor spawns `originLiftBlocks` up.
+  const originLiftBlocks = options.originAboveModel ? Math.ceil(totalHeight) + 1 : 0;
+  const toUnits = (v: Vec3): Vec3 => [(v[0] - midX) * scale, (v[1] - floorY) * scale - originLiftBlocks * 16, (v[2] - midZ) * scale];
   const totalLength = (all.max[2] - all.min[2]) * scale / 16;
 
   // 7. Seat + collision. The cockpit's EYE point (LDraw) goes through the same
@@ -1458,7 +1472,7 @@ export async function compileLdrawEntityGeometry(
     // falling back to the ground after an elevated /tp - not culling.)
     visible_bounds_width: Math.max(4, Math.ceil(Math.max(totalWidth, totalLength)) + 2),
     visible_bounds_height: Math.max(4, Math.ceil(totalHeight) + 2),
-    visible_bounds_offset: [0, Math.round(totalHeight / 2 * 100) / 100, 0],
+    visible_bounds_offset: [0, Math.round((totalHeight / 2 - originLiftBlocks) * 100) / 100, 0],
   });
 
   const geometryMeshes: unknown[] = [];
@@ -1566,6 +1580,7 @@ export async function compileLdrawEntityGeometry(
     keptSourceIndices: placedIdx,
     extras,
     originLdu: apply(At, [midX, floorY, midZ]),
+    originLiftBlocks,
     levelPose: level.rotation ? { rotation: [...level.rotation], centre: [...level.centre] as Vec3 } : null,
     ...(options.wholeModel ? { partBoxesLdu: worldBoxes.map(wb => ({ min: wb.min, max: wb.max })) } : {}),
     diagnostics,
