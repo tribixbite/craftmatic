@@ -42,32 +42,27 @@ sees them. Silhouette: `bun scripts/_entity_silhouette.ts <model> --label=… --
 (side view: nose on the LEFT). **Use a label whose stem does not start with a
 digit.** Pixel helpers: `scripts/_pixel_shot.sh`, `scripts/_pixel_cmd.sh`.
 
-## Awaiting the device round (2026-09-16, Opus subagent on the Pixel)
+## Device rounds (2026-09-16)
 
-Each of these is a claim the offline gates cannot settle; the round writes
-`output/bedrock-entity-qa/captures-2026-09-16/notes.md` + screenshots.
-- [ ] X-wing: rider sits IN the cockpit (seat from Luke's eyes, `seatY` =
-      eye − 1.25); figures and the cart stand beside it on the side the
-      source put them. **Frame assumption to verify:** a render-frame offset
-      lands in the world at yaw 0 as (−x, y, −z) (`extraPlacement`); the cart
-      (LDraw x +413) should be on the pilot's LEFT. If it is on the right,
-      flip the sign of `bx` in `extraPlacement` (one line) and re-export.
-- [ ] Aircraft turn with the joystick (`player_relative` + free chase camera
-      with the rider's pitch). Risk: `free_camera_controlled` may follow the
-      SCRIPTED camera's facing rather than the rider's; the camera is aimed
-      along the rider's exact yaw+pitch so both agree - if the plane still
-      does not turn, try `minecraft:input_air_controlled` (needs the entity
-      declared ≥ 1.21.90) or a script that reads `inputInfo.getMovementVector().x`
-      and applies yaw.
-- [ ] Milano flies nose-first (was 90° off: its wingspan is longer than its
-      hull, and every plane vote measured "along the long axis").
-- [ ] Scale on device: Senna ≈ 2.7 × 1.8 × 7.1 blocks; a figure NPC is
-      player height; Tumbler 11.5 × 6.6 × 18.6.
-- [ ] Museum: 6 doors open on tap; figures wander (`random_stroll`,
-      `open_door`); the seat entity seats the player (seat position
-      [0, −0.3, 0], `lock_rider_rotation: 181`).
-- [ ] Content log clean for every pack (identifiers, `figureBehavior`
-      components, the invisible seat's `entity_alphatest` texture).
+Round 1 (`output/bedrock-entity-qa/captures-2026-09-16/`, 58 shots + `notes.md`)
+settled: rider IN the X-wing cockpit; both planes fly nose-first; Senna
+2.70 × 2.01 × 7.12 blocks; the cart on the pilot's LEFT (the `extraPlacement`
+frame holds); the seat entity seats. It found four defects, fixed in `d15c1f3`
+and rebuilt into the same pack dir; round 2 (Opus subagent, evidence in
+`captures-2026-09-16b/`) re-tests them:
+- [ ] Figures parse (empty `pushable_by_entity`) and the wand places every actor
+      (a failed one is skipped and named).
+- [ ] Figures are player height, stroll, look at the player.
+- [ ] The joystick TURNS the Senna and the X-wing (scheme re-applied every 10
+      ticks). If it still strafes: the command path from script is dead - try
+      `runCommandAsync` results, or an `inputInfo.getMovementVector().x` → yaw
+      script, or `input_air_controlled` for planes.
+- [ ] Museum doors rest on blocks and are reachable/open (frame-straddle cells
+      opened, floor step-down); figures open doors themselves.
+- [ ] Winter Chalet: 7 figures, 2 doors (one leaf "outside bounds": no floor
+      under it - investigate), 9 seats.
+- [ ] Tumbler at 32 LDU grain reads 14.5 blocks wide (true 11.5) with blobs
+      where the rear tyres are: the repeated-part budget item below.
 
 ## Open (not started)
 
