@@ -224,6 +224,44 @@ settles them.
   drops `"`; the stick rotates the RIDER and the body follows on forward
   input (no pivot in place); the wand menu needs `input swipe 1119 820 1119
   420 500` to reach Place/Undo.
+- **Round 4 (2026-09-16, `captures-2026-09-16d/`, 64 shots + `notes.md`)**: the
+  brick-accurate shell + collider grid and the jointed minifig rig are CONFIRMED on
+  the device. Content log **zero `[error]`** in 39,876 lines. Walls stop the player
+  at **offset 0.00** on both axes at rotation 0° and again at 90°; the player stands
+  at y 67.00 (ground) / 70.00 (upper) with the drawn plate under the feet; 4/4 doors
+  hang in their openings and an NPC had already opened one (`behavior.open_door`
+  works). Figures: 7/7 chalet, 7/7 museum, 8/8 modular, all jointed (arms, hands,
+  two legs), legs at different swing angles across rapid frames, **2.03 blocks** tall
+  beside the 1.80 player. **Structure rotation 90° is CLOCKWISE**:
+  `wx = ox + (sizeZ−1−lz)`, `wz = oz + lx` (verified on 4/4 doors). Open defect:
+  the museum, modular and Hogwarts SHELLS render near-black in full daylight while
+  the chalet and the X-wing are lit correctly and the figures beside them are bright —
+  the shell entity's light sample is almost certainly taken inside the
+  `light_dampening` collider volume. Device facts:
+  - **`/sdcard/Android/data/<pkg>` is only mounted while the app process lives.**
+    After `am force-stop`, every `adb push`/`shell` into `minecraftWorlds/<id>/`
+    fails `Transport endpoint is not connected` AND kills the adb-over-wifi
+    transport. Working recipe: force-stop → relaunch the app to its MAIN MENU →
+    `adb push` to `/sdcard/Download/` → `adb shell cp` into the world dir, one op
+    per connection with a disconnect/connect retry. Editing `world_*_packs.json`
+    at the main menu is safe; the game only reads them at world load.
+  - **Walking over adb**: `adb shell input swipe 337 550 337 380 <ms>` from the
+    joystick centre drives the player forward for the duration; background it and
+    screenshot mid-walk. This is what makes the wall-collision test measurable.
+  - **`/effect @e[family=craftmatic_figure] slowness 60 20 true` pins figures still**
+    — without it a figure walks 2-7 blocks between the `/tp` and the screenshot and
+    every same-depth pixel measurement is meaningless (two wasted attempts).
+  - **The BP `.mcstructure` is the door oracle** (little-endian NBT; ~50-line
+    parser): `size`, the palette with full block states and every door's LOCAL
+    x/y/z. Add the placement origin and `/testforblock` needs no guessing.
+  - **A bare `/testforblock <pos> <block>` (no states)** compares the DEFAULT
+    permutation, and the failure text distinguishes wrong-state
+    (`did not match the expected block state`) from wrong-block — a cheap
+    "is this door here at all" probe.
+  - `/kill @e[family=craftmatic_figure]` / `craftmatic_seat` clears a round's
+    actors in one command; a plain `/fill <box> air` reports the non-air count.
+  - `adb shell input text` occasionally drops leading characters (a `/give`
+    arrived as `giv`) — screenshot the result before relying on it.
 - **Patch hygiene**: a Python `"""…"""` patch string turns `\b` into a
   BACKSPACE; seven regex word boundaries in the compiler silently became
   `\x08` and `isFigurePart('…','Minifig Hair')` returned false. Use raw
