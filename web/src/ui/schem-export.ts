@@ -370,7 +370,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         : planResolution(spanOfBricks(req.source.bricks), format === 'mcaddon' && settings.resolution === 'auto' ? 'minifig' : settings.resolution);
       const opts: VoxelizeOptions = { cellLDU: plan.cellLDU, maxDim: 700 };
       resNote = ` at ${plan.cellsPerStud}× stud resolution (proportion-exact)`;
-      status(`Voxelizing for Minecraft at ${plan.cellsPerStud}× stud resolution (${plan.cellLDU} LDU cells)…`, 'info');
+      status(`Voxelizing for Minecraft at ${plan.cellsPerStud}× stud resolution (${Math.round(plan.cellLDU * 100) / 100} LDU cells)…`, 'info');
       if (!plan.requestedHonored) {
         status(`Requested ${20 / (plan.requestedCellLDU ?? 20)}× stud resolution exceeds Minecraft-sane bounds — using ${plan.cellsPerStud}×.`, 'info');
       }
@@ -476,11 +476,14 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         : `Open it with Minecraft and activate the behavior pack. Find the model BrickWand in Creative inventory or run ${functionCommand} to receive it. Select it in your hotbar to open; switch away and back to reopen. Pin or edit coordinates, rotate the visible preview, place explicitly, cancel, or undo.`;
       const msg = `Exported ${base}.${format} — ${blocks.toLocaleString()} blocks${resNote}, `
         + `${job.width}×${job.height}×${job.length}${lightNote}${tileNote}. ${activation}${componentNote}`;
-      status(msg, 'success');
+      // Each status call REPLACES the line, so the warnings go first and the
+      // success line (with the /function command and the component list) is
+      // what stays on screen; the warnings remain in the tab's log.
       if (unmapped.length > 0) {
         status(`${unmapped.length} block type(s) had no Bedrock equivalent and were left as air: ${unmapped.join(', ')}`, 'info');
       }
       for (const warning of warnings) status(`Add-on warning: ${warning}`, 'info');
+      status(warnings.length ? `${msg} ${warnings.length} add-on warning${warnings.length === 1 ? '' : 's'} above.` : msg, 'success');
       const interactionSummary = format === 'mcaddon'
         ? ` · ${components.length} interactive component${components.length === 1 ? '' : 's'}${warnings.length ? ` · ${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : ''}`
         : '';
