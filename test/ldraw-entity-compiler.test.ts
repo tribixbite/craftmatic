@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
+import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -39,8 +39,8 @@ const provider = () => createPartGeometryProvider({ fetchPartText: async id => L
 type Geo = { 'minecraft:geometry': Array<{ description: { identifier: string; texture_width: number; texture_height: number }; bones: Array<{ name: string; pivot: number[]; rotation?: number[]; cubes: Array<{ origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: Record<string, { uv: number[] }> }> }> }> };
 type Cube = { origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: Record<string, { uv: number[] }> };
 const allCubes = (g: Geo) => g['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => ({ ...(c as Cube), bone: b.name, mesh: m.description.identifier }))));
-// A stud cuboid is 4 LDU (0.64 units) tall and no wider than the 12 LDU disc; nothing in the synthetic library is that thin.
-const isStud = (c: { size: number[] }) => Math.abs(c.size[1]! - 0.64) < 1e-9 && Math.max(c.size[0]!, c.size[2]!) <= 1.92 + 1e-9;
+// A stud cuboid is 4 LDU (1.2 units at 0.3 units/LDU) tall and no wider than the 12 LDU disc; nothing in the synthetic library is that thin.
+const isStud = (c: { size: number[] }) => Math.abs(c.size[1]! - 1.2) < 1e-9 && Math.max(c.size[0]!, c.size[2]!) <= 3.6 + 1e-9;
 const bodyCubes = (g: Geo) => allCubes(g).filter(c => !isStud(c));
 const studCubes = (g: Geo) => allCubes(g).filter(isStud);
 
@@ -90,9 +90,9 @@ describe('compileLdrawEntityGeometry', () => {
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
     const cubes = bodyCubes(r.value as Geo);
     expect(cubes).toHaveLength(1);
-    // 80×24×40 LDU → 12.8 × 3.84 × 6.4 units, floor at y=0, centred in X/Z.
-    expect(cubes[0]!.size).toEqual([12.8, 3.84, 6.4]);
-    expect(cubes[0]!.origin).toEqual([-6.4, 0, -3.2]);
+    // 80×24×40 LDU → 24 × 7.2 × 12 units (0.3 units/LDU), floor at y=0, centred in X/Z.
+    expect(cubes[0]!.size).toEqual([24, 7.2, 12]);
+    expect(cubes[0]!.origin).toEqual([-12, 0, -6]);
     expect(r.materials).toHaveLength(1);
     const hex = '#' + r.materials[0]!.rgb.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
     expect(hex).toBe(LDRAW_COLOR_RGB[4]);
@@ -160,15 +160,15 @@ describe('compileLdrawEntityGeometry', () => {
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
     const studs = studCubes(r.value as Geo);
     expect(studs).toHaveLength(4);
-    // Facet: 2·6·cos(22.5°) = 11.09 LDU long, 2·6·sin(22.5°) = 4.59 LDU wide, 4 LDU tall → units ×0.16.
-    for (const c of studs) expect(c.size).toEqual([0.73, 0.64, 1.77]); // long side along Z before rotation
+    // Facet: 2·6·cos(22.5°) = 11.09 LDU long, 2·6·sin(22.5°) = 4.59 LDU wide, 4 LDU tall → units ×0.3.
+    for (const c of studs) expect(c.size).toEqual([1.38, 1.2, 3.33]); // long side along Z before rotation
     const rotations = studs.map(c => c.rotation?.[1] ?? 0).sort((a, b) => a - b);
     // Bedrock's frame negates the Y angle: 0, −45, −90, −135.
     expect(rotations).toEqual([-135, -90, -45, 0]);
     // Every rotated facet pivots on the stud axis, on the brick's top face.
     const pivots = studs.filter(c => c.rotation).map(c => c.pivot!.join(','));
     expect(new Set(pivots).size).toBe(1);
-    expect(studs.find(c => c.rotation)!.pivot).toEqual([0, 3.84, 0]);
+    expect(studs.find(c => c.rotation)!.pivot).toEqual([0, 7.2, 0]);
     // Plain tile on every face: the facets share one flat colour, so their coplanar tops cannot z-fight.
     for (const c of studs) for (const face of Object.values(c.uv)) expect(face.uv[0]).toBe(0);
   });
@@ -200,8 +200,8 @@ describe('compileLdrawEntityGeometry', () => {
     const body = bodyCubes(r.value as Geo);
     expect(body).toHaveLength(1);
     expect(r.diagnostics.mergedCubes).toBe(11);
-    expect(body[0]!.size[2]).toBeCloseTo(12 * 3.2, 1);
-    expect(body[0]!.size[0]).toBeCloseTo(3.2, 1);
+    expect(body[0]!.size[2]).toBeCloseTo(12 * 6, 1);
+    expect(body[0]!.size[0]).toBeCloseTo(6, 1);
   });
 
   it('drops separate objects beside the vehicle on real part bounds, keeps what touches or sits inside it', async () => {
@@ -263,7 +263,7 @@ describe('compileLdrawEntityGeometry', () => {
     expect(cubes.length).toBeGreaterThan(3);
     expect(cubes.length).toBeLessThanOrEqual(r.diagnostics.quality.maxPartCubes);
     const vol = cubes.reduce((n, c) => n + c.size[0]! * c.size[1]! * c.size[2]!, 0);
-    const aabb = 20 * 24 * 40 * Math.pow(0.16, 3);
+    const aabb = 20 * 24 * 40 * Math.pow(BEDROCK_UNITS_PER_LDU, 3);
     expect(vol / aabb).toBeGreaterThan(0.4);
     expect(vol / aabb).toBeLessThan(0.65);
     expect(r.diagnostics.aabbFallbackParts).toEqual([]);
@@ -290,7 +290,7 @@ describe('compileLdrawEntityGeometry', () => {
     expect(bone.rotation![2]).toBeCloseTo(0, 1);
     // The bone's cube is the unrotated box at the part origin, in the same JSON frame.
     const cube = bone.cubes.find(c => c.uv.up!.uv[0] === 0)!;
-    expect(cube.size).toEqual([3.2, 3.84, 3.2]);
+    expect(cube.size).toEqual([6, 7.2, 6]);
     // Pivot (mirrored X) is the part origin: the cube is centred on it in X/Z.
     expect(cube.origin[0]! + cube.size[0]! / 2).toBeCloseTo(bone.pivot[0]!, 2);
     expect(cube.origin[2]! + cube.size[2]! / 2).toBeCloseTo(bone.pivot[2]!, 2);
@@ -380,8 +380,11 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     const figure: ParsedBrick = { part: '3005.dat', color: 14, x: 200, y: 0, z: 500 };
     const bricks = [...body, ...wheels, ...plate, figure];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+x' });
-    expect(r.diagnostics.displayDropped).toEqual({ placements: 6, rule: 'wheel-envelope' });
-    expect(r.warnings.some(w => /6 placements left out as a display stand/.test(w))).toBe(true);
+    // The plate touches the wheels, so the wheel-envelope rule drops it; the lone brick never touched the car, so it is a separate object (a prop), not stand.
+    expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'wheel-envelope' });
+    expect(r.diagnostics.detached).toEqual({ placements: 1, groups: 1 });
+    expect(r.diagnostics.extras).toEqual([{ role: 'prop', placements: 1, reason: '1 part, no wheels or seat' }, { role: 'prop', placements: 5, reason: 'display stand (wheel-envelope)' }]);
+    expect(r.warnings.some(w => /5 placements left out as a display stand/.test(w))).toBe(true);
     // Kept = the six body bricks and four wheels, by their input indices.
     expect(r.keptSourceIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
   });

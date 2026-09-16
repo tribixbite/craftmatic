@@ -9,7 +9,11 @@ import { buildPlacementPackAssets, placementAlias, type PlacementActor } from '.
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { LDU_PER_BLOCK } from './lego-scale.js';
+import { normaliseYaw } from './bedrock-scene-actors.js';
+import type { NoseDirection } from './vehicle-facing.js';
+import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoEntityTextureAtlas } from './ldraw-entity-atlas.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
@@ -70,6 +74,18 @@ export interface PlayableAddonOptions {
      * presets ship in the pack; this picks the one the runtime applies.
      */
     cameraStyle?: VehicleCameraStyle;
+    /**
+     * Ship ONLY the primary vehicle of each component. Off (the default), the
+     * separate objects the compiler finds beside it - figures standing on the
+     * display base, a service cart, a second vehicle - are exported as their
+     * own entities and placed where the source put them: figures wander as
+     * minifig NPCs, a wheeled object is rideable, a wheel-less one is a prop.
+     */
+    mainVehicleOnly?: boolean;
+    /** Figures found in the scenery (bedrock-scene-actors.ts), in grid coordinates: each becomes a wandering minifig NPC. */
+    figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number] }>;
+    /** Free seats in the scenery, in grid coordinates: each gets an invisible rideable seat entity. */
+    seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
 }
 export type VehicleCameraStyle = 'orbit' | 'boom';
 export interface PlayableAddonResult {
@@ -79,7 +95,7 @@ export interface PlayableAddonResult {
     components: Array<{
         id: string;
         label: string;
-        kind: PlayableKind | 'screen';
+        kind: PlayableKind | 'screen' | 'figure' | 'prop' | 'seat';
         provenance: string;
     }>;
     warnings: string[];
@@ -253,6 +269,113 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     }
     return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: common } };
 }
+/**
+ * A minifig NPC: walks about, opens doors, looks at players, takes no damage.
+ * Player-sized (a minifig IS player height at this scale) so it fits the
+ * doorways and corridors of a minifig-scale building.
+ */
+function figureBehavior(id: string, size: { width: number; height: number; length: number }): unknown {
+    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_figure', 'mob'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 20, max: 20 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': { width: Math.min(0.9, Math.max(0.5, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(2, Math.max(1.2, Math.round(size.height * 10) / 10)) },
+        'minecraft:physics': { has_gravity: true, has_collision: true },
+        'minecraft:pushable_by_block': {},
+        'minecraft:pushable_by_entity': { is_pushable: true, is_pushable_by_piston: true },
+        'minecraft:movement': { value: 0.18 },
+        'minecraft:movement.basic': {},
+        'minecraft:navigation.walk': { can_path_over_water: false, avoid_water: true, avoid_damage_blocks: true, can_open_doors: true, can_pass_doors: true, avoid_portals: true },
+        'minecraft:jump.static': {},
+        'minecraft:can_climb': {},
+        'minecraft:behavior.float': { priority: 0 },
+        'minecraft:behavior.open_door': { priority: 1, close_door_after: true },
+        'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: 0.8, interval: 60, xz_dist: 10, y_dist: 3 },
+        'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: 0.02 },
+        'minecraft:behavior.random_look_around': { priority: 8 },
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
+    } } };
+}
+
+/** A static object beside the vehicle (a service cart without wheels, a crate): solid, immovable, unhurt. */
+function propBehavior(id: string, collisionBox: { width: number; height: number }): unknown {
+    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_prop'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 100, max: 100 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': collisionBox,
+        'minecraft:physics': { has_gravity: true, has_collision: true },
+        'minecraft:pushable_by_block': {},
+        'minecraft:knockback_resistance': { value: 1 },
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
+    } } };
+}
+
+/**
+ * The invisible seat: a chair or bench in the build becomes something the
+ * player can sit on. No gravity, no collision, unhurt; the rider's origin sits
+ * 0.3 blocks under the seat surface so a seated minifig-scale player's eyes
+ * (0.96 blocks over the pan) land where the compiler puts a rider's.
+ */
+function seatBehavior(id: string): unknown {
+    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_seat'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 20, max: 20 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': { width: 0.5, height: 0.5 },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+        'minecraft:pushable_by_block': {},
+        'minecraft:rideable': { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } },
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
+    } } };
+}
+function seatClient(id: string): unknown {
+    return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: 'textures/entity/craftmatic_seat' }, geometry: { default: `geometry.${PACK_NAMESPACE}.seat` }, render_controllers: ['controller.render.default'] } } };
+}
+const SEAT_GEOMETRY = { format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: `geometry.${PACK_NAMESPACE}.seat`, texture_width: 2, texture_height: 2, visible_bounds_width: 1, visible_bounds_height: 1, visible_bounds_offset: [0, 0.5, 0] }, bones: [{ name: 'seat', pivot: [0, 0, 0], cubes: [{ origin: [-1, 0, -1], size: [2, 1, 2], uv: [0, 0] }] }] }] };
+
+const mat3 = (m: readonly number[], v: Vec3): Vec3 => [
+    m[0]! * v[0] + m[1]! * v[1] + m[2]! * v[2],
+    m[3]! * v[0] + m[4]! * v[1] + m[5]! * v[2],
+    m[6]! * v[0] + m[7]! * v[1] + m[8]! * v[2],
+];
+const noseVector = (nose: NoseDirection): Vec3 => nose === '+x' ? [1, 0, 0] : nose === '-x' ? [-1, 0, 0] : nose === '+z' ? [0, 0, 1] : [0, 0, -1];
+/** The axis nearest a horizontal LDraw direction. */
+export function snapFacing(f: [number, number]): NoseDirection {
+    return Math.abs(f[0]) >= Math.abs(f[1]) ? (f[0] < 0 ? '-x' : '+x') : (f[1] < 0 ? '-z' : '+z');
+}
+
+/**
+ * Where a secondary object stands relative to its primary vehicle's actor:
+ * the offset (blocks) and the world yaw it spawns with.
+ *
+ * Frames, all measured or proven on the Pixel: the compiler's render frame
+ * R is right-handed (nose −Z, right +X, up +Y) with `units = (A·p − origin)`;
+ * Minecraft's world (X east, Y up, Z south) is right-handed too, and an
+ * entity at yaw 0 faces +Z, so a render-frame offset lands in the world at
+ * yaw 0 as (−x, y, −z) - a half turn about Y, no mirror. A yaw θ then
+ * rotates that with forward = (−sin θ, cos θ). The object's own yaw is the
+ * world direction of the LDraw nose its geometry was compiled to.
+ */
+export function extraPlacement(primary: CompiledLdrawGeometry, extra: EntityExtra, nose: NoseDirection, primaryYaw: number): { dx: number; dy: number; dz: number; yaw: number } {
+    const { A, origin } = primary.transform;
+    const floorCentre: Vec3 = [extra.centreLdu[0], extra.floorLdu, extra.centreLdu[2]];
+    const r = mat3(A, floorCentre);
+    const bx = -(r[0] - origin[0]) / LDU_PER_BLOCK, by = (r[1] - origin[1]) / LDU_PER_BLOCK, bz = -(r[2] - origin[2]) / LDU_PER_BLOCK;
+    const th = primaryYaw * Math.PI / 180, cos = Math.cos(th), sin = Math.sin(th);
+    const dx = bx * cos - bz * sin, dz = bx * sin + bz * cos;
+    const nr = mat3(A, noseVector(nose));
+    const wx0 = -nr[0], wz0 = -nr[2];
+    const wx = wx0 * cos - wz0 * sin, wz = wx0 * sin + wz0 * cos;
+    return { dx: Math.round(dx * 100) / 100, dy: Math.round(Math.max(0, by) * 100) / 100, dz: Math.round(dz * 100) / 100, yaw: normaliseYaw(Math.atan2(-wx || 0, wz) * 180 / Math.PI) };
+}
+
 interface Box {
     x: number;
     y: number;
@@ -795,7 +918,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
         const boostTag = (isCar || isBoat)
           ? (boostReady ? ' · §a[JUMP: DASH]§r' : ` · §8[DASH: ${(state.boostCooldown / 20).toFixed(1)}s]§r`)
-          : ' · §a[JUMP: CLIMB · LOOK DOWN: DIVE]§r';
+          : ' · §a[STICK: TURN · JUMP: CLIMB · LOOK DOWN: DIVE]§r';
         const coPilotTag = riders.length > 1 ? ` · §d[👥 ${riders.length}]§r` : '';
         let speedText = `§e${mph.toFixed(1)} mph§r`;
         if (forwardInput < -0.1) {
@@ -908,17 +1031,26 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
     try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
     return false;
   };
-  const chase = (player: any, vehicle: any, cfg: any): void => {
-    let yaw = 0;
-    try { yaw = player.getRotation().y; } catch {}
+  const chase = (player: any, vehicle: any, cfg: any): boolean => {
+    let yaw = 0, pitch = 0;
+    try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
     const rad = yaw * Math.PI / 180;
     // Bedrock yaw: 0 faces +Z, 90 faces -X; forward = (-sin, cos).
     const fx = -Math.sin(rad), fz = Math.cos(rad);
     let v: any;
-    try { v = vehicle.location; } catch { return; }
+    try { v = vehicle.location; } catch { return false; }
     const location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
-    const facingLocation = { x: v.x, y: v.y + cfg.pivotY, z: v.z };
-    try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); } catch {}
+    let facingLocation: any;
+    if (cfg.kind === 'plane') {
+      // Aircraft: the camera looks along the rider's exact yaw AND pitch, so
+      // `free_camera_controlled` (flies where the camera looks) and the
+      // rider's own look agree: look down = dive, look up = climb.
+      const prad = pitch * Math.PI / 180, cp = Math.cos(prad);
+      facingLocation = { x: location.x + fx * cp * cfg.radius * 2, y: location.y - Math.sin(prad) * cfg.radius * 2, z: location.z + fz * cp * cfg.radius * 2 };
+    } else {
+      facingLocation = { x: v.x, y: v.y + cfg.pivotY, z: v.z };
+    }
+    try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }
   };
   const scheme = (player: any, value: string): void => { try { player.runCommand(`controlscheme @s ${value}`); } catch {} };
   system.runInterval(() => {
@@ -936,13 +1068,16 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
     }
     for (const [id, { player, vehicle, cfg }] of riding) {
       const t = tracked.get(id);
-      const wantChase = cfg.kind !== 'plane';
+      // Every vehicle, aircraft included, is steered with the joystick under
+      // `player_relative` (left/right turns the rider) and watched from the
+      // script-driven chase camera. Before 2026-09-16 an aircraft kept the
+      // orbit preset, whose drag input orbited the CAMERA and never turned
+      // the rider - "no way to turn a mounted vehicle" on touch.
       if (!t || t.typeId !== cfg.typeId) {
-        if (wantChase) scheme(player, 'set player_relative');
-        else applyPreset(player, cfg.preset);
-        tracked.set(id, { typeId: cfg.typeId, chase: wantChase });
+        scheme(player, 'set player_relative');
+        tracked.set(id, { typeId: cfg.typeId, chase: true });
       }
-      if (wantChase) chase(player, vehicle, cfg);
+      if (!chase(player, vehicle, cfg) && !t) applyPreset(player, cfg.preset);
     }
     if (tracked.size) {
       let players: any[] = [];
@@ -984,6 +1119,13 @@ function concat(...parts: Uint8Array[]) { const o = new Uint8Array(parts.reduce(
     i += p.length;
 } return o; }
 function pngChunk(name: string, data: Uint8Array) { const n = enc.encode(name), body = concat(n, data); return concat(u32(data.length), body, u32(pngCrc(body))); }
+/** A 2×2 fully transparent RGBA PNG (the invisible seat entity's texture). */
+function transparentPng(): Uint8Array {
+    const w = 2, h = 2, raw = new Uint8Array(h * (1 + w * 4));
+    let a = 1, b = 0; for (const v of raw) { a = (a + v) % 65521; b = (b + a) % 65521; }
+    const z = concat(Uint8Array.of(0x78, 0x01), Uint8Array.of(1, raw.length & 255, raw.length >>> 8, (~raw.length) & 255, ((~raw.length) >>> 8) & 255), raw, u32((b << 16) | a));
+    return concat(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), pngChunk('IHDR', concat(u32(w), u32(h), Uint8Array.of(8, 6, 0, 0, 0))), pngChunk('IDAT', z), pngChunk('IEND', new Uint8Array()));
+}
 function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(1, Math.ceil(palette.length / 16)), raw = new Uint8Array(h * (1 + w * 4)); for (let y = 0; y < h; y++) {
     raw[y * (1 + w * 4)] = 0;
     for (let x = 0; x < w; x++) {
@@ -1046,6 +1188,30 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const scenery = components.some(c => c.grid === grid) ? new BlockGrid(grid.width, grid.height, grid.length) : grid;
     const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     const actors: PlacementActor[] = [];
+    const extraComponents: PlayableAddonResult['components'] = [];
+    /** Behaviour + client entity + geometry + render controllers + colour/PBR atlases for one brick-compiled entity. */
+    const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown): void => {
+        files.push(
+            { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
+            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, geo.meshIds, geo.canopyMeshId, 'entity')) },
+            { name: `${rp}models/entity/${ecid}.geo.json`, data: json(geo.value) },
+            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, geo.meshIds, geo.canopyMeshId)) },
+        );
+        // One atlas per mesh material: exact LDraw RGB, plus the PBR maps.
+        const atlases: Array<[string, typeof geo.materials]> = [[ecid, geo.materials]];
+        if (geo.canopyMeshId) atlases.push([`${ecid}_canopy`, geo.canopyMaterials]);
+        for (const [name, materials] of atlases) {
+            const atlas = generateLegoEntityTextureAtlas(materials, { pbr, fallbackHighlights: !pbr, textureName: name });
+            files.push({ name: `${rp}textures/entity/${name}.png`, data: atlas.colorPng });
+            if (atlas.merPng && atlas.normalPng && atlas.textureSetJson) {
+                files.push(
+                    { name: `${rp}textures/entity/${name}_mer.png`, data: atlas.merPng },
+                    { name: `${rp}textures/entity/${name}_normal.png`, data: atlas.normalPng },
+                    { name: `${rp}textures/entity/${name}.texture_set.json`, data: text(atlas.textureSetJson) },
+                );
+            }
+        }
+    };
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
     const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
     const cameraVehicles: VehicleCameraConfig[] = [];
@@ -1099,30 +1265,49 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            files.push({
-                name: `${bp}entities/${cid}.json`,
-                data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks)),
-            });
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks));
             cameraVehicles.push(emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks));
-            files.push(
-                { name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId, 'entity')) },
-                { name: `${rp}models/entity/${cid}.geo.json`, data: json(ldrawGeo.value) },
-                { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, ldrawGeo.meshIds, ldrawGeo.canopyMeshId)) },
-            );
-            // One atlas per mesh material: exact LDraw RGB, plus the PBR maps.
-            const atlases: Array<[string, typeof ldrawGeo.materials]> = [[cid, ldrawGeo.materials]];
-            if (ldrawGeo.canopyMeshId) atlases.push([`${cid}_canopy`, ldrawGeo.canopyMaterials]);
-            for (const [name, materials] of atlases) {
-                const atlas = generateLegoEntityTextureAtlas(materials, { pbr, fallbackHighlights: !pbr, textureName: name });
-                files.push({ name: `${rp}textures/entity/${name}.png`, data: atlas.colorPng });
-                if (atlas.merPng && atlas.normalPng && atlas.textureSetJson) {
-                    files.push(
-                        { name: `${rp}textures/entity/${name}_mer.png`, data: atlas.merPng },
-                        { name: `${rp}textures/entity/${name}_normal.png`, data: atlas.normalPng },
-                        { name: `${rp}textures/entity/${name}.texture_set.json`, data: text(atlas.textureSetJson) },
-                    );
+
+            // Secondary objects the compiler found beside the vehicle (see
+            // EntityExtra): figures wander as minifig NPCs, a wheeled second
+            // vehicle is rideable, a wheel-less one is a static prop. They are
+            // placed relative to the vehicle's actor in its own levelled frame,
+            // so they stand where the source put them, and turn with the wand.
+            const extras = options.mainVehicleOnly ? [] : ldrawGeo.extras.filter(e => e.role !== 'prop');
+            const primaryPos = { x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2 };
+            let figureIndex = 0, subIndex = 0;
+            for (const extra of extras) {
+                const ekind: EntityKind = extra.role === 'figure' ? 'figure' : extra.wheels >= 2 ? 'car' : 'prop';
+                const ecid = `${cid}_${ekind === 'figure' ? `fig${++figureIndex}` : `sub${++subIndex}`}`;
+                const elabel = ekind === 'figure' ? `${c.label} figure ${figureIndex}` : ekind === 'car' ? `${c.label} vehicle ${subIndex}` : `${c.label} prop ${subIndex}`;
+                options.onProgress?.(`compiling ${elabel}`);
+                let egeo: CompiledLdrawGeometry;
+                try {
+                    egeo = await compileLdrawEntityGeometry(ecid, ekind, extra.bricks, {
+                        ...(extra.facingLdu ? { facing: snapFacing(extra.facingLdu) } : {}),
+                        partGeometry: options.partGeometry, quality: options.entityQuality, pbr,
+                    });
+                } catch (e) {
+                    warnings.push(`${elabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
+                    continue;
                 }
+                diagnostics[ecid] = egeo.diagnostics;
+                warnings.push(...egeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+                const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks)
+                    : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
+                emitCompiledEntity(ecid, egeo, behavior);
+                if (ekind === 'car') {
+                    driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });
+                    cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
+                }
+                const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw);
+                actors.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, label: elabel, x: primaryPos.x + place.dx, y: primaryPos.y + place.dy, z: primaryPos.z + place.dz, yaw: place.yaw });
+                extraComponents.push({ id: ecid, label: elabel, kind: ekind, provenance: `${extra.role} beside ${c.label} (${extra.reason})` });
             }
+            const left = ldrawGeo.extras.length - extras.length;
+            if (options.mainVehicleOnly && ldrawGeo.extras.some(e => e.role !== 'prop')) warnings.push(`${c.label}: ${ldrawGeo.extras.filter(e => e.role !== 'prop').length} separate object${ldrawGeo.extras.filter(e => e.role !== 'prop').length === 1 ? '' : 's'} beside the vehicle left out (main vehicle only).`);
+            else if (left) warnings.push(`${c.label}: ${left} prop${left === 1 ? '' : 's'} beside the vehicle (a stand, a plaque) not exported.`);
         } else {
             files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
             cameraVehicles.push(emitCameraPresets(cid, c.kind, { width: layout.width, height: layout.height, length: layout.length }));
@@ -1130,6 +1315,44 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
         actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
+    }
+    // Figures found in the scenery: one minifig NPC type each, standing where the source put them.
+    const figureKindCounts: Record<string, number> = {};
+    for (const [k, fig] of (options.figures ?? []).entries()) {
+        const rawFig = `${id}_fig${k + 1}`;
+        const fcid = /^[0-9]/.test(rawFig) ? `f_${rawFig}` : rawFig;
+        const flabel = `${label} figure ${k + 1}`;
+        options.onProgress?.(`compiling ${flabel}`);
+        let fgeo: CompiledLdrawGeometry;
+        try {
+            fgeo = await compileLdrawEntityGeometry(fcid, 'figure', fig.bricks, { facing: snapFacing(fig.facingLdu), partGeometry: options.partGeometry, quality: options.entityQuality, pbr });
+        } catch (e) {
+            warnings.push(`${flabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
+            continue;
+        }
+        diagnostics[fcid] = fgeo.diagnostics;
+        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks));
+        const nose = snapFacing(fig.facingLdu);
+        const n: [number, number] = nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1];
+        actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: fig.x, y: fig.y, z: fig.z, yaw: normaliseYaw(Math.atan2(-n[0] || 0, n[1]) * 180 / Math.PI) });
+        extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: 'minifig standing in the build' });
+        figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
+    }
+    // Seats: one invisible rideable type shared by every chair and bench.
+    const seatList = options.seats ?? [];
+    if (seatList.length) {
+        const rawSeat = `${id}_seat`;
+        const seatId = /^[0-9]/.test(rawSeat) ? `s_${rawSeat}` : rawSeat;
+        files.push(
+            { name: `${bp}entities/${seatId}.json`, data: json(seatBehavior(seatId)) },
+            { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) },
+            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: json(SEAT_GEOMETRY) },
+            { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
+        );
+        for (const [k, seat] of seatList.entries()) {
+            actors.push({ typeId: `${PACK_NAMESPACE}:${seatId}`, label: seat.label, x: seat.x, y: seat.y, z: seat.z, yaw: seat.yaw });
+            extraComponents.push({ id: `${seatId}_${k + 1}`, label: seat.label, kind: 'seat', provenance: 'seat mould in the build' });
+        }
     }
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
     const screenId = /^[0-9]/.test(rawScreenId) ? `s_${rawScreenId}` : rawScreenId;
@@ -1177,8 +1400,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - forward flies where you look, look up or down to climb or dive, Jump climbs straight up, Dismount (sneak) exits. Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; look up or down to climb or dive; Jump climbs straight up; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
 }

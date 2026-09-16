@@ -119,3 +119,73 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
     purpose (76240: 0.84 full vs 0.957 kept). `mergeAlignedCuboids` is
     lossless and worth ~6 %; cell size was never the limit (76240 at 4 LDU /
     39k cubes still 0.854 full).
+
+## Minifig scale, extras, cockpit ranking, buildings (2026-09-16)
+
+Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16/`); the
+device claims are listed in `TASKS-BEDROCK-ADDON.md` until the Pixel round
+settles them.
+- **One scale** (`engine/lego-scale.ts`): a standing minifig is 96 LDU
+  (measured from 3816/3815/973/3626 at their standard offsets) and the player
+  1.8 blocks, so 1 block = 53.33 LDU, 1 stud = 6 geometry units. The entity
+  compiler, the `.mcaddon` block export (`resolution: 'minifig'`, the default
+  when the setting is `auto`) and the placement of figures/seats all use it.
+  The old 1 block = 5 studs made every vehicle 1.8× too small - "erratic"
+  because a display-scale Tumbler and a minifig-scale Senna read as the same
+  mistake at different sizes.
+- **Cockpit is ranked evidence on the primary object** (`findCockpit`): a
+  seated figure (torso inside the 8 %-shrunk footprint, feet above the model's
+  lowest point) → seat mould → steering wheel → the LARGEST windscreen/canopy
+  mould → the largest translucent part ≥ 30 LDU on two axes → default cabin.
+  Eyes: 11 LDU above a torso origin, 51 above a seat pan, 20 above a wheel
+  and 30 behind it, the centre of a canopy. The old average over every
+  translucent part put the X-wing's rider under its tail (engine glows and
+  the cart's lamps outvoted one canopy). The driver figure is removed from the
+  geometry (`driverFigureRemoved`); the player sits in its place. Printed
+  ids resolve to their mould (`baseMould`: `30372p79` → `30372`).
+- **Extras** (`prepareEntityPlacements`): connected clusters on real part
+  bounds, largest = vehicle; every other cluster is a `figure` (torso group +
+  ≤ a few carried/stood-on parts, whole figures dropped by the stand rules
+  included), a secondary `vehicle` (≥ 12 parts with wheels or a seat, or ≥
+  15 % of the vehicle) or a `prop`. Figures become minifig NPCs
+  (`figureBehavior`: random stroll, open doors, look at players, no damage),
+  a wheeled object a rideable car, a wheel-less one a static prop; props
+  such as stands are not exported. `mainVehicleOnly` (settings popover
+  "Main vehicle only", `--main-only`) leaves them all out. Placement is in
+  the vehicle's own levelled frame (`extraPlacement`; frame reasoning in its
+  doc comment - the (−x, y, −z) yaw-0 mapping is the one assumption the
+  device round must confirm).
+- **Facing** (`vehicle-facing.ts`): planes vote on `engine glow` (translucent
+  round/dish/cone parts, footprint-weighted, away from their centroid; weight
+  3) and `canopy position` (glass only, 1.5); centroid votes are measured
+  from the MASS centre in both axes; the narrow-end test runs on both axes
+  but only on an axis at least half the other. The Milano's wingspan
+  (1,504 LDU) is longer than its hull (785), so "along the long axis" read
+  across the ship and its symmetric engine dishes cancelled - the 90° error.
+- **Aircraft steer like cars**: `player_relative` + the script chase camera
+  for every kind; for a plane the camera looks along the rider's exact yaw
+  AND pitch so `free_camera_controlled` and the rider's look agree. The orbit
+  preset's drag orbited the camera and never turned the rider.
+- **Buildings** (`bedrock-scene-actors.ts`, on the placements that are not a
+  vehicle): figures (torso + ≥ 2 parts) become NPCs and leave the block
+  scenery; seat moulds (4079 family, "Seat/Chair/Bench" descriptions) get an
+  invisible rideable `<stem>_seat` entity at the pan (rider 0.3 blocks under
+  it; `lock_rider_rotation: 181`); door LEAVES ("Door …" descriptions, not
+  Frame/Glass/Sliding/Revolving) have their cells cut to air and vanilla
+  doors hung at the bottom (one per cell of width, outer hinges; the
+  hinge end is the mould's origin end on every LDraw leaf; wood by colour,
+  `oak_door` renamed to Bedrock's `wooden_door`); leaves under two cells
+  tall stay blocks. LDraw has NO bed mould and modular chairs are brick-built,
+  so beds and brick chairs are not detected. Census of the target sets:
+  10326 - 7 leaves, 1 seat, 9 figures; 910004 - 3 leaves, 9 seats, 7
+  figures; 910047 - 9 figures; 76419 is microscale (1 figure).
+- **Pipeline trap fixed**: the bricks path threw the geometry voxelizer's
+  result away when it produced fewer cells than bricks - at 53 LDU cells a
+  192-part Senna is ~35 cells - and with it the grid origin, so every
+  component and scene actor failed to align ("Component alignment requires
+  resolved source geometry"). The test is now the resolver's own fallback
+  count.
+- **Patch hygiene**: a Python `"""…"""` patch string turns `\b` into a
+  BACKSPACE; seven regex word boundaries in the compiler silently became
+  `\x08` and `isFigurePart('…','Minifig Hair')` returned false. Use raw
+  strings or write the TypeScript with the Write tool; `cat -A` shows `^H`.

@@ -362,9 +362,12 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     if (req.source.kind === 'bricks') {
       // The build guide is meant to be humanly followable — it stays at one
       // block per stud regardless of the resolution setting.
+      // A Bedrock add-on is played at minifig scale (lego-scale.ts): the
+      // figures that walk its rooms and the vehicles it drives are player-sized,
+      // so its blocks default to the same scale unless a resolution was chosen.
       const plan = format === 'guide'
         ? planResolution(spanOfBricks(req.source.bricks), '20')
-        : planResolution(spanOfBricks(req.source.bricks), settings.resolution);
+        : planResolution(spanOfBricks(req.source.bricks), format === 'mcaddon' && settings.resolution === 'auto' ? 'minifig' : settings.resolution);
       const opts: VoxelizeOptions = { cellLDU: plan.cellLDU, maxDim: 700 };
       resNote = ` at ${plan.cellsPerStud}× stud resolution (proportion-exact)`;
       status(`Voxelizing for Minecraft at ${plan.cellsPerStud}× stud resolution (${plan.cellLDU} LDU cells)…`, 'info');
@@ -389,6 +392,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
         entityQuality: settings.addonDetail,
+        mainVehicleOnly: settings.addonMainVehicleOnly === true,
       };
     } else {
       const g = req.source.grid;
@@ -410,6 +414,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         packLabel: req.label ?? base,
         vehicleMode: req.vehicleMode ?? 'auto',
         entityQuality: settings.addonDetail,
+        mainVehicleOnly: settings.addonMainVehicleOnly === true,
       };
     }
 

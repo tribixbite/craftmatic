@@ -57,6 +57,9 @@ const DOUBLE_SLABS = DATA.doubleSlabs as unknown as Record<string, string>;
  * 392 ids we can emit; the flattening did most of the work.
  */
 export const JAVA_TO_BEDROCK_ID: Readonly<Record<string, string>> = {
+  // Oak keeps the pre-flattening names in Bedrock.
+  oak_door: 'wooden_door',
+  oak_trapdoor: 'trapdoor',
   // "…bricks" (Java, plural) is "…brick" or a legacy stem in Bedrock.
   bricks: 'brick_block',
   nether_bricks: 'nether_brick',

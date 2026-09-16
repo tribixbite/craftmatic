@@ -21,7 +21,7 @@ const mesh = (id: string, q: Array<[number, number, number]>): LdrawPartMesh => 
   const triangles = [0, 1, 2, 3].map(i => ({ a: q[i]!, b: q[(i + 1) % 4]!, c: m, color: 16 }));
   const min: [number, number, number] = [0, 1, 2].map(i => Math.min(...q.map(p => p[i]!))) as [number, number, number];
   const max: [number, number, number] = [0, 1, 2].map(i => Math.max(...q.map(p => p[i]!))) as [number, number, number];
-  return { partId: id, resolvedAs: id, studs: [], unresolvedRefs: [], triangles, bounds: { min, max } };
+  return { partId: id, resolvedAs: id, studs: [], unresolvedRefs: [], triangles, bounds: { min, max }, description: '' };
 };
 // A windscreen sheet whose bottom edge (y = 0, LDraw Y down) sits 30 LDU toward −Z of its top edge (y = −40).
 const windscreen = mesh('3823', [[-20, -40, 0], [20, -40, 0], [20, 0, -30], [-20, 0, -30]]);
@@ -102,7 +102,7 @@ describe('inferVehicleNose', () => {
     bricks.push({ part: '3005.dat', color: 47, x: -220, y: -24, z: 0, rot: I });
     const d = inferVehicleNose(bricks, 'plane');
     expect(d).toMatchObject({ nose: '-x', axis: 'x', source: 'inferred' });
-    expect(d.votes.map(v => v.signal).sort()).toEqual(['canopy position', 'narrow end']);
+    expect(d.votes.map(v => v.signal).sort()).toEqual(['canopy position', 'narrow end x']);
   });
 
   it('a helicopter-shaped plane (narrow tail boom, canopy at the front) still picks the canopy end', () => {

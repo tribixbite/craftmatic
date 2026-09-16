@@ -2,113 +2,99 @@
 
 **Handoff rule:** assume a context switch after every turn. This file holds OPEN
 work and the measurements a decision still needs. Completed items are deleted;
-history is `git log` (`e405be4`…) and the "Bedrock playable add-on" section of
-`CLAUDE.md`, which carries every hard-won fact (frame, budgets, Pixel
-import/command/camera recipe, riding facts, the 2026-09-15 device round).
-Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
+history is `git log` and `docs/bedrock-addon-guide.md`, which carries every
+hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
+the 2026-09-15 and 2026-09-16 rounds). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-15, second device round)
+## State (2026-09-16, built and gated offline; device round in progress)
 
-Verified on the Pixel 8 Pro (Bedrock 1.26.45, QA world `smUmxh2eJjw=`) with
-75892, 7140, and the user's own 76240 and 76286, captures in
-`output/bedrock-entity-qa/captures-2026-09-15b/`:
-- nose inferred from parts (`vehicle-facing.ts`): Senna tail lights and Tumbler
-  rear wheels face the chase camera, X-wing engines toward it (`quad2.jpg`,
-  `quad5.jpg`, `quad8.jpg`);
-- joystick left/right steers (`/controlscheme … player_relative` on mount), the
-  free chase camera stays behind through turns (`quad2.jpg`; Tumbler
-  `quad8.jpg` top row: +10 blocks forward, then a ~90° turn);
-- Jump = native dash (`dash_action`), Dismount is its own button (`dash3.jpg`);
-- aircraft: forward flies where the rider looks (the Milano dived 26 blocks
-  while looking down, `quad8.jpg` bottom row), Jump climbs ~20 blocks/s;
-- Brick Wand: ghost preview renders (`ghost4.jpg`), progress bar
-  (`progress1.jpg`), placement appears at once (`placed4.jpg`), "Pin centred on
-  me" puts the build on the player.
-Prod part census (`check-missing-parts.mjs`): 7140 clean; 76240 `67687`×2 now
-aliased to `4600` and `30426`×1 unresolved; 76286 `28710`×1 unresolved; 10300
-`x346`×2 + one light-brick subassembly (its `.io` CustomParts cover the rest).
-`30426` / `28710` / `x346` exist in neither the official nor the unofficial
-LDraw library. Root and `web/` typecheck clean; vitest 1,596 passing (the two
-`import-nlcd` failures are the live API).
+Everything LEGO in Bedrock is now at ONE scale (`engine/lego-scale.ts`): a
+minifig is player height, 1 block = 53.33 LDU (was 1 block = 5 studs, 1.8×
+too small). Vehicles seat the rider on the driver figure (removed from the
+geometry), the objects found beside a vehicle are separate entities (figures
+wander, a wheeled object rides, a wheel-less one is a prop), a building's
+figures walk, its seats sit, its door leaves are vanilla doors, and every
+vehicle - aircraft included - turns with the joystick under a script chase
+camera. Offline gates on the eight models (`output/bedrock-entity-qa/round-2026-09-16/`,
+`run-exports.sh`, `*.summary.json`, `sil-*/`): root + web typecheck clean,
+vitest 1,6xx passing (`vitest-final.log`), silhouette `IoU kept` X-wing 0.953,
+Milano 0.962, Senna 0.991 (the `full` scores dropped on purpose: the extras
+are no longer in the vehicle's geometry).
 
 ```
 lego.ts ─► ui/schem-export.ts ─► Worker: schem-pipeline.ts runSchemPipeline()
    ├─ discoverPlayableComponents()   playable-components.ts  (named submodel ≥ ½ wins)
-   └─ buildPlayableAddon()           playable-addon.ts       (behaviour, presets, scripts, atlases, ghost)
+   ├─ discoverSceneActors()          bedrock-scene-actors.ts (figures / seats / door leaves in the scenery)
+   │    └─ applySceneDoors()         leaf cells → air, vanilla doors in the opening
+   └─ buildPlayableAddon()           playable-addon.ts       (behaviour, presets, scripts, atlases, ghost, seats, figure NPCs)
         ├─ compileLdrawEntityGeometry()  ldraw-entity-compiler.ts
-        │    level pose → drop detached clusters → inferVehicleNose (vehicle-facing.ts) →
-        │    prototypes → instance → cull hidden → stud fans → recentre → seat/collision → .geo.json
-        └─ buildPreviewGhost()           bedrock-preview-entity.ts (scene occupancy → ≤1,536 cuboids)
+        │    prepareEntityPlacements: level → meshes → connected clusters → classify extras
+        │    (figure / vehicle / prop) → stand rules → inferVehicleNose (vehicle-facing.ts)
+        │    → findCockpit (seated figure > seat > steering wheel > canopy mould > big glass
+        │    > default) → driver figure removed → prototypes → instance → cull → studs → recentre
+        ├─ extraPlacement()              secondary entities placed in the vehicle's frame
+        └─ buildPreviewGhost()           bedrock-preview-entity.ts
 ```
-CLI gate: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--camera=orbit|boom]`
-(prints `craftmatic-diagnostics.json`, incl. `facing.votes`). Silhouette:
-`bun scripts/_entity_silhouette.ts … --out=<dir>` (side view: nose must be on
-the LEFT). Pixel helpers: `scripts/_pixel_shot.sh`, `scripts/_pixel_cmd.sh`.
-**Use a label whose stem does not start with a digit** (`--label="McLaren Senna"`,
-not `"75892 …"`): Bedrock rejects digit-leading identifiers.
+CLI gate: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--main-only] [--resolution=auto|minifig]`.
+Evidence probe: `bun scripts/_vehicle_probe.ts <model> --label=… [--extremes=1] [--glass=1]`
+prints clusters, extras, facing votes and the cockpit exactly as the compiler
+sees them. Silhouette: `bun scripts/_entity_silhouette.ts <model> --label=… --out=<dir>`
+(side view: nose on the LEFT). **Use a label whose stem does not start with a
+digit.** Pixel helpers: `scripts/_pixel_shot.sh`, `scripts/_pixel_cmd.sh`.
 
-## Measurements that still drive decisions
+## Awaiting the device round (2026-09-16, Opus subagent on the Pixel)
 
-Silhouette gate (`_entity_silhouette.ts`, six views, px 512). **`IoU kept`** scores
-the emitted cuboids against the placements the compiler actually kept — the
-approximation quality the gate is for; **`IoU full`** scores them against the
-whole component, so the difference is what the entity leaves out (display
-stand, plaque minifigs, buried pins). Before 2026-09-15 only the full score was
-reported and the stand drop was silent, which is why the two big models read
-0.84/0.87: 76240's base plate and figures were 20 % of the front silhouette.
+Each of these is a claim the offline gates cannot settle; the round writes
+`output/bedrock-entity-qa/captures-2026-09-16/notes.md` + screenshots.
+- [ ] X-wing: rider sits IN the cockpit (seat from Luke's eyes, `seatY` =
+      eye − 1.25); figures and the cart stand beside it on the side the
+      source put them. **Frame assumption to verify:** a render-frame offset
+      lands in the world at yaw 0 as (−x, y, −z) (`extraPlacement`); the cart
+      (LDraw x +413) should be on the pilot's LEFT. If it is on the right,
+      flip the sign of `bx` in `extraPlacement` (one line) and re-export.
+- [ ] Aircraft turn with the joystick (`player_relative` + free chase camera
+      with the rider's pitch). Risk: `free_camera_controlled` may follow the
+      SCRIPTED camera's facing rather than the rider's; the camera is aimed
+      along the rider's exact yaw+pitch so both agree - if the plane still
+      does not turn, try `minecraft:input_air_controlled` (needs the entity
+      declared ≥ 1.21.90) or a script that reads `inputInfo.getMovementVector().x`
+      and applies yaw.
+- [ ] Milano flies nose-first (was 90° off: its wingspan is longer than its
+      hull, and every plane vote measured "along the long axis").
+- [ ] Scale on device: Senna ≈ 2.7 × 1.8 × 7.1 blocks; a figure NPC is
+      player height; Tumbler 11.5 × 6.6 × 18.6.
+- [ ] Museum: 6 doors open on tap; figures wander (`random_stroll`,
+      `open_door`); the seat entity seats the player (seat position
+      [0, −0.3, 0], `lock_rider_rotation: 181`).
+- [ ] Content log clean for every pack (identifiers, `figureBehavior`
+      components, the invisible seat's `entity_alphatest` texture).
 
-| Model (source) | Profile | Cubes | Cell | IoU kept | IoU full | Left out (stand / detached / internal) |
-|---|---|---|---|---|---|---|
-| 75892 (OMR) | balanced | 1,840 | 4 LDU | 0.981 | 0.981 | 0 / 0 / 0 (wind tunnel excluded upstream by the submodel rule) |
-| 10300 (IO present) | balanced | 6,071 | 8 LDU | 0.981 | 0.953 | 0 / 3 / 47 |
-| 7140 (OMR) | balanced | 4,754 | 4 LDU | 0.960 | 0.960 | 0 / 0 / 0 |
-| 76240 (MecabricksLDR) | balanced | 3,225 | 32 LDU | **0.957** | 0.840 | 135 / 0 / 210 |
-| 76240 | high | 9,201 | 16 LDU | **0.969** | 0.849 | 135 / 0 / 210 |
-| 76286 (DbixConvV3) | balanced | 5,478 | 8 LDU | **0.966** | 0.873 | 93 / 10 / 17 (716 studs omitted) |
-| 76286 | high | 8,342 | 8 LDU | **0.969** | 0.876 | 93 / 10 / 17 |
+## Open (not started)
 
-Gate is ≥ 0.95 on `IoU kept`: every golden model passes on `balanced`. Cell
-size is NOT what limits the full score — 76240 at `ultra` (39,189 cubes, 4 LDU)
-still reads 0.854 full. The lossless same-colour cuboid merge
-(`mergeAlignedCuboids`) removed 225–267 cubes on 76240 (6–7 %), not enough to
-change its cell; the tractor tyre `70695` ×184 is 47 % of its budget.
-`IO/76240-1.io` is a flat parts grid, NOT a model — the Mecabricks LDR is the
-only real 76240 source.
-
-## Open
-
-- [ ] **Repeated-part budget** (76240: `70695` ×184 = 4,416 cubes at 16 LDU):
-      a stricter per-part cube cap for parts with many placements would let the
-      whole model keep a finer cell. Not started.
-- [ ] **A ground vehicle summoned at a shoreline stays put**: the Tumbler at
-      (−94, 63, 189) in shallow water / against sand steps read 0.0 mph on
-      every input; the same entity on grass drove and turned. Whether that is
-      the 3.5×2.5 collision box wedged in blocks or water drag is not measured.
-- [ ] **Swipe-to-look** was not testable over adb (`input swipe` on the look
-      area did nothing); check by hand.
-- [ ] `30426` (76240 ×1), `28710` (76286 ×1), `x346` (10300 ×2): design ids with
-      no LDraw part in either library; identify the LDraw mould and add
-      filename aliases, or leave as the documented residue.
-- [ ] **Molang errors `unable to find member variable .r/.g/.b`** appeared in the
-      content-log UI while mounting the X-wing (not in the pulled log file);
-      source unknown (render controller? vanilla ride UI?).
-- [ ] **D3 Vibrant Visuals**: MER/normal response never seen on a device that
-      renders it (the Pixel runs the classic renderer).
-- [ ] Chase camera (`minecraft:free`, script) has no block collision; the
-      `_chase`/`_boom` presets still ship but are only used for aircraft.
-- [ ] Device housekeeping: stale pack folders `75892McLar`, `7140X-wing`,
-      `McLarenSen(1..3)`, `X-wingStar(1)` on the Pixel (`adb shell rm` denied);
-      the QA world lists the newest versions. Content log file + UI are ON in
-      the Pixel's Creator settings (leave on; logs land in
-      `games/com.mojang/logs/`).
+- [ ] **Beds / brick-built chairs**: LDraw has no bed mould and modular
+      buildings build chairs from bricks; only seat moulds (4079 family,
+      "Seat"/"Chair"/"Bench" descriptions) are sittable. A bed heuristic
+      (2×4+ plate with a 1×2 slope "pillow") is not designed.
+- [ ] **Door sizing**: a 1×4×6 leaf (80 LDU = 1.5 cells) hangs 2 doors when
+      it straddles two cells cleanly and 1 when its bounds read 1.36 cells
+      (`60616a`: bounds −6.5..66); the museum got single doors in 1.4-cell
+      openings. Decide whether a 1×4 leaf should always be a double door.
+- [ ] **Repeated-part budget** (76240: `70695` ×184 at 16 LDU); stud budget
+      on the Milano (716 exposed studs omitted at balanced).
+- [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` part ids
+      with no LDraw mould; Molang `.r/.g/.b` errors seen once in the content
+      log UI; Vibrant Visuals never seen on a device that renders it; stale
+      pack folders on the Pixel (`adb shell rm` denied).
+- [ ] The `_chase`/`_boom` orbit presets still ship but nothing applies
+      them unless the free camera is refused.
 
 ## Hard rules (from the spec)
 
 1. No whole-model voxelization on the entity path; no `poly_mesh`.
 2. `getPartDims()` only as an explicit, diagnosed AABB fallback.
 3. No Minecraft block colours on the entity path.
-4. Nothing silent: every part/print/transparency/pose/cluster degradation lands in
-   `craftmatic-diagnostics.json` and the export warning.
+4. Nothing silent: every part/print/transparency/pose/cluster/figure/door
+   degradation lands in `craftmatic-diagnostics.json` and the export warning.
 5. Don't touch the world-block pipeline, rideability, the DeLorean behaviour or
    the BlockGrid fallback to solve an entity-rendering problem.
 6. Compile per unique part once; instance many; preserve exact source transforms.

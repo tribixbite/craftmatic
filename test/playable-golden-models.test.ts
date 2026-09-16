@@ -45,7 +45,9 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       const bp = `Craftmatic_${g.stem.toLowerCase()}_BP/`, rp = `Craftmatic_${g.stem.toLowerCase()}_RP/`;
       expect(entries).toContain(`${bp}manifest.json`);
       expect(entries).toContain(`${rp}manifest.json`);
-      expect(result.mcpack?.components).toEqual([`${g.label} (${g.kind})`]);
+      // The vehicle first; the figures, props and second vehicles found beside it follow (see EntityExtra).
+      expect(result.mcpack?.components?.[0]).toBe(`${g.label} (${g.kind})`);
+      for (const c of result.mcpack?.components?.slice(1) ?? []) expect(c).toMatch(/ \((figure|prop|car|seat)\)$/);
       // The high-detail path was used: real geometry file + PBR texture set, and no BlockGrid greedy fallback.
       expect(entries).toContain(`${rp}models/entity/${g.cid}.geo.json`);
       expect(entries).toContain(`${rp}textures/entity/${g.cid}.texture_set.json`);

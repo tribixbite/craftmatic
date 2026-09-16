@@ -40,6 +40,7 @@ function load(): SchemExportSettings {
         lightFill: parsed.lightFill === true,
         vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
         addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
+        addonMainVehicleOnly: parsed.addonMainVehicleOnly === true,
         lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
         lightStyle: ['lantern', 'sea_lantern'].includes(parsed.lightStyle ?? '') ? parsed.lightStyle : 'profile',
         lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
@@ -190,6 +191,12 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       <label for="mc-set-addon-detail">Vehicle detail (playable add-on)</label>
       <select id="mc-set-addon-detail"><option value="balanced">Balanced - 4 LDU cuboids, ≤6,144 per vehicle</option><option value="high">High - 2 LDU, ≤12,288</option><option value="ultra">Ultra - 1 LDU, ≤24,576 (desktop-class devices)</option></select>
       <p class="mc-set-note">Each LEGO part becomes real cuboids at this grain; higher is closer to the mould and heavier to render.</p>
+      <label class="mc-set-check" style="margin-top:6px">
+        <input type="checkbox" id="mc-set-main-vehicle">
+        <span>Main vehicle only<br>
+          <span class="mc-set-note">Leave out the figures and any second vehicle found beside it. Off: figures walk about and a second vehicle is rideable.</span>
+        </span>
+      </label>
       <label for="mc-set-light-coverage">Lighting coverage</label>
       <select id="mc-set-light-coverage"><option value="covered">Covered interiors, including open fronts</option><option value="sealed">Sealed rooms only</option></select>
       <label for="mc-set-light-style">Lamp style</label>
@@ -213,10 +220,11 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const lightBox = pop.querySelector('#mc-set-light') as HTMLInputElement;
   const facingSel = pop.querySelector('#mc-set-vehicle-facing') as HTMLSelectElement;
   const detailSel = pop.querySelector('#mc-set-addon-detail') as HTMLSelectElement;
+  const mainOnlyBox = pop.querySelector('#mc-set-main-vehicle') as HTMLInputElement;
   const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
   const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
   const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
@@ -248,6 +256,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       lightFill: lightBox.checked,
       vehicleFacing: facingSel.value as SchemExportSettings['vehicleFacing'],
       addonDetail: detailSel.value as SchemExportSettings['addonDetail'],
+      addonMainVehicleOnly: mainOnlyBox.checked,
       lightCoverage: coverageSel.value as 'sealed' | 'covered',
       lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
       lightSpacing: Number(spacingSel.value),
@@ -262,6 +271,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   for (const select of [facingSel, detailSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
   shapeBox.addEventListener('change', commit, sig);
   detailBox.addEventListener('change', commit, sig);
+  mainOnlyBox.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
