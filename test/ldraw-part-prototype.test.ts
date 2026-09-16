@@ -15,7 +15,7 @@ function mesh(partId: string, triangles: LdrawTriangle[], studs: LdrawPartMesh['
   for (const t of triangles) for (const v of [t.a, t.b, t.c]) for (let i = 0; i < 3; i++) {
     min[i] = Math.min(min[i]!, v[i]!); max[i] = Math.max(max[i]!, v[i]!);
   }
-  return { partId, resolvedAs: partId, triangles, studs, bounds: { min, max }, unresolvedRefs: [] };
+  return { partId, resolvedAs: partId, triangles, studs, bounds: { min, max }, unresolvedRefs: [], description: '' };
 }
 
 /** Axis-aligned box [x0,x1]×[y0,y1]×[z0,z1]; `faces` selects which of the six to emit. */

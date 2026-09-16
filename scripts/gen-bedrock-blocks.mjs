@@ -75,6 +75,9 @@ async function loadMetadata(path, url) {
  * cannot drift.
  */
 const RENAME = {
+  // Oak keeps the pre-flattening names in Bedrock.
+  oak_door: 'wooden_door',
+  oak_trapdoor: 'trapdoor',
   bricks: 'brick_block',
   nether_bricks: 'nether_brick',
   red_nether_bricks: 'red_nether_brick',

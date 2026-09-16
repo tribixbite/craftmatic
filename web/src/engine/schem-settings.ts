@@ -16,6 +16,7 @@
  */
 
 import { DEFAULT_PROFILE_ID } from './block-profiles.js';
+import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 
 /** Cell sizes the auto ladder considers, finest first. */
@@ -29,7 +30,7 @@ export const RESOLUTION_CAPS = {
 } as const;
 
 /** `auto`, or a cell size in LDU rendered as a string (a `<select>` value). */
-export type ResolutionChoice = 'auto' | '2' | '4' | '8' | '20';
+export type ResolutionChoice = 'auto' | '2' | '4' | '8' | '20' | 'minifig';
 
 export interface ResolutionOption {
   value: ResolutionChoice;
@@ -49,6 +50,11 @@ export const RESOLUTION_OPTIONS: readonly ResolutionOption[] = [
   { value: '4', label: '5 blocks per stud (4 LDU) · Museum 5×', cellLDU: 4 },
   { value: '8', label: '2.5 blocks per stud (8 LDU) · Display 2.5×', cellLDU: 8 },
   { value: '20', label: '1 block per stud (20 LDU) · Minifig 1:1', cellLDU: 20 },
+  // THE Bedrock scale (lego-scale.ts): a minifig stands as tall as the player,
+  // so 1 block = 53.33 LDU. The default for every Bedrock add-on export, so a
+  // building's doors fit the figures that walk through them and a vehicle is
+  // the size its driver implies.
+  { value: 'minifig', label: 'Minifig scale · player-height minifigs (53.3 LDU)', cellLDU: LDU_PER_BLOCK },
 ];
 
 export interface SchemExportSettings {
@@ -66,6 +72,11 @@ export interface SchemExportSettings {
    * LEGO part is decomposed (balanced 4 LDU / high 2 LDU / ultra 1 LDU).
    */
   addonDetail?: 'balanced' | 'high' | 'ultra';
+  /**
+   * Playable add-on: export ONLY the main vehicle. Off by default, so the
+   * figures and any second vehicle found beside it ship as their own entities.
+   */
+  addonMainVehicleOnly?: boolean;
   /**
    * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
    * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
@@ -90,6 +101,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   lightSpacing: 6,
   vehicleFacing: 'auto',
   addonDetail: 'balanced',
+  addonMainVehicleOnly: false,
   shapes: true,
   detailMaterials: false,
 };
@@ -149,7 +161,7 @@ function planFor(span: SpanLDU, cellLDU: number, extra: Partial<ResolutionPlan>)
   const length = Math.max(1, Math.ceil(span.z / cellLDU));
   return {
     cellLDU,
-    cellsPerStud: 20 / cellLDU,
+    cellsPerStud: Math.round(20 / cellLDU * 1000) / 1000,
     dims: { width, height, length },
     cells: width * height * length,
     requestedHonored: true,
@@ -175,7 +187,7 @@ export function planResolution(span: SpanLDU, choice: ResolutionChoice = 'auto')
 
   if (choice === 'auto') return planFor(span, autoCell, { overCap: !anyFits });
 
-  const requested = Number(choice);
+  const requested = RESOLUTION_OPTIONS.find(o => o.value === choice)?.cellLDU ?? Number(choice);
   const violation = capViolation(span, requested);
   if (violation === null) return planFor(span, requested, {});
   return planFor(span, autoCell, {

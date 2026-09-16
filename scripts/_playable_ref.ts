@@ -6,7 +6,7 @@
  *
  * Usage: bun scripts/_playable_ref.ts <model.io|.mpd|.ldr> [out.mcaddon]
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
- *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom]
+ *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
@@ -56,7 +56,7 @@ const doc = parseLDrawDocument(synthesizeLSynth(text).text);
 const seeded = seedDatTexts([...embeddedPartTexts(doc), ...customParts]);
 const bricks = doc.bricks;
 
-const plan = planResolution(spanOfBricks(bricks), DEFAULT_SCHEM_SETTINGS.resolution);
+const plan = planResolution(spanOfBricks(bricks), (flag('resolution') as 'auto' | 'minifig' | undefined) ?? 'minifig');
 const t0 = Date.now();
 const result = await runSchemPipeline({
   source: { kind: 'bricks', bricks, colorSpace, options: { cellLDU: plan.cellLDU, maxDim: 700 } },
@@ -70,6 +70,7 @@ const result = await runSchemPipeline({
   vehicleFacing,
   entityQuality: quality,
   cameraStyle,
+  mainVehicleOnly: process.argv.includes('--main-only'),
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 

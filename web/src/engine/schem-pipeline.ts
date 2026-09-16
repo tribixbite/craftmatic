@@ -108,6 +108,8 @@ export interface SchemWorkerInput {
   entityQuality?: 'balanced' | 'high' | 'ultra';
   /** Ground-vehicle chase camera style for the .mcaddon (default orbit). */
   cameraStyle?: 'orbit' | 'boom';
+  /** `.mcaddon`: leave out the figures / second vehicle found beside the main vehicle. */
+  mainVehicleOnly?: boolean;
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -198,8 +200,12 @@ export async function runSchemPipeline(
     let hints: ShapeHints | undefined;
     try {
       const r = await voxelizeLDrawGeometry(s.bricks, colorFn, options, onProgress);
-      // Near-empty result = part geometry unavailable → bbox fallback.
-      if (r.grid.countNonAir() >= s.bricks.length) {
+      // Part geometry unavailable (most parts fell back) → bbox fallback. Judged
+      // by the resolver's own fallback count, not by "fewer cells than bricks":
+      // at minifig scale (53 LDU cells) a 192-part Senna is ~35 cells and the
+      // old test threw the resolved geometry away - with its grid origin, so
+      // every component and scene actor then failed to align.
+      if (r.grid.countNonAir() > 0 && r.fallbackPartCount < s.bricks.length * 0.5) {
         grid = r.grid;
         sourceOrigin = r.gridOrigin;
         hints = r.shapeHints;
@@ -265,17 +271,42 @@ export async function runSchemPipeline(
     const { buildPlayableAddon } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
+    const { discoverSceneActors, applySceneDoors, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
     const screens = [];
+    const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number] }> = [];
+    const seats: Array<{ x: number; y: number; z: number; yaw: number; label: string }> = [];
+    let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
     if (input.source.kind === 'bricks') {
       const source = input.source;
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
       warnings.push(...found.warnings);
       const movable = new Set<ParsedBrick>();
+      for (const component of found.components) for (const brick of component.bricks) movable.add(brick);
+      // The building's own life: figures become NPCs, seats sittable, door leaves doors.
+      // Vehicle components carry their own figures through the compiler's extras.
+      if (input.format === 'mcaddon' && !input.mainVehicleOnly) {
+        onProgress('finding figures, seats and doors');
+        const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)));
+        if (!sourceOrigin && (scene.figures.length || scene.seats.length || scene.doors.length)) {
+          warnings.push('Figures, seats and doors were found but the source geometry did not resolve, so they stay as blocks.');
+        } else if (sourceOrigin) {
+          const frame = sourceOrigin;
+          for (const f of scene.figures) {
+            const p = sceneGridPoint(frame, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
+            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu });
+            for (const brick of f.bricks) movable.add(brick);
+          }
+          for (const s of scene.seats) {
+            const p = sceneGridPoint(frame, s.surfaceLdu);
+            seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
+          }
+          sceneDoors = scene.doors;
+        }
+      }
       for (const component of found.components) {
-        for (const brick of component.bricks) movable.add(brick);
         onProgress(`preparing ${component.label}`);
         if (component.bricks.length === source.bricks.length) {
           components.push({ ...component, grid, bricks: component.bricks });
@@ -299,6 +330,13 @@ export async function runSchemPipeline(
         if (!sourceOrigin || !scenery.gridOrigin) throw new Error('Scenery alignment requires resolved source geometry.');
         grid = alignVoxelGrid(scenery.grid, scenery.gridOrigin, sourceOrigin, grid);
       }
+      if (sceneDoors.length && sourceOrigin) {
+        onProgress('cutting doorways and hanging doors');
+        const d = applySceneDoors(grid, sceneDoors, sourceOrigin);
+        if (d.doors) warnings.push(`${d.doors} door${d.doors === 1 ? '' : 's'} hung in ${sceneDoors.length - d.skippedSmall - d.skippedOutside} doorway${sceneDoors.length - d.skippedSmall - d.skippedOutside === 1 ? '' : 's'} (leaf cells opened: ${d.leavesCleared}).`);
+        if (d.skippedSmall) warnings.push(`${d.skippedSmall} door leaf${d.skippedSmall === 1 ? '' : 'ves'} under two blocks tall left as blocks.`);
+        if (d.skippedOutside) warnings.push(`${d.skippedOutside} door leaf${d.skippedOutside === 1 ? '' : 'ves'} fell outside the export bounds.`);
+      }
       if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
         const a = sourceOrigin;
         screens.push({ id: anchor.id, label: anchor.label,
@@ -307,7 +345,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, components: components.length ? components : undefined, screens, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, mainVehicleOnly: input.mainVehicleOnly, components: components.length ? components : undefined, screens, figures, seats, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

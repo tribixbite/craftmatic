@@ -92,6 +92,24 @@ export function partLean(mesh: LdrawPartMesh | null | undefined): Vec3 | null {
   return [bx / bn - tx / tn, 0, bz / bn - tz / tn];
 }
 
+/** A dish, round brick/plate/tile or cone: the moulds engine glows are built from (by description, else by id family). */
+export function isRoundGlowPart(part: string, description?: string): boolean {
+  const d = (description ?? '').replace(/^[~=_]+\s*/, '');
+  if (d) return /^(Dish|Cone|Cylinder)\b/i.test(d) || /\bRound\b/i.test(d);
+  return /^(3941|3942|3943|4073|6141|4740|3960|43898|11833|2654|4589|3062|6222|18674|98138|6143|4032|3567|6233|30153)(?![0-9])/.test(stem(part));
+}
+
+/** A windscreen / canopy / window glass, or any translucent part at least 30 LDU on two axes (a pane, not a lamp). */
+export function isGlassPart(part: string, mesh?: LdrawPartMesh | null): boolean {
+  const d = (mesh?.description ?? '').replace(/^[~=_]+\s*/, '');
+  if (/^(Windscreen|Canopy|Cockpit|Windshield|Glass for|Window)\b/i.test(d)) return true;
+  if (d) return false;
+  // No description (unresolved part, or a caller without meshes): anything translucent that is not a known glow mould.
+  if (!mesh || !mesh.triangles.length) return !isRoundGlowPart(part);
+  const size = [0, 1, 2].map(i => mesh.bounds.max[i]! - mesh.bounds.min[i]!).sort((a, b) => b - a);
+  return size[1]! >= 30;
+}
+
 export interface InferNoseOptions {
   /** Explicit nose from the caller (UI facing selector or verified component metadata). */
   explicit?: NoseDirection;
@@ -113,6 +131,30 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
   const span = longAxis === 'x' ? spanX : spanZ;
   const along = (b: { x: number; z: number }): number => longAxis === 'x' ? b.x - cx : b.z - cz;
   const axisVec = (s: number): { x: number; z: number } => longAxis === 'x' ? { x: s, z: 0 } : { x: 0, z: s };
+  /**
+   * A vote from where a group of parts sits relative to the footprint centre,
+   * in BOTH horizontal axes: `toward` +1 votes toward the group (a cockpit),
+   * −1 away from it (exhausts, tail lights). Measured 2026-09-15 on 76286:
+   * the Milano's wingspan (1,504 LDU) is longer than its hull (785), so any
+   * signal read "along the long axis" looked across the ship and its four
+   * engine dishes, symmetric in X, cancelled to nothing.
+   */
+  //
+  // The reference point is the MASS centre (mean placement), not the box
+  // centre: the Milano's wings sweep back past its engines, so against the box
+  // centre its exhausts read as barely aft; and the threshold is a fraction of
+  // the span along the offset's own axis, so a wide ship's wingspan does not
+  // set the bar for a signal along its hull.
+  const mx = n ? xs.reduce((a, b) => a + b, 0) / n : 0, mz = n ? zs.reduce((a, b) => a + b, 0) / n : 0;
+  const centroidVote = (sel: ParsedBrick[], signal: string, weight: number, toward: 1 | -1, minFraction: number, detail: string, partWeight: (b: ParsedBrick) => number = () => 1): void => {
+    if (!sel.length) return;
+    const total = sel.reduce((a, b) => a + partWeight(b), 0) || 1;
+    const ox = sel.reduce((a, b) => a + b.x * partWeight(b), 0) / total - mx, oz = sel.reduce((a, b) => a + b.z * partWeight(b), 0) / total - mz;
+    const mag = Math.hypot(ox, oz);
+    const spanAlong = Math.abs(ox) >= Math.abs(oz) ? spanX : spanZ;
+    if (mag < spanAlong * minFraction) return;
+    votes.push({ signal, x: ox / mag * weight * toward, z: oz / mag * weight * toward, weight, detail: `${detail} at ${Math.round(ox)}, ${Math.round(oz)} LDU from the mass centre` });
+  };
 
   if (options.explicit) {
     const axis = options.explicit.endsWith('x') ? 'x' : 'z';
@@ -177,14 +219,7 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
   if (kind === 'car' || kind === 'boat') {
     // 3. Tail lights: trans-red sits at the rear. Vote away from their centroid.
     const tails = bricks.filter(b => TAIL_LIGHT_COLOURS.has(b.color));
-    if (tails.length >= 2 && span > 0) {
-      const offset = tails.reduce((a, b) => a + along(b), 0) / tails.length;
-      if (Math.abs(offset) >= span * 0.1) {
-        const w = 2;
-        const v = axisVec(-Math.sign(offset) * w);
-        votes.push({ signal: 'tail lights', ...v, weight: w, detail: `${tails.length} trans-red placements at ${Math.round(offset)} LDU from centre` });
-      }
-    }
+    if (tails.length >= 2) centroidVote(tails, 'tail lights', 2, -1, 0.1, `${tails.length} trans-red placements`);
     // 4. Wheels: the end with more, or larger, wheels is the rear (a dragster's
     //    slicks, the Tumbler's four rear tyres). Symmetric wheelbases abstain.
     if (options.isWheel && span > 0) {
@@ -208,28 +243,42 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
   }
 
   if (kind === 'plane') {
-    // 5. Canopy position: the cockpit sits toward the nose (a helicopter's
-    //    cabin, a fighter's canopy, the Milano's cockpit behind its prongs).
-    const canopy = bricks.filter(b => isTranslucentColour(b.color));
-    if (canopy.length >= 1 && span > 0) {
-      const offset = canopy.reduce((a, b) => a + along(b), 0) / canopy.length;
-      if (Math.abs(offset) >= span * 0.08) {
-        const w = 2;
-        votes.push({ signal: 'canopy position', ...axisVec(Math.sign(offset) * w), weight: w, detail: `${canopy.length} translucent placements at ${Math.round(offset)} LDU from centre` });
-      }
-    }
+    // 5a. Engine glow: translucent ROUND parts (dishes, round bricks/plates,
+    //     cones) in a glow colour are exhausts, and exhausts sit at the tail.
+    //     Strongest plane signal: the Milano's cockpit sits AFT of centre
+    //     (its prongs reach forward), so canopy position alone read it 90°
+    //     wrong; its four trans-light-blue engine dishes settle it.
+    const glow = bricks.filter(b => isTranslucentColour(b.color) && isRoundGlowPart(b.part, options.meshes?.get(b.part)?.description));
+    //     Weighted by footprint area: an engine is a 4×4 dish, a nav light a
+    //     1×1 round plate, and the Milano has nine of the latter spread about.
+    const footprint = (b: ParsedBrick): number => { const m = options.meshes?.get(b.part); return m ? Math.max(1, (m.bounds.max[0] - m.bounds.min[0]) * (m.bounds.max[2] - m.bounds.min[2])) : 400; };
+    if (glow.length >= 2) centroidVote(glow, 'engine glow', 3, -1, 0.1, `${glow.length} translucent round placements`, footprint);
+    // 5b. Canopy position: the cockpit sits toward the nose (a helicopter's
+    //     cabin, a fighter's canopy). Glass only - lamps and glows are not a
+    //     cockpit, and they are exactly what sits at the tail.
+    //     Weaker than the exhausts: the Milano's cockpit sits AFT of centre.
+    const canopy = bricks.filter(b => isTranslucentColour(b.color) && isGlassPart(b.part, options.meshes?.get(b.part)));
+    if (canopy.length >= 1) centroidVote(canopy, 'canopy position', 1.5, 1, 0.08, `${canopy.length} glass placements`);
     // 6. Narrow end: the nose is slimmer than the tail (fins, wings, engines).
-    if (span > 0 && n >= 8) {
-      const outer = (sign: number): number => {
-        const sel = bricks.filter(b => sign * along(b) > span * 0.3);
-        if (!sel.length) return 0;
-        const t = sel.map(b => longAxis === 'x' ? b.z : b.x);
-        return Math.max(...t) - Math.min(...t);
-      };
-      const wNeg = outer(-1), wPos = outer(1);
-      if (wNeg > 0 && wPos > 0 && Math.max(wNeg, wPos) / Math.min(wNeg, wPos) >= 1.3) {
-        const w = 1;
-        votes.push({ signal: 'narrow end', ...axisVec(wNeg < wPos ? -w : w), weight: w, detail: `outer width ${Math.round(wNeg)} vs ${Math.round(wPos)} LDU` });
+    //    Tested on BOTH axes - a wide-winged ship's hull is its short axis.
+    //    An axis shorter than half the other cannot be the hull (a helicopter's
+    //    tail boom is asymmetric across the short axis and would vote there).
+    if (n >= 8) {
+      for (const axis of ['x', 'z'] as const) {
+        const aSpan = axis === 'x' ? spanX : spanZ;
+        if (aSpan <= 0 || aSpan < (axis === 'x' ? spanZ : spanX) * 0.5) continue;
+        const pos = (b: ParsedBrick): number => axis === 'x' ? b.x - cx : b.z - cz;
+        const outer = (sign: number): number => {
+          const sel = bricks.filter(b => sign * pos(b) > aSpan * 0.3);
+          if (!sel.length) return 0;
+          const t = sel.map(b => axis === 'x' ? b.z : b.x);
+          return Math.max(...t) - Math.min(...t);
+        };
+        const wNeg = outer(-1), wPos = outer(1);
+        if (wNeg > 0 && wPos > 0 && Math.max(wNeg, wPos) / Math.min(wNeg, wPos) >= 1.3) {
+          const w = 1, s = wNeg < wPos ? -w : w;
+          votes.push({ signal: `narrow end ${axis}`, x: axis === 'x' ? s : 0, z: axis === 'z' ? s : 0, weight: w, detail: `outer width ${Math.round(wNeg)} vs ${Math.round(wPos)} LDU across ${axis}` });
+        }
       }
     }
   }

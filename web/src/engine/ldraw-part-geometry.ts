@@ -59,6 +59,13 @@ export interface LdrawPartMesh {
   unresolvedRefs: string[];
   /** Set when the exact (printed) id was missing and its base was used instead. */
   printFallback?: string;
+  /**
+   * The `.dat`'s own first line without its leading `0 ` (`Minifig Torso`,
+   * `Windscreen 8 x 4 x 2 Curved`, `Door 1 x 4 x 6 with Stud Handle`) - the
+   * library's description, used for semantic detection (figures, seats,
+   * canopies, doors) the way part-elements.ts already does for panes.
+   */
+  description: string;
 }
 
 export interface PartGeometryProvider {
@@ -142,9 +149,18 @@ interface RawMesh {
   triangles: LdrawTriangle[];
   studs: LdrawStud[];
   unresolvedRefs: string[];
+  /** First line of the `.dat` (the LDraw description), `0 ` prefix stripped. */
+  description: string;
 }
 
 const MAX_DEPTH = 12;
+
+/** The LDraw description: the file's first line with the `0 ` stripped (a `~`/`=` alias mark is kept - it means moved/alias). */
+export function descriptionOf(text: string): string {
+  const nl = text.indexOf('\n');
+  const first = (nl < 0 ? text : text.slice(0, nl)).replace(/\r$/, '').trim();
+  return first.replace(/^0\s*/, '').trim();
+}
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
@@ -187,7 +203,7 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
    */
   function resolveRaw(id: string, depth: number, ancestors: ReadonlySet<string> | null): Promise<RawMesh | null> {
     const key = normPartId(id);
-    if (depth > MAX_DEPTH) return Promise.resolve({ triangles: [], studs: [], unresolvedRefs: [] });
+    if (depth > MAX_DEPTH) return Promise.resolve({ triangles: [], studs: [], unresolvedRefs: [], description: '' });
     const pending = inFlight.get(key);
     if (pending) {
       if (ancestors?.has(key)) return Promise.resolve(rawCache.get(key) ?? null);
@@ -202,7 +218,7 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
     const promise = (async (): Promise<RawMesh | null> => {
       const text = await textFor(key);
       if (text === null) return null;
-      const mesh: RawMesh = { triangles: [], studs: [], unresolvedRefs: [] };
+      const mesh: RawMesh = { triangles: [], studs: [], unresolvedRefs: [], description: descriptionOf(text) };
       rawCache.set(key, mesh); // early, so a cycle sees a (partial) mesh instead of recursing forever
       const subPromises: Promise<void>[] = [];
 
@@ -310,6 +326,7 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
       studs: raw.studs,
       bounds: boundsOf(raw.triangles),
       unresolvedRefs: [...new Set(raw.unresolvedRefs)],
+      description: raw.description,
       ...(printFallback ? { printFallback } : {}),
     };
   }

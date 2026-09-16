@@ -2,8 +2,9 @@
  * Direct LDraw → Bedrock entity geometry compiler.
  *
  * Every placed part is instanced from a cached per-part cuboid PROTOTYPE
- * (`ldraw-part-prototype.ts`, compiled from the part's real `.dat` mesh) at the
- * player scale 1 stud = 3.2 units = 0.2 blocks. Slopes, wheels, wedges and
+ * (`ldraw-part-prototype.ts`, compiled from the part's real `.dat` mesh) at
+ * MINIFIG scale: a standing minifig (96 LDU, feet to head top) is as tall as
+ * the 1.8-block player, so 1 block = 53.33 LDU and 1 stud = 6 units. Slopes, wheels, wedges and
  * canopies keep their shape; a plain brick is exactly one cuboid; studs are
  * added only where the model leaves them visible. Colours are the LDraw RGB
  * (`ldraw-entity-materials.ts`), and a piece is translucent because its
@@ -29,6 +30,9 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { PlayableKind, VehicleFacing } from './playable-components.js';
+
+/** What the compiler is building: a rideable vehicle, a minifig (NPC), or a static prop (a second object beside the vehicle). */
+export type EntityKind = PlayableKind | 'figure' | 'prop';
 import { getPartDims } from './ldraw-part-dims.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type LdrawStud, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import {
@@ -41,8 +45,9 @@ import { inferVehicleNose, type FacingDecision, type NoseDirection } from './veh
 
 const PACK_NAMESPACE = 'craftmatic';
 
-/** Scale: 3.2 Bedrock units per stud (20 LDU). 1 block = 16 units = 5 studs. */
-export const BEDROCK_UNITS_PER_LDU = 3.2 / 20; // 0.16
+// The scale lives in lego-scale.ts (shared with the block-export planner); re-exported for the tests and the CLI probes.
+export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BLOCKS, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
+import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 
 /**
  * Canopy / windscreen moulds — used for COCKPIT DETECTION only. Whether a
@@ -55,8 +60,33 @@ const CANOPY_PARTS = new Set([
   '3065', '3066', '3067',
 ]);
 
-/** Steering wheels and seats: the driver sits here. */
-const SEAT_PARTS = new Set(['4079', '4079b', '3829', '3829c01', '73081', '2432']);
+/** Seats the driver sits ON (steering wheels are ranked separately: the driver sits behind them). */
+const SEAT_PARTS = new Set(['4079', '4079b', '33176', '58888', '14520', '2432']);
+/** Steering wheels and steering stands: the driver sits ~30 LDU behind, eyes ~20 LDU above the wheel. */
+const STEERING_PARTS = new Set(['3829', '3829c01', '73081']);
+/** Minifig torsos: the anchor of a figure (a figure is torso + head + legs, everything else is dressing). */
+const TORSO_PARTS = /^(973|3814|76382)(?![0-9])/;
+/** Every part a minifig is built from, by id family - used when a description is unavailable. */
+const FIGURE_PART_IDS = /^(973|3814|76382|3626|970|3815|3816|3817|41879|16968|3901|3625|3624|3833|2446|30370|3838|3846|4485|3962|3818|3819|983|3820|4498|2447|3878|30367|3899|6120|3900|30162|4522|3837|3836|4006|30173|30374|18041|2530|3849|3959|30375|30369|6246|6247|4349|4350|4351|4352|3835|3847|4497|59363|85975|93553|60752|62810|61190)(?![0-9])/;
+
+/** `30372p79` → `30372`, `3626bp03` → `3626b`, `973ps1` → `973`: the mould behind a print. Composite (`c01`) and shape (`a`/`b`) suffixes are distinct moulds and stay. */
+export function baseMould(part: string): string {
+  return cleanPartId(part).replace(/p[0-9a-z]+$/, '');
+}
+
+/** LDraw's own description says what a part is; `''` when the mesh is unresolved. */
+
+/** A minifig body/clothing/accessory part, by the library description first and the id family second. */
+export function isFigurePart(part: string, description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  if (/^Minifig\b/i.test(d)) return !/^Minifig (Seat|Chair|Steering|Stand|Display|Bench)\b/i.test(d);
+  if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
+  return FIGURE_PART_IDS.test(cleanPartId(part));
+}
+export const isTorso = (part: string, description: string): boolean => TORSO_PARTS.test(cleanPartId(part)) || /^Minifig Torso\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+const isSteering = (part: string, description: string): boolean => STEERING_PARTS.has(baseMould(part)) || /^(Minifig )?Steering\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 
 /** Technic pins and axles buried inside the model: geometry weight without silhouette. */
 const TECHNIC_INTERNAL = new Set([
@@ -68,7 +98,7 @@ const WHEEL_PARTS = new Set(['56908', '44771', '44772', '87697', '92912', '15413
 
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
-function cleanPartId(part: string): string {
+export function cleanPartId(part: string): string {
   return part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
 }
 
@@ -259,8 +289,12 @@ export interface LegoGeometryDiagnostics {
   substitutedParts: Array<{ part: string; alias: string }>;
   /** Cuboids per exposed stud (1 = square; 3-4 = a rotated fan that reads round; 0 = omitted). */
   studFacets: number;
-  /** Where the driver sits and which evidence chose it. */
-  cockpit: { source: 'seat-parts' | 'canopy-parts' | 'translucent-parts' | 'default-cabin'; units: [number, number, number] };
+  /** Where the driver's EYES are (model units) and which evidence chose it (findCockpit, best first). */
+  cockpit: { source: CockpitSource; units: [number, number, number]; detail: string };
+  /** Parts of the seated driver figure left out of the geometry because the player sits there. */
+  driverFigureRemoved: number;
+  /** Separate objects found beside the vehicle and classified (figures and secondary vehicles are offered as their own entities). */
+  extras: Array<{ role: ExtraRole; placements: number; reason: string }>;
   /** The display pose removed from a posed source (null when the model was already level). */
   leveled: { angleDeg: number; alignedBefore: number; alignedAfter: number } | null;
   /** Placements left out because they form separate objects beside the vehicle (a standing driver, a display). */
@@ -314,8 +348,14 @@ export interface CompiledLdrawGeometry {
   sizeBlocks: { width: number; height: number; length: number };
   /** The LDraw nose direction the geometry was compiled with (explicit or inferred). */
   facing: NoseDirection;
-  /** Indices into the INPUT `bricks` of every placement that made it into the geometry (after the stand, internal and cluster drops). */
+  /** Indices into the INPUT `bricks` of every placement that made it into the geometry (after the stand, internal, cluster and driver-figure drops). */
   keptSourceIndices: number[];
+  /** Separate objects beside the vehicle (figures, a second vehicle, props), levelled with the model; see EntityExtra. */
+  extras: EntityExtra[];
+  /** Where the entity's origin (floor centre) sits in the LEVELLED LDraw frame: the point a scene maps to the actor position. */
+  originLdu: Vec3;
+  /** The level pose the extras share (their `bricks` are already levelled); null when the source was level. */
+  levelPose: { rotation: number[]; centre: Vec3 } | null;
   diagnostics: LegoGeometryDiagnostics;
   /** Human-readable degradations worth surfacing in the export status. */
   warnings: string[];
@@ -557,43 +597,175 @@ export function mergeAlignedCuboids(cuboids: RenderCuboid[], eps = 0.01): { cubo
   return { cuboids: [...current, ...rest], merged };
 }
 
-export async function compileLdrawEntityGeometry(
-  cid: string,
-  kind: PlayableKind,
-  bricks: ParsedBrick[],
-  options: CompileLdrawEntityOptions = {},
-): Promise<CompiledLdrawGeometry> {
-  const scale = options.scale ?? BEDROCK_UNITS_PER_LDU;
-  const provider = options.partGeometry ?? createPartGeometryProvider();
-  const baseQuality = resolveEntityQuality(options.quality);
-  const warnings: string[] = [];
+// ─── Placement preparation: level, clusters, figures, stand rules ─────────────
 
-  // 0a. A posed source (Mecabricks display pose) is levelled before anything
-  // measures its footprint; the pose is reported in `transform.level`.
+export type ExtraRole = 'figure' | 'vehicle' | 'prop';
+
+/** A separate object found beside the primary vehicle. */
+export interface EntityExtra {
+  role: ExtraRole;
+  /** Indices into the INPUT `bricks`. */
+  sourceIndices: number[];
+  /** The placements, LEVELLED with the model (the frame `levelPose` describes). */
+  bricks: ParsedBrick[];
+  /** Centre of the object's real bounds, LDraw (levelled). */
+  centreLdu: Vec3;
+  /** The object's lowest point (LDraw Y is down, so this is the LARGEST y) - what it stands on. */
+  floorLdu: number;
+  /** A figure's facing: its torso's local −Z through the placement, horizontal unit vector (x, z). */
+  facingLdu?: [number, number];
+  reason: string;
+  wheels: number;
+  seats: number;
+  figureParts: number;
+}
+
+export type CockpitSource = 'seated-figure' | 'seat-parts' | 'steering-wheel' | 'canopy-parts' | 'translucent-canopy' | 'default-cabin';
+
+export interface PreparedEntityPlacements {
+  level: LevelResult;
+  /** The primary object's placements (levelled, Technic internals removed), parallel to `placedIdx`. */
+  placed: ParsedBrick[];
+  /** Indices into the INPUT `bricks`. */
+  placedIdx: number[];
+  meshes: Map<string, LdrawPartMesh | null>;
+  displayDropped: { placements: number; rule: 'wheel-envelope' | 'stand-below-canopy' | null };
+  /** Placements outside the primary object, and how many separate objects they formed. */
+  detached: { placements: number; groups: number };
+  extras: EntityExtra[];
+  skippedInternalCount: number;
+  /** World-LDraw AABB of a placement from its REAL part bounds (dims-table box when unresolved). */
+  worldBoundsOf: (b: ParsedBrick) => { min: Vec3; max: Vec3 };
+}
+
+/** Union-find over touching boxes: every connected group, largest first. */
+export function connectedClusters(boxes: Array<{ min: Vec3; max: Vec3 }>, tol = 4): number[][] {
+  const n = boxes.length;
+  if (n === 0) return [];
+  const parent = new Int32Array(n);
+  for (let i = 0; i < n; i++) parent[i] = i;
+  const find = (i: number): number => { while (parent[i] !== i) { parent[i] = parent[parent[i]!]!; i = parent[i]!; } return i; };
+  const CELL = 120;
+  const cells = new Map<string, number[]>();
+  for (let i = 0; i < n; i++) {
+    const { min, max } = boxes[i]!;
+    for (let x = Math.floor((min[0] - tol) / CELL); x <= Math.floor((max[0] + tol) / CELL); x++)
+      for (let y = Math.floor((min[1] - tol) / CELL); y <= Math.floor((max[1] + tol) / CELL); y++)
+        for (let z = Math.floor((min[2] - tol) / CELL); z <= Math.floor((max[2] + tol) / CELL); z++) {
+          const key = `${x},${y},${z}`;
+          const list = cells.get(key);
+          if (list) list.push(i); else cells.set(key, [i]);
+        }
+  }
+  const touches = (a: number, b: number): boolean => {
+    const A = boxes[a]!, B = boxes[b]!;
+    return A.min[0] - tol <= B.max[0] && A.max[0] + tol >= B.min[0]
+      && A.min[1] - tol <= B.max[1] && A.max[1] + tol >= B.min[1]
+      && A.min[2] - tol <= B.max[2] && A.max[2] + tol >= B.min[2];
+  };
+  for (const list of cells.values()) {
+    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
+      const a = list[i]!, b = list[j]!;
+      const ra = find(a), rb = find(b);
+      if (ra !== rb && touches(a, b)) parent[ra] = rb;
+    }
+  }
+  const members = new Map<number, number[]>();
+  for (let i = 0; i < n; i++) { const r = find(i); const m = members.get(r); if (m) m.push(i); else members.set(r, [i]); }
+  return [...members.values()].sort((a, b) => b.length - a.length);
+}
+
+/**
+ * Minifig parts grouped into figures around each torso: a part joins the
+ * nearest torso within 40 LDU horizontally and from 48 LDU above it (hair,
+ * a helmet) to 80 LDU below (the feet). Loose accessories stay ungrouped.
+ */
+export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): Array<{ torso: number; parts: number[] }> {
+  const torsos: number[] = [];
+  bricks.forEach((b, i) => { if (isTorso(b.part, meshes.get(b.part)?.description ?? '')) torsos.push(i); });
+  if (!torsos.length) return [];
+  const torsoSet = new Set(torsos);
+  const groups = torsos.map(t => ({ torso: t, parts: [t] }));
+  bricks.forEach((b, i) => {
+    if (torsoSet.has(i) || !isFigurePart(b.part, meshes.get(b.part)?.description ?? '')) return;
+    let best = -1, bestD = Infinity;
+    torsos.forEach((t, k) => {
+      const T = bricks[t]!;
+      const dx = b.x - T.x, dz = b.z - T.z, dy = b.y - T.y;
+      if (Math.hypot(dx, dz) > 40 || dy < -48 || dy > 80) return;
+      const d = Math.hypot(dx, dz) + Math.abs(dy) * 0.25;
+      if (d < bestD) { bestD = d; best = k; }
+    });
+    if (best >= 0) groups[best]!.parts.push(i);
+  });
+  return groups;
+}
+
+/** A wheel or tyre by the library description (`Wheel 8mm D. x 6mm`, `Tyre 6/ 50 x 8`), else by the compiler's id list. */
+const isWheelDescription = (description: string): boolean => /^[~=_]*\s*(Wheel|Tyre|Tire)\b/i.test(description) && !/^[~=_]*\s*Wheel (Holder|Arch|Cover|Hub)/i.test(description);
+const isWheelPartWith = (meshes: Map<string, LdrawPartMesh | null>) => (b: ParsedBrick): boolean => {
+  const p = cleanPartId(b.part);
+  return WHEEL_PARTS.has(p) || p.includes('wheel') || p.includes('tire') || isWheelDescription(meshes.get(b.part)?.description ?? '');
+};
+
+function summariseExtras(extras: EntityExtra[]): string {
+  const count = (role: ExtraRole): number => extras.filter(e => e.role === role).length;
+  const parts: string[] = [];
+  if (count('figure')) parts.push(`${count('figure')} figure${count('figure') === 1 ? '' : 's'}`);
+  if (count('vehicle')) parts.push(`${count('vehicle')} secondary vehicle${count('vehicle') === 1 ? '' : 's'}`);
+  if (count('prop')) parts.push(`${count('prop')} prop${count('prop') === 1 ? '' : 's'}`);
+  return parts.join(', ') || 'nothing classified';
+}
+
+/**
+ * Everything the compiler decides about WHICH placements are the vehicle,
+ * in one place, so the CLI probes see exactly what the geometry sees:
+ *
+ *   1. level a posed source (`levelModel`) and straighten turned front wheels;
+ *   2. resolve every unique part to its mesh (Technic internals included -
+ *      an axle is what connects a wheel to the chassis);
+ *   3. split the placements into physically connected objects on real part
+ *      bounds (`connectedClusters`, 4 LDU);
+ *   4. the largest object is the vehicle. Every other object is CLASSIFIED:
+ *      a `figure` (a torso group plus at most a few carried/stood-on parts),
+ *      a secondary `vehicle` (wheels or a seat and at least 12 parts, or a
+ *      large object), or a `prop` (a stand, a crate, a plaque). A tiny
+ *      cluster (≤ 3) inside the vehicle's own box is a floating source defect
+ *      and stays attached; a cluster at least 40 % of the vehicle with no
+ *      wheels of its own is treated as a split of the same vehicle;
+ *   5. the display-stand rules run on the vehicle: a car keeps only what
+ *      sits inside its wheel envelope and above its wheel line, a plane
+ *      drops a small cluster far below its canopy. Whole figures dropped by
+ *      those rules are re-offered as `figure` extras (76286's four figures
+ *      stand on the plaque under the ship), the rest is the stand.
+ *
+ * The X-wing (7140) before this: its service cart stood under a wing, inside
+ * the plane's bounding box, so it was "attached"; Biggs stood under the other
+ * wing. Both are extras now.
+ */
+export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBrick[], provider: PartGeometryProvider): Promise<PreparedEntityPlacements> {
   const level = levelModel(bricks);
   bricks = level.bricks;
 
-  // 0. Display stands / plaques and wheel-yaw alignment. Every drop is
-  //    tracked by SOURCE INDEX so the caller (and the silhouette gate) knows
-  //    exactly which placements the geometry represents.
-  let activeBricks = bricks;
-  let activeIdx = bricks.map((_, i) => i);
-  let displayRule: LegoGeometryDiagnostics['displayDropped']['rule'] = null;
-  const wheels = bricks.filter(b => {
-    const p = cleanPartId(b.part);
-    return WHEEL_PARTS.has(p) || p.includes('wheel') || p.includes('tire');
-  });
-  if (kind === 'car' && wheels.length >= 4) {
-    const wheelYs = wheels.map(b => b.y);
-    const groundY = Math.max(...wheelYs) + 60;
-    const wheelXs = wheels.map(b => b.x), wheelZs = wheels.map(b => b.z);
-    const minWheelX = Math.min(...wheelXs) - 120, maxWheelX = Math.max(...wheelXs) + 120;
-    const minWheelZ = Math.min(...wheelZs) - 120, maxWheelZ = Math.max(...wheelZs) + 120;
-    const filteredIdx = activeIdx.filter(i => { const b = bricks[i]!; return b.y <= groundY + 40 && b.x >= minWheelX && b.x <= maxWheelX && b.z >= minWheelZ && b.z <= maxWheelZ; });
-    if (filteredIdx.length >= bricks.length * 0.6 && filteredIdx.length < bricks.length) {
-      activeIdx = filteredIdx; activeBricks = filteredIdx.map(i => bricks[i]!); displayRule = 'wheel-envelope';
-    }
+  const uniqueAll = [...new Set(bricks.map(b => b.part))];
+  const meshes = new Map<string, LdrawPartMesh | null>();
+  await Promise.all(uniqueAll.map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
+  const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => {
+    const mesh = meshes.get(b.part);
+    let lo: Vec3, hi: Vec3;
+    if (mesh && mesh.triangles.length) { lo = mesh.bounds.min; hi = mesh.bounds.max; }
+    else { const [sW, sH, sL] = getPartDims(b.part); lo = [-sL * 10, -sH * 8, -sW * 10]; hi = [sL * 10, 0, sW * 10]; }
+    const R = b.rot ?? IDENTITY;
+    return aabbOfCorners(cornersOf(lo, hi).map(v => { const r = apply(R, v); return [r[0] + b.x, r[1] + b.y, r[2] + b.z] as Vec3; }));
+  };
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  const isWheelPart = isWheelPartWith(meshes);
 
+  // Wheel-yaw alignment (a car whose front wheels are turned in the source) is
+  // applied to the whole placement set before anything measures it.
+  const wheels = bricks.filter(isWheelPart);
+  if (kind === 'car' && wheels.length >= 4) {
+    const wheelZs = wheels.map(b => b.z);
     const midZw = (Math.min(...wheelZs) + Math.max(...wheelZs)) / 2;
     const front = wheels.filter(b => b.z < midZw), rear = wheels.filter(b => b.z >= midZw);
     if (front.length >= 2 && rear.length >= 2) {
@@ -603,67 +775,249 @@ export async function compileLdrawEntityGeometry(
       if (Math.abs(yaw) > 0.05 && Math.abs(yaw) < Math.PI * 0.45) {
         const cosT = Math.cos(-yaw), sinT = Math.sin(-yaw);
         const pivotX = (fX + rX) / 2, pivotZ = (fZ + rZ) / 2;
-        // A yaw about LDraw Y, applied to positions AND rotations so the parts turn with the car.
         const yawRot: number[] = [cosT, 0, sinT, 0, 1, 0, -sinT, 0, cosT];
-        activeBricks = activeBricks.map(b => {
+        bricks = bricks.map(b => {
           const relX = b.x - pivotX, relZ = b.z - pivotZ;
           return { ...b, x: relX * cosT + relZ * sinT + pivotX, z: -relX * sinT + relZ * cosT + pivotZ, rot: mul(yawRot, b.rot ?? IDENTITY) };
         });
       }
     }
+  }
+  const boxes = bricks.map(worldBoundsOf);
+  const figures = groupFigures(bricks, meshes);
+  const figureOf = new Map<number, number>(); // placement → figure index
+  figures.forEach((f, k) => { for (const i of f.parts) figureOf.set(i, k); });
+
+  // 3-4. Objects.
+  const clusters = connectedClusters(boxes);
+  const primary = clusters[0] ?? [];
+  // The vehicle's box grows as split-off clusters are attached (largest first), so
+  // a piece floating between two decks that do not touch is inside it by the time it is judged.
+  let primaryBox = primary.length ? aabbOfCorners(primary.flatMap(i => [boxes[i]!.min, boxes[i]!.max])) : { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
+  const attached: number[] = [];
+  const attach = (cluster: number[]): void => {
+    attached.push(...cluster);
+    primaryBox = aabbOfCorners([primaryBox.min, primaryBox.max, ...cluster.flatMap(i => [boxes[i]!.min, boxes[i]!.max])]);
+  };
+  const extras: EntityExtra[] = [];
+  const makeExtra = (indices: number[], role: ExtraRole, reason: string): EntityExtra => {
+    const box = aabbOfCorners(indices.flatMap(i => [boxes[i]!.min, boxes[i]!.max]));
+    const torso = indices.find(i => isTorso(bricks[i]!.part, desc(bricks[i]!)));
+    let facingLdu: [number, number] | undefined;
+    if (torso !== undefined) {
+      const f = apply(bricks[torso]!.rot ?? IDENTITY, [0, 0, -1]);
+      const h = Math.hypot(f[0], f[2]);
+      if (h > 0.5) facingLdu = [f[0] / h, f[2] / h];
+    }
+    return {
+      role, sourceIndices: indices, bricks: indices.map(i => bricks[i]!),
+      centreLdu: [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2],
+      floorLdu: box.max[1], ...(facingLdu ? { facingLdu } : {}), reason,
+      wheels: indices.filter(i => isWheelPart(bricks[i]!)).length,
+      seats: indices.filter(i => isSeat(bricks[i]!.part, desc(bricks[i]!))).length,
+      figureParts: indices.filter(i => isFigurePart(bricks[i]!.part, desc(bricks[i]!))).length,
+    };
+  };
+  /** Split a cluster into its figures (one extra each) and whatever is left. */
+  const classify = (cluster: number[], inPrimaryBox: boolean): void => {
+    const byFigure = new Map<number, number[]>();
+    const rest: number[] = [];
+    for (const i of cluster) { const f = figureOf.get(i); if (f === undefined) rest.push(i); else { const l = byFigure.get(f); if (l) l.push(i); else byFigure.set(f, [i]); } }
+    const wheelCount = rest.filter(i => isWheelPart(bricks[i]!)).length;
+    const seatCount = rest.filter(i => isSeat(bricks[i]!.part, desc(bricks[i]!))).length;
+    if (byFigure.size && rest.length <= 4 + byFigure.size * 2) {
+      // A figure (or a few standing together) with what it holds / stands on.
+      for (const parts of byFigure.values()) extras.push(makeExtra(parts, 'figure', 'minifig torso with its head, legs and dressing'));
+      if (rest.length) extras.push(makeExtra(rest, 'prop', `${rest.length} part${rest.length === 1 ? '' : 's'} beside a figure`));
+      return;
+    }
+    if (cluster.length <= 3 && inPrimaryBox) { attach(cluster); return; } // a floating source defect inside the body
+    if (cluster.length >= primary.length * 0.4 && wheelCount === 0 && !byFigure.size) { attach(cluster); return; } // a split of the same vehicle
+    for (const parts of byFigure.values()) extras.push(makeExtra(parts, 'figure', 'minifig torso with its head, legs and dressing'));
+    if (rest.length >= 12 && (wheelCount >= 2 || seatCount >= 1 || rest.length >= primary.length * 0.15)) {
+      extras.push(makeExtra(rest, 'vehicle', wheelCount >= 2 ? `${wheelCount} wheels` : seatCount ? `${seatCount} seat${seatCount === 1 ? '' : 's'}` : `${rest.length} parts`));
+    } else if (rest.length) {
+      extras.push(makeExtra(rest, 'prop', `${rest.length} part${rest.length === 1 ? '' : 's'}, no wheels or seat`));
+    }
+  };
+  for (let c = 1; c < clusters.length; c++) {
+    const cluster = clusters[c]!;
+    const box = aabbOfCorners(cluster.flatMap(i => [boxes[i]!.min, boxes[i]!.max]));
+    const margin = 20;
+    const inside = box.min[0] >= primaryBox.min[0] - margin && box.max[0] <= primaryBox.max[0] + margin
+      && box.min[1] >= primaryBox.min[1] - margin && box.max[1] <= primaryBox.max[1] + margin
+      && box.min[2] >= primaryBox.min[2] - margin && box.max[2] <= primaryBox.max[2] + margin;
+    classify(cluster, inside);
+  }
+  let vehicleIdx = [...primary, ...attached].sort((a, b) => a - b);
+  const detached = { placements: bricks.length - vehicleIdx.length, groups: extras.length };
+
+  // 5. Display-stand rules on the vehicle. Figures are judged by their FEET so a
+  //    figure standing on the plaque is dropped whole (and re-offered as an extra)
+  //    instead of being cut at the waist and then discarded as floating debris.
+  let displayRule: PreparedEntityPlacements['displayDropped']['rule'] = null;
+  const footY = (i: number): number => { const f = figureOf.get(i); return f === undefined ? bricks[i]!.y : bricks[figures[f]!.torso]!.y + 72; };
+  const vehicleWheels = vehicleIdx.filter(i => isWheelPart(bricks[i]!));
+  let keep: number[] = vehicleIdx;
+  if (kind === 'car' && vehicleWheels.length >= 4) {
+    const wheelYs = vehicleWheels.map(i => bricks[i]!.y);
+    const groundY = Math.max(...wheelYs) + 60;
+    const wheelXs = vehicleWheels.map(i => bricks[i]!.x), wheelZs = vehicleWheels.map(i => bricks[i]!.z);
+    const minWheelX = Math.min(...wheelXs) - 120, maxWheelX = Math.max(...wheelXs) + 120;
+    const minWheelZ = Math.min(...wheelZs) - 120, maxWheelZ = Math.max(...wheelZs) + 120;
+    const filtered = vehicleIdx.filter(i => { const b = bricks[i]!; return footY(i) <= groundY + 40 && b.x >= minWheelX && b.x <= maxWheelX && b.z >= minWheelZ && b.z <= maxWheelZ; });
+    if (filtered.length >= vehicleIdx.length * 0.6 && filtered.length < vehicleIdx.length) { keep = filtered; displayRule = 'wheel-envelope'; }
   } else if (kind === 'plane') {
-    const canopyParts = bricks.filter(b => CANOPY_PARTS.has(cleanPartId(b.part)));
+    const canopyParts = vehicleIdx.filter(i => isCanopyMould(bricks[i]!.part, desc(bricks[i]!)));
     if (canopyParts.length) {
-      const canopyY = canopyParts.reduce((a, b) => a + b.y, 0) / canopyParts.length;
-      const stand = bricks.filter(b => b.y > canopyY + 250);
-      if (stand.length > 0 && stand.length < bricks.length * 0.2) {
-        activeIdx = activeIdx.filter(i => bricks[i]!.y <= canopyY + 250); activeBricks = activeIdx.map(i => bricks[i]!); displayRule = 'stand-below-canopy';
-      }
+      const canopyY = canopyParts.reduce((a, i) => a + bricks[i]!.y, 0) / canopyParts.length;
+      const stand = vehicleIdx.filter(i => footY(i) > canopyY + 250);
+      if (stand.length > 0 && stand.length < vehicleIdx.length * 0.2) { keep = vehicleIdx.filter(i => footY(i) <= canopyY + 250); displayRule = 'stand-below-canopy'; }
     }
   }
-  const displayDropped = { placements: bricks.length - activeBricks.length, rule: displayRule };
-  if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayRule === 'wheel-envelope' ? 'outside the wheel envelope or below the wheel line' : 'a small cluster far below the canopy'}).`);
-
-  // 1. Resolve every unique part to a mesh (parallel, cached by the provider).
-  let skippedInternalCount = 0;
-  let placedIdx: number[] = [];
-  let placed = activeBricks.filter((b, k) => {
-    if (TECHNIC_INTERNAL.has(cleanPartId(b.part))) { skippedInternalCount++; return false; }
-    placedIdx.push(activeIdx[k]!);
-    return true;
-  });
-  let uniqueParts = [...new Set(placed.map(b => b.part))];
-  const meshes = new Map<string, LdrawPartMesh | null>();
-  await Promise.all(uniqueParts.map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
-
-  // 1b. Separate objects beside the vehicle (the driver standing on the ground,
-  // a wind tunnel, a stand) are dropped on REAL part bounds — see detachedClusters.
-  const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => {
-    const mesh = meshes.get(b.part);
-    let lo: Vec3, hi: Vec3;
-    if (mesh && mesh.triangles.length) { lo = mesh.bounds.min; hi = mesh.bounds.max; }
-    else { const [sW, sH, sL] = getPartDims(b.part); lo = [-sL * 10, -sH * 8, -sW * 10]; hi = [sL * 10, 0, sW * 10]; }
-    const R = b.rot ?? IDENTITY;
-    return aabbOfCorners(cornersOf(lo, hi).map(v => { const r = apply(R, v); return [r[0] + b.x, r[1] + b.y, r[2] + b.z] as Vec3; }));
-  };
-  const detachedReport = detachedClusters(placed.map(worldBoundsOf));
-  const detached = { placements: detachedReport.drop.size, groups: detachedReport.groups };
-  if (detachedReport.drop.size) {
-    placed = placed.filter((_, i) => !detachedReport.drop.has(i));
-    placedIdx = placedIdx.filter((_, i) => !detachedReport.drop.has(i));
-    uniqueParts = [...new Set(placed.map(b => b.part))];
-    warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out (they do not touch it).`);
+  const keepSet = new Set(keep);
+  const displayDroppedIdx = displayRule ? vehicleIdx.filter(i => !keepSet.has(i)) : [];
+  if (displayDroppedIdx.length) {
+    vehicleIdx = keep;
+    // Whole figures on the stand become extras; the rest of the stand is a prop.
+    const byFigure = new Map<number, number[]>();
+    const stand: number[] = [];
+    for (const i of displayDroppedIdx) { const f = figureOf.get(i); if (f === undefined) stand.push(i); else { const l = byFigure.get(f); if (l) l.push(i); else byFigure.set(f, [i]); } }
+    for (const parts of byFigure.values()) extras.push(makeExtra(parts, 'figure', 'figure standing on the display stand'));
+    if (stand.length) extras.push(makeExtra(stand, 'prop', `display stand (${displayRule})`));
   }
+  const displayDropped = { placements: displayDroppedIdx.length, rule: displayRule };
+
+  let skippedInternalCount = 0;
+  const placedIdx: number[] = [];
+  const placed: ParsedBrick[] = [];
+  for (const i of vehicleIdx) {
+    const b = bricks[i]!;
+    if (TECHNIC_INTERNAL.has(cleanPartId(b.part))) { skippedInternalCount++; continue; }
+    placedIdx.push(i); placed.push(b);
+  }
+  return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, worldBoundsOf };
+}
+
+// ─── Cockpit ──────────────────────────────────────────────────────────────────
+
+interface CockpitFrame { nose: NoseDirection; isXLongitudinal: boolean; forwardSign: number; spanX: number; spanZ: number }
+
+/**
+ * Where the driver's EYES are, from the best evidence available, in order:
+ *   1. a seated figure inside the vehicle's footprint - eyes 11 LDU above the
+ *      torso origin (the head's origin is 24 LDU up, the eyes half-way down
+ *      the 24 LDU head); the figure nearest a steering wheel, else the
+ *      front-most, is the driver and its parts come back in `driverParts`;
+ *   2. a seat mould - a figure on it has its eyes 51 LDU above the seat (8
+ *      hips, 32 torso, 11 to the eyes), centred over the seat;
+ *   3. a steering wheel / stand - the driver sits 30 LDU behind it (its
+ *      local +Z), eyes 20 LDU above the wheel;
+ *   4. the LARGEST windscreen / canopy mould - eyes at its centre;
+ *   5. the largest translucent part big enough to be glass (≥ 30 LDU on two
+ *      axes) - eyes at its centre; a lamp or an engine glow never qualifies;
+ *   6. the default forward cabin (20 % forward, 35 % up).
+ */
+export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): { source: CockpitSource; eyeLdu: Vec3; detail: string; driverParts: number[] } {
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  const xs = placed.map(b => b.x), zs = placed.map(b => b.z), ys = placed.map(b => b.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+  const along = (b: ParsedBrick): number => frame.isXLongitudinal ? (b.x - cx) * frame.forwardSign : (b.z - cz) * frame.forwardSign;
+  const local = (b: ParsedBrick, v: Vec3): Vec3 => { const r = apply(b.rot ?? IDENTITY, v); return [b.x + r[0], b.y + r[1], b.z + r[2]]; };
+
+  // 1. Seated figure.
+  const figures = groupFigures(placed, meshes);
+  const insideX0 = minX + frame.spanX * 0.08, insideX1 = maxX - frame.spanX * 0.08, insideZ0 = minZ + frame.spanZ * 0.08, insideZ1 = maxZ - frame.spanZ * 0.08;
+  const seatedFigures = figures.filter(f => { const t = placed[f.torso]!; return t.x >= insideX0 && t.x <= insideX1 && t.z >= insideZ0 && t.z <= insideZ1 && t.y + 72 < maxY - 8; });
+  const wheels = placed.filter(b => isSteering(b.part, desc(b)));
+  if (seatedFigures.length) {
+    let driver = seatedFigures[0]!;
+    if (wheels.length) {
+      const d = (f: { torso: number }): number => Math.min(...wheels.map(w => Math.hypot(w.x - placed[f.torso]!.x, w.y - placed[f.torso]!.y, w.z - placed[f.torso]!.z)));
+      driver = seatedFigures.reduce((a, b) => d(b) < d(a) ? b : a);
+    } else {
+      driver = seatedFigures.reduce((a, b) => along(placed[b.torso]!) > along(placed[a.torso]!) ? b : a);
+    }
+    const torso = placed[driver.torso]!;
+    return { source: 'seated-figure', eyeLdu: local(torso, [0, -11, 0]), detail: `${seatedFigures.length} seated figure${seatedFigures.length === 1 ? '' : 's'}; driver torso ${cleanPartId(torso.part)} at ${Math.round(torso.x)}, ${Math.round(torso.y)}, ${Math.round(torso.z)}`, driverParts: driver.parts };
+  }
+  // 2. Seat moulds.
+  const seats = placed.filter(b => isSeat(b.part, desc(b)));
+  if (seats.length) {
+    const nearestWheel = (b: ParsedBrick): number => Math.min(...wheels.map(w => Math.hypot(w.x - b.x, w.z - b.z)));
+    const seat = wheels.length
+      ? seats.reduce((a, b) => nearestWheel(b) < nearestWheel(a) ? b : a)
+      : seats.reduce((a, b) => along(b) > along(a) ? b : a);
+    return { source: 'seat-parts', eyeLdu: local(seat, [0, -51, 0]), detail: `${seats.length} seat${seats.length === 1 ? '' : 's'}; ${cleanPartId(seat.part)} at ${Math.round(seat.x)}, ${Math.round(seat.y)}, ${Math.round(seat.z)}`, driverParts: [] };
+  }
+  // 3. Steering wheel.
+  if (wheels.length) {
+    const w = wheels.reduce((a, b) => along(b) > along(a) ? b : a);
+    return { source: 'steering-wheel', eyeLdu: local(w, [0, -20, 30]), detail: `${cleanPartId(w.part)} at ${Math.round(w.x)}, ${Math.round(w.y)}, ${Math.round(w.z)}`, driverParts: [] };
+  }
+  // 4-5. Glass: the largest canopy mould, else the largest translucent part that is big enough to be glass.
+  const boundsCentre = (b: ParsedBrick): { centre: Vec3; size: Vec3; volume: number } | null => {
+    const m = meshes.get(b.part);
+    if (!m || !m.triangles.length) return null;
+    const box = aabbOfCorners(cornersOf(m.bounds.min, m.bounds.max).map(v => local(b, v)));
+    const size: Vec3 = [box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2]];
+    return { centre: [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2], size, volume: size[0] * size[1] * size[2] };
+  };
+  const largest = (list: ParsedBrick[]): { brick: ParsedBrick; centre: Vec3 } | null => {
+    let best: { brick: ParsedBrick; centre: Vec3; volume: number } | null = null;
+    for (const b of list) { const c = boundsCentre(b); if (c && (!best || c.volume > best.volume)) best = { brick: b, centre: c.centre, volume: c.volume }; }
+    return best;
+  };
+  const canopy = largest(placed.filter(b => isCanopyMould(b.part, desc(b))));
+  if (canopy) return { source: 'canopy-parts', eyeLdu: canopy.centre, detail: `${cleanPartId(canopy.brick.part)} at ${Math.round(canopy.brick.x)}, ${Math.round(canopy.brick.y)}, ${Math.round(canopy.brick.z)}`, driverParts: [] };
+  const glass = largest(placed.filter(b => {
+    if (resolveLdrawEntityMaterial(b.color).alpha >= 1) return false;
+    const c = boundsCentre(b);
+    return !!c && [...c.size].sort((p, q) => q - p)[1]! >= 30;
+  }));
+  if (glass) return { source: 'translucent-canopy', eyeLdu: glass.centre, detail: `${cleanPartId(glass.brick.part)} at ${Math.round(glass.brick.x)}, ${Math.round(glass.brick.y)}, ${Math.round(glass.brick.z)}`, driverParts: [] };
+  // 6. Default forward cabin.
+  const eye: Vec3 = frame.isXLongitudinal
+    ? [cx + frame.forwardSign * frame.spanX * 0.2, minY + (maxY - minY) * 0.35, cz]
+    : [cx, minY + (maxY - minY) * 0.35, cz + frame.forwardSign * frame.spanZ * 0.2];
+  return { source: 'default-cabin', eyeLdu: eye, detail: 'no figure, seat, steering wheel or glass found', driverParts: [] };
+}
+
+export async function compileLdrawEntityGeometry(
+  cid: string,
+  kind: EntityKind,
+  bricks: ParsedBrick[],
+  options: CompileLdrawEntityOptions = {},
+): Promise<CompiledLdrawGeometry> {
+  const scale = options.scale ?? BEDROCK_UNITS_PER_LDU;
+  const provider = options.partGeometry ?? createPartGeometryProvider();
+  const baseQuality = resolveEntityQuality(options.quality);
+  const warnings: string[] = [];
+
+  // 0-1. Level the pose, resolve meshes, split the placements into physically
+  // connected objects, classify the secondary ones (figures, a service cart,
+  // a display stand) and apply the display-stand rules - prepareEntityPlacements.
+  const prepared = await prepareEntityPlacements(kind, bricks, provider);
+  const { level, meshes, displayDropped, detached, extras } = prepared;
+  bricks = level.bricks;
+  let placed = prepared.placed;
+  let placedIdx = prepared.placedIdx;
+  let uniqueParts = [...new Set(placed.map(b => b.part))];
+  const skippedInternalCount = prepared.skippedInternalCount;
+  if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayDropped.rule === 'wheel-envelope' ? 'outside the wheel envelope or below the wheel line' : 'a small cluster far below the canopy'}).`);
+  if (detached.placements) warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out of it (${summariseExtras(extras)}).`);
 
   // 2. Frame: nose direction → A. The nose is INFERRED from the placements
   //    (driver parts, windscreen lean, tail lights, wheel asymmetry, canopy
   //    position, narrow end) unless the caller fixed it; see vehicle-facing.ts.
   const xs = placed.map(b => b.x), zs = placed.map(b => b.z);
   const spanX = Math.max(...xs) - Math.min(...xs), spanZ = Math.max(...zs) - Math.min(...zs);
-  const facing = inferVehicleNose(placed, kind, {
-    explicit: options.facing && options.facing !== 'auto' ? options.facing : undefined,
+  // A figure or prop is not a vehicle: its facing is the caller's (a figure's torso direction), else the convention.
+  const facing = inferVehicleNose(placed, kind === 'figure' || kind === 'prop' ? 'car' : kind, {
+    explicit: options.facing && options.facing !== 'auto' ? options.facing : (kind === 'figure' || kind === 'prop' ? '-z' : undefined),
     meshes,
-    isWheel: b => { const p = cleanPartId(b.part); return WHEEL_PARTS.has(p) || p.includes('wheel') || p.includes('tire'); },
+    isWheel: isWheelPartWith(meshes),
   });
   const nose = facing.nose;
   const isXLongitudinal = facing.axis === 'x';
@@ -676,14 +1030,23 @@ export async function compileLdrawEntityGeometry(
   const A = ldrawToRenderRotation(nose);
   const At = transpose(A);
 
-  // 3. Cockpit (unchanged heuristics; translucency now by material).
-  const isTranslucentBrick = (b: ParsedBrick): boolean => resolveLdrawEntityMaterial(b.color).alpha < 1;
-  const seatBricks = placed.filter(b => SEAT_PARTS.has(cleanPartId(b.part)));
-  const dedicatedCanopies = placed.filter(b => CANOPY_PARTS.has(cleanPartId(b.part)));
-  const translucentBricks = placed.filter(isTranslucentBrick);
-  const avg = (list: ParsedBrick[]): Vec3 => [
-    list.reduce((a, b) => a + b.x, 0) / list.length, list.reduce((a, b) => a + b.y, 0) / list.length, list.reduce((a, b) => a + b.z, 0) / list.length,
-  ];
+  // 3. Cockpit: ranked evidence on the PRIMARY object only (see findCockpit).
+  //    A seated figure wins; the player then replaces that figure, so its
+  //    parts leave the geometry (reported). The old average over every
+  //    translucent part put the X-wing's rider under its tail: four engine
+  //    glows and a service cart's lamps outvoted the one canopy.
+  const cockpit = kind === 'figure' || kind === 'prop'
+    ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [] }
+    : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ });
+  let driverFigureRemoved = 0;
+  if (cockpit.driverParts.length) {
+    const drop = new Set(cockpit.driverParts);
+    driverFigureRemoved = drop.size;
+    placed = placed.filter((_, i) => !drop.has(i));
+    placedIdx = placedIdx.filter((_, i) => !drop.has(i));
+    uniqueParts = [...new Set(placed.map(b => b.part))];
+    warnings.push(`${cid}: the seated driver figure (${driverFigureRemoved} part${driverFigureRemoved === 1 ? '' : 's'}) was left out of the geometry; the player sits in its place.`);
+  }
 
   // 4. Instantiate prototypes into the render frame (body cuboids first, studs after exposure).
   const compileAt = (quality: LegoEntityQuality) => {
@@ -901,27 +1264,13 @@ export async function compileLdrawEntityGeometry(
   const totalHeight = (all.max[1] - all.min[1]) * scale / 16;
   const totalLength = (all.max[2] - all.min[2]) * scale / 16;
 
-  // 7. Seat + collision from the cockpit anchor (LDraw) mapped through the same frame.
-  let cockpitLdu: Vec3;
-  let cockpitSource: LegoGeometryDiagnostics['cockpit']['source'];
-  if (seatBricks.length) { cockpitLdu = avg(seatBricks); cockpitSource = 'seat-parts'; }
-  else if (dedicatedCanopies.length) { cockpitLdu = avg(dedicatedCanopies); cockpitSource = 'canopy-parts'; }
-  else if (translucentBricks.length) { cockpitLdu = avg(translucentBricks); cockpitSource = 'translucent-parts'; }
-  else {
-    cockpitSource = 'default-cabin';
-    // Default forward cabin: forward 20 %, 35 % up.
-    const ys = placed.map(b => b.y);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2, cz = (Math.min(...zs) + Math.max(...zs)) / 2;
-    cockpitLdu = isXLongitudinal
-      ? [cx + forwardSign * spanX * 0.2, minY + (maxY - minY) * 0.35, cz]
-      : [cx, minY + (maxY - minY) * 0.35, cz + forwardSign * spanZ * 0.2];
-  }
-  const cockpitUnits = toUnits(apply(A, cockpitLdu));
-  // Player eyes sit 1.62 blocks above the seat; put them at the cockpit centre, slightly set back.
-  const seatX = Math.abs(cockpitUnits[0] / 16) < 0.8 ? 0 : round(cockpitUnits[0] / 16);
-  const seatY = Math.max(0.4, round(cockpitUnits[1] / 16 - 1.25));
-  const seatZ = round(cockpitUnits[2] / 16 + 0.35);
+  // 7. Seat + collision. The cockpit's EYE point (LDraw) goes through the same
+  //    frame; the rider's origin sits SEATED_EYE_HEIGHT_BLOCKS below it.
+  const cockpitUnits = toUnits(apply(A, cockpit.eyeLdu));
+  const seatX = Math.abs(cockpitUnits[0] / 16) < 0.3 ? 0 : round(cockpitUnits[0] / 16);
+  const seatY = Math.max(0.3, round(cockpitUnits[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS));
+  // A canopy or default cabin is a volume, not a seat: set the rider back a little so the eyes sit inside the glass.
+  const seatZ = round(cockpitUnits[2] / 16 + (cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' || cockpit.source === 'steering-wheel' ? 0 : 0.35));
   const collisionBox = {
     width: Math.min(3.5, Math.max(0.8, Math.round(totalWidth * 0.85 * 10) / 10)),
     height: Math.min(2.5, Math.max(0.8, Math.round(totalHeight * 0.8 * 10) / 10)),
@@ -1039,7 +1388,9 @@ export async function compileLdrawEntityGeometry(
     pbr: options.pbr ?? false,
     substitutedParts: report.substitutions,
     studFacets,
-    cockpit: { source: cockpitSource, units: [round(cockpitUnits[0]), round(cockpitUnits[1]), round(cockpitUnits[2])] },
+    cockpit: { source: cockpit.source, units: [round(cockpitUnits[0]), round(cockpitUnits[1]), round(cockpitUnits[2])], detail: cockpit.detail },
+    driverFigureRemoved,
+    extras: extras.map(e => ({ role: e.role, placements: e.sourceIndices.length, reason: e.reason })),
     leveled: level.rotation ? { angleDeg: round(level.angleDeg), alignedBefore: level.alignedBefore, alignedAfter: level.alignedAfter } : null,
     detached,
     displayDropped,
@@ -1075,6 +1426,9 @@ export async function compileLdrawEntityGeometry(
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
     facing: nose,
     keptSourceIndices: placedIdx,
+    extras,
+    originLdu: apply(At, [midX, floorY, midZ]),
+    levelPose: level.rotation ? { rotation: [...level.rotation], centre: [...level.centre] as Vec3 } : null,
     diagnostics,
     warnings,
   };
