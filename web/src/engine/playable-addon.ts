@@ -284,7 +284,10 @@ function figureBehavior(id: string, size: { width: number; height: number; lengt
         'minecraft:collision_box': { width: Math.min(0.9, Math.max(0.5, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(2, Math.max(1.2, Math.round(size.height * 10) / 10)) },
         'minecraft:physics': { has_gravity: true, has_collision: true },
         'minecraft:pushable_by_block': {},
-        'minecraft:pushable_by_entity': { is_pushable: true, is_pushable_by_piston: true },
+        // No members at format 1.26.30: `is_pushable` belonged to the removed
+        // `minecraft:pushable`. With them every figure failed to parse on the
+        // Pixel ("is not present in the Schema") and the wand aborted on it.
+        'minecraft:pushable_by_entity': {},
         'minecraft:movement': { value: 0.18 },
         'minecraft:movement.basic': {},
         'minecraft:navigation.walk': { can_path_over_water: false, avoid_water: true, avoid_damage_blocks: true, can_open_doors: true, can_pass_doors: true, avoid_portals: true },
@@ -1052,7 +1055,16 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
     }
     try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }
   };
-  const scheme = (player: any, value: string): void => { try { player.runCommand(`controlscheme @s ${value}`); } catch {} };
+  // Measured on the Pixel 2026-09-16: `/controlscheme @s set player_relative`
+  // typed in chat makes the stick turn the rider; the same command run ONCE
+  // from the script on mount did not take (the ride's own scheme lands after
+  // it, and a remount reverted a chat-set scheme). So it is re-applied every
+  // 10 ticks while riding, through both command paths.
+  const scheme = (player: any, value: string): void => {
+    try { player.runCommand(`controlscheme @s ${value}`); } catch {}
+    try { player.runCommandAsync?.(`controlscheme @s ${value}`)?.catch?.(() => {}); } catch {}
+  };
+  let schemeTick = 0;
   system.runInterval(() => {
     const riding = new Map<string, { player: any; vehicle: any; cfg: any }>();
     for (const d of dimensions()) {
@@ -1076,9 +1088,12 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
       if (!t || t.typeId !== cfg.typeId) {
         scheme(player, 'set player_relative');
         tracked.set(id, { typeId: cfg.typeId, chase: true });
+      } else if (schemeTick % 10 === 0) {
+        scheme(player, 'set player_relative');
       }
       if (!chase(player, vehicle, cfg) && !t) applyPreset(player, cfg.preset);
     }
+    schemeTick++;
     if (tracked.size) {
       let players: any[] = [];
       try { players = world.getAllPlayers(); } catch {}

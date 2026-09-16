@@ -58,6 +58,13 @@ export interface SceneDoor {
   /** The horizontal axis the leaf runs along, and which end of it the hinge is on. */
   alongAxis: 'x' | 'z';
   hingeAtMin: boolean;
+  /**
+   * Across the leaf (its thin axis), the extent of the frame it hangs in - a
+   * 20 LDU wall straddling a cell boundary is TWO blocks thick, and a door
+   * cut only from the leaf's own cell sat entombed in the other half (every
+   * museum door on the Pixel, 2026-09-16). Absent when no frame encloses it.
+   */
+  frameAcrossLdu?: [number, number];
 }
 
 export interface SceneActors {
@@ -134,7 +141,12 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     seats.push({ part: cleanPartId(b.part), surfaceLdu: surface, facingLdu: facing });
   }
 
-  // Door leaves.
+  // Door leaves, and the frames they hang in.
+  const frames: Array<{ min: Vec3; max: Vec3 }> = [];
+  for (const b of bricks) {
+    const m = meshes.get(b.part);
+    if (m && m.triangles.length && /^[~=_]*\s*Door\b.*\bFrame\b/i.test(m.description)) frames.push(worldBounds(b, m));
+  }
   const doors: SceneDoor[] = [];
   for (const b of bricks) {
     const m = meshes.get(b.part);
@@ -145,7 +157,10 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     // The hinge is the end of the leaf nearest the mould's origin (every LDraw door leaf: measured 2026-09-16).
     const o = alongAxis === 'x' ? b.x : b.z;
     const lo = alongAxis === 'x' ? box.min[0] : box.min[2], hi = alongAxis === 'x' ? box.max[0] : box.max[2];
-    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi) });
+    const centre: Vec3 = [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2];
+    const frame = frames.find(f => centre[0] >= f.min[0] - 4 && centre[0] <= f.max[0] + 4 && centre[1] >= f.min[1] - 4 && centre[1] <= f.max[1] + 4 && centre[2] >= f.min[2] - 4 && centre[2] <= f.max[2] + 4);
+    const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
+    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
   }
   return { figures, seats, doors, figureBricks, meshes };
 }
@@ -222,11 +237,31 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
       return [best, best + count - 1];
     };
     const [x0, x1] = d.alongAxis === 'x' ? along(a[0], b[0]) : thin(a[0], b[0]);
-    const [y0, y1] = span(a[1], b[1]);
+    let [y0, y1] = span(a[1], b[1]);
     const [z0, z1] = d.alongAxis === 'z' ? along(a[2], b[2]) : thin(a[2], b[2]);
     if (y1 - y0 + 1 < 2) { stats.skippedSmall++; continue; }
     if (x0 < 0 || y0 < 0 || z0 < 0 || x1 >= grid.width || y1 >= grid.height || z1 >= grid.length) { stats.skippedOutside++; continue; }
-    for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) { grid.set(x, y, z, 'minecraft:air'); stats.leavesCleared++; }
+    // The door must rest on a block: a leaf whose bottom edge reads just above the
+    // floor cell sits one cell up, and a Bedrock door over air pops off (3 of 6
+    // museum doors on the Pixel). Step down onto the first solid cell, at most one.
+    const solidBelow = (y: number): boolean => y - 1 < 0 || grid.get(x0, y - 1, z0) !== 'minecraft:air';
+    if (!solidBelow(y0) && y0 - 1 >= 0 && solidBelow(y0 - 1)) { y0 -= 1; y1 = Math.max(y1, y0 + 1); }
+    if (!solidBelow(y0)) { stats.skippedOutside++; continue; }
+    // The passage across the doorway: every cell the FRAME straddles across the
+    // leaf's thin axis (a 20 LDU wall on a cell boundary is two blocks thick).
+    const acrossCells = (): [number, number] => {
+      if (!d.frameAcrossLdu) return d.alongAxis === 'x' ? [z0, z1] : [x0, x1];
+      const f = d.alongAxis === 'x'
+        ? [sceneGridPoint(frame, [0, 0, d.frameAcrossLdu[0]])[2], sceneGridPoint(frame, [0, 0, d.frameAcrossLdu[1]])[2]]
+        : [sceneGridPoint(frame, [d.frameAcrossLdu[0], 0, 0])[0], sceneGridPoint(frame, [d.frameAcrossLdu[1], 0, 0])[0]];
+      const [lo, hi] = span(f[0]!, f[1]!);
+      const limit = d.alongAxis === 'x' ? grid.length : grid.width;
+      return [Math.max(0, Math.min(lo, d.alongAxis === 'x' ? z0 : x0)), Math.min(limit - 1, Math.max(hi, d.alongAxis === 'x' ? z1 : x1))];
+    };
+    const [c0, c1] = acrossCells();
+    const [px0, px1] = d.alongAxis === 'x' ? [x0, x1] : [c0, c1];
+    const [pz0, pz1] = d.alongAxis === 'x' ? [c0, c1] : [z0, z1];
+    for (let y = y0; y <= y1; y++) for (let z = pz0; z <= pz1; z++) for (let x = px0; x <= px1; x++) { grid.set(x, y, z, 'minecraft:air'); stats.leavesCleared++; }
     const block = doorBlockForColor(d.color);
     // Thin axis = the one the leaf does NOT run along; the door faces its positive side.
     const facing = d.alongAxis === 'x' ? 'south' : 'east';
