@@ -61,7 +61,7 @@ const CANOPY_PARTS = new Set([
 ]);
 
 /** Seats the driver sits ON (steering wheels are ranked separately: the driver sits behind them). */
-const SEAT_PARTS = new Set(['4079', '4079b', '33176', '58888', '14520', '2432']);
+const SEAT_PARTS = new Set(['4079', '4079b', '33176', '58888', '14520']);
 /** Steering wheels and steering stands: the driver sits ~30 LDU behind, eyes ~20 LDU above the wheel. */
 const STEERING_PARTS = new Set(['3829', '3829c01', '73081']);
 /** Minifig torsos: the anchor of a figure (a figure is torso + head + legs, everything else is dressing). */
