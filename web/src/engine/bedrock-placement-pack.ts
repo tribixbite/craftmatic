@@ -288,7 +288,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     if (active) return tell(p, 'Another placement is running.');
     const s = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
     validate(p, s); active = { player: p.id, cancelled: false }; previews.delete(p.id);
-    const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [];
+    const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [], failedActors: string[] = [];
     const previous = histories.get(p.id);
     removeGhost(p.id);
     // Live progress on the action bar (the chat log scrolls away); one chat
@@ -326,16 +326,25 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         progress(config.tiles.length + j, `spawning ${actor.label}`);
         await load(dim, { x: s.anchor.x + q.x - 1, z: s.anchor.z + q.z - 1 }, { x: s.anchor.x + q.x + 1, z: s.anchor.z + q.z + 1 });
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
-        const entity = dim.spawnEntity(actor.typeId, { x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
-        entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + s.rotation }); entities.push(entity.id);
-        progress(config.tiles.length + j + 1, `${actor.label} placed`);
+        // One entity that fails to spawn (a type the content log rejected)
+        // must not stop the rest: the Pixel round of 2026-09-16 lost every
+        // vehicle placement to its first figure NPC.
+        try {
+          const entity = dim.spawnEntity(actor.typeId, { x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
+          entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + s.rotation }); entities.push(entity.id);
+          progress(config.tiles.length + j + 1, `${actor.label} placed`);
+        } catch (e: any) {
+          failedActors.push(actor.label);
+          tell(p, `§e${actor.label} could not be spawned (${e && e.message ? e.message : e}); continuing.`);
+          progress(config.tiles.length + j + 1, `${actor.label} skipped`);
+        }
         await wait(settle);
       }
       if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
       histories.set(p.id, { dimension: dim.id, backups, entities });
       progress(total, 'done');
       await wait(hold);
-      tell(p, `§aPlaced ${config.label}. Use the Brick Wand to undo.`);
+      tell(p, failedActors.length ? `§aPlaced ${config.label} (${failedActors.length} entit${failedActors.length === 1 ? 'y' : 'ies'} could not be spawned). Use the Brick Wand to undo.` : `§aPlaced ${config.label}. Use the Brick Wand to undo.`);
     } catch (e: any) {
       if (backups.length || entities.length) {
         if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}

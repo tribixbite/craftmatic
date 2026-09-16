@@ -132,6 +132,25 @@ describe('applySceneDoors', () => {
     expect(grid.get(2, 0, 2)).toMatch(/^minecraft:spruce_door\[facing=south,half=lower,hinge=right/);
     expect(grid.get(3, 0, 2)).toBe('minecraft:stone');
   });
+  it('steps a leaf that reads one cell above the floor down onto it, and opens both cells of a wall the frame straddles', () => {
+    const grid = new BlockGrid(6, 6, 6);
+    // Floor at y 0; a two-cell-thick wall (cells z 2 and 3, the frame straddles their boundary) from y 2 up, so
+    // the cell under the leaf's bottom cell is air; rooms either side.
+    for (let x = 0; x < 6; x++) for (let z = 0; z < 6; z++) grid.set(x, 0, z, 'minecraft:stone');
+    for (let x = 0; x < 6; x++) for (let y = 2; y < 6; y++) { grid.set(x, y, 2, 'minecraft:stone'); grid.set(x, y, 3, 'minecraft:stone'); }
+    const zc = 3 * LDU_PER_BLOCK; // the boundary between cells 2 and 3: the leaf's centre cell is 3
+    const bottom = -(2 * LDU_PER_BLOCK + 8); // bottom edge reads cell 2, over air in cell 1
+    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, bottom - 144, zc - 3], maxLdu: [LDU_PER_BLOCK + 80, bottom, zc + 3], alongAxis: 'x', hingeAtMin: true, frameAcrossLdu: [zc - 10, zc + 10] }], frame);
+    expect(stats.doors).toBe(2);
+    // Stepped down one cell to rest on the floor.
+    expect(grid.get(1, 1, 3)).toMatch(/^minecraft:spruce_door\[facing=south,half=lower/);
+    expect(grid.get(1, 2, 3)).toMatch(/half=upper/);
+    // The straddled cell 2 is opened over the doorway's columns and height, so the door is reachable from both rooms.
+    expect(grid.get(1, 2, 2)).toBe('minecraft:air');
+    expect(grid.get(2, 4, 2)).toBe('minecraft:air');
+    expect(grid.get(0, 3, 2)).toBe('minecraft:stone');
+    expect(grid.get(1, 0, 2)).toBe('minecraft:stone');
+  });
   it('leaves a leaf under two cells tall alone', () => {
     const grid = new BlockGrid(4, 4, 4);
     grid.set(1, 0, 1, 'minecraft:stone');

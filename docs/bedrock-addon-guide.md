@@ -185,6 +185,26 @@ settles them.
   component and scene actor failed to align ("Component alignment requires
   resolved source geometry"). The test is now the resolver's own fallback
   count.
+- **Third device round (2026-09-16, `output/bedrock-entity-qa/captures-2026-09-16/`,
+  58 shots + `notes.md`)**: rider IN the X-wing cockpit (seat 0, 1.89, 1.5 =
+  the player's readout), both planes fly nose-first, Senna 2.70 × 2.01 × 7.12
+  blocks, the cart on the pilot's LEFT (so `extraPlacement`'s frame holds),
+  the seat entity seats and the Dismount button frees. Found and fixed the
+  same day: `minecraft:pushable_by_entity` takes NO members at 1.26.30 (every
+  figure failed to parse and the wand aborted on its first actor - the
+  placement script now skips a failed actor and says so); a scripted
+  `controlscheme` once on mount did not take while the chat command did, so
+  it is re-applied every 10 ticks; doors sat entombed in the second cell of
+  a straddled 20 LDU wall and three floated over air (the cut now opens every
+  cell the FRAME straddles and steps the door down onto the floor). Still
+  open: the Tumbler's 32 LDU grain reads 14.5 wide (11.5 true) with blobs
+  where the rear tyres are (the repeated-part budget item). Device facts:
+  Pixel at `192.168.0.122:5555` with an `SM_X730` also attached (always set
+  `ANDROID_SERIAL`); a `… && adb … &` chain backgrounds the whole chain in
+  Git Bash (wrap the backgrounded part in `{ … & }`); the chase camera is
+  re-set every tick, so `/camera @s clear` cannot give a first-person view
+  while riding; `/execute … positioned ^ ^ ^N run summon` ignores the
+  offset; the flat 61×61 test platform is at −123/66/500 in the QA world.
 - **Patch hygiene**: a Python `"""…"""` patch string turns `\b` into a
   BACKSPACE; seven regex word boundaries in the compiler silently became
   `\x08` and `isFigurePart('…','Minifig Hair')` returned false. Use raw
