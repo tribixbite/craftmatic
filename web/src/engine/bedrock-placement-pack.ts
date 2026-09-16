@@ -11,6 +11,8 @@ export interface PlacementActor {
   label: string;
   x: number; y: number; z: number;
   yaw?: number;
+  /** Index of another actor this one rides once both are spawned (a figure found sitting on a seat). */
+  rideOf?: number;
 }
 
 export interface PlacementPackSpec {
@@ -288,7 +290,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     if (active) return tell(p, 'Another placement is running.');
     const s = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
     validate(p, s); active = { player: p.id, cancelled: false }; previews.delete(p.id);
-    const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [], failedActors: string[] = [];
+    const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [], failedActors: string[] = [], spawned: any[] = [];
     const previous = histories.get(p.id);
     removeGhost(p.id);
     // Live progress on the action bar (the chat log scrolls away); one chat
@@ -331,7 +333,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // vehicle placement to its first figure NPC.
         try {
           const entity = dim.spawnEntity(actor.typeId, { x: s.anchor.x + q.x, y: s.anchor.y + q.y, z: s.anchor.z + q.z });
-          entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + s.rotation }); entities.push(entity.id);
+          entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + s.rotation }); entities.push(entity.id); spawned[j] = entity;
           progress(config.tiles.length + j + 1, `${actor.label} placed`);
         } catch (e: any) {
           failedActors.push(actor.label);
@@ -339,6 +341,15 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           progress(config.tiles.length + j + 1, `${actor.label} skipped`);
         }
         await wait(settle);
+      }
+      // A figure the source seated on a chair rides that chair's seat entity (its sit pose plays while riding).
+      for (let j = 0; j < config.actors.length; j++) {
+        const actor = config.actors[j];
+        if (actor.rideOf === undefined || !spawned[j] || !spawned[actor.rideOf]) continue;
+        try {
+          const seat = spawned[actor.rideOf].getComponent('minecraft:rideable');
+          if (!seat || !seat.addRider(spawned[j])) tell(p, `§e${actor.label} could not take its seat; it stands instead.`);
+        } catch (e: any) { tell(p, `§e${actor.label} could not take its seat (${e && e.message ? e.message : e}).`); }
       }
       if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
       histories.set(p.id, { dimension: dim.id, backups, entities });

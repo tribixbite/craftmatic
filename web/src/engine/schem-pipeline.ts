@@ -283,7 +283,7 @@ export async function runSchemPipeline(
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
     const screens = [];
-    const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number] }> = [];
+    const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }> = [];
     const seats: Array<{ x: number; y: number; z: number; yaw: number; label: string }> = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
@@ -305,7 +305,7 @@ export async function runSchemPipeline(
           const frame = sourceOrigin;
           for (const f of scene.figures) {
             const p = sceneGridPoint(frame, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
-            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu });
+            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);
           }
           for (const s of scene.seats) {

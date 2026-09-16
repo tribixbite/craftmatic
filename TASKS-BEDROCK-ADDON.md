@@ -66,11 +66,13 @@ the shell actor position (`bedrock-building-shell.ts` header explains the frame)
 
 ## Open (not started)
 
-- [ ] **Seated figures**: a figure found ON a seat (`SceneFigure.seated`) still
-      spawns standing and walks off. Designed, not built: spawn it riding the
-      seat entity (placement.js `addRider`, seat `family_types` + `craftmatic_figure`);
-      the `sit` animation (legs −90°) is already in the pack and plays on `query.is_riding`
-      - its leg sign is unverified.
+- [ ] **Seated figures (built after the round-4 packs, device-unverified)**: a
+      figure found on a seat now spawns riding that seat's entity (`rideOf` in
+      placement.js `addRider`, seat `family_types` + `craftmatic_figure`) and the
+      `sit` animation plays on `query.is_riding`. To verify on the Pixel: re-export
+      the chalet (`round-2026-09-16b/chalet-seated.mcaddon` is one, 9 seats, figures
+      4/5/6 seated), place, census figures 4-6 sit; check the leg sign (−90° may fold
+      backwards) and that a seated figure does not wander.
 - [ ] **The block grid is a mirror image of the LEGO model** (LDraw (x,y,z) →
       cells (x,−y,z); both frames are right-handed). Invisible on symmetric
       builds; a door hinge side or a printed sign would show it. Fixing it
