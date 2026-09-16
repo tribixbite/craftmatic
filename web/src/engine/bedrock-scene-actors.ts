@@ -102,6 +102,8 @@ function worldBounds(b: ParsedBrick, mesh: LdrawPartMesh): { min: Vec3; max: Vec
 /** A door LEAF (not a frame, not the glass insert, not a sticker). */
 export function isDoorLeafDescription(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
+  // 60616's unofficial file is described "GLASS DOOR FOR FRAME 1X4X6 (Needs Work)": a leaf, not the glass insert.
+  if (/^GLASS DOOR\b/i.test(d)) return true;
   return /^Door\b/i.test(d) && !/\b(Frame|Glass|Sticker|Sliding|Revolving)\b/i.test(d);
 }
 
@@ -200,7 +202,13 @@ export function doorBlockForColor(color: number): string {
   return 'minecraft:oak_door';
 }
 
-export interface DoorPlacementStats { doors: number; leavesCleared: number; skippedSmall: number; skippedOutside: number }
+export interface DoorPlacementStats {
+  doors: number; leavesCleared: number; skippedSmall: number; skippedOutside: number;
+  /** Solid cells opened across the doorway so a door can be reached from a room within three cells. */
+  passageCleared: number;
+  /** Doors with no air within three cells on either side (deep inside a solid mass): left as they are. */
+  unreachable: number;
+}
 
 /**
  * Cut each door leaf out of the block scenery and stand vanilla doors in the
@@ -211,7 +219,7 @@ export interface DoorPlacementStats { doors: number; leavesCleared: number; skip
  * pair opens like double doors.
  */
 export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: SceneGridFrame): DoorPlacementStats {
-  const stats: DoorPlacementStats = { doors: 0, leavesCleared: 0, skippedSmall: 0, skippedOutside: 0 };
+  const stats: DoorPlacementStats = { doors: 0, leavesCleared: 0, skippedSmall: 0, skippedOutside: 0, passageCleared: 0, unreachable: 0 };
   for (const d of doors) {
     const a = sceneGridPoint(frame, d.minLdu), b = sceneGridPoint(frame, d.maxLdu);
     // Along the leaf and up: every cell it straddles. Across its thickness (6 LDU,
@@ -241,10 +249,22 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
     const [z0, z1] = d.alongAxis === 'z' ? along(a[2], b[2]) : thin(a[2], b[2]);
     if (y1 - y0 + 1 < 2) { stats.skippedSmall++; continue; }
     if (x0 < 0 || y0 < 0 || z0 < 0 || x1 >= grid.width || y1 >= grid.height || z1 >= grid.length) { stats.skippedOutside++; continue; }
+    // Outside the model is the open world: a door on the outer wall opens onto it.
+    const cellAt = (x: number, y: number, z: number): string => (x < 0 || z < 0 || y < 0 || x >= grid.width || z >= grid.length || y >= grid.height) ? 'minecraft:air' : grid.get(x, y, z);
+    const acrossAt = (k: number): [number, number] => d.alongAxis === 'x' ? [x0, z0 + k] : [x0 + k, z0];
+    const airAcross = (y: number): number => { let n = 0; for (const k of [-3, -2, -1, 1, 2, 3]) { const [x, z] = acrossAt(k); if (cellAt(x, y, z) === 'minecraft:air') n++; } return n; };
+    // Floor-ness is judged on cells INSIDE the grid only (an exterior door's outside is air by definition).
+    const solidAcrossInGrid = (y: number): boolean => { for (const k of [-3, -2, -1, 1, 2, 3]) { const [x, z] = acrossAt(k); if (x < 0 || z < 0 || x >= grid.width || z >= grid.length) continue; if (grid.get(x, y, z) === 'minecraft:air') return false; } return true; };
+    // A leaf that starts inside the FLOOR's cell (an 8 LDU baseplate makes its
+    // whole 53 LDU cell solid, and the leaf sits on that plate) reads its
+    // bottom cell as the floor row: every neighbour across is solid there and
+    // air begins one cell up. The door then hangs one cell up, on the floor,
+    // instead of replacing the floor and popping off - the museum on the Pixel.
+    if (solidAcrossInGrid(y0) && airAcross(y0 + 1) > 0 && y1 > y0 + 1) y0 += 1;
     // The door must rest on a block: a leaf whose bottom edge reads just above the
     // floor cell sits one cell up, and a Bedrock door over air pops off (3 of 6
     // museum doors on the Pixel). Step down onto the first solid cell, at most one.
-    const solidBelow = (y: number): boolean => y - 1 < 0 || grid.get(x0, y - 1, z0) !== 'minecraft:air';
+    const solidBelow = (y: number): boolean => y - 1 < 0 || cellAt(x0, y - 1, z0) !== 'minecraft:air';
     if (!solidBelow(y0) && y0 - 1 >= 0 && solidBelow(y0 - 1)) { y0 -= 1; y1 = Math.max(y1, y0 + 1); }
     if (!solidBelow(y0)) { stats.skippedOutside++; continue; }
     // The passage across the doorway: every cell the FRAME straddles across the
@@ -275,6 +295,20 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
       const hingeAtLeftEnd = d.alongAxis === 'x' ? d.hingeAtMin : !d.hingeAtMin;
       return hingeAtLeftEnd;
     };
+    // A door implies a passage: across its thin axis, on each side, open the
+    // solid cells between the door and the nearest air within three cells
+    // (a facade two studs deep, a straddled wall the frame did not cover).
+    // Five of the museum's six doors were entombed this way on the Pixel.
+    let reachable = false;
+    for (const c of cells) for (const dir of [-1, 1]) {
+      const at = (k: number): [number, number] => d.alongAxis === 'x' ? [c.x, c.z + dir * k] : [c.x + dir * k, c.z];
+      let airAt = -1;
+      for (let k = 1; k <= 3; k++) { const [x, z] = at(k); if (cellAt(x, y0, z) === 'minecraft:air' && cellAt(x, y0 + 1, z) === 'minecraft:air') { airAt = k; break; } }
+      if (airAt < 0) continue;
+      reachable = true;
+      for (let k = 1; k < airAt; k++) { const [x, z] = at(k); for (const y of [y0, y0 + 1]) if (cellAt(x, y, z) !== 'minecraft:air') { grid.set(x, y, z, 'minecraft:air'); stats.passageCleared++; } }
+    }
+    if (!reachable) stats.unreachable++;
     cells.forEach((c, i) => {
       const hinge = hingeLeft(i) ? 'left' : 'right';
       grid.set(c.x, y0, c.z, `${block}[facing=${facing},half=lower,hinge=${hinge},open=false,powered=false]`);

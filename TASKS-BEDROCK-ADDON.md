@@ -44,23 +44,34 @@ digit.** Pixel helpers: `scripts/_pixel_shot.sh`, `scripts/_pixel_cmd.sh`.
 
 ## Device rounds (2026-09-16)
 
-Round 1 (`output/bedrock-entity-qa/captures-2026-09-16/`, 58 shots + `notes.md`)
-settled: rider IN the X-wing cockpit; both planes fly nose-first; Senna
-2.70 × 2.01 × 7.12 blocks; the cart on the pilot's LEFT (the `extraPlacement`
-frame holds); the seat entity seats. It found four defects, fixed in `d15c1f3`
-and rebuilt into the same pack dir; round 2 (Opus subagent, evidence in
-`captures-2026-09-16b/`) re-tests them:
-- [ ] Figures parse (empty `pushable_by_entity`) and the wand places every actor
-      (a failed one is skipped and named).
-- [ ] Figures are player height, stroll, look at the player.
-- [ ] The joystick TURNS the Senna and the X-wing (scheme re-applied every 10
-      ticks). If it still strafes: the command path from script is dead - try
-      `runCommandAsync` results, or an `inputInfo.getMovementVector().x` → yaw
-      script, or `input_air_controlled` for planes.
-- [ ] Museum doors rest on blocks and are reachable/open (frame-straddle cells
-      opened, floor step-down); figures open doors themselves.
-- [ ] Winter Chalet: 7 figures, 2 doors (one leaf "outside bounds": no floor
-      under it - investigate), 9 seats.
+Round 1 (`captures-2026-09-16/`) settled: rider IN the X-wing cockpit; both
+planes nose-first; Senna 2.70 × 2.01 × 7.12 blocks; the cart on the pilot's
+LEFT (the `extraPlacement` frame holds); the seat entity seats. Round 2
+(`captures-2026-09-16b/`, 75 shots) settled the fixes: figures parse and the
+wand places every actor; the joystick TURNS the Senna and the X-wing (0.00
+blocks of strafe over three trials, heading +69°); figures stroll 10-18
+blocks / 30 s and stand 1.96 blocks (hair and head stud over the 96 LDU
+bare figure; accepted). Round 2 also found: 5 of 6 museum doors entombed and
+the Winter Chalet a floating sparse slab - both from the **DbixConvV3
+sources, which are exploded instruction layouts** (chalet 125 × 116 studs
+there, 41 × 18 in its `.io`; museum 114 studs wide vs 48). Fixed since: door
+leaves hang ON the floor row (an 8 LDU baseplate makes its cell solid), a
+passage is opened to the nearest air within three cells, the outside of the
+model counts as open, `GLASS DOOR FOR FRAME` (60616's unofficial file) is a
+leaf, `bl_…_torso` Studio ids are figures, figures are tethered
+(`minecraft:home` radius 12). Buildings now export from `IOModel2V2/10326-noprint.ldr`,
+`IO/910004.io`, `IO/910047.io` (`run-buildings.sh`): museum 6 doors / 9
+figures / 1 seat (2 doors still "no room within three blocks"), chalet 4
+doors / 7 figures / 6 seats, 910047 8 figures. Round 3 (Opus subagent,
+`captures-2026-09-16c/`) re-tests them:
+- [ ] Museum and chalet place as recognisable buildings; doors rest on
+      blocks, are reachable and open; figures stay within ~12 blocks; seats
+      seat; 910047's 8 figures walk.
+- [ ] **Which source the LEGO tab serves matters**: the prod index lists
+      `IO/10326-noprint.io` first for 10326 (79 studs wide - sub-builds beside
+      each other) and DbixConvV3 for many sets. An exported building is only
+      as good as the layout of the source the user loaded; consider a
+      "compact layout" quality flag in the index (lego-sources-guide).
 - [ ] Tumbler at 32 LDU grain reads 14.5 blocks wide (true 11.5) with blobs
       where the rear tyres are: the repeated-part budget item below.
 

@@ -47,6 +47,9 @@ describe('part helpers', () => {
     expect(isFigurePart('4079', 'Minifig Seat  2 x  2')).toBe(false);
     expect(isFigurePart('3626', '')).toBe(true);
     expect(isFigurePart('3001', 'Brick  2 x  4')).toBe(false);
+    // Studio custom torsos (BrickLink Designer Program sets) carry a bl_ prefix and a _torso suffix.
+    expect(isFigurePart('bl_973pb5574c01_torso', 'FILE bl_973pb5574c01_torso.dat')).toBe(true);
+    expect(baseMould('bl_973pb5574c01_torso')).toBe('973'); // the print suffix goes too: the mould is the plain torso
   });
   it('snapFacing picks the nearest axis', () => {
     expect(snapFacing([0, -1])).toBe('-z');
