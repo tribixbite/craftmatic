@@ -43,6 +43,8 @@ describe('discoverSceneActors', () => {
       { part: '4079.dat', color: 0, x: 600, y: 0, z: 0, rot: I },       // free seat
       { part: '4079.dat', color: 0, x: 900, y: 0, z: 0, rot: I },       // taken: a figure sits on it
       ...figure(900, 0).map(b => ({ ...b, y: b.y - 8 })),
+      ...figure(1800, 0).map(b => ({ ...b, color: 71 })),           // a single-colour statue: stays in the blocks
+      ...figure(2100, 0).filter(b => !/381[567]/.test(b.part)),    // a bust (no legs): stays in the blocks
       { part: '60623.dat', color: 6, x: 1200, y: 0, z: 0, rot: I },     // door leaf, hinge at x=1200
       { part: '60596.dat', color: 6, x: 1240, y: 0, z: 0, rot: I },     // its frame: not a leaf
       { part: '3821.dat', color: 15, x: 1500, y: 0, z: 0, rot: I },     // a cupboard door, 24 LDU tall

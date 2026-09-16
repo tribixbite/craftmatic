@@ -706,6 +706,21 @@ export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPar
   return groups;
 }
 
+/**
+ * Whether a torso group is a minifig that should LIVE (walk as an NPC) or a
+ * display piece that stays in the block scenery: a group in ONE colour is a
+ * statue (the museum's two light-grey figures on plinths, Pixel round 3),
+ * and a group without legs is a bust or a partial figure - as an NPC it
+ * rendered as a floating blob.
+ */
+export function figureRole(parts: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): 'npc' | 'statue' | 'partial' {
+  const colours = new Set(parts.map(b => b.color));
+  const hasLegs = parts.some(b => /^(970|3815|3816|3817|41879|16968)(?![0-9])/.test(figureId(b.part)) || /^Minifig (Hips|Leg)/i.test((meshes.get(b.part)?.description ?? '').replace(/^[~=_]+\s*/, '')));
+  if (!hasLegs) return 'partial';
+  if (colours.size === 1 && parts.length >= 3) return 'statue';
+  return 'npc';
+}
+
 /** A wheel or tyre by the library description (`Wheel 8mm D. x 6mm`, `Tyre 6/ 50 x 8`), else by the compiler's id list. */
 const isWheelDescription = (description: string): boolean => /^[~=_]*\s*(Wheel|Tyre|Tire)\b/i.test(description) && !/^[~=_]*\s*Wheel (Holder|Arch|Cover|Hub)/i.test(description);
 const isWheelPartWith = (meshes: Map<string, LdrawPartMesh | null>) => (b: ParsedBrick): boolean => {
@@ -830,15 +845,20 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
     for (const i of cluster) { const f = figureOf.get(i); if (f === undefined) rest.push(i); else { const l = byFigure.get(f); if (l) l.push(i); else byFigure.set(f, [i]); } }
     const wheelCount = rest.filter(i => isWheelPart(bricks[i]!)).length;
     const seatCount = rest.filter(i => isSeat(bricks[i]!.part, desc(bricks[i]!))).length;
+    const figureExtra = (parts: number[]): void => {
+      const role = figureRole(parts.map(i => bricks[i]!), meshes);
+      if (role === 'npc') extras.push(makeExtra(parts, 'figure', 'minifig torso with its head, legs and dressing'));
+      else extras.push(makeExtra(parts, 'prop', role === 'statue' ? 'single-colour figure: a statue' : 'figure without legs: a bust or partial figure'));
+    };
     if (byFigure.size && rest.length <= 4 + byFigure.size * 2) {
       // A figure (or a few standing together) with what it holds / stands on.
-      for (const parts of byFigure.values()) extras.push(makeExtra(parts, 'figure', 'minifig torso with its head, legs and dressing'));
+      for (const parts of byFigure.values()) figureExtra(parts);
       if (rest.length) extras.push(makeExtra(rest, 'prop', `${rest.length} part${rest.length === 1 ? '' : 's'} beside a figure`));
       return;
     }
     if (cluster.length <= 3 && inPrimaryBox) { attach(cluster); return; } // a floating source defect inside the body
     if (cluster.length >= primary.length * 0.4 && wheelCount === 0 && !byFigure.size) { attach(cluster); return; } // a split of the same vehicle
-    for (const parts of byFigure.values()) extras.push(makeExtra(parts, 'figure', 'minifig torso with its head, legs and dressing'));
+    for (const parts of byFigure.values()) figureExtra(parts);
     if (rest.length >= 12 && (wheelCount >= 2 || seatCount >= 1 || rest.length >= primary.length * 0.15)) {
       extras.push(makeExtra(rest, 'vehicle', wheelCount >= 2 ? `${wheelCount} wheels` : seatCount ? `${seatCount} seat${seatCount === 1 ? '' : 's'}` : `${rest.length} parts`));
     } else if (rest.length) {

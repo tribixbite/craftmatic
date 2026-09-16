@@ -62,16 +62,25 @@ leaf, `bl_…_torso` Studio ids are figures, figures are tethered
 (`minecraft:home` radius 12). Buildings now export from `IOModel2V2/10326-noprint.ldr`,
 `IO/910004.io`, `IO/910047.io` (`run-buildings.sh`): museum 6 doors / 9
 figures / 1 seat (2 doors still "no room within three blocks"), chalet 4
-doors / 7 figures / 6 seats, 910047 8 figures. Round 3 (Opus subagent,
-`captures-2026-09-16c/`) re-tests them:
-- [ ] Museum and chalet place as recognisable buildings; doors rest on
-      blocks, are reachable and open; figures stay within ~12 blocks; seats
-      seat; 910047's 8 figures walk.
+doors / 7 figures / 6 seats, 910047 8 figures. Round 3 (`captures-2026-09-16c/`, 83 files) settled: museum (54.9 % filled,
+three storeys), chalet (68.7 %) and 910047 (17 %, sparse) place as buildings;
+all 6 + 4 doors rest on blocks; every figure spawns and walks; both seats
+seat and the Dismount button frees. Fixed after it: `minecraft:home` needs
+`restriction_type: random_movement` (the radius was ignored, drift 18.6
+blocks); single-colour figures (the museum's grey statues) and legless
+groups stay in the blocks (`figureRole`) instead of walking as blobs.
+- [ ] **Door openability is under-measured**: 1 of 7 taps toggled a leaf, 1
+      was found open, 3 stayed closed under taps from a standable neighbour.
+      A scripted `setPermutation`/`open_bit` probe from the wand would settle
+      it cheaper than touch; also check the `direction` state puts the leaf
+      on the wall side of the cell.
 - [ ] **Which source the LEGO tab serves matters**: the prod index lists
       `IO/10326-noprint.io` first for 10326 (79 studs wide - sub-builds beside
       each other) and DbixConvV3 for many sets. An exported building is only
       as good as the layout of the source the user loaded; consider a
       "compact layout" quality flag in the index (lego-sources-guide).
+- [ ] Two museum doors report "no room within three blocks"; 910047 exports
+      sparse (17 % fill) - check its `.io` layout too.
 - [ ] Tumbler at 32 LDU grain reads 14.5 blocks wide (true 11.5) with blobs
       where the rear tyres are: the repeated-part budget item below.
 
