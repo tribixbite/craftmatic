@@ -70,6 +70,7 @@ describe('discoverSceneActors', () => {
     expect(isDoorLeafDescription('Glass for Door  1 x  4 x  6')).toBe(false);
     expect(isDoorLeafDescription('Door Sliding Type 2')).toBe(false);
     expect(isDoorLeafDescription('~Door  1 x  3 x  4 Right (Obsolete)')).toBe(true);
+    expect(isDoorLeafDescription('GLASS DOOR FOR FRAME 1X4X6 (Needs Work)')).toBe(true);
   });
 });
 
@@ -101,7 +102,7 @@ describe('applySceneDoors', () => {
     // Leaf along X from x=53 (cell 1) 80 LDU wide, 144 tall from the floor, thin in Z inside the wall at z cell 2.
     const z = 2 * LDU_PER_BLOCK + 20;
     const stats = applySceneDoors(grid, [{ part: '60623', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, -144, z - 3], maxLdu: [LDU_PER_BLOCK + 80, 0, z + 3], alongAxis: 'x', hingeAtMin: true }], frame);
-    expect(stats).toEqual({ doors: 2, leavesCleared: 6, skippedSmall: 0, skippedOutside: 0 });
+    expect(stats).toEqual({ doors: 2, leavesCleared: 6, skippedSmall: 0, skippedOutside: 0, passageCleared: 0, unreachable: 0 });
     expect(grid.get(1, 0, 2)).toBe('minecraft:spruce_door[facing=south,half=lower,hinge=left,open=false,powered=false]');
     expect(grid.get(2, 0, 2)).toBe('minecraft:spruce_door[facing=south,half=lower,hinge=right,open=false,powered=false]');
     expect(grid.get(1, 1, 2)).toBe('minecraft:spruce_door[facing=south,half=upper,hinge=left,open=false,powered=false]');
@@ -150,6 +151,48 @@ describe('applySceneDoors', () => {
     expect(grid.get(2, 4, 2)).toBe('minecraft:air');
     expect(grid.get(0, 3, 2)).toBe('minecraft:stone');
     expect(grid.get(1, 0, 2)).toBe('minecraft:stone');
+  });
+  it('opens a passage through a two-deep facade to the nearest air, and counts a door buried in solid as unreachable', () => {
+    const grid = new BlockGrid(8, 6, 8);
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) grid.set(x, 0, z, 'minecraft:stone');
+    // Facade three cells deep (z 2..4) from y 1 up; the door leaf sits in cell z 3; air beyond z 4 (the street) and before z 2 (the room).
+    for (let x = 0; x < 8; x++) for (let y = 1; y < 6; y++) for (const z of [2, 3, 4]) grid.set(x, y, z, 'minecraft:stone');
+    const zc = 3 * LDU_PER_BLOCK + 20;
+    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, -LDU_PER_BLOCK - 144, zc - 3], maxLdu: [LDU_PER_BLOCK + 80, -LDU_PER_BLOCK, zc + 3], alongAxis: 'x', hingeAtMin: true }], frame);
+    expect(stats.doors).toBe(2);
+    expect(stats.unreachable).toBe(0);
+    expect(stats.passageCleared).toBe(8); // cells z 2 and z 4, two columns, two heights
+    expect(grid.get(1, 1, 2)).toBe('minecraft:air');
+    expect(grid.get(2, 2, 4)).toBe('minecraft:air');
+    expect(grid.get(1, 3, 2)).toBe('minecraft:stone'); // above the door: untouched
+    // A door with solid on both sides for more than three cells is reported, not tunnelled.
+    const solid = new BlockGrid(10, 6, 10);
+    for (let x = 0; x < 10; x++) for (let y = 0; y < 6; y++) for (let z = 0; z < 10; z++) solid.set(x, y, z, 'minecraft:stone');
+    const zs = 5 * LDU_PER_BLOCK + 20;
+    const s2 = applySceneDoors(solid, [{ part: 'd', description: 'Door', color: 6, minLdu: [4 * LDU_PER_BLOCK, -LDU_PER_BLOCK - 144, zs - 3], maxLdu: [4 * LDU_PER_BLOCK + 80, -LDU_PER_BLOCK, zs + 3], alongAxis: 'x', hingeAtMin: true }], frame);
+    expect(s2.unreachable).toBe(1);
+    expect(s2.passageCleared).toBe(0);
+  });
+  it('hangs a door on the floor row instead of in it, and treats the outside of the model as open', () => {
+    // Baseplate row y 0 solid everywhere; a wall at z 4 from y 1 up (three cells of floor either side); the leaf starts 8 LDU above the plate.
+    const grid = new BlockGrid(6, 6, 9);
+    for (let x = 0; x < 6; x++) for (let z = 0; z < 9; z++) grid.set(x, 0, z, 'minecraft:stone');
+    for (let x = 0; x < 6; x++) for (let y = 1; y < 6; y++) grid.set(x, y, 4, 'minecraft:stone');
+    const zc = 4 * LDU_PER_BLOCK + 20, bottom = -8;
+    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [LDU_PER_BLOCK, bottom - 144, zc - 3], maxLdu: [LDU_PER_BLOCK + 80, bottom, zc + 3], alongAxis: 'x', hingeAtMin: true }], frame);
+    expect(stats.doors).toBe(2);
+    expect(stats.unreachable).toBe(0);
+    expect(grid.get(1, 0, 4)).toBe('minecraft:stone'); // the floor under the door is kept
+    expect(grid.get(1, 1, 4)).toMatch(/^minecraft:birch_door\[facing=south,half=lower/);
+    expect(grid.get(1, 2, 4)).toMatch(/half=upper/);
+    // An exterior door on the grid's edge opens onto the world beyond it.
+    const edge = new BlockGrid(6, 6, 4);
+    for (let x = 0; x < 6; x++) for (let z = 0; z < 4; z++) edge.set(x, 0, z, 'minecraft:stone');
+    for (let x = 0; x < 6; x++) for (let y = 1; y < 6; y++) for (const z of [0, 1, 2]) edge.set(x, y, z, 'minecraft:stone');
+    const ze = 20;
+    const s2 = applySceneDoors(edge, [{ part: 'd', description: 'Door', color: 15, minLdu: [LDU_PER_BLOCK, bottom - 144, ze - 3], maxLdu: [LDU_PER_BLOCK + 80, bottom, ze + 3], alongAxis: 'x', hingeAtMin: true }], frame);
+    expect(s2.unreachable).toBe(0);
+    expect(edge.get(1, 1, 0)).toMatch(/half=lower/);
   });
   it('leaves a leaf under two cells tall alone', () => {
     const grid = new BlockGrid(4, 4, 4);

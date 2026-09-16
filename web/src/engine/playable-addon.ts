@@ -295,7 +295,11 @@ function figureBehavior(id: string, size: { width: number; height: number; lengt
         'minecraft:can_climb': {},
         'minecraft:behavior.float': { priority: 0 },
         'minecraft:behavior.open_door': { priority: 1, close_door_after: true },
-        'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: 0.8, interval: 60, xz_dist: 10, y_dist: 3 },
+        // Tethered to where it was placed: round 2 on the Pixel had a museum
+        // figure 28 blocks outside the building within minutes.
+        'minecraft:home': { restriction_radius: 12 },
+        'minecraft:behavior.move_towards_home_restriction': { priority: 5, speed_multiplier: 1 },
+        'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: 0.8, interval: 60, xz_dist: 6, y_dist: 3 },
         'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: 0.02 },
         'minecraft:behavior.random_look_around': { priority: 8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },

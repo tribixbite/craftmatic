@@ -205,6 +205,25 @@ settles them.
   re-set every tick, so `/camera @s clear` cannot give a first-person view
   while riding; `/execute … positioned ^ ^ ^N run summon` ignores the
   offset; the flat 61×61 test platform is at −123/66/500 in the QA world.
+- **Round 2 (2026-09-16, `captures-2026-09-16b/`)**: the round-1 fixes hold
+  (figures parse, wand places all actors, stick turns car and plane with zero
+  strafe, figures 1.96 blocks tall and strolling). New findings: the
+  **DbixConvV3 sources are exploded instruction layouts** (Winter Chalet
+  125 × 116 studs vs 41 × 18 in its `.io`) - export buildings from the `.io`
+  / `IOModel2V2` files; at 53 LDU cells an 8 LDU baseplate makes its whole
+  cell solid, so a door leaf sitting on it reads the floor row as its bottom
+  cell (the door now hangs one cell up, judged on in-grid neighbours); a
+  door implies a passage, so solid cells between the door and the nearest
+  air within three cells are opened on both sides (the outside of the model
+  counts as air); 60616's unofficial file is described `GLASS DOOR FOR FRAME`;
+  BrickLink Designer Program `.io` files name torsos `bl_973…c01_torso`;
+  figures carry `minecraft:home` (radius 12) so they do not wander off.
+  Device facts: `/tp @s ~ ~ ~` DISMOUNTS a rider; yaw probe = `/execute as
+  @e[type=…] at @s rotated as @s run summon armor_stand ^ ^ ^6`; the entity's
+  server yaw lags the client while driving (use travel deltas); `input text`
+  drops `"`; the stick rotates the RIDER and the body follows on forward
+  input (no pivot in place); the wand menu needs `input swipe 1119 820 1119
+  420 500` to reach Place/Undo.
 - **Patch hygiene**: a Python `"""…"""` patch string turns `\b` into a
   BACKSPACE; seven regex word boundaries in the compiler silently became
   `\x08` and `isFigurePart('…','Minifig Hair')` returned false. Use raw

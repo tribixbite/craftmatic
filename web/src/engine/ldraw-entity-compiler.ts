@@ -71,7 +71,12 @@ const FIGURE_PART_IDS = /^(973|3814|76382|3626|970|3815|3816|3817|41879|16968|39
 
 /** `30372p79` → `30372`, `3626bp03` → `3626b`, `973ps1` → `973`: the mould behind a print. Composite (`c01`) and shape (`a`/`b`) suffixes are distinct moulds and stay. */
 export function baseMould(part: string): string {
-  return cleanPartId(part).replace(/p[0-9a-z]+$/, '');
+  return figureId(part).replace(/p[0-9a-z]+$/, '');
+}
+
+/** A Studio custom part id without its `bl_` prefix and `_torso`-style suffix (`bl_973pb5574c01_torso` → `973pb5574c01`). */
+function figureId(part: string): string {
+  return cleanPartId(part).replace(/^bl_/, '').replace(/_(torso|head|legs|hips|arm|hand)$/, '');
 }
 
 /** LDraw's own description says what a part is; `''` when the mesh is unresolved. */
@@ -81,9 +86,9 @@ export function isFigurePart(part: string, description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
   if (/^Minifig\b/i.test(d)) return !/^Minifig (Seat|Chair|Steering|Stand|Display|Bench)\b/i.test(d);
   if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
-  return FIGURE_PART_IDS.test(cleanPartId(part));
+  return FIGURE_PART_IDS.test(figureId(part)) || /_(torso|head|legs|hips)$/.test(cleanPartId(part));
 }
-export const isTorso = (part: string, description: string): boolean => TORSO_PARTS.test(cleanPartId(part)) || /^Minifig Torso\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+export const isTorso = (part: string, description: string): boolean => TORSO_PARTS.test(figureId(part)) || /_torso$/.test(cleanPartId(part)) || /^Minifig Torso\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 const isSteering = (part: string, description: string): boolean => STEERING_PARTS.has(baseMould(part)) || /^(Minifig )?Steering\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));

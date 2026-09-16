@@ -333,7 +333,7 @@ export async function runSchemPipeline(
       if (sceneDoors.length && sourceOrigin) {
         onProgress('cutting doorways and hanging doors');
         const d = applySceneDoors(grid, sceneDoors, sourceOrigin);
-        if (d.doors) warnings.push(`${d.doors} door${d.doors === 1 ? '' : 's'} hung in ${sceneDoors.length - d.skippedSmall - d.skippedOutside} doorway${sceneDoors.length - d.skippedSmall - d.skippedOutside === 1 ? '' : 's'} (leaf cells opened: ${d.leavesCleared}).`);
+        if (d.doors) warnings.push(`${d.doors} door${d.doors === 1 ? '' : 's'} hung in ${sceneDoors.length - d.skippedSmall - d.skippedOutside} doorway${sceneDoors.length - d.skippedSmall - d.skippedOutside === 1 ? '' : 's'} (leaf cells opened: ${d.leavesCleared}, passage cells opened: ${d.passageCleared}${d.unreachable ? `, ${d.unreachable} with no room within three blocks` : ''}).`);
         if (d.skippedSmall) warnings.push(`${d.skippedSmall} door leaf${d.skippedSmall === 1 ? '' : 'ves'} under two blocks tall left as blocks.`);
         if (d.skippedOutside) warnings.push(`${d.skippedOutside} door leaf${d.skippedOutside === 1 ? '' : 'ves'} fell outside the export bounds.`);
       }
