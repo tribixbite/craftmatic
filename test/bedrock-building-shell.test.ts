@@ -138,8 +138,17 @@ describe('the building shell', () => {
     // The shell behaviour: static, unhurt, not selectable.
     const behavior = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_shed_BP/entities/shed_shell.json'))) as { 'minecraft:entity': { components: Record<string, unknown> } };
     expect(behavior['minecraft:entity'].components['minecraft:physics']).toEqual({ has_gravity: false, has_collision: false });
-    // The placement script spawns it as an actor at yaw 0.
+    // The placement script spawns it as an actor at yaw 0, its origin lifted one block over the roof
+    // (a 24 LDU brick is 0.45 blocks tall → lift 2) so the block that lights it is open sky;
+    // the geometry is authored that far below the origin.
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_shed_BP/scripts/placement.js'));
-    expect(placement).toContain('craftmatic:shed_shell');
+    const shellActor = /\{"typeId":"craftmatic:shed_shell"[^}]*\}/.exec(placement)![0];
+    expect(shellActor).toContain('"yaw":0');
+    expect(JSON.parse(shellActor).y).toBeCloseTo(2, 5);
+    const geo = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_shed_RP/models/entity/shed_shell.geo.json'))) as { 'minecraft:geometry': Array<{ description: { visible_bounds_offset: number[] }; bones: Array<{ cubes: Array<{ origin: number[]; size: number[] }> }> }> };
+    const tops = geo['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => c.origin[1]! + c.size[1]!)));
+    expect(Math.max(...tops)).toBeLessThan(0);
+    expect(Math.min(...geo['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => c.origin[1]!))))).toBeCloseTo(-32, 5);
+    expect(geo['minecraft:geometry'][0]!.description.visible_bounds_offset[1]).toBeLessThan(0);
   });
 });

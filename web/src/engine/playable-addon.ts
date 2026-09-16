@@ -1257,12 +1257,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const sgeo = await compileLdrawEntityGeometry(shellId, 'prop', options.shell.bricks, {
                 frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
                 quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+                // Lit from open sky above the roof, not from inside the colliders (Pixel round 4: three shells near-black).
+                originAboveModel: true,
             });
             diagnostics[shellId] = sgeo.diagnostics;
             warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
             emitCompiledEntity(shellId, sgeo, shellBehavior(shellId));
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
-            actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1], z: at[2], yaw: 0 });
+            actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
             extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
             const colliders = buildColliderGrid(scenery, sgeo.partBoxesLdu ?? [], options.shell.frame);
             structureGrid = colliders.grid;
