@@ -110,6 +110,13 @@ export interface SchemWorkerInput {
   cameraStyle?: 'orbit' | 'boom';
   /** `.mcaddon`: leave out the figures / second vehicle found beside the main vehicle. */
   mainVehicleOnly?: boolean;
+  /**
+   * `.mcaddon`: how the building (everything that is not a vehicle) is shown.
+   * `bricks` (the default) compiles its parts as a static entity at the
+   * vehicle pipeline's fidelity over invisible colliders; `blocks` ships the
+   * coloured block structure as before.
+   */
+  buildingFidelity?: 'bricks' | 'blocks';
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -279,6 +286,7 @@ export async function runSchemPipeline(
     const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number] }> = [];
     const seats: Array<{ x: number; y: number; z: number; yaw: number; label: string }> = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
+    let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     if (input.source.kind === 'bricks') {
       const source = input.source;
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
@@ -287,6 +295,7 @@ export async function runSchemPipeline(
       for (const component of found.components) for (const brick of component.bricks) movable.add(brick);
       // The building's own life: figures become NPCs, seats sittable, door leaves doors.
       // Vehicle components carry their own figures through the compiler's extras.
+      const doorLeaves = new Set<ParsedBrick>();
       if (input.format === 'mcaddon' && !input.mainVehicleOnly) {
         onProgress('finding figures, seats and doors');
         const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)));
@@ -304,7 +313,16 @@ export async function runSchemPipeline(
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
           }
           sceneDoors = scene.doors;
+          for (const b of scene.doorBricks) doorLeaves.add(b);
         }
+      }
+      // Brick-accurate building: every placement that is not a vehicle, a
+      // figure or a door leaf is the shell's (bedrock-building-shell.ts).
+      if (input.format === 'mcaddon' && (input.buildingFidelity ?? 'bricks') === 'bricks' && sourceOrigin) {
+        const shellBricks = source.bricks.filter(b => !movable.has(b) && !doorLeaves.has(b));
+        if (shellBricks.length) shell = { bricks: shellBricks, frame: sourceOrigin };
+      } else if (input.format === 'mcaddon' && (input.buildingFidelity ?? 'bricks') === 'bricks' && !sourceOrigin && source.bricks.some(b => !movable.has(b))) {
+        warnings.push('The building is exported as blocks: its part geometry did not resolve, so no brick-accurate shell could be compiled.');
       }
       for (const component of found.components) {
         onProgress(`preparing ${component.label}`);
@@ -345,7 +363,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, mainVehicleOnly: input.mainVehicleOnly, components: components.length ? components : undefined, screens, figures, seats, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, mainVehicleOnly: input.mainVehicleOnly, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

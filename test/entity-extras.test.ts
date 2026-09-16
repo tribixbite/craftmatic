@@ -59,11 +59,14 @@ describe('part helpers', () => {
 });
 
 describe('figureRole', () => {
-  it('an NPC has legs and more than one colour; one colour is a statue; no legs is partial', () => {
+  it('an NPC is a torso with another body part in more than one colour; one colour is a statue; a torso alone is partial', () => {
     const meshes = new Map();
     expect(figureRole(figure(0, 0, 0), meshes)).toBe('npc');
     expect(figureRole(figure(0, 0, 0).map(b => ({ ...b, color: 71 })), meshes)).toBe('statue');
-    expect(figureRole(figure(0, 0, 0).filter(b => !/381[567]/.test(b.part)), meshes)).toBe('partial');
+    // No legs is still a figure: the minifig rig supplies them (the IOModel2V2 museum's figures).
+    expect(figureRole(figure(0, 0, 0).filter(b => !/381[567]/.test(b.part)), meshes)).toBe('npc');
+    // A torso with only a hand beside it is not a figure.
+    expect(figureRole([figure(0, 0, 0)[3]!, { part: '3820.dat', color: 14, x: 20, y: 20, z: 0, rot: I }], meshes)).toBe('partial');
   });
 });
 

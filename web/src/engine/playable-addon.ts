@@ -11,7 +11,9 @@ import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } fro
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
-import { normaliseYaw } from './bedrock-scene-actors.js';
+import { normaliseYaw, sceneGridPoint, yawForFacing, type SceneGridFrame } from './bedrock-scene-actors.js';
+import { MINIFIG_ANIMATIONS, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
+import { COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoEntityTextureAtlas } from './ldraw-entity-atlas.js';
@@ -86,6 +88,13 @@ export interface PlayableAddonOptions {
     figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number] }>;
     /** Free seats in the scenery, in grid coordinates: each gets an invisible rideable seat entity. */
     seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
+    /**
+     * Brick-accurate building: the scenery's placements (figures and door
+     * leaves already taken out) compiled as one static entity over invisible
+     * colliders (bedrock-building-shell.ts). `frame` is the voxelizer's grid
+     * origin the scenery grid was built with.
+     */
+    shell?: { bricks: ParsedBrick[]; frame: SceneGridFrame };
 }
 export type VehicleCameraStyle = 'orbit' | 'boom';
 export interface PlayableAddonResult {
@@ -95,7 +104,7 @@ export interface PlayableAddonResult {
     components: Array<{
         id: string;
         label: string;
-        kind: PlayableKind | 'screen' | 'figure' | 'prop' | 'seat';
+        kind: PlayableKind | 'screen' | 'figure' | 'prop' | 'seat' | 'shell';
         provenance: string;
     }>;
     warnings: string[];
@@ -372,14 +381,15 @@ export function snapFacing(f: [number, number]): NoseDirection {
  * rotates that with forward = (−sin θ, cos θ). The object's own yaw is the
  * world direction of the LDraw nose its geometry was compiled to.
  */
-export function extraPlacement(primary: CompiledLdrawGeometry, extra: EntityExtra, nose: NoseDirection, primaryYaw: number): { dx: number; dy: number; dz: number; yaw: number } {
+export function extraPlacement(primary: CompiledLdrawGeometry, extra: EntityExtra, nose: NoseDirection, primaryYaw: number, exactFacingLdu?: [number, number]): { dx: number; dy: number; dz: number; yaw: number } {
     const { A, origin } = primary.transform;
     const floorCentre: Vec3 = [extra.centreLdu[0], extra.floorLdu, extra.centreLdu[2]];
     const r = mat3(A, floorCentre);
     const bx = -(r[0] - origin[0]) / LDU_PER_BLOCK, by = (r[1] - origin[1]) / LDU_PER_BLOCK, bz = -(r[2] - origin[2]) / LDU_PER_BLOCK;
     const th = primaryYaw * Math.PI / 180, cos = Math.cos(th), sin = Math.sin(th);
     const dx = bx * cos - bz * sin, dz = bx * sin + bz * cos;
-    const nr = mat3(A, noseVector(nose));
+    // A figure's exact torso direction (levelled LDraw, horizontal) beats the snapped nose.
+    const nr = mat3(A, exactFacingLdu ? [exactFacingLdu[0], 0, exactFacingLdu[1]] : noseVector(nose));
     const wx0 = -nr[0], wz0 = -nr[2];
     const wx = wx0 * cos - wz0 * sin, wz = wx0 * sin + wz0 * cos;
     return { dx: Math.round(dx * 100) / 100, dy: Math.round(Math.max(0, by) * 100) / 100, dz: Math.round(dz * 100) / 100, yaw: normaliseYaw(Math.atan2(-wx || 0, wz) * 180 / Math.PI) };
@@ -482,7 +492,10 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
  * pieces live in the canopy mesh) and `entity_alphablend` for the BlockGrid
  * fallback, whose single mesh mixes glass blocks with solids.
  */
-function clientEntity(id: string, meshIds: string[], canopyMeshId?: string, opaqueMaterial = 'entity_alphablend'): unknown {
+/** Animations a client entity plays: the `animations` map and the `scripts.animate` list (a minifig's walk / look / sit). */
+export interface ClientAnimations { animations: Record<string, string>; animate: Array<string | Record<string, string>> }
+
+function clientEntity(id: string, meshIds: string[], canopyMeshId?: string, opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations): unknown {
     const materials: Record<string, string> = { default: opaqueMaterial };
     const textures: Record<string, string> = { default: `textures/entity/${id}` };
     if (canopyMeshId) {
@@ -511,6 +524,7 @@ function clientEntity(id: string, meshIds: string[], canopyMeshId?: string, opaq
                         ? `controller.render.${PACK_NAMESPACE}.${id}_canopy`
                         : `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`
                 ),
+                ...(animations ? { animations: animations.animations, scripts: { animate: animations.animate } } : {}),
                 spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' },
             },
         },
@@ -1195,26 +1209,23 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         terrainTextures[`concrete_${colorName}`] = { textures: `textures/blocks/concrete_${colorName}` };
     }
     files.push({
-        name: `${rp}textures/terrain_texture.json`,
-        data: json({
-            resource_pack_name: `craftmatic_${id}`,
-            texture_name: 'atlas.terrain',
-            texture_data: terrainTextures,
-        }),
-    });
-    files.push({
         name: `${rp}pack_icon.png`,
         data: generateStudBlockPng(220, 32, 32, true),
     });
     const scenery = components.some(c => c.grid === grid) ? new BlockGrid(grid.width, grid.height, grid.length) : grid;
-    const plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
+    // What the structure tiles carry: the coloured scenery, or (brick-accurate
+    // buildings) invisible colliders under the shell entity - see below.
+    let structureGrid = scenery;
+    let plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     const actors: PlacementActor[] = [];
     const extraComponents: PlayableAddonResult['components'] = [];
     /** Behaviour + client entity + geometry + render controllers + colour/PBR atlases for one brick-compiled entity. */
-    const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown): void => {
+    let minifigsEmitted = 0;
+    const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations): void => {
+        if (animations) minifigsEmitted++;
         files.push(
             { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
-            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, geo.meshIds, geo.canopyMeshId, 'entity')) },
+            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, geo.meshIds, geo.canopyMeshId, 'entity', animations)) },
             { name: `${rp}models/entity/${ecid}.geo.json`, data: json(geo.value) },
             { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, geo.meshIds, geo.canopyMeshId)) },
         );
@@ -1233,6 +1244,38 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
         }
     };
+    // Brick-accurate building: the scenery's parts compiled as one static
+    // entity on the grid's own frame, over invisible colliders that follow
+    // the part heights (bedrock-building-shell.ts).
+    if (options.shell && options.shell.bricks.length && scenery.countNonAir()) {
+        const rawShell = `${id}_shell`;
+        const shellId = /^[0-9]/.test(rawShell) ? `b_${rawShell}` : rawShell;
+        options.onProgress?.(`compiling ${label} brick geometry`, 72);
+        try {
+            const sgeo = await compileLdrawEntityGeometry(shellId, 'prop', options.shell.bricks, {
+                frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+                quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+            });
+            diagnostics[shellId] = sgeo.diagnostics;
+            warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId));
+            const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
+            actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1], z: at[2], yaw: 0 });
+            extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
+            const colliders = buildColliderGrid(scenery, sgeo.partBoxesLdu ?? [], options.shell.frame);
+            structureGrid = colliders.grid;
+            plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
+            files.push(
+                { name: `${bp}blocks/collider.json`, data: json(colliderBlockDefinition()) },
+                { name: `${rp}blocks.json`, data: json(COLLIDER_BLOCKS_JSON) },
+                { name: `${rp}textures/blocks/craftmatic_collider.png`, data: transparentPng() },
+            );
+            Object.assign(terrainTextures, COLLIDER_TERRAIN_TEXTURE);
+            warnings.push(`${label}: brick-accurate building - ${sgeo.diagnostics.cubeCount} cuboids at ${sgeo.diagnostics.quality.microcellLdu} LDU over ${colliders.stats.colliders} invisible collider blocks (${colliders.stats.partial} part-height, ${colliders.stats.kept} doors/lights kept).`);
+        } catch (e) {
+            warnings.push(`${label}: the brick-accurate building could not be compiled (${e instanceof Error ? e.message : String(e)}); exported as blocks.`);
+        }
+    }
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
     const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
     const cameraVehicles: VehicleCameraConfig[] = [];
@@ -1248,8 +1291,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         files.push({ name: `${bp}cameras/presets/${cid}_boom.json`, data: json(boom.value) });
         return { ...base, preset: cameraStyle === 'boom' ? boom.id : chase.id };
     };
+    // Registered after the shell block above, which may add the collider tile.
+    files.push({ name: `${rp}textures/terrain_texture.json`, data: json({ resource_pack_name: `craftmatic_${id}`, texture_name: 'atlas.terrain', texture_data: terrainTextures }) });
     for (let i = 0; i < plan.length; i++) {
-        const tile = plan[i]!, out = encodeMcstructureTile(grid, tile);
+        const tile = plan[i]!, out = encodeMcstructureTile(structureGrid, tile);
         for (const state of out.unmapped) unmapped.add(state);
         files.push({ name: `${bp}structures/${PACK_NAMESPACE}/${tile.name}.mcstructure`, data: out.bytes });
         options.onProgress?.(`encoding structure ${i + 1}/${plan.length}`, Math.round((i + 1) / plan.length * 70));
@@ -1317,12 +1362,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
-                emitCompiledEntity(ecid, egeo, behavior);
+                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
                 if (ekind === 'car') {
                     driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });
                     cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
                 }
-                const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw);
+                // A rigged figure faces exactly where its torso pointed (not the nearest axis).
+                const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu);
                 actors.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, label: elabel, x: primaryPos.x + place.dx, y: primaryPos.y + place.dy, z: primaryPos.z + place.dz, yaw: place.yaw });
                 extraComponents.push({ id: ecid, label: elabel, kind: ekind, provenance: `${extra.role} beside ${c.label} (${extra.reason})` });
             }
@@ -1352,10 +1398,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             continue;
         }
         diagnostics[fcid] = fgeo.diagnostics;
-        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks));
-        const nose = snapFacing(fig.facingLdu);
-        const n: [number, number] = nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1];
-        actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: fig.x, y: fig.y, z: fig.z, yaw: normaliseYaw(Math.atan2(-n[0] || 0, n[1]) * 180 / Math.PI) });
+        warnings.push(...fgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks), fgeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
+        // A rigged figure faces exactly where its torso pointed; an unrigged one the nearest axis it was compiled to.
+        const yaw = fgeo.figure ? yawForFacing(fgeo.figure.facingLdu) : (() => {
+            const nose = snapFacing(fig.facingLdu);
+            const n: [number, number] = nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1];
+            return normaliseYaw(Math.atan2(-n[0] || 0, n[1]) * 180 / Math.PI);
+        })();
+        actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: fig.x, y: fig.y, z: fig.z, yaw });
         extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: 'minifig standing in the build' });
         figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
     }
@@ -1382,6 +1433,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         for (const s of screens)
             actors.push({ typeId: `${PACK_NAMESPACE}:${screenId}`, label: s.label, x: Math.round(s.x), y: Math.round(s.y), z: Math.round(s.z) });
     }
+    // One animation file serves every minifig entity: the rig's bone names are shared.
+    if (minifigsEmitted) files.push({ name: `${rp}animations/craftmatic_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) });
     if (unmapped.size) warnings.push(`${unmapped.size} block type${unmapped.size === 1 ? '' : 's'} had no Bedrock equivalent and ${unmapped.size === 1 ? 'was' : 'were'} omitted: ${[...unmapped].join(', ')}`);
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({ generator: 'craftmatic', label, entities: diagnostics }) });

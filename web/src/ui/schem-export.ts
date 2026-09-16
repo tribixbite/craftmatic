@@ -393,6 +393,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         vehicleMode: req.vehicleMode ?? 'auto',
         entityQuality: settings.addonDetail,
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
+        buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
       };
     } else {
       const g = req.source.grid;
@@ -415,6 +416,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         vehicleMode: req.vehicleMode ?? 'auto',
         entityQuality: settings.addonDetail,
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
+        buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
       };
     }
 

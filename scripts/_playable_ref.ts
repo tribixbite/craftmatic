@@ -7,6 +7,7 @@
  * Usage: bun scripts/_playable_ref.ts <model.io|.mpd|.ldr> [out.mcaddon]
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
  *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
+ *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
@@ -71,6 +72,7 @@ const result = await runSchemPipeline({
   entityQuality: quality,
   cameraStyle,
   mainVehicleOnly: process.argv.includes('--main-only'),
+  buildingFidelity: (flag('buildings') ?? 'bricks') as 'bricks' | 'blocks',
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 

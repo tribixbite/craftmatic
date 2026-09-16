@@ -41,6 +41,7 @@ function load(): SchemExportSettings {
         vehicleFacing: ['+x', '-x', '+z', '-z'].includes(parsed.vehicleFacing ?? '') ? parsed.vehicleFacing : 'auto',
         addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
         addonMainVehicleOnly: parsed.addonMainVehicleOnly === true,
+        addonBuildingBricks: parsed.addonBuildingBricks !== false,
         lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
         lightStyle: ['lantern', 'sea_lantern'].includes(parsed.lightStyle ?? '') ? parsed.lightStyle : 'profile',
         lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
@@ -197,6 +198,12 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
           <span class="mc-set-note">Leave out the figures and any second vehicle found beside it. Off: figures walk about and a second vehicle is rideable.</span>
         </span>
       </label>
+      <label class="mc-set-check" style="margin-top:6px">
+        <input type="checkbox" id="mc-set-building-bricks">
+        <span>Brick-accurate buildings<br>
+          <span class="mc-set-note">The building's parts become real geometry (round studs, exact colours) over invisible walkable blocks; doors, seats and figures still work. Off: the coloured block structure.</span>
+        </span>
+      </label>
       <label for="mc-set-light-coverage">Lighting coverage</label>
       <select id="mc-set-light-coverage"><option value="covered">Covered interiors, including open fronts</option><option value="sealed">Sealed rooms only</option></select>
       <label for="mc-set-light-style">Lamp style</label>
@@ -221,10 +228,11 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const facingSel = pop.querySelector('#mc-set-vehicle-facing') as HTMLSelectElement;
   const detailSel = pop.querySelector('#mc-set-addon-detail') as HTMLSelectElement;
   const mainOnlyBox = pop.querySelector('#mc-set-main-vehicle') as HTMLInputElement;
+  const buildingBricksBox = pop.querySelector('#mc-set-building-bricks') as HTMLInputElement;
   const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
   const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
   const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; buildingBricksBox.checked = s.addonBuildingBricks !== false; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
@@ -257,6 +265,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       vehicleFacing: facingSel.value as SchemExportSettings['vehicleFacing'],
       addonDetail: detailSel.value as SchemExportSettings['addonDetail'],
       addonMainVehicleOnly: mainOnlyBox.checked,
+      addonBuildingBricks: buildingBricksBox.checked,
       lightCoverage: coverageSel.value as 'sealed' | 'covered',
       lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
       lightSpacing: Number(spacingSel.value),
@@ -272,6 +281,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   shapeBox.addEventListener('change', commit, sig);
   detailBox.addEventListener('change', commit, sig);
   mainOnlyBox.addEventListener('change', commit, sig);
+  buildingBricksBox.addEventListener('change', commit, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
