@@ -56,12 +56,14 @@ different swing angles, **2.03 blocks** beside the 1.80 player; seats seat.
 Museum 7/7 figures, modular 8/8, Hogwarts places.
 
 Still open from the round:
-- [ ] **Shell entities render near-black in daylight** (museum, modular, Hogwarts;
-      the chalet and the X-wing are fine — `64-final-overview` shows both in one
-      frame). Figures standing in the same spot are lit normally, so it is the
-      shell entity's own light sample, most likely taken inside the
-      `light_dampening` collider volume. Fix in `bedrock-building-shell.ts` /
-      the shell actor spawn position, or render the shell fullbright.
+- [ ] **Shell entities rendered near-black in daylight** (museum, modular,
+      Hogwarts; chalet and X-wing fine): the entity's light is the block at its own
+      position, and a shell's floor centre sat inside its collider volume. FIXED in
+      `f214b1a` (`originAboveModel`: the shell's origin sits one block over the roof
+      in open sky, geometry authored below it, actor spawns lifted). Device check
+      pending: round-5 packs in `output/bedrock-entity-qa/round-2026-09-16c/`
+      (`museum-lit`, `chalet-lit`, `bdp910047-lit`); the chalet one also carries
+      the seated figures (see below).
 - [ ] **F not finished**: the X-wing figures' walk cycle and the rider-in-cockpit
       re-check were not run (time). Both figures are confirmed rigged (arms+legs).
 - [ ] **E not finished**: the wall-walk / floor-Y checks were run on the chalet
