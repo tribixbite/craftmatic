@@ -7,7 +7,7 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig and the building shell). Spec:
 `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-16, round 4 built and gated offline; device round in progress)
+## State (2026-09-16, round 4 built, gated offline AND settled on the Pixel)
 
 Commit `66b0367` + docs. Every figure is a JOINTED minifig on the canonical rig
 (`engine/minifig-rig.ts`: missing arms/legs/head supplied, walk / look / sit
@@ -42,27 +42,33 @@ CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=�
 **Use a label whose stem does not start with a digit.** Pixel helpers:
 `scripts/_pixel_shot.sh`, `scripts/_pixel_cmd.sh`.
 
-## Device round 4 (in progress, Opus subagent, brief `round-2026-09-16b/QA-BRIEF.md`)
+## Device round 4 — SETTLED (2026-09-16, Pixel 8 Pro, v26.45)
 
-Evidence lands in `output/bedrock-entity-qa/captures-2026-09-16d/notes.md`. Claims
-the device must settle (none of these can be gated offline):
-- [ ] **A** content log has zero `[error]` lines with the collider block
-      (`states` `{values:{min,max}}`, `selection_box: false`, 136 permutations),
-      `blocks.json`, the shared minifig animation file and the shell geometry.
-- [ ] **B** the chalet shell renders (round studs, LDraw colours) and sits ON its
-      colliders: walls stop the player where they are drawn (±0.5), the player
-      stands on the drawn floor plate (not 0.85 above), the four vanilla doors stand
-      in the shell's doorways, the interior is lit by day, no visible stutter.
-- [ ] **C** figures are complete minifigs (arms + legs + head) that WALK with
-      swinging legs (three rapid shots differ), read 1.8-2.0 blocks, turn the head
-      toward the player; seats still seat.
-- [ ] **D** at wand rotation 90° the shell still coincides with walls and doors
-      (yaw sense vs `structure load … 90_degrees`).
-- [ ] **E** the museum's 12-mesh shell renders whole; **F** the X-wing's rigged
-      figures walk and the rider is still in the cockpit; **G** 910047 (8 figures)
-      and Hogwarts place.
-If B or D fails with a consistent offset, the fix is in `SHELL_FRAME` /
-the shell actor position (`bedrock-building-shell.ts` header explains the frame).
+Evidence + full verdict table: `output/bedrock-entity-qa/captures-2026-09-16d/notes.md`
+(64 shots + `contentlog-final.txt`). Result: **A/B/C/D PASS, E/F/G PARTIAL.**
+Content log **zero `[error]`** in 39,876 lines (round 3's 24 `minecraft:home` errors
+are gone). Chalet `1 structure piece and 14 entities`; walls stop the player at
+**offset 0.00** on both axes at 0° AND at 90°; the player stands at y 67.00 /
+70.00 with the drawn plate under the feet; 4/4 doors present (one already opened
+by an NPC — `behavior.open_door` confirmed); figures 7/7, jointed, legs at
+different swing angles, **2.03 blocks** beside the 1.80 player; seats seat.
+90° rotation is CLOCKWISE: `wx = ox + (sizeZ−1−lz)`, `wz = oz + lx`, 4/4 doors.
+Museum 7/7 figures, modular 8/8, Hogwarts places.
+
+Still open from the round:
+- [ ] **Shell entities render near-black in daylight** (museum, modular, Hogwarts;
+      the chalet and the X-wing are fine — `64-final-overview` shows both in one
+      frame). Figures standing in the same spot are lit normally, so it is the
+      shell entity's own light sample, most likely taken inside the
+      `light_dampening` collider volume. Fix in `bedrock-building-shell.ts` /
+      the shell actor spawn position, or render the shell fullbright.
+- [ ] **F not finished**: the X-wing figures' walk cycle and the rider-in-cockpit
+      re-check were not run (time). Both figures are confirmed rigged (arms+legs).
+- [ ] **E not finished**: the wall-walk / floor-Y checks were run on the chalet
+      only, not on the museum.
+- [ ] Figure height reads **2.03** blocks, just above the intended 1.8–2.0 band.
+- [ ] `natural_fig4` walked off the platform edge (y 64.00); `minecraft:home`
+      tethering was not re-measured this round.
 
 ## Open (not started)
 
