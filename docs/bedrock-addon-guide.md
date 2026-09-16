@@ -228,3 +228,91 @@ settles them.
   BACKSPACE; seven regex word boundaries in the compiler silently became
   `\x08` and `isFigurePart('…','Minifig Hair')` returned false. Use raw
   strings or write the TypeScript with the Write tool; `cat -A` shows `^H`.
+
+## Jointed minifigs and brick-accurate buildings (2026-09-16, round 4)
+
+Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
+`QA-BRIEF.md` there lists the device claims); commit `66b0367`.
+- **Every figure is rebuilt on the canonical minifig rig** (`engine/minifig-rig.ts`,
+  `assembleMinifig`), not compiled as the pile of parts the source carries.
+  Converted sources are lossy: the IOModel2V2 museum has NO arms in any of
+  its nine figures, three have no legs and two no head; the old path shipped
+  those as legless torsos or left them in the blocks ("some seem to be
+  missing legs"). The rig classifies each part of a torso group into a slot
+  by the library description first and the id family second
+  (`classifyMinifigPart`), re-places the body at the STANDARD offsets and
+  supplies what is missing (3626c head, 3815 hips, 3816/3817 legs, 3818/3819
+  arms, 3820 hands) in the colours the figure gives away (limbs = torso,
+  hips = legs, hands = head). A hips-and-legs composite (`3815c01`/`970c00`)
+  is split into three moulds so the legs can move. Headwear keeps its offset
+  from the head, a cape/backpack from the torso, a held item from the
+  nearest hand re-expressed in the canonical hand's frame.
+- **Canonical offsets, torso-local LDU (Y down, figure faces −Z, its RIGHT
+  is −X)**, measured from OMR 7140 and BrickLink Designer Program `.io` files:
+  head 0,−24,0 · hips 0,32,0 · legs 0,44,0 · arms ±15.552,9,0 turned 10°
+  about Z (right arm +10°) · hands ±23.86,26.6,−10.32 = the arm's turn then
+  45° about X. Feet at y 72, head top at −24: 96 LDU (`LDU_PER_MINIFIG`).
+  `Minifig Leg Right` 3816 spans x −19.5..−1.5 and `Minifig Arm Right` 3818
+  stands at −15.552: the figure's right is −X. Cape 4524's origin is the neck
+  (bounds y 0..40, z −10.5..20.5): it hangs at torso 0,0,0.
+- **The compiler takes a rig** (`CompileLdrawEntityOptions.rig` + `frame` +
+  `wholeModel`): bones with pivots at the joints (`MINIFIG_BONES`: body →
+  head, arm_right/left → hand_right/left, hips → leg_right/left), aligned
+  parts authored in their bone, a rotated part as a child bone `r<i>` under
+  its rig bone (so the 10° arms and 45° hands follow the arm bone). Every
+  mesh chunk carries its bones' parent chain (empty bones are fine), parents
+  before children. `kind: 'figure'` without a rig runs the rig automatically
+  and returns `figure.facingLdu` (the torso's EXACT horizontal direction) so
+  the actor yaw is no longer snapped to an axis (`extraPlacement` takes it).
+- **Animations** (`MINIFIG_ANIMATIONS`, one shared
+  `animations/craftmatic_minifig.animation.json`): walk = legs ±32° and arms
+  ±25° in opposite phase on `math.cos(query.modified_distance_moved * 38.17)`
+  gated by `query.is_moving` (phase tied to distance, so no foot slide);
+  look = vanilla's look_at_target on the head; sit = legs −90° while
+  `query.is_riding`. The client entity gets `animations` + `scripts.animate`
+  (`MINIFIG_CLIENT_ANIMATIONS`). `figureRole`: a torso plus one more BODY
+  part is an NPC (the rig fills the rest); one colour and ≥ 3 parts is a
+  statue; a torso with only a hand is partial.
+- **Custom minifigs** (`minifigFromSpec`): head / torso / hair / legs / arms /
+  hands / held items / cape / back accessories by part id + colour;
+  `bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 --hair=3901:0
+  --legs=1 --held-right=3847:71 --cape=4` builds a one-figure pack (12 parts,
+  174 cuboids, 108 ms). The add-on builder accepts a figures-only pack.
+- **Brick-accurate buildings** (`engine/bedrock-building-shell.ts`, on by
+  default, `addonBuildingBricks` / `--buildings=blocks`): everything that is
+  not a vehicle, a figure or a door leaf is compiled as ONE static "shell"
+  entity (`<id>_shell`, kind `prop`, `wholeModel`, no clustering so a loose
+  tree or signpost stays) at the vehicle pipeline's fidelity, and the block
+  structure becomes `craftmatic:collider` blocks. Budgets
+  (`LEGO_SHELL_QUALITY`): balanced 16,384 cuboids from 8 LDU, high 32,768
+  from 4, ultra 65,536; the compiler coarsens when over. Measured: museum
+  10,931 cuboids / 12 meshes / 22.9 s, chalet 6,922 / 8 / 6.6 s, 910047
+  8,806, Hogwarts 6,488, all at 8 LDU without coarsening.
+- **The grid frame is a MIRROR of LDraw.** The voxelizer maps LDraw (x, y, z)
+  to cells (x, −y, z); LDraw and Minecraft are both right-handed, so every
+  block export is the model's mirror image (invisible on symmetric builds;
+  a hinge side would show). Entities are compiled through PROPER rotations
+  and land unmirrored, so a shell compiled like a vehicle could never sit on
+  its own colliders. The shell therefore uses the point reflection −I as its
+  LDraw→render matrix (`SHELL_FRAME`): the world at yaw 0 sees render
+  (−x, y, −z) (`extraPlacement`, Pixel-proven), which composes to (x, −y, z)
+  - the grid's frame. Its actor stands at `sceneGridPoint(frame, originLdu)`
+  with yaw 0 and turns with the wand like every actor. Fixing the mirror in
+  the block pipeline is a separate decision (it changes every schematic
+  byte-for-byte; rule 5).
+- **Colliders** (`buildColliderGrid`): integer states `craftmatic:lo` (0..15)
+  and `craftmatic:hi` (1..16), sixteenths; 136 permutations each setting
+  `minecraft:collision_box` origin/size; measured per cell from the shell's
+  `partBoxesLdu` (every body cuboid's LDraw AABB), so a cell whose only
+  content is an 8 LDU baseplate collides 0..3/16 and the player stands ON
+  the drawn plate. Full block when no box reaches a solid cell (gap fill).
+  Alpha-tested clear texture (`textures/blocks/craftmatic_collider.png`,
+  registered in `blocks.json` + `terrain_texture.json`), `light_dampening: 0`
+  (daylight reaches the interior; the shell is lit from its origin block),
+  `selection_box: false` (taps reach the vanilla door behind). Doors,
+  trapdoors, lanterns/torches/lights, beds and signs stay visible
+  (`isSceneBlock`). `toBedrockBlock` passes `craftmatic:` ids through with
+  namespaced int/bool/string states. Chalet: 1,020 colliders, 302 part-height.
+- **Shell entity**: `shellBehavior` - no gravity, no collision, 0.1 collision
+  box, unhurt, `craftmatic_shell` family; a display stand left beside a
+  vehicle ships the same way (the Senna golden model now lists a `(shell)`).
