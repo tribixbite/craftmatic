@@ -36,8 +36,10 @@ export interface SceneFigure {
   floorLdu: number;
   /** Torso's local −Z through its placement, horizontal unit (x, z). */
   facingLdu: [number, number];
-  /** True when the figure sits on a seat (the seat is then not offered as free). */
+  /** True when the figure sits on a seat. */
   seated: boolean;
+  /** Index into `seats` of the seat it sits on: it spawns riding that seat's entity. */
+  seatIndex?: number;
 }
 
 export interface SceneSeat {
@@ -142,9 +144,10 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     if (!isSeat(b.part, desc(b))) continue;
     const surface = local(b, [0, -8, 0]);
     const facing = horizontal(b, [0, 0, -1]) ?? [0, -1];
-    const sitter = figures.find(f => { const t = f.bricks.find(p => isTorso(p.part, desc(p)))!; return Math.hypot(t.x - surface[0], t.z - surface[2]) <= 30 && t.y <= surface[1] && t.y >= surface[1] - 60; });
-    if (sitter) { sitter.seated = true; continue; }
+    const sitter = figures.find(f => f.seatIndex === undefined && (() => { const t = f.bricks.find(p => isTorso(p.part, desc(p)))!; return Math.hypot(t.x - surface[0], t.z - surface[2]) <= 30 && t.y <= surface[1] && t.y >= surface[1] - 60; })());
     seats.push({ part: cleanPartId(b.part), surfaceLdu: surface, facingLdu: facing });
+    // A figure the source sat here rides this seat's entity (the seat stays, occupied).
+    if (sitter) { sitter.seated = true; sitter.seatIndex = seats.length - 1; }
   }
 
   // Door leaves, and the frames they hang in.

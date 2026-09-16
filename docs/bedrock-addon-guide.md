@@ -316,3 +316,12 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
 - **Shell entity**: `shellBehavior` - no gravity, no collision, 0.1 collision
   box, unhurt, `craftmatic_shell` family; a display stand left beside a
   vehicle ships the same way (the Senna golden model now lists a `(shell)`).
+- **Seated figures ride their seat.** A figure the source sat on a seat mould
+  (`SceneFigure.seated`, torso within 30 LDU of the pan and up to 60 above it)
+  used to take the seat out of the free list and spawn standing. Now the seat
+  entity ships anyway (`seatIndex` on the figure → `PlacementActor.rideOf`),
+  the seat's `family_types` admit `craftmatic_figure`, and placement.js calls
+  the seat's `minecraft:rideable` `addRider` once both are spawned; the `sit`
+  animation (legs −90°, sign unverified on a device) plays on
+  `query.is_riding`. Chalet: 9 seats, figures 4/5/6 ride seats 12/13/16 of the
+  actor list. Unverified on the Pixel (built after round 4's packs were cut).

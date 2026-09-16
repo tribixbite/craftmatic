@@ -57,9 +57,13 @@ describe('discoverSceneActors', () => {
     expect(scene.figures[0]!.floorLdu).toBe(64);
     expect(scene.figures[2]!.seated).toBe(true);
     expect(scene.figureBricks.size).toBe(15);
-    expect(scene.seats).toHaveLength(1);
-    expect(scene.seats[0]!.surfaceLdu).toEqual([600, -8, 0]);
-    expect(scene.seats[0]!.facingLdu).toEqual([0, -1]);
+    // Both seats ship: the free one for the player, the occupied one for its sitter to ride.
+    expect(scene.seats).toHaveLength(2);
+    const free = scene.seats.findIndex(s => s.surfaceLdu[0] === 600);
+    expect(scene.seats[free]!.surfaceLdu).toEqual([600, -8, 0]);
+    expect(scene.seats[free]!.facingLdu).toEqual([0, -1]);
+    expect(scene.figures[2]!.seatIndex).toBe(1 - free);
+    expect(scene.figures.filter(f => f.seatIndex !== undefined)).toHaveLength(1);
     expect(scene.doors.map(d => d.part)).toEqual(['60623', '3821']);
     expect(scene.doors[0]).toMatchObject({ alongAxis: 'x', hingeAtMin: true, color: 6 });
     expect(scene.doors[0]!.minLdu).toEqual([1200, -144, -3]);

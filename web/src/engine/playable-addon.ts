@@ -84,8 +84,8 @@ export interface PlayableAddonOptions {
      * minifig NPCs, a wheeled object is rideable, a wheel-less one is a prop.
      */
     mainVehicleOnly?: boolean;
-    /** Figures found in the scenery (bedrock-scene-actors.ts), in grid coordinates: each becomes a wandering minifig NPC. */
-    figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number] }>;
+    /** Figures found in the scenery (bedrock-scene-actors.ts), in grid coordinates: each becomes a wandering minifig NPC; one with a `seatIndex` spawns riding that seat. */
+    figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }>;
     /** Free seats in the scenery, in grid coordinates: each gets an invisible rideable seat entity. */
     seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
     /**
@@ -349,7 +349,8 @@ function seatBehavior(id: string): unknown {
         'minecraft:collision_box': { width: 0.5, height: 0.5 },
         'minecraft:physics': { has_gravity: false, has_collision: false },
         'minecraft:pushable_by_block': {},
-        'minecraft:rideable': { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } },
+        // A figure the source seated rides too (placement.js addRider); the sit animation plays while it does.
+        'minecraft:rideable': { seat_count: 1, family_types: ['player', 'craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
     } } };
 }
@@ -1386,6 +1387,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     // Figures found in the scenery: one minifig NPC type each, standing where the source put them.
     const figureKindCounts: Record<string, number> = {};
+    /** Actor index of each scene figure, so a seated one can be told which seat actor to ride. */
+    const figureActorIndex = new Map<number, number>();
     for (const [k, fig] of (options.figures ?? []).entries()) {
         const rawFig = `${id}_fig${k + 1}`;
         const fcid = /^[0-9]/.test(rawFig) ? `f_${rawFig}` : rawFig;
@@ -1408,7 +1411,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             return normaliseYaw(Math.atan2(-n[0] || 0, n[1]) * 180 / Math.PI);
         })();
         actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: fig.x, y: fig.y, z: fig.z, yaw });
-        extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: 'minifig standing in the build' });
+        figureActorIndex.set(k, actors.length - 1);
+        extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: fig.seatIndex !== undefined ? 'minifig sitting in the build' : 'minifig standing in the build' });
         figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
     }
     // Seats: one invisible rideable type shared by every chair and bench.
@@ -1422,9 +1426,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: json(SEAT_GEOMETRY) },
             { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
         );
+        const seatActorStart = actors.length;
         for (const [k, seat] of seatList.entries()) {
             actors.push({ typeId: `${PACK_NAMESPACE}:${seatId}`, label: seat.label, x: seat.x, y: seat.y, z: seat.z, yaw: seat.yaw });
             extraComponents.push({ id: `${seatId}_${k + 1}`, label: seat.label, kind: 'seat', provenance: 'seat mould in the build' });
+        }
+        // A figure the source seated rides its seat once both are spawned (placement.js).
+        for (const [k, fig] of (options.figures ?? []).entries()) {
+            const figActor = figureActorIndex.get(k);
+            if (fig.seatIndex === undefined || figActor === undefined || fig.seatIndex >= seatList.length) continue;
+            actors[figActor]!.rideOf = seatActorStart + fig.seatIndex;
         }
     }
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
