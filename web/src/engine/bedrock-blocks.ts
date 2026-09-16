@@ -199,6 +199,20 @@ function defaultStates(bedrockId: string): Record<string, string | number | bool
  * surfaces as a failed export naming the block rather than as silent air.
  */
 export function toBedrockBlock(javaEntry: string): BedrockBlock | null {
+  // The pack's own custom blocks (`craftmatic:collider[lo=3,hi=16]`) pass
+  // through: namespaced integer / boolean / string states, no vanilla schema.
+  if (javaEntry.startsWith('craftmatic:')) {
+    const bracket = javaEntry.indexOf('[');
+    const name = bracket < 0 ? javaEntry : javaEntry.slice(0, bracket);
+    const states: Record<string, string | number | boolean> = {};
+    if (bracket >= 0) for (const pair of javaEntry.slice(bracket + 1).replace(/]$/, '').split(',')) {
+      const eq = pair.indexOf('=');
+      if (eq <= 0) continue;
+      const key = `craftmatic:${pair.slice(0, eq)}`, raw = pair.slice(eq + 1);
+      states[key] = raw === 'true' ? true : raw === 'false' ? false : /^-?\d+$/.test(raw) ? Number(raw) : raw;
+    }
+    return { name, states };
+  }
   const { id, props } = parseJavaState(javaEntry);
   let bedrockId = renamedId(id);
 

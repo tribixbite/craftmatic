@@ -73,6 +73,8 @@ export interface SceneActors {
   doors: SceneDoor[];
   /** Every placement that belongs to a figure (to leave out of the block scenery). */
   figureBricks: Set<ParsedBrick>;
+  /** Every door LEAF placement (a vanilla door stands in for it, so a brick shell leaves it out). */
+  doorBricks: Set<ParsedBrick>;
   meshes: Map<string, LdrawPartMesh | null>;
 }
 
@@ -152,9 +154,11 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     if (m && m.triangles.length && /^[~=_]*\s*Door\b.*\bFrame\b/i.test(m.description)) frames.push(worldBounds(b, m));
   }
   const doors: SceneDoor[] = [];
+  const doorBricks = new Set<ParsedBrick>();
   for (const b of bricks) {
     const m = meshes.get(b.part);
     if (!m || !m.triangles.length || !isDoorLeafDescription(m.description)) continue;
+    doorBricks.add(b);
     const box = worldBounds(b, m);
     const dx = box.max[0] - box.min[0], dz = box.max[2] - box.min[2];
     const alongAxis: 'x' | 'z' = dx >= dz ? 'x' : 'z';
@@ -166,7 +170,7 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
     doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
   }
-  return { figures, seats, doors, figureBricks, meshes };
+  return { figures, seats, doors, figureBricks, doorBricks, meshes };
 }
 
 /** The voxelizer's grid frame (`VoxelizeResult.gridOrigin`). */

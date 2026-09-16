@@ -47,7 +47,8 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       expect(entries).toContain(`${rp}manifest.json`);
       // The vehicle first; the figures, props and second vehicles found beside it follow (see EntityExtra).
       expect(result.mcpack?.components?.[0]).toBe(`${g.label} (${g.kind})`);
-      for (const c of result.mcpack?.components?.slice(1) ?? []) expect(c).toMatch(/ \((figure|prop|car|seat)\)$/);
+      // A display stand left beside the vehicle ships as a brick-accurate shell (bedrock-building-shell.ts).
+      for (const c of result.mcpack?.components?.slice(1) ?? []) expect(c).toMatch(/ \((figure|prop|car|seat|shell)\)$/);
       // The high-detail path was used: real geometry file + PBR texture set, and no BlockGrid greedy fallback.
       expect(entries).toContain(`${rp}models/entity/${g.cid}.geo.json`);
       expect(entries).toContain(`${rp}textures/entity/${g.cid}.texture_set.json`);

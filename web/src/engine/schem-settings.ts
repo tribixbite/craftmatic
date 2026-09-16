@@ -78,6 +78,12 @@ export interface SchemExportSettings {
    */
   addonMainVehicleOnly?: boolean;
   /**
+   * Playable add-on: buildings as brick-accurate geometry (a static entity
+   * compiled from the real parts over invisible walkable blocks). ON by
+   * default; off ships the coloured block structure.
+   */
+  addonBuildingBricks?: boolean;
+  /**
    * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
    * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
    * recommendation): it only ever refines a cell that is already solid, so the
@@ -102,6 +108,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   vehicleFacing: 'auto',
   addonDetail: 'balanced',
   addonMainVehicleOnly: false,
+  addonBuildingBricks: true,
   shapes: true,
   detailMaterials: false,
 };
