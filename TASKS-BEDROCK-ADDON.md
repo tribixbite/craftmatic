@@ -7,9 +7,9 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig and the building shell). Spec:
 `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-16, round 4 built, gated offline AND settled on the Pixel)
+## State (2026-09-16, rounds 4-5 settled on the Pixel; deploying)
 
-Commit `66b0367` + docs. Every figure is a JOINTED minifig on the canonical rig
+Commits `66b0367`…`f214b1a` (rig, shell, seated figures, shell lighting). Every figure is a JOINTED minifig on the canonical rig
 (`engine/minifig-rig.ts`: missing arms/legs/head supplied, walk / look / sit
 animations, exact torso facing); every building ships as a brick-accurate
 "shell" entity over invisible `craftmatic:collider` blocks whose collision
@@ -56,21 +56,30 @@ different swing angles, **2.03 blocks** beside the 1.80 player; seats seat.
 Museum 7/7 figures, modular 8/8, Hogwarts places.
 
 Still open from the round:
-- [ ] **Shell entities rendered near-black in daylight** (museum, modular,
-      Hogwarts; chalet and X-wing fine): the entity's light is the block at its own
-      position, and a shell's floor centre sat inside its collider volume. FIXED in
-      `f214b1a` (`originAboveModel`: the shell's origin sits one block over the roof
-      in open sky, geometry authored below it, actor spawns lifted). Device check
-      pending: round-5 packs in `output/bedrock-entity-qa/round-2026-09-16c/`
-      (`museum-lit`, `chalet-lit`, `bdp910047-lit`); the chalet one also carries
-      the seated figures (see below).
-- [ ] **F not finished**: the X-wing figures' walk cycle and the rider-in-cockpit
-      re-check were not run (time). Both figures are confirmed rigged (arms+legs).
-- [ ] **E not finished**: the wall-walk / floor-Y checks were run on the chalet
-      only, not on the museum.
-- [ ] Figure height reads **2.03** blocks, just above the intended 1.8–2.0 band.
-- [ ] `natural_fig4` walked off the platform edge (y 64.00); `minecraft:home`
-      tethering was not re-measured this round.
+## Device round 5 — SETTLED (2026-09-16, `captures-2026-09-16e/notes.md`, 45 shots)
+
+Shell lighting FIXED (`f214b1a`, origin one block over the roof): museum wall
+mean grey 15.5 → 114.9/255, modular 12.1 → 110.7, chalet unchanged; shell still
+at collider offset 0.00 after the lift, plate under the feet (y 67.00). Chalet
+`1 structure piece and 17 entities`: figures 4/5/6 sit on their seats and stay
+(three censuses over 22 min identical to 2 dp), the player sits on a free seat
+first try. Content log zero `[error]` (18,578 lines).
+
+Still open from rounds 4-5:
+- [ ] **Chalet figures 1/3/7 did not move in 22 min** (figure 2 did; round 3's
+      figures walked 5-18 blocks / 30 s on the block version). Suspects: spawned
+      inside a part-height collider cell or an interior `random_stroll` cannot path
+      out of; check with a census after `/tp` onto open floor and by reading the
+      collider states around their spawn cells (`/testforblock`).
+- [ ] Sit pose: thighs read forward, shoe ~1 block clear of the floor; hips occluded
+      by the bench in every reachable angle (leg sign not disproven, not proven).
+- [ ] **F not finished**: X-wing figures' walk cycle and a rider-in-cockpit view
+      (the orbit camera cannot show the seat). Both figures are rigged (arms+legs).
+- [ ] Figure height reads **2.03** blocks (hair + head stud over the 1.8 player).
+- [ ] `natural_fig4` walked off the platform edge in round 4; `minecraft:home`
+      tethering not re-measured.
+- [ ] Hogwarts was cleared from the QA world and not re-placed; museum −153/66/504,
+      modular −117/66/500, chalet −132/66/480 stand there; `doDaylightCycle` is FALSE.
 
 ## Open (not started)
 
