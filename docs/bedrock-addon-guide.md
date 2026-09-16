@@ -363,3 +363,14 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
   animation (legs −90°, sign unverified on a device) plays on
   `query.is_riding`. Chalet: 9 seats, figures 4/5/6 ride seats 12/13/16 of the
   actor list. Unverified on the Pixel (built after round 4's packs were cut).
+- **Round 5 (2026-09-16, `captures-2026-09-16e/`)**: the shell lighting fix
+  holds (museum wall 15.5 → 114.9/255 mean grey at noon, modular 12.1 → 110.7;
+  the entity's light IS the block at its own origin, so a shell's origin sits a
+  block over its roof, `originAboveModel`); colliders still at offset 0.00
+  after the lift; seated figures ride their seats and stay put 22 min; the
+  player sits on a free seat. Device facts: each pack ships its OWN wand item
+  `craftmatic:<stem>_brick_wand` (a hotbar wand drives the model it belongs
+  to - `/give` the right one); opening a wand needs a ~700 ms long press; the
+  wand menu now has a "Lighting / night vision" row, so button offsets shifted;
+  with `MSYS_NO_PATHCONV=1` an `adb push` needs a `C:/…` local path (a `/c/…`
+  path silently pushes nothing and the follow-up `cp` still reports success).
