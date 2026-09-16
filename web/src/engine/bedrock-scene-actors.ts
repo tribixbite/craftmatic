@@ -25,7 +25,7 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
-import { groupFigures, isSeat, isTorso, cleanPartId } from './ldraw-entity-compiler.js';
+import { figureRole, groupFigures, isSeat, isTorso, cleanPartId } from './ldraw-entity-compiler.js';
 import type { BlockGrid } from '@craft/schem/types.js';
 
 export interface SceneFigure {
@@ -118,6 +118,8 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
   for (const g of groupFigures(bricks, meshes)) {
     if (g.parts.length < 3) continue;
     const parts = g.parts.map(i => bricks[i]!);
+    // Statues and busts stay in the blocks (figureRole).
+    if (figureRole(parts, meshes) !== 'npc') continue;
     const torso = bricks[g.torso]!;
     const facing = horizontal(torso, [0, 0, -1]) ?? [0, -1];
     let min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];

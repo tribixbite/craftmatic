@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileLdrawEntityGeometry, groupFigures, isFigurePart, baseMould, ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, figureRole, groupFigures, isFigurePart, baseMould, ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { extraPlacement, snapFacing } from '../web/src/engine/playable-addon.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -55,6 +55,15 @@ describe('part helpers', () => {
     expect(snapFacing([0, -1])).toBe('-z');
     expect(snapFacing([0.71, -0.7])).toBe('+x');
     expect(snapFacing([-0.2, 0.98])).toBe('+z');
+  });
+});
+
+describe('figureRole', () => {
+  it('an NPC has legs and more than one colour; one colour is a statue; no legs is partial', () => {
+    const meshes = new Map();
+    expect(figureRole(figure(0, 0, 0), meshes)).toBe('npc');
+    expect(figureRole(figure(0, 0, 0).map(b => ({ ...b, color: 71 })), meshes)).toBe('statue');
+    expect(figureRole(figure(0, 0, 0).filter(b => !/381[567]/.test(b.part)), meshes)).toBe('partial');
   });
 });
 
