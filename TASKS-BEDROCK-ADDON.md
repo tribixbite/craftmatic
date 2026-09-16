@@ -17,7 +17,7 @@ figures walk, its seats sit, its door leaves are vanilla doors, and every
 vehicle - aircraft included - turns with the joystick under a script chase
 camera. Offline gates on the eight models (`output/bedrock-entity-qa/round-2026-09-16/`,
 `run-exports.sh`, `*.summary.json`, `sil-*/`): root + web typecheck clean,
-vitest 1,6xx passing (`vitest-final.log`), silhouette `IoU kept` X-wing 0.953,
+vitest 1,589 passing, 26 skipped (`vitest-final.log`); prod smoke 13/13 after deploy, silhouette `IoU kept` X-wing 0.953,
 Milano 0.962, Senna 0.991 (the `full` scores dropped on purpose: the extras
 are no longer in the vehicle's geometry).
 
