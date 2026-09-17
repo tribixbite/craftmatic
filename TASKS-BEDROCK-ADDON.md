@@ -80,22 +80,19 @@ colliders re-laid at 2× (`/testforblock 0 -45 40 craftmatic:collider` found, wa
 player, upper floor at y −54), figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo
 restores terrain and removes every entity, 50 % walls still block.
 
-### The five defects, fixed offline (`be48ee8`) — device round 2026-09-17b RUNNING (Opus subagent)
-Packs rebuilt in `output/bedrock-entity-qa/round-2026-09-17b/` (same three models); brief
-`QA-BRIEF.md` there; evidence lands in `captures-2026-09-17b/notes.md`. The Mini's seat clamp did
-NOT fire (the 0.38× car is 2.25 blocks tall, threshold 2.0) - round b measures the CAR's own y
-versus the rider's to tell a sunk vehicle from a bad seat before the threshold is changed.
-- [ ] `starting_rot_x` dropped from the `fixed_boom` preset → content log must show ZERO `[error]`.
-- [ ] Climb is its own group `craftmatic:climbing` (added by `minecraft:entity_spawned` and by
-      `descend_off`); `descend_on` swaps it for `craftmatic:descending`. Verify: descend, release,
-      Jump climbs again (ALT rises), rider stays mounted; repeat three cycles.
-- [ ] A model under 2.0 blocks tall seats the rider ON it (seat y ≥ height − 0.55, `behaviorEntity`):
-      the 0.38× Mini Cooper's rider should sit with legs in the roof line, not through the flank;
-      measure the rider's y beside the car's y and screenshot from the side.
-- [ ] Figures: collision box capped at the player's 0.6 × 1.8 and a figure spawned in a full collider
-      cell is lifted to the first clear cell (`placement.js`). Verify: chalet at 100 %, census three
-      times; how many of the 7 move without a `/tp`.
-- [ ] Aim at the sky: the action bar now says "look at a block within 96 blocks".
+### Round b (2026-09-17, `captures-2026-09-17b/notes.md`) — three of five fixes SETTLED
+Content log **0 `[error]`** (starting_rot_x gone); climb survives three descend cycles
+(ALT −59→−46→−60→+5→−56→+9→−54→+12, rider never dismounted; an event-only cycle on an
+unridden plane then climbs); aim-at-sky message shown. Two fixes re-done (commit after `abbe46d`),
+packs rebuilt in `round-2026-09-17c/` — **round c must re-verify**:
+- [ ] **Mini rider**: car y −60.00 (on the ground, fixed); rider y −61 with arm/shoe through the
+      driver-side flank. Now a model under 2.4 tall or 2.2 wide seats the rider on its roof line,
+      CENTRED (`behaviorEntity`, seat y ≥ height − 0.55, seat x 0). Verify: rider sits on/in the
+      roof line, nothing through the flank; screenshot side-on mounted; rider y vs car y.
+- [ ] **Figure lift**: round b's lift treated a 3/16 floor plate as a collider and put fig 1 on the
+      ROOF (+8) and fig 7 at +4; now only a collider spanning ≥ 12 sixteenths is a wall and a figure
+      with no clear cell within 3 stays put. Figures 4/5/6 are the SEATED ones (they ride seats and
+      never walk - expected). Verify: figs 1, 2, 3, 7 walk over three censuses; spawn heights.
 
 ### Still unverified on a device
 - [ ] Whether LOOK DOWN still dives under the script chase camera — **not testable from adb**:

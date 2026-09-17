@@ -468,4 +468,19 @@ round settles them.
   SPACE dismounts a rider (use the touch Jump button); `/rotate` does not exist; `/tp @s …
   facing …` dismounts; a `/fill` ruler from y −60 shows 4 blocks (the top ground block is
   replaced). Flat world surface y −60; chalet placed at −17/−60/32, Mini at −1/−61/−186.
+- **Round b (2026-09-17, `captures-2026-09-17b/notes.md`)**: content log 0 `[error]`;
+  climb survives three descend cycles (the climb group swap works, an event-only cycle on
+  an unridden plane too); aim-at-sky message shown. The Mini's CAR sits on the ground
+  (y −60.00) - the rider's location reads a block lower (Bedrock reports a rider at its
+  seat minus its own ride offset), and the arm/shoe still clipped the driver-side flank at
+  the compiler's offset seat → models under 2.4 tall or 2.2 wide now seat the rider on the
+  roof line, centred. The figure lift misfired: a 3/16 floor plate is a
+  `craftmatic:collider` too, so "any collider = blocked" lifted a ground-floor figure to
+  +4 and an upper-floor one onto the ROOF (+8); only a collider spanning ≥ 12 sixteenths is
+  a wall now, and a figure with no clear cell within three blocks stays put. Figures 4/5/6
+  of the chalet are the seated ones and never walk by design. Device facts: **`adb push`
+  into `Android/data/…` does not truncate an existing file** - pad a pushed
+  `world_*_packs.json` to at least the old byte length or the JSON ends in trailing garbage
+  (`adb shell rm` there is denied); the content log is 16 KiB block-buffered, so the tail of
+  a session is missing until the game flushes it.
 
