@@ -83,8 +83,9 @@ Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
 - [ ] **71043 on the phone**: prod (craftmatic.click) still serves the OLD maths until the
       branch deploys; the user should re-check the three spots after deploy. Local A/B renders:
       `output/lxf-gt/71043-probe/hogwarts-close-*.png` (new) vs `hogwarts-old-*.png` (old).
-      Open question from the renders: the two Dementors hang at an angle on their trans-clear
-      stalks - real set design or a residual? (`scripts/_lego-probe.mjs` now takes `PROBE_VIEWS`
+      A/B verdict: the old render shows the stair tile piercing the tower floor and a loose black
+      1×1 in mid-air, the new one neither; the two angled Dementors are IDENTICAL in both, so they
+      are the source's pose, not a residual. (`scripts/_lego-probe.mjs` now takes `PROBE_VIEWS`
       JSON for close-up cameras; search mode needs the set loaded from the index, file mode
       `file:<abs path>` works for any .lxf/.ldr.)
 - [ ] LXF residuals (strict cohort `output/lxf-gt/strict-hybrid_xml_first.json`): Technic sets score
