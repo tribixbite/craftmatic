@@ -163,7 +163,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   expect(commands).toHaveLength(commandsBeforeLighting);
   expect(snapshots).toHaveLength(snapshotsBeforeLighting);
   expect(showTimeMachineControls).not.toHaveBeenCalled();
-  responses.push({ selection: 9 });
+  responses.push({ selection: 11 }); // after "Follow my aim" (9) and "Size" (10)
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(showTimeMachineControls).toHaveBeenCalledExactlyOnceWith(player);
   expect(commands).toHaveLength(commandsBeforeLighting);

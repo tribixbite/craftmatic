@@ -26,6 +26,7 @@
  * like every figure and seat.
  */
 
+import { withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
@@ -164,7 +165,7 @@ export const COLLIDER_TERRAIN_TEXTURE = { craftmatic_collider: { textures: 'text
 
 /** The static shell entity: no gravity, no collision, cannot be selected, hurt or pushed. */
 export function shellBehavior(id: string): unknown {
-  return {
+  return withSizeGroups({
     format_version: '1.26.30',
     'minecraft:entity': {
       description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true },
@@ -181,5 +182,5 @@ export function shellBehavior(id: string): unknown {
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 120, max_dropped_ticks: 20, use_motion_prediction_hints: false } },
       },
     },
-  };
+  }, { width: 0.1, height: 0.1 });
 }

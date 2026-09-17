@@ -5,7 +5,7 @@ import { deterministicUuid, exportVersion, PACK_NAMESPACE, toBedrockIdentifier }
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, placementAlias, type PlacementActor } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, encodeColliderRuns, placementAlias, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -13,7 +13,7 @@ import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtr
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
-import { COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoEntityTextureAtlas } from './ldraw-entity-atlas.js';
@@ -301,7 +301,12 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             [AIRCRAFT_DESCEND_OFF]: { remove: { component_groups: [AIRCRAFT_DESCEND_GROUP] } },
         },
     } : {};
-    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, ...aircraftGroups, components: common } };
+    // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
+    return withSizeGroups(
+        { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, ...aircraftGroups, components: common } },
+        common['minecraft:collision_box'] as { width: number; height: number },
+        rideableComponent,
+    );
 }
 /**
  * A minifig NPC: walks about, opens doors, looks at players, takes no damage.
@@ -309,13 +314,14 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
  * doorways and corridors of a minifig-scale building.
  */
 function figureBehavior(id: string, size: { width: number; height: number; length: number }): unknown {
-    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+    const collision = { width: Math.min(0.9, Math.max(0.5, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(2, Math.max(1.2, Math.round(size.height * 10) / 10)) };
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_figure', 'mob'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 20, max: 20 },
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
         'minecraft:fire_immune': {},
-        'minecraft:collision_box': { width: Math.min(0.9, Math.max(0.5, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(2, Math.max(1.2, Math.round(size.height * 10) / 10)) },
+        'minecraft:collision_box': collision,
         'minecraft:physics': { has_gravity: true, has_collision: true },
         'minecraft:pushable_by_block': {},
         // No members at format 1.26.30: `is_pushable` belonged to the removed
@@ -339,12 +345,12 @@ function figureBehavior(id: string, size: { width: number; height: number; lengt
         'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: 0.02 },
         'minecraft:behavior.random_look_around': { priority: 8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } };
+    } } }, collision);
 }
 
 /** A static object beside the vehicle (a service cart without wheels, a crate): solid, immovable, unhurt. */
 function propBehavior(id: string, collisionBox: { width: number; height: number }): unknown {
-    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_prop'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 100, max: 100 },
@@ -355,7 +361,7 @@ function propBehavior(id: string, collisionBox: { width: number; height: number 
         'minecraft:pushable_by_block': {},
         'minecraft:knockback_resistance': { value: 1 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } };
+    } } }, collisionBox);
 }
 
 /**
@@ -365,7 +371,8 @@ function propBehavior(id: string, collisionBox: { width: number; height: number 
  * (0.96 blocks over the pan) land where the compiler puts a rider's.
  */
 function seatBehavior(id: string): unknown {
-    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+    const rideable = { seat_count: 1, family_types: ['player', 'craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } };
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_seat'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 20, max: 20 },
@@ -375,9 +382,9 @@ function seatBehavior(id: string): unknown {
         'minecraft:physics': { has_gravity: false, has_collision: false },
         'minecraft:pushable_by_block': {},
         // A figure the source seated rides too (placement.js addRider); the sit animation plays while it does.
-        'minecraft:rideable': { seat_count: 1, family_types: ['player', 'craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } },
+        'minecraft:rideable': rideable,
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } };
+    } } }, { width: 0.5, height: 0.5 }, rideable);
 }
 function seatClient(id: string): unknown {
     return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: 'textures/entity/craftmatic_seat' }, geometry: { default: `geometry.${PACK_NAMESPACE}.seat` }, render_controllers: ['controller.render.default'] } } };
@@ -1261,6 +1268,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // buildings) invisible colliders under the shell entity - see below.
     let structureGrid = scenery;
     let plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
+    /** The collider grid, run-length coded, so the wand can re-lay it at another size (bedrock-placement-pack.ts). */
+    let placementColliders: PlacementColliders | undefined;
     const actors: PlacementActor[] = [];
     const extraComponents: PlayableAddonResult['components'] = [];
     /** Behaviour + client entity + geometry + render controllers + colour/PBR atlases for one brick-compiled entity. */
@@ -1311,6 +1320,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const colliders = buildColliderGrid(scenery, sgeo.partBoxesLdu ?? [], options.shell.frame);
             structureGrid = colliders.grid;
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
+            const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
+            placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: runs.runs, keptCells: runs.keptCells };
             files.push(
                 { name: `${bp}blocks/collider.json`, data: json(colliderBlockDefinition()) },
                 { name: `${rp}blocks.json`, data: json(COLLIDER_BLOCKS_JSON) },
@@ -1523,6 +1534,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         preview: { typeId: ghost.typeId },
+        ...(placementColliders ? { colliders: placementColliders } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}) });
     files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
@@ -1533,7 +1545,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size every entity takes that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };

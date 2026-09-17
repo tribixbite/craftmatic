@@ -241,8 +241,19 @@ def cohort() -> list[tuple[str, Path, Path]]:
         m = re.match(r'(\d+)', f)
         if not m or m.group(1) not in studio:
             continue
-        # the first authentic io for the set (model variants score against the same truth)
-        rows.append((m.group(1), LXF_DIR / f, IO_DIR / sorted(studio[m.group(1)])[0]))
+        ios = sorted(studio[m.group(1)])
+        # A "[Model B]" alternate build is truth only against a "[Model B]" .io:
+        # scored against Model A it reads ~1 % and says nothing about placement.
+        variant = re.search(r'\[Model ([A-Z])\]', f)
+        if variant:
+            same = [i for i in ios if f'[Model {variant.group(1)}]' in i]
+            if not same:
+                continue
+            ios = same
+        elif any('[Model' in i for i in ios) and not any('[Model A]' in i for i in ios):
+            # the io files are all alternates and the lxf is the main model: no truth
+            ios = [i for i in ios if '[Model' not in i] or ios
+        rows.append((m.group(1), LXF_DIR / f, IO_DIR / ios[0]))
     return rows
 
 

@@ -19,6 +19,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import { encodePngRgba } from './lego-resource-pack.js';
 import { PACK_NAMESPACE } from './mcpack.js';
+import { withSizeGroups } from './bedrock-placement-pack.js';
 
 export interface PreviewComponentPlacement {
   grid: BlockGrid;
@@ -167,7 +168,8 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
   return {
     typeId, meshIds, cubeCount: cubes.length, factor, size,
     geometry: { format_version: '1.12.0', 'minecraft:geometry': meshes },
-    behavior: {
+    // The ghost takes the wand's size steps too, so a ½× or 2× placement previews at that size.
+    behavior: withSizeGroups({
       format_version: '1.26.30',
       'minecraft:entity': {
         description: { identifier: typeId, is_spawnable: false, is_summonable: true },
@@ -182,7 +184,7 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
           'minecraft:despawn': { despawn_from_distance: {} },
         },
       },
-    },
+    }, { width: 0.1, height: 0.1 }),
     clientEntity: {
       format_version: '1.10.0',
       'minecraft:client_entity': {
