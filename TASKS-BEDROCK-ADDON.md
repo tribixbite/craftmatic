@@ -80,8 +80,11 @@ colliders re-laid at 2× (`/testforblock 0 -45 40 craftmatic:collider` found, wa
 player, upper floor at y −54), figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo
 restores terrain and removes every entity, 50 % walls still block.
 
-### The five defects, fixed offline (commit after `d7e5d5a`) — re-verify on the device
-Packs rebuilt in `output/bedrock-entity-qa/round-2026-09-17b/` (same three models).
+### The five defects, fixed offline (`be48ee8`) — device round 2026-09-17b RUNNING (Opus subagent)
+Packs rebuilt in `output/bedrock-entity-qa/round-2026-09-17b/` (same three models); brief
+`QA-BRIEF.md` there; evidence lands in `captures-2026-09-17b/notes.md`. The Mini's seat clamp did
+NOT fire (the 0.38× car is 2.25 blocks tall, threshold 2.0) - round b measures the CAR's own y
+versus the rider's to tell a sunk vehicle from a bad seat before the threshold is changed.
 - [ ] `starting_rot_x` dropped from the `fixed_boom` preset → content log must show ZERO `[error]`.
 - [ ] Climb is its own group `craftmatic:climbing` (added by `minecraft:entity_spawned` and by
       `descend_off`); `descend_on` swaps it for `craftmatic:descending`. Verify: descend, release,
