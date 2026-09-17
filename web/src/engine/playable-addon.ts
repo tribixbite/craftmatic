@@ -134,6 +134,10 @@ function previewSamples(grid: BlockGrid, limit: number): Array<{ x: number; y: n
 export const ENTITY_FORMAT_VERSION = '1.26.30';
 /** Camel dash tuned for a car: shorter cooldown, same momentum. */
 export const DASH_ACTION = { cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 } as const;
+/** Aircraft component group that turns Jump into DESCEND (negative vertical velocity), and the events that toggle it. */
+export const AIRCRAFT_DESCEND_GROUP = 'craftmatic:descending';
+export const AIRCRAFT_DESCEND_ON = 'craftmatic:descend_on';
+export const AIRCRAFT_DESCEND_OFF = 'craftmatic:descend_off';
 /** Chase-camera boom length from the vehicle's longest side (blocks), 5..30. */
 export function chaseRadius(size: { width: number; height: number; length: number }): number {
     const longest = Math.max(size.width, size.length, 1);
@@ -276,7 +280,20 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:body_rotation_always_follows_head': {},
         });
     }
-    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: common } };
+    // An aircraft's native vertical input is Jump = climb only; the vanilla
+    // Happy Ghast descends by LOOKING down, and under the script chase camera
+    // that pitch was reported not to reach the entity ("no way to fly
+    // downwards"). `vertical_movement_action` with a NEGATIVE velocity moves
+    // the entity down on Jump, so the driver script swaps this group in while
+    // the rider pulls the stick back and holds Jump (vehicle-driver.js).
+    const aircraftGroups = kind === 'plane' ? {
+        component_groups: { [AIRCRAFT_DESCEND_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } } },
+        events: {
+            [AIRCRAFT_DESCEND_ON]: { add: { component_groups: [AIRCRAFT_DESCEND_GROUP] } },
+            [AIRCRAFT_DESCEND_OFF]: { remove: { component_groups: [AIRCRAFT_DESCEND_GROUP] } },
+        },
+    } : {};
+    return { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, ...aircraftGroups, components: common } };
 }
 /**
  * A minifig NPC: walks about, opens doors, looks at players, takes no damage.
@@ -768,7 +785,7 @@ function timeMachineRuntime(config: { typeId: string; width: number; height: num
 
 const timeMachineScript = (config: { typeId: string; width: number; height: number; length: number }) => `import { world, system } from "@minecraft/server";\nimport { ModalFormData } from "@minecraft/server-ui";\nconst showTimeMachineControls = (${timeMachineRuntime.toString()})(${JSON.stringify(config)});\nexport { showTimeMachineControls };\n`;
 
-function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; dashCooldownTicks: number }) {
+function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; dashCooldownTicks: number; descendOn: string; descendOff: string }) {
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
   const vehiclesByType = new Map(config.vehicles.map((v: any) => [v.typeId, v]));
   const states = new Map<string, any>();
@@ -823,6 +840,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         states.set(vehicle.id, state);
       }
       if (state.boostCooldown > 0) state.boostCooldown -= 2;
+      const isPlane = vConfig.kind === 'plane';
 
       const vel = riddenVelocity(state, vehicle);
       const horizontal = Math.hypot(vel.x, vel.z);
@@ -843,11 +861,23 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
       const dir = vehicle.getViewDirection?.() ?? { x: 0, y: 0, z: 1 };
       const hDir = Math.hypot(dir.x, dir.z) || 1;
 
+      // 0. Aircraft descend: pull the stick BACK and hold Jump. The entity's
+      //    `craftmatic:descending` group makes Jump's vertical action negative
+      //    while it is added (behaviorEntity); it is removed the moment the
+      //    stick returns so Jump climbs again. Independent of the look pitch.
+      if (isPlane) {
+        const wantDescend = jump && forwardInput < -0.1;
+        if (wantDescend !== !!state.descending) {
+          state.descending = wantDescend;
+          try { vehicle.triggerEvent?.(wantDescend ? config.descendOn : config.descendOff); } catch {}
+        }
+      }
+
       // 1. Boost feedback. The boost itself is NATIVE: a car/boat's
       //    `minecraft:dash_action` fires on the Jump button (hold to charge,
       //    release to dash) and a plane's `vertical_movement_action` climbs on
       //    Jump, so the script only plays the effects and shows the cooldown.
-      if (jump && state.boostCooldown <= 0 && forwardInput >= 0) {
+      if (jump && state.boostCooldown <= 0 && forwardInput >= 0 && !state.descending) {
         state.boostCooldown = config.dashCooldownTicks;
         if (isBoat) {
           try { vehicle.dimension?.playSound?.('random.splash', vehicle.location, { volume: 0.9, pitch: 1.1 }); } catch {}
@@ -942,7 +972,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
         const boostTag = (isCar || isBoat)
           ? (boostReady ? ' · §a[JUMP: DASH]§r' : ` · §8[DASH: ${(state.boostCooldown / 20).toFixed(1)}s]§r`)
-          : ' · §a[STICK: TURN · JUMP: CLIMB · LOOK DOWN: DIVE]§r';
+          : (state.descending ? ' · §a[DESCENDING]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · BACK+JUMP: DESCEND · LOOK DOWN: DIVE]§r');
         const coPilotTag = riders.length > 1 ? ` · §d[👥 ${riders.length}]§r` : '';
         let speedText = `§e${mph.toFixed(1)} mph§r`;
         if (forwardInput < -0.1) {
@@ -974,7 +1004,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
   } catch {}
 }
 
-const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; dashCooldownTicks: number }) =>
+const vehicleDriverScript = (config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; dashCooldownTicks: number; descendOn: string; descendOff: string }) =>
   `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)});\n`;
 
 /**
@@ -1481,14 +1511,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(timeMachineConfig ? { vehicleControls: true } : {}) });
     files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
-    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20) })) });
+    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
     const mainImports = [
         "import './placement.js';",
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; look up or down to climb or dive; Jump climbs straight up; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position, then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation; rotate until it faces the way you want, place, and undo if needed. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
