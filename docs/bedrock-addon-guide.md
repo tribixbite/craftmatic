@@ -391,7 +391,8 @@ round settles them.
   hips, 3816/3817 legs, `_torso` custom parts) → 1×; a figure-less model whose TITLE
   reads as a vehicle → shrunk so its longest origin extent (+1 stud a side) is the real
   thing's length (car 4.6 / boat 9 / aircraft 12 blocks), never enlarged, floor ¼×;
-  anything else 1×. The settings popover's "Model scale" row shows the decision for
+  a microfigure (85863, 48 LDU with its base) and no minifig → 2× (`MICROFIG_SCALE`, the
+  microfig stands player height); anything else 1×. The settings popover's "Model scale" row shows the decision for
   the loaded set. Measured: 10242 Mini Cooper (OMR) auto → **0.38×**, cell 140 LDU,
   geometry bounds 7×5 vs 14×9 at 1×, collision 2.8×1.8 vs 3.5×2.5, seat 0.3 vs 2.84
   high, same 6,113 cuboids (the part grain stays in LDU). LEGO Icons car names

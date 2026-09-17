@@ -109,8 +109,8 @@ Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
 - [ ] Which source the LEGO tab serves: prod index lists `IO/10326-noprint.io` first for 10326 and
       DbixConvV3 (exploded layouts) for many sets; a "compact layout" quality flag (lego-sources-guide).
 - [ ] Two museum doors "no room within three blocks"; 910047 sparse (17 % fill).
-- [ ] Hogwarts 76419 is microscale: its one 4-part torso group is not exported; decide on microfigs.
-      (The model-scale `auto` rule keys on minifig body parts; a microfig cue - 85863 - is not read yet.)
+- [ ] Hogwarts 76419 is microscale: `auto` scale now reads its microfigure (85863) and exports at
+      2× so it stands player height; its one 4-part torso group is still not an NPC (figureRole).
 - [ ] Beds / brick-built chairs are not detected (no bed mould; chairs are bricks).
 - [ ] Door sizing: a 1×4×6 leaf hangs 2 doors when it straddles two cells and 1 at 1.36 cells;
       below ¾× model scale no leaf reaches two cells, so no doors hang (documented in the popover).

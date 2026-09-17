@@ -54,6 +54,16 @@ describe('planAddonScale', () => {
     expect(plan.cue).toBe('vehicle');
   });
 
+  it('a microfigure and no minifig doubles a microscale set; a minifig beside it wins', () => {
+    const micro = planAddonScale([...rowOf('3005.dat', 600), brick('85863.dat', 100)], 'auto', 'Hogwarts Castle (76419)');
+    expect(micro.cue).toBe('microfig');
+    expect(micro.scale).toBe(2);
+    expect(micro.lduPerBlock).toBeCloseTo(LDU_PER_BLOCK / 2);
+    const both = planAddonScale([brick('85863.dat', 100), brick('973.dat', 0)], 'auto', '');
+    expect(both.cue).toBe('minifig');
+    expect(both.scale).toBe(1);
+  });
+
   it('leaves a figure-less building at 1× and says how to change it', () => {
     const plan = planAddonScale(rowOf('3001.dat', 3000), 'auto', 'Hogwarts Castle (71043)');
     expect(plan.scale).toBe(1);

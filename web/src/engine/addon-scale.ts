@@ -17,6 +17,8 @@
  *
  * `auto` picks from evidence in the model:
  *   • a minifig (torso / hips / legs) → 1×: the set is built around the figure;
+ *   • a microfigure (85863, 48 LDU with its base) and no minifig → 2×: the
+ *     microscale set's own figure stands player height (76419 Hogwarts, 21034);
  *   • a vehicle by its title, no figure → shrink so its longest side is the
  *     real thing's length (car 4.6 m, boat 9 m, aircraft 12 m; 1 block = 1 m),
  *     never enlarge, never under ¼;
@@ -34,15 +36,15 @@ import { classifyVehicleKind, isWholeVehicleLabel, type PlayableKind } from './p
 export type AddonScaleChoice = 'auto' | '0.25' | '0.5' | '0.75' | '1' | '1.5' | '2' | '3' | '4';
 
 export const ADDON_SCALE_OPTIONS: ReadonlyArray<{ value: AddonScaleChoice; label: string }> = [
-  { value: 'auto', label: 'Auto - minifig sets 1×, display vehicles shrunk to real size' },
+  { value: 'auto', label: 'Auto - minifig sets 1×, microfigure sets 2×, display vehicles shrunk to real size' },
   { value: '0.25', label: '¼× - a quarter of minifig scale' },
   { value: '0.5', label: '½× - half of minifig scale' },
   { value: '0.75', label: '¾×' },
   { value: '1', label: '1× - minifig scale (a minifig is player height)' },
   { value: '1.5', label: '1.5×' },
-  { value: '2', label: '2× - microscale builds become walkable' },
+  { value: '2', label: '2× - a microfigure stands player height (microscale builds)' },
   { value: '3', label: '3×' },
-  { value: '4', label: '4× - a microfigure stands player height' },
+  { value: '4', label: '4× - four times minifig scale' },
 ];
 
 /** Lowest scale `auto` will shrink a display vehicle to. */
@@ -57,7 +59,11 @@ const EXTENT_PAD_LDU = 20;
 /** Minifig body moulds: a torso, hips or legs in the model means it is built at minifig scale. */
 const MINIFIG_BODY_PARTS = /^(?:973|3814|76382|3815|3816|3817|970)(?![0-9])/;
 
-export type AddonScaleCue = 'minifig' | 'vehicle' | 'none' | 'explicit';
+export type AddonScaleCue = 'minifig' | 'microfig' | 'vehicle' | 'none' | 'explicit';
+
+/** The microfigure mould (85863) is 48 LDU tall with its base: player height at 2×. */
+export const MICROFIG_PARTS = /^85863(?![0-9])/;
+export const MICROFIG_SCALE = 2;
 
 export interface AddonScalePlan {
   choice: AddonScaleChoice;
@@ -97,6 +103,11 @@ export function hasMinifigCue(bricks: readonly ParsedBrick[]): boolean {
   return bricks.some(b => MINIFIG_BODY_PARTS.test(mouldId(b.part)) || /_torso$/i.test(b.part));
 }
 
+/** True when the model carries a microfigure (it is a microscale build). */
+export function hasMicrofigCue(bricks: readonly ParsedBrick[]): boolean {
+  return bricks.some(b => MICROFIG_PARTS.test(mouldId(b.part)));
+}
+
 const round2 = (v: number): number => Math.round(v * 100) / 100;
 
 function sizeAt(extent: { x: number; y: number; z: number }, scale: number): { x: number; y: number; z: number } {
@@ -121,6 +132,12 @@ export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScal
     return {
       choice: 'auto', scale: 1, lduPerBlock: LDU_PER_BLOCK, cue: 'minifig', sizeBlocks: sizeAt(extent, 1),
       reason: 'minifig scale (1×): the set has a minifig, so its figures stand player height and its doors fit them',
+    };
+  }
+  if (hasMicrofigCue(bricks)) {
+    return {
+      choice: 'auto', scale: MICROFIG_SCALE, lduPerBlock: LDU_PER_BLOCK / MICROFIG_SCALE, cue: 'microfig', sizeBlocks: sizeAt(extent, MICROFIG_SCALE),
+      reason: `${MICROFIG_SCALE}× minifig scale: a microscale set (it has a microfigure and no minifig), enlarged so its microfigures stand player height`,
     };
   }
   const kind = isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;
