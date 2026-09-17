@@ -19,6 +19,8 @@ import {
   type ResolutionChoice, type SchemExportSettings, type SpanLDU,
 } from '@engine/schem-settings.js';
 import { BLOCK_PROFILES } from '@engine/block-profiles.js';
+import { ADDON_SCALE_OPTIONS, describeAddonScale, planAddonScale, type AddonScaleChoice } from '@engine/addon-scale.js';
+import type { ParsedBrick } from '@engine/ldraw-parser.js';
 
 const STORAGE_KEY = 'craftmatic.mcExportSettings';
 const STYLE_ID = 'mc-export-settings-style';
@@ -42,6 +44,7 @@ function load(): SchemExportSettings {
         addonDetail: ['high', 'ultra'].includes(parsed.addonDetail ?? '') ? parsed.addonDetail : 'balanced',
         addonMainVehicleOnly: parsed.addonMainVehicleOnly === true,
         addonBuildingBricks: parsed.addonBuildingBricks !== false,
+        addonScale: ADDON_SCALE_OPTIONS.some(o => o.value === parsed.addonScale) ? parsed.addonScale : 'auto',
         lightCoverage: parsed.lightCoverage === 'covered' ? 'covered' : 'sealed',
         lightStyle: ['lantern', 'sea_lantern'].includes(parsed.lightStyle ?? '') ? parsed.lightStyle : 'profile',
         lightSpacing: [3, 6, 10].includes(parsed.lightSpacing ?? 0) ? parsed.lightSpacing : 6,
@@ -98,6 +101,8 @@ export interface SchemSettingsMountOptions {
   resolutionApplicable: boolean;
   /** Model extent for the live dims preview (LEGO tab). Null = nothing loaded. */
   getSpan?: () => SpanLDU | null;
+  /** The loaded bricks and their label, for the add-on scale preview (LEGO tab). Null = nothing loaded. */
+  getScaleContext?: () => { bricks: readonly ParsedBrick[]; label: string } | null;
   /** Button label. Default "⚙ MC settings". */
   label?: string;
   /**
@@ -204,6 +209,9 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
           <span class="mc-set-note">The building's parts become real geometry (round studs, exact colours) over invisible walkable blocks; doors, seats and figures still work. Off: the coloured block structure.</span>
         </span>
       </label>
+      <label for="mc-set-addon-scale" style="margin-top:6px">Model scale (playable add-on)</label>
+      <select id="mc-set-addon-scale">${ADDON_SCALE_OPTIONS.map(o => `<option value="${o.value}">${o.label}</option>`).join('')}</select>
+      <p class="mc-set-note" data-role="scale-note">At 1× a minifig stands as tall as the player. Blocks, invisible colliders, brick geometry and figures all scale together; below ¾× doors are too small to hang. Ignored when a fixed block resolution is chosen above.</p>
       <label for="mc-set-light-coverage">Lighting coverage</label>
       <select id="mc-set-light-coverage"><option value="covered">Covered interiors, including open fronts</option><option value="sealed">Sealed rooms only</option></select>
       <label for="mc-set-light-style">Lamp style</label>
@@ -229,10 +237,13 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   const detailSel = pop.querySelector('#mc-set-addon-detail') as HTMLSelectElement;
   const mainOnlyBox = pop.querySelector('#mc-set-main-vehicle') as HTMLInputElement;
   const buildingBricksBox = pop.querySelector('#mc-set-building-bricks') as HTMLInputElement;
+  const scaleSel = pop.querySelector('#mc-set-addon-scale') as HTMLSelectElement;
+  const scaleNote = pop.querySelector('[data-role="scale-note"]') as HTMLElement;
+  const scaleNoteDefault = scaleNote.textContent ?? '';
   const coverageSel = pop.querySelector('#mc-set-light-coverage') as HTMLSelectElement;
   const styleSel = pop.querySelector('#mc-set-light-style') as HTMLSelectElement;
   const spacingSel = pop.querySelector('#mc-set-light-spacing') as HTMLSelectElement;
-  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; buildingBricksBox.checked = s.addonBuildingBricks !== false; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
+  const syncLights = (s: SchemExportSettings): void => { facingSel.value = s.vehicleFacing ?? 'auto'; detailSel.value = s.addonDetail ?? 'balanced'; mainOnlyBox.checked = s.addonMainVehicleOnly === true; buildingBricksBox.checked = s.addonBuildingBricks !== false; scaleSel.value = s.addonScale ?? 'auto'; coverageSel.value = s.lightCoverage ?? 'covered'; styleSel.value = s.lightStyle ?? 'profile'; spacingSel.value = String(s.lightSpacing ?? 6); };
   syncLights(current);
   const shapeBox = pop.querySelector('#mc-set-shapes') as HTMLInputElement;
   const detailBox = pop.querySelector('#mc-set-detail') as HTMLInputElement;
@@ -248,6 +259,11 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
 
   const refresh = (): void => {
     profNote.textContent = BLOCK_PROFILES.find(p => p.id === profSel.value)?.description ?? '';
+    // The add-on scale's decision for the loaded model, so `auto` is never a surprise at export time.
+    const ctx = opts.getScaleContext?.() ?? null;
+    scaleNote.textContent = ctx
+      ? `${describeAddonScale(planAddonScale(ctx.bricks, scaleSel.value as AddonScaleChoice, ctx.label))}. ${scaleNoteDefault}`
+      : scaleNoteDefault;
     if (!opts.resolutionApplicable) {
       preview.textContent = 'The uploaded model is already a block grid — its resolution is fixed.';
       return;
@@ -266,6 +282,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
       addonDetail: detailSel.value as SchemExportSettings['addonDetail'],
       addonMainVehicleOnly: mainOnlyBox.checked,
       addonBuildingBricks: buildingBricksBox.checked,
+      addonScale: scaleSel.value as AddonScaleChoice,
       lightCoverage: coverageSel.value as 'sealed' | 'covered',
       lightStyle: styleSel.value as 'profile' | 'lantern' | 'sea_lantern',
       lightSpacing: Number(spacingSel.value),
@@ -277,7 +294,7 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
   resSel.addEventListener('change', commit, sig);
   profSel.addEventListener('change', commit, sig);
   lightBox.addEventListener('change', commit, sig);
-  for (const select of [facingSel, detailSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
+  for (const select of [facingSel, detailSel, scaleSel, coverageSel, styleSel, spacingSel]) select.addEventListener('change', commit, sig);
   shapeBox.addEventListener('change', commit, sig);
   detailBox.addEventListener('change', commit, sig);
   mainOnlyBox.addEventListener('change', commit, sig);

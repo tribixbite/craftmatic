@@ -801,6 +801,10 @@ function wireEvents(): void {
       resolutionApplicable: true,
       // Live output-size preview for whatever set is currently loaded.
       getSpan: () => (currentBricks && currentBricks.length > 0 ? spanOfBricks(currentBricks) : null),
+      // The add-on scale preview reads the title the export would (set name first).
+      getScaleContext: () => (currentBricks && currentBricks.length > 0
+        ? { bricks: currentBricks, label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : '' }
+        : null),
       key: 'lego',
     });
   }
@@ -1433,7 +1437,7 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
  * caveat is a real, quantified accuracy figure, not a vague hedge.
  */
 const LXF_ALIGNMENT_CAVEAT =
-  'LDD .lxf: placed through Studio's own per-part alignment (≈93% of parts land '
+  'LDD .lxf: placed through the Studio per-part alignment (≈93% of parts land '
   + 'on authentic Studio ground truth, measured over 91 sets); flex parts and '
   + 'designs Studio does not map can still sit off';
 

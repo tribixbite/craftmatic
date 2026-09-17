@@ -8,6 +8,7 @@
  *          [--quality=balanced|high|ultra] [--mode=auto|car|plane|boat]
  *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
+ *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
@@ -19,7 +20,9 @@ import { embeddedPartTexts, parseLDrawDocument } from '../web/src/engine/ldraw-p
 import { synthesizeLSynth } from '../web/src/engine/lsynth.ts';
 import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { runSchemPipeline } from '../web/src/engine/schem-pipeline.ts';
-import { planResolution, spanOfBricks, DEFAULT_SCHEM_SETTINGS } from '../web/src/engine/schem-settings.ts';
+import { planResolution, planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS } from '../web/src/engine/schem-settings.ts';
+import { planAddonScale, type AddonScaleChoice } from '../web/src/engine/addon-scale.ts';
+import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.ts';
 import { modelExportStem } from '../web/src/engine/export-name.ts';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
@@ -57,7 +60,14 @@ const doc = parseLDrawDocument(synthesizeLSynth(text).text);
 const seeded = seedDatTexts([...embeddedPartTexts(doc), ...customParts]);
 const bricks = doc.bricks;
 
-const plan = planResolution(spanOfBricks(bricks), (flag('resolution') as 'auto' | 'minifig' | undefined) ?? 'minifig');
+// One plan drives the block cell AND the entity scale (ui/schem-export.ts does the same).
+const scalePlan = planAddonScale(bricks, (flag('scale') as AddonScaleChoice | undefined) ?? 'auto', label);
+const resolutionFlag = flag('resolution') as 'auto' | 'minifig' | undefined;
+const plan = resolutionFlag && resolutionFlag !== 'auto' && resolutionFlag !== 'minifig'
+  ? planResolution(spanOfBricks(bricks), resolutionFlag)
+  : planResolutionAtCell(spanOfBricks(bricks), scalePlan.lduPerBlock);
+const modelScale = Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000;
+console.error(`  scale: ${scalePlan.reason} (cell ${Math.round(plan.cellLDU * 100) / 100} LDU, ${modelScale}x)`);
 const t0 = Date.now();
 const result = await runSchemPipeline({
   source: { kind: 'bricks', bricks, colorSpace, options: { cellLDU: plan.cellLDU, maxDim: 700 } },
@@ -73,6 +83,7 @@ const result = await runSchemPipeline({
   cameraStyle,
   mainVehicleOnly: process.argv.includes('--main-only'),
   buildingFidelity: (flag('buildings') ?? 'bricks') as 'bricks' | 'blocks',
+  modelScale,
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 
@@ -88,6 +99,7 @@ const diagnostics = diagName ? JSON.parse(new TextDecoder().decode(await extract
 
 console.log(JSON.stringify({
   file, stem, label, bricks: bricks.length, embeddedParts: seeded, colorSpace, quality, vehicleMode, vehicleFacing,
+  scale: { choice: scalePlan.choice, scale: modelScale, cue: scalePlan.cue, cellLDU: plan.cellLDU, reason: scalePlan.reason },
   components: result.mcpack?.components ?? [],
   warnings: result.mcpack?.warnings ?? [],
   entities: diagnostics?.entities ?? null,

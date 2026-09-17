@@ -22,9 +22,11 @@ import {
 } from '@engine/schem-pipeline.js';
 import type { BrickColorSpace } from '@engine/block-profiles.js';
 import {
-  planResolution, spanOfBricks, DEFAULT_SCHEM_SETTINGS,
+  planResolution, planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS,
   type SchemExportSettings,
 } from '@engine/schem-settings.js';
+import { planAddonScale } from '@engine/addon-scale.js';
+import { LDU_PER_BLOCK } from '@engine/lego-scale.js';
 import { safeFilenameStem } from '@engine/export-name.js';
 import { exportLayerGuide } from '@viewer/exporter.js';
 import { collectDatTexts } from '@viewer/ldraw/parts.js';
@@ -365,12 +367,21 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       // A Bedrock add-on is played at minifig scale (lego-scale.ts): the
       // figures that walk its rooms and the vehicles it drives are player-sized,
       // so its blocks default to the same scale unless a resolution was chosen.
+      // The add-on's model scale (engine/addon-scale.ts) sets its cell unless an
+      // explicit block resolution was chosen; either way the entities are
+      // compiled at LDU_PER_BLOCK / cell so they land on the block grid.
+      const span = spanOfBricks(req.source.bricks);
+      const scalePlan = format === 'mcaddon' ? planAddonScale(req.source.bricks, settings.addonScale ?? 'auto', req.label ?? base) : undefined;
       const plan = format === 'guide'
-        ? planResolution(spanOfBricks(req.source.bricks), '20')
-        : planResolution(spanOfBricks(req.source.bricks), format === 'mcaddon' && settings.resolution === 'auto' ? 'minifig' : settings.resolution);
+        ? planResolution(span, '20')
+        : scalePlan && (settings.resolution === 'auto' || settings.resolution === 'minifig')
+          ? planResolutionAtCell(span, scalePlan.lduPerBlock)
+          : planResolution(span, settings.resolution);
+      const modelScale = format === 'mcaddon' ? Math.round(LDU_PER_BLOCK / plan.cellLDU * 1000) / 1000 : undefined;
       const opts: VoxelizeOptions = { cellLDU: plan.cellLDU, maxDim: 700 };
       resNote = ` at ${plan.cellsPerStud}× stud resolution (proportion-exact)`;
       status(`Voxelizing for Minecraft at ${plan.cellsPerStud}× stud resolution (${Math.round(plan.cellLDU * 100) / 100} LDU cells)…`, 'info');
+      if (scalePlan) status(`Add-on scale: ${scalePlan.reason}${modelScale !== undefined && Math.abs(modelScale - scalePlan.scale) > 0.001 ? ` (cell adjusted to ${plan.cellLDU} LDU → ${modelScale}×)` : ''}.`, 'info');
       if (!plan.requestedHonored) {
         status(`Requested ${20 / (plan.requestedCellLDU ?? 20)}× stud resolution exceeds Minecraft-sane bounds — using ${plan.cellsPerStud}×.`, 'info');
       }
@@ -394,6 +405,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         entityQuality: settings.addonDetail,
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
         buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
+        ...(modelScale !== undefined ? { modelScale } : {}),
       };
     } else {
       const g = req.source.grid;

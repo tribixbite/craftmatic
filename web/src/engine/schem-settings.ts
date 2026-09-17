@@ -18,6 +18,7 @@
 import { DEFAULT_PROFILE_ID } from './block-profiles.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import type { ParsedBrick } from './ldraw-parser.js';
+import type { AddonScaleChoice } from './addon-scale.js';
 
 /** Cell sizes the auto ladder considers, finest first. */
 export const AUTO_CELL_LADDER = [4, 5, 8, 10, 20] as const;
@@ -84,6 +85,15 @@ export interface SchemExportSettings {
    */
   addonBuildingBricks?: boolean;
   /**
+   * Playable add-on: the model's scale as a multiplier of the minifig scale
+   * (engine/addon-scale.ts). `auto` keeps minifig-scale sets at 1× and shrinks
+   * a figure-less display vehicle to its real length; a fixed step applies to
+   * the blocks, the colliders, the entities and the figures alike. Used when
+   * the resolution is `auto` or `minifig`; an explicit block resolution sets
+   * the cell itself and the entities follow it.
+   */
+  addonScale?: AddonScaleChoice;
+  /**
    * Emit partial Minecraft blocks (slabs, stairs) where the LEGO geometry is
    * genuinely partial — engine/block-shapes.ts. ON by default (the proposal's
    * recommendation): it only ever refines a cell that is already solid, so the
@@ -109,6 +119,7 @@ export const DEFAULT_SCHEM_SETTINGS: SchemExportSettings = {
   addonDetail: 'balanced',
   addonMainVehicleOnly: false,
   addonBuildingBricks: true,
+  addonScale: 'auto',
   shapes: true,
   detailMaterials: false,
 };
@@ -203,6 +214,22 @@ export function planResolution(span: SpanLDU, choice: ResolutionChoice = 'auto')
     refusedBy: violation,
     overCap: !anyFits,
   });
+}
+
+/**
+ * Plan for an EXPLICIT cell size in LDU (the add-on scale's cell): honoured
+ * when it fits the caps, otherwise the auto pick with `requestedHonored: false`,
+ * exactly as an explicit menu choice is treated.
+ */
+export function planResolutionAtCell(span: SpanLDU, cellLDU: number): ResolutionPlan {
+  let autoCell = AUTO_CELL_LADDER[AUTO_CELL_LADDER.length - 1]!;
+  let anyFits = false;
+  for (const c of AUTO_CELL_LADDER) {
+    if (fits(span, c)) { autoCell = c; anyFits = true; break; }
+  }
+  const violation = capViolation(span, cellLDU);
+  if (violation === null) return planFor(span, cellLDU, {});
+  return planFor(span, autoCell, { requestedHonored: false, requestedCellLDU: cellLDU, refusedBy: violation, overCap: !anyFits });
 }
 
 /** Which cap the requested (refused) cell size broke — set only when refused. */

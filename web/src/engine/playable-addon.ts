@@ -10,7 +10,7 @@ import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-pre
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
-import { LDU_PER_BLOCK } from './lego-scale.js';
+import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
 import { COLLIDER_BLOCKS_JSON, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
@@ -95,6 +95,14 @@ export interface PlayableAddonOptions {
      * origin the scenery grid was built with.
      */
     shell?: { bricks: ParsedBrick[]; frame: SceneGridFrame };
+    /**
+     * Model scale as a multiplier of the minifig scale (engine/addon-scale.ts),
+     * default 1. Every brick-compiled entity is authored at
+     * `BEDROCK_UNITS_PER_LDU × modelScale` and the figures beside a vehicle are
+     * placed at `LDU_PER_BLOCK / modelScale` LDU per block, so they agree with
+     * a block grid voxelized at that cell.
+     */
+    modelScale?: number;
 }
 export type VehicleCameraStyle = 'orbit' | 'boom';
 export interface PlayableAddonResult {
@@ -399,11 +407,11 @@ export function snapFacing(f: [number, number]): NoseDirection {
  * rotates that with forward = (−sin θ, cos θ). The object's own yaw is the
  * world direction of the LDraw nose its geometry was compiled to.
  */
-export function extraPlacement(primary: CompiledLdrawGeometry, extra: EntityExtra, nose: NoseDirection, primaryYaw: number, exactFacingLdu?: [number, number]): { dx: number; dy: number; dz: number; yaw: number } {
+export function extraPlacement(primary: CompiledLdrawGeometry, extra: EntityExtra, nose: NoseDirection, primaryYaw: number, exactFacingLdu?: [number, number], lduPerBlock = LDU_PER_BLOCK): { dx: number; dy: number; dz: number; yaw: number } {
     const { A, origin } = primary.transform;
     const floorCentre: Vec3 = [extra.centreLdu[0], extra.floorLdu, extra.centreLdu[2]];
     const r = mat3(A, floorCentre);
-    const bx = -(r[0] - origin[0]) / LDU_PER_BLOCK, by = (r[1] - origin[1]) / LDU_PER_BLOCK, bz = -(r[2] - origin[2]) / LDU_PER_BLOCK;
+    const bx = -(r[0] - origin[0]) / lduPerBlock, by = (r[1] - origin[1]) / lduPerBlock, bz = -(r[2] - origin[2]) / lduPerBlock;
     const th = primaryYaw * Math.PI / 180, cos = Math.cos(th), sin = Math.sin(th);
     const dx = bx * cos - bz * sin, dz = bx * sin + bz * cos;
     // A figure's exact torso direction (levelled LDraw, horizontal) beats the snapped nose.
@@ -1211,6 +1219,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length)
         throw new Error('Nothing to export — the model has no blocks.');
     const label = options.label ?? options.stem, id = safe(options.stem), mode = options.vehicleMode ?? 'auto';
+    // One scale for everything compiled from parts (engine/addon-scale.ts).
+    const modelScale = Number.isFinite(options.modelScale) && options.modelScale! > 0 ? options.modelScale! : 1;
+    const unitsPerLdu = BEDROCK_UNITS_PER_LDU * modelScale;
+    const lduPerBlock = LDU_PER_BLOCK / modelScale;
     const isTimeMachine = /\b10300\b|delorean|de lorean|time machine/i.test(`${id} ${label}`);
     const shortAlias = placementAlias(id);
     const components = options.components?.slice() ?? [];
@@ -1285,7 +1297,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         options.onProgress?.(`compiling ${label} brick geometry`, 72);
         try {
             const sgeo = await compileLdrawEntityGeometry(shellId, 'prop', options.shell.bricks, {
-                frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+                scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
                 quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
                 // Lit from open sky above the roof, not from inside the colliders (Pixel round 4: three shells near-black).
                 originAboveModel: true,
@@ -1346,6 +1358,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (c.bricks && c.bricks.length > 0) {
             options.onProgress?.(`compiling ${c.label} geometry`);
             ldrawGeo = await compileLdrawEntityGeometry(cid, c.kind, c.bricks, {
+                scale: unitsPerLdu,
                 facing: requestedFacing,
                 userSeatAnchor: c.seatAnchor,
                 partGeometry: options.partGeometry,
@@ -1384,6 +1397,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 let egeo: CompiledLdrawGeometry;
                 try {
                     egeo = await compileLdrawEntityGeometry(ecid, ekind, extra.bricks, {
+                        scale: unitsPerLdu,
                         ...(extra.facingLdu ? { facing: snapFacing(extra.facingLdu) } : {}),
                         partGeometry: options.partGeometry, quality: options.entityQuality, pbr,
                     });
@@ -1402,7 +1416,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
-                const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu);
+                const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);
                 actors.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, label: elabel, x: primaryPos.x + place.dx, y: primaryPos.y + place.dy, z: primaryPos.z + place.dz, yaw: place.yaw });
                 extraComponents.push({ id: ecid, label: elabel, kind: ekind, provenance: `${extra.role} beside ${c.label} (${extra.reason})` });
             }
@@ -1428,7 +1442,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         options.onProgress?.(`compiling ${flabel}`);
         let fgeo: CompiledLdrawGeometry;
         try {
-            fgeo = await compileLdrawEntityGeometry(fcid, 'figure', fig.bricks, { facing: snapFacing(fig.facingLdu), partGeometry: options.partGeometry, quality: options.entityQuality, pbr });
+            fgeo = await compileLdrawEntityGeometry(fcid, 'figure', fig.bricks, { scale: unitsPerLdu, facing: snapFacing(fig.facingLdu), partGeometry: options.partGeometry, quality: options.entityQuality, pbr });
         } catch (e) {
             warnings.push(`${flabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
             continue;
@@ -1480,6 +1494,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // One animation file serves every minifig entity: the rig's bone names are shared.
     if (minifigsEmitted) files.push({ name: `${rp}animations/craftmatic_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) });
     if (unmapped.size) warnings.push(`${unmapped.size} block type${unmapped.size === 1 ? '' : 's'} had no Bedrock equivalent and ${unmapped.size === 1 ? 'was' : 'were'} omitted: ${[...unmapped].join(', ')}`);
+    if (modelScale !== 1) warnings.push(`${label}: exported at ${modelScale}× minifig scale (1 block = ${Math.round(lduPerBlock * 100) / 100} LDU) - blocks, colliders, entities and figures alike.`);
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({ generator: 'craftmatic', label, entities: diagnostics }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);

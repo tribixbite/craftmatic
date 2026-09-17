@@ -20,7 +20,7 @@ export interface PlayableBrickComponent {
   seatAnchor?: { x: number; y: number; z: number };
 }
 
-const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan)\b/i;
+const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehicle|tractor|loader|motorcycle|bike|kart|delorean|de lorean|time machine|ferrari|porsche|lamborghini|mclaren|bugatti|koenigsegg|corvette|mustang|mercedes|audi|bmw|formula 1|f1|jeep|suv|van|pickup|dragster|hot rod|hotrod|rover|speed champions|speed champion|hypercar|supercar|automobile|limo|limousine|cab|taxi|crawler|quad|atv|go-kart|speedster|hovercraft|locomotive|camper|convertible|coupe|sedan|mini cooper|aston martin|land rover|defender|volkswagen|caterham|ecto-1|ecto 1)\b/i;
 const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle|biplane|monoplane|seaplane|bomber|rotorcraft|starship|rocket|x-wing|tie fighter|falcon|milano|interceptor|speeder|gunship|drone)\b/i;
 const BOAT_WORDS = /\b(boat|ship|yacht|sailboat|speedboat|cruiser|ferry|canoe|kayak|raft|vessel|barge|pirate ship|watercraft|rowboat|cutter|catamaran|schooner|galleon|tugboat|steamboat|dinghy|skiff|hydrofoil)\b/i;
 const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox|shadow box|workshop|city|showroom)\b/i;

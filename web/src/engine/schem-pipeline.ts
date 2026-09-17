@@ -117,6 +117,13 @@ export interface SchemWorkerInput {
    * coloured block structure as before.
    */
   buildingFidelity?: 'bricks' | 'blocks';
+  /**
+   * `.mcaddon`: the model scale as a multiplier of the minifig scale
+   * (engine/addon-scale.ts). It MUST equal `LDU_PER_BLOCK / options.cellLDU`
+   * of the brick source, so the entities land on the block grid; the caller
+   * (ui/schem-export.ts, scripts/_playable_ref.ts) derives both from one plan.
+   */
+  modelScale?: number;
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -363,7 +370,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, mainVehicleOnly: input.mainVehicleOnly, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 
