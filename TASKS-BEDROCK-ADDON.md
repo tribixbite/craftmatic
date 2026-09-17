@@ -68,21 +68,47 @@ CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=�
 (strict cohort: a `[Model B]` .lxf only against a `[Model B]` .io; results `output/lxf-gt/strict-*.json`).
 **A CLI label must read as the vehicle** (`--label="X-wing Starfighter 7140"`; `XWing 7140` exported a shell + figures, no plane).
 
-## Device round 2026-09-17 — RUNNING (Opus subagent) in the NEW world "917"
+## Device round 2026-09-17 — DONE, world "917" (`svO65HnoLQA=`), Bedrock **1.26.51.1**
 
-The user retired the old QA world (`smUmxh2eJjw=`, too cluttered) and DELETED every
-installed pack from the Pixel; "917" is flat, empty, always day. Import the three packs
-fresh and activate them in 917's `world_*_packs.json` (brief section "THE WORLD IS NEW").
-Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
-`output/bedrock-entity-qa/captures-2026-09-17/notes.md`. Unverified on a device until then:
-- [ ] BACK+JUMP descends the X-wing (ALT falls, HUD `[DESCENDING]`); Jump alone climbs again after.
-- [ ] Whether LOOK DOWN still dives under the script chase camera (the user's report says no).
-- [ ] Mini Cooper at 0.38× drives, and the rider sits inside it (seat scaled in the size group / at export).
-- [ ] Wand: aim-follow ghost; Size 200 % re-lays colliders (walls stop the player at 2× positions,
-      plate under the feet at 2× height), figures 2× tall, shell drawn 2×; Undo restores; 50 %.
-- [ ] `minecraft:scale` does not move a rider's seat (assumed; seats are scaled explicitly).
-- [ ] Chalet figures 1/3/7 not walking (round 5): census after `/tp` onto open floor.
-- [ ] Content log zero `[error]` with the size groups and descend events in every entity.
+Full verdict table, measurements and the adb-input findings:
+`output/bedrock-entity-qa/captures-2026-09-17/notes.md` (shots `10-*`..`142-*`).
+Settled: import/activate (no `(N)` folders, scripts load without Experimental);
+BACK+JUMP **descends** (HUD `[DESCENDING]`, ALT -43→-60 in ~3.5 s); Mini Cooper at 0.38×
+measures **4.55 × 2.0 blocks** and drives (103.5 mph); the whole wand rework — menu order
+0–10, aim-follow ghost, size cycle 100/150/200/300/400/25/50/75, 200 % ghost `34×22×16`,
+colliders re-laid at 2× (`/testforblock 0 -45 40 craftmatic:collider` found, walls stop the
+player, upper floor at y −54), figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo
+restores terrain and removes every entity, 50 % walls still block.
+
+### New defects it raised (fix these next)
+- [ ] **`starting_rot_x` is not in the 1.26.51 camera-preset schema** →
+      `web/src/engine/playable-addon.ts:1070` (the `fixed_boom` preset). It is the ONLY
+      `[error]` in the content log (3 lines) and it fails the whole pack's presets:
+      `Failed to load camera presets`. Drop the field or gate it on format version.
+- [ ] **Descend is one-way**: after a single `descend_on`/`descend_off` cycle the plane has
+      NO `vertical_movement_action` left, so Jump neither climbs nor descends and the rider
+      is dismounted instead. Reproduced with `/event entity` alone on an unridden plane.
+      Fix: put the climb in its own `craftmatic:climbing` group that `descend_off` ADDS,
+      rather than relying on the base component returning when the group is removed.
+- [ ] **0.38× Mini Cooper seats the rider at ground −1** (y −61 while standing is −60) and the
+      unscaled player clips out through the car's flank. Clamp the seat to the interior.
+- [ ] **Follow-my-aim silently no-ops when the player looks at the sky** (the raycast finds no
+      block within 96 blocks over flat ground): no ghost, no action bar, origin stays unpinned.
+- [ ] **Chalet figures: 6 of 7 never move.** Every figure the placement drops inside/on the
+      shell is trapped by the collider grid; `/tp`ing figure 1 to open grass makes it walk
+      immediately (15 blocks in seconds, then home-ward). Wider than the reported 1/3/7 and
+      the fix belongs in the placement, not the AI.
+
+### Still unverified on a device
+- [ ] Whether LOOK DOWN still dives under the script chase camera — **not testable from adb**:
+      look-area swipes do not register, `/rotate` does not exist in 1.26.51, and
+      `/tp @s … facing …` dismounts a rider. Needs a human, or a debug command that sets pitch.
+- [ ] Joystick steering on 1.26.51: the round-5 stick centre (337,550) is the LOOK area now and
+      no probe found the ring. Two simultaneous touches are impossible from adb (single pointer;
+      `sendevent` on `/dev/input/event2` is SELinux-denied for shell, phone unrooted). Workarounds
+      that DO work are listed in the round's notes (stylus source = 2nd pointer;
+      `input keyboard keyevent --duration` holds a key; SPACE dismounts a rider).
+- [ ] Doors/lights left out at 200 % is confirmed only by the confirm dialog's own text.
 
 ## Open
 
