@@ -24,29 +24,37 @@
  *    correctly, and every part attached only through a displaced one reads as
  *    floating or splayed (issue #108).
  *
- * TWO correction tables, and the ORDER matters (audit 2026-09-08, P0 item 2):
+ * TWO correction tables, and the ORDER matters:
  *
- *  a. `/ldd-measured-align.json` — clego's MEASURED per-design correction,
+ *  a. `/ldd-part-map.json` — BrickLink Studio's own `ldraw.xml` correction
+ *     columns (axis-angle + translation in LDD units), the PRIMARY correction
+ *     and the source of the LDraw FILENAME for a design (60583 → 60583b.dat).
+ *     The row describes the transform that carries the LDRAW origin onto the
+ *     LDD origin, so placing an LDD part in LDraw applies its INVERSE.
+ *  b. `/ldd-measured-align.json` — clego's MEASURED per-design correction,
  *     voted from 207 sets that have both an LXFML dump and an authentic Studio
- *     `.io` (scripts/gen-ldd-measured-align.py; clego DBIX_SOLVER.md §4/§9).
- *     Covers ~92 % of a typical set's placements. Its correction is already in
- *     LDU and already in the FLIPPED LDraw basis, so it composes post-flip.
- *  b. `/ldd-part-map.json` — BrickLink Studio's own `ldraw.xml` correction
- *     columns (axis-angle + translation in LDD units), the FALLBACK, and still
- *     the source of the LDraw FILENAME for a design (e.g. 60583 → 60583b.dat).
+ *     `.io` (scripts/gen-ldd-measured-align.py; clego DBIX_SOLVER.md §4/§9),
+ *     the FALLBACK for designs Studio's table does not name. Its correction is
+ *     already in LDU and already in the FLIPPED LDraw basis, so it composes
+ *     post-flip; it is quantised (1/20 rotations, 1 LDU), so it is less exact.
  *
- * Measured over six sets with a native `.lxf` AND an authentic Studio `.io`,
- * none of them in clego's training cohort, so this is held out:
+ * Measured with `scripts/lxf_gt_eval.py` over EVERY native `.lxf` in clego
+ * whose set has an authentic (non-laundered) Studio `.io` — 91 files, none of
+ * them the DBIX dumps the measured table was learned from — scored by clego's
+ * `dbix_gt_compare` (GEO = the part's world-space geometry matches within 3 LDU;
+ * exact = same pose within 1.5 LDU). 10242 Mini Cooper, 1,076 parts:
  *
- *     ldraw.xml columns, F = diag(1,-1,1)   (what shipped)     7.15 % GEO
- *     ldraw.xml columns, F = diag(1,-1,-1)                     7.06 %
- *     MEASURED table,    F = diag(1,-1,1)                     48.12 %
- *     MEASURED table,    F = diag(1,-1,-1)                    72.70 %
- *     no per-part correction at all         (control)          3.78 %
+ *     ldraw.xml columns applied FORWARD    (shipped until 2026-09-17)   13.3 % GEO
+ *     MEASURED table                        (shipped 2026-09-09..17)     89.3 % GEO / 74.4 % exact
+ *     ldraw.xml columns applied as INVERSE  (this file)                  93.6 % GEO / 93.2 % exact
+ *     no per-part correction at all         (control)                     8.6 % GEO
  *
- * i.e. the shipped path was barely above the do-nothing control — the ldraw.xml
- * columns do not reproduce Studio's own placements. Both halves of the fix
- * matter independently: the payload (+65 pts) and the change of basis (+25 pts).
+ * The 2026-09-09 note that "the ldraw.xml columns do not reproduce Studio's
+ * own placements" was wrong: they reproduce them almost exactly once they are
+ * applied in the right DIRECTION. The measured table stays as the fallback
+ * because it names 1,841 designs and the ldraw.xml 4,467; a design in neither
+ * is placed at its raw LDD origin. The whole-cohort numbers for each path are
+ * in `docs/lego-renderer-guide.md` (LXF section).
  *
  * THE CHANGE OF BASIS. `F = diag(1,-1,1)` has det = -1: it is a REFLECTION, so
  * it mirrors the whole model and lands every chiral part (slopes, wedges, curved
@@ -56,8 +64,8 @@
  *     F = diag(1, -1, -1)        det = +1
  *
  * Final per-part transform:
- *   measured  R_world = (F·R_bone·F)·D,  t_world = 25·(F·t_bone) + (F·R_bone·F)·e
- *   ldraw.xml R_world = F·(R_bone·R_align)·F,  t_world = 25·F·(R_bone·t_align + t_bone)
+ *   ldraw.xml R_world = F·(R_bone·R_alignᵀ)·F,  t_world = 25·F·(t_bone − R_bone·R_alignᵀ·t_align)
+ *   measured  R_world = (F·R_bone·F)·D,         t_world = 25·(F·t_bone) + (F·R_bone·F)·e
  */
 
 import { extractFile, extractMatching } from './zip-utils';
@@ -89,7 +97,7 @@ export type MeasuredAlign = [
   number,
 ];
 
-/** Where the ldraw.xml fallback table lives (scripts/gen-ldd-part-map.py). */
+/** Where Studio's ldraw.xml table lives (scripts/gen-ldd-part-map.py). */
 export const PART_MAP_URL = '/ldd-part-map.json';
 /** Where the measured table lives (scripts/gen-ldd-measured-align.py). */
 export const MEASURED_ALIGN_URL = '/ldd-measured-align.json';
@@ -133,13 +141,13 @@ export interface LxfTableReport {
 
 /** What a `.lxf` parse can tell the caller about how well it went. */
 export interface LxfDiagnostics {
-  /** the ldraw.xml fallback table (also the source of LDraw filenames). */
+  /** Studio's ldraw.xml table — the primary correction and the source of LDraw filenames. */
   table: LxfTableReport;
-  /** clego's measured table — the primary correction. */
+  /** clego's measured table — the fallback for designs Studio's table does not name. */
   measured: LxfTableReport;
-  /** placements positioned through the MEASURED correction. */
+  /** placements positioned through the MEASURED fallback correction. */
   measuredPlacements: number;
-  /** placements positioned through the ldraw.xml fallback correction. */
+  /** placements positioned through Studio's (inverse) ldraw.xml correction. */
   mappedPlacements: number;
   /** placements with NEITHER: identity alignment + bare `designID.dat`. */
   unmappedPlacements: number;
@@ -306,12 +314,12 @@ function loadTable<T>(url: string, isRow: (v: unknown) => v is T): Promise<Align
   return p;
 }
 
-/** The ldraw.xml fallback table (~232 KB) — also the source of LDraw filenames. */
+/** Studio's ldraw.xml table (~232 KB) — the primary alignment and the source of LDraw filenames. */
 export function loadPartMap(): Promise<LxfAlignmentTable> {
   return loadTable(PART_MAP_URL, validatePartAlign);
 }
 
-/** clego's MEASURED per-design correction (~145 KB) — the primary alignment. */
+/** clego's MEASURED per-design correction (~145 KB) — the fallback alignment. */
 export function loadMeasuredAlign(): Promise<LxfMeasuredTable> {
   return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign);
 }
@@ -380,16 +388,29 @@ function conjugateFrame(m: number[]): number[] {
   return out;
 }
 
+/** Transpose of a 3×3 row-major matrix (the inverse of a rotation). */
+function transpose3(m: number[]): number[] {
+  return [m[0]!, m[3]!, m[6]!, m[1]!, m[4]!, m[7]!, m[2]!, m[5]!, m[8]!];
+}
+
 /**
- * The `ldraw.xml`-column path (issue #108): compose the LDD bone transform with
- * the per-part LDD→LDraw origin alignment IN LDD SPACE, then change basis.
- * Pure — no DOM / fetch / ZIP. The FALLBACK since 2026-09-09; prefer
- * `composeLxfMeasured` when the measured table covers the design.
+ * The `ldraw.xml`-column path (issue #108), the PRIMARY correction since
+ * 2026-09-17: compose the LDD bone transform with the INVERSE of Studio's
+ * per-part alignment IN LDD SPACE, then change basis. Pure — no DOM / fetch /
+ * ZIP.
  *
- *   R_world = R_bone · R_align,  t_world = R_bone · t_align + t_bone   (LDD)
+ * Studio's row `(R_align, t_align)` is the rigid transform that carries the
+ * LDraw part's origin onto the LDD part's origin (it is how Studio takes an
+ * LDraw part INTO an LDD scene). Placing an LDD part in LDraw is the other
+ * direction, so the inverse `(R_alignᵀ, −R_alignᵀ·t_align)` is what composes
+ * with the bone:
+ *
+ *   R_world = R_bone · R_alignᵀ,  t_world = t_bone − R_bone · R_alignᵀ · t_align   (LDD)
  *   rot = F·R_world·F,  pos = 25·(F·t_world),  F = diag(FRAME_SIGN)
  *
- * `align` undefined → identity alignment (bare `designID.dat` fallback caller-side).
+ * Applied FORWARD (what shipped until 2026-09-17) the same columns scored
+ * 13.3 % GEO on 10242 against 93.6 % applied as the inverse — see the module
+ * header. `align` undefined → identity (bare `designID.dat` fallback caller-side).
  */
 export function composeLxfPlacement(
   rBone: number[],
@@ -397,18 +418,19 @@ export function composeLxfPlacement(
   align: PartAlign | undefined,
 ): LxfPlacement {
   const tAlign: [number, number, number] = align ? [align[1], align[2], align[3]] : [0, 0, 0];
-  const rAlign = align
-    ? axisAngleToMatrix(align[4], align[5], align[6], align[7])
+  const rAlignInv = align
+    ? transpose3(axisAngleToMatrix(align[4], align[5], align[6], align[7]))
     : [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
-  const rWorld = mul3(rBone, rAlign);
-  const rotated = mulVec(rBone, tAlign);
+  const rWorld = mul3(rBone, rAlignInv);
+  // t_world = t_bone − R_world · t_align  (R_world = R_bone · R_alignᵀ)
+  const rotated = mulVec(rWorld, tAlign);
   const [sx, sy, sz] = FRAME_SIGN;
   return {
     rot: conjugateFrame(rWorld),
-    x: sx * (rotated[0] + tBone[0]) * CM_TO_LDU,
-    y: sy * (rotated[1] + tBone[1]) * CM_TO_LDU,
-    z: sz * (rotated[2] + tBone[2]) * CM_TO_LDU,
+    x: sx * (tBone[0] - rotated[0]) * CM_TO_LDU,
+    y: sy * (tBone[1] - rotated[1]) * CM_TO_LDU,
+    z: sz * (tBone[2] - rotated[2]) * CM_TO_LDU,
   };
 }
 
@@ -421,9 +443,9 @@ export function composeLxfPlacement(
  *   rot = R_ldr·D,       pos = t_ldr + R_ldr·e
  *
  * Same algebra as `composeLxfPlacement`, with the correction expressed on the
- * other side of the change of basis. Held out against authentic Studio truth
- * this scores 72.70 % geometric agreement against the ldraw.xml path's 7.15 %
- * (see the module header).
+ * other side of the change of basis. The FALLBACK since 2026-09-17 for designs
+ * Studio's `ldraw.xml` does not name: its votes are quantised, so it is less
+ * exact than the inverse ldraw.xml columns (see the module header).
  */
 export function composeLxfMeasured(
   rBone: number[],
@@ -468,25 +490,27 @@ export function buildLxfPlacements(
     const boneT = parseBoneTransform(rec.transformation);
     if (!boneT) { skippedBadTransform++; continue; }
 
-    // MEASURED correction first (10× the geometric agreement of the ldraw.xml
-    // columns — see the module header), then the ldraw.xml columns, then a bare
-    // designID.dat at identity for a design neither table names.
-    const meas = measured.entries[rec.designID];
+    // Studio's ldraw.xml columns first (applied as the inverse they are — see
+    // the module header), then clego's measured correction for a design Studio
+    // does not name, then a bare designID.dat at identity for a design neither
+    // table names.
     const align = table.entries[rec.designID];
+    const meas = measured.entries[rec.designID];
     let part: string;
     let placement: LxfPlacement;
-    if (meas) {
+    if (align) {
+      mappedPlacements++;
+      part = align[0];
+      placement = composeLxfPlacement(boneT.rBone, boneT.tBone, align);
+    } else if (meas) {
       measuredPlacements++;
       part = meas[0];
       placement = composeLxfMeasured(boneT.rBone, boneT.tBone, meas);
     } else {
-      if (align) mappedPlacements++;
-      else {
-        unmappedPlacements++;
-        unmapped.set(rec.designID, (unmapped.get(rec.designID) ?? 0) + 1);
-      }
-      part = align ? align[0] : `${rec.designID}.dat`;
-      placement = composeLxfPlacement(boneT.rBone, boneT.tBone, align);
+      unmappedPlacements++;
+      unmapped.set(rec.designID, (unmapped.get(rec.designID) ?? 0) + 1);
+      part = `${rec.designID}.dat`;
+      placement = composeLxfPlacement(boneT.rBone, boneT.tBone, undefined);
     }
     bricks.push({
       color: lddToLDraw(rec.materialId), rot: placement.rot,
@@ -532,25 +556,25 @@ export function describeLxfDiagnostics(d: LxfDiagnostics): string | null {
     return `LDD alignment tables unavailable (${d.measured.error ?? d.table.error ?? 'unknown'}) — every part is placed at its raw LDD origin, so this model will look scattered. Reload to retry.`;
   }
   const parts: string[] = [];
-  if (d.measured.state !== 'ok') {
-    // The accurate table is gone but the ldraw.xml fallback is not: the model
-    // still renders, ~10x less accurately. Say so rather than imply it is fine.
+  if (d.table.state !== 'ok') {
+    // The exact table is gone but the measured fallback is not: the model
+    // still renders, less exactly. Say so rather than imply it is fine.
     parts.push(
-      `measured alignment table unavailable (${d.measured.error ?? 'unknown'}) — ` +
-      'falling back to Studio\'s ldraw.xml columns, which place far fewer parts ' +
-      'correctly. Reload to retry',
+      `Studio ldraw.xml alignment table unavailable (${d.table.error ?? 'unknown'}) — ` +
+      'falling back to the measured LDD alignment, which places parts less ' +
+      'exactly. Reload to retry',
     );
-  } else if (d.table.state !== 'ok') {
+  } else if (d.measured.state !== 'ok') {
     parts.push(
-      `ldraw.xml fallback table unavailable (${d.table.error ?? 'unknown'}) — designs ` +
-      'outside the measured table are placed at their raw LDD origin. Reload to retry',
+      `measured fallback alignment table unavailable (${d.measured.error ?? 'unknown'}) — designs ` +
+      'outside Studio\'s ldraw.xml are placed at their raw LDD origin. Reload to retry',
     );
-  } else if (total > 0 && d.measuredPlacements < total) {
-    const pct = (100 * d.measuredPlacements) / total;
+  } else if (total > 0 && d.measuredPlacements > 0) {
+    const pct = (100 * d.mappedPlacements) / total;
     parts.push(
-      `${d.measuredPlacements} of ${total} placements (${pct.toFixed(1)}%) use the ` +
-      'measured LDD alignment; the rest fall back to Studio\'s ldraw.xml columns, ' +
-      'which are much less accurate',
+      `${d.mappedPlacements} of ${total} placements (${pct.toFixed(1)}%) use Studio's ` +
+      `exact ldraw.xml alignment; ${d.measuredPlacements} fall back to the measured ` +
+      'LDD alignment, which is less exact',
     );
   }
   if (d.unmappedPlacements > 0 && total > 0) {
@@ -622,8 +646,8 @@ export async function parseLxfWithDiagnostics(
   const parserError = doc.querySelector('parsererror');
   if (parserError) throw new Error(`LXFML parse error: ${parserError.textContent?.slice(0, 120)}`);
 
-  // Both tables in parallel — the measured correction is primary, the
-  // ldraw.xml columns are the fallback AND the LDraw filename source.
+  // Both tables in parallel — Studio's ldraw.xml columns are primary (and the
+  // LDraw filename source), the measured correction is the fallback.
   const [table, measured] = await Promise.all([loadPartMap(), loadMeasuredAlign()]);
   const result = buildLxfPlacements(readLxfParts(doc), table, measured);
   if (result.bricks.length === 0) throw new Error('No brick placements found in LXFML');

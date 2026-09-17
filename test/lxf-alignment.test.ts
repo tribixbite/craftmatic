@@ -70,16 +70,16 @@ describe('FRAME_SIGN — the LDD→LDraw change of basis', () => {
   it('is PROPER (det = +1): diag(1,-1,1) mirrors the model', () => {
     // Both libraries are right-handed, so the map between Y-up and Y-down is a
     // 180° rotation about X, not a Y reflection. diag(1,-1,1) has det = -1 and
-    // shipped until 2026-09-09; it put every chiral part in the wrong slot and
-    // measured 7.15 % geometric agreement against authentic Studio truth where
-    // diag(1,-1,-1) plus the measured table reaches 72.70 %.
+    // shipped until 2026-09-09; it put every chiral part in the wrong slot
+    // (48 % GEO against authentic Studio truth with the measured table, where
+    // diag(1,-1,-1) reached 73 % — lxf-parser.ts header).
     const [sx, sy, sz] = FRAME_SIGN;
     expect(sx * sy * sz).toBe(1);
     expect([sx, sy, sz]).toEqual([1, -1, -1]);
   });
 });
 
-describe('composeLxfPlacement — LDD bone × ldraw.xml align → LDraw placement', () => {
+describe('composeLxfPlacement — LDD bone × INVERSE ldraw.xml align → LDraw placement', () => {
   const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const RZ90 = [0, -1, 0, 1, 0, 0, 0, 0, 1]; // row-major
 
@@ -98,25 +98,39 @@ describe('composeLxfPlacement — LDD bone × ldraw.xml align → LDraw placemen
     expectMat(p.rot, [0, 1, 0, -1, 0, 0, 0, 0, 1]);
   });
 
-  it('composes t_world = R_bone·t_align + t_bone', () => {
+  it('composes t_world = t_bone − R_bone·R_alignᵀ·t_align (the INVERSE of the Studio row)', () => {
     // align = identity rotation, t_align=(0,1,0); bone = Rz(90), t_bone=(10,0,0).
-    // R_bone·t_align = Rz90·(0,1,0) = (-1,0,0); + t_bone = (9,0,0) → x=225.
+    // R_world·t_align = Rz90·(0,1,0) = (-1,0,0); t_bone − that = (11,0,0) → x=275.
+    // Applied FORWARD (what shipped until 2026-09-17) this was (9,0,0): the
+    // ground-truth harness (scripts/lxf_gt_eval.py) scores the forward
+    // composition at 13 % GEO and the inverse at 94 % on 10242.
     const align: PartAlign = ['p.dat', 0, 1, 0, 0, 0, 0, 1];
     const p = composeLxfPlacement(RZ90, [10, 0, 0], align);
-    expect(p.x).toBeCloseTo(225);
+    expect(p.x).toBeCloseTo(275);
     expect(p.y).toBeCloseTo(0);
     expect(p.z).toBeCloseTo(0);
-    expectMat(p.rot, [0, 1, 0, -1, 0, 0, 0, 0, 1]); // rWorld = Rz90·I, then F-conj
+    expectMat(p.rot, [0, 1, 0, -1, 0, 0, 0, 0, 1]); // rWorld = Rz90·Iᵀ, then F-conj
   });
 
-  it('composes R_world = R_bone·R_align, conjugated by the PROPER F', () => {
-    // bone identity, align = Ry(90) = [0,0,1, 0,1,0, -1,0,0]. Conjugating by
-    // diag(1,-1,-1) scales entry (i,j) by s_i·s_j, so the two Z off-diagonals
-    // flip sign: Ry(90) becomes Ry(-90). Under the old det=-1 F they did NOT,
-    // which is the mirror.
+  it('composes R_world = R_bone·R_alignᵀ, conjugated by the PROPER F', () => {
+    // bone identity, align = Ry(90) = [0,0,1, 0,1,0, -1,0,0]; its inverse is
+    // Ry(-90) = [0,0,-1, 0,1,0, 1,0,0]. Conjugating by diag(1,-1,-1) scales
+    // entry (i,j) by s_i·s_j, so the two Z off-diagonals flip sign and the
+    // result is Ry(90) again. Under the old det=-1 F they did NOT flip, which
+    // is the mirror.
     const align: PartAlign = ['p.dat', 0, 0, 0, HALF_PI, 0, 1, 0];
     const p = composeLxfPlacement(I, [0, 0, 0], align);
-    expectMat(p.rot, [0, 0, -1, 0, 1, 0, 1, 0, 0]);
+    expectMat(p.rot, [0, 0, 1, 0, 1, 0, -1, 0, 0]);
+  });
+
+  it('the inverse row undoes a translation the forward row would add', () => {
+    // A row with t_align=(0.4,0,0) (LDD cm): the LDraw origin sits 0.4 cm past
+    // the LDD origin, so the LDD part is placed 0.4 cm BEFORE it: x = −10 LDU.
+    const align: PartAlign = ['p.dat', 0.4, 0, 0, 0, 0, 1, 0];
+    const p = composeLxfPlacement(I, [0, 0, 0], align);
+    expect(p.x).toBeCloseTo(-10);
+    expect(p.y).toBeCloseTo(0);
+    expect(p.z).toBeCloseTo(0);
   });
 });
 

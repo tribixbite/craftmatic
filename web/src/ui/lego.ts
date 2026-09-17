@@ -1425,18 +1425,17 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
 /**
  * What to tell the user about a `.lxf` model's placement accuracy.
  *
- * `.lxf` needs a per-design LDD→LDraw origin correction. Since 2026-09-09 the
- * primary one is MEASURED against authentic Studio placements (see
- * lxf-parser.ts's header): held out against six sets with both a native `.lxf`
- * and an authentic Studio `.io` it reaches 72.7 % geometric agreement, where the
- * Studio `ldraw.xml` columns this used to rely on reached 7.2 %. So the caveat
- * is no longer "approximate, prefer another source" — it is a real, quantified
- * accuracy figure. Give the number rather than a vague hedge.
+ * `.lxf` needs a per-design LDD→LDraw origin correction. Since 2026-09-17 the
+ * primary one is Studio's own `ldraw.xml` row applied as its INVERSE (see
+ * lxf-parser.ts's header), with clego's measured table as the fallback:
+ * measured over 91 native `.lxf` files with an authentic Studio `.io`
+ * (scripts/lxf_gt_eval.py) it lands ≈93 % of parts on ground truth. So the
+ * caveat is a real, quantified accuracy figure, not a vague hedge.
  */
 const LXF_ALIGNMENT_CAVEAT =
-  'LDD .lxf: placements use a per-design alignment measured against authentic '
-  + 'Studio models (≈73% of parts land exactly on real ground truth) — an '
-  + 'authentic Studio .io of the same set, where one exists, is still exact';
+  'LDD .lxf: placed through Studio's own per-part alignment (≈93% of parts land '
+  + 'on authentic Studio ground truth, measured over 91 sets); flex parts and '
+  + 'designs Studio does not map can still sit off';
 
 /**
  * Surface a `.lxf` load's alignment coverage: keep the structured record for the

@@ -32,7 +32,7 @@ import {
   type LxfMeasuredTable, type LxfPartRecord,
 } from '../web/src/engine/lxf-parser.js';
 
-/** An empty-but-healthy measured table: forces the ldraw.xml fallback path. */
+/** An empty-but-healthy measured table: every placement goes through Studio's ldraw.xml path. */
 const NO_MEASURED: LxfMeasuredTable = {
   state: 'ok', source: MEASURED_ALIGN_URL, entries: {}, rejected: 0,
 };
@@ -285,6 +285,25 @@ describe('describeLxfDiagnostics', () => {
   });
 });
 
+describe('a missing Studio table with a healthy measured fallback', () => {
+  it('says the model is placed less exactly and asks for a reload', () => {
+    const tf = '1,0,0,0,1,0,0,0,1,0,0,0';
+    const measured: LxfMeasuredTable = {
+      state: 'ok', source: MEASURED_ALIGN_URL, rejected: 0,
+      entries: { 3001: ['3001.dat', 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 9] },
+    };
+    const d = buildLxfPlacements(
+      [{ designID: '3001', materialId: 21, transformation: tf, boneCount: 1 }],
+      { state: 'unavailable', source: PART_MAP_URL, entries: {}, rejected: 0, error: 'HTTP 503' }, measured,
+    ).diagnostics;
+    expect(d.measuredPlacements).toBe(1);
+    const msg = describeLxfDiagnostics(d);
+    expect(msg).toMatch(/Studio ldraw\.xml alignment table unavailable \(HTTP 503\)/);
+    expect(msg).toMatch(/less exactly/);
+    expect(msg).toMatch(/Reload to retry/);
+  });
+});
+
 describe('the MEASURED alignment table (audit P0 item 2)', () => {
   const MROW: MeasuredAlign = ['3001.dat', 1, 0, 0, 0, 1, 0, 0, 0, 1, 30, -24, 10, 506];
 
@@ -334,12 +353,32 @@ describe('the MEASURED alignment table (audit P0 item 2)', () => {
     }
   });
 
-  it('the MEASURED correction WINS over the ldraw.xml columns for a shared design', () => {
+  it('The Studio ldraw.xml columns WIN over the measured correction for a shared design', () => {
+    // Measured on 91 native .lxf files with authentic Studio truth
+    // (scripts/lxf_gt_eval.py): the inverse ldraw.xml columns place parts more
+    // exactly than the quantised measured votes, so they are primary.
     const tf = '1,0,0,0,1,0,0,0,1,0,0,0';
     const xml: LxfAlignmentTable = {
       state: 'ok', source: PART_MAP_URL, rejected: 0,
       entries: { 3001: ['xml-name.dat', 1, 0, 0, 0, 1, 0, 0] },
     };
+    const measured: LxfMeasuredTable = {
+      state: 'ok', source: MEASURED_ALIGN_URL, rejected: 0, entries: { 3001: MROW },
+    };
+    const { bricks, diagnostics: d } = buildLxfPlacements(
+      [{ designID: '3001', materialId: 21, transformation: tf, boneCount: 1 }], xml, measured);
+    expect(d.mappedPlacements).toBe(1);
+    expect(d.measuredPlacements).toBe(0);
+    expect(bricks[0]!.part).toBe('xml-name.dat');   // Studio's filename
+    expect(bricks[0]!.x).toBeCloseTo(-25);          // the INVERSE of t_align=(1,0,0) cm
+    expect(bricks[0]!.y).toBeCloseTo(0);
+    expect(bricks[0]!.z).toBeCloseTo(0);
+    expect(describeLxfDiagnostics(d)).toBeNull();   // fully Studio-aligned → silent
+  });
+
+  it('the measured correction is the FALLBACK for a design Studio does not name', () => {
+    const tf = '1,0,0,0,1,0,0,0,1,0,0,0';
+    const xml: LxfAlignmentTable = { state: 'ok', source: PART_MAP_URL, rejected: 0, entries: {} };
     const measured: LxfMeasuredTable = {
       state: 'ok', source: MEASURED_ALIGN_URL, rejected: 0, entries: { 3001: MROW },
     };
@@ -351,14 +390,14 @@ describe('the MEASURED alignment table (audit P0 item 2)', () => {
     expect(bricks[0]!.x).toBeCloseTo(30);           // e applied in LDU, unscaled
     expect(bricks[0]!.y).toBeCloseTo(-24);
     expect(bricks[0]!.z).toBeCloseTo(10);
-    expect(describeLxfDiagnostics(d)).toBeNull();   // fully measured → silent
   });
 
-  it('reports the split when only SOME designs are measured', () => {
+  it('reports the split when SOME designs fall back to the measured table', () => {
     const tf = '1,0,0,0,1,0,0,0,1,0,0,0';
+    // Studio names 3023 only; 3001 is measured-only, so it takes the fallback.
     const xml: LxfAlignmentTable = {
       state: 'ok', source: PART_MAP_URL, rejected: 0,
-      entries: { 3001: ROW, 3023: ['3023.dat', 0, 0, 0, 0, 1, 0, 0] },
+      entries: { 3023: ['3023.dat', 0, 0, 0, 0, 1, 0, 0] },
     };
     const measured: LxfMeasuredTable = {
       state: 'ok', source: MEASURED_ALIGN_URL, rejected: 0, entries: { 3001: MROW },
@@ -369,10 +408,10 @@ describe('the MEASURED alignment table (audit P0 item 2)', () => {
     ], xml, measured).diagnostics;
     expect(d.measuredPlacements).toBe(1);
     expect(d.mappedPlacements).toBe(1);
-    expect(describeLxfDiagnostics(d)).toMatch(/1 of 2 placements \(50\.0%\) use the measured/);
+    expect(describeLxfDiagnostics(d)).toMatch(/1 of 2 placements \(50\.0%\) use Studio's exact ldraw\.xml alignment; 1 fall back to the measured/);
   });
 
-  it('a missing MEASURED table is reported even when the fallback is healthy', () => {
+  it('a missing MEASURED fallback table is reported even when the Studio table is healthy', () => {
     const tf = '1,0,0,0,1,0,0,0,1,0,0,0';
     const xml: LxfAlignmentTable = {
       state: 'ok', source: PART_MAP_URL, rejected: 0, entries: { 3001: ROW },
@@ -381,8 +420,8 @@ describe('the MEASURED alignment table (audit P0 item 2)', () => {
       [{ designID: '3001', materialId: 21, transformation: tf, boneCount: 1 }], xml,
       { ...NO_MEASURED, state: 'unavailable', error: 'HTTP 503' }).diagnostics;
     const msg = describeLxfDiagnostics(d);
-    expect(msg).toMatch(/measured alignment table unavailable \(HTTP 503\)/);
-    expect(msg).toMatch(/ldraw\.xml columns/);
+    expect(msg).toMatch(/measured fallback alignment table unavailable \(HTTP 503\)/);
+    expect(msg).toMatch(/ldraw\.xml/);
     expect(msg).toMatch(/Reload to retry/);
   });
 });
