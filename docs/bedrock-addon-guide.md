@@ -374,3 +374,63 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
   wand menu now has a "Lighting / night vision" row, so button offsets shifted;
   with `MSYS_NO_PATHCONV=1` an `adb push` needs a `C:/…` local path (a `/c/…`
   path silently pushes nothing and the follow-up `cp` still reports success).
+
+## Model scale, aircraft descend and the wand's size/aim (2026-09-17)
+
+Built and gated offline (`output/bedrock-entity-qa/round-2026-09-17/`, vitest 1,627
+passing); the device claims are listed in `TASKS-BEDROCK-ADDON.md` until the Pixel
+round settles them.
+- **Model scale** (`engine/addon-scale.ts`, `planAddonScale`): ONE multiplier of the
+  minifig scale drives the voxel cell (`LDU_PER_BLOCK / scale`, so blocks and colliders),
+  the entity compiler's units per LDU (`BEDROCK_UNITS_PER_LDU × scale`, every compile
+  call in `buildPlayableAddon`) and the figure placement beside a vehicle
+  (`extraPlacement(..., lduPerBlock)`), so geometry, colliders and actors always agree.
+  `ui/schem-export.ts` derives BOTH from one plan (`planResolutionAtCell`); an explicit
+  block resolution still sets the cell and the entities follow it (`modelScale =
+  LDU_PER_BLOCK / cellLDU`). `auto`: a minifig body part (973/3814/76382 torso, 3815
+  hips, 3816/3817 legs, `_torso` custom parts) → 1×; a figure-less model whose TITLE
+  reads as a vehicle → shrunk so its longest origin extent (+1 stud a side) is the real
+  thing's length (car 4.6 / boat 9 / aircraft 12 blocks), never enlarged, floor ¼×;
+  anything else 1×. The settings popover's "Model scale" row shows the decision for
+  the loaded set. Measured: 10242 Mini Cooper (OMR) auto → **0.38×**, cell 140 LDU,
+  geometry bounds 7×5 vs 14×9 at 1×, collision 2.8×1.8 vs 3.5×2.5, seat 0.3 vs 2.84
+  high, same 6,113 cuboids (the part grain stays in LDU). LEGO Icons car names
+  (`mini cooper|aston martin|land rover|defender|volkswagen|caterham|ecto-1`) were
+  added to `CAR_WORDS` so their sets read as vehicles. Below ¾× a door leaf never
+  spans two cells, so no doors hang (the popover says so).
+- **Aircraft descend**: vanilla's only vertical input is Jump = climb; the Happy Ghast
+  descends by LOOKING down, and under the script chase camera (which sets a
+  `minecraft:free` camera every tick) that pitch was reported not to reach the entity.
+  The plane entity carries `craftmatic:descending` (`vertical_movement_action`
+  −0.5, `AIRCRAFT_DESCEND_GROUP`) with `craftmatic:descend_on/off` events; the driver
+  script adds it while the rider pulls the stick BACK and holds Jump and removes it when
+  the stick returns (`vehicle.triggerEvent`), HUD `[DESCENDING]` /
+  `BACK+JUMP: DESCEND`. Sneak could not be the input: on a mount it is Dismount.
+- **Wand rework** (`bedrock-placement-pack.ts`): state per player is
+  `{anchor, dimension, rotation, size, aim}`.
+  - *Follow my aim* (menu 9): every 4 ticks `getBlockFromViewDirection` (96 blocks);
+    the footprint centre is put on the hit FACE (Up → the block above, East → x+1, …),
+    the anchor floored, the ghost teleported. Any pin/edit/place clears `aim`.
+  - *Size* (menu 10, steps 150/200/300/400/25/50/75/100 %): actor positions scale
+    about the pin (`worldPoint`), each spawned actor gets `craftmatic:size_<pct>`
+    (`withSizeGroups`: one component group per step with `minecraft:scale`, a scaled
+    `collision_box` and, for a mount, `minecraft:rideable` with seat positions and
+    camera radius scaled - `minecraft:scale` is assumed NOT to move a rider's seat), the
+    ghost gets the same event. Blocks: a brick-shell pack ships its collider grid as
+    run-length text (`encodeColliderRuns`, value 0..136 = air or a `(lo,hi)` pair,
+    `[valueChar][countChar]` pairs, chalet ≈ a few KB) and the script re-lays it at the
+    new size in ≤48-block boxes (backup → clear → `setPermutation` of
+    `craftmatic:collider[lo,hi]`, sixteenths re-cut per world row, a block two cells
+    share keeps min lo / max hi, 400 blocks per tick), leaving doors/lights out; a
+    coloured-block export refuses a resized place with a message (entities-only sizing
+    is still offered). Undo restores the boxes.
+  - *Fine turn*: a pack with no tiles (a vehicle, a figure) rotates in 15° steps both
+    ways (`pointAt` turns about the footprint centre; `size()` is the turned bounding
+    box); block packs keep 90°. DeLorean controls stay the LAST button.
+  - Tests: `test/bedrock-placement-size.test.ts` (size groups, collider runs, 200 %
+    re-lay geometry, refusal, aim-follow, 15° turn) beside the runtime/ghost tests.
+- **LXF placement** (`docs/lego-renderer-guide.md`): Studio's `ldraw.xml` row is applied
+  as its inverse and is primary; measured on 91 native `.lxf` files with authentic
+  truth. 71043's floating/pierced pieces came from the forward-applied fallback path;
+  it now takes the Studio path for all 5,967 placements.
+

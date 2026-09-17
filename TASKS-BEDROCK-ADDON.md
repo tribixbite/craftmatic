@@ -4,116 +4,103 @@
 work and the measurements a decision still needs. Completed items are deleted;
 history is `git log` and `docs/bedrock-addon-guide.md`, which carries every
 hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
-the 2026-09-15/16 rounds, the minifig rig and the building shell). Spec:
-`docs/bedrock-entity-spec-2026-09-14.md`.
+the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
+and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-16, rounds 4-5 settled on the Pixel; deploying)
+## State (2026-09-17, four features built and gated offline; device round running)
 
-Commits `66b0367`…`f214b1a` (rig, shell, seated figures, shell lighting). Every figure is a JOINTED minifig on the canonical rig
-(`engine/minifig-rig.ts`: missing arms/legs/head supplied, walk / look / sit
-animations, exact torso facing); every building ships as a brick-accurate
-"shell" entity over invisible `craftmatic:collider` blocks whose collision
-follows the part heights (`engine/bedrock-building-shell.ts`). Offline gates:
-root + web typecheck clean; vitest 1,608 passing, 26 skipped
-(`output/bedrock-entity-qa/round-2026-09-16b/vitest-full.log` - the two
-failures there were the two test updates since made); the four buildings and
-the X-wing exported by `run-buildings`-style commands into
-`output/bedrock-entity-qa/round-2026-09-16b/` (`*.summary.json`, `*.stderr.log`).
+Commits `38ea28c`…`2b0b059`:
+- **LXF placement** (`fix(lxf)`): Studio's `ldraw.xml` row applied as its INVERSE is
+  now the primary correction, clego's measured table the fallback. Ground truth over
+  the native `.lxf` files with an authentic `.io` (`scripts/lxf_gt_eval.py`):
+  10242 Mini Cooper 89.3 → **93.6 % GEO** (exact 74 → 93 %); all 91 files weighted
+  48.8 → **53.9 %**, median 50.4 → **59.1 %**, only 8418 Model B worse (10.6 → 9.1).
+  71043 Hogwarts (the screenshots: floating window, pierced white plates in the tower)
+  has 100 % `ldraw.xml` coverage, 0 flex parts, no authentic `.io` - its fix is inferred
+  from the cohort; **browser verification of 71043 is the open item below**.
+- **Aircraft descend** (`feat(bedrock)`): `craftmatic:descending` group (Jump's
+  vertical action −0.5) toggled by the driver script while the stick is pulled BACK
+  and Jump held; HUD `BACK+JUMP: DESCEND`.
+- **Model scale** (`engine/addon-scale.ts`): one multiplier of the minifig scale drives
+  the block/collider cell, the entity units and figure placement. `auto`: a minifig →
+  1×; a figure-less display vehicle → shrunk to real length (car 4.6 / boat 9 / plane
+  12 blocks, floor ¼×); else 1×. Settings popover "Model scale" with a live decision
+  line; CLI `--scale=`. Mini Cooper 10242 auto → 0.38× (4.6 blocks, 7×5 bounds vs 14×9).
+- **Wand rework** (`bedrock-placement-pack.ts`): "Follow my aim" carries the ghost to
+  the aimed block face until pinned; "Size" cycles 150/200/300/400/25/50/75/100 % -
+  every entity has `craftmatic:size_<pct>` groups (scale + collision + scaled seats),
+  a brick-shell building's colliders are re-laid to size by script from a run-length
+  grid in the pack (doors/lights left out off 100 %), a coloured-block export refuses
+  a resized place; entity-only packs turn in 15° steps. Menu: 9 Follow my aim ·
+  10 Size · (11 Turn back, entity-only) · DeLorean last.
+
+Offline gates: root + web typecheck clean; vitest **1,627 passing, 26 skipped**
+(`output/bedrock-entity-qa/round-2026-09-17/vitest-full.log`). Packs for the device
+round in `output/bedrock-entity-qa/round-2026-09-17/` (`xwing`, `mini-auto`, `mini-1x`,
+`chalet` `.mcaddon` + `.json` summaries); brief `QA-BRIEF.md` there.
 
 ```
-lego.ts ─► ui/schem-export.ts ─► Worker: schem-pipeline.ts runSchemPipeline()
+lego.ts ─► ui/schem-export.ts (planAddonScale → cell + modelScale) ─► Worker: schem-pipeline.ts
    ├─ discoverPlayableComponents()   playable-components.ts  (named submodel ≥ ½ wins)
    ├─ discoverSceneActors()          bedrock-scene-actors.ts (figures / seats / door leaves)
-   │    └─ applySceneDoors()         leaf cells → air, vanilla doors in the opening
    ├─ shell = scenery − vehicles − figures − door leaves   (buildingFidelity 'bricks', default)
-   └─ buildPlayableAddon()           playable-addon.ts
-        ├─ vehicles: compileLdrawEntityGeometry() (prepareEntityPlacements → extras → cockpit)
-        ├─ figures (scene + vehicle extras): compile kind 'figure'
-        │     → assembleMinifig() (minifig-rig.ts) → compile canonical bricks with rig + frame
-        │     → client entity animations (walk/look/sit), exact yaw
-        ├─ shell: compile 'prop' with frame −I + wholeModel → shell entity actor at yaw 0
-        │     → buildColliderGrid(scenery, partBoxesLdu) → structure tiles of colliders
-        │     → BP blocks/collider.json, RP blocks.json + clear tile
-        └─ buildPreviewGhost() on the COLOURED scenery (unchanged)
+   └─ buildPlayableAddon(modelScale) playable-addon.ts
+        ├─ every compile at BEDROCK_UNITS_PER_LDU × modelScale; extras at LDU_PER_BLOCK / modelScale
+        ├─ every behaviour wrapped by withSizeGroups() (size_25..400)
+        ├─ shell → buildColliderGrid → encodeColliderRuns → PlacementColliders in the wand config
+        └─ buildPlacementPackAssets(): aim / size / fine-turn runtime
 ```
-CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--main-only] [--buildings=bricks|blocks]`;
-`bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 --hair=3901:0 --legs=1 --held-right=3847:71 --cape=4`
-(a one-figure pack from a spec). Probe: `bun scripts/_vehicle_probe.ts <model> --label=…`.
-**Use a label whose stem does not start with a digit.** Pixel helpers:
-`scripts/_pixel_shot.sh`, `scripts/_pixel_cmd.sh`.
+CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--main-only] [--buildings=bricks|blocks] [--scale=auto|0.25..4]`;
+`bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 …`; `python scripts/lxf_gt_eval.py --all --variants shipped`
+(strict cohort: a `[Model B]` .lxf only against a `[Model B]` .io; results `output/lxf-gt/strict-*.json`).
+**A CLI label must read as the vehicle** (`--label="X-wing Starfighter 7140"`; `XWing 7140` exported a shell + figures, no plane).
 
-## Device round 4 — SETTLED (2026-09-16, Pixel 8 Pro, v26.45)
+## Device round 2026-09-17 — RUNNING (Opus subagent; Pixel was `offline` at 13:20)
 
-Evidence + full verdict table: `output/bedrock-entity-qa/captures-2026-09-16d/notes.md`
-(64 shots + `contentlog-final.txt`). Result: **A/B/C/D PASS, E/F/G PARTIAL.**
-Content log **zero `[error]`** in 39,876 lines (round 3's 24 `minecraft:home` errors
-are gone). Chalet `1 structure piece and 14 entities`; walls stop the player at
-**offset 0.00** on both axes at 0° AND at 90°; the player stands at y 67.00 /
-70.00 with the drawn plate under the feet; 4/4 doors present (one already opened
-by an NPC — `behavior.open_door` confirmed); figures 7/7, jointed, legs at
-different swing angles, **2.03 blocks** beside the 1.80 player; seats seat.
-90° rotation is CLOCKWISE: `wx = ox + (sizeZ−1−lz)`, `wz = oz + lx`, 4/4 doors.
-Museum 7/7 figures, modular 8/8, Hogwarts places.
+Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
+`output/bedrock-entity-qa/captures-2026-09-17/notes.md`. Unverified on a device until then:
+- [ ] BACK+JUMP descends the X-wing (ALT falls, HUD `[DESCENDING]`); Jump alone climbs again after.
+- [ ] Whether LOOK DOWN still dives under the script chase camera (the user's report says no).
+- [ ] Mini Cooper at 0.38× drives, and the rider sits inside it (seat scaled in the size group / at export).
+- [ ] Wand: aim-follow ghost; Size 200 % re-lays colliders (walls stop the player at 2× positions,
+      plate under the feet at 2× height), figures 2× tall, shell drawn 2×; Undo restores; 50 %.
+- [ ] `minecraft:scale` does not move a rider's seat (assumed; seats are scaled explicitly).
+- [ ] Chalet figures 1/3/7 not walking (round 5): census after `/tp` onto open floor.
+- [ ] Content log zero `[error]` with the size groups and descend events in every entity.
 
-Still open from the round:
-## Device round 5 — SETTLED (2026-09-16, `captures-2026-09-16e/notes.md`, 45 shots)
+## Open
 
-Shell lighting FIXED (`f214b1a`, origin one block over the roof): museum wall
-mean grey 15.5 → 114.9/255, modular 12.1 → 110.7, chalet unchanged; shell still
-at collider offset 0.00 after the lift, plate under the feet (y 67.00). Chalet
-`1 structure piece and 17 entities`: figures 4/5/6 sit on their seats and stay
-(three censuses over 22 min identical to 2 dp), the player sits on a free seat
-first try. Content log zero `[error]` (18,578 lines).
-
-Still open from rounds 4-5:
-- [ ] **Chalet figures 1/3/7 did not move in 22 min** (figure 2 did; round 3's
-      figures walked 5-18 blocks / 30 s on the block version). Suspects: spawned
-      inside a part-height collider cell or an interior `random_stroll` cannot path
-      out of; check with a census after `/tp` onto open floor and by reading the
-      collider states around their spawn cells (`/testforblock`).
-- [ ] Sit pose: thighs read forward, shoe ~1 block clear of the floor; hips occluded
-      by the bench in every reachable angle (leg sign not disproven, not proven).
-- [ ] **F not finished**: X-wing figures' walk cycle and a rider-in-cockpit view
-      (the orbit camera cannot show the seat). Both figures are rigged (arms+legs).
-- [ ] Figure height reads **2.03** blocks (hair + head stud over the 1.8 player).
-- [ ] `natural_fig4` walked off the platform edge in round 4; `minecraft:home`
-      tethering not re-measured.
+- [ ] **71043 in the browser**: load it in the LEGO tab on the new LXF path and screenshot the
+      three views the user sent (floating window above the wall; white plates through the Grand
+      Staircase tower; the tower from outside) - `scripts/_lego-probe.mjs 71043 <outDir>` against
+      `bun dev:web`; compare against `%USERPROFILE%\Pictures\Screenshots` from 2026-09-17 01:18.
+- [ ] LXF residuals (strict cohort `output/lxf-gt/strict-hybrid_xml_first.json`): Technic sets score
+      ~41 % weighted (pins/axles stored in the other of two equivalent poses; flex parts), System
+      ~65 %. Next levers: synthesise multi-bone flex parts; per-part pose symmetry in the scorer.
+- [ ] Sit pose leg sign (round 5: thighs read forward, hips occluded) - still unproven.
+- [ ] X-wing figures' walk cycle and a first-person rider-in-cockpit view (round 5 J.1/J.2).
+- [ ] Figure height reads 2.03 blocks (hair + head stud over the 1.8 player).
+- [ ] `natural_fig4` walked off the platform edge in round 4; `minecraft:home` not re-measured.
 - [ ] Hogwarts was cleared from the QA world and not re-placed; museum −153/66/504,
-      modular −117/66/500, chalet −132/66/480 stand there; `doDaylightCycle` is FALSE.
-
-## Open (not started)
-
-- [ ] **Seated figures (built after the round-4 packs, device-unverified)**: a
-      figure found on a seat now spawns riding that seat's entity (`rideOf` in
-      placement.js `addRider`, seat `family_types` + `craftmatic_figure`) and the
-      `sit` animation plays on `query.is_riding`. To verify on the Pixel: re-export
-      the chalet (`round-2026-09-16b/chalet-seated.mcaddon` is one, 9 seats, figures
-      4/5/6 seated), place, census figures 4-6 sit; check the leg sign (−90° may fold
-      backwards) and that a seated figure does not wander.
-- [ ] **The block grid is a mirror image of the LEGO model** (LDraw (x,y,z) →
-      cells (x,−y,z); both frames are right-handed). Invisible on symmetric
-      builds; a door hinge side or a printed sign would show it. Fixing it
-      changes every schematic byte-for-byte (rule 5) - a separate decision.
-      The shell is compiled to match the mirrored grid (frame −I), so it is
-      consistent with today's structures either way.
-- [ ] **Custom-minifig UI**: `minifigFromSpec` + `_minifig_ref.ts` exist; no LEGO-tab
-      form yet (head / torso / legs / hair / held / cape pickers).
-- [ ] **Door openability is under-measured** (round 3: 1 of 7 taps toggled a leaf).
-      A scripted `setPermutation`/`open_bit` probe from the wand would settle it.
-- [ ] **Which source the LEGO tab serves matters**: the prod index lists
-      `IO/10326-noprint.io` first for 10326 and DbixConvV3 (exploded layouts) for
-      many sets; consider a "compact layout" quality flag (lego-sources-guide).
+      modular −117/66/500, chalet −132/66/480 stand there; `doDaylightCycle` FALSE.
+- [ ] **The block grid is a mirror image of the LEGO model** (LDraw (x,y,z) → cells (x,−y,z)).
+      Invisible on symmetric builds; fixing it changes every schematic byte-for-byte (rule 5) -
+      a separate decision. The shell is compiled to the mirrored grid (frame −I) so it is consistent.
+- [ ] **Custom-minifig UI**: `minifigFromSpec` + `_minifig_ref.ts` exist; no LEGO-tab form yet
+      (head / torso / legs / hair / held / cape pickers → a figures-only pack).
+- [ ] Door openability under-measured (round 3: 1 of 7 taps toggled a leaf); a scripted
+      `setPermutation`/`open_bit` probe from the wand would settle it.
+- [ ] Which source the LEGO tab serves: prod index lists `IO/10326-noprint.io` first for 10326 and
+      DbixConvV3 (exploded layouts) for many sets; a "compact layout" quality flag (lego-sources-guide).
 - [ ] Two museum doors "no room within three blocks"; 910047 sparse (17 % fill).
-- [ ] Hogwarts 76419 is microscale: its one 4-part torso group is no longer
-      exported (not an NPC under `figureRole`); decide whether microfigs matter.
-- [ ] **Beds / brick-built chairs** are not detected (no bed mould; chairs are bricks).
-- [ ] **Door sizing**: a 1×4×6 leaf hangs 2 doors when it straddles two cells
-      cleanly and 1 when its bounds read 1.36 cells.
-- [ ] Repeated-part budget (76240 `70695` ×184); Tumbler 32 LDU grain reads 14.5
-      wide (11.5 true); stud budget on the Milano.
-- [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` ids with no mould;
-      stale pack folders on the Pixel (`adb shell rm` denied); `_chase`/`_boom`
-      orbit presets ship unused.
+- [ ] Hogwarts 76419 is microscale: its one 4-part torso group is not exported; decide on microfigs.
+      (The model-scale `auto` rule keys on minifig body parts; a microfig cue - 85863 - is not read yet.)
+- [ ] Beds / brick-built chairs are not detected (no bed mould; chairs are bricks).
+- [ ] Door sizing: a 1×4×6 leaf hangs 2 doors when it straddles two cells and 1 at 1.36 cells;
+      below ¾× model scale no leaf reaches two cells, so no doors hang (documented in the popover).
+- [ ] Repeated-part budget (76240 `70695` ×184); Tumbler 32 LDU grain reads 14.5 wide (11.5 true).
+- [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` ids with no mould; stale pack
+      folders on the Pixel (`adb shell rm` denied); `_chase`/`_boom` orbit presets ship unused.
 
 ## Hard rules (from the spec)
 
