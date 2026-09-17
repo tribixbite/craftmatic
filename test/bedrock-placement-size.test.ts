@@ -172,13 +172,17 @@ describe('wand runtime: size, aim and turning', () => {
       actors: [{ typeId: 'craftmatic:lifted_fig1', label: 'Figure', x: 0.5, y: 0, z: 0.5 }],
       colliders: { width: 2, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
       settleTicks: 1, finalHoldTicks: 1 });
-    // The world has colliders at the pin's y and y+1 where the figure would stand.
-    for (const y of [64, 65]) h.blocks.set(`100,${y},200`, { typeId: 'craftmatic:collider', permutation: { getState: () => 0 }, setPermutation() {} });
+    // The world has a FLOOR plate collider (0..3/16) at the pin's y - not a wall - and a full
+    // wall collider at y+1 and y+2 where the figure's head would be; y+3/y+4 are clear.
+    const collider = (lo: number, hi: number) => ({ typeId: 'craftmatic:collider', permutation: { getState: (k: string) => (k === 'craftmatic:hi' ? hi : lo) }, setPermutation() {} });
+    h.blocks.set('100,64,200', collider(0, 3));
+    h.blocks.set('100,65,200', collider(0, 16));
+    h.blocks.set('100,66,200', collider(0, 16));
     await h.open({ selection: 1 }, { canceled: true });
     await h.open({ selection: 5 }, { selection: 0 });
     await h.flush(600);
     const fig = h.spawned.find(s => s.typeId === 'craftmatic:lifted_fig1')!;
-    expect(fig.at.y).toBe(66);
+    expect(fig.at.y).toBe(67);
     // Aim with nothing in view: the action bar says why instead of silently doing nothing.
     h.setHit(undefined);
     await h.open({ selection: 9 });

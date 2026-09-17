@@ -620,13 +620,27 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // must not stop the rest: the Pixel round of 2026-09-16 lost every
         // vehicle placement to its first figure NPC.
         try {
-          // A figure dropped into a full collider cell (a wall the voxel grid thickened)
-          // can never path out: lift it to the first cell whose feet and head are clear.
+          // A figure dropped into a WALL cell can never path out: lift it to the first
+          // cell whose feet and head cells are not walls. A part-height collider (a
+          // floor plate 0..3/16, a ceiling slab) is not a wall - the game stands the
+          // figure on it - so only a collider spanning 12+ sixteenths counts. If no
+          // clear cell is found within three blocks the figure stays where the source
+          // put it (round b lifted one onto the roof by testing "any collider").
           let spawnY = q.y;
           if (config.colliders && /_fig[0-9]+$/.test(actor.typeId)) {
             const bx = Math.floor(q.x), bz = Math.floor(q.z);
-            const clear = (y: number) => { try { const a = dim.getBlock({ x: bx, y, z: bz }), b = dim.getBlock({ x: bx, y: y + 1, z: bz }); return !!a && !!b && a.typeId !== config.colliders.block && b.typeId !== config.colliders.block; } catch { return true; } };
-            for (let up = 0; up <= 3 && !clear(Math.floor(spawnY)); up++) spawnY = q.y + up + 1;
+            const wall = (y: number) => {
+              try {
+                const b = dim.getBlock({ x: bx, y, z: bz });
+                if (!b || b.typeId !== config.colliders.block) return false;
+                const lo = Number(b.permutation.getState(config.colliders.loState)), hi = Number(b.permutation.getState(config.colliders.hiState));
+                return !(Number.isFinite(lo) && Number.isFinite(hi)) || hi - lo >= 12;
+              } catch { return false; }
+            };
+            const y0 = Math.floor(q.y);
+            for (let up = 0; up <= 3; up++) {
+              if (!wall(y0 + up) && !wall(y0 + up + 1)) { spawnY = up ? y0 + up : q.y; break; }
+            }
           }
           const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
           entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;

@@ -171,12 +171,18 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
         [seatX, seatY, seatZ] = seatPositionOverride;
-        // A model scaled below the player (a 0.38x Mini Cooper is 2 blocks tall)
-        // cannot hold an unscaled 1.8-block rider: the compiler's cockpit seat put
-        // the player through the car's flank and floor (Pixel round 2026-09-17).
-        // Seat such a rider ON the model, legs inside the roof line, like a kart.
+        // A model scaled below the player (a 0.38x Mini Cooper is 2.25 blocks tall
+        // and 1.9 wide) cannot hold an unscaled 1.8-block rider: the compiler's
+        // cockpit seat put the player's arm and shoes through the car's flank on
+        // the Pixel (rounds 2026-09-17 and b; the seat's driver-side offset is the
+        // flank). Seat such a rider ON the model, centred, legs in the roof line,
+        // like a kart: the model must clear the seated player's shoulders (~2.4).
         const modelHeight = entitySize?.height ?? layout.height;
-        if (modelHeight < PLAYER_HEIGHT_BLOCKS + 0.2) seatY = Math.max(seatY, Math.round((modelHeight - 0.55) * 100) / 100);
+        const modelWidth = entitySize?.width ?? layout.width;
+        if (modelHeight < PLAYER_HEIGHT_BLOCKS + 0.6 || modelWidth < 2.2) {
+            seatY = Math.max(seatY, Math.round((modelHeight - 0.55) * 100) / 100);
+            seatX = 0;
+        }
     } else {
         const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
         const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
