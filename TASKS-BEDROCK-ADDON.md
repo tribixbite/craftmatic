@@ -84,7 +84,8 @@ restores terrain and removes every entity, 50 % walls still block.
 Content log **0 `[error]`** (starting_rot_x gone); climb survives three descend cycles
 (ALT −59→−46→−60→+5→−56→+9→−54→+12, rider never dismounted; an event-only cycle on an
 unridden plane then climbs); aim-at-sky message shown. Two fixes re-done (commit after `abbe46d`),
-packs rebuilt in `round-2026-09-17c/` — **round c must re-verify**:
+packs rebuilt in `round-2026-09-17c/` (Mini seat now `[0, 1.73, -0.42]`, size_50 `[0, 0.865, -0.21]`) —
+**round c RUNNING (Opus subagent, brief `QA-BRIEF.md` there, evidence `captures-2026-09-17c/notes.md`)**:
 - [ ] **Mini rider**: car y −60.00 (on the ground, fixed); rider y −61 with arm/shoe through the
       driver-side flank. Now a model under 2.4 tall or 2.2 wide seats the rider on its roof line,
       CENTRED (`behaviorEntity`, seat y ≥ height − 0.55, seat x 0). Verify: rider sits on/in the
