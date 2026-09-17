@@ -80,20 +80,21 @@ colliders re-laid at 2× (`/testforblock 0 -45 40 craftmatic:collider` found, wa
 player, upper floor at y −54), figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo
 restores terrain and removes every entity, 50 % walls still block.
 
-### Round b (2026-09-17, `captures-2026-09-17b/notes.md`) — three of five fixes SETTLED
-Content log **0 `[error]`** (starting_rot_x gone); climb survives three descend cycles
-(ALT −59→−46→−60→+5→−56→+9→−54→+12, rider never dismounted; an event-only cycle on an
-unridden plane then climbs); aim-at-sky message shown. Two fixes re-done (commit after `abbe46d`),
-packs rebuilt in `round-2026-09-17c/` (Mini seat now `[0, 1.73, -0.42]`, size_50 `[0, 0.865, -0.21]`) —
-**round c RUNNING (Opus subagent, brief `QA-BRIEF.md` there, evidence `captures-2026-09-17c/notes.md`)**:
-- [ ] **Mini rider**: car y −60.00 (on the ground, fixed); rider y −61 with arm/shoe through the
-      driver-side flank. Now a model under 2.4 tall or 2.2 wide seats the rider on its roof line,
-      CENTRED (`behaviorEntity`, seat y ≥ height − 0.55, seat x 0). Verify: rider sits on/in the
-      roof line, nothing through the flank; screenshot side-on mounted; rider y vs car y.
-- [ ] **Figure lift**: round b's lift treated a 3/16 floor plate as a collider and put fig 1 on the
-      ROOF (+8) and fig 7 at +4; now only a collider spanning ≥ 12 sixteenths is a wall and a figure
-      with no clear cell within 3 stays put. Figures 4/5/6 are the SEATED ones (they ride seats and
-      never walk - expected). Verify: figs 1, 2, 3, 7 walk over three censuses; spawn heights.
+### Rounds b + c (2026-09-17, `captures-2026-09-17b/notes.md`, `captures-2026-09-17c/notes.md`) — SETTLED except figures
+Content log **0 `[error]`**; climb survives three descend cycles (rider never dismounted);
+aim-at-sky message; **Mini rider on the roof line, centred** (car 0/−60/132.5, rider +1.33,
+0.00 lateral, legs in the roof, nothing through the flanks, still drives 184 blocks in 4 s);
+no figure on the roof any more.
+- [ ] **Chalet figures do not roam inside the shell: 0 of 7 moved over 6.5 min** (round b 2 of 7,
+      round 1 1 of 7). Figures 4/5/6 are seated (by design). Walkers 1/2/3/7 spawn at +4.06 / +2.19
+      / +3.94 / 0.00 with a `craftmatic:collider` under the feet (lo 0, hi 1 / 3 / 15 / a slab above
+      fig 7) and a collider in the head cell for 1, 2 and 7 - i.e. they stand correctly on floor
+      plates under a ceiling ~2.25 blocks up. A `/tp`'d figure on open grass walks at once (round 1).
+      Hypothesis: mob navigation needs TWO full air cells above a walkable block (the 1.8-tall
+      player fits under a 2.25 ceiling, the nav mesh does not), so every interior cell is
+      unpathable. Next experiment (one number): figure `collision_box.height` 1.8 → 0.95 in
+      `figureBehavior` and re-census; if that frees them, make the height a function of the
+      interior clearance. Alternative: spawn figures OUTSIDE the footprint (the porch/garden cells).
 
 ### Still unverified on a device
 - [ ] Whether LOOK DOWN still dives under the script chase camera — **not testable from adb**:

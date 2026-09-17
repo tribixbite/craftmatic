@@ -483,4 +483,12 @@ round settles them.
   `world_*_packs.json` to at least the old byte length or the JSON ends in trailing garbage
   (`adb shell rm` there is denied); the content log is 16 KiB block-buffered, so the tail of
   a session is missing until the game flushes it.
+- **Round c (2026-09-17, `captures-2026-09-17c/notes.md`)**: the Mini rider sits on the roof
+  line, centred (+1.33 over the car origin = height − 0.55 for the real 1.9-block car; nothing
+  through the flanks; drives). Chalet figures: **0 of 7 roam** with the corrected lift; the
+  walkers stand on floor-plate colliders (hi 1/3/15) under a ~2.25-block ceiling and the mob
+  navigation does not path there while the player walks the same rooms - see the tracker's
+  hypothesis and next experiment. Device fact: quotes CAN be typed over adb with
+  `input keycombination 59 75` (Shift+apostrophe), which makes `/testforblock … ["craftmatic:lo"=0]`
+  state probes possible.
 
