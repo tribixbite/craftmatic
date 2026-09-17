@@ -457,7 +457,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       const st = states.get(p.id);
       if (!st || !st.aim) continue;
       const target = aimTarget(p);
-      if (!target) continue;
+      if (!target) { try { p.onScreenDisplay.setActionBar(`AIMING · ${config.label} · look at a block within 96 blocks (not the sky)`); } catch {} continue; }
       pinCentredAt(p, st, target);
       draw(p);
     }
@@ -620,7 +620,15 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // must not stop the rest: the Pixel round of 2026-09-16 lost every
         // vehicle placement to its first figure NPC.
         try {
-          const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: q.y, z: q.z });
+          // A figure dropped into a full collider cell (a wall the voxel grid thickened)
+          // can never path out: lift it to the first cell whose feet and head are clear.
+          let spawnY = q.y;
+          if (config.colliders && /_fig[0-9]+$/.test(actor.typeId)) {
+            const bx = Math.floor(q.x), bz = Math.floor(q.z);
+            const clear = (y: number) => { try { const a = dim.getBlock({ x: bx, y, z: bz }), b = dim.getBlock({ x: bx, y: y + 1, z: bz }); return !!a && !!b && a.typeId !== config.colliders.block && b.typeId !== config.colliders.block; } catch { return true; } };
+            for (let up = 0; up <= 3 && !clear(Math.floor(spawnY)); up++) spawnY = q.y + up + 1;
+          }
+          const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
           entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
           if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${st.size}% (${e && e.message ? e.message : e}); it stands at 100%.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);

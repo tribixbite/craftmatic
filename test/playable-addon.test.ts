@@ -219,12 +219,15 @@ describe('playable Bedrock add-on',()=>{
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_jet_BP/entities/jet_jet.json')));
     // Happy-Ghast pattern: fly where the rider looks, Jump climbs, hover keeps it up.
     expect(entity['minecraft:entity'].components['minecraft:free_camera_controlled']).toEqual({ strafe_speed_modifier: 1, backwards_movement_modifier: .5 });
-    expect(entity['minecraft:entity'].components['minecraft:vertical_movement_action']).toEqual({ vertical_velocity: .5 });
+    // The vertical action lives only in the climb/descend groups (a removed group does not restore a base component).
+    expect(entity['minecraft:entity'].components['minecraft:vertical_movement_action']).toBeUndefined();
+    expect(entity['minecraft:entity'].component_groups['craftmatic:climbing']).toEqual({ 'minecraft:vertical_movement_action': { vertical_velocity: .5 } });
+    expect(entity['minecraft:entity'].events['minecraft:entity_spawned']).toEqual({ add: { component_groups: ['craftmatic:climbing'] } });
     // Descend: the driver script adds `craftmatic:descending` (Jump's vertical action turned negative) while the
     // rider pulls back and holds Jump, and removes it when the stick returns - a way down that does not depend on look pitch.
     expect(entity['minecraft:entity'].component_groups['craftmatic:descending']).toEqual({ 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } });
-    expect(entity['minecraft:entity'].events['craftmatic:descend_on']).toEqual({ add: { component_groups: ['craftmatic:descending'] } });
-    expect(entity['minecraft:entity'].events['craftmatic:descend_off']).toEqual({ remove: { component_groups: ['craftmatic:descending'] } });
+    expect(entity['minecraft:entity'].events['craftmatic:descend_on']).toEqual({ remove: { component_groups: ['craftmatic:climbing'] }, add: { component_groups: ['craftmatic:descending'] } });
+    expect(entity['minecraft:entity'].events['craftmatic:descend_off']).toEqual({ remove: { component_groups: ['craftmatic:descending'] }, add: { component_groups: ['craftmatic:climbing'] } });
     const driver = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_BP/scripts/vehicle-driver.js'));
     expect(driver).toContain('"descendOn":"craftmatic:descend_on"');
     expect(driver).toContain('"descendOff":"craftmatic:descend_off"');

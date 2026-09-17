@@ -164,6 +164,28 @@ describe('wand runtime: size, aim and turning', () => {
     expect(fig.entity.setRotation).toHaveBeenCalledWith({ x: 0, y: 45 });
   });
 
+  it('lifts a figure spawned inside a full collider cell to the first clear cell, and says so when the aim finds no block', async () => {
+    const g = new BlockGrid(2, 3, 2);
+    for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) { g.set(x, 0, z, 'craftmatic:collider[lo=0,hi=16]'); g.set(x, 1, z, 'craftmatic:collider[lo=0,hi=16]'); }
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const h = host({ stem: 'lifted', label: 'Lifted', width: 2, height: 3, length: 2, tiles: [{ ...tile, width: 2, height: 3, length: 2 }],
+      actors: [{ typeId: 'craftmatic:lifted_fig1', label: 'Figure', x: 0.5, y: 0, z: 0.5 }],
+      colliders: { width: 2, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      settleTicks: 1, finalHoldTicks: 1 });
+    // The world has colliders at the pin's y and y+1 where the figure would stand.
+    for (const y of [64, 65]) h.blocks.set(`100,${y},200`, { typeId: 'craftmatic:collider', permutation: { getState: () => 0 }, setPermutation() {} });
+    await h.open({ selection: 1 }, { canceled: true });
+    await h.open({ selection: 5 }, { selection: 0 });
+    await h.flush(600);
+    const fig = h.spawned.find(s => s.typeId === 'craftmatic:lifted_fig1')!;
+    expect(fig.at.y).toBe(66);
+    // Aim with nothing in view: the action bar says why instead of silently doing nothing.
+    h.setHit(undefined);
+    await h.open({ selection: 9 });
+    h.intervals.get(4)!();
+    expect(h.actionBars.at(-1)).toMatch(/look at a block/);
+  });
+
   it('refuses a resized placement of coloured blocks and says why', async () => {
     const h = host({ stem: 'blocks', label: 'Blocks', width: 4, height: 2, length: 2, tiles: [tile], actors: [] });
     await h.open({ selection: 1 }, { canceled: true });

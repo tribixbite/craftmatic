@@ -10,7 +10,7 @@ import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-pre
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
-import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
+import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
@@ -144,6 +144,8 @@ export const ENTITY_FORMAT_VERSION = '1.26.30';
 export const DASH_ACTION = { cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 } as const;
 /** Aircraft component group that turns Jump into DESCEND (negative vertical velocity), and the events that toggle it. */
 export const AIRCRAFT_DESCEND_GROUP = 'craftmatic:descending';
+/** Aircraft component group holding the normal Jump = CLIMB action; added at spawn and by `descend_off`. */
+export const AIRCRAFT_CLIMB_GROUP = 'craftmatic:climbing';
 export const AIRCRAFT_DESCEND_ON = 'craftmatic:descend_on';
 export const AIRCRAFT_DESCEND_OFF = 'craftmatic:descend_off';
 /** Chase-camera boom length from the vehicle's longest side (blocks), 5..30. */
@@ -169,6 +171,12 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
         [seatX, seatY, seatZ] = seatPositionOverride;
+        // A model scaled below the player (a 0.38x Mini Cooper is 2 blocks tall)
+        // cannot hold an unscaled 1.8-block rider: the compiler's cockpit seat put
+        // the player through the car's flank and floor (Pixel round 2026-09-17).
+        // Seat such a rider ON the model, legs inside the roof line, like a kart.
+        const modelHeight = entitySize?.height ?? layout.height;
+        if (modelHeight < PLAYER_HEIGHT_BLOCKS + 0.2) seatY = Math.max(seatY, Math.round((modelHeight - 0.55) * 100) / 100);
     } else {
         const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
         const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
@@ -283,7 +291,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:navigation.hover': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:free_camera_controlled': { strafe_speed_modifier: 1, backwards_movement_modifier: .5 },
             'minecraft:flying_speed': { value: .3 },
-            'minecraft:vertical_movement_action': { vertical_velocity: .5 },
+            // The vertical action lives in the climb/descend GROUPS below, never
+            // in the base components: removing a group removes its components
+            // outright, so a base +0.5 did not come back after one descend and
+            // Jump then dismounted the rider (Pixel round 2026-09-17).
             'minecraft:behavior.player_ride_tamed': { priority: 1 },
             'minecraft:body_rotation_always_follows_head': {},
         });
@@ -295,10 +306,14 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // the entity down on Jump, so the driver script swaps this group in while
     // the rider pulls the stick back and holds Jump (vehicle-driver.js).
     const aircraftGroups = kind === 'plane' ? {
-        component_groups: { [AIRCRAFT_DESCEND_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } } },
+        component_groups: {
+            [AIRCRAFT_CLIMB_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: .5 } },
+            [AIRCRAFT_DESCEND_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } },
+        },
         events: {
-            [AIRCRAFT_DESCEND_ON]: { add: { component_groups: [AIRCRAFT_DESCEND_GROUP] } },
-            [AIRCRAFT_DESCEND_OFF]: { remove: { component_groups: [AIRCRAFT_DESCEND_GROUP] } },
+            'minecraft:entity_spawned': { add: { component_groups: [AIRCRAFT_CLIMB_GROUP] } },
+            [AIRCRAFT_DESCEND_ON]: { remove: { component_groups: [AIRCRAFT_CLIMB_GROUP] }, add: { component_groups: [AIRCRAFT_DESCEND_GROUP] } },
+            [AIRCRAFT_DESCEND_OFF]: { remove: { component_groups: [AIRCRAFT_DESCEND_GROUP] }, add: { component_groups: [AIRCRAFT_CLIMB_GROUP] } },
         },
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
@@ -314,7 +329,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
  * doorways and corridors of a minifig-scale building.
  */
 function figureBehavior(id: string, size: { width: number; height: number; length: number }): unknown {
-    const collision = { width: Math.min(0.9, Math.max(0.5, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(2, Math.max(1.2, Math.round(size.height * 10) / 10)) };
+    // No bigger than the player (0.6 x 1.8), who walks every room and doorway of
+    // a minifig-scale build: at 0.9 x 2.0 six of seven chalet figures could not
+    // path out of where they spawned (Pixel round 2026-09-17).
+    const collision = { width: Math.min(0.6, Math.max(0.4, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(1.8, Math.max(1.0, Math.round(size.height * 10) / 10)) };
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_figure', 'mob'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -1059,7 +1077,9 @@ export function chaseCameraPreset(cid: string, kind: PlayableKind, size: { width
  * Alternative chase camera for ground vehicles: `minecraft:fixed_boom` does not
  * orbit with look input, so the view stays on the vehicle's tail while the
  * joystick steers (`player_relative`). Shipped beside the orbit preset; the
- * runtime applies whichever `cameraStyle` chose.
+ * runtime applies whichever `cameraStyle` chose. No `starting_rot_x`: the
+ * 1.26.51 camera-preset schema rejects it and one bad preset fails the whole
+ * pack's presets (Pixel round 2026-09-17, the only content-log error).
  */
 export function boomCameraPreset(cid: string, size: { width: number; height: number; length: number }): { id: string; radius: number; value: unknown } {
     const radius = chaseRadius(size);
@@ -1067,7 +1087,7 @@ export function boomCameraPreset(cid: string, size: { width: number; height: num
     const pivotY = Math.round(Math.max(0.8, size.height * 0.75 + 0.5) * 100) / 100;
     return {
         id, radius,
-        value: { format_version: '1.21.0', 'minecraft:camera_preset': { identifier: id, inherit_from: 'minecraft:fixed_boom', radius, entity_offset: [0, pivotY, 0], starting_rot_x: 12, control_scheme: 'player_relative' } },
+        value: { format_version: '1.21.0', 'minecraft:camera_preset': { identifier: id, inherit_from: 'minecraft:fixed_boom', radius, entity_offset: [0, pivotY, 0], control_scheme: 'player_relative' } },
     };
 }
 
