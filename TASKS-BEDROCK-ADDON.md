@@ -33,6 +33,12 @@ Commits `38ea28c`…`2b0b059`:
   1×; a figure-less display vehicle → shrunk to real length (car 4.6 / boat 9 / plane
   12 blocks, floor ¼×); else 1×. Settings popover "Model scale" with a live decision
   line; CLI `--scale=`. Mini Cooper 10242 auto → 0.38× (4.6 blocks, 7×5 bounds vs 14×9).
+- **Custom-minifig UI** (`ui/minifig-builder.ts`, "🧍 Minifig" beside MC settings): torso /
+  head / hair / held / cape by part id + LDraw colour, legs/hips/arms/hands colours; the
+  figure is compiled on the main thread through `buildPlayableAddon` and downloaded as a
+  figures-only `.mcaddon`. Headless check `node scripts/_minifig_browser_check.mjs`:
+  12-part knight, 32 KB, 191 ms, zero page errors. Unverified on a device (spawn it with
+  its wand, `/function b_…`).
 - **Wand rework** (`bedrock-placement-pack.ts`): "Follow my aim" carries the ghost to
   the aimed block face until pinned; "Size" cycles 150/200/300/400/25/50/75/100 % -
   every entity has `craftmatic:size_<pct>` groups (scale + collision + scaled seats),
@@ -98,8 +104,6 @@ Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
 - [ ] **The block grid is a mirror image of the LEGO model** (LDraw (x,y,z) → cells (x,−y,z)).
       Invisible on symmetric builds; fixing it changes every schematic byte-for-byte (rule 5) -
       a separate decision. The shell is compiled to the mirrored grid (frame −I) so it is consistent.
-- [ ] **Custom-minifig UI**: `minifigFromSpec` + `_minifig_ref.ts` exist; no LEGO-tab form yet
-      (head / torso / legs / hair / held / cape pickers → a figures-only pack).
 - [ ] Door openability under-measured (round 3: 1 of 7 taps toggled a leaf); a scripted
       `setPermutation`/`open_bit` probe from the wand would settle it.
 - [ ] Which source the LEGO tab serves: prod index lists `IO/10326-noprint.io` first for 10326 and

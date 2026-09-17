@@ -429,6 +429,13 @@ round settles them.
     box); block packs keep 90°. DeLorean controls stay the LAST button.
   - Tests: `test/bedrock-placement-size.test.ts` (size groups, collider runs, 200 %
     re-lay geometry, refusal, aim-follow, 15° turn) beside the runtime/ghost tests.
+- **Custom-minifig UI** (`ui/minifig-builder.ts`): the LEGO tab's "🧍 Minifig" popover is
+  the browser face of `minifigFromSpec` - part ids + LDraw colour ids per slot, colour
+  names from `/ldraw-color-names.json`, values persisted in localStorage, the compile on
+  the main thread (`buildPlayableAddon` with a 3×3 empty grid and one figure, parts from
+  `/ldraw-parts` like the Worker). `scripts/_minifig_browser_check.mjs` drives it headless
+  and captures the download. The export stem is the shared 12-char name stem
+  (`Browser Knight` → `Browser.mcaddon`, pack id `browser`, `/function b_f53710`).
 - **LXF placement** (`docs/lego-renderer-guide.md`): Studio's `ldraw.xml` row is applied
   as its inverse and is primary; measured on 91 native `.lxf` files with authentic
   truth. 71043's floating/pierced pieces came from the forward-applied fallback path;

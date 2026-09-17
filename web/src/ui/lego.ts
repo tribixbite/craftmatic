@@ -29,6 +29,7 @@ import {
 import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles } from '@viewer/exporter.js';
 import { runMinecraftExport, spanOfBricks } from '@ui/schem-export.js';
 import { mountSchemSettings, getSchemSettings } from '@ui/schem-settings-panel.js';
+import { mountMinifigBuilder } from '@ui/minifig-builder.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
 import type { ViewerState } from '@viewer/scene.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
@@ -807,6 +808,8 @@ function wireEvents(): void {
         : null),
       key: 'lego',
     });
+    // Custom minifig NPC → figures-only Bedrock add-on (ui/minifig-builder.ts).
+    mountMinifigBuilder(mcSettingsHost, { onStatus: setStatus });
   }
 
   // ── Explode slider ────────────────────────────────────────────────────────
