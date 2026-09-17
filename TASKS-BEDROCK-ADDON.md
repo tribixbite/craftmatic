@@ -80,24 +80,19 @@ colliders re-laid at 2× (`/testforblock 0 -45 40 craftmatic:collider` found, wa
 player, upper floor at y −54), figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo
 restores terrain and removes every entity, 50 % walls still block.
 
-### New defects it raised (fix these next)
-- [ ] **`starting_rot_x` is not in the 1.26.51 camera-preset schema** →
-      `web/src/engine/playable-addon.ts:1070` (the `fixed_boom` preset). It is the ONLY
-      `[error]` in the content log (3 lines) and it fails the whole pack's presets:
-      `Failed to load camera presets`. Drop the field or gate it on format version.
-- [ ] **Descend is one-way**: after a single `descend_on`/`descend_off` cycle the plane has
-      NO `vertical_movement_action` left, so Jump neither climbs nor descends and the rider
-      is dismounted instead. Reproduced with `/event entity` alone on an unridden plane.
-      Fix: put the climb in its own `craftmatic:climbing` group that `descend_off` ADDS,
-      rather than relying on the base component returning when the group is removed.
-- [ ] **0.38× Mini Cooper seats the rider at ground −1** (y −61 while standing is −60) and the
-      unscaled player clips out through the car's flank. Clamp the seat to the interior.
-- [ ] **Follow-my-aim silently no-ops when the player looks at the sky** (the raycast finds no
-      block within 96 blocks over flat ground): no ghost, no action bar, origin stays unpinned.
-- [ ] **Chalet figures: 6 of 7 never move.** Every figure the placement drops inside/on the
-      shell is trapped by the collider grid; `/tp`ing figure 1 to open grass makes it walk
-      immediately (15 blocks in seconds, then home-ward). Wider than the reported 1/3/7 and
-      the fix belongs in the placement, not the AI.
+### The five defects, fixed offline (commit after `d7e5d5a`) — re-verify on the device
+Packs rebuilt in `output/bedrock-entity-qa/round-2026-09-17b/` (same three models).
+- [ ] `starting_rot_x` dropped from the `fixed_boom` preset → content log must show ZERO `[error]`.
+- [ ] Climb is its own group `craftmatic:climbing` (added by `minecraft:entity_spawned` and by
+      `descend_off`); `descend_on` swaps it for `craftmatic:descending`. Verify: descend, release,
+      Jump climbs again (ALT rises), rider stays mounted; repeat three cycles.
+- [ ] A model under 2.0 blocks tall seats the rider ON it (seat y ≥ height − 0.55, `behaviorEntity`):
+      the 0.38× Mini Cooper's rider should sit with legs in the roof line, not through the flank;
+      measure the rider's y beside the car's y and screenshot from the side.
+- [ ] Figures: collision box capped at the player's 0.6 × 1.8 and a figure spawned in a full collider
+      cell is lifted to the first clear cell (`placement.js`). Verify: chalet at 100 %, census three
+      times; how many of the 7 move without a `/tp`.
+- [ ] Aim at the sky: the action bar now says "look at a block within 96 blocks".
 
 ### Still unverified on a device
 - [ ] Whether LOOK DOWN still dives under the script chase camera — **not testable from adb**:

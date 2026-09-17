@@ -441,4 +441,31 @@ round settles them.
   as its inverse and is primary; measured on 91 native `.lxf` files with authentic
   truth. 71043's floating/pierced pieces came from the forward-applied fallback path;
   it now takes the Studio path for all 5,967 placements.
+- **Device round 2026-09-17 (world "917", Bedrock 1.26.51.1, `captures-2026-09-17/notes.md`,
+  142 shots)**: BACK+JUMP descends (ALT −43→−60 in 3.5 s), the 0.38× Mini Cooper measures
+  4.55 × 2.0 blocks and drives, the whole wand rework passes (aim-follow, size cycle, 200 %
+  colliders re-laid and walls stop the player at the doubled position, upper floor at the
+  doubled height, figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo restores). Five
+  defects found and fixed the same day:
+  - **`starting_rot_x` is not in the 1.26.51 camera-preset schema** and ONE bad preset fails
+    the whole pack's presets (`Failed to load camera presets`). Dropped from `fixed_boom`.
+  - **Removing a component group removes its components outright, even ones the base
+    `components` also declare.** The descend group's removal left the plane with no
+    `vertical_movement_action`, so Jump neither climbed nor descended and dismounted the
+    rider. Both directions are now groups (`craftmatic:climbing` added on
+    `minecraft:entity_spawned`, swapped by `descend_on`/`descend_off`); the base has none.
+  - **An unscaled player cannot sit inside a model shorter than itself**: the 0.38× Mini's
+    cockpit seat put the rider through the flank at y −61 (ground −60). A model under
+    2.0 blocks seats the rider on it (seat y ≥ height − 0.55).
+  - **Figures with a 0.9 × 2.0 collision box could not path out of the rooms the 0.6 × 1.8
+    player walks**: 6 of 7 chalet figures never moved until `/tp`'d to open ground. Boxes are
+    now capped at the player's, and a figure spawned in a full collider cell is lifted to the
+    first clear cell.
+  - Aim-follow says "look at a block" when the raycast finds nothing (looking at the sky).
+  Device facts: the 1.26.51 joystick ring is NOT at round-5's (337,550) (that is the look area
+  now) and two simultaneous touches are impossible from adb; `input keyboard keyevent
+  --duration` holds a key and a stylus pointer source counts as a second pointer; keyboard
+  SPACE dismounts a rider (use the touch Jump button); `/rotate` does not exist; `/tp @s …
+  facing …` dismounts; a `/fill` ruler from y −60 shows 4 blocks (the top ground block is
+  replaced). Flat world surface y −60; chalet placed at −17/−60/32, Mini at −1/−61/−186.
 
