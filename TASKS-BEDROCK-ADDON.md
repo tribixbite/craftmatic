@@ -13,8 +13,11 @@ Commits `38ea28c`…`2b0b059`:
 - **LXF placement** (`fix(lxf)`): Studio's `ldraw.xml` row applied as its INVERSE is
   now the primary correction, clego's measured table the fallback. Ground truth over
   the native `.lxf` files with an authentic `.io` (`scripts/lxf_gt_eval.py`):
-  10242 Mini Cooper 89.3 → **93.6 % GEO** (exact 74 → 93 %); all 91 files weighted
-  48.8 → **53.9 %**, median 50.4 → **59.1 %**, only 8418 Model B worse (10.6 → 9.1).
+  10242 Mini Cooper 89.3 → **93.6 % GEO** (exact 74 → 93 %); strict cohort (54 files, a
+  Model B .lxf only against a Model B .io) weighted 60.2 → **65.7 %**, median 61.1 →
+  **68.7 %**, exact mean 38.0 → 48.7 %, NO file worse by > 1 pt (`output/lxf-gt/strict-*.json`).
+  Three files still < 10 % (315 European Taxie, 42039, 4x4 with Powerboat) - their .io
+  is a different layout of the set, not a placement failure.
   71043 Hogwarts (the screenshots: floating window, pierced white plates in the tower)
   has 100 % `ldraw.xml` coverage, 0 flex parts, no authentic `.io` - its fix is inferred
   from the cohort; **browser verification of 71043 is the open item below**.
@@ -55,8 +58,11 @@ CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=�
 (strict cohort: a `[Model B]` .lxf only against a `[Model B]` .io; results `output/lxf-gt/strict-*.json`).
 **A CLI label must read as the vehicle** (`--label="X-wing Starfighter 7140"`; `XWing 7140` exported a shell + figures, no plane).
 
-## Device round 2026-09-17 — RUNNING (Opus subagent; Pixel was `offline` at 13:20)
+## Device round 2026-09-17 — RUNNING (Opus subagent) in the NEW world "917"
 
+The user retired the old QA world (`smUmxh2eJjw=`, too cluttered) and DELETED every
+installed pack from the Pixel; "917" is flat, empty, always day. Import the three packs
+fresh and activate them in 917's `world_*_packs.json` (brief section "THE WORLD IS NEW").
 Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
 `output/bedrock-entity-qa/captures-2026-09-17/notes.md`. Unverified on a device until then:
 - [ ] BACK+JUMP descends the X-wing (ALT falls, HUD `[DESCENDING]`); Jump alone climbs again after.
@@ -81,8 +87,6 @@ Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
 - [ ] X-wing figures' walk cycle and a first-person rider-in-cockpit view (round 5 J.1/J.2).
 - [ ] Figure height reads 2.03 blocks (hair + head stud over the 1.8 player).
 - [ ] `natural_fig4` walked off the platform edge in round 4; `minecraft:home` not re-measured.
-- [ ] Hogwarts was cleared from the QA world and not re-placed; museum −153/66/504,
-      modular −117/66/500, chalet −132/66/480 stand there; `doDaylightCycle` FALSE.
 - [ ] **The block grid is a mirror image of the LEGO model** (LDraw (x,y,z) → cells (x,−y,z)).
       Invisible on symmetric builds; fixing it changes every schematic byte-for-byte (rule 5) -
       a separate decision. The shell is compiled to the mirrored grid (frame −I) so it is consistent.
