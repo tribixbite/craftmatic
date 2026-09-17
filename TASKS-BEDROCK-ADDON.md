@@ -19,8 +19,12 @@ Commits `38ea28c`…`2b0b059`:
   Three files still < 10 % (315 European Taxie, 42039, 4x4 with Powerboat) - their .io
   is a different layout of the set, not a placement failure.
   71043 Hogwarts (the screenshots: floating window, pierced white plates in the tower)
-  has 100 % `ldraw.xml` coverage, 0 flex parts, no authentic `.io` - its fix is inferred
-  from the cohort; **browser verification of 71043 is the open item below**.
+  has no authentic `.io`, so it was measured with clego's geograde on the two placements
+  (`output/lxf-gt/71043-probe/geograde.log`): old maths **16 floating parts / 27 unsupported
+  splits / 5 sunk / 0.05 % overlap** → new maths **0 / 0 / 0 / 0.00 %** (1,047 of 5,967
+  placements moved; 3794 jumpers, 2412 grilles, 2780 pins, 4162/3666 tiles, 60601 glass).
+  Browser renders of the new path (`hogwarts-close-*.png` there): the Grand Staircase's
+  white stairs sit under their turntable instead of piercing the floor; tower walls clean.
 - **Aircraft descend** (`feat(bedrock)`): `craftmatic:descending` group (Jump's
   vertical action −0.5) toggled by the driver script while the stick is pulled BACK
   and Jump held; HUD `BACK+JUMP: DESCEND`.
@@ -76,10 +80,13 @@ Claims A–E in `round-2026-09-17/QA-BRIEF.md`; evidence lands in
 
 ## Open
 
-- [ ] **71043 in the browser**: load it in the LEGO tab on the new LXF path and screenshot the
-      three views the user sent (floating window above the wall; white plates through the Grand
-      Staircase tower; the tower from outside) - `scripts/_lego-probe.mjs 71043 <outDir>` against
-      `bun dev:web`; compare against `%USERPROFILE%\Pictures\Screenshots` from 2026-09-17 01:18.
+- [ ] **71043 on the phone**: prod (craftmatic.click) still serves the OLD maths until the
+      branch deploys; the user should re-check the three spots after deploy. Local A/B renders:
+      `output/lxf-gt/71043-probe/hogwarts-close-*.png` (new) vs `hogwarts-old-*.png` (old).
+      Open question from the renders: the two Dementors hang at an angle on their trans-clear
+      stalks - real set design or a residual? (`scripts/_lego-probe.mjs` now takes `PROBE_VIEWS`
+      JSON for close-up cameras; search mode needs the set loaded from the index, file mode
+      `file:<abs path>` works for any .lxf/.ldr.)
 - [ ] LXF residuals (strict cohort `output/lxf-gt/strict-hybrid_xml_first.json`): Technic sets score
       ~41 % weighted (pins/axles stored in the other of two equivalent poses; flex parts), System
       ~65 %. Next levers: synthesise multi-bone flex parts; per-part pose symmetry in the scorer.

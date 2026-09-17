@@ -179,5 +179,23 @@ for (const view of canvas ? ['iso', 'front', 'left'] : []) {
   }
 }
 
+// Optional close-ups: PROBE_VIEWS='[{"name":"tower","pos":[x,y,z],"target":[x,y,z]}]' in
+// scene units (1 stud = 1 unit, Y up), applied straight to the camera + orbit target.
+const extra = process.env.PROBE_VIEWS ? JSON.parse(process.env.PROBE_VIEWS) : [];
+for (const view of canvas ? extra : []) {
+  await page.evaluate(vw => {
+    const v = window.__ldrawViewer;
+    if (!v) return;
+    v.camera.position.set(vw.pos[0], vw.pos[1], vw.pos[2]);
+    v.controls.target.set(vw.target[0], vw.target[1], vw.target[2]);
+    v.controls.update();
+    v.needsRender = true;
+  }, view);
+  await page.waitForTimeout(2500);
+  await page.evaluate(() => { window.__ldrawViewer?.composer?.render(); });
+  try { await canvas.screenshot({ path: join(outDir, `${label}-${view.name}.png`), timeout: 25000 }); }
+  catch (e) { console.error(`capture ${view.name} failed: ${String(e).slice(0, 160)}`); }
+}
+
 console.log(JSON.stringify({ target, label, bricks, errors: errors.slice(0, 8), ...probe }, null, 1));
 await browser.close();
