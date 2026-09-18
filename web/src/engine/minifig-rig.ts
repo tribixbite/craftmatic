@@ -141,13 +141,33 @@ const familyId = (part: string): string => cleanId(part).replace(/^bl_/, '').rep
 const stripAlias = (description: string): string => description.replace(/^[~=_]+\s*/, '');
 
 /**
+ * LDraw retires a mould by leaving a one-line stub whose whole description is
+ * `~Moved to <newid>`. Those stubs carry no geometry and no name, so neither an
+ * id list nor a `^Minifig Arm` description test sees anything. That is not
+ * academic: the `.io`-derived Natural History Museum places its arms as
+ * `981`/`982` and its hands as `983`, and all seven of its figures compiled
+ * ARMLESS with "the source lacked the figure's right arm, left arm" - `983`
+ * happened to be in the hand id list, `981`/`982` were in no list at all.
+ * Following the redirect fixes the whole family at once instead of growing the
+ * lists one retired mould at a time.
+ */
+export function movedTo(description: string): string | null {
+  const m = /^[~=_]*\s*Moved to\s+(\S+)/i.exec(description);
+  return m ? m[1].replace(/\.dat$/i, '').toLowerCase() : null;
+}
+
+/** The id to classify by: a retired mould answers with the id it moved to. */
+export const mouldFamilyId = (part: string, description: string): string =>
+  movedTo(description) ?? familyId(part);
+
+/**
  * Which slot a part of a torso group fills. The library description decides
  * (it names every minifig mould); ids cover the core body when a description
  * is missing (a custom-part torso, an unresolved mesh).
  */
 export function classifyMinifigPart(part: string, description: string): MinifigSlot | null {
   const d = stripAlias(description);
-  const id = familyId(part);
+  const id = mouldFamilyId(part, description);
   if (/^Minifig Torso\b/i.test(d) || /^(973|3814|76382)(?![0-9])/.test(id) || /_torso$/.test(cleanId(part))) return 'torso';
   if (/^Minifig Hips and Legs\b/i.test(d) || /^Minifig Legs\b/i.test(d) || /^(970c|3815c|41879|16968)/.test(id) || /_legs$/.test(cleanId(part))) return 'hips_legs';
   if (/^Minifig Hips\b/i.test(d) || /^(970|3815)(?![0-9])/.test(id) || /_hips$/.test(cleanId(part))) return 'hips';

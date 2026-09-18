@@ -53,6 +53,15 @@ describe('classifyMinifigPart', () => {
     expect(classifyMinifigPart('970c00', '~Moved to 3815c01')).toBe('hips_legs');
     expect(classifyMinifigPart('3815b', 'Minifig Hips')).toBe('hips');
     expect(classifyMinifigPart('983', '~Moved to 3820')).toBe('hand_right');
+    // LDraw retires a mould with a stub whose whole description is
+    // `~Moved to <id>`, so neither the description nor the literal id names the
+    // part. The `.io`-derived Natural History Museum places its arms this way
+    // and every one of its seven figures compiled ARMLESS until the redirect
+    // was followed; `983` above passed only because it happened to be listed.
+    expect(classifyMinifigPart('981', '~Moved to 3819')).toBe('arm_left');
+    expect(classifyMinifigPart('982', '~Moved to 3818')).toBe('arm_right');
+    expect(classifyMinifigPart('3818', 'Minifig Arm Right')).toBe('arm_right');
+    expect(classifyMinifigPart('3819', 'Minifig Arm Left')).toBe('arm_left');
     expect(classifyMinifigPart('3626cpb1571', 'Minifig Head with Closed Hollow Stud')).toBe('head');
     expect(classifyMinifigPart('11256', 'Minifig Hair Short, Wavy with Side Part')).toBe('headwear');
     expect(classifyMinifigPart('27059', '=Minifig Hat Beanie')).toBe('headwear');

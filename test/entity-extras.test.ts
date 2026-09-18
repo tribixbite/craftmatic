@@ -47,6 +47,11 @@ describe('part helpers', () => {
     expect(isFigurePart('4079', 'Minifig Seat  2 x  2')).toBe(false);
     expect(isFigurePart('3626', '')).toBe(true);
     expect(isFigurePart('3001', 'Brick  2 x  4')).toBe(false);
+    // A `~Moved to` retirement stub names no part, so the description tests
+    // all miss and the id family must come from the redirect target.
+    expect(isFigurePart('981', '~Moved to 3819')).toBe(true);
+    expect(isFigurePart('982', '~Moved to 3818')).toBe(true);
+    expect(isFigurePart('3070b', '~Moved to 3070')).toBe(false);
     // Studio custom torsos (BrickLink Designer Program sets) carry a bl_ prefix and a _torso suffix.
     expect(isFigurePart('bl_973pb5574c01_torso', 'FILE bl_973pb5574c01_torso.dat')).toBe(true);
     expect(baseMould('bl_973pb5574c01_torso')).toBe('973'); // the print suffix goes too: the mould is the plain torso

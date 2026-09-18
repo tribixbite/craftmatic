@@ -42,7 +42,7 @@ import {
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { ATLAS_TILE, ATLAS_WIDTH } from './ldraw-entity-atlas.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { assembleMinifig, type EntityRig } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, type EntityRig } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -87,7 +87,10 @@ export function isFigurePart(part: string, description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
   if (/^Minifig\b/i.test(d)) return !/^Minifig (Seat|Chair|Steering|Stand|Display|Bench)\b/i.test(d);
   if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
-  return FIGURE_PART_IDS.test(figureId(part)) || /_(torso|head|legs|hips)$/.test(cleanPartId(part));
+  // `mouldFamilyId` follows LDraw's `~Moved to <id>` retirement stubs, whose
+  // description names no part at all. Without it `981`/`982` (the arms the
+  // `.io`-derived museum places) match nothing and every figure loses both arms.
+  return FIGURE_PART_IDS.test(mouldFamilyId(part, description)) || /_(torso|head|legs|hips)$/.test(cleanPartId(part));
 }
 export const isTorso = (part: string, description: string): boolean => TORSO_PARTS.test(figureId(part)) || /_torso$/.test(cleanPartId(part)) || /^Minifig Torso\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
@@ -754,9 +757,10 @@ export function figureRole(parts: ParsedBrick[], meshes: Map<string, LdrawPartMe
   const d = (b: ParsedBrick): string => (meshes.get(b.part)?.description ?? '').replace(/^[~=_]+\s*/, '');
   // The minifig rig (minifig-rig.ts) supplies missing legs, arms and a head,
   // so a figure only needs its torso plus one more BODY part to be one - the
-  // IOModel2V2 museum's figures have no arms at all and three have no legs. A
+  // IOModel2V2 museum has three figures with no legs (its arms DO exist -
+  // they are `981`/`982`, resolved through the `~Moved to` redirect). A
   // lone torso with a hand beside it is not a figure.
-  const bodyParts = parts.filter(b => /^(970|3815|3816|3817|41879|16968|3626|3625|3624|3818|3819)(?![0-9])/.test(figureId(b.part))
+  const bodyParts = parts.filter(b => /^(970|3815|3816|3817|41879|16968|3626|3625|3624|3818|3819)(?![0-9])/.test(mouldFamilyId(b.part, meshes.get(b.part)?.description ?? ''))
     || /^Minifig (Hips|Leg|Head|Arm|Hair|Hat|Helmet|Cap|Hood)\b/i.test(d(b)) || /_(head|legs|hips)$/.test(cleanPartId(b.part)));
   if (!bodyParts.length) return 'partial';
   if (colours.size === 1 && parts.length >= 3) return 'statue';
