@@ -286,6 +286,45 @@ as bulk-inside-bulk. **Before treating any of these 52 files as broken, check
 whether its worst overlaps are a wheel/tyre or hand/weapon pair.** The real work
 here is a geograde exemption for encased pairs, not a converter change.
 
+### SHIPPED AND VERIFIED (2026-09-18)
+
+Both publishes are DONE. `main` is at `8173563`; the Deploy and CI workflows
+both succeeded; prod serves the gated table (`craftmatic.click/ldd-measured-align.json`
+= 1,839 rows, `3818`/`3819` absent). The corpus went to R2 in two passes,
+2,460 + 6 = **2,466 files, 0 failures** (the first pass's 6 were transient
+wrangler/bunx install races, not upload errors), index uploaded. Verified live:
+`craftmatic.click/lego-models/DbixConvV3/{76435,910004,10326}.ldr` read arm
+medians 18.1 / 18.0 / 18.4 LDU.
+
+**The three defect types Will reported, on the two sets he photographed:**
+
+| | floating | big clusters | sunk | overlap | arm→torso (authentic 18.0) |
+|---|---|---|---|---|---|
+| 71043 `.lxf` before | 16 | 0 | 5 | 0.05 % | **647.1 LDU, 0 % attached** |
+| 71043 `.lxf` now | **0** | 0 | **0** | **0.00 %** | **18.1 LDU, 100 %** |
+| 76435 dbix before | 5 | 0 | 1 | 0.00 % | **215.4 LDU, 0 % attached** |
+| 76435 dbix now | 5 | 0 | 1 | 0.00 % | **18.1 LDU, 100 %** |
+
+76435's geometry columns do not move because geograde never saw the defect (the
+scattered arms were classed `side model`); the arm column is the one that
+captures it. Renders at `output/verify-2026-09-18/`: `71043/v-hall-inside.png`
+vs `71043/old-hall-inside.png` is the Grand Staircase from Will's second
+screenshot — the white flights now rest ON their turntables instead of piercing
+them, and the angled landing plate that cut across the shaft is gone.
+
+**Add-on fidelity, every named set, all defaults, brick-accurate shells:**
+
+| set | source | bricks | cuboids | figures | notes |
+|---|---|---|---|---|---|
+| 71043 | lxf | 5,937 | 15,650 | 4 | 290 unique parts, 0 unresolved, 0 AABB fallback |
+| 76435 | dbix_conv_v3 | 1,750 | 7,579 | 10 | 4 doors |
+| 910004 | io | 2,722 | 6,922 | 7 | 9 seats, 8 doors/lights |
+| 10326 | io | 4,061 | 10,984 | 7 | 12 doors/lights |
+| 31201 | mecabricks | 9,820 | 1,860 | 0 | flat crest mosaic; 9,256 studs over the 4,096 budget, omitted |
+| 76405 | mecabricks | 1,950 | 5,422 | 20 | **all 20 figures lose their head** — see below |
+
+None degraded to the coloured-block fallback.
+
 ### The two publish steps — BOTH need Will's explicit go-ahead (outward-facing)
 
 Everything else is done: the dbix corpus is regenerated, polished, restamped,
