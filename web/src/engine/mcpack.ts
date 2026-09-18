@@ -129,6 +129,40 @@ export function deterministicUuid(text: string): string {
 }
 
 /**
+ * The string every manifest UUID of a pack is derived from — the model's
+ * IDENTITY, not its short pack id.
+ *
+ * The pack id is `toBedrockIdentifier(stem)`, and the stem carries at most
+ * `NAME_STEM_MAX` (12) characters of the model's NAME (engine/export-name.ts).
+ * `Hogwarts Castle`, `Hogwarts Castle and Grounds` and `Hogwarts Castle: The
+ * Great Hall` therefore all reduce to `hogwarts`. Deriving the manifest UUIDs
+ * from that made three different sets ship the SAME BP/RP header uuid
+ * (measured: `ae1e85e9…`/`50b68212…` for all three), and Minecraft keys a pack
+ * by its header uuid: importing the second one landed in a `<name>(1)` folder
+ * and a world could only ever activate one of them — the player silently lost
+ * a set. The same held for any two custom minifigs sharing 12 characters of
+ * their name ("Browser Knight A"/"Browser Knight B" → `browser`).
+ *
+ * The identity is the FULL human label (`Hogwarts Castle (71043)`) followed by
+ * the FULL stem, each reduced to lowercase alphanumeric words. Normalizing
+ * that far means the same model names the same pack whichever surface exported
+ * it — the LEGO tab's `Hogwarts Castle (71043)` and the CLI's
+ * `--label="Hogwarts Castle 71043"` both read `hogwarts castle 71043` — so a
+ * re-export UPDATES the pack the player already has.
+ *
+ * Deliberately NOT a content hash: re-exporting the same set at another
+ * quality, scale or setting must replace the player's pack, not add a second
+ * one beside it.
+ */
+export function packIdentity(stem: string, label?: string | undefined): string {
+  const words = (text: string): string => text.toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 0).join(' ');
+  const parts = [words(label ?? ''), words(stem)].filter(part => part.length > 0);
+  // A label defaulted to the stem would otherwise repeat itself.
+  const identity = [...new Set(parts)].join(' | ');
+  return identity || 'model';
+}
+
+/**
  * A monotonically ordered manifest version for browser-generated pack updates.
  * UUIDs stay stable per export name, while a later export replaces the earlier
  * pack in Minecraft instead of appearing as a duplicate.
@@ -148,6 +182,8 @@ export function exportVersion(now = Date.now()): [number, number, number] {
 
 /** The behavior-pack manifest. `format_version` 2 is the modern pack format. */
 function buildManifest(stem: string, label: string, tileCount: number, version: [number, number, number]): string {
+  // UUIDs are keyed on the model's identity, never on the 12-char stem — see packIdentity().
+  const identity = packIdentity(stem, label);
   const manifest = {
     format_version: 2,
     header: {
@@ -157,7 +193,7 @@ function buildManifest(stem: string, label: string, tileCount: number, version: 
         `Run the included function to receive a BrickWand and preview it before placement.`,
       // Header and module UUIDs must differ (manifest validation CHKMANIF110),
       // so the two are salted differently.
-      uuid: deterministicUuid(`craftmatic.pack.header:${stem}`),
+      uuid: deterministicUuid(`craftmatic.pack.header:${identity}`),
       version,
       min_engine_version: [1, 26, 40],
     },
@@ -166,12 +202,12 @@ function buildManifest(stem: string, label: string, tileCount: number, version: 
         // Structures and functions are behavior-pack data; `data` is the only
         // module type that carries them.
         type: 'data',
-        uuid: deterministicUuid(`craftmatic.pack.module:${stem}`),
+        uuid: deterministicUuid(`craftmatic.pack.module:${identity}`),
         version,
       },
       {
         type: 'script', language: 'javascript', entry: 'scripts/placement.js',
-        uuid: deterministicUuid(`craftmatic.pack.script:${stem}`), version,
+        uuid: deterministicUuid(`craftmatic.pack.script:${identity}`), version,
       },
     ],
     dependencies: [

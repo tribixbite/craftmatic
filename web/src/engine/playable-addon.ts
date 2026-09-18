@@ -1,7 +1,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
 import { createZip } from './zip-utils.js';
-import { deterministicUuid, exportVersion, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
+import { deterministicUuid, exportVersion, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
@@ -1271,13 +1271,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         data: Uint8Array;
     }> = [];
     const version = exportVersion();
-    const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${id}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${id}`);
-    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${shortAlias}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${id}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${id}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
+    // Manifest UUIDs are keyed on the model's IDENTITY, not on `id`: `id` is the
+    // 12-char name stem, so every Hogwarts set shipped one BP/RP uuid and a
+    // second import could never be activated beside the first (see packIdentity).
+    const identity = packIdentity(options.stem, options.label);
+    const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${identity}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${identity}`);
+    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${shortAlias}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${identity}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${identity}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
     // Vibrant Visuals texture sets are emitted for brick-compiled entities; the
     // manifest must declare the capability or the game ignores the MER/normal maps.
     const pbr = options.pbr ?? true;
     const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${id}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
     // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
     const terrainTextures: Record<string, { textures: string }> = {};

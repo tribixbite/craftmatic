@@ -605,3 +605,55 @@ round settles them.
   `input keycombination 59 75` (Shift+apostrophe), which makes `/testforblock … ["craftmatic:lo"=0]`
   state probes possible.
 
+## Pack identity: the manifest UUIDs are keyed on the model, not on the stem (2026-09-18)
+
+**Three different Hogwarts sets shipped the SAME BP/RP header uuid.** Every
+manifest uuid was `deterministicUuid('<salt>:' + id)` where `id =
+toBedrockIdentifier(stem)` and the stem carries at most `NAME_STEM_MAX` = 12
+characters of the model's NAME (`engine/export-name.ts`). `Hogwarts Castle`,
+`Hogwarts Castle and Grounds` and `Hogwarts Castle: The Great Hall` all reduce to
+`Hogwarts` → `hogwarts`, so all three got BP header `ae1e85e9-c183-4543-8b2c-2a5d1e7ca0f7`
+and RP header `50b68212-9b9b-47cb-97bb-d196628c4460` — measured on two real
+archives, not inferred. Minecraft keys a pack by its header uuid: the second
+import lands in a `<name>(1)` folder and a world can only ever activate one of
+them, so the player silently loses a set.
+
+- **The uuids now come from `packIdentity(stem, label)`** (`engine/mcpack.ts`),
+  used by both the `.mcaddon` (`playable-addon.ts`) and the `.mcpack`
+  (`mcpack.ts buildManifest`) manifests. It is the FULL label followed by the
+  full stem, each reduced to lowercase alphanumeric words and de-duplicated:
+  `hogwarts castle 71043 | hogwarts 71043`. Normalizing that far means the LEGO
+  tab's `Hogwarts Castle (71043)` and a CLI `--label="Hogwarts Castle 71043"`
+  name the SAME pack, so a re-export updates the player's pack in place.
+  Deliberately **not** a content hash — re-exporting at another quality or scale
+  must replace the pack, not add a second one.
+- **`scripts/_playable_ref.ts` passed `setNumber` where `modelExportStem` takes
+  `setNum`.** The key was silently dropped, so every CLI export was named by the
+  bare 12-char name stem. Nothing caught it because **`scripts/` is outside both
+  tsconfigs** (root is `src/`, `web/tsconfig.json` is `web/src/`), so TypeScript
+  never excess-property-checked the literal. Treat any object literal in
+  `scripts/` as untyped.
+- **Blast radius of the old scheme, over `web/public/lego-models-index.json`:
+  5,116 of 10,169 sets (50.3 %) shared a 12-char name stem with another set, in
+  1,336 clusters** — `heartlake` ×70, `police` ×58, `creative` ×57, `hogwarts`
+  ×54, `helicopter`/`imperial` ×35. Name **+ set number** (what the LEGO tab
+  already passed, and what the CLI passes now) leaves **0** clusters, which is
+  why indexed exports from the tab were never affected; the CLI and the Minifig
+  popover (`ui/minifig-builder.ts`, a label with no set number) were.
+- **The pack id itself is unchanged in shape** — still `toBedrockIdentifier(stem)`,
+  so `/function` (`placementAlias`, a 6-hex hash of the id), the wand item id and
+  the entity/structure namespace all still derive from it. With the CLI fix the
+  ids become `hogwarts_71043` / `hogwarts_76419` / `hogwarts_76435`, which is
+  readable and already unique for every indexed set. **Residual:** two packs with
+  no set number and a shared 12-char stem (two custom minifigs named
+  `Harry Potter …`) now get distinct uuids but still share the pack id, so their
+  entity ids would collide if both were active at once.
+- **Every previously exported pack's uuids change with this fix.** A user
+  re-exporting a set they already have installed gets a new pack beside the old
+  one, once.
+- Evidence: `output/uuid-fix-2026-09-18/` (before/after `.mcaddon`s + CLI JSON,
+  the collision scan and the re-derivation check). Gates: three packs re-cut
+  (71043 `--quality=ultra`, 76419, 76435), 15/15 uuids pairwise distinct, each
+  set byte-identical across two builds, `python scripts/_mcaddon_check.py` OK on
+  all of them, the shipped `/function b_*.mcfunction` matching each manifest's
+  description. Regression tests: `test/playable-addon.test.ts` "pack identity".

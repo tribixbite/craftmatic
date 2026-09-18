@@ -3,6 +3,7 @@ import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
+import { packIdentity } from '../web/src/engine/mcpack.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -469,5 +470,65 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(entries.some(e => e.endsWith('_mer.png') || e.endsWith('.texture_set.json'))).toBe(false);
     const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_plain_RP/manifest.json')));
     expect(rpManifest.capabilities).toBeUndefined();
+  });
+});
+
+describe('pack identity — two models must never share a manifest uuid', () => {
+  /** Every uuid a pack's two manifests declare, in a stable order. */
+  const manifestUuids = async (bytes: Uint8Array, id: string): Promise<string[]> => {
+    const buffer = ab(bytes);
+    const read = async (name: string) => JSON.parse(new TextDecoder().decode(await extractFile(buffer, name)));
+    const bp = await read(`Craftmatic_${id}_BP/manifest.json`), rp = await read(`Craftmatic_${id}_RP/manifest.json`);
+    return [
+      bp.header.uuid, ...bp.modules.map((m: { uuid: string }) => m.uuid),
+      rp.header.uuid, ...rp.modules.map((m: { uuid: string }) => m.uuid),
+    ];
+  };
+
+  // The three sets that shipped IDENTICAL BP/RP header uuids: their names all
+  // reduce to the same 12-character stem, `Hogwarts`, so the pack id — and with
+  // it every manifest uuid — was the same string for all three. Minecraft keys a
+  // pack by its header uuid, so importing the second one landed in a `<name>(1)`
+  // folder and a world could only ever activate one of them.
+  const HOGWARTS = [
+    { stem: 'Hogwarts-71043', label: 'Hogwarts Castle (71043)' },
+    { stem: 'Hogwarts-76419', label: 'Hogwarts Castle and Grounds (76419)' },
+    { stem: 'Hogwarts-76435', label: 'Hogwarts Castle: The Great Hall (76435)' },
+  ];
+
+  it('gives three sets sharing a 12-character name stem distinct header AND module uuids', async () => {
+    const all: string[] = [];
+    for (const set of HOGWARTS) {
+      // The OLD pack id for all three — the collision is reproduced exactly by
+      // handing every build the same id and only differing labels.
+      const result = await buildPlayableAddon(model(), { stem: 'Hogwarts', label: set.label });
+      all.push(...await manifestUuids(result.bytes, 'hogwarts'));
+    }
+    expect(all).toHaveLength(15);
+    expect(new Set(all).size).toBe(15);
+  });
+
+  it('gives the same model the same uuids across two builds, so a re-export updates in place', async () => {
+    const opts = { stem: 'Hogwarts-71043', label: 'Hogwarts Castle (71043)' };
+    const first = await manifestUuids((await buildPlayableAddon(model(), opts)).bytes, 'hogwarts_71043');
+    const second = await manifestUuids((await buildPlayableAddon(model(), opts)).bytes, 'hogwarts_71043');
+    expect(second).toEqual(first);
+  });
+
+  it('names the same pack from the CLI and the LEGO tab, whose labels punctuate differently', () => {
+    expect(packIdentity('Hogwarts-71043', 'Hogwarts Castle 71043'))
+      .toBe(packIdentity('Hogwarts-71043', 'Hogwarts Castle (71043)'));
+  });
+
+  it('separates two custom minifigs whose names share 12 characters', () => {
+    // The Minifig popover has no set number to fall back on: both stems are
+    // `HarryPotter`, so the label is the only thing that tells them apart.
+    expect(packIdentity('HarryPotter', 'Harry Potter Gryffindor'))
+      .not.toBe(packIdentity('HarryPotter', 'Harry Potter Slytherin'));
+  });
+
+  it('falls back to the stem when no label was given, and never yields an empty identity', () => {
+    expect(packIdentity('Colosseum-10276')).toBe('colosseum 10276');
+    expect(packIdentity('!!!', '')).toBe('model');
   });
 });
