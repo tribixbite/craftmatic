@@ -252,6 +252,17 @@ no figure on the roof any more.
 
 ## Open
 
+### Interpenetration is NOT fixed by this round — say so
+
+Will's report named three symptoms. Floating and misplaced are answered above.
+**Overlapping is untouched**: only arm lines moved, so `overlap_parts_pct` is
+bit-identical across the 1,259 changed files, mean **0.148 %**, max **5.97 %**,
+and **52 files still sit above geograde's 1.0 % threshold**. The median file is
+exactly 0 and 979 of 1,259 are clean, so this is a tail, not a corpus-wide
+problem. Worst offenders to start from: 76434 5.97 %, 60382 5.63 %, 71499
+4.00 % (2,847 parts), 60344 3.74 %, 71495 3.36 %, 71868 2.84 %. Sunk parts do
+improve slightly as a side effect, 791 → 768 over the same files.
+
 ### The two publish steps — BOTH need Will's explicit go-ahead (outward-facing)
 
 Everything below is measured and committed; prod is simply still serving the old
