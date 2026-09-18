@@ -7,162 +7,59 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-17 late — placement round landed; corpus republish is the open gate)
+## State (2026-09-18 — placement round SHIPPED; only the mecabricks R2 upload is in flight)
 
-### Placement round (this session): `6062537`, `f0eeb17`, `2d4901e`, `26eb009` here + `df06a716` in clego
+Everything the user reported is fixed, deployed and verified. The detail lives in
+`docs/lego-sources-guide.md` (alignment rules), `docs/bedrock-addon-guide.md`
+(add-on chain, per-source coverage, the Ultra stud budget), clego `GEOGRADE.md`
+(what the grader can and cannot see) and `git log`. What follows is the summary a
+fresh session needs, then the open work.
 
-The user's report — floating / overlapping / misplaced pieces on 71043 (`.lxf`)
-and 76435 (`dbix_conv_v3`), plus "all minifigs' arms but not hands floating
-separately" — was TWO unrelated defects, both fixed.
+**Two unrelated defects behind one report.** (1) Two poisoned rows in the LDD
+correction table put every minifig arm tens of studs from its shoulder, in every
+`.lxf` falling back to the table and in all 2,302 `dbix_conv_v3` files. (2) LDraw's
+`~Moved to <id>` retirement stubs name no part, so the `.io`-derived museum's
+`981`/`982` arms matched nothing and its figures compiled armless — the museum
+add-on signed off in the 2026-09-16 round shipped that way. A third, separate
+defect in `mecabricks` was then found, root-caused and fixed the same way.
 
-- **Defect 1: two poisoned rows in the LDD correction table, shipped by both
-  repos.** clego's learner writes, per design, the MODE of that design's
-  correction votes; `agree` is the vote fraction the mode won and `sets` counts
-  competing MODES, not sets. `3818` shipped t = (1, 112, 140) at agree **0.044**
-  and `3819` t = (607, 111, −136) at **0.043**, so every minifig arm in every
-  `.lxf` that fell back to the table AND in all 2,302 `dbix_conv_v3` files stood
-  tens of studs from its shoulder. Authentic OMR files put an arm **17–18 LDU**
-  from its torso; 71043 measured 183.7 / 647.1, 76435 141–299. Both now 18.1.
-- **THE THRESHOLD GATE WAS BUILT, MEASURED AND REJECTED — do not rebuild it.**
-  "Reject every row below an `agree` threshold" is the obvious fix and it is
-  wrong. A low `agree` does not mean the measurement is noisy; it means the
-  correct correction is **context-dependent**, so the disputed mode still beats
-  the ldraw.xml fallback for many designs. geograde big-floating parts,
-  converted-only: 41713 **63 → 372**, 4002021 **73 → 372** under `agree < 0.30`;
-  even `agree < 0.10`, which admits seven rows, still leaves 4002021 at 370.
-  Corpus-wide the 0.30 gate made **35 sets worse**. A blunt `agree >= 0.5` is
-  worse again: 872 legitimate rows discarded, −2.61 pts weighted GEO.
-  Inverting the ldraw.xml prior GLOBALLY has its own victims (43226 grades 0
-  big-floating forward, **153** inverted).
-- **What shipped is two explicit, evidence-backed entries**, `DROP_LEARNED` in
-  clego `dbix_align.py` and in `scripts/gen-ldd-measured-align.py`: the two arm
-  rows, with the xml prior inverted for those two designs only (forward leaves
-  the arm at 54.7 LDU, inverted at 18.1). **Blast radius proved, not asserted**:
-  regenerating the whole corpus twice, once with `DBIX_DROP_LEARNED=` (which
-  reproduces the old bytes exactly) and once with the default, gives **1,043
-  files identical, 1,259 differing ONLY in 3818/3819 lines, ZERO differing
-  anywhere else** — 8,746 changed part lines, all arms. No other design can move.
-- **Corpus arm measurement, 1,257 files / 8,734 arms**: arm-to-nearest-torso
-  median **327.5 → 18.1 LDU**, within 25 LDU of a torso **6 (0.1 %) → 8,712
-  (99.7 %)**, against 18.0 in authentic OMR. The 22 that stay beyond 25 LDU are
-  a limit of the probe (their figures use a torso mould it does not look for),
-  not a defect — checked in 75423.
-- **The `.lxf` class, not just 71043.** geograde over nine native `.lxf` files
-  dumped through both placements (`output/lxf-gt/geograde-ab/`): floating parts
-  **107 → 0**, BIG floating clusters **81 → 0** (all of it 10213 Shuttle
-  Adventure, 7.4 % of the model), zero-gap graph splits 10 → 0. Sunk is the one
-  metric that does not improve: 27 → 29. With 71043's 16 → 0 the class reads
-  **123 → 0** floating. That improvement is `38ea28c`'s (ldraw.xml applied as
-  its inverse, primary), which this round only extended to the arms.
-- **Read the A/B `.ldr` dumps for GEOMETRY only.** `scripts/lxf_gt_eval.py
-  --dump` writes colours through its own `ldd_colour()`, so every render made
-  from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes out
-  magenta. The harness, not a palette regression.
-- **geograde COULD NOT SEE this defect, and that is the lesson.** A displaced
-  arm lands at floor level, so geograde classed all of them `side model`, which
-  is explicitly "not a defect". 76435 graded `float=5 BIG=0 ovl=0.00 % side=112`
-  with a hundred loose arms lying beside the build, and grades `float=5 BIG=0
-  ovl=0.00 % sunk=1` now they are on the shoulders — the headline metrics barely
-  move. Will found it in a screenshot. What catches it is a part-identity check,
-  not a geometry class: an arm sits 17-18 LDU from its torso. Recorded in clego
-  `GEOGRADE.md` beside the `side model` rule.
-- **Corpus geograde A/B, SETTLED — and quote the POST-POLISH number.** The
-  pre-polish comparison over the 1,259 changed files is dramatic (big floating
-  **69,137 → 42,934, −38 %**; floating **102,758 → 64,812**; 360 sets go
-  defective → clean against 2 the other way, and those 2 have identical
-  floating-part counts and main components). **But `dbix_polish` already cleaned
-  up most of that**, so the honest shipped-vs-shipped figure, both corpora
-  converted AND polished, over the 1,540 stems in both polish logs, is smaller:
+**Results, measured.**
 
-  | | before | after |
-  |---|---|---|
-  | big floating parts | 12,674 | **10,836** (−14.5 %) |
-  | floating parts | 20,767 | **18,906** (−9.0 %) |
-  | sets worse / better / unchanged | | 22 / 27 / **1,491** |
-  | clean → defective | | **1** |
-  | defective → clean | | **13** |
+| | before | after |
+|---|---|---|
+| 71043 `.lxf` floating / sunk / overlap | 16 / 5 / 0.05 % | **0 / 0 / 0.00 %** |
+| 71043 and 76435 arm→torso (authentic 18.0 LDU) | 647 / 215 LDU, 0 % attached | **18.1 LDU, 100 %** |
+| dbix corpus, 8,734 arms within 25 LDU | 6 (0.1 %) | **8,712 (99.7 %)** |
+| mecabricks, 11,788 arms within [14,21] | 19.1 % | **95.1 %** |
+| museum add-on figures missing arms | 7 | **0** |
+| 76405 add-on figures missing heads | 20 | **0** |
 
-  So the durable win of this round is the ARMS themselves — median 327.5 →
-  18.1 LDU, 0.1 % → 99.7 % attached — which the polish pass never fixed, because
-  it only relocates debris and cannot re-place a part on its socket. The
-  floating-count movement is a welcome side effect, not the headline.
-  Worst regressions post-polish: 4002021 +297, 76949 +120, 60317 +73, 76417 +22,
-  71499 +18. On 4002021 the main component is 799 parts either way and the
-  component count falls 71 → 48, so clusters are MERGING past the 5-part BIG
-  threshold rather than parts newly detaching; deleting its arms outright from
-  the pre-fix file leaves it at 73, ruling out phantom contact. Accepted on that
-  evidence. Pre-fix bytes kept at `lego_sets/_DbixConvV3_prev`, and reproducible
-  from source with `DBIX_DROP_LEARNED=`.
-  Polish itself, on the new corpus: 1,705 stems, 1,625 acted, 996 kept, big
-  floating 47,129 → 8,215 on the kept files. Arms survive it — 408 polished
-  files sampled mid-run read median 18.4 LDU and 99.8 % attached, because polish
-  moves whole clusters.
-- **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
-  LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
-  the `.io`-derived museum's `981`/`982` arms matched neither the description
-  tests nor any id list and all seven figures compiled ARMLESS — **including the
-  museum add-on signed off in the 2026-09-16 round**. `mouldFamilyId()` follows
-  the redirect for every figure classifier; arm warnings on
-  `IOModel2V2/10326-noprint.ldr` go **7 → 0**. With both fixes the museum cut
-  from the regenerated dbix file is now CLEANER than the `.io` cut the tested
-  pack used.
-- **"DbixConvV3 files are exploded instruction layouts" STANDS — an earlier
-  note in this file claiming otherwise was wrong and is deleted.** That claim
-  came from the rejected threshold-gate corpus, where the dramatic footprint
-  collapse was mis-placement, not correction. Measured on what actually ships
-  (legacy → surgical): Winter Chalet 125 × 116 → **124 × 97** studs (density
-  0.19 → 0.23), Natural History Museum 114 × 54 → **83 × 54** (0.65 → 0.89),
-  76435 128 × 26 → **100 × 26** (0.52 → 0.67). Still spread. Keep cutting
-  buildings from the `.io` / `IOModel2V2` file where one exists; density below
-  ~0.3 parts/stud² marks a spread layout.
-- **The arm fix does reach the add-on, and that is measurable.** Winter Chalet
-  cut three ways through `scripts/_playable_ref.ts`, all defaults — every cut
-  finds 7 figures and 9 seats:
+**Three traps this round paid for — do not re-learn them.**
+- **An `agree` threshold on the learned table is wrong.** Low `agree` means the
+  correction is CONTEXT-DEPENDENT, not noisy. It broke 35 sets (41713: 63 → 372 big
+  floating) and even a 7-row threshold still broke 4002021. What ships is a
+  two-entry `DROP_LEARNED` list. Inverting the ldraw.xml prior globally has its own
+  victims (43226: 0 → 153).
+- **geograde cannot see a displaced arm.** It lands at floor level and is classed
+  `side model`, "not a defect". 76435's headline metrics are identical before and
+  after a hundred loose arms were re-attached. The check that works is part
+  identity: an arm sits 17–18 LDU from its torso.
+- **geograde's `split0` exemption fires on ANY neighbour within one voxel**, so a
+  9-part minifig hid a 272-part detached sub-build in 4002021 and made the fix look
+  like a regression. `graph_split_parts` now reports the part count beside the
+  cluster count; the parts it hid went 429 → 152.
 
-  | chalet source | arm warnings | doors |
-  |---|---|---|
-  | `IO/910004.io` (the tested reference) | 0 | 4 in 3 doorways |
-  | `DbixConvV3/910004.ldr` (shipped) | **7** | 2, 1 leaf outside bounds |
-  | same file, arm fix | **0** | 2, 1 leaf outside bounds |
+**Shipped.** `main` deployed over six green pushes; prod serves the gated table and
+all 13 prod-smoke tests pass. dbix corpus on R2 (2,466 files, 0 failures) and live.
+Mecabricks corpus regenerated, regraded (index now 14,067 stamps, **0 stale**) and
+uploading to R2 now — **the index prod serves comes from R2 and flips only when that
+run finishes** (`docs/deployment-guide.md`). Verified on an already-uploaded file:
+`MecabricksLDR/10316.ldr` on prod reads torso `973`, 42 arms at 18.3 LDU.
 
-  The doors do not improve, because that is the exploded layout, not the arms.
-
-- **Bedrock add-on, the user's question answered and verified.** UI chain:
-  load the set → leave `Vehicle` on "Detect vehicle components" and every
-  `⚙ MC settings` row at its default → `Download…` → **"Add-on — controls
-  detected or selected components (.mcaddon)"**. Nothing else. Re-cutting the
-  chalet from `IO/910004.io` reproduced the round-2026-09-17 reference pack's
-  components and both warnings exactly (307,690 vs 307,380 bytes). Verified
-  through the real UI on a `.lxf` (71043 → 617 KB, shell + 4 figures) and a dbix
-  `.ldr` (76435 → 320 KB, shell + 10 figures + 3 seats):
-  `output/addon-evidence-2026-09-17/`. Full chain and the two remaining limits
-  (named-submodel vehicle isolation, the 50 % `fallbackPartCount` cliff) are in
-  `docs/bedrock-addon-guide.md`.
-- **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
-  LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
-  the `.io`-derived museum's `981`/`982` arms matched neither the description
-  tests nor any id list and all seven figures compiled ARMLESS — **including the
-  museum add-on signed off in the 2026-09-16 round**. `mouldFamilyId()` follows
-  the redirect for every figure classifier; arm warnings on
-  `IOModel2V2/10326-noprint.ldr` go **7 → 0**. With both fixes the museum cut
-  from the regenerated dbix file is now CLEANER than the `.io` cut the tested
-  pack used.
-- **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
-  Chalet footprint 125 × 116 → **71 × 49** studs (0.19 → 0.80 parts/stud²),
-  museum 114 × 54 → **80 × 30** (0.65 → 1.69). The 2026-09-16 note that buildings
-  must be cut from `.io` is superseded for these two; density below ~0.3
-  parts/stud² still marks a genuinely spread file.
-- **Bedrock add-on, the user's question answered and verified.** UI chain:
-  load the set → leave `Vehicle` on "Detect vehicle components" and every
-  `⚙ MC settings` row at its default → `Download…` → **"Add-on — controls
-  detected or selected components (.mcaddon)"**. Nothing else. Re-cutting the
-  chalet from `IO/910004.io` reproduced the round-2026-09-17 reference pack's
-  components and both warnings exactly. Verified through the real UI on both a
-  `.lxf` (71043 → 617 KB, shell + 4 figures) and a dbix `.ldr` (76435 → 320 KB,
-  shell + 10 figures + 3 seats): `output/addon-evidence-2026-09-17/`. The old
-  chalet cut from `DbixConvV3/910004.ldr` warned that **all seven figures lacked
-  both arms** and hung 2 of 4 doors; after the fix it matches the `.io` profile.
-  Full chain + the two remaining limits: `docs/bedrock-addon-guide.md`.
+**Add-on fidelity, all six named sets, all defaults, brick-accurate shells, none
+degraded to blocks; `scripts/_mcaddon_check.py` passes 8/8.** Two need
+**Vehicle detail = Ultra** or their studs are dropped: 71043 (1,938 studs; 15,650 →
+48,057 cuboids at Ultra) and 31201 (9,256).
 
 ### Earlier this day — commits `38ea28c`…`2b0b059`:
 - **LXF placement** (`fix(lxf)`): Studio's `ldraw.xml` row applied as its INVERSE is
@@ -286,99 +183,20 @@ as bulk-inside-bulk. **Before treating any of these 52 files as broken, check
 whether its worst overlaps are a wheel/tyre or hand/weapon pair.** The real work
 here is a geograde exemption for encased pairs, not a converter change.
 
-### SHIPPED AND VERIFIED (2026-09-18)
 
-Both publishes are DONE. `main` is at `8173563`; the Deploy and CI workflows
-both succeeded; prod serves the gated table (`craftmatic.click/ldd-measured-align.json`
-= 1,839 rows, `3818`/`3819` absent). The corpus went to R2 in two passes,
-2,460 + 6 = **2,466 files, 0 failures** (the first pass's 6 were transient
-wrangler/bunx install races, not upload errors), index uploaded. Verified live:
-`craftmatic.click/lego-models/DbixConvV3/{76435,910004,10326}.ldr` read arm
-medians 18.1 / 18.0 / 18.4 LDU.
-
-**The three defect types Will reported, on the two sets he photographed:**
-
-| | floating | big clusters | sunk | overlap | arm→torso (authentic 18.0) |
-|---|---|---|---|---|---|
-| 71043 `.lxf` before | 16 | 0 | 5 | 0.05 % | **647.1 LDU, 0 % attached** |
-| 71043 `.lxf` now | **0** | 0 | **0** | **0.00 %** | **18.1 LDU, 100 %** |
-| 76435 dbix before | 5 | 0 | 1 | 0.00 % | **215.4 LDU, 0 % attached** |
-| 76435 dbix now | 5 | 0 | 1 | 0.00 % | **18.1 LDU, 100 %** |
-
-76435's geometry columns do not move because geograde never saw the defect (the
-scattered arms were classed `side model`); the arm column is the one that
-captures it. Renders at `output/verify-2026-09-18/`: `71043/v-hall-inside.png`
-vs `71043/old-hall-inside.png` is the Grand Staircase from Will's second
-screenshot — the white flights now rest ON their turntables instead of piercing
-them, and the angled landing plate that cut across the shaft is gone.
-
-**Add-on fidelity, every named set, all defaults, brick-accurate shells:**
-
-| set | source | bricks | cuboids | figures | notes |
-|---|---|---|---|---|---|
-| 71043 | lxf | 5,937 | 15,650 | 4 | 290 unique parts, 0 unresolved, 0 AABB fallback |
-| 76435 | dbix_conv_v3 | 1,750 | 7,579 | 10 | 4 doors |
-| 910004 | io | 2,722 | 6,922 | 7 | 9 seats, 8 doors/lights |
-| 10326 | io | 4,061 | 10,984 | 7 | 12 doors/lights |
-| 31201 | mecabricks | 9,820 | 1,860 | 0 | flat crest mosaic; 9,256 studs over the 4,096 budget, omitted |
-| 76405 | mecabricks | 1,950 | 5,422 | 20 | **all 20 figures lose their head** — see below |
-
-None degraded to the coloured-block fallback.
-
-### The two publish steps — BOTH need Will's explicit go-ahead (outward-facing)
-
-Everything else is done: the dbix corpus is regenerated, polished, restamped,
-re-graded and re-indexed IN PLACE (clego `421996f6`), the index copy is committed
-here, and every gate is green (typecheck, typecheck:web, vitest 1,634 passing,
-build). Prod is simply still serving the old bytes on both paths.
-
-1. **Deploy the web app.** `.github/workflows/deploy.yml` triggers on a push to
-   `main`, and `feat/lego-set-tab` is ~45 commits ahead of it. Until that merge
-   lands, craftmatic.click serves the pre-38ea28c `.lxf` maths and 71043 keeps
-   its floating window and pierced tower plates.
-2. **Republish the corpus + index to R2.** `python sync_models_r2.py` in clego.
-   The resume file `_r2_uploaded.txt` records KEYS, not content, so every
-   `models/DbixConvV3/` line must be deleted from it first or all 2,302 changed
-   files are skipped silently. ~2 h at its 6 polite workers. Until then prod
-   serves the old dbix bytes and 76435's arms stay scattered.
-
-### Everything else
-
-
-- [x] **`mecabricks` minifigs — FIXED, rolled out, gated** (clego `5810501d`).
-      The largest source placed every minifig wrong and it was user-visible: all 20
-      figures in 76405 exported an add-on with NO HEAD, and 1,541 of the 2,724
-      mecabricks-best sets carry a `3814`-family torso (4,603 torsos).
-      **Two causes.** (1) Design id `3814` resolved through `mb_partmap.py` (`_exists`
-      consulted before the design map) to Studio's UNOFFICIAL "MINI UPPER PART (Needs
-      Work)" stub, origin on the bottom plane and 10 LDU off-centre, so every offset
-      measured against it was 32 out and heads read dy −56, outside `groupFigures`'
-      dy −48..+80 window. (2) 95.8 % of arms carry ref `3818v2`/`3819v2` whose learned
-      row is a Y↔Z swap at fit 0.6162, while **identity at delta 0 scores 0.7114** and
-      `compute()`'s orientation search never tries it.
-      **Result, whole corpus re-harvested** (`geograde/_mb_arm_probe.py`, 3,467 files /
-      11,788 arms): arm-to-torso median **32.37 → 18.33 LDU**, within [14,21]
-      **19.1 % → 95.1 %**. 76405 now reads head dy **−24.0**, arms **18.3**, hips
-      **+32.0** — the authentic values exactly — and its add-on goes from **20 figures
-      missing a head to 0** (5 still miss legs/hips, which is the source).
-      **Do not read 76405's new `asm: defective` as a regression.** It was
-      previously UNGRADED (`asm` absent); the grade is new information, not new
-      damage. Its two defects are `fragment: places 41 % of the catalogue (2,096
-      of 5,139 parts)` — the mecabricks source is genuinely incomplete, which the
-      LEGO tab already says — and big-floating 114 parts, which the fix IMPROVED
-      from 124 (floating 425 → 415).
-      **Gate passed** (`mb_gt_cohort.py --kind io` vs `mbgt_v5fix`, the 10 cohort sets
-      present in the trial): matched 3,568 → 3,626, **exact COUNT 2,812 → 2,908 (+96)**,
-      no set lost any. The matched denominator grows as predicted, because torsos named
-      `3814.dat` never paired with Studio truth before.
-      **Residual, out of scope:** 55 of 2,002 arm-bearing files (2.7 %) have no
-      resolvable torso — decorated refs `973j`/`973aq` … that LDraw names `973pNNN`,
-      plus `2550` falsely hitting "Animal Monkey Body". Follow-up after that: hands
-      `3820v2` sit ~12 LDU off the LDraw wrist. Pre-fix bytes at
-      `lego_sets/_MecabricksLDR_prev` and `lego_sets/_MecabricksSearchLDR_prev`.
-      `MecabricksSearchLDR` is re-harvested too (`sweep_mecabricks_search.py
-      --recolor` + `mb_fix --src MecabricksSearchLDR --all`): 145 arms, median
-      **18.33 LDU, 95.9 % within [14,21]**, up from 35.2 %.
+- [ ] **`mecabricks` residual, after the minifig fix shipped** (clego `5810501d`;
+      full write-up in `docs/lego-sources-guide.md`). **55 of 2,002 arm-bearing files
+      (2.7 %) still have no resolvable torso**: Mecabricks decorated refs `973j`,
+      `973aq` … (47 refs / 256 placements) that LDraw names `973pNNN`, emitted
+      verbatim and resolving to nothing, plus `2550` falsely hitting LDraw's "Animal
+      Monkey Body". Needs a decorated-torso map in `mb_partmap.DESIGN_TO_LDRAW` —
+      the same place `3814 → 973` went. After that: hands `3820v2` (11,579
+      placements) sit ~12 LDU off the LDraw wrist, because Mecabricks models the
+      rest arm with the wrist 68.6° forward against LDraw's 27.9°; that is a
+      decision (rotate the arms, or accept), not a bug.
+      Pre-fix bytes kept at `lego_sets/_MecabricksLDR_prev` and
+      `_MecabricksSearchLDR_prev`; the corpus is stamped `MB_ALIGN v5` but was built
+      with the v6 table (nothing reads the stamp; the next full harvest corrects it).
 
 - [ ] **71043 and 76435 on the phone — the only step left on the reported defects.**
       Prod is deployed and verified offline (see SHIPPED above): the three spots measure
