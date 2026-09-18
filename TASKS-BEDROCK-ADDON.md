@@ -7,7 +7,7 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-18 — placement round SHIPPED; only the mecabricks R2 upload is in flight)
+## State (2026-09-18 — placement round SHIPPED AND LIVE; nothing in flight)
 
 Everything the user reported is fixed, deployed and verified. The detail lives in
 `docs/lego-sources-guide.md` (alignment rules), `docs/bedrock-addon-guide.md`
@@ -49,12 +49,16 @@ defect in `mecabricks` was then found, root-caused and fixed the same way.
   like a regression. `graph_split_parts` now reports the part count beside the
   cluster count; the parts it hid went 429 → 152.
 
-**Shipped.** `main` deployed over six green pushes; prod serves the gated table and
-all 13 prod-smoke tests pass. dbix corpus on R2 (2,466 files, 0 failures) and live.
-Mecabricks corpus regenerated, regraded (index now 14,067 stamps, **0 stale**) and
-uploading to R2 now — **the index prod serves comes from R2 and flips only when that
-run finishes** (`docs/deployment-guide.md`). Verified on an already-uploaded file:
-`MecabricksLDR/10316.ldr` on prod reads torso `973`, 42 arms at 18.3 LDU.
+**Shipped and LIVE.** `main` deployed over seven green pushes; all 13 prod-smoke
+tests pass. Both corpora are on R2: dbix 2,466 files and mecabricks 3,339 files,
+**0 failures each**. The prod index reads `generated: 2026-09-18` and all **10,169
+sets are byte-identical to the local index**. (**The index prod serves comes from R2,
+not the deploy, and `sync_models_r2.py` uploads it LAST** — so it flips only when a
+whole run finishes; see `docs/deployment-guide.md`.)
+End-to-end proof on the bytes prod actually serves: `MecabricksLDR/76405.ldr` reads
+head dy **−24.0**, arms **18.3 LDU**, hips **+32.0** — the authentic values exactly —
+and an add-on built from those bytes has **20 figures, 0 missing a head** (5 still
+miss legs/hips, which is the source) and passes `_mcaddon_check.py`.
 
 **Add-on fidelity, all six named sets, all defaults, brick-accurate shells, none
 degraded to blocks; `scripts/_mcaddon_check.py` passes 8/8.** Two need
