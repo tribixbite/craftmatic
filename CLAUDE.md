@@ -50,6 +50,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   not just `.hidden` (bit the help overlay AND the step/explode rows).
 - LDraw Y is down; the viewer handles the handedness. Model-aware F/B/L/R
   orientation is derived from the longest horizontal axis + brick mass.
+- **Anything that memoises a RESULT but not the in-flight PROMISE has a
+  duplicate-fetch race.** `getModelsIndex()` did, and it cost ~45 % of cold
+  production set loads: two overlapping searches each downloaded the 3.8 MB
+  index, and the later one's clean-up cleared `selectedSet` under the model
+  load the user had just started — silently, with the source badge still
+  reporting success. Invisible on dev, where the same file is a local read.
+  Root causes and the reproduction recipe: [testing guide](docs/testing-guide.md).
+- **A load path may never abandon itself silently.** Every staleness guard in
+  `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
+  the part prefetch report stages, and a 20 s no-progress watchdog rewrites the
+  source badge. If you add an early `return` to a load path, wire it in.
 
 ## Autonomous improvement loop
 

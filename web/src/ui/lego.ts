@@ -117,8 +117,34 @@ const MODELS_BASE: string =
   _viteEnv?.VITE_MODELS_BASE ?? '/lego-models';
 let _modelsIndex: LegoModelsIndex | null = null;
 
+/**
+ * In-flight fetch, shared by every concurrent caller.
+ *
+ * Memoising only the RESULT was the race window behind the production stall:
+ * two overlapping `doSearch()` runs (the user's, and the panel's own
+ * browse-all) each saw `_modelsIndex === null` and each started its own 3.8 MB
+ * download. The first finished, rendered the results and let the user click a
+ * set; the second finished SECONDS later and ran its clean-up — clearing
+ * `selectedSet` under the load that click had just started. On dev the same
+ * file is a local read, both "downloads" finish in the same millisecond, and
+ * the window does not exist — which is why the stall was production-only
+ * (~45 % of cold loads there, 1 of 18 on dev).
+ */
+let _modelsIndexFetch: Promise<LegoModelsIndex> | null = null;
+
 async function getModelsIndex(): Promise<LegoModelsIndex> {
   if (_modelsIndex) return _modelsIndex;
+  // Cleared on REJECTION, or a single offline moment would poison the memo for
+  // the rest of the tab's life: a rejected promise stays rejected, so every
+  // later caller would re-await the same failure and the index could never be
+  // retried. Only the in-flight promise is shared; a settled failure is not.
+  return _modelsIndexFetch ??= fetchModelsIndex().catch((err: unknown) => {
+    _modelsIndexFetch = null;
+    throw err;
+  });
+}
+
+async function fetchModelsIndex(): Promise<LegoModelsIndex> {
   // Same-origin worker copy first (compressed, edge-cached, updated by every
   // corpus sync); bundled public/ copy ships with the deploy as fallback;
   // raw R2 last. In dev the same path serves the local file directly.
@@ -153,6 +179,25 @@ let rootEl: HTMLElement;
 let onResult: ((grid: BlockGrid, label: string, isCubic: boolean) => void) | null = null;
 let selectedSet: CatalogSet | null = null;
 let searchResults: CatalogSet[] = [];
+/**
+ * Monotonic id of the newest `doSearch()` run.
+ *
+ * `doSearch` awaits the catalog AND the models index, so two runs overlap
+ * routinely — the panel's own browse-all fires from `ensureCatalog().then()`
+ * while the user's typed search is still waiting on that same catalog. On dev
+ * both awaits are local reads and the overlap is invisible; on production the
+ * index alone is a 3.8 MB fetch, so the slower run finishes LAST and its
+ * clean-up then applies to a UI the user has already moved on from.
+ *
+ * Measured 2026-09-18 on craftmatic.click (set 910032): the browse-all run
+ * resolved AFTER the user's card click, cleared `selectedSet`, and the
+ * in-flight model load hit its `selectedSet !== set` guard and returned — with
+ * no error, no failed request and a source badge that then reported SUCCESS.
+ * Nothing rendered and nothing said why.
+ */
+let searchSeq = 0;
+/** `searchSeq` as it stood when the current set was selected (see `doSearch`). */
+let selectionSeq = -1;
 /** Cards rendered per page; "Show more" reveals the next page. */
 const RESULTS_PAGE = 48;
 let visibleResults = RESULTS_PAGE;
@@ -205,6 +250,80 @@ let loadEpoch = 0;
 let currentSourceWarning: string | undefined;
 const newLoadEpoch = (): number => { currentSourceWarning = undefined; return ++loadEpoch; };
 const loadIsStale = (epoch: number): boolean => epoch !== loadEpoch;
+
+/**
+ * A load that stops half-way must SAY SO. Every `return` that abandons a load
+ * runs through here, so the console names which guard fired and why — the
+ * alternative (a bare `return`) is a UI frozen on `loading…` with no trace at
+ * all, which is what made the 2026-09-18 production stall cost a day to find.
+ *
+ * Returns true when the caller should abandon.
+ */
+function loadAbandoned(where: string, epoch: number, set?: CatalogSet | null): boolean {
+  const stale = loadIsStale(epoch);
+  const switched = set !== undefined && selectedSet !== set;
+  if (!stale && !switched) return false;
+  console.warn(`[lego] load abandoned at ${where}:`, {
+    reason: stale ? 'a newer load superseded this one' : 'the selected set changed',
+    epoch, currentEpoch: loadEpoch,
+    set: set?.set_num ?? null, selectedSet: selectedSet?.set_num ?? null,
+  });
+  return true;
+}
+
+// ─── Load watchdog ───────────────────────────────────────────────────────────
+// A load that makes no progress must not look identical to one that is simply
+// slow. Every load path funnels through voxelizeAndDisplay, so the watchdog
+// lives there: while a load owns the UI, it tracks the last progress/stage
+// event and, past the threshold, says so in the status AND the badge instead
+// of leaving `<source> · loading…` on screen indefinitely.
+
+/** No progress for this long ⇒ tell the user, and say it in the console. */
+const LOAD_STALL_WARN_MS = 20_000;
+let loadWatchdogTimer: ReturnType<typeof setInterval> | null = null;
+let lastLoadActivity = 0;
+let watchdogEpoch = -1;
+
+/** Called from every progress/stage callback — "work is still happening". */
+function noteLoadActivity(): void { lastLoadActivity = Date.now(); }
+
+function startLoadWatchdog(epoch: number, what: string): void {
+  stopLoadWatchdog();
+  watchdogEpoch = epoch;
+  lastLoadActivity = Date.now();
+  const startedAt = Date.now();
+  let warned = false;
+  loadWatchdogTimer = setInterval(() => {
+    if (loadIsStale(watchdogEpoch)) { stopLoadWatchdog(); return; }
+    const idleMs = Date.now() - lastLoadActivity;
+    if (idleMs < LOAD_STALL_WARN_MS) return;
+    const idle = Math.round(idleMs / 1000);
+    const badge = document.getElementById('lego-source-badge');
+    // The badge is the thing that used to freeze on `loading…` forever.
+    if (badge) badge.textContent = `${what} · loading… (${idle}s, no progress)`;
+    if (!warned) {
+      warned = true;
+      console.warn('[lego] load has reported no progress for', idle, 's', {
+        what, epoch, elapsedMs: Date.now() - startedAt,
+      });
+      setStatus(
+        `Still loading ${what} — no progress for ${idle}s. Large sets over a slow or `
+        + 'throttled connection can take a while; if it never finishes, click the set '
+        + 'again to restart the load.', 'info');
+    }
+  }, 2_000);
+}
+
+function stopLoadWatchdog(): void {
+  if (loadWatchdogTimer) { clearInterval(loadWatchdogTimer); loadWatchdogTimer = null; }
+}
+
+/** The source name the badge is currently advertising, without its suffix. */
+function badgeSourceName(): string | null {
+  const text = document.getElementById('lego-source-badge')?.textContent ?? '';
+  const name = text.split('·')[0]?.trim();
+  return name ? name : null;
+}
 
 /**
  * INTENDED vs ACTUAL source, plus what the loader walked past to get there.
@@ -277,6 +396,26 @@ let currentStep: number | undefined;
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
+/**
+ * Is the LDraw part library reachable? Decides between real 3D brick geometry
+ * and the voxel fallback, so a false negative costs the user the whole
+ * renderer — one retry, and a GET rather than a HEAD (see the call site).
+ */
+async function probeCapability(): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await fetch('/ldraw-parts/parts/3001.dat', { signal: AbortSignal.timeout(10_000) });
+      if (r.ok) return true;
+      // A real HTTP answer that is not ok (404 = no library here) is a verdict,
+      // not a hiccup — retrying it only delays the voxel fallback.
+      if (r.status === 404 || r.status === 410) return false;
+    } catch (err) {
+      if (attempt === 1) throw err;
+    }
+  }
+  return false;
+}
+
 export function initLego(
   controls: HTMLElement,
   _viewer: HTMLElement,
@@ -288,9 +427,16 @@ export function initLego(
   // Auto-detect LDraw parts library and enable 3D Render by default. If the
   // library is present, schedule a background warmup of the ~40 most common
   // bricks so the first model load doesn't pay the full per-part fetch cost.
-  fetch('/ldraw-parts/parts/3001.dat', { method: 'HEAD' })
-    .then(r => {
-      if (r.ok) {
+  // GET, not HEAD. Chrome discards a HEAD response body and reports the
+  // request as `net::ERR_ABORTED`; usually `fetch()` still resolves ok, but not
+  // always — measured on craftmatic.click 2026-09-18, one page load in 16 had
+  // the HEAD REJECT, so this fell into the catch below and the whole tab
+  // silently rendered in voxel mode: no 3D viewer, no viewer chunk ever
+  // fetched, and nothing said why. A GET of a 2 KB part has no such semantics
+  // and warms the cache with a part nearly every model uses.
+  probeCapability()
+    .then(ok => {
+      if (ok) {
         directRenderMode = true;
         const cb = document.getElementById('lego-direct-render') as HTMLInputElement | null;
         if (cb) cb.checked = true;
@@ -305,9 +451,18 @@ export function initLego(
             // also keeps the probe's round-trip off the first model load.
             primePartCache().then(() => prewarmCommonParts()));
         });
+      } else {
+        // Voxel mode is a MAJOR downgrade (Minecraft blocks instead of real
+        // brick geometry). It must never happen quietly.
+        console.warn('[lego] /ldraw-parts is not reachable — falling back to voxel '
+          + 'rendering for this session. Reload to retry the 3D renderer.');
+        setStatus('LDraw part library unreachable — rendering in voxel mode. '
+          + 'Reload the page to retry 3D.', 'info');
       }
     })
-    .catch(() => { /* no parts library — keep voxel mode */ });
+    .catch(err => {
+      console.warn('[lego] LDraw capability probe failed — voxel mode for this session:', err);
+    });
   // Pre-load catalog in background so search is instant when user types
   ensureCatalog(msg => setStatus(msg, 'info')).catch(err => {
     setStatus(`Catalog load failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -939,6 +1094,9 @@ function wireEvents(): void {
     const browsing = !query && themeId == null && minYear == null && maxYear == null
       && minPcs == null && maxPcs == null && srcGroup == null;
 
+    // This run's identity. Everything below it awaits, so by the time it
+    // writes to shared state another run may own the UI.
+    const seq = ++searchSeq;
     searchBtn.disabled = true;
 
     try {
@@ -950,39 +1108,58 @@ function wireEvents(): void {
       // Apply source/piece filters and sorting to ALL matching sets. Capping
       // first hid most reconstruction-only sets outside the top 2,000; the
       // 48-card render pagination below already bounds DOM work.
-      searchResults = searchCatalog(query, themeId, minYear, maxYear, Infinity);
-      if (minPcs != null) searchResults = searchResults.filter(s => (s.num_parts ?? 0) >= minPcs);
-      if (maxPcs != null) searchResults = searchResults.filter(s => (s.num_parts ?? 0) <= maxPcs);
+      // Built in a LOCAL until this run is known to still be the newest: a
+      // superseded run that assigned the global left the rendered cards
+      // indexing a different array, so a click could select the wrong set.
+      let results = searchCatalog(query, themeId, minYear, maxYear, Infinity);
+      if (minPcs != null) results = results.filter(s => (s.num_parts ?? 0) >= minPcs);
+      if (maxPcs != null) results = results.filter(s => (s.num_parts ?? 0) <= maxPcs);
       const srcMatch = srcGroup ? SOURCE_GROUPS[srcGroup] : undefined;
       // The models index is async but cached after the first load, so only the
       // very first search pays a fetch. Both the source filter and the default
       // (relevance) ordering need it.
       const needIdx = srcMatch != null || sortMode === 'relevance';
       const idx = needIdx ? await getModelsIndex() : null;
+      // A newer search owns the UI now — say so and touch nothing. Silence here
+      // is how a stale run used to repaint the panel under the user.
+      if (seq !== searchSeq) {
+        console.warn('[lego] search results dropped — a newer search superseded this one',
+          { seq, newest: searchSeq, query });
+        return;
+      }
       if (srcMatch && idx) {
         // Filter on the set's BEST source — the one the indexed auto-load will
         // actually resolve — NOT "any entry in the index". Matching any entry
         // listed 71040-1 under "Vision recon" because it has a pdf_recon
         // fallback, while it really loads its mecabricks model.
-        searchResults = searchResults.filter(s => {
+        results = results.filter(s => {
           const best = bestIndexedModel(idx, s.set_num);
           return best != null && srcMatch(best.src);
         });
       }
       // Sort AFTER filtering, over the full list, before pagination.
-      sortSearchResults(searchResults, sortMode);
+      sortSearchResults(results, sortMode);
       // 'relevance' (incl. browse-all) keeps rankSets' flagship order but
       // stably partitions it by source quality, so authentic .io/OMR builds
       // come before conversions and reconstructions.
-      if (sortMode === 'relevance' && idx) sortByBestSourceClass(searchResults, idx);
+      if (sortMode === 'relevance' && idx) sortByBestSourceClass(results, idx);
+      searchResults = results;
       visibleResults = RESULTS_PAGE;
       // Populate theme dropdown once loaded
       populateThemes(getThemes());
 
-      // Clear any previously selected set when a new search runs
-      selectedSet = null;
-      const detailEl = document.getElementById('lego-detail');
-      if (detailEl) detailEl.hidden = true;
+      // Clear the selected set — but ONLY when it was selected BEFORE this
+      // search started. A selection made while this run was still awaiting the
+      // catalog/index belongs to the user's newer intent, and clearing it
+      // aborted the model load they had just started: the load's
+      // `selectedSet !== set` guard fired, it returned with no error, and the
+      // badge then reported the source as loaded while nothing rendered
+      // (craftmatic.click, 910032, 2026-09-18).
+      if (selectionSeq < seq) {
+        selectedSet = null;
+        const detailEl = document.getElementById('lego-detail');
+        if (detailEl) detailEl.hidden = true;
+      }
 
       if (searchResults.length === 0) {
         setStatus('No sets found — try a different query.', 'info');
@@ -1000,7 +1177,10 @@ function wireEvents(): void {
       const msg = err instanceof Error ? err.message : String(err);
       setStatus(`Search failed: ${msg}`, 'error');
     } finally {
-      searchBtn.disabled = false;
+      // Only the newest run may re-enable the button: a superseded run doing
+      // it advertised "search finished" while the real one was still working,
+      // which is how automation (and a fast user) clicks a card mid-search.
+      if (seq === searchSeq) searchBtn.disabled = false;
     }
   };
 
@@ -1019,7 +1199,12 @@ function wireEvents(): void {
   // the tab isn't a dead end before the first search.
   ensureCatalog().then(() => {
     populateThemes(getThemes());
-    if (searchResults.length === 0 && !selectedSet) void doSearch();
+    // `searchResults.length === 0` is NOT "the user has not searched": a user
+    // search that is itself still awaiting this same catalog has not assigned
+    // them yet, so this fired a SECOND search underneath it (and, on
+    // production, one that finished later and cleared the user's selection —
+    // see `searchSeq`). `searchSeq` is 0 only while nothing has searched at all.
+    if (searchSeq === 0 && searchResults.length === 0 && !selectedSet) void doSearch();
   }).catch(() => {});
 }
 
@@ -1107,6 +1292,10 @@ function hideResults(): void {
 
 function selectSet(set: CatalogSet): void {
   selectedSet = set;
+  // Stamp the selection with the search generation it was made in, so an
+  // OLDER search still in flight cannot clear it out from under the load this
+  // click is about to start (see `searchSeq`).
+  selectionSeq = searchSeq;
 
   document.querySelectorAll<HTMLElement>('.lego-result-card').forEach(c => {
     const idx = parseInt(c.dataset['idx'] ?? '-1', 10);
@@ -1411,7 +1600,18 @@ async function loadIndexedModel(set: CatalogSet, models: IndexModel[], idx: numb
   if (srcBadge) srcBadge.textContent = `${model.src} · loading…`;
   if (srcSelect) srcSelect.disabled = true;
   try {
-    await loadIndexedModelBody(set, model, idx, epoch, allowBroken);
+    const displayed = await loadIndexedModelBody(set, model, idx, epoch, allowBroken);
+    if (!displayed) {
+      // Abandoned part-way, not rendered. The badge must NOT then advertise
+      // this source as loaded: that lie is what made the production stall read
+      // as a successful load with an empty viewer, and it is what sent the
+      // first investigation looking for a hang that was not there.
+      if (!loadIsStale(epoch) && srcBadge) {
+        srcBadge.textContent = `${model.src} · cancelled`;
+        srcBadge.title = 'this load was superseded before it rendered — see the console';
+      }
+      return;
+    }
     loadDiag.loadedIndex = idx;
     // Badge reports the source that ACTUALLY rendered, flagged when the
     // try-order fell through to it (audit P1 #4: intended vs actual).
@@ -1484,14 +1684,14 @@ async function contentHash12(buf: ArrayBuffer): Promise<string | null> {
 }
 
 async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: number,
-                                    epoch: number, allowBroken: boolean): Promise<void> {
+                                    epoch: number, allowBroken: boolean): Promise<boolean> {
   const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
   loadDiag.url = url;
   setStatus(`Loading ${sourceLabel(model)}: ${model.path}…`, 'info');
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${model.path}`);
   // Bail if the user picked another set/source or uploaded while we fetched.
-  if (loadIsStale(epoch) || selectedSet !== set) return;
+  if (loadAbandoned('indexed:after-fetch', epoch, set)) return false;
 
   // Read the bytes ONCE, then branch. Every source kind derives from `buf`, so
   // the content hash below covers exactly what rendered — not a second fetch
@@ -1511,7 +1711,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
     const note = 'the deployed file does not match the index hash — its recorded grade/lineage describe different bytes';
     currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${note}` : note;
   }
-  if (loadIsStale(epoch) || selectedSet !== set) return;
+  if (loadAbandoned('indexed:after-content-hash', epoch, set)) return false;
 
   const ext = model.path.split('.').pop()?.toLowerCase();
   let bricks: ParsedBrick[];
@@ -1519,7 +1719,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
 
   if (ext === 'io') {
     const ioModel = await extractIoModel(buf);
-    if (loadIsStale(epoch) || selectedSet !== set) return;
+    if (loadAbandoned('indexed:after-io-extract', epoch, set)) return false;
     const text = maybeSynthesize(ioModel.text);
     // Some ".io" files are laundered LXF conversions (raw LDD material-id
     // colors, no alignment) rather than authentic Studio exports — 10255's
@@ -1540,7 +1740,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
     colorFn = ioColorFn(ioModel);
   } else if (ext === 'lxf') {
     const parsed = await parseLxfWithDiagnostics(buf);
-    if (loadIsStale(epoch) || selectedSet !== set) return;
+    if (loadAbandoned('indexed:after-lxf-parse', epoch, set)) return false;
     bricks = parsed.bricks;
     reportLxfDiagnostics(parsed.diagnostics, model.path);
     currentMpdContent = undefined;
@@ -1550,7 +1750,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
     // buffer the hash covers; TextDecoder strips a BOM exactly as
     // Response.text() would.
     const text = maybeSynthesize(new TextDecoder().decode(buf));
-    if (loadIsStale(epoch) || selectedSet !== set) return;
+    if (loadAbandoned('indexed:after-text-decode', epoch, set)) return false;
     // Quality gate (visual-QA finding 2026-07-20: the index ranks unaligned
     // convert_lxf.py conversions tier1 for some sets — they render as
     // stacked/scrambled parts with LDD-material-id colors, e.g. 10255/1924).
@@ -1601,6 +1801,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
   const fell = fallbackNote(idx);
   if (fell) currentSourceWarning = currentSourceWarning ? `${fell}; ${currentSourceWarning}` : fell;
   await voxelizeAndDisplay(bricks, `${set.set_num}-${model.src}`, colorFn);
+  return true;
 }
 
 // ─── OMR Auto-Load ───────────────────────────────────────────────────────────
@@ -1628,7 +1829,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(url);
       if (resp.ok) {
         const text = await resp.text();
-        if (loadIsStale(epoch) || selectedSet !== set) return;
+        if (loadAbandoned('omr:after-omr-fetch', epoch, set)) return;
         await parseMpdFile(new File([text], filename, { type: 'text/plain' }), 'omr-chain');
         return;
       }
@@ -1639,7 +1840,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       console.warn('[lego] OMR fetch failed, trying fallbacks:', err);
     }
   }
-  if (loadIsStale(epoch) || selectedSet !== set) return;
+  if (loadAbandoned('omr:before-reconstructed', epoch, set)) return;
 
   // ── Source 2: Clego reconstructed LDR (3D assembled model from PDF/IO) ──
   const reconIdx = await getReconstructedIndex();
@@ -1653,7 +1854,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       const resp = await fetch(`${RECONSTRUCTED_BASE}/${filename}`);
       if (resp.ok) {
         const text = await resp.text();
-        if (loadIsStale(epoch) || selectedSet !== set) return;
+        if (loadAbandoned('omr:after-reconstructed-fetch', epoch, set)) return;
         const quality = reconstructionQuality(text);
         if (quality === 'broken') {
           // DBIX_LXFML-sourced conversions were written without per-part
@@ -1677,7 +1878,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       }
     } catch { /* fall through */ }
   }
-  if (loadIsStale(epoch) || selectedSet !== set) return;
+  if (loadAbandoned('omr:before-bff', epoch, set)) return;
 
   // ── Source 3: BrickLink BFF inventory (flat colour layout — last resort) ─
   setStatus(`No 3D model found — trying BL parts inventory for ${set.set_num}…`, 'info');
@@ -1685,7 +1886,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
   try {
     const parts = await fetchBffInventory(set.set_num);
     if (parts.length > 0) {
-      if (loadIsStale(epoch) || selectedSet !== set) return;
+      if (loadAbandoned('omr:after-bff-fetch', epoch, set)) return;
       const ldrText = bffInventoryToLDraw(set.set_num, parts);
       currentMpdContent = ldrText;
       currentCustomParts = undefined;
@@ -1974,7 +2175,7 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
     if (ext === 'lxf' || ext === 'lxfml') {
       const buf = await file.arrayBuffer();
       const parsed = await parseLxfWithDiagnostics(buf);
-      if (loadIsStale(epoch)) return;
+      if (loadAbandoned('upload:after-lxf-parse', epoch)) return;
       const bricks = parsed.bricks;
       currentMpdContent = undefined;
       currentCustomParts = undefined;
@@ -1990,7 +2191,7 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
       const ioModel = await extractIoModel(buf);
-      if (loadIsStale(epoch)) return;
+      if (loadAbandoned('upload:after-io-extract', epoch)) return;
       text = maybeSynthesize(ioModel.text);
       // User explicitly chose the file — load it, but flag laundered LXF/DBIX
       // conversions masquerading as .io (10255's and 72153's are).
@@ -2012,7 +2213,7 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
     }
 
     text = maybeSynthesize(await file.text());
-    if (loadIsStale(epoch)) return;
+    if (loadAbandoned('upload:after-text-read', epoch)) return;
     currentMpdContent = text; // store for 3D renderer inline sub-model resolution
     currentCustomParts = undefined;
     const bricks = parseLDraw(text);
@@ -2133,7 +2334,7 @@ async function voxelizeAndDisplay(
     setStatus(`Rendering ${label} — ${bricks.length} bricks (loading geometry…)`, 'info');
     try {
       const { LDrawViewer } = await import('@viewer/ldraw/index.js');
-      if (loadIsStale(displayEpoch)) return;
+      if (loadAbandoned('display:after-viewer-import', displayEpoch)) return;
       const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
@@ -2212,12 +2413,17 @@ async function voxelizeAndDisplay(
         }
         let lastProgressUpdate = 0;
         showProgress(0);
+        // Nothing past this point may be mute: `onStage` covers the phases
+        // after the prefetch, and the watchdog covers a phase that reports
+        // nothing at all.
+        startLoadWatchdog(displayEpoch, badgeSourceName() ?? label);
         await currentLDrawViewer.load(bricks, {
           mpdContent: currentMpdContent,
           datFiles: currentCustomParts,
           maxStep: currentStep,
           onProgress: (done, total) => {
             if (loadIsStale(displayEpoch)) return; // a newer load owns the UI
+            noteLoadActivity();
             const pct = total > 0 ? done / total : 0;
             showProgress(pct);
             const now = Date.now();
@@ -2226,10 +2432,19 @@ async function voxelizeAndDisplay(
               lastProgressUpdate = now;
             }
           },
+          onStage: label2 => {
+            if (loadIsStale(displayEpoch)) return;
+            noteLoadActivity();
+            const now = Date.now();
+            if (now - lastProgressUpdate < 200) return;
+            lastProgressUpdate = now;
+            setStatus(label2, 'info');
+          },
         });
+        stopLoadWatchdog();
         // Stale = a newer load started while ours streamed in; the viewer
         // already cancelled our scene work — leave the UI to the newer load.
-        if (loadIsStale(displayEpoch)) return;
+        if (loadAbandoned('display:after-viewer-load', displayEpoch)) return;
         hideProgress();
         // Surface any pieces that couldn't be rendered (missing from the
         // bundled part library, or LSynth flexible parts needing synthesis)
@@ -2311,6 +2526,11 @@ async function voxelizeAndDisplay(
       const msg = e instanceof Error ? e.message : String(e);
       setStatus(`3D render failed: ${msg}`, 'error');
       console.error('[ldraw-renderer]', e);
+    } finally {
+      // Whatever happened — rendered, threw, or bailed out as stale — the
+      // watchdog's job is over. Leaving it armed would keep rewriting the
+      // badge of a load that is no longer running.
+      stopLoadWatchdog();
     }
     return;
   }

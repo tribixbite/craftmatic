@@ -32,6 +32,12 @@ const DEV = process.env.DEV_URL ?? 'http://localhost:4000';
 const BOOT_MS = Number(process.env.PROBE_BOOT_MS ?? 60_000);
 /** Ceiling for the search request + result cards to appear. */
 const SEARCH_MS = Number(process.env.PROBE_SEARCH_MS ?? 45_000);
+/**
+ * Ceiling for the model itself to render. A stall hunt wants this SHORT (a
+ * stalled load never recovers, so waiting the full budget out only costs wall
+ * clock); a capture run of a mega-set wants it long. Default unchanged.
+ */
+const MODEL_MS = Number(process.env.PROBE_MODEL_MS ?? 240_000);
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 // `serviceWorkers: 'block'` is REQUIRED, not hygiene. The PWA service worker
@@ -95,6 +101,159 @@ let prodHookPatched = false;
  *    app's own load chain.
  */
 const routeEvents = [];
+
+// ── Stall instrumentation ────────────────────────────────────────────────────
+// A stalled load leaves NOTHING behind: no failed request, no console error,
+// no exception — the status line just stops. To say WHERE it stopped, the
+// deployed viewer chunk gets stage markers at the boundaries between its load
+// stages, plus a counter on the `if(stale())return` bail-outs and a handle
+// published at the TOP of load() (the existing hook publishes one only at the
+// very end, so a stalled load has no handle at all).
+//
+// Each anchor below appears exactly once in the deployed chunk; a miss is
+// reported in `routeEvents[].stageMisses` rather than silently ignored, since
+// a renamed minified local would otherwise turn "not instrumented" into
+// "nothing happened".
+const STAGE_PATCHES = [
+  // load() entry — publish the viewer before any await.
+  ['async load(e,s){if(this.disposed)',
+   'async load(e,s){globalThis.__lvEarly=this,globalThis.__stage="enter",globalThis.__loadCalls=(globalThis.__loadCalls||0)+1;if(this.disposed)'],
+  // Every part geometry prefetched (the "N/N parts (100%)" point).
+  ['if(i())return;const h=d=>d?d.tris.length',
+   'if(i())return;globalThis.__stage="prefetched";const h=d=>d?d.tris.length'],
+  // repairIncompleteGeometry() returned.
+  ['const p=new Map;for(const d of o)h(De(d))===0',
+   'globalThis.__stage="repaired";const p=new Map;for(const d of o)h(De(d))===0'],
+  // buildStepGroup() returned — meshes exist.
+  ['g.group.name="model"', 'globalThis.__stage="meshes",g.group.name="model"'],
+];
+/** Count the silent `stale → return` bail-outs inside load(). */
+const STALE_PATCH = ['if(i())return;', 'if(i()){globalThis.__staleBails=(globalThis.__staleBails||0)+1;return}'];
+
+// Network truth: which requests are in flight at the moment of the stall, and
+// which finished last. `page.on('requestfailed')` cannot answer that — a
+// deadlocked promise issues no request at all, and "zero pending" is exactly
+// the observation that separates a hung await from a hung fetch.
+await page.addInitScript(() => {
+  const log = { inflight: new Map(), done: [], seq: 0 };
+  globalThis.__net = log;
+  const orig = globalThis.fetch;
+  globalThis.fetch = async (...args) => {
+    const url = String(args[0]?.url ?? args[0]);
+    const id = ++log.seq;
+    log.inflight.set(id, { url, t: Date.now() });
+    try {
+      const r = await orig(...args);
+      log.done.push({ url, status: r.status, ms: Date.now() - log.inflight.get(id).t });
+      return r;
+    } catch (e) {
+      log.done.push({ url, error: String(e).slice(0, 80), ms: Date.now() - log.inflight.get(id).t });
+      throw e;
+    } finally {
+      log.inflight.delete(id);
+      if (log.done.length > 400) log.done.splice(0, 200);
+    }
+  };
+});
+
+// ── Slow models-index fault (PROBE_SLOW_INDEX_MS=<ms>) ───────────────────────
+// On production `/lego-models-index.json` is a 3.8 MB download; on dev it is a
+// local read that finishes in a millisecond. That difference IS the production
+// stall's race window: two overlapping searches each fetch the index, the
+// slower one finishes after the user has clicked a set, and its clean-up
+// clears the selection under the load that click started. Delaying the
+// response here reproduces production's timing on dev, deterministically.
+// Only the DUPLICATE fetches are delayed, because that is what production
+// does: two overlapping searches start two downloads of the same file, the
+// first one renders the results the user clicks, and the second lands later.
+// A uniform delay would move both together and reproduce nothing.
+// `indexFetches` is itself a result: a build that shares one in-flight fetch
+// records 1 here no matter what this delay is set to.
+// The catalog is delayed too — not for its own sake, but because the panel's
+// browse-all search fires from `ensureCatalog().then()`. If the catalog is
+// already loaded when the user searches (dev: a local read), that second
+// search has long finished and there is no overlap to reproduce. On production
+// the catalog is a multi-MB download and the overlap is the normal case.
+const SLOW_INDEX_MS = Number(process.env.PROBE_SLOW_INDEX_MS ?? 0);
+/** When the set card was clicked — the duplicate-index hold releases on it. */
+let clickedAt = null;
+let indexFetches = 0;
+if (SLOW_INDEX_MS > 0) {
+  await page.route('**/lego-models-index.json', async route => {
+    // A DUPLICATE fetch is held until just after the set is clicked. That is
+    // the scheduling production produces by itself: the two downloads finish
+    // within a few hundred ms of each other, and the click lands in between
+    // roughly half the time. Pinning it makes the A/B deterministic instead of
+    // a coin flip — the delay is an ORDERING, not an invented latency.
+    if (++indexFetches > 1) {
+      const until = Date.now() + SLOW_INDEX_MS;
+      while (clickedAt === null && Date.now() < until) await new Promise(r => setTimeout(r, 50));
+      await new Promise(r => setTimeout(r, 150));
+    }
+    await route.continue();
+  });
+  await page.route('**/lego-catalog.json', async route => {
+    await new Promise(r => setTimeout(r, 2_000));
+    await route.continue();
+  });
+  // And the model file itself, because the window this race has to land in is
+  // "after the click, before the load's first staleness guard". On production
+  // that model file is a CDN fetch of a few hundred ms to a second; on dev it
+  // is a disk read of ~5 ms, so without this the duplicate index can only ever
+  // arrive too late to prove anything.
+  await page.route('**/lego-models/**', async route => {
+    await new Promise(r => setTimeout(r, 1_500));
+    await route.continue();
+  });
+}
+
+// ── Upstream-throttle fault injection (PROBE_FAULT_503=<percent>) ────────────
+// Production relays an upstream-throttled part as `503 no-store` (see
+// worker/ldraw-omr.js), and the client deliberately leaves a transiently-failed
+// part UNCACHED so a later reference can retry. Dev serves every part off disk,
+// so that state never occurs there — which is exactly why the stall class it
+// causes is invisible in dev. This reproduces it: a deterministic slice of part
+// STEMS is dropped from the `_batch` answer (the mirror "does not have" them)
+// and 503s on every direct candidate path, with the worker's own ~600 ms
+// in-worker retry delay. Off unless the env var is set.
+const FAULT_503 = Number(process.env.PROBE_FAULT_503 ?? 0);
+const faultStem = rel => {
+  const stem = rel.split('/').pop().replace(/\.dat$/i, '');
+  let h = 0;
+  for (const c of stem) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return h % 100 < FAULT_503;
+};
+let faulted503 = 0;
+if (FAULT_503 > 0) {
+  await page.route('**/ldraw-parts/**', async route => {
+    const u = new URL(route.request().url());
+    if (u.pathname.endsWith('/_batch')) {
+      const resp = await route.fetch();
+      let body = await resp.text();
+      try {
+        const data = JSON.parse(body);
+        for (const rel of Object.keys(data.found ?? {})) {
+          if (faultStem(rel)) { delete data.found[rel]; (data.missing ??= []).push(rel); }
+        }
+        body = JSON.stringify(data);
+      } catch { /* not JSON — pass through */ }
+      const headers = { ...resp.headers() };
+      delete headers['content-encoding'];
+      delete headers['content-length'];
+      await route.fulfill({ status: resp.status(), headers, body });
+      return;
+    }
+    const rel = u.pathname.slice('/ldraw-parts/'.length);
+    if (rel && !rel.startsWith('_') && faultStem(rel)) {
+      faulted503++;
+      await new Promise(r => setTimeout(r, 600)); // the worker's own retry beat
+      await route.fulfill({ status: 503, headers: { 'Cache-Control': 'no-store', 'Retry-After': '2' }, body: '' });
+      return;
+    }
+    await route.continue();
+  });
+}
+
 await page.route('**/assets/*.js', async route => {
   const url = route.request().url();
   const t0 = Date.now();
@@ -103,9 +262,18 @@ await page.route('**/assets/*.js', async route => {
       const resp = await route.fetch();
       let body = await resp.text();
       const patched = body.includes(PROD_HOOK_ANCHOR);
+      const stageMisses = [];
+      let staleSites = 0;
       if (patched) {
         body = body.replace(PROD_HOOK_ANCHOR, `globalThis.__ldrawViewer=this,${PROD_HOOK_ANCHOR}`);
         prodHookPatched = true;
+        // Stage markers go in the same chunk as the end-of-load hook.
+        for (const [find, replace] of STAGE_PATCHES) {
+          if (body.includes(find)) body = body.replace(find, replace);
+          else stageMisses.push(find.slice(0, 32));
+        }
+        staleSites = body.split(STALE_PATCH[0]).length - 1;
+        body = body.split(STALE_PATCH[0]).join(STALE_PATCH[1]);
       }
       const headers = { ...resp.headers() };
       // The fetched body is already decoded; keeping the original encoding/length
@@ -113,7 +281,8 @@ await page.route('**/assets/*.js', async route => {
       delete headers['content-encoding'];
       delete headers['content-length'];
       await route.fulfill({ status: resp.status(), headers, body });
-      routeEvents.push({ url: url.slice(-44), status: resp.status(), bytes: body.length, patched, ms: Date.now() - t0 });
+      routeEvents.push({ url: url.slice(-44), status: resp.status(), bytes: body.length, patched, ms: Date.now() - t0,
+        ...(patched ? { stageMisses, staleSites } : {}) });
       return;
     } catch (e) {
       routeEvents.push({ url: url.slice(-44), attempt, error: String(e).slice(0, 140), ms: Date.now() - t0 });
@@ -127,7 +296,11 @@ await page.route('**/assets/*.js', async route => {
   catch (e) { routeEvents.push({ url: url.slice(-44), error: `continue: ${String(e).slice(0, 120)}` }); }
 });
 
-await page.goto(`${DEV}/#lego`, { waitUntil: 'domcontentloaded' });
+// Playwright's default navigation timeout is 30 s, which a loaded box or a
+// cold vite server exceeds — and the probe then dies with a TimeoutError and
+// writes no result at all, which reads like a stall but is a harness failure.
+// Same budget as every other boot wait.
+await page.goto(`${DEV}/#lego`, { waitUntil: 'domcontentloaded', timeout: BOOT_MS });
 // Activate the LEGO tab — the hash alone does not switch panels. Wait for the
 // nav to actually exist rather than guessing at a boot time.
 await page.waitForFunction(
@@ -194,13 +367,35 @@ if (target.startsWith('file:')) {
     card.click();
     return 'clicked';
   }, target);
+  clickedAt = Date.now();
   if (clicked !== 'clicked') { console.error(`search failed: ${clicked}`); process.exit(1); }
 }
 
 // Wait for the viewer to report a loaded model.
-const deadline = Date.now() + 240_000;
+const deadline = Date.now() + MODEL_MS;
 let bricks = 0;
+// Status TRANSITIONS, timestamped. A stall's whole visible signature is "the
+// status line stopped changing", so the last transition's timestamp is what
+// dates the stall; polling the final value alone cannot.
+const statusTimeline = [];
+const t0Wait = Date.now();
+const sampleStatus = async () => {
+  const s = await page.evaluate(() => ({
+    status: document.getElementById('lego-status')?.textContent?.slice(0, 200) ?? null,
+    badge: document.getElementById('lego-source-badge')?.textContent ?? null,
+    selectDisabled: document.getElementById('lego-source-select')?.disabled ?? null,
+    stage: globalThis.__stage ?? null,
+    staleBails: globalThis.__staleBails ?? 0,
+    loadCalls: globalThis.__loadCalls ?? 0,
+  })).catch(() => null);
+  if (!s) return;
+  const last = statusTimeline[statusTimeline.length - 1];
+  if (!last || last.status !== s.status || last.stage !== s.stage || last.badge !== s.badge) {
+    statusTimeline.push({ ms: Date.now() - t0Wait, ...s });
+  }
+};
 while (Date.now() < deadline) {
+  await sampleStatus();
   bricks = await page.evaluate(() => {
     const v = window.__ldrawViewer;
     if (!v || !v.loaded) return 0;
@@ -219,13 +414,36 @@ while (Date.now() < deadline) {
 
 const probe = await page.evaluate(async () => {
   const v = window.__ldrawViewer;
-  if (!v) return {
-    error: 'no viewer',
-    // Distinguish "the model never loaded" from "the model loaded but the
-    // debug handle is missing" — they need opposite fixes.
-    brickCountAttr: document.querySelector('[data-brick-count]')?.dataset?.brickCount ?? null,
-    status: document.getElementById('lego-status')?.textContent?.slice(-900) ?? null,
-  };
+  if (!v) {
+    // Everything needed to place a silent stall, gathered at the moment it is
+    // observed: how far into load() the viewer got, whether a newer load
+    // cancelled it, and what (if anything) the network is still waiting on.
+    const early = globalThis.__lvEarly;
+    const net = globalThis.__net;
+    return {
+      error: 'no viewer',
+      // Distinguish "the model never loaded" from "the model loaded but the
+      // debug handle is missing" — they need opposite fixes.
+      brickCountAttr: document.querySelector('[data-brick-count]')?.dataset?.brickCount ?? null,
+      status: document.getElementById('lego-status')?.textContent?.slice(-900) ?? null,
+      stall: {
+        stage: globalThis.__stage ?? null,
+        staleBails: globalThis.__staleBails ?? 0,
+        loadCalls: globalThis.__loadCalls ?? 0,
+        viewerSeen: !!early,
+        loadSeq: early?.loadSeq ?? null,
+        disposed: early?.disposed ?? null,
+        loaded: early?.loaded ?? null,
+        warpRunning: early?.warp?.running ?? null,
+        missingParts: early?.missingParts?.length ?? null,
+        badge: document.getElementById('lego-source-badge')?.textContent ?? null,
+        selectDisabled: document.getElementById('lego-source-select')?.disabled ?? null,
+        inflight: net ? [...net.inflight.values()].map(r => ({ url: r.url.slice(-70), ageMs: Date.now() - r.t })) : null,
+        netDone: net ? net.done.length : null,
+        lastDone: net ? net.done.slice(-8).map(d => ({ url: d.url.slice(-60), status: d.status ?? d.error, ms: d.ms })) : null,
+      },
+    };
+  }
   const THREE = v.THREE ?? null;
 
   /** max |live matrix - saved assembled matrix| over every instance. */
@@ -298,9 +516,24 @@ const probe = await page.evaluate(async () => {
 
 const positions = probe.positions ?? [];
 delete probe.positions;
+// Part-fetch health, on EVERY run, not just a stalled one: an upstream
+// throttle relayed as `503 no-store` is the condition that makes a part text
+// fail transiently and stay uncached, and the stall rate tracks it. Without
+// this number a run that renders and a run that hangs look identical after
+// the fact. (`net.done` is capped, so these are the last ~400 requests.)
+probe.partFetch = await page.evaluate(() => {
+  const done = globalThis.__net?.done ?? [];
+  const parts = done.filter(d => d.url.includes('/ldraw-parts/'));
+  const by = {};
+  for (const d of parts) { const k = String(d.status ?? d.error); by[k] = (by[k] ?? 0) + 1; }
+  return { recorded: parts.length, byStatus: by };
+});
 probe.origin = DEV;
 probe.prodHookPatched = prodHookPatched;
 probe.routeEvents = routeEvents;
+probe.statusTimeline = statusTimeline;
+if (SLOW_INDEX_MS > 0) probe.indexFetches = indexFetches;
+if (FAULT_503 > 0) probe.fault503 = { percent: FAULT_503, injected: faulted503 };
 probe.failedRequests = [...failedRequests].slice(0, 12);
 writeFileSync(join(outDir, `${label}-probe.json`), JSON.stringify(probe, null, 1));
 writeFileSync(join(outDir, `${label}-positions.json`), JSON.stringify(positions));
@@ -312,8 +545,16 @@ writeFileSync(join(outDir, `${label}-positions.json`), JSON.stringify(positions)
 // burned the full 4 x 25 s retry budget because there was nothing to draw.
 // That is 335 s of the 575 s a failed production run cost, and the PNGs it
 // left behind were actively misleading. No render, no captures.
-const canvas = probe.bricks > 0 ? await page.$('#lego-viewer canvas') : null;
-if (!canvas) console.error(`no LEGO canvas (bricks=${probe.bricks ?? 0}) — skipping captures`);
+// `PROBE_NO_CAPTURE=1` skips the PNGs. A stall hunt only needs the verdict, and
+// the three fixed-camera captures (each with a 4×25 s retry budget) dominate a
+// successful run's wall clock — enough to make a 15-run A/B impractical.
+const noCapture = process.env.PROBE_NO_CAPTURE === '1';
+const canvas = (probe.bricks > 0 && !noCapture) ? await page.$('#lego-viewer canvas') : null;
+if (!canvas) {
+  console.error(noCapture
+    ? 'captures disabled (PROBE_NO_CAPTURE=1)'
+    : `no LEGO canvas (bricks=${probe.bricks ?? 0}) — skipping captures`);
+}
 for (const view of canvas ? ['iso', 'front', 'left'] : []) {
   await page.evaluate(vw => {
     const v = window.__ldrawViewer;

@@ -40,6 +40,7 @@ import {
   preloadMpdInlines,
   preloadDatTexts,
   clearMpdInlines,
+  clearTransientMisses,
   isLDrawPrimitive,
   normId,
   partTextureUrls,
@@ -505,6 +506,22 @@ export class LDrawViewer {
     // silently if a newer load has started; the newest call owns the scene.
     const seq = ++this.loadSeq;
     const stale = (): boolean => seq !== this.loadSeq || this.disposed;
+    /**
+     * Stale check that SAYS SO. A bare `if (stale()) return` leaves a load
+     * abandoned with no trace anywhere — the caller's own epoch guard then
+     * leaves the badge on `loading…` forever and nothing in the console names
+     * a culprit. Every bail-out below goes through here.
+     */
+    const bail = (where: string): boolean => {
+      if (!stale()) return false;
+      console.warn(`[LDrawViewer] load #${seq} abandoned at ${where}:`, {
+        reason: this.disposed ? 'the viewer was disposed' : 'a newer load() superseded it',
+        seq, currentSeq: this.loadSeq, disposed: this.disposed,
+      });
+      return true;
+    };
+    /** Coarse stage label — the UI shows it, so no phase is ever mute. */
+    const stage = (label: string): void => { opts?.onStage?.(label); };
 
     // Tear down previous model state
     this.unloadCurrent();
@@ -518,6 +535,9 @@ export class LDrawViewer {
     // Inject MPD inlines + archive-bundled part definitions into the part
     // cache (both model-specific; cleared again on the next load).
     clearMpdInlines();
+    // A new load retries every name the previous one could not reach (see
+    // `transientMisses` in parts.ts).
+    clearTransientMisses();
     if (opts?.mpdContent) preloadMpdInlines(opts.mpdContent);
     if (opts?.datFiles?.size) preloadDatTexts(opts.datFiles);
 
@@ -542,7 +562,7 @@ export class LDrawViewer {
     let done = 0;
     const CONCURRENCY = 48;
     for (let i = 0; i < uniqueParts.length; i += CONCURRENCY) {
-      if (stale()) return;
+      if (bail('part prefetch')) return;
       const batch = uniqueParts.slice(i, i + CONCURRENCY);
       await Promise.all(batch.map(async partId => {
         await resolvePartGeometry(partId);
@@ -555,7 +575,7 @@ export class LDrawViewer {
         }
       }));
     }
-    if (stale()) return;
+    if (bail('part prefetch (all resolved)')) return;
 
     // Repair pass (runs BEFORE meshes are built, so it fixes the render too):
     // concurrent resolution can leave a wrapper/sub-referenced part (e.g. the
@@ -569,8 +589,15 @@ export class LDrawViewer {
     // needing curve synthesis).
     const triCount = (g?: { tris: unknown[]; colorTris: Map<number, unknown[]> }): number =>
       g ? g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0) : 0;
-    const repair = await repairIncompleteGeometry(uniqueParts, { cancelled: stale });
-    if (stale()) return;
+    // Everything from here to the first frame used to run MUTE: `onProgress`
+    // stops at the prefetch, so a slow repair or mesh build left the status on
+    // `Loading geometry: N/N parts (100%)` with no way to tell work from a hang.
+    stage('Checking part geometry…');
+    const repair = await repairIncompleteGeometry(uniqueParts, {
+      cancelled: stale,
+      onProgress: (done, total) => stage(`Rebuilding geometry: ${done}/${total} part(s)…`),
+    });
+    if (bail('geometry repair')) return;
     if (repair.repaired.length > 0) {
       console.info(
         `[LDrawViewer] repaired ${repair.repaired.length} part(s) left empty by the ` +
@@ -620,12 +647,17 @@ export class LDrawViewer {
     // its own InstancedMeshes). Stepping is done by prefix-counting
     // step-sorted instances (see applyStepVisibility), not by toggling
     // per-step groups.
+    stage('Building meshes…');
     const stepState = await this.buildStepGroup(
       filteredBricks, bboxMin, bboxMax,
-      label => this.warp?.setProgress(uniqueParts.length, uniqueParts.length, label),
+      label => {
+        this.warp?.setProgress(uniqueParts.length, uniqueParts.length, label);
+        stage(label);
+      },
       stale,
     );
-    if (stale()) return;
+    if (bail('mesh build')) return;
+    stage('Framing the model…');
     stepState.group.name = 'model';
     this.stepGroups.set(0, stepState);
     this.scene.add(stepState.group);

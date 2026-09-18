@@ -57,4 +57,12 @@ export interface LDrawViewerOptions {
    * @param total Total number of parts to resolve
    */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Stage callback for the phases AFTER the part prefetch — geometry repair
+   * and mesh building. Those run with NO progress reporting of their own, so a
+   * slow one froze the UI on `Loading geometry: N/N parts (100%)` with nothing
+   * to say whether work was still happening (the 2026-09-18 production stall).
+   * Called once per stage with a user-facing label.
+   */
+  onStage?: (stage: string) => void;
 }

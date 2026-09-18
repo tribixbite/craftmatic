@@ -40,6 +40,21 @@ interface MockOptions {
    * one — the concurrent-prefetch race needs a specific one.
    */
   delayMs?: Record<string, number>;
+  /**
+   * Stems whose every candidate path answers `503` — production's signature
+   * for an upstream-throttled part (`worker/ldraw-omr.js` relays an upstream
+   * 5xx as `503 no-store` so the client retries instead of caching a miss).
+   * The file may still exist in `files`; the point is that this LOAD cannot
+   * have it.
+   */
+  transient?: string[];
+  /**
+   * Serve `/ldraw-parts/_batch` as an empty-but-valid answer (`{found:{}}`),
+   * i.e. "the mirror has none of these" — production's behaviour for
+   * unmirrored names. It puts the resolver on its single-volley path instead
+   * of the retry-with-backoff ladder, which is what prod actually does.
+   */
+  batchOk?: boolean;
 }
 
 let partFetches: string[] = [];
@@ -56,9 +71,14 @@ function mockFetch(opts: MockOptions): void {
     // The micro-batch endpoint is absent in this harness (as it is behind an
     // older worker): two failures disable batching and the classic per-path
     // probing takes over, which is the path these tests care about.
-    if (s.includes('/_batch')) return new Response('', { status: 404 });
+    if (s.includes('/_batch')) {
+      return opts.batchOk
+        ? new Response(JSON.stringify({ found: {}, missing: [] }), { status: 200 })
+        : new Response('', { status: 404 });
+    }
     const stem = s.split('/').pop()!.replace(/\.dat$/i, '');
     partFetches.push(stem);
+    if (opts.transient?.includes(stem)) return new Response('', { status: 503 });
     const delay = opts.delayMs?.[stem] ?? 0;
     if (delay > 0) await new Promise(r => setTimeout(r, delay));
     const text = opts.files[stem];
@@ -415,6 +435,44 @@ describe('repairIncompleteGeometry() rebuilds parts emptied by the prefetch race
     expect(getCachedPartGeom('edgeuser'),
       'and neither must every part that references one').toBe(userBefore);
     expect(report.passes, 'nothing to repair → one pass proves it and stops').toBe(1);
+  });
+
+  /**
+   * The 2026-09-18 production stall, in one deterministic case.
+   *
+   * A part whose every candidate path answers `503` is deliberately left
+   * UNCACHED (a throttle must not be recorded as a missing part), so nothing
+   * memoises the failure. The repair pass then re-resolved it — and it walks
+   * its keys SEQUENTIALLY, with no progress reporting — so on production, where
+   * a cold load sees dozens of throttled names, the load sat on
+   * `Loading geometry: N/N parts (100%)` for minutes with the source badge
+   * frozen at `loading…`. Users read that as "it never loads"; a second click
+   * worked because by then the throttle window had passed.
+   *
+   * The invariant: the repair pass rebuilds from what this load already
+   * downloaded. It never goes back to the network.
+   */
+  it('does not re-probe the network for a part whose text failed transiently', async () => {
+    mockFetch({
+      rev: 'missing',
+      batchOk: true,
+      transient: ['throttledpart'],
+      files: {
+        throttledpart: tris(4),                                 // exists, but 503s today
+        holderpart: `0 BFC CERTIFY CCW\n${ref('throttledpart')}`,
+      },
+    });
+    const { resolvePartGeometry, repairIncompleteGeometry } = await freshSession();
+    await resolvePartGeometry('holderpart');
+    expect(partFetches, 'the prefetch DOES try the throttled name').toContain('throttledpart');
+
+    const duringPrefetch = partFetches.length;
+    const report = await repairIncompleteGeometry(['holderpart', 'throttledpart']);
+    expect(partFetches.slice(duringPrefetch),
+      'the repair pass must rebuild from cache only — re-probing a throttled '
+      + 'name here is what froze production loads for minutes').toEqual([]);
+    expect(report.stillEmpty, 'and it stays honestly reported as unrenderable')
+      .toContain('throttledpart');
   });
 
   it('caps its passes so an unrenderable part cannot loop forever', async () => {

@@ -16,6 +16,39 @@ const datInFlight = new Map<string, Promise<string | null>>();
 const geomInFlight = new Map<string, Promise<PartGeom>>();
 
 /**
+ * Names whose `.dat` this LOAD could not fetch because every candidate path
+ * failed TRANSIENTLY — production relays an upstream throttle as `503
+ * no-store` (worker/ldraw-omr.js) precisely so the client retries instead of
+ * recording a miss, and a cold big-set load can see dozens of them.
+ *
+ * Deliberately NOT a `datTextCache` null: that is permanent for the page
+ * session and would turn a throttle into a missing part, which is the
+ * regression the transient handling exists to prevent. This memo is per-LOAD
+ * (`clearTransientMisses()` runs at the top of every viewer load), so the next
+ * load retries everything, while THIS load stops re-walking a ladder it has
+ * already proved unreachable.
+ *
+ * What it cost without one (measured 2026-09-18): nothing memoised a transient
+ * failure, so every later reference — the alias fallback, a second parent, and
+ * above all `repairIncompleteGeometry`, which walks its keys SEQUENTIALLY and
+ * reports no progress — re-probed the whole candidate-path ladder. A cold
+ * production load then sat on `Loading geometry: N/N parts (100%)` with the
+ * source badge frozen at `loading…` for minutes, with nothing on screen, in
+ * the console or on the network panel to say work was still happening. The
+ * offline regression is in test/part-cache-revision.test.ts.
+ */
+const transientMisses = new Set<string>();
+
+/**
+ * Let a fresh load retry every name the previous one could not reach.
+ * Called from `LDrawViewer.load()` beside the other per-model cache resets.
+ */
+export function clearTransientMisses(): void { transientMisses.clear(); }
+
+/** How many names this load has written off as unreachable (diagnostics). */
+export function transientMissCount(): number { return transientMisses.size; }
+
+/**
  * Reverse dependency edges: child part key → every parent whose ASSEMBLED
  * geometry baked that child's triangles in.
  *
@@ -233,7 +266,15 @@ export interface GeomRepairReport {
  */
 export async function repairIncompleteGeometry(
   partIds: readonly string[],
-  opts: { maxPasses?: number; cancelled?: () => boolean } = {},
+  opts: {
+    maxPasses?: number;
+    cancelled?: () => boolean;
+    /**
+     * Rebuild progress. This loop is SEQUENTIAL and can hold a big-set load for
+     * seconds; reporting nothing made it indistinguishable from a hang.
+     */
+    onProgress?: (done: number, total: number) => void;
+  } = {},
 ): Promise<GeomRepairReport> {
   const maxPasses = opts.maxPasses ?? 5;
   const cancelled = opts.cancelled ?? ((): boolean => false);
@@ -250,9 +291,11 @@ export async function repairIncompleteGeometry(
     passes++;
     const dropped = new Set<string>();
     for (const p of empties) for (const k of invalidateEmptyGeomChain(p)) dropped.add(k);
+    let done = 0;
     for (const k of dropped) {
       if (cancelled()) return { passes, repaired: [...repaired], stillEmpty: empties };
       await resolvePartGeometry(k);
+      opts.onProgress?.(++done, dropped.size);
     }
     const before = empties;
     empties = emptyIds();
@@ -774,6 +817,9 @@ async function fetchDatText(id: string): Promise<string | null> {
   const key = normId(id);
   if (datTextCache.has(key)) return datTextCache.get(key)!;
   if (datInFlight.has(key)) return datInFlight.get(key)!;
+  // Already proved unreachable in THIS load — re-probing it under the same
+  // upstream throttle costs seconds and cannot succeed. Cleared per load.
+  if (transientMisses.has(key)) return null;
 
   const stem = key.split('/').pop()!;
   const orderedPaths = candidateRelPaths(key).map(p => `${LDRAW_BASE}/${p}`);
@@ -878,6 +924,13 @@ async function fetchDatText(id: string): Promise<string | null> {
         }
         datTextCache.set(key, null);
         unresolvedDatNames.add(key);
+      } else {
+        // Unreachable THIS load, not absent. Remembered per-load (never
+        // cached as a null) so nothing re-walks this ladder again before the
+        // next load — see `transientMisses`.
+        transientMisses.add(key);
+        console.warn(`[ldraw] ${key}.dat unreachable this load (every candidate path failed `
+          + 'transiently — upstream throttle); it will be retried on the next load');
       }
       return null;
     }
@@ -934,6 +987,11 @@ async function fetchDatText(id: string): Promise<string | null> {
         unresolvedDatNames.delete(key);
         return aliasText;
       }
+    }
+    if (sawTransient) {
+      transientMisses.add(key);
+      console.warn(`[ldraw] ${key}.dat unreachable this load (every candidate path failed `
+        + 'transiently — upstream throttle); it will be retried on the next load');
     }
     return null;
   })();

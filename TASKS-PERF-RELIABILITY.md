@@ -170,10 +170,13 @@ previous crumb shows a mid-load death, console.warn it and offer "resume
 last set?" — and it gives us user-reportable evidence. Expected: converts
 "it crashed sometime" reports into actionable phase-tagged data.
 
-### R6. Watchdog for a stuck warp overlay (S)
-The warp owns the panel while `warp.running`; any silent stall (network
-hang beyond timeouts, a bug in a load stage) leaves an infinite starfield
-with no escape. Change (`warp-loader.ts` + viewer load()): if no
-setProgress() call for 45 s, surface a "Still working… / Cancel" button on
-the overlay that bumps loadSeq (cancels the load) and restores the previous
-scene. Expected: no un-dismissable loading screens.
+### R6. Watchdog for a stuck warp overlay (S) — PARTLY DONE 2026-09-18
+Done: the load pipeline is no longer mute. `LDrawViewerOptions.onStage` reports
+the phases after the part prefetch (repair, mesh build, framing), every
+`stale → return` inside `load()` and every abandonment guard in `lego.ts` names
+itself in a `console.warn`, and a 20 s no-progress watchdog in `lego.ts`
+rewrites the source badge (`<src> · loading… (Ns, no progress)`) and tells the
+user they can click the set again.
+Still open: the **overlay** itself has no escape — the watchdog writes to the
+badge and the status line, not to the warp. Add a "Still working… / Cancel"
+button on the starfield that bumps `loadSeq` and restores the previous scene.

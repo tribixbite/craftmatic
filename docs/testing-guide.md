@@ -56,20 +56,60 @@ path or the exporters. Each drives the REAL app in headless Chrome against
 - Test models: copy `C:/git/clego/lego_sets/IO/<set>.io` → `web/public/inspect-*.io`, dispatch `change` on `#lego-mpd-input`, delete after (keep out of git). OMR `.mpd` fetch directly via `/ldraw-omr/<set>-1.mpd`.
 - Dev-only `window.__ldrawViewer` is set in `viewer.ts` load() under `import.meta.env.DEV`.
 - **A Playwright context MUST pass `serviceWorkers: 'block'` to load a set by SEARCH.** The PWA service worker installs on first load and then intercepts `/lego-models/*`; in a fresh automation context those fetches return `net::ERR_FAILED`, so the loader walks the entire source ladder and settles on *"No 3D model found — trying BL parts inventory"*. That reads exactly like a missing or broken index entry, and the same URL answers `200` to `curl`. `file:` mode hides it because the model never crosses the network. `scripts/_lego-probe.mjs` blocks them; any new script must too. Measured 2026-09-17, after two probe runs reported `{"error":"no viewer"}` against a set that loads fine.
-- **`{"error":"no viewer","status":"1 set found"}` is a PRODUCTION STALL, not a
-  broken set.** On `craftmatic.click` a cold set load reaches
-  `Loading geometry: N/N parts (100%)`, freezes with the source badge stuck at
-  `<src> · loading…`, and never renders: no failed request, no pending request,
-  no console error. **A second click on the same card always loads it**, and the
-  set renders identically to dev. Measured 2026-09-18: **7 of 18 sets** hung on
-  the first pass (910047, 71043, 76435, 21063, 10341, 76286, 31141); a forced
-  re-run cleared 6 of 7 in one round and the last in three. A 12-attempt
-  single-set harness put the rate at ~45 % on prod versus 1 of 18 on dev. It is
-  NOT set-specific — every one of the 18 sets loaded on prod when retried, with
-  placements, source, arm counts and arm→torso LDU matching dev EXACTLY.
+- **`{"error":"no viewer","status":"1 set found"}` was a PRODUCTION STALL, not a
+  broken set — root-caused and fixed 2026-09-18.** On `craftmatic.click` a cold
+  set load never rendered: no failed request, no pending request, no console
+  error, and **a second click on the same card always worked**. Measured:
+  **7 of 18 sets** on the first pass (910047, 71043, 76435, 21063, 10341,
+  76286, 31141), ~45 % of cold loads on a single-set harness, versus 1 of 18 on
+  dev. It was never set-specific.
+
+  Three separate defects wore that one signature. All three are fixed; the
+  notes matter because each is a shape that will recur:
+  1. **Duplicate models-index fetch → the selection cleared under the load.**
+     `getModelsIndex()` memoised the RESULT, not the in-flight promise, so the
+     user's search and the panel's own browse-all each downloaded the 3.8 MB
+     index. The first rendered the cards, the user clicked, and the second
+     finished a few hundred ms later and ran `selectedSet = null`. The load's
+     `selectedSet !== set` guard then returned silently — and the source badge
+     still reported the load as SUCCEEDED. Dev never saw it because the same
+     file is a local read, so both "downloads" finish together. Fixed by
+     sharing the in-flight promise, stamping the selection with the search
+     generation (`selectionSeq`), and not firing browse-all once any search has
+     started. Reproduce with `PROBE_SLOW_INDEX_MS=8000` (see below).
+  2. **The geometry-repair pass re-probed throttled parts.** A part whose every
+     candidate path 503s is deliberately left UNCACHED, so nothing memoised the
+     failure and `repairIncompleteGeometry` — sequential, and reporting no
+     progress — walked the whole candidate + alias ladder again for each one.
+     That is the variant that freezes on `Loading geometry: N/N parts (100%)`
+     with the badge stuck at `<src> · loading…`. Fixed by a per-load
+     `transientMisses` memo in `parts.ts`; regression in
+     `test/part-cache-revision.test.ts`.
+  3. **`HEAD /ldraw-parts/parts/3001.dat` rejecting → silent voxel mode.**
+     Chrome reports the discarded HEAD body as `net::ERR_ABORTED`; usually the
+     promise still resolves, but one page load in 16 measured on prod REJECTED,
+     the capability probe fell into its catch, and the whole tab rendered in
+     voxel mode — no 3D viewer, and the viewer chunk never even fetched
+     (`prodHookPatched: false` with no `index-*.js` in `routeEvents`). Fixed by
+     probing with a GET, one retry, and saying so in the UI when it fails.
+
   So: never conclude "prod cannot render set X" from one probe run. Re-run with
   `bash scripts/_verify-sets-retry.sh <outDir> <rounds> <set>…`, which repeats
   only the sets that produced no positions dump.
+- **The probe can inject production's timing on dev**, which is the only way to
+  regression-test the class above without a deploy:
+  - `PROBE_SLOW_INDEX_MS=8000` — holds every DUPLICATE `/lego-models-index.json`
+    fetch until just after the set card is clicked (and delays the catalog and
+    the model file, so the race has a window to land in). The result reports
+    `indexFetches`: a build that shares one in-flight fetch records **1**.
+  - `PROBE_FAULT_503=<pct>` — answers a deterministic slice of part stems with
+    `503` on every candidate path, and drops them from the `_batch` answer, i.e.
+    exactly what the worker does for an upstream-throttled part.
+  - `PROBE_MODEL_MS` — the model-render ceiling (default 240 s). A stall hunt
+    wants it short; a mega-set capture run wants it long.
+  Every run now also reports `statusTimeline` (status/badge/stage transitions,
+  timestamped) and, on a stall, a `stall` block with the viewer's internal load
+  stage, its stale-bail count, and the requests still in flight.
 - **Three benign artifacts appear on EVERY production page load.** All three
   were mis-read as the cause of the stall above; none of them is.
   `net::ERR_ADDRESS_INVALID` is Cloudflare's analytics beacon (the probe already
