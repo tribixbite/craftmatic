@@ -29,7 +29,11 @@ and conventions there; keep this file as the short project entry point.
 
 - Dev server: `bun dev:web` (port 4000). Add `--host` to expose on LAN (phone testing at the box's LAN IP:4000).
 - Typecheck: root is `bun run typecheck` (`tsc --noEmit`, the `src/` tree); the whole `web/` tree is `bun run typecheck:web` (`tsc --noEmit -p web/tsconfig.json`). **Both run in CI** (ci.yml + deploy.yml) so a careless edit can't silently compile-break. The `web` tree is currently type-clean — keep it that way (the old ~34 `ui/*` errors were fixed; the app still *builds* via Vite/esbuild without type-gating, but CI now gates it).
-- Build: `bun run build:web`. Tests: `bun test` (vitest). See the [testing guide](docs/testing-guide.md) for suites and manual gates.
+- Build: `bun run build:web`. Tests: **`bun run test`** (vitest — 1,634 passing,
+  26 skipped as of 2026-09-17). **Not bare `bun test`**: that runs Bun's own
+  runner, which globs the whole tree including copied apps under `output/`
+  (2,755 tests, 74 failures that are not this code) and takes 16 minutes.
+  See the [testing guide](docs/testing-guide.md) for suites and manual gates.
 - Use **Chrome** for browser testing, not Edge.
 
 ## Key tabs

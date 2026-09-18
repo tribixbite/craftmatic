@@ -165,6 +165,34 @@ alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
 ghost tires). Pipeline defenses (classifier extracted to
 `web/src/engine/source-quality.ts`, offline-tested in
 `test/source-quality.test.ts`; `lego.ts` imports + wires the warnings):
+- **The LDD→LDraw correction tables carry NOISE ROWS, and both consumers used
+  to ship them (fixed 2026-09-17).** clego's learner writes, per design, the
+  MODE of its correction votes plus `agree` — the fraction of the vote mass
+  that mode won — and a `sets` field that counts COMPETING MODES, not sets.
+  Both `dbix_align.py` and craftmatic's `scripts/gen-ldd-measured-align.py`
+  admitted any row with `n >= 2` and never read `agree`. `3818` (minifig left
+  arm) shipped t = (1, 112, 140) at agree **0.044** and `3819` t = (607, 111,
+  −136) at agree **0.043**, so every minifig arm in every `.lxf` that fell back
+  to the table AND in all 2,302 `dbix_conv_v3` files stood tens of studs from
+  its shoulder. Authentic OMR files put an arm **17–18 LDU** from its torso —
+  that constant is the cheapest check that a minifig is assembled.
+  The gate is a CONJUNCTION, `agree < 0.30 AND |t| > 80 LDU`, dropping 85 of
+  1,843 rows. **Neither half alone is safe**: confident rows legitimately ask
+  for offsets up to ~1770 LDU, and a low-agreement row with a small offset
+  costs nothing. **A blunt `agree >= 0.5` is measured and REJECTED** — it
+  discards 872 legitimate rows and costs 2.61 points of weighted GEO over a
+  29-set ground-truth cohort. Do not retry it.
+  **The gate needs the direction fix with it.** Studio's `ldraw.xml` row is the
+  transform that carries the LDraw part onto the LDD part, so composing a bone
+  with it needs its INVERSE (forward 13.3 % GEO, inverse 93.6 % on 10242).
+  Gating alone only relocates the defect, because the gated designs fall
+  through to that prior. Over all 173 ground-truth sets the pair is neutral on
+  structure — weighted GEO 70.79 → 70.80 %, one set worse by >1 pt — because
+  only 2.27 % of placements take the xml path, while geograde's defect counts
+  fall (76435 floating 5 → 0, 910004 8 → 0, 10326 13 → 5).
+  It also collapses footprints that had been read as "exploded instruction
+  layouts": Winter Chalet 125 × 116 → 71 × 49 studs, Natural History Museum
+  114 × 54 → 80 × 30. Below ~0.3 parts/stud² a file is still genuinely spread.
 - **`0 !LINEAGE <tool> <good|partial>` is the CANONICAL stamp** (clego
   converters emit it since 2026-08-28) and takes precedence over all legacy
   sniffs — the v2 DBIX reconverter's files also start with `0 LEGO DBIX v2`,
