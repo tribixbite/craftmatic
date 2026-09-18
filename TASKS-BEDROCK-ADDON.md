@@ -348,6 +348,10 @@ build). Prod is simply still serving the old bytes on both paths.
 - [ ] **`mecabricks` minifigs — ROOT-CAUSED, fix specified, trial passed, NOT rolled out.**
       The largest source (2,694 index entries) places minifigs wrong two ways, and it
       is user-visible: **all 20 figures in 76405 export to an add-on with NO HEAD.**
+      Blast radius measured 2026-09-18: of the **2,724 sets whose best source is
+      mecabricks, 1,541 (57 %) contain a `3814`-family torso — 4,603 torsos**, and
+      every one of those sets exports headless figures until this ships. That makes
+      it the largest remaining user-visible defect in the corpus.
       1. **Torso identity.** Design id `3814` resolves through `geograde/mb_partmap.py:260`
          (`_exists` is consulted before the design map) to Studio's UNOFFICIAL
          `3814.dat`, "MINI UPPER PART (Needs Work)" — an LDD stub whose origin is on
