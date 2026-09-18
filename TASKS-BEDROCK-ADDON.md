@@ -41,6 +41,11 @@ same table, and both are fixed.
   sunk 1 → 0; 910004 Winter Chalet 8 → **0**, split0 2 → 0; 10326 Natural History
   Museum 13 → **5**, split0 10 → 7. 71043 (`.lxf`) 16 floating / 27 splits / 5
   sunk / 0.05 % overlap → **0 / 0 / 0 / 0.00 %**.
+- **Read the A/B `.ldr` dumps for GEOMETRY only.** `scripts/lxf_gt_eval.py --dump`
+  writes colours through its own `ldd_colour()`, not the app's, so every render
+  made from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes
+  out magenta. That is the harness, not a palette regression — the app renders the
+  same model in tan and grey.
 - **The `.lxf` class, not just 71043.** geograde over nine native `.lxf` files
   from the ground-truth cohort, dumped through both placements
   (`output/lxf-gt/geograde-ab/`, `scripts/lxf_gt_eval.py --dump`):
