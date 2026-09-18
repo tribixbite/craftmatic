@@ -37,9 +37,13 @@ same table, and both are fixed.
   weighted GEO 70.79 → **70.80 %**, exact 41.01 → 41.01 %, median 81.10 → 81.20 %,
   sets ≥70 % 110 and ≥90 % 47 both unchanged, **1 set worse by >1 pt**: 42160
   Audi RS Q e-tron, 87.20 → 85.78 GEO, which on its 914 ground-truth placements
-  is about **13 parts** — gated designs falling through to the xml prior on a
-  Technic model with no minifig to gain from the trade. Called out rather than
-  rounded away: it breaches the "no file worse by >1 pt" bar 38ea28c set itself.
+  is about **13 parts**. Checked, because the obvious explanation is wrong: 42160
+  uses **zero gated designs**. Its 914 placements split learned 835 / xml 53 /
+  none 27, so the loss is the INVERSE-prior half landing 13 of those 53 xml-path
+  parts differently, on a Technic model with no minifig to gain from the trade.
+  Called out rather than rounded away: it breaches the "no file worse by >1 pt"
+  bar 38ea28c set itself. Tightening the gate cannot fix it — no 42160 design
+  sits in the 0.15-0.30 agree band either.
   Evidence `C:/git/clego/output_gt/{base_full,joint_full,full_compare}.json`.
 - **Defect metrics move.** geograde after convert+polish: 76435 floating 5 → **0**,
   sunk 1 → 0; 910004 Winter Chalet 8 → **0**, split0 2 → 0; 10326 Natural History
