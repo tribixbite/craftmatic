@@ -345,28 +345,48 @@ build). Prod is simply still serving the old bytes on both paths.
 ### Everything else
 
 
-- [ ] **`mecabricks` has its OWN, milder arm defect — measured, not yet diagnosed.**
-      Same probe as the dbix one (arm `3818`/`3819` to nearest `973`/`3814`/`76382`
-      torso), 300 files of `lego_sets/MecabricksLDR`, 1,076 arms:
-      p10 14.4 · **p50 32.4** · p75 37.1 · p90 40.1 · p99 301.1 LDU, only **35.9 %**
-      within 25 LDU. Authentic `OMR` reads median **18.0 LDU / 94.3 % attached**,
-      and the regenerated dbix corpus now reads 18.1 / 100 %. So mecabricks is two
-      defects: a systematic ~14 LDU shoulder offset on the bulk, and a flung tail
-      (59 arms, 5.5 %, at ≥ 100 LDU). This is clego's `harvest_mecabricks_sets` /
-      MB_ALIGN frame, not craftmatic — and mecabricks is the LARGEST source
-      (2,694 index entries). `MecabricksSearchLDR` matches it (35.2 %);
-      `dbix_conv_v2` 46.1 %; `ReconV3` 0 % on a 14-arm sample.
-      Reproduce: the loop in this session's notes, or geograde a figure close-up.
+- [ ] **`mecabricks` minifigs — ROOT-CAUSED, fix specified, trial passed, NOT rolled out.**
+      The largest source (2,694 index entries) places minifigs wrong two ways, and it
+      is user-visible: **all 20 figures in 76405 export to an add-on with NO HEAD.**
+      1. **Torso identity.** Design id `3814` resolves through `geograde/mb_partmap.py:260`
+         (`_exists` is consulted before the design map) to Studio's UNOFFICIAL
+         `3814.dat`, "MINI UPPER PART (Needs Work)" — an LDD stub whose origin is on
+         the bottom plane and 10 LDU off-centre. The geometry lands correctly but the
+         ORIGIN is (10, +32, 0) from where a `973` origin sits, so every offset measured
+         against it is 32 out. 5,632 placements / 1,355 table rows. Head reads dy −56
+         instead of −24, which falls outside craftmatic's `groupFigures` window of
+         dy −48..+80 (`ldraw-entity-compiler.ts:724-746`) — hence the missing heads.
+         **The torso half alone fixes the head defect.**
+      2. **Arm rows.** 95.8 % of arms (11,288 of 11,785) carry ref `3818v2`/`3819v2`,
+         whose learned row is `delta (∓2.5,16,−7), rot [-1,0,0,0,0,1,0,1,0], fit 0.6162`.
+         `compute()`'s orientation search scores each candidate only at its own bbox
+         delta, so a Y↔Z swap wins at 0.6162 — but **identity at delta 0 scores 0.7114**
+         and is never tried. A scene solve over 400 scenes / 956 arms gives delta
+         (0.02, 0.38, −0.15) with IQR < 0.4 LDU: the raw Mecabricks arm origin already
+         IS the LDraw shoulder. These must be `gt` rows; no mesh re-fit can derive it,
+         because the v2 mesh's forearm is modelled ~40° forward of LDraw's.
+      **Fix:** `mb_partmap.py` map `3814`→`973` and consult the map before `_exists`;
+      `harvest_mecabricks_sets.py:282` emit the table's stem when it differs from the
+      ref; set the four arm rows to delta 0 / rot null tagged `gt`, the ~30 `973`-family
+      `bbox-origin` rows to delta (0,32,0), and re-derive the 1,355 `ldraw=='3814'` rows.
+      **Trial over 32 sets: arm median 32.7 → 18.3 LDU, within [14,21] 15.6 % → 76.2 %.**
+      **Gate before rollout:** `python geograde/mb_gt_cohort.py --kind io --workers 10
+      --mbdir <trial> --tag minifig-fix` against `mbgt_v5fix` (165 sets, matched 134,887,
+      exact 84,367) — read the exact COUNT, not the rate, because mapping 3814→973 grows
+      the matched denominator. Rollout is a full re-harvest + `mb_fix` + reindex + R2.
+      **Out of scope, separate defect:** the ≥100 LDU tail is decorated torso refs
+      (`973j`, `973aq` … 47 refs / 256 placements) that LDraw names `973pNNN`, emitted
+      verbatim and resolving to nothing; plus `2550` falsely resolving to "Animal Monkey
+      Body". Follow-up after that: hands `3820v2` sit ~12 LDU off the LDraw wrist.
 
+- [ ] **71043 and 76435 on the phone — the only step left on the reported defects.**
+      Prod is deployed and verified offline (see SHIPPED above): the three spots measure
+      clean and the browser renders confirm them. What is NOT verified is how they look
+      on Will's Pixel and, for the add-ons, in Minecraft itself. `scripts/_mcaddon_check.py`
+      passes 8/8 on the built packs, but it checks the ARCHIVE, not the content.
+      Note for a dense set: export 71043 or 31201 with **Vehicle detail = Ultra** or the
+      studs are dropped.
 
-- [ ] **71043 on the phone**: prod (craftmatic.click) still serves the OLD maths until the
-      branch deploys; the user should re-check the three spots after deploy. Local A/B renders:
-      `output/lxf-gt/71043-probe/hogwarts-close-*.png` (new) vs `hogwarts-old-*.png` (old).
-      A/B verdict: the old render shows the stair tile piercing the tower floor and a loose black
-      1×1 in mid-air, the new one neither; the two angled Dementors are IDENTICAL in both, so they
-      are the source's pose, not a residual. (`scripts/_lego-probe.mjs` now takes `PROBE_VIEWS`
-      JSON for close-up cameras; search mode needs the set loaded from the index, file mode
-      `file:<abs path>` works for any .lxf/.ldr.)
 - [ ] LXF residuals (strict cohort `output/lxf-gt/strict-hybrid_xml_first.json`): Technic sets score
       ~41 % weighted (pins/axles stored in the other of two equivalent poses; flex parts), System
       ~65 %. Next levers: synthesise multi-bone flex parts; per-part pose symmetry in the scorer.
@@ -379,8 +399,10 @@ build). Prod is simply still serving the old bytes on both paths.
       a separate decision. The shell is compiled to the mirrored grid (frame −I) so it is consistent.
 - [ ] Door openability under-measured (round 3: 1 of 7 taps toggled a leaf); a scripted
       `setPermutation`/`open_bit` probe from the wand would settle it.
-- [ ] Which source the LEGO tab serves: prod index lists `IO/10326-noprint.io` first for 10326 and
-      DbixConvV3 (exploded layouts) for many sets; a "compact layout" quality flag (lego-sources-guide).
+- [ ] Which source the LEGO tab serves: prod index lists `IO/10326-noprint.io` first for 10326
+      and DbixConvV3 for 1,705 sets. Those dbix files ARE spread instruction layouts and the
+      arm fix barely moved that (chalet 125×116 → 124×97 studs) — so a "compact layout"
+      quality flag, density below ~0.3 parts/stud², is still wanted (lego-sources-guide).
 - [ ] Two museum doors "no room within three blocks"; 910047 sparse (17 % fill).
 - [ ] Hogwarts 76419 is microscale: `auto` scale now reads its microfigure (85863) and exports at
       2× so it stands player height; its one 4-part torso group is still not an NPC (figureRole).
