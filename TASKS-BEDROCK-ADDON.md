@@ -288,18 +288,20 @@ here is a geograde exemption for encased pairs, not a converter change.
 
 ### The two publish steps — BOTH need Will's explicit go-ahead (outward-facing)
 
-Everything below is measured and committed; prod is simply still serving the old
-bytes, so Will's screenshots cannot improve until these run.
+Everything else is done: the dbix corpus is regenerated, polished, restamped,
+re-graded and re-indexed IN PLACE (clego `421996f6`), the index copy is committed
+here, and every gate is green (typecheck, typecheck:web, vitest 1,634 passing,
+build). Prod is simply still serving the old bytes on both paths.
 
 1. **Deploy the web app.** `.github/workflows/deploy.yml` triggers on a push to
-   `main`, and `feat/lego-set-tab` is 25 commits ahead of it. Until that merge
+   `main`, and `feat/lego-set-tab` is ~45 commits ahead of it. Until that merge
    lands, craftmatic.click serves the pre-38ea28c `.lxf` maths and 71043 keeps
    its floating window and pierced tower plates.
 2. **Republish the corpus + index to R2.** `python sync_models_r2.py` in clego.
-   The resume file `_r2_uploaded.txt` records keys, not content, so every
-   `models/DbixConvV3/` line must be deleted from it first or the changed files
-   are skipped silently. ~2 h at its 6 polite workers. Until then prod serves
-   the old dbix bytes and 76435's arms stay scattered.
+   The resume file `_r2_uploaded.txt` records KEYS, not content, so every
+   `models/DbixConvV3/` line must be deleted from it first or all 2,302 changed
+   files are skipped silently. ~2 h at its 6 polite workers. Until then prod
+   serves the old dbix bytes and 76435's arms stay scattered.
 
 ### Everything else
 
