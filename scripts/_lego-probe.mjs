@@ -22,6 +22,17 @@ if (!target || !outDir) {
 mkdirSync(outDir, { recursive: true });
 const DEV = process.env.DEV_URL ?? 'http://localhost:4000';
 
+/**
+ * Boot budget for the app shell + the lazily-imported LEGO panel. Dev serves
+ * unbundled modules from a warm vite cache; production has to fetch, parse and
+ * execute hashed chunks off the CDN, so the same fixed 3.5 s wait that was fine
+ * locally was not a safe bound there. Every wait below is on a real condition —
+ * this is only the ceiling before we give up. Override with PROBE_BOOT_MS.
+ */
+const BOOT_MS = Number(process.env.PROBE_BOOT_MS ?? 60_000);
+/** Ceiling for the search request + result cards to appear. */
+const SEARCH_MS = Number(process.env.PROBE_SEARCH_MS ?? 45_000);
+
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
 // `serviceWorkers: 'block'` is REQUIRED, not hygiene. The PWA service worker
 // installs on first load and then intercepts `/lego-models/*`; in a fresh
@@ -33,16 +44,66 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true });
 const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, serviceWorkers: 'block' });
 const page = await ctx.newPage();
 const errors = [];
+const failedRequests = new Set();
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', e => errors.push(`pageerror: ${String(e).slice(0, 300)}`));
+// Request-level failures, which the console only ever reports as the useless
+// "Failed to load resource". Cloudflare's own analytics beacon is excluded: it
+// fails with net::ERR_ADDRESS_INVALID on every production page load (the
+// injected src carries a bare version token, not a real path) and has nothing
+// to do with the app. That one line was the red herring that made a healthy
+// production load look like a network fault. Measured 2026-09-18.
+const BENIGN_REQUEST_FAILURE = /static\.cloudflareinsights\.com/;
+page.on('requestfailed', r => {
+  if (BENIGN_REQUEST_FAILURE.test(r.url())) return;
+  failedRequests.add(`${r.failure()?.errorText ?? 'failed'} ${r.url().slice(0, 160)}`);
+});
+
+// ── Production debug hook ────────────────────────────────────────────────────
+// `window.__ldrawViewer` is assigned behind `import.meta.env.DEV`, so Vite
+// CONSTANT-FOLDS the whole block away in a production build: on craftmatic.click
+// the model renders perfectly and the probe still reported `{"bricks":0,
+// "error":"no viewer"}`, because the handle simply does not exist there.
+//
+// Rather than ship a debug global to users, re-enable it in the bytes the
+// browser is about to run: the deployed viewer chunk contains the statement
+// `this.loaded=!0,this.requestShadowUpdate(),this.container.dataset.brickCount=…`
+// exactly once, so prefixing the assignment with `globalThis.__ldrawViewer=this,`
+// restores the same handle at the same point in the load. NOTHING else is
+// touched — part resolution, geometry and colour all run the deployed code, so
+// the numbers this probe reports are the numbers real users get.
+// Dev is unaffected: vite serves /src/*.ts, never /assets/*.js, so the glob
+// never matches and the already-present dev hook is used as before.
+const PROD_HOOK_ANCHOR = 'this.container.dataset.brickCount=';
+let prodHookPatched = false;
+await page.route('**/assets/*.js', async route => {
+  const resp = await route.fetch();
+  let body = await resp.text();
+  if (body.includes(PROD_HOOK_ANCHOR)) {
+    body = body.replace(PROD_HOOK_ANCHOR, `globalThis.__ldrawViewer=this,${PROD_HOOK_ANCHOR}`);
+    prodHookPatched = true;
+  }
+  const headers = { ...resp.headers() };
+  // The fetched body is already decoded; keeping the original encoding/length
+  // headers would make the browser try to inflate plain text.
+  delete headers['content-encoding'];
+  delete headers['content-length'];
+  await route.fulfill({ status: resp.status(), headers, body });
+});
 
 await page.goto(`${DEV}/#lego`, { waitUntil: 'domcontentloaded' });
-await page.waitForTimeout(3500);
-// Activate the LEGO tab — the hash alone does not switch panels.
+// Activate the LEGO tab — the hash alone does not switch panels. Wait for the
+// nav to actually exist rather than guessing at a boot time.
+await page.waitForFunction(
+  () => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'LEGO'),
+  null, { timeout: BOOT_MS });
 await page.evaluate(() => {
   [...document.querySelectorAll('button')].find(b => b.textContent.trim() === 'LEGO')?.click();
 });
-await page.waitForTimeout(1500);
+// The LEGO panel is a lazily-imported chunk; its search box is the signal that
+// the module has executed and bound its handlers.
+await page.waitForSelector('#lego-search', { state: 'attached', timeout: BOOT_MS });
+await page.waitForSelector('#lego-search-btn', { state: 'attached', timeout: BOOT_MS });
 
 // Force continuous rendering so screenshots always have a fresh frame
 // (on-demand rendering + a backgrounded tab otherwise times out the capture).
@@ -56,14 +117,37 @@ if (target.startsWith('file:')) {
   if (!existsSync(abs)) { console.error(`no such file: ${abs}`); process.exit(1); }
   await page.setInputFiles('#lego-mpd-input', abs);
 } else {
-  const clicked = await page.evaluate(async set => {
+  // The panel fires its own browse-all search on init and DISABLES the search
+  // button for the duration. Clicking a disabled button is a silent no-op, so
+  // the query never ran and the probe then scanned the browse-all cards and
+  // reported `no-card (cards=48)`. Wait for that first search to finish.
+  await page.waitForFunction(
+    () => {
+      const b = document.getElementById('lego-search-btn');
+      return !!b && !b.disabled;
+    }, null, { timeout: SEARCH_MS });
+  await page.evaluate(set => {
     const input = document.getElementById('lego-search');
     input.value = set;
     document.getElementById('lego-search-btn').click();
-    await new Promise(r => setTimeout(r, 2500));
+  }, target);
+  // Wait for this query's own results: the button re-enables only in doSearch's
+  // finally, so "enabled again AND a card naming the set" cannot be satisfied by
+  // the leftover browse-all list. Production fetches the 10k-set index over the
+  // network first, so a fixed sleep here was a race. Only `.lego-result-card`
+  // elements are click targets.
+  await page.waitForFunction(
+    set => {
+      const b = document.getElementById('lego-search-btn');
+      if (!b || b.disabled) return false;
+      return [...document.querySelectorAll('.lego-result-card')]
+        .some(c => new RegExp(set).test(c.textContent ?? ''));
+    },
+    target, { timeout: SEARCH_MS }).catch(() => {});
+  const clicked = await page.evaluate(set => {
     const card = [...document.querySelectorAll('.lego-result-card')]
       .find(c => new RegExp(set).test(c.textContent));
-    if (!card) return 'no-card';
+    if (!card) return `no-card (cards=${document.querySelectorAll('.lego-result-card').length})`;
     card.click();
     return 'clicked';
   }, target);
@@ -92,7 +176,13 @@ while (Date.now() < deadline) {
 
 const probe = await page.evaluate(async () => {
   const v = window.__ldrawViewer;
-  if (!v) return { error: 'no viewer' };
+  if (!v) return {
+    error: 'no viewer',
+    // Distinguish "the model never loaded" from "the model loaded but the
+    // debug handle is missing" — they need opposite fixes.
+    brickCountAttr: document.querySelector('[data-brick-count]')?.dataset?.brickCount ?? null,
+    status: document.getElementById('lego-status')?.textContent?.slice(-900) ?? null,
+  };
   const THREE = v.THREE ?? null;
 
   /** max |live matrix - saved assembled matrix| over every instance. */
@@ -165,6 +255,9 @@ const probe = await page.evaluate(async () => {
 
 const positions = probe.positions ?? [];
 delete probe.positions;
+probe.origin = DEV;
+probe.prodHookPatched = prodHookPatched;
+probe.failedRequests = [...failedRequests].slice(0, 12);
 writeFileSync(join(outDir, `${label}-probe.json`), JSON.stringify(probe, null, 1));
 writeFileSync(join(outDir, `${label}-positions.json`), JSON.stringify(positions));
 

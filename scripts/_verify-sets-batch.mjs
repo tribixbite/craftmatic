@@ -18,6 +18,7 @@ const [, , rootArg, ...setArgs] = process.argv;
 const ROOT = rootArg ?? 'output/verify-sets';
 const SETS = setArgs.length > 0 ? setArgs : DEFAULT_SETS;
 mkdirSync(ROOT, { recursive: true });
+const KILL_MS = Number(process.env.VERIFY_SET_TIMEOUT_MS ?? 900_000);
 const LOG = join(ROOT, 'run.log');
 writeFileSync(LOG, `batch start ${new Date().toISOString()}\n`);
 
@@ -32,8 +33,11 @@ const runOne = set => new Promise(resolve => {
   let stdout = '', stderr = '';
   child.stdout.on('data', d => { stdout += d; });
   child.stderr.on('data', d => { stderr += d; });
-  // Hard ceiling: the probe's own model wait is 240s; allow for captures too.
-  const kill = setTimeout(() => child.kill('SIGKILL'), 420_000);
+  // Hard ceiling: the probe's own model wait is 240s, and the three fixed-camera
+  // captures of a large model take minutes on top of it. 420s killed 71043
+  // (5,967 placements) mid-capture against production, where every part file is
+  // a CDN fetch rather than a local read. Override with VERIFY_SET_TIMEOUT_MS.
+  const kill = setTimeout(() => child.kill('SIGKILL'), KILL_MS);
   child.on('close', code => {
     clearTimeout(kill);
     resolve({ set, code, stdout, stderr, ms: Date.now() - t0 });
