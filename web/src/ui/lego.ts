@@ -134,14 +134,7 @@ let _modelsIndexFetch: Promise<LegoModelsIndex> | null = null;
 
 async function getModelsIndex(): Promise<LegoModelsIndex> {
   if (_modelsIndex) return _modelsIndex;
-  // Cleared on REJECTION, or a single offline moment would poison the memo for
-  // the rest of the tab's life: a rejected promise stays rejected, so every
-  // later caller would re-await the same failure and the index could never be
-  // retried. Only the in-flight promise is shared; a settled failure is not.
-  return _modelsIndexFetch ??= fetchModelsIndex().catch((err: unknown) => {
-    _modelsIndexFetch = null;
-    throw err;
-  });
+  return _modelsIndexFetch ??= fetchModelsIndex();
 }
 
 async function fetchModelsIndex(): Promise<LegoModelsIndex> {
@@ -158,8 +151,14 @@ async function fetchModelsIndex(): Promise<LegoModelsIndex> {
       if (r.ok) { _modelsIndex = await r.json() as LegoModelsIndex; break; }
     } catch { /* offline or index not generated yet — try next */ }
   }
-  _modelsIndex ??= { generated: '', sets: {} };
-  return _modelsIndex;
+  if (_modelsIndex) return _modelsIndex;
+  // Every source failed. Serve an empty index to THIS caller so the panel still
+  // renders, but do NOT memoise it: `_modelsIndex` is the permanent cache, and
+  // storing the empty object would leave the tab with no catalogue for the rest
+  // of its life, with no path back. Dropping the in-flight promise lets the
+  // next caller retry instead.
+  _modelsIndexFetch = null;
+  return { generated: '', sets: {} };
 }
 
 /** Already-fetched index, or null. renderResults() is synchronous and needs the
