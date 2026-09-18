@@ -58,29 +58,33 @@ separately" — was TWO unrelated defects, both fixed.
   --dump` writes colours through its own `ldd_colour()`, so every render made
   from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes out
   magenta. The harness, not a palette regression.
-- **IN FLIGHT: the corpus geograde A/B for the shipped two-row fix.**
-  `C:/git/clego/output_gt/arm_ab.log` grades all 1,259 changed files under both
-  `_DbixConvV3_legacy` and `_DbixConvV3_surgical`; results land in
-  `output_gt/arm_ab_grades.json`. Re-run with
-  `python "<jobdir>/tmp/grade_ab.py" 10`, or regenerate the two corpora with
-  `reconvert_dbix.py --force --out-dir … [DBIX_DROP_LEARNED=]`. **Until that
-  number exists, the corpus must not be swapped into `lego_sets/DbixConvV3`.**
-  One set is already known to need a verdict: 4002021 grades big-floating 73
-  legacy / 370 surgical, its main component is 799 parts in BOTH, and deleting
-  the arms outright from the legacy file leaves it at 73 — so the flung arms
-  were NOT supplying phantom contact and the jump is a cluster-classification
-  flip that still needs explaining.
-- **Bedrock add-on, the user's question answered and verified.** UI chain:
-  load the set → leave `Vehicle` on "Detect vehicle components" and every
-  `⚙ MC settings` row at its default → `Download…` → **"Add-on — controls
-  detected or selected components (.mcaddon)"**. Nothing else. Re-cutting the
-  chalet from `IO/910004.io` reproduced the round-2026-09-17 reference pack's
-  components and both warnings exactly (307,690 vs 307,380 bytes). Verified
-  through the real UI on a `.lxf` (71043 → 617 KB, shell + 4 figures) and a dbix
-  `.ldr` (76435 → 320 KB, shell + 10 figures + 3 seats):
-  `output/addon-evidence-2026-09-17/`. Full chain and the two remaining limits
-  (named-submodel vehicle isolation, the 50 % `fallbackPartCount` cliff) are in
-  `docs/bedrock-addon-guide.md`.
+- **Corpus geograde A/B, SETTLED.** All 1,259 changed files graded under both
+  `_DbixConvV3_legacy` and the shipped conversion, converted-only, no polish
+  (`C:/git/clego/output_gt/arm_ab_grades.json`, driver kept at
+  `<jobdir>/tmp/grade_ab.py`, 0 errors):
+
+  | | count | total change in big-floating parts |
+  |---|---|---|
+  | sets with FEWER big floating | 475 | −29,970 |
+  | sets with MORE | 424 | +3,767 |
+  | unchanged | 360 | |
+
+  Totals: big floating **69,137 → 42,934 (−38 %)**, floating parts
+  **102,758 → 64,812 (−37 %)**. The two counts look balanced and are not: the
+  sets that improve do so in bulk (249 by 21-100 parts, 84 by more than 100)
+  while the sets that worsen are mostly small (93 by 1-2, 112 by 3-5, only 21 by
+  more than 20). **The decisive line is 360 sets go defective → clean and 2 go
+  clean → defective**, and those 2 (11221, 77117) have IDENTICAL floating-part
+  counts and main components in both — the correctly placed arms merged small
+  floater clusters past the 5-part BIG threshold. Main component is identical in
+  1,053 of 1,259.
+  The four worst (4002021 +297, 60321 +273, 76949 +181, 60317 +147) do raise
+  their floating count, with main components unchanged; on 4002021 the component
+  count falls 71 → 48, so this is clusters MERGING and their support being
+  re-judged, not parts newly detaching. Accepted on that evidence; if a figure
+  ever reads wrong on one of those four, start there.
+  The corpus is swapped in; the pre-fix bytes are kept at
+  `lego_sets/_DbixConvV3_prev` and are reproducible with `DBIX_DROP_LEARNED=`.
 - **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
   LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
   the `.io`-derived museum's `981`/`982` arms matched neither the description
