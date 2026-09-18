@@ -361,6 +361,12 @@ build). Prod is simply still serving the old bytes on both paths.
       **19.1 % → 95.1 %**. 76405 now reads head dy **−24.0**, arms **18.3**, hips
       **+32.0** — the authentic values exactly — and its add-on goes from **20 figures
       missing a head to 0** (5 still miss legs/hips, which is the source).
+      **Do not read 76405's new `asm: defective` as a regression.** It was
+      previously UNGRADED (`asm` absent); the grade is new information, not new
+      damage. Its two defects are `fragment: places 41 % of the catalogue (2,096
+      of 5,139 parts)` — the mecabricks source is genuinely incomplete, which the
+      LEGO tab already says — and big-floating 114 parts, which the fix IMPROVED
+      from 124 (floating 425 → 415).
       **Gate passed** (`mb_gt_cohort.py --kind io` vs `mbgt_v5fix`, the 10 cohort sets
       present in the trial): matched 3,568 → 3,626, **exact COUNT 2,812 → 2,908 (+96)**,
       no set lost any. The matched denominator grows as predicted, because torsos named
