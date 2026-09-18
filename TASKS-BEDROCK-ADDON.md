@@ -252,16 +252,27 @@ no figure on the roof any more.
 
 ## Open
 
-### Interpenetration is NOT fixed by this round — say so
+### Interpenetration: not fixed by this round, and mostly not a defect either
 
 Will's report named three symptoms. Floating and misplaced are answered above.
-**Overlapping is untouched**: only arm lines moved, so `overlap_parts_pct` is
-bit-identical across the 1,259 changed files, mean **0.148 %**, max **5.97 %**,
-and **52 files still sit above geograde's 1.0 % threshold**. The median file is
-exactly 0 and 979 of 1,259 are clean, so this is a tail, not a corpus-wide
-problem. Worst offenders to start from: 76434 5.97 %, 60382 5.63 %, 71499
-4.00 % (2,847 parts), 60344 3.74 %, 71495 3.36 %, 71868 2.84 %. Sunk parts do
-improve slightly as a side effect, 791 → 768 over the same files.
+**Overlapping is untouched** by the arm fix — only arm lines moved, so
+`overlap_parts_pct` is bit-identical across the 1,259 changed files: mean
+**0.148 %**, max **5.97 %**, **52 files above geograde's 1.0 % threshold**,
+while the median file is exactly 0 and 979 of 1,259 are clean. (Sunk parts do
+improve slightly as a side effect, 791 → 768.) Both sets Will photographed
+measure **0.00 %**, so this tail is not what he saw.
+
+**Then the tail was examined, and it is largely a GRADER limit.** Grading the
+seven worst and tallying `worst_overlaps` by part: **`6014b` Wheel Rim 12 x 11
+dominates — 16 instances / 1,792 LDU³ across 5 of the 7 files** — followed by
+`5330` Minifig Weapon Hilt, `69754` Projectile Launcher, `32062` Technic Axle 2
+and `32016` Angle Connector. Those are rims inside tyres, a hilt inside a hand,
+an axle inside a hole: legitimate insert geometry. GEOGRADE.md states its 8 LDU
+erosion cancels "studs in tubes, axles in holes, bars in clips", and a rim
+seated in a tyre is a deeper insert than that, so it survives erosion and scores
+as bulk-inside-bulk. **Before treating any of these 52 files as broken, check
+whether its worst overlaps are a wheel/tyre or hand/weapon pair.** The real work
+here is a geograde exemption for encased pairs, not a converter change.
 
 ### The two publish steps — BOTH need Will's explicit go-ahead (outward-facing)
 
