@@ -345,43 +345,32 @@ build). Prod is simply still serving the old bytes on both paths.
 ### Everything else
 
 
-- [ ] **`mecabricks` minifigs — ROOT-CAUSED, fix specified, trial passed, NOT rolled out.**
-      The largest source (2,694 index entries) places minifigs wrong two ways, and it
-      is user-visible: **all 20 figures in 76405 export to an add-on with NO HEAD.**
-      Blast radius measured 2026-09-18: of the **2,724 sets whose best source is
-      mecabricks, 1,541 (57 %) contain a `3814`-family torso — 4,603 torsos**, and
-      every one of those sets exports headless figures until this ships. That makes
-      it the largest remaining user-visible defect in the corpus.
-      1. **Torso identity.** Design id `3814` resolves through `geograde/mb_partmap.py:260`
-         (`_exists` is consulted before the design map) to Studio's UNOFFICIAL
-         `3814.dat`, "MINI UPPER PART (Needs Work)" — an LDD stub whose origin is on
-         the bottom plane and 10 LDU off-centre. The geometry lands correctly but the
-         ORIGIN is (10, +32, 0) from where a `973` origin sits, so every offset measured
-         against it is 32 out. 5,632 placements / 1,355 table rows. Head reads dy −56
-         instead of −24, which falls outside craftmatic's `groupFigures` window of
-         dy −48..+80 (`ldraw-entity-compiler.ts:724-746`) — hence the missing heads.
-         **The torso half alone fixes the head defect.**
-      2. **Arm rows.** 95.8 % of arms (11,288 of 11,785) carry ref `3818v2`/`3819v2`,
-         whose learned row is `delta (∓2.5,16,−7), rot [-1,0,0,0,0,1,0,1,0], fit 0.6162`.
-         `compute()`'s orientation search scores each candidate only at its own bbox
-         delta, so a Y↔Z swap wins at 0.6162 — but **identity at delta 0 scores 0.7114**
-         and is never tried. A scene solve over 400 scenes / 956 arms gives delta
-         (0.02, 0.38, −0.15) with IQR < 0.4 LDU: the raw Mecabricks arm origin already
-         IS the LDraw shoulder. These must be `gt` rows; no mesh re-fit can derive it,
-         because the v2 mesh's forearm is modelled ~40° forward of LDraw's.
-      **Fix:** `mb_partmap.py` map `3814`→`973` and consult the map before `_exists`;
-      `harvest_mecabricks_sets.py:282` emit the table's stem when it differs from the
-      ref; set the four arm rows to delta 0 / rot null tagged `gt`, the ~30 `973`-family
-      `bbox-origin` rows to delta (0,32,0), and re-derive the 1,355 `ldraw=='3814'` rows.
-      **Trial over 32 sets: arm median 32.7 → 18.3 LDU, within [14,21] 15.6 % → 76.2 %.**
-      **Gate before rollout:** `python geograde/mb_gt_cohort.py --kind io --workers 10
-      --mbdir <trial> --tag minifig-fix` against `mbgt_v5fix` (165 sets, matched 134,887,
-      exact 84,367) — read the exact COUNT, not the rate, because mapping 3814→973 grows
-      the matched denominator. Rollout is a full re-harvest + `mb_fix` + reindex + R2.
-      **Out of scope, separate defect:** the ≥100 LDU tail is decorated torso refs
-      (`973j`, `973aq` … 47 refs / 256 placements) that LDraw names `973pNNN`, emitted
-      verbatim and resolving to nothing; plus `2550` falsely resolving to "Animal Monkey
-      Body". Follow-up after that: hands `3820v2` sit ~12 LDU off the LDraw wrist.
+- [x] **`mecabricks` minifigs — FIXED, rolled out, gated** (clego `5810501d`).
+      The largest source placed every minifig wrong and it was user-visible: all 20
+      figures in 76405 exported an add-on with NO HEAD, and 1,541 of the 2,724
+      mecabricks-best sets carry a `3814`-family torso (4,603 torsos).
+      **Two causes.** (1) Design id `3814` resolved through `mb_partmap.py` (`_exists`
+      consulted before the design map) to Studio's UNOFFICIAL "MINI UPPER PART (Needs
+      Work)" stub, origin on the bottom plane and 10 LDU off-centre, so every offset
+      measured against it was 32 out and heads read dy −56, outside `groupFigures`'
+      dy −48..+80 window. (2) 95.8 % of arms carry ref `3818v2`/`3819v2` whose learned
+      row is a Y↔Z swap at fit 0.6162, while **identity at delta 0 scores 0.7114** and
+      `compute()`'s orientation search never tries it.
+      **Result, whole corpus re-harvested** (`geograde/_mb_arm_probe.py`, 3,467 files /
+      11,788 arms): arm-to-torso median **32.37 → 18.33 LDU**, within [14,21]
+      **19.1 % → 95.1 %**. 76405 now reads head dy **−24.0**, arms **18.3**, hips
+      **+32.0** — the authentic values exactly — and its add-on goes from **20 figures
+      missing a head to 0** (5 still miss legs/hips, which is the source).
+      **Gate passed** (`mb_gt_cohort.py --kind io` vs `mbgt_v5fix`, the 10 cohort sets
+      present in the trial): matched 3,568 → 3,626, **exact COUNT 2,812 → 2,908 (+96)**,
+      no set lost any. The matched denominator grows as predicted, because torsos named
+      `3814.dat` never paired with Studio truth before.
+      **Residual, out of scope:** 55 of 2,002 arm-bearing files (2.7 %) have no
+      resolvable torso — decorated refs `973j`/`973aq` … that LDraw names `973pNNN`,
+      plus `2550` falsely hitting "Animal Monkey Body". Follow-up after that: hands
+      `3820v2` sit ~12 LDU off the LDraw wrist. Pre-fix bytes at
+      `lego_sets/_MecabricksLDR_prev`; `MecabricksSearchLDR` (33 files) is NOT yet
+      re-harvested — it needs `sweep_mecabricks_search.py --recolor`.
 
 - [ ] **71043 and 76435 on the phone — the only step left on the reported defects.**
       Prod is deployed and verified offline (see SHIPPED above): the three spots measure
