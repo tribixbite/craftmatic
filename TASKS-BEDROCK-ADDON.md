@@ -7,32 +7,76 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-18 — placement round SHIPPED AND LIVE; nothing in flight)
+## State (2026-09-18 — 18-set review round; see "In flight" at the end)
 
-Everything the user reported is fixed, deployed and verified. The detail lives in
-`docs/lego-sources-guide.md` (alignment rules), `docs/bedrock-addon-guide.md`
-(add-on chain, per-source coverage, the Ultra stud budget), clego `GEOGRADE.md`
-(what the grader can and cannot see) and `git log`. What follows is the summary a
-fresh session needs, then the open work.
+The placement round is shipped and live (prod index `generated: 2026-09-18`,
+10,169 sets byte-identical to local). A follow-up review of 18 named sets in the
+browser then found five further defects; three are fixed and pushed, two are open.
+Detail lives in `docs/lego-sources-guide.md` (alignment rules),
+`docs/bedrock-addon-guide.md` (add-on chain, pack identity, the Ultra stud
+budget), clego `GEOGRADE.md` (what the grader can and cannot see) and `git log`.
 
-**Two unrelated defects behind one report.** (1) Two poisoned rows in the LDD
-correction table put every minifig arm tens of studs from its shoulder, in every
-`.lxf` falling back to the table and in all 2,302 `dbix_conv_v3` files. (2) LDraw's
-`~Moved to <id>` retirement stubs name no part, so the `.io`-derived museum's
-`981`/`982` arms matched nothing and its figures compiled armless — the museum
-add-on signed off in the 2026-09-16 round shipped that way. A third, separate
-defect in `mecabricks` was then found, root-caused and fixed the same way.
+### The 18-set review (`efa7317b`, CI + Deploy green)
 
-**Results, measured.**
+Sets: 910047 910004 10303 10326 76419 71043 76435 21061 21063 60446 10341 10337
+42172 76286 31141 11371 21318 910032. **All 18 load; 17 of 18 look right.**
+Arms are authentic: 131 of 133 placements sit 17.8-18.4 LDU from their torso.
+Evidence `output/verify-2026-09-18b/` (per-set montages + two contact sheets).
+Re-run it with `scripts/_verify-sets-{batch,analyze}.mjs` and
+`_verify-sets-montage.sh` — all three take `<outDir> [set...]`.
 
-| | before | after |
-|---|---|---|
-| 71043 `.lxf` floating / sunk / overlap | 16 / 5 / 0.05 % | **0 / 0 / 0.00 %** |
-| 71043 and 76435 arm→torso (authentic 18.0 LDU) | 647 / 215 LDU, 0 % attached | **18.1 LDU, 100 %** |
-| dbix corpus, 8,734 arms within 25 LDU | 6 (0.1 %) | **8,712 (99.7 %)** |
-| mecabricks, 11,788 arms within [14,21] | 19.1 % | **95.1 %** |
-| museum add-on figures missing arms | 7 | **0** |
-| 76405 add-on figures missing heads | 20 | **0** |
+**FIXED — `981` left arms resolved to nothing** (`d1e9b851`). 19 one-armed
+figures (910047 8, 910032 7, 11371 3, 76419 1). A resolution race with a DEPTH
+asymmetry: `982 -> 3818 -> s818s01` is 2 hops, `981 -> 3819 -> 3818 -> s818s01`
+is 3; the cache publishes an empty placeholder on text arrival, and the old
+repair invalidated only UPWARDS, so no number of retries converged. Repair now
+walks DOWN to the empty descendant. **1,435 of the library's 12,132 parts reach
+geometry through 3+ hops**, so exposure was corpus-wide. Trap: judging emptiness
+by triangle count calls healthy pure-edge primitives (`4-4edge`) broken.
+
+**FIXED — colliding pack uuids** (`6aa88d6b`). 71043/76419/76435 all stemmed to
+`hogwarts` and shipped identical BP/RP uuids, so the second import lands in a
+`(1)` folder the world cannot activate. Scoped honestly: the LEGO tab already
+passed `setNum`; what shipped broken was the CLI (`setNumber` vs `setNum`,
+uncaught because **`scripts/` is outside BOTH tsconfigs**) and the minifig
+popover. Under the CLI scheme 5,116 of 10,169 sets (50.3 %) collided.
+
+**FIXED — the CLI could not export `.lxf`** (`d0895b68`); 71043 was browser-only.
+
+**OPEN — 10303 floating track is OUR converter bug, diagnosed not shipped.**
+`flatten_io_model2.py` / `io_authenticity.py:179` drops the `.io`'s embedded
+Studio mesh definitions and substitutes the LDraw part of the same number.
+For `80566` the two meshes are the same SIZE but have different ORIGINS (pure
+translation `(137, 80, 420.63)` LDU), so three coaster curves render up to 22
+studs out. geograde on the `.io` grades `float=1`, on the flattened `.ldr`
+`float=12`. A scratch correction took 10303 from 4 isolated placements to 1 and
+its width 119.7 cm -> 86.0 cm against LEGO's published 85 cm. The residual
+`3068b` is mounted on two `80564` pieces that have NO LDraw part at all and so
+render as nothing — expected, not fixable by moving the tile. Fix + corpus A/B
+in flight in clego; NOTHING is to be published until the A/B names every file
+that worsens.
+
+**OPEN — `io_part_count` inflation demotes the authentic `.io` for 390 of the
+406 sets** whose best source is an `.io`. `clego/build_model_index.py:554` counts
+every `1 ` line in `model2.ldr`, including the ~11.4k primitive references inside
+the inlined part definitions (10303: 15,242 counted vs 3,808 real), and
+`findInflatedPromotion` (`web/src/engine/lego-sources.ts:196`) then demotes it.
+**Do not "fix the count" alone** — the app cannot currently render those `.io`s
+better (`io-extractor.ts` prefers `model.ldr`, which references unresolvable
+`bl_*.dat`, and `ldraw-parser.ts:237` only treats an embedded `.dat` as a part
+definition when it carries `!LDRAW_ORG Unofficial_Part`, which Studio omits), so
+correcting it would make things worse.
+
+**OPEN — 11371's two arms read 23.76 LDU**, both exactly, against a
+`bl_973pb…c01_3814_0` decomposed-composite torso whose origin convention differs
+from a bare `973`. Identical values are an origin offset, not a placement error.
+
+### The placement round before it — SHIPPED, see `git log` and the guides
+
+Two poisoned LDD correction rows put every minifig arm tens of studs from its
+shoulder, and LDraw's `~Moved to` stubs made `.io`-derived arms match nothing;
+a third, separate `mecabricks` defect followed. All fixed, deployed and
+verified on prod bytes. Numbers: `docs/lego-sources-guide.md`, `git log`.
 
 **Three traps this round paid for — do not re-learn them.**
 - **An `agree` threshold on the learned table is wrong.** Low `agree` means the
@@ -48,17 +92,6 @@ defect in `mecabricks` was then found, root-caused and fixed the same way.
   9-part minifig hid a 272-part detached sub-build in 4002021 and made the fix look
   like a regression. `graph_split_parts` now reports the part count beside the
   cluster count; the parts it hid went 429 → 152.
-
-**Shipped and LIVE.** `main` deployed over seven green pushes; all 13 prod-smoke
-tests pass. Both corpora are on R2: dbix 2,466 files and mecabricks 3,339 files,
-**0 failures each**. The prod index reads `generated: 2026-09-18` and all **10,169
-sets are byte-identical to the local index**. (**The index prod serves comes from R2,
-not the deploy, and `sync_models_r2.py` uploads it LAST** — so it flips only when a
-whole run finishes; see `docs/deployment-guide.md`.)
-End-to-end proof on the bytes prod actually serves: `MecabricksLDR/76405.ldr` reads
-head dy **−24.0**, arms **18.3 LDU**, hips **+32.0** — the authentic values exactly —
-and an add-on built from those bytes has **20 figures, 0 missing a head** (5 still
-miss legs/hips, which is the source) and passes `_mcaddon_check.py`.
 
 **Add-on fidelity, all six named sets, all defaults, brick-accurate shells, none
 degraded to blocks; `scripts/_mcaddon_check.py` passes 8/8.** Two need
@@ -235,6 +268,26 @@ here is a geograde exemption for encased pairs, not a converter change.
 - [ ] Repeated-part budget (76240 `70695` ×184); Tumbler 32 LDU grain reads 14.5 wide (11.5 true).
 - [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` ids with no mould; stale pack
       folders on the Pixel (`adb shell rm` denied); `_chase`/`_boom` orbit presets ship unused.
+
+## In flight (2026-09-18, started this session)
+
+- **clego origin-correction + 802-file A/B.** Implements the measured rule for the
+  10303 defect above: compare each embedded Studio `0 FILE <id>.dat` bbox against
+  the LDraw part's; translate by `t' = t - R*(LDrawMin - StudioMin)` ONLY when the
+  sizes agree and the origins differ; record (never silently translate) a size
+  mismatch or a missing library part. **Nothing may be published until the A/B
+  names every file that gets worse** — `80562`'s family (`60430`, `60432`,
+  `60432-dp`) must come out byte-identical.
+- **Device round**, five freshly rebuilt packs in
+  `output/bedrock-entity-qa/device-2026-09-18/`: 10337 (car), 76286 ultra (plane),
+  71043 ultra + 76435 + 31141 (structures). Verifying load, no `[error]` lines, no
+  floating/overlapping/misplaced pieces, both arms on every figure, and that the
+  71043/76435 pair no longer produces a `(1)` folder.
+- **Prod probe.** `scripts/_lego-probe.mjs` drives the dev server but returns
+  `{"bricks": 0, "error": "no viewer"}` with `net::ERR_ADDRESS_INVALID` against
+  `https://craftmatic.click`, so the deployed build is verified only by a string
+  match on the chunk (`assets/index-BaD2yxoz.js` contains the repair code), not
+  behaviourally. Being fixed.
 
 ## Hard rules (from the spec)
 
