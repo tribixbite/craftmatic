@@ -393,6 +393,24 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
    No other option makes a playable pack: `mcpack` is a static structure,
    `lego-mcpack` is only a texture pack, `live` pushes blocks to a running game.
 
+**For a stud-dense model, the default drops the studs — set Vehicle detail to
+Ultra.** `balanced` allows `maxStudCubes` 4,096 within a `maxModelCubes` budget
+of 16,384, and the stud budget is what is LEFT after the render cuboids
+(`ldraw-entity-compiler.ts:1382`), so a large shell can leave almost nothing for
+studs and they are dropped whole. Measured on the named sets (default → ultra):
+
+| set | cuboids | studs | omitted at default |
+|---|---|---|---|
+| 71043 Hogwarts Castle | 15,650 → **48,057** | 0 → **9,172** | 1,938 |
+| 31201 Hogwarts Crests | 1,860 → **23,537** | 0 → **9,256** | 9,256 |
+| 76435, 910004, 10326, 76405 | — | full at the default | 0 |
+
+71043 goes 0.62 MB → 1.55 MB. The two that need it are the dense ones: a castle
+whose shell alone spends the cuboid budget, and a flat crest mosaic whose studs
+ARE the picture. **The default is deliberately not changed** — `ultra` is
+labelled desktop-class and the QA device is a phone — so this is a per-model
+choice, not a bug.
+
 That is the whole chain — the tested Winter Chalet and Natural History Museum
 packs used **nothing but these defaults**. The CLI gate
 `bun scripts/_playable_ref.ts <model> <out> --label="<name>"` runs the same
