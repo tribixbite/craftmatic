@@ -51,8 +51,10 @@ same table, and both are fixed.
 - **Corpus-wide arm measurement, 1,257 dbix files carrying a torso and an arm
   (8,734 arms).** Distance to the nearest torso: median **327.5 → 18.1 LDU**,
   p90 652.8 → 18.4, and the count within 25 LDU of a torso goes from
-  **6 (0.1 %) to 8,712 (99.7 %)**. The 22 residual arms are a real tail, not a
-  rounding artefact — worth a look if a figure still reads wrong.
+  **6 (0.1 %) to 8,712 (99.7 %)**. The 22 apparent residuals are a LIMIT OF THE
+  METRIC, not a defect: they sit on figures whose torso is not `973`/`3814`/
+  `76382`, and each one measures 18-21 LDU from its own hand, head and legs
+  (checked in 75423). 99.7 % is a floor.
 - **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
   Chalet footprint 125 × 116 → **71 × 49** studs (0.19 → 0.80 parts/stud²),
   museum 114 × 54 → **80 × 30** (0.65 → 1.69). The 2026-09-16 note that buildings
@@ -169,6 +171,20 @@ no figure on the roof any more.
 - [ ] Doors/lights left out at 200 % is confirmed only by the confirm dialog's own text.
 
 ## Open
+
+- [ ] **`mecabricks` has its OWN, milder arm defect — measured, not yet diagnosed.**
+      Same probe as the dbix one (arm `3818`/`3819` to nearest `973`/`3814`/`76382`
+      torso), 300 files of `lego_sets/MecabricksLDR`, 1,076 arms:
+      p10 14.4 · **p50 32.4** · p75 37.1 · p90 40.1 · p99 301.1 LDU, only **35.9 %**
+      within 25 LDU. Authentic `OMR` reads median **18.0 LDU / 94.3 % attached**,
+      and the regenerated dbix corpus now reads 18.1 / 100 %. So mecabricks is two
+      defects: a systematic ~14 LDU shoulder offset on the bulk, and a flung tail
+      (59 arms, 5.5 %, at ≥ 100 LDU). This is clego's `harvest_mecabricks_sets` /
+      MB_ALIGN frame, not craftmatic — and mecabricks is the LARGEST source
+      (2,694 index entries). `MecabricksSearchLDR` matches it (35.2 %);
+      `dbix_conv_v2` 46.1 %; `ReconV3` 0 % on a 14-arm sample.
+      Reproduce: the loop in this session's notes, or geograde a figure close-up.
+
 
 - [ ] **71043 on the phone**: prod (craftmatic.click) still serves the OLD maths until the
       branch deploys; the user should re-check the three spots after deploy. Local A/B renders:
