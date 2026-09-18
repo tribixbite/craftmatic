@@ -7,9 +7,58 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-17, four features built and gated offline; device round running)
+## State (2026-09-17 late — placement round landed; corpus republish is the open gate)
 
-Commits `38ea28c`…`2b0b059`:
+### Placement round (this session): `b04c619`, `f0eeb17` here + `e3a035dc` in clego
+
+The user's three reported render defects — floating, overlapping and misplaced
+pieces on 71043 (`.lxf`) and 76435 (`dbix_conv_v3`), plus "all minifigs' arms
+but not hands floating separately" — were ONE root cause in two copies of the
+same table, and both are fixed.
+
+- **The defect.** clego's learner writes, per design, the MODE of its correction
+  votes plus `agree`, the vote fraction the mode won. Both consumers admitted
+  any row with `n >= 2` and never read `agree`. `3818` shipped t = (1, 112, 140)
+  at agree **0.044** and `3819` t = (607, 111, −136) at agree **0.043** — every
+  minifig arm tens of studs from its shoulder, in every `.lxf` that fell back to
+  the table AND in all 2,302 `dbix_conv_v3` files. Authentic OMR files put an
+  arm **17–18 LDU** from its torso; 71043 measured 183.7 / 647.1, 76435 141–299.
+- **The fix is a conjunction, and needs the direction fix with it.** Gate
+  `agree < 0.30 AND |t| > 80 LDU` (85 of 1,843 rows). Neither half alone is
+  safe: confident rows legitimately ask for ~1770 LDU offsets. Gating alone just
+  relocates the defect, because the gated designs fall through to a prior that
+  was composed FORWARD; Studio's `ldraw.xml` row must be applied as its INVERSE
+  (craftmatic 38ea28c already did this; clego `e3a035dc` now does too). Together:
+  71043 and 76435 arms both land at **18.1 LDU**.
+- **A blunt `agree >= 0.5` was measured and REJECTED** — 872 legitimate rows
+  discarded, −2.61 pts weighted GEO over a 29-set cohort. Do not retry it.
+- **Aggregate ground truth is untouched, by design** (only 2.27 % of placements
+  take the xml path). `dbix_gt_eval.py`, all 173 sets / 229,377 GT placements:
+  weighted GEO 70.79 → **70.80 %**, exact 41.01 → 41.01 %, median 81.10 → 81.20 %,
+  sets ≥70 % 110 and ≥90 % 47 both unchanged, **1 set worse by >1 pt** (42160,
+  −1.42). Evidence `C:/git/clego/output_gt/{base_full,joint_full,full_compare}.json`.
+- **Defect metrics move.** geograde after convert+polish: 76435 floating 5 → **0**,
+  sunk 1 → 0; 910004 Winter Chalet 8 → **0**, split0 2 → 0; 10326 Natural History
+  Museum 13 → **5**, split0 10 → 7. 71043 (`.lxf`) 16 floating / 27 splits / 5
+  sunk / 0.05 % overlap → **0 / 0 / 0 / 0.00 %**.
+- **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
+  Chalet footprint 125 × 116 → **71 × 49** studs (0.19 → 0.80 parts/stud²),
+  museum 114 × 54 → **80 × 30** (0.65 → 1.69). The 2026-09-16 note that buildings
+  must be cut from `.io` is superseded for these two; density below ~0.3
+  parts/stud² still marks a genuinely spread file.
+- **Bedrock add-on, the user's question answered and verified.** UI chain:
+  load the set → leave `Vehicle` on "Detect vehicle components" and every
+  `⚙ MC settings` row at its default → `Download…` → **"Add-on — controls
+  detected or selected components (.mcaddon)"**. Nothing else. Re-cutting the
+  chalet from `IO/910004.io` reproduced the round-2026-09-17 reference pack's
+  components and both warnings exactly. Verified through the real UI on both a
+  `.lxf` (71043 → 617 KB, shell + 4 figures) and a dbix `.ldr` (76435 → 320 KB,
+  shell + 10 figures + 3 seats): `output/addon-evidence-2026-09-17/`. The old
+  chalet cut from `DbixConvV3/910004.ldr` warned that **all seven figures lacked
+  both arms** and hung 2 of 4 doors; after the fix it matches the `.io` profile.
+  Full chain + the two remaining limits: `docs/bedrock-addon-guide.md`.
+
+### Earlier this day — commits `38ea28c`…`2b0b059`:
 - **LXF placement** (`fix(lxf)`): Studio's `ldraw.xml` row applied as its INVERSE is
   now the primary correction, clego's measured table the fallback. Ground truth over
   the native `.lxf` files with an authentic `.io` (`scripts/lxf_gt_eval.py`):
