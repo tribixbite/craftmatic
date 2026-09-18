@@ -165,6 +165,23 @@ alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
 ghost tires). Pipeline defenses (classifier extracted to
 `web/src/engine/source-quality.ts`, offline-tested in
 `test/source-quality.test.ts`; `lego.ts` imports + wires the warnings):
+- **`io_model2_v2` placements were re-based against the LDraw library origin
+  (published 2026-09-18, clego `a20ad7ab`/`0fd849f4`).** Studio `.io` files inline
+  their own part meshes; for 178 part ids Studio's mesh and the library's sit in a
+  DIFFERENT FRAME (14 of them also turned), so dropping the embedded definition and
+  referencing the library part rendered those placements up to 22 studs out. The
+  oracle is free and in every archive: `model.ldr` names library parts for the same
+  placements `model2.ldr` inlines, and corrected placements land **0.00 LDU** from
+  what it renders (8–51 LDU before). Worst corner error over all 5,503 moved
+  placements **420.88 → 6.09 LDU**; 398 of 798 archives changed, the other 400
+  byte-identical. Residual, stated not hidden: four near-symmetric ids (`35186` ×81,
+  `5443` ×2, `35473` ×5, `4526` ×14) tie their best and runner-up rotation to within
+  1.6 %, so the gate abstains — they are translated correctly and may face the wrong
+  way, which beats being 8–144 LDU out of place.
+  **Nothing about this changes a PRIMARY pick**: `IOModel2V2/*` is an entry for 598
+  sets and `models[0]` for **zero** of them (measured on the 2026-09-18 index, before
+  and after the regen), so it is the fallback/source-picker render that improves, not
+  the default one. Don't quote this correction as a fix to what a set loads by default.
 - **`mecabricks` placed every minifig wrong, two ways (fixed 2026-09-18, clego
   `5810501d`).** It is the largest source — 2,694 index entries — and the defect was
   user-visible: **1,541 of those 2,724 sets carry a `3814`-family torso (4,603
