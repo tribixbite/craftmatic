@@ -61,6 +61,16 @@ same table, and both are fixed.
   10213 Shuttle Adventure, 7.4 % of the model), zero-gap graph splits 10 → 0.
   Sunk parts are the one metric that does not improve: 27 → 29. Add 71043's
   16 → 0 and the class reads 123 → 0 floating.
+- **Corpus-wide geograde, 1,412 stems present in both polish logs** (final state
+  per file: the polished bytes where the guard kept them, the converted bytes
+  where it did not): **BIG floating parts 11,622 → 5,603 (−52 %)**, floating
+  parts 17,782 → 9,894 (−44 %). **89 sets improve, 35 get worse** — most of the
+  rest were already 0. The five worst regressions are 41713 (+305), 4002021
+  (+299), 43226 (+153), 60246 (+112), 60233 (+104); the five best are 60470
+  (−429), 75364 (−418), 60434 (−373), 60302 (−291), 72039_sm01 (−290). The 35
+  are unexamined — GEOGRADE.md's own note applies, that a re-placement can
+  RECLASSIFY a side model as a floater without anything newly detaching, so
+  check one before treating them as new breakage.
 - **Corpus-wide arm measurement, 1,257 dbix files carrying a torso and an arm
   (8,734 arms).** Distance to the nearest torso: median **327.5 → 18.1 LDU**,
   p90 652.8 → 18.4, and the count within 25 LDU of a torso goes from
