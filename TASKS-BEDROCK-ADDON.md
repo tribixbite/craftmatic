@@ -9,75 +9,119 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
 ## State (2026-09-17 late — placement round landed; corpus republish is the open gate)
 
-### Placement round (this session): `b04c619`, `f0eeb17` here + `e3a035dc` in clego
+### Placement round (this session): `6062537`, `f0eeb17`, `2d4901e`, `26eb009` here + `df06a716` in clego
 
-The user's three reported render defects — floating, overlapping and misplaced
-pieces on 71043 (`.lxf`) and 76435 (`dbix_conv_v3`), plus "all minifigs' arms
-but not hands floating separately" — were ONE root cause in two copies of the
-same table, and both are fixed.
+The user's report — floating / overlapping / misplaced pieces on 71043 (`.lxf`)
+and 76435 (`dbix_conv_v3`), plus "all minifigs' arms but not hands floating
+separately" — was TWO unrelated defects, both fixed.
 
-- **The defect.** clego's learner writes, per design, the MODE of its correction
-  votes plus `agree`, the vote fraction the mode won. Both consumers admitted
-  any row with `n >= 2` and never read `agree`. `3818` shipped t = (1, 112, 140)
-  at agree **0.044** and `3819` t = (607, 111, −136) at agree **0.043** — every
-  minifig arm tens of studs from its shoulder, in every `.lxf` that fell back to
-  the table AND in all 2,302 `dbix_conv_v3` files. Authentic OMR files put an
-  arm **17–18 LDU** from its torso; 71043 measured 183.7 / 647.1, 76435 141–299.
-- **The fix is a conjunction, and needs the direction fix with it.** Gate
-  `agree < 0.30 AND |t| > 80 LDU` (85 of 1,843 rows). Neither half alone is
-  safe: confident rows legitimately ask for ~1770 LDU offsets. Gating alone just
-  relocates the defect, because the gated designs fall through to a prior that
-  was composed FORWARD; Studio's `ldraw.xml` row must be applied as its INVERSE
-  (craftmatic 38ea28c already did this; clego `e3a035dc` now does too). Together:
-  71043 and 76435 arms both land at **18.1 LDU**.
-- **A blunt `agree >= 0.5` was measured and REJECTED** — 872 legitimate rows
-  discarded, −2.61 pts weighted GEO over a 29-set cohort. Do not retry it.
-- **Aggregate ground truth is untouched, by design** (only 2.27 % of placements
-  take the xml path). `dbix_gt_eval.py`, all 173 sets / 229,377 GT placements:
-  weighted GEO 70.79 → **70.80 %**, exact 41.01 → 41.01 %, median 81.10 → 81.20 %,
-  sets ≥70 % 110 and ≥90 % 47 both unchanged, **1 set worse by >1 pt**: 42160
-  Audi RS Q e-tron, 87.20 → 85.78 GEO, which on its 914 ground-truth placements
-  is about **13 parts**. Checked, because the obvious explanation is wrong: 42160
-  uses **zero gated designs**. Its 914 placements split learned 835 / xml 53 /
-  none 27, so the loss is the INVERSE-prior half landing 13 of those 53 xml-path
-  parts differently, on a Technic model with no minifig to gain from the trade.
-  Called out rather than rounded away: it breaches the "no file worse by >1 pt"
-  bar 38ea28c set itself. Tightening the gate cannot fix it — no 42160 design
-  sits in the 0.15-0.30 agree band either.
-  Evidence `C:/git/clego/output_gt/{base_full,joint_full,full_compare}.json`.
-- **Defect metrics move.** geograde after convert+polish: 76435 floating 5 → **0**,
-  sunk 1 → 0; 910004 Winter Chalet 8 → **0**, split0 2 → 0; 10326 Natural History
-  Museum 13 → **5**, split0 10 → 7. 71043 (`.lxf`) 16 floating / 27 splits / 5
-  sunk / 0.05 % overlap → **0 / 0 / 0 / 0.00 %**.
-- **Read the A/B `.ldr` dumps for GEOMETRY only.** `scripts/lxf_gt_eval.py --dump`
-  writes colours through its own `ldd_colour()`, not the app's, so every render
-  made from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes
-  out magenta. That is the harness, not a palette regression — the app renders the
-  same model in tan and grey.
+- **Defect 1: two poisoned rows in the LDD correction table, shipped by both
+  repos.** clego's learner writes, per design, the MODE of that design's
+  correction votes; `agree` is the vote fraction the mode won and `sets` counts
+  competing MODES, not sets. `3818` shipped t = (1, 112, 140) at agree **0.044**
+  and `3819` t = (607, 111, −136) at **0.043**, so every minifig arm in every
+  `.lxf` that fell back to the table AND in all 2,302 `dbix_conv_v3` files stood
+  tens of studs from its shoulder. Authentic OMR files put an arm **17–18 LDU**
+  from its torso; 71043 measured 183.7 / 647.1, 76435 141–299. Both now 18.1.
+- **THE THRESHOLD GATE WAS BUILT, MEASURED AND REJECTED — do not rebuild it.**
+  "Reject every row below an `agree` threshold" is the obvious fix and it is
+  wrong. A low `agree` does not mean the measurement is noisy; it means the
+  correct correction is **context-dependent**, so the disputed mode still beats
+  the ldraw.xml fallback for many designs. geograde big-floating parts,
+  converted-only: 41713 **63 → 372**, 4002021 **73 → 372** under `agree < 0.30`;
+  even `agree < 0.10`, which admits seven rows, still leaves 4002021 at 370.
+  Corpus-wide the 0.30 gate made **35 sets worse**. A blunt `agree >= 0.5` is
+  worse again: 872 legitimate rows discarded, −2.61 pts weighted GEO.
+  Inverting the ldraw.xml prior GLOBALLY has its own victims (43226 grades 0
+  big-floating forward, **153** inverted).
+- **What shipped is two explicit, evidence-backed entries**, `DROP_LEARNED` in
+  clego `dbix_align.py` and in `scripts/gen-ldd-measured-align.py`: the two arm
+  rows, with the xml prior inverted for those two designs only (forward leaves
+  the arm at 54.7 LDU, inverted at 18.1). **Blast radius proved, not asserted**:
+  regenerating the whole corpus twice, once with `DBIX_DROP_LEARNED=` (which
+  reproduces the old bytes exactly) and once with the default, gives **1,043
+  files identical, 1,259 differing ONLY in 3818/3819 lines, ZERO differing
+  anywhere else** — 8,746 changed part lines, all arms. No other design can move.
+- **Corpus arm measurement, 1,257 files / 8,734 arms**: arm-to-nearest-torso
+  median **327.5 → 18.1 LDU**, within 25 LDU of a torso **6 (0.1 %) → 8,712
+  (99.7 %)**, against 18.0 in authentic OMR. The 22 that stay beyond 25 LDU are
+  a limit of the probe (their figures use a torso mould it does not look for),
+  not a defect — checked in 75423.
 - **The `.lxf` class, not just 71043.** geograde over nine native `.lxf` files
-  from the ground-truth cohort, dumped through both placements
-  (`output/lxf-gt/geograde-ab/`, `scripts/lxf_gt_eval.py --dump`):
-  floating parts **107 → 0**, BIG floating clusters **81 → 0** (all of it
-  10213 Shuttle Adventure, 7.4 % of the model), zero-gap graph splits 10 → 0.
-  Sunk parts are the one metric that does not improve: 27 → 29. Add 71043's
-  16 → 0 and the class reads 123 → 0 floating.
-- **Corpus-wide geograde, 1,412 stems present in both polish logs** (final state
-  per file: the polished bytes where the guard kept them, the converted bytes
-  where it did not): **BIG floating parts 11,622 → 5,603 (−52 %)**, floating
-  parts 17,782 → 9,894 (−44 %). **89 sets improve, 35 get worse** — most of the
-  rest were already 0. The five worst regressions are 41713 (+305), 4002021
-  (+299), 43226 (+153), 60246 (+112), 60233 (+104); the five best are 60470
-  (−429), 75364 (−418), 60434 (−373), 60302 (−291), 72039_sm01 (−290). The 35
-  are unexamined — GEOGRADE.md's own note applies, that a re-placement can
-  RECLASSIFY a side model as a floater without anything newly detaching, so
-  check one before treating them as new breakage.
-- **Corpus-wide arm measurement, 1,257 dbix files carrying a torso and an arm
-  (8,734 arms).** Distance to the nearest torso: median **327.5 → 18.1 LDU**,
-  p90 652.8 → 18.4, and the count within 25 LDU of a torso goes from
-  **6 (0.1 %) to 8,712 (99.7 %)**. The 22 apparent residuals are a LIMIT OF THE
-  METRIC, not a defect: they sit on figures whose torso is not `973`/`3814`/
-  `76382`, and each one measures 18-21 LDU from its own hand, head and legs
-  (checked in 75423). 99.7 % is a floor.
+  dumped through both placements (`output/lxf-gt/geograde-ab/`): floating parts
+  **107 → 0**, BIG floating clusters **81 → 0** (all of it 10213 Shuttle
+  Adventure, 7.4 % of the model), zero-gap graph splits 10 → 0. Sunk is the one
+  metric that does not improve: 27 → 29. With 71043's 16 → 0 the class reads
+  **123 → 0** floating. That improvement is `38ea28c`'s (ldraw.xml applied as
+  its inverse, primary), which this round only extended to the arms.
+- **Read the A/B `.ldr` dumps for GEOMETRY only.** `scripts/lxf_gt_eval.py
+  --dump` writes colours through its own `ldd_colour()`, so every render made
+  from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes out
+  magenta. The harness, not a palette regression.
+- **IN FLIGHT: the corpus geograde A/B for the shipped two-row fix.**
+  `C:/git/clego/output_gt/arm_ab.log` grades all 1,259 changed files under both
+  `_DbixConvV3_legacy` and `_DbixConvV3_surgical`; results land in
+  `output_gt/arm_ab_grades.json`. Re-run with
+  `python "<jobdir>/tmp/grade_ab.py" 10`, or regenerate the two corpora with
+  `reconvert_dbix.py --force --out-dir … [DBIX_DROP_LEARNED=]`. **Until that
+  number exists, the corpus must not be swapped into `lego_sets/DbixConvV3`.**
+  One set is already known to need a verdict: 4002021 grades big-floating 73
+  legacy / 370 surgical, its main component is 799 parts in BOTH, and deleting
+  the arms outright from the legacy file leaves it at 73 — so the flung arms
+  were NOT supplying phantom contact and the jump is a cluster-classification
+  flip that still needs explaining.
+- **Bedrock add-on, the user's question answered and verified.** UI chain:
+  load the set → leave `Vehicle` on "Detect vehicle components" and every
+  `⚙ MC settings` row at its default → `Download…` → **"Add-on — controls
+  detected or selected components (.mcaddon)"**. Nothing else. Re-cutting the
+  chalet from `IO/910004.io` reproduced the round-2026-09-17 reference pack's
+  components and both warnings exactly (307,690 vs 307,380 bytes). Verified
+  through the real UI on a `.lxf` (71043 → 617 KB, shell + 4 figures) and a dbix
+  `.ldr` (76435 → 320 KB, shell + 10 figures + 3 seats):
+  `output/addon-evidence-2026-09-17/`. Full chain and the two remaining limits
+  (named-submodel vehicle isolation, the 50 % `fallbackPartCount` cliff) are in
+  `docs/bedrock-addon-guide.md`.
+- **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
+  LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
+  the `.io`-derived museum's `981`/`982` arms matched neither the description
+  tests nor any id list and all seven figures compiled ARMLESS — **including the
+  museum add-on signed off in the 2026-09-16 round**. `mouldFamilyId()` follows
+  the redirect for every figure classifier; arm warnings on
+  `IOModel2V2/10326-noprint.ldr` go **7 → 0**. With both fixes the museum cut
+  from the regenerated dbix file is now CLEANER than the `.io` cut the tested
+  pack used.
+- **"DbixConvV3 files are exploded instruction layouts" STANDS — an earlier
+  note in this file claiming otherwise was wrong and is deleted.** That claim
+  came from the rejected threshold-gate corpus, where the dramatic footprint
+  collapse was mis-placement, not correction. Measured on what actually ships
+  (legacy → surgical): Winter Chalet 125 × 116 → **124 × 97** studs (density
+  0.19 → 0.23), Natural History Museum 114 × 54 → **83 × 54** (0.65 → 0.89),
+  76435 128 × 26 → **100 × 26** (0.52 → 0.67). Still spread. Keep cutting
+  buildings from the `.io` / `IOModel2V2` file where one exists; density below
+  ~0.3 parts/stud² marks a spread layout.
+- **The arm fix does reach the add-on, and that is measurable.** Winter Chalet
+  cut three ways through `scripts/_playable_ref.ts`, all defaults — every cut
+  finds 7 figures and 9 seats:
+
+  | chalet source | arm warnings | doors |
+  |---|---|---|
+  | `IO/910004.io` (the tested reference) | 0 | 4 in 3 doorways |
+  | `DbixConvV3/910004.ldr` (shipped) | **7** | 2, 1 leaf outside bounds |
+  | same file, arm fix | **0** | 2, 1 leaf outside bounds |
+
+  The doors do not improve, because that is the exploded layout, not the arms.
+
+- **Bedrock add-on, the user's question answered and verified.** UI chain:
+  load the set → leave `Vehicle` on "Detect vehicle components" and every
+  `⚙ MC settings` row at its default → `Download…` → **"Add-on — controls
+  detected or selected components (.mcaddon)"**. Nothing else. Re-cutting the
+  chalet from `IO/910004.io` reproduced the round-2026-09-17 reference pack's
+  components and both warnings exactly (307,690 vs 307,380 bytes). Verified
+  through the real UI on a `.lxf` (71043 → 617 KB, shell + 4 figures) and a dbix
+  `.ldr` (76435 → 320 KB, shell + 10 figures + 3 seats):
+  `output/addon-evidence-2026-09-17/`. Full chain and the two remaining limits
+  (named-submodel vehicle isolation, the 50 % `fallbackPartCount` cliff) are in
+  `docs/bedrock-addon-guide.md`.
 - **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
   LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
   the `.io`-derived museum's `981`/`982` arms matched neither the description

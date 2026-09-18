@@ -441,14 +441,21 @@ placements** — every one of those sets' figures was armless in an add-on.
 never affected. Do not "fix" the next missing body part by appending an id to
 `FIGURE_PART_IDS` without first checking whether its description is a stub.
 
-**"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
-The 2026-09-16 note above (chalet 125 × 116 studs) is superseded: the poisoned
-minifig-arm rows and the wrong-direction `ldraw.xml` fallback were flinging
-parts, not an instruction-layout convention. Measured footprints after the fix:
-chalet 125 × 116 → **71 × 49** studs (part density 0.19 → 0.80 parts/stud²),
-Natural History Museum 114 × 54 → **80 × 30** (0.65 → 1.69). Density below
-~0.3 parts/stud² still marks a genuinely spread layout worth preferring an
-`.io` for.
+**DbixConvV3 files really are exploded instruction layouts — the 2026-09-16
+note stands.** A draft of this section briefly claimed the spread was a
+placement bug; that was measured on a conversion variant which was afterwards
+rejected, where the footprint collapse came from mis-placing parts rather than
+correcting them. On what ships, the minifig-arm fix moves footprints only a
+little: Winter Chalet 125 × 116 → 124 × 97 studs (0.19 → 0.23 parts/stud²),
+Natural History Museum 114 × 54 → 83 × 54 (0.65 → 0.89). **Keep cutting
+buildings from the `.io` / `IOModel2V2` file where one exists.** Density below
+~0.3 parts/stud² marks a spread layout.
+
+The arm fix does reach the add-on: the chalet cut from `DbixConvV3/910004.ldr`
+warned "the source lacked the figure's right arm, left arm" for all seven
+figures before it and for none after, while the door count (2 hung, 1 leaf
+outside the export bounds, against 4 in 3 doorways from the `.io`) is unchanged
+— that difference is the layout, not the arms.
 
 ## Model scale, aircraft descend and the wand's size/aim (2026-09-17)
 

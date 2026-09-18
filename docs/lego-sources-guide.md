@@ -165,34 +165,37 @@ alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
 ghost tires). Pipeline defenses (classifier extracted to
 `web/src/engine/source-quality.ts`, offline-tested in
 `test/source-quality.test.ts`; `lego.ts` imports + wires the warnings):
-- **The LDD→LDraw correction tables carry NOISE ROWS, and both consumers used
-  to ship them (fixed 2026-09-17).** clego's learner writes, per design, the
-  MODE of its correction votes plus `agree` — the fraction of the vote mass
-  that mode won — and a `sets` field that counts COMPETING MODES, not sets.
-  Both `dbix_align.py` and craftmatic's `scripts/gen-ldd-measured-align.py`
-  admitted any row with `n >= 2` and never read `agree`. `3818` (minifig left
-  arm) shipped t = (1, 112, 140) at agree **0.044** and `3819` t = (607, 111,
-  −136) at agree **0.043**, so every minifig arm in every `.lxf` that fell back
-  to the table AND in all 2,302 `dbix_conv_v3` files stood tens of studs from
-  its shoulder. Authentic OMR files put an arm **17–18 LDU** from its torso —
-  that constant is the cheapest check that a minifig is assembled.
-  The gate is a CONJUNCTION, `agree < 0.30 AND |t| > 80 LDU`, dropping 85 of
-  1,843 rows. **Neither half alone is safe**: confident rows legitimately ask
-  for offsets up to ~1770 LDU, and a low-agreement row with a small offset
-  costs nothing. **A blunt `agree >= 0.5` is measured and REJECTED** — it
-  discards 872 legitimate rows and costs 2.61 points of weighted GEO over a
-  29-set ground-truth cohort. Do not retry it.
-  **The gate needs the direction fix with it.** Studio's `ldraw.xml` row is the
-  transform that carries the LDraw part onto the LDD part, so composing a bone
-  with it needs its INVERSE (forward 13.3 % GEO, inverse 93.6 % on 10242).
-  Gating alone only relocates the defect, because the gated designs fall
-  through to that prior. Over all 173 ground-truth sets the pair is neutral on
-  structure — weighted GEO 70.79 → 70.80 %, one set worse by >1 pt — because
-  only 2.27 % of placements take the xml path, while geograde's defect counts
-  fall (76435 floating 5 → 0, 910004 8 → 0, 10326 13 → 5).
-  It also collapses footprints that had been read as "exploded instruction
-  layouts": Winter Chalet 125 × 116 → 71 × 49 studs, Natural History Museum
-  114 × 54 → 80 × 30. Below ~0.3 parts/stud² a file is still genuinely spread.
+- **Two rows of the LDD→LDraw correction table are wrong, and the obvious fix
+  for them is ALSO wrong (settled 2026-09-17).** clego's learner writes, per
+  design, the MODE of that design's correction votes plus `agree`, the fraction
+  of the vote mass the mode won, and a `sets` field that counts COMPETING MODES
+  rather than sets. `3818` (minifig left arm) shipped t = (1, 112, 140) at agree
+  **0.044** and `3819` t = (607, 111, −136) at **0.043**, so every minifig arm in
+  every `.lxf` that fell back to the table AND in all 2,302 `dbix_conv_v3` files
+  stood tens of studs from its shoulder. **An arm sits 17–18 LDU from its torso
+  in authentic OMR files** — that constant is the cheapest check that a minifig
+  is assembled, and it is what both fixes are measured against.
+  **Do not replace the two-row list with an `agree` threshold.** It was built and
+  measured twice and it is wrong: a low `agree` does not mean the measurement is
+  noisy, it means the correct correction is CONTEXT-DEPENDENT, so the disputed
+  mode still beats the ldraw.xml fallback for many designs. geograde big-floating
+  parts, converted-only: 41713 **63 → 372** and 4002021 **73 → 372** under
+  `agree < 0.30`; even `agree < 0.10`, which admits seven rows, leaves 4002021 at
+  370. Corpus-wide the 0.30 gate made 35 sets worse, and a blunt `agree >= 0.5`
+  cost 2.61 points of weighted GEO over a 29-set ground-truth cohort.
+  **Nor invert the ldraw.xml prior globally.** Studio's row is the transform that
+  carries the LDraw part onto the LDD part, so composing a bone with it needs its
+  inverse, and that is why `web/src/engine/lxf-parser.ts` applies it inverted
+  (forward 13.3 % GEO, inverse 93.6 % on 10242). But the dbix converter reaches
+  ldraw.xml only as a biased tail, and flipping it corpus-wide has victims —
+  43226 grades 0 big-floating forward and **153** inverted. It is inverted for
+  the two arm designs only, where forward leaves the arm at 54.7 LDU and inverted
+  at 18.1.
+  Result, proved by regenerating the corpus twice (`DBIX_DROP_LEARNED=` reproduces
+  the old bytes exactly): **1,043 files identical, 1,259 differing ONLY in
+  3818/3819 lines, 0 differing anywhere else**. Over 1,257 files / 8,734 arms the
+  arm-to-nearest-torso median goes **327.5 → 18.1 LDU** and the count within
+  25 LDU goes **6 (0.1 %) → 8,712 (99.7 %)**.
 - **`0 !LINEAGE <tool> <good|partial>` is the CANONICAL stamp** (clego
   converters emit it since 2026-08-28) and takes precedence over all legacy
   sniffs — the v2 DBIX reconverter's files also start with `0 LEGO DBIX v2`,
