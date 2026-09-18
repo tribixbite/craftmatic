@@ -422,6 +422,22 @@ supplied"* for **all seven figures**, hung 2 doors instead of 4 and dropped one
 leaf outside the export bounds. The same file after the fix hangs 4 doors in 3
 doorways with no arm warnings — the `.io` reference's exact profile.
 
+**A retired LDraw mould has no name, and that cost the museum every arm.**
+LDraw retires a mould with a one-line stub whose whole description is
+`~Moved to <newid>`, so a `^Minifig Arm` description test misses it and the
+literal id misses every id list. The `.io`-derived Natural History Museum
+places its arms as `981`/`982` and its hands as `983`; `983` happened to be in
+the hand id list and `981`/`982` were in no list at all, so `isFigurePart` left
+both arms in the building shell and the rig supplied standard moulds — "the
+source lacked the figure's right arm, left arm", for all seven figures. **The
+museum add-on signed off in the 2026-09-16 round shipped that way.**
+`mouldFamilyId(part, description)` in `engine/minifig-rig.ts` now resolves the
+redirect once and every figure classifier asks it, which covers the whole
+retired-mould family rather than one id at a time. Measured through
+`scripts/_playable_ref.ts` on `IOModel2V2/10326-noprint.ldr`: arm warnings
+**7 → 0**. Do not "fix" the next missing body part by appending an id to
+`FIGURE_PART_IDS` without first checking whether its description is a stub.
+
 **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
 The 2026-09-16 note above (chalet 125 × 116 studs) is superseded: the poisoned
 minifig-arm rows and the wrong-direction `ldraw.xml` fallback were flinging

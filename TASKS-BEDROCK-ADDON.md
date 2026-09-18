@@ -55,6 +55,15 @@ same table, and both are fixed.
   METRIC, not a defect: they sit on figures whose torso is not `973`/`3814`/
   `76382`, and each one measures 18-21 LDU from its own hand, head and legs
   (checked in 75423). 99.7 % is a floor.
+- **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
+  LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
+  the `.io`-derived museum's `981`/`982` arms matched neither the description
+  tests nor any id list and all seven figures compiled ARMLESS — **including the
+  museum add-on signed off in the 2026-09-16 round**. `mouldFamilyId()` follows
+  the redirect for every figure classifier; arm warnings on
+  `IOModel2V2/10326-noprint.ldr` go **7 → 0**. With both fixes the museum cut
+  from the regenerated dbix file is now CLEANER than the `.io` cut the tested
+  pack used.
 - **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
   Chalet footprint 125 × 116 → **71 × 49** studs (0.19 → 0.80 parts/stud²),
   museum 114 × 54 → **80 × 30** (0.65 → 1.69). The 2026-09-16 note that buildings
