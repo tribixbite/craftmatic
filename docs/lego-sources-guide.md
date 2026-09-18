@@ -165,6 +165,37 @@ alignment (10255 → stacked buildings, 1924 → exploded ferry decks, 8849 →
 ghost tires). Pipeline defenses (classifier extracted to
 `web/src/engine/source-quality.ts`, offline-tested in
 `test/source-quality.test.ts`; `lego.ts` imports + wires the warnings):
+- **`mecabricks` placed every minifig wrong, two ways (fixed 2026-09-18, clego
+  `5810501d`).** It is the largest source — 2,694 index entries — and the defect was
+  user-visible: **1,541 of those 2,724 sets carry a `3814`-family torso (4,603
+  torsos) and every one of them exported a Bedrock add-on with HEADLESS figures.**
+  1. **The torso resolved to the wrong part.** `geograde/mb_partmap.py` consulted
+     `_exists` BEFORE its design map, so design id `3814` hit Studio's *unofficial*
+     `3814.dat`, "MINI UPPER PART (Needs Work)" — an LDD stub whose origin is on the
+     bottom plane and 10 LDU off-centre. The geometry landed correctly but the ORIGIN
+     sat (10, +32, 0) from where a `973` origin does, so every offset measured against
+     it was 32 out. Heads read dy −56 instead of −24, which is outside
+     `groupFigures`' dy −48..+80 window (`ldraw-entity-compiler.ts`) — hence the
+     missing heads. Fix: map `3814`→`973` and consult the map first.
+  2. **The arm rows had the wrong orientation.** 95.8 % of arm placements carry ref
+     `3818v2`/`3819v2`, whose learned row is a Y↔Z swap at fit 0.6162 — because
+     `compute()`'s orientation search scores each candidate only at its own bbox
+     delta, and **identity at delta 0 scores 0.7114 and is never tried**. A solve over
+     400 scenes / 956 arms gives delta (0.02, 0.38, −0.15), IQR < 0.4 LDU: the raw
+     Mecabricks arm origin already IS the LDraw shoulder. Those four rows are now `gt`
+     rows, because no mesh re-fit can derive them (the v2 mesh models the forearm ~40°
+     forward of LDraw's).
+  **Measured over the re-harvested corpus** (`geograde/_mb_arm_probe.py`, 3,467 files
+  / 11,788 arms): arm-to-torso median **32.37 → 18.33 LDU**, within [14,21]
+  **19.1 % → 95.1 %**; the search sibling 35.2 % → 95.9 %. Gate
+  (`mb_gt_cohort.py --kind io` vs `mbgt_v5fix`): exact match COUNT **2,812 → 2,908**,
+  no set losing any — read the count, not the rate, because mapping 3814→973 grows
+  the matched denominator. Part-name resolution is unchanged (0.85 % unresolvable
+  before and after), so the remap opened no new holes.
+  **Residual, separate defect:** 55 of 2,002 arm-bearing files (2.7 %) have no
+  resolvable torso — decorated refs `973j`/`973aq` … that LDraw names `973pNNN`,
+  emitted verbatim, plus `2550` falsely hitting "Animal Monkey Body". After that,
+  hands `3820v2` sit ~12 LDU off the LDraw wrist.
 - **Two rows of the LDD→LDraw correction table are wrong, and the obvious fix
   for them is ALSO wrong (settled 2026-09-17).** clego's learner writes, per
   design, the MODE of that design's correction votes plus `agree`, the fraction
