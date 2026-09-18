@@ -369,8 +369,10 @@ build). Prod is simply still serving the old bytes on both paths.
       resolvable torso — decorated refs `973j`/`973aq` … that LDraw names `973pNNN`,
       plus `2550` falsely hitting "Animal Monkey Body". Follow-up after that: hands
       `3820v2` sit ~12 LDU off the LDraw wrist. Pre-fix bytes at
-      `lego_sets/_MecabricksLDR_prev`; `MecabricksSearchLDR` (33 files) is NOT yet
-      re-harvested — it needs `sweep_mecabricks_search.py --recolor`.
+      `lego_sets/_MecabricksLDR_prev` and `lego_sets/_MecabricksSearchLDR_prev`.
+      `MecabricksSearchLDR` is re-harvested too (`sweep_mecabricks_search.py
+      --recolor` + `mb_fix --src MecabricksSearchLDR --all`): 145 arms, median
+      **18.33 LDU, 95.9 % within [14,21]**, up from 35.2 %.
 
 - [ ] **71043 and 76435 on the phone — the only step left on the reported defects.**
       Prod is deployed and verified offline (see SHIPPED above): the three spots measure
