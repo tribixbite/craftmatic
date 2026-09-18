@@ -23,7 +23,15 @@ mkdirSync(outDir, { recursive: true });
 const DEV = process.env.DEV_URL ?? 'http://localhost:4000';
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true });
-const page = await browser.newPage({ viewport: { width: 1400, height: 950 } });
+// `serviceWorkers: 'block'` is REQUIRED, not hygiene. The PWA service worker
+// installs on first load and then intercepts `/lego-models/*`; in a fresh
+// automation context those fetches come back `net::ERR_FAILED`, the loader
+// walks the whole source ladder and ends at "No 3D model found — trying BL
+// parts inventory", which reads exactly like a missing model. Search mode was
+// unusable this way while `file:` mode (no network fetch for the model) worked,
+// so the failure looked like a bug in the index. Measured 2026-09-17.
+const ctx = await browser.newContext({ viewport: { width: 1400, height: 950 }, serviceWorkers: 'block' });
+const page = await ctx.newPage();
 const errors = [];
 page.on('console', m => { if (m.type() === 'error') errors.push(m.text().slice(0, 300)); });
 page.on('pageerror', e => errors.push(`pageerror: ${String(e).slice(0, 300)}`));
