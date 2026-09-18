@@ -41,6 +41,18 @@ same table, and both are fixed.
   sunk 1 → 0; 910004 Winter Chalet 8 → **0**, split0 2 → 0; 10326 Natural History
   Museum 13 → **5**, split0 10 → 7. 71043 (`.lxf`) 16 floating / 27 splits / 5
   sunk / 0.05 % overlap → **0 / 0 / 0 / 0.00 %**.
+- **The `.lxf` class, not just 71043.** geograde over nine native `.lxf` files
+  from the ground-truth cohort, dumped through both placements
+  (`output/lxf-gt/geograde-ab/`, `scripts/lxf_gt_eval.py --dump`):
+  floating parts **107 → 0**, BIG floating clusters **81 → 0** (all of it
+  10213 Shuttle Adventure, 7.4 % of the model), zero-gap graph splits 10 → 0.
+  Sunk parts are the one metric that does not improve: 27 → 29. Add 71043's
+  16 → 0 and the class reads 123 → 0 floating.
+- **Corpus-wide arm measurement, 1,257 dbix files carrying a torso and an arm
+  (8,734 arms).** Distance to the nearest torso: median **327.5 → 18.1 LDU**,
+  p90 652.8 → 18.4, and the count within 25 LDU of a torso goes from
+  **6 (0.1 %) to 8,712 (99.7 %)**. The 22 residual arms are a real tail, not a
+  rounding artefact — worth a look if a figure still reads wrong.
 - **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
   Chalet footprint 125 × 116 → **71 × 49** studs (0.19 → 0.80 parts/stud²),
   museum 114 × 54 → **80 × 30** (0.65 → 1.69). The 2026-09-16 note that buildings
