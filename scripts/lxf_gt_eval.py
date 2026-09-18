@@ -116,7 +116,8 @@ def axis_angle(angle: float, ax: float, ay: float, az: float) -> np.ndarray:
 
 # ── placement variants ───────────────────────────────────────────────────────
 # Each variant maps (R_bone row-major, t_bone cm, xml row, measured row) to
-# (rot 3x3 in LDraw, pos LDU, ldraw file).  `shipped` is the TypeScript.
+# (rot 3x3 in LDraw, pos LDU, ldraw file).  `shipped` is the TypeScript,
+# which is `hybrid_xml_first`; `legacy_measured_first` is what it replaced.
 
 def xml_parts(align):
     t_align = np.array(align[1:4], dtype=float)
@@ -124,7 +125,10 @@ def xml_parts(align):
     return r_align, t_align
 
 
-def place_shipped(rb, tb, align, meas):
+def place_legacy_measured_first(rb, tb, align, meas):
+    """What shipped BEFORE 38ea28c: the measured table first, ldraw.xml forward
+    as the fallback. Kept so the improvement stays re-measurable; it is no
+    longer what the TypeScript does."""
     if meas is not None:
         r_ldr = F @ rb @ F
         d = np.array(meas[1:10]).reshape(3, 3)
@@ -184,9 +188,14 @@ def place_hybrid_xml_first(rb, tb, align, meas):
     return place_measured_only(rb, tb, align, meas)
 
 
+# `shipped` MUST track web/src/engine/lxf-parser.ts. Since 38ea28c that is
+# Studio's ldraw.xml row applied as its INVERSE first, clego's measured table
+# only for designs ldraw.xml does not name — i.e. the hybrid below. Leaving the
+# old alias here would silently measure a placement the app no longer uses.
 VARIANTS = {
-    'shipped': place_shipped,
+    'shipped': place_hybrid_xml_first,
     'hybrid_xml_first': place_hybrid_xml_first,
+    'legacy_measured_first': place_legacy_measured_first,
     'none': lambda rb, tb, a, m: (F @ rb @ F, F @ tb * CM_TO_LDU, (a[0] if a else (m[0] if m else None))),
     'measured_only': place_measured_only,
     'measured_only_T': lambda rb, tb, a, m: place_measured_only(rb, tb, a, m, transpose_bone=True),
@@ -216,7 +225,9 @@ def ldr_text(records, table, measured, variant) -> tuple[str, Counter]:
         if part is None:
             part = f"{rec['designID']}.dat"
             stats['unmapped'] += 1
-        elif meas is not None and variant in ('shipped', 'measured_only', 'measured_only_T'):
+        elif meas is not None and (
+                variant in ('legacy_measured_first', 'measured_only', 'measured_only_T')
+                or (variant in ('shipped', 'hybrid_xml_first') and align is None)):
             stats['measured'] += 1
         else:
             stats['xml'] += 1
