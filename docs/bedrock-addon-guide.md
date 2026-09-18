@@ -400,12 +400,25 @@ packs used **nothing but these defaults**. The CLI gate
 reproduced the round-2026-09-17 reference pack's component list (shell + 7
 figures + 9 seats) and both warnings exactly, at 307,690 vs 307,380 bytes.
 
-**Every source reaches this path.** Figures, seats, doors and the shell are
-found geometrically and from LDraw part descriptions, never from submodel
-names, so a flat part list qualifies. Verified through the real UI on
-2026-09-17 (`output/addon-evidence-2026-09-17/`): `LXF/71043_hogwarts_castle.lxf`
-→ 617 KB pack, shell + 4 figures; `DbixConvV3/76435.ldr` → 320 KB pack,
-shell + 10 figures + 3 seats. Two limits stay:
+**Every source reaches this path — measured, not assumed.** Figures, seats,
+doors and the shell are found geometrically and from LDraw part descriptions,
+never from submodel names, so a flat part list qualifies. One add-on cut per
+source class on 2026-09-17 (`output/addon-evidence-2026-09-17/`), all defaults:
+
+| source | model | shell | figures | seats | arm warnings |
+|---|---|---|---|---|---|
+| `io` | 910004 Winter Chalet | 1 | 7 | 9 | 0 |
+| `io_model2_v2` | 10326 Natural History Museum | 1 | 7 | 1 | 0 (was 7) |
+| `lxf` (through the real UI) | 71043 Hogwarts Castle | 1 | 4 | 0 | 0 |
+| `dbix_conv_v3` (through the real UI) | 76435 Great Hall | 1 | 10 | 3 | 0 after the fix |
+| `mecabricks` | 71799 NINJAGO City Markets | 1 | 21 | 1 | 0 |
+| `omr` | 10176 King's Castle | 1 | 10 | 0 | 0 |
+| `recon_v3` | 10041 | 1 | 4 | 7 | **4** |
+
+`recon_v3` is the one class that still loses arms, and for its own reason: its
+arms are present but flung (median 276 LDU from a torso, 0 % within 25), so they
+fall outside `groupFigures`' 40 LDU horizontal radius and the rig supplies
+standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
 
 - **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
   only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
