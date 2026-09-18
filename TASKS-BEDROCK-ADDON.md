@@ -58,6 +58,14 @@ separately" — was TWO unrelated defects, both fixed.
   --dump` writes colours through its own `ldd_colour()`, so every render made
   from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes out
   magenta. The harness, not a palette regression.
+- **geograde COULD NOT SEE this defect, and that is the lesson.** A displaced
+  arm lands at floor level, so geograde classed all of them `side model`, which
+  is explicitly "not a defect". 76435 graded `float=5 BIG=0 ovl=0.00 % side=112`
+  with a hundred loose arms lying beside the build, and grades `float=5 BIG=0
+  ovl=0.00 % sunk=1` now they are on the shoulders — the headline metrics barely
+  move. Will found it in a screenshot. What catches it is a part-identity check,
+  not a geometry class: an arm sits 17-18 LDU from its torso. Recorded in clego
+  `GEOGRADE.md` beside the `side model` rule.
 - **Corpus geograde A/B, SETTLED — and quote the POST-POLISH number.** The
   pre-polish comparison over the 1,259 changed files is dramatic (big floating
   **69,137 → 42,934, −38 %**; floating **102,758 → 64,812**; 360 sets go
