@@ -10,6 +10,32 @@ import {
 import { BlockGrid } from '@craft/schem/types.js';
 
 describe('withSizeGroups', () => {
+  it('clamps a scaled camera radius to the range Bedrock accepts', () => {
+    // Measured on a device (Bedrock 1.26.51.1): The Milano 76286 has a base
+    // radius of 30, so its 300 %/400 % groups asked for 90 and 120, and the
+    // world load logged two [error] lines and rejected the entity. Any base
+    // above 21.3 overflows the [1, 64] range at 300 %.
+    const base = { format_version: '1.26.30', 'minecraft:entity': {
+      description: { identifier: 'craftmatic:plane' }, components: {} } };
+    const rideable = { seat_count: 1, family_types: ['player'],
+      seats: { position: [0, 1, 0], third_person_camera_radius: 30 } };
+    const out = withSizeGroups(base, { width: 4, height: 2 }, rideable) as {
+      'minecraft:entity': { component_groups: Record<string, Record<string, unknown>> } };
+    const groups = out['minecraft:entity'].component_groups;
+    const radiusOf = (pct: number): number => {
+      const r = groups[`craftmatic:size_${pct}`]!['minecraft:rideable'] as
+        { seats: { third_person_camera_radius: number } };
+      return r.seats.third_person_camera_radius;
+    };
+    for (const pct of SIZE_STEPS.filter(p => p !== 100)) {
+      expect(radiusOf(pct)).toBeGreaterThanOrEqual(1);
+      expect(radiusOf(pct)).toBeLessThanOrEqual(64);
+    }
+    expect(radiusOf(300)).toBe(64);   // 90 clamped
+    expect(radiusOf(400)).toBe(64);   // 120 clamped
+    expect(radiusOf(50)).toBe(15);    // untouched below the ceiling
+  });
+
   it('adds one group per step with scale, collision box and scaled seats, keeping existing groups', () => {
     const base = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x' },
       component_groups: { 'craftmatic:descending': { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } } },

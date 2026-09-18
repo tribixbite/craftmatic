@@ -117,12 +117,32 @@ export function rotatePlacementPoint(
 
 const round3 = (v: number): number => Math.round(v * 1000) / 1000;
 
+/**
+ * Bedrock validates `third_person_camera_radius` against [1, 64] and rejects
+ * the whole entity definition when one value falls outside it - and ONE bad
+ * definition takes the pack's entity with it.
+ *
+ * Scaling a seat by the size factor overflows that ceiling on its own:
+ * `chaseRadius` caps a base radius at 30, so anything above 21.3 breaks at
+ * 300 %. Measured on a device (Bedrock 1.26.51.1): The Milano 76286 has a base
+ * radius of 30, its `craftmatic:size_300`/`size_400` groups asked for 90.0 and
+ * 120.0, and the world load logged the session's only two `[error]` lines.
+ * Clamping loses nothing a player can see - past ~64 blocks the chase camera is
+ * already further out than the render distance the vehicle is visible at.
+ */
+const CAMERA_RADIUS_MIN = 1;
+const CAMERA_RADIUS_MAX = 64;
+const clampCameraRadius = (v: number): number =>
+  Math.min(CAMERA_RADIUS_MAX, Math.max(CAMERA_RADIUS_MIN, v));
+
 /** A `minecraft:rideable` component with every seat position (and camera radius) scaled by `f`. */
 function scaleRideable(rideable: Record<string, unknown>, f: number): Record<string, unknown> {
   const scaleSeat = (seat: Record<string, unknown>): Record<string, unknown> => ({
     ...seat,
     ...(Array.isArray(seat.position) ? { position: (seat.position as number[]).map(v => round3(v * f)) } : {}),
-    ...(typeof seat.third_person_camera_radius === 'number' ? { third_person_camera_radius: round3(seat.third_person_camera_radius * f) } : {}),
+    ...(typeof seat.third_person_camera_radius === 'number'
+      ? { third_person_camera_radius: clampCameraRadius(round3(seat.third_person_camera_radius * f)) }
+      : {}),
   });
   const seats = rideable.seats;
   return {
