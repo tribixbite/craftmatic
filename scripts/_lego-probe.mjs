@@ -153,6 +153,9 @@ const probe = await page.evaluate(async () => {
     explodeFullMaxDelta: at100.maxAbsDelta,
     returnToZeroMaxDelta: back0.maxAbsDelta,
     missingParts: (v.missingParts ?? []).length,
+    // The NAMES matter as much as the count: a part that silently fails to
+    // resolve (e.g. a deep `~Moved to` chain) is invisible in a bare count.
+    missingPartsList: (v.missingParts ?? []).slice(0, 40),
     substitutedParts: [...(v.substitutedParts ?? new Map()).entries?.() ?? []].slice(0, 40),
     unresolvedSubparts: [...(v.unresolvedSubparts ?? [])].slice(0, 40),
     status: document.getElementById('lego-status')?.textContent?.slice(-900) ?? null,

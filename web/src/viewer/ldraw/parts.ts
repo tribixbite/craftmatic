@@ -34,6 +34,24 @@ const geomInFlight = new Map<string, Promise<PartGeom>>();
  */
 const geomDependents = new Map<string, Set<string>>();
 
+/**
+ * Forward dependency edges: parent part key → every child it flattened in.
+ * The mirror of `geomDependents`, recorded on the same line.
+ *
+ * Why both directions are needed: `geomDependents` widens an invalidation
+ * UPWARDS (an ancestor holding a baked copy of a changed child is stale), but
+ * the concurrent-resolution race leaves damage BELOW the part you noticed.
+ * `981` (Minifig Arm Left) is `981 → 3819 → 3818 → s\3818s01`, one hop deeper
+ * than `982 → 3818 → s\3818s01`, so while `982`'s chain had `3818` in flight,
+ * `981`'s chain read `3818`'s not-yet-populated cache placeholder and BOTH
+ * `3819` and `981` cached empty. Re-resolving only `981` then rebuilt it from
+ * the still-stale `3819` and it stayed empty no matter how often it was
+ * retried — measured as 19 one-armed minifigs across 18 sets (910047 lost 8
+ * left arms, 910032 7, 11371 3, 76419 1). Repair has to walk down to the
+ * empty descendant and drop THAT.
+ */
+const geomDependencies = new Map<string, Set<string>>();
+
 const MAX_CACHE_ENTRIES = 10_000;
 
 /** Color IDs discovered to be transparent via inline !COLOUR ALPHA definitions */
@@ -127,6 +145,124 @@ function invalidateGeomTree(key: string, seen = new Set<string>()): void {
   partGeomCache.delete(key);
   const parents = geomDependents.get(key);
   if (parents) for (const p of parents) invalidateGeomTree(p, seen);
+}
+
+/**
+ * Does this part carry NO geometry of any kind?
+ *
+ * Deliberately wider than the viewer's triangle-count test for a missing part:
+ * plenty of healthy library primitives are pure EDGE files (`4-4edge`,
+ * `1-4edge`, …) with zero triangles, and calling those empty made the repair
+ * walk drop them plus their whole ancestor closure — measured on 910032, a
+ * single edge primitive cascaded into re-resolving hundreds of parts.
+ */
+function geomIsEmpty(geom: PartGeom | undefined): boolean {
+  if (!geom) return true;
+  if (geom.tris.length > 0 || geom.edges.length > 0) return false;
+  for (const tris of geom.colorTris.values()) if (tris.length > 0) return false;
+  for (const edges of geom.colorEdges.values()) if (edges.length > 0) return false;
+  for (const tris of geom.texTris?.values() ?? []) if (tris.length > 0) return false;
+  return true;
+}
+
+/** Assembled triangle count (inherit-color plus every explicit-color bucket). */
+function geomTriCount(geom: PartGeom | undefined): number {
+  if (!geom) return 0;
+  let n = geom.tris.length;
+  for (const tris of geom.colorTris.values()) n += tris.length;
+  return n;
+}
+
+/**
+ * Drop everything standing between `id` and a correct rebuild: every part in
+ * its dependency SUBTREE that cached with NO geometry, plus (transitively, via
+ * `invalidateGeomTree`) every ancestor that baked one of those in.
+ *
+ * Only empty nodes are dropped, so a healthy child is never rebuilt for
+ * nothing — and descending past a healthy child still finds an empty
+ * grandchild, whose upward invalidation then takes that child with it.
+ *
+ * Returns every key dropped; the caller MUST re-resolve all of them (see
+ * `invalidatePartGeom` for what leaving an ancestor unbuilt costs).
+ */
+function invalidateEmptyGeomChain(id: string): string[] {
+  const dropped = new Set<string>();
+  const visited = new Set<string>();
+  const walk = (key: string): void => {
+    if (visited.has(key)) return; // reference cycles exist in the wild
+    visited.add(key);
+    const children = geomDependencies.get(key);
+    if (children) for (const child of children) walk(child);
+    // Judged AFTER descending: a child's upward invalidation deletes the very
+    // cache entry this test reads, so testing first would miss nothing but
+    // testing later would call a healthy parent empty and re-walk it.
+    if (geomIsEmpty(partGeomCache.get(key))) invalidateGeomTree(key, dropped);
+  };
+  walk(normId(id));
+  return [...dropped];
+}
+
+/** What one `repairIncompleteGeometry()` run did — logged by the viewer. */
+export interface GeomRepairReport {
+  /** How many drop/rebuild rounds ran (0 when nothing was empty). */
+  passes: number;
+  /** Requested parts that went from no geometry to some. */
+  repaired: string[];
+  /** Requested parts still empty: genuinely unrenderable (absent from the
+   *  library, or an LSynth flexible part needing curve synthesis). */
+  stillEmpty: string[];
+}
+
+/**
+ * Repair parts that came back from the concurrent prefetch with NO geometry.
+ *
+ * Concurrent resolution caches a placeholder for a part as soon as its text
+ * arrives and fills it as its sub-files land, so a second chain reaching that
+ * part meanwhile flattens an empty placeholder into itself (see
+ * `geomDependencies` for the minifig-arm case this was measured on). The fix
+ * is to drop the stale entries and rebuild them SEQUENTIALLY, where no such
+ * race exists.
+ *
+ * Iterates to a fixed point rather than running a single round: one round
+ * repairs one layer of damage, and `maxPasses` bounds it so a genuinely
+ * unrenderable part cannot loop. In practice the downward walk makes one pass
+ * enough — the second pass only proves nothing changed.
+ *
+ * Runs before meshes are built, so it fixes the render and not just the
+ * missing-parts report.
+ */
+export async function repairIncompleteGeometry(
+  partIds: readonly string[],
+  opts: { maxPasses?: number; cancelled?: () => boolean } = {},
+): Promise<GeomRepairReport> {
+  const maxPasses = opts.maxPasses ?? 5;
+  const cancelled = opts.cancelled ?? ((): boolean => false);
+  // Seeds use the TRIANGLE count, matching what the viewer reports as a
+  // missing part; the walk below uses the wider `geomIsEmpty` so it doesn't
+  // mistake a healthy edge-only primitive for damage.
+  const emptyIds = (): string[] =>
+    partIds.filter(p => geomTriCount(partGeomCache.get(normId(p))) === 0);
+
+  const repaired = new Set<string>();
+  let empties = emptyIds();
+  let passes = 0;
+  while (passes < maxPasses && empties.length > 0) {
+    passes++;
+    const dropped = new Set<string>();
+    for (const p of empties) for (const k of invalidateEmptyGeomChain(p)) dropped.add(k);
+    for (const k of dropped) {
+      if (cancelled()) return { passes, repaired: [...repaired], stillEmpty: empties };
+      await resolvePartGeometry(k);
+    }
+    const before = empties;
+    empties = emptyIds();
+    const stillEmpty = new Set(empties);
+    for (const p of before) if (!stillEmpty.has(p)) repaired.add(p);
+    // Fixed point: a pass that repaired nothing would drop and rebuild exactly
+    // the same keys again, so stop instead of burning the remaining passes.
+    if (empties.length >= before.length) break;
+  }
+  return { passes, repaired: [...repaired], stillEmpty: empties };
 }
 
 let LDRAW_BASE = '/ldraw-parts';
@@ -1080,6 +1216,9 @@ export async function resolvePartGeometry(
         let parents = geomDependents.get(childKey);
         if (!parents) { parents = new Set(); geomDependents.set(childKey, parents); }
         parents.add(key);
+        let children = geomDependencies.get(key);
+        if (!children) { children = new Set(); geomDependencies.set(key, children); }
+        children.add(childKey);
 
         subPromises.push(
           resolvePartGeometry(subId, depth + 1, childInvert).then(sub => {

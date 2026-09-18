@@ -34,6 +34,12 @@ interface MockOptions {
   rev: string | 'missing' | 'throw';
   /** stem (no `.dat`) → file text. Anything else 404s. */
   files: Record<string, string>;
+  /**
+   * stem → ms before that file's response resolves (default 0). Lets a test
+   * pin an INTERLEAVING of two concurrent resolutions rather than hoping for
+   * one — the concurrent-prefetch race needs a specific one.
+   */
+  delayMs?: Record<string, number>;
 }
 
 let partFetches: string[] = [];
@@ -53,6 +59,8 @@ function mockFetch(opts: MockOptions): void {
     if (s.includes('/_batch')) return new Response('', { status: 404 });
     const stem = s.split('/').pop()!.replace(/\.dat$/i, '');
     partFetches.push(stem);
+    const delay = opts.delayMs?.[stem] ?? 0;
+    if (delay > 0) await new Promise(r => setTimeout(r, delay));
     const text = opts.files[stem];
     return text === undefined
       ? new Response('', { status: 404 })
@@ -289,5 +297,132 @@ describe('assembled geometry is invalidated when a child definition changes', ()
     expect(new Set(dropped),
       'a caller that invalidates in order to REBUILD needs the whole set back')
       .toEqual(new Set(['invchild', 'invparent', 'invtop']));
+  });
+});
+
+/**
+ * The viewer's repair pass (`repairIncompleteGeometry`), which puts back the
+ * geometry the CONCURRENT prefetch loses.
+ *
+ * The defect it exists for, measured in the browser across 18 sets: 19 minifigs
+ * rendered with one arm. `982` (Arm Right) is `982 → 3818 → s\3818s01`; `981`
+ * (Arm Left) is one hop deeper, `981 → 3819 → 3818 → s\3818s01`. Resolving both
+ * at once let `981`'s chain read `3818`'s cache PLACEHOLDER while `982`'s chain
+ * still had it in flight, so `3819` and `981` both cached empty — and a repair
+ * that re-resolved only `981` rebuilt it from the still-empty `3819`, forever.
+ */
+describe('repairIncompleteGeometry() rebuilds parts emptied by the prefetch race', () => {
+  beforeEach(() => {
+    realFetch = globalThis.fetch;
+    (globalThis as unknown as { indexedDB?: unknown }).indexedDB = undefined;
+  });
+  afterEach(() => { globalThis.fetch = realFetch; });
+
+  /** `1 16 <identity> <child>.dat` — one sub-file reference, no transform. */
+  const ref = (child: string): string =>
+    `1 16 0 0 0 1 0 0 0 1 0 0 0 1 ${child}.dat`;
+
+  it('repairs a 3-hop chain whose middle link raced (the 981 minifig arm)', async () => {
+    // Delays pin the interleaving: `armbase` is in flight (placeholder cached,
+    // waiting on the slow `armsub`) from ~5ms to ~205ms, and the deeper chain
+    // reaches it at ~65ms — exactly the browser race, deterministically.
+    mockFetch({
+      rev: 'missing',
+      delayMs: { armsub: 200, armmirror: 60 },
+      files: {
+        armsub: tris(4),                                       // the real geometry
+        armbase: `0 BFC CERTIFY CCW\n${ref('armsub')}`,        // 3818
+        armmirror: `0 BFC CERTIFY CCW\n${ref('armbase')}`,     // 3819
+        armleft: `0 ~Moved to armmirror\n${ref('armmirror')}`, // 981  (3 hops)
+        armright: `0 ~Moved to armbase\n${ref('armbase')}`,    // 982  (2 hops)
+      },
+    });
+    const { resolvePartGeometry, repairIncompleteGeometry, getCachedPartGeom } =
+      await freshSession();
+
+    // The prefetch, exactly as the viewer runs it: every unique part at once.
+    const uniqueParts = ['armright', 'armleft'];
+    await Promise.all(uniqueParts.map(p => resolvePartGeometry(p)));
+    expect(getCachedPartGeom('armright')?.tris.length,
+      'the shallow arm wins the race and is fine').toBe(4);
+    expect(getCachedPartGeom('armleft')?.tris.length,
+      'precondition: the deep arm lost the race and cached EMPTY').toBe(0);
+    expect(getCachedPartGeom('armmirror')?.tris.length,
+      'and so did its middle link, which is what one repair round cannot see').toBe(0);
+
+    const report = await repairIncompleteGeometry(uniqueParts);
+    expect(getCachedPartGeom('armleft')?.tris.length,
+      'the deep arm must render after repair — this is the one-armed minifig').toBe(4);
+    expect(getCachedPartGeom('armmirror')?.tris.length,
+      'repair has to reach DOWN to the empty middle link, not just retry the top').toBe(4);
+    expect(report.repaired).toEqual(['armleft']);
+    expect(report.stillEmpty).toEqual([]);
+  });
+
+  it('rebuilds the ancestors it drops, so a repair cannot create a missing part', async () => {
+    // The 71043 regression in reverse: invalidation is transitive UPWARD, so a
+    // part holding a baked copy of an empty descendant is dropped too. Leaving
+    // it unbuilt is what cost 71043 all 25 placements of `90398`.
+    mockFetch({
+      rev: 'missing',
+      files: {
+        ancshared: tris(2),
+        ancempty: `0 BFC CERTIFY CCW\n${ref('ancnosuchfile')}`, // renders nothing, ever
+        anctop: `0 BFC CERTIFY CCW\n${ref('ancempty')}\n${ref('ancshared')}`,
+      },
+    });
+    const { resolvePartGeometry, repairIncompleteGeometry, getCachedPartGeom } =
+      await freshSession();
+
+    const uniqueParts = ['anctop', 'ancempty'];
+    await Promise.all(uniqueParts.map(p => resolvePartGeometry(p)));
+    expect(getCachedPartGeom('anctop')?.tris.length).toBe(2);
+
+    const report = await repairIncompleteGeometry(uniqueParts);
+    expect(getCachedPartGeom('anctop')?.tris.length,
+      'the ancestor dropped by the repair must be rebuilt, not left absent').toBe(2);
+    expect(report.stillEmpty,
+      'a genuinely unrenderable part is reported, not silently retried').toEqual(['ancempty']);
+    expect(report.repaired).toEqual([]);
+    expect(report.passes,
+      'a pass that repairs nothing is the fixed point — it must not burn the cap').toBe(1);
+  });
+
+  it('does not mistake a pure-EDGE primitive for damage', async () => {
+    // Measured on 910032: counting only triangles made healthy edge-only
+    // primitives (`4-4edge` and friends) look empty, so the walk dropped them
+    // AND their whole ancestor closure — hundreds of parts re-resolved, and
+    // the arm the pass existed to repair came back empty anyway.
+    mockFetch({
+      rev: 'missing',
+      files: {
+        edgeprim: ['0 BFC CERTIFY CCW', '2 24 0 0 0 10 0 0'].join('\n'), // edges, no tris
+        edgeuser: [tris(3), ref('edgeprim')].join('\n'),                 // healthy ancestor
+        edgeseed: ['0 BFC CERTIFY CCW', ref('edgeprim')].join('\n'),     // 0 tris → a seed
+      },
+    });
+    const { resolvePartGeometry, repairIncompleteGeometry, getCachedPartGeom } =
+      await freshSession();
+
+    const uniqueParts = ['edgeuser', 'edgeseed'];
+    await Promise.all(uniqueParts.map(p => resolvePartGeometry(p)));
+    const userBefore = getCachedPartGeom('edgeuser');
+    const primBefore = getCachedPartGeom('edgeprim');
+
+    const report = await repairIncompleteGeometry(uniqueParts);
+    expect(getCachedPartGeom('edgeprim'),
+      'an edge primitive has geometry — it must not be dropped').toBe(primBefore);
+    expect(getCachedPartGeom('edgeuser'),
+      'and neither must every part that references one').toBe(userBefore);
+    expect(report.passes, 'nothing to repair → one pass proves it and stops').toBe(1);
+  });
+
+  it('caps its passes so an unrenderable part cannot loop forever', async () => {
+    mockFetch({ rev: 'missing', files: { capempty: '0 BFC CERTIFY CCW' } });
+    const { resolvePartGeometry, repairIncompleteGeometry } = await freshSession();
+    await resolvePartGeometry('capempty');
+    const report = await repairIncompleteGeometry(['capempty'], { maxPasses: 3 });
+    expect(report.passes).toBeLessThanOrEqual(3);
+    expect(report.stillEmpty).toEqual(['capempty']);
   });
 });

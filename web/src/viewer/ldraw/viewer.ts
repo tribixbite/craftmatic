@@ -43,7 +43,7 @@ import {
   isLDrawPrimitive,
   normId,
   partTextureUrls,
-  invalidatePartGeom,
+  repairIncompleteGeometry,
   unresolvedDatNames,
   substitutedDatNames,
 } from './parts.js';
@@ -559,23 +559,25 @@ export class LDrawViewer {
 
     // Repair pass (runs BEFORE meshes are built, so it fixes the render too):
     // concurrent resolution can leave a wrapper/sub-referenced part (e.g. the
-    // minifig arm 3819 → 3818 → s/3818s01) with INCOMPLETE geometry if it read
-    // a dependency's not-yet-populated placeholder. Re-resolve any empty part
-    // SEQUENTIALLY (no race) so wrapper parts rebuild from now-complete deps.
-    // Whatever is still empty after this is genuinely unrenderable (missing
-    // from the library, or an LSynth flexible part needing curve synthesis).
+    // minifig arms, 982 → 3818 → s/3818s01 and 981 → 3819 → 3818 → s/3818s01)
+    // with INCOMPLETE geometry if it read a dependency's not-yet-populated
+    // placeholder. The repair drops the stale entries — the empty part, the
+    // empty parts BELOW it, and every ancestor that baked one in — and
+    // rebuilds them sequentially, to a fixed point. See
+    // `repairIncompleteGeometry`; whatever it reports still empty is genuinely
+    // unrenderable (missing from the library, or an LSynth flexible part
+    // needing curve synthesis).
     const triCount = (g?: { tris: unknown[]; colorTris: Map<number, unknown[]> }): number =>
       g ? g.tris.length + [...g.colorTris.values()].reduce((s, a) => s + a.length, 0) : 0;
-    // Invalidation is TRANSITIVE (an ancestor that flattened an incomplete
-    // child's triangles into itself is stale too), so rebuild everything it
-    // dropped — not just the empties. Re-resolving only the named parts left
-    // those ancestors with NO cached geometry, which reads as a missing part:
-    // measured, that silently cost 71043 all 25 placements of `90398`.
-    const empties = uniqueParts.filter(p => triCount(getCachedPartGeom(p)) === 0);
-    const dropped = new Set<string>();
-    for (const p of empties) for (const k of invalidatePartGeom(p)) dropped.add(k);
-    for (const p of dropped) { if (stale()) return; await resolvePartGeometry(p); }
+    const repair = await repairIncompleteGeometry(uniqueParts, { cancelled: stale });
     if (stale()) return;
+    if (repair.repaired.length > 0) {
+      console.info(
+        `[LDrawViewer] repaired ${repair.repaired.length} part(s) left empty by the ` +
+        `concurrent prefetch in ${repair.passes} pass(es):`,
+        repair.repaired.join(', '),
+      );
+    }
     const missing = new Map<string, number>();
     for (const p of uniqueParts) {
       if (triCount(getCachedPartGeom(p)) === 0) missing.set(p, instCount.get(p) ?? 1);
