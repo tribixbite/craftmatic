@@ -56,3 +56,34 @@ path or the exporters. Each drives the REAL app in headless Chrome against
 - Test models: copy `C:/git/clego/lego_sets/IO/<set>.io` → `web/public/inspect-*.io`, dispatch `change` on `#lego-mpd-input`, delete after (keep out of git). OMR `.mpd` fetch directly via `/ldraw-omr/<set>-1.mpd`.
 - Dev-only `window.__ldrawViewer` is set in `viewer.ts` load() under `import.meta.env.DEV`.
 - **A Playwright context MUST pass `serviceWorkers: 'block'` to load a set by SEARCH.** The PWA service worker installs on first load and then intercepts `/lego-models/*`; in a fresh automation context those fetches return `net::ERR_FAILED`, so the loader walks the entire source ladder and settles on *"No 3D model found — trying BL parts inventory"*. That reads exactly like a missing or broken index entry, and the same URL answers `200` to `curl`. `file:` mode hides it because the model never crosses the network. `scripts/_lego-probe.mjs` blocks them; any new script must too. Measured 2026-09-17, after two probe runs reported `{"error":"no viewer"}` against a set that loads fine.
+- **`{"error":"no viewer","status":"1 set found"}` is a PRODUCTION STALL, not a
+  broken set.** On `craftmatic.click` a cold set load reaches
+  `Loading geometry: N/N parts (100%)`, freezes with the source badge stuck at
+  `<src> · loading…`, and never renders: no failed request, no pending request,
+  no console error. **A second click on the same card always loads it**, and the
+  set renders identically to dev. Measured 2026-09-18: **7 of 18 sets** hung on
+  the first pass (910047, 71043, 76435, 21063, 10341, 76286, 31141); a forced
+  re-run cleared 6 of 7 in one round and the last in three. A 12-attempt
+  single-set harness put the rate at ~45 % on prod versus 1 of 18 on dev. It is
+  NOT set-specific — every one of the 18 sets loaded on prod when retried, with
+  placements, source, arm counts and arm→torso LDU matching dev EXACTLY.
+  So: never conclude "prod cannot render set X" from one probe run. Re-run with
+  `bash scripts/_verify-sets-retry.sh <outDir> <rounds> <set>…`, which repeats
+  only the sets that produced no positions dump.
+- **Three benign artifacts appear on EVERY production page load.** All three
+  were mis-read as the cause of the stall above; none of them is.
+  `net::ERR_ADDRESS_INVALID` is Cloudflare's analytics beacon (the probe already
+  filters it). `net::ERR_ABORTED …/ldraw-parts/parts/3001.dat` is the panel's own
+  `HEAD` capability probe (`web/src/ui/lego.ts`): Chrome reports the discarded
+  body as a request failure while `fetch()` still resolves `ok` — measured
+  10/10 on prod AND 3/3 on dev, with direct-render enabled every time. The two
+  `404`s are `/lego-thumbs/<set>-1.jpg`: those 23,711 thumbnails are 8.5 GB and
+  git-ignored, so they exist in dev and never deploy; the `onerror` handler falls
+  back to the Rebrickable CDN url.
+- **`/ldraw-parts/*` behaves differently on prod and it is expected.** Printed and
+  unofficial parts that are not in the R2 mirror are relayed to
+  `library.ldraw.org`, which throttles a cold big-set load; the worker relays
+  that as `503 no-store` so the client retries instead of caching a miss.
+  Measured on a 10303 prod load: 91 of 200 individual part fetches returned 503
+  and the model still rendered all 3,808 placements. Dev serves those from disk,
+  so a dev run never sees them.

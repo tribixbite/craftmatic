@@ -76,19 +76,55 @@ page.on('requestfailed', r => {
 // never matches and the already-present dev hook is used as before.
 const PROD_HOOK_ANCHOR = 'this.container.dataset.brickCount=';
 let prodHookPatched = false;
+/**
+ * Every intercepted chunk, recorded — because `prodHookPatched: false` alone
+ * cannot say WHY the hook is missing, and the two causes need opposite fixes:
+ *
+ *  - the interception itself failed. An unhandled throw in a route handler
+ *    leaves the request neither fulfilled nor continued, so the page's
+ *    `await import()` of that chunk never settles and the panel hangs. Handled
+ *    here: retry once, then hand the request back to the browser (unpatched but
+ *    WORKING), so a Playwright hiccup degrades to "no debug handle" instead of
+ *    a hang that reads like a broken deployment.
+ *  - the chunk was never REQUESTED, i.e. the app never reached
+ *    `import('@viewer/ldraw/index.js')`. That is an application-side stall and
+ *    the routeEvents list is what proves it: on 2026-09-18, 7 of 18 sets hung
+ *    on craftmatic.click with `{"error":"no viewer","status":"1 set found"}`,
+ *    and this list showed all four entry chunks fetched cleanly with the viewer
+ *    chunk absent — which ruled the harness out and moved the hunt into the
+ *    app's own load chain.
+ */
+const routeEvents = [];
 await page.route('**/assets/*.js', async route => {
-  const resp = await route.fetch();
-  let body = await resp.text();
-  if (body.includes(PROD_HOOK_ANCHOR)) {
-    body = body.replace(PROD_HOOK_ANCHOR, `globalThis.__ldrawViewer=this,${PROD_HOOK_ANCHOR}`);
-    prodHookPatched = true;
+  const url = route.request().url();
+  const t0 = Date.now();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const resp = await route.fetch();
+      let body = await resp.text();
+      const patched = body.includes(PROD_HOOK_ANCHOR);
+      if (patched) {
+        body = body.replace(PROD_HOOK_ANCHOR, `globalThis.__ldrawViewer=this,${PROD_HOOK_ANCHOR}`);
+        prodHookPatched = true;
+      }
+      const headers = { ...resp.headers() };
+      // The fetched body is already decoded; keeping the original encoding/length
+      // headers would make the browser try to inflate plain text.
+      delete headers['content-encoding'];
+      delete headers['content-length'];
+      await route.fulfill({ status: resp.status(), headers, body });
+      routeEvents.push({ url: url.slice(-44), status: resp.status(), bytes: body.length, patched, ms: Date.now() - t0 });
+      return;
+    } catch (e) {
+      routeEvents.push({ url: url.slice(-44), attempt, error: String(e).slice(0, 140), ms: Date.now() - t0 });
+    }
   }
-  const headers = { ...resp.headers() };
-  // The fetched body is already decoded; keeping the original encoding/length
-  // headers would make the browser try to inflate plain text.
-  delete headers['content-encoding'];
-  delete headers['content-length'];
-  await route.fulfill({ status: resp.status(), headers, body });
+  // Last resort: let the browser fetch it itself. The hook will be missing for
+  // that chunk (reported via prodHookPatched + routeEvents), but the page still
+  // WORKS, so the run degrades to "no debug handle" instead of hanging for the
+  // probe's entire model budget.
+  try { await route.continue(); }
+  catch (e) { routeEvents.push({ url: url.slice(-44), error: `continue: ${String(e).slice(0, 120)}` }); }
 });
 
 await page.goto(`${DEV}/#lego`, { waitUntil: 'domcontentloaded' });
@@ -264,13 +300,20 @@ const positions = probe.positions ?? [];
 delete probe.positions;
 probe.origin = DEV;
 probe.prodHookPatched = prodHookPatched;
+probe.routeEvents = routeEvents;
 probe.failedRequests = [...failedRequests].slice(0, 12);
 writeFileSync(join(outDir, `${label}-probe.json`), JSON.stringify(probe, null, 1));
 writeFileSync(join(outDir, `${label}-positions.json`), JSON.stringify(positions));
 
 // Fixed-camera captures for the visual record.
-const canvas = await page.$('#lego-viewer canvas') ?? await page.$('canvas');
-if (!canvas) console.error('no canvas found — skipping captures');
+// ONLY the LEGO viewer's own canvas. The bare `canvas` fallback used to match
+// another tab's renderer, so a run where the LEGO model never loaded still
+// produced three screenshots — of an unrelated scene — and each of them then
+// burned the full 4 x 25 s retry budget because there was nothing to draw.
+// That is 335 s of the 575 s a failed production run cost, and the PNGs it
+// left behind were actively misleading. No render, no captures.
+const canvas = probe.bricks > 0 ? await page.$('#lego-viewer canvas') : null;
+if (!canvas) console.error(`no LEGO canvas (bricks=${probe.bricks ?? 0}) — skipping captures`);
 for (const view of canvas ? ['iso', 'front', 'left'] : []) {
   await page.evaluate(vw => {
     const v = window.__ldrawViewer;
