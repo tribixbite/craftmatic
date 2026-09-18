@@ -35,8 +35,12 @@ same table, and both are fixed.
 - **Aggregate ground truth is untouched, by design** (only 2.27 % of placements
   take the xml path). `dbix_gt_eval.py`, all 173 sets / 229,377 GT placements:
   weighted GEO 70.79 → **70.80 %**, exact 41.01 → 41.01 %, median 81.10 → 81.20 %,
-  sets ≥70 % 110 and ≥90 % 47 both unchanged, **1 set worse by >1 pt** (42160,
-  −1.42). Evidence `C:/git/clego/output_gt/{base_full,joint_full,full_compare}.json`.
+  sets ≥70 % 110 and ≥90 % 47 both unchanged, **1 set worse by >1 pt**: 42160
+  Audi RS Q e-tron, 87.20 → 85.78 GEO, which on its 914 ground-truth placements
+  is about **13 parts** — gated designs falling through to the xml prior on a
+  Technic model with no minifig to gain from the trade. Called out rather than
+  rounded away: it breaches the "no file worse by >1 pt" bar 38ea28c set itself.
+  Evidence `C:/git/clego/output_gt/{base_full,joint_full,full_compare}.json`.
 - **Defect metrics move.** geograde after convert+polish: 76435 floating 5 → **0**,
   sunk 1 → 0; 910004 Winter Chalet 8 → **0**, split0 2 → 0; 10326 Natural History
   Museum 13 → **5**, split0 10 → 7. 71043 (`.lxf`) 16 floating / 27 splits / 5
