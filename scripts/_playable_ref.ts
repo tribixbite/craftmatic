@@ -17,6 +17,7 @@ import { basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { extractIoModel } from '../web/src/engine/io-extractor.ts';
 import { embeddedPartTexts, parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
+import type { ParsedBrick } from '../web/src/engine/ldraw-parser.ts';
 import { synthesizeLSynth } from '../web/src/engine/lsynth.ts';
 import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { runSchemPipeline } from '../web/src/engine/schem-pipeline.ts';
@@ -37,28 +38,112 @@ const vehicleMode = (flag('mode') ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat
 const vehicleFacing = (flag('facing') ?? 'auto') as 'auto' | '+x' | '-x' | '+z' | '-z';
 const cameraStyle = (flag('camera') ?? 'orbit') as 'orbit' | 'boom';
 const setMatch = /(\d{4,6})(?:-\d)?/.exec(basename(file));
-const stem = modelExportStem({ name: flag('label') ?? basename(file).replace(/\.[^.]+$/, ''), setNumber: setMatch?.[0] });
+// `setNum` — NOT `setNumber`: the misspelt key was silently dropped (scripts/ is
+// outside both tsconfigs, so no excess-property check caught it) and every
+// Hogwarts set exported as the bare stem `Hogwarts`, pack id `hogwarts`.
+const stem = modelExportStem({ name: flag('label') ?? basename(file).replace(/\.[^.]+$/, ''), setNum: setMatch?.[0] });
 const label = flag('label') ?? basename(file).replace(/\.[^.]+$/, '');
 const out = positional[1] ?? `output/bedrock-entity-qa/${stem}.mcaddon`;
 mkdirSync(out.replace(/[\\/][^\\/]*$/, ''), { recursive: true });
 
-// ── Load the model text (same paths as the LEGO tab) ─────────────────────────
-let text: string;
+// ── Bun shims for the `.lxf` path ──────────────────────────────────────
+/**
+ * The smallest XML DOM `lxf-parser.ts` actually uses: `querySelectorAll(tag)`
+ * over descendants, `querySelector(tag)` and `getAttribute(name)`. LXFML is
+ * machine-generated (double-quoted attributes, no CDATA, no namespaces), so a
+ * tag-level tokenizer is exact for it — and the part count is checked against
+ * the model's own placement total, which would expose any miss.
+ */
+function installXmlDomShim(): void {
+  if (typeof (globalThis as { DOMParser?: unknown }).DOMParser !== 'undefined') return;
+  interface XmlNode { tag: string; attrs: Record<string, string>; children: XmlNode[] }
+  const wrap = (n: XmlNode) => ({
+    getAttribute: (name: string): string | null => n.attrs[name] ?? null,
+    querySelectorAll: (tag: string) => descendants(n, tag).map(wrap),
+    querySelector: (tag: string) => { const hit = descendants(n, tag)[0]; return hit ? wrap(hit) : null; },
+    get textContent(): string { return ''; },
+  });
+  const descendants = (n: XmlNode, tag: string): XmlNode[] => {
+    const out: XmlNode[] = [];
+    const walk = (x: XmlNode) => { for (const c of x.children) { if (c.tag === tag) out.push(c); walk(c); } };
+    walk(n);
+    return out;
+  };
+  const TAG = /<(\/)?([A-Za-z_][\w.:-]*)((?:\s+[\w.:-]+\s*=\s*"[^"]*")*)\s*(\/?)>/g;
+  const ATTR = /([\w.:-]+)\s*=\s*"([^"]*)"/g;
+  (globalThis as unknown as { DOMParser: unknown }).DOMParser = class {
+    parseFromString(xml: string) {
+      // Comments, the XML declaration and DOCTYPE carry no elements.
+      const src = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<\?[\s\S]*?\?>/g, '').replace(/<!DOCTYPE[^>]*>/gi, '');
+      const root: XmlNode = { tag: '#document', attrs: {}, children: [] };
+      const stack: XmlNode[] = [root];
+      TAG.lastIndex = 0;
+      for (let m = TAG.exec(src); m; m = TAG.exec(src)) {
+        const [, closing, tag, attrText, selfClose] = m;
+        if (closing) {
+          if (stack.length > 1 && stack[stack.length - 1]!.tag === tag) stack.pop();
+          continue;
+        }
+        const attrs: Record<string, string> = {};
+        ATTR.lastIndex = 0;
+        for (let a = ATTR.exec(attrText ?? ''); a; a = ATTR.exec(attrText ?? '')) attrs[a[1]!] = a[2]!;
+        const node: XmlNode = { tag: tag!, attrs, children: [] };
+        stack[stack.length - 1]!.children.push(node);
+        if (!selfClose) stack.push(node);
+      }
+      return wrap(root);
+    }
+  };
+}
+
+/** Serve the parser's `/ldd-*.json` table fetches from `web/public/`. */
+function installPublicAssetFetch(): void {
+  const real = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url.startsWith('/')) {
+      const body = readFileSync(`web/public${url}`, 'utf8');
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    return real(input as RequestInfo, init);
+  }) as typeof globalThis.fetch;
+}
+
+// ── Load the model (same paths as the LEGO tab) ──────────────────────────────
 let colorSpace: 'bl' | 'ldraw' = 'ldraw';
 let customParts = new Map<string, string>();
-if (/\.io$/i.test(file)) {
+let seeded = 0;
+let bricks: ParsedBrick[];
+if (/\.lxf(ml)?$/i.test(file)) {
+  // `.lxf` is LDD XML in a ZIP. The browser reaches it through
+  // `parseLxfWithDiagnostics`, which wants a DOM and fetches its two alignment
+  // tables over HTTP — neither exists under Bun, so both are shimmed here (and
+  // only here: the engine is untouched).
+  installXmlDomShim();
+  installPublicAssetFetch();
+  const { parseLxfWithDiagnostics, describeLxfDiagnostics } = await import('../web/src/engine/lxf-parser.ts');
   const b = readFileSync(file);
-  const io = await extractIoModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
-  text = io.text;
-  colorSpace = io.colorSpace === 'bl' ? 'bl' : 'ldraw';
-  customParts = io.customParts;
+  const parsed = await parseLxfWithDiagnostics(
+    b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer,
+  );
+  bricks = parsed.bricks;
+  console.error(`  lxf: ${describeLxfDiagnostics(parsed.diagnostics) ?? 'no alignment notes'}`);
 } else {
-  text = readFileSync(file, 'utf8');
+  let text: string;
+  if (/\.io$/i.test(file)) {
+    const b = readFileSync(file);
+    const io = await extractIoModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
+    text = io.text;
+    colorSpace = io.colorSpace === 'bl' ? 'bl' : 'ldraw';
+    customParts = io.customParts;
+  } else {
+    text = readFileSync(file, 'utf8');
+  }
+  const doc = parseLDrawDocument(synthesizeLSynth(text).text);
+  // Embedded part definitions beat the library, exactly as the viewer seeds the Worker.
+  seeded = seedDatTexts([...embeddedPartTexts(doc), ...customParts]);
+  bricks = doc.bricks;
 }
-const doc = parseLDrawDocument(synthesizeLSynth(text).text);
-// Embedded part definitions beat the library, exactly as the viewer seeds the Worker.
-const seeded = seedDatTexts([...embeddedPartTexts(doc), ...customParts]);
-const bricks = doc.bricks;
 
 // One plan drives the block cell AND the entity scale (ui/schem-export.ts does the same).
 const scalePlan = planAddonScale(bricks, (flag('scale') as AddonScaleChoice | undefined) ?? 'auto', label);
