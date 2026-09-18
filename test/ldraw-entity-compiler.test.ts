@@ -31,6 +31,8 @@ const LIBRARY: Record<string, string> = {
     '3 16 10 -24 -20 10 0 -20 10 0 20'].join('\n'),
   // A 2-wide "windscreen": a thin vertical sheet.
   '3823': ['0 Windscreen', ...box6(-20, 20, -40, 0, -2, 2, 'xXyYzZ')].join('\n'),
+  // 1x1x5 brick: 120 LDU tall, so one placement can span the wheel line.
+  '2453': ['0 Brick 1 x 1 x 5', ...box6(-10, 10, -120, 0, -10, 10)].join('\n'),
   // A wheel rim the compiler recognises by id (WHEEL_PARTS): a flat 20 x 20 x 8 box.
   '56908': ['0 Wheel Rim', ...box6(-10, 10, -10, 10, -4, 4, 'xXyYzZ')].join('\n'),
 };
@@ -387,5 +389,36 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     expect(r.warnings.some(w => /5 placements left out as a display stand/.test(w))).toBe(true);
     // Kept = the six body bricks and four wheels, by their input indices.
     expect(r.keptSourceIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it('keeps bodywork that overhangs the wheels - only the height test says "display stand"', async () => {
+    // The rule used to demand every placement's ORIGIN sit within 120 LDU of the
+    // outermost wheel CENTRES. A real car's nose and tail reach much further
+    // (10337: 183 LDU past the front hubs), so its bumpers and its rear wing
+    // went out as "stand" and the wing's plates were left floating in game.
+    const body: ParsedBrick[] = Array.from({ length: 6 }, (_, i) => ({ part: '3001.dat', color: 4, x: i * 80, y: 0, z: 0 }));
+    const wheels: ParsedBrick[] = [[0, -22], [400, -22], [0, 22], [400, 22]].map(([x, z]) => ({ part: '56908.dat', color: 0, x: x!, y: 0, z: z! }));
+    // Two more body bricks reaching 160 LDU past the front wheel centres.
+    const nose: ParsedBrick[] = [480, 560].map(x => ({ part: '3001.dat', color: 4, x, y: 0, z: 0 }));
+    const plate: ParsedBrick[] = Array.from({ length: 5 }, (_, i) => ({ part: '3001.dat', color: 7, x: i * 80, y: 200, z: 0 }));
+    const r = await compileLdrawEntityGeometry('t', 'car', [...body, ...wheels, ...nose, ...plate], { partGeometry: provider(), facing: '+x' });
+    expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'wheel-envelope' });
+    // The overhanging bodywork (input indices 10, 11) survives.
+    expect(r.keptSourceIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
+  });
+  it('puts back the placements a display-stand drop would have left hanging in mid-air', async () => {
+    const body: ParsedBrick[] = Array.from({ length: 6 }, (_, i) => ({ part: '3001.dat', color: 4, x: i * 80, y: 0, z: 0 }));
+    const wheels: ParsedBrick[] = [[0, -22], [400, -22], [0, 22], [400, 22]].map(([x, z]) => ({ part: '56908.dat', color: 0, x: x!, y: 0, z: z! }));
+    // A 120 LDU post hanging off the body, below the wheel line (dropped), and a
+    // tip halfway down it that is ABOVE the line (kept) and touches nothing else.
+    const post: ParsedBrick = { part: '2453.dat', color: 0, x: 400, y: 120, z: 0 };
+    const tip: ParsedBrick = { part: '3005.dat', color: 4, x: 415, y: 96, z: 0 };
+    const plate: ParsedBrick[] = Array.from({ length: 5 }, (_, i) => ({ part: '3001.dat', color: 7, x: i * 80, y: 200, z: 0 }));
+    const r = await compileLdrawEntityGeometry('t', 'car', [...body, ...wheels, post, tip, ...plate], { partGeometry: provider(), facing: '+x' });
+    // The post came back so the tip still hangs on something; only the plate went.
+    expect(r.diagnostics.strandedRepaired).toBe(1);
+    expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'wheel-envelope' });
+    expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
   });
 });

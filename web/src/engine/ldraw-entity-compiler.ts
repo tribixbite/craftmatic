@@ -318,6 +318,19 @@ export interface LegoGeometryDiagnostics {
    * the silhouette the gate was measuring against.
    */
   displayDropped: { placements: number; rule: 'wheel-envelope' | 'stand-below-canopy' | null };
+  /**
+   * Placements the display-stand drop would have stranded and that were put
+   * back so nothing hangs in mid-air (see the repair in
+   * `prepareEntityPlacements`).
+   */
+  strandedRepaired: number;
+  /**
+   * Connected pieces of the compiled entity that do not touch its main body -
+   * exactly what a player reports as a "floating piece". Anything left here
+   * after the stranding repair is loose in the SOURCE, so it is reported, not
+   * hidden: 31141 ships 22 such placements in 9 pieces, 76435 ships 60 in 43.
+   */
+  orphans: { clusters: number; placements: number };
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
   /** Body cuboids absorbed by a same-colour face-adjacent neighbour (`mergeAlignedCuboids`, lossless). */
@@ -678,8 +691,59 @@ export interface PreparedEntityPlacements {
   detached: { placements: number; groups: number };
   extras: EntityExtra[];
   skippedInternalCount: number;
+  /** Placements a display-stand drop would have stranded, and that were put back so nothing floats. */
+  strandedRepaired: number;
+  /**
+   * Connected pieces of `placed` that do not touch the main body — what a
+   * player sees as a floating piece. After the stranding repair these can only
+   * come from the SOURCE (a converted model whose parts do not meet), so the
+   * count is reported rather than fixed.
+   */
+  orphans: { clusters: number; placements: number };
   /** World-LDraw AABB of a placement from its REAL part bounds (dims-table box when unresolved). */
   worldBoundsOf: (b: ParsedBrick) => { min: Vec3; max: Vec3 };
+}
+
+/**
+ * Indices of `pool` whose box touches any box of `seed`, at the same tolerance
+ * `connectedClusters` uses. Grid-bucketed, so a repair pass over a whole model
+ * costs the same order as one clustering.
+ */
+export function touchingIndices(
+  boxes: Array<{ min: Vec3; max: Vec3 }>, seed: readonly number[], pool: readonly number[], tol = 4,
+): number[] {
+  const CELL = 120;
+  const cells = new Map<string, number[]>();
+  for (const i of seed) {
+    const { min, max } = boxes[i]!;
+    for (let x = Math.floor((min[0] - tol) / CELL); x <= Math.floor((max[0] + tol) / CELL); x++)
+      for (let y = Math.floor((min[1] - tol) / CELL); y <= Math.floor((max[1] + tol) / CELL); y++)
+        for (let z = Math.floor((min[2] - tol) / CELL); z <= Math.floor((max[2] + tol) / CELL); z++) {
+          const key = `${x},${y},${z}`;
+          const list = cells.get(key);
+          if (list) list.push(i); else cells.set(key, [i]);
+        }
+  }
+  const hit: number[] = [];
+  for (const j of pool) {
+    const B = boxes[j]!;
+    const seen = new Set<number>();
+    let touched = false;
+    for (let x = Math.floor((B.min[0] - tol) / CELL); x <= Math.floor((B.max[0] + tol) / CELL) && !touched; x++)
+      for (let y = Math.floor((B.min[1] - tol) / CELL); y <= Math.floor((B.max[1] + tol) / CELL) && !touched; y++)
+        for (let z = Math.floor((B.min[2] - tol) / CELL); z <= Math.floor((B.max[2] + tol) / CELL) && !touched; z++) {
+          for (const i of cells.get(`${x},${y},${z}`) ?? []) {
+            if (seen.has(i)) continue;
+            seen.add(i);
+            const A = boxes[i]!;
+            if (A.min[0] - tol <= B.max[0] && A.max[0] + tol >= B.min[0]
+              && A.min[1] - tol <= B.max[1] && A.max[1] + tol >= B.min[1]
+              && A.min[2] - tol <= B.max[2] && A.max[2] + tol >= B.min[2]) { touched = true; break; }
+          }
+        }
+    if (touched) hit.push(j);
+  }
+  return hit;
 }
 
 /** Union-find over touching boxes: every connected group, largest first. */
@@ -835,11 +899,17 @@ export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeo
   const centre: Vec3 = bricks.length ? [
     bricks.reduce((s, b) => s + b.x, 0) / bricks.length, bricks.reduce((s, b) => s + b.y, 0) / bricks.length, bricks.reduce((s, b) => s + b.z, 0) / bricks.length,
   ] : [0, 0, 0];
+  // A shell compiles every placement as given, so its loose pieces are the
+  // SOURCE's (an exploded instruction layout, a converted model with gaps):
+  // counted here so the export can say so instead of the player finding them.
+  const orphanGroups = connectedClusters(placed.map(worldBoundsOf)).slice(1);
   return {
     level: { bricks, rotation: null, centre, alignedBefore: bricks.length, alignedAfter: bricks.length, angleDeg: 0 },
     placed, placedIdx, meshes,
     displayDropped: { placements: 0, rule: null }, detached: { placements: 0, groups: 0 }, extras: [],
-    skippedInternalCount, worldBoundsOf,
+    skippedInternalCount, strandedRepaired: 0,
+    orphans: { clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0) },
+    worldBoundsOf,
   };
 }
 
@@ -967,10 +1037,17 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
   if (kind === 'car' && vehicleWheels.length >= 4) {
     const wheelYs = vehicleWheels.map(i => bricks[i]!.y);
     const groundY = Math.max(...wheelYs) + 60;
-    const wheelXs = vehicleWheels.map(i => bricks[i]!.x), wheelZs = vehicleWheels.map(i => bricks[i]!.z);
-    const minWheelX = Math.min(...wheelXs) - 120, maxWheelX = Math.max(...wheelXs) + 120;
-    const minWheelZ = Math.min(...wheelZs) - 120, maxWheelZ = Math.max(...wheelZs) + 120;
-    const filtered = vehicleIdx.filter(i => { const b = bricks[i]!; return footY(i) <= groundY + 40 && b.x >= minWheelX && b.x <= maxWheelX && b.z >= minWheelZ && b.z <= maxWheelZ; });
+    // A car's display stand is BELOW it. The height test alone says that.
+    // The rule used to ALSO require every placement's ORIGIN to sit inside a
+    // box 120 LDU (6 studs) around the outermost wheel CENTRES - narrower
+    // than any real car's overhang. Measured 2026-09-18 on the sources the
+    // device round shipped: 10337's body reaches 183 LDU past the front hubs
+    // and 161 past the rear, so the whole nose, the rear wing and its two
+    // struts went out as "display stand" (202 of 1299 placements) and the
+    // wing's two plates were left hanging in mid-air - the floating slab in
+    // `output/bedrock-entity-qa/device-2026-09-18/shots/car-view-3-front.jpg`.
+    // 42172 lost 870 of 2892 the same way. Neither set HAS a display stand.
+    const filtered = vehicleIdx.filter(i => footY(i) <= groundY + 40);
     if (filtered.length >= vehicleIdx.length * 0.6 && filtered.length < vehicleIdx.length) { keep = filtered; displayRule = 'wheel-envelope'; }
   } else if (kind === 'plane') {
     const canopyParts = vehicleIdx.filter(i => isCanopyMould(bricks[i]!.part, desc(bricks[i]!)));
@@ -980,6 +1057,30 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
       if (stand.length > 0 && stand.length < vehicleIdx.length * 0.2) { keep = vehicleIdx.filter(i => footY(i) <= canopyY + 250); displayRule = 'stand-below-canopy'; }
     }
   }
+  // A display-stand drop may not DISCONNECT the model: a piece that reached the
+  // body only through a dropped placement would hang in mid-air (10337's rear
+  // wing sat one block over the deck on its own in the 2026-09-18 device round,
+  // its two struts having gone out with the "stand"). Grow each stranded piece
+  // back through the dropped placements, one contact layer per pass, until it
+  // meets the body again; a piece that is already loose in the SOURCE finds no
+  // bridge and is left alone (and reported below).
+  let strandedRepaired = 0;
+  if (displayRule) {
+    for (let pass = 0; pass < 8; pass++) {
+      const groups = connectedClusters(keep.map(i => boxes[i]!));
+      if (groups.length <= 1) break;
+      const kept = new Set(keep);
+      const droppedIdx = vehicleIdx.filter(i => !kept.has(i));
+      if (!droppedIdx.length) break;
+      const stranded = groups.slice(1).flatMap(g => g.map(k => keep[k]!));
+      const bridge = touchingIndices(boxes, stranded, droppedIdx);
+      if (!bridge.length) break;
+      strandedRepaired += bridge.length;
+      keep = [...keep, ...bridge].sort((a, b) => a - b);
+    }
+    if (keep.length === vehicleIdx.length) displayRule = null;
+  }
+
   const keepSet = new Set(keep);
   const displayDroppedIdx = displayRule ? vehicleIdx.filter(i => !keepSet.has(i)) : [];
   if (displayDroppedIdx.length) {
@@ -1001,7 +1102,11 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
     if (TECHNIC_INTERNAL.has(cleanPartId(b.part))) { skippedInternalCount++; continue; }
     placedIdx.push(i); placed.push(b);
   }
-  return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, worldBoundsOf };
+  // What a player would see floating, AFTER every rule has run.
+  const finalGroups = connectedClusters(placed.map(worldBoundsOf));
+  const orphanGroups = finalGroups.slice(1);
+  const orphans = { clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0) };
+  return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, strandedRepaired, orphans, worldBoundsOf };
 }
 
 // ─── Cockpit ──────────────────────────────────────────────────────────────────
@@ -1126,13 +1231,15 @@ export async function compileLdrawEntityGeometry(
   const prepared = options.wholeModel || options.rig
     ? await prepareWholeModel(bricks, provider)
     : await prepareEntityPlacements(kind, bricks, provider);
-  const { level, meshes, displayDropped, detached, extras } = prepared;
+  const { level, meshes, displayDropped, detached, extras, strandedRepaired, orphans } = prepared;
   bricks = level.bricks;
   let placed = prepared.placed;
   let placedIdx = prepared.placedIdx;
   let uniqueParts = [...new Set(placed.map(b => b.part))];
   const skippedInternalCount = prepared.skippedInternalCount;
-  if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayDropped.rule === 'wheel-envelope' ? 'outside the wheel envelope or below the wheel line' : 'a small cluster far below the canopy'}).`);
+  if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayDropped.rule === 'wheel-envelope' ? 'below the wheel line' : 'a small cluster far below the canopy'}).`);
+  if (strandedRepaired) warnings.push(`${cid}: ${strandedRepaired} placement${strandedRepaired === 1 ? '' : 's'} were put back after the display-stand drop: leaving them out would have left part of the model hanging in mid-air.`);
+  if (orphans.clusters && kind !== 'figure') warnings.push(`${cid}: ${orphans.placements} placement${orphans.placements === 1 ? '' : 's'} in ${orphans.clusters} piece${orphans.clusters === 1 ? '' : 's'} do not touch the rest of the model - they are loose in the SOURCE and will look like floating pieces in game.`);
   if (detached.placements) warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out of it (${summariseExtras(extras)}).`);
 
   // 2. Frame: nose direction → A. The nose is INFERRED from the placements
@@ -1550,6 +1657,8 @@ export async function compileLdrawEntityGeometry(
     leveled: level.rotation ? { angleDeg: round(level.angleDeg), alignedBefore: level.alignedBefore, alignedAfter: level.alignedAfter } : null,
     detached,
     displayDropped,
+    strandedRepaired,
+    orphans,
     hiddenCubesCulled,
     mergedCubes,
     heaviestParts,
