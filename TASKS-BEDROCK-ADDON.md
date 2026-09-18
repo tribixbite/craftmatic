@@ -58,33 +58,37 @@ separately" — was TWO unrelated defects, both fixed.
   --dump` writes colours through its own `ldd_colour()`, so every render made
   from a dump (`output/lxf-gt/71043-probe/`, `output/lxf-gt/71043-ab/`) comes out
   magenta. The harness, not a palette regression.
-- **Corpus geograde A/B, SETTLED.** All 1,259 changed files graded under both
-  `_DbixConvV3_legacy` and the shipped conversion, converted-only, no polish
-  (`C:/git/clego/output_gt/arm_ab_grades.json`, driver kept at
-  `<jobdir>/tmp/grade_ab.py`, 0 errors):
+- **Corpus geograde A/B, SETTLED — and quote the POST-POLISH number.** The
+  pre-polish comparison over the 1,259 changed files is dramatic (big floating
+  **69,137 → 42,934, −38 %**; floating **102,758 → 64,812**; 360 sets go
+  defective → clean against 2 the other way, and those 2 have identical
+  floating-part counts and main components). **But `dbix_polish` already cleaned
+  up most of that**, so the honest shipped-vs-shipped figure, both corpora
+  converted AND polished, over the 1,540 stems in both polish logs, is smaller:
 
-  | | count | total change in big-floating parts |
+  | | before | after |
   |---|---|---|
-  | sets with FEWER big floating | 475 | −29,970 |
-  | sets with MORE | 424 | +3,767 |
-  | unchanged | 360 | |
+  | big floating parts | 12,674 | **10,836** (−14.5 %) |
+  | floating parts | 20,767 | **18,906** (−9.0 %) |
+  | sets worse / better / unchanged | | 22 / 27 / **1,491** |
+  | clean → defective | | **1** |
+  | defective → clean | | **13** |
 
-  Totals: big floating **69,137 → 42,934 (−38 %)**, floating parts
-  **102,758 → 64,812 (−37 %)**. The two counts look balanced and are not: the
-  sets that improve do so in bulk (249 by 21-100 parts, 84 by more than 100)
-  while the sets that worsen are mostly small (93 by 1-2, 112 by 3-5, only 21 by
-  more than 20). **The decisive line is 360 sets go defective → clean and 2 go
-  clean → defective**, and those 2 (11221, 77117) have IDENTICAL floating-part
-  counts and main components in both — the correctly placed arms merged small
-  floater clusters past the 5-part BIG threshold. Main component is identical in
-  1,053 of 1,259.
-  The four worst (4002021 +297, 60321 +273, 76949 +181, 60317 +147) do raise
-  their floating count, with main components unchanged; on 4002021 the component
-  count falls 71 → 48, so this is clusters MERGING and their support being
-  re-judged, not parts newly detaching. Accepted on that evidence; if a figure
-  ever reads wrong on one of those four, start there.
-  The corpus is swapped in; the pre-fix bytes are kept at
-  `lego_sets/_DbixConvV3_prev` and are reproducible with `DBIX_DROP_LEARNED=`.
+  So the durable win of this round is the ARMS themselves — median 327.5 →
+  18.1 LDU, 0.1 % → 99.7 % attached — which the polish pass never fixed, because
+  it only relocates debris and cannot re-place a part on its socket. The
+  floating-count movement is a welcome side effect, not the headline.
+  Worst regressions post-polish: 4002021 +297, 76949 +120, 60317 +73, 76417 +22,
+  71499 +18. On 4002021 the main component is 799 parts either way and the
+  component count falls 71 → 48, so clusters are MERGING past the 5-part BIG
+  threshold rather than parts newly detaching; deleting its arms outright from
+  the pre-fix file leaves it at 73, ruling out phantom contact. Accepted on that
+  evidence. Pre-fix bytes kept at `lego_sets/_DbixConvV3_prev`, and reproducible
+  from source with `DBIX_DROP_LEARNED=`.
+  Polish itself, on the new corpus: 1,705 stems, 1,625 acted, 996 kept, big
+  floating 47,129 → 8,215 on the kept files. Arms survive it — 408 polished
+  files sampled mid-run read median 18.4 LDU and 99.8 % attached, because polish
+  moves whole clusters.
 - **A SECOND, independent arm defect, in craftmatic this time** (`26eb009`).
   LDraw retires a mould with a `~Moved to <newid>` stub that names no part, so
   the `.io`-derived museum's `981`/`982` arms matched neither the description
