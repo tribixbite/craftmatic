@@ -112,20 +112,27 @@ await page.evaluate(() => {
   if (cb && !cb.checked) cb.click();
 });
 
+// The panel's own browse-all search runs on init and owns the status line and
+// the search button until it finishes. BOTH entry points have to wait it out:
+// dropping a file in mid-init is silently lost (the load never starts, the
+// viewer chunk is therefore never fetched, `prodHookPatched` stays false and
+// the probe waits out its whole model budget reporting "Browsing all sets").
+// Invisible in dev, where the index is a local read; reproducible on production,
+// where that first search is a 3.8 MB network fetch. Measured 2026-09-18.
+await page.waitForFunction(
+  () => {
+    const b = document.getElementById('lego-search-btn');
+    return !!b && !b.disabled;
+  }, null, { timeout: SEARCH_MS });
+
 if (target.startsWith('file:')) {
   const abs = target.slice(5);
   if (!existsSync(abs)) { console.error(`no such file: ${abs}`); process.exit(1); }
   await page.setInputFiles('#lego-mpd-input', abs);
 } else {
-  // The panel fires its own browse-all search on init and DISABLES the search
-  // button for the duration. Clicking a disabled button is a silent no-op, so
-  // the query never ran and the probe then scanned the browse-all cards and
-  // reported `no-card (cards=48)`. Wait for that first search to finish.
-  await page.waitForFunction(
-    () => {
-      const b = document.getElementById('lego-search-btn');
-      return !!b && !b.disabled;
-    }, null, { timeout: SEARCH_MS });
+  // (The browse-all wait above is what makes this click land: clicking the
+  // DISABLED search button is a silent no-op, and the probe then scanned the
+  // leftover browse-all cards and reported `no-card (cards=48)`.)
   await page.evaluate(set => {
     const input = document.getElementById('lego-search');
     input.value = set;
