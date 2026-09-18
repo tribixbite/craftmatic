@@ -172,6 +172,24 @@ no figure on the roof any more.
 
 ## Open
 
+### The two publish steps — BOTH need Will's explicit go-ahead (outward-facing)
+
+Everything below is measured and committed; prod is simply still serving the old
+bytes, so Will's screenshots cannot improve until these run.
+
+1. **Deploy the web app.** `.github/workflows/deploy.yml` triggers on a push to
+   `main`, and `feat/lego-set-tab` is 25 commits ahead of it. Until that merge
+   lands, craftmatic.click serves the pre-38ea28c `.lxf` maths and 71043 keeps
+   its floating window and pierced tower plates.
+2. **Republish the corpus + index to R2.** `python sync_models_r2.py` in clego.
+   The resume file `_r2_uploaded.txt` records keys, not content, so every
+   `models/DbixConvV3/` line must be deleted from it first or the changed files
+   are skipped silently. ~2 h at its 6 polite workers. Until then prod serves
+   the old dbix bytes and 76435's arms stay scattered.
+
+### Everything else
+
+
 - [ ] **`mecabricks` has its OWN, milder arm defect — measured, not yet diagnosed.**
       Same probe as the dbix one (arm `3818`/`3819` to nearest `973`/`3814`/`76382`
       torso), 300 files of `lego_sets/MecabricksLDR`, 1,076 arms:
