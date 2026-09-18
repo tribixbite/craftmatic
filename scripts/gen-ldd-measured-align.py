@@ -53,18 +53,28 @@ OUT = Path(r'C:\git\craftmatic\web\public\ldd-measured-align.json')
 
 # clego's dbix_align.py drops rows this weakly supported (its own MIN_SUPPORT).
 MIN_SUPPORT = 2
-# A learner row is the MODE of that design's correction votes and `agree` is the
-# vote fraction the mode won; `sets` is the number of COMPETING modes, not sets.
-# A row that most of its own evidence contradicts AND that asks for a large
-# offset is noise, and it shipped as one: `3818`/`3819` (the minifig arms)
-# carried t = (1,112,140) / (607,111,-136) at agree 0.044 / 0.043, which put
-# every arm 140-300 LDU from its shoulder instead of the 17-18 LDU authentic
-# files measure. Neither test alone is safe — high-confidence rows legitimately
-# reach |t| ~ 1770 LDU, and low agreement with a small offset costs nothing —
-# so the gate is the CONJUNCTION. It drops 85 of 1,841 rows, only 13 of which
-# `ldd-part-map.json` does not already cover. Mirrors clego dbix_align.py.
-AGREE_GATE = 0.30
-OFFSET_GATE_LDU = 80.0
+# A learner row is the MODE of that design's correction votes, `agree` is the
+# vote fraction the mode won, and `sets` counts competing MODES, not sets. The
+# minifig arms shipped as 4 %-agreement modes - `3818` t = (1, 112, 140) at
+# agree 0.044, `3819` t = (607, 111, -136) at 0.043 - which stood every arm
+# 140-650 LDU from its shoulder instead of the 17-18 LDU that authentic OMR
+# files measure.
+#
+# The obvious fix, "reject every row below an agree threshold", was built and
+# MEASURED in clego and it is WRONG: low agreement means the correct correction
+# is CONTEXT-DEPENDENT, not that the measurement is noisy, so the disputed mode
+# is still better than the fallback for many designs. An `agree < 0.30` gate
+# costs 35 sets across the dbix corpus, some catastrophically (41713's
+# big-floating parts 63 -> 372). The rejection list is therefore EXPLICIT, each
+# entry carries its own physical evidence, and it matches clego's
+# `dbix_align.DROP_LEARNED` exactly.
+DROP_LEARNED = {
+    # Arm-to-nearest-torso over clego's dbix corpus (1,257 files, 8,734 arms):
+    # median 327.5 LDU with these rows, 18.1 without, against 18.0 in authentic
+    # OMR. Within 25 LDU of a torso: 6 arms (0.1 %) -> 8,712 (99.7 %).
+    '3818|3818',
+    '3819|3819',
+}
 
 
 def orthonormalise(r9):
@@ -99,8 +109,7 @@ def main():
         design, stem = key.split('|', 1)
         if int(ent.get('n', 0)) < MIN_SUPPORT:
             continue
-        if (float(ent.get('agree', 1.0)) < AGREE_GATE
-                and max(abs(float(v)) for v in ent['t']) > OFFSET_GATE_LDU):
+        if key in DROP_LEARNED:
             gated.append(key)
             continue
         by_design.setdefault(design, {})[stem] = ent
@@ -133,9 +142,9 @@ def main():
           f'({OUT.stat().st_size / 1024:.0f} KB); re-orthonormalised {reortho}')
     print(f'  source: {SRC.name}, {len(raw["table"])} raw rows, '
           f'{len(raw.get("explained_sets", {}))} ground-truth-locked sets')
-    print(f'  gated out {len(gated)} low-agreement/large-offset rows '
-          f'(agree < {AGREE_GATE} AND |t| > {OFFSET_GATE_LDU} LDU): '
-          + ', '.join(sorted(gated)[:12]) + (' …' if len(gated) > 12 else ''))
+    print(f'  dropped {len(gated)} measured rows with physical '
+          f'counter-evidence: ' + ', '.join(sorted(gated)))
+
     for k in ('3001', '3023', '3815', '3814', '3817', '1751'):
         print(f'  {k}: {out.get(k)}')
 
