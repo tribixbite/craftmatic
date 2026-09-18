@@ -35,6 +35,17 @@ path or the exporters. Each drives the REAL app in headless Chrome against
   0.1 s. A load-time or "model never finished rendering" result taken on that
   box is about the box, not the code — check
   `Get-NetTCPConnection -State Listen` and the CPU before believing one.
+- **`python scripts/_mcaddon_check.py <pack>.mcaddon …`** — the cheap offline gate
+  for "would Minecraft load this at all". A pack can satisfy every component count
+  and warning the exporter prints and still fail silently in game: a geometry an
+  entity names but the pack never defines, a texture path with no file, a
+  behaviour pack that does not depend on its resource pack, a script `entry` that
+  is not in the archive. Those cost a whole device round to find. Run it on every
+  pack before a device round; it exits non-zero on failure. Verified 2026-09-18
+  over the seven named-set packs (71043, 76435, 910004, 10326, 31201, 76405):
+  8/8 valid. It does NOT check content — a pack can be structurally perfect and
+  still show a headless minifig.
+
 ## Browser-automation testing caveats (claude-in-chrome — hard-won, saves hours)
 
 - The automation tab runs **backgrounded → `requestAnimationFrame` is throttled/paused**. So **on-demand rendering means the canvas often has no fresh frame** and `Page.captureScreenshot` **times out — just retry it** (usually succeeds 2nd try). Continuous-render checks (live FPS) are unmeasurable here.
