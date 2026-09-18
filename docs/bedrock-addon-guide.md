@@ -435,7 +435,10 @@ museum add-on signed off in the 2026-09-16 round shipped that way.**
 redirect once and every figure classifier asks it, which covers the whole
 retired-mould family rather than one id at a time. Measured through
 `scripts/_playable_ref.ts` on `IOModel2V2/10326-noprint.ldr`: arm warnings
-**7 → 0**. Do not "fix" the next missing body part by appending an id to
+**7 → 0**. Blast radius: **292 of 802 `IOModel2V2` files carry 981/982, 2,616
+placements** — every one of those sets' figures was armless in an add-on.
+`OMR`, `MecabricksLDR`, `ReconV3` and `DbixConvV3` use `3818`/`3819` and were
+never affected. Do not "fix" the next missing body part by appending an id to
 `FIGURE_PART_IDS` without first checking whether its description is a stub.
 
 **"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
