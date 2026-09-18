@@ -53,6 +53,18 @@ OUT = Path(r'C:\git\craftmatic\web\public\ldd-measured-align.json')
 
 # clego's dbix_align.py drops rows this weakly supported (its own MIN_SUPPORT).
 MIN_SUPPORT = 2
+# A learner row is the MODE of that design's correction votes and `agree` is the
+# vote fraction the mode won; `sets` is the number of COMPETING modes, not sets.
+# A row that most of its own evidence contradicts AND that asks for a large
+# offset is noise, and it shipped as one: `3818`/`3819` (the minifig arms)
+# carried t = (1,112,140) / (607,111,-136) at agree 0.044 / 0.043, which put
+# every arm 140-300 LDU from its shoulder instead of the 17-18 LDU authentic
+# files measure. Neither test alone is safe — high-confidence rows legitimately
+# reach |t| ~ 1770 LDU, and low agreement with a small offset costs nothing —
+# so the gate is the CONJUNCTION. It drops 85 of 1,841 rows, only 13 of which
+# `ldd-part-map.json` does not already cover. Mirrors clego dbix_align.py.
+AGREE_GATE = 0.30
+OFFSET_GATE_LDU = 80.0
 
 
 def orthonormalise(r9):
@@ -82,9 +94,14 @@ def main():
     # two tables agree on the FILE and differ only in the correction, then fall
     # back to the best-supported stem.
     by_design: dict[str, dict[str, dict]] = {}
+    gated: list[str] = []
     for key, ent in raw['table'].items():
         design, stem = key.split('|', 1)
         if int(ent.get('n', 0)) < MIN_SUPPORT:
+            continue
+        if (float(ent.get('agree', 1.0)) < AGREE_GATE
+                and max(abs(float(v)) for v in ent['t']) > OFFSET_GATE_LDU):
+            gated.append(key)
             continue
         by_design.setdefault(design, {})[stem] = ent
 
@@ -116,6 +133,9 @@ def main():
           f'({OUT.stat().st_size / 1024:.0f} KB); re-orthonormalised {reortho}')
     print(f'  source: {SRC.name}, {len(raw["table"])} raw rows, '
           f'{len(raw.get("explained_sets", {}))} ground-truth-locked sets')
+    print(f'  gated out {len(gated)} low-agreement/large-offset rows '
+          f'(agree < {AGREE_GATE} AND |t| > {OFFSET_GATE_LDU} LDU): '
+          + ', '.join(sorted(gated)[:12]) + (' …' if len(gated) > 12 else ''))
     for k in ('3001', '3023', '3815', '3814', '3817', '1751'):
         print(f'  {k}: {out.get(k)}')
 

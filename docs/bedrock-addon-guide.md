@@ -375,6 +375,62 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
   with `MSYS_NO_PATHCONV=1` an `adb push` needs a `C:/…` local path (a `/c/…`
   path silently pushes nothing and the follow-up `cp` still reports success).
 
+## Making a playable add-on: the exact UI chain, and every source (2026-09-17)
+
+**The web UI chain, in full.** Load a set in the LEGO tab (search + click a
+`.lego-result-card`, or drop a file on the upload input), then:
+
+1. Leave the `Vehicle` select beside the download menu on **"Detect vehicle
+   components"** (`#lego-vehicle-mode`, value `auto`).
+2. Leave `⚙ MC settings` at its defaults. The rows the add-on actually reads
+   are **Resolution** = "Auto — finest that fits", **Model scale (playable
+   add-on)** = "Auto", **Brick-accurate buildings** = ON, **Main vehicle only**
+   = OFF, **Vehicle detail** = "Balanced", **Vehicle front** = "Auto".
+   *`Main vehicle only` ON removes every figure, seat and door;* `Brick-accurate
+   buildings` OFF replaces the shell entity with a coloured block structure.
+3. `Download…` → **"Add-on — controls detected or selected components
+   (.mcaddon)"** (the `mcaddon` option under the `Minecraft: Bedrock` optgroup).
+   No other option makes a playable pack: `mcpack` is a static structure,
+   `lego-mcpack` is only a texture pack, `live` pushes blocks to a running game.
+
+That is the whole chain — the tested Winter Chalet and Natural History Museum
+packs used **nothing but these defaults**. The CLI gate
+`bun scripts/_playable_ref.ts <model> <out> --label="<name>"` runs the same
+`runSchemPipeline`, and re-cutting the chalet from `IO/910004.io` in 2026-09-17
+reproduced the round-2026-09-17 reference pack's component list (shell + 7
+figures + 9 seats) and both warnings exactly, at 307,690 vs 307,380 bytes.
+
+**Every source reaches this path.** Figures, seats, doors and the shell are
+found geometrically and from LDraw part descriptions, never from submodel
+names, so a flat part list qualifies. Verified through the real UI on
+2026-09-17 (`output/addon-evidence-2026-09-17/`): `LXF/71043_hogwarts_castle.lxf`
+→ 617 KB pack, shell + 4 figures; `DbixConvV3/76435.ldr` → 320 KB pack,
+shell + 10 figures + 3 seats. Two limits stay:
+
+- **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
+  only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
+  so a vehicle parked in a scenery build falls back to the road-wheel heuristic
+  and otherwise exports without a movable subset.
+- **The 50 % `fallbackPartCount` cliff** (`engine/schem-pipeline.ts`): if fewer
+  than half the parts resolve to real geometry the pack silently degrades to a
+  coloured block structure, and a partial vehicle component throws outright.
+
+**A bad source shows up as a bad add-on, not as an error.** Before the DBIX
+placement fix below, the chalet cut from `DbixConvV3/910004.ldr` warned
+*"the source lacked the figure's right arm, left arm; standard moulds were
+supplied"* for **all seven figures**, hung 2 doors instead of 4 and dropped one
+leaf outside the export bounds. The same file after the fix hangs 4 doors in 3
+doorways with no arm warnings — the `.io` reference's exact profile.
+
+**"DbixConvV3 files are exploded instruction layouts" was mostly this bug.**
+The 2026-09-16 note above (chalet 125 × 116 studs) is superseded: the poisoned
+minifig-arm rows and the wrong-direction `ldraw.xml` fallback were flinging
+parts, not an instruction-layout convention. Measured footprints after the fix:
+chalet 125 × 116 → **71 × 49** studs (part density 0.19 → 0.80 parts/stud²),
+Natural History Museum 114 × 54 → **80 × 30** (0.65 → 1.69). Density below
+~0.3 parts/stud² still marks a genuinely spread layout worth preferring an
+`.io` for.
+
 ## Model scale, aircraft descend and the wand's size/aim (2026-09-17)
 
 Built and gated offline (`output/bedrock-entity-qa/round-2026-09-17/`, vitest 1,627
