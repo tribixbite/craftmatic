@@ -169,9 +169,10 @@ ARE this round's and get committed with the report.
       exported as a playable entity is not rigged.
 - [ ] **Class B residual.** 108 `different` stems / 4,795 placements have no
       exact overlay (needs a per-stem alias to an upstream file with Studio's
-      geometry; none found by description), and the 1,291 `.io`/`.lxf` picks
-      are converted client-side in the Studio frame — the census `Q, t` table
-      applied in the viewer for Studio-frame `src` classes would cover them.
+      geometry; none found by description). The `.io`/`.lxf` picks are now
+      re-framed client-side (`abea544e`, `class-b-reframe.ts`) — verified by
+      unit tests only; a browser load of an `.lxf` set with `70681` should
+      show `N placements re-framed` in the `.lxf` status note.
       `docs/lego-sources-guide.md` §7a.
 - [ ] **Windows are still open.** The A/B moved 4.6 % of window/glass/door
       placements against 52.3 % of figure placements, so the class Will named
