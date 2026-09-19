@@ -1187,3 +1187,23 @@ a per-render-controller transform) or a multi-block cell.
 - `best-of` compile time at ultra on a full set, and its effect on `mergeAlignedCuboids`
   downstream (the per-part count is measured; the per-pack count after merging is not).
 - The 1.76 % of placements whose ids resolve nowhere: absent from every architecture alike.
+
+### The decomposition saving is a per-PACK number, and it depends on the grain
+
+`best-of` (five extra axis orders plus a largest-box-first pass, same cells
+tiled) measured **-7.4 % per PART**. That is not the number that reaches the
+device: `mergeAlignedCuboids` runs over the whole model afterwards and absorbs
+same-colour face-adjacent boxes across part boundaries, so a per-part win can
+hand it a worse arrangement. Measured per pack with
+`scripts/decomposition-pack-ab.ts` over the three golden models:
+
+| quality | greedy | best-of | | per set |
+|---|---:|---:|---:|---|
+| balanced (4 LDU) | 10,828 | 10,746 | **-0.8 %** | -6.8 % / -2.3 % / **+2.0 %** |
+| high (2 LDU) | 18,128 | 17,150 | **-5.4 %** | -5.3 % / -6.4 % / -4.3 %, and 7140 loses a mesh |
+
+At a coarse grain the merge has already taken most of what `best-of` would win,
+and 10300 comes out worse. So the compiler's default follows the MICROCELL —
+`best-of` at 2 LDU and finer, `greedy` at 4 LDU — and an explicit
+`decomposition` option overrides both. Nothing about the geometry changes
+either way; only the cuboid count does.
