@@ -7,7 +7,9 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-18 — 18-set review round COMPLETE; nothing in flight)
+## State (2026-09-19 — instancing measured and CLOSED; nothing in flight)
+
+The entity-instancing question is answered on the device and is a **NO-GO**; box UV is the one memory lever the data supports. Both live under "Open" below and in `docs/bedrock-addon-guide.md`. Everything before that is the 18-set review round, complete:
 
 The placement round is shipped and live (prod index `generated: 2026-09-18`,
 10,169 sets byte-identical to local). A follow-up review of 18 named sets in the
@@ -221,6 +223,44 @@ no figure on the roof any more.
 - [ ] Doors/lights left out at 200 % is confirmed only by the confirm dialog's own text.
 
 ## Open
+
+### Memory: entity instancing is CLOSED (NO-GO, measured 2026-09-19)
+
+Device round on the Pixel (`docs/bedrock-addon-guide.md`, "Entity instancing is a
+NO-GO"; evidence `output/bedrock-entity-qa/instancing-2026-09-18/`). Settled, do
+not re-open without new evidence:
+
+- The 3.08 kB/cuboid **is** definition-side — an extra instance of the
+  48,093-cuboid 71043 shell costs 10-14 MB (0.21-0.29 kB/cuboid) and the vertex
+  buffer is shared. The per-instance model is **40 kB fixed + 0.22 kB/cuboid**.
+- **An idle 12-cube part entity costs 31-48 kB and 2,000 of them double frame
+  time** (gate was 10 kB and +25 %). It is not overdraw: 6,000 entities 200 blocks
+  out of frame still ran at 7.5 fps. One entity per placement for 71043 would cost
+  ~1.38 GB against today's 148 MB. Break-even is ~3,040 entities; the set has
+  30,642.
+- Still-useful numbers from the same round: **50-100k visible cuboids for 60 fps,
+  ~150k for 30**; 2,000 persisted entities add +22 % to world-load time;
+  6,000 actor lifetimes leaked 142 MB that never came back.
+
+- [ ] **Box UV in the exporter is the one supported memory lever — worth ~1/3.**
+      Rewriting all 48,093 cubes of the shipped 71043 shell from six-face UV
+      objects to box UV `"uv": [u, v]`, cuboid count and file length held
+      constant, saved **50.7 MB = 1.05 kB/cuboid = 34 %** of the 3.08 kB on
+      `nativePss` (8 % on `nativeAlloc`), A/C controls reproducing within 0.9 %,
+      content log clean and the shell still drawing with its exact original frame
+      signature. That would take the device ceiling from ~260k cuboids to roughly
+      350-400k. Shipping it means `playable-addon.ts` emitting box UV, which
+      needs one geometry (plus a flat swatch texture) per colour, because box UV
+      maps all six faces out of a single atlas rect. Size the texture/geometry
+      split before writing it — the saving is per-cube face data only, and the
+      remaining ~2 kB/cuboid is the built mesh, which no JSON change touches.
+- [ ] **A throwaway probe pack is stranded on the Pixel.**
+      `behavior_packs/Craftmatic` (267 kB) + `resource_packs/Craftmatic` (56 kB),
+      the per-Actor probe. It is **not active in any world** (every
+      `world_*_packs.json` was restored byte-identically, md5 verified) and does
+      nothing unless summoned. `adb shell rm` inside `Android/data` is denied, so
+      it can only be removed from the device's own file manager or Minecraft's
+      storage UI. Regenerate it with `python scripts/_bedrock_probe_pack.py`.
 
 ### Interpenetration: not fixed by this round, and mostly not a defect either
 

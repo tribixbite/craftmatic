@@ -752,3 +752,140 @@ control that shows the clamp only ever touches a pack above balanced.
 Gates: `bun run typecheck`, `bun run typecheck:web`, `bun run test`,
 `python scripts/_mcaddon_check.py` OK on all three. Regression tests:
 `test/bedrock-cuboid-budget.test.ts`.
+
+---
+
+## Entity instancing is a NO-GO; cheaper cubes is worth ~1/3 (2026-09-19)
+
+Three experiments on the Pixel 8 Pro (Bedrock 1.26.51.1, world `917`, the eight
+shipped Craftmatic packs active, 71043 Ultra among them — its shell is **48,093
+cuboids**). Raw evidence, every `dumpsys` dump and every screenshot:
+`output/bedrock-entity-qa/instancing-2026-09-18/` (`samples.tsv`, `fps.tsv`,
+`loadtimes.tsv`). Harness: `scripts/_pixel_perf.sh` (`mem` / `fps` / `ref` /
+`load`); probe pack generator: `scripts/_bedrock_probe_pack.py`.
+
+The proposal under test was: ship each distinct part SHAPE once and express a set
+as transforms — one entity type per part prototype, per-instance rotation/colour
+through client-synced `minecraft:entity_properties`. The headroom looked large
+(71043 Ultra's 50,319 cuboids reduce to 1,754 distinct shapes, 28.7x; 455
+prototypes / 8,612 definition cubes against 30,642 placements).
+
+### 1. The 3.08 kB/cuboid IS definition-side — the premise held
+
+With the pack active and **zero** shell instances, then summoning the shell
+repeatedly (`nativePss` from `dumpsys meminfo`, kB):
+
+| instances | 0 | 1 | 2 | 3 | 4 | 5 |
+|---|---|---|---|---|---|---|
+| nativePss | 1,211,473-1,213,777 | 1,180,329 | 1,191,121 | 1,212,049 | 1,215,709 | 1,221,025 |
+| GL mtrack | 249,528 | 280,380 | 285,304 | 287,920 | 287,696 | 289,156 |
+
+Slope 2 to 5 is **+10.3 MB per extra instance**, 1 to 5 is +10.4, and an
+independent 1 to 3 run gave +13.7. So an extra instance of a 48,093-cuboid entity
+costs **10-14 MB = 0.21-0.29 kB per cuboid**, against the 3.08 kB/cuboid paid once
+when the pack loads: **~93 % of the memory is definition-side.** GL mtrack
+confirms the mechanism — the FIRST instance uploads +31 MB of vertex buffer and
+every later one adds 1-2 MB, i.e. **the mesh is shared across instances.**
+
+Combined with experiment 2 the whole surface fits one two-term model:
+**per instance = 40 kB fixed (the Actor) + 0.22 kB per cuboid.**
+
+Frame cost of rendered cuboids, same run (`SurfaceFlinger --latency`, 60 Hz cap):
+1 shell 16.70 ms median (21.25 mean), 2 -> 33.34, 3 -> 33.35, 5 -> 66.67. About
+**50-100k visible cuboids for 60 fps, ~150k for 30.**
+
+### 2. Per-Actor cost — NO-GO on both thresholds
+
+`craftmatic:probe_part`: 12 cubes (a 2x4 brick at minifig scale), one
+client-synced int property driving bone yaw plus a declared colour slot, no AI,
+no physics, no gravity, `is_summonable`. Spawned nearest-first at 2-block spacing
+around the player by `/function`.
+
+| entities | nativePss (kB) | delta per entity | frame median | vs 0 entities |
+|---|---|---|---|---|
+| 0 | 1,289,552-1,289,660 | — | 16.68 ms | — |
+| 500 | 1,308,836 | **38.5 kB** | 16.68 ms (17.48 mean) | +0 % |
+| 2,000 | 1,380,496-1,381,100 | **47.9 kB** | 33.35 ms | **+100 %** |
+| 6,000 | 1,538,392-1,545,084 | **40.1 kB** | 116.7-150.1 ms | **+600-800 %** |
+
+The gate was 10 kB or less per entity **and** under 25 % frame-time regression at
+2,000. Measured **31-48 kB** and **+100 %**. Both fail, by about 4x each.
+
+- **It is not overdraw.** With the same 6,000 entities and a `minecraft:free`
+  camera 200 blocks away — none of them in frame — the frame time was still
+  133 ms (7.5 fps). The cost is CPU-side per-entity work; culling cannot help.
+- **Splitting geometry into entities costs ~4x the frame budget per cuboid.**
+  96,186 cuboids in **2** entities render at 33.3 ms; 72,000 cuboids in **6,000**
+  entities take 117-150 ms.
+- **Actor churn leaks.** After killing all 6,000 the heap settled at 1,431,604 kB
+  against a 1,289,606 kB pre-spawn baseline — **142 MB not returned**.
+- **Persistence works but costs load time.** 2,000 entities saved and reloaded
+  fine: **58.4 s vs a 47.8 s control, +22 %, ~5.3 ms per entity.** The spawn
+  itself (4,000 `summon`s in one `/function`) was survivable.
+
+Applied to 71043's 30,642 placements: 30,642 x 40 kB = **1.23 GB** of Actor
+overhead alone, plus ~128 MB of per-instance cuboids and 26 MB of prototype
+definitions — **~1.38 GB against the 148 MB the pack costs today, ~9x worse**, on
+a device whose entire add-on budget is ~260,000 cuboids (~780 MB). Break-even is
+(48,093 - 8,612) x 3.08 kB / 40 kB = **~3,040 entities**; the set needs ten times
+that, and 6,000 idle entities already run at 7 fps. **Do not build it.**
+
+### 3. Cheaper cubes is real but modest — about a third
+
+All 48,093 cubes of the shipped `hogwarts_71043_shell.geo.json` rewritten from
+six-face UV objects to box UV `"uv": [u, v]` (each cube keeping its own north-face
+uv), cuboid count identical, **file padded to the original byte length so file
+size is not a variable**, pushed over the device copy, cold app restart + world
+load for every reading:
+
+| | nativePss (kB) | nativeAlloc (kB) |
+|---|---|---|
+| A original | 1,280,812 / 1,280,960 | 1,145,409 |
+| B box UV | 1,224,889 / 1,224,553 | 1,131,114 / 1,130,746 |
+| C original restored | 1,269,852 / 1,269,908 | 1,140,935 |
+
+A and C reproduce within 11 MB (0.9 %). Against their mean, box UV saves
+**50.7 MB = 1.05 kB per cuboid = 34 % of the 3.08 kB** on `nativePss`, and
+12.2 MB = 0.26 kB = 8 % on `nativeAlloc`. The geometry was still parsed and drawn:
+content log **0 errors**, and a summoned shell reproduced the original's exact
+frame signature (16.68 median / 20.98 mean / 33.35 p90 vs 16.70 / 21.25 / 33.35).
+
+Dropping 5 of every 6 face descriptors removed only about a third of the cost,
+because a cube still becomes six quads and 24 vertices however its UVs were
+written. **Per-cube face data is a minority of the 3.08 kB, not the bulk.** It is
+still the cheapest lever available — worth roughly a third, taking the device
+ceiling from ~260k cuboids to maybe ~350-400k — but it is not the 28.7x the
+prototype ratio suggested, and instancing cannot deliver that either. Shipping it
+means the exporter emitting box UV, which needs one geometry (and a flat swatch
+texture) per colour, since box UV maps all six faces from one atlas rect.
+
+### Device facts this round paid for
+
+- **`adb push` into `Android/data` does NOT truncate.** A 761-byte restore over
+  the game's 850-byte `world_behavior_packs.json` left the old 89-byte tail
+  behind and produced invalid JSON while still reporting "1 file pushed". Pad any
+  shorter replacement to the on-device byte length (trailing whitespace is valid
+  JSON), or let the game rewrite the file itself.
+- **`adb push` cannot create a directory there** (`remote secure_mkdirs() failed:
+  Permission denied`) and `rm` is denied, so `development_behavior_packs/` is
+  unusable over adb: a pack can ONLY be installed by letting the game import an
+  `.mcaddon`, and it can never be removed over adb afterwards.
+- **A freshly imported pack is invisible to world loads until the app restarts.**
+  The world's `world_*_packs.json` entry for it is silently dropped and the file
+  rewritten with the surviving packs. force-stop + relaunch to the main menu
+  FIRST, then write the pack list.
+- **The game keeps rewriting a world's `world_*_packs.json` after Save & Quit**,
+  so a restore written at the menu is overwritten. Restore after a force-stop +
+  relaunch, then let the game write the canonical copy on the next quit — that
+  came back byte-identical to the backup (md5 verified).
+- **A pack manifest uuid built from a sha1 slice is not a valid UUID** (wrong
+  version/variant nibbles). Use `uuid5`.
+- **`dumpsys gfxinfo com.mojang.minecraftpe` is useless** — Minecraft draws into a
+  SurfaceView, so HWUI recorded 3 frames in a whole session. Use
+  `dumpsys SurfaceFlinger --latency "<hex> SurfaceView[com.mojang.minecraftpe/com.mojang.minecraftpe.MainActivity](BLAST)#<id>"`;
+  column 2 is the actual present time in ns.
+- **Enter both sends AND closes the Bedrock chat** on 1.26.51 — re-open the chat
+  to screenshot a command's reply.
+- Detecting "world finished loading" by screen brightness fails (a screen full of
+  entities is as bright as the loading dialog). RMSE against a crop of the HUD's
+  right-hand buttons is clean: ~0.00-0.11 in world, 0.15-0.58 while loading.
