@@ -36,7 +36,7 @@ export type EntityKind = PlayableKind | 'figure' | 'prop';
 import { getPartDims } from './ldraw-part-dims.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type LdrawStud, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import {
-  createPrototypeCache, resolveEntityQuality,
+  clampFigureQuality, createPrototypeCache, resolveEntityQuality,
   type CompiledPartPrototype, type LegoEntityQuality, type LegoEntityQualityName, type PartCuboid,
 } from './ldraw-part-prototype.js';
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
@@ -274,6 +274,13 @@ export function ldrawToRenderRotation(nose: '+x' | '-x' | '+z' | '-z'): number[]
 export interface LegoGeometryDiagnostics {
   /** Figures only: what the minifig rig rebuilt (minifig-rig.ts). */
   minifig?: { parts: number; synthesized: string[]; dropped: string[] };
+  /**
+   * Figures only, and only when the pack asked for a finer grain than the
+   * figure was given: every figure is clamped to `balanced` detail
+   * (`clampFigureQuality`) - 8-13x fewer cuboids, at the cost of 0.05-0.09 of
+   * six-view silhouette IoU on the head and hands.
+   */
+  figureQualityClamped?: { requestedMicrocellLdu: number; microcellLdu: number };
   sourcePartCount: number;
   uniquePartCount: number;
   resolvedPartCount: number;
@@ -1203,7 +1210,16 @@ export async function compileLdrawEntityGeometry(
 ): Promise<CompiledLdrawGeometry> {
   const scale = options.scale ?? BEDROCK_UNITS_PER_LDU;
   const provider = options.partGeometry ?? createPartGeometryProvider();
-  const baseQuality = resolveEntityQuality(options.quality);
+  // A FIGURE is compiled at `balanced` however fine the pack's quality: a 1 LDU
+  // minifig costs 8-13x the cuboids of a 4 LDU one for 0.05-0.09 of six-view
+  // silhouette IoU, and cuboids are what the device's whole-add-on memory
+  // ceiling is denominated in. See `clampFigureQuality` for the measurements.
+  // Vehicles, props and building shells keep the quality the caller asked for.
+  const requestedQuality = resolveEntityQuality(options.quality);
+  const baseQuality = kind === 'figure' ? clampFigureQuality(requestedQuality) : requestedQuality;
+  const figureQualityClamped = baseQuality.microcellLdu !== requestedQuality.microcellLdu
+    ? { requestedMicrocellLdu: requestedQuality.microcellLdu, microcellLdu: baseQuality.microcellLdu }
+    : undefined;
   const warnings: string[] = [];
 
   // A figure is rebuilt on the minifig rig (minifig-rig.ts): canonical pose,
@@ -1648,6 +1664,7 @@ export async function compileLdrawEntityGeometry(
     resolvedPartCount: uniqueParts.filter(p => meshes.get(p) != null).length,
     unresolvedParts: report.unresolved,
     prototypeCacheHits: cache.hits,
+    ...(figureQualityClamped ? { figureQualityClamped } : {}),
     cubeCount: opaqueCubes.length + translucentCubes.length,
     opaqueCubeCount: opaqueCubes.length,
     translucentCubeCount: translucentCubes.length,

@@ -122,7 +122,87 @@ export interface PlayableAddonResult {
 const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
 const json = (v: unknown) => text(JSON.stringify(v, null, 2));
+/**
+ * Geometry serializer: MINIFIED, unlike every other file in the pack.
+ *
+ * `.geo.json` is 98-99 % of a pack's bytes (71043 ultra: 94.35 MB of 95.11 MB)
+ * and pretty-printing costs 5.6-5.8x — 1,704-1,802 bytes per cuboid pretty,
+ * about 310 minified. Sixteen test packs occupy 469 MB unpacked on a device;
+ * minified they are ~82 MB. That is worth having for download size, for
+ * storage and for the unzip on import.
+ *
+ * THIS DOES NOT REDUCE MINECRAFT'S RUNTIME MEMORY, and nothing here should be
+ * "optimised" back on the theory that it would. Decisive A/B measured
+ * 2026-09-18 on a Pixel 8 Pro (Bedrock 1.26.51.1): the SAME pack, identical
+ * cuboids, shipped pretty (131.7 MB of JSON) and minified (23.0 MB) settled at
+ * 947,571 kB vs 951,340 kB of native allocation - 0.4 % apart, the minified
+ * one very slightly HIGHER. Retained memory tracks CUBOID COUNT
+ * (native heap = 739 MB + 3.08 kB per cuboid), not file bytes. The fix for the
+ * out-of-memory crash is fewer cuboids (see `DEVICE_CUBOID_BUDGET`), never
+ * smaller files.
+ *
+ * Everything else in the pack stays pretty: manifests, entity definitions,
+ * render controllers and `craftmatic-diagnostics.json` total ~0.15 MB and are
+ * meant to be read by a human opening the archive.
+ */
+const geoJson = (v: unknown) => text(JSON.stringify(v));
 const safe = (s: string) => toBedrockIdentifier(s).slice(0, 48);
+/**
+ * Cuboids a phone can hold across ALL active add-on packs at once. Measured
+ * 2026-09-18 on a Pixel 8 Pro (11.83 GB RAM, Bedrock 1.26.51.1): a world loads
+ * 9 Ultra packs - 258,972 cuboids summed over the active packs, 1.58 GB
+ * settled native heap - and dies on the 10th (281,185 cuboids) with
+ * `libc++abi: terminating due to uncaught exception of type St9bad_alloc`
+ * then `Fatal signal 6 (SIGABRT)`. That is an in-process OOM, not the
+ * low-memory killer. Retained cost fits native heap = 739 MB + 3.08 kB per
+ * cuboid and predicted three surviving configurations within 2 %.
+ *
+ * The ceiling is the CUBOID SUM over every active pack, NOT a pack count and
+ * NOT a file size: minifying a pack's JSON moves its settled allocation by
+ * 0.4 % (see `geoJson`). `maxModelCubes` caps ONE entity; nothing capped a
+ * pack, and one measured pack shipped 82,163 cuboids over 12 entities without
+ * a word of warning.
+ */
+export const DEVICE_CUBOID_BUDGET = 260_000;
+/** Warn about a pack's size once it is this share of the whole-device budget (fewer than 10 such packs fit). */
+const PACK_CUBOID_WARN_SHARE = 0.1;
+/** Locale-independent thousands separator, so the warning text is deterministic. */
+const grouped = (n: number): string => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+/**
+ * What a pack's cuboid total means for the player's device, in the terms they
+ * can act in: the share of `DEVICE_CUBOID_BUDGET` it takes and how many packs
+ * this size can be active together. `warning` is set only once the pack is a
+ * large enough share for that count to matter — below it, the number is still
+ * reported in `craftmatic-diagnostics.json`, never silently dropped.
+ */
+export function packCuboidBudget(label: string, cuboids: number, entities: number): {
+    cuboids: number;
+    entities: number;
+    deviceCuboidBudget: number;
+    shareOfDeviceBudget: number;
+    packsThatFitTogether: number;
+    warning?: string;
+} {
+    const share = cuboids / DEVICE_CUBOID_BUDGET;
+    const fit = Math.floor(DEVICE_CUBOID_BUDGET / Math.max(1, cuboids));
+    const out = {
+        cuboids, entities,
+        deviceCuboidBudget: DEVICE_CUBOID_BUDGET,
+        shareOfDeviceBudget: Math.round(share * 1000) / 1000,
+        packsThatFitTogether: fit,
+    };
+    if (share < PACK_CUBOID_WARN_SHARE) return out;
+    const size = `${label}: ${grouped(cuboids)} cuboids across ${entities} entit${entities === 1 ? 'y' : 'ies'} - ${Math.round(share * 100)}% of the ~${grouped(DEVICE_CUBOID_BUDGET)}-cuboid budget a phone has for ALL of its add-on packs together (measured on a Pixel 8 Pro).`;
+    // 2nd/3rd/4th…: `fit` is at most 10 here, because the warning needs a 10 % share.
+    const nth = fit + 1 === 2 ? '2nd' : fit + 1 === 3 ? '3rd' : `${fit + 1}th`;
+    return {
+        ...out,
+        warning: fit < 1
+            ? `${size} This pack alone is over that budget; expect the world to run out of memory while it loads. Export at a lower quality, or split the model.`
+            : `${size} About ${fit} pack${fit === 1 ? '' : 's'} this size can be active at once; a ${nth} is likely to crash the world as it loads.`,
+    };
+}
 
 function previewSamples(grid: BlockGrid, limit: number): Array<{ x: number; y: number; z: number }> {
     if (limit < 1) return [];
@@ -508,6 +588,8 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     value: unknown;
     palette: string[];
     meshIds: string[];
+    /** Cuboids this entity ships - the unit the device's add-on memory ceiling is counted in (`DEVICE_CUBOID_BUDGET`). */
+    cubeCount: number;
 } {
     const boxes = greedyBoxes(grid), cap = 16384;
     if (boxes.length > cap)
@@ -552,7 +634,7 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
         meshIds.push(meshId);
         meshes.push({ description: { identifier: meshId, texture_width: atlasW, texture_height: atlasH, ...cullingBounds }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
     }
-    return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
+    return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds, cubeCount: cubes.length };
 }
 /**
  * `opaqueMaterial` is `entity` for brick-compiled bodies (their translucent
@@ -1293,6 +1375,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
     files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
+    /** Cuboids of the BlockGrid-fallback entities, which have no `LegoGeometryDiagnostics` to carry them. */
+    let fallbackCuboids = 0;
     // Bundle authentic embossed LEGO stud & seam textures for Minecraft concrete blocks
     const terrainTextures: Record<string, { textures: string }> = {};
     for (const [colorName, [r, g, b]] of Object.entries(CONCRETE_COLORS)) {
@@ -1319,7 +1403,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         files.push(
             { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
             { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, geo.meshIds, geo.canopyMeshId, 'entity', animations)) },
-            { name: `${rp}models/entity/${ecid}.geo.json`, data: json(geo.value) },
+            { name: `${rp}models/entity/${ecid}.geo.json`, data: geoJson(geo.value) },
             { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, geo.meshIds, geo.canopyMeshId)) },
         );
         // One atlas per mesh material: exact LDraw RGB, plus the PBR maps.
@@ -1478,7 +1562,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             files.push({ name: `${bp}entities/${cid}.json`, data: json(behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1)) });
             cameraVehicles.push(emitCameraPresets(cid, c.kind, { width: layout.width, height: layout.height, length: layout.length }));
             const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
-            files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: json(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
+            fallbackCuboids += geo.cubeCount;
+            files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
         actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
     }
@@ -1520,7 +1605,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         files.push(
             { name: `${bp}entities/${seatId}.json`, data: json(seatBehavior(seatId)) },
             { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) },
-            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: json(SEAT_GEOMETRY) },
+            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
             { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
         );
         const seatActorStart = actors.length;
@@ -1538,7 +1623,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
     const screenId = /^[0-9]/.test(rawScreenId) ? `s_${rawScreenId}` : rawScreenId;
     if (screens.length) {
-        files.push({ name: `${bp}entities/${screenId}.json`, data: json(screenBehavior(screenId)) }, { name: `${rp}entity/${screenId}.entity.json`, data: json(screenClient(screenId)) }, { name: `${rp}models/entity/control_screen.geo.json`, data: json(SCREEN_GEOMETRY) }, { name: `${rp}textures/entity/craftmatic_screen.png`, data: palettePng(['cyan']) });
+        files.push({ name: `${bp}entities/${screenId}.json`, data: json(screenBehavior(screenId)) }, { name: `${rp}entity/${screenId}.entity.json`, data: json(screenClient(screenId)) }, { name: `${rp}models/entity/control_screen.geo.json`, data: geoJson(SCREEN_GEOMETRY) }, { name: `${rp}textures/entity/craftmatic_screen.png`, data: palettePng(['cyan']) });
         for (const s of screens)
             actors.push({ typeId: `${PACK_NAMESPACE}:${screenId}`, label: s.label, x: Math.round(s.x), y: Math.round(s.y), z: Math.round(s.z) });
     }
@@ -1546,8 +1631,31 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (minifigsEmitted) files.push({ name: `${rp}animations/craftmatic_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) });
     if (unmapped.size) warnings.push(`${unmapped.size} block type${unmapped.size === 1 ? '' : 's'} had no Bedrock equivalent and ${unmapped.size === 1 ? 'was' : 'were'} omitted: ${[...unmapped].join(', ')}`);
     if (modelScale !== 1) warnings.push(`${label}: exported at ${modelScale}× minifig scale (1 block = ${Math.round(lduPerBlock * 100) / 100} LDU) - blocks, colliders, entities and figures alike.`);
+    // ── Pack cuboid budget ───────────────────────────────────────────────────
+    // `maxModelCubes` caps ONE entity. Nothing capped a PACK, and the device's
+    // ceiling is the cuboid sum over every add-on the world has active
+    // (`DEVICE_CUBOID_BUDGET`) - so a pack of a dozen entities, each of them
+    // under its own budget, could quietly take a third of the phone. The total
+    // always goes into `craftmatic-diagnostics.json`; the warning fires once
+    // the pack is a large enough share of the budget for the count of packs to
+    // matter. The placement ghost (<= 120 cuboids) and the invisible seat and
+    // screen stubs are not counted: they are noise at this scale.
+    const figuresClamped = Object.values(diagnostics).filter(d => d.figureQualityClamped).length;
+    if (figuresClamped) {
+        const to = Object.values(diagnostics).find(d => d.figureQualityClamped)!.figureQualityClamped!;
+        warnings.push(`${label}: ${figuresClamped} figure${figuresClamped === 1 ? ' was' : 's were'} compiled at ${to.microcellLdu} LDU rather than the pack's ${to.requestedMicrocellLdu} LDU - at the finer grain a minifig costs 8-13× the cuboids (the phone's add-on memory budget) and gains only a rounder head and hands.`);
+    }
+    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids;
+    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0);
+    const budget = packCuboidBudget(label, packCuboids, entityCount);
+    if (budget.warning) warnings.push(budget.warning);
     // Every fidelity degradation is inspectable from the pack itself.
-    if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({ generator: 'craftmatic', label, entities: diagnostics }) });
+    if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
+        generator: 'craftmatic', label,
+        // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
+        pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped },
+        entities: diagnostics,
+    }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
     for (const c of components) {
@@ -1567,7 +1675,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push(
         { name: `${bp}entities/${id}_preview.json`, data: json(ghost.behavior) },
         { name: `${rp}entity/${id}_preview.entity.json`, data: json(ghost.clientEntity) },
-        { name: `${rp}models/entity/${id}_preview.geo.json`, data: json(ghost.geometry) },
+        { name: `${rp}models/entity/${id}_preview.geo.json`, data: geoJson(ghost.geometry) },
         { name: `${rp}render_controllers/${id}_preview.render_controllers.json`, data: json(ghost.renderControllers) },
         { name: `${rp}textures/entity/${id}_preview.png`, data: ghost.texturePng },
     );

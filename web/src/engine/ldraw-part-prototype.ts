@@ -68,6 +68,46 @@ export function resolveEntityQuality(quality?: LegoEntityQualityName | Partial<L
   return { ...LEGO_ENTITY_QUALITY.balanced, ...quality };
 }
 
+/**
+ * Coarsen a quality to `high`, field by field — the ceiling every FIGURE is
+ * compiled at however fine the pack asked for.
+ *
+ * `high` and `ultra` exist to spend what is left of `maxModelCubes` after the
+ * render cuboids ON A DENSE MODEL: a 6,000-part castle or a 2,000-part ship
+ * fills the budget and a finer microcell is the only way to keep its grain. A
+ * minifig is ~10 placements on the rig and never approaches that budget, so it
+ * pays 8-13x the cuboids for very little: measured 2026-09-18, one ultra figure
+ * is 1,257-1,751 cuboids where the same figures at balanced are 106-183 (76435
+ * ships 10 figures in 1,296 cuboids total). What that buys, over 76286's four
+ * figures, is six-view silhouette IoU against the figure's own source
+ * triangles of 0.940-0.959 at 1 LDU, 0.904-0.932 at 2 LDU and 0.852-0.897 at
+ * 4 LDU: the head and hands round off, the rest is unchanged.
+ *
+ * `high` is the clamp rather than `balanced` because it is FREE. Figures are
+ * 9.5-24.7 % of an Ultra pack (11.4 % over a 16-pack corpus) and cuboids are
+ * what the device's add-on memory ceiling is denominated in (see
+ * `DEVICE_CUBOID_BUDGET` in playable-addon.ts) - but that ceiling is coarse:
+ * 71043 lands at ~50.1k cuboids clamped to `high` against 48.7k clamped to
+ * `balanced`, and 260,000 over either is the SAME 5 packs; 76286 is 13 packs
+ * either way. `balanced` would give up 0.03 IoU per figure and buy no extra
+ * pack. Drop to `balanced` only if a measurement shows a pack count actually
+ * turning on it.
+ *
+ * Field-by-field rather than "replace with balanced" so a caller that asked
+ * for something COARSER than balanced keeps it.
+ */
+export function clampFigureQuality(quality: LegoEntityQuality): LegoEntityQuality {
+  const b = LEGO_ENTITY_QUALITY.high;
+  return {
+    ...quality,
+    maxModelCubes: Math.min(quality.maxModelCubes, b.maxModelCubes),
+    maxPartCubes: Math.min(quality.maxPartCubes, b.maxPartCubes),
+    microcellLdu: Math.max(quality.microcellLdu, b.microcellLdu),
+    maxStudCubes: Math.min(quality.maxStudCubes, b.maxStudCubes),
+    studFacets: Math.min(quality.studFacets, b.studFacets),
+  };
+}
+
 /** An axis-aligned box in part-local LDU. `color` 16 means the placement's colour. */
 export interface PartCuboid {
   min: Vec3;

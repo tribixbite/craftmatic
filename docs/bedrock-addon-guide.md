@@ -683,3 +683,72 @@ them, so the player silently loses a set.
   set byte-identical across two builds, `python scripts/_mcaddon_check.py` OK on
   all of them, the shipped `/function b_*.mcfunction` matching each manifest's
   description. Regression tests: `test/playable-addon.test.ts` "pack identity".
+
+---
+
+## The device ceiling is CUBOIDS, not packs and not bytes (2026-09-18)
+
+**Minecraft Bedrock 1.26.51.1 on a Pixel 8 Pro (11.83 GB RAM) dies loading a
+world with 10 Ultra-quality add-on packs; 9 load.** The kill is an in-process
+OOM, not the low-memory killer: `libc++abi: terminating due to uncaught
+exception of type St9bad_alloc` followed by `Fatal signal 6 (SIGABRT)`.
+
+- **Retained cost fits `native heap = 739 MB + 3.08 kB per cuboid`**, which
+  predicted three surviving configurations within 2 %. At N=9 the active packs
+  summed 258,972 cuboids and 1.58 GB settled; at N=10, 281,185 cuboids and
+  death. The ceiling is therefore **~260,000 cuboids summed over every active
+  pack** — `DEVICE_CUBOID_BUDGET` in `engine/playable-addon.ts` — and it is a
+  cuboid sum, not a pack count.
+- **Minifying does NOT reduce memory.** Decisive A/B on the same pack, identical
+  cuboids, pretty (131.7 MB of JSON) vs minified (23.0 MB): settled native
+  allocation 947,571 kB vs 951,340 kB, **0.4 % apart**, the minified one very
+  slightly higher. Never present minification as the OOM fix.
+- **Better merging is not available.** `hiddenCubesCulled` and
+  `mergeAlignedCuboids` are near-exhausted (culled 0.0-2.5 %, merged
+  0.0-11.8 %); an independent greedy same-colour merge found **0.1 %** more and
+  zero duplicate cubes. Chunking (1024 cubes per geometry) is not the problem
+  either: cube objects are 97.4 % of the bytes, all bone and description headers
+  together 2.6 %.
+
+### What the exporter does about it
+
+1. **Every FIGURE is compiled at `balanced` detail however fine the pack is**
+   (`clampFigureQuality`, applied in `compileLdrawEntityGeometry` for
+   `kind === 'figure'`; vehicles, props and building shells keep the requested
+   quality). Ultra exists to spend what is left of `maxModelCubes` after the
+   render cuboids **on a dense model**; a minifig is ~10 placements on the rig
+   and never approaches that budget. Measured on 76286's four figures, six-view
+   silhouette IoU against the figures' own source triangles is **0.940-0.959 at
+   1 LDU (1,268-1,586 cuboids), 0.904-0.932 at 2 LDU (444-544) and 0.852-0.897
+   at 4 LDU (133-155)** — the head and hands round off, nothing else moves, and
+   4 LDU is what a figure has always been given in a balanced pack. If that ever
+   reads as too coarse next to a player, clamp to `high` (2 LDU) rather than
+   removing the clamp: 1 LDU is 3x the cuboids again for 0.03 more IoU.
+2. **The pack's own cuboid total is reported and warned about.**
+   `maxModelCubes` caps ONE entity; nothing capped a pack, and one measured pack
+   shipped 82,163 cuboids over 12 entities in silence. `packCuboidBudget()`
+   puts `pack: { cuboids, entities, deviceCuboidBudget, shareOfDeviceBudget,
+   packsThatFitTogether, … }` into `craftmatic-diagnostics.json` on every
+   export, and raises an export warning from 10 % of the device budget:
+   *"Castle: 82,163 cuboids across 12 entities - 32% of the ~260,000-cuboid
+   budget a phone has for ALL of its add-on packs together (measured on a
+   Pixel 8 Pro). About 3 packs this size can be active at once; a 4th is likely
+   to crash the world as it loads."*
+3. **Geometry JSON ships minified** (`geoJson` in `playable-addon.ts`; every
+   other file stays pretty-printed for a human opening the archive). This is a
+   download-and-storage fix ONLY — see the A/B above.
+
+### Measured effect (2026-09-18)
+
+| pack | quality | cuboids | archive | unpacked | packs that fit in 260k |
+|---|---|---|---|---|---|
+| 71043 Hogwarts Castle | ultra | 53,695 → **48,683** (-9.3 %) | 1.593 → **0.574 MB** | 95.11 → **16.10 MB** | 4 → **5** |
+| 76286 Guardians' Ship | ultra | 23,577 → **18,599** (-21.1 %) | 0.718 → **0.252 MB** | 41.35 → **6.06 MB** | 11 → **13** |
+| 76435 Great Hall | balanced | 8,875 → 8,875 (control) | 0.332 → **0.173 MB** | 16.49 → **3.46 MB** | 29 → 29 |
+
+Figures in the two Ultra packs fall 5,602 → 590 (4 figures) and 5,552 → 574
+(4 figures); 76435 was already balanced, so its cuboids are unchanged — the
+control that shows the clamp only ever touches a pack above balanced.
+Gates: `bun run typecheck`, `bun run typecheck:web`, `bun run test`,
+`python scripts/_mcaddon_check.py` OK on all three. Regression tests:
+`test/bedrock-cuboid-budget.test.ts`.
