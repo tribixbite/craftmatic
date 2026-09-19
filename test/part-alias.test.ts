@@ -20,6 +20,7 @@ import {
   substitutedDatNames,
   clearMpdInlines,
 } from '../web/src/viewer/ldraw/parts.js';
+import { LDRAW_PART_ALIASES } from '../web/src/engine/ldraw-part-aliases.js';
 
 describe('partAliasCandidates', () => {
   it('strips mecabricks decoration and mould-version suffixes', () => {
@@ -88,6 +89,30 @@ describe('partAliasCandidates', () => {
     for (const stem of ['20926', '20932', '1000341']) {
       expect(partAliasCandidates(stem), stem).toEqual([]);
     }
+  });
+
+  it('leaves the sail, slide and door ids alone (measured 2026-09-19)', () => {
+    // docs/lego-sources-guide.md "Named part-class gaps": every slide/door
+    // mould the named sets use resolves on prod DIRECTLY, so a hop here would
+    // only ever fire on a transient miss and swap a sibling in — pin that the
+    // ladder has nothing to offer for them.
+    for (const stem of ['11267', '27976', '4181', '43967', '42205', '40066', '60596', '60623']) {
+      expect(partAliasCandidates(stem), stem).toEqual([]);
+    }
+    // The 2025 tattered-hole cloth sails (10365) and the barge sail (75397)
+    // have NO LDraw mould. `112554` is within half a stud of `64991` in size
+    // and is still a different die-cut in an unmeasured frame; an alias would
+    // draw the wrong sail in a guessed place. A hole is the honest render.
+    for (const stem of ['112554', '112555', '112556', '112557', '112558', '109637']) {
+      expect(partAliasCandidates(stem), stem).toEqual([]);
+    }
+    // `60616` resolves on prod to a Studio "(Needs Work)" stub whose origin is
+    // on the BOTTOM plane; the real mould `60616a` has it at the top. clego's
+    // harvester fitted every Mecabricks door (184 placements) against the
+    // stub, so mapping 60616 → 60616a HERE would drop all of them by 144 LDU.
+    // The fix is a re-fit in clego (the 3814 → 973 recipe), never this table.
+    expect(partAliasCandidates('60616')).toEqual([]);
+    expect(LDRAW_PART_ALIASES['60616']).toBeUndefined();
   });
 
   it('terminates and never repeats a candidate', () => {
