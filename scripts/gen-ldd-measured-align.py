@@ -43,9 +43,18 @@ Designs absent from this table keep falling back to `ldd-part-map.json`; the
 `.lxf` loader reports the split in its diagnostics.
 """
 import json
+import math
+import sys
 from pathlib import Path
 
 import numpy as np
+
+# clego's conservative AABB of the LDraw reference library, the same measure
+# `dbix_align_bound.py` gates the CONVERTER with. Importing it keeps one
+# definition of "how big is this part" across both sides.
+_CLEGO = r'C:\git\clego'
+if _CLEGO not in sys.path:
+    sys.path.insert(0, _CLEGO)
 
 SRC = Path(r'C:\git\clego\dbix_part_align.json')
 XMLMAP = Path(r'C:\git\craftmatic\web\public\ldd-part-map.json')
@@ -75,6 +84,45 @@ DROP_LEARNED = {
     '3818|3818',
     '3819|3819',
 }
+
+# Two origin conventions for one mould cannot be further apart than the mould
+# itself, so `|e| <= BOUND_RATIO x (diagonal of the part's own bounding box)` is
+# a statement about geometry, not a tuned threshold. Calibrated in clego against
+# an INDEPENDENT authored dataset — Studio's own ldraw.xml correction columns,
+# where none of the 3,521 resolvable rows exceeds 1.73x — so 2.0 cannot reject a
+# hand-authored correction. See clego/dbix_align_bound.py for the full working
+# and for the bimodal distribution the bound cuts in the valley of.
+#
+# The diagonal is EMITTED as the row's 15th element rather than used to drop the
+# row here, because the browser is the side that has to defend itself: a table
+# is fetched at runtime and can be older, newer or hand-edited. A row whose part
+# the reference library does not have gets no 15th element and is accepted, and
+# nothing is claimed about it.
+BOUND_RATIO = 2.0
+
+_diag_cache: dict[str, float | None] = {}
+
+
+def part_diagonal(stem: str) -> float | None:
+    """Bounding-box diagonal of the LDraw part in LDU, or None if unresolved.
+
+    `bl_`-prefixed stems are retried without the prefix, which is what the
+    renderer's own alias chain does with them.
+    """
+    key = stem.lower()
+    if key in _diag_cache:
+        return _diag_cache[key]
+    import io_authenticity as _A          # heavy; only needed here
+    val: float | None = None
+    for cand in (key, key[3:] if key.startswith('bl_') else None):
+        if not cand:
+            continue
+        box = _A.dat_bbox(cand + '.dat', None)
+        if box is not None:
+            val = math.dist(box[0], box[1])
+            break
+    _diag_cache[key] = val
+    return val
 
 
 def orthonormalise(r9):
@@ -116,6 +164,8 @@ def main():
 
     out: dict[str, list] = {}
     reortho = 0
+    overlong: list[tuple[str, str, float, float]] = []
+    unbounded: list[str] = []
     for design, cands in by_design.items():
         stem = None
         want = xml.get(design)
@@ -131,10 +181,19 @@ def main():
         if np.abs(q - m).max() > 1e-6:
             reortho += 1
         t = ent['t']
-        out[design] = ([f'{stem}.dat']
-                       + [rnd(v) for v in q.flatten()]
-                       + [rnd(t[0]), rnd(t[1]), rnd(t[2])]
-                       + [int(ent.get('n', 0))])
+        row = ([f'{stem}.dat']
+               + [rnd(v) for v in q.flatten()]
+               + [rnd(t[0]), rnd(t[1]), rnd(t[2])]
+               + [int(ent.get('n', 0))])
+        diag = part_diagonal(stem)
+        if diag is not None and diag > 0:
+            row.append(rnd(diag))
+            mag = math.sqrt(sum(float(v) * float(v) for v in t))
+            if mag > BOUND_RATIO * diag:
+                overlong.append((design, stem, round(mag, 1), round(diag, 1)))
+        else:
+            unbounded.append(design)
+        out[design] = row
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
@@ -142,6 +201,13 @@ def main():
           f'({OUT.stat().st_size / 1024:.0f} KB); re-orthonormalised {reortho}')
     print(f'  source: {SRC.name}, {len(raw["table"])} raw rows, '
           f'{len(raw.get("explained_sets", {}))} ground-truth-locked sets')
+    print(f'  {len(out) - len(unbounded)} rows carry a part diagonal, '
+          f'{len(unbounded)} could not be measured (accepted unbounded)')
+    print(f'  {len(overlong)} rows exceed {BOUND_RATIO}x their part diagonal '
+          f'and the LOADER will reject them:')
+    for design, stem, mag, diag in sorted(overlong, key=lambda r: -r[2])[:12]:
+        print(f'    {design:<10} {stem:<14} |e| {mag:>8.1f} LDU  '
+              f'diag {diag:>6.1f}  ratio {mag / diag:.1f}x')
     print(f'  dropped {len(gated)} measured rows with physical '
           f'counter-evidence: ' + ', '.join(sorted(gated)))
 

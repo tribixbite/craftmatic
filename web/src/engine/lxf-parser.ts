@@ -96,15 +96,55 @@ export const FRAME_SIGN: readonly [number, number, number] = [1, -1, -1];
 export type PartAlign = [string, number, number, number, number, number, number, number];
 
 /**
- * designID → [ldrawFile, r0..r8 (row-major D), tx, ty, tz (e, LDU), support].
- * clego's MEASURED correction, already expressed in the flipped LDraw basis.
+ * designID → [ldrawFile, r0..r8 (row-major D), tx, ty, tz (e, LDU), support,
+ * partDiagonal?]. clego's MEASURED correction, already expressed in the flipped
+ * LDraw basis.
+ *
+ * The optional 15th element is the LDraw part's own bounding-box diagonal in
+ * LDU, written by `scripts/gen-ldd-measured-align.py`. It is what lets the
+ * LOADER apply the bound below rather than trusting whatever table it fetched;
+ * a row whose part the reference library cannot measure has no 15th element and
+ * nothing is claimed about it.
  */
 export type MeasuredAlign = [
   string,
   number, number, number, number, number, number, number, number, number,
   number, number, number,
   number,
+  number?,
 ];
+
+/**
+ * How many part-diagonals a MEASURED origin correction may be, at most.
+ *
+ * `e` re-expresses a placement from LDD's origin for a mould onto LDraw's
+ * origin for the SAME mould, and two origin conventions for one piece cannot be
+ * further apart than the piece itself. So this is a statement about geometry,
+ * not a tuned threshold. Calibrated in clego against an INDEPENDENT authored
+ * dataset — Studio's own `ldraw.xml` correction columns, where none of the
+ * 3,521 resolvable rows exceeds 1.73x — so 2.0 cannot reject a hand-authored
+ * correction, while the learned table's own distribution is bimodal with a
+ * valley from 1.0x to 1.75x and a tail reaching past 20x.
+ *
+ * On the table shipped 2026-09-19 this rejects **244 of the 1,805 measurable
+ * rows**, the worst at 86x: `50665` Minifig Helmet Classic carries |e| = 4,360
+ * LDU against a 52 LDU part, which is why 11374's only helmet landed 4,360 LDU
+ * from the only head. Those rows are the mode of a vote taken over placements
+ * that were never the same relationship.
+ */
+export const MEASURED_BOUND_RATIO = 2.0;
+
+/**
+ * Is this row's correction short enough to BE an origin correction?
+ *
+ * True when the row carries no diagonal — an unmeasurable part is not a bad
+ * row, and rejecting it would throw away a correction on no evidence.
+ */
+export function withinMeasuredBound(m: MeasuredAlign): boolean {
+  const diag = m[14];
+  if (typeof diag !== 'number' || !Number.isFinite(diag) || diag <= 0) return true;
+  return Math.hypot(m[10], m[11], m[12]) <= MEASURED_BOUND_RATIO * diag;
+}
 
 /** Where Studio's ldraw.xml table lives (scripts/gen-ldd-part-map.py). */
 export const PART_MAP_URL = '/ldd-part-map.json';
@@ -129,6 +169,13 @@ export interface AlignmentTable<T> {
   entries: Record<string, T>;
   /** raw entries present in the JSON but rejected by the row validator. */
   rejected: number;
+  /**
+   * entries that passed the schema and were then dropped because their
+   * correction is longer than the part it corrects (`withinMeasuredBound`).
+   * Kept apart from `rejected`: one is a malformed row, the other is a
+   * well-formed row making a physically impossible claim.
+   */
+  boundRejected?: number;
   /** the resource's own identity, from its HTTP validators when it has them. */
   version?: string;
   /** why the whole resource is unavailable. */
@@ -144,6 +191,13 @@ export interface LxfTableReport {
   source: string;
   entries: number;
   rejected: number;
+  /**
+   * well-formed rows dropped because the correction is longer than the part it
+   * corrects (measured table only — see `MEASURED_BOUND_RATIO`). A non-zero
+   * value is NORMAL: the shipped table carries 244 such rows. It jumping is the
+   * signal that a regenerated table has a new learner problem.
+   */
+  boundRejected?: number;
   version?: string;
   error?: string;
 }
@@ -208,9 +262,11 @@ export function validatePartAlign(v: unknown): v is PartAlign {
 
 /** True when `v` is a structurally valid `MeasuredAlign` row. */
 export function validateMeasuredAlign(v: unknown): v is MeasuredAlign {
-  if (!Array.isArray(v) || v.length !== 14) return false;
+  // 15 since 2026-09-19 (the part diagonal); 14 is still valid and unbounded,
+  // so a browser holding this build reads an older deployed table correctly.
+  if (!Array.isArray(v) || (v.length !== 14 && v.length !== 15)) return false;
   if (typeof v[0] !== 'string' || v[0].length === 0) return false;
-  for (let i = 1; i < 14; i++) {
+  for (let i = 1; i < v.length; i++) {
     if (typeof v[i] !== 'number' || !Number.isFinite(v[i])) return false;
   }
   // The rotation must be a real rotation — the generator re-orthonormalises, so
@@ -343,9 +399,28 @@ export function loadPartMap(): Promise<LxfAlignmentTable> {
   return loadTable(PART_MAP_URL, validatePartAlign);
 }
 
-/** clego's MEASURED per-design correction (~145 KB) — the fallback alignment. */
+/**
+ * Drop the rows whose correction is longer than the part it corrects.
+ *
+ * Applied after the schema pass and not inside it, so the two counts stay
+ * distinguishable: a malformed row means the asset is corrupt, an out-of-bound
+ * row means the LEARNER voted over placements that were never the same
+ * relationship.
+ */
+export function applyMeasuredBound(t: LxfMeasuredTable): LxfMeasuredTable {
+  if (t.state !== 'ok') return t;
+  const entries: Record<string, MeasuredAlign> = {};
+  let boundRejected = 0;
+  for (const [id, row] of Object.entries(t.entries)) {
+    if (withinMeasuredBound(row)) entries[id] = row;
+    else boundRejected++;
+  }
+  return boundRejected === 0 ? t : { ...t, entries, boundRejected };
+}
+
+/** clego's MEASURED per-design correction (~163 KB) — the fallback alignment. */
 export function loadMeasuredAlign(): Promise<LxfMeasuredTable> {
-  return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign);
+  return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign).then(applyMeasuredBound);
 }
 
 /** Axis-angle (radians) → 3×3 row-major rotation matrix. */
@@ -709,6 +784,7 @@ export function buildLxfPlacements(
     source: t.source,
     rejected: t.rejected,
     entries: Object.keys(t.entries).length,
+    ...(t.boundRejected !== undefined ? { boundRejected: t.boundRejected } : {}),
     ...(t.version !== undefined ? { version: t.version } : {}),
     ...(t.error !== undefined ? { error: t.error } : {}),
   });
