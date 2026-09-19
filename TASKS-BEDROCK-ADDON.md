@@ -145,12 +145,20 @@ the slide and the door.
 
 ### Still open from the 18-set round
 
-- [ ] **The Milano's stand mast** — `stand-below-canopy` cuts at a fixed height
-      and the Technic mast straddles it, so the base drops and the upper segments
-      stay stuck to the hull. Needs a CONNECTIVITY rule: after the height cut,
-      extend the drop UPWARD while a candidate's horizontal footprint stays
-      inside the dropped set's and its box is below the hull's lower envelope,
-      then keep the 20 % gate. Size it on several plane sources first.
+- [x] **The Milano's stand mast — SIZED, and the proposed rule is unsafe.**
+      Measured 2026-09-19 (`tmp/stand-probe.ts`, the pattern of
+      `scripts/decomposition-pack-ab.ts`). On 76286: 52 placements drop as the
+      stand, `strandedRepaired` 0, and the stand's XZ footprint is
+      x [-140, 140] z [-26, 217] — most of the model's plan area. So "extend the
+      drop while the candidate's footprint stays inside the dropped set's" would
+      claim **80 kept placements**, and they are hull parts (`3020`, `3700`,
+      `3623`, `3702`), not mast. A CONNECTIVITY continuation instead — grow from
+      the dropped set through touching placements, never above the hull's lower
+      envelope — claims exactly **2**, both `32524` Technic Beam 7, which is the
+      reported mast stub.
+      Not built, because the class is small: `stand-below-canopy` fired on
+      **1 of 5** plane sources tested (76286 yes; 75367, 75275, 75277, 75306 no).
+      If it is ever built, build the connectivity form, not the footprint form.
 - [ ] **76435's loose parts are its exploded source** (42 clusters). The guide's
       "cut buildings from the `.io`/IOModel2V2" advice is WRONG for this set —
       there is no `IOModel2V2/76435`, and `IO/76435.io` is 70 clusters, worse.
