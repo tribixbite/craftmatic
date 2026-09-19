@@ -39,6 +39,24 @@ NOT been pushed**; CI/Deploy were last green at `a6f3b152`.
 - **Mini-dolls and an LDD id suffix** (`e4396a31`). Doll slots had NO correction
   in either table; and `designID="1006030;I"` made LDD's own `.lxfml` dumps
   render EMPTY.
+- **A correction cannot be longer than the part it corrects** (`13f3c0d4`).
+  `gen-ldd-measured-align.py` now emits the part's own bbox diagonal as a 15th
+  element and the loader rejects a row over 2.0 diagonals — **244 of the 1,805
+  measurable rows**, the worst at 86x (design 50665, |e| 4,360 LDU on a 52 LDU
+  helmet). A DEFENCE, not a repair: 166 are designs Studio's table also names,
+  and 0 of the 78 reachable ones appear in the first 400 `.lxf` picks.
+- **The minifig rig no longer dresses a mini-doll** (`8651b67d`).
+  `classifyMinifigPart` ended in an unconditional `return 'held'`, so a doll
+  beside a minifig had its head and arms teleported into the minifig's fists. A
+  doll part now classifies `null` and a null-slot part is KEPT where the source
+  put it, reported as a `bystander`.
+- **Multi-term search** (`cc659b2d`, `6e288ebe`). "10354,71040" returns both;
+  terms split on `,` `;` or newline, words inside a term still AND, terms are
+  interleaved so a broad term cannot starve a narrow one out of the cap, and
+  the source-class re-sort is skipped so the list reads in the typed order.
+- **A slow `_batch` no longer disables the part fast path for the session**
+  (`ed509756`). Two timeouts during one slow load left 329 of 338 part fetches
+  timing out and the model reported "No 3D model found".
 
 ### The open chain: publish the clego corpus fixes
 
