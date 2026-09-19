@@ -65,6 +65,17 @@ page.on('requestfailed', r => {
   failedRequests.add(`${r.failure()?.errorText ?? 'failed'} ${r.url().slice(0, 160)}`);
 });
 
+// How many times the 3.8 MB models index was REQUESTED during this run. Two
+// requests mean two overlapping searches each started their own download, and
+// the loser's clean-up can clear the selection under the load the user just
+// started (the silent stall fixed in ea1ebd61). Counted from the browser's own
+// request stream rather than a `page.route`, so it costs the measurement
+// nothing and is therefore always on — including against production, which is
+// the only place the race has a window wide enough to land in. (The
+// `PROBE_SLOW_INDEX_MS` injector keeps its own counter for the delayed run.)
+let indexRequests = 0;
+page.on('request', r => { if (r.url().includes('/lego-models-index.json')) indexRequests++; });
+
 // ── Production debug hook ────────────────────────────────────────────────────
 // `window.__ldrawViewer` is assigned behind `import.meta.env.DEV`, so Vite
 // CONSTANT-FOLDS the whole block away in a production build: on craftmatic.click
@@ -328,6 +339,21 @@ await page.evaluate(() => {
 // the probe waits out its whole model budget reporting "Browsing all sets").
 // Invisible in dev, where the index is a local read; reproducible on production,
 // where that first search is a 3.8 MB network fetch. Measured 2026-09-18.
+// "Enabled" only proves the browse-all search FINISHED once it has STARTED —
+// the button is created enabled, so a probe that checks it in the window
+// between the panel mounting and `ensureCatalog().then()` firing passes this
+// test before anything has begun. The typed search that follows then clicks a
+// button that browse-all disables microseconds later, and a click on a
+// DISABLED button is a silent no-op: no search ever runs, browse-all paints
+// its own 48 cards, and the probe reports `no-card (cards=48)` as if the app
+// had failed. Measured 2026-09-18: 1 cold production run in 36 lost that race.
+// So wait for evidence the panel's own search exists at all — the button seen
+// disabled, or cards already on screen — before trusting "enabled".
+await page.waitForFunction(
+  () => {
+    const b = document.getElementById('lego-search-btn');
+    return (!!b && b.disabled) || document.querySelectorAll('.lego-result-card').length > 0;
+  }, null, { timeout: Math.min(SEARCH_MS, 20_000) }).catch(() => {});
 await page.waitForFunction(
   () => {
     const b = document.getElementById('lego-search-btn');
@@ -368,7 +394,37 @@ if (target.startsWith('file:')) {
     return 'clicked';
   }, target);
   clickedAt = Date.now();
-  if (clicked !== 'clicked') { console.error(`search failed: ${clicked}`); process.exit(1); }
+  if (clicked !== 'clicked') {
+    // A search that never produced the set's card is a RESULT, not a harness
+    // crash — and exiting bare left nothing behind to say why (measured
+    // 2026-09-18: one cold production run in 24 ended `no-card (cards=48)`,
+    // i.e. the leftover browse-all list, with no record of whether the index
+    // had been fetched, had failed, or was simply still in flight). The same
+    // fields a stalled load writes are dumped here so the next occurrence is
+    // diagnosable from the artefact alone.
+    const searchState = await page.evaluate(() => ({
+      status: document.getElementById('lego-status')?.textContent?.slice(-500) ?? null,
+      badge: document.getElementById('lego-source-badge')?.textContent ?? null,
+      searchValue: document.getElementById('lego-search')?.value ?? null,
+      searchDisabled: document.getElementById('lego-search-btn')?.disabled ?? null,
+      cards: [...document.querySelectorAll('.lego-result-card')].slice(0, 6)
+        .map(c => (c.textContent ?? '').trim().slice(0, 60)),
+      indexLoaded: globalThis.__net
+        ? globalThis.__net.done.filter(d => d.url.includes('/lego-models-index.json'))
+          .map(d => ({ status: d.status ?? d.error, ms: d.ms }))
+        : null,
+      inflight: globalThis.__net
+        ? [...globalThis.__net.inflight.values()].map(r => ({ url: r.url.slice(-70), ageMs: Date.now() - r.t }))
+        : null,
+    })).catch(() => null);
+    writeFileSync(join(outDir, `${label}-probe.json`), JSON.stringify({
+      error: 'search failed', clicked, origin: DEV, indexRequests,
+      searchState, routeEvents, failedRequests: [...failedRequests].slice(0, 12),
+      consoleErrors: errors.slice(0, 8),
+    }, null, 1));
+    console.error(`search failed: ${clicked}`);
+    process.exit(1);
+  }
 }
 
 // Wait for the viewer to report a loaded model.
@@ -532,6 +588,7 @@ probe.origin = DEV;
 probe.prodHookPatched = prodHookPatched;
 probe.routeEvents = routeEvents;
 probe.statusTimeline = statusTimeline;
+probe.indexRequests = indexRequests;
 if (SLOW_INDEX_MS > 0) probe.indexFetches = indexFetches;
 if (FAULT_503 > 0) probe.fault503 = { percent: FAULT_503, injected: faulted503 };
 probe.failedRequests = [...failedRequests].slice(0, 12);

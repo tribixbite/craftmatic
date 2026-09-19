@@ -96,6 +96,23 @@ path or the exporters. Each drives the REAL app in headless Chrome against
   So: never conclude "prod cannot render set X" from one probe run. Re-run with
   `bash scripts/_verify-sets-retry.sh <outDir> <rounds> <set>…`, which repeats
   only the sets that produced no positions dump.
+- **Verified on production after the deploy (2026-09-18, build `f2f6e4b7`,
+  entry chunk `index-DP71rJ7m.js`): 66 cold loads, 0 stalls.** 48 single-set
+  cold runs over 8 sets plus the full 18-set review, every one a fresh browser
+  context, every one reporting `indexRequests: 1`. Against the ~45 % baseline,
+  0 of 66 is conclusive (0.55^66). The 18-set review matched
+  `output/verify-prod-18` exactly on every tracked field — placements, meshes,
+  missing parts, arm counts and ids, arm→torso LDU, isolated placements, status
+  tail — and the source each set actually loaded (observed badge) equalled the
+  source predicted from the index.
+  - `indexRequests` is now reported on EVERY run, counted from the browser's
+    own request stream, so the fix's direct signature is observable on
+    production and not only under `PROBE_SLOW_INDEX_MS`.
+  - Residual, not a stall: one 10303 run in six rendered 3,814 instances
+    instead of 3,816 with an identical missing-parts list, on a load whose
+    part fetches were 182 × 503. Two instances lost to the upstream throttle.
+    # TODO: confirm whether repairIncompleteGeometry can drop an instance
+    silently when every candidate path 503s.
 - **The probe can inject production's timing on dev**, which is the only way to
   regression-test the class above without a deploy:
   - `PROBE_SLOW_INDEX_MS=8000` — holds every DUPLICATE `/lego-models-index.json`
@@ -110,6 +127,17 @@ path or the exporters. Each drives the REAL app in headless Chrome against
   Every run now also reports `statusTimeline` (status/badge/stage transitions,
   timestamped) and, on a stall, a `stall` block with the viewer's internal load
   stage, its stale-bail count, and the requests still in flight.
+- **A probe run that reports `no-card (cards=48)` was a HARNESS race, not an app
+  failure.** The search button is created ENABLED, so waiting for "enabled"
+  passes in the window before `ensureCatalog().then()` fires browse-all; the
+  typed search then clicks a button browse-all disables microseconds later, and
+  a click on a disabled button is a silent no-op. Browse-all paints its own 48
+  cards and the probe blames the app. Measured 2026-09-18: 1 cold production run
+  in 36. The probe now waits for evidence that the panel's own search EXISTS
+  (button seen disabled, or cards on screen) before trusting "enabled", and a
+  search-stage failure writes a `<set>-probe.json` with the status line, badge,
+  card texts, index-fetch outcomes and in-flight requests instead of exiting
+  bare — that run left nothing behind to diagnose.
 - **Three benign artifacts appear on EVERY production page load.** All three
   were mis-read as the cause of the stall above; none of them is.
   `net::ERR_ADDRESS_INVALID` is Cloudflare's analytics beacon (the probe already
