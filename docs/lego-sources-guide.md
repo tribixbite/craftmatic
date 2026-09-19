@@ -795,7 +795,63 @@ the rendered mesh disagree. `70681` (1,883 placements) is a different part
 upstream; `5092`/`5091` (2,400) are the mirror-image tile. That is a precedence
 and re-fit round, not a mapping row, and nothing has been aimed at it.
 
-Caveat carried from the round: the 33 `MecabricksSearchLDR` corpus files were
-overwritten once before the fixer had an `--out` flag and were restored by
-regeneration, so their A/B is regeneration-against-regeneration, not against the
-original bytes.
+The 33 `MecabricksSearchLDR` files were once overwritten before the fixer had
+an `--out` flag, so the round's A/B was regeneration-against-regeneration.
+**Re-measured against the ORIGINAL bytes** kept in `_MecabricksSearchLDR_prev`
+/ `_MecabricksLDR_prev` (`geograde/_ab_prev.py`, 2026-09-19): the 477 changed
+`MecabricksLDR` files go figure defects **4,577 → 706**, unknown placements
+3,007 → 2,882, overlap 698 → 688, floating / big-floating / sunk unchanged;
+the 33 `MecabricksSearchLDR` files go **178 → 76** with every other counter
+identical. The caveat is closed.
+
+### 7a. Class B measured by geometry: mostly the SAME mould in another frame, and re-framed exactly (2026-09-19)
+
+The §7 reading of class B was by DESCRIPTION, and Studio's stubs carry a
+`0 FILE` header before their name — so `70681` read as "a different part
+upstream". `clego/class_b_census.py` (durable replacement for the lost census
+script) overlays the two vertex clouds under 256 candidate frames (axis
+turns, 45° about Y for the cut tiles, and a mirror) and decides by the match:
+
+| kind | stems in picks | placements | meaning |
+|---|---:|---:|---|
+| `shift` | 59 | **5,067** | same mould, other origin (`70681`: 1,883, cloud 1.0, 20 LDU) |
+| `rotated` | 51 | **2,979** | same mould, other axis frame (`10313`, `36017`, `15362`, `60169`) |
+| `mirrored` | 1 | 27 | same mould mirrored |
+| `different` | 108 | 4,795 | no exact overlay (`79491` 0.69, `2752` 0.88, `7302` 0.15) |
+
+327 stems, 219 in primary picks, 12,868 placements over 2,192 sets (LDraw-text
+picks; the 1,291 `.io`/`.lxf` picks reference design ids, not these files, and
+are NOT covered). For the three re-frame classes the census records `Q, t`
+with `studio_local = Q · upstream_local + t`, and `clego/class_b_apply.py`
+rewrites each placement exactly — `pos' = pos + R·t`, `R' = R·Q` — in every
+clego-GENERATED LDraw source (authentic OMR/LDR/Eurobricks files were authored
+against upstream and are left alone). It is wired into `reconvert_dbix.py`,
+`harvest_mecabricks_sets.py` and `recon_v3/beam.py`, so a regeneration keeps
+it. Applied in place 2026-09-19: DbixConvV3 1,132 files / 7,402 placements,
+DbixConvV2 1,067 / 6,860, Reconstructed 876 / 4,288, MecabricksLDR 327 /
+1,524, ReconV3 362 / 1,003, DbixLDR 31 / 117, MecabricksSearchLDR 9 / 110 —
+stamped `0 !CLASS_B_REFRAME v1`.
+
+**The grader had the same blind spot as prod's opposite.** `dbix_settle`
+resolved every `.dat` from Studio's copy, so it graded what dev draws, not what
+prod draws. `CLEGO_LDRAW_LIB=upstream` now resolves upstream-first (class-A
+stubs as the fallback, exactly prod's ladder) with its own point cache, and
+the corpus board is graded that way from this round on. On the 24 picks with
+the most re-framed placements, before → after:
+
+| library | floating | overlap parts | overlap volume |
+|---|---:|---:|---:|
+| upstream (what prod draws) | 345 → 338 | 175 → 174 | 38,336 → 38,272 |
+| Studio (the old grader) | 335 → 339 | 150 → **163** | 31,424 → **32,576** |
+
+The asymmetry is the proof: moved to where the upstream mesh belongs, the
+placements read slightly better against upstream and worse against Studio.
+The magnitudes are small because geograde's 4 LDU voxels with 8 LDU erosion
+barely register a 20 LDU shift of a part inside a wall; the correction is
+exact by construction (cloud match ≥ 0.9 at 2 LDU), not by this grader.
+Not covered: the 108 `different` stems (4,795 placements) — a real mould
+difference that needs a per-stem alias to the upstream file with Studio's
+geometry, of which the census found none by description — and every `.io` /
+`.lxf` pick, which the client converts against `ldraw.xml` (Studio frame) at
+load. # TODO(client): apply the census `Q, t` table in the viewer for
+Studio-frame sources (`src` is in the index), which would cover those too.
