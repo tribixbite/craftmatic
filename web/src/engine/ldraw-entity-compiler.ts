@@ -1264,6 +1264,10 @@ export async function compileLdrawEntityGeometry(
       inner.diagnostics.minifig = { parts: figure.bricks.length, synthesized: figure.synthesized, dropped: figure.dropped };
       if (figure.synthesized.length) inner.warnings.push(`${cid}: the source lacked the figure's ${figure.synthesized.join(', ')}; standard moulds were supplied.`);
       if (figure.dropped.length) inner.warnings.push(`${cid}: ${figure.dropped.length} part${figure.dropped.length === 1 ? '' : 's'} of the figure could not be placed on the rig (${figure.dropped.slice(0, 4).join(', ')}).`);
+      // Not a failure: a part the minifig rig has no slot for (a mini-doll's
+      // head or arms, caught in the same group) is kept where the source put
+      // it. Said out loud because it means the group held two figure systems.
+      if (figure.bystanders.length) inner.warnings.push(`${cid}: ${figure.bystanders.length} part${figure.bystanders.length === 1 ? '' : 's'} in the figure's group belong to no minifig slot and were left where the source put them (${figure.bystanders.slice(0, 4).join(', ')}).`);
       return inner;
     }
     warnings.push(`${cid}: no torso among the figure's parts; compiled as placed, without joints.`);

@@ -259,6 +259,16 @@ describe('precedence: the slot rule only fills a hole', () => {
 
 describe('the MINIFIG rig is untouched', () => {
   it('still classifies the minifig body parts it always did', () => {
+    // A MINI-DOLL part must not be claimed by the minifig rig. It used to fall
+    // through to `held`, which put a doll's head and arms into the fists of any
+    // minifig it happened to share a group with — the two skeletons have no
+    // slot in common (head 33.20 LDU against 24, arm 11.00 against 18).
+    expect(classifyMinifigPart('92198', 'Figure Friends Girl Torso with Arms')).toBeNull();
+    expect(classifyMinifigPart('11816', 'Figure Friends Female Head')).toBeNull();
+    expect(classifyMinifigPart('92254', 'Figure Friends Hips and Legs')).toBeNull();
+    expect(classifyMinifigPart('92251', 'Figure Friends Female Left Arm')).toBeNull();
+    expect(classifyMinifigPart('92255', 'Figure Friends Hair Long Wavy')).toBeNull();
+    // ...and a real minifig part is untouched by that rule.
     expect(classifyMinifigPart('973', 'Minifig Torso')).toBe('torso');
     expect(classifyMinifigPart('3626c', 'Minifig Head')).toBe('head');
     expect(classifyMinifigPart('3818', 'Minifig Arm Right')).toBe('arm_right');

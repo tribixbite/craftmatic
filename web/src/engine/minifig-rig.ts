@@ -60,6 +60,12 @@ export interface AssembledMinifig {
   synthesized: string[];
   /** Parts of the group the rig could not place (reported, not shipped). */
   dropped: string[];
+  /**
+   * Parts this rig has no slot for, kept where the source put them rather than
+   * dressed onto a slot they do not belong in — today, mini-doll parts caught
+   * in a minifig's group.
+   */
+  bystanders: string[];
   /** The slot of each assembled placement, parallel to `bricks`. */
   slots: MinifigSlot[];
   /** Torso's −Z through the source placement, horizontal unit (x, z) in the SOURCE frame. */
@@ -181,6 +187,14 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   if (/^(3901|3624|3833|2446|30370|4485|4498|2447|3878|30367|30369|59363|85975|93553|62810)(?![0-9])/.test(id)) return 'headwear';
   if (/^Minifig (Cape|Backpack|Airtank|Epaulette|Armou?r|Neckwear|Wings?|Skirt|Tail|Jetpack|Quiver|Scabbard)\b/i.test(d)) return 'back';
   if (/^(3838|2524|4524|50231|2526|30375)(?![0-9])/.test(id)) return 'back';
+  // A MINI-DOLL part is not a minifig part and must not be dressed onto a
+  // minifig rig. Without this it fell through to `held`, so a doll standing
+  // beside a minifig had its head, arms and hips teleported into the minifig's
+  // fists — the doll skeleton shares nothing with this one (head 33.20 LDU
+  // against 24, arm 11.00 against 18, hips 29.42 against 32), so there is no
+  // slot here that could hold it. `null` means "this rig has no opinion", and
+  // `assembleMinifig` leaves such a part exactly where the source put it.
+  if (classifyMiniDollPart(part, description) !== null) return null;
   if (/^Minifig\b/i.test(d) || d === '') return 'held';
   return 'held';
 }
@@ -284,6 +298,7 @@ export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawP
   const boneOf: string[] = [];
   const synthesized: string[] = [];
   const dropped: string[] = [];
+  const bystanders: string[] = [];
   const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
   const first = (slot: MinifigSlot): SourcePart | undefined => source.find(s => s.slot === slot);
 
@@ -368,13 +383,23 @@ export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawP
   }
   const torsoDesc = stripAlias(desc(torso));
   void torsoDesc;
-  for (const c of classified) if (c.slot === null) dropped.push(c.brick.part);
+  // A part this rig has no slot for (today: a mini-doll part caught in the same
+  // group) is KEPT, at exactly the transform the source gave it expressed in
+  // the torso frame, and reported. Dropping it would delete geometry the model
+  // has; dressing it onto a slot would move it somewhere it never was. It rides
+  // the body bone, which is what the whole group already did.
+  for (const c of classified) {
+    if (c.slot !== null) continue;
+    bystanders.push(c.brick.part);
+    push(placeAt(c.brick.part, c.brick.color, toLocal(c.brick), localRot(c.brick)),
+      'held', 'body');
+  }
 
   const f = apply(Rt, [0, 0, -1]);
   const h = Math.hypot(f[0], f[2]);
   const facingLdu: [number, number] = h > 0.5 ? [f[0] / h, f[2] / h] : [0, -1];
   return {
-    bricks: out, slots, synthesized, dropped, facingLdu,
+    bricks: out, slots, synthesized, dropped, bystanders, facingLdu,
     rig: { bones: [...MINIFIG_BONES], boneOf },
     torso: { position: [torso.x, torso.y, torso.z], rotation: [...Rt] },
   };
@@ -431,7 +456,7 @@ export function minifigFromSpec(spec: MinifigSpec): AssembledMinifig {
   if (spec.cape) push(placeAt(spec.cape.part ?? MINIFIG_CAPE.part, spec.cape.color, MINIFIG_CAPE.position, IDENTITY), 'back');
   for (const b of spec.back ?? []) push(placeAt(b.part, b.color, b.offset ?? [0, 0, 0], b.rotation ?? IDENTITY), 'back');
   return {
-    bricks: out, slots, synthesized: [], dropped: [], facingLdu: [0, -1],
+    bricks: out, slots, synthesized: [], dropped: [], bystanders: [], facingLdu: [0, -1],
     rig: { bones: [...MINIFIG_BONES], boneOf },
     torso: { position: [0, 0, 0], rotation: [...IDENTITY] },
   };
