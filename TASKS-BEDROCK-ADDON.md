@@ -7,11 +7,12 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-18 — 18-set review round; see "In flight" at the end)
+## State (2026-09-18 — 18-set review round COMPLETE; nothing in flight)
 
 The placement round is shipped and live (prod index `generated: 2026-09-18`,
 10,169 sets byte-identical to local). A follow-up review of 18 named sets in the
-browser then found five further defects; three are fixed and pushed, two are open.
+browser, the add-on exports and a device round then found SEVEN further defects.
+Six are fixed, pushed and verified; the open work is at the end of this file.
 Detail lives in `docs/lego-sources-guide.md` (alignment rules),
 `docs/bedrock-addon-guide.md` (add-on chain, pack identity, the Ultra stud
 budget), clego `GEOGRADE.md` (what the grader can and cannot see) and `git log`.
@@ -42,6 +43,29 @@ uncaught because **`scripts/` is outside BOTH tsconfigs**) and the minifig
 popover. Under the CLI scheme 5,116 of 10,169 sets (50.3 %) collided.
 
 **FIXED — the CLI could not export `.lxf`** (`d0895b68`); 71043 was browser-only.
+
+**FIXED — a size group could ask for a camera radius Bedrock rejects** (`8485e3da`).
+`third_person_camera_radius` is validated against [1, 64] and one bad value rejects
+the whole entity; `chaseRadius` caps a base at 30, so every vehicle over 21.3 broke
+at 300 %. The Milano's two `[error]` lines were the only ones in the device round.
+
+**FIXED — the car display-stand rule was cutting real bodywork off** (`02ac6a02`).
+It required a placement's ORIGIN to sit within 6 studs of the outermost wheel
+CENTRES; 10337's body reaches 183 LDU past the front hubs. It fired on all 7 car
+sources measured (42172 lost **640 of 2,892**) and, having no connectivity check,
+left the rear wing hanging over the deck. Now height-only, plus a repair that
+regrows stranded pieces and an `orphans` diagnostic that reports any piece of the
+final entity touching nothing else.
+
+**FIXED — ~45 % of COLD production loads silently abandoned** (`ea1ebd61`,
+`f2f6e4b7`). `getModelsIndex()` memoised the RESULT, not the in-flight promise, so
+the user's search and the panel's own browse-all each downloaded the 3.8 MB index;
+the second one's clean-up set `selectedSet = null` under the load the user had just
+started, the load hit a staleness guard and returned with no error, and
+`loadIndexedModel` took its SUCCESS path — badge green, nothing rendered. Verified
+on prod after deploy: **0 stalls in 66 cold loads** and `indexRequests` 1 on every
+one. A follow-up fixed a worse latent case: a total fetch failure used to memoise
+an EMPTY index permanently, leaving the tab with no catalogue and no retry.
 
 **OPEN — 10303 floating track is OUR converter bug, diagnosed not shipped.**
 `flatten_io_model2.py` / `io_authenticity.py:179` drops the `.io`'s embedded
@@ -269,25 +293,52 @@ here is a geograde exemption for encased pairs, not a converter change.
 - [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` ids with no mould; stale pack
       folders on the Pixel (`adb shell rm` denied); `_chase`/`_boom` orbit presets ship unused.
 
-## In flight (2026-09-18, started this session)
+## Open from the 2026-09-18 review round
 
-- **clego origin-correction + 802-file A/B.** Implements the measured rule for the
-  10303 defect above: compare each embedded Studio `0 FILE <id>.dat` bbox against
-  the LDraw part's; translate by `t' = t - R*(LDrawMin - StudioMin)` ONLY when the
-  sizes agree and the origins differ; record (never silently translate) a size
-  mismatch or a missing library part. **Nothing may be published until the A/B
-  names every file that gets worse** — `80562`'s family (`60430`, `60432`,
-  `60432-dp`) must come out byte-identical.
-- **Device round**, five freshly rebuilt packs in
-  `output/bedrock-entity-qa/device-2026-09-18/`: 10337 (car), 76286 ultra (plane),
-  71043 ultra + 76435 + 31141 (structures). Verifying load, no `[error]` lines, no
-  floating/overlapping/misplaced pieces, both arms on every figure, and that the
-  71043/76435 pair no longer produces a `(1)` folder.
-- **Prod probe.** `scripts/_lego-probe.mjs` drives the dev server but returns
-  `{"bricks": 0, "error": "no viewer"}` with `net::ERR_ADDRESS_INVALID` against
-  `https://craftmatic.click`, so the deployed build is verified only by a string
-  match on the chunk (`assets/index-BaD2yxoz.js` contains the repair code), not
-  behaviourally. Being fixed.
+- [ ] **The Milano's stand mast is still half-attached.** `stand-below-canopy` cuts at a
+      fixed height (`canopyY + 250`); the stand's Technic mast (`32524`, `32018`, `87079`,
+      `4519`) straddles the cut, so the base goes and the upper segments stay stuck to the
+      hull — the black post dangling to the ground in
+      `output/bedrock-entity-qa/device-2026-09-18/shots/plane-view-2-side.jpg`. The car
+      rule was fixed the same day (`02ac6a02`); this one needs a CONNECTIVITY rule, not a
+      height: after the height cut, extend the drop UPWARD while each candidate's
+      horizontal footprint stays inside the dropped set's and its box is below the hull's
+      lower envelope at that (x,z), then keep the existing 20 % gate. Size it against
+      several plane/stand sources before writing it.
+- [ ] **76435 ships loose parts because its source is an exploded layout** —
+      `DbixConvV3/76435.ldr` is 42 clusters, the building being `#0` and `#1`-`#6`/`#10` a
+      row of objects beside it. **The guide's "cut buildings from the `.io`/IOModel2V2"
+      advice is WRONG for this set**: there is no `IOModel2V2/76435`, and `IO/76435.io` is
+      70 clusters — worse. Qualify that line in `docs/bedrock-addon-guide.md`. The new
+      `orphans` diagnostic now says it out loud (76435: 60 placements in 43 pieces;
+      31141: 22 in 9).
+- [ ] **`io_part_count` inflation demotes the authentic `.io` for 390 of 406 sets.**
+      `clego/build_model_index.py:554` counts every `1 ` line in `model2.ldr`, including
+      the ~11.4k primitive refs inside inlined part definitions (10303: 15,242 vs 3,808
+      real), and `findInflatedPromotion` (`web/src/engine/lego-sources.ts:196`) demotes on
+      it. **Do not fix the count alone** — `io-extractor.ts` prefers `model.ldr`, whose
+      `bl_*.dat` refs do not resolve, and `ldraw-parser.ts:237` only treats an embedded
+      `.dat` as a part definition when it carries `!LDRAW_ORG Unofficial_Part`, which
+      Studio omits. Correcting the count first would make things worse.
+- [ ] **10 sets now have a verified `IOModel2V2` promotion candidate** after the re-grade
+      (688, 1552, 8225, 8439, 8448, 10304, 42057, 42140, 42184, plus 76393). A grade does
+      not reorder anything — the pick comes from source priority plus `BEST_OVERRIDES` — so
+      acting on these means writing `BEST_OVERRIDES` rows. Three are multi-variant archives
+      that would render several builds side by side (`8439-all` placed_ratio 2.07,
+      `42057-42061` 2.89, `42140-double` 2.01); prefer the single-build siblings.
+- [ ] **4 part ids keep a translation but may face the wrong way** (`35186` x81, `4526` x14,
+      `35473` x5, `5443` x2): near-symmetric, so the rotation gate abstains rather than
+      guess. Strictly better than being 8-144 LDU out of place. 42143 and 42206 were
+      rendered specifically for them and show no visible anomaly.
+- [ ] **A part can be lost to upstream 503s.** One 10303 cold load in six rendered 3,814
+      instances instead of 3,816 with an identical missing-parts list, on a load whose part
+      fetches included 182 x 503. `# TODO` in `docs/testing-guide.md`: can
+      `repairIncompleteGeometry` drop an instance silently when every candidate path 503s?
+- [ ] **11371's arm distances read `[17.83, 17.94, 23.76, 23.76, 34.41, 34.41]`.** The
+      23.76 pair is the known BrickLink composite torso (`bl_973pb...c01_3814_0`) whose
+      origin is the hips part; the 34.41 pair is NEW, from the newly repaired left arms off
+      that same shifted origin. The montage shows no detached arms, so these read as
+      nearest-torso metric artefacts in a multi-figure model — but they are unexplained.
 
 ## Hard rules (from the spec)
 
