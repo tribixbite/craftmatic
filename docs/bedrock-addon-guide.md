@@ -1207,3 +1207,34 @@ and 10300 comes out worse. So the compiler's default follows the MICROCELL —
 `best-of` at 2 LDU and finer, `greedy` at 4 LDU — and an explicit
 `decomposition` option overrides both. Nothing about the geometry changes
 either way; only the cuboid count does.
+
+## Device round on world 919 (2026-09-19): scale culling, collider clear, box UV cohabitation
+
+Pixel 8 Pro, Bedrock 1.26.51, a fresh flat world with every add-on deleted
+first; three packs (71043 ultra 49,833 cuboids, 76286 ultra 18,501, 76435
+balanced 9,011 = 77,345 active). Evidence `output/device-919/` (REPORT.md,
+HANDOFF.md, shots/, perf/).
+
+- **Culling at scale — fixed.** With the origin pushed out of the frustum
+  (pitch −40° to −45°, 74 blocks back) the hull renders in full at 100, 200,
+  300 and 400 %, and at 400 % turned 30° off-axis with the fine-turn — the
+  case the ender-dragon-style radius box was at risk on. No diagonal pad
+  needed.
+- **Collider clear — fixed.** 76435 cycled 100→150→200→300→400→25→50→75→100
+  at a fixed origin; `/testforblock` reads the door gap as Air and the wall as
+  `craftmatic:collider` identically before and after — no merged walls. A
+  400 % place reports "100 % · done" 3.6–7.5 s after the confirm tap.
+- **Three different packs together, box UV**: nativePss 1,029,199 kB, GL
+  mtrack 709,736 kB, totalPss 2,108,722 kB, median frame 33.3 ms = 30 fps at
+  77k active cuboids — consistent with "~150k visible hold 30". An extra
+  Actor of the 49,833-cuboid castle costs ≈ 2.7 MB (1,029,199 → 1,028,447 →
+  1,034,615 kB over +2), the definition-side share again.
+- `DEVICE_CUBOID_BUDGET` stays at 260,000: the stacking run that would place
+  the box-UV ceiling (288k–394k) needs ~10 distinct Ultra packs and was not
+  repeated.
+- Traps: `/testforblock` at a known local offset beats joystick walking for a
+  collider test; the wand menu's scroll position resets to the top after
+  EVERY tap; screenshot coordinates are ×1.1226 to native (2244x1008); the
+  Play screen's LAN-world tile appears and disappears with the host's
+  broadcast and shifts every local tile one slot — read the label before each
+  tap (an agent joined the wrong world this round).

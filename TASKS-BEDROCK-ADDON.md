@@ -106,25 +106,28 @@ also carrying 17 `stem-mesh` rows from another agent), `discovery/eb_ldd_sample_
 The scoreboard `_targets.json` / `_grades.jsonl` / `dbix_reconvert_summary.json`
 ARE this round's and get committed with the report.
 
-### Needs a device (offline-verified only)
+### Device round 2026-09-19 (world 919) — what is still open on the phone
 
-- [ ] The culling fix at 200-400 % (100 % PASSED on 919: origin 69.5° off
-      axis, hull intact), and whether the box is entity-local or
-      world-axis-aligned. No diagonal pad was added, on the ender-dragon
-      evidence; a 400 % off-axis placement is the case at risk. A Sonnet agent
-      is on it — results land in `output/device-919/REPORT.md`.
-- [ ] The collider clear: that `fillBlocks` accepts the `BlockVolume` plus
-      `blockFilter` form, that 32-cubes stay under the 32,768 cap, and that the
-      previous-footprint sweep does not make a 400 % place feel slow.
-- [ ] Box UV's 50.7 MB saving surviving the per-colour split (71043 gains 37
-      geometries, ~40 more draw-call groups), and where the ceiling now sits
-      (288k-394k — the two counters disagree 4x, which is why
-      `DEVICE_CUBOID_BUDGET` was NOT raised).
+The four "needs a device" items were verified (`output/device-919/REPORT.md`,
+durable numbers in `docs/bedrock-addon-guide.md`): culling PASS at 100/200/
+300/400 % and 400 % at 30° off-axis; collider clear PASS through a 9-step size
+cycle (door Air, wall collider before and after); box UV with all three packs
+at 100 % = 77,345 cuboids runs 30 fps at nativePss 1.03 GB; an extra
+49,833-cuboid Actor costs ≈ 2.7 MB. Left open:
+
+- [ ] `DEVICE_CUBOID_BUDGET` stays 260,000: the pack-STACKING run on box-UV
+      packs (where the 288k–394k ceiling actually sits) was not repeated —
+      it needs ~10 distinct Ultra packs imported, and the phone holds three.
+- [ ] Import `output/device-919/76286-v2.mcaddon` (the mast fix) — same uuid,
+      so bump the version in `world_*_packs.json` after a force-stop — and
+      confirm the Milano stands on its hull at 100 % and 400 %.
+- [ ] 76435 at 400 % shows a few small detached objects above the roofline
+      (`shots/226-all3-view2.jpg`): find whether they are `extras` placed at
+      source positions or polish-parked parts of the regenerated file.
 - [ ] Will deleted every add-on before this round; the Pixel now carries
-      only `GreatHall7`, `HogwartsCa`, `MilanoSpac` (the 919 packs, each with
-      a stalk-era 76286 build) plus `/sdcard/Download/dev919-*.mcaddon`, which
-      `adb shell rm` CAN remove. Packs cannot be removed over adb (`rm` is
-      denied in `Android/data`) — file manager only.
+      only `GreatHall7`, `HogwartsCa`, `MilanoSpac` plus
+      `/sdcard/Download/dev919-*.mcaddon` (removable over adb). Packs cannot
+      be removed over adb (`rm` is denied in `Android/data`) — file manager only.
 
 ### Measured and CLOSED — do not re-open
 
