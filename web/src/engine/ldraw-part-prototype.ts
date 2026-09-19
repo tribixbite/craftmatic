@@ -20,7 +20,9 @@
  *   3. downsample 2×2×2 to the microcell (majority), keep the dominant EXPLICIT
  *      colour per cell so a printed face survives as its own cuboids;
  *   4. greedy-merge per colour into cuboids whose LDU extents are clamped to
- *      the part's true AABB — a box part is exactly one cuboid.
+ *      the part's true AABB — a box part is exactly one cuboid. The opt-in
+ *      `best-of` decomposition tries five more axis orders and a
+ *      largest-box-first pass on the same lattice and keeps the fewest.
  *
  * Budget: over `maxPartCubes` the microcell doubles (up to three times) and,
  * failing that, the part becomes its AABB — always with `source` saying so.
@@ -141,9 +143,21 @@ export interface CompiledPartPrototype {
   metrics: PrototypeMetrics;
 }
 
+/**
+ * How the coarse lattice is merged into cuboids. `greedy` is the shipped
+ * scan-order merge. `best-of` also runs the other five axis orders and a
+ * largest-box-first pass and keeps whichever needs the fewest cuboids; every
+ * candidate tiles exactly the same cells, so the geometry is identical and
+ * only the count changes (measured 2026-09-19 on 399 random parts: -7.4 %,
+ * on the 69 costliest: -8.4 %; `scripts/part-decomposition-compare.ts`).
+ */
+export type PartDecomposition = 'greedy' | 'best-of';
+
 export interface CompilePrototypeOptions {
   /** Shell-only decomposition: flood from all six faces (translucent parts). */
   hollow?: boolean;
+  /** Merge strategy; defaults to the scan-order `greedy`. */
+  decomposition?: PartDecomposition;
 }
 
 /** Upper bound on the fine lattice; above it the microcell is doubled first. */
@@ -197,7 +211,7 @@ export function triangleBoxOverlap(
 
 // ─── Rasterization ────────────────────────────────────────────────────────────
 
-interface Lattice {
+export interface Lattice {
   origin: Vec3;
   cell: number;
   nx: number; ny: number; nz: number;
@@ -216,7 +230,7 @@ function labelFor(colors: number[], color: number): number {
   return i + 1;
 }
 
-function rasterizeSurface(triangles: LdrawTriangle[], min: Vec3, max: Vec3, cell: number): Lattice {
+export function rasterizeSurface(triangles: LdrawTriangle[], min: Vec3, max: Vec3, cell: number): Lattice {
   const nx = Math.max(1, Math.ceil((max[0] - min[0]) / cell - 1e-9));
   const ny = Math.max(1, Math.ceil((max[1] - min[1]) / cell - 1e-9));
   const nz = Math.max(1, Math.ceil((max[2] - min[2]) / cell - 1e-9));
@@ -263,7 +277,7 @@ function rasterizeSurface(triangles: LdrawTriangle[], min: Vec3, max: Vec3, cell
  * Flood air from the lattice boundary through empty cells; everything not
  * reached becomes solid. `sixSided` also floods from the bottom (+Y) face.
  */
-function fillInterior(lat: Lattice, sixSided: boolean): void {
+export function fillInterior(lat: Lattice, sixSided: boolean): void {
   const { nx, ny, nz, solid } = lat;
   const total = nx * ny * nz;
   const reached = new Uint8Array(total);
@@ -291,7 +305,7 @@ function fillInterior(lat: Lattice, sixSided: boolean): void {
 }
 
 /** 2×2×2 majority downsample; a coarse cell takes its most frequent explicit colour. */
-function downsample(fine: Lattice): Lattice {
+export function downsample(fine: Lattice): Lattice {
   const cell = fine.cell * 2;
   const nx = Math.ceil(fine.nx / 2), ny = Math.ceil(fine.ny / 2), nz = Math.ceil(fine.nz / 2);
   const solid = new Uint8Array(nx * ny * nz);
@@ -324,7 +338,7 @@ function downsample(fine: Lattice): Lattice {
 
 // ─── Greedy merge ─────────────────────────────────────────────────────────────
 
-function greedyCuboids(lat: Lattice, boundsMax: Vec3): PartCuboid[] {
+export function greedyCuboids(lat: Lattice, boundsMax: Vec3): PartCuboid[] {
   const { nx, ny, nz, solid, label, origin, cell } = lat;
   const seen = new Uint8Array(nx * ny * nz);
   const idx = (x: number, y: number, z: number): number => (y * nz + z) * nx + x;
@@ -360,6 +374,129 @@ function greedyCuboids(lat: Lattice, boundsMax: Vec3): PartCuboid[] {
     });
   }
   return out;
+}
+
+// ─── Alternative merges (same cells, fewer boxes) ─────────────────────────────
+
+type AxisOrder = readonly [number, number, number];
+/** The shipped greedy extends x, then z, then y — order [0, 2, 1]. */
+const AXIS_ORDERS: AxisOrder[] = [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]];
+/** Largest-box-first is quadratic in cells; above this it is skipped and `best-of` is the six greedy orders. */
+const MAX_BOX_CELLS = 200_000;
+
+const cellIndex = (lat: Lattice, x: number, y: number, z: number): number => (y * lat.nz + z) * lat.nx + x;
+
+/** Grow a same-label box from (x, y, z) one axis at a time in `order`; returns its cell extents. */
+function growBox(lat: Lattice, seen: Uint8Array, x: number, y: number, z: number, order: AxisOrder): [number, number, number] {
+  const { solid, label } = lat;
+  const dims = [lat.nx, lat.ny, lat.nz];
+  const l = label[cellIndex(lat, x, y, z)]!;
+  const same = (a: number, b: number, c: number): boolean => { const n = cellIndex(lat, a, b, c); return solid[n] === 1 && !seen[n] && label[n] === l; };
+  const size: [number, number, number] = [1, 1, 1];
+  const start = [x, y, z];
+  const p = [0, 0, 0];
+  for (const axis of order) {
+    const o1 = (axis + 1) % 3, o2 = (axis + 2) % 3;
+    for (;;) {
+      const next = start[axis]! + size[axis];
+      if (next >= dims[axis]!) break;
+      let ok = true;
+      p[axis] = next;
+      for (let i = 0; i < size[o1]! && ok; i++) for (let j = 0; j < size[o2]!; j++) {
+        p[o1] = start[o1]! + i; p[o2] = start[o2]! + j;
+        if (!same(p[0]!, p[1]!, p[2]!)) { ok = false; break; }
+      }
+      if (!ok) break;
+      size[axis]++;
+    }
+  }
+  return size;
+}
+
+function markBox(lat: Lattice, seen: Uint8Array, x: number, y: number, z: number, s: [number, number, number]): void {
+  for (let yy = y; yy < y + s[1]; yy++) for (let zz = z; zz < z + s[2]; zz++) for (let xx = x; xx < x + s[0]; xx++) seen[cellIndex(lat, xx, yy, zz)] = 1;
+}
+
+function cellCuboid(lat: Lattice, boundsMax: Vec3, x: number, y: number, z: number, s: [number, number, number]): PartCuboid {
+  const { origin, cell } = lat;
+  const l = lat.label[cellIndex(lat, x, y, z)]!;
+  return {
+    min: [origin[0] + x * cell, origin[1] + y * cell, origin[2] + z * cell],
+    // Clamp the far side to the true AABB, exactly as `greedyCuboids` does.
+    max: [
+      Math.min(boundsMax[0], origin[0] + (x + s[0]) * cell),
+      Math.min(boundsMax[1], origin[1] + (y + s[1]) * cell),
+      Math.min(boundsMax[2], origin[2] + (z + s[2]) * cell),
+    ],
+    color: l ? lat.colors[l - 1]! : 16,
+  };
+}
+
+/** Scan-order greedy merge extending along the axes in `order` (`[0, 2, 1]` reproduces `greedyCuboids`). */
+export function greedyCuboidsOrdered(lat: Lattice, boundsMax: Vec3, order: AxisOrder): PartCuboid[] {
+  const { nx, ny, nz, solid } = lat;
+  const seen = new Uint8Array(nx * ny * nz);
+  const out: PartCuboid[] = [];
+  for (let y = 0; y < ny; y++) for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) {
+    const n = cellIndex(lat, x, y, z);
+    if (!solid[n] || seen[n]) continue;
+    const s = growBox(lat, seen, x, y, z, order);
+    markBox(lat, seen, x, y, z, s);
+    out.push(cellCuboid(lat, boundsMax, x, y, z, s));
+  }
+  return out;
+}
+
+/**
+ * Largest-box-first: from every uncovered corner cell (no coverable same-label
+ * cell at -x, -y or -z) grow a box in each of the six orders, take the largest,
+ * mark it, repeat until every solid cell is covered. Deterministic.
+ */
+export function maxBoxCuboids(lat: Lattice, boundsMax: Vec3): PartCuboid[] {
+  const { nx, ny, nz, solid, label } = lat;
+  const seen = new Uint8Array(nx * ny * nz);
+  const out: PartCuboid[] = [];
+  let remaining = 0;
+  for (let n = 0; n < solid.length; n++) if (solid[n]) remaining++;
+  while (remaining > 0) {
+    let best: { x: number; y: number; z: number; s: [number, number, number]; v: number } | null = null;
+    for (let y = 0; y < ny; y++) for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++) {
+      const n = cellIndex(lat, x, y, z);
+      if (!solid[n] || seen[n]) continue;
+      const l = label[n];
+      const free = (a: number, b: number, c: number): boolean => { const m = cellIndex(lat, a, b, c); return solid[m] === 1 && !seen[m] && label[m] === l; };
+      if ((x > 0 && free(x - 1, y, z)) || (y > 0 && free(x, y - 1, z)) || (z > 0 && free(x, y, z - 1))) continue;
+      for (const order of AXIS_ORDERS) {
+        const s = growBox(lat, seen, x, y, z, order);
+        const v = s[0] * s[1] * s[2];
+        if (!best || v > best.v) best = { x, y, z, s, v };
+      }
+    }
+    if (!best) break; // unreachable while `remaining` > 0: the lowest uncovered cell has no free predecessor
+    markBox(lat, seen, best.x, best.y, best.z, best.s);
+    remaining -= best.v;
+    out.push(cellCuboid(lat, boundsMax, best.x, best.y, best.z, best.s));
+  }
+  return out;
+}
+
+/** The fewest cuboids among the shipped greedy, the other five axis orders and largest-box-first; ties keep the earlier candidate. */
+export function bestOfCuboids(lat: Lattice, boundsMax: Vec3): PartCuboid[] {
+  let best = greedyCuboids(lat, boundsMax);
+  for (const order of AXIS_ORDERS) {
+    if (order[0] === 0 && order[1] === 2) continue; // the shipped order
+    const c = greedyCuboidsOrdered(lat, boundsMax, order);
+    if (c.length < best.length) best = c;
+  }
+  if (lat.solid.length <= MAX_BOX_CELLS) {
+    const c = maxBoxCuboids(lat, boundsMax);
+    if (c.length < best.length) best = c;
+  }
+  return best;
+}
+
+function decomposeLattice(lat: Lattice, boundsMax: Vec3, strategy: PartDecomposition): PartCuboid[] {
+  return strategy === 'best-of' ? bestOfCuboids(lat, boundsMax) : greedyCuboids(lat, boundsMax);
 }
 
 // ─── Compilation ──────────────────────────────────────────────────────────────
@@ -406,7 +543,7 @@ export function compilePartPrototype(
     const fine = rasterizeSurface(mesh.triangles, min, max, cell / 2);
     fillInterior(fine, hollow);
     const coarse = downsample(fine);
-    const cuboids = greedyCuboids(coarse, max);
+    const cuboids = decomposeLattice(coarse, max, options.decomposition ?? 'greedy');
     if (cuboids.length <= quality.maxPartCubes || coarsened >= MAX_COARSENING) {
       if (cuboids.length > quality.maxPartCubes) return aabbFallback(mesh, cell, coarsened, hollow);
       let solidCells = 0;
@@ -445,7 +582,7 @@ export function createPrototypeCache(): PrototypeCache {
   let hits = 0;
   return {
     get(mesh, quality, options = {}) {
-      const key = `${mesh.partId}|${mesh.resolvedAs}|${quality.microcellLdu}|${quality.maxPartCubes}|${options.hollow ? 'h' : 's'}`;
+      const key = `${mesh.partId}|${mesh.resolvedAs}|${quality.microcellLdu}|${quality.maxPartCubes}|${options.hollow ? 'h' : 's'}|${options.decomposition ?? 'greedy'}`;
       const cached = map.get(key);
       if (cached) { hits++; return cached; }
       const built = compilePartPrototype(mesh, quality, options);

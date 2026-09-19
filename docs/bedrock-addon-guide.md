@@ -954,61 +954,236 @@ packs. Regression tests: `test/ldraw-entity-atlas.test.ts`,
 
 ---
 
-## A resident "master" part library is a NO-GO; a shared behaviour pack is a yes (2026-09-19)
+## A resident "master" part library: the coverage frontier is real, the consumer is still missing (2026-09-19, second pass)
 
-Audit of the proposal "install one large master add-on (behaviours + textures + geometry
-for thousands of parts) once, then ship every set as a few hundred kB of assembly
-instructions". Every decisive number is below; the three harnesses that produce them
-are `scripts/corpus-part-census.ts` (walks every set's `models[0]`),
-`scripts/part-library-cost.ts` (compiles each distinct part with the real
-`compilePartPrototype`) and `scripts/part-block-bounds.ts` (the 30x30x30 px custom-block
-bound), writing to `output/master-addon-audit/`. Computed from the shipped index (10,169 sets, 0 parse failures) with the repo's own
-parsers and `compilePartPrototype`; Bedrock claims quoted from learn.microsoft.com.
+Second audit of the proposal "install one large master add-on (behaviours + textures +
+geometry for thousands of parts) once, then ship every set as a few hundred kB of assembly
+instructions". The first pass (same day) priced the library on ONE number — every distinct
+corpus part once, 534,354 cuboids = 2.06x the ~260,000 ceiling — and closed the question
+on it. That number is right and it answers the wrong question: nobody needs every part
+resident. This pass asks how many SETS a library of a given cuboid cost fully serves, what
+the rest ship themselves, where the cuboids go inside a part, and — the part that actually
+decides it — what on the device could draw a library part per placement. Every number
+below is computed from the cached census and cost rows in `output/master-addon-audit/`
+(the corpus itself was being regenerated and was not re-read); harnesses:
+`scripts/corpus-part-census.ts`, `scripts/part-library-cost.ts`, `scripts/part-block-bounds.ts`
+(first pass), `scripts/master-addon-frontier.ts`, `scripts/block-route-per-set.ts`,
+`scripts/part-decomposition-compare.ts` (this pass), writing `frontier.json`,
+`block-route-per-set.json` and `decomposition-compare-*.json` beside the inputs.
 
 | part of the proposal | verdict | the number |
 |---|---|---|
-| shared behaviour/mechanism pack | **yes** | `placement.js` is 99 % line-identical across packs; per-set behaviour payload 3.9-8.8 kB; a set's whole BP compresses to 12-29 kB |
+| shared behaviour/mechanism pack | **yes** (unchanged) | `placement.js` 99 % line-identical across packs; per-set behaviour payload 3.9-8.8 kB; a set's whole BP compresses to 12-29 kB |
 | shared texture pack | **yes, already done** | one 16x16 swatch per colour (2026-09-19); 18.8 kB byte-identical across every pack |
-| per-set assembly manifest | **yes** | 71043 = 133 kB raw / 47 kB gzip (22 B per placement: part u16, colour u16, 3 x i32, rotation 1 or 9 B); the largest corpus set (10307, 25,403 placements) = 528 kB / 158 kB |
-| resident geometry library, instanced per set | **no** | the library is **534,354 cuboids at balanced = 2.06x the 260,000 ceiling** (1.19 M at high, 2.55 M at ultra) before any set is placed, and nothing in Bedrock can instance it per placement |
+| per-set assembly manifest | **yes** (unchanged) | 71043 = 133 kB raw / 47 kB gzip (22 B per placement); 10307 (25,403 placements) = 528 kB / 158 kB |
+| a library that covers most sets fits the ceiling | **yes — the first pass was wrong to imply otherwise** | 7,563 parts ranked by sets-per-cuboid = 259,957 cuboids (1.00x) fully cover **7,201 / 10,169 sets (70.8 %)**; at half the ceiling the median set's residue is 71 cuboids |
+| resident geometry library, drawn per placement | **still no** | a block cell holds one block and 71043 puts **3.1 placements in each cell** (9.8 % alone in theirs); per-placement entities are the measured NO-GO above; and the library IS the ceiling — the entity route ships a median set for ~3,600 cuboids |
 
-- **Corpus**: 4,310,010 placements, **14,278 distinct part ids** (11,454 resolve offline;
-  the rest are LSynth hoses, submodel names and ids missing from both libraries =
-  1.76 % of placements), 66,954 (part, colour) pairs, **66.9 % axis-aligned**.
-  Concentration: 80 / 394 / 820 / 1,448 / 4,024 parts cover 50 / 80 / 90 / 95 / 99 % of
-  placements; 5,564 ids (39 %) are single-set. Per set: median 194 placements, 60 parts.
-- **Library cost** (every part once, `studFacets` 4 on every top stud because a library
-  cannot know exposure): balanced 460,546 body + 73,808 stud cuboids; per part median 34
-  / p90 87 / max 128. Ranked by placement share, the parts covering 95 % of placements
-  (1,827) cost **55,806 cuboids at balanced (21 % of the ceiling), 127,086 at high,
-  281,300 at ultra (over it)**. The cost is paid at pack load: the 2026-09-18 baseline with
-  the pack active and zero instances already sat at ~1.21 GB native.
-- **What a set needs from it vs what it ships**: median per-set subset 1,492 cuboids
-  against 3,626 placed before culling (2.35x); 71043 9,802 vs 98,816 (shipped shell
-  48,093 after culling); 10307 6,314 vs 368,233. That ratio is the prize an instancer
-  would win, and Bedrock has none.
-- **Cross-pack referencing is real**: `manifest.json` `dependencies[]` (uuid + version);
-  block `minecraft:geometry` "must match an existing geometry identifier in any of the
-  currently loaded resource packs"; client entities "can reference materials, textures,
-  and geometry from the vanilla Minecraft Resource Pack or create their own" (the vanilla
-  pack is just another pack in the stack); `pack_scope: "global"` exists for resource
-  packs. Not device-tested here. No script API creates a block type, entity type or
-  geometry at runtime.
-- **The consumer is the blocker, twice over.** Entities: closed (40 kB Actor, 2,000 double
-  frame time; 71043 is 5,967 placements). Blocks instance but: `tint_method` is biome
-  tints only, so colour must be a TYPE or a STATE — 66,954 pairs x 24 rotation states =
-  **1.6 M permutations = 24.5x the 65,536 cap**; rotation baked into the type too gives
-  **208,074 aligned (part, rotation, colour) block types = 3.2x the cap** (95 % subset:
-  160,084); 33 % of placements are not axis-aligned at all; part origins sit at sub-block
-  offsets (71043: 5,400 distinct (part, rotation, 1/16-block offset) classes for 5,967
-  placements), so positions must be quantised — which is the `buildings=blocks` voxel path
-  already measured at 1.01-1.07x; and the 30x30x30 px block bound (100 LDU at minifig
-  scale) excludes 13 % of placements (plates/beams over 5 studs). The "geometry component
-  + colour by tint" variant is closed by the `tint_method` enumeration.
-- **"As if they were primitive blocks"**: vanilla is ~1,000 grid-aligned unit-bounded
-  types x few states, baked into chunk meshes with a palette index per cell. LEGO is
-  14,278 parts x 200+ colours x 24 rotations, 90 % off-grid — the permutation model
-  failing, not a missing feature.
-- **Do next, if anything**: split the generic 33 kB runtime + 18.8 kB swatches/icon into a
-  shared BP/RP when a second mechanism family ships (saves 100 % of a small pack's
-  compressed BP, 12-29 kB). Do not build a geometry library pack.
+Facts from the first pass that stand: **corpus** 4,310,010 placements over 10,169 sets
+(0 parse failures), 14,278 distinct part ids (11,454 resolve offline), 66,954 (part,
+colour) pairs, 66.9 % axis-aligned; concentration 80 / 394 / 820 / 1,448 / 4,024 parts cover
+50 / 80 / 90 / 95 / 99 % of placements, 5,564 ids (39 %) are single-set; per set median 194
+placements, 60 parts, 13 colours. **Library** at every quality: balanced 460,546 body +
+73,808 stud = 534,354 (2.06x), high 1,193,897 (4.59x), ultra 2,550,577 (9.81x); per part
+median 34 / p90 87 / max 128 at balanced. A set's per-part subset is 2.35x smaller than
+what it places (median 1,492 vs 3,626 cuboids; 71043 9,802 vs 98,816 before culling) —
+the prize an instancer would win. `tint_method` is biome tints only, so colour is never
+per-instance for free. `manifest.json` `dependencies[]` and `pack_scope: "global"` exist;
+no script API creates a block type, entity type or geometry at runtime.
+
+### 1. Reconciling the numbers under review
+
+A table circulated with "6,000 parts = 218,013 cuboids = 0.84x, 60.8 % of sets" and a
+whole-library total of 472,244. Reproduced exactly: it merged only the five shard files
+(10,954 rows) and missed `proto-cost-balanced.json`, the unsharded run of the **500
+most-placed parts** (10,201 cuboids), and it counted each stud as 1 cuboid where a library
+carries 4 (`studFacets`). Whole library: 11,454 rows = 460,546 body + 18,452 studs x 4 =
+**534,354**, as the first pass said. Its coverage column was right (39.2 / 60.7 / 71.1 /
+80.2 % at 4,000 / 6,000 / 7,139 / 8,514 parts is the strict definition below); its cost
+column was 15-17 % low. Corrected, ranking all ids by set frequency:
+
+| library parts | balanced cuboids (studs) | x ceiling | sets fully covered, resolvable parts | sets fully covered, strict |
+|---|---|---|---|---|
+| 4,000 | 154,037 (22,136) | 0.59x | 4,297 (42.3 %) | 3,900 (38.4 %) |
+| 5,000 | 202,847 (28,984) | 0.78x | 5,560 (54.7 %) | 4,981 (49.0 %) |
+| 6,000 | 249,874 (33,516) | 0.96x | 6,607 (65.0 %) | 5,850 (57.5 %) |
+| 7,139 | 301,989 (38,852) | 1.16x | 7,658 (75.3 %) | 6,739 (66.3 %) |
+| 8,514 | 364,825 (46,464) | 1.40x | 8,586 (84.4 %) | 7,510 (73.9 %) |
+| 14,278 | 534,354 (73,808) | 2.06x | 10,169 (100 %) | 8,786 (86.4 %) |
+
+Two coverage definitions, because 2,824 of the 14,278 ids resolve in no library (LSynth
+hoses, submodel names, missing files — 1.76 % of placements) and **1,383 sets (13.6 %) use
+at least one**: "resolvable" counts a set covered when every part that CAN render is in
+the library (what a library could ever do); "strict" additionally requires no unresolved
+id (what the set would look like complete). Denominator everywhere: 10,169 sets.
+
+### 2. The frontier: selection matters, and the naive ranking is not the best one
+
+"Maximise sets fully covered per cuboid" is a covering problem. Three selections at equal
+balanced budgets, studs at 4 facets (`master-addon-frontier.ts`):
+
+| budget | naive (by set count): parts / sets covered | ratio (sets per cuboid): parts / sets covered | greedy cheapest-set-first: parts / sets covered |
+|---|---|---|---|
+| 50,000 (0.19x) | 1,646 / 1,146 (11.3 %) | 2,390 / 1,687 (16.6 %) | 2,102 / **1,954 (19.2 %)** |
+| 100,000 (0.38x) | 2,809 / 2,627 (25.8 %) | 3,892 / **3,011 (29.6 %)** | 3,394 / 2,978 (29.3 %) |
+| 130,000 (0.50x) | 3,466 / 3,575 (35.2 %) | 4,651 / **3,936 (38.7 %)** | 4,049 / 3,484 (34.3 %) |
+| 175,000 (0.67x) | 4,338 / 4,784 (47.0 %) | 5,747 / **5,270 (51.8 %)** | 5,029 / 4,476 (44.0 %) |
+| 218,000 (0.84x) | 5,231 / 5,897 (58.0 %) | 6,696 / **6,316 (62.1 %)** | 5,839 / 5,129 (50.4 %) |
+| 260,000 (1.00x) | 6,098 / 6,847 (67.3 %) | 7,563 / **7,201 (70.8 %)** | 6,596 / 5,850 (57.5 %) |
+| 325,000 (1.25x) | 7,451 / 7,976 (78.4 %) | 8,873 / **8,323 (81.8 %)** | 7,878 / 7,306 (71.8 %) |
+| 400,000 (1.54x) | 9,005 / 8,925 (87.8 %) | 10,187 / **9,204 (90.5 %)** | 9,357 / 8,779 (86.3 %) |
+
+Sets covered are by resolvable parts; strict is 4-8 points lower throughout (260k ratio:
+6,344 = 62.4 %). Ranking parts by sets-per-cuboid beats the naive ranking at every budget
+from 100k up (+3.5 points at the ceiling, with 1,465 more parts for the same cuboids,
+because it prefers 1-cuboid box parts over 128-cuboid sculpts). The greedy that admits
+whole sets cheapest-first wins only below ~100k and is clearly worse above: it spends the
+budget completing small sets that share few parts, and its residue distribution is the
+worst of the three (median 706 vs 0 at 260k). The frontier is concave — the 60-70 %
+point costs the whole ceiling and 90 % costs 1.5x it.
+
+### 3. The hybrid: a set ships its own residue
+
+A set does not need every part resident; it needs its common parts in the library and
+ships the rest. Residue = cuboids of a set's resolvable parts NOT in the library, priced at
+library stud cost (an upper bound: a shipped residue culls covered studs):
+
+| library | parts / cuboids | sets with residue 0 | residue cuboids median / p75 / p90 / p99 / max | residue parts median / p90 / max | sets with residue <= 500 / <= 1,000 |
+|---|---|---|---|---|---|
+| naive 4,000 | 4,000 / 155,587 | 4,333 (42.6 %) | 30 / 137 / 306 / 986 / 4,269 | 1 / 6 / 53 | 95.8 % / 99.1 % |
+| naive 6,000 | 6,000 / 255,171 | 6,736 (66.2 %) | 0 / 43 / 141 / 540 / 3,915 | 0 / 3 / 36 | 98.8 % / 99.8 % |
+| naive 8,514 | 8,514 / 378,034 | 8,764 (86.2 %) | 0 / 0 / 40 / 259 / 3,491 | 0 / 1 / 29 | 99.8 % / 99.9 % |
+| ratio @130k | 4,651 / 129,989 | 3,936 (38.7 %) | 71 / 215 / 425 / 1,223 / 4,540 | 1 / 6 / 46 | 92.6 % / 98.3 % |
+| ratio @260k | 7,563 / 259,957 | 7,201 (70.8 %) | 0 / 53 / 158 / 653 / 3,990 | 0 / 2 / 33 | 98.3 % / 99.6 % |
+
+(naive rows here use the resolvable-only ranking, hence 155,587 not 154,037.) So yes: at
+4,000 parts the median set is 30 residue cuboids and 96 % of sets are under 500 — a residue
+pack is a few kB. **The hybrid is the right shape for any architecture that can consume the
+library**; it does not need 100 % coverage and never did. It changes nothing about §5.
+
+### 4. Where a part's cuboids go
+
+- **Studs are 13.8 % of a balanced library** (73,808 of 534,354; 6.2 % at high, 2.9 % at
+  ultra) and they are concentrated: 2,894 of 11,454 parts have any (median 2, p90 10, max
+  812), and the 479 `exact-box` parts — 1 body cuboid each, **1,538,794 placements = 35.7 %
+  of the corpus** — cost 479 body + 8,412 stud cuboids, studs being 95 % of their price.
+  A library cannot know exposure, but the consumer can hide it: block geometry
+  `bone_visibility` takes a Molang expression per bone since 1.20.10 (learn.microsoft.com,
+  `minecraft:geometry`), so a stud bone driven by a block state costs one boolean state, not
+  a second geometry. That removes the DRAW, not the definition memory, which is
+  definition-side (§1 of the instancing section). The cheaper stud is `studFacets` 1
+  (square peg): -55,356 cuboids, 534,354 -> 478,998 (-10.4 %), and it is what box UV
+  already drops the disc tile for. Not taken: the round stud is the LEGO read.
+- **Coarsening is common, truncation is rare.** At balanced 1,738 parts (15.2 %) needed a
+  coarser microcell to meet `maxPartCubes` 128 (1,405 once to 8 LDU, 282 twice, 51 three
+  times) — they are 34,370 placements, 0.8 % of the corpus; 19 parts sit exactly at 128; 4
+  are `aabb-fallback`; 52 `empty`. Sources by placements: mesh-decomposition 2,695,040
+  (10,919 parts), exact-box 1,538,794 (479), aabb-fallback 11 (4), empty 114 (52).
+- **The greedy merge is near its class optimum; a best-of pass buys 7-8 %.** On the same
+  coarse lattice, so every candidate tiles exactly the same cells in the same colours
+  (checked cell-for-cell, `decomposition-compare-*.json` `allCoverExact: true`): the other
+  five axis orders save 1.4-1.6 %; largest-box-first saves 5.4-6.1 % but is WORSE on 85 of
+  399 random parts; the per-part minimum of all seven candidates saves **7.4 % on 399
+  random parts (15,692 -> 14,529, balanced), 8.4 % on the 69 costliest (6,907 -> 6,329),
+  6.7 % at high (37,348 -> 34,833)**. Shipped as the opt-in `decomposition: 'best-of'` in
+  `compilePartPrototype` (default unchanged; `test/ldraw-part-prototype.test.ts`). The
+  same lever reads as QUALITY at the cap: a dome that greedy has to coarsen to 4 LDU at
+  `high` (80 cuboids) fits under 256 at 2 LDU with best-of (247). Cost: largest-box-first is
+  quadratic in cells — 7 s / 399 parts at balanced, 35 s at high; measure ultra on a 300-part
+  set before making it the default.
+- **Per-part quality by frequency is cheap at the top and expensive below it.** Re-costing
+  the 260k ratio library: `high` for the 168 parts used by >= 1,000 sets adds 2,541 cuboids
+  (+1.0 %) and upgrades 346,655 of 784,891 set-uses (44 %); `high` for the 1,250 parts in
+  >= 100 sets adds 45,587 (+17.5 %, 87 % of set-uses); `high` for >= 10 sets adds 204k
+  (1.78x); ultra/high/balanced tiers at 1,000/100 cost 1.19x. The first tier is free and
+  should be the policy of any library; the second is the practical ceiling.
+
+### 5. The consumer, re-examined — and the number that closes it
+
+The first pass rejected the block route on a corpus-wide permutation count. Three things
+it assumed are wrong or irrelevant, and one thing it did not measure is decisive.
+
+- **Cross-pack geometry is documented.** `minecraft:geometry` "must either match an existing
+  geometry identifier in any of the loaded resource packs or be one of the currently
+  supported Vanilla identifiers" (learn.microsoft.com/minecraft/creator, Block Components
+  Documentation - minecraft:geometry, updated 2026-08-25). So a master RP can declare the
+  geometries and a per-set BP can declare blocks that reference them. Not device-tested.
+- **The 65,536 cap is per WORLD, counts permutations, and is a warning.** "A cap of 65,536
+  permutations that all blocks on a map can generate has been placed due to performance
+  concerns. Attempting to add a resource pack with more permutations than said cap will
+  result in the following warning: 'Worlds with over 65536 block permutations may degrade
+  performance. Current world has XXXXXX permutations.' This warning will block marketplace
+  ingestion" (learn.microsoft.com, Block Documentation - Block States and Permutations,
+  2025-03-05). Permutations are the product of a block's state value counts; the community
+  wiki (wiki.bedrock.dev/blocks/block-permutations) adds a hard per-BLOCK cap of 65,536
+  (excess states dropped with a content-log error) — community source, not Microsoft.
+  Colour and rotation do not have to be separate states: one integer "variant" state can
+  enumerate exactly the (colour, rotation) pairs a set uses, with `minecraft:transformation`
+  per permutation ("rotation in increments of 90 degrees", plus `translation` and `scale`,
+  format 1.19.80+) and `minecraft:material_instances` per permutation for the swatch.
+- **Per set the count is small** (`block-route-per-set.ts`, on the two cached full
+  manifests): 71043 needs **659** permutations (309 parts, 42 colours, 24 aligned rotations;
+  2,197 aligned placements), 10307 **1,632** (259 parts, 31 colours; 13,530 aligned). Baking
+  the origin's 1/16-block offset into the variant via `translation` raises those to 1,802 and
+  10,403. From the census, the median set's upper bound min(aligned, parts x colours x 24) is
+  107 (p90 681, max 13,530). The corpus-wide 208,074 / 1.6 M figures of the first pass are
+  what a single pack of every set would declare, and nothing proposes that. **The cap is not
+  the blocker.**
+- **What blocks cannot do is unchanged**: the 30x30x30 px bound ("Your block is limited to
+  30x30x30 pixels in size … at least 1 pixel … within the 16x16x16 block unit",
+  wiki.bedrock.dev/blocks/block-components) is 100 LDU at minifig scale and excludes 13 % of
+  corpus placements (89.6 % / 89.5 % of 71043 / 10307 fit); 33.1 % of corpus placements are
+  not axis-aligned (71043: 63.2 %, 10307: 46.7 %; per set the aligned share is median 82 %,
+  p10 11 %, and only 2,829 sets are 100 % aligned). Those would stay on the entity path.
+- **The decisive number is block-cell occupancy, which the first pass never measured.** A
+  block cell holds one block. At minifig scale (1 block = 53.33 LDU = 2.67 studs) the
+  placements of 71043 fall into 1,903 cells at **3.14 per cell, max 22, and only 9.8 % of
+  placements are alone in theirs**; restricted to the aligned-and-fitting subset it is still
+  3.01 per cell (11 % alone). 10307: 2.90 per cell, 9.9 % alone (aligned-and-fitting 2.37,
+  16.2 %). Halving the model (1 block = 106.67 LDU, so 98 % of parts fit the bound) makes it
+  10.6 per cell with 1.2 % alone; doubling it (26.67 LDU, only 71 % fit) still leaves 1.37 per
+  cell with 52 % alone. LEGO parts sit 8-20 LDU apart; a block cell is 53. **No scale exists
+  at which most placements get a cell of their own**, so "one part = one block" cannot
+  represent a set, and cutting a cell's worth of parts into one block is the
+  `buildings=blocks` voxel path already measured at 1.01-1.07x — per-set geometry again, no
+  library. Measured on two sets (the two largest); the density is a property of LEGO
+  geometry, not of set size, but the median set is unmeasured.
+- **Entities per placement** are closed above (40 kB Actor, 2,000 double frame time). One
+  entity drawing many library geometries through many render controllers is not a
+  workaround either: a render controller has no per-controller transform and animations
+  address bones BY NAME, so two placements of the same part cannot be posed apart. Not
+  device-tested; it fails on the format, not on a measurement.
+- **And the library is the ceiling.** Its cuboids are definition-side memory (~3.08 kB each,
+  §1 of the instancing section — measured on entity geometry; that block geometry costs the
+  same is an ASSUMPTION, the format and loader are shared but it was not measured). A 130k
+  library is half the device's add-on budget before a set is placed; a 260k one is all of it.
+  The entity route ships a median set for **3,625 cuboids** before culling
+  (`analysis.json`, `per_set_placed_cuboids`), 71043 for 48,093: the resident library is
+  36-72x the median set's device memory and 2.7-5.4x the castle's, and it would still need a
+  consumer that does not exist. What a library saves is bytes over the wire and the
+  import-a-pack-per-set UX (a pack can only be installed by importing an `.mcaddon` and is
+  invisible to worlds until an app restart, "Device facts" above); what it costs is memory,
+  which is the scarce thing.
+
+### Verdict
+
+The first pass's headline was the wrong measurement and its "2.06x" should not be quoted
+as the reason: **a 7,563-part library fits the ceiling and fully covers 70.8 % of sets, and a
+hybrid needs far less** (§2, §3). The proposal still does not ship because nothing on the
+device can draw a resident part per placement: entities are the measured NO-GO, and blocks
+fail on occupancy (3.1 placements per cell) before the cap (per-world, 659 permutations for
+71043) or the bound (13 %) come into it — and a library that fits the ceiling is the
+ceiling. Keep the shared BP/RP split (yes), the per-set manifest (yes) and the per-part
+levers, which apply to the entity path today: `decomposition: 'best-of'` (-7 %), `high` for
+the top-168 parts (+1 %), and box UV (-34 % memory per cuboid, shipped). Re-open only if
+Bedrock ships per-placement geometry instancing (a geometry reference inside a geometry, or
+a per-render-controller transform) or a multi-block cell.
+
+### Not verified here
+
+- Block-geometry definition memory per cuboid (assumed equal to entity geometry's 3.08 kB).
+- Cross-pack geometry resolution and the per-world permutation warning on the Pixel (docs only).
+- The median set's cell occupancy (two manifests measured; the census has no positions).
+- `best-of` compile time at ultra on a full set, and its effect on `mergeAlignedCuboids`
+  downstream (the per-part count is measured; the per-pack count after merging is not).
+- The 1.76 % of placements whose ids resolve nowhere: absent from every architecture alike.

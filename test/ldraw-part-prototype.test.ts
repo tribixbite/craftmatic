@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import {
-  LEGO_ENTITY_QUALITY, compilePartPrototype, createPrototypeCache, resolveEntityQuality, triangleBoxOverlap,
+  LEGO_ENTITY_QUALITY, bestOfCuboids, compilePartPrototype, createPrototypeCache, downsample, fillInterior, greedyCuboids, greedyCuboidsOrdered,
+  maxBoxCuboids, rasterizeSurface, resolveEntityQuality, triangleBoxOverlap,
 } from '../web/src/engine/ldraw-part-prototype.js';
 
 // ─── Synthetic meshes (part-local LDU, LDraw −Y up) ───────────────────────────
@@ -208,5 +209,106 @@ describe('compilePartPrototype', () => {
     expect(resolveEntityQuality()).toEqual(LEGO_ENTITY_QUALITY.balanced);
     expect(resolveEntityQuality('ultra').microcellLdu).toBe(1);
     expect(resolveEntityQuality({ maxModelCubes: 99 })).toEqual({ ...LEGO_ENTITY_QUALITY.balanced, maxModelCubes: 99 });
+  });
+});
+
+// ─── best-of decomposition ────────────────────────────────────────────────────
+
+/** Dome of radius r (LDraw −Y up): stacked rings, a shape the scan-order greedy merges poorly. */
+function dome(r = 30, rings = 12, segments = 24): LdrawTriangle[] {
+  const t: LdrawTriangle[] = [];
+  for (let j = 0; j < rings; j++) {
+    const y0 = -r * Math.cos(j / rings * Math.PI / 2), y1 = -r * Math.cos((j + 1) / rings * Math.PI / 2);
+    const r0 = r * Math.sin(j / rings * Math.PI / 2) || 0.01, r1 = r * Math.sin((j + 1) / rings * Math.PI / 2);
+    for (let i = 0; i < segments; i++) {
+      const a0 = i / segments * 2 * Math.PI, a1 = (i + 1) / segments * 2 * Math.PI;
+      t.push(...quad([r0 * Math.cos(a0), y0, r0 * Math.sin(a0)], [r0 * Math.cos(a1), y0, r0 * Math.sin(a1)], [r1 * Math.cos(a1), y1, r1 * Math.sin(a1)], [r1 * Math.cos(a0), y1, r1 * Math.sin(a0)]));
+    }
+  }
+  return t;
+}
+
+/** The set of (lattice cell, colour) a prototype's cuboids occupy, at its own microcell from its own AABB corner. */
+function occupiedCells(p: { cuboids: Array<{ min: Vec3; max: Vec3; color: number }>; boundsLdu: { min: Vec3 }; microcellLdu: number }): Set<string> {
+  const cells = new Set<string>();
+  const o = p.boundsLdu.min, cell = p.microcellLdu;
+  for (const c of p.cuboids) {
+    const lo = c.min.map((v, i) => Math.round((v - o[i]!) / cell));
+    // A flat part (zero extent on an axis) still occupies one cell row there.
+    const hi = c.max.map((v, i) => Math.max(lo[i]! + 1, Math.ceil((v - o[i]!) / cell - 1e-9)));
+    for (let y = lo[1]!; y < hi[1]!; y++) for (let z = lo[2]!; z < hi[2]!; z++) for (let x = lo[0]!; x < hi[0]!; x++) cells.add(`${x},${y},${z}:${c.color}`);
+  }
+  return cells;
+}
+
+describe('best-of decomposition', () => {
+  const cases: Array<[string, LdrawTriangle[], { hollow?: boolean }]> = [
+    ['slope', slope(), {}], ['wheel', cylinderX(24, -12, 12), {}], ['wedge', wedge(), {}], ['dome', dome(), {}],
+    ['canopy', box(-20, 20, -24, 0, -20, 20, 'xXyzZ'), { hollow: true }],
+    ['printed', [...box(-20, 20, -24, 0, -20, 20, 'xXyYzZ'), ...quad([-20, -24, -20], [20, -24, -20], [20, 0, -20], [-20, 0, -20], 4)], {}],
+  ];
+
+  it('tiles exactly the same cells as the greedy merge, in the same colours, with no more cuboids', () => {
+    for (const [name, tris, opts] of cases) {
+      const g = compilePartPrototype(mesh(name, tris), Q, opts);
+      const b = compilePartPrototype(mesh(name, tris), Q, { ...opts, decomposition: 'best-of' });
+      expect(b.microcellLdu, name).toBe(g.microcellLdu);
+      expect(b.source, name).toBe(g.source);
+      expect(b.cuboids.length, name).toBeLessThanOrEqual(g.cuboids.length);
+      expect(occupiedCells(b), name).toEqual(occupiedCells(g));
+      // Volume is a consequence of identical cells, but check it independently of the cell helper.
+      const vol = (p: { cuboids: Array<{ min: Vec3; max: Vec3 }> }): number => p.cuboids.reduce((n, c) => n + volume(c), 0);
+      expect(vol(b), name).toBeCloseTo(vol(g), 6);
+    }
+  });
+
+  it('needs strictly fewer cuboids for a dome and leaves a box part alone', () => {
+    const g = compilePartPrototype(mesh('dome', dome()), Q);
+    const b = compilePartPrototype(mesh('dome', dome()), Q, { decomposition: 'best-of' });
+    expect(g.cuboids.length).toBe(80);
+    expect(b.cuboids.length).toBeLessThan(g.cuboids.length);
+    const boxPart = compilePartPrototype(mesh('brick', box(-20, 20, -24, 0, -10, 10)), Q, { decomposition: 'best-of' });
+    expect(boxPart.source).toBe('exact-box');
+    expect(boxPart.cuboids).toHaveLength(1);
+  });
+
+  it('keeps a finer microcell where the greedy merge had to coarsen to meet the cap', () => {
+    // At `high` (2 LDU, 256 cap) the greedy dome exceeds the cap and coarsens to 4 LDU; best-of fits under it at 2 LDU.
+    const g = compilePartPrototype(mesh('dome', dome()), LEGO_ENTITY_QUALITY.high);
+    const b = compilePartPrototype(mesh('dome', dome()), LEGO_ENTITY_QUALITY.high, { decomposition: 'best-of' });
+    expect(g.metrics.coarsened).toBe(1);
+    expect(b.metrics.coarsened).toBe(0);
+    expect(b.microcellLdu).toBe(2);
+    expect(b.cuboids.length).toBeLessThanOrEqual(LEGO_ENTITY_QUALITY.high.maxPartCubes);
+  });
+
+  it('is deterministic and keyed separately in the cache', () => {
+    const a = compilePartPrototype(mesh('dome', dome()), Q, { decomposition: 'best-of' });
+    const b = compilePartPrototype(mesh('dome', dome()), Q, { decomposition: 'best-of' });
+    expect(JSON.stringify(a)).toBe(JSON.stringify(b));
+    const cache = createPrototypeCache();
+    const m = mesh('dome', dome());
+    const greedy = cache.get(m, Q);
+    const best = cache.get(m, Q, { decomposition: 'best-of' });
+    expect(best).not.toBe(greedy);
+    expect(cache.get(m, Q, { decomposition: 'best-of' })).toBe(best);
+    expect(cache.size).toBe(2);
+  });
+
+  it('exposes the lattice stages and the three merges, all covering the same cells', () => {
+    const m = mesh('wedge', wedge());
+    const fine = rasterizeSurface(m.triangles, m.bounds.min, m.bounds.max, Q.microcellLdu / 2);
+    fillInterior(fine, false);
+    const coarse = downsample(fine);
+    const solid = Array.from(coarse.solid).reduce((n, v) => n + v, 0);
+    const cellsOf = (cs: Array<{ min: Vec3; max: Vec3; color: number }>): Set<string> => occupiedCells({ cuboids: cs, boundsLdu: { min: m.bounds.min }, microcellLdu: Q.microcellLdu });
+    const g = greedyCuboids(coarse, m.bounds.max);
+    const ordered = greedyCuboidsOrdered(coarse, m.bounds.max, [0, 2, 1]);
+    const mb = maxBoxCuboids(coarse, m.bounds.max);
+    const best = bestOfCuboids(coarse, m.bounds.max);
+    expect(ordered.length).toBe(g.length); // [0, 2, 1] is the shipped scan order
+    expect(cellsOf(g).size).toBe(solid);
+    for (const c of [ordered, mb, best]) expect(cellsOf(c)).toEqual(cellsOf(g));
+    expect(best.length).toBe(Math.min(g.length, mb.length, ...[[0, 1, 2], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]].map(o => greedyCuboidsOrdered(coarse, m.bounds.max, o as [number, number, number]).length)));
   });
 });

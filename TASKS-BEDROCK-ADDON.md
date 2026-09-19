@@ -105,17 +105,19 @@ regen, not before, or the summary claims a state the corpus is not in.
   and voxel-signature dedup measures 1.01-1.07x at shipped scale, because the
   28.7x cuboid-level dedup does not survive being cut on a world grid. 71043 is
   not even one lattice — 46.7 % of its cubes sit in a frame yawed 53.3 degrees.
-- **A resident "master" part library, instanced per set: NO-GO.** Compiling
-  every distinct corpus part once with the real `compilePartPrototype` at the
-  COARSEST shipped quality is **534,354 cuboids = 2.06x the 260,000 ceiling**
-  before a set is placed (1.19 M at high, 2.55 M at ultra); even the 95 %-of-
-  placements subset only fits at balanced. And there is no consumer: blocks
-  would need 208,074 axis-aligned (part, rotation, colour) types against a
-  65,536 cap, because `tint_method` is biome tints only so colour cannot be
-  per-instance, and 33 % of placements are not axis-aligned at all. The SPLIT
-  matters: the behaviour pack, the texture pack and the per-set assembly
-  manifest are all YES (71043 = 133 kB raw / 47 kB gzip). Full working and the
-  three harnesses: `docs/bedrock-addon-guide.md`, last section.
+- **A resident "master" part library, instanced per set: still NO-GO, for a
+  corrected reason (2026-09-19, second pass).** The 534,354-cuboid whole-library
+  number is right but was the wrong question: ranked by sets-per-cuboid, a
+  7,563-part library costs 259,957 cuboids (1.00x the ceiling) and fully covers
+  7,201 of 10,169 sets (70.8 % by resolvable parts, 62.4 % strictly), and at
+  half the ceiling (130k) the median set's residue is 71 cuboids (p90 425). What
+  still kills it is the CONSUMER: a block cell holds one block, and at minifig
+  scale 71043 has 3.1 placements per cell (9.8 % of placements alone in theirs),
+  10307 2.9 (9.9 %); the 65,536 permutation cap is per WORLD and is NOT the
+  problem (659 / 1,632 permutations for those two sets). And the library IS the
+  ceiling: the entity route ships a median set for ~3,600 cuboids, 36-70x less
+  device memory than a resident library. Corrected working, frontier tables and
+  the five harnesses: `docs/bedrock-addon-guide.md`, last section.
 - Better cuboid merging (0.1 % left), smaller atlases (textures <= 0.85 MB),
   chunking overhead (2.6 % of bytes).
 - The `split0` union repair: it recreates a false positive on authentic `.io`
