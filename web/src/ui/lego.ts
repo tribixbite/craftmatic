@@ -56,7 +56,7 @@ import { contactCheckStatus } from '@ui/contact-check-status.js';
  */
 function ioColorFn(model: IoModel): ((id: number) => string) | undefined {
   if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
-    console.info(`[lego] .io colour space: ${model.colorSpace} — ${model.colorSpaceReason} (entry ${model.sourceEntry})`);
+    console.info(`[lego] .io colour space: ${model.colorSpace} — ${model.colorSpaceReason} (entry ${model.sourceEntry}); ${model.classBReframed} placement(s) re-framed from Studio's mould copy to upstream's`);
   }
   return model.colorSpace === 'bl' ? studioColorToBlock : undefined;
 }

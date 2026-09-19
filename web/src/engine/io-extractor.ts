@@ -24,6 +24,7 @@
 
 import { extractFile, extractMatching, listZipEntries } from './zip-utils';
 import { BL_TO_LDRAW } from './bl-ldraw-map';
+import { reframeLdrawText } from './class-b-reframe.js';
 
 const CANDIDATES = ['model.ldr', 'model2.ldr', 'modelv2.ldr'];
 const IO_PASSWORD = 'soho0909';
@@ -43,8 +44,15 @@ export interface ColorSpaceDetection {
 }
 
 export interface IoModel {
-  /** The LDraw model text (MPD/LDR). */
+  /** The LDraw model text (MPD/LDR), re-framed for the viewer's library (see `classBReframed`). */
   text: string;
+  /**
+   * Type-1 lines moved from where STUDIO's copy of their mould goes to where
+   * the UPSTREAM copy the viewer draws belongs (`class-b-reframe.ts`): an
+   * `.io` is authored in Studio against its frozen library, and 161 part names
+   * differ in frame between the two. 0 when clego already stamped the text.
+   */
+  classBReframed: number;
   /**
    * Studio's bundled part definitions from the archive's `CustomParts/` dir:
    * user-modified parts (`m<hash>_<date>_<time>.dat`), Studio-only parts, and
@@ -208,7 +216,8 @@ export async function extractIoLDraw(buffer: ArrayBuffer): Promise<string> {
  */
 export async function extractIoModel(buffer: ArrayBuffer): Promise<IoModel> {
   const entries = await readCandidates(buffer);
-  const { entry: sourceEntry, text } = chooseEntry(entries);
+  const { entry: sourceEntry, text: studioText } = chooseEntry(entries);
+  const { text, moved: classBReframed } = reframeLdrawText(studioText);
   // Which colour table the caller must use is a property of the CHOSEN ENTRY,
   // not of the ".io" extension — modern Studio exports win on model.ldr
   // (LDraw ids) while older ones fall through to model2.ldr (Studio/BL ids).
@@ -226,6 +235,7 @@ export async function extractIoModel(buffer: ArrayBuffer): Promise<IoModel> {
   }
   return {
     text,
+    classBReframed,
     customParts,
     sourceEntry,
     colorSpace: detection.space,

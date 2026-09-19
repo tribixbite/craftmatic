@@ -80,6 +80,7 @@ import { lddToLDraw } from './ldd-colors';
 import type { ParsedBrick } from './ldraw-parser';
 import { MINIDOLL_SLOTS } from './minidoll-slots-generated.js';
 import type { MiniDollSlot } from './minifig-rig.js';
+import { reframeClassB } from './class-b-reframe.js';
 
 /** 1 cm = 25 LDraw units (1 stud = 0.8cm = 20 LDU → 1cm = 25 LDU). */
 const CM_TO_LDU = 25;
@@ -227,6 +228,14 @@ export interface LxfDiagnostics {
    * now authors doll corrections and this rule should be retired.
    */
   miniDollDeferredToTable: number;
+  /**
+   * placements re-framed because the LDraw name Studio's table gave them is
+   * one both libraries ship in DIFFERENT frames (the same mould, shifted or
+   * turned): the conversion above lands the STUDIO copy, the viewer draws the
+   * UPSTREAM copy, and `class-b-reframe.ts` moves the placement between the
+   * two exactly. An overlay on the counts above, like the mini-doll one.
+   */
+  classBReframed: number;
   /** placements with NEITHER: identity alignment + bare `designID.dat`. */
   unmappedPlacements: number;
   /** distinct unmapped design ids, most-used first (capped for readability). */
@@ -721,6 +730,7 @@ export function buildLxfPlacements(
   let multiBoneParts = 0;
   let miniDollPlacements = 0;
   let miniDollDeferredToTable = 0;
+  let classBReframed = 0;
 
   for (const rec of records) {
     if (rec.boneCount > 1) multiBoneParts++;
@@ -773,6 +783,11 @@ export function buildLxfPlacements(
         }
       }
     }
+    // Every row above lands the part where STUDIO's copy of the mould goes; the
+    // viewer draws upstream's. For the names the two libraries frame
+    // differently, move to where the upstream mesh belongs (exact, §7a).
+    const reframed = reframeClassB(part, placement.rot, placement.x, placement.y, placement.z);
+    if (reframed) { placement = reframed; classBReframed++; }
     bricks.push({
       color: lddToLDraw(rec.materialId), rot: placement.rot,
       x: placement.x, y: placement.y, z: placement.z, part,
@@ -798,6 +813,7 @@ export function buildLxfPlacements(
       mappedPlacements,
       miniDollPlacements,
       miniDollDeferredToTable,
+      classBReframed,
       unmappedPlacements,
       unmappedDesignIds: [...unmapped.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -855,6 +871,12 @@ export function describeLxfDiagnostics(d: LxfDiagnostics): string | null {
     parts.push(
       `${d.miniDollDeferredToTable} mini-doll placements kept their table row ` +
       'instead of the measured slot correction, so their skeleton may still be wrong',
+    );
+  }
+  if (d.classBReframed > 0) {
+    parts.push(
+      `${d.classBReframed} placements re-framed from Studio's copy of their mould to ` +
+      "the upstream copy the viewer draws (same part, different origin/turn)",
     );
   }
   if (d.skippedBadTransform > 0) parts.push(`${d.skippedBadTransform} malformed bone transforms skipped`);
