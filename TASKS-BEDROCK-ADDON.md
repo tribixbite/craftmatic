@@ -7,113 +7,96 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-19 — scaling/memory/figure round; the corpus publish is the open chain)
+## State (2026-09-19, evening — publish chain RUNNING; corpus re-graded against what prod draws)
 
 Everything below is on `main`, with `bun run typecheck`, `typecheck:web` and
-`bun run test` (1,738 passing) green locally. **`main` is 20 commits AHEAD of
-`origin/main` — nothing since `a6f3b152` has been pushed, so CI/Deploy have not
-seen any of it.** The clego side is committed locally too and **nothing is on
-R2**, so production still serves the pre-regeneration bytes for the whole
-corpus: none of this round's placement work is live.
+`bun run test` (1,739 passing) green locally. **`main` is 27 commits AHEAD of
+`origin/main` — nothing since `a6f3b152` has been pushed** (push needs Will's
+go-ahead), so CI/Deploy have not seen any of it. clego is committed locally
+(`37ed4a42` + the code below) and **nothing is on R2**: prod still serves the
+pre-regeneration bytes for the whole corpus. The corpus on disk is NOT
+git-tracked (`lego_sets/` is ignored) — R2 is its only durable copy, so the
+publish below is also the backup.
 
-### Shipped this round (craftmatic) — detail is in `git log`, not here
+### Shipped this round — detail in `git log` / the guides, kept where a decision needs the number
 
-Kept only where a later decision needs the number:
+- **ReconV3 figures assembled** (`clego/recon_figure_assemble.py`, wired into
+  `recon_v3/beam.py`): 423 files / 990 figures / 4,919 parts moved in place;
+  −44 % figure defects on the touched sample files, floating +4, overlap/sunk
+  unchanged. Residual is inventory-side (surplus hands, dropped torsos).
+  `docs/lego-sources-guide.md` §6a.
+- **Class-B mould mismatch re-framed exactly** (`clego/class_b_census.py`,
+  `class_b_apply.py`, wired into `reconvert_dbix.py`, the Mecabricks harvester
+  and `recon_v3`): 8,073 of 12,868 primary placements are the SAME mould in
+  another frame (70681 is a 20 LDU shift, not a different part) and were
+  rewritten in place across 3,800 generated files (21,309 placements incl.
+  alternates). **The grader now resolves parts UPSTREAM-first**
+  (`CLEGO_LDRAW_LIB=upstream`, prod's ladder) — the running board is the first
+  graded that way. Not covered: 108 `different` stems (4,795 placements) and
+  every `.io`/`.lxf` pick (client-side conversion; `# TODO(client)` in §7a).
+- **Mecabricks A/B against ORIGINAL bytes** (`geograde/_ab_prev.py`): the
+  regen-vs-regen caveat is closed — 477 files 4,577 → 706 figure defects, 33
+  search files 178 → 76, nothing else moved. §7.
+- **The Milano stands on its hull** (`bd3e7dc0` + the fittings fix): the stand
+  drop now continues through the mast (5 beams + 3 pins on 76286,
+  `standContinued: 8`, `strandedRepaired: 0`); the device saw it hovering on
+  a stalk because the render frame grounds the model on its lowest cuboid.
+  `output/device-919/76286-v2.mcaddon` is the rebuilt pack — **not yet on the
+  phone** (the Sonnet round is testing the stalk build; same uuid, so a
+  re-import needs a new version in `world_*_packs.json`).
+- Device round 1 (Opus, `output/device-919/HANDOFF.md`): 3 packs built and
+  activated in world 919 (77,345 cuboids = 29.7 % of the ceiling); **culling
+  at 100 % PASS** (origin 69.5° off-axis, hull intact); place latency
+  2.1–5.3 s. Incident: the Play screen's LAN tile shifts local worlds one
+  slot — read the tile LABEL before every tap.
 
-- **Culling and colliders across size steps** (`e168bd49`). `visible_bounds_*`
-  are baked into the GEOMETRY and are a RADIUS about the origin; `minecraft:scale`
-  does not touch them. 70 of 71 geometries clipped at some step, 0 after.
-  `fillBlocks` needs a `BlockVolume` INSTANCE, and the failure was swallowed by a
-  bare `catch`, so the collider clear silently never ran.
-  `test/bedrock-collider-scale.test.ts` asserts both directions at every step.
-- **The device ceiling is CUBOIDS**, ~260,000 over ACTIVE packs, retained cost
-  `739 MB + 3.08 kB/cuboid` (`348d9069`, `b662f354`). Box UV + one flat swatch
-  per colour: **−34 % per cuboid**, 79,392 cubes colour-gated with 0 changed.
-- **Decomposition is chosen by GRAIN** (`ae982fac`): `best-of` at 2 LDU and
-  finer (−5.4 % per pack), `greedy` at 4 LDU (−0.8 %, and one golden model gets
-  worse). The per-PART number, −7.4 %, is not the one that reaches the device —
-  `mergeAlignedCuboids` has already taken it at a coarse grain.
-  `scripts/decomposition-pack-ab.ts`.
-- **A correction cannot be longer than the part it corrects** (`13f3c0d4`).
-  The measured table now carries each part's bbox diagonal and the loader
-  rejects a row over 2.0 diagonals — **244 of 1,805**. A DEFENCE, not a repair:
-  0 of the 78 reachable ones appear in the first 400 `.lxf` picks.
-- **The minifig rig no longer dresses a mini-doll** (`8651b67d`); a null-slot
-  part is kept where the source put it and reported as a `bystander`.
-- **Multi-term search** (`cc659b2d`, `6e288ebe`) and **a slow `_batch` no longer
-  disables the part fast path for the session** (`ed509756`).
+### The open chain: publish the corpus (running)
 
-### The open chain: publish the clego corpus fixes
-
-**The regeneration and polish halves are DONE, locally.** All 2,302 DbixConvV3
-stems were regenerated with the converter fixes and re-polished on 2026-09-19;
-1,971 of 2,249 comparable files changed. **Nothing is on R2**, so prod still
-serves the pre-regen bytes for the whole corpus.
-
-Measured on a random 500 primary picks, same grader both sides
-(`docs/lego-sources-guide.md` §5): corpus PASS **47.2 % -> 50.0 %**, the 91
-`DbixConvV3` picks **17.6 % -> 33.0 %**, figure defects **-27 %**, displaced
-**-44 %**. One regression, located AND explained: big floating **+7 %**, which
-is THREE sets of 91 (`41713` 0 -> 67, `71839` 10 -> 30, `42703` 0 -> 14, 86
-unchanged) — and on 41713 the A/B says it is the POLISH, not the alignment. Its
-zero came from `dbix_polish` parking 80 parts; the `DBIX_BOUND_RATIO=0` control
-(old alignment, unpolished) floats 88 against the new corpus's 78. Figure
-defects went 24 -> 0 and split parts 316 -> 9 on the same file.
-
-What is left, as commands, all run from `C:/git/clego` (and one from
-craftmatic). Nothing below has been run:
+Pass 1 re-graded the 4,835 files changed since the Sep-3 board; pass 2 is a
+FULL re-grade from an empty board against the upstream library so one grader
+and one library cover every verdict (`10,169 targets, 12 workers`, log
+`C:/Users/wills/.claude/jobs/718e154d/tmp/regrade2.log`; `_pass1` backup of
+the jsonl beside it). It resumes: re-running the same command skips graded
+keys. When it exits (`exit=0` at the log tail), run from `C:/git/clego`:
 
 ```
-python merge_shard_summaries.py                    # FIRST — see the hazard below
-python geograde/scoreboard.py --grade --full --workers 8   # re-grade the corpus
-python build_model_index.py                        # writes BOTH clego's copy and
-                                                   # craftmatic/web/public/lego-models-index.json
-python -u sync_models_r2.py --only <changed paths…>   # NOT a bare sync — see below
-# then, from craftmatic, verify the bytes prod actually serves:
-node scripts/_lego-probe.mjs <set> output/verify-sets/<set> <set>   # DEV_URL=https://craftmatic.click
+CLEGO_LDRAW_LIB=upstream python -u geograde/scoreboard.py --grade --full --workers 12   # only if it died: resumes
+CLEGO_LDRAW_LIB=upstream python geograde/scoreboard.py --report --full                  # writes scoreboard_full.json (one `generated` for all)
+python build_model_index.py                          # clego copy + craftmatic/web/public/lego-models-index.json
+python changed_since_index.py                        # hash vs the OLD index -> changed_since_index.txt (run BEFORE build_model_index, or diff against git's copy)
+python -u sync_models_r2.py --only $(cat changed_since_index.txt)   # NOT a bare sync
+# then from craftmatic:
+node scripts/_lego-probe.mjs 76286 output/verify-sets/76286 76286   # DEV_URL=https://craftmatic.click; prove with the entry `hash`
 ```
 
-The changed paths are every `DbixConvV3/*.ldr` (all 2,302 were rewritten) plus
-the `MecabricksLDR`/`MecabricksSearchLDR` files the stub remap touched (489 +
-33). Prove freshness with each entry's `hash` in the index, not with
-`index.generated`, which is DATE-only and cannot advance on a same-day
-republish.
+Order matters for `changed_since_index.py`: it compares disk bytes against
+the index's `hash`, so run it against the index BEFORE `build_model_index.py`
+rewrites it (or pass `--index <(git show HEAD:lego-models-index.json)`).
+Expected: ~2,500 (DbixConvV3 regen + Mecabricks) + ~3,800 (class-B) + 423
+(ReconV3) paths. Hazards unchanged: `_r2_uploaded.txt` records KEYS (a bare
+sync skips changed files); `index.generated` is DATE-only (prove freshness by
+`hash`); `scoreboard_extra.json` carries ONE `generated` for all its paths.
 
-Hazards, unchanged: `sync_models_r2.py` uploads the index LAST and its
-`_r2_uploaded.txt` records KEYS, so a changed file needs its line deleted first
-or it is skipped silently; `scoreboard_extra.json` carries ONE `generated` stamp
-for all of its paths. New: merge the sharded reconvert summaries with
-`merge_shard_summaries.py` FIRST — it is now ownership-aware, and the old
-last-writer-wins merge would have written 2,901 stale entries over fresh ones.
-
-Also committed locally in clego and NOT published: the `io_model2_v2` assembly
-expansion (118 files), `mb_partmap` +87 decorated rows, the grader's
-`displaced`/`staged-capture`/`figures` rules, the family-ladder fix (a torso
-whose file is a Studio MPD-style stub or carries a BrickLink description
-identified as NOTHING — 910049 lost 11 of 14), and the inverse-prior fix for
-the slide and the door.
+Also committed locally in clego and NOT published: the `io_model2_v2`
+assembly expansion (118 files), `mb_partmap` +87 decorated rows, the
+family-ladder fix, the slide/door inverse-prior fix.
 
 ### Five files are dirty in clego and are NOT this round's
 
-`git status` in `C:/git/clego` shows these modified and uncommitted. They were
-already modified when this round started, or belong to another agent working in
-the same checkout, and were deliberately left alone. Do not sweep them into a
-commit without finding out whose they are:
-
-- `mecabricks_align.json`, `geograde/mb_fix_report.json`,
-  `geograde/mb_fix_report_MecabricksSearchLDR.json` — the Mecabricks fit. The
-  2026-09-19 stub remap re-ran the fitter over these and committed the CODE
-  (`56f8a7c8`) but not the tables, because they also carry 17 `stem-mesh` rows
-  from another agent. The regenerated corpus on disk WAS built with them, so
-  nothing reverts, but the tables and the last commit disagree.
-- `discovery/eb_ldd_sample_grades.json`, `recon_v7_work/pdfpick_cache.json` —
-  present at session start, owner unknown.
+`mecabricks_align.json`, `geograde/mb_fix_report.json`,
+`geograde/mb_fix_report_MecabricksSearchLDR.json` (the Mecabricks fit tables,
+also carrying 17 `stem-mesh` rows from another agent), `discovery/eb_ldd_sample_grades.json`,
+`recon_v7_work/pdfpick_cache.json`. Left alone; do not sweep them into a commit.
+The scoreboard `_targets.json` / `_grades.jsonl` / `dbix_reconvert_summary.json`
+ARE this round's and get committed with the report.
 
 ### Needs a device (offline-verified only)
 
-- [ ] The culling fix at 200-400 %, and whether the box is entity-local or
+- [ ] The culling fix at 200-400 % (100 % PASSED on 919: origin 69.5° off
+      axis, hull intact), and whether the box is entity-local or
       world-axis-aligned. No diagonal pad was added, on the ender-dragon
-      evidence; a 400 % off-axis placement is the case at risk.
+      evidence; a 400 % off-axis placement is the case at risk. A Sonnet agent
+      is on it — results land in `output/device-919/REPORT.md`.
 - [ ] The collider clear: that `fillBlocks` accepts the `BlockVolume` plus
       `blockFilter` form, that 32-cubes stay under the 32,768 cap, and that the
       previous-footprint sweep does not make a 400 % place feel slow.
@@ -121,11 +104,11 @@ commit without finding out whose they are:
       geometries, ~40 more draw-call groups), and where the ceiling now sits
       (288k-394k — the two counters disagree 4x, which is why
       `DEVICE_CUBOID_BUDGET` was NOT raised).
-- [ ] **A stranded probe pack** (`behavior_packs/Craftmatic` plus
-      `resource_packs/Craftmatic`, 323 kB) and **16 Ultra test packs** (~684 MB)
-      are on the Pixel and cannot be removed over adb (`rm` is denied in
-      `Android/data`) — file manager only. Three Brick Wand hotbar items were
-      dropped by a pack-set change; re-obtainable in Creative.
+- [ ] Will deleted every add-on before this round; the Pixel now carries
+      only `GreatHall7`, `HogwartsCa`, `MilanoSpac` (the 919 packs, each with
+      a stalk-era 76286 build) plus `/sdcard/Download/dev919-*.mcaddon`, which
+      `adb shell rm` CAN remove. Packs cannot be removed over adb (`rm` is
+      denied in `Android/data`) — file manager only.
 
 ### Measured and CLOSED — do not re-open
 
@@ -164,20 +147,6 @@ commit without finding out whose they are:
 
 ### Still open from the 18-set round
 
-- [x] **The Milano's stand mast — SIZED, and the proposed rule is unsafe.**
-      Measured 2026-09-19 (`tmp/stand-probe.ts`, the pattern of
-      `scripts/decomposition-pack-ab.ts`). On 76286: 52 placements drop as the
-      stand, `strandedRepaired` 0, and the stand's XZ footprint is
-      x [-140, 140] z [-26, 217] — most of the model's plan area. So "extend the
-      drop while the candidate's footprint stays inside the dropped set's" would
-      claim **80 kept placements**, and they are hull parts (`3020`, `3700`,
-      `3623`, `3702`), not mast. A CONNECTIVITY continuation instead — grow from
-      the dropped set through touching placements, never above the hull's lower
-      envelope — claims exactly **2**, both `32524` Technic Beam 7, which is the
-      reported mast stub.
-      Not built, because the class is small: `stand-below-canopy` fired on
-      **1 of 5** plane sources tested (76286 yes; 75367, 75275, 75277, 75306 no).
-      If it is ever built, build the connectivity form, not the footprint form.
 - [ ] **76435's loose parts are its exploded source** (42 clusters). The guide's
       "cut buildings from the `.io`/IOModel2V2" advice is WRONG for this set —
       there is no `IOModel2V2/76435`, and `IO/76435.io` is 70 clusters, worse.
@@ -198,27 +167,22 @@ commit without finding out whose they are:
       doll-hair placements defer to a (1085, 23, -310) LDU learned vote.
 - [ ] The Bedrock minifig assembler classifies doll parts as `held`, so a doll
       exported as a playable entity is not rigged.
-- [ ] **Studio/upstream mould MISMATCH — class B, 2,311 sets.** 317 stems that
-      BOTH libraries ship with a `dat_bbox` more than 4 LDU apart, over **12,719
-      primary placements** (DBIX 8,608). Prod serves the UPSTREAM copy and clego
-      fits against STUDIO's, so the fit and the rendered mesh disagree: `70681`
-      (1,883 placements) is a different part upstream, `5092`/`5091` (2,400) are
-      the mirror-image tile. Bigger than the class-A stub fix that surfaced it
-      and untouched. A precedence + re-fit round.
-      `clego/MB_TRANSFORM_AUDIT.md` §12.5, `docs/lego-sources-guide.md` §7.
+- [ ] **Class B residual.** 108 `different` stems / 4,795 placements have no
+      exact overlay (needs a per-stem alias to an upstream file with Studio's
+      geometry; none found by description), and the 1,291 `.io`/`.lxf` picks
+      are converted client-side in the Studio frame — the census `Q, t` table
+      applied in the viewer for Studio-frame `src` classes would cover them.
+      `docs/lego-sources-guide.md` §7a.
 - [ ] **Windows are still open.** The A/B moved 4.6 % of window/glass/door
       placements against 52.3 % of figure placements, so the class Will named
       alongside torsos and hair is substantially untouched. It needs its own
       measurement before a fix: there is no window-attachment rule in
       `geograde/family_attach.py`.
-- [ ] **`figure_defects` is the corpus's LARGEST defect class** — 29.6 % ± 4.0
-      of picks carry one, `figures` is the dominant defect on 69 of 264
-      DEFECTIVE sets, and OMR/LDR carry ZERO. `docs/lego-sources-guide.md` §4.
-      **After the regen it is concentrated in `ReconV3`: 452 of the sample's 807
-      defects (56 %), 46 of its 121 picks, 9.8 per affected pick — against
-      DbixConvV3's 2.3.** Nothing has ever been aimed at ReconV3's figures, and
-      that is the next target, not another DbixConvV3 pass. `EurobricksLDR` has
-      the worst rate (61 % of 38 picks). §6 of the same guide.
+- [ ] **Figure defects, after the ReconV3 assembler**: the residue in ReconV3 is
+      inventory-side (6–12 hands for 2 arms, torsos dropped by the reader —
+      `76151`, `70403`, `76167`); `EurobricksLDR` still has the worst RATE
+      (61 % of 38 picks) and nothing has been aimed at it. Re-measure on the
+      500-pick sample once the upstream-library board is in.
 - [ ] **The 744 picks that never had a grade** are now graded (47.3 % PASS) and
       have a different profile: 13.8 % carry duplicate placements against 0.4 %
       in the random sample. `EurobricksLDD` and `EurobricksTopicLDR` are 100 %
@@ -309,8 +273,9 @@ here is a geograde exemption for encased pairs, not a converter change.
       rest arm with the wrist 68.6° forward against LDraw's 27.9°; that is a
       decision (rotate the arms, or accept), not a bug.
       Pre-fix bytes kept at `lego_sets/_MecabricksLDR_prev` and
-      `_MecabricksSearchLDR_prev`; the corpus is stamped `MB_ALIGN v5` but was built
-      with the v6 table (nothing reads the stamp; the next full harvest corrects it).
+      `_MecabricksSearchLDR_prev` (the A/B against them is in §7); the corpus is
+      stamped `MB_ALIGN v5` but was built with the v6 table (nothing reads the
+      stamp; the next full harvest corrects it).
 
 - [ ] **71043 and 76435 on the phone — the only step left on the reported defects.**
       Prod is deployed and verified offline (see SHIPPED above): the three spots measure

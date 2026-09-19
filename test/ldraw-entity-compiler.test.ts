@@ -524,13 +524,17 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     const stand: ParsedBrick[] = [0, 80, 160].map(x => ({ part: '3001.dat', color: 7, x, y: 264, z: 0 }));
     const upperBeam: ParsedBrick = { part: '2453.dat', color: 0, x: 80, y: 240, z: 0 };
     const lowerBeam: ParsedBrick = { part: '2453.dat', color: 0, x: 80, y: 120, z: 0 };
-    const r = await compileLdrawEntityGeometry('t', 'plane', [...hull, canopy, ...stand, upperBeam, lowerBeam], { partGeometry: provider(), facing: '+x' });
-    expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'stand-below-canopy' });
-    expect(r.diagnostics.standContinued).toBe(1);
+    // A fitting on the lower beam's side (the mast's pin): it touches nothing else,
+    // so once the beam goes it would be stranded - and must go with the mast
+    // rather than bridge the mast back in through the stranded-piece repair.
+    const pin: ParsedBrick = { part: '3005.dat', color: 0, x: 100, y: 60, z: 0 };
+    const r = await compileLdrawEntityGeometry('t', 'plane', [...hull, canopy, ...stand, upperBeam, lowerBeam, pin], { partGeometry: provider(), facing: '+x' });
+    expect(r.diagnostics.displayDropped).toEqual({ placements: 6, rule: 'stand-below-canopy' });
+    expect(r.diagnostics.standContinued).toBe(2);
     expect(r.diagnostics.strandedRepaired).toBe(0);
     expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
     // Everything that is hull or canopy stays; the hull's own underside IS the envelope, so no hull brick is claimed.
     expect(r.keptSourceIndices).toEqual(Array.from({ length: 21 }, (_, i) => i));
-    expect(r.warnings.some(w => /1 placement hanging off the display stand below the hull/.test(w))).toBe(true);
+    expect(r.warnings.some(w => /2 placements hanging off the display stand below the hull/.test(w))).toBe(true);
   });
 });

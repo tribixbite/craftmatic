@@ -1149,6 +1149,22 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
       dropped = [...dropped, ...hanging];
       standContinued += hanging.length;
     }
+    // The mast's own fittings - the pins in its top (76286: 3673 + 2 x 2780) -
+    // touch nothing but the mast once it is gone. Left to the repair below
+    // they would bridge the whole mast back (measured: 5 out, 5 back). A
+    // stranded piece of at most 4 placements that touches the dropped set is
+    // the stand's and goes with it; the repair only rescues real structure.
+    if (standContinued) {
+      const groups = connectedClusters(keep.map(i => boxes[i]!)).slice(1);
+      const fittings = groups.filter(g => g.length <= 4).map(g => g.map(k => keep[k]!))
+        .filter(members => touchingIndices(boxes, dropped, members).length > 0).flat();
+      if (fittings.length) {
+        const f = new Set(fittings);
+        keep = keep.filter(i => !f.has(i));
+        dropped = [...dropped, ...fittings];
+        standContinued += fittings.length;
+      }
+    }
   }
   // A display-stand drop may not DISCONNECT the model: a piece that reached the
   // body only through a dropped placement would hang in mid-air (10337's rear
