@@ -677,12 +677,22 @@ corpus delta:
 | big floating parts | 1,170 | 1,254 | **+7 %** |
 | overlapping / sunk | 463 / 222 | 469 / 224 | +1 % |
 
-**The big-floating regression is three sets, not a trend**: 86 of the 91
-regenerated picks are unchanged, 2 improve, and 3 get worse — `41713` 0 → 67,
-`71839` 10 → 30, `42703` 0 → 14. `41713` is the set `dbix_align.py`'s own
-comment already names as catastrophically sensitive to alignment changes
-("an `agree < 0.30` gate costs … 41713's big-floating parts 63 → 372"), and it
-accounts for most of the net +84. It has not been investigated.
+**The big-floating regression is three sets, and it is the POLISH, not the
+alignment.** 86 of the 91 regenerated picks are unchanged, 2 improve, and 3 get
+worse — `41713` 0 → 67, `71839` 10 → 30, `42703` 0 → 14, most of the net +84
+being 41713. Diagnosed with the converter's own A/B switch:
+
+| 41713 | n | float | BIG | disp | fig | split0 |
+|---|---:|---:|---:|---:|---:|---:|
+| before (shipped, POLISHED) | 763 | 10 | **0** | **80** | 24 | 316p |
+| after (regenerated, polish REJECTED) | 763 | 78 | 67 | 0 | **0** | **9p** |
+| control: `DBIX_BOUND_RATIO=0` (old alignment, unpolished) | 763 | **88** | 63 | 0 | 1 | 316p |
+
+The before's zero big-floating was `dbix_polish` parking 80 parts, which is the
+grader-gaming this round removed; the control shows the new alignment makes the
+file LESS floaty than the old one (78 against 88), not more. What actually
+changed for the worse is that the defect is now visible. Figure defects went
+24 → 0 and graph-split parts 316 → 9 on the same file.
 
 **Nothing is published.** The regenerated corpus is on disk in
 `C:/git/clego/lego_sets/DbixConvV3/` and prod still serves the old bytes.

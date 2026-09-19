@@ -68,10 +68,12 @@ serves the pre-regen bytes for the whole corpus.
 Measured on a random 500 primary picks, same grader both sides
 (`docs/lego-sources-guide.md` §5): corpus PASS **47.2 % -> 50.0 %**, the 91
 `DbixConvV3` picks **17.6 % -> 33.0 %**, figure defects **-27 %**, displaced
-**-44 %**. One regression, located: big floating **+7 %**, which is THREE sets
-of 91 — `41713` 0 -> 67, `71839` 10 -> 30, `42703` 0 -> 14, 86 unchanged.
-`41713` is the set `dbix_align.py`'s own comment names as catastrophically
-sensitive; **not investigated**.
+**-44 %**. One regression, located AND explained: big floating **+7 %**, which
+is THREE sets of 91 (`41713` 0 -> 67, `71839` 10 -> 30, `42703` 0 -> 14, 86
+unchanged) — and on 41713 the A/B says it is the POLISH, not the alignment. Its
+zero came from `dbix_polish` parking 80 parts; the `DBIX_BOUND_RATIO=0` control
+(old alignment, unpolished) floats 88 against the new corpus's 78. Figure
+defects went 24 -> 0 and split parts 316 -> 9 on the same file.
 
 What is left: **re-grade -> rebuild the index -> sync R2 -> verify on prod
 bytes.** Hazards, unchanged: `sync_models_r2.py` uploads the index LAST and its
