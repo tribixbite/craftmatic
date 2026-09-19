@@ -394,3 +394,152 @@ Two halves, split by what can run without the local corpus. See
   `wrangler r2 object put` also returns 429 under concurrency, so "Upload
   complete" is not proof (and urllib's default UA gets 403 from the edge, so
   set one or every object looks missing).
+
+## Known gaps — a corpus-wide census (2026-09-19)
+
+What is wrong with the corpus, counted rather than described, so a fix can be
+aimed at a class instead of at whichever set someone happened to open. Two
+different questions are answered separately because they give different answers
+and only one of them is what a user sees.
+
+### 1. Missing part geometry — the renderer's answer, not the grader's
+
+`scripts/missing-geometry-census.ts` replays the RENDERER's own resolution
+ladder (it imports `partAliasCandidates`, so it cannot drift from the app) over
+a stratified sample of primary picks. 2026-09-09, 214 sets, 588,196 part
+references:
+
+| source class | sets | with >=1 hole | refs | missing refs | missing ids |
+|---|---:|---:|---:|---:|---:|
+| io | 32 | **0** | 155,733 | 0 | 0 |
+| dbix_conv_v3 | 25 | **0** | 86,507 | 0 | 0 |
+| omr | 19 | **0** | 56,267 | 0 | 0 |
+| recon_v3 | 19 | **0** | 22,835 | 0 | 0 |
+| pdf_recon | 18 | **0** | 31,948 | 0 | 0 |
+| lxf | 19 | 1 | 24,103 | 1 | 1 |
+| ldr | 19 | 2 | 48,584 | 2 | 2 |
+| eurobricks | 19 | 6 | 19,220 | 8 | 6 |
+| mecabricks_search | 10 | 6 | 20,933 | 64 | 40 |
+| **mecabricks** | 31 | **22** | 120,676 | **305** | 69 |
+| TOTAL | 214 | **37 (17.3 %)** | 588,196 | 380 (0.065 %) | — |
+
+**The count is meaningless without its concentration: 28 of the 37 affected
+sets are `mecabricks`/`mecabricks_search`**, and every one of the five
+highest-tier classes is clean. `subHoles` is empty — no part resolves and then
+renders with a hole inside it. The dominant verdict on the missing ids is
+`missing:designid`: a Mecabricks design id with no LDraw part behind it.
+
+**The GRADER's "unknown parts" is a different, larger number and must not be
+quoted as this one.** geograde resolves against a frozen local Studio snapshot,
+so it reports >=1 unknown id on **1,813 of 9,425 graded picks (19.2 %)** while
+the app, which also has the R2 mirror and upstream, resolves them. Measured on
+the 15 sets below: 26 grader-unknown placements, 0 renderer-missing (910049 is
+the only exception — 3 genuinely missing ids, plus 38 decorated variants that
+correctly render as their plain mould).
+
+### 2. Geometry defects across the primary picks
+
+Every set's `models[0]`, joined to the 2026-09-03 exhaustive grade.
+**9,425 of 10,169 picks (92.7 %) have a grade**; the 744 without are
+concentrated in `EurobricksLDD` (172, all), `EurobricksTopicLDR` (158, all),
+`MecabricksLDR` (159 of 2,694), `Reconstructed` (103) and `DbixConvV3` (97).
+
+| gap | picks | share |
+|---|---:|---:|
+| Floating pieces (>=1) | 3,942 | 41.8 % |
+| ... >=3 % of parts float | 1,885 | 20.0 % |
+| Big floating cluster (>=1) | 1,120 | 11.9 % |
+| Sunk below the floor (>=1) | 2,584 | 27.4 % |
+| Overlapping pieces (>=1 part) | 2,109 | 22.4 % |
+| ... >=1 % of parts overlap | 950 | 10.1 % |
+| Missing part geometry, grader's frozen library (>=1) | 1,813 | 19.2 % |
+| ... >=1 % of placements unknown | 727 | 7.7 % |
+| Under-placed vs catalogue (ratio < 0.95) | 1,255 | 13.3 % |
+| ... severe (< 0.80) | 596 | 6.3 % |
+| Duplicate placements (>=1) | 328 | 3.5 % |
+| World-floor outliers (>=1) | 1,736 | 18.4 % |
+| Clean on every check above | 1,409 | 14.9 % |
+
+Two rows are deliberately NOT in that table because they are not defects:
+"split into more than one connected component" (74.4 %) and "side-model
+clusters" (61.1 %) both fire on a minifig standing beside a build, which is
+what a staged capture looks like. geograde exempts them for that reason, and
+`dbix_polish` was gaming the exemption until 2026-09-19.
+
+By source, the same checks (the concentration is the point — the three
+converted classes carry almost all of it):
+
+| source | picks | float | BIG float | unknown | overlap | sunk | split |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| MecabricksLDR | 2,535 | 27.3 % | 10.9 % | 42.3 % | 18.0 % | 11.6 % | 68.2 % |
+| ReconV3 | 2,118 | 55.9 % | 12.7 % | 0.9 % | 38.1 % | 51.3 % | 78.1 % |
+| DbixConvV3 | 1,608 | 63.1 % | 13.1 % | 16.7 % | 23.3 % | 36.4 % | 99.9 % |
+| OMR | 963 | **6.0 %** | 0.9 % | 9.3 % | 2.1 % | 7.1 % | 41.4 % |
+| LDR | 788 | **6.5 %** | 1.6 % | 11.4 % | 9.5 % | 12.8 % | 56.7 % |
+| EurobricksLDR | 640 | 92.0 % | 39.8 % | 15.8 % | 35.9 % | 39.4 % | 99.1 % |
+| IO | 406 | 17.5 % | 3.0 % | 36.7 % | 13.5 % | 18.2 % | 54.9 % |
+| LXF | 269 | 80.3 % | 20.4 % | 1.1 % | 20.8 % | 28.6 % | 88.8 % |
+| Reconstructed | 67 | 73.1 % | 11.9 % | 3.0 % | 34.3 % | 56.7 % | 88.1 % |
+| MecabricksSearchLDR | 30 | 50.0 % | 36.7 % | 60.0 % | 33.3 % | 20.0 % | 60.0 % |
+
+Reproduce any row: the grades are `clego/geograde/scoreboard_full_grades.jsonl`
+(12,523 files), joined to `web/public/lego-models-index.json` on each set's
+`models[0].path`.
+
+### 3. What the 2026-09-19 clego fixes actually move (A/B on 15 sets)
+
+The 13 `DbixConvV3` picks among the 15 sets Will listed were regenerated with
+the local (unpublished) converter fixes — `reconvert_dbix.py --set <stem>
+--force --out-dir lego_sets/DbixConvV3`, then `geograde/dbix_polish.py --sets
+…`, which now REJECTS the polish on 9 of the 14 files because its float guard
+fires. Both sides graded with the SAME (current) grader, so this is the
+corpus delta and not a grader delta:
+
+| defect | before | after | |
+|---|---:|---:|---:|
+| figure assembly defects | 226 | **64** | −72 % |
+| displaced (polish-parked) parts | 1,461 | **459** | −69 % |
+| big floating parts | 367 | **134** | −63 % |
+| floating parts | 604 | **280** | −54 % |
+| sunk parts | 29 | **21** | −28 % |
+| overlapping parts | 18 | 18 | 0 % |
+
+Per set, the large movers: 76417 float 170→25 and BIG 112→**0** (the model
+stopped hovering and its airborne debris landed); 77092 float 122→14;
+10354 BIG 71→**0**; 21360 float 10→**0**; 42639 fig 56→5; 42670 fig 49→5;
+41732 fig 49→3. Regressions, stated: 10365 BIG 67→69, 76269 BIG 31→35,
+60380 float 71→74, 76457 float 0→3, 80049 sunk 1→3.
+
+**Which part families actually moved** (position diff over all 14 files,
+classified by the grader's own description map, not by an id guess):
+
+| class | placements moved > 0.5 u | placed | share |
+|---|---:|---:|---:|
+| figure parts | 971 | 1,857 | **52.3 %** |
+| everything else | 1,843 | 33,591 | 5.5 % |
+| window / glass / door | 84 | 1,838 | 4.6 % |
+| plant / foliage | 53 | 1,196 | 4.4 % |
+
+So this round is a FIGURE fix. Torsos, heads, hair and headgear moved on half
+of all figure placements; **windows moved on 4.6 %** — the `within_bound` cap
+touched some glass but windows are substantially untouched and remain open.
+
+**It does not clear the verdicts: 12 of the 13 are still DEFECTIVE after.**
+What is left is source-level, not placement-level — `76457` carries the
+converter's own `main_frac 0.34` staged-capture stamp (the LXFML is a capture
+mid-build), and the DBIX class lays a set's spare parts and minifigs out in a
+row beside the model, which the displacement rule counts and should.
+
+**The renderer resolves all of it.** The same 14 files probed through the
+production app (`scripts/_lego-probe.mjs file:<abs> …` against
+`https://craftmatic.click`, which uses the R2 part mirror): 0 missing parts, 0
+substituted, 0 unresolved sub-parts on every one. Only 910049 (an authentic
+`.io`, untouched by this round) reports 3 missing ids — `75c08`, `x167`,
+`rename_4739a` — plus 38 decorated variants correctly rendered as their plain
+mould.
+
+**Detection.** With the 2026-09-03 grader, 6 of these 15 sets graded
+DEFECTIVE. With the current one — figure gate, displacement rule,
+staged-capture rule — **13 of 15** do, and the 2 that pass (71040, 11374)
+render clean. The seven it used to miss were all figure-assembly or
+polish-displacement, exactly the classes that had no rule.
