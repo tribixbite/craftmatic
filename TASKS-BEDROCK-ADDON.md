@@ -93,6 +93,22 @@ whose file is a Studio MPD-style stub or carries a BrickLink description
 identified as NOTHING — 910049 lost 11 of 14), and the inverse-prior fix for
 the slide and the door.
 
+### Five files are dirty in clego and are NOT this round's
+
+`git status` in `C:/git/clego` shows these modified and uncommitted. They were
+already modified when this round started, or belong to another agent working in
+the same checkout, and were deliberately left alone. Do not sweep them into a
+commit without finding out whose they are:
+
+- `mecabricks_align.json`, `geograde/mb_fix_report.json`,
+  `geograde/mb_fix_report_MecabricksSearchLDR.json` — the Mecabricks fit. The
+  2026-09-19 stub remap re-ran the fitter over these and committed the CODE
+  (`56f8a7c8`) but not the tables, because they also carry 17 `stem-mesh` rows
+  from another agent. The regenerated corpus on disk WAS built with them, so
+  nothing reverts, but the tables and the last commit disagree.
+- `discovery/eb_ldd_sample_grades.json`, `recon_v7_work/pdfpick_cache.json` —
+  present at session start, owner unknown.
+
 ### Needs a device (offline-verified only)
 
 - [ ] The culling fix at 200-400 %, and whether the box is entity-local or
