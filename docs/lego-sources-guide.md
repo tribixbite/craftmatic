@@ -860,3 +860,43 @@ never a text that carries clego's `0 !CLASS_B_REFRAME` stamp — so the 1,291
 (4,795 placements) — a real mould difference that needs a per-stem alias to
 the upstream file with Studio's geometry, of which the census found none by
 description.
+
+### 8. The 2026-09-19 board: one grader, the library prod draws, every pick (published)
+
+Every earlier board mixed graders (the Sep-3 rules for untouched files, the
+figure/displaced rules for re-graded ones) and resolved parts from Studio's
+copy. This one re-graded all 10,169 primary picks from an empty board with
+the current rules against the UPSTREAM library (`CLEGO_LDRAW_LIB=upstream`),
+45 min on 12 workers, 0 errors — after the DbixConvV3 regeneration, the
+ReconV3 figure assembly and the class-B re-frame had all landed on disk.
+
+| source class | picks | PASS |
+|---|---:|---:|
+| all | 10,169 | **5,593 (55.0 %)** |
+| omr | 963 | 94 % |
+| eb_topic_ldraw | 167 | 90 % |
+| ldr | 791 | 88 % |
+| io | 406 | 79 % |
+| mecabricks | 2,720 | 65 % |
+| lxf | 885 | 55 % |
+| mecabricks_search | 30 | 47 % |
+| pdf_recon | 58 | 40 % |
+| dbix_conv_v3 | 1,680 | 36 % |
+| eb_topic_ldd | 176 | 26 % |
+| recon_v3 | 2,233 | 25 % |
+
+Dominant defect over the 4,576 DEFECTIVE picks: figures 1,014, floating 962,
+overlap 622, fragment 548, displaced 545 (the polish's parked parts now
+COUNT — §5), missing-parts 215, staged-capture 209. Not comparable to the
+§4/§5 sample numbers (different rules and library on the "before" side); it
+is the baseline every later round measures against.
+`clego/geograde/scoreboard_full_summary.md` has the per-set table.
+
+Two chain hazards fixed on the way: `scoreboard_extra.json` (one stamp for
+all its paths, dated 09-18) OVERRODE the fresh board and the staleness guard
+then dropped 3,104 freshly graded paths — the extra now only wins when it is
+the newer measurement (`build_model_index.py`); and a 4,746-path republish
+neither fits a Windows command line nor finishes in series — `sync_models_r2.py
+--only-file <listing>` on the worker pool, failures to `_r2_only_failed.txt`.
+`changed_since_index.py` produces the listing by sha against the index prod
+serves.
