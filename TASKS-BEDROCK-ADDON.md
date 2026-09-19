@@ -7,165 +7,131 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-19 — instancing measured and CLOSED; nothing in flight)
+## State (2026-09-19 — scaling/memory/figure round; the corpus publish is the open chain)
 
-The entity-instancing question is answered on the device and is a **NO-GO**; box UV is the one memory lever the data supports. Both live under "Open" below and in `docs/bedrock-addon-guide.md`. Everything before that is the 18-set review round, complete:
+Everything below is on `main`, CI + Deploy green. The clego side is committed
+LOCALLY ONLY and NOT published — that is the one big open item.
 
-The placement round is shipped and live (prod index `generated: 2026-09-18`,
-10,169 sets byte-identical to local). A follow-up review of 18 named sets in the
-browser, the add-on exports and a device round then found SEVEN further defects.
-Six are fixed, pushed and verified; the open work is at the end of this file.
-Detail lives in `docs/lego-sources-guide.md` (alignment rules),
-`docs/bedrock-addon-guide.md` (add-on chain, pack identity, the Ultra stud
-budget), clego `GEOGRADE.md` (what the grader can and cannot see) and `git log`.
+### Shipped this round (craftmatic)
 
-### The 18-set review (`efa7317b`, CI + Deploy green)
+- **Scaled placements lost their model and kept their old walls** (`e168bd49`).
+  Bedrock culls against the GEOMETRY's `visible_bounds_*`, which are baked, while
+  `minecraft:scale` only resizes the visual — Mojang's own `slime.geo.json`
+  declares a size-4 box for a half-block cube, and `ender_dragon.geo.json` has
+  width 2x its furthest |x|, so the width is a RADIUS about the origin. 70 of 71
+  geometries clipped at some size step; 0 after. Separately the collider re-lay's
+  `fillBlocks` took a plain object where the API needs a `BlockVolume` INSTANCE,
+  inside a `try {} catch {}`, so the clear silently never ran and the code MERGED
+  with the previous size's walls; and fractional scales claimed every column a
+  cell TOUCHED, so a 150 % wall ate its own doorway.
+  `test/bedrock-collider-scale.test.ts` asserts both directions at every step
+  (X/Z exact set equality per block, Y to the sixteenth of the `[lo,hi]` pair).
+- **The device ceiling is CUBOIDS** (`348d9069`, `b662f354`). 10 Ultra packs OOM
+  (`St9bad_alloc`, in-process, NOT the low-memory killer); retained cost fits
+  `739 MB + 3.08 kB/cuboid`; ceiling ~260,000 cuboids over ACTIVE packs. Figures
+  clamped to `high` (free: 71043 is 50,319 cuboids vs 48,683 at `balanced`, and
+  260k over either is the same 5 packs, against 4 unclamped). Pack-level budget
+  plus export warning. Geometry JSON minified (6.1x on disk, and the comment says
+  plainly it does NOT move runtime memory — that A/B is 0.4 %). Box UV and one
+  flat swatch per colour: **-34 % per cuboid**, colour-gated offline over 79,392
+  cubes with 0 changed.
+- **Mini-dolls and an LDD id suffix** (`e4396a31`). Doll slots had NO correction
+  in either table; and `designID="1006030;I"` made LDD's own `.lxfml` dumps
+  render EMPTY.
 
-Sets: 910047 910004 10303 10326 76419 71043 76435 21061 21063 60446 10341 10337
-42172 76286 31141 11371 21318 910032. **All 18 load; 17 of 18 look right.**
-Arms are authentic: 131 of 133 placements sit 17.8-18.4 LDU from their torso.
-Evidence `output/verify-2026-09-18b/` (per-set montages + two contact sheets).
-Re-run it with `scripts/_verify-sets-{batch,analyze}.mjs` and
-`_verify-sets-montage.sh` — all three take `<outDir> [set...]`.
+### The open chain: publish the clego corpus fixes
 
-**FIXED — `981` left arms resolved to nothing** (`d1e9b851`). 19 one-armed
-figures (910047 8, 910032 7, 11371 3, 76419 1). A resolution race with a DEPTH
-asymmetry: `982 -> 3818 -> s818s01` is 2 hops, `981 -> 3819 -> 3818 -> s818s01`
-is 3; the cache publishes an empty placeholder on text arrival, and the old
-repair invalidated only UPWARDS, so no number of retries converged. Repair now
-walks DOWN to the empty descendant. **1,435 of the library's 12,132 parts reach
-geometry through 3+ hops**, so exposure was corpus-wide. Trap: judging emptiness
-by triangle count calls healthy pure-edge primitives (`4-4edge`) broken.
+Committed locally in clego, **none regenerated, none published**: the
+`io_model2_v2` assembly expansion (composite torsos, 118 files), the dbix
+`within_bound` cap (headgear/glass, 1,970 files), `mb_partmap` +87 decorated
+torso/head rows (967 placements), `dbix_figure_align` (mini-dolls, 320 files),
+and the grader's `displaced`/`staged-capture`/`figures` rules.
 
-**FIXED — colliding pack uuids** (`6aa88d6b`). 71043/76419/76435 all stemmed to
-`hogwarts` and shipped identical BP/RP uuids, so the second import lands in a
-`(1)` folder the world cannot activate. Scoped honestly: the LEGO tab already
-passed `setNum`; what shipped broken was the CLI (`setNumber` vs `setNum`,
-uncaught because **`scripts/` is outside BOTH tsconfigs**) and the minifig
-popover. Under the CLI scheme 5,116 of 10,169 sets (50.3 %) collided.
+Sequence: regenerate DbixConvV3 + IOModel2V2 + Mecabricks -> re-grade with the
+NEW grader -> rebuild the index -> sync R2 -> verify on prod bytes.
+**Expect the PASS rate to fall a long way, and that is the point**: 826 of 996
+polished picks flip PASS -> DEFECTIVE under the displacement rule alone, and
+`dbix_conv_v3` goes from ~80 % PASS to an honest 30-40 %. No PRIMARY PICK
+changes — picks come from source priority plus `BEST_OVERRIDES`, never from a
+grade. Hazards: `sync_models_r2.py` uploads the index LAST and its
+`_r2_uploaded.txt` records KEYS, so a changed file needs its line deleted first
+or it is skipped silently; `scoreboard_extra.json` carries ONE `generated` stamp
+for all of its paths.
 
-**FIXED — the CLI could not export `.lxf`** (`d0895b68`); 71043 was browser-only.
+### Needs a device (offline-verified only)
 
-**FIXED — a size group could ask for a camera radius Bedrock rejects** (`8485e3da`).
-`third_person_camera_radius` is validated against [1, 64] and one bad value rejects
-the whole entity; `chaseRadius` caps a base at 30, so every vehicle over 21.3 broke
-at 300 %. The Milano's two `[error]` lines were the only ones in the device round.
+- [ ] The culling fix at 200-400 %, and whether the box is entity-local or
+      world-axis-aligned. No diagonal pad was added, on the ender-dragon
+      evidence; a 400 % off-axis placement is the case at risk.
+- [ ] The collider clear: that `fillBlocks` accepts the `BlockVolume` plus
+      `blockFilter` form, that 32-cubes stay under the 32,768 cap, and that the
+      previous-footprint sweep does not make a 400 % place feel slow.
+- [ ] Box UV's 50.7 MB saving surviving the per-colour split (71043 gains 37
+      geometries, ~40 more draw-call groups), and where the ceiling now sits
+      (288k-394k — the two counters disagree 4x, which is why
+      `DEVICE_CUBOID_BUDGET` was NOT raised).
+- [ ] **A stranded probe pack** (`behavior_packs/Craftmatic` plus
+      `resource_packs/Craftmatic`, 323 kB) and **16 Ultra test packs** (~684 MB)
+      are on the Pixel and cannot be removed over adb (`rm` is denied in
+      `Android/data`) — file manager only. Three Brick Wand hotbar items were
+      dropped by a pack-set change; re-obtainable in Creative.
 
-**FIXED — the car display-stand rule was cutting real bodywork off** (`02ac6a02`).
-It required a placement's ORIGIN to sit within 6 studs of the outermost wheel
-CENTRES; 10337's body reaches 183 LDU past the front hubs. It fired on all 7 car
-sources measured (42172 lost **640 of 2,892**) and, having no connectivity check,
-left the rear wing hanging over the deck. Now height-only, plus a repair that
-regrows stranded pieces and an `orphans` diagnostic that reports any piece of the
-final entity touching nothing else.
+### Measured and CLOSED — do not re-open
 
-**FIXED — ~45 % of COLD production loads silently abandoned** (`ea1ebd61`,
-`f2f6e4b7`). `getModelsIndex()` memoised the RESULT, not the in-flight promise, so
-the user's search and the panel's own browse-all each downloaded the 3.8 MB index;
-the second one's clean-up set `selectedSet = null` under the load the user had just
-started, the load hit a staleness guard and returned with no error, and
-`loadIndexedModel` took its SUCCESS path — badge green, nothing rendered. Verified
-on prod after deploy: **0 stalls in 66 cold loads** and `indexRequests` 1 on every
-one. A follow-up fixed a worse latent case: a total fetch failure used to memoise
-an EMPTY index permanently, leaving the tab with no catalogue and no retry.
+- **Entity instancing of part geometry: NO-GO.** Bedrock cannot instance
+  geometry inside an entity (no reference key in any format version;
+  `geometry.child:parent` is invalid in modern formats; a render controller draws
+  one geometry with no per-controller transform). The mesh IS shared between
+  instances of one entity TYPE — a second summon of the 71043 shell costs
+  +10.3 MB against 148 — so 93 % of the cost is definition-side. But an Actor
+  costs **31-48 kB** against a 10 kB gate and 2,000 of them DOUBLE frame time
+  (6,000 run at 7.5 fps with none on screen, so it is not overdraw); 71043 would
+  need 1.23 GB of Actor overhead against 148 MB today. Blocks instance but are
+  dead here: a part-block needs 20,480 permutations against a 65,536 world cap,
+  and voxel-signature dedup measures 1.01-1.07x at shipped scale, because the
+  28.7x cuboid-level dedup does not survive being cut on a world grid. 71043 is
+  not even one lattice — 46.7 % of its cubes sit in a frame yawed 53.3 degrees.
+- Better cuboid merging (0.1 % left), smaller atlases (textures <= 0.85 MB),
+  chunking overhead (2.6 % of bytes).
+- The `split0` union repair: it recreates a false positive on authentic `.io`
+  (42202 goes 0 -> 87 big-floating).
+- Guard rails from the same round: **~50-100k VISIBLE cuboids hold 60 fps,
+  ~150k hold 30**; killing 6,000 entities leaked 142 MB.
 
-**OPEN — 10303 floating track is OUR converter bug, diagnosed not shipped.**
-`flatten_io_model2.py` / `io_authenticity.py:179` drops the `.io`'s embedded
-Studio mesh definitions and substitutes the LDraw part of the same number.
-For `80566` the two meshes are the same SIZE but have different ORIGINS (pure
-translation `(137, 80, 420.63)` LDU), so three coaster curves render up to 22
-studs out. geograde on the `.io` grades `float=1`, on the flattened `.ldr`
-`float=12`. A scratch correction took 10303 from 4 isolated placements to 1 and
-its width 119.7 cm -> 86.0 cm against LEGO's published 85 cm. The residual
-`3068b` is mounted on two `80564` pieces that have NO LDraw part at all and so
-render as nothing — expected, not fixable by moving the tile. Fix + corpus A/B
-in flight in clego; NOTHING is to be published until the A/B names every file
-that worsens.
+### Still open from the 18-set round
 
-**OPEN — `io_part_count` inflation demotes the authentic `.io` for 390 of the
-406 sets** whose best source is an `.io`. `clego/build_model_index.py:554` counts
-every `1 ` line in `model2.ldr`, including the ~11.4k primitive references inside
-the inlined part definitions (10303: 15,242 counted vs 3,808 real), and
-`findInflatedPromotion` (`web/src/engine/lego-sources.ts:196`) then demotes it.
-**Do not "fix the count" alone** — the app cannot currently render those `.io`s
-better (`io-extractor.ts` prefers `model.ldr`, which references unresolvable
-`bl_*.dat`, and `ldraw-parser.ts:237` only treats an embedded `.dat` as a part
-definition when it carries `!LDRAW_ORG Unofficial_Part`, which Studio omits), so
-correcting it would make things worse.
+- [ ] **The Milano's stand mast** — `stand-below-canopy` cuts at a fixed height
+      and the Technic mast straddles it, so the base drops and the upper segments
+      stay stuck to the hull. Needs a CONNECTIVITY rule: after the height cut,
+      extend the drop UPWARD while a candidate's horizontal footprint stays
+      inside the dropped set's and its box is below the hull's lower envelope,
+      then keep the 20 % gate. Size it on several plane sources first.
+- [ ] **76435's loose parts are its exploded source** (42 clusters). The guide's
+      "cut buildings from the `.io`/IOModel2V2" advice is WRONG for this set —
+      there is no `IOModel2V2/76435`, and `IO/76435.io` is 70 clusters, worse.
+- [ ] **`io_part_count` inflation** demotes the authentic `.io` for 390 of 406
+      sets. **Do not fix the count alone** — the app cannot render those `.io`s
+      better yet (`io-extractor.ts` prefers `model.ldr`, whose `bl_*.dat` refs do
+      not resolve; `ldraw-parser.ts:237` needs `!LDRAW_ORG Unofficial_Part`,
+      which Studio omits).
+- [ ] **10 sets have a verified `IOModel2V2` promotion candidate** after the
+      re-grade (688, 1552, 8225, 8439, 8448, 10304, 42057, 42140, 42184, 76393).
+      Acting means `BEST_OVERRIDES` rows; three are multi-variant archives that
+      would render several builds side by side.
+- [ ] **4 part ids abstain from rotation** (`35186` x81, `4526` x14, `35473` x5,
+      `5443` x2) — near-symmetric, translated correctly, may face the wrong way.
+- [ ] A part can be lost to upstream 503s (one 10303 load gave 3,814 instances
+      instead of 3,816); `# TODO` in `docs/testing-guide.md`.
+- [ ] **The loader has no magnitude bound** like clego's `within_bound`, so 13
+      doll-hair placements defer to a (1085, 23, -310) LDU learned vote.
+- [ ] The Bedrock minifig assembler classifies doll parts as `held`, so a doll
+      exported as a playable entity is not rigged.
+- [ ] Two grader false-positive classes left deliberately: a torso whose neck
+      holds a cone rather than a head (a fix would only loosen what the rule
+      means), and a `Minifig Leg Medium` band that cannot be refitted because no
+      authentic example of that pair exists anywhere in OMR.
 
-**OPEN — 11371's two arms read 23.76 LDU**, both exactly, against a
-`bl_973pb…c01_3814_0` decomposed-composite torso whose origin convention differs
-from a bare `973`. Identical values are an origin offset, not a placement error.
-
-### The placement round before it — SHIPPED, see `git log` and the guides
-
-Two poisoned LDD correction rows put every minifig arm tens of studs from its
-shoulder, and LDraw's `~Moved to` stubs made `.io`-derived arms match nothing;
-a third, separate `mecabricks` defect followed. All fixed, deployed and
-verified on prod bytes. Numbers: `docs/lego-sources-guide.md`, `git log`.
-
-**Three traps this round paid for — do not re-learn them.**
-- **An `agree` threshold on the learned table is wrong.** Low `agree` means the
-  correction is CONTEXT-DEPENDENT, not noisy. It broke 35 sets (41713: 63 → 372 big
-  floating) and even a 7-row threshold still broke 4002021. What ships is a
-  two-entry `DROP_LEARNED` list. Inverting the ldraw.xml prior globally has its own
-  victims (43226: 0 → 153).
-- **geograde cannot see a displaced arm.** It lands at floor level and is classed
-  `side model`, "not a defect". 76435's headline metrics are identical before and
-  after a hundred loose arms were re-attached. The check that works is part
-  identity: an arm sits 17–18 LDU from its torso.
-- **geograde's `split0` exemption fires on ANY neighbour within one voxel**, so a
-  9-part minifig hid a 272-part detached sub-build in 4002021 and made the fix look
-  like a regression. `graph_split_parts` now reports the part count beside the
-  cluster count; the parts it hid went 429 → 152.
-
-**Add-on fidelity, all six named sets, all defaults, brick-accurate shells, none
-degraded to blocks; `scripts/_mcaddon_check.py` passes 8/8.** Two need
-**Vehicle detail = Ultra** or their studs are dropped: 71043 (1,938 studs; 15,650 →
-48,057 cuboids at Ultra) and 31201 (9,256).
-
-### Earlier this day — commits `38ea28c`…`2b0b059`:
-- **LXF placement** (`fix(lxf)`): Studio's `ldraw.xml` row applied as its INVERSE is
-  now the primary correction, clego's measured table the fallback. Ground truth over
-  the native `.lxf` files with an authentic `.io` (`scripts/lxf_gt_eval.py`):
-  10242 Mini Cooper 89.3 → **93.6 % GEO** (exact 74 → 93 %); strict cohort (54 files, a
-  Model B .lxf only against a Model B .io) weighted 60.2 → **65.7 %**, median 61.1 →
-  **68.7 %**, exact mean 38.0 → 48.7 %, NO file worse by > 1 pt (`output/lxf-gt/strict-*.json`).
-  Three files still < 10 % (315 European Taxie, 42039, 4x4 with Powerboat) - their .io
-  is a different layout of the set, not a placement failure.
-  71043 Hogwarts (the screenshots: floating window, pierced white plates in the tower)
-  has no authentic `.io`, so it was measured with clego's geograde on the two placements
-  (`output/lxf-gt/71043-probe/geograde.log`): old maths **16 floating parts / 27 unsupported
-  splits / 5 sunk / 0.05 % overlap** → new maths **0 / 0 / 0 / 0.00 %** (1,047 of 5,967
-  placements moved; 3794 jumpers, 2412 grilles, 2780 pins, 4162/3666 tiles, 60601 glass).
-  Browser renders of the new path (`hogwarts-close-*.png` there): the Grand Staircase's
-  white stairs sit under their turntable instead of piercing the floor; tower walls clean.
-- **Aircraft descend** (`feat(bedrock)`): `craftmatic:descending` group (Jump's
-  vertical action −0.5) toggled by the driver script while the stick is pulled BACK
-  and Jump held; HUD `BACK+JUMP: DESCEND`.
-- **Model scale** (`engine/addon-scale.ts`): one multiplier of the minifig scale drives
-  the block/collider cell, the entity units and figure placement. `auto`: a minifig →
-  1×; a figure-less display vehicle → shrunk to real length (car 4.6 / boat 9 / plane
-  12 blocks, floor ¼×); else 1×. Settings popover "Model scale" with a live decision
-  line; CLI `--scale=`. Mini Cooper 10242 auto → 0.38× (4.6 blocks, 7×5 bounds vs 14×9).
-- **Custom-minifig UI** (`ui/minifig-builder.ts`, "🧍 Minifig" beside MC settings): torso /
-  head / hair / held / cape by part id + LDraw colour, legs/hips/arms/hands colours; the
-  figure is compiled on the main thread through `buildPlayableAddon` and downloaded as a
-  figures-only `.mcaddon`. Headless check `node scripts/_minifig_browser_check.mjs`:
-  12-part knight, 32 KB, 191 ms, zero page errors. Unverified on a device (spawn it with
-  its wand, `/function b_…`).
-- **Wand rework** (`bedrock-placement-pack.ts`): "Follow my aim" carries the ghost to
-  the aimed block face until pinned; "Size" cycles 150/200/300/400/25/50/75/100 % -
-  every entity has `craftmatic:size_<pct>` groups (scale + collision + scaled seats),
-  a brick-shell building's colliders are re-laid to size by script from a run-length
-  grid in the pack (doors/lights left out off 100 %), a coloured-block export refuses
-  a resized place; entity-only packs turn in 15° steps. Menu: 9 Follow my aim ·
-  10 Size · (11 Turn back, entity-only) · DeLorean last.
-
-Offline gates: root + web typecheck clean; vitest **1,627 passing, 26 skipped**
-(`output/bedrock-entity-qa/round-2026-09-17/vitest-full.log`). Packs for the device
-round in `output/bedrock-entity-qa/round-2026-09-17/` (`xwing`, `mini-auto`, `mini-1x`,
-`chalet` `.mcaddon` + `.json` summaries); brief `QA-BRIEF.md` there.
+## The add-on chain and its CLI gates
 
 ```
 lego.ts ─► ui/schem-export.ts (planAddonScale → cell + modelScale) ─► Worker: schem-pipeline.ts
@@ -183,23 +149,8 @@ CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=�
 (strict cohort: a `[Model B]` .lxf only against a `[Model B]` .io; results `output/lxf-gt/strict-*.json`).
 **A CLI label must read as the vehicle** (`--label="X-wing Starfighter 7140"`; `XWing 7140` exported a shell + figures, no plane).
 
-## Device round 2026-09-17 — DONE, world "917" (`svO65HnoLQA=`), Bedrock **1.26.51.1**
+### Carried forward from the 2026-09-17 device round
 
-Full verdict table, measurements and the adb-input findings:
-`output/bedrock-entity-qa/captures-2026-09-17/notes.md` (shots `10-*`..`142-*`).
-Settled: import/activate (no `(N)` folders, scripts load without Experimental);
-BACK+JUMP **descends** (HUD `[DESCENDING]`, ALT -43→-60 in ~3.5 s); Mini Cooper at 0.38×
-measures **4.55 × 2.0 blocks** and drives (103.5 mph); the whole wand rework — menu order
-0–10, aim-follow ghost, size cycle 100/150/200/300/400/25/50/75, 200 % ghost `34×22×16`,
-colliders re-laid at 2× (`/testforblock 0 -45 40 craftmatic:collider` found, walls stop the
-player, upper floor at y −54), figures 3.9–4.1 blocks at 200 % and 0.9–1.1 at 50 %, Undo
-restores terrain and removes every entity, 50 % walls still block.
-
-### Rounds b + c (2026-09-17, `captures-2026-09-17b/notes.md`, `captures-2026-09-17c/notes.md`) — SETTLED except figures
-Content log **0 `[error]`**; climb survives three descend cycles (rider never dismounted);
-aim-at-sky message; **Mini rider on the roof line, centred** (car 0/−60/132.5, rider +1.33,
-0.00 lateral, legs in the roof, nothing through the flanks, still drives 184 blocks in 4 s);
-no figure on the roof any more.
 - [ ] **Chalet figures do not roam inside the shell: 0 of 7 moved over 6.5 min** (round b 2 of 7,
       round 1 1 of 7). Figures 4/5/6 are seated (by design). Walkers 1/2/3/7 spawn at +4.06 / +2.19
       / +3.94 / 0.00 with a `craftmatic:collider` under the feet (lo 0, hi 1 / 3 / 15 / a slab above
@@ -222,45 +173,6 @@ no figure on the roof any more.
       `input keyboard keyevent --duration` holds a key; SPACE dismounts a rider).
 - [ ] Doors/lights left out at 200 % is confirmed only by the confirm dialog's own text.
 
-## Open
-
-### Memory: entity instancing is CLOSED (NO-GO, measured 2026-09-19)
-
-Device round on the Pixel (`docs/bedrock-addon-guide.md`, "Entity instancing is a
-NO-GO"; evidence `output/bedrock-entity-qa/instancing-2026-09-18/`). Settled, do
-not re-open without new evidence:
-
-- The 3.08 kB/cuboid **is** definition-side — an extra instance of the
-  48,093-cuboid 71043 shell costs 10-14 MB (0.21-0.29 kB/cuboid) and the vertex
-  buffer is shared. The per-instance model is **40 kB fixed + 0.22 kB/cuboid**.
-- **An idle 12-cube part entity costs 31-48 kB and 2,000 of them double frame
-  time** (gate was 10 kB and +25 %). It is not overdraw: 6,000 entities 200 blocks
-  out of frame still ran at 7.5 fps. One entity per placement for 71043 would cost
-  ~1.38 GB against today's 148 MB. Break-even is ~3,040 entities; the set has
-  30,642.
-- Still-useful numbers from the same round: **50-100k visible cuboids for 60 fps,
-  ~150k for 30**; 2,000 persisted entities add +22 % to world-load time;
-  6,000 actor lifetimes leaked 142 MB that never came back.
-
-- [ ] **Box UV in the exporter is the one supported memory lever — worth ~1/3.**
-      Rewriting all 48,093 cubes of the shipped 71043 shell from six-face UV
-      objects to box UV `"uv": [u, v]`, cuboid count and file length held
-      constant, saved **50.7 MB = 1.05 kB/cuboid = 34 %** of the 3.08 kB on
-      `nativePss` (8 % on `nativeAlloc`), A/C controls reproducing within 0.9 %,
-      content log clean and the shell still drawing with its exact original frame
-      signature. That would take the device ceiling from ~260k cuboids to roughly
-      350-400k. Shipping it means `playable-addon.ts` emitting box UV, which
-      needs one geometry (plus a flat swatch texture) per colour, because box UV
-      maps all six faces out of a single atlas rect. Size the texture/geometry
-      split before writing it — the saving is per-cube face data only, and the
-      remaining ~2 kB/cuboid is the built mesh, which no JSON change touches.
-- [ ] **A throwaway probe pack is stranded on the Pixel.**
-      `behavior_packs/Craftmatic` (267 kB) + `resource_packs/Craftmatic` (56 kB),
-      the per-Actor probe. It is **not active in any world** (every
-      `world_*_packs.json` was restored byte-identically, md5 verified) and does
-      nothing unless summoned. `adb shell rm` inside `Android/data` is denied, so
-      it can only be removed from the device's own file manager or Minecraft's
-      storage UI. Regenerate it with `python scripts/_bedrock_probe_pack.py`.
 
 ### Interpenetration: not fixed by this round, and mostly not a defect either
 
@@ -332,53 +244,6 @@ here is a geograde exemption for encased pairs, not a converter change.
 - [ ] Repeated-part budget (76240 `70695` ×184); Tumbler 32 LDU grain reads 14.5 wide (11.5 true).
 - [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` ids with no mould; stale pack
       folders on the Pixel (`adb shell rm` denied); `_chase`/`_boom` orbit presets ship unused.
-
-## Open from the 2026-09-18 review round
-
-- [ ] **The Milano's stand mast is still half-attached.** `stand-below-canopy` cuts at a
-      fixed height (`canopyY + 250`); the stand's Technic mast (`32524`, `32018`, `87079`,
-      `4519`) straddles the cut, so the base goes and the upper segments stay stuck to the
-      hull — the black post dangling to the ground in
-      `output/bedrock-entity-qa/device-2026-09-18/shots/plane-view-2-side.jpg`. The car
-      rule was fixed the same day (`02ac6a02`); this one needs a CONNECTIVITY rule, not a
-      height: after the height cut, extend the drop UPWARD while each candidate's
-      horizontal footprint stays inside the dropped set's and its box is below the hull's
-      lower envelope at that (x,z), then keep the existing 20 % gate. Size it against
-      several plane/stand sources before writing it.
-- [ ] **76435 ships loose parts because its source is an exploded layout** —
-      `DbixConvV3/76435.ldr` is 42 clusters, the building being `#0` and `#1`-`#6`/`#10` a
-      row of objects beside it. **The guide's "cut buildings from the `.io`/IOModel2V2"
-      advice is WRONG for this set**: there is no `IOModel2V2/76435`, and `IO/76435.io` is
-      70 clusters — worse. Qualify that line in `docs/bedrock-addon-guide.md`. The new
-      `orphans` diagnostic now says it out loud (76435: 60 placements in 43 pieces;
-      31141: 22 in 9).
-- [ ] **`io_part_count` inflation demotes the authentic `.io` for 390 of 406 sets.**
-      `clego/build_model_index.py:554` counts every `1 ` line in `model2.ldr`, including
-      the ~11.4k primitive refs inside inlined part definitions (10303: 15,242 vs 3,808
-      real), and `findInflatedPromotion` (`web/src/engine/lego-sources.ts:196`) demotes on
-      it. **Do not fix the count alone** — `io-extractor.ts` prefers `model.ldr`, whose
-      `bl_*.dat` refs do not resolve, and `ldraw-parser.ts:237` only treats an embedded
-      `.dat` as a part definition when it carries `!LDRAW_ORG Unofficial_Part`, which
-      Studio omits. Correcting the count first would make things worse.
-- [ ] **10 sets now have a verified `IOModel2V2` promotion candidate** after the re-grade
-      (688, 1552, 8225, 8439, 8448, 10304, 42057, 42140, 42184, plus 76393). A grade does
-      not reorder anything — the pick comes from source priority plus `BEST_OVERRIDES` — so
-      acting on these means writing `BEST_OVERRIDES` rows. Three are multi-variant archives
-      that would render several builds side by side (`8439-all` placed_ratio 2.07,
-      `42057-42061` 2.89, `42140-double` 2.01); prefer the single-build siblings.
-- [ ] **4 part ids keep a translation but may face the wrong way** (`35186` x81, `4526` x14,
-      `35473` x5, `5443` x2): near-symmetric, so the rotation gate abstains rather than
-      guess. Strictly better than being 8-144 LDU out of place. 42143 and 42206 were
-      rendered specifically for them and show no visible anomaly.
-- [ ] **A part can be lost to upstream 503s.** One 10303 cold load in six rendered 3,814
-      instances instead of 3,816 with an identical missing-parts list, on a load whose part
-      fetches included 182 x 503. `# TODO` in `docs/testing-guide.md`: can
-      `repairIncompleteGeometry` drop an instance silently when every candidate path 503s?
-- [ ] **11371's arm distances read `[17.83, 17.94, 23.76, 23.76, 34.41, 34.41]`.** The
-      23.76 pair is the known BrickLink composite torso (`bl_973pb...c01_3814_0`) whose
-      origin is the hips part; the 34.41 pair is NEW, from the newly repaired left arms off
-      that same shifted origin. The montage shows no detached arms, so these read as
-      nearest-torso metric artefacts in a multi-figure model — but they are unexplained.
 
 ## Hard rules (from the spec)
 
