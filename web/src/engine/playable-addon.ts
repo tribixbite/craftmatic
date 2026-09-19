@@ -5,7 +5,7 @@ import { deterministicUuid, exportVersion, packIdentity, PACK_NAMESPACE, toBedro
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, encodeColliderRuns, placementAlias, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, encodeColliderRuns, placementAlias, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -537,10 +537,20 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     const meshIds: string[] = [], meshes = [];
     const atlasW = 32;
     const atlasH = 1 + palette.length * 16;
+    // The cubes above are centred on the entity position in X/Z and stand on
+    // y = 0, so this is the model's AABB in blocks. Each chunk declares the
+    // WHOLE model's culling box, not its own slice: a chunk's cubes can sit
+    // anywhere in the model, and chunks culled independently would tear the
+    // build apart. `visibleBoundsForSizeSteps` widens it to the largest wand
+    // size step, which `minecraft:scale` cannot do at runtime.
+    const cullingBounds = visibleBoundsForSizeSteps({
+        min: [-layout.width / 2, 0, -layout.length / 2],
+        max: [layout.width / 2, layout.height, layout.length / 2],
+    }, 1);
     for (let offset = 0; offset < cubes.length; offset += 1024) {
         const meshId = `geometry.${PACK_NAMESPACE}.${id}_mesh_${meshIds.length}`;
         meshIds.push(meshId);
-        meshes.push({ description: { identifier: meshId, texture_width: atlasW, texture_height: atlasH, visible_bounds_width: Math.max(2, layout.width, layout.length), visible_bounds_height: Math.max(2, layout.height), visible_bounds_offset: [0, layout.height / 2, 0] }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
+        meshes.push({ description: { identifier: meshId, texture_width: atlasW, texture_height: atlasH, ...cullingBounds }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + 1024) }] });
     }
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds };
 }

@@ -1,10 +1,47 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildPlacementPackAssets, placementAlias, rotatePlacementPoint,
-  rotateTilePlacement, rotatedSize,
+  SIZE_STEPS, buildPlacementPackAssets, placementAlias, rotatePlacementPoint,
+  rotateTilePlacement, rotatedSize, visibleBoundsForSizeSteps,
 } from '../web/src/engine/bedrock-placement-pack.js';
 
 const tile = { identifier: 'craftmatic:wing', dx: 10, dy: 2, dz: 20, width: 8, height: 5, length: 6, nonAir: 10 };
+
+describe('visibleBoundsForSizeSteps', () => {
+  /** Does the declared box contain the model AABB scaled by `f` about the entity position? */
+  const contains = (b: ReturnType<typeof visibleBoundsForSizeSteps>, extent: { min: readonly number[]; max: readonly number[] }, f: number): boolean => {
+    const [, oy] = b.visible_bounds_offset, r = b.visible_bounds_width / 2, h = b.visible_bounds_height / 2;
+    return [0, 2].every(i => extent.min[i]! * f >= -r - 1e-9 && extent.max[i]! * f <= r + 1e-9)
+      && extent.min[1]! * f >= oy! - h - 1e-9 && extent.max[1]! * f <= oy! + h + 1e-9;
+  };
+
+  it('covers the model at EVERY size step, not just at 100 %', () => {
+    // A 6 x 2 x 10 block car standing on y = 0, centred on the entity position.
+    const car = { min: [-3, 0, -5] as const, max: [3, 2, 5] as const };
+    const b = visibleBoundsForSizeSteps(car);
+    for (const pct of SIZE_STEPS) expect([pct, contains(b, car, pct / 100)]).toEqual([pct, true]);
+    // 400 % of the 5-block half-length is the binding constraint on the width.
+    expect(b.visible_bounds_width).toBeGreaterThanOrEqual(40);
+    expect(b.visible_bounds_height).toBeGreaterThanOrEqual(8);
+  });
+
+  it('keeps a model authored BELOW its origin inside the box at every step', () => {
+    // A building shell is authored `originLiftBlocks` down so the entity sits in
+    // open sky; shrinking it pulls it UP towards the origin, growing it pushes it
+    // down, so the box has to span both.
+    const shell = { min: [-17, -29, -17] as const, max: [17, -0.2, 17] as const };
+    const b = visibleBoundsForSizeSteps(shell);
+    for (const pct of SIZE_STEPS) expect([pct, contains(b, shell, pct / 100)]).toEqual([pct, true]);
+    expect(b.visible_bounds_offset[1]).toBeLessThan(0);
+  });
+
+  it('adds the requested slack before scaling, and never returns a degenerate box', () => {
+    const point = { min: [0, 0, 0] as const, max: [0, 0, 0] as const };
+    expect(visibleBoundsForSizeSteps(point, 2).visible_bounds_width).toBe(16); // 2 blocks of pad, 4x, both sides
+    const zero = visibleBoundsForSizeSteps(point);
+    expect(zero.visible_bounds_width).toBeGreaterThan(0);
+    expect(zero.visible_bounds_height).toBeGreaterThan(0);
+  });
+});
 
 describe('Bedrock Brick Wand placement pack', () => {
   it('normalizes rotated tile boxes so all pieces and preview share one origin', () => {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
+import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
 // ─── A tiny synthetic library ─────────────────────────────────────────────────
@@ -334,6 +335,36 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.diagnostics.studsOmitted).toBe(12);
     expect(r.warnings.some(w => /stud budget/.test(w))).toBe(true);
     expect(r.diagnostics.prototypeCacheHits).toBe(11);
+  });
+
+  // Bedrock frustum-culls an entity against the box its GEOMETRY declares, and
+  // `minecraft:scale` (the wand's 25 %…400 % size steps) does not resize that
+  // box. A box sized for 100 % made whole sets vanish the moment the camera
+  // tilted far enough to push it out of the frustum, worst on scaled-up
+  // placements. Each chunk must carry the WHOLE model's box too: a chunk holds
+  // an arbitrary slice of the cube list, so a per-chunk box would let the game
+  // cull half a castle away.
+  it('declares a culling box that holds the whole model at the LARGEST size step, on every mesh', async () => {
+    const bricks: ParsedBrick[] = [];
+    for (let i = 0; i < 12; i++) bricks.push({ part: '3001.dat', color: i % 3, x: i * 80, y: 0, z: i * 40 });
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z', quality: { meshChunkCubes: 5, maxStudCubes: 0 } });
+    const geo = r.value as Geo & { 'minecraft:geometry': Array<{ description: { visible_bounds_width: number; visible_bounds_height: number; visible_bounds_offset: number[] } }> };
+    expect(geo['minecraft:geometry'].length).toBeGreaterThan(1);
+    // The model's own AABB in blocks (16 model units per block), over every mesh.
+    const cubes = allCubes(geo);
+    const lo = [0, 1, 2].map(i => Math.min(...cubes.map(c => Math.min(c.origin[i]!, c.origin[i]! + c.size[i]!))) / 16);
+    const hi = [0, 1, 2].map(i => Math.max(...cubes.map(c => Math.max(c.origin[i]!, c.origin[i]! + c.size[i]!))) / 16);
+    expect(hi[0]! - lo[0]!).toBeGreaterThan(1); // a real extent, not a point
+    const f = Math.max(...SIZE_STEPS) / 100;
+    for (const mesh of geo['minecraft:geometry']) {
+      const d = mesh.description, half = d.visible_bounds_width / 2, oy = d.visible_bounds_offset[1]!;
+      for (const i of [0, 2]) {
+        expect([d.identifier, i, lo[i]! * f >= -half]).toEqual([d.identifier, i, true]);
+        expect([d.identifier, i, hi[i]! * f <= half]).toEqual([d.identifier, i, true]);
+      }
+      expect([d.identifier, lo[1]! * f >= oy - d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
+      expect([d.identifier, hi[1]! * f <= oy + d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
+    }
   });
 });
 

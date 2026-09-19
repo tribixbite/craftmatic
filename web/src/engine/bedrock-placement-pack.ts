@@ -2,6 +2,7 @@ declare const world: any;
 declare const system: any;
 declare const StructureSaveMode: any;
 declare const BlockPermutation: any;
+declare const BlockVolume: any;
 declare const ActionFormData: any;
 declare const ModalFormData: any;
 
@@ -111,6 +112,78 @@ export function rotatePlacementPoint(
   if (rotation === 180) return { x: width - point.x, y: point.y, z: length - point.z };
   if (rotation === 270) return { x: point.z, y: point.y, z: width - point.x };
   return { ...point };
+}
+
+// ─── Culling bounds ──────────────────────────────────────────────────────────
+
+/** A model's extent in BLOCKS, relative to the entity's own position, at 100 %. */
+export interface ModelExtentBlocks {
+  min: readonly [number, number, number];
+  max: readonly [number, number, number];
+}
+
+/** The three `visible_bounds_*` fields of a geometry description (blocks). */
+export interface VisibleBounds {
+  visible_bounds_width: number;
+  visible_bounds_height: number;
+  visible_bounds_offset: [number, number, number];
+}
+
+const ceil2 = (v: number): number => Math.ceil(v * 100) / 100;
+
+/**
+ * The culling box a geometry must declare so the model never vanishes at any
+ * in-game size step.
+ *
+ * Bedrock frustum-culls an entity against the box declared in its GEOMETRY
+ * description: `visible_bounds_width` (used for BOTH horizontal axes),
+ * `visible_bounds_height` and `visible_bounds_offset`, all in blocks, centred
+ * on the entity's position plus the offset. The box is baked at build time and
+ * `minecraft:scale` is documented as a "visual size multiplier" only - it does
+ * not resize the box. `withSizeGroups` offers 25 %…400 %, so a geometry sized
+ * for 100 % renders up to FOUR TIMES outside its own culling box and the whole
+ * entity pops out of view the moment that small box leaves the frustum, which
+ * is what "entire sets disappear when the camera is tilted, especially with
+ * scaled up placements" describes.
+ *
+ * Mojang author their own geometries the same way: `slime.geo.json` is a
+ * single 8-unit (half-block) cube and declares `visible_bounds_width: 5`,
+ * `visible_bounds_height: 2`, `offset [0, 1, 0]` - a box sized for the LARGEST
+ * scale its render controller applies (variant 4), not for the model as
+ * authored. `ender_dragon.geo.json` sets `visible_bounds_width: 14` for a body
+ * reaching x = −7, i.e. twice the largest distance from the origin, confirming
+ * the width is a radius about the entity position rather than a footprint.
+ *
+ * So the box has to cover the union of `f × extent` over every size step. An
+ * over-large box only means the entity is drawn while slightly off screen
+ * (cheap); a too-small one makes it vanish, which is the bug.
+ *
+ * @param extent Model AABB in blocks relative to the entity position, at 100 %.
+ * @param padBlocks Slack at 100 % for geometry that can reach past that AABB
+ *   (a rotated bone's cuboids are authored unrotated at the pivot), scaled with
+ *   the model.
+ */
+export function visibleBoundsForSizeSteps(extent: ModelExtentBlocks, padBlocks = 0): VisibleBounds {
+  const fMin = Math.min(...SIZE_STEPS) / 100, fMax = Math.max(...SIZE_STEPS) / 100;
+  // f × [a, b] for every f in [fMin, fMax] stays inside this interval: a
+  // negative bound reaches furthest at fMax, a positive one at fMin.
+  const span = (a: number, b: number): [number, number] => [Math.min(fMin * a, fMax * a), Math.max(fMin * b, fMax * b)];
+  const pad = Math.max(0, padBlocks);
+  const [x0, x1] = span(extent.min[0] - pad, extent.max[0] + pad);
+  const [y0, y1] = span(extent.min[1] - pad, extent.max[1] + pad);
+  const [z0, z1] = span(extent.min[2] - pad, extent.max[2] + pad);
+  // One width serves +X, −X, +Z and −Z, so it is twice the furthest horizontal
+  // reach from the entity position; the height gets its own offset instead.
+  const radius = Math.max(Math.abs(x0), Math.abs(x1), Math.abs(z0), Math.abs(z1));
+  // Round the offset FIRST, then size the height around the rounded value: a
+  // height rounded independently can end up a few thousandths short of the
+  // shifted centre and clip the model it was computed from.
+  const offsetY = Math.round((y0 + y1) / 2 * 100) / 100;
+  return {
+    visible_bounds_width: Math.max(1, ceil2(radius * 2)),
+    visible_bounds_height: Math.max(1, ceil2(2 * Math.max(Math.abs(y0 - offsetY), Math.abs(y1 - offsetY)))),
+    visible_bounds_offset: [0, offsetY, 0],
+  };
 }
 
 // ─── Size groups ─────────────────────────────────────────────────────────────
@@ -527,14 +600,79 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     for (let l = 0; l < 16; l++) { const span = 16 - l; if (index < n + span) return [l, l + 1 + (index - n)]; n += span; }
     return [0, 16];
   };
-  async function placeColliders(st: any, dim: any, backups: any[], progress: (what: string) => void, key: string) {
+  /**
+   * The world columns one grid cell owns along an axis at scale `f`.
+   *
+   * At `f` >= 1 a column belongs to the cell when its CENTRE falls inside the
+   * cell's scaled span, so a wall lands on the nearest block instead of being
+   * dilated outward by up to a whole block. "Any overlap" used to claim both
+   * neighbours of every fractional boundary: at 150 % the wall beside a doorway
+   * claimed the doorway's own first column and the player walked into a wall
+   * with nothing drawn on it. The ranges still tile the footprint exactly (cell
+   * i ends where cell i+1 begins), so no wall can develop a hole.
+   *
+   * Below 100 % a cell is NARROWER than a block and several cells share one, so
+   * every column a cell touches must stay solid - a centre test would drop
+   * cells and leave holes to fall through.
+   */
+  const cellColumns = (i: number, f: number) => {
+    const a = i * f, b = (i + 1) * f;
+    if (f < 1) return [Math.floor(a), Math.max(Math.floor(a), Math.ceil(b) - 1)];
+    return [Math.ceil(a - 0.5), Math.max(Math.ceil(a - 0.5), Math.ceil(b - 0.5) - 1)];
+  };
+  /**
+   * Remove this pack's colliders from a world box, in `fill`-sized pieces.
+   *
+   * `fillBlocks` takes a BlockVolume INSTANCE (a plain `{from, to}` object is
+   * rejected by the native binding) and is capped at 32768 blocks per call like
+   * `/fill`, so the box is walked in 32-cubes. The `blockFilter` is what keeps
+   * this safe: only `craftmatic:collider` is removed, never the player's own
+   * world inside the footprint.
+   */
+  const clearColliders = (dim: any, from: any, to: any) => {
+    const step = 32, block = config.colliders.block;
+    let failures = 0;
+    for (let x = from.x; x <= to.x; x += step) for (let y = from.y; y <= to.y; y += step) for (let z = from.z; z <= to.z; z += step) {
+      const a = { x, y, z }, bb = { x: Math.min(to.x, x + step - 1), y: Math.min(to.y, y + step - 1), z: Math.min(to.z, z + step - 1) };
+      try { dim.fillBlocks(new BlockVolume(a, bb), 'minecraft:air', { blockFilter: { includeTypes: [block] } }); }
+      catch (e: any) { failures++; if (failures === 1) console.warn(`BRICK_WAND_CLEAR_FAILED ${a.x},${a.y},${a.z} ${e && e.message ? e.message : e}`); }
+    }
+    return failures;
+  };
+  /**
+   * A footprint split into boxes small enough for ONE ticking area (48 × 48
+   * horizontally is 9 chunks; a bigger `tickingarea add` is refused and `load`
+   * then fails the whole placement).
+   */
+  const placementBoxes = (width: number, height: number, length: number) => {
+    const box = 48, out: any[] = [];
+    for (let bx = 0; bx < width; bx += box) for (let by = 0; by < height; by += 320) for (let bz = 0; bz < length; bz += box) {
+      out.push({ x0: bx, y0: by, z0: bz, x1: Math.min(width, bx + box) - 1, y1: Math.min(height, by + 320) - 1, z1: Math.min(length, bz + box) - 1 });
+    }
+    return out;
+  };
+  async function placeColliders(st: any, dim: any, backups: any[], progress: (what: string) => void, key: string, stale?: any) {
     const c = config.colliders, f = factor(st), r = st.rotation, d = dims(st);
     const cellAt = (x: number, z: number) => r === 90 ? { x: c.length - 1 - z, z: x } : r === 180 ? { x: c.width - 1 - x, z: c.length - 1 - z } : r === 270 ? { x: z, z: c.width - 1 - x } : { x, z };
-    const box = 48;
-    const boxes: any[] = [];
-    for (let bx = 0; bx < d.width; bx += box) for (let by = 0; by < d.height; by += 320) for (let bz = 0; bz < d.length; bz += box) {
-      boxes.push({ x0: bx, y0: by, z0: bz, x1: Math.min(d.width, bx + box) - 1, y1: Math.min(d.height, by + 320) - 1, z1: Math.min(d.length, bz + box) - 1 });
+    // A PREVIOUS placement's colliders are invisible; left standing they are
+    // exactly the "invisible wall" a player hits after cycling the size up or
+    // down. A smaller re-lay does not even reach the bigger one's footprint, so
+    // sweep the box the previous one covered before laying this one. Only this
+    // pack's collider block is removed (blockFilter), and undo still restores
+    // the boxes THIS placement backs up - the swept cells were our own debris.
+    if (stale && stale.dimension === dim.id) {
+      const old = placementBoxes(stale.to.x - stale.from.x + 1, stale.to.y - stale.from.y + 1, stale.to.z - stale.from.z + 1);
+      for (let si = 0; si < old.length; si++) {
+        if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+        progress(`clearing the previous placement ${si + 1}/${old.length}`);
+        const b = old[si];
+        const from = { x: stale.from.x + b.x0, y: stale.from.y + b.y0, z: stale.from.z + b.z0 };
+        const to = { x: stale.from.x + b.x1, y: stale.from.y + b.y1, z: stale.from.z + b.z1 };
+        await load(dim, from, to);
+        clearColliders(dim, from, to);
+      }
     }
+    const boxes = placementBoxes(d.width, d.height, d.length);
     const runs: string = c.runs;
     let placed = 0;
     for (let bi = 0; bi < boxes.length; bi++) {
@@ -547,7 +685,11 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.Memory });
       backups.push({ name, from });
       // Clear the box first: a smaller re-lay must not leave the old size behind.
-      try { dim.fillBlocks?.({ from, to }, 'minecraft:air'); } catch {}
+      clearColliders(dim, from, to);
+      // Cells this pass wrote. Merging lo/hi is only right BETWEEN cells of this
+      // re-lay (below 100 % several share a block); merging with whatever the
+      // world already held would union a stale placement back in.
+      const written = new Set();
       let cell = 0, budget = 0;
       for (let k = 0; k + 1 < runs.length; k += 2) {
         const v = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
@@ -556,8 +698,8 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         for (let j = 0; j < n; j++, cell++) {
           const z = cell % c.length, y = Math.floor(cell / c.length) % c.height, x = Math.floor(cell / (c.length * c.height));
           const rc = cellAt(x, z);
-          const x0 = Math.floor(rc.x * f), x1 = Math.max(x0, Math.ceil((rc.x + 1) * f) - 1);
-          const z0 = Math.floor(rc.z * f), z1 = Math.max(z0, Math.ceil((rc.z + 1) * f) - 1);
+          const [x0, x1] = cellColumns(rc.x, f);
+          const [z0, z1] = cellColumns(rc.z, f);
           if (x1 < b.x0 || x0 > b.x1 || z1 < b.z0 || z0 > b.z1) continue;
           const wy0 = (y + lo / 16) * f, wy1 = (y + hi / 16) * f;
           for (let wy = Math.floor(wy0); wy < Math.ceil(wy1); wy++) {
@@ -570,13 +712,14 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
               try { block = dim.getBlock(pos); } catch {}
               if (!block) continue;
               let bl = l, bh = h;
+              const seen = `${pos.x},${pos.y},${pos.z}`;
               try {
-                if (block.typeId === c.block) {
+                if (written.has(seen) && block.typeId === c.block) {
                   const pl = Number(block.permutation.getState(c.loState)), ph = Number(block.permutation.getState(c.hiState));
                   if (Number.isFinite(pl) && Number.isFinite(ph)) { bl = Math.min(bl, pl); bh = Math.max(bh, ph); }
                 }
               } catch {}
-              try { block.setPermutation(BlockPermutation.resolve(c.block, { [c.loState]: bl, [c.hiState]: bh })); placed++; } catch {}
+              try { block.setPermutation(BlockPermutation.resolve(c.block, { [c.loState]: bl, [c.hiState]: bh })); written.add(seen); placed++; } catch {}
               if (++budget % 400 === 0) {
                 if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
                 await wait(1);
@@ -594,6 +737,10 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const st = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
     validate(p, st); active = { player: p.id, cancelled: false }; previews.delete(p.id); state(p).aim = false;
     const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [], failedActors: string[] = [], spawned: any[] = [];
+    // The world box this placement covers, remembered so the NEXT one can clear
+    // the colliders it leaves behind (they are invisible; see placeColliders).
+    const dPlace = dims(st);
+    const bounds = { dimension: dim.id, from: { ...st.anchor }, to: { x: st.anchor.x + dPlace.width - 1, y: st.anchor.y + dPlace.height - 1, z: st.anchor.z + dPlace.length - 1 } };
     const previous = histories.get(p.id);
     removeGhost(p.id);
     const scripted = st.size !== 100 && config.tiles.length > 0;
@@ -608,7 +755,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     tell(p, `Placing ${config.label}: ${pieces}. Watch the bar above the hotbar.`);
     try {
       if (scripted) {
-        const placed = await placeColliders(st, dim, backups, what => progress(0, what), key);
+        const placed = await placeColliders(st, dim, backups, what => progress(0, what), key, previous && previous.bounds);
         progress(1, `${placed} walkable blocks laid`);
       } else for (let i = 0; i < config.tiles.length; i++) {
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
@@ -683,14 +830,14 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         } catch (e: any) { tell(p, `§e${actor.label} could not take its seat (${e && e.message ? e.message : e}).`); }
       }
       if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
-      histories.set(p.id, { dimension: dim.id, backups, entities });
+      histories.set(p.id, { dimension: dim.id, backups, entities, bounds });
       progress(total, 'done');
       await wait(hold);
       tell(p, failedActors.length ? `§aPlaced ${config.label} (${failedActors.length} entit${failedActors.length === 1 ? 'y' : 'ies'} could not be spawned). Use the Brick Wand to undo.` : `§aPlaced ${config.label}. Use the Brick Wand to undo.`);
     } catch (e: any) {
       if (backups.length || entities.length) {
         if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
-        histories.set(p.id, { dimension: dim.id, backups, entities });
+        histories.set(p.id, { dimension: dim.id, backups, entities, bounds });
       }
       tell(p, `§cPlacement stopped: ${e.message || e}`);
     }
@@ -764,7 +911,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
     preview: spec.preview ?? null, colliders: spec.colliders ?? null, sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
-  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
+  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
   const item = {
     format_version: '1.21.30',
     'minecraft:item': {

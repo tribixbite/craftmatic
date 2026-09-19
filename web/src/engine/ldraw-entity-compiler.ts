@@ -49,6 +49,7 @@ const PACK_NAMESPACE = 'craftmatic';
 // The scale lives in lego-scale.ts (shared with the block-export planner); re-exported for the tests and the CLI probes.
 export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BLOCKS, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
+import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
 
 /**
  * Canopy / windscreen moulds — used for COCKPIT DETECTION only. Whether a
@@ -1572,18 +1573,30 @@ export async function compileLdrawEntityGeometry(
     };
   };
 
+  // Culling box, shared by every mesh of this model. The recentring above puts
+  // the cubes symmetrically about the entity position in X/Z and lifts them by
+  // `originLiftBlocks`, so the render-frame AABB in blocks is exactly this. A
+  // rotated bone's cuboids are authored unrotated at the pivot, so their true
+  // extent can exceed that AABB by up to a cuboid diagonal; two blocks of
+  // padding covers every LEGO part at 0.16 units/LDU.
+  //
+  // Every mesh chunk declares the WHOLE model's box on purpose: a chunk holds
+  // an arbitrary slice of the cube list, so its cubes can sit anywhere in the
+  // model, and chunks culled independently would tear a set apart. The helper
+  // widens the box to the largest wand size step - see
+  // `visibleBoundsForSizeSteps`. (A "vanishes from above" report on the Pixel
+  // was the tester falling back to the ground after an elevated /tp - not
+  // culling.)
+  const modelExtent = {
+    min: [-totalWidth / 2, -originLiftBlocks, -totalLength / 2] as const,
+    max: [totalWidth / 2, totalHeight - originLiftBlocks, totalLength / 2] as const,
+  };
+  const cullingBounds = visibleBoundsForSizeSteps(modelExtent, 2);
   const description = (identifier: string, materialCount: number) => ({
     identifier,
     texture_width: ATLAS_WIDTH,
     texture_height: 1 + Math.max(1, materialCount) * ATLAS_TILE,
-    // Culling box. A rotated bone's cuboids are authored unrotated at the
-    // pivot, so their true extent can exceed the render-frame AABB by up to a
-    // cuboid diagonal; two blocks of padding covers every LEGO part at 0.16
-    // units/LDU. (A "vanishes from above" report on the Pixel was the tester
-    // falling back to the ground after an elevated /tp - not culling.)
-    visible_bounds_width: Math.max(4, Math.ceil(Math.max(totalWidth, totalLength)) + 2),
-    visible_bounds_height: Math.max(4, Math.ceil(totalHeight) + 2),
-    visible_bounds_offset: [0, Math.round((totalHeight / 2 - originLiftBlocks) * 100) / 100, 0],
+    ...cullingBounds,
   });
 
   const geometryMeshes: unknown[] = [];

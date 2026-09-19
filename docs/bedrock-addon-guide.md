@@ -541,8 +541,34 @@ round settles them.
   - *Fine turn*: a pack with no tiles (a vehicle, a figure) rotates in 15° steps both
     ways (`pointAt` turns about the footprint centre; `size()` is the turned bounding
     box); block packs keep 90°. DeLorean controls stay the LAST button.
+  - **Invisible walls after scaling (fixed 2026-09-18, offline; device round pending).**
+    Two defects in the re-lay, both found by `test/bedrock-collider-scale.test.ts`:
+    (1) the box clear never ran - `dim.fillBlocks({from,to}, 'minecraft:air')` passes a
+    plain object where `fillBlocks(volume: BlockVolumeBase, …)` needs a `BlockVolume`
+    INSTANCE, and the call sat inside `try {} catch {}`, so every re-lay UNIONED with the
+    colliders already standing. Cycling 100 → 150 → … → 400 without undo left every
+    earlier size's walls in place, invisible. Fix: `clearColliders()` walks the box in
+    32-cubes (`fillBlocks` is capped at 32768 blocks like `/fill`) with
+    `blockFilter.includeTypes = [craftmatic:collider]`, so the player's own world inside
+    the footprint is untouched; the placement now records its `bounds` and the NEXT one
+    sweeps them first (a smaller re-lay does not reach the bigger one's footprint), in
+    ≤48-block boxes because a bigger `tickingarea add` is refused. The lo/hi merge is
+    also now restricted to cells THIS pass wrote. (2) a cell claimed every world column
+    its scaled span touched, dilating the model outward by up to a whole block at any
+    fractional factor: at 150 % the wall beside a doorway claimed the doorway's own first
+    column. Fix `cellColumns()`: at f ≥ 1 a column is claimed when its CENTRE is inside
+    the span (the ranges still tile exactly, so no wall gets a hole); below 100 % several
+    cells share a column and "any overlap" stays, or the floor gets holes. Integer steps
+    (200/300/400 %) are unchanged, which is why the earlier 2× device round looked clean.
   - Tests: `test/bedrock-placement-size.test.ts` (size groups, collider runs, 200 %
-    re-lay geometry, refusal, aim-follow, 15° turn) beside the runtime/ghost tests.
+    re-lay geometry, refusal, aim-follow, 15° turn) beside the runtime/ghost tests, and
+    `test/bedrock-collider-scale.test.ts` — the re-lay at EVERY size step against the
+    model's own volume derived from geometry (X/Z: an exact set of columns; Y: the
+    sixteenth hull a single `[lo,hi]` pair can express), a doorway that must stay
+    walkable, repeated placement at growing sizes, and the same run over 31141's real
+    shipped pack (skips without the clego corpus). Both share `test/_placement-host.ts`,
+    whose `fillBlocks` now rejects a non-`BlockVolume` the way the game does — the old
+    `vi.fn()` stub is what hid defect (1).
 - **Custom-minifig UI** (`ui/minifig-builder.ts`): the LEGO tab's "🧍 Minifig" popover is
   the browser face of `minifigFromSpec` - part ids + LDraw colour ids per slot, colour
   names from `/ldraw-color-names.json`, values persisted in localStorage, the compile on

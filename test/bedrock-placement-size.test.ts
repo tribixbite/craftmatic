@@ -3,11 +3,12 @@
  * (bedrock-placement-pack.ts), driven through the serialized runtime exactly as
  * bedrock-placement-runtime.test.ts drives the planner.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   SIZE_STEPS, buildPlacementPackAssets, colliderPairIndex, colliderPairOf, decodeColliderRuns, encodeColliderRuns, withSizeGroups,
 } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
+import { host } from './_placement-host.js';
 
 describe('withSizeGroups', () => {
   it('clamps a scaled camera radius to the range Bedrock accepts', () => {
@@ -100,57 +101,6 @@ describe('collider runs', () => {
   });
 });
 
-/** Minimal script host shared by the runtime cases. */
-function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
-  const assets = buildPlacementPackAssets(spec);
-  const responses: any[] = [];
-  const buttons: string[][] = [];
-  class Form {
-    labels: string[] = [];
-    title() { return this; } body() { return this; } button(l: string) { this.labels.push(l); return this; } textField() { return this; }
-    async show() { buttons.push(this.labels); return responses.shift() ?? { canceled: true }; }
-  }
-  const intervals = new Map<number, any>();
-  const spawned: Array<{ typeId: string; at: any; entity: any }> = [];
-  const set: Array<{ pos: any; states: any }> = [];
-  const commands: string[] = [];
-  const actionBars: string[] = [];
-  const blocks = new Map<string, any>();
-  let loaded = false;
-  const makeEntity = (id: string, typeId: string) => ({ id, typeId, nameTag: '', dimension: { id: 'overworld' }, events: [] as string[], teleport: vi.fn(), setRotation: vi.fn(), remove: vi.fn(), triggerEvent(ev: string) { this.events.push(ev); }, getComponent: () => undefined });
-  const dimension: any = { id: 'overworld', heightRange: { min: -64, max: 320 }, spawnParticle: vi.fn(),
-    runCommand: (command: string) => {
-      if (command.startsWith('tickingarea remove ')) { loaded = false; return { successCount: 1 }; }
-      if (command.startsWith('tickingarea add ')) { loaded = true; return { successCount: 1 }; }
-      commands.push(command); return { successCount: 1 };
-    },
-    fillBlocks: vi.fn(),
-    getBlock: (pos: any) => {
-      if (!loaded) return undefined;
-      const key = `${pos.x},${pos.y},${pos.z}`;
-      if (!blocks.has(key)) blocks.set(key, { typeId: 'minecraft:air', permutation: { getState: () => undefined }, setPermutation(perm: any) { this.typeId = perm.id; this.permutation = { getState: (k: string) => perm.states[k] }; set.push({ pos: { ...pos }, states: perm.states }); } });
-      return blocks.get(key);
-    },
-    getEntities: () => [],
-    spawnEntity: (typeId: string, at: any) => { const entity = makeEntity(`e${spawned.length + 1}`, typeId); spawned.push({ typeId, at, entity }); return entity; } };
-  let use: any;
-  let hit: any;
-  const player: any = { id: 'player', location: { x: 100, y: 64, z: 200 }, dimension, selectedSlotIndex: 0,
-    getBlockFromViewDirection: () => hit,
-    getComponent: () => undefined, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: (s: string) => actionBars.push(s) } };
-  const world = { afterEvents: { itemUse: { subscribe: (fn: any) => { use = fn; } }, playerLeave: { subscribe: vi.fn() } },
-    getAllPlayers: () => [player], getDimension: () => dimension,
-    getEntity: (id: string) => spawned.find(s => s.entity.id === id)?.entity,
-    structureManager: { createFromWorld: vi.fn(), get: () => undefined, place: vi.fn(), delete: vi.fn() } };
-  const system = { run: (fn: any) => fn(), runTimeout: (fn: any) => queueMicrotask(fn), runInterval: (fn: any, ticks: number) => { intervals.set(ticks, fn); } };
-  const BlockPermutation = { resolve: (id: string, states: any) => ({ id, states }) };
-  const source = assets.script.replace(/^import .*;\s*$/gm, '');
-  new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory' }, BlockPermutation, Form, Form);
-  const flush = async (turns = 400) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
-  const open = async (...r: any[]) => { responses.push(...r); use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
-  return { assets, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, setHit: (h: any) => { hit = h; }, blocks };
-}
-
 describe('wand runtime: size, aim and turning', () => {
   const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 4 };
 
@@ -164,7 +114,7 @@ describe('wand runtime: size, aim and turning', () => {
       colliders: { width: 4, height: 2, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
       settleTicks: 1, finalHoldTicks: 1 });
     expect(h.assets.script).toContain('"sizes":[25,50,75,100,150,200,300,400]');
-    expect(h.assets.script).toContain('import { world, system, StructureSaveMode, BlockPermutation }');
+    expect(h.assets.script).toContain('import { world, system, StructureSaveMode, BlockPermutation, BlockVolume }');
     // Pin the corner at the feet, then cycle Size → 150 → 200.
     await h.open({ selection: 1 }, { canceled: true });
     await h.open({ selection: 10 }, { canceled: true });

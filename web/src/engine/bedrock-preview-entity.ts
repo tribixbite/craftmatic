@@ -19,7 +19,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import { encodePngRgba } from './lego-resource-pack.js';
 import { PACK_NAMESPACE } from './mcpack.js';
-import { withSizeGroups } from './bedrock-placement-pack.js';
+import { visibleBoundsForSizeSteps, withSizeGroups } from './bedrock-placement-pack.js';
 
 export interface PreviewComponentPlacement {
   grid: BlockGrid;
@@ -145,16 +145,22 @@ export function buildPreviewGhost(id: string, scenery: BlockGrid, components: Pr
   const meshIds: string[] = [];
   const meshes: unknown[] = [];
   const chunk = 1024;
+  // `ghostCube` centres the scenery on the entity position in X/Z and stands it
+  // on y = 0, so this is the ghost's AABB in blocks. The ghost takes the wand's
+  // size steps (see `withSizeGroups` below), and `minecraft:scale` does not
+  // resize a geometry's culling box, so the box is widened here for the largest
+  // step - otherwise the preview of a scaled-up placement disappears as soon as
+  // the 100 % box leaves the frustum. Every chunk carries the whole ghost's box
+  // so the chunks cannot be culled apart from one another.
+  const cullingBounds = visibleBoundsForSizeSteps({
+    min: [-size.width / 2, 0, -size.length / 2],
+    max: [size.width / 2, size.height, size.length / 2],
+  }, 1);
   for (let offset = 0; offset < Math.max(1, cubes.length); offset += chunk) {
     const meshId = `geometry.${PACK_NAMESPACE}.${safeId}_preview_${meshIds.length}`;
     meshIds.push(meshId);
     meshes.push({
-      description: {
-        identifier: meshId, texture_width: 16, texture_height: 16,
-        visible_bounds_width: Math.max(4, Math.max(size.width, size.length) + 2),
-        visible_bounds_height: Math.max(4, size.height + 2),
-        visible_bounds_offset: [0, size.height / 2, 0],
-      },
+      description: { identifier: meshId, texture_width: 16, texture_height: 16, ...cullingBounds },
       bones: [{ name: 'ghost', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + chunk) }],
     });
   }

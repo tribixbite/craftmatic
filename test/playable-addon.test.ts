@@ -4,6 +4,7 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
+import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -211,6 +212,34 @@ describe('playable Bedrock add-on',()=>{
     for (const key of client.render_controllers) {
       const alias = controllers[key].geometry.replace('Geometry.', '');
       expect(meshes.some((m: any) => m.description.identifier === client.geometry[alias])).toBe(true);
+    }
+  });
+
+  // Bedrock culls an entity against the box its geometry declares, and the wand's
+  // `minecraft:scale` size steps (25 %…400 %) cannot resize it at runtime. A box
+  // sized for 100 % made whole sets vanish once the camera tilted far enough to
+  // push it out of the frustum. Every chunk carries the WHOLE model's box: a
+  // chunk is an arbitrary slice of the cube list, so a per-chunk box would let
+  // the game cull parts of one build away independently.
+  it('bounds every mesh for the LARGEST wand size step, not just for 100 %', async () => {
+    const grid = new BlockGrid(17, 9, 17);
+    for (let y=0;y<9;y++) for(let z=0;z<17;z++) for(let x=0;x<17;x++) grid.set(x,y,z,(x+y+z)%2 ? 'minecraft:gold_block' : 'minecraft:stone');
+    const result = await buildPlayableAddon(grid, { stem: 'Culling', vehicleMode: 'car' });
+    const buffer = ab(result.bytes);
+    const meshes = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_culling_RP/models/entity/culling_culling.geo.json')))['minecraft:geometry'];
+    expect(meshes.length).toBeGreaterThan(1);
+    const cubes = meshes.flatMap((m: any) => m.bones[0].cubes);
+    // The model's AABB in blocks, over ALL meshes (16 model units per block).
+    const lo = [0, 1, 2].map(i => Math.min(...cubes.map((c: any) => c.origin[i])) / 16);
+    const hi = [0, 1, 2].map(i => Math.max(...cubes.map((c: any) => c.origin[i] + c.size[i])) / 16);
+    const f = Math.max(...SIZE_STEPS) / 100;
+    for (const mesh of meshes) {
+      const d = mesh.description, half = d.visible_bounds_width / 2, oy = d.visible_bounds_offset[1];
+      for (const i of [0, 2]) {
+        expect([d.identifier, i, lo[i]! * f >= -half, hi[i]! * f <= half]).toEqual([d.identifier, i, true, true]);
+      }
+      expect([d.identifier, lo[1]! * f >= oy - d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
+      expect([d.identifier, hi[1]! * f <= oy + d.visible_bounds_height / 2]).toEqual([d.identifier, true]);
     }
   });
 
