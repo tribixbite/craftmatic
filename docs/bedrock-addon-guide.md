@@ -951,3 +951,64 @@ packs. Regression tests: `test/ldraw-entity-atlas.test.ts`,
 - Detecting "world finished loading" by screen brightness fails (a screen full of
   entities is as bright as the loading dialog). RMSE against a crop of the HUD's
   right-hand buttons is clean: ~0.00-0.11 in world, 0.15-0.58 while loading.
+
+---
+
+## A resident "master" part library is a NO-GO; a shared behaviour pack is a yes (2026-09-19)
+
+Audit of the proposal "install one large master add-on (behaviours + textures + geometry
+for thousands of parts) once, then ship every set as a few hundred kB of assembly
+instructions". Every decisive number is below; the three harnesses that produce them
+are `scripts/corpus-part-census.ts` (walks every set's `models[0]`),
+`scripts/part-library-cost.ts` (compiles each distinct part with the real
+`compilePartPrototype`) and `scripts/part-block-bounds.ts` (the 30x30x30 px custom-block
+bound), writing to `output/master-addon-audit/`. Computed from the shipped index (10,169 sets, 0 parse failures) with the repo's own
+parsers and `compilePartPrototype`; Bedrock claims quoted from learn.microsoft.com.
+
+| part of the proposal | verdict | the number |
+|---|---|---|
+| shared behaviour/mechanism pack | **yes** | `placement.js` is 99 % line-identical across packs; per-set behaviour payload 3.9-8.8 kB; a set's whole BP compresses to 12-29 kB |
+| shared texture pack | **yes, already done** | one 16x16 swatch per colour (2026-09-19); 18.8 kB byte-identical across every pack |
+| per-set assembly manifest | **yes** | 71043 = 133 kB raw / 47 kB gzip (22 B per placement: part u16, colour u16, 3 x i32, rotation 1 or 9 B); the largest corpus set (10307, 25,403 placements) = 528 kB / 158 kB |
+| resident geometry library, instanced per set | **no** | the library is **534,354 cuboids at balanced = 2.06x the 260,000 ceiling** (1.19 M at high, 2.55 M at ultra) before any set is placed, and nothing in Bedrock can instance it per placement |
+
+- **Corpus**: 4,310,010 placements, **14,278 distinct part ids** (11,454 resolve offline;
+  the rest are LSynth hoses, submodel names and ids missing from both libraries =
+  1.76 % of placements), 66,954 (part, colour) pairs, **66.9 % axis-aligned**.
+  Concentration: 80 / 394 / 820 / 1,448 / 4,024 parts cover 50 / 80 / 90 / 95 / 99 % of
+  placements; 5,564 ids (39 %) are single-set. Per set: median 194 placements, 60 parts.
+- **Library cost** (every part once, `studFacets` 4 on every top stud because a library
+  cannot know exposure): balanced 460,546 body + 73,808 stud cuboids; per part median 34
+  / p90 87 / max 128. Ranked by placement share, the parts covering 95 % of placements
+  (1,827) cost **55,806 cuboids at balanced (21 % of the ceiling), 127,086 at high,
+  281,300 at ultra (over it)**. The cost is paid at pack load: the 2026-09-18 baseline with
+  the pack active and zero instances already sat at ~1.21 GB native.
+- **What a set needs from it vs what it ships**: median per-set subset 1,492 cuboids
+  against 3,626 placed before culling (2.35x); 71043 9,802 vs 98,816 (shipped shell
+  48,093 after culling); 10307 6,314 vs 368,233. That ratio is the prize an instancer
+  would win, and Bedrock has none.
+- **Cross-pack referencing is real**: `manifest.json` `dependencies[]` (uuid + version);
+  block `minecraft:geometry` "must match an existing geometry identifier in any of the
+  currently loaded resource packs"; client entities "can reference materials, textures,
+  and geometry from the vanilla Minecraft Resource Pack or create their own" (the vanilla
+  pack is just another pack in the stack); `pack_scope: "global"` exists for resource
+  packs. Not device-tested here. No script API creates a block type, entity type or
+  geometry at runtime.
+- **The consumer is the blocker, twice over.** Entities: closed (40 kB Actor, 2,000 double
+  frame time; 71043 is 5,967 placements). Blocks instance but: `tint_method` is biome
+  tints only, so colour must be a TYPE or a STATE — 66,954 pairs x 24 rotation states =
+  **1.6 M permutations = 24.5x the 65,536 cap**; rotation baked into the type too gives
+  **208,074 aligned (part, rotation, colour) block types = 3.2x the cap** (95 % subset:
+  160,084); 33 % of placements are not axis-aligned at all; part origins sit at sub-block
+  offsets (71043: 5,400 distinct (part, rotation, 1/16-block offset) classes for 5,967
+  placements), so positions must be quantised — which is the `buildings=blocks` voxel path
+  already measured at 1.01-1.07x; and the 30x30x30 px block bound (100 LDU at minifig
+  scale) excludes 13 % of placements (plates/beams over 5 studs). The "geometry component
+  + colour by tint" variant is closed by the `tint_method` enumeration.
+- **"As if they were primitive blocks"**: vanilla is ~1,000 grid-aligned unit-bounded
+  types x few states, baked into chunk meshes with a palette index per cell. LEGO is
+  14,278 parts x 200+ colours x 24 rotations, 90 % off-grid — the permutation model
+  failing, not a missing feature.
+- **Do next, if anything**: split the generic 33 kB runtime + 18.8 kB swatches/icon into a
+  shared BP/RP when a second mechanism family ships (saves 100 % of a small pack's
+  compressed BP, 12-29 kB). Do not build a geometry library pack.
