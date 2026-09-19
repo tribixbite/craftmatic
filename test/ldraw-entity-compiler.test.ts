@@ -37,6 +37,8 @@ const LIBRARY: Record<string, string> = {
   '2453': ['0 Brick 1 x 1 x 5', ...box6(-10, 10, -120, 0, -10, 10)].join('\n'),
   // A wheel rim the compiler recognises by id (WHEEL_PARTS): a flat 20 x 20 x 8 box.
   '56908': ['0 Wheel Rim', ...box6(-10, 10, -10, 10, -4, 4, 'xXyYzZ')].join('\n'),
+  // A canopy the compiler recognises by DESCRIPTION (isCanopyMould): the plane rules key on it.
+  '2507': ['0 Windscreen 10 x 4 x 2.333 Canopy', ...box6(-40, 40, -24, 0, -20, 20)].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 
@@ -507,5 +509,28 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     expect(r.diagnostics.strandedRepaired).toBe(1);
     expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'wheel-envelope' });
     expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
+  });
+  it('a plane stand takes its mast with it: parts hanging off the stand below the hull go out too', async () => {
+    // The Milano (76286) on the Pixel, world 919, 2026-09-19: the stand drop left
+    // two Technic beams under the hull, the render frame grounded the model on
+    // them, and the ship hovered a mast high on a thin stalk. Here: a 20-brick
+    // hull with a canopy on top, a 3-brick stand 264 LDU down, a 120-tall beam on
+    // the stand that the height rule already drops (its foot is 240 > canopy+250
+    // = 226) and a second beam between it and the hull whose foot (120) is INSIDE
+    // the height line but which hangs 120 LDU under the hull's underside (0).
+    // Test parts have their origin at the bottom face (box6 y = -h..0).
+    const hull: ParsedBrick[] = Array.from({ length: 20 }, (_, i) => ({ part: '3001.dat', color: 4, x: (i % 10) * 80, y: 0, z: i < 10 ? -20 : 20 }));
+    const canopy: ParsedBrick = { part: '2507.dat', color: 47, x: 320, y: -24, z: 0 };
+    const stand: ParsedBrick[] = [0, 80, 160].map(x => ({ part: '3001.dat', color: 7, x, y: 264, z: 0 }));
+    const upperBeam: ParsedBrick = { part: '2453.dat', color: 0, x: 80, y: 240, z: 0 };
+    const lowerBeam: ParsedBrick = { part: '2453.dat', color: 0, x: 80, y: 120, z: 0 };
+    const r = await compileLdrawEntityGeometry('t', 'plane', [...hull, canopy, ...stand, upperBeam, lowerBeam], { partGeometry: provider(), facing: '+x' });
+    expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'stand-below-canopy' });
+    expect(r.diagnostics.standContinued).toBe(1);
+    expect(r.diagnostics.strandedRepaired).toBe(0);
+    expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
+    // Everything that is hull or canopy stays; the hull's own underside IS the envelope, so no hull brick is claimed.
+    expect(r.keptSourceIndices).toEqual(Array.from({ length: 21 }, (_, i) => i));
+    expect(r.warnings.some(w => /1 placement hanging off the display stand below the hull/.test(w))).toBe(true);
   });
 });

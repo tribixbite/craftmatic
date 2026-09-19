@@ -343,6 +343,14 @@ export interface LegoGeometryDiagnostics {
    */
   strandedRepaired: number;
   /**
+   * Placements the stand drop CONTINUED into: parts touching the dropped stand
+   * that hang below the hull's lower envelope (the Milano's two Technic-beam
+   * mast stubs). Without this the stub is the model's lowest cuboid, the
+   * render frame grounds the model on it, and the hull hovers a mast above
+   * the ground on a thin stalk (Pixel, world 919, 2026-09-19).
+   */
+  standContinued: number;
+  /**
    * Connected pieces of the compiled entity that do not touch its main body -
    * exactly what a player reports as a "floating piece". Anything left here
    * after the stranding repair is loose in the SOURCE, so it is reported, not
@@ -752,6 +760,8 @@ export interface PreparedEntityPlacements {
   skippedInternalCount: number;
   /** Placements a display-stand drop would have stranded, and that were put back so nothing floats. */
   strandedRepaired: number;
+  /** Placements the stand drop grew into because they hang off the stand below the hull (mast stubs). */
+  standContinued: number;
   /**
    * Connected pieces of `placed` that do not touch the main body — what a
    * player sees as a floating piece. After the stranding repair these can only
@@ -966,7 +976,7 @@ export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeo
     level: { bricks, rotation: null, centre, alignedBefore: bricks.length, alignedAfter: bricks.length, angleDeg: 0 },
     placed, placedIdx, meshes,
     displayDropped: { placements: 0, rule: null }, detached: { placements: 0, groups: 0 }, extras: [],
-    skippedInternalCount, strandedRepaired: 0,
+    skippedInternalCount, strandedRepaired: 0, standContinued: 0,
     orphans: { clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0) },
     worldBoundsOf,
   };
@@ -1116,6 +1126,30 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
       if (stand.length > 0 && stand.length < vehicleIdx.length * 0.2) { keep = vehicleIdx.filter(i => footY(i) <= canopyY + 250); displayRule = 'stand-below-canopy'; }
     }
   }
+  // A stand's mast reaches UP past the height line: the Milano's stand drops
+  // 52 placements and leaves two Technic beams (`32524`) hanging under the
+  // hull, and since the render frame grounds the model on its LOWEST cuboid
+  // (step 6 of compileLdrawEntityGeometry) the hull then hovers a mast high
+  // on a thin stalk. Grow the drop from the stand through touching placements
+  // whose underside lies below the hull's lower envelope - the lowest point
+  // of everything that does NOT touch the stand. Measured on 76286 before it
+  // was built: this claims exactly the 2 beams, where a footprint rule
+  // ("inside the stand's XZ") would have taken 80 hull plates.
+  let standContinued = 0;
+  if (displayRule === 'stand-below-canopy') {
+    const kept0 = new Set(keep);
+    let dropped = vehicleIdx.filter(i => !kept0.has(i));
+    const onStand = new Set(touchingIndices(boxes, dropped, keep));
+    const envelope = Math.max(...keep.filter(i => !onStand.has(i)).map(i => boxes[i]!.max[1]));
+    for (let pass = 0; pass < 8 && Number.isFinite(envelope); pass++) {
+      const hanging = touchingIndices(boxes, dropped, keep).filter(i => boxes[i]!.max[1] > envelope + 24);
+      if (!hanging.length) break;
+      const h = new Set(hanging);
+      keep = keep.filter(i => !h.has(i));
+      dropped = [...dropped, ...hanging];
+      standContinued += hanging.length;
+    }
+  }
   // A display-stand drop may not DISCONNECT the model: a piece that reached the
   // body only through a dropped placement would hang in mid-air (10337's rear
   // wing sat one block over the deck on its own in the 2026-09-18 device round,
@@ -1165,7 +1199,7 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
   const finalGroups = connectedClusters(placed.map(worldBoundsOf));
   const orphanGroups = finalGroups.slice(1);
   const orphans = { clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0) };
-  return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, strandedRepaired, orphans, worldBoundsOf };
+  return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, strandedRepaired, standContinued, orphans, worldBoundsOf };
 }
 
 // ─── Cockpit ──────────────────────────────────────────────────────────────────
@@ -1308,7 +1342,7 @@ export async function compileLdrawEntityGeometry(
   const prepared = options.wholeModel || options.rig
     ? await prepareWholeModel(bricks, provider)
     : await prepareEntityPlacements(kind, bricks, provider);
-  const { level, meshes, displayDropped, detached, extras, strandedRepaired, orphans } = prepared;
+  const { level, meshes, displayDropped, detached, extras, strandedRepaired, standContinued, orphans } = prepared;
   bricks = level.bricks;
   let placed = prepared.placed;
   let placedIdx = prepared.placedIdx;
@@ -1316,6 +1350,7 @@ export async function compileLdrawEntityGeometry(
   const skippedInternalCount = prepared.skippedInternalCount;
   if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayDropped.rule === 'wheel-envelope' ? 'below the wheel line' : 'a small cluster far below the canopy'}).`);
   if (strandedRepaired) warnings.push(`${cid}: ${strandedRepaired} placement${strandedRepaired === 1 ? '' : 's'} were put back after the display-stand drop: leaving them out would have left part of the model hanging in mid-air.`);
+  if (standContinued) warnings.push(`${cid}: ${standContinued} placement${standContinued === 1 ? '' : 's'} hanging off the display stand below the hull (its mast) went out with it, so the model stands on its hull, not on a stalk.`);
   if (orphans.clusters && kind !== 'figure') warnings.push(`${cid}: ${orphans.placements} placement${orphans.placements === 1 ? '' : 's'} in ${orphans.clusters} piece${orphans.clusters === 1 ? '' : 's'} do not touch the rest of the model - they are loose in the SOURCE and will look like floating pieces in game.`);
   if (detached.placements) warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out of it (${summariseExtras(extras)}).`);
 
@@ -1774,6 +1809,7 @@ export async function compileLdrawEntityGeometry(
     detached,
     displayDropped,
     strandedRepaired,
+    standContinued,
     orphans,
     hiddenCubesCulled,
     mergedCubes,

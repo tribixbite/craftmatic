@@ -726,6 +726,42 @@ DbixConvV3, which now averages 2.3 defects per affected pick against ReconV3's
 9.8. `EurobricksLDR` has the worst RATE (61 % of its picks) on a small
 population. The three authentic classes are the control and report zero.
 
+#### 6a. ReconV3's figures: the cause, and the assembler that fixes 44 % of it (2026-09-19)
+
+`recon_v3` places every inventory part at the centroid of the page-diff region
+its step attributes it to, on the stud grid, identity-rotated. A minifig is
+ONE callout on the page, so its head, arms, hands, hips and legs land as a
+stack or a scatter 8–160 LDU around the torso (hands 8 LDU apart in a column,
+arms 26–57 LDU from the torso) — never on the joints. On a seeded random 60 of
+the 2,300 ReconV3 primary picks, 27 files carry 259 figure defects:
+`orphan_hand` 127, `leg_missing_on_hips` 58, `torso_arms_missing` 26,
+`orphan_arm` 22, `torso_no_hips` 14, `torso_no_head` 12.
+
+`clego/recon_figure_assemble.py` (also wired into `recon_v3/beam.py` at the
+write site, so a rebuild does it) claims, per torso, the nearest unclaimed
+head / hips-or-hips-and-legs / handed arms / hands / handed legs / headgear
+within 250 LDU and re-emits them at the standard minifig's torso-local slots
+(`web/src/engine/minifig-rig.ts` `MINIFIG_CANON`), carried by the torso's own
+rotation; a torso-less arm still gets its hand and a torso-less hips its legs.
+A figure whose claimed parts already sit inside the grader's authentic bands
+is left byte-identical — the control: 14 of 15 flat authentic `LDR/` files
+with minifigs are untouched, the 15th (`1704 ice planet snow grader`) is a
+posed figure with its legs 23 LDU apart that the grader's own 10–14.5 LDU
+`hips->leg` band also calls defective. The pass is only ever applied to
+`ReconV3`.
+
+| 9 touched files of the 60 | before | after |
+|---|---:|---:|
+| figure defects | 147 | **82** (−44 %) |
+| floating parts | 99 | 103 |
+| big floating / overlap / sunk | 37 / 45 / 12 | 37 / 45 / 12 |
+
+What is left is inventory-side, not placement: files with 6–12 hands for 2
+arms and no torso at all (`76151`, `70403`, `76167` — the reader's parts list
+carries surplus hands and drops the torso's print id), which no placement
+rule can assemble. Whole corpus: **423 of 2,424 files touched, 990 figures,
+4,919 parts moved**, stamped `0 !FIGURE_ASSEMBLE v1`.
+
 ### 7. Studio "(Needs Work)" stub moulds — and the larger mismatch behind them
 
 The `3814 → 973` torso fix (above) was ONE member of a class: a design id whose
