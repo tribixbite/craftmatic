@@ -187,6 +187,11 @@ the slide and the door.
 - [ ] **`figure_defects` is the corpus's LARGEST defect class** — 29.6 % ± 4.0
       of picks carry one, `figures` is the dominant defect on 69 of 264
       DEFECTIVE sets, and OMR/LDR carry ZERO. `docs/lego-sources-guide.md` §4.
+      **After the regen it is concentrated in `ReconV3`: 452 of the sample's 807
+      defects (56 %), 46 of its 121 picks, 9.8 per affected pick — against
+      DbixConvV3's 2.3.** Nothing has ever been aimed at ReconV3's figures, and
+      that is the next target, not another DbixConvV3 pass. `EurobricksLDR` has
+      the worst rate (61 % of 38 picks). §6 of the same guide.
 - [ ] **The 744 picks that never had a grade** are now graded (47.3 % PASS) and
       have a different profile: 13.8 % carry duplicate placements against 0.4 %
       in the random sample. `EurobricksLDD` and `EurobricksTopicLDR` are 100 %

@@ -698,3 +698,25 @@ changed for the worse is that the defect is now visible. Figure defects went
 `C:/git/clego/lego_sets/DbixConvV3/` and prod still serves the old bytes.
 Re-merge the sharded summary with `merge_shard_summaries.py` (now
 ownership-aware) before rebuilding the index.
+
+### 6. Where figure defects live AFTER the regeneration
+
+Figure assembly is still the corpus's largest defect class (§4), and the regen
+moved `DbixConvV3` a long way without touching where most of the damage
+actually is. Same 500-pick sample, post-regen:
+
+| source | picks | with >= 1 figure defect | total defects |
+|---|---:|---:|---:|
+| **ReconV3** | 121 | 46 (38 %) | **452** |
+| MecabricksLDR | 127 | 34 (27 %) | 209 |
+| DbixConvV3 | 91 | 27 (30 %) | **63** |
+| EurobricksLDR | 38 | 23 (**61 %**) | 49 |
+| IO | 19 | 5 (26 %) | 28 |
+| OMR / LDR / LXF | 99 | **0** | **0** |
+| all | 500 | 136 (27 %) | 807 |
+
+**`ReconV3` carries 56 % of every figure defect in the sample** and nothing has
+ever been aimed at its figures — that is the next target, not another pass over
+DbixConvV3, which now averages 2.3 defects per affected pick against ReconV3's
+9.8. `EurobricksLDR` has the worst RATE (61 % of its picks) on a small
+population. The three authentic classes are the control and report zero.
