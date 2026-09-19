@@ -707,12 +707,28 @@ function looksLikePrimitive(stem: string): boolean {
 // fetchDatText calls are aggregated for ~20 ms (or until 48 distinct names)
 // and resolved through ONE `/ldraw-parts/_batch?files=…` request served
 // R2-side by the worker. The endpoint checks official+unofficial mirrors per
-// name, so UnOfficial/ candidate variants need not be submitted. Absent
-// endpoint (dev middleware, old worker) → two failures disable batching for
-// the session and every caller falls back to the classic per-path probing.
+// name, so UnOfficial/ candidate variants need not be submitted.
+//
+// Failure handling mirrors fetchDatText's transient/definitive split, and for
+// the same reason. An ABSENT endpoint (old worker) answers with a real status
+// and is permanent, so batching is switched off for the session. A THROWN
+// fetch — timeout, network error, a dev middleware still draining an upstream
+// burst — is transient, and disabling the fast path for the whole session on
+// it is a cure worse than the disease: every part then falls to per-path
+// probing, which for one 2,253-brick set is ~340 requests against ~80 batched,
+// and each of those probes ends at the `models/<stem>.dat` last resort that
+// only ever 404s. Measured on the dev middleware 2026-09-19: two `_batch`
+// timeouts during one slow load left 329 of 338 part fetches timing out and
+// the model rendered as "No 3D model found". Transient failures now back off
+// for BATCH_RETRY_MS and the fast path returns by itself.
 const BATCH_MAX = 48;
 const BATCH_DELAY_MS = 20;
-let batchDisabled = false;
+/** How long a transient `_batch` failure parks the fast path before a retry. */
+const BATCH_RETRY_MS = 5_000;
+/** Set only by a real HTTP answer: the endpoint does not exist here. */
+let batchAbsent = false;
+/** Epoch ms before which the fast path stays parked after a thrown fetch. */
+let batchRetryAt = 0;
 let batchFailures = 0;
 let pendingBatch: {
   rels: Set<string>;
@@ -721,7 +737,8 @@ let pendingBatch: {
 let batchTimer: ReturnType<typeof setTimeout> | null = null;
 
 function batchLookup(rels: string[]): Promise<Map<string, string> | null> {
-  if (batchDisabled || rels.length === 0) return Promise.resolve(null);
+  if (batchAbsent || rels.length === 0) return Promise.resolve(null);
+  if (Date.now() < batchRetryAt) return Promise.resolve(null);
   return new Promise(resolve => {
     pendingBatch ??= { rels: new Set(), waiters: [] };
     for (const r of rels) pendingBatch.rels.add(r);
@@ -736,19 +753,48 @@ async function flushBatch(): Promise<void> {
   pendingBatch = null;
   if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
   if (!b) return;
+  // Set the moment a real HTTP response arrives, so the catch below can tell
+  // "this host does not serve /_batch" (a status, or a body that is not the
+  // documented JSON — an old worker answers 200 with the SPA's index.html)
+  // from "the request never completed" (timeout / network error).
+  let answered = false;
   try {
     const q = [...b.rels].join(',');
     const r = await fetch(`${LDRAW_BASE}/_batch?files=${encodeURIComponent(q)}`,
       { signal: AbortSignal.timeout(12000) });
+    answered = true;
     if (!r.ok) throw new Error(String(r.status));
     const data = await r.json() as { found?: Record<string, string> };
     const map = new Map(Object.entries(data.found ?? {}));
     batchFailures = 0;
+    batchRetryAt = 0;
     for (const w of b.waiters) w.resolve(map);
   } catch {
-    if (++batchFailures >= 2) batchDisabled = true;
+    if (answered) {
+      if (++batchFailures >= 2) batchAbsent = true;
+    } else {
+      batchRetryAt = Date.now() + BATCH_RETRY_MS;
+    }
     for (const w of b.waiters) w.resolve(null);
   }
+}
+
+/**
+ * Test seam: the batch fast path is module-level state, and a suite that
+ * asserts the transient/definitive split has to be able to start from a known
+ * one. Not used by the renderer.
+ */
+export function __resetBatchStateForTests(): void {
+  batchAbsent = false;
+  batchRetryAt = 0;
+  batchFailures = 0;
+  pendingBatch = null;
+  if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; }
+}
+
+/** Test seam: what the batch fast path currently believes about the endpoint. */
+export function __batchStateForTests(): { absent: boolean; parkedMs: number; failures: number } {
+  return { absent: batchAbsent, parkedMs: Math.max(0, batchRetryAt - Date.now()), failures: batchFailures };
 }
 
 /**
