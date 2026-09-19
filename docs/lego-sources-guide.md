@@ -658,3 +658,33 @@ alias would drop every one of the 184 by 144 LDU. The fix is the `3814`→`973`
 recipe in clego: `mb_partmap` 60616→60616a with a re-fit delta, then a
 regeneration — and the R2 sync should stop treating Studio-only stubs as
 mirror content once no pick depends on them.
+
+### 5. The full DbixConvV3 regeneration (2026-09-19, local only)
+
+All 2,302 stems regenerated with the local converter fixes and re-polished;
+**1,971 of the 2,249 comparable files changed**. Measured on the same random
+500 primary picks as §4, with the same grader on both sides, so this is a
+corpus delta:
+
+| | before | after | |
+|---|---:|---:|---:|
+| PASS (all 500 picks) | 236 (47.2 %) | **250 (50.0 %)** | +2.8 pts |
+| PASS among the 91 `DbixConvV3` picks | 16 (17.6 %) | **30 (33.0 %)** | nearly double |
+| figure assembly defects | 1,104 | **807** | −27 % |
+| picks with >= 1 figure defect | 148 | **136** | −8 % |
+| displaced (polish-parked) parts | 4,253 | **2,386** | −44 % |
+| floating parts | 3,041 | 3,082 | +1 % |
+| big floating parts | 1,170 | 1,254 | **+7 %** |
+| overlapping / sunk | 463 / 222 | 469 / 224 | +1 % |
+
+**The big-floating regression is three sets, not a trend**: 86 of the 91
+regenerated picks are unchanged, 2 improve, and 3 get worse — `41713` 0 → 67,
+`71839` 10 → 30, `42703` 0 → 14. `41713` is the set `dbix_align.py`'s own
+comment already names as catastrophically sensitive to alignment changes
+("an `agree < 0.30` gate costs … 41713's big-floating parts 63 → 372"), and it
+accounts for most of the net +84. It has not been investigated.
+
+**Nothing is published.** The regenerated corpus is on disk in
+`C:/git/clego/lego_sets/DbixConvV3/` and prod still serves the old bytes.
+Re-merge the sharded summary with `merge_shard_summaries.py` (now
+ownership-aware) before rebuilding the index.
