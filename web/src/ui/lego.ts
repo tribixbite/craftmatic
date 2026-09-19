@@ -23,7 +23,7 @@ import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
 import { modelExportStem } from '@engine/export-name.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
-  ensureCatalog, searchCatalog, getThemes, isLoaded, isInOmr, isOmrLoaded,
+  ensureCatalog, searchCatalog, splitQueryTerms, getThemes, isLoaded, isInOmr, isOmrLoaded,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
 import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles } from '@viewer/exporter.js';
@@ -620,7 +620,7 @@ function buildUI(): void {
     <div class="lego-section">
       <div class="lego-search-row">
         <input type="text" id="lego-search" class="lego-input lego-search-input"
-          placeholder="Search sets — or leave empty to browse all…">
+          placeholder="Search sets — several at once with commas (10354, 71040) — or leave empty to browse all…">
         <button class="btn btn-primary btn-sm" id="lego-search-btn">Search</button>
       </div>
       <div class="lego-filters">
@@ -1087,11 +1087,16 @@ function wireEvents(): void {
     const maxPcs   = pMaxEl?.value ? parseInt(pMaxEl.value) : null;
     const srcGroup = srcEl?.value || null;
 
+    // A query may hold SEVERAL terms separated by `,` `;` or a newline, and
+    // the catalog treats them as a union ("10354,71040" returns both). Parsed
+    // here too so the browse-all test and the result wording agree with what
+    // `rankSets` actually did — a box holding only separators is a blank box.
+    const terms = splitQueryTerms(query).filter(Boolean);
     // Empty query + no filters = BROWSE ALL: rankSets scores every set by
     // flagship-ness (part count + recency), so the front page is the good
     // stuff, not 1970s promo polybags. No forced theme selection.
-    const browsing = !query && themeId == null && minYear == null && maxYear == null
-      && minPcs == null && maxPcs == null && srcGroup == null;
+    const browsing = terms.length === 0 && themeId == null && minYear == null
+      && maxYear == null && minPcs == null && maxPcs == null && srcGroup == null;
 
     // This run's identity. Everything below it awaits, so by the time it
     // writes to shared state another run may own the UI.
@@ -1164,10 +1169,13 @@ function wireEvents(): void {
         setStatus('No sets found — try a different query.', 'info');
         hideResults();
       } else {
+        const found = `${searchResults.length.toLocaleString()} set${searchResults.length !== 1 ? 's' : ''} found`;
         setStatus(
           browsing
             ? `Browsing all sets — ${searchResults.length.toLocaleString()} available, best first`
-            : `${searchResults.length.toLocaleString()} set${searchResults.length !== 1 ? 's' : ''} found`,
+            : terms.length > 1
+              ? `${found} across ${terms.length} terms`
+              : found,
           'success',
         );
         renderResults();
