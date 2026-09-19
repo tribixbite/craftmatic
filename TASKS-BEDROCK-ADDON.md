@@ -9,54 +9,39 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
 ## State (2026-09-19 — scaling/memory/figure round; the corpus publish is the open chain)
 
-Everything below is on `main`. The clego side is committed LOCALLY ONLY and NOT
-published — that is the one big open item. **The last commits on `main` have
-NOT been pushed**; CI/Deploy were last green at `a6f3b152`.
+Everything below is on `main`, with `bun run typecheck`, `typecheck:web` and
+`bun run test` (1,738 passing) green locally. **`main` is 20 commits AHEAD of
+`origin/main` — nothing since `a6f3b152` has been pushed, so CI/Deploy have not
+seen any of it.** The clego side is committed locally too and **nothing is on
+R2**, so production still serves the pre-regeneration bytes for the whole
+corpus: none of this round's placement work is live.
 
-### Shipped this round (craftmatic)
+### Shipped this round (craftmatic) — detail is in `git log`, not here
 
-- **Scaled placements lost their model and kept their old walls** (`e168bd49`).
-  Bedrock culls against the GEOMETRY's `visible_bounds_*`, which are baked, while
-  `minecraft:scale` only resizes the visual — Mojang's own `slime.geo.json`
-  declares a size-4 box for a half-block cube, and `ender_dragon.geo.json` has
-  width 2x its furthest |x|, so the width is a RADIUS about the origin. 70 of 71
-  geometries clipped at some size step; 0 after. Separately the collider re-lay's
-  `fillBlocks` took a plain object where the API needs a `BlockVolume` INSTANCE,
-  inside a `try {} catch {}`, so the clear silently never ran and the code MERGED
-  with the previous size's walls; and fractional scales claimed every column a
-  cell TOUCHED, so a 150 % wall ate its own doorway.
-  `test/bedrock-collider-scale.test.ts` asserts both directions at every step
-  (X/Z exact set equality per block, Y to the sixteenth of the `[lo,hi]` pair).
-- **The device ceiling is CUBOIDS** (`348d9069`, `b662f354`). 10 Ultra packs OOM
-  (`St9bad_alloc`, in-process, NOT the low-memory killer); retained cost fits
-  `739 MB + 3.08 kB/cuboid`; ceiling ~260,000 cuboids over ACTIVE packs. Figures
-  clamped to `high` (free: 71043 is 50,319 cuboids vs 48,683 at `balanced`, and
-  260k over either is the same 5 packs, against 4 unclamped). Pack-level budget
-  plus export warning. Geometry JSON minified (6.1x on disk, and the comment says
-  plainly it does NOT move runtime memory — that A/B is 0.4 %). Box UV and one
-  flat swatch per colour: **-34 % per cuboid**, colour-gated offline over 79,392
-  cubes with 0 changed.
-- **Mini-dolls and an LDD id suffix** (`e4396a31`). Doll slots had NO correction
-  in either table; and `designID="1006030;I"` made LDD's own `.lxfml` dumps
-  render EMPTY.
+Kept only where a later decision needs the number:
+
+- **Culling and colliders across size steps** (`e168bd49`). `visible_bounds_*`
+  are baked into the GEOMETRY and are a RADIUS about the origin; `minecraft:scale`
+  does not touch them. 70 of 71 geometries clipped at some step, 0 after.
+  `fillBlocks` needs a `BlockVolume` INSTANCE, and the failure was swallowed by a
+  bare `catch`, so the collider clear silently never ran.
+  `test/bedrock-collider-scale.test.ts` asserts both directions at every step.
+- **The device ceiling is CUBOIDS**, ~260,000 over ACTIVE packs, retained cost
+  `739 MB + 3.08 kB/cuboid` (`348d9069`, `b662f354`). Box UV + one flat swatch
+  per colour: **−34 % per cuboid**, 79,392 cubes colour-gated with 0 changed.
+- **Decomposition is chosen by GRAIN** (`ae982fac`): `best-of` at 2 LDU and
+  finer (−5.4 % per pack), `greedy` at 4 LDU (−0.8 %, and one golden model gets
+  worse). The per-PART number, −7.4 %, is not the one that reaches the device —
+  `mergeAlignedCuboids` has already taken it at a coarse grain.
+  `scripts/decomposition-pack-ab.ts`.
 - **A correction cannot be longer than the part it corrects** (`13f3c0d4`).
-  `gen-ldd-measured-align.py` now emits the part's own bbox diagonal as a 15th
-  element and the loader rejects a row over 2.0 diagonals — **244 of the 1,805
-  measurable rows**, the worst at 86x (design 50665, |e| 4,360 LDU on a 52 LDU
-  helmet). A DEFENCE, not a repair: 166 are designs Studio's table also names,
-  and 0 of the 78 reachable ones appear in the first 400 `.lxf` picks.
-- **The minifig rig no longer dresses a mini-doll** (`8651b67d`).
-  `classifyMinifigPart` ended in an unconditional `return 'held'`, so a doll
-  beside a minifig had its head and arms teleported into the minifig's fists. A
-  doll part now classifies `null` and a null-slot part is KEPT where the source
-  put it, reported as a `bystander`.
-- **Multi-term search** (`cc659b2d`, `6e288ebe`). "10354,71040" returns both;
-  terms split on `,` `;` or newline, words inside a term still AND, terms are
-  interleaved so a broad term cannot starve a narrow one out of the cap, and
-  the source-class re-sort is skipped so the list reads in the typed order.
-- **A slow `_batch` no longer disables the part fast path for the session**
-  (`ed509756`). Two timeouts during one slow load left 329 of 338 part fetches
-  timing out and the model reported "No 3D model found".
+  The measured table now carries each part's bbox diagonal and the loader
+  rejects a row over 2.0 diagonals — **244 of 1,805**. A DEFENCE, not a repair:
+  0 of the 78 reachable ones appear in the first 400 `.lxf` picks.
+- **The minifig rig no longer dresses a mini-doll** (`8651b67d`); a null-slot
+  part is kept where the source put it and reported as a `bystander`.
+- **Multi-term search** (`cc659b2d`, `6e288ebe`) and **a slow `_batch` no longer
+  disables the part fast path for the session** (`ed509756`).
 
 ### The open chain: publish the clego corpus fixes
 

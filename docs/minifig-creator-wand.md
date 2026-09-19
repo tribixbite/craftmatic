@@ -616,9 +616,10 @@ typecheck:web`, `bun run test`; a device round after steps 4 and 6.
   "Saving and Loading data" (context7 `/websites/wiki_bedrock_dev`).
 - `form.show()` cannot run in restricted-execution mode (before-event
   callbacks) — server-ui docs; the existing wand's `system.run` hop.
-- Cuboid costs per part and per figure: §3.2 tables (scratch run 2026-09-19,
-  `C:\Users\wills\.claude\jobs\718e154d\tmp\part-cost-*.tsv`), `_minifig_ref.ts`
-  136 / 186.
+- Cuboid costs per part and per figure: §3.2 tables, `_minifig_ref.ts`
+  136 / 186. The per-part costs are reproducible with
+  `bun scripts/part-library-cost.ts` (writes `output/master-addon-audit/`);
+  the original run was scratch and is gone.
 - Memory and frame numbers: bedrock-addon-guide 2026-09-18/19 sections.
 - Corpus counts: §3.1, `grep` over the official library.
 - Prints become cuboids: `ldraw-part-prototype.ts:21`, and 973 vs 973pbs.
