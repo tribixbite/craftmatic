@@ -1671,6 +1671,17 @@ const LXF_ALIGNMENT_CAVEAT =
  * A missing table is a hard failure with a retry hint, not a silent fallback to
  * raw LDD origins: that silent path is exactly audit P1 item 3.
  */
+/**
+ * Append a sentence to the source warning without repeating one already there.
+ * The `.lxf` caveat used to be ASSIGNED after `reportLxfDiagnostics` had
+ * appended its coverage line, so every `.lxf` over 150 bricks lost the line
+ * (the class-B re-frame count never reached the status; seen on 60118).
+ */
+function addSourceWarning(line: string): void {
+  if (!line || currentSourceWarning?.includes(line)) return;
+  currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${line}` : line;
+}
+
 function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
   loadDiag.lxfAlignment = d;
   const line = describeLxfDiagnostics(d);
@@ -1679,9 +1690,7 @@ function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
   } else {
     console.info('[lego] .lxf alignment coverage', { model, ...d });
   }
-  if (line) {
-    currentSourceWarning = currentSourceWarning ? `${currentSourceWarning}; ${line}` : line;
-  }
+  if (line) addSourceWarning(line);
 }
 
 /**
@@ -1790,9 +1799,7 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
     bricks = parseLDraw(text);
   }
 
-  if (ext === 'lxf' && bricks.length > 150) {
-    currentSourceWarning = LXF_ALIGNMENT_CAVEAT;
-  }
+  if (ext === 'lxf' && bricks.length > 150) addSourceWarning(LXF_ALIGNMENT_CAVEAT);
   if (bricks.length === 0) throw new Error(`no brick placements in ${model.path}`);
   // Index-level conversion flag (lineage metadata — catches laundered LXF
   // conversions that text-sniffing can't). Routed through currentSourceWarning
@@ -2196,9 +2203,7 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
       const bricks = parsed.bricks;
       currentMpdContent = undefined;
       currentCustomParts = undefined;
-      if (bricks.length > 150) {
-        currentSourceWarning = LXF_ALIGNMENT_CAVEAT;
-      }
+      if (bricks.length > 150) addSourceWarning(LXF_ALIGNMENT_CAVEAT);
       reportLxfDiagnostics(parsed.diagnostics, file.name);
       await voxelizeAndDisplay(bricks, file.name);
       return;
