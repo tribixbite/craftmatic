@@ -10,13 +10,13 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 ## State (2026-09-19, evening — publish chain RUNNING; corpus re-graded against what prod draws)
 
 Everything below is on `main`, with `bun run typecheck`, `typecheck:web` and
-`bun run test` (1,739 passing) green locally. **`main` is 27 commits AHEAD of
+`bun run test` (1,744 passing) green locally. **`main` is 34 commits AHEAD of
 `origin/main` — nothing since `a6f3b152` has been pushed** (push needs Will's
 go-ahead), so CI/Deploy have not seen any of it. clego is committed locally
-(`37ed4a42` + the code below) and **nothing is on R2**: prod still serves the
-pre-regeneration bytes for the whole corpus. The corpus on disk is NOT
-git-tracked (`lego_sets/` is ignored) — R2 is its only durable copy, so the
-publish below is also the backup.
+(`37ed4a42`…`09b76722`) and **the R2 republish is RUNNING** (see the open
+chain) — until it finishes prod serves the pre-regeneration bytes. The corpus
+on disk is NOT git-tracked (`lego_sets/` is ignored) — R2 is its only durable
+copy, so the publish is also the backup.
 
 ### Shipped this round — detail in `git log` / the guides, kept where a decision needs the number
 
@@ -32,8 +32,9 @@ publish below is also the backup.
   rewritten in place across 3,800 generated files (21,309 placements incl.
   alternates). **The grader now resolves parts UPSTREAM-first**
   (`CLEGO_LDRAW_LIB=upstream`, prod's ladder) — the running board is the first
-  graded that way. Not covered: 108 `different` stems (4,795 placements) and
-  every `.io`/`.lxf` pick (client-side conversion; `# TODO(client)` in §7a).
+  graded that way. The `.io`/`.lxf` picks are re-framed CLIENT-side
+  (`class-b-reframe.ts`, verified in the browser: 60118 6, 21061 80). Not
+  covered: 108 `different` stems (4,795 placements). §7a.
 - **Mecabricks A/B against ORIGINAL bytes** (`geograde/_ab_prev.py`): the
   regen-vs-regen caveat is closed — 477 files 4,577 → 706 figure defects, 33
   search files 178 → 76, nothing else moved. §7.
