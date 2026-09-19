@@ -9,8 +9,9 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
 ## State (2026-09-19 — scaling/memory/figure round; the corpus publish is the open chain)
 
-Everything below is on `main`, CI + Deploy green. The clego side is committed
-LOCALLY ONLY and NOT published — that is the one big open item.
+Everything below is on `main`. The clego side is committed LOCALLY ONLY and NOT
+published — that is the one big open item. **The last commits on `main` have
+NOT been pushed**; CI/Deploy were last green at `a6f3b152`.
 
 ### Shipped this round (craftmatic)
 
@@ -41,22 +42,35 @@ LOCALLY ONLY and NOT published — that is the one big open item.
 
 ### The open chain: publish the clego corpus fixes
 
-Committed locally in clego, **none regenerated, none published**: the
-`io_model2_v2` assembly expansion (composite torsos, 118 files), the dbix
-`within_bound` cap (headgear/glass, 1,970 files), `mb_partmap` +87 decorated
-torso/head rows (967 placements), `dbix_figure_align` (mini-dolls, 320 files),
-and the grader's `displaced`/`staged-capture`/`figures` rules.
+Committed locally in clego, **not published**: the `io_model2_v2` assembly
+expansion (composite torsos, 118 files), the dbix `within_bound` cap
+(headgear/glass, 1,970 files), `mb_partmap` +87 decorated torso/head rows,
+`dbix_figure_align` (mini-dolls, 320 files), the grader's
+`displaced`/`staged-capture`/`figures` rules, and (2026-09-19) the family
+ladder fix — a torso whose own file is an MPD-style Studio stub, or carries a
+BrickLink description, identified as NOTHING and invented orphan arms and
+headgear around a correctly assembled figure (910049: 11 of 14 torsos).
 
-Sequence: regenerate DbixConvV3 + IOModel2V2 + Mecabricks -> re-grade with the
-NEW grader -> rebuild the index -> sync R2 -> verify on prod bytes.
-**Expect the PASS rate to fall a long way, and that is the point**: 826 of 996
-polished picks flip PASS -> DEFECTIVE under the displacement rule alone, and
-`dbix_conv_v3` goes from ~80 % PASS to an honest 30-40 %. No PRIMARY PICK
-changes — picks come from source priority plus `BEST_OVERRIDES`, never from a
-grade. Hazards: `sync_models_r2.py` uploads the index LAST and its
-`_r2_uploaded.txt` records KEYS, so a changed file needs its line deleted first
-or it is skipped silently; `scoreboard_extra.json` carries ONE `generated` stamp
-for all of its paths.
+**13 stems are already regenerated on disk** (the DbixConvV3 picks of the 15
+sets Will listed) and A/B'd with the same grader on both sides — figure
+defects −72 %, displaced −69 %, big floating −63 %, floating −54 %, and 52.3 %
+of FIGURE placements moved against 4.6 % of windows. Numbers, per-set table and
+the residue: `docs/lego-sources-guide.md` §3. **Nothing is on R2**, so prod
+still serves the old bytes for those 13.
+
+Sequence: regenerate DbixConvV3 + IOModel2V2 + Mecabricks -> re-grade -> rebuild
+the index -> sync R2 -> verify on prod bytes.
+**Expect the PASS rate to fall, measured not guessed**: a random 500 of the
+9,425 graded picks, re-graded today, is **47.2 % PASS**, with `DbixConvV3` at
+**17.6 %** — BELOW the 30–40 % this tracker used to predict, because that
+prediction predates the figure gate. No PRIMARY PICK changes: picks come from
+source priority plus `BEST_OVERRIDES`, never from a grade.
+Hazards: `sync_models_r2.py` uploads the index LAST and its `_r2_uploaded.txt`
+records KEYS, so a changed file needs its line deleted first or it is skipped
+silently; `scoreboard_extra.json` carries ONE `generated` stamp for all paths.
+`dbix_reconvert_summary.json` and `geograde/dbix_polish_log.jsonl` are dirty in
+the clego tree with the 13 regenerated entries — commit them WITH the full
+regen, not before, or the summary claims a state the corpus is not in.
 
 ### Needs a device (offline-verified only)
 
@@ -91,6 +105,17 @@ for all of its paths.
   and voxel-signature dedup measures 1.01-1.07x at shipped scale, because the
   28.7x cuboid-level dedup does not survive being cut on a world grid. 71043 is
   not even one lattice — 46.7 % of its cubes sit in a frame yawed 53.3 degrees.
+- **A resident "master" part library, instanced per set: NO-GO.** Compiling
+  every distinct corpus part once with the real `compilePartPrototype` at the
+  COARSEST shipped quality is **534,354 cuboids = 2.06x the 260,000 ceiling**
+  before a set is placed (1.19 M at high, 2.55 M at ultra); even the 95 %-of-
+  placements subset only fits at balanced. And there is no consumer: blocks
+  would need 208,074 axis-aligned (part, rotation, colour) types against a
+  65,536 cap, because `tint_method` is biome tints only so colour cannot be
+  per-instance, and 33 % of placements are not axis-aligned at all. The SPLIT
+  matters: the behaviour pack, the texture pack and the per-set assembly
+  manifest are all YES (71043 = 133 kB raw / 47 kB gzip). Full working and the
+  three harnesses: `docs/bedrock-addon-guide.md`, last section.
 - Better cuboid merging (0.1 % left), smaller atlases (textures <= 0.85 MB),
   chunking overhead (2.6 % of bytes).
 - The `split0` union repair: it recreates a false positive on authentic `.io`
@@ -126,6 +151,22 @@ for all of its paths.
       doll-hair placements defer to a (1085, 23, -310) LDU learned vote.
 - [ ] The Bedrock minifig assembler classifies doll parts as `held`, so a doll
       exported as a playable entity is not rigged.
+- [ ] **Windows are still open.** The A/B moved 4.6 % of window/glass/door
+      placements against 52.3 % of figure placements, so the class Will named
+      alongside torsos and hair is substantially untouched. It needs its own
+      measurement before a fix: there is no window-attachment rule in
+      `geograde/family_attach.py`.
+- [ ] **`figure_defects` is the corpus's LARGEST defect class** — 29.6 % ± 4.0
+      of picks carry one, `figures` is the dominant defect on 69 of 264
+      DEFECTIVE sets, and OMR/LDR carry ZERO. `docs/lego-sources-guide.md` §4.
+- [ ] **The 744 picks that never had a grade** are now graded (47.3 % PASS) and
+      have a different profile: 13.8 % carry duplicate placements against 0.4 %
+      in the random sample. `EurobricksLDD` and `EurobricksTopicLDR` are 100 %
+      of their classes and were invisible to every earlier census.
+- [ ] **The minifig creator wand is designed, not built.** Architecture and an
+      ordered plan with its vitest assertions: `docs/minifig-creator-wand.md`;
+      typed skeleton `web/src/engine/minifig-creator-types.ts`, imported by
+      nothing yet. Steps 4 and 6 of that plan each need a device round.
 - [ ] Two grader false-positive classes left deliberately: a torso whose neck
       holds a cone rather than a head (a fix would only loosen what the rule
       means), and a `Minifig Leg Medium` band that cannot be refitted because no
