@@ -50,32 +50,47 @@ publish below is also the backup.
   2.1–5.3 s. Incident: the Play screen's LAN tile shifts local worlds one
   slot — read the tile LABEL before every tap.
 
-### The open chain: publish the corpus (running)
+### The open chain: publish the corpus (RUNNING — two detached jobs)
 
-Pass 1 re-graded the 4,835 files changed since the Sep-3 board; pass 2 is a
-FULL re-grade from an empty board against the upstream library so one grader
-and one library cover every verdict (`10,169 targets, 12 workers`, log
-`C:/Users/wills/.claude/jobs/718e154d/tmp/regrade2.log`; `_pass1` backup of
-the jsonl beside it). It resumes: re-running the same command skips graded
-keys. When it exits (`exit=0` at the log tail), run from `C:/git/clego`:
+Done: pass 1 + pass 2 re-grades (all 10,169 primary picks, ONE grader, the
+UPSTREAM library, 0 errors, 45 min), `--report --full` (board stamp
+`2026-09-19 15:53:14`, **5,593 PASS = 55.0 %**; mecabricks 65 %, recon_v3
+25 %, dbix_conv_v3 36 %, omr 94 %, ldr 88 %, io 79 %, lxf 55 %),
+`build_model_index.py` (11,640 stamps: 6,236 verified / 5,316 defective; 775
+ALTERNATE paths dropped as stale because alternates were not re-graded yet).
+
+Running (started ~16:20 local, both detached from the session):
+
+1. **R2 republish** — `python -u sync_models_r2.py --only-file
+   C:/Users/wills/.claude/jobs/718e154d/tmp/changed_publish_prod.txt`
+   (4,746 files whose sha differs from the index PROD serves — the same
+   4,746 as against the local 09-18 index; ~67 files/min → ~70 min), log
+   `…/tmp/r2_sync.log`, failures → `clego/_r2_only_failed.txt` (re-run with
+   `--only-file` on it). It uploads `lego-models-index.json` LAST.
+2. **Alternates grading** — `CLEGO_LDRAW_LIB=upstream python -u
+   geograde/scoreboard.py --grade --full --alts --workers 10`, log
+   `…/tmp/regrade_alts.log`; restores the alternates' `asm` stamps (and
+   `rerank_proposals_full.json`, which went to 0 rows without them).
+
+When BOTH have exited (`exit=0` at each log's tail; `Get-Process python`
+shows neither), from `C:/git/clego`:
 
 ```
-CLEGO_LDRAW_LIB=upstream python -u geograde/scoreboard.py --grade --full --workers 12   # only if it died: resumes
-CLEGO_LDRAW_LIB=upstream python geograde/scoreboard.py --report --full                  # writes scoreboard_full.json (one `generated` for all)
-python build_model_index.py                          # clego copy + craftmatic/web/public/lego-models-index.json
-python changed_since_index.py                        # hash vs the OLD index -> changed_since_index.txt (run BEFORE build_model_index, or diff against git's copy)
-python -u sync_models_r2.py --only $(cat changed_since_index.txt)   # NOT a bare sync
-# then from craftmatic:
-node scripts/_lego-probe.mjs 76286 output/verify-sets/76286 76286   # DEV_URL=https://craftmatic.click; prove with the entry `hash`
+CLEGO_LDRAW_LIB=upstream python geograde/scoreboard.py --report --full   # re-stamp with the alternates
+python build_model_index.py                                             # clego + craftmatic copies
+: > empty.txt && python -u sync_models_r2.py --only-file empty.txt      # uploads ONLY the index (todo is empty)
+# prove prod serves the new bytes (index max-age=300, models 3600 — use a cache-buster, re-check a minute later):
+curl -s "https://craftmatic.click/lego-models-index.json?cb=$RANDOM" | python -c "import json,sys;d=json.load(sys.stdin);print(d['geograde'])"
+curl -s "https://craftmatic.click/lego-models/DbixConvV3/76286.ldr?cb=$RANDOM" | sha256sum   # compare with the index entry `hash` (first 12 hex)
+cd C:/git/craftmatic && node scripts/_lego-probe.mjs 76286 output/verify-sets/76286 76286   # DEV_URL=https://craftmatic.click
 ```
 
-Order matters for `changed_since_index.py`: it compares disk bytes against
-the index's `hash`, so run it against the index BEFORE `build_model_index.py`
-rewrites it (or pass `--index <(git show HEAD:lego-models-index.json)`).
-Expected: ~2,500 (DbixConvV3 regen + Mecabricks) + ~3,800 (class-B) + 423
-(ReconV3) paths. Hazards unchanged: `_r2_uploaded.txt` records KEYS (a bare
-sync skips changed files); `index.generated` is DATE-only (prove freshness by
-`hash`); `scoreboard_extra.json` carries ONE `generated` for all its paths.
+Then commit in clego (`geograde/scoreboard_full*.{json,jsonl,md}`,
+`geograde/rerank_proposals_full.json`, `dbix_reconvert_summary.json`,
+`lego-models-index.json`, `_model_index_summary.txt`) and in craftmatic
+(`web/public/lego-models-index.json`) — the craftmatic copy is what Deploy
+ships, so prod's index and the app's bundled index differ until `main` is
+pushed and deployed (Will's call).
 
 Also committed locally in clego and NOT published: the `io_model2_v2`
 assembly expansion (118 files), `mb_partmap` +87 decorated rows, the
