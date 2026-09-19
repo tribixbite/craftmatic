@@ -549,7 +549,12 @@ polish-displacement, exactly the classes that had no rule.
 `figure_defects`, `displaced_parts` and the staged-capture stamp did not exist
 when the exhaustive grade was taken, so they are measured on a **random sample
 of 500 primary picks** (seed 20260919, drawn from the 9,425 that had a grade),
-re-graded with the current grader over the corpus as it stands on disk today:
+re-graded with the current grader.
+
+**This is the BEFORE side of §5.** It was taken over the corpus as it stood
+before the DbixConvV3 regeneration, so its `DbixConvV3` numbers are superseded
+there (17.6 % -> 33.0 % PASS); every other source is unchanged by that
+regeneration and its numbers still hold.
 
 | class | picks | share (95 % CI) |
 |---|---:|---|
