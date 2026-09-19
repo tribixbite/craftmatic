@@ -179,6 +179,14 @@ the slide and the door.
       doll-hair placements defer to a (1085, 23, -310) LDU learned vote.
 - [ ] The Bedrock minifig assembler classifies doll parts as `held`, so a doll
       exported as a playable entity is not rigged.
+- [ ] **Studio/upstream mould MISMATCH — class B, 2,311 sets.** 317 stems that
+      BOTH libraries ship with a `dat_bbox` more than 4 LDU apart, over **12,719
+      primary placements** (DBIX 8,608). Prod serves the UPSTREAM copy and clego
+      fits against STUDIO's, so the fit and the rendered mesh disagree: `70681`
+      (1,883 placements) is a different part upstream, `5092`/`5091` (2,400) are
+      the mirror-image tile. Bigger than the class-A stub fix that surfaced it
+      and untouched. A precedence + re-fit round.
+      `clego/MB_TRANSFORM_AUDIT.md` §12.5, `docs/lego-sources-guide.md` §7.
 - [ ] **Windows are still open.** The A/B moved 4.6 % of window/glass/door
       placements against 52.3 % of figure placements, so the class Will named
       alongside torsos and hair is substantially untouched. It needs its own

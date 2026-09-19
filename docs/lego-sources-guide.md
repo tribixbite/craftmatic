@@ -720,3 +720,41 @@ ever been aimed at its figures — that is the next target, not another pass ove
 DbixConvV3, which now averages 2.3 defects per affected pick against ReconV3's
 9.8. `EurobricksLDR` has the worst RATE (61 % of its picks) on a small
 population. The three authentic classes are the control and report zero.
+
+### 7. Studio "(Needs Work)" stub moulds — and the larger mismatch behind them
+
+The `3814 → 973` torso fix (above) was ONE member of a class: a design id whose
+`.dat` exists only in Studio's `UnOfficial/` tree as an LDD-shaped stub, taken
+by an existence check over the real mould. Censused in clego over the whole tree
+(`MB_TRANSFORM_AUDIT.md` §12, clego `56f8a7c8`):
+
+| | stems |
+|---|---:|
+| resolve from `UnOfficial/` at all (not in Studio's `parts/`) | 11,774 |
+| **class A** — Studio-only, in neither upstream tree | **5,089** (698 "(Needs Work)") |
+| **class B** — present upstream, `dat_bbox` differs > 1 LDU | **405** (317 over 4 LDU) |
+| placed anywhere in the corpus | 2,193 |
+| placed in a PRIMARY pick | 1,752 |
+| class A with a size-matched real mould, in a primary pick | **14** (7 fixed) |
+
+**Class A, fixed**: `60616`+`35290`/`35291` → `60616a`/`b` (184 placements over
+99 sets), `64567` → `64567a` (644 / 546), `90393` → `90370`, `96859` → `4530`,
+`85557`/`85558` → `85489a`/`b`, `6139` → `2582`. The honest result is smaller
+than the premise: **1,244 of 1,252 paired placements move less than 1 LDU** —
+clego's weak stub fits had already landed the geometry where the real mould
+goes, so what the remap buys is a real mould at fit 0.89–1.00 and no Studio-only
+dependency. The real misplacement was **8 `35291` doors sitting 73.7–74.2 LDU
+from their nearest 1x4x6 frame**; six now sit at 3.8–6.8. Door-to-frame:
+**7 sets better, 0 worse.**
+
+**Class B is the larger defect and is NOT fixed**: 317 stems, **12,719 primary
+placements over 2,311 sets** (DBIX 8,608). These are names both trees ship, and
+prod serves the UPSTREAM copy while clego fits against STUDIO's — so the fit and
+the rendered mesh disagree. `70681` (1,883 placements) is a different part
+upstream; `5092`/`5091` (2,400) are the mirror-image tile. That is a precedence
+and re-fit round, not a mapping row, and nothing has been aimed at it.
+
+Caveat carried from the round: the 33 `MecabricksSearchLDR` corpus files were
+overwritten once before the fixer had an `--out` flag and were restored by
+regeneration, so their A/B is regeneration-against-regeneration, not against the
+original bytes.
