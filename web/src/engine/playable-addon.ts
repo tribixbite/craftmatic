@@ -16,7 +16,7 @@ import { MINIFIG_ANIMATIONS, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js'
 import { COLLIDER_BLOCK_ID, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
-import { generateLegoEntityTextureAtlas } from './ldraw-entity-atlas.js';
+import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 declare const world: any;
@@ -162,6 +162,17 @@ const safe = (s: string) => toBedrockIdentifier(s).slice(0, 48);
  * 0.4 % (see `geoJson`). `maxModelCubes` caps ONE entity; nothing capped a
  * pack, and one measured pack shipped 82,163 cuboids over 12 entities without
  * a word of warning.
+ *
+ * The number is deliberately NOT raised for box UV. That A/B (2026-09-18, the
+ * 71043 shell, 48,093 cuboids, same count, file padded to the same length)
+ * took a cuboid from 3.08 kB to 2.03 kB by nativePss and 2.78 kB by
+ * nativeAlloc - the two counters disagree by a factor of four on the saving.
+ * The 260,000 above is fitted to an OBSERVED crash; the headroom it implies
+ * (260,000 x 3.08 kB, about 800 MB over the 739 MB floor) would hold ~288,000
+ * cuboids on the pessimistic counter and ~394,000 on the optimistic one.
+ * Raising the constant needs the same pack-stacking run that produced 260,000,
+ * re-run on box-UV packs; until then the warning quotes the range and the
+ * budget stays where a device put it.
  */
 export const DEVICE_CUBOID_BUDGET = 260_000;
 /** Warn about a pack's size once it is this share of the whole-device budget (fewer than 10 such packs fit). */
@@ -193,7 +204,7 @@ export function packCuboidBudget(label: string, cuboids: number, entities: numbe
         packsThatFitTogether: fit,
     };
     if (share < PACK_CUBOID_WARN_SHARE) return out;
-    const size = `${label}: ${grouped(cuboids)} cuboids across ${entities} entit${entities === 1 ? 'y' : 'ies'} - ${Math.round(share * 100)}% of the ~${grouped(DEVICE_CUBOID_BUDGET)}-cuboid budget a phone has for ALL of its add-on packs together (measured on a Pixel 8 Pro).`;
+    const size = `${label}: ${grouped(cuboids)} cuboids across ${entities} entit${entities === 1 ? 'y' : 'ies'} - ${Math.round(share * 100)}% of the ~${grouped(DEVICE_CUBOID_BUDGET)}-cuboid budget a phone has for ALL of its add-on packs together (measured on a Pixel 8 Pro at 3.08 kB per cuboid; box-UV geometry has since measured 2.03-2.78 kB, so the real ceiling is likely 290,000-390,000 - not yet confirmed on a device).`;
     // 2nd/3rd/4th…: `fit` is at most 10 here, because the warning needs a 10 % share.
     const nth = fit + 1 === 2 ? '2nd' : fit + 1 === 3 ? '3rd' : `${fit + 1}th`;
     return {
@@ -637,29 +648,59 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
     return { value: { format_version: '1.12.0', 'minecraft:geometry': meshes }, palette, meshIds, cubeCount: cubes.length };
 }
 /**
+ * The BlockGrid fallback keeps ONE texture for the whole entity: its cubes are
+ * greedy voxel boxes that carry the embossed stud tile on top and the bevelled
+ * seam tile on their sides, which box UV cannot address. Its meshes therefore
+ * all bind the same per-entity atlas and draw with the default (alpha-blended)
+ * material, because a single mesh mixes glass blocks with solids.
+ */
+function gridMeshBindings(id: string, meshIds: string[]): MeshBinding[] {
+    return meshIds.map(geometryId => ({ geometryId, texture: `textures/entity/${id}`, translucent: false }));
+}
+/**
  * `opaqueMaterial` is `entity` for brick-compiled bodies (their translucent
- * pieces live in the canopy mesh) and `entity_alphablend` for the BlockGrid
- * fallback, whose single mesh mixes glass blocks with solids.
+ * colours get their own geometries, bound to `Material.blend`) and
+ * `entity_alphablend` for the BlockGrid fallback, whose single mesh mixes
+ * glass blocks with solids.
  */
 /** Animations a client entity plays: the `animations` map and the `scripts.animate` list (a minifig's walk / look / sit). */
 export interface ClientAnimations { animations: Record<string, string>; animate: Array<string | Record<string, string>> }
 
-function clientEntity(id: string, meshIds: string[], canopyMeshId?: string, opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations): unknown {
-    const materials: Record<string, string> = { default: opaqueMaterial };
-    const textures: Record<string, string> = { default: `textures/entity/${id}` };
-    if (canopyMeshId) {
-        materials.canopy = 'entity_alphablend';
-        textures.canopy = `textures/entity/${id}_canopy`;
-    }
-    const geometryMap: Record<string, string> = {};
-    for (let i = 0; i < meshIds.length; i++) {
-        const mesh = meshIds[i]!;
-        if (mesh === canopyMeshId) {
-            geometryMap.canopy = mesh;
-        } else {
-            geometryMap[`mesh_${i}`] = mesh;
+/**
+ * One geometry of a client entity: the texture it samples and whether it draws
+ * alpha-blended. A brick-compiled geometry carries a single LDraw colour (box
+ * UV - see `ldraw-entity-compiler.ts`), so its texture is that colour's flat
+ * swatch and many geometries of the same colour share one file.
+ */
+interface MeshBinding {
+    geometryId: string;
+    /** Resource-pack path, without the extension. */
+    texture: string;
+    translucent: boolean;
+}
+
+/** The `textures` map plus the key each binding resolves to; identical paths share a key. */
+function textureKeys(bindings: MeshBinding[]): { textures: Record<string, string>; keyOf: string[] } {
+    const textures: Record<string, string> = {};
+    const seen = new Map<string, string>();
+    const keyOf = bindings.map(b => {
+        let key = seen.get(b.texture);
+        if (!key) {
+            key = seen.size === 0 ? 'default' : `tex_${seen.size}`;
+            seen.set(b.texture, key);
+            textures[key] = b.texture;
         }
-    }
+        return key;
+    });
+    return { textures, keyOf };
+}
+
+function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations): unknown {
+    const materials: Record<string, string> = { default: opaqueMaterial };
+    if (bindings.some(b => b.translucent)) materials.blend = 'entity_alphablend';
+    const { textures } = textureKeys(bindings);
+    const geometryMap: Record<string, string> = {};
+    bindings.forEach((b, i) => { geometryMap[`mesh_${i}`] = b.geometryId; });
     return {
         format_version: '1.10.0',
         'minecraft:client_entity': {
@@ -668,35 +709,23 @@ function clientEntity(id: string, meshIds: string[], canopyMeshId?: string, opaq
                 materials,
                 textures,
                 geometry: geometryMap,
-                render_controllers: meshIds.map((mesh, i) =>
-                    mesh === canopyMeshId
-                        ? `controller.render.${PACK_NAMESPACE}.${id}_canopy`
-                        : `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`
-                ),
+                render_controllers: bindings.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`),
                 ...(animations ? { animations: animations.animations, scripts: { animate: animations.animate } } : {}),
                 spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' },
             },
         },
     };
 }
-function meshControllers(id: string, meshIds: string[], canopyMeshId?: string): unknown {
+function meshControllers(id: string, bindings: MeshBinding[]): unknown {
     const controllers: Record<string, unknown> = {};
-    for (let i = 0; i < meshIds.length; i++) {
-        const mesh = meshIds[i]!;
-        if (mesh === canopyMeshId) {
-            controllers[`controller.render.${PACK_NAMESPACE}.${id}_canopy`] = {
-                geometry: 'Geometry.canopy',
-                materials: [{ '*': 'Material.canopy' }],
-                textures: ['Texture.canopy'],
-            };
-        } else {
-            controllers[`controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`] = {
-                geometry: `Geometry.mesh_${i}`,
-                materials: [{ '*': 'Material.default' }],
-                textures: ['Texture.default'],
-            };
-        }
-    }
+    const { keyOf } = textureKeys(bindings);
+    bindings.forEach((b, i) => {
+        controllers[`controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`] = {
+            geometry: `Geometry.mesh_${i}`,
+            materials: [{ '*': b.translucent ? 'Material.blend' : 'Material.default' }],
+            textures: [`Texture.${keyOf[i]}`],
+        };
+    });
     return {
         format_version: '1.8.0',
         render_controllers: controllers,
@@ -1396,27 +1425,38 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let placementColliders: PlacementColliders | undefined;
     const actors: PlacementActor[] = [];
     const extraComponents: PlayableAddonResult['components'] = [];
-    /** Behaviour + client entity + geometry + render controllers + colour/PBR atlases for one brick-compiled entity. */
+    /** Behaviour + client entity + geometry + render controllers + colour/PBR swatches for one brick-compiled entity. */
     let minifigsEmitted = 0;
+    /** Swatch stems already written: a colour is a pack-wide file, not a per-entity one. */
+    const emittedSwatches = new Set<string>();
     const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations): void => {
         if (animations) minifigsEmitted++;
+        // Each geometry holds one LDraw colour and is textured with that
+        // colour's flat swatch (box UV: `ldraw-entity-compiler.ts`).
+        const bindings: MeshBinding[] = geo.meshes.map(m => ({
+            geometryId: m.id,
+            texture: `textures/entity/${legoMaterialSwatchName(m.material)}`,
+            translucent: m.translucent,
+        }));
         files.push(
             { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
-            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, geo.meshIds, geo.canopyMeshId, 'entity', animations)) },
+            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, bindings, 'entity', animations)) },
             { name: `${rp}models/entity/${ecid}.geo.json`, data: geoJson(geo.value) },
-            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, geo.meshIds, geo.canopyMeshId)) },
+            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, bindings)) },
         );
-        // One atlas per mesh material: exact LDraw RGB, plus the PBR maps.
-        const atlases: Array<[string, typeof geo.materials]> = [[ecid, geo.materials]];
-        if (geo.canopyMeshId) atlases.push([`${ecid}_canopy`, geo.canopyMaterials]);
-        for (const [name, materials] of atlases) {
-            const atlas = generateLegoEntityTextureAtlas(materials, { pbr, fallbackHighlights: !pbr, textureName: name });
-            files.push({ name: `${rp}textures/entity/${name}.png`, data: atlas.colorPng });
-            if (atlas.merPng && atlas.normalPng && atlas.textureSetJson) {
+        // One swatch per LDraw colour: exact LDraw RGBA, plus the PBR maps.
+        // Shared by every entity in the pack that uses the colour.
+        for (const mesh of geo.meshes) {
+            const name = legoMaterialSwatchName(mesh.material);
+            if (emittedSwatches.has(name)) continue;
+            emittedSwatches.add(name);
+            const swatch = generateLegoMaterialSwatch(mesh.material, { pbr, textureName: name });
+            files.push({ name: `${rp}textures/entity/${name}.png`, data: swatch.colorPng });
+            if (swatch.merPng && swatch.normalPng && swatch.textureSetJson) {
                 files.push(
-                    { name: `${rp}textures/entity/${name}_mer.png`, data: atlas.merPng },
-                    { name: `${rp}textures/entity/${name}_normal.png`, data: atlas.normalPng },
-                    { name: `${rp}textures/entity/${name}.texture_set.json`, data: text(atlas.textureSetJson) },
+                    { name: `${rp}textures/entity/${name}_mer.png`, data: swatch.merPng },
+                    { name: `${rp}textures/entity/${name}_normal.png`, data: swatch.normalPng },
+                    { name: `${rp}textures/entity/${name}.texture_set.json`, data: text(swatch.textureSetJson) },
                 );
             }
         }
@@ -1563,7 +1603,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             cameraVehicles.push(emitCameraPresets(cid, c.kind, { width: layout.width, height: layout.height, length: layout.length }));
             const geo = geometry(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
             fallbackCuboids += geo.cubeCount;
-            files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, geo.meshIds)) }, { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, geo.meshIds)) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
+            files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, gridMeshBindings(cid, geo.meshIds))) }, { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, gridMeshBindings(cid, geo.meshIds))) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
         actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
     }

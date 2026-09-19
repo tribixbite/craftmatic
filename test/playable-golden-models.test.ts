@@ -49,9 +49,15 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       expect(result.mcpack?.components?.[0]).toBe(`${g.label} (${g.kind})`);
       // A display stand left beside the vehicle ships as a brick-accurate shell (bedrock-building-shell.ts).
       for (const c of result.mcpack?.components?.slice(1) ?? []) expect(c).toMatch(/ \((figure|prop|car|seat|shell)\)$/);
-      // The high-detail path was used: real geometry file + PBR texture set, and no BlockGrid greedy fallback.
+      // The high-detail path was used: real geometry file + PBR texture sets, and no BlockGrid greedy fallback.
       expect(entries).toContain(`${rp}models/entity/${g.cid}.geo.json`);
-      expect(entries).toContain(`${rp}textures/entity/${g.cid}.texture_set.json`);
+      expect(entries.some(e => /textures\/entity\/craftmatic_swatch_\d+\.texture_set\.json$/.test(e))).toBe(true);
+      // Every texture the client entity binds is actually in the pack: a
+      // geometry now carries one colour and its own swatch, so a missing file
+      // would repaint a whole colour of the model magenta in game.
+      const clientDesc = (await jsonOf(buffer, `${rp}entity/${g.cid}.entity.json`))['minecraft:client_entity'].description;
+      for (const path of Object.values(clientDesc.textures as Record<string, string>)) expect(entries).toContain(`${rp}${path}.png`);
+      expect(Object.keys(clientDesc.geometry as Record<string, string>)).toHaveLength(Object.keys((await jsonOf(buffer, `${rp}render_controllers/${g.cid}.render_controllers.json`)).render_controllers as Record<string, unknown>).length);
       expect((await jsonOf(buffer, `${rp}manifest.json`)).capabilities).toEqual(['pbr']);
       const diag = await jsonOf(buffer, `${bp}craftmatic-diagnostics.json`);
       const d = diag.entities[g.cid];
@@ -63,11 +69,14 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       const fallbackParts = d.aabbFallbackParts.map((f: { part: string }) => f.part);
       for (const u of d.unresolvedParts) expect(fallbackParts).toContain(u);
       if (d.unresolvedParts.length) expect(result.mcpack!.warnings!.some(w => /bounding box/.test(w))).toBe(true);
-      // Translucent pieces (windscreens) go to the canopy mesh with their own texture set.
+      // Translucent pieces (windscreens) draw from their own colour's swatch
+      // with the alpha-blended material; the opaque body does not.
       if (d.translucentCubeCount > 0) {
-        expect(entries).toContain(`${rp}textures/entity/${g.cid}_canopy.texture_set.json`);
-        const client = (await jsonOf(buffer, `${rp}entity/${g.cid}.entity.json`))['minecraft:client_entity'].description;
-        expect(client.materials).toEqual({ default: 'entity', canopy: 'entity_alphablend' });
+        expect(clientDesc.materials).toEqual({ default: 'entity', blend: 'entity_alphablend' });
+        const controllers = (await jsonOf(buffer, `${rp}render_controllers/${g.cid}.render_controllers.json`)).render_controllers as Record<string, { materials: Array<Record<string, string>> }>;
+        expect(Object.values(controllers).filter(c => c.materials[0]!['*'] === 'Material.blend').length).toBeGreaterThan(0);
+      } else {
+        expect(clientDesc.materials).toEqual({ default: 'entity' });
       }
       // Vehicle behaviour is intact.
       const behavior = (await jsonOf(buffer, `${bp}entities/${g.cid}.json`))['minecraft:entity'];

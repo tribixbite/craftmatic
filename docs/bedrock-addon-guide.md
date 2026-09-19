@@ -859,6 +859,68 @@ prototype ratio suggested, and instancing cannot deliver that either. Shipping i
 means the exporter emitting box UV, which needs one geometry (and a flat swatch
 texture) per colour, since box UV maps all six faces from one atlas rect.
 
+### Shipped: box UV + one swatch per colour (2026-09-19)
+
+`compileLdrawEntityGeometry` now groups its cuboids by LDraw colour and emits
+**one geometry per colour** whose cubes carry `"uv": [0, 0]`, textured with a
+16x16 swatch of that one colour (`generateLegoMaterialSwatch` /
+`legoMaterialSwatchName` in `engine/ldraw-entity-atlas.ts`, which replaced the
+per-entity 32 x (1+16N) atlas). The swatch is uniform, which is the whole point:
+box UV lays the six faces out in a cross **scaled by the cube's size**, so a
+50-unit cube walks — and wraps past — hundreds of texels, and on a uniform
+texture every one of them, at every mip level and under any filter or wrap mode,
+is the same colour. A swatch is a pure function of the colour id, so all the
+entities in a pack share one set of files. `CompiledLdrawGeometry.meshes`
+(`{id, material, translucent}`) replaced `meshIds` + `canopyMeshId`; the client
+entity binds `Texture.default`/`Texture.tex_N` per geometry and
+`Material.blend` (`entity_alphablend`) for the translucent colours, which are
+still emitted last so they draw over the opaque ones.
+
+Offline before/after over the three gate packs (cuboids identical in all three,
+which is the point — this buys memory per cuboid, not fewer cuboids):
+
+| pack | quality | cuboids | geometries | pack bytes | entity-texture bytes | texture size |
+|---|---|---|---|---|---|---|
+| 71043 Hogwarts Castle | ultra | 50,057 (unchanged) | 52 -> **89** | 584,701 -> **505,857** | 320,446 -> **137,392** | 32x481 + 32x161 atlases -> 41 x **16x16** |
+| 76286 Guardians' Ship | ultra | 19,950 (unchanged) | 24 -> **54** | 262,171 -> **244,583** | 252,334 -> **97,504** | -> 29 x 16x16 |
+| 76435 Great Hall | balanced | 8,875 (unchanged) | 21 -> **56** | 173,295 -> **175,780** | 330,270 -> **110,886** | -> 33 x 16x16 |
+
+- **Geometry count grows ~1.7-2.7x** (one geometry per colour, still chunked at
+  `meshChunkCubes` = 1024 within a colour), and with it the render-controller
+  count. Bone headers barely move (71043: 4,092 -> 4,070 — grouping by colour
+  concentrates bones as much as splitting duplicates them), and headers were
+  2.6 % of the bytes to begin with. **What this costs in draw calls is NOT
+  covered by the A/B above**, which kept the original chunking and only rewrote
+  UVs; it needs a device round.
+- **Colours are provably unchanged.** `scripts/_entity_color_diff.ts` resolves the
+  RGBA every cube actually samples end to end (geometry -> render controller ->
+  texture -> decoded PNG texel) and diffs before against after, keyed by
+  entity + bone + origin + size + rotation + pivot: **79,392 cubes over the three
+  packs, 0 changed, 0 added, 0 missing.** The same pass confirms the premise the
+  grouping rests on — in the BEFORE packs, **0 cubes had six faces of more than
+  one colour**.
+- **What box UV cannot express** is the stud-top tile, and only the square-peg
+  stud fallback (`studFacets` 1) ever used it: a fanned stud's facets always
+  shared one plain tile. `studTopTilesDropped` counts them in
+  `craftmatic-diagnostics.json` and raises an export warning. All three packs
+  report 0 (they run at 3-4 facets).
+- **`DEVICE_CUBOID_BUDGET` stays at 260,000.** It is fitted to an observed
+  crash; the A/B's two counters disagree by 4x on the saving (2.03 kB/cuboid by
+  `nativePss`, 2.78 by `nativeAlloc`), which puts the real ceiling somewhere
+  between ~288,000 and ~394,000. The export warning now says exactly that.
+  Raising the constant needs the pack-stacking run repeated on box-UV packs.
+- **Not converted:** the BlockGrid voxel fallback in `playable-addon.ts`
+  (`geometry()`), whose cubes carry an embossed stud tile on top and a bevelled
+  seam tile on the sides — two tiles box UV cannot address — and the wand's
+  preview ghost, which is already one uniform tint. Both are capped well below
+  the budget.
+
+Gates: `bun run typecheck`, `bun run typecheck:web`, `bun run test`
+(1,702 passing), `python scripts/_mcaddon_check.py` OK on all three rebuilt
+packs. Regression tests: `test/ldraw-entity-atlas.test.ts`,
+`test/ldraw-entity-compiler.test.ts` ("gives every geometry ONE colour…"),
+`test/playable-addon.test.ts`, `test/playable-golden-models.test.ts`.
+
 ### Device facts this round paid for
 
 - **`adb push` into `Android/data` does NOT truncate.** A 761-byte restore over

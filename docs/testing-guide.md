@@ -45,6 +45,14 @@ path or the exporters. Each drives the REAL app in headless Chrome against
   over the seven named-set packs (71043, 76435, 910004, 10326, 31201, 76405):
   8/8 valid. It does NOT check content — a pack can be structurally perfect and
   still show a headless minifig.
+- **`bun scripts/_entity_color_diff.ts <before>.mcaddon <after>.mcaddon`** — the
+  offline colour gate. It resolves the RGBA every cube in a pack actually
+  samples (geometry -> render controller -> texture binding -> decoded PNG
+  texel, six-face UVs and box UV alike) and diffs the two packs cube by cube,
+  keyed by entity + bone + origin + size + rotation + pivot. Use it on any
+  change to how colour reaches the geometry; a colour regression that only
+  shows in game is the expensive kind. It proved the box-UV rewrite left
+  79,392 cubes over 71043/76286/76435 bit-identical in colour.
 
 ## Browser-automation testing caveats (claude-in-chrome — hard-won, saves hours)
 

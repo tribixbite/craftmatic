@@ -24,8 +24,10 @@
  * bone with `pivot = A t` and a ZYX Euler of `M`, written as `(−a, −b, c)`.
  *
  * Kept from the previous compiler: display-stand filtering, wheel-yaw
- * alignment, cockpit/seat detection, collision-box derivation, the
- * `meshIds` / `canopyMeshId` contract and ≤ N cubes per mesh.
+ * alignment, cockpit/seat detection, collision-box derivation and ≤ N cubes
+ * per mesh. The mesh contract is now `meshes`: one geometry per LDraw colour,
+ * because a cube carries BOX UV into a flat swatch (see step 8 and
+ * `ldraw-entity-atlas.ts`) and so cannot address a second colour.
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -40,7 +42,7 @@ import {
   type CompiledPartPrototype, type LegoEntityQuality, type LegoEntityQualityName, type PartCuboid,
 } from './ldraw-part-prototype.js';
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
-import { ATLAS_TILE, ATLAS_WIDTH } from './ldraw-entity-atlas.js';
+import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
 import { mouldFamilyId, assembleMinifig, type EntityRig } from './minifig-rig.js';
 
@@ -290,6 +292,13 @@ export interface LegoGeometryDiagnostics {
   opaqueCubeCount: number;
   translucentCubeCount: number;
   studCubeCount: number;
+  /**
+   * Square-peg studs (`studFacets` 1) that lost the atlas's stud-top disc: box
+   * UV maps all six faces from one origin, so a cube can only carry the one
+   * flat colour its geometry is textured with. 0 at `studFacets` >= 2, where
+   * the fanned facets always shared one plain tile anyway.
+   */
+  studTopTilesDropped: number;
   /** Exposed studs that were NOT emitted because `maxStudCubes` was exceeded. */
   studsOmitted: number;
   rotatedBoneCount: number;
@@ -365,15 +374,30 @@ export interface LdrawToBedrockTransform {
   level?: { rotation: number[]; centre: [number, number, number] };
 }
 
+/**
+ * One emitted geometry. Cubes carry box UV into a texture that is a single flat
+ * colour, so a geometry holds exactly one material - the pack textures it with
+ * that colour's swatch (`legoMaterialSwatchName`) and draws it opaque or
+ * alpha-blended by `translucent`.
+ */
+export interface CompiledMesh {
+  id: string;
+  material: LdrawEntityMaterial;
+  /** Alpha < 1: drawn with `entity_alphablend`, after every opaque mesh. */
+  translucent: boolean;
+}
+
 export interface CompiledLdrawGeometry {
   value: unknown;
   transform: LdrawToBedrockTransform;
-  /** Opaque palette; index = atlas row. */
+  /** Distinct opaque colours in the model, in first-appearance order. */
   materials: LdrawEntityMaterial[];
-  /** Translucent palette for the canopy mesh. */
+  /** Distinct translucent colours in the model. */
   canopyMaterials: LdrawEntityMaterial[];
+  /** The emitted geometries and the one colour each of them carries. */
+  meshes: CompiledMesh[];
+  /** `meshes.map(m => m.id)`, in draw order. */
   meshIds: string[];
-  canopyMeshId?: string;
   seatPosition: [number, number, number];
   collisionBox: { width: number; height: number };
   /** Entity extent in blocks (render frame: width across, length nose-to-tail). */
@@ -438,14 +462,20 @@ export interface CompileLdrawEntityOptions {
 
 // ─── Internal geometry records ────────────────────────────────────────────────
 
-interface BedrockUv { uv: [number, number]; uv_size: [number, number] }
 interface BedrockCube {
   origin: [number, number, number];
   size: [number, number, number];
   /** Per-cube rotation (degrees, Bedrock's mirrored frame) about `pivot` — used for stud facets. */
   pivot?: [number, number, number];
   rotation?: [number, number, number];
-  uv: Record<'north' | 'south' | 'east' | 'west' | 'up' | 'down', BedrockUv>;
+  /**
+   * BOX UV: one origin into a texture that is a single flat colour, not six
+   * face descriptors into an atlas. Box UV lays the six faces out in a cross
+   * scaled by the cube's own size, which is why the geometry it belongs to
+   * carries exactly one colour (`ldraw-entity-atlas.ts`). Measured worth:
+   * 1.05 kB per cuboid on a Pixel 8 Pro, 34 % of a cuboid's 3.08 kB.
+   */
+  uv: [number, number];
 }
 interface BedrockBone {
   name: string;
@@ -461,8 +491,13 @@ interface RenderCuboid {
   max: Vec3;
   material: LdrawEntityMaterial;
   bone: string;
-  /** Set for stud cuboids: the JSON face that gets the stud-top tile. */
-  studFace?: keyof BedrockCube['uv'];
+  /**
+   * Set for the square-peg stud fallback (`studFacets` 1), which used to take a
+   * stud-top tile on its up face. Box UV cannot address a second tile, so the
+   * flag now only keeps the cube out of `mergeAlignedCuboids` and is counted in
+   * `studTopTilesDropped` - never silently.
+   */
+  studTop?: boolean;
   /** Render-frame Euler (degrees) about `pivot`, for a cube that is itself rotated (stud facets). */
   rotation?: [number, number, number];
   pivot?: Vec3;
@@ -475,14 +510,6 @@ interface WorldBox { min: Vec3; max: Vec3; brick: number }
 
 /** Two-decimal rounding that never yields −0 (a mirrored zero would otherwise print as `-0`). */
 const round = (v: number): number => { const r = Math.round(v * 100) / 100; return r === 0 ? 0 : r; };
-
-/** JSON face for a unit direction in the render frame (X mirrored on output). */
-function faceForRenderDirection(d: Vec3): keyof BedrockCube['uv'] {
-  const ax = Math.abs(d[0]), ay = Math.abs(d[1]), az = Math.abs(d[2]);
-  if (ay >= ax && ay >= az) return d[1] > 0 ? 'up' : 'down';
-  if (ax >= az) return d[0] > 0 ? 'west' : 'east'; // render +X is JSON −X
-  return d[2] > 0 ? 'south' : 'north';
-}
 
 const aabbOfCorners = (corners: Vec3[]): { min: Vec3; max: Vec3 } => {
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
@@ -628,7 +655,7 @@ export function cullHiddenCuboids(
  */
 export function mergeAlignedCuboids(cuboids: RenderCuboid[], eps = 0.01): { cuboids: RenderCuboid[]; merged: number } {
   const eligible: RenderCuboid[] = [], rest: RenderCuboid[] = [];
-  for (const c of cuboids) (c.aligned && c.bone === 'body' && !c.studFace && !c.rotation ? eligible : rest).push(c);
+  for (const c of cuboids) (c.aligned && c.bone === 'body' && !c.studTop && !c.rotation ? eligible : rest).push(c);
   let current = eligible;
   let merged = 0;
   const key = (v: number): string => String(Math.round(v / eps));
@@ -1489,9 +1516,10 @@ export async function compileLdrawEntityGeometry(
       return { min, max };
     };
     if (facets <= 1) {
-      // Square peg: the cylinder's AABB, stud-top tile on the up face.
-      const upDir: Vec3 = [0, 0, 0]; upDir[axis] = sign;
-      return [{ ...box(st.radius, st.radius), material: st.material, bone: st.bone, studFace: faceForRenderDirection(upDir) }];
+      // Square peg: the cylinder's AABB. It used to take the atlas's stud-top
+      // tile on its up face; under box UV a cube carries one flat colour, so
+      // the disc is gone and `studTopTilesDropped` reports it.
+      return [{ ...box(st.radius, st.radius), material: st.material, bone: st.bone, studTop: true }];
     }
     const hl = st.radius * Math.cos(Math.PI / (2 * facets)), hw = st.radius * Math.sin(Math.PI / (2 * facets));
     const out: RenderCuboid[] = [];
@@ -1545,37 +1573,59 @@ export async function compileLdrawEntityGeometry(
   };
 
   // 8. Palettes (opaque / translucent by material alpha) and JSON cubes.
+  //
+  // Cubes carry BOX UV - one origin into a texture that is a single flat
+  // colour - so a geometry can hold exactly ONE material, and the cubes are
+  // grouped by colour here. See `ldraw-entity-atlas.ts` for the Pixel 8 Pro
+  // A/B that bought the form: 1.05 kB less per cuboid, 34 % of the 3.08 kB a
+  // cuboid costs in add-on memory.
   const opaque: LdrawEntityMaterial[] = [], translucent: LdrawEntityMaterial[] = [];
   const indexOf = (list: LdrawEntityMaterial[], m: LdrawEntityMaterial): number => {
     let i = list.findIndex(x => x.colorId === m.colorId);
     if (i < 0) { i = list.length; list.push(m); }
     return i;
   };
-  const tile = (row: number, stud: boolean): BedrockUv => ({ uv: [stud ? ATLAS_TILE : 0, 1 + row * ATLAS_TILE], uv_size: [ATLAS_TILE, ATLAS_TILE] });
 
-  const opaqueCubes: Array<{ bone: string; cube: BedrockCube }> = [];
-  const translucentCubes: Array<{ bone: string; cube: BedrockCube }> = [];
+  /** Every cube of one LDraw colour: the unit a geometry (and its swatch) is cut from. */
+  interface MaterialGroup { material: LdrawEntityMaterial; translucent: boolean; items: Array<{ bone: string; cube: BedrockCube }> }
+  const groups = new Map<number, MaterialGroup>();
+  /** Square-peg studs whose stud-top tile box UV cannot address (`studFacets` 1). */
+  let studTopTilesDropped = 0;
+  let translucentCubeCount = 0;
   for (const c of renderCuboids) {
     const isT = c.material.alpha < 1;
-    const row = indexOf(isT ? translucent : opaque, c.material);
+    if (isT) translucentCubeCount++;
+    indexOf(isT ? translucent : opaque, c.material);
+    if (c.studTop) studTopTilesDropped++;
     const lo = toUnits(c.min), hi = toUnits(c.max);
-    const plain = tile(row, false);
-    const uv: BedrockCube['uv'] = { north: plain, south: plain, east: plain, west: plain, up: plain, down: plain };
-    if (c.studFace) uv[c.studFace] = tile(row, true);
     const cube: BedrockCube = {
       // Bedrock's entity frame is mirrored in X relative to the render frame.
       origin: [round(-hi[0]), round(lo[1]), round(lo[2])],
       size: [round(hi[0] - lo[0]), round(hi[1] - lo[1]), round(hi[2] - lo[2])],
-      uv,
+      // The swatch is uniform, so the size-scaled cross this walks lands on the
+      // same colour at every cube size, mip level and wrap mode.
+      uv: [0, 0],
     };
     if (c.rotation && c.pivot) {
       const p = toUnits(c.pivot);
       cube.pivot = [round(-p[0]), round(p[1]), round(p[2])];
       cube.rotation = [round(-c.rotation[0]), round(-c.rotation[1]), round(c.rotation[2])];
     }
-    (isT ? translucentCubes : opaqueCubes).push({ bone: c.bone, cube });
+    let group = groups.get(c.material.colorId);
+    if (!group) { group = { material: c.material, translucent: isT, items: [] }; groups.set(c.material.colorId, group); }
+    // A cuboid carries ONE material for all six faces (the six-face UVs it used
+    // to emit were the same tile six times), so a colour id must resolve to one
+    // appearance everywhere. If it ever did not, the swatch would silently
+    // repaint part of the model - refuse instead of picking one.
+    else if (group.material.rgb.join() !== c.material.rgb.join() || group.material.alpha !== c.material.alpha) {
+      throw new Error(`${cid}: LDraw colour ${c.material.colorId} resolved to two appearances (${group.material.rgb.join()} @${group.material.alpha} vs ${c.material.rgb.join()} @${c.material.alpha}); a box-UV geometry can carry only one.`);
+    }
+    group.items.push({ bone: c.bone, cube });
   }
   if (!opaque.length) opaque.push(resolveLdrawEntityMaterial(7));
+  if (studTopTilesDropped) {
+    warnings.push(`${cid}: ${studTopTilesDropped} square-peg stud${studTopTilesDropped === 1 ? '' : 's'} lost the stud-top highlight - a box-UV cube carries one flat colour, and at studFacets 1 there is no fanned facet to read as round.`);
+  }
 
   const jsonBone = (name: string): BedrockBone => {
     const b = bones.get(name)!;
@@ -1608,15 +1658,18 @@ export async function compileLdrawEntityGeometry(
     max: [totalWidth / 2, totalHeight - originLiftBlocks, totalLength / 2] as const,
   };
   const cullingBounds = visibleBoundsForSizeSteps(modelExtent, 2);
-  const description = (identifier: string, materialCount: number) => ({
+  const description = (identifier: string) => ({
     identifier,
-    texture_width: ATLAS_WIDTH,
-    texture_height: 1 + Math.max(1, materialCount) * ATLAS_TILE,
+    // The geometry's texture is one flat colour end to end, so these only set
+    // how many texels a box-UV cross walks before it wraps - never which
+    // colour a face lands on.
+    texture_width: SWATCH_SIZE,
+    texture_height: SWATCH_SIZE,
     ...cullingBounds,
   });
 
   const geometryMeshes: unknown[] = [];
-  const meshIds: string[] = [];
+  const emittedMeshes: CompiledMesh[] = [];
   const chunk = quality.meshChunkCubes;
   const groupByBone = (items: Array<{ bone: string; cube: BedrockCube }>): BedrockBone[] => {
     const byBone = new Map<string, BedrockBone>();
@@ -1638,21 +1691,20 @@ export async function compileLdrawEntityGeometry(
     for (const name of byBone.keys()) order.set(name, depth(name));
     return [...byBone.values()].sort((a, b) => order.get(a.name)! - order.get(b.name)!);
   };
-  for (let offset = 0; offset < opaqueCubes.length; offset += chunk) {
-    const meshId = `geometry.${PACK_NAMESPACE}.${cid}_mesh_${meshIds.length}`;
-    meshIds.push(meshId);
-    geometryMeshes.push({ description: description(meshId, opaque.length), bones: groupByBone(opaqueCubes.slice(offset, offset + chunk)) });
+  // Opaque colours first, then the translucent ones: alpha-blended geometry
+  // draws last, exactly as it did when there was one canopy mesh.
+  const ordered = [...groups.values()].sort((a, b) => Number(a.translucent) - Number(b.translucent));
+  for (const group of ordered) {
+    for (let offset = 0; offset < group.items.length; offset += chunk) {
+      const meshId = `geometry.${PACK_NAMESPACE}.${cid}_mesh_${emittedMeshes.length}`;
+      emittedMeshes.push({ id: meshId, material: group.material, translucent: group.translucent });
+      geometryMeshes.push({ description: description(meshId), bones: groupByBone(group.items.slice(offset, offset + chunk)) });
+    }
   }
-  if (!meshIds.length) {
+  if (!emittedMeshes.length) {
     const meshId = `geometry.${PACK_NAMESPACE}.${cid}_mesh_0`;
-    meshIds.push(meshId);
-    geometryMeshes.push({ description: description(meshId, opaque.length), bones: [jsonBone('body')] });
-  }
-  let canopyMeshId: string | undefined;
-  if (translucentCubes.length) {
-    canopyMeshId = `geometry.${PACK_NAMESPACE}.${cid}_canopy`;
-    meshIds.push(canopyMeshId);
-    geometryMeshes.push({ description: description(canopyMeshId, translucent.length), bones: groupByBone(translucentCubes) });
+    emittedMeshes.push({ id: meshId, material: opaque[0]!, translucent: false });
+    geometryMeshes.push({ description: description(meshId), bones: [jsonBone('body')] });
   }
 
   // 9. Diagnostics.
@@ -1665,10 +1717,11 @@ export async function compileLdrawEntityGeometry(
     unresolvedParts: report.unresolved,
     prototypeCacheHits: cache.hits,
     ...(figureQualityClamped ? { figureQualityClamped } : {}),
-    cubeCount: opaqueCubes.length + translucentCubes.length,
-    opaqueCubeCount: opaqueCubes.length,
-    translucentCubeCount: translucentCubes.length,
+    cubeCount: renderCuboids.length,
+    opaqueCubeCount: renderCuboids.length - translucentCubeCount,
+    translucentCubeCount,
     studCubeCount,
+    studTopTilesDropped,
     studsOmitted,
     rotatedBoneCount,
     meshCount: geometryMeshes.length,
@@ -1714,8 +1767,8 @@ export async function compileLdrawEntityGeometry(
     },
     materials: opaque,
     canopyMaterials: translucent,
-    meshIds,
-    canopyMeshId,
+    meshes: emittedMeshes,
+    meshIds: emittedMeshes.map(m => m.id),
     seatPosition: [seatX, seatY, seatZ],
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },

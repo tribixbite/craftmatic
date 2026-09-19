@@ -446,7 +446,7 @@ describe('playable add-on — brick-compiled entities', () => {
     { part: '99999.dat', color: 1, x: 100, y: 0, z: 0 },
   ];
 
-  it('emits real-geometry meshes, exact-colour PBR atlases, an opaque material and diagnostics', async () => {
+  it('emits real-geometry meshes, one exact-colour PBR swatch per LDraw colour, an opaque material and diagnostics', async () => {
     const grid = new BlockGrid(4, 4, 4);
     grid.set(1, 1, 1, 'minecraft:red_concrete');
     const result = await buildPlayableAddon(grid, {
@@ -454,31 +454,47 @@ describe('playable add-on — brick-compiled entities', () => {
       partGeometry: await providerFor(), vehicleFacing: '+z',
     });
     const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    // One swatch per LDraw colour (box UV: a geometry carries one colour), named
+    // after the colour so every entity in the pack shares the file.
     for (const name of [
       'Craftmatic_senna_RP/models/entity/senna_car.geo.json',
-      'Craftmatic_senna_RP/textures/entity/senna_car.png',
-      'Craftmatic_senna_RP/textures/entity/senna_car_mer.png',
-      'Craftmatic_senna_RP/textures/entity/senna_car_normal.png',
-      'Craftmatic_senna_RP/textures/entity/senna_car.texture_set.json',
-      'Craftmatic_senna_RP/textures/entity/senna_car_canopy.png',
-      'Craftmatic_senna_RP/textures/entity/senna_car_canopy.texture_set.json',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_4.png',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_4_mer.png',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_4_normal.png',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_4.texture_set.json',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_1.png',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_47.png',
+      'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_47.texture_set.json',
       'Craftmatic_senna_BP/craftmatic-diagnostics.json',
     ]) expect(entries).toContain(name);
     const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/manifest.json')));
     expect(rpManifest.capabilities).toEqual(['pbr']);
     const client = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/entity/senna_car.entity.json')))['minecraft:client_entity'].description;
-    expect(client.materials).toEqual({ default: 'entity', canopy: 'entity_alphablend' });
-    const textureSet = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/senna_car.texture_set.json')));
-    expect(textureSet['minecraft:texture_set']).toEqual({ color: 'senna_car', metalness_emissive_roughness: 'senna_car_mer', normal: 'senna_car_normal' });
-    // Exact LDraw red in the palette scanline; trans-clear alpha in the canopy atlas.
-    const alphas = pngAlphas(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/senna_car.png'));
-    expect(alphas[0]).toBe(255);
-    const canopyAlphas = pngAlphas(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/senna_car_canopy.png'));
-    expect(canopyAlphas[0]).toBe(128);
-    const geo = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/models/entity/senna_car.geo.json')));
-    expect(geo['minecraft:geometry'].map((m: { description: { identifier: string } }) => m.description.identifier)).toEqual([
-      'geometry.craftmatic.senna_car_mesh_0', 'geometry.craftmatic.senna_car_canopy',
+    expect(client.materials).toEqual({ default: 'entity', blend: 'entity_alphablend' });
+    // Every geometry is bound to its own colour's swatch, and the translucent
+    // one to the alpha-blended material.
+    expect(Object.values(client.textures as Record<string, string>).sort()).toEqual([
+      'textures/entity/craftmatic_swatch_1', 'textures/entity/craftmatic_swatch_4', 'textures/entity/craftmatic_swatch_47',
     ]);
+    const controllers = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/render_controllers/senna_car.render_controllers.json'))).render_controllers as Record<string, { textures: string[]; materials: Array<Record<string, string>> }>;
+    const keyOfTexture = Object.fromEntries(Object.entries(client.textures as Record<string, string>).map(([k, v]) => [v, k]));
+    const swatchOf = (i: number): string => (client.textures as Record<string, string>)[controllers[`controller.render.craftmatic.senna_car_mesh_${i}`]!.textures[0]!.replace('Texture.', '')]!;
+    expect(keyOfTexture['textures/entity/craftmatic_swatch_4']).toBeDefined();
+    const blended = Object.entries(controllers).filter(([, c]) => c.materials[0]!['*'] === 'Material.blend');
+    expect(blended).toHaveLength(1);
+    expect(blended[0]![1].textures).toEqual([`Texture.${keyOfTexture['textures/entity/craftmatic_swatch_47']}`]);
+    const textureSet = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_4.texture_set.json')));
+    expect(textureSet['minecraft:texture_set']).toEqual({ color: 'craftmatic_swatch_4', metalness_emissive_roughness: 'craftmatic_swatch_4_mer', normal: 'craftmatic_swatch_4_normal' });
+    // Opaque red is opaque end to end; trans-clear keeps its alpha.
+    const alphas = pngAlphas(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_4.png'));
+    expect([...new Set(alphas)]).toEqual([255]);
+    const canopyAlphas = pngAlphas(await extractFile(buffer, 'Craftmatic_senna_RP/textures/entity/craftmatic_swatch_47.png'));
+    expect([...new Set(canopyAlphas)]).toEqual([128]);
+    const geo = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_RP/models/entity/senna_car.geo.json')));
+    const ids = geo['minecraft:geometry'].map((m: { description: { identifier: string } }) => m.description.identifier);
+    expect(ids).toEqual(['geometry.craftmatic.senna_car_mesh_0', 'geometry.craftmatic.senna_car_mesh_1', 'geometry.craftmatic.senna_car_mesh_2']);
+    // The translucent colour is the LAST geometry, so it draws over the opaque ones.
+    expect(swatchOf(2)).toBe('textures/entity/craftmatic_swatch_47');
     const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_BP/craftmatic-diagnostics.json')));
     expect(diag.entities.senna_car).toMatchObject({ sourcePartCount: 3, uniquePartCount: 3, resolvedPartCount: 2, unresolvedParts: ['99999'] });
     expect(result.diagnostics.senna_car).toBeDefined();
@@ -495,7 +511,7 @@ describe('playable add-on — brick-compiled entities', () => {
       partGeometry: await providerFor(), pbr: false,
     });
     const buffer = ab(result.bytes), entries = listZipEntries(buffer);
-    expect(entries).toContain('Craftmatic_plain_RP/textures/entity/plain_car.png');
+    expect(entries).toContain('Craftmatic_plain_RP/textures/entity/craftmatic_swatch_4.png');
     expect(entries.some(e => e.endsWith('_mer.png') || e.endsWith('.texture_set.json'))).toBe(false);
     const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_plain_RP/manifest.json')));
     expect(rpManifest.capabilities).toBeUndefined();

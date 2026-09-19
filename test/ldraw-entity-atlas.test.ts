@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { inflateSync } from 'node:zlib';
-import { ATLAS_TILE, ATLAS_WIDTH, generateLegoEntityTextureAtlas } from '../web/src/engine/ldraw-entity-atlas.js';
+import { SWATCH_SIZE, generateLegoMaterialSwatch, legoMaterialSwatchName } from '../web/src/engine/ldraw-entity-atlas.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import { encodePngRgba } from '../web/src/engine/lego-resource-pack.js';
 
@@ -37,54 +37,56 @@ describe('encodePngRgba', () => {
   });
 });
 
-describe('generateLegoEntityTextureAtlas', () => {
-  const materials = [resolveLdrawEntityMaterial(4), resolveLdrawEntityMaterial(47), resolveLdrawEntityMaterial(383), resolveLdrawEntityMaterial(21)];
+describe('generateLegoMaterialSwatch', () => {
+  const red = resolveLdrawEntityMaterial(4), glass = resolveLdrawEntityMaterial(47);
+  const chrome = resolveLdrawEntityMaterial(383), glow = resolveLdrawEntityMaterial(21);
 
-  it('lays out one 16-px row per material with a palette scanline in row 0', () => {
-    const atlas = generateLegoEntityTextureAtlas(materials, { pbr: false, fallbackHighlights: true, textureName: 't' });
-    expect(atlas.width).toBe(ATLAS_WIDTH);
-    expect(atlas.height).toBe(1 + materials.length * ATLAS_TILE);
-    expect(atlas.tiles).toHaveLength(4);
-    expect(atlas.tiles[2]).toEqual({ plain: { u: 0, v: 33 }, stud: { u: 16, v: 33 } });
-    const img = decode(atlas.colorPng);
-    expect(img.height).toBe(atlas.height);
-    expect(px(img, 0, 0)).toEqual([...materials[0]!.rgb, 255]);
-    expect(px(img, 1, 0)).toEqual([...materials[1]!.rgb, 128]);
-    // Plain tile is the exact flat colour everywhere; stud tile keeps the colour off-disc.
-    expect(px(img, 3, 1 + 0 * 16 + 9)).toEqual([...materials[0]!.rgb, 255]);
-    expect(px(img, 16, 1 + 0 * 16)).toEqual([...materials[0]!.rgb, 255]);
-    // …and lifts it inside the disc (classic highlight).
-    const centre = px(img, 16 + 8, 1 + 8);
-    expect(centre[0]).toBeGreaterThan(materials[0]!.rgb[0]);
-    expect(atlas.normalPng).toBeUndefined();
-    expect(atlas.merPng).toBeUndefined();
-    expect(atlas.textureSetJson).toBeUndefined();
+  it('names a swatch after the LDraw colour, so every entity in a pack shares one file', () => {
+    expect(legoMaterialSwatchName(red)).toBe('craftmatic_swatch_4');
+    expect(legoMaterialSwatchName(resolveLdrawEntityMaterial(0x2ff8800))).toBe('craftmatic_swatch_50300928');
+    expect(legoMaterialSwatchName(glass)).not.toBe(legoMaterialSwatchName(red));
   });
 
-  it('keeps the colour map pure when highlights are off and emits MER/normal/texture set for PBR', () => {
-    const atlas = generateLegoEntityTextureAtlas(materials, { pbr: true, fallbackHighlights: false, textureName: 'v_car' });
-    const color = decode(atlas.colorPng);
-    expect(px(color, 16 + 8, 1 + 8)).toEqual([...materials[0]!.rgb, 255]);
-    const mer = decode(atlas.merPng!);
-    // Red ABS: non-metallic, non-emissive, roughness 0.36.
-    expect(px(mer, 4, 1 + 4)).toEqual([0, 0, Math.round(0.36 * 255), 255]);
-    // Chrome silver: metalness 1, low roughness.
-    expect(px(mer, 4, 1 + 2 * 16 + 4)).toEqual([255, 0, Math.round(0.1 * 255), 255]);
-    // Glow: emissive channel set.
-    expect(px(mer, 4, 1 + 3 * 16 + 4)[1]).toBeGreaterThan(0);
-    const normal = decode(atlas.normalPng!);
-    expect(px(normal, 4, 1 + 4)).toEqual([128, 128, 255, 255]);
-    // The stud dome tilts normals away from straight-up near the rim.
-    expect(px(normal, 16 + 13, 1 + 8)[0]).toBeGreaterThan(128);
-    expect(JSON.parse(atlas.textureSetJson!)).toEqual({
+  it('is one flat colour edge to edge: box UV scales the face cross by CUBE SIZE, so every texel must match', () => {
+    const swatch = generateLegoMaterialSwatch(red, { pbr: false, textureName: 't' });
+    expect(swatch.size).toBe(SWATCH_SIZE);
+    const img = decode(swatch.colorPng);
+    expect(img.width).toBe(SWATCH_SIZE);
+    expect(img.height).toBe(SWATCH_SIZE);
+    // Every pixel, not a sample: a cube's UV cross can land anywhere in here
+    // (and wrap past it), so a single stray texel would repaint a face.
+    for (let y = 0; y < img.height; y++) for (let x = 0; x < img.width; x++) {
+      expect(px(img, x, y)).toEqual([...red.rgb, 255]);
+    }
+    expect(swatch.normalPng).toBeUndefined();
+    expect(swatch.merPng).toBeUndefined();
+    expect(swatch.textureSetJson).toBeUndefined();
+  });
+
+  it('carries the material alpha, so a translucent colour stays translucent', () => {
+    const img = decode(generateLegoMaterialSwatch(glass, { pbr: false, textureName: 't' }).colorPng);
+    expect(glass.alpha).toBeLessThan(1);
+    expect(px(img, 9, 3)).toEqual([...glass.rgb, Math.round(glass.alpha * 255)]);
+  });
+
+  it('emits flat MER/normal maps and a texture set for PBR', () => {
+    const swatch = generateLegoMaterialSwatch(chrome, { pbr: true, textureName: 'craftmatic_swatch_383' });
+    const mer = decode(swatch.merPng!);
+    // Chrome silver: metalness 1, low roughness — uniform, like the colour map.
+    for (let y = 0; y < mer.height; y++) for (let x = 0; x < mer.width; x++) {
+      expect(px(mer, x, y)).toEqual([255, 0, Math.round(0.1 * 255), 255]);
+    }
+    expect(px(decode(generateLegoMaterialSwatch(glow, { pbr: true, textureName: 't' }).merPng!), 4, 4)[1]).toBeGreaterThan(0);
+    expect(px(decode(generateLegoMaterialSwatch(red, { pbr: true, textureName: 't' }).merPng!), 4, 4)).toEqual([0, 0, Math.round(0.36 * 255), 255]);
+    const normal = decode(swatch.normalPng!);
+    expect(px(normal, 4, 4)).toEqual([128, 128, 255, 255]);
+    expect(JSON.parse(swatch.textureSetJson!)).toEqual({
       format_version: '1.16.100',
-      'minecraft:texture_set': { color: 'v_car', metalness_emissive_roughness: 'v_car_mer', normal: 'v_car_normal' },
+      'minecraft:texture_set': {
+        color: 'craftmatic_swatch_383',
+        metalness_emissive_roughness: 'craftmatic_swatch_383_mer',
+        normal: 'craftmatic_swatch_383_normal',
+      },
     });
-  });
-
-  it('never emits an empty atlas', () => {
-    const atlas = generateLegoEntityTextureAtlas([], { pbr: false, fallbackHighlights: false, textureName: 't' });
-    expect(atlas.height).toBe(17);
-    expect(atlas.tiles).toHaveLength(1);
   });
 });

@@ -90,7 +90,8 @@ describe('pack cuboid budget', () => {
 
     const measured = packCuboidBudget('Castle', 82_163, 12);
     expect(measured.warning).toBe(
-      'Castle: 82,163 cuboids across 12 entities - 32% of the ~260,000-cuboid budget a phone has for ALL of its add-on packs together (measured on a Pixel 8 Pro).'
+      'Castle: 82,163 cuboids across 12 entities - 32% of the ~260,000-cuboid budget a phone has for ALL of its add-on packs together'
+      + ' (measured on a Pixel 8 Pro at 3.08 kB per cuboid; box-UV geometry has since measured 2.03-2.78 kB, so the real ceiling is likely 290,000-390,000 - not yet confirmed on a device).'
       + ' About 3 packs this size can be active at once; a 4th is likely to crash the world as it loads.',
     );
 

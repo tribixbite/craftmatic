@@ -3,6 +3,7 @@ import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, d
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import type { CompiledMesh } from '../web/src/engine/ldraw-entity-compiler.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
 // ─── A tiny synthetic library ─────────────────────────────────────────────────
@@ -39,9 +40,14 @@ const LIBRARY: Record<string, string> = {
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 
-type Geo = { 'minecraft:geometry': Array<{ description: { identifier: string; texture_width: number; texture_height: number }; bones: Array<{ name: string; pivot: number[]; rotation?: number[]; cubes: Array<{ origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: Record<string, { uv: number[] }> }> }> }> };
-type Cube = { origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: Record<string, { uv: number[] }> };
+type Geo = { 'minecraft:geometry': Array<{ description: { identifier: string; texture_width: number; texture_height: number }; bones: Array<{ name: string; pivot: number[]; rotation?: number[]; cubes: Array<{ origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: [number, number] }> }> }> };
+type Cube = { origin: number[]; size: number[]; pivot?: number[]; rotation?: number[]; uv: [number, number] };
 const allCubes = (g: Geo) => g['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => ({ ...(c as Cube), bone: b.name, mesh: m.description.identifier }))));
+/**
+ * The LDraw colour a cube renders as. Cubes carry BOX UV into a flat swatch, so
+ * the colour is a property of the GEOMETRY the cube sits in, not of its UVs.
+ */
+const colorOf = (r: { meshes: CompiledMesh[] }, c: { mesh: string }): number => r.meshes.find(m => m.id === c.mesh)!.material.colorId;
 // A stud cuboid is 4 LDU (1.2 units at 0.3 units/LDU) tall and no wider than the 12 LDU disc; nothing in the synthetic library is that thin.
 const isStud = (c: { size: number[] }) => Math.abs(c.size[1]! - 1.2) < 1e-9 && Math.max(c.size[0]!, c.size[2]!) <= 3.6 + 1e-9;
 const bodyCubes = (g: Geo) => allCubes(g).filter(c => !isStud(c));
@@ -113,11 +119,9 @@ describe('compileLdrawEntityGeometry', () => {
     ];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
     const body = bodyCubes(r.value as Geo);
-    const byRow = new Map(r.materials.map((m, i) => [i, m.colorId]));
-    const rowOf = (c: { uv: Record<string, { uv: number[] }> }) => (c.uv.north!.uv[1]! - 1) / 16;
-    const red = body.find(c => byRow.get(rowOf(c)) === 4)!;
-    const blue = body.find(c => byRow.get(rowOf(c)) === 1)!;
-    const white = body.find(c => byRow.get(rowOf(c)) === 15)!;
+    const red = body.find(c => colorOf(r, c) === 4)!;
+    const blue = body.find(c => colorOf(r, c) === 1)!;
+    const white = body.find(c => colorOf(r, c) === 15)!;
     // Render frame: red at +X → JSON origin.x is NEGATIVE (mirror) and less than the white brick's.
     expect(red.origin[0]! + red.size[0]! / 2).toBeLessThan(white.origin[0]! + white.size[0]! / 2);
     // Nose (+Z LDraw) → −Z in JSON.
@@ -134,9 +138,7 @@ describe('compileLdrawEntityGeometry', () => {
     ];
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+x' });
     const body = bodyCubes(r.value as Geo);
-    const rowOf = (c: { uv: Record<string, { uv: number[] }> }) => (c.uv.north!.uv[1]! - 1) / 16;
-    const idOf = (c: { uv: Record<string, { uv: number[] }> }) => r.materials[rowOf(c)]!.colorId;
-    const blue = body.find(c => idOf(c) === 1)!, white = body.find(c => idOf(c) === 15)!, red = body.find(c => idOf(c) === 4)!;
+    const blue = body.find(c => colorOf(r, c) === 1)!, white = body.find(c => colorOf(r, c) === 15)!, red = body.find(c => colorOf(r, c) === 4)!;
     expect(blue.origin[2]! + blue.size[2]! / 2).toBeLessThan(white.origin[2]! + white.size[2]! / 2);
     // For nose +X in LDraw (Y down), the model's right-hand side is LDraw −Z:
     // right = nose × up = (+X) × (−Y) = −Z. So the red brick is on the right → JSON −X.
@@ -154,8 +156,7 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.diagnostics.studCubeCount).toBe(8);
     const studs = studCubes(r.value as Geo);
     expect(studs).toHaveLength(8);
-    const rows = [...new Set(studs.map(s => (s.uv.up!.uv[1]! - 1) / 16).map(i => r.materials[i]!.colorId))].sort();
-    expect(rows).toEqual([1, 14]);
+    expect([...new Set(studs.map(s => colorOf(r, s)))].sort()).toEqual([1, 14]);
   });
 
   it('fans each exposed stud into rotated facets whose corners lie on the stud circle', async () => {
@@ -172,8 +173,10 @@ describe('compileLdrawEntityGeometry', () => {
     const pivots = studs.filter(c => c.rotation).map(c => c.pivot!.join(','));
     expect(new Set(pivots).size).toBe(1);
     expect(studs.find(c => c.rotation)!.pivot).toEqual([0, 7.2, 0]);
-    // Plain tile on every face: the facets share one flat colour, so their coplanar tops cannot z-fight.
-    for (const c of studs) for (const face of Object.values(c.uv)) expect(face.uv[0]).toBe(0);
+    // One flat colour on every face (box UV into the stud's own swatch), so the
+    // coplanar facet tops cannot z-fight and all four sit in one geometry.
+    for (const c of studs) expect(c.uv).toEqual([0, 0]);
+    expect(new Set(studs.map(c => c.mesh)).size).toBe(1);
   });
 
   it('snaps float-noise rotations to the exact axis frame instead of spending a bone', async () => {
@@ -283,7 +286,9 @@ describe('compileLdrawEntityGeometry', () => {
     const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
     expect(r.diagnostics.rotatedBoneCount).toBe(1);
     const geo = r.value as Geo;
-    const bone = geo['minecraft:geometry'][0]!.bones.find(b => b.name !== 'body')!;
+    // The rotated part is red and the body white, so they are now separate
+    // geometries: the bone lives in whichever one holds its cubes.
+    const bone = geo['minecraft:geometry'].flatMap(m => m.bones).find(b => b.name !== 'body' && b.cubes.length)!;
     expect(bone).toBeDefined();
     expect(bone.rotation).toBeDefined();
     // A yaw about LDraw Y (down) of +30° is a yaw about render Y (up) of −30°;
@@ -292,26 +297,77 @@ describe('compileLdrawEntityGeometry', () => {
     expect(Math.abs(bone.rotation![1]!)).toBeCloseTo(30, 1);
     expect(bone.rotation![2]).toBeCloseTo(0, 1);
     // The bone's cube is the unrotated box at the part origin, in the same JSON frame.
-    const cube = bone.cubes.find(c => c.uv.up!.uv[0] === 0)!;
+    const cube = bone.cubes[0]!;
     expect(cube.size).toEqual([6, 7.2, 6]);
     // Pivot (mirrored X) is the part origin: the cube is centred on it in X/Z.
     expect(cube.origin[0]! + cube.size[0]! / 2).toBeCloseTo(bone.pivot[0]!, 2);
     expect(cube.origin[2]! + cube.size[2]! / 2).toBeCloseTo(bone.pivot[2]!, 2);
   });
 
-  it('routes translucent MATERIALS to the canopy mesh and keeps canopy moulds opaque when their colour is', async () => {
+  it('routes translucent MATERIALS to their own alpha-blended meshes and keeps canopy moulds opaque when their colour is', async () => {
     const bricks: ParsedBrick[] = [
       { part: '3001.dat', color: 0, x: 0, y: 0, z: 0 },
       { part: '3823.dat', color: 47, x: 0, y: -24, z: 0 },   // trans-clear windscreen → translucent mesh
       { part: '3823.dat', color: 4, x: 0, y: -24, z: 60 },   // a red "windscreen" → opaque
     ];
     const r = await compileLdrawEntityGeometry('t', 'plane', bricks, { partGeometry: provider() });
-    expect(r.canopyMeshId).toBe('geometry.craftmatic.t_canopy');
-    expect(r.meshIds).toContain('geometry.craftmatic.t_canopy');
+    expect(r.meshes.filter(m => m.translucent).map(m => m.material.colorId)).toEqual([47]);
+    expect([...new Set(r.meshes.filter(m => !m.translucent).map(m => m.material.colorId))].sort()).toEqual([0, 4]);
+    // Alpha-blended geometry draws after every opaque one.
+    expect(r.meshes.findIndex(m => m.translucent)).toBe(r.meshes.length - 1);
     expect(r.canopyMaterials.map(m => m.colorId)).toEqual([47]);
     expect(r.materials.map(m => m.colorId).sort()).toEqual([0, 4]);
     expect(r.diagnostics.translucentCubeCount).toBeGreaterThan(0);
     expect(r.seatPosition[1]).toBeGreaterThan(0);
+  });
+
+  it('gives every geometry ONE colour, box UV at the swatch origin, and the colour of the brick each cube came from', async () => {
+    // Box UV maps all six faces of a cube from one origin, so the colour has to
+    // be a property of the geometry. This is the gate on that: no cube may
+    // carry a UV that could reach another colour, and no brick may change
+    // colour on the way into the pack.
+    const bricks: ParsedBrick[] = [
+      { part: '3001.dat', color: 15, x: 0, y: 0, z: 0 },
+      { part: '3005.dat', color: 4, x: 100, y: 0, z: 0 },
+      { part: '3005.dat', color: 1, x: 200, y: 0, z: 0 },
+      { part: '3823.dat', color: 47, x: 0, y: -24, z: 0 },   // trans-clear
+    ];
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
+    const geo = r.value as Geo;
+    expect([...new Set(r.meshes.map(m => m.material.colorId))].sort((a, b) => a - b)).toEqual([1, 4, 15, 47]);
+    expect(r.meshes).toHaveLength(4);
+    for (const m of geo['minecraft:geometry']) {
+      // The swatch is uniform, so the declared texture space only sets where a
+      // cross wraps, never which colour it lands on.
+      expect(m.description.texture_width).toBe(16);
+      expect(m.description.texture_height).toBe(16);
+    }
+    const cubes = allCubes(geo);
+    for (const c of cubes) expect(c.uv).toEqual([0, 0]);
+    // Every cube of a geometry belongs to that geometry's one colour.
+    expect(new Set(cubes.map(c => `${c.mesh}`)).size).toBe(r.meshes.length);
+    // LDraw +X is mirrored into JSON −X, so the three opaque bricks come out in
+    // the reverse order — each still wearing its own colour.
+    const meanX = (id: number): number => {
+      const own = cubes.filter(c => colorOf(r, c) === id);
+      expect(own.length).toBeGreaterThan(0);
+      return own.reduce((n, c) => n + c.origin[0]! + c.size[0]! / 2, 0) / own.length;
+    };
+    expect(meanX(15)).toBeGreaterThan(meanX(4));
+    expect(meanX(4)).toBeGreaterThan(meanX(1));
+    expect(r.meshes.find(m => m.material.colorId === 47)!.translucent).toBe(true);
+    expect(r.meshes.filter(m => m.material.colorId !== 47).every(m => !m.translucent)).toBe(true);
+    // Fanned studs keep their highlight-free flat tile; nothing was dropped.
+    expect(r.diagnostics.studTopTilesDropped).toBe(0);
+  });
+
+  it('reports the square-peg studs whose stud-top highlight box UV cannot address', async () => {
+    const bricks: ParsedBrick[] = [{ part: '3005.dat', color: 4, x: 0, y: 0, z: 0 }];
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z', quality: { studFacets: 1 } });
+    expect(r.diagnostics.studFacets).toBe(1);
+    expect(r.diagnostics.studCubeCount).toBe(1);
+    expect(r.diagnostics.studTopTilesDropped).toBe(1);
+    expect(r.warnings.some(w => /stud-top highlight/.test(w))).toBe(true);
   });
 
   it('falls back to the dims-table box for an unresolved part and says so', async () => {
@@ -392,7 +448,7 @@ describe('mergeAlignedCuboids', () => {
   it('never merges different colours, studs, rotated cubes, rotated-bone cuboids, or boxes that only touch at an edge', () => {
     const cases = [
       [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { material: mat(1) })],
-      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { studFace: 'up' })],
+      [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { studTop: true })],
       [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { rotation: [0, 45, 0], pivot: [15, 5, 5] })],
       [box([0, 0, 0], [10, 10, 10]), box([10, 0, 0], [20, 10, 10], { aligned: false, bone: 'r1' })],
       [box([0, 0, 0], [10, 10, 10]), box([10, 10, 0], [20, 20, 10])],
