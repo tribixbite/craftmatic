@@ -60,35 +60,33 @@ NOT been pushed**; CI/Deploy were last green at `a6f3b152`.
 
 ### The open chain: publish the clego corpus fixes
 
-Committed locally in clego, **not published**: the `io_model2_v2` assembly
-expansion (composite torsos, 118 files), the dbix `within_bound` cap
-(headgear/glass, 1,970 files), `mb_partmap` +87 decorated torso/head rows,
-`dbix_figure_align` (mini-dolls, 320 files), the grader's
-`displaced`/`staged-capture`/`figures` rules, and (2026-09-19) the family
-ladder fix — a torso whose own file is an MPD-style Studio stub, or carries a
-BrickLink description, identified as NOTHING and invented orphan arms and
-headgear around a correctly assembled figure (910049: 11 of 14 torsos).
+**The regeneration and polish halves are DONE, locally.** All 2,302 DbixConvV3
+stems were regenerated with the converter fixes and re-polished on 2026-09-19;
+1,971 of 2,249 comparable files changed. **Nothing is on R2**, so prod still
+serves the pre-regen bytes for the whole corpus.
 
-**13 stems are already regenerated on disk** (the DbixConvV3 picks of the 15
-sets Will listed) and A/B'd with the same grader on both sides — figure
-defects −72 %, displaced −69 %, big floating −63 %, floating −54 %, and 52.3 %
-of FIGURE placements moved against 4.6 % of windows. Numbers, per-set table and
-the residue: `docs/lego-sources-guide.md` §3. **Nothing is on R2**, so prod
-still serves the old bytes for those 13.
+Measured on a random 500 primary picks, same grader both sides
+(`docs/lego-sources-guide.md` §5): corpus PASS **47.2 % -> 50.0 %**, the 91
+`DbixConvV3` picks **17.6 % -> 33.0 %**, figure defects **-27 %**, displaced
+**-44 %**. One regression, located: big floating **+7 %**, which is THREE sets
+of 91 — `41713` 0 -> 67, `71839` 10 -> 30, `42703` 0 -> 14, 86 unchanged.
+`41713` is the set `dbix_align.py`'s own comment names as catastrophically
+sensitive; **not investigated**.
 
-Sequence: regenerate DbixConvV3 + IOModel2V2 + Mecabricks -> re-grade -> rebuild
-the index -> sync R2 -> verify on prod bytes.
-**Expect the PASS rate to fall, measured not guessed**: a random 500 of the
-9,425 graded picks, re-graded today, is **47.2 % PASS**, with `DbixConvV3` at
-**17.6 %** — BELOW the 30–40 % this tracker used to predict, because that
-prediction predates the figure gate. No PRIMARY PICK changes: picks come from
-source priority plus `BEST_OVERRIDES`, never from a grade.
-Hazards: `sync_models_r2.py` uploads the index LAST and its `_r2_uploaded.txt`
-records KEYS, so a changed file needs its line deleted first or it is skipped
-silently; `scoreboard_extra.json` carries ONE `generated` stamp for all paths.
-`dbix_reconvert_summary.json` and `geograde/dbix_polish_log.jsonl` are dirty in
-the clego tree with the 13 regenerated entries — commit them WITH the full
-regen, not before, or the summary claims a state the corpus is not in.
+What is left: **re-grade -> rebuild the index -> sync R2 -> verify on prod
+bytes.** Hazards, unchanged: `sync_models_r2.py` uploads the index LAST and its
+`_r2_uploaded.txt` records KEYS, so a changed file needs its line deleted first
+or it is skipped silently; `scoreboard_extra.json` carries ONE `generated` stamp
+for all of its paths. New: merge the sharded reconvert summaries with
+`merge_shard_summaries.py` FIRST — it is now ownership-aware, and the old
+last-writer-wins merge would have written 2,901 stale entries over fresh ones.
+
+Also committed locally in clego and NOT published: the `io_model2_v2` assembly
+expansion (118 files), `mb_partmap` +87 decorated rows, the grader's
+`displaced`/`staged-capture`/`figures` rules, the family-ladder fix (a torso
+whose file is a Studio MPD-style stub or carries a BrickLink description
+identified as NOTHING — 910049 lost 11 of 14), and the inverse-prior fix for
+the slide and the door.
 
 ### Needs a device (offline-verified only)
 
