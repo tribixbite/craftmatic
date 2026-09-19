@@ -10,13 +10,13 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 ## State (2026-09-19, evening — publish chain RUNNING; corpus re-graded against what prod draws)
 
 Everything below is on `main`, with `bun run typecheck`, `typecheck:web` and
-`bun run test` (1,744 passing) green locally. **`main` is 34 commits AHEAD of
+`bun run test` (1,744 passing) green locally. **`main` is 37 commits AHEAD of
 `origin/main` — nothing since `a6f3b152` has been pushed** (push needs Will's
 go-ahead), so CI/Deploy have not seen any of it. clego is committed locally
-(`37ed4a42`…`09b76722`) and **the R2 republish is RUNNING** (see the open
-chain) — until it finishes prod serves the pre-regeneration bytes. The corpus
-on disk is NOT git-tracked (`lego_sets/` is ignored) — R2 is its only durable
-copy, so the publish is also the backup.
+(`37ed4a42`…`0cf793c6`) and **the corpus IS on R2** — prod serves the
+regenerated, figure-assembled, re-framed bytes and the upstream-library board.
+The corpus on disk is NOT git-tracked (`lego_sets/` is ignored) — R2 is its
+only durable copy.
 
 ### Shipped this round — detail in `git log` / the guides, kept where a decision needs the number
 
@@ -51,47 +51,27 @@ copy, so the publish is also the backup.
   2.1–5.3 s. Incident: the Play screen's LAN tile shifts local worlds one
   slot — read the tile LABEL before every tap.
 
-### The open chain: publish the corpus (RUNNING — two detached jobs)
+### The corpus is PUBLISHED (2026-09-19 ~17:00) — follow-ups only
 
-Done: pass 1 + pass 2 re-grades (all 10,169 primary picks, ONE grader, the
-UPSTREAM library, 0 errors, 45 min), `--report --full` (board stamp
-`2026-09-19 15:53:14`, **5,593 PASS = 55.0 %**; mecabricks 65 %, recon_v3
-25 %, dbix_conv_v3 36 %, omr 94 %, ldr 88 %, io 79 %, lxf 55 %),
-`build_model_index.py` (11,640 stamps: 6,236 verified / 5,316 defective; 775
-ALTERNATE paths dropped as stale because alternates were not re-graded yet).
+Prod serves the new index on the plain URL (board stamp `2026-09-19 16:54:06`,
+15,647 stamps: 6,656 verified / 8,899 defective, 482 alternates stale) and the
+4,746 changed files (0 upload failures; `DbixConvV3/76286.ldr` sha
+`b5be43f938ac` = the index entry, carrying `!CLASS_B_REFRAME`; `ReconV3/8799`
+carries `!FIGURE_ASSEMBLE`). `node scripts/_lego-probe.mjs 76286` against
+prod: 2,077 bricks, 487 meshes, the new grade note in the status, only the
+known no-mould `28710` missing. Board committed in clego (`0cf793c6`), the
+bundled index in craftmatic (`0e4df3bd`) — **Deploy still ships the old bundled
+index until `main` is pushed** (Will's call; 37 commits ahead).
 
-Running (started ~16:20 local, both detached from the session):
-
-1. **R2 republish** — `python -u sync_models_r2.py --only-file
-   C:/Users/wills/.claude/jobs/718e154d/tmp/changed_publish_prod.txt`
-   (4,746 files whose sha differs from the index PROD serves — the same
-   4,746 as against the local 09-18 index; ~67 files/min → ~70 min), log
-   `…/tmp/r2_sync.log`, failures → `clego/_r2_only_failed.txt` (re-run with
-   `--only-file` on it). It uploads `lego-models-index.json` LAST.
-2. **Alternates grading** — `CLEGO_LDRAW_LIB=upstream python -u
-   geograde/scoreboard.py --grade --full --alts --workers 10`, log
-   `…/tmp/regrade_alts.log`; restores the alternates' `asm` stamps (and
-   `rerank_proposals_full.json`, which went to 0 rows without them).
-
-When BOTH have exited (`exit=0` at each log's tail; `Get-Process python`
-shows neither), from `C:/git/clego`:
-
-```
-CLEGO_LDRAW_LIB=upstream python geograde/scoreboard.py --report --full   # re-stamp with the alternates
-python build_model_index.py                                             # clego + craftmatic copies
-: > empty.txt && python -u sync_models_r2.py --only-file empty.txt      # uploads ONLY the index (todo is empty)
-# prove prod serves the new bytes (index max-age=300, models 3600 — use a cache-buster, re-check a minute later):
-curl -s "https://craftmatic.click/lego-models-index.json?cb=$RANDOM" | python -c "import json,sys;d=json.load(sys.stdin);print(d['geograde'])"
-curl -s "https://craftmatic.click/lego-models/DbixConvV3/76286.ldr?cb=$RANDOM" | sha256sum   # compare with the index entry `hash` (first 12 hex)
-cd C:/git/craftmatic && node scripts/_lego-probe.mjs 76286 output/verify-sets/76286 76286   # DEV_URL=https://craftmatic.click
-```
-
-Then commit in clego (`geograde/scoreboard_full*.{json,jsonl,md}`,
-`geograde/rerank_proposals_full.json`, `dbix_reconvert_summary.json`,
-`lego-models-index.json`, `_model_index_summary.txt`) and in craftmatic
-(`web/public/lego-models-index.json`) — the craftmatic copy is what Deploy
-ships, so prod's index and the app's bundled index differ until `main` is
-pushed and deployed (Will's call).
+- [ ] `geograde/rerank_proposals_full.json` has **347 source-switch
+      proposals** from the upstream-library board (a graded alternate beats
+      the primary). Review them the way the 2026-09-02 rows in
+      `build_model_index.py BEST_OVERRIDES` were, then rebuild + republish the
+      index (`--only-file empty.txt` uploads only the index).
+- [ ] 482 alternate paths still ship without a stamp (modified after the
+      alternates run started, or never in a defective set's alternates).
+- [ ] `28710` (and `30426`, `x346`) have no mould anywhere; the probe's only
+      missing part on 76286.
 
 Also committed locally in clego and NOT published: the `io_model2_v2`
 assembly expansion (118 files), `mb_partmap` +87 decorated rows, the
