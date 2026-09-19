@@ -60,8 +60,26 @@ zero came from `dbix_polish` parking 80 parts; the `DBIX_BOUND_RATIO=0` control
 (old alignment, unpolished) floats 88 against the new corpus's 78. Figure
 defects went 24 -> 0 and split parts 316 -> 9 on the same file.
 
-What is left: **re-grade -> rebuild the index -> sync R2 -> verify on prod
-bytes.** Hazards, unchanged: `sync_models_r2.py` uploads the index LAST and its
+What is left, as commands, all run from `C:/git/clego` (and one from
+craftmatic). Nothing below has been run:
+
+```
+python merge_shard_summaries.py                    # FIRST — see the hazard below
+python geograde/scoreboard.py --grade --full --workers 8   # re-grade the corpus
+python build_model_index.py                        # writes BOTH clego's copy and
+                                                   # craftmatic/web/public/lego-models-index.json
+python -u sync_models_r2.py --only <changed paths…>   # NOT a bare sync — see below
+# then, from craftmatic, verify the bytes prod actually serves:
+node scripts/_lego-probe.mjs <set> output/verify-sets/<set> <set>   # DEV_URL=https://craftmatic.click
+```
+
+The changed paths are every `DbixConvV3/*.ldr` (all 2,302 were rewritten) plus
+the `MecabricksLDR`/`MecabricksSearchLDR` files the stub remap touched (489 +
+33). Prove freshness with each entry's `hash` in the index, not with
+`index.generated`, which is DATE-only and cannot advance on a same-day
+republish.
+
+Hazards, unchanged: `sync_models_r2.py` uploads the index LAST and its
 `_r2_uploaded.txt` records KEYS, so a changed file needs its line deleted first
 or it is skipped silently; `scoreboard_extra.json` carries ONE `generated` stamp
 for all of its paths. New: merge the sharded reconvert summaries with
