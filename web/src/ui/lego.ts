@@ -1146,7 +1146,17 @@ function wireEvents(): void {
       // 'relevance' (incl. browse-all) keeps rankSets' flagship order but
       // stably partitions it by source quality, so authentic .io/OMR builds
       // come before conversions and reconstructions.
-      if (sortMode === 'relevance' && idx) sortByBestSourceClass(results, idx);
+      //
+      // NOT for a multi-term query: there the user named specific things and
+      // `rankSets` already interleaved them so each term's best hit is near the
+      // top. Re-partitioning by source class throws that away — "castle,titanic"
+      // put Titanic first purely because its best source is OMR and the castles'
+      // is .io, which reads as the wrong answer to a list the user typed in a
+      // deliberate order. An explicit sort mode still applies, because that is
+      // the user asking for a different order.
+      if (sortMode === 'relevance' && idx && terms.length < 2) {
+        sortByBestSourceClass(results, idx);
+      }
       searchResults = results;
       visibleResults = RESULTS_PAGE;
       // Populate theme dropdown once loaded
