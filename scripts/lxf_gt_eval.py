@@ -3,9 +3,13 @@
 lxf_gt_eval.py — score the browser's `.lxf` placement maths against authentic
 Studio ground truth, and sweep alternative conventions.
 
-WHY. `web/src/engine/lxf-parser.ts` places every LDD part through one of two
-corrections (clego's MEASURED table first, Studio's `ldraw.xml` columns as the
-fallback). The shipped maths was held out at 72.70 % GEO on six sets; this tool
+WHY. `web/src/engine/lxf-parser.ts` places every LDD part through Studio's
+`ldraw.xml` row applied as its INVERSE, clego's MEASURED table for the designs
+that row does not name, and — for the mini-doll moulds NEITHER names — a
+per-slot origin correction (`--no-minidoll` reproduces the placements from
+before that third case existed).
+
+The shipped maths was held out at 72.70 % GEO on six sets; this tool
 measures it on EVERY native `.lxf` in clego that has an authentic (non-laundered)
 Studio `.io`, 91 of them, and lets a candidate convention be scored the same way
 before it is ported to TypeScript.
@@ -209,6 +213,48 @@ for inv in (False, True):
                     lambda rb, tb, a, m: place_xml_only(rb, tb, a, m, inverse=inv, left=left, ldr_side=ldr, transpose_bone=tr)))()
 
 
+# ── the mini-doll third case ────────────────────────────────────────────────
+# `web/src/engine/lxf-parser.ts` applies a per-SLOT origin correction to the
+# mini-doll moulds NEITHER table covers (clego DBIX_SOLVER.md section 11).  The
+# slot table is read out of the GENERATED TypeScript rather than re-derived
+# here, so this harness cannot drift from what the app does — which is the only
+# reason the number it prints is worth anything.
+MINIDOLL_SLOTS_TS = ROOT / 'web' / 'src' / 'engine' / 'minidoll-slots-generated.ts'
+MINIDOLL_CORRECTION = {
+    'doll_leg': np.array([10.01, 0.00, 0.00]),
+    'doll_torso': np.array([0.00, -19.09, 1.72]),
+    'doll_hips': np.array([0.01, 10.33, 2.83]),
+    'doll_arm': np.array([0.00, -2.26, 0.94]),
+    'doll_head': np.array([0.00, -2.24, 3.28]),
+    'doll_hair': np.array([0.00, -2.29, 0.28]),
+}
+_SLOT_RE = re.compile(r"^  '([^']+)': '([^']+)',$", re.M)
+MINIDOLL_SLOTS = dict(_SLOT_RE.findall(MINIDOLL_SLOTS_TS.read_text(encoding='utf-8')))
+NO_MINIDOLL = False
+
+
+def minidoll_correction(part: str):
+    """The slot correction for an LDraw filename, or None (mirrors `miniDollCorrectionFor`)."""
+    stem = re.sub(r'\.dat$', '', part.split('/')[-1].split(chr(92))[-1], flags=re.I).lower()
+    unprinted = re.sub(r'^([0-9]+[a-z]?)p[0-9a-z]*?(c[0-9]+)?$', r'\1\2', stem)
+    slot = MINIDOLL_SLOTS.get(stem) or MINIDOLL_SLOTS.get(unprinted)
+    return MINIDOLL_CORRECTION.get(slot) if slot else None
+
+
+def identity_xml_row(align) -> bool:
+    if align is None:
+        return True
+    return (max(abs(v) for v in align[1:4]) < 1e-6
+            and (abs(align[4]) < 1e-9 or np.linalg.norm(align[5:8]) < 1e-9))
+
+
+def identity_measured_row(meas) -> bool:
+    if meas is None:
+        return True
+    d = np.array(meas[1:10]).reshape(3, 3)
+    return np.allclose(d, np.eye(3), atol=1e-6) and max(abs(v) for v in meas[10:13]) < 1e-6
+
+
 def ldr_text(records, table, measured, variant) -> tuple[str, Counter]:
     fn = VARIANTS[variant]
     lines = ['0 lxf_gt_eval ' + variant]
@@ -231,6 +277,17 @@ def ldr_text(records, table, measured, variant) -> tuple[str, Counter]:
             stats['measured'] += 1
         else:
             stats['xml'] += 1
+        # The mini-doll slot correction, for the variants that claim to be the
+        # shipped maths.  Same precedence as the TypeScript: the filename comes
+        # from the tables, the correction is replaced only where both rows
+        # correct nothing.
+        if variant in ('shipped', 'hybrid_xml_first') and not NO_MINIDOLL:
+            e = minidoll_correction(part)
+            ident = identity_xml_row(align) if align is not None else identity_measured_row(meas)
+            if e is not None and ident:
+                r_ldr = F @ rb @ F
+                rot, pos = r_ldr, F @ tb * CM_TO_LDU + r_ldr @ e
+                stats['minidoll'] += 1
         r = rot.flatten()
         lines.append('1 %d %.4f %.4f %.4f %s %s' % (
             ldd_colour(rec['material']), pos[0], pos[1], pos[2],
@@ -291,10 +348,14 @@ def main():
     ap.add_argument('--sets', nargs='*', help='set numbers (default: a 4-set probe)')
     ap.add_argument('--all', action='store_true', help='every native .lxf with an authentic .io')
     ap.add_argument('--variants', nargs='*', default=['shipped'])
+    ap.add_argument('--no-minidoll', action='store_true',
+                    help='reproduce the pre-fix placements (the mini-doll A/B)')
     ap.add_argument('--list-variants', action='store_true')
     ap.add_argument('--json')
     ap.add_argument('--dump', help='write the first set/variant placement as this .ldr')
     args = ap.parse_args()
+    global NO_MINIDOLL
+    NO_MINIDOLL = args.no_minidoll
     if args.list_variants:
         print('\n'.join(sorted(VARIANTS)))
         return

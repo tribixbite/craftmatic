@@ -244,6 +244,17 @@ ghost tires). Pipeline defenses (classifier extracted to
   3818/3819 lines, 0 differing anywhere else**. Over 1,257 files / 8,734 arms the
   arm-to-nearest-torso median goes **327.5 → 18.1 LDU** and the count within
   25 LDU goes **6 (0.1 %) → 8,712 (99.7 %)**.
+- **The MINI-DOLL moulds are the one place where NEITHER correction table has an
+  answer, and a third rule fills it.** The learned/measured table has zero doll
+  rows and always will (0 of the 173 ground-truth sets contains a mini-doll
+  torso), and the five doll moulds Studio's `ldraw.xml` names are all-zero rows,
+  so a Friends doll came out at its raw LDD bone: hips ON the torso, head 50 LDU
+  up instead of 33.20, arms 20 instead of 11.00. Craftmatic's loader now applies
+  `MINIDOLL_SLOT_CORRECTION` (six per-SLOT vectors, clego `dbix_figure_align.py`)
+  AFTER both tables and ONLY where the row that named the file corrects nothing,
+  so the ldraw.xml-inverse-primary / measured-fallback order above is unchanged
+  for every other part. The doll skeleton shares NO number with the minifig's
+  (24 / 18 / 32 against 33.20 / 11.00 / 29.42) — never reuse one for the other.
 - **`0 !LINEAGE <tool> <good|partial>` is the CANONICAL stamp** (clego
   converters emit it since 2026-08-28) and takes precedence over all legacy
   sniffs — the v2 DBIX reconverter's files also start with `0 LEGO DBIX v2`,

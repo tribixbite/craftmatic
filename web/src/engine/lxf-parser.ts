@@ -24,7 +24,7 @@
  *    correctly, and every part attached only through a displaced one reads as
  *    floating or splayed (issue #108).
  *
- * TWO correction tables, and the ORDER matters:
+ * TWO correction tables and ONE slot rule, and the ORDER matters:
  *
  *  a. `/ldd-part-map.json` — BrickLink Studio's own `ldraw.xml` correction
  *     columns (axis-angle + translation in LDD units), the PRIMARY correction
@@ -37,6 +37,13 @@
  *     the FALLBACK for designs Studio's table does not name. Its correction is
  *     already in LDU and already in the FLIPPED LDraw basis, so it composes
  *     post-flip; it is quantised (1/20 rotations, 1 LDU), so it is less exact.
+ *  c. `MINIDOLL_SLOT_CORRECTION` — the mini-doll (LEGO Friends) skeleton, which
+ *     NEITHER table covers: the measured table has no doll row (no ground-truth
+ *     set contains a mini-doll) and every doll row `ldraw.xml` has is all-zero,
+ *     so a doll used to be emitted at its raw LDD bone with a broken skeleton.
+ *     It applies AFTER the two tables and only where they correct NOTHING, so
+ *     the filename ladder is unchanged and a part with a real row is untouched.
+ *     Keyed by SLOT, not by part id — see the block above the table.
  *
  * Measured with `scripts/lxf_gt_eval.py` over EVERY native `.lxf` in clego
  * whose set has an authentic (non-laundered) Studio `.io` — 91 files, none of
@@ -71,6 +78,8 @@
 import { extractFile, extractMatching } from './zip-utils';
 import { lddToLDraw } from './ldd-colors';
 import type { ParsedBrick } from './ldraw-parser';
+import { MINIDOLL_SLOTS } from './minidoll-slots-generated.js';
+import type { MiniDollSlot } from './minifig-rig.js';
 
 /** 1 cm = 25 LDraw units (1 stud = 0.8cm = 20 LDU → 1cm = 25 LDU). */
 const CM_TO_LDU = 25;
@@ -149,6 +158,21 @@ export interface LxfDiagnostics {
   measuredPlacements: number;
   /** placements positioned through Studio's (inverse) ldraw.xml correction. */
   mappedPlacements: number;
+  /**
+   * placements re-positioned by the MINI-DOLL slot correction — an OVERLAY on
+   * the three counts above, not a fourth bucket: the LDraw filename still came
+   * from whichever table named the design, only the correction was replaced.
+   */
+  miniDollPlacements: number;
+  /**
+   * mini-doll placements LEFT to their table row because the row that placed
+   * them carries a real (non-identity) correction. With the shipped tables this
+   * is 13 placements over clego's 2,302 LXFML dumps, all of design `80911`
+   * (`bl_80911.dat`, a doll hair) whose MEASURED row is (1085, 23, -310) LDU —
+   * a bad learned vote, not an authored doll row. A large value means a table
+   * now authors doll corrections and this rule should be retired.
+   */
+  miniDollDeferredToTable: number;
   /** placements with NEITHER: identity alignment + bare `designID.dat`. */
   unmappedPlacements: number;
   /** distinct unmapped design ids, most-used first (capped for readability). */
@@ -466,6 +490,141 @@ export function composeLxfMeasured(
 }
 
 /**
+ * THE MINI-DOLL SLOT CORRECTION — the THIRD case, for the moulds NEITHER table
+ * covers (clego `dbix_figure_align.py`, `DBIX_SOLVER.md` §11).
+ *
+ * A LEGO Friends mini-doll used to render with a broken skeleton: hips at the
+ * torso's own origin, head 50 LDU up instead of 33.20, arms at 20 instead of
+ * 11.00. It is a MISSING correction, not a wrong one — every mini-doll part
+ * resolved with no row at all and was emitted at its raw LDD bone:
+ *
+ *  * the MEASURED table has zero mini-doll rows and always will: none of the
+ *    173 ground-truth sets it is voted from contains a mini-doll torso, so the
+ *    learner never saw one;
+ *  * Studio's `ldraw.xml` names five doll moulds in the shipped table (`20380`,
+ *    `21630`, `21634`, `25727` legs and `88286` hair) and EVERY one of them is
+ *    an all-zero row — an identity correction, which is exactly the bug.
+ *
+ * LDD's origin convention for these moulds is not LDraw's: LDD gives the torso
+ * and the hips the SAME bone (its torso origin is the waist plane), which is
+ * why `torso → hips` measured 0.00. The difference is a per-mould constant, so
+ * it is an origin correction like any other.
+ *
+ * MEASURED ON BOTH SIDES, nothing fitted (clego §11.2): (A) the LDraw library's
+ * own 145 mini-doll composites, flattened with `~Moved to` stubs followed, give
+ * each slot's offset from the plain torso with a p10–p90 spread of 0.0; (B) the
+ * modal offset from the torso bone over the LDD corpus. `A − B` is the
+ * correction up to one rigid constant, and that constant is measured too: the
+ * legs is the part LDD places on the model (its bone lands on the model's own
+ * 8 LDU plate / 20 LDU stud grid in 82 % / 84 % of 360 figures while no other
+ * slot does, and the LDraw legs part's `hi.y` IS the sole plane), so the legs
+ * carries the whole 10.01 LDU in x — one mini-doll foot's axis (`s/92251s03`
+ * is centred at x = 9.95) — and nothing in y or z.
+ *
+ * The four joints this reproduces are the authentic ones to 0.02 LDU: torso →
+ * head 33.20, torso → arm 11.00, torso → plain hips 29.42, hips → legs 47.48.
+ * They share NOTHING with the minifig's 24 / 18 / 32, which is why the minifig
+ * rig's numbers must never be reused for a doll.
+ *
+ * NOT corrected, deliberately: `doll_hips_legs` (LDD emits a hips and a legs,
+ * never the composite), `doll_torso_arms` (a different mould, 12.8 LDU below
+ * the plain torso, that LDD likewise never emits) and `doll_body` (the
+ * one-piece baby/micro-doll body — the library has no composite that places
+ * one, so there is nothing to measure). A slot with no row here is left alone.
+ */
+export const MINIDOLL_SLOT_CORRECTION: Readonly<Partial<Record<MiniDollSlot, readonly [number, number, number]>>> = {
+  doll_leg: [10.01, 0.00, 0.00],    // LDD's origin is on one foot's axis
+  doll_torso: [0.00, -19.09, 1.72], // LDD's origin is the waist plane
+  doll_hips: [0.01, 10.33, 2.83],   // LDD gives the hips the torso's bone
+  doll_arm: [0.00, -2.26, 0.94],
+  doll_head: [0.00, -2.24, 3.28],
+  doll_hair: [0.00, -2.29, 0.28],
+};
+
+/** `parts/92198p01.dat` → `92198p01`. */
+const stemOfPart = (part: string): string =>
+  part.replace(/^.*[\\/]/, '').replace(/\.dat$/i, '').toLowerCase();
+
+/**
+ * The mini-doll SLOT of an LDraw part, or null for everything that is not a
+ * mini-doll mould (which is every other part in the library).
+ *
+ * The SLOT comes from `minidoll-slots-generated.ts`, which is this repo's own
+ * description classifier (`classifyMiniDollPart`) run over the LDraw library at
+ * build time — keying by slot and not by part id is what covers the 13 LDD legs
+ * moulds and 5 torso moulds the reference library has no composite for.
+ *
+ * An unknown PRINT of a known mould falls back to the unprinted mould
+ * (`92198p99` → `92198`); an unknown COMPOSITE never does, because a composite
+ * is a different mould with a different origin (`92241p03c01` is the torso WITH
+ * ARMS, 12.8 LDU lower) and inheriting the plain mould's correction would move
+ * it wrongly.
+ */
+export function miniDollSlotOf(part: string): MiniDollSlot | null {
+  const stem = stemOfPart(part);
+  // `92198p99` → `92198` (an unknown print of a known mould), but
+  // `92241p99c01` → `92241c01` and NOT `92241`: the composite suffix is kept so
+  // an unknown composite falls out of the table instead of inheriting the plain
+  // mould's slot.
+  const unprinted = stem.replace(/^([0-9]+[a-z]?)p[0-9a-z]*?(c[0-9]+)?$/, '$1$2');
+  return MINIDOLL_SLOTS[stem] ?? MINIDOLL_SLOTS[unprinted] ?? null;
+}
+
+/** The correction for a part's slot, or null when the slot has none (see above). */
+export function miniDollCorrectionFor(part: string): readonly [number, number, number] | null {
+  const slot = miniDollSlotOf(part);
+  return (slot && MINIDOLL_SLOT_CORRECTION[slot]) ?? null;
+}
+
+/**
+ * The mini-doll path: no rotation correction (`D = I`, the LDD bone's rotation
+ * is already right — the defect is purely the origin), the slot's `e` applied
+ * on the LDraw side exactly as the measured path applies its own.
+ */
+export function composeLxfMiniDoll(
+  rBone: number[],
+  tBone: [number, number, number],
+  e: readonly [number, number, number],
+): LxfPlacement {
+  const rLdr = conjugateFrame(rBone);
+  const offset = mulVec(rLdr, [e[0], e[1], e[2]]);
+  const [sx, sy, sz] = FRAME_SIGN;
+  return {
+    rot: rLdr,
+    x: sx * tBone[0] * CM_TO_LDU + offset[0],
+    y: sy * tBone[1] * CM_TO_LDU + offset[1],
+    z: sz * tBone[2] * CM_TO_LDU + offset[2],
+  };
+}
+
+/** A `ldraw.xml` row that corrects nothing: no translation and no rotation. */
+export function isIdentityPartAlign(a: PartAlign | undefined): boolean {
+  if (!a) return true;
+  const zeroT = Math.abs(a[1]) < 1e-6 && Math.abs(a[2]) < 1e-6 && Math.abs(a[3]) < 1e-6;
+  const zeroR = Math.abs(a[4]) < 1e-9 || Math.hypot(a[5], a[6], a[7]) < 1e-9;
+  return zeroT && zeroR;
+}
+
+/** A measured row that corrects nothing: zero offset and an identity rotation. */
+export function isIdentityMeasuredAlign(m: MeasuredAlign | undefined): boolean {
+  if (!m) return true;
+  const identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  // `slice` because a computed index into the tuple type widens to `string | number`.
+  const d = m.slice(1, 10) as number[];
+  for (let i = 0; i < 9; i++) if (Math.abs(d[i]! - identity[i]!) > 1e-6) return false;
+  return Math.abs(m[10]) < 1e-6 && Math.abs(m[11]) < 1e-6 && Math.abs(m[12]) < 1e-6;
+}
+
+export interface LxfPlacementOptions {
+  /**
+   * Apply the mini-doll slot correction (default true). `false` reproduces the
+   * pre-fix placements exactly, which is what a before/after measurement needs
+   * — the same A/B switch as clego's `DBIX_FIGURE_ALIGN=0`.
+   */
+  miniDoll?: boolean;
+}
+
+/**
  * The DOM-free core: LXFML `<Part>` records × the alignment table → placements
  * plus the coverage/skip counts. Pure, so the production table's real coverage
  * is testable without a browser.
@@ -474,7 +633,9 @@ export function buildLxfPlacements(
   records: readonly LxfPartRecord[],
   table: LxfAlignmentTable,
   measured: LxfMeasuredTable,
+  options: LxfPlacementOptions = {},
 ): { bricks: ParsedBrick[]; diagnostics: LxfDiagnostics } {
+  const correctMiniDoll = options.miniDoll !== false;
   const bricks: ParsedBrick[] = [];
   const unmapped = new Map<string, number>();
   let measuredPlacements = 0;
@@ -483,6 +644,8 @@ export function buildLxfPlacements(
   let skippedNoBone = 0;
   let skippedBadTransform = 0;
   let multiBoneParts = 0;
+  let miniDollPlacements = 0;
+  let miniDollDeferredToTable = 0;
 
   for (const rec of records) {
     if (rec.boneCount > 1) multiBoneParts++;
@@ -512,6 +675,29 @@ export function buildLxfPlacements(
       part = `${rec.designID}.dat`;
       placement = composeLxfPlacement(boneT.rBone, boneT.tBone, undefined);
     }
+
+    // THE THIRD CASE: a mini-doll mould, which neither table corrects. The
+    // FILENAME still comes from the ladder above (Studio's table is what turns
+    // design `21630` into `92250.dat`); only the CORRECTION is replaced, and
+    // only when the row that named the file corrects nothing — a part with a
+    // real `ldraw.xml` or measured row keeps it, so nothing outside the doll
+    // moulds can move and an authored doll row would win if one ever appears.
+    if (correctMiniDoll) {
+      const e = miniDollCorrectionFor(part);
+      if (e) {
+        // The test is on the row that ACTUALLY placed this part, not on both:
+        // `88286` (a doll hair) has an identity `ldraw.xml` row — which wins and
+        // is what the placement above used — plus a measured row of
+        // (967, 0, -470) LDU that nothing applies. Requiring both to be identity
+        // deferred 13 corpus placements to a row the loader never reads.
+        if (align ? isIdentityPartAlign(align) : isIdentityMeasuredAlign(meas)) {
+          miniDollPlacements++;
+          placement = composeLxfMiniDoll(boneT.rBone, boneT.tBone, e);
+        } else {
+          miniDollDeferredToTable++;
+        }
+      }
+    }
     bricks.push({
       color: lddToLDraw(rec.materialId), rot: placement.rot,
       x: placement.x, y: placement.y, z: placement.z, part,
@@ -534,6 +720,8 @@ export function buildLxfPlacements(
       measured: report(measured),
       measuredPlacements,
       mappedPlacements,
+      miniDollPlacements,
+      miniDollDeferredToTable,
       unmappedPlacements,
       unmappedDesignIds: [...unmapped.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -584,9 +772,36 @@ export function describeLxfDiagnostics(d: LxfDiagnostics): string | null {
       'entry at all and use their raw LDD origin',
     );
   }
+  if (d.miniDollDeferredToTable > 0) {
+    // The rule is written to lose to an authored row; say so when it does,
+    // because that means the doll correction below is now dead code for those
+    // moulds and the table is answering for them instead.
+    parts.push(
+      `${d.miniDollDeferredToTable} mini-doll placements kept their table row ` +
+      'instead of the measured slot correction, so their skeleton may still be wrong',
+    );
+  }
   if (d.skippedBadTransform > 0) parts.push(`${d.skippedBadTransform} malformed bone transforms skipped`);
   if (d.skippedNoBone > 0) parts.push(`${d.skippedNoBone} parts with no bone skipped`);
   return parts.length ? `LDD .lxf: ${parts.join('; ')}` : null;
+}
+
+/**
+ * The design id a `<Brick>`/`<Part>` names, without LDD's mould-VARIANT suffix.
+ *
+ * LDD writes `designID="1006030;I"` in the LXFML its own dumps carry (4,111 of
+ * 41732's ids have one); the letter after the `;` is the mould variant, and no
+ * table is keyed by it. Passing it through verbatim missed BOTH alignment
+ * tables and asked the library for `1006030;I.dat`, so every part of such a
+ * file rendered at its raw LDD origin with no geometry at all — the model came
+ * up empty ("37 pieces of 13 part types not in library", 0×0 studs). clego's
+ * converter and `scripts/lxf_gt_eval.py` have always split here; the loader
+ * did not. Native `.lxf` files written by LDD itself carry no suffix, which is
+ * why the whole native corpus never showed it.
+ */
+export function normalizeDesignId(raw: string | null | undefined, fallback = '3001'): string {
+  const id = (raw ?? '').split(';')[0]!.trim();
+  return id === '' ? fallback : id;
 }
 
 /** Lift every `<Part>` out of an LXFML document. Thin — the DOM half. */
@@ -601,7 +816,7 @@ function readLxfParts(doc: Document): LxfPartRecord[] {
     for (const partEl of brick.querySelectorAll('Part')) {
       const bones = partEl.querySelectorAll('Bone');
       out.push({
-        designID: partEl.getAttribute('designID') ?? brickDesign ?? '3001',
+        designID: normalizeDesignId(partEl.getAttribute('designID')?.trim() || brickDesign),
         materialId: parseInt((partEl.getAttribute('materials') ?? '').split(',')[0], 10) || 194,
         // Each Part carries its own Bone(s); the first bone is its placement.
         // (Multiple bones = a flex part's segments — out of scope; first wins,

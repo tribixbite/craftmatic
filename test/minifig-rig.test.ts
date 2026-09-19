@@ -170,25 +170,31 @@ describe('the rig through the entity compiler', () => {
     const a = minifigFromSpec({ torso: { part: '973', color: 4 }, hair: { part: '3901', color: 0 } });
     const geo = await compileLdrawEntityGeometry('fig', 'figure', a.bricks, { partGeometry: provider(), rig: a.rig, frame: ldrawToRenderRotation('-z'), quality: { studFacets: 1 } });
     const meshes = (geo.value as { 'minecraft:geometry': Array<{ bones: Array<{ name: string; parent?: string; pivot: number[]; cubes: unknown[] }> }> })['minecraft:geometry'];
-    expect(meshes).toHaveLength(1);
-    const bones = meshes[0]!.bones;
-    const names = bones.map(b => b.name);
+    // One geometry per colour (box UV), and each declares the bones its own
+    // cubes hang off plus their parent chain - with the SAME pivots, or the
+    // figure would come apart between meshes.
+    expect(meshes.length).toBe(geo.meshes.length);
+    const bones = meshes.flatMap(m => m.bones);
+    const names = [...new Set(bones.map(b => b.name))];
     for (const rb of MINIFIG_BONES) expect(names).toContain(rb.name);
     const byName = new Map(bones.map(b => [b.name, b]));
+    for (const b of bones) expect(b.pivot).toEqual(byName.get(b.name)!.pivot);
     expect(byName.get('leg_right')!.parent).toBe('hips');
     expect(byName.get('hand_left')!.parent).toBe('arm_left');
     expect(byName.get('head')!.parent).toBe('body');
-    // Parents come before children.
-    for (const b of bones) if (b.parent) expect(names.indexOf(b.parent)).toBeLessThan(names.indexOf(b.name));
+    // Parents come before children, inside every geometry.
+    for (const m of meshes) {
+      const order = m.bones.map(b => b.name);
+      for (const b of m.bones) if (b.parent) expect(order.indexOf(b.parent)).toBeLessThan(order.indexOf(b.name));
+    }
     // Pivots: feet on the floor (y 0), so the hip joint sits at (72 − 44) LDU × 0.3 = 8.4 units, the neck at (72 + 24) × 0.3 = 28.8.
     expect(byName.get('leg_right')!.pivot[1]).toBeCloseTo((MINIFIG_FEET_Y - 44) * 0.3, 1);
     expect(byName.get('head')!.pivot[1]).toBeCloseTo((MINIFIG_FEET_Y + 24) * 0.3, 1);
     // The right arm's pivot is at the figure's right: LDraw −X → render +X → JSON −X.
     expect(byName.get('arm_right')!.pivot[0]).toBeCloseTo(-15.552 * 0.3, 1);
     // The turned arms are child bones of their rig bone, so the walk animation moves them.
-    const armChildren = bones.filter(b => b.parent === 'arm_right');
+    const armChildren = bones.filter(b => b.parent === 'arm_right' && b.cubes.length);
     expect(armChildren.length).toBeGreaterThanOrEqual(1);
-    expect(armChildren[0]!.cubes.length).toBeGreaterThan(0);
     // The figure stands 96 LDU = 1.8 blocks tall, hair aside.
     expect(geo.sizeBlocks.height).toBeGreaterThanOrEqual(1.8);
     expect(geo.sizeBlocks.height).toBeLessThan(2.05);

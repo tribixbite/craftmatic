@@ -185,6 +185,70 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   return 'held';
 }
 
+/**
+ * The mini-doll (LEGO Friends) slots. A DIFFERENT skeleton from the minifig:
+ * head 33.20 LDU from the torso, arms 11.00, hips 29.42, hips->legs 47.48 —
+ * nothing in common with the minifig's 24 / 18 / 32, so anything that assumes
+ * minifig numbers for a doll is wrong by construction.
+ *
+ * `classifyMinifigPart` is deliberately NOT extended to return these: it feeds
+ * the minifig assembler, which would then re-place a doll on the minifig rig.
+ * The two classifiers share this module's helpers (`stripAlias`, `cleanId`,
+ * `movedTo`) and the same rule — the LIBRARY DESCRIPTION names the mould, the
+ * id is only a fallback — so there is one family convention, not two.
+ */
+export type MiniDollSlot =
+  | 'doll_head' | 'doll_torso' | 'doll_torso_arms' | 'doll_body' | 'doll_hips_legs'
+  | 'doll_hips' | 'doll_leg' | 'doll_arm' | 'doll_hair';
+
+/**
+ * Mini-doll families by LDraw description, in order (the first match wins).
+ * LDraw names the whole system `Figure Friends …`; a handful of newer moulds
+ * use `Mini Doll, …`. Mirrors clego's `geograde/part_family.py` so the two
+ * pipelines classify a mould identically — with ONE deliberate difference,
+ * `doll_hair`: clego admits `Figure Friends Hair Decoration …` and
+ * `… Hair Dryer` into the hair family, and this does not. A decoration is a
+ * separate mould pinned INTO the hair, not the hair: measured over the library
+ * composites that place both, the decoration sits 11.65 LDU above the hair,
+ * while LDD places it at the hair's own height (median 0.0 over the LXFML
+ * corpus, n=9) — so it has its own, unmeasured origin difference and must not
+ * inherit the hair's 2.29 LDU one.
+ */
+const MINIDOLL_PATTERNS: ReadonlyArray<readonly [MiniDollSlot, RegExp]> = [
+  ['doll_head', /^(Figure Friends (Female |Male |Boy |Girl |Baby )?Head\b|Mini ?Doll,? Head\b)/i],
+  // A torso that CARRIES ITS ARMS is a different mould with a different origin
+  // — `92456p03` sits 12.8 LDU below the plain `92241p03` it is the composite
+  // of — and 131 of the library's 233 doll torsos are one. It gets its own slot
+  // and no correction: LDD emits the plain torso plus two arms, never the
+  // composite, so there is no LDD side to measure a correction against.
+  ['doll_torso_arms', /^Figure Friends (Girl|Boy|Woman|Man|Baby)\b[^,]*\bTorso with Arms\b/i],
+  ['doll_torso', /^Figure Friends (Girl|Boy|Woman|Man|Baby)\b[^,]*\bTorso\b/i],
+  ['doll_body', /^(Figure Friends Baby Body\b|Figure Micro Doll Body\b)/i],
+  ['doll_hips_legs', /^(Figure Friends Hips and Legs?\b|Mini ?Doll Hips and (Skirt|Legs?)\b)/i],
+  ['doll_hips', /^Figure Friends Hips\b/i],
+  ['doll_leg', /^Figure Friends Legs?\b/i],
+  ['doll_arm', /^Figure Friends ((Female|Male) )?(Left|Right) Arm\b/i],
+  ['doll_hair', /^(Figure Friends Hair\b(?! ?(Brush|Comb|Dryer|Decoration))|Mini ?Doll,? (Hair|Wig)\b)/i],
+];
+
+/**
+ * Which mini-doll slot a part fills, by its LDraw description, or null.
+ *
+ * A `~Moved to <id>` stub carries no name of its own, so it classifies as
+ * nothing here — the caller resolves the redirect first (`mouldFamilyId` for
+ * the id, the library for the target's description). `part` is accepted for
+ * symmetry with `classifyMinifigPart` and to keep the redirect visible at the
+ * call site; the decision is the description's alone, because a doll mould id
+ * carries no family pattern (`1006030`, `92244`, `59595` share nothing).
+ */
+export function classifyMiniDollPart(part: string, description: string): MiniDollSlot | null {
+  void part;
+  const d = stripAlias(description);
+  if (movedTo(description) !== null) return null;
+  for (const [slot, re] of MINIDOLL_PATTERNS) if (re.test(d)) return slot;
+  return null;
+}
+
 interface SourcePart { brick: ParsedBrick; slot: MinifigSlot; local: Vec3; rot: number[]; desc: string }
 
 const placeAt = (part: string, color: number, position: Vec3, rotation: Mat3): ParsedBrick => ({
