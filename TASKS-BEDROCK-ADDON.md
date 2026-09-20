@@ -100,42 +100,32 @@ also carrying 17 `stem-mesh` rows from another agent), `discovery/eb_ldd_sample_
 The scoreboard `_targets.json` / `_grades.jsonl` / `dbix_reconvert_summary.json`
 ARE this round's and get committed with the report.
 
-### Device round 2026-09-19 (world 919) — what is still open on the phone
+### Device rounds 2026-09-19/20 (world 919) — what is open on the phone
 
-The four "needs a device" items were verified (`output/device-919/REPORT.md`,
-durable numbers in `docs/bedrock-addon-guide.md`): culling PASS at 100/200/
-300/400 % and 400 % at 30° off-axis; collider clear PASS through a 9-step size
-cycle (door Air, wall collider before and after); box UV with all three packs
-at 100 % = 77,345 cuboids runs 30 fps at nativePss 1.03 GB; an extra
-49,833-cuboid Actor costs ≈ 2.7 MB. Left open:
+Durable numbers in `docs/bedrock-addon-guide.md`; evidence
+`output/device-919/{REPORT,ceiling/CEILING,lod/LOD-RESULT,round-2026-09-20/REPORT}.md`.
+Done: culling PASS at 100–400 %, collider clear PASS, ceiling 487,856 cuboids
+survived (budget 480k), LOD switch verified (26–28 blocks), Milano v2 100 % PASS.
 
-- [x] Ceiling run DONE (`output/device-919/ceiling/CEILING.md`): 17 packs /
-      487,856 cuboids at 60 fps, nativePss 2.21 GB, no crash — the run ran out of
-      packs. `DEVICE_CUBOID_BUDGET` is now 480,000 (`d2ce9eda`). Pushing further
-      needs ~300k more cuboids of distinct Ultra packs (10295 Porsche build
-      failed, not retried); only worth it if a user pack actually nears 480k.
-- [ ] Milano 76286-v2 at **400 %** (100 % PASS): open the wand size menu, place,
-      screenshot the gear on the ground.
-- [ ] 76435 at 400 % shows a few small detached objects above the roofline
-      (`shots/226-all3-view2.jpg`): find whether they are `extras` placed at
-      source positions or polish-parked parts of the regenerated file.
-- [ ] Will deleted every add-on before this round; the Pixel now carries
-      only `GreatHall7`, `HogwartsCa`, `MilanoSpac` plus
-      `/sdcard/Download/dev919-*.mcaddon` (removable over adb). Packs cannot
-      be removed over adb (`rm` is denied in `Android/data`) — file manager only.
-
-### LOD hull: VERIFIED on the Pixel, default on at the pipeline (2026-09-19)
-
-Switch at 26-28 blocks for `lodDistance` 32, unit = blocks, content log clean,
-near p90 33 -> 17 ms, memory unchanged (`output/device-919/lod/LOD-RESULT.md`).
-`runSchemPipeline` / `_playable_ref.ts` default `lod: 'hull'`; the engine
-function defaults `none`. Open:
-
-- [ ] Measure the multi-set fps case the hull was built for: place 4-6 sets in
-      world 919 (packs are installed), one near / rest far, perf row vs the same
-      scene with `--lod=none` packs. The ~2x claim is still an inference.
-- [ ] Decide whether the LEGO tab exposes a `Distance LOD` toggle (default on);
-      the export note already reports the hull cuboids.
+- [ ] **Milano v2 hovers at 400 %** (`round-2026-09-20/shots/186-milano400-under.jpg`):
+      the grounding does not scale with the wand size. An Opus fix is in flight
+      (`round-2026-09-20/GROUNDING.md`, pack `76286-v3.mcaddon`); device test:
+      place at 100/200/400 %, screenshot from under the gear, contact at all three.
+- [ ] **Multi-set LOD fps A/B still not repeated**: the 2026-09-20 row spaced
+      sets 66–108 blocks apart so only one was ever near the camera (all rows
+      16.7 ms). Re-run with 3+ full-detail sets inside 32 blocks vs the same
+      scene in LOD packs (`round-2026-09-20/lod2/` has Titanic/Colosseum/Taj
+      LOD packs). Give each wand fresh via `/function` right before use.
+- [ ] **Chalet roaming**: collision height 0.95 freed 1 of 7 (control 0 of 7,
+      `--figure-collision-height`, `811f4fb0`). Next: height from each figure's
+      interior clearance, longer dwell. "blank" world still has the h095 pack.
+- [ ] 76435 at 400 % shows small detached objects above the roofline
+      (`shots/226-all3-view2.jpg`): `extras` at source positions or polish-parked
+      parts of the regenerated file?
+- [ ] Phone carries 3 round packs + 14 ceiling packs + `WinterChal(1)`,
+      `Titanic102(1)`, `Colosseum1(1)`, `TajMahal10(1)`, active in no world 919
+      slot; removal is file-manager only. `/sdcard/Download/dev920-*.mcaddon`
+      can be removed over adb.
 
 ### Measured and CLOSED — do not re-open
 

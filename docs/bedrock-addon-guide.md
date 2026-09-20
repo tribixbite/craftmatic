@@ -1492,3 +1492,26 @@ version bumped) replaced the installed ones in world 919:
   pre-LOD bytes. The client entity declares one `empty` geometry with no
   controller of its own. Not exposed in the UI (a per-export toggle is a
   memory-for-frame-time trade of +3-10 % cuboids per entity).
+
+### Device round 2026-09-20: LOD on five sets, chalet collision height, Milano at 400 % (evidence `output/device-919/round-2026-09-20/REPORT.md`)
+
+- **LOD on a five-set row** (Milano, Hogwarts, Great Hall, Titanic 10294,
+  Colosseum 10276; 179k non-LOD / 185k LOD active cuboids): hull confirmed
+  at distance on a second scene, nativePss unchanged by distance (definition-
+  side again), and every perf row 16.7 ms median. That is NOT a null result
+  for LOD: the sets landed 66–108 blocks apart, so no camera position had more
+  than one full-detail set in range. The 09-19 spike (mean 21.25 / p90 33.37
+  ms) needed three full-detail sets inside 32 blocks; that crowded A/B is
+  still unrepeated. Taj Mahal was dropped: duplicate wands in the hotbar made
+  its slot unidentifiable — grant each wand fresh via `/function` before use.
+- **Chalet figures, `collision_box.height` 1.8 vs 0.95** (`--figure-collision-
+  height`, 910004, fresh flat world, ~6 min dwell each): 0 of 7 moved at 1.8,
+  **1 of 7 at 0.95**. A real but weak signal; six stay stuck, so a global cut
+  is not the mechanism. Next: per-figure height from the interior clearance.
+- **Milano 76286-v2 at 400 %: FAIL** — the gear hangs with a visible gap
+  (`shots/186-milano400-under.jpg`). The grounding holds at 100 % only; it is
+  applied in unscaled units somewhere between the render-frame lowest-cuboid
+  offset and the size-group scale. Fix tracked in `GROUNDING.md`.
+- Traps: `/camera` far from loaded chunks fails silently and renders black
+  silhouettes (teleport the player instead); the transport dropped before
+  nearly every wand-menu tap this round.
