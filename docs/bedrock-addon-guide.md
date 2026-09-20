@@ -1516,9 +1516,13 @@ version bumped) replaced the installed ones in world 919:
   silhouettes (teleport the player instead); the transport dropped before
   nearly every wand-menu tap this round.
 
-### The wand's size factor multiplied a constant lift (fixed 2026-09-20, offline; device round pending)
+### The wand's size factor multiplied a constant lift (fixed 2026-09-20; device PASS at 100/200/400 %)
 
-Evidence and the device procedure: `output/device-919/round-2026-09-20/GROUNDING.md`.
+Evidence: `output/device-919/round-2026-09-20/GROUNDING.md`; the device check
+`GROUNDING-RESULT.md` — `76286-v3` placed at one pin at 100, 200 and 400 %,
+gear tips on the grass in all three shots (`shots/g-100-under.jpg`,
+`g-200-under.jpg`, `under-400-approach.jpg`, pixel-sampled leg-to-grass with no
+sky between), and the 100 % ghost now starts at ground level.
 
 Every actor coordinate a pack ships is scaled about the pin by the wand's size
 factor (`worldPoint`: `anchor + p × f`), so each one has to be a measurement

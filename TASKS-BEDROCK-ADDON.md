@@ -105,20 +105,9 @@ ARE this round's and get committed with the report.
 Durable numbers in `docs/bedrock-addon-guide.md`; evidence
 `output/device-919/{REPORT,ceiling/CEILING,lod/LOD-RESULT,round-2026-09-20/REPORT}.md`.
 Done: culling PASS at 100–400 %, collider clear PASS, ceiling 487,856 cuboids
-survived (budget 480k), LOD switch verified (26–28 blocks), Milano v2 100 % PASS.
+survived (budget 480k), LOD switch verified (26–28 blocks), **Milano grounding PASS at 100/200/400 %**
+with `76286-v3` (`cd1954c1`; `round-2026-09-20/GROUNDING-RESULT.md`).
 
-- [ ] **Milano grounding: FIXED offline, device check still owed.** The component
-      actor's Y defaulted to a constant 1 block and the wand's size factor
-      multiplied it, so the ship floated `f` blocks over the pin (4 at 400 %);
-      `componentSpawnPoint` in `engine/playable-addon.ts` now defaults it to the
-      model's own floor, and the built pack measures 0 at every step
-      (`round-2026-09-20/GROUNDING.md` has the before/after table and the root
-      cause; `test/bedrock-placement-grounding.test.ts`, 6 tests). Device test:
-      import `round-2026-09-20/76286-v3.mcaddon` (same uuid, version
-      `[2,692,15993]`), place at 100/200/400 % on flat ground, screenshot from
-      under the gear — contact expected at all three, A/B against
-      `shots/186-milano400-under.jpg`. `76435-v3.mcaddon` is beside it as the
-      building control (its numbers are unchanged by the fix).
 - [ ] **Multi-set LOD fps A/B still not repeated**: the 2026-09-20 row spaced
       sets 66–108 blocks apart so only one was ever near the camera (all rows
       16.7 ms). Re-run with 3+ full-detail sets inside 32 blocks vs the same
