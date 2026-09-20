@@ -1467,3 +1467,28 @@ throughout and nothing from the new packs placed:
   dark overlay stuck to one screen position appeared after the Milano version
   swap and survived Save & Quit; not investigated. The 14 new packs remain
   installed on the phone, active in no world.
+
+### LOD hull verified on the Pixel; default ON at the pipeline (2026-09-19, night)
+
+`output/device-919/lod/LOD-RESULT.md`, `shots/`. The three LOD packs (same uuids,
+version bumped) replaced the installed ones in world 919:
+
+- **The query resolves in a render controller's `geometry` field and its unit
+  is blocks.** Camera walked out from the Hogwarts/Great Hall origin in 4-block
+  steps with `/camera … free`: full detail through 26 blocks, the flat
+  per-colour hull from 28 blocks, hull at every distance to 128. The default
+  `lodDistance` 32 measures 26-28 because the query reads from the entity root
+  and the camera sits ahead of the player; left at 32.
+- **Frame time**: near (~12 blocks, full detail) median 16.68 ms but mean 21.25
+  and p90 33.37 ms; far (~92 blocks, all hulls) median/mean/p90 all ~16.7 ms.
+  In this scene the hull removes the spikes rather than moving the median (the
+  three placed sets were already under the 60 fps band); the "2x in a
+  multi-set world" figure remains an inference from the frame curve. Memory did
+  not move with distance (975 vs 961 MB nativePss): a render-cost lever only.
+- Content log: zero errors or warnings with the LOD packs loaded.
+- Consequence: `runSchemPipeline` and `_playable_ref.ts` now default to
+  `lod: 'hull'`; `buildPlayableAddon` itself keeps `none` as its default so the
+  bare-form unit tests and golden packs stay pinned, and `--lod=none` ships the
+  pre-LOD bytes. The client entity declares one `empty` geometry with no
+  controller of its own. Not exposed in the UI (a per-export toggle is a
+  memory-for-frame-time trade of +3-10 % cuboids per entity).

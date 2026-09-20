@@ -195,7 +195,7 @@ describe('the LOD hull inside a pack', () => {
     };
     expect(diagnostics.lod.mode).toBe('hull');
     expect(diagnostics.lod.distance).toBe(48);
-    expect(diagnostics.lod.note).toMatch(/UNDOCUMENTED/);
+    expect(diagnostics.lod.note).toMatch(/in blocks/);
     const hull = diagnostics.lod.entities['lodshed_shell']!;
     expect(hull.cuboids).toBeGreaterThan(0);
     expect(hull.colours).toBeGreaterThan(0);
@@ -208,6 +208,6 @@ describe('the LOD hull inside a pack', () => {
     expect(diagnostics.pack.cuboids).toBe(offDiag.pack.cuboids + hull.cuboids);
     // `shareOfDeviceBudget` is reported rounded; a shed is a rounding error of the phone's budget.
     expect(diagnostics.pack.shareOfDeviceBudget).toBeCloseTo(diagnostics.pack.cuboids / DEVICE_CUBOID_BUDGET, 3);
-    expect(on.warnings.some(w => /distance LOD on/.test(w) && /UNDOCUMENTED/.test(w))).toBe(true);
+    expect(on.warnings.some(w => /distance LOD on/.test(w) && /blocks/.test(w))).toBe(true);
   });
 });

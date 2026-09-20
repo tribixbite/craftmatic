@@ -120,10 +120,11 @@ export interface PlayableAddonOptions {
     /**
      * Camera distance at which an LOD entity switches to its hull.
      *
-     * The UNITS OF `query.distance_from_camera` ARE UNDOCUMENTED (Mojang's
-     * Molang docs list the query without a unit) and so is whether the query is
-     * even evaluated inside a render controller's `geometry` field - the device
-     * round calibrates both. 32 is the blocks-shaped default.
+     * Mojang's Molang docs list `query.distance_from_camera` without a unit and
+     * do not say whether a render controller's `geometry` field evaluates it.
+     * The 2026-09-19 Pixel 8 Pro round settled both: it is evaluated, in blocks,
+     * and the switch appears at 26-28 blocks for this default of 32
+     * (`output/device-919/lod/LOD-RESULT.md`).
      */
     lodDistance?: number;
 }
@@ -770,9 +771,9 @@ function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'ent
  *
  * Both arrays are `[own geometry, empty]`, so the full-detail controllers index
  * on `distance > D` (far → empty) and the hull controllers on `distance <= D`
- * (near → empty). **`query.distance_from_camera`'s unit is undocumented**, and
- * so is whether it is evaluated for a geometry field at all; the device round
- * calibrates the switch distance and confirms the mechanism.
+ * (near → empty). Verified on the Pixel 8 Pro 2026-09-19: the query IS
+ * evaluated in a geometry field, its unit is blocks, the switch shows at 26-28
+ * blocks for D = 32, and the content log stays clean.
  */
 function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding): unknown {
     const controllers: Record<string, unknown> = {};
@@ -1493,6 +1494,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let minifigsEmitted = 0;
     /** Swatch stems already written: a colour is a pack-wide file, not a per-entity one. */
     const emittedSwatches = new Set<string>();
+    // The engine default stays `none` (unit tests and golden packs pin the bare
+    // form); the PRODUCT default is `hull` at the pipeline/CLI entry since the
+    // 2026-09-19 device round: switch seen at 26-28 blocks for the default 32,
+    // zero content-log errors, near-frame p90 33 -> 17 ms (`output/device-919/lod/LOD-RESULT.md`).
     const lodMode: LodMode = options.lod ?? 'none';
     const lodDistance = Number.isFinite(options.lodDistance) && options.lodDistance! > 0 ? options.lodDistance! : DEFAULT_LOD_DISTANCE;
     /** Per-entity LOD hull accounting, reported in `craftmatic-diagnostics.json` (nothing silent). */
@@ -1788,17 +1793,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
-        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over past ${lodDistance} in whatever unit query.distance_from_camera reports - that unit is UNDOCUMENTED and unverified on a device.`);
+        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over past ${lodDistance} blocks (query.distance_from_camera measured in blocks on a Pixel 8 Pro, 2026-09-19: switch seen at 26-28 for the default 32).`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
         generator: 'craftmatic', label,
         // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
         pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
-        // `query.distance_from_camera`'s unit is undocumented, and so is whether
-        // it is evaluated in a render controller's geometry field at all: the
+        // `query.distance_from_camera` is evaluated in a geometry field and reads
+        // in blocks (device round 2026-09-19); the note records that so a reader of the
         // device round settles both (see docs/bedrock-addon-guide.md).
-        lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera units are UNDOCUMENTED and the switch distance is unverified on a device' : 'off', entities: lodHulls },
+        lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks (Pixel 8 Pro 2026-09-19: switch at 26-28 for the default 32)' : 'off', entities: lodHulls },
         entities: diagnostics,
     }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);

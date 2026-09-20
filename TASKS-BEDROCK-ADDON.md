@@ -131,29 +131,18 @@ at 100 % = 77,345 cuboids runs 30 fps at nativePss 1.03 GB; an extra
       `/sdcard/Download/dev919-*.mcaddon` (removable over adb). Packs cannot
       be removed over adb (`rm` is denied in `Android/data`) — file manager only.
 
-### LOD hull: built, gated offline, UNVERIFIED on a device (2026-09-19)
+### LOD hull: VERIFIED on the Pixel, default on at the pipeline (2026-09-19)
 
-Both of this round's compiler changes are on `main` (`d3a66020`, `0d767524`),
-`bun run typecheck` / `typecheck:web` / `bun run test` (1,754 passing) green.
-The cull fix is measured and shipped (71043 shell 48,093 → 47,936 cuboids);
-the LOD hull is **opt-in and off by default** and stays that way until the
-phone answers three questions.
+Switch at 26-28 blocks for `lodDistance` 32, unit = blocks, content log clean,
+near p90 33 -> 17 ms, memory unchanged (`output/device-919/lod/LOD-RESULT.md`).
+`runSchemPipeline` / `_playable_ref.ts` default `lod: 'hull'`; the engine
+function defaults `none`. Open:
 
-- [ ] Run the three tests in `output/device-919/lod/packs.md` on
-      `output/device-919/lod/{71043,76286,76435}-lod.mcaddon`: (1) does the far
-      view show the hull at all (i.e. is `query.distance_from_camera` even
-      evaluated in a render controller's `geometry` field — UNDOCUMENTED),
-      (2) frame time near vs far with all three active against the world-919
-      baseline 33.3 ms / 77,345 cuboids, (3) the switch distance in blocks,
-      which calibrates the query's unit and re-chooses `lodDistance` (now 32).
-      Same uuids as the installed packs; the version bumps from the build clock
-      (`[2, 691, …]` vs `[2, 690, …]`), so bump it in `world_*_packs.json` after
-      a force-stop.
-- [ ] If (1) shows no change at any distance the approach is dead: REMOVE the
-      `lod` option rather than tuning the distance. If it works, decide whether
-      the UI offers it — it costs 3.0–9.6 % more resident cuboids per entity
-      (they are counted in the pack budget), so it is a frame-time-for-memory
-      trade, never a memory saving.
+- [ ] Measure the multi-set fps case the hull was built for: place 4-6 sets in
+      world 919 (packs are installed), one near / rest far, perf row vs the same
+      scene with `--lod=none` packs. The ~2x claim is still an inference.
+- [ ] Decide whether the LEGO tab exposes a `Distance LOD` toggle (default on);
+      the export note already reports the hull cuboids.
 
 ### Measured and CLOSED — do not re-open
 

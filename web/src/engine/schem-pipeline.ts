@@ -109,13 +109,13 @@ export interface SchemWorkerInput {
   /** Ground-vehicle chase camera style for the .mcaddon (default orbit). */
   cameraStyle?: 'orbit' | 'boom';
   /**
-   * `.mcaddon`: opt-in distance level of detail for the shell/vehicle entities
-   * (`engine/bedrock-lod-hull.ts`). `none` (the default) ships exactly what it
-   * always did; `hull` adds a resident per-colour surface hull and switches to
-   * it past `lodDistance`.
+   * `.mcaddon`: distance level of detail for the shell/vehicle entities
+   * (`engine/bedrock-lod-hull.ts`). `hull` (the default since the 2026-09-19 device
+   * round verified the switch) adds a resident per-colour surface hull (+3-10 %
+   * cuboids per entity) drawn past `lodDistance`; `none` ships the pre-LOD bytes.
    */
   lod?: 'none' | 'hull';
-  /** `.mcaddon`: camera distance at which an LOD entity switches to its hull (default 32; the query's unit is undocumented). */
+  /** `.mcaddon`: camera distance at which an LOD entity switches to its hull (default 32 blocks; measured switch 26-28 on the Pixel). */
   lodDistance?: number;
   /** `.mcaddon`: leave out the figures / second vehicle found beside the main vehicle. */
   mainVehicleOnly?: boolean;
@@ -379,7 +379,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod, lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

@@ -57,7 +57,11 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       // would repaint a whole colour of the model magenta in game.
       const clientDesc = (await jsonOf(buffer, `${rp}entity/${g.cid}.entity.json`))['minecraft:client_entity'].description;
       for (const path of Object.values(clientDesc.textures as Record<string, string>)) expect(entries).toContain(`${rp}${path}.png`);
-      expect(Object.keys(clientDesc.geometry as Record<string, string>)).toHaveLength(Object.keys((await jsonOf(buffer, `${rp}render_controllers/${g.cid}.render_controllers.json`)).render_controllers as Record<string, unknown>).length);
+      // One controller per geometry; the shared LOD `empty` geometry (default hull
+      // LOD since 2026-09-19) is declared on the client and drawn by no controller
+      // of its own, so it is the one key that has none.
+      const geometryKeys = Object.keys(clientDesc.geometry as Record<string, string>).filter(k => k !== 'empty');
+      expect(geometryKeys).toHaveLength(Object.keys((await jsonOf(buffer, `${rp}render_controllers/${g.cid}.render_controllers.json`)).render_controllers as Record<string, unknown>).length);
       expect((await jsonOf(buffer, `${rp}manifest.json`)).capabilities).toEqual(['pbr']);
       const diag = await jsonOf(buffer, `${bp}craftmatic-diagnostics.json`);
       const d = diag.entities[g.cid];
