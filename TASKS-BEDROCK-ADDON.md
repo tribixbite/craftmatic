@@ -7,10 +7,10 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-19, evening — publish chain RUNNING; corpus re-graded against what prod draws)
+## State (2026-09-19, night — proposals measured, budget raised, LOD on the phone)
 
 Everything below is on `main`, with `bun run typecheck`, `typecheck:web` and
-`bun run test` (1,744 passing) green locally. **`main` is 37 commits AHEAD of
+`bun run test` (1,754 passing) green locally. **`main` is 43 commits AHEAD of
 `origin/main` — nothing since `a6f3b152` has been pushed** (push needs Will's
 go-ahead), so CI/Deploy have not seen any of it. clego is committed locally
 (`37ed4a42`…`0cf793c6`) and **the corpus IS on R2** — prod serves the
@@ -42,9 +42,8 @@ only durable copy.
   drop now continues through the mast (5 beams + 3 pins on 76286,
   `standContinued: 8`, `strandedRepaired: 0`); the device saw it hovering on
   a stalk because the render frame grounds the model on its lowest cuboid.
-  `output/device-919/76286-v2.mcaddon` is the rebuilt pack — **not yet on the
-  phone** (the Sonnet round is testing the stalk build; same uuid, so a
-  re-import needs a new version in `world_*_packs.json`).
+  `output/device-919/76286-v2.mcaddon` is on the phone and **PASS at 100 %**
+  (`ceiling/shots/milano-v2-100-view.jpg`); 400 % not yet looked at.
 - Device round 1 (Opus, `output/device-919/HANDOFF.md`): 3 packs built and
   activated in world 919 (77,345 cuboids = 29.7 % of the ceiling); **culling
   at 100 % PASS** (origin 69.5° off-axis, hull intact); place latency
@@ -61,7 +60,7 @@ carries `!FIGURE_ASSEMBLE`). `node scripts/_lego-probe.mjs 76286` against
 prod: 2,077 bricks, 487 meshes, the new grade note in the status, only the
 known no-mould `28710` missing. Board committed in clego (`0cf793c6`), the
 bundled index in craftmatic (`0e4df3bd`) — **Deploy still ships the old bundled
-index until `main` is pushed** (Will's call; 37 commits ahead).
+index until `main` is pushed** (Will's call; 43 commits ahead).
 
 Both index follow-ups are DONE and live (clego `63a838ba`, craftmatic below):
 the 347 proposals reviewed (**accept 76 / reject 198 / needs-visual 73**, the
@@ -117,12 +116,13 @@ cycle (door Air, wall collider before and after); box UV with all three packs
 at 100 % = 77,345 cuboids runs 30 fps at nativePss 1.03 GB; an extra
 49,833-cuboid Actor costs ≈ 2.7 MB. Left open:
 
-- [ ] `DEVICE_CUBOID_BUDGET` stays 260,000: the pack-STACKING run on box-UV
-      packs (where the 288k–394k ceiling actually sits) was not repeated —
-      it needs ~10 distinct Ultra packs imported, and the phone holds three.
-- [ ] Import `output/device-919/76286-v2.mcaddon` (the mast fix) — same uuid,
-      so bump the version in `world_*_packs.json` after a force-stop — and
-      confirm the Milano stands on its hull at 100 % and 400 %.
+- [x] Ceiling run DONE (`output/device-919/ceiling/CEILING.md`): 17 packs /
+      487,856 cuboids at 60 fps, nativePss 2.21 GB, no crash — the run ran out of
+      packs. `DEVICE_CUBOID_BUDGET` is now 480,000 (`d2ce9eda`). Pushing further
+      needs ~300k more cuboids of distinct Ultra packs (10295 Porsche build
+      failed, not retried); only worth it if a user pack actually nears 480k.
+- [ ] Milano 76286-v2 at **400 %** (100 % PASS): open the wand size menu, place,
+      screenshot the gear on the ground.
 - [ ] 76435 at 400 % shows a few small detached objects above the roofline
       (`shots/226-all3-view2.jpg`): find whether they are `extras` placed at
       source positions or polish-parked parts of the regenerated file.
