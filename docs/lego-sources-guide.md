@@ -1036,3 +1036,189 @@ before merging. Several agents grade into that one file concurrently; holding
 the lock only over the write would still drop every row another process added
 while this one was grading.
 
+
+### 9. Windows: the defect class nothing measured, measured and repaired (2026-09-20)
+
+Windows, glass and door leaves are the third class Will named beside torsos and
+hair, and until this round **no rule looked at them**. They are invisible to
+every geograde gate by construction: a pane lying 300 LDU from its frame is not
+a floating cluster (it stands on the ground plane, so the `side model` class
+exempts it) and not an overlap. `DbixConvV3/43222` grades
+`float=5 BIG=0 ovl=0.00 % sunk=0 dup=0 unk=0` — a clean sheet — with **21
+lattice panes exactly 79.9 LDU off their frames**.
+
+#### 9.1 The seat is measured, not assumed
+
+`clego/geograde/window_seats.py` fits a seat table over the **1,820-file
+authentic OMR corpus**, in the FRAME's own coordinates
+(`R_frame^T (p_pane - p_frame)`, plus the modal relative rotation), which is
+rotation-free: a window turned into a side wall reports the same vector as one
+facing front, and a door leaf swung open pivots about its own origin. That
+framing is what lets one table serve every pose.
+
+Three assumptions a naive rule would make, and what the corpus says:
+
+| assumption | measured |
+|---|---|
+| a pane sits at its frame's origin | true for `60592`+`60601` (0.0 LDU, 289 placements / 31 files) and `60593`+`60602` (0.0, 203), **false** for `57894`+`57895` (0, 4.4, -3), `30044`+`30046` (0, 23.4, -4.4), `4132`+`4133` (33.4) and every door frame — a `60596` seats its `60623` leaf at (+-32, 0, 5), i.e. at the **hinge** |
+| a frame holds one pane | `60596` offers TWO hinge seats (left- and right-hung, 43 and 24 placements), `4863 Window 1 x 4 x 2 Plane` two (+-20), `3853 Window 1 x 4 x 3` two (+-34.06, 3.9, -4.49), `73878 Window Round Corner 3 x 3 x 2` four |
+| pane and frame pair by SIZE | **false** — `61345 Window 1 x 4 x 2 Plane` seats TWO `1 x 2 x 2` glass panes 20 LDU either side of its origin. The authentic `IO/43179` places 8 one-slot and 20 two-slot frames for exactly 48 panes; a size-keyed, origin-seated rule reports 48 defects on it |
+
+41 `(frame mould, pane mould)` pairs, in `geograde/window_seats.json`. Tuning,
+all in that file's own `tuning` block: search 140 LDU, seat tolerance 12 LDU,
+cluster 3 LDU, a seat needs 3 placements (10297's four round-corner seats have
+exactly 3 each — the building is three storeys), and prints reduce to their base
+mould (`60601p05` -> `60601`).
+
+#### 9.2 Only the panes that BELONG in a frame are judged
+
+Not every pane does. `60608 Window 1 x 2 x 3 Pane with Thick Corner Tabs` clips
+straight into a brick opening — **2.6 % of 114 authentic placements are in a
+frame** (10270 places six of them 133-482 LDU from the nearest one, and that is
+the build) — and a `3821`/`3822` car door hangs on a hinge brick (4.0 % of 402).
+So the builder measures the seated fraction per pane mould and only a mould at
+**>= 90 % over >= 8 placements in >= 3 files** may ever be called defective:
+13 moulds, 1,326 authentic placements. `60601` 100 %, `4862` 100 %, `60602`
+91.1 %, `60623` 98.5 %, `57895` 100 %, `30046` 94.1 %, `38320` 92.9 %.
+
+A pane whose file holds **no frame for it at all** is counted separately
+(`pane_no_frame`) and is not a window defect: that is a missing part, already
+counted against the catalogue inventory, and it is the one case the repair may
+not touch — it never invents a frame.
+
+**Controls.** The 36-file authentic cohort (`cohort_authentic_30.txt` +
+`cohort_authentic_minidoll.txt`) reports **1 off-frame of 378 judged panes, in
+1 of 36 files** — `OMR/10264`'s single `60623` in a `28327 Door Frame 4 x 4 x 6
+Corner`, a pair that occurs exactly once in the 1,820-file corpus so no seat can
+be fitted for it. In the random-500 sample below, `omr` reports **0 of 37** and
+`ldr` **0 of 8**. That 1 is the measured floor, so the verdict gate to add is
+`window_defects >= 2`.
+
+#### 9.3 The rate, per source class
+
+Random 500 primary picks, seed 20260920
+(`clego/geograde/window_census.py --sample 500`), before and after the repair.
+`OFF` is placements, `sets` is distinct picks carrying at least one — a count
+alone cannot tell one systematically mis-seated set from fifty scattered ones.
+
+| source | picks | frames | panes | judged | no-frame | OFF before | sets | OFF after | sets |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| **omr** (control) | 51 | 113 | 96 | 37 | 0 | **0** | 0 | **0** | 0 |
+| **ldr** (control) | 42 | 43 | 37 | 12 | 4 | **0** | 0 | **0** | 0 |
+| recon_v3 | 116 | 149 | 76 | 35 | 5 | **30 (100 %)** | 7 | **1** | 1 |
+| dbix_conv_v3 | 77 | 163 | 143 | 59 | 2 | 27 (47 %) | 4 | **1** | 1 |
+| mecabricks | 115 | 160 | 165 | 21 | 0 | 11 (52 %) | 4 | **0** | 0 |
+| eurobricks | 43 | 13 | 20 | 10 | 0 | 8 (80 %) | 1 | 8 | 1 |
+| pdf_recon | 11 | 7 | 7 | 7 | 4 | 3 (100 %) | 2 | 3 | 2 |
+| io | 23 | 34 | 35 | 5 | 0 | 1 | 1 | 1 | 1 |
+| all | 500 | 684 | 585 | 186 | 15 | **80 (46.8 %)** | **19** | **14 (8.2 %)** | **6** |
+
+`recon_v3` seated **zero** of its 35 judged panes — the same cause as its
+scattered minifig parts (§6a): every inventory part goes to the centroid of the
+page-diff region its step is attributed to, and a window is one callout, so the
+glass ends in a parts row on the ground (7597's ten `60602` panes sit at
+y ~ -28 while their twelve `60593` frames are at y -408 to -752). The converter
+classes fail differently: the pane is off by a per-mould CONSTANT — 43222's 21
+`38320` all by 79.9 LDU, 70811's four `6155` all by 81.3, 1255's four `2494` all
+by 55.0 — which is a wrong learned alignment row, not a scatter.
+
+Still open after this round: `eurobricks` (8 placements in 1 pick;
+`EurobricksLDR` is hand-authored, so it sits outside the repair's
+generated-sources allow-list), `pdf_recon` (both picks are **MPD** files, which
+the pass skips) and `io` (an `.io` archive, not LDraw text).
+
+#### 9.4 The repair
+
+`clego/recon_window_assemble.py`, in the shape `recon_figure_assemble.py`
+established: claim the nearest FREE seat within `SNAP_RADIUS` and re-emit the
+pane at it — `pos = p_frame + R_frame . seat`, `rot = R_frame . seat_rot` —
+carried by the frame's own rotation. The frame never moves, an already-seated
+pane owns its seat and is byte-identical, one pane per seat, no frame is ever
+invented, and authentic sources (OMR / LDR / Eurobricks / IO / LXF) are refused
+outright. Every move is logged with its length; the file is stamped
+`0 !WINDOW_ASSEMBLE v1`. Wired into `recon_v3/beam.py`, `reconvert_dbix.py` and
+`harvest_mecabricks_sets.py` after the class-B re-frame, so a regeneration keeps
+it.
+
+The radius is 1,000 LDU, not the figure assembler's 250, because `recon_v3` does
+not scatter glass AROUND the build — it leaves it in a parts row, 432-557 LDU
+away in 7597 — and at 250 LDU the pass repaired none of them. What makes a long
+move safe is not the distance but the OCCUPANCY rule: a pane can only take a
+free seat of a mould pair the authentic corpus measured, one pane per seat,
+assigned globally nearest-first.
+
+**Applied in place** to the five clego-generated classes, 2026-09-20: 545 files
+touched of 9,974 scanned, 2,100 panes seated, 4,039 already seated and left
+alone, 516 with no free seat and therefore untouched.
+
+| class | files scanned | touched | panes seated |
+|---|---:|---:|---:|
+| ReconV3 | 2,424 | 137 | 563 |
+| DbixConvV3 | 2,302 | 132 | 615 |
+| MecabricksLDR | 3,467 | 117 | 428 |
+| Reconstructed | 1,748 (4,119 MPD skipped) | 156 | 476 |
+| MecabricksSearchLDR | 33 | 3 | 18 |
+
+#### 9.5 A/B on the 545 touched files (`CLEGO_LDRAW_LIB=upstream`, 0 errors)
+
+| metric | before | after | |
+|---|---:|---:|---:|
+| **window defects** | **2,218** | **119** | **-94.6 %** |
+| files with >= 1 window defect | 545 | **44** | |
+| figure defects | 2,391 | 2,388 | -3 |
+| displaced (polish-parked) | 5,539 | 5,539 | 0 |
+| overlapping parts | 1,172 | 1,172 | 0 |
+| unknown placements | 794 | 794 | 0 |
+| placements | 571,443 | 571,443 | 0 |
+| sunk parts | 950 | 887 | -63 |
+| duplicate placements | 51 | 47 | -4 |
+| floating parts | 19,003 | 19,128 | +125 |
+| big floating parts | 8,797 | 8,853 | **+56** |
+| parts hidden behind `split0` | 39,451 | 39,208 | **-243** |
+| **big floating + `split0`-hidden** | **48,248** | **48,061** | **-187** |
+
+**Read the +56 the way GEOGRADE.md reads root cause D: it is a defect being
+EXPOSED, not created.** 12 files improve, 10 worsen, and both mechanisms are
+already documented:
+
+- `ReconV3/11005` goes big-floating 307 -> 410 and `split0`-hidden 123 -> 20.
+  The sum is **430 before and 430 after, exactly**: the door leaf it moved
+  149.8 LDU was the one part within a voxel of a detached cluster, and that
+  unconditional `split0` exemption was all that kept 103 parts out of the
+  floating count.
+- `DbixConvV3/60233` goes 0 -> 88 with `side_model_parts` 351 -> 263. Its four
+  `57895` panes were parked at y ~ -8, i.e. they were the DEEPEST parts in the
+  file and they defined the robust world floor; seating them 140 LDU up raised
+  that floor, and an 88-part cluster that had been "standing on the same floor"
+  became "hovering above it". Same reclassification as 70828 in GEOGRADE.md.
+
+#### 9.6 Verified in the browser
+
+`scripts/_lego-probe.mjs` (node + Playwright, `serviceWorkers: 'block'`, `file:`
+input against the dev server), before and after, fixed cameras, into
+`output/windows-2026-09-20/`. The probe's own `-positions.json` gives the
+numeric proof from the REAL rendered scene:
+
+| set | pane -> nearest frame, rendered (studs) | before | after |
+|---|---|---:|---:|
+| `MecabricksLDR/1255` | 4 x `2494 Glass for Window 1 x 4 x 5` -> `2493` | 2.75 | **0.00** |
+| `MecabricksLDR/70811` | 4 x `6155 Door 1 x 4 x 4 Lift` -> `6154` | 3.67 | **0.40** (the measured seat) |
+
+70811's front view shows it directly: the truck's two side window openings are
+empty grey holes before and carry their white roller shutters after.
+
+#### 9.7 Published
+
+366 files (`changed_since_index.py` intersected with this round's own touched
+list, i.e. only paths this round changed AND the index references) uploaded with
+`sync_models_r2.py --only-file`, 0 failures. Verified live on the plain URL by
+sha256/12: `MecabricksLDR/1255.ldr` `e13a3a1de5dd`, `DbixConvV3/43222.ldr`
+`ac84ab3872d9`, `ReconV3/60173.ldr` `234a82f4bbf3`, all three carrying
+`0 !WINDOW_ASSEMBLE v1`. **The index was not rebuilt** — `--only-file` re-puts
+`lego-models-index.json` unconditionally, but the local copy is byte-identical
+to what prod already served (`49cdca5cd775`), so that put was a no-op.
+
+Not published: 21 `ReconV3` files another agent rewrote between this round's
+byte snapshot and its apply (their `0 !FIGURE_ASSEMBLE v2` stamp and figure
+lines moved underneath it), plus 155 `Reconstructed` and 3 `MecabricksLDR` files
+the index does not reference at all.

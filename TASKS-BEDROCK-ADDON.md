@@ -208,11 +208,34 @@ function defaults `none`. Open:
       unit tests only; a browser load of an `.lxf` set with `70681` should
       show `N placements re-framed` in the `.lxf` status note.
       `docs/lego-sources-guide.md` §7a.
-- [ ] **Windows are still open.** The A/B moved 4.6 % of window/glass/door
-      placements against 52.3 % of figure placements, so the class Will named
-      alongside torsos and hair is substantially untouched. It needs its own
-      measurement before a fix: there is no window-attachment rule in
-      `geograde/family_attach.py`.
+- [x] ~~**Windows are still open.**~~ **DONE 2026-09-20**, `docs/lego-sources-guide.md`
+      §9. `clego/geograde/window_family.py` + `window_seats.py` are the rule (seats
+      fitted over the 1,820-file authentic OMR corpus; controls: authentic-36
+      1 of 378 judged panes, `omr` 0 of 37, `ldr` 0 of 8) and
+      `clego/recon_window_assemble.py` the repair. Random-500 picks **80 -> 14
+      off-frame placements in 19 -> 6 sets**; 545 corpus files rewritten,
+      **window defects 2,218 -> 119**; 366 published + prod-verified by sha.
+- [ ] **Windows, what is LEFT** (all measured 2026-09-20, `docs/lego-sources-guide.md`
+      §9.3/§9.7):
+      - `scoreboard.verdict()` does not gate on `window_defects` yet — deliberately,
+        because the 09-19 board predates the rule. Add `window_defects >= 2`
+        (the authentic floor is 1) **with the next full board**, not before.
+      - `eurobricks` 8 off-frame placements in 1 of 43 picks: `EurobricksLDR` is
+        hand-authored and outside the repair's generated-sources allow-list.
+        Decide whether to admit it (its class is only 18 % PASS).
+      - `pdf_recon`: both affected picks are **MPD**, which the pass skips
+        (`# TODO(window)` in `recon_window_assemble.py`). Same gap the figure
+        assembler has.
+      - `io`: `.io` archives are not LDraw text; the client-side path
+        (`io-extractor.ts`) would have to apply the seats.
+      - `DbixConvV2` is untouched and would give **2,070 panes in 303 files** —
+        `python recon_window_assemble.py --src DbixConvV2 --in-place`. Left out
+        to keep this round's publish small.
+      - 21 `ReconV3` files carry the fix on disk but were **not published**
+        (another agent rewrote them mid-round); they go out with the next sync.
+      - The DBIX constant-offset panes (43222's 21 x 79.9 LDU) are a wrong
+        LEARNED ALIGNMENT ROW. The snap hides it; the row itself is still wrong
+        and will come back on a regeneration that does not run the snap.
 - [ ] **Figure defects, after the ReconV3 assembler**: the residue in ReconV3 is
       inventory-side (6–12 hands for 2 arms, torsos dropped by the reader —
       `76151`, `70403`, `76167`); `EurobricksLDR` still has the worst RATE
