@@ -1182,6 +1182,44 @@ the lock only over the write would still drop every row another process added
 while this one was grading.
 
 
+### 8e. Rebuilt and published (2026-09-20)
+
+Index `49cdca5cd775` -> **`64c4746eb7e7`** on prod, plain URL. The 56 `ReconV3`
+window files §9.8 lists were re-put first, and all 37 promoted files were
+confirmed 200-with-matching-sha on prod BEFORE the index went out — an index
+that points at a 404 is the one ordering mistake that breaks sets outright.
+
+| | before | after |
+|---|---:|---:|
+| model entries | 20,704 | 20,764 |
+| stamps verified / defective | 6,887 / 9,101 | **9,066** / 11,698 |
+| stamps **ungraded** | **4,716** | **0** |
+| `models[0]` verified / defective | 5,343 / 4,469 | **5,652** / 4,517 |
+| `models[0]` ungraded | 357 | **0** |
+
+**Every indexed entry now carries a measured verdict — the first time that has
+been true.** 0 stamps dropped as stale; overrides applied 344/352.
+
+`clego/geograde/_index_primary_diff.json`: **exactly 37 sets change `models[0]`,
+all 37 are §8b's visual accepts, and all 37 go `defective -> verified`.** Nothing
+else reordered. Net by class: `eb_topic_ldd -10`, `omr +5`, `eb_topic_ldraw +3`,
+`io +2`, `mecabricks +1`, `dbix_conv_v2 +1`, `dbix_conv_v3 -1`,
+`hunt_archive -1`, `ldr 0`. The biggest single pair is
+`dbix_conv_v3 -> dbix_conv_v3` (11) — a sibling capture of the same SKU, which
+is exactly what the staged-capture flag cannot settle on its own.
+
+Verified on prod by per-entry hash: 10022 -> `IO/10022 Santa Fe Cars Set II.io`
+(`bd8e9a315e77`), 3183 -> `OMR/3183-1.mpd` (`37984ab50422`), 8054 ->
+`OMR/8054-1_Model-D.mpd` (`257a38b82370`); two republished window files match too
+(`abe99490caae`, `f4d32d96286f`). vitest 1,755 passed / 26 skipped / 0 failed.
+
+> **`sync_models_r2.py` has NO `--help`, and an unrecognised flag silently runs a
+> FULL resumable sync.** Running `--help` to confirm `--no-index` existed pushed
+> the 2 indexed files missing from `_r2_uploaded.txt` and re-put the index.
+> Harmless here, but on a shared checkout that is exactly how another agent's
+> half-finished corpus reaches prod. Check a flag against the source.
+
+
 ### 9. Windows: the defect class nothing measured, measured and repaired (2026-09-20)
 
 Windows, glass and door leaves are the third class Will named beside torsos and
