@@ -7,8 +7,8 @@
  * The PALETTE_INDEX value = canopy cover percentage.
  */
 
-/** MRLC GeoServer WMS endpoint for NLCD Tree Canopy Cover 2021 */
-const MRLC_WMS_URL = 'https://www.mrlc.gov/geoserver/mrlc_display/wms';
+/** MRLC GeoServer WMS endpoint for NLCD Tree Canopy Cover 2021 (exported so tests can probe reachability). */
+export const MRLC_WMS_URL = 'https://www.mrlc.gov/geoserver/mrlc_display/wms';
 const TCC_LAYER = 'nlcd_tcc_conus_2021_v2021-4';
 
 export interface NlcdCanopyResult {
