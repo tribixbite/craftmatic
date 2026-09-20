@@ -1222,3 +1222,30 @@ Not published: 21 `ReconV3` files another agent rewrote between this round's
 byte snapshot and its apply (their `0 !FIGURE_ASSEMBLE v2` stamp and figure
 lines moved underneath it), plus 155 `Reconstructed` and 3 `MecabricksLDR` files
 the index does not reference at all.
+
+#### 9.8 The shared checkout took 56 of them back, and the resume command
+
+Between this round's apply and its verification another agent REGENERATED 56
+`ReconV3` files from `recon_v3/beam.py`, which rewrites a file from scratch and
+therefore dropped the `0 !WINDOW_ASSEMBLE v1` stamp and the seated panes with
+it. Caught by hashing prod against disk: `ReconV3/7597.ldr` read `86be53059ff4`
+locally against `02e995d3f59f` live, which is the wrong way round for a file
+this round had just published. **Re-applied on disk** — 56 files, 231 panes
+re-seated, 0 left unstamped — but deliberately NOT republished: those files are
+a moving target while that agent runs, and pushing them would publish its
+in-flight work. They are listed in
+`clego/geograde/_window_round/publish2.txt`; the next sync is
+
+```bash
+cd C:/git/clego && python sync_models_r2.py --only-file geograde/_window_round/publish2.txt
+```
+
+The durable protection is the wiring in `recon_v3/beam.py`, so a regeneration
+seats its own panes. **That wiring is on disk and uncommitted**: beam.py also
+carries 16 lines of the other agent's figure-v2 call into 432 uncommitted lines
+of `recon_figure_assemble.py`, so committing beam.py alone would leave HEAD
+calling symbols HEAD does not have. It goes in with their commit.
+
+The A/B in §9.5 was measured on a consistent snapshot taken before that
+regeneration. The 56 files' current bytes are theirs plus a fresh window pass,
+so those rows are the ones to re-measure first next round.

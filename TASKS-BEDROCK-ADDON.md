@@ -231,8 +231,18 @@ function defaults `none`. Open:
       - `DbixConvV2` is untouched and would give **2,070 panes in 303 files** —
         `python recon_window_assemble.py --src DbixConvV2 --in-place`. Left out
         to keep this round's publish small.
-      - 21 `ReconV3` files carry the fix on disk but were **not published**
-        (another agent rewrote them mid-round); they go out with the next sync.
+      - **21 + 56 `ReconV3` files carry the fix on disk but are NOT published.**
+        21 were excluded at publish time (another agent had rewritten them);
+        another 56 were regenerated from `recon_v3/beam.py` AFTER the publish,
+        which dropped the stamp — re-applied on disk (231 panes), listed in
+        `clego/geograde/_window_round/publish2.txt`. Resume:
+        `cd C:/git/clego && python sync_models_r2.py --only-file geograde/_window_round/publish2.txt`
+        (do it when that agent's ReconV3 run is finished, not before).
+      - **`recon_v3/beam.py`'s window wiring is UNCOMMITTED** and must not be
+        lost: it is what stops a regeneration undoing the fix. It cannot be
+        committed on its own because the same file now calls
+        `recon_figure_assemble.dropped_figure_parts`, which is in 432
+        uncommitted lines another agent owns. It goes in with their commit.
       - The DBIX constant-offset panes (43222's 21 x 79.9 LDU) are a wrong
         LEARNED ALIGNMENT ROW. The snap hides it; the row itself is still wrong
         and will come back on a regeneration that does not run the snap.
