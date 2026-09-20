@@ -1238,3 +1238,106 @@ HANDOFF.md, shots/, perf/).
   Play screen's LAN-world tile appears and disappears with the host's
   broadcast and shifts every local tile one slot — read the label before each
   tap (an agent joined the wrong world this round).
+
+## Five cost proposals measured (2026-09-19, evening)
+
+Five proposals to cut device cost were put forward together; four were settled
+against the shipped compiler output (harnesses `scripts/_probe-geo-audit.ts`,
+`scripts/_probe-hull-lod.ts`; evidence `output/_probe-q-2026-09-19/`), the fifth
+is the device ceiling run tracked in `TASKS-BEDROCK-ADDON.md`. Numbers are the
+three golden packs as shipped (71043 ultra 48,093 shell cuboids, 76286 ultra
+16,565, 76435 balanced 7,521) plus 71043 rebuilt at balanced (15,654).
+
+| proposal | verdict | the number |
+|---|---|---|
+| 1. boolean boundary pass (merge flush cuboids, cull interior faces; claimed -30 to -55 %) | **not real** | same-colour merge re-run on the shipped set removes 0.00-0.03 %; a colour-blind merge 0.37-1.40 % and is forbidden by box UV; hidden faces are 8.5-18.1 % of all faces, and omitting them needs per-face UV, which costs back the 1.05 kB/cuboid box UV saved: net about +43 % memory |
+| 2. LOD hull swapped by `query.distance_from_camera` (claimed hull 3-5k cuboids, -80 % drawn) | **real as an fps lever**, not a memory one | per-colour 1-block hull = 1,946 / 456 / 710 cuboids (+4.0 % of the three packs, 1.2 % of the budget); mechanism documented; expected about 2x frame rate with one set near and two far (77,345 to ~49,000 drawn cuboids on the measured frame curve) |
+| 3. spawn/despawn proxies so only nearby sets exist as actors (claimed 50 sets per world) | **not real** | memory is definition-side: a second 49,833-cuboid Actor costs about 2.7 MB against ~100 MB of definitions per such pack, and every activated pack's definitions stay resident whether or not an entity exists; entities in non-ticking chunks are already neither simulated nor drawn; killing entities leaks (142 MB after 6,000) |
+| 4. macro-actor decomposition (~40-50k cuboids per actor) | **already shipped** | one shell actor per set (48,093 cuboids for 71043); the other 4-11 entities are figures, seats and door leaves the game needs as actors (3.5-16.5 % of cuboids); 1,024 cubes per geometry is a renderer-safety partition, not an actor split, and Bedrock documents no per-geometry cap |
+| 5. measure the box-UV ceiling by stacking packs on world 919 | **accurate; running** | the 260,000 budget came from the six-face-UV OOM; box UV saves 34 % per cuboid so the expected crossing is 288k-394k |
+
+### 1. Hidden faces and merging: what is actually left
+
+`cullHiddenCuboids` (`ldraw-entity-compiler.ts`) is a sampled-ring test at
+`min(4, microcellLdu)` LDU: a cuboid is culled when every sample in the one-cell
+ring around its AABB is occupied by an aligned OPAQUE cuboid of ANY colour, so
+there is no cross-colour or cross-part blind spot. Studs are appended after the
+cull and the merge and are never culled. **What it did have was a silent bailout**:
+`nx*ny*nz > 40,000,000` returned an empty set, which fires on 71043 at every
+quality (1511x1449x1760 LDU = 61.3 M cells at 4 LDU), so the culler had never
+run on the largest golden model. Re-run at coarser cells on the shipped set: 6 LDU
+culls 219 (0.46 %), 8 LDU 262 (0.54 %), 12 LDU 338 (0.70 %); 16 LDU (3 studs)
+culls visible material. Fixed by coarsening to the smallest cell that fits the
+budget, bounded at 12 LDU, with the choice in the diagnostics: a ~0.5 % gain,
+hygiene rather than strategy.
+
+Faces: only axis-aligned cubes can have a coplanar neighbour, and rotated-bone
+cubes are 66-72 % of the castle. Hidden faces are 29.8 / 28.1 / 34.0 / 28.8 %
+of axis-aligned faces and **8.5 / 8.8 / 11.7 / 18.1 % of ALL faces** (71043 ultra
+/ 71043 balanced / 76286 / 76435); adding rotated cubes' AABBs as occluders moves
+that at most 0.7 points. Cubes fully enclosed on six faces but shipped: 14 / 17 /
+0 / 3. Cubes strictly inside one larger cube: 211 / 225 / 220 / 153 (0.4-2.0 %,
+part interiors, not studs). Every cube-level lever together is at most ~1.1 %.
+
+Omitting a face needs the per-face UV object form (schema `minecraft:geometry`
+1.21.0: "Omitting a face will cause that face to not get drawn"). Emitted bytes
+for 71043 ultra: box UV 3,409 kB, six-face 13,930 kB, per-face with hidden faces
+omitted 13,038 kB. Bytes are not memory (pretty vs minified: 0.4 %), so the
+decisive figure is the device one: box UV saves 1.05 kB of the 3.08 kB per
+cuboid; per-face UV pays it back, and the omitted 0.51 faces per cube save at
+most ~0.17 kB even crediting the whole remaining 2.03 kB to face data. Break-even
+needs at least 52 % of faces hidden; the ceiling is 8.5-18.1 %. The one place
+omission could matter is GL mtrack (709 MB at 77k active = 9.2 kB/cuboid of GPU
+memory, at most 8.5 % = ~60 MB): unmeasured, and not the nativePss OOM ceiling
+either way.
+
+### 2. LOD hull: what it is and what it must prove on the device
+
+Mechanism (documented): a render controller's `geometry` accepts a Molang
+expression returning one resource. Mojang's own example is
+`"geometry": "query.is_sheared ? geometry.sheared : geometry.woolly"`
+(bedrock.dev Molang, doc build 1.26.50.4), and `arrays.geometries` with
+`"geometry": "Array.geos[expr]"`, `index = max(0, expr) % size`, is in the Learn
+schema `render_controller.v1.8.0` (sheep example). One geometry per controller;
+there is no "draw nothing", so the full-detail controllers switch to a shared
+EMPTY geometry at distance and the hull controllers do the inverse. Bedrock has
+no LOD feature of its own (`conditional_bandwidth_optimization` is packet
+throttling; `visible_bounds_*` is a frustum box). `query.distance_from_camera`
+("distance of the root of this entity from the camera", Learn 2026-01-08) has
+UNDOCUMENTED units and undocumented validity inside a render controller; it
+carries neither the client-only nor the server-only tag.
+
+Hull sizes on the block cell (surface voxels, greedy-merged): 1-block
+single-colour 573 / 185 / 215 (1.2 / 1.1 / 2.9 %), per-colour 1,946 / 456 / 710
+(4.0 / 2.8 / 9.4 %), 2-block per-colour 756 / 242 / 282. Per-colour is the
+default because box UV binds one colour per geometry; a single hull geometry
+would draw the castle as one flat colour. The proposal's 3-5k was 5-10x too high:
+the castle is 30x29x34 blocks at minifig scale.
+
+Cost/benefit: memory +3,112 cuboids for all three golden packs (+4.0 %, 1.2 % of
+the budget, ~6.3 MB) because both geometries stay resident; neither a memory
+lever nor a memory cost. fps on the world-919 scene (77,345 active = 33.3 ms
+measured): one set near + two far draws ~49,259, which lands on the measured
+one-shell datapoint (16.7 ms, 60 fps); all three far draws 3,112. That is an
+inference from the measured frame curve, not a device number. Shipped as
+`lod: 'hull'` (default `'none'`; nothing changes until the device round passes).
+The device must settle: (1) the far view actually shows the hull (the query
+resolves in a render controller), (2) near/far frame time against 33.3 ms with
+all three placed, (3) the switch distance in blocks (the query's units), and
+(4) that ~117 controllers per entity (77 today) do not cost more in draw calls
+than the hull saves; the box-UV round left the draw-call effect of controller
+count unmeasured.
+
+### 3. Spawn/despawn proxies: why the premise fails
+
+The claim is that with marker blocks spawning the heavy actor only when a player
+is near, "only the 2 or 3 sets in the player's vicinity exist in native memory".
+Every number in this guide says the opposite: the pack's cost is definition-side
+(a second Actor of the 49,833-cuboid castle costs about 2.7 MB against ~100 MB
+for its definitions; 93 % of the instancing cost was definition-side),
+definitions of every activated pack load with the world whether or not an entity
+is summoned, entities outside ticking chunks are already neither simulated nor
+drawn (`/testfor` cannot even see them), and actor churn leaks (142 MB not
+returned after killing 6,000). A world with 50 large sets activated is 50 packs
+of definitions: the cuboid budget is a sum over ACTIVATED packs, not over
+summoned entities. Nothing to build.
