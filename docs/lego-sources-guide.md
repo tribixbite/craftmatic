@@ -948,3 +948,91 @@ worker). Prod on the plain URL: `45b6698de8ee` -> **`49cdca5cd775`**, and
 10333 / 8448 / 42175 read back with the promoted path and that file's own sha
 (`d3709cdfed00`, `480b152dd00b`, `fcae0906eced`). Detail and the Windows trap
 that made a clean rebuild report 105 phantom stale stamps: clego `GEOGRADE.md`.
+
+### 8b. The 73 `needs-visual` proposals, decided on renders (2026-09-20)
+
+**37 accepted, 36 rejected** — `clego/geograde/rerank_visual_2026-09-20.json`,
+images in `output/rerank-visual-2026-09-20/<set>/`. §8a's mechanical pass could
+only settle proposals on structure; the 73 it left are exactly the ones whose
+own criteria say *verify before switching*. Both candidates were rendered
+through the REAL viewer — `scripts/_rerank-visual.mjs` drives
+`#lego-source-select` by index position, so it renders the file under test and
+not whatever the auto-load resolves to — two fixed views each (iso + front), all
+steps/layers, explode 0, `serviceWorkers: 'block'`, and graded beside the set's
+own box art (73/73 rendered, 0 failures, 3 lanes, ~35 min).
+
+**What the renders decided that geometry could not.** The 36 rejects are the
+argument for doing this by eye at all:
+
+| why the alternate lost | n | example |
+|---|---:|---|
+| a DIFFERENT model of a multi-model set | 9 | 42057's alternate is the three-set *Technic 40 Year Anniversary* car; 643's is a mobile crane, not the flatbed truck |
+| multi-build archive (2-4x the inventory) | 5 | `IO/8436-all.io` renders four trucks stacked; `31199-1_Ultimate` is the 3-panel triptych |
+| `pdf_recon` / `recon_v3` pile vs an assembled incumbent | 10 | 75222, 70705, 70920, 70921, 8084 |
+| both candidates staged/broken — keep the incumbent | 6 | 31388, 40791, 40801, 31390, 40756, 72043 |
+| the incumbent is simply better | 6 | 7930's alternate drops the four box-art minifigs |
+
+And 7 of the 37 accepts go the other way against the grader: the flagged
+"< 95 % retention" is the CATALOGUE undercounting a multi-part set, not part
+loss — 10022 is three Santa Fe cars and the alternate renders all three
+(the incumbent is the dining car alone, 78 %); 6988's alternate is the whole
+outpost while the incumbent is the launch pad. A retention number cannot see
+that, and a render can.
+
+The largest single accept family is **13 `EurobricksLDD` primaries that render
+as a collapsed pile** (1479, 1558, 1875, 3183, 4473, 6812, 6851, 60011, 75041 …)
+where an official OMR / Mecabricks / EurobricksTopicLDR sibling renders the
+box-art model complete. All 13 already carried a BEST_OVERRIDES row from an
+earlier mechanical round pointing at the LDD file; those rows are **edited in
+place**, not duplicated.
+
+`BEST_OVERRIDES` **328 -> 352 rows** (24 new + 13 retargeted); override targets
+now grade **225 verified / 127 defective** (was 188 / 140).
+
+### 8c. The 328-row override table reconciled against the board (2026-09-20)
+
+140 of the 328 rows point at a target the 2026-09-19 board grades `defective`.
+Reconciled by rebuilding each set's NATURAL order (source priority, then path
+inside a source — reproduced exactly: 0 mismatches over the 9,841 override-free
+sets) and applying the read-time conv-demotion:
+
+* **14** are in the 73 above and were decided on renders (13 switched).
+* **116** have no `verified` alternate anywhere in their `models[]`, so the
+  natural pick cannot be verified either — every one is **kept**.
+* **10** have a verified alternate the board did NOT propose; in all 10 that
+  alternate is a raw `.lxf` or a `conv: 1` entry the read-time demotion would
+  bury, and in all 10 the natural pick still grades `defective`. Kept.
+
+**0 rows removed.** Not a null result to wave past: the earlier framing assumed
+a defective target implies a downgrade, and it does not — a row whose target is
+defective is still doing work when everything else in the set is worse, which is
+126 of these 140.
+
+Two facts worth carrying forward. **13 of the 140 are no-ops** — the conv-demotion
+already puts that file first, so the row only relabels variants. And **10 rows
+point at a `conv: 1` entry**, which the 2026-09-09 rule forbids writing because
+the demotion undoes them; they predate the rule and are listed under
+`inert_rows_pointing_at_conv1` for the next pass.
+
+### 8d. Every never-graded alternate stamped (2026-09-20)
+
+§8a closed the 482 alternates whose stamp went stale. The larger hole was the
+paths the board never graded **at all**: `--alts` only grades a DEFECTIVE
+primary's alternates, so an alternate of a PASSING primary has never been
+measured. That was **4,716 index entries** (4,359 alternates + 357 primaries):
+`dbix_conv_v2` 882, `dbix_conv` 877, `lxf_conv` 514, `omr` 496, `lxf` 472,
+`io` 405, `io_model2` 353, `pdf_recon` 148, `ldr` 116, `recon_v3` 76.
+
+Graded with the board's settings (`CLEGO_LDRAW_LIB=upstream`,
+`discovery/misc_regrade_touched.py --jobs … --workers 12`): **4,716 graded, 0
+errors, 20.0 min, 1,939 PASS / 2,777 DEFECTIVE**. It changes no pick by itself —
+it gives the source picker a real label for every entry it offers, and it gives
+the next rerank pass an alternate it is allowed to propose.
+
+`misc_regrade_touched.py` now serialises every write to
+`scoreboard_extra.json` through `geograde/.scoreboard_extra.lock`
+(`O_CREAT|O_EXCL`, 10-minute break-in) and **re-reads the file inside the lock**
+before merging. Several agents grade into that one file concurrently; holding
+the lock only over the write would still drop every row another process added
+while this one was grading.
+
