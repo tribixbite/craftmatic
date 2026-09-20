@@ -1372,3 +1372,60 @@ occupancy cell, so the cull had never run on it at ultra OR at balanced.
   forced coarsening still culls the enclosed cube, skip only past 12 LDU, and
   the diagnostics field).
 
+## Opt-in per-colour LOD hull, switched by camera distance (2026-09-19)
+
+`engine/bedrock-lod-hull.ts` + `lod: 'none' | 'hull'` / `lodDistance` on
+`buildPlayableAddon` (threaded through `runSchemPipeline`; CLI
+`--lod=hull [--lod-distance=N]`). **Default `none`, and nothing shipped changes
+until a device round settles the mechanism** — the UI does not offer it yet.
+
+- **It cannot save memory, and must not be sold as if it could.** Add-on cost is
+  DEFINITION-side (`DEVICE_CUBOID_BUDGET`), so both geometries stay resident
+  whatever the camera does: the hull is *extra* cuboids and is counted in
+  `pack.cuboids` / `pack.lodCuboids`. What it can buy is draw and vertex work at
+  distance, and that is exactly what is not yet measured.
+- **Per colour, not one colour.** Box UV means one geometry carries one colour,
+  so keeping the model's colours at distance means one hull geometry per colour.
+  Measured at a 1-block cell: 71043 ultra 1,944 cuboids over 39 colours (4.1 %
+  of the shell), 76286 492 over 18 (3.0 %), 76435 724 over 29 (9.6 %). A
+  single-colour hull is ~3x cheaper (the probe measured 573/185/215) and renders
+  the set as one flat blob — a regression, not an LOD. Each hull geometry binds
+  the colour's EXISTING 16x16 swatch, so no new textures.
+- **Built from the FINAL emitted cube list**, i.e. from the geometry document
+  itself (after cull, merge and studs): every cube reduced to its world AABB
+  (bone-chain and per-cube rotations applied), voxelised on the block cell,
+  reduced to surface voxels (a solid cell with an empty 6-neighbour) and
+  greedy-merged. The rasteriser is HALF-OPEN on the max face — treating it as
+  closed makes a 1x1x1 block fill 2x2x2 and one colour's hull paints over its
+  neighbour's skin (the throwaway probe had that inflation, which is why its
+  71043 number was 1,946 and the shipped one is 1,944).
+- **The switch is the documented `arrays.geometries` mechanism**: every
+  controller gets `arrays.geometries {"Array.g": ["Geometry.mesh_N",
+  "Geometry.empty"]}` and `"geometry": "Array.g[query.distance_from_camera <op> D]"`
+  — `>` for the full-detail controllers (far → empty), `<=` for the hull ones.
+  Index is `max(0, expr) % size`, so a boolean picks element 0 or 1. One shared
+  empty geometry (a single bone, NO cubes — the format accepts that) is declared
+  once per pack and bound as `empty` in each LOD client entity. Doc URLs are
+  cited in `meshControllers`.
+- **`query.distance_from_camera`'s UNIT IS UNDOCUMENTED**, and so is whether the
+  query is evaluated inside a render controller's `geometry` field at all
+  (Mojang's example there is `query.is_sheared`). That is stated in the code, in
+  the export warning and in the `lod.note` of `craftmatic-diagnostics.json`.
+  **Device round pending**: `output/device-919/lod/packs.md` has the three packs
+  (71043/76286/76435, `_mcaddon_check.py` 3/3), their uuids — unchanged, keyed on
+  the model; the **version** bumps from the build clock, `[2, 691, …]` vs the
+  device's `[2, 690, …]`, which is what makes the re-import activatable — and the
+  exact three measurements: (1) does the far view show the hull, (2) frame time
+  near vs far against the 33.3 ms / 77k-cuboid world-919 baseline, (3) the switch
+  distance in blocks, which calibrates the query's unit. If (1) shows no change
+  at any distance, the approach is dead and the option should be removed rather
+  than tuned.
+- Figures are never hulled (already clamped to a few hundred cuboids, and the
+  player stands beside them); the BlockGrid voxel fallback and the wand ghost are
+  not hulled either.
+- Tests: `test/bedrock-lod-hull.test.ts` — the greedy over a 3x3x3 solid (26
+  surface cells in exactly 6 boxes), per-colour grouping with a buried cell,
+  cell-size scaling, the empty geometry, and through a real pack: default `none`
+  leaves the controllers/geometry/diagnostics exactly as they were, `hull` adds
+  the file, declares one empty geometry, inverts the index expression, and the
+  pack's cuboid budget counts the hull.

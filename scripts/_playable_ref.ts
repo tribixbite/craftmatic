@@ -9,6 +9,7 @@
  *          [--facing=auto|+x|-x|+z|-z] [--label=<text>] [--no-pbr] [--camera=orbit|boom] [--main-only]
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
+ *          [--lod=none|hull] [--lod-distance=N]   (hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
@@ -169,6 +170,8 @@ const result = await runSchemPipeline({
   mainVehicleOnly: process.argv.includes('--main-only'),
   buildingFidelity: (flag('buildings') ?? 'bricks') as 'bricks' | 'blocks',
   modelScale,
+  lod: (flag('lod') ?? 'none') as 'none' | 'hull',
+  ...(flag('lod-distance') ? { lodDistance: Number(flag('lod-distance')) } : {}),
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 
@@ -188,6 +191,8 @@ console.log(JSON.stringify({
   components: result.mcpack?.components ?? [],
   warnings: result.mcpack?.warnings ?? [],
   entities: diagnostics?.entities ?? null,
+  lod: diagnostics?.lod ?? null,
+  packBudget: diagnostics?.pack ?? null,
   geoFiles: entries.filter(e => /\.geo\.json$/.test(e)),
   textureSets: entries.filter(e => /\.texture_set\.json$/.test(e)),
   bytes: bytes.length,

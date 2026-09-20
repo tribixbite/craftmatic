@@ -108,6 +108,15 @@ export interface SchemWorkerInput {
   entityQuality?: 'balanced' | 'high' | 'ultra';
   /** Ground-vehicle chase camera style for the .mcaddon (default orbit). */
   cameraStyle?: 'orbit' | 'boom';
+  /**
+   * `.mcaddon`: opt-in distance level of detail for the shell/vehicle entities
+   * (`engine/bedrock-lod-hull.ts`). `none` (the default) ships exactly what it
+   * always did; `hull` adds a resident per-colour surface hull and switches to
+   * it past `lodDistance`.
+   */
+  lod?: 'none' | 'hull';
+  /** `.mcaddon`: camera distance at which an LOD entity switches to its hull (default 32; the query's unit is undocumented). */
+  lodDistance?: number;
   /** `.mcaddon`: leave out the figures / second vehicle found beside the main vehicle. */
   mainVehicleOnly?: boolean;
   /**
@@ -370,7 +379,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod, lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

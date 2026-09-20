@@ -17,6 +17,7 @@ import { COLLIDER_BLOCK_ID, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
+import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 declare const world: any;
@@ -103,7 +104,33 @@ export interface PlayableAddonOptions {
      * a block grid voxelized at that cell.
      */
     modelScale?: number;
+    /**
+     * Distance level of detail for the brick-compiled shell and vehicle
+     * entities: `none` (the default) ships the full model only, `hull` adds a
+     * per-colour surface hull (`bedrock-lod-hull.ts`) and switches to it past
+     * `lodDistance`.
+     *
+     * OFF BY DEFAULT ON PURPOSE. The hull is RESIDENT memory on top of the full
+     * model (2.5-8 % of an entity's cuboids over the golden packs), the memory
+     * ceiling is definition-side (`DEVICE_CUBOID_BUDGET`), and the frame-time
+     * win at distance has not yet been measured on a device. Nothing shipped
+     * changes byte-for-byte while this is `none`.
+     */
+    lod?: LodMode;
+    /**
+     * Camera distance at which an LOD entity switches to its hull.
+     *
+     * The UNITS OF `query.distance_from_camera` ARE UNDOCUMENTED (Mojang's
+     * Molang docs list the query without a unit) and so is whether the query is
+     * even evaluated inside a render controller's `geometry` field - the device
+     * round calibrates both. 32 is the blocks-shaped default.
+     */
+    lodDistance?: number;
 }
+/** `hull`: ship a per-colour surface hull beside the full model and switch to it at `lodDistance`. */
+export type LodMode = 'none' | 'hull';
+/** Default camera distance (in whatever unit `query.distance_from_camera` reports) at which the hull takes over. */
+export const DEFAULT_LOD_DISTANCE = 32;
 export type VehicleCameraStyle = 'orbit' | 'boom';
 export interface PlayableAddonResult {
     bytes: Uint8Array;
@@ -695,12 +722,24 @@ function textureKeys(bindings: MeshBinding[]): { textures: Record<string, string
     return { textures, keyOf };
 }
 
-function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations): unknown {
+/**
+ * How a client entity's geometries are split between the full model and its LOD
+ * hull. `fullCount` bindings come first (the model), the rest are the hull.
+ */
+interface LodBinding {
+    fullCount: number;
+    /** Camera distance at which the hull takes over; see `PlayableAddonOptions.lodDistance`. */
+    distance: number;
+}
+function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations, lod?: LodBinding): unknown {
     const materials: Record<string, string> = { default: opaqueMaterial };
     if (bindings.some(b => b.translucent)) materials.blend = 'entity_alphablend';
     const { textures } = textureKeys(bindings);
     const geometryMap: Record<string, string> = {};
     bindings.forEach((b, i) => { geometryMap[`mesh_${i}`] = b.geometryId; });
+    // One shared empty geometry, declared once here: every LOD controller
+    // selects it for the half of the pair that must not draw.
+    if (lod) geometryMap.empty = LOD_EMPTY_GEOMETRY_ID;
     return {
         format_version: '1.10.0',
         'minecraft:client_entity': {
@@ -716,12 +755,35 @@ function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'ent
         },
     };
 }
-function meshControllers(id: string, bindings: MeshBinding[]): unknown {
+/**
+ * One render controller per geometry. With an LOD, each controller picks
+ * between its own geometry and the shared empty one by camera distance, using
+ * the documented `arrays.geometries` + indexed-`Array` mechanism:
+ *   - https://learn.microsoft.com/en-us/minecraft/creator/reference/content/schemasreference/schemas/minecraftschema_render_controllers_1.8.0
+ *     (`arrays.geometries`, `"geometry": "Array.<name>[<expr>]"`; the index is
+ *     `max(0, expr) % size`, so a boolean expression selects element 0 or 1)
+ *   - https://learn.microsoft.com/en-us/minecraft/creator/reference/content/molangreference/examples/molangconcepts/queryfunctions
+ *     (the Mojang example `"geometry": "query.is_sheared ? geometry.sheared : geometry.woolly"` —
+ *     a query IS read in this field; `query.distance_from_camera` is the query used here)
+ *
+ * Both arrays are `[own geometry, empty]`, so the full-detail controllers index
+ * on `distance > D` (far → empty) and the hull controllers on `distance <= D`
+ * (near → empty). **`query.distance_from_camera`'s unit is undocumented**, and
+ * so is whether it is evaluated for a geometry field at all; the device round
+ * calibrates the switch distance and confirms the mechanism.
+ */
+function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding): unknown {
     const controllers: Record<string, unknown> = {};
     const { keyOf } = textureKeys(bindings);
     bindings.forEach((b, i) => {
+        const lodPair = lod
+            ? {
+                arrays: { geometries: { 'Array.g': [`Geometry.mesh_${i}`, 'Geometry.empty'] } },
+                geometry: `Array.g[query.distance_from_camera ${i < lod.fullCount ? '>' : '<='} ${lod.distance}]`,
+            }
+            : { geometry: `Geometry.mesh_${i}` };
         controllers[`controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`] = {
-            geometry: `Geometry.mesh_${i}`,
+            ...lodPair,
             materials: [{ '*': b.translucent ? 'Material.blend' : 'Material.default' }],
             textures: [`Texture.${keyOf[i]}`],
         };
@@ -1429,7 +1491,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let minifigsEmitted = 0;
     /** Swatch stems already written: a colour is a pack-wide file, not a per-entity one. */
     const emittedSwatches = new Set<string>();
-    const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations): void => {
+    const lodMode: LodMode = options.lod ?? 'none';
+    const lodDistance = Number.isFinite(options.lodDistance) && options.lodDistance! > 0 ? options.lodDistance! : DEFAULT_LOD_DISTANCE;
+    /** Per-entity LOD hull accounting, reported in `craftmatic-diagnostics.json` (nothing silent). */
+    const lodHulls: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number }> = {};
+    let lodEmptyEmitted = false;
+    const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false): void => {
         if (animations) minifigsEmitted++;
         // Each geometry holds one LDraw colour and is textured with that
         // colour's flat swatch (box UV: `ldraw-entity-compiler.ts`).
@@ -1438,11 +1505,37 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             texture: `textures/entity/${legoMaterialSwatchName(m.material)}`,
             translucent: m.translucent,
         }));
+        // Distance LOD (opt-in): a per-colour surface hull of the cubes that were
+        // just emitted, bound after the full-detail geometries and selected by
+        // camera distance in the render controllers. A figure is never hulled -
+        // it is already clamped to a few hundred cuboids and the player stands
+        // next to it.
+        let lod: LodBinding | undefined;
+        if (lodMode === 'hull' && lodEligible) {
+            const hull = buildLodHull(ecid, geo, { cellBlocks: DEFAULT_HULL_CELL_BLOCKS });
+            if (hull) {
+                lod = { fullCount: bindings.length, distance: lodDistance };
+                for (const mesh of hull.meshes) bindings.push({
+                    geometryId: mesh.id,
+                    texture: `textures/entity/${legoMaterialSwatchName(mesh.material)}`,
+                    translucent: mesh.translucent,
+                });
+                files.push({ name: `${rp}models/entity/${ecid}_lod.geo.json`, data: geoJson(hull.value) });
+                if (!lodEmptyEmitted) {
+                    lodEmptyEmitted = true;
+                    files.push({ name: `${rp}models/entity/craftmatic_lod_empty.geo.json`, data: geoJson(LOD_EMPTY_GEOMETRY) });
+                }
+                lodHulls[ecid] = {
+                    cuboids: hull.cuboids, colours: hull.colours, geometries: hull.meshes.length, cellBlocks: hull.cellBlocks,
+                    shareOfEntity: Math.round(hull.cuboids / Math.max(1, geo.diagnostics.cubeCount) * 1000) / 1000,
+                };
+            }
+        }
         files.push(
             { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
-            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, bindings, 'entity', animations)) },
+            { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, bindings, 'entity', animations, lod)) },
             { name: `${rp}models/entity/${ecid}.geo.json`, data: geoJson(geo.value) },
-            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, bindings)) },
+            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, bindings, lod)) },
         );
         // One swatch per LDraw colour: exact LDraw RGBA, plus the PBR maps.
         // Shared by every entity in the pack that uses the colour.
@@ -1477,7 +1570,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             });
             diagnostics[shellId] = sgeo.diagnostics;
             warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId));
+            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId), undefined, true);
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
             actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
             extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
@@ -1553,7 +1646,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks));
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks), undefined, true);
             cameraVehicles.push(emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks));
 
             // Secondary objects the compiler found beside the vehicle (see
@@ -1585,7 +1678,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
-                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
+                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined, ekind !== 'figure');
                 if (ekind === 'car') {
                     driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });
                     cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
@@ -1685,15 +1778,25 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const to = Object.values(diagnostics).find(d => d.figureQualityClamped)!.figureQualityClamped!;
         warnings.push(`${label}: ${figuresClamped} figure${figuresClamped === 1 ? ' was' : 's were'} compiled at ${to.microcellLdu} LDU rather than the pack's ${to.requestedMicrocellLdu} LDU - at the finer grain a minifig costs 8-13× the cuboids (the phone's add-on memory budget) and gains only a rounder head and hands.`);
     }
-    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids;
+    // Hull cuboids are RESIDENT beside the full model (add-on memory is
+    // definition-side), so they count against the device budget like any other.
+    const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
+    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids;
     const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
+    if (lodCuboids) {
+        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over past ${lodDistance} in whatever unit query.distance_from_camera reports - that unit is UNDOCUMENTED and unverified on a device.`);
+    }
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
         generator: 'craftmatic', label,
         // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
-        pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped },
+        pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
+        // `query.distance_from_camera`'s unit is undocumented, and so is whether
+        // it is evaluated in a render controller's geometry field at all: the
+        // device round settles both (see docs/bedrock-addon-guide.md).
+        lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera units are UNDOCUMENTED and the switch distance is unverified on a device' : 'off', entities: lodHulls },
         entities: diagnostics,
     }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
