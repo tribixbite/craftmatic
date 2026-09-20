@@ -20,11 +20,15 @@ only durable copy.
 
 ### Shipped this round — detail in `git log` / the guides, kept where a decision needs the number
 
-- **ReconV3 figures assembled** (`clego/recon_figure_assemble.py`, wired into
-  `recon_v3/beam.py`): 423 files / 990 figures / 4,919 parts moved in place;
-  −44 % figure defects on the touched sample files, floating +4, overlap/sunk
-  unchanged. Residual is inventory-side (surplus hands, dropped torsos).
-  `docs/lego-sources-guide.md` §6a.
+- **Figures, v2** (`clego/recon_figure_assemble.py`, wired into
+  `recon_v3/beam.py`): the v1 pass never ran on a torso-less file, and the
+  torsos are missing because Studio leaves every PRINTED figure part in the
+  `.io`'s `errorPartList.err`, which the reader's inventory never reads. v2
+  runs the torso-less passes and recovers a dropped part onto the torso that
+  is missing it; the same socket snap at radius 700 fixes `EurobricksLDD`,
+  whose LDD conversion flings both arms 187–648 LDU. **873 files rewritten,
+  861 republished to R2**; corpus figure defects 12,781 → **8,837**, 192 files
+  DEFECTIVE → PASS, 0 duplicates introduced. `docs/lego-sources-guide.md` §6b.
 - **Class-B mould mismatch re-framed exactly** (`clego/class_b_census.py`,
   `class_b_apply.py`, wired into `reconvert_dbix.py`, the Mecabricks harvester
   and `recon_v3`): 8,073 of 12,868 primary placements are the SAME mould in
@@ -246,11 +250,24 @@ function defaults `none`. Open:
       - The DBIX constant-offset panes (43222's 21 x 79.9 LDU) are a wrong
         LEARNED ALIGNMENT ROW. The snap hides it; the row itself is still wrong
         and will come back on a regeneration that does not run the snap.
-- [ ] **Figure defects, after the ReconV3 assembler**: the residue in ReconV3 is
-      inventory-side (6–12 hands for 2 arms, torsos dropped by the reader —
-      `76151`, `70403`, `76167`); `EurobricksLDR` still has the worst RATE
-      (61 % of 38 picks) and nothing has been aimed at it. Re-measure on the
-      500-pick sample once the upstream-library board is in.
+- [ ] **Figure defects — what is LEFT after the v2 assembler (2026-09-20).**
+      Corpus 12,781 -> **8,837** over 10,169 picks; ReconV3 6,093 -> **3,440**,
+      EurobricksLDD 1,487 -> **196**, 192 files DEFECTIVE -> PASS. Cause and
+      numbers: `docs/lego-sources-guide.md` §6b, clego GEOGRADE.md root cause F.
+      Open, in priority order:
+      - **ReconV3's 3,440 are the TORSO-LESS files** (`orphan_hand` 2,181,
+        `torso_no_hips` 413). Their printed torsos are in the `.io`'s
+        `errorPartList.err` with no anchor in the file to hang them on, so the
+        repair has to move into the READER — `recon_v3` must place them, not
+        just name them. Measure first with
+        `python geograde/figure_residue.py --src ReconV3 --workers 12 --out <f>`.
+      - `MecabricksLDR` **2,593 / 502 picks** and `DbixConvV3` **1,459 / 490**
+        are untouched by v2 and are now the two biggest blocks.
+      - `HuntArchiveLDR` has the worst RATE left: 52 picks, 25 affected,
+        **13.4 defects per affected pick**, nothing ever aimed at it.
+      - The index still carries the PRE-v2 grades for the 861 republished
+        files; the rows are in `clego/geograde/scoreboard_extra.json` and land
+        on the next index rebuild (owned elsewhere this round).
 - [ ] **The 744 picks that never had a grade** are now graded (47.3 % PASS) and
       have a different profile: 13.8 % carry duplicate placements against 0.4 %
       in the random sample. `EurobricksLDD` and `EurobricksTopicLDR` are 100 %

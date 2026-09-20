@@ -726,6 +726,14 @@ DbixConvV3, which now averages 2.3 defects per affected pick against ReconV3's
 9.8. `EurobricksLDR` has the worst RATE (61 % of its picks) on a small
 population. The three authentic classes are the control and report zero.
 
+> **The sample is superseded by a FULL-POPULATION census (2026-09-20).** A
+> 500-pick sample cannot say which defect KIND carries a class, and it named the
+> wrong Eurobricks class: today's index resolves **2** picks to `EurobricksLDR`
+> and **162** to `EurobricksLDD`, and it is `EurobricksLDD` that has the bad
+> rate. `geograde/figure_residue.py --all` tallies `figure_report` over EVERY
+> primary pick in ~40 s; do that instead of sampling. Numbers, before/after, in
+> §6b.
+
 #### 6a. ReconV3's figures: the cause, and the assembler that fixes 44 % of it (2026-09-19)
 
 `recon_v3` places every inventory part at the centroid of the page-diff region
@@ -756,11 +764,148 @@ posed figure with its legs 23 LDU apart that the grader's own 10–14.5 LDU
 | floating parts | 99 | 103 |
 | big floating / overlap / sunk | 37 / 45 / 12 | 37 / 45 / 12 |
 
-What is left is inventory-side, not placement: files with 6–12 hands for 2
+~~What is left is inventory-side, not placement: files with 6–12 hands for 2
 arms and no torso at all (`76151`, `70403`, `76167` — the reader's parts list
 carries surplus hands and drops the torso's print id), which no placement
-rule can assemble. Whole corpus: **423 of 2,424 files touched, 990 figures,
-4,919 parts moved**, stamped `0 !FIGURE_ASSEMBLE v1`.
+rule can assemble.~~ **Half of it was a bug in this pass and most of the rest
+IS recoverable — see §6b.** The hands were never surplus: 76151 has 8 hands for
+4 minifigs and it is the four TORSOS and two of the arms that are missing.
+Whole corpus: **423 of 2,424 files touched, 990 figures, 4,919 parts moved**,
+stamped `0 !FIGURE_ASSEMBLE v1`.
+
+#### 6b. The residue measured, and what it actually was (2026-09-20)
+
+`geograde/figure_residue.py` tallies `part_family.figure_report` over every
+primary pick of a class, by KIND and with concentration. Over all **2,237
+ReconV3 picks** after the v1 assembler: **807 picks carry 6,093 defects**, 7.55
+per affected pick.
+
+| kind | defects | picks carrying it |
+|---|---:|---:|
+| `orphan_hand` | 3,422 | 755 |
+| `torso_arms_missing` | 884 | 198 |
+| `leg_missing_on_hips` | 724 | 343 |
+| `torso_no_hips` | 499 | 208 |
+| `torso_no_head` | 364 | 207 |
+| `orphan_arm` | 195 | 99 |
+| bare head + loose headgear over the authentic max | 5 | 4 |
+
+**Two causes, both found, both fixed.**
+
+**(1) The pass never ran on a torso-less file.** `assemble()` returned early on
+`not torsos`, above its own torso-less limb passes — so the 498 affected picks
+that have loose arms, hands, hips and legs and NO torso (2,592 of the 6,093
+defects) were read and written back unchanged. One line.
+
+**(2) The reader's inventory is the `.io`'s `model.ldr`, and Studio leaves every
+part it could not resolve in `errorPartList.err` INSIDE the same archive.**
+`recon_v3.common.ordered_inventory` → `reconstruct_from_pdf.parse_inventory`
+reads only `model.ldr`, so every **printed** figure part is missing from the
+reconstruction while its unprinted companions survive — which is exactly why a
+file holds 8 hands, 2 arms and no torso. Over the 2,237 picks every one has an
+`.io` with such a list, and **774 of the 807 affected picks have figure parts in
+it, carrying 5,798 of the 6,093 defects (95 %)**. Dropped, by family:
+**4,041 torsos**, 1,521 heads, 1,127 hips, 266 mini-doll legs, 248 headgear,
+111 arms, plus the arm-pair composite `981982` (which no family pattern names).
+
+*The list cannot simply be merged back into the inventory* — it overlaps what
+`model.ldr` already places with nothing linking the two: 3409 places twelve
+`973pgN` torsos AND drops twelve more as `973pbNNNNc01`, so a merge would
+double-count a 12-minifig set into 24. What IS unambiguous is the reverse
+direction, and that is what v2 does: **when a torso in the file is missing a
+part AND the archive says that kind of part was dropped, the part belongs on
+that torso and its canonical slot fixes where.** The recovered part is the
+unprinted base mould (`3818`/`3819` arms, `3626c` head, `3815c01` hips-and-legs)
+in the LDraw colour that Studio's own `StudioColorDefinition.txt` maps the
+archive's `colorId` to — verified on the distribution, not asserted: over 900
+picks the dropped heads come back Yellow ×102, Light Nougat ×39, White ×17,
+Nougat ×13, Reddish Brown ×9, i.e. minifig head colours. Recovery is bounded by
+the archive's own counts, skips a torso that carries its own arms, and refuses
+any pose another placement already occupies (`geograde`'s duplicate key,
+reproduced exactly).
+
+`0 !FIGURE_ASSEMBLE v2`. The corpus pass:
+
+```bash
+cd C:/git/clego
+python recon_figure_assemble.py --src ReconV3 --in-place --force \
+    --recover --workers 12 --summary geograde/figure_assemble_v2_reconv3.json
+python recon_figure_assemble.py --src EurobricksLDD --in-place --force \
+    --radius 700 --workers 12 --summary geograde/figure_assemble_v2_ebldd.json
+```
+
+**`EurobricksLDD` is a different defect with the same repair.** Its LDD→LDraw
+conversion puts the head at exactly −24 and the hips at exactly +32 — both right
+— and flings both ARMS 187–648 LDU from the shoulder, in every figure of every
+file: 115 of its 162 picks, and `torso_arms_missing` 480 ≈ `orphan_arm` 479 ≈
+`orphan_hand` 478 of its 1,487 defects. The hands are NOT displaced (they sit at
+torso-local ±23.8, 15–25, −17…−7, near the canonical hand slot); only the arms
+are. So the same socket snap fixes it, at a radius set from the measured
+displacement (250 LDU reaches 52 % of the defects, 700 — just over the observed
+648 maximum — reaches 87 %). No recovery is applied: it has no `.io` inventory
+to read.
+
+**Corpus-wide, every primary pick, before → after:**
+
+| class | picks | affected | defects |
+|---|---:|---:|---:|
+| **ReconV3** | 2,237 | 807 → **633** | 6,093 → **3,440** (−43.5 %) |
+| **EurobricksLDD** | 162 | 115 → **42** | 1,487 → **196** (−86.8 %) |
+| MecabricksLDR | 2,748 | 502 | 2,593 (untouched) |
+| DbixConvV3 | 1,690 | 490 | 1,459 (untouched) |
+| IO | 397 | 48 | 347 |
+| HuntArchiveLDR | 52 | 25 | 335 (13.4 per affected pick — the worst RATE left) |
+| LXF | 885 | 85 | 213 |
+| **all** | **10,169** | **2,121 → 1,874** | **12,781 → 8,837 (−30.9 %)** |
+
+The other geograde counters on the **873 touched files** (graded before and
+after with `CLEGO_LDRAW_LIB=upstream`):
+
+| | before | after |
+|---|---:|---:|
+| figure defects | 7,327 | **3,383** (−53.8 %) |
+| placements | 252,050 | 253,108 (+1,058 recovered) |
+| floating parts | 10,483 | 9,692 |
+| big floating parts / clusters | 4,326 / 255 | 4,312 / 250 |
+| side-model parts | 7,025 | 7,814 |
+| overlap parts % (summed) | 463.59 | 463.67 |
+| overlap volume / part (summed) | 2,020.6 | 2,006.4 |
+| sunk parts | 679 | 680 |
+| **duplicate placements** | **0** | **0** |
+| unknown placements | 33 | 33 |
+| severity (summed) | 6,169.2 | 4,254.8 |
+
+**192 files go DEFECTIVE → PASS** (123 ReconV3, 69 EurobricksLDD) and **1 goes
+the other way**: `ReconV3/1186.ldr`, where recovering the one hips-and-legs the
+archive dropped gives the file its first hips — which *activates* the
+`torso_no_hips` rule (it abstains when a file has no hips at all) for the
+SECOND torso, which has none. A defect exposed, not created; the file is more
+complete than it was.
+
+Read the floating/side-model rows together: floating falls 791 and side-model
+rises 789 because an arm that joins a figure standing on the floor stops being
+its own airborne cluster. That is a reclassification, not new detachment.
+
+Controls, all still clean:
+* the 36-file authentic cohort (`geograde/figure_gate.py --list
+  geograde/cohort_authentic_30.txt`, `…_minidoll.txt`) reports **0** zero-floor
+  violations;
+* the MOVE logic is byte-identical to v1 wherever a torso exists — over the
+  1,895 flat `LDR/` files with a torso, v1 and v2 touch the same 1,797 and move
+  the same 14,202 parts;
+* recovery only ever runs when the caller passes the archive's dropped list, so
+  it cannot fire outside ReconV3;
+* `recon_v3` bench (`python -m recon_v3 --bench-out <f> 31045 75031 8533`):
+  **31045 99.3 %, 75031 98.3 %, 8533 90.0 %** — and the pass is structurally
+  invisible to it, because `beam.build` computes `recon_pos` from
+  `asm.to_eval_positions()`, never from the text lines the pass rewrites.
+
+**What is left in ReconV3 (3,440 defects over 633 picks)** is dominated by
+`orphan_hand` 2,181 and `torso_no_hips` 413 — overwhelmingly the torso-less
+files, whose dropped torsos have no anchor to be recovered onto. Placing those
+needs the READER to emit them (a position, not just an identity), which is a
+`recon_v3` project, not a polish. `# TODO(recon)` is on it in
+`recon_figure_assemble.py`.
 
 ### 7. Studio "(Needs Work)" stub moulds — and the larger mismatch behind them
 
