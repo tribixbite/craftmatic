@@ -53,8 +53,8 @@ only durable copy.
 
 ### The corpus is PUBLISHED (2026-09-19 ~17:00) — follow-ups only
 
-Prod serves the new index on the plain URL (board stamp `2026-09-19 16:54:06`,
-15,647 stamps: 6,656 verified / 8,899 defective, 482 alternates stale) and the
+Prod serves the new index on the plain URL (board stamp `2026-09-19 16:54:06`;
+stamps are now 16,129 / 0 stale after the round below) and the
 4,746 changed files (0 upload failures; `DbixConvV3/76286.ldr` sha
 `b5be43f938ac` = the index entry, carrying `!CLASS_B_REFRAME`; `ReconV3/8799`
 carries `!FIGURE_ASSEMBLE`). `node scripts/_lego-probe.mjs 76286` against
@@ -63,13 +63,35 @@ known no-mould `28710` missing. Board committed in clego (`0cf793c6`), the
 bundled index in craftmatic (`0e4df3bd`) — **Deploy still ships the old bundled
 index until `main` is pushed** (Will's call; 37 commits ahead).
 
-- [ ] `geograde/rerank_proposals_full.json` has **347 source-switch
-      proposals** from the upstream-library board (a graded alternate beats
-      the primary). Review them the way the 2026-09-02 rows in
-      `build_model_index.py BEST_OVERRIDES` were, then rebuild + republish the
-      index (`--only-file empty.txt` uploads only the index).
-- [ ] 482 alternate paths still ship without a stamp (modified after the
-      alternates run started, or never in a defective set's alternates).
+Both index follow-ups are DONE and live (clego `63a838ba`, craftmatic below):
+the 347 proposals reviewed (**accept 76 / reject 198 / needs-visual 73**, the
+criteria now code in clego `geograde/rerank_review.py`), 76 sets changed
+`models[0]` with nothing else reordering, and the 482 unstamped alternates
+re-graded (**stamps 15,647 -> 16,129, stale 0**). Prod index sha256/12
+`45b6698de8ee` -> `49cdca5cd775` on the plain URL. Numbers and evidence:
+`docs/lego-sources-guide.md` §8a, clego `GEOGRADE.md`.
+
+- [ ] **73 proposals need a VISUAL call** and are deliberately not applied
+      (clego `geograde/rerank_review.json`, `decision: "needs-visual"`): 20
+      approximate lineages, 19 below the 95 % retention floor, 14 sets that
+      already carry a reviewed `BEST_OVERRIDES` row pointing elsewhere, and 14
+      where the incumbent is a staged capture and the proposed sibling carries
+      NO `main_frac` stamp — the T23 discriminator abstains, so decide them on
+      renders against the set's box art the way 31381/31384 were. Renders are
+      the whole job; the grader has no more to say.
+- [ ] **140 `BEST_OVERRIDES` rows point at a target that now grades
+      `defective`** (it is still the best available — no alternate PASSES — so
+      nothing is wrong today for 116 of them, where no alternate is verified
+      either), but GEOGRADE.md's rule is "a set whose primary got repaired
+      should lose its override, not keep it forever". The 24 with a verified
+      alternate are a subset of the 73 needs-visual above; nobody has
+      reconciled the 328-row table against a board since it grew past ~250.
+- [ ] **4,716 index entries have never been graded at all** (distinct from the
+      482, which were stale). They are alternates of sets whose PRIMARY passed,
+      which `scoreboard.py --grade --alts` deliberately skips. Grading them
+      would cost a board-sized run and would only improve the source PICKER's
+      labels, never a default pick — decide whether that is worth it before
+      running it.
 - [ ] `28710` (and `30426`, `x346`) have no mould anywhere; the probe's only
       missing part on 76286.
 

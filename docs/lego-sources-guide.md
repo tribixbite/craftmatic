@@ -900,3 +900,51 @@ neither fits a Windows command line nor finishes in series — `sync_models_r2.p
 --only-file <listing>` on the worker pool, failures to `_r2_only_failed.txt`.
 `changed_since_index.py` produces the listing by sha against the index prod
 serves.
+
+### 8a. The board's 347 proposals and its 482 unstamped alternates, closed (2026-09-19)
+
+**76 of the 347 source-switch proposals are applied.** The 2026-09-02 review
+criteria are now code — clego `geograde/rerank_review.py` ->
+`geograde/rerank_review.json`: **accept 76 · reject 198 · needs-visual 73**.
+Two criteria the proposal file cannot express carried most of the weight, and
+both are worth knowing before proposing a switch by hand:
+- **132 of the 347 point at an alternate the index flags `conv: 1`**, where
+  `lego-sources.ts`'s read-time conv-demotion moves the `conv: 0` sibling
+  straight back to the front. Such a row is inert; `confidence: "high"` alone
+  would have written 23 of them.
+- **14 replace a staged capture with a sibling that carries no `main_frac`
+  stamp**, so T23 — the only metric that separates a Creator 3-in-1's assembled
+  build from its parts trail — abstains. Those need renders against the box art,
+  the way 31381/31384 were decided, so they are needs-visual.
+The rest: 37 proposals no longer describe the shipped index, 29 point at a raw
+`.lxf`, 20 at an approximate lineage, 19 below the 95 % retention floor, 14 at a
+set that already carries a reviewed override.
+
+Result, diffed over all 10,169 sets: **exactly 76 sets change `models[0]`** and
+nothing else reorders; all 76 old primaries graded `defective`, all 76 new ones
+grade `verified`. `ldr -34`, `io -10`, `mecabricks +18`, `omr +13`,
+`dbix_conv_v3 +9`, `dbix_conv_v2 +3`, and **`io_model2_v2` 0 -> 1**: 8448 is the
+first set in the corpus whose DEFAULT pick is an `IOModel2V2` file, so the
+2026-09-18 note above ("`models[0]` for zero of them") is now one set out of
+date — it was a measurement of that day's index, not a rule.
+
+**The 482 unstamped alternates had ONE cause, not two.** Zero were graded by the
+board and then modified. All 482 are paths the board never graded at all — they
+are alternates of sets whose PRIMARY passed, and `--alts` only grades a
+DEFECTIVE primary's alternates — whose only grade came from
+`scoreboard_extra.json`'s 2026-09-18 stamp while their bytes were rewritten on
+09-19 by the DbixConvV3 regeneration, the Mecabricks fixes and the ReconV3
+figure assembly (DbixConvV3 388, MecabricksLDR 82, ReconV3 11,
+MecabricksSearchLDR 1). Re-graded with the board's settings
+(`CLEGO_LDRAW_LIB=upstream`): 482 graded, 0 errors, 262 PASS / 220 DEFECTIVE.
+**Index stamps 15,647 -> 16,129, stale 482 -> 0.**
+`scoreboard_extra.json` rows now carry their OWN `generated` — one file-level
+stamp on a file that accretes rows across runs is a trap in both directions, and
+this was the other one (bumping it was the hazard fixed on 09-18; leaving it is
+what produced the 482).
+
+Published index only (all 76 promoted files already answered 200 through the
+worker). Prod on the plain URL: `45b6698de8ee` -> **`49cdca5cd775`**, and
+10333 / 8448 / 42175 read back with the promoted path and that file's own sha
+(`d3709cdfed00`, `480b152dd00b`, `fcae0906eced`). Detail and the Windows trap
+that made a clean rebuild report 105 phantom stale stamps: clego `GEOGRADE.md`.
