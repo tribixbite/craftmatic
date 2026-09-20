@@ -133,6 +133,13 @@ export interface SchemWorkerInput {
    * (ui/schem-export.ts, scripts/_playable_ref.ts) derives both from one plan.
    */
   modelScale?: number;
+  /**
+   * `.mcaddon`: experimental override for a figure NPC's
+   * `minecraft:collision_box.height` (device-919 roaming investigation,
+   * `TASKS-BEDROCK-ADDON.md`). Default: computed per figure, clamped to
+   * 1.0-1.8; see `figureBehavior` in `playable-addon.ts`.
+   */
+  figureCollisionHeight?: number;
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -379,7 +386,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

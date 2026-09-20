@@ -127,6 +127,17 @@ export interface PlayableAddonOptions {
      * (`output/device-919/lod/LOD-RESULT.md`).
      */
     lodDistance?: number;
+    /**
+     * Experimental override for a figure NPC's `minecraft:collision_box.height`
+     * (default: computed from the figure's own geometry, clamped to 1.0-1.8
+     * blocks — see `figureBehavior`). Added for the chalet "figures do not
+     * roam" investigation (`TASKS-BEDROCK-ADDON.md`): 6 of 7 chalet figures
+     * never moved under a ~2.25-block ceiling; the working hypothesis is that
+     * mob navigation needs two full air cells above a walkable block, which a
+     * 1.8-tall box cannot fit under that ceiling. Unlike the normal clamp,
+     * this bypasses it entirely so an experiment can go below 1.0.
+     */
+    figureCollisionHeight?: number;
 }
 /** `hull`: ship a per-colour surface hull beside the full model and switch to it at `lodDistance`. */
 export type LodMode = 'none' | 'hull';
@@ -455,11 +466,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
  * Player-sized (a minifig IS player height at this scale) so it fits the
  * doorways and corridors of a minifig-scale building.
  */
-function figureBehavior(id: string, size: { width: number; height: number; length: number }): unknown {
+function figureBehavior(id: string, size: { width: number; height: number; length: number }, collisionHeightOverride?: number): unknown {
     // No bigger than the player (0.6 x 1.8), who walks every room and doorway of
     // a minifig-scale build: at 0.9 x 2.0 six of seven chalet figures could not
     // path out of where they spawned (Pixel round 2026-09-17).
-    const collision = { width: Math.min(0.6, Math.max(0.4, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height: Math.min(1.8, Math.max(1.0, Math.round(size.height * 10) / 10)) };
+    // `collisionHeightOverride` (device-919 roaming experiment) replaces the
+    // computed/clamped height outright rather than participating in the
+    // 1.0-1.8 clamp, so a below-1.0 experimental value is not clamped back up.
+    const height = collisionHeightOverride ?? Math.min(1.8, Math.max(1.0, Math.round(size.height * 10) / 10));
+    const collision = { width: Math.min(0.6, Math.max(0.4, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height };
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_figure', 'mob'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -1682,7 +1697,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }
                 diagnostics[ecid] = egeo.diagnostics;
                 warnings.push(...egeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-                const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks)
+                const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined, ekind !== 'figure');
@@ -1725,7 +1740,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
         diagnostics[fcid] = fgeo.diagnostics;
         warnings.push(...fgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks), fgeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
+        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks, options.figureCollisionHeight), fgeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
         // A rigged figure faces exactly where its torso pointed; an unrigged one the nearest axis it was compiled to.
         const yaw = fgeo.figure ? yawForFacing(fgeo.figure.facingLdu) : (() => {
             const nose = snapFacing(fig.facingLdu);

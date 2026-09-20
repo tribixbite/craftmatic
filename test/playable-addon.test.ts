@@ -516,6 +516,23 @@ describe('playable add-on — brick-compiled entities', () => {
     const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_plain_RP/manifest.json')));
     expect(rpManifest.capabilities).toBeUndefined();
   });
+
+  it('threads figureCollisionHeight into a scene figure NPC\'s collision box, bypassing the default 1.0-1.8 clamp (device-919 roaming experiment)', async () => {
+    const grid = new BlockGrid(3, 2, 3);
+    grid.set(0, 0, 0, 'minecraft:white_concrete');
+    const figureArgs = { stem: 'roam', partGeometry: await providerFor(), figures: [{ bricks: bricks.slice(0, 1), x: 1, y: 1, z: 1, facingLdu: [0, -1] as [number, number] }] };
+    const withoutOverride = await buildPlayableAddon(grid, figureArgs);
+    const defaultBehavior = JSON.parse(new TextDecoder().decode(await extractFile(ab(withoutOverride.bytes), 'Craftmatic_roam_BP/entities/roam_fig1.json')));
+    const defaultHeight = defaultBehavior['minecraft:entity'].components['minecraft:collision_box'].height;
+    // Unmodified default stays inside the normal player-height clamp.
+    expect(defaultHeight).toBeGreaterThanOrEqual(1.0);
+    expect(defaultHeight).toBeLessThanOrEqual(1.8);
+
+    const withOverride = await buildPlayableAddon(grid, { ...figureArgs, figureCollisionHeight: 0.95 });
+    const overrideBehavior = JSON.parse(new TextDecoder().decode(await extractFile(ab(withOverride.bytes), 'Craftmatic_roam_BP/entities/roam_fig1.json')));
+    // The override lands exactly, below the default floor - the whole point of the experiment.
+    expect(overrideBehavior['minecraft:entity'].components['minecraft:collision_box'].height).toBe(0.95);
+  });
 });
 
 describe('pack identity — two models must never share a manifest uuid', () => {

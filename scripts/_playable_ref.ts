@@ -10,6 +10,7 @@
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
  *          [--lod=none|hull] [--lod-distance=N]   (default hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
+ *          [--figure-collision-height=N]   (experimental override for a figure NPC's minecraft:collision_box.height, default computed/clamped 1.0-1.8; device-919 roaming experiment)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
@@ -172,6 +173,7 @@ const result = await runSchemPipeline({
   modelScale,
   lod: (flag('lod') ?? 'hull') as 'none' | 'hull',
   ...(flag('lod-distance') ? { lodDistance: Number(flag('lod-distance')) } : {}),
+  ...(flag('figure-collision-height') ? { figureCollisionHeight: Number(flag('figure-collision-height')) } : {}),
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 
