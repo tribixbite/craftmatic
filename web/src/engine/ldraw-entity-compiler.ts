@@ -359,6 +359,14 @@ export interface LegoGeometryDiagnostics {
   orphans: { clusters: number; placements: number };
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
+  /**
+   * The occupancy grid that cull ran on: the cell it sampled at, the cell the
+   * quality asked for, and whether the 40 M-cell budget forced a coarser cell
+   * (`coarsened`) or, at the very coarsest allowed cell, no cull at all
+   * (`skipped`). Never silent: before 2026-09-19 an over-budget grid returned
+   * an empty set with nothing recorded, so the cull had never run on 71043.
+   */
+  hiddenCull: Omit<HiddenCullPlan, 'hidden'>;
   /** Body cuboids absorbed by a same-colour face-adjacent neighbour (`mergeAlignedCuboids`, lossless). */
   mergedCubes: number;
   /** The parts that cost the most cuboids in total (prototype cuboids × placements), heaviest first. */
@@ -642,7 +650,7 @@ export function cullHiddenCuboids(
   if (cuboids.length < 2) return hidden;
   const all = aabbOfCorners(cuboids.flatMap(c => [c.min, c.max]));
   const nx = Math.ceil((all.max[0] - all.min[0]) / cell) + 2, ny = Math.ceil((all.max[1] - all.min[1]) / cell) + 2, nz = Math.ceil((all.max[2] - all.min[2]) / cell) + 2;
-  if (nx * ny * nz > 40_000_000) return hidden; // a model this large is coarsened anyway
+  if (nx * ny * nz > CULL_GRID_CELL_BUDGET) return hidden; // the caller coarsens instead: cullHiddenCuboidsWithinBudget
   const occ = new Uint8Array(nx * ny * nz);
   const idx = (x: number, y: number, z: number): number => (x * ny + y) * nz + z;
   // Sample centres sit at (k + 0.5)·cell from one cell before the model's min.
@@ -673,6 +681,68 @@ export function cullHiddenCuboids(
     if (ring > 0) hidden.add(i);
   });
   return hidden;
+}
+
+/**
+ * Occupancy-grid cells `cullHiddenCuboids` may allocate (one byte each, so
+ * 40 MB). The grid is dense and allocated up front; a 5,967-part castle at
+ * 4 LDU wants 61.3 M cells, which is why the cell is coarsened rather than
+ * the cull abandoned.
+ */
+export const CULL_GRID_CELL_BUDGET = 40_000_000;
+
+/**
+ * Occupancy cells the cull is allowed to sample at, coarsest last. Measured on
+ * 71043 at ultra (2026-09-19, `scripts/_probe-geo-audit.ts`): 4 LDU needs
+ * 61.3 M cells and used to BAIL; 6 LDU culls 219 cuboids (0.46 %), 8 LDU 262
+ * (0.54 %), 12 LDU 338 (0.70 %) — and **16 LDU culls visible material**
+ * (three exposed studs), so the ladder stops at 12.
+ */
+export const CULL_CELL_LADDER: readonly number[] = [4, 6, 8, 12];
+
+/** What `cullHiddenCuboidsWithinBudget` did, for the compile diagnostics (hard rule 4: nothing silent). */
+export interface HiddenCullPlan {
+  hidden: Set<number>;
+  /** The cell the cull actually sampled at (the coarsest tried when it was skipped). */
+  cellLdu: number;
+  /** The cell the caller asked for. */
+  requestedCellLdu: number;
+  /** Occupancy cells the chosen cell needs (`nx·ny·nz`). */
+  gridCells: number;
+  coarsened: boolean;
+  /** Even `CULL_CELL_LADDER`'s coarsest cell did not fit the budget: nothing was culled. */
+  skipped: boolean;
+}
+
+/**
+ * Cull buried cuboids at the finest cell whose occupancy grid fits
+ * `CULL_GRID_CELL_BUDGET`, coarsening up `CULL_CELL_LADDER` when the requested
+ * cell does not fit. Before this the culler simply returned an empty set over
+ * the budget, so it had **never run on the largest golden model** (71043 at
+ * ultra bails at both 4 and 6.67 LDU); a coarser occupancy cell is strictly
+ * more conservative about what it calls hidden in the ring test, which is why
+ * coarsening is safe up to the measured 12 LDU limit.
+ *
+ * A model that already fits keeps the requested cell, so its result is
+ * byte-identical to the previous behaviour.
+ */
+export function cullHiddenCuboidsWithinBudget(
+  cuboids: Array<{ min: Vec3; max: Vec3; translucent: boolean; aligned: boolean }>,
+  cell: number,
+): HiddenCullPlan {
+  const base = { hidden: new Set<number>(), requestedCellLdu: cell };
+  if (cuboids.length < 2) return { ...base, cellLdu: cell, gridCells: 0, coarsened: false, skipped: false };
+  const all = aabbOfCorners(cuboids.flatMap(c => [c.min, c.max]));
+  const cellsAt = (c: number): number =>
+    (Math.ceil((all.max[0] - all.min[0]) / c) + 2) * (Math.ceil((all.max[1] - all.min[1]) / c) + 2) * (Math.ceil((all.max[2] - all.min[2]) / c) + 2);
+  const ladder = [cell, ...CULL_CELL_LADDER.filter(c => c > cell)];
+  for (const candidate of ladder) {
+    const gridCells = cellsAt(candidate);
+    if (gridCells > CULL_GRID_CELL_BUDGET) continue;
+    return { ...base, hidden: cullHiddenCuboids(cuboids, candidate), cellLdu: candidate, gridCells, coarsened: candidate !== cell, skipped: false };
+  }
+  const coarsest = ladder[ladder.length - 1]!;
+  return { ...base, cellLdu: coarsest, gridCells: cellsAt(coarsest), coarsened: coarsest !== cell, skipped: true };
 }
 
 // ─── Compiler ─────────────────────────────────────────────────────────────────
@@ -1510,7 +1580,10 @@ export async function compileLdrawEntityGeometry(
     const forCull = renderCuboids.map((c, i) => c.aligned
       ? { min: c.min, max: c.max, translucent: c.material.alpha < 1, aligned: true }
       : { ...(() => { const wb = worldBoxes[i]!; return aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v))); })(), translucent: c.material.alpha < 1, aligned: false });
-    const hidden = cullHiddenCuboids(forCull, Math.min(4, quality.microcellLdu));
+    // Over the 40 M-cell budget the cell is COARSENED (up to 12 LDU), not the
+    // cull abandoned - see cullHiddenCuboidsWithinBudget.
+    const cullPlan = cullHiddenCuboidsWithinBudget(forCull, Math.min(4, quality.microcellLdu));
+    const hidden = cullPlan.hidden;
     const visibleCuboids = hidden.size ? renderCuboids.filter((_, i) => !hidden.has(i)) : renderCuboids;
     // Lossless: same-colour face-adjacent body boxes become one (see mergeAlignedCuboids).
     const mergedResult = mergeAlignedCuboids(visibleCuboids);
@@ -1518,7 +1591,7 @@ export async function compileLdrawEntityGeometry(
     const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, cubes: v.placements * v.cubesEach }))
       .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
 
-    return { cache, renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, mergedCubes: mergedResult.merged, heaviestParts };
+    return { cache, renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts };
   };
 
   // Whole-model budget: coarsen everything (deterministically) before giving up detail per part.
@@ -1534,7 +1607,10 @@ export async function compileLdrawEntityGeometry(
   if (built.renderCuboids.length > quality.maxModelCubes) {
     warnings.push(`${cid}: ${built.renderCuboids.length} cuboids exceed the ${quality.maxModelCubes} budget even at ${quality.microcellLdu} LDU; the pack keeps them all, expect a heavy entity.`);
   }
-  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled, mergedCubes, heaviestParts } = built;
+  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts } = built;
+  if (cullPlan.skipped) {
+    warnings.push(`${cid}: buried-cuboid culling was skipped - the model spans ${Math.round(Math.cbrt(cullPlan.gridCells))} cells a side even at ${cullPlan.cellLdu} LDU, over the ${CULL_GRID_CELL_BUDGET / 1_000_000} M-cell occupancy budget; a few hundred never-visible cuboids ship with it.`);
+  }
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
   const CELL = 40;
@@ -1828,6 +1904,7 @@ export async function compileLdrawEntityGeometry(
     standContinued,
     orphans,
     hiddenCubesCulled,
+    hiddenCull: { cellLdu: cullPlan.cellLdu, requestedCellLdu: cullPlan.requestedCellLdu, gridCells: cullPlan.gridCells, coarsened: cullPlan.coarsened, skipped: cullPlan.skipped },
     mergedCubes,
     heaviestParts,
     facing,

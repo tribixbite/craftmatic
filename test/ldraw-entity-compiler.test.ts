@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
+import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, cullHiddenCuboidsWithinBudget, CULL_CELL_LADDER, CULL_GRID_CELL_BUDGET, detachedClusters, eulerZYX, ldrawToRenderRotation, levelModel, mergeAlignedCuboids, snapSignedPermutation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
@@ -255,6 +255,62 @@ describe('compileLdrawEntityGeometry', () => {
     // The cube above the centre inside a rotated bone: its box is an over-estimate, so it never occludes.
     const rotated = block.map(b => (b.min[0] === 20 && b.min[1] === 40 && b.min[2] === 20 ? { ...b, aligned: false } : b));
     expect(cullHiddenCuboids(rotated, 4).size).toBe(0);
+  });
+
+  // The 40 M occupancy-grid budget: coarsen, never bail silently.
+  type CullBox = { min: [number, number, number]; max: [number, number, number]; translucent: boolean; aligned: boolean };
+  /** A 3x3x3 block of `size`-LDU cubes: only the centre one is enclosed. */
+  const cullBlock = (size: number): { boxes: CullBox[]; centre: number } => {
+    const boxes: CullBox[] = [];
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++)
+      boxes.push({ min: [x * size, y * size, z * size], max: [(x + 1) * size, (y + 1) * size, (z + 1) * size], translucent: false, aligned: true });
+    return { boxes, centre: boxes.findIndex(b => b.min[0] === size && b.min[1] === size && b.min[2] === size) };
+  };
+  const gridCellsAt = (extentLdu: number, cell: number): number => Math.pow(Math.ceil(extentLdu / cell) + 2, 3);
+
+  it('keeps the requested cell, and the exact prior result, for a model whose grid fits the budget', () => {
+    const { boxes, centre } = cullBlock(20);
+    const r = cullHiddenCuboidsWithinBudget(boxes, 4);
+    expect(r.cellLdu).toBe(4);
+    expect(r.coarsened).toBe(false);
+    expect(r.skipped).toBe(false);
+    expect([...r.hidden]).toEqual([centre]);
+    expect([...r.hidden]).toEqual([...cullHiddenCuboids(boxes, 4)]);
+  });
+
+  it('coarsens the occupancy cell instead of bailing when the grid exceeds the budget, and still culls the enclosed cuboid', () => {
+    // 3 x 480 LDU per axis: 362^3 = 47.4 M cells at 4 LDU (over budget), 242^3 = 14.2 M at 6 LDU.
+    const { boxes, centre } = cullBlock(480);
+    expect(gridCellsAt(1440, 4)).toBeGreaterThan(CULL_GRID_CELL_BUDGET);
+    expect(gridCellsAt(1440, 6)).toBeLessThan(CULL_GRID_CELL_BUDGET);
+    const r = cullHiddenCuboidsWithinBudget(boxes, 4);
+    expect(r.cellLdu).toBe(6);
+    expect(r.coarsened).toBe(true);
+    expect(r.skipped).toBe(false);
+    expect([...r.hidden]).toEqual([centre]);
+    // The old code returned an empty set here - the culler never ran on the largest golden model.
+    expect(cullHiddenCuboids(boxes, 4).size).toBe(0);
+  });
+
+  it('reports the cull cell it used in the compile diagnostics', async () => {
+    const bricks: ParsedBrick[] = [{ part: '3001.dat', color: 4, x: 0, y: 0, z: 0 }, { part: '3001.dat', color: 4, x: 0, y: -24, z: 0 }];
+    const r = await compileLdrawEntityGeometry('t', 'car', bricks, { partGeometry: provider(), facing: '+z' });
+    expect(r.diagnostics.hiddenCull.cellLdu).toBe(Math.min(4, r.diagnostics.quality.microcellLdu));
+    expect(r.diagnostics.hiddenCull.requestedCellLdu).toBe(r.diagnostics.hiddenCull.cellLdu);
+    expect(r.diagnostics.hiddenCull.coarsened).toBe(false);
+    expect(r.diagnostics.hiddenCull.skipped).toBe(false);
+    expect(r.diagnostics.hiddenCull.gridCells).toBeGreaterThan(0);
+  });
+
+  it('skips the cull, and says so, only when even the coarsest allowed cell does not fit', () => {
+    const coarsest = CULL_CELL_LADDER[CULL_CELL_LADDER.length - 1]!;
+    expect(coarsest).toBe(12); // never 16: at 16 LDU the cull removes visible material (3 studs)
+    const { boxes } = cullBlock(1400);
+    expect(gridCellsAt(4200, coarsest)).toBeGreaterThan(CULL_GRID_CELL_BUDGET);
+    const r = cullHiddenCuboidsWithinBudget(boxes, 4);
+    expect(r.skipped).toBe(true);
+    expect(r.hidden.size).toBe(0);
+    expect(r.cellLdu).toBe(coarsest);
   });
 
   it('levelModel leaves an already level model alone', () => {

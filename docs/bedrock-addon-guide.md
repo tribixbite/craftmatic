@@ -1341,3 +1341,34 @@ drawn (`/testfor` cannot even see them), and actor churn leaks (142 MB not
 returned after killing 6,000). A world with 50 large sets activated is 50 packs
 of definitions: the cuboid budget is a sum over ACTIVATED packs, not over
 summoned entities. Nothing to build.
+
+## The buried-cuboid culler had never run on the largest model (2026-09-19)
+
+`cullHiddenCuboids` allocates a dense `Uint8Array` occupancy grid and used to
+**return an empty set** whenever `nx·ny·nz` exceeded 40 M cells — silently, with
+nothing in the diagnostics. 71043 at ultra needs 61.3 M cells at its 4 LDU
+occupancy cell, so the cull had never run on it at ultra OR at balanced.
+
+- Fix: `cullHiddenCuboidsWithinBudget` coarsens the occupancy cell up
+  `CULL_CELL_LADDER` = 4, 6, 8, 12 LDU to the finest cell that fits
+  `CULL_GRID_CELL_BUDGET` (40 M), and only skips when even 12 LDU does not.
+  **The ladder stops at 12 deliberately**: measured on 71043 ultra
+  (`scripts/_probe-geo-audit.ts`), 6 LDU culls 219 cuboids (0.46 %), 8 LDU 262,
+  12 LDU 338 — and **16 LDU culls visible material** (three exposed studs).
+  A coarser occupancy cell is strictly more conservative in the ring test, so
+  coarsening cannot over-cull relative to the requested cell; a model that
+  already fits keeps its cell and its exact previous result.
+- Everything lands in the diagnostics: `hiddenCull { cellLdu,
+  requestedCellLdu, gridCells, coarsened, skipped }` per entity, and a skip
+  also raises an export warning.
+- Measured on 71043 at ultra (`output/_probe-q-2026-09-19/71043-ultra-cullfix.mcaddon`,
+  same invocation as `output/device-919/build-71043.log`): the shell's occupancy
+  cell coarsens 4 → 6 LDU (18.3 M cells), `hiddenCubesCulled` 0 → **165**, shell
+  cuboids **48,093 → 47,936 (−0.33 %)**, pack 49,833 → 49,676, archive 505,416 →
+  504,758 bytes. The net is under the probe's 0.46 % because the probe counted on
+  the SHIPPED cube set (studs included, after the merge) while the compiler culls
+  before studs and before `mergeAlignedCuboids`.
+- Regression tests: `test/ldraw-entity-compiler.test.ts` (fits-keeps-its-cell,
+  forced coarsening still culls the enclosed cube, skip only past 12 LDU, and
+  the diagnostics field).
+
