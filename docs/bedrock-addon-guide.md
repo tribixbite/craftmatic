@@ -1509,9 +1509,47 @@ version bumped) replaced the installed ones in world 919:
   **1 of 7 at 0.95**. A real but weak signal; six stay stuck, so a global cut
   is not the mechanism. Next: per-figure height from the interior clearance.
 - **Milano 76286-v2 at 400 %: FAIL** — the gear hangs with a visible gap
-  (`shots/186-milano400-under.jpg`). The grounding holds at 100 % only; it is
-  applied in unscaled units somewhere between the render-frame lowest-cuboid
-  offset and the size-group scale. Fix tracked in `GROUNDING.md`.
+  (`shots/186-milano400-under.jpg`). The grounding held at 100 % only. Root
+  cause found and fixed offline the same day (next subsection); evidence and
+  the device procedure in `GROUNDING.md`.
 - Traps: `/camera` far from loaded chunks fails silently and renders black
   silhouettes (teleport the player instead); the transport dropped before
   nearly every wand-menu tap this round.
+
+### The wand's size factor multiplied a constant lift (fixed 2026-09-20, offline; device round pending)
+
+Evidence and the device procedure: `output/device-919/round-2026-09-20/GROUNDING.md`.
+
+Every actor coordinate a pack ships is scaled about the pin by the wand's size
+factor (`worldPoint`: `anchor + p × f`), so each one has to be a measurement
+INSIDE the model — a height above the model's own floor plane, which is the
+same `anchor.y` the structure tiles, the collider grid and the ghost stand on.
+The component actor's Y defaulted to a **constant 1 block**, which is not such
+a height, so `f` multiplied it and the model floated `f` blocks over the pin:
+1 at 100 %, **4 at 400 %**. Only an aircraft shows it — `kind === 'plane'`
+ships `has_gravity: false` with hover movement/navigation, so nothing pulls it
+back down; a car or a boat falls the difference away. The default applied
+exactly when the component covers the whole source model (`schem-pipeline.ts`
+pushes it with no x/y/z), i.e. every vehicle-only export.
+
+Fix: one helper, `componentSpawnPoint` (`engine/playable-addon.ts`), used by
+the actor, the extras' `primaryPos`, the preview points and the ghost, with
+Y defaulting to **0** — the model's own floor. A component inside a larger
+scene keeps the floor height the pipeline gives it, which IS a real height in
+the model and scales correctly. Measured on the built packs (actor Y +
+geometry floor, both × f): 76286 goes from `0.25/0.5/0.75/1/1.5/2/3/4` blocks
+over the pin at 25…400 % to **0 at every step**. The same +1 shifted the ghost
+preview up a block and pushed its top row out of the scene bounds
+(`sceneOccupancy` marks at `c.y + y`): the Milano's ghost was 1..13 blocks and
+is now 0..13.
+
+What was NOT wrong, each re-checked rather than assumed: the render frame
+already grounds a model on its lowest cuboid (`floorY = all.min[1]`, so the
+shipped `.geo.json` has `minY = 0`); the building shell's origin lift cancels
+because the geometry is authored `−lift` and the actor spawned `+lift`, both
+scaled; the collider grid grows up from the pin (`wy0 = (y + lo/16) × f`);
+`minecraft:scale` pivots on the entity origin; and `modelScale` rescales the
+cell and the units-per-LDU together, so `modelScale × f` still multiplies a
+zero. Guarded by `test/bedrock-placement-grounding.test.ts` (6 tests through
+the serialized runtime; 3 fail on the pre-fix code, 3 pin the halves that were
+already right).

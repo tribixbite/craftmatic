@@ -588,6 +588,35 @@ export function extraPlacement(primary: CompiledLdrawGeometry, extra: EntityExtr
     return { dx: Math.round(dx * 100) / 100, dy: Math.round(Math.max(0, by) * 100) / 100, dz: Math.round(dz * 100) / 100, yaw: normaliseYaw(Math.atan2(-wx || 0, wz) * 180 / Math.PI) };
 }
 
+/**
+ * Where a component's entity stands inside the placement, in the MODEL's own
+ * blocks: X/Z the footprint centre, Y the component's own FLOOR.
+ *
+ * Every actor coordinate a pack ships is scaled about the pin by the wand's
+ * size factor (`worldPoint` in `bedrock-placement-pack.ts`: `anchor + p × f`),
+ * so each one has to be a measurement INSIDE the model - a height above the
+ * model's floor plane, which is the same `anchor.y` the structure tiles, the
+ * collider grid and the ghost preview all stand on. Y used to default to a
+ * constant 1 block: a lift that is not such a height, so the size factor
+ * multiplied it and the model left the ground by `(f − 1) × 1` blocks. The
+ * Milano 76286 is an aircraft (`has_gravity: false`), so nothing pulled it
+ * back down and its landing gear hung 3 blocks up at 400 % - Pixel 8 Pro,
+ * world 919, 2026-09-20,
+ * `output/device-919/round-2026-09-20/shots/186-milano400-under.jpg`.
+ *
+ * A component that IS the whole model stands on the model's floor, y = 0, so
+ * the ground contact survives every size step and every model scale: both
+ * multiply the same zero. A component placed inside a larger scene keeps its
+ * own floor height (`schem-pipeline.ts` passes the component grid's offset),
+ * which is a real height in the model and so scales correctly with it.
+ */
+export function componentSpawnPoint(
+    component: Pick<PlayableGridComponent, 'x' | 'y' | 'z'>,
+    scene: { width: number; length: number },
+): { x: number; y: number; z: number } {
+    return { x: component.x ?? scene.width / 2, y: component.y ?? 0, z: component.z ?? scene.length / 2 };
+}
+
 interface Box {
     x: number;
     y: number;
@@ -1677,7 +1706,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // placed relative to the vehicle's actor in its own levelled frame,
             // so they stand where the source put them, and turn with the wand.
             const extras = options.mainVehicleOnly ? [] : ldrawGeo.extras.filter(e => e.role !== 'prop');
-            const primaryPos = { x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2 };
+            const primaryPos = componentSpawnPoint(c, grid);
             let figureIndex = 0, subIndex = 0;
             for (const extra of extras) {
                 const ekind: EntityKind = extra.role === 'figure' ? 'figure' : extra.wheels >= 2 ? 'car' : 'prop';
@@ -1720,7 +1749,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             fallbackCuboids += geo.cubeCount;
             files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, gridMeshBindings(cid, geo.meshIds))) }, { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, gridMeshBindings(cid, geo.meshIds))) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
-        actors.push({ typeId: fullTypeId, label: c.label, x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2, yaw: layout.actorYaw });
+        actors.push({ typeId: fullTypeId, label: c.label, ...componentSpawnPoint(c, grid), yaw: layout.actorYaw });
     }
     // Figures found in the scenery: one minifig NPC type each, standing where the source put them.
     const figureKindCounts: Record<string, number> = {};
@@ -1825,17 +1854,18 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
     for (const c of components) {
         const scale = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis).scale;
+        const at = componentSpawnPoint(c, grid);
         for (const p of previewSamples(c.grid, perVehicle)) previewPoints.push({
-            x: (c.x ?? grid.width / 2) + (p.x - c.grid.width / 2) * scale,
-            y: (c.y ?? 1) + p.y * scale,
-            z: (c.z ?? grid.length / 2) + (p.z - c.grid.length / 2) * scale,
+            x: at.x + (p.x - c.grid.width / 2) * scale,
+            y: at.y + p.y * scale,
+            z: at.z + (p.z - c.grid.length / 2) * scale,
         });
     }
     // Ghost preview of the whole placement: scenery plus each vehicle at its scene position.
     options.onProgress?.('building placement preview', 85);
     const ghost = buildPreviewGhost(id, scenery, components.map((c): PreviewComponentPlacement => ({
         grid: c.grid, scale: componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis).scale,
-        x: c.x ?? grid.width / 2, y: c.y ?? 1, z: c.z ?? grid.length / 2,
+        ...componentSpawnPoint(c, grid),
     })));
     files.push(
         { name: `${bp}entities/${id}_preview.json`, data: json(ghost.behavior) },
