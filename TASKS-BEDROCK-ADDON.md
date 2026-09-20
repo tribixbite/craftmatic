@@ -7,16 +7,22 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-19, night — proposals measured, budget raised, LOD on the phone)
+## State (2026-09-20 — everything PUSHED and DEPLOYED; corpus rounds on windows + figures live)
 
-Everything below is on `main`, with `bun run typecheck`, `typecheck:web` and
-`bun run test` (1,754 passing) green locally. **`main` is 43 commits AHEAD of
-`origin/main` — nothing since `a6f3b152` has been pushed** (push needs Will's
-go-ahead), so CI/Deploy have not seen any of it. clego is committed locally
-(`37ed4a42`…`0cf793c6`) and **the corpus IS on R2** — prod serves the
-regenerated, figure-assembled, re-framed bytes and the upstream-library board.
-The corpus on disk is NOT git-tracked (`lego_sets/` is ignored) — R2 is its
-only durable copy.
+`main` == `origin/main` (`05e024a8`), CI `35513740098` + Deploy `35513740104`
+green, `bun run test` 1,755 passing. Prod serves index `64c4746eb7e7` on the
+plain URL: **every indexed entry graded** (ungraded 4,716 -> 0), 9,066 verified
+/ 11,698 defective stamps, `models[0]` verified 5,343 -> 5,652. clego is
+committed locally (`1cf35aff`) and **NOT pushed: its 511-commit delta is 630 MB
+of recommitted scoreboard/index snapshots** (no blob > 45 MB, no secrets) —
+Will decides whether to gitignore/rewrite before pushing. The corpus on disk is
+NOT git-tracked (`lego_sets/` is ignored) — R2 is its only durable copy.
+
+Handoff for a fresh session: read this file, then `docs/lego-sources-guide.md`
+§6b (figures v2), §8b-8e (visual review, reconciliation, sync trap), §9
+(windows), and `docs/bedrock-addon-guide.md`'s last four sections (five
+proposals, ceiling run, LOD verified). Memory index:
+`~/.claude/projects/C--git-craftmatic/memory/MEMORY.md`.
 
 ### Shipped this round — detail in `git log` / the guides, kept where a decision needs the number
 
@@ -54,53 +60,36 @@ only durable copy.
   2.1–5.3 s. Incident: the Play screen's LAN tile shifts local worlds one
   slot — read the tile LABEL before every tap.
 
-### The corpus is PUBLISHED (2026-09-19 ~17:00) — follow-ups only
+### Corpus — what is live and what is next (2026-09-20)
 
-Prod serves the new index on the plain URL (board stamp `2026-09-19 16:54:06`;
-stamps are now 16,129 / 0 stale after the round below) and the
-4,746 changed files (0 upload failures; `DbixConvV3/76286.ldr` sha
-`b5be43f938ac` = the index entry, carrying `!CLASS_B_REFRAME`; `ReconV3/8799`
-carries `!FIGURE_ASSEMBLE`). `node scripts/_lego-probe.mjs 76286` against
-prod: 2,077 bricks, 487 meshes, the new grade note in the status, only the
-known no-mould `28710` missing. Board committed in clego (`0cf793c6`), the
-bundled index in craftmatic (`0e4df3bd`) — **Deploy still ships the old bundled
-index until `main` is pushed** (Will's call; 43 commits ahead).
+Live on prod this round, all verified by sha on the plain URL: **windows**
+(`recon_window_assemble.py`, 545 files / 2,100 panes seated, 500-sample
+off-frame 80 -> 14 placements, 19 -> 6 sets; §9), **figures v2**
+(`recon_figure_assemble.py` reads Studio's `errorPartList.err`, runs on
+torso-less files; corpus figure defects 12,781 -> 8,837, 192 files flip to
+PASS; §6b), **37 visual source switches** (§8b), 4,716 + 61 + 366 + 873 fresh
+stamps. `sync_models_r2.py` gained `--no-index`; **it has no `--help` and an
+unknown flag runs a FULL sync** (§8e).
 
-Both index follow-ups are DONE and live (clego `63a838ba`, craftmatic below):
-the 347 proposals reviewed (**accept 76 / reject 198 / needs-visual 73**, the
-criteria now code in clego `geograde/rerank_review.py`), 76 sets changed
-`models[0]` with nothing else reordering, and the 482 unstamped alternates
-re-graded (**stamps 15,647 -> 16,129, stale 0**). Prod index sha256/12
-`45b6698de8ee` -> `49cdca5cd775` on the plain URL. Numbers and evidence:
-`docs/lego-sources-guide.md` §8a, clego `GEOGRADE.md`.
-
-- [ ] **73 proposals need a VISUAL call** and are deliberately not applied
-      (clego `geograde/rerank_review.json`, `decision: "needs-visual"`): 20
-      approximate lineages, 19 below the 95 % retention floor, 14 sets that
-      already carry a reviewed `BEST_OVERRIDES` row pointing elsewhere, and 14
-      where the incumbent is a staged capture and the proposed sibling carries
-      NO `main_frac` stamp — the T23 discriminator abstains, so decide them on
-      renders against the set's box art the way 31381/31384 were. Renders are
-      the whole job; the grader has no more to say.
-- [ ] **140 `BEST_OVERRIDES` rows point at a target that now grades
-      `defective`** (it is still the best available — no alternate PASSES — so
-      nothing is wrong today for 116 of them, where no alternate is verified
-      either), but GEOGRADE.md's rule is "a set whose primary got repaired
-      should lose its override, not keep it forever". The 24 with a verified
-      alternate are a subset of the 73 needs-visual above; nobody has
-      reconciled the 328-row table against a board since it grew past ~250.
-- [ ] **4,716 index entries have never been graded at all** (distinct from the
-      482, which were stale). They are alternates of sets whose PRIMARY passed,
-      which `scoreboard.py --grade --alts` deliberately skips. Grading them
-      would cost a board-sized run and would only improve the source PICKER's
-      labels, never a default pick — decide whether that is worth it before
-      running it.
-- [ ] `28710` (and `30426`, `x346`) have no mould anywhere; the probe's only
-      missing part on 76286.
-
-Also committed locally in clego and NOT published: the `io_model2_v2`
-assembly expansion (118 files), `mb_partmap` +87 decorated rows, the
-family-ladder fix, the slide/door inverse-prior fix.
+- [ ] **Figure residue, next targets** (§6b): `MecabricksLDR` 2,593 defects /
+      502 picks and `DbixConvV3` 1,459 / 490 are now the biggest blocks;
+      `HuntArchiveLDR` the worst rate (13.4 per pick, 52 picks). ReconV3's
+      remaining 3,440 are torso-less files whose torsos have no anchor — needs
+      the READER to place them (`# TODO(recon)` in the module).
+- [ ] **Windows, next**: `DbixConvV2` (2,070 panes / 303 files, run
+      `--src DbixConvV2 --in-place`), MPD sources, `.io` archives, EurobricksLDR
+      (8 hand-authored). `window_defects` is reported but NOT gated in
+      `verdict()` — gate `>= 2` with the next full board. The DBIX per-mould
+      constant offsets are a wrong learned alignment row; the snap hides it.
+- [ ] **Override table hygiene**: 8 `BEST_OVERRIDES` rows are no-ops and 10
+      point at a `conv: 1` entry the 2026-09-09 rule forbids
+      (`geograde/rerank_visual_2026-09-20.json`). Six visual accepts were
+      judgement calls on near-identical pairs (71425, 71441, 71481, 72035,
+      80117, 72045); 71439/71440 rejected as "cannot tell".
+- [ ] `28710` (and `30426`, `x346`) have no mould anywhere.
+- [ ] 41 MB rollback snapshot of the pre-window bytes at
+      `clego/geograde/_window_round/before_bytes/` (gitignored) — delete when
+      the round is trusted.
 
 ### Five files are dirty in clego and are NOT this round's
 
@@ -193,10 +182,6 @@ function defaults `none`. Open:
       better yet (`io-extractor.ts` prefers `model.ldr`, whose `bl_*.dat` refs do
       not resolve; `ldraw-parser.ts:237` needs `!LDRAW_ORG Unofficial_Part`,
       which Studio omits).
-- [ ] **10 sets have a verified `IOModel2V2` promotion candidate** after the
-      re-grade (688, 1552, 8225, 8439, 8448, 10304, 42057, 42140, 42184, 76393).
-      Acting means `BEST_OVERRIDES` rows; three are multi-variant archives that
-      would render several builds side by side.
 - [ ] **4 part ids abstain from rotation** (`35186` x81, `4526` x14, `35473` x5,
       `5443` x2) — near-symmetric, translated correctly, may face the wrong way.
 - [ ] A part can be lost to upstream 503s (one 10303 load gave 3,814 instances
