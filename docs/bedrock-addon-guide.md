@@ -1429,3 +1429,41 @@ until a device round settles the mechanism** — the UI does not offer it yet.
   leaves the controllers/geometry/diagnostics exactly as they were, `hull` adds
   the file, declares one empty geometry, inverts the index expression, and the
   pack's cuboid budget counts the hull.
+
+### The box-UV ceiling run: 487,856 cuboids survived, no crash found (2026-09-19)
+
+`output/device-919/ceiling/CEILING.md`, `packs.md`. 14 more distinct Ultra packs
+(10278, 10297, 75827, 10307, 10255, 71040, 10305, 10256, 10276, 10294, 10272,
+21058, 10318, 42115; 10,109-54,849 cuboids each) were activated in world 919 on
+top of the three installed ones, in eight steps, with three sets placed
+throughout and nothing from the new packs placed:
+
+| step | packs | cuboids | nativePss | totalPss | GL mtrack | median frame |
+|---|---:|---:|---:|---:|---:|---:|
+| 0 | 3 | 77,345 | 969 MB | 1.76 GB | 415 MB | 16.68 ms |
+| 2 | 9 | 246,385 | 1.31 GB | 2.26 GB | 405 MB | 16.68 ms |
+| 3 | 10 | 283,319 | 1.60 GB | 2.37 GB | 400 MB | 16.68 ms |
+| 5 | 12 | 374,978 | 1.86 GB | 2.58 GB | 387 MB | 16.69 ms |
+| 8 | 17 | **487,856** | **2.21 GB** | **2.99 GB** | 392 MB | 16.73 ms |
+
+- No bad_alloc, no low-memory kill, no ANR at any step; 60 fps throughout
+  (the new packs' entities were never summoned, so this is the DEFINITION
+  side only). nativePss slope 2.4-2.7 kB per cuboid: the on-device
+  confirmation of the box-UV A/B. GL mtrack did not move (nothing new drawn).
+- The run stopped for lack of prepared packs, not device stress, so the true
+  box-UV ceiling is ABOVE 487,856 and unmeasured. `DEVICE_CUBOID_BUDGET` is now
+  **480,000**, the highest observed survival, and the warning text says so
+  ("past the highest sum measured to survive", not "likely to crash").
+- The old six-face-UV crash (bad_alloc at 281k, 1.58 GB native) is therefore
+  not a native-heap total limit either: 2.21 GB of box-UV definitions load.
+  What it was is unknown; do not quote 260k for anything any more.
+- Drawn cuboids remain a separate limit (~50-100k visible hold 60 fps,
+  ~150k hold 30); the budget expresses resident definitions only.
+- **Milano 76286-v2 (mast fix): PASS at 100 %** — the v2 ship rests its gear
+  on the ground (`ceiling/shots/milano-v2-100-view.jpg`); 400 % not tested.
+- Traps: **`adb push` does not truncate a shorter target** — reverting a 137-line
+  `world_*_packs.json` to 18 lines left the old tail after the new `]`; run
+  `adb shell "echo -n '' > <path>"` before pushing a shorter file. A cosmetic
+  dark overlay stuck to one screen position appeared after the Milano version
+  swap and survived Save & Quit; not investigated. The 14 new packs remain
+  installed on the phone, active in no world.

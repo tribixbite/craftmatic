@@ -84,24 +84,24 @@ describe('figures are clamped to high detail', () => {
 describe('pack cuboid budget', () => {
   it('reports the share and how many packs fit, and warns only from 10 % of the device budget', () => {
     const small = packCuboidBudget('Roadster', 12_000, 3);
-    expect(small.shareOfDeviceBudget).toBeCloseTo(0.046, 3);
-    expect(small.packsThatFitTogether).toBe(21);
+    expect(small.shareOfDeviceBudget).toBeCloseTo(0.025, 3);
+    expect(small.packsThatFitTogether).toBe(40);
     expect(small.warning).toBeUndefined();
 
     const measured = packCuboidBudget('Castle', 82_163, 12);
     expect(measured.warning).toBe(
-      'Castle: 82,163 cuboids across 12 entities - 32% of the ~260,000-cuboid budget a phone has for ALL of its add-on packs together'
-      + ' (measured on a Pixel 8 Pro at 3.08 kB per cuboid; box-UV geometry has since measured 2.03-2.78 kB, so the real ceiling is likely 290,000-390,000 - not yet confirmed on a device).'
-      + ' About 3 packs this size can be active at once; a 4th is likely to crash the world as it loads.',
+      'Castle: 82,163 cuboids across 12 entities - 17% of the ~480,000-cuboid budget a phone has for ALL of its add-on packs together'
+      + ' (the highest sum a Pixel 8 Pro has survived with box-UV packs, 487,856 cuboids at 60 fps; the crash point is above it and unmeasured. Drawing many sets at once is a separate limit: ~150,000 visible cuboids hold 30 fps).'
+      + ' About 5 packs this size can be active at once; a 6th takes the device past the highest sum measured to survive.',
     );
 
-    // Exactly the measured ceiling: one such pack is the whole device.
+    // Exactly the measured survival point: one such pack is the whole budget.
     const whole = packCuboidBudget('Everything', DEVICE_CUBOID_BUDGET, 40);
     expect(whole.packsThatFitTogether).toBe(1);
-    expect(whole.warning).toContain('About 1 pack this size can be active at once; a 2nd is likely to crash');
+    expect(whole.warning).toContain('About 1 pack this size can be active at once; a 2nd takes the device past');
 
     const over = packCuboidBudget('Too big', DEVICE_CUBOID_BUDGET + 1, 40);
-    expect(over.warning).toContain('This pack alone is over that budget');
+    expect(over.warning).toContain('This pack alone is past the highest sum');
   });
 
   it('is written into craftmatic-diagnostics.json even when it is far under the warning threshold', async () => {

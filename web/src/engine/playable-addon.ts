@@ -190,18 +190,20 @@ const safe = (s: string) => toBedrockIdentifier(s).slice(0, 48);
  * pack, and one measured pack shipped 82,163 cuboids over 12 entities without
  * a word of warning.
  *
- * The number is deliberately NOT raised for box UV. That A/B (2026-09-18, the
- * 71043 shell, 48,093 cuboids, same count, file padded to the same length)
- * took a cuboid from 3.08 kB to 2.03 kB by nativePss and 2.78 kB by
- * nativeAlloc - the two counters disagree by a factor of four on the saving.
- * The 260,000 above is fitted to an OBSERVED crash; the headroom it implies
- * (260,000 x 3.08 kB, about 800 MB over the 739 MB floor) would hold ~288,000
- * cuboids on the pessimistic counter and ~394,000 on the optimistic one.
- * Raising the constant needs the same pack-stacking run that produced 260,000,
- * re-run on box-UV packs; until then the warning quotes the range and the
- * budget stays where a device put it.
+ * Re-measured 2026-09-19 on the same phone with box-UV packs
+ * (`output/device-919/ceiling/CEILING.md`): stacking 17 distinct Ultra packs
+ * to 487,856 cuboids summed over the active packs loaded and ran at 60 fps
+ * (median frame 16.7 ms, three sets placed) with nativePss 2.21 GB and
+ * totalPss 2.99 GB - no bad_alloc, no low-memory kill. The slope was
+ * 2.4-2.7 kB per cuboid, the on-device confirmation of the box-UV A/B. The run
+ * stopped because it ran out of prepared packs, NOT because the device did, so
+ * 480,000 is the highest OBSERVED SURVIVAL, not a crash point; the true box-UV
+ * ceiling is above it and unmeasured. Only the definition side was exercised
+ * (the 14 extra packs were activated, not placed) - the number of cuboids
+ * DRAWN at once is a separate limit (~50-100k visible hold 60 fps, ~150k hold
+ * 30) that this budget does not express.
  */
-export const DEVICE_CUBOID_BUDGET = 260_000;
+export const DEVICE_CUBOID_BUDGET = 480_000;
 /** Warn about a pack's size once it is this share of the whole-device budget (fewer than 10 such packs fit). */
 const PACK_CUBOID_WARN_SHARE = 0.1;
 /** Locale-independent thousands separator, so the warning text is deterministic. */
@@ -231,14 +233,14 @@ export function packCuboidBudget(label: string, cuboids: number, entities: numbe
         packsThatFitTogether: fit,
     };
     if (share < PACK_CUBOID_WARN_SHARE) return out;
-    const size = `${label}: ${grouped(cuboids)} cuboids across ${entities} entit${entities === 1 ? 'y' : 'ies'} - ${Math.round(share * 100)}% of the ~${grouped(DEVICE_CUBOID_BUDGET)}-cuboid budget a phone has for ALL of its add-on packs together (measured on a Pixel 8 Pro at 3.08 kB per cuboid; box-UV geometry has since measured 2.03-2.78 kB, so the real ceiling is likely 290,000-390,000 - not yet confirmed on a device).`;
+    const size = `${label}: ${grouped(cuboids)} cuboids across ${entities} entit${entities === 1 ? 'y' : 'ies'} - ${Math.round(share * 100)}% of the ~${grouped(DEVICE_CUBOID_BUDGET)}-cuboid budget a phone has for ALL of its add-on packs together (the highest sum a Pixel 8 Pro has survived with box-UV packs, 487,856 cuboids at 60 fps; the crash point is above it and unmeasured. Drawing many sets at once is a separate limit: ~150,000 visible cuboids hold 30 fps).`;
     // 2nd/3rd/4th…: `fit` is at most 10 here, because the warning needs a 10 % share.
     const nth = fit + 1 === 2 ? '2nd' : fit + 1 === 3 ? '3rd' : `${fit + 1}th`;
     return {
         ...out,
         warning: fit < 1
-            ? `${size} This pack alone is over that budget; expect the world to run out of memory while it loads. Export at a lower quality, or split the model.`
-            : `${size} About ${fit} pack${fit === 1 ? '' : 's'} this size can be active at once; a ${nth} is likely to crash the world as it loads.`,
+            ? `${size} This pack alone is past the highest sum a phone has been measured to survive; expect the world to run out of memory while it loads. Export at a lower quality, or split the model.`
+            : `${size} About ${fit} pack${fit === 1 ? '' : 's'} this size can be active at once; a ${nth} takes the device past the highest sum measured to survive.`,
     };
 }
 
