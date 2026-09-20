@@ -1268,8 +1268,8 @@ quality (1511x1449x1760 LDU = 61.3 M cells at 4 LDU), so the culler had never
 run on the largest golden model. Re-run at coarser cells on the shipped set: 6 LDU
 culls 219 (0.46 %), 8 LDU 262 (0.54 %), 12 LDU 338 (0.70 %); 16 LDU (3 studs)
 culls visible material. Fixed by coarsening to the smallest cell that fits the
-budget, bounded at 12 LDU, with the choice in the diagnostics: a ~0.5 % gain,
-hygiene rather than strategy.
+budget, bounded at 12 LDU, with the choice in the diagnostics: measured −0.33 % on 71043 ultra (165 culled,
+the compiler culls before studs and merging, so less than the probe): hygiene rather than strategy.
 
 Faces: only axis-aligned cubes can have a coplanar neighbour, and rotated-bone
 cubes are 66-72 % of the castle. Hidden faces are 29.8 / 28.1 / 34.0 / 28.8 %
