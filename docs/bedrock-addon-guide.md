@@ -1680,6 +1680,29 @@ writes nothing about it to logcat. The log lives in
 `/sdcard/Android/data/com.mojang.minecraftpe/files/games/com.mojang/logs/`
 (newest file by mtime, tens of MB — grep it on-device).
 
+**Gate a device round on `grep -cE '\[Molang\]\[error\]'`.** The three quiet
+`[Actor][error]` lines at load are easy to miss; the same defect also produced
+**348,797** `query.property called on an actor without a property component`
+lines — one distinct message at ~60/s for two hours — and that single number
+catches the whole class (dropped property component, typo'd property name,
+property queried on the wrong entity). A clean pack reads 0.
+
+#### A same-UUID pack upgrade needs the ACTIVE FOLDER overwritten (2026-09-21)
+
+Deterministic manifest UUIDs make a rebuilt pack upgrade in place — but each
+import creates a NEW folder (`Name—`, `Name—(1)`, `Name—(2)`), and Bedrock
+resolves a world's pack by UUID to the folder its own store already associates
+with it. Editing `world_behavior_packs.json` / `world_resource_packs.json` to
+pin the new version is silently reverted on world load; Edit World → Behavior
+Packs → "Technical details" kept reporting the OLD version at the original
+folder path, and a reload produced fresh `[Actor][error]` lines from the stale
+copy — so a passing import and an activated pack proved nothing.
+
+What works: confirm the old and new folders have identical file lists, back up
+every file with its SHA256, then copy the new content OVER the active folder
+on-device and verify with `md5sum`. Check the version by reading the ACTIVE
+folder's `manifest.json`, never the newest folder's.
+
 Profile extraction must use the mould's rail endpoint/axis, not merely stud or
 sleeper origins. In 10303 those frames can differ by 32 LDU, producing false
 45-LDU gaps after rotation. A visually closed source model does not authorize

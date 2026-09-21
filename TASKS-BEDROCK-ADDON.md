@@ -11,7 +11,13 @@ rideable coasters. Root inspected the actual production closeups under
 `output/pipeline-2026-09-21/10303-prod-track-diagnosis/`: six `80564` loop-quarter
 placements are invisible. Exact geometry exists inside `IO/10303.io`'s
 `model2.ldr` but the `IOModel2V2` conversion discarded the embedded definitions.
-The other missing placements are hair `43753` ×1 and tooth `x346` ×2.
+Hair `43753` ×1 and tooth `x346` ×2 were ALSO fixed by that same parser change,
+not just the six `80564`s: all three are embedded-definition ids, and a fresh
+measured run of the repaired source reports `unresolvedParts: []` for all 12
+entities (shell 3710 source / 302 unique / 302 resolved, `embeddedParts: 3`),
+with neither id among the 10 sibling-mould substitutions. Evidence
+`output/bedrock-entity-qa/10303-before.log`. `x346` remains absent from the
+LDraw library for OTHER sets that do not embed it (~450 references).
 
 Viewer parser repair: Studio DATs explicitly marked `IsSubModel False` and
 `IsAssembly False` remain terminal meshes; official Part/Subpart definitions
@@ -24,14 +30,14 @@ deployment `35630254112` passed. Converter commit `922de02c` is local to clego
 (do not push its divergent master). Its 4 tests pass; unsafe embedded child
 frames are rejected instead of substituted.
 
-The repaired source is applied locally at `IOModel2V2/10303.ldr`, SHA256
-`df3b47c3c9f27623eaa1d8ab40fdf9a0938035cab5d5ffdaac20b55f31676b38`;
-original exact backup: `output/pipeline-2026-09-21/10303-apply-backup/10303.ldr`.
-**Publication is blocked by auto-review pending the user's exact public R2
-approval**, requested asynchronously. Do not bypass: intended command is
-`python sync_models_r2.py --only IOModel2V2/10303.ldr --no-index` in clego.
-Original/public pre-repair SHA256:
-`b51c0b67042cc31a0dbf371f3bf1d48ddbd40b308d1f5b6e2b616785a2b10656`.
+The repaired source is applied locally AND published at `IOModel2V2/10303.ldr`,
+SHA256 `df3b47c3c9f27623eaa1d8ab40fdf9a0938035cab5d5ffdaac20b55f31676b38`;
+original exact backup: `output/pipeline-2026-09-21/10303-apply-backup/10303.ldr`,
+pre-repair SHA256 `b51c0b67042cc31a0dbf371f3bf1d48ddbd40b308d1f5b6e2b616785a2b10656`.
+The user has since granted STANDING approval for public R2 publication and for
+index corrections, so a future single-file repair no longer waits on an ask —
+but still publish scoped (`--only <path>`), verify by plain-URL readback against
+the full SHA256, and keep the index diff to the entries you actually changed.
 
 Measured profiles and rendered overlays now agree: 42 placed moulds become
 41 fragments (one opposed vertical 25061 pair), 34 joins, components
@@ -43,34 +49,63 @@ The apparent 45.25-LDU ramp gap was a sleeper-origin error: actual rail ends
 meet within 0.0385 LDU. Nine-cuboid cart overlays show wheel contact on flat and
 loop track; parallel-transport frames animate cart pitch/roll, not player roll.
 
-- [ ] Actual mounted movement, rider retention and Undo: `coaster_device`
-  owns the phone/new isolated `CoasterQA` world (`IG8Iet9-XIU=`). Cheats and
-  diagnostic BP/RP are enabled only there. Existing worlds remain untouched.
-  No root/USB/reboot/data-clear/world overwrite. Host tests are not device proof.
-  **The exact error was captured, from the device CONTENT LOG rather than a
-  screenshot** (`…/files/games/com.mojang/logs/`, newest by mtime; nothing about
-  it reaches logcat). The cart's float actor properties serialized as integer
-  literals, so Bedrock rejected them and dropped the entity's whole property
-  component: `Error loading property 'craftmatic:track_pitch': 'default' value
-  does not match the specified type 'float'`, then `Error loading Actor
-  Properties`, then `query.property called on an actor without a property
-  component` every frame — and `setProperty` threw inside the movement tick, so
-  the generic catch untracked the cart after one step. Root cause and the fix
-  (`bedrockFloat`) are in the add-on guide; offline gates below.
-  Same-identity fixed pack: `output/bedrock-entity-qa/coaster-qa-floatprops-20260921.mcaddon`,
-  33048 bytes, SHA256 `0d05998ca550b160170a67d8e46ed2cc138a9a2833b82766135783bebb313915`,
-  version `[2,695,19240]` (BP uuid unchanged `8cc962ea-…`, so it upgrades in
-  place). Rebuild it with `bun scripts/_coaster_qa_pack.ts <out.mcaddon> [--loop]`.
-  Device re-verification is RUNNING: reload CoasterQA, confirm zero `[Actor][error]`
-  and zero Molang property errors after the reload timestamp, then prove
-  rider-carrying motion (coordinates HUD moving), shuttle reversal at the open
-  end, rider retention over 30 s, and Undo. Android permits overwriting existing
-  world activation files here but denies creating `.new` files; back up originals
-  before any edit. Do not treat import/tap success as proof.
-- [ ] Implement explicit lift/transfer semantics. The main route is OPEN and
-  currently shuttles; source inspection found carriage hardware but no measured
-  connecting rail between station and tower top. Never invent a rail bridge.
-- [ ] Publish only the repaired source after the exact R2 approval above.
+- [x] **Actual mounted movement, rider retention and Undo: PROVED on the
+  device (Pixel 8 Pro, Bedrock 1.26.51, 2026-09-21).** A mounted rider traversed
+  the 10-block measured route, reversed at BOTH open ends, stayed on the cart
+  for 60+ s and dismounted cleanly; Undo removed the placement. Coordinates at
+  16:26:57 `-5,64,-34` -> 16:27:11 `5,64,-34` -> 16:27:34 `-4,64,-34` ->
+  16:28:00 `1,64,-34`. Evidence `output/bedrock-entity-qa/coaster-float-*`
+  (`ride-t0/t5/t15/t20`, `159-dismountconfirm`, `161-undotap`), device backups
+  with SHA256 under `device-backups/`.
+  Root cause of the earlier stall, captured from the device CONTENT LOG (nothing
+  about it reaches logcat): float actor properties serialized as integer
+  literals, so Bedrock rejected them and dropped the cart's whole property
+  component. Fixed in `0a3f6c9a`/`c4cab387`; see the add-on guide.
+  Measured before/after in one continuous log: `[Actor][error]` 6 -> 9 while
+  broken (3 per load), then ZERO new after the fixed pack went live;
+  `query.property called on an actor without a property component` 348,797 lines
+  at ~60/s for two hours, then ZERO new. **Use `grep -cE '\[Molang\]\[error\]'`
+  as the pass/fail gate for future device rounds** — it catches the whole class
+  (dropped property component, typo'd property, property queried on the wrong
+  entity) in one number, and a clean pack reads 0.
+- [ ] **Device pack UPGRADES need the active folder overwritten, not a version
+  pin.** Three folders shared one pack UUID (`CoasterQA—`, `—(1)`, `—(2)` at
+  versions 11111/17308/19240) and Bedrock resolved the world to the folder its
+  own store already associated with that UUID: hand-editing
+  `world_behavior_packs.json`/`world_resource_packs.json` was silently reverted
+  on load, "Technical details" still showed 2.695.11111, and a reload produced 3
+  FRESH `[Actor][error]` lines citing the old path. What worked: confirm the old
+  and new folders have identical file lists, back up all 40 files with SHA256,
+  then `cp` the new content over the ACTIVE folder in place and verify by
+  `md5sum`. Open work: stop shipping duplicate-UUID installs — either clean up
+  the stale folders (file manager; ADB removal is denied) or give QA packs a
+  per-build UUID so versions can coexist.
+- [x] **Lift/transfer semantics: MEASURED, and the withhold is correct.** The
+  main course's open ends and the seven-piece `25059` vertical guide's ends were
+  measured in model LDU: closest pairing `80566:33:end` <-> `25059:23:start` is
+  **389.74 LDU (19.49 blocks)** with tangentDot **-0.017**; the next three are
+  404.85 / 450.31 / 451.26 LDU, all with |tangentDot| <= 0.12. The joiner
+  requires <= 3 LDU and tangentDot >= 0.97 (`COASTER_TRACK_ENDPOINT_TOLERANCE_LDU`,
+  `stitchCoasterTrackFragments`), so every candidate misses distance by 130-700x
+  and tangent by ~1.0. This is a real physical gap (the guide sits at x=-578,
+  z=-260 against course ends at x=-382/-782, z=-580), not the 32-LDU
+  sleeper-datum artifact. The open route is therefore correct and shuttles.
+  Any lift would be an AUTHORED transfer mechanism, a separate decision: never
+  bridge it with invented rail.
+- [x] **Repaired 10303 source PUBLISHED (user-approved, 2026-09-21).**
+  `python sync_models_r2.py --only IOModel2V2/10303.ldr --no-index` returned
+  `ok=1 fail=0`; plain-URL readback of
+  `https://craftmatic.click/lego-models/IOModel2V2/10303.ldr` returns 818,156
+  bytes at SHA256 `df3b47c3…` (the repaired file), confirmed twice. The index
+  entry was patched surgically — production before/after differ by **12 bytes**,
+  one field: `sets[10303].models[1].hash` `b51c0b67042c` -> `df3b47c3c9f2`; set
+  count and every other entry unchanged. The gated publisher path refuses while
+  unrelated local WIP files differ from their index hashes, so the index went
+  through the publisher's own `_put_stable_file` primitive on that one key.
+  `web/public/lego-models-index.json` carries the same patch.
+  **Production served the pre-repair source until this point** (18 placements
+  across 10 primitive ids were absent), so earlier "zero missing parts" claims
+  were about the LOCAL file only.
 
 Current real pack: `output/bedrock-entity-qa/10303-coaster-floatprops-20260921.mcaddon`,
 SHA256 `151244ed3b564a39e94188232ed2f0422788347485727aafc87a58dd7c408131`,
