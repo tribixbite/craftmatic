@@ -6,6 +6,8 @@ import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
+import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
+import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -177,6 +179,24 @@ describe('playable Bedrock add-on',()=>{
     expect(vehicleAlpha[2]).toBe(255);
     const screenAlpha = pngAlphas(await extractFile(buffer, 'Craftmatic_glass_car_RP/textures/entity/craftmatic_screen.png'));
     expect(screenAlpha[0]).toBe(255);
+  });
+
+  it('names every entity in texts/en_US.lang instead of leaving raw entity.<id>.name keys visible, with a spawn egg only for is_spawnable entities', async () => {
+    const vehicle = new BlockGrid(3, 1, 1);
+    vehicle.set(0, 0, 0, 'minecraft:stone');
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Glass Car', components: [{
+      id: 'car', label: 'Glass Car', kind: 'car', grid: vehicle, provenance: 'test source',
+    }], screens: [{ id: 'screen', label: 'Computer', x: 0, y: 0, z: 0 }] });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_glass_car_RP/texts/languages.json');
+    expect(JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_glass_car_RP/texts/languages.json')))).toEqual(['en_US']);
+    const lang = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_glass_car_RP/texts/en_US.lang'));
+    // The vehicle is is_spawnable — it gets a name AND a spawn-egg name.
+    expect(lang).toContain('entity.craftmatic:glass_car_car.name=Glass Car');
+    expect(lang).toContain('item.spawn_egg.entity.craftmatic:glass_car_car.name=Glass Car Spawn Egg');
+    // The computer screen is is_spawnable: false — a name, but no spawn egg.
+    expect(lang).toContain('entity.craftmatic:glass_car_control_screen.name=Glass Car Control Screen');
+    expect(lang).not.toContain('spawn_egg.entity.craftmatic:glass_car_control_screen');
   });
 
   it('keeps component scale aligned to the scene and turns an X-long car onto entity forward', async () => {
@@ -564,6 +584,39 @@ describe('playable add-on — brick-compiled entities', () => {
     const overrideBehavior = JSON.parse(new TextDecoder().decode(await extractFile(ab(withOverride.bytes), 'Craftmatic_roam_BP/entities/roam_fig1.json')));
     // The override lands exactly, below the default floor - the whole point of the experiment.
     expect(overrideBehavior['minecraft:entity'].components['minecraft:collision_box'].height).toBe(0.95);
+  });
+
+  it('names a scene figure entity and its spawn egg in texts/en_US.lang (was a raw entity.craftmatic:...fig1.name key)', async () => {
+    const grid = new BlockGrid(3, 2, 3);
+    grid.set(0, 0, 0, 'minecraft:white_concrete');
+    const result = await buildPlayableAddon(grid, { stem: 'roam', partGeometry: await providerFor(), figures: [{ bricks: bricks.slice(0, 1), x: 1, y: 1, z: 1, facingLdu: [0, -1] as [number, number] }] });
+    const lang = new TextDecoder().decode(await extractFile(ab(result.bytes), 'Craftmatic_roam_RP/texts/en_US.lang'));
+    expect(lang).toContain('entity.craftmatic:roam_fig1.name=roam figure 1');
+    expect(lang).toContain('item.spawn_egg.entity.craftmatic:roam_fig1.name=roam figure 1 Spawn Egg');
+  });
+
+  it('reduces the collider RP blocks.json entry to its sound only, and names the shell + manual seat entities', async () => {
+    // A material_instances texture on the BP block wins for a data-driven
+    // block, so the RP blocks.json `textures` key this used to also carry was
+    // dead config — trimmed, keeping the sound (2026-09-21 pack audit).
+    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const grid = new BlockGrid(4, 3, 4);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) grid.set(x, 0, z, 'minecraft:red_concrete');
+    const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
+    const result = await buildPlayableAddon(grid, {
+      stem: 'shed', label: 'Shed', partGeometry: await providerFor(),
+      shell: { bricks: [{ part: '3001.dat', color: 4, x: 2 * C, y: 0, z: 2 * C, rot: I }], frame },
+    });
+    const buffer = ab(result.bytes);
+    const blocksJson = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_shed_RP/blocks.json')));
+    expect(blocksJson['craftmatic:collider']).toEqual({ sound: 'stone' });
+    const lang = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_shed_RP/texts/en_US.lang'));
+    // The shell is is_spawnable: false — a name, but no spawn egg.
+    expect(lang).toContain('entity.craftmatic:shed_shell.name=Shed bricks');
+    expect(lang).not.toContain('spawn_egg.entity.craftmatic:shed_shell');
+    // The manual-seat helper is is_spawnable: true — name AND spawn egg.
+    expect(lang).toContain('entity.craftmatic:shed_manual_seat.name=Shed Seat');
+    expect(lang).toContain('item.spawn_egg.entity.craftmatic:shed_manual_seat.name=Shed Seat Spawn Egg');
   });
 });
 

@@ -1553,6 +1553,19 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let placementColliders: PlacementColliders | undefined;
     const actors: PlacementActor[] = [];
     const extraComponents: PlayableAddonResult['components'] = [];
+    /**
+     * Every entity this pack declares gets a `texts/en_US.lang` name (and, if
+     * `is_spawnable`, a spawn-egg name too) — otherwise Bedrock shows the raw
+     * translation key (`entity.craftmatic:f_10303loop_10303_fig1.name`) on its
+     * nameplate, spawn egg and creative-inventory tooltip, with nothing logged.
+     * Previously only the minifig creator wand + figure had a lang file; every
+     * other entity in a model pack (figures, vehicles, shells, the coaster
+     * cart, seats, the preview ghost) had none (2026-09-21 pack audit).
+     */
+    const localisedEntities: Array<{ identifier: string; label: string; spawnable: boolean }> = [];
+    const addEntityName = (identifier: string, entityLabel: string, spawnable: boolean): void => {
+        localisedEntities.push({ identifier, label: entityLabel, spawnable });
+    };
     /** Behaviour + client entity + geometry + render controllers + colour/PBR swatches for one brick-compiled entity. */
     let minifigsEmitted = 0;
     /** Swatch stems already written: a colour is a pack-wide file, not a per-entity one. */
@@ -1696,6 +1709,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         properties['craftmatic:family'] = { type: 'int', range: [0, 0], default: 0, client_sync: true }; properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
         const creatorBehavior = { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: figureId, is_spawnable: true, is_summonable: true, properties }, components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } }, component_groups: { 'craftmatic:npc': { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: .8 }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .02 } } }, events: { 'craftmatic:release': { add: { component_groups: ['craftmatic:npc'] } }, 'craftmatic:npc_off': { remove: { component_groups: ['craftmatic:npc'] } } } } };
         files.push({ name: `${bp}entities/${id}_minifig.json`, data: json(creatorBehavior) }, { name: `${rp}entity/${id}_minifig.entity.json`, data: json({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: figureId, materials: { default: 'entity_alphablend' }, textures, geometry, render_controllers: Object.keys(controllers), animations: MINIFIG_CLIENT_ANIMATIONS.animations, scripts: { animate: MINIFIG_CLIENT_ANIMATIONS.animate } } } }) }, { name: `${rp}animations/${id}_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) }, { name: `${rp}render_controllers/${id}_minifig.render_controllers.json`, data: json({ format_version: '1.8.0', render_controllers: controllers }) }, { name: `${bp}items/${id}_minifig_wand.json`, data: json({ format_version: '1.20.80', 'minecraft:item': { description: { identifier: `${PACK_NAMESPACE}:${id}_minifig_wand`, menu_category: { category: 'items' } }, components: { 'minecraft:icon': 'brick', 'minecraft:max_stack_size': 1 } } }) });
+        addEntityName(figureId, `${label} Custom Minifig`, true);
         warnings.push(`${label}: creator library compiled ${cuboids} cuboids across ${Object.values(library.minifig).reduce((n, a) => n + a.length, 0)} selectable minifig parts. Mini-dolls are excluded because their canonical rig is unmeasured.`);
     }
     // Brick-accurate building: the scenery's parts compiled as one static
@@ -1715,6 +1729,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             diagnostics[shellId] = sgeo.diagnostics;
             warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
             emitCompiledEntity(shellId, sgeo, shellBehavior(shellId), undefined, true);
+            addEntityName(`${PACK_NAMESPACE}:${shellId}`, `${label} bricks`, false);
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
             actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
             extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
@@ -1725,7 +1740,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: runs.runs, keptCells: runs.keptCells };
             files.push(
                 { name: `${bp}blocks/collider.json`, data: json(colliderBlockDefinition()) },
-                { name: `${rp}blocks.json`, data: json(COLLIDER_BLOCKS_JSON) },
+                // Only `sound` belongs here: the BP block already declares
+                // `minecraft:material_instances` with this texture, which wins
+                // for a data-driven block, so RP `blocks.json`'s own `textures`
+                // key is silently ignored (dead config left in for the next
+                // editor to trust). Trim it here rather than at
+                // COLLIDER_BLOCKS_JSON's definition, which other packs/tests share.
+                { name: `${rp}blocks.json`, data: json({ format_version: COLLIDER_BLOCKS_JSON.format_version, [COLLIDER_BLOCK_ID]: { sound: COLLIDER_BLOCKS_JSON[COLLIDER_BLOCK_ID].sound } }) },
                 { name: `${rp}textures/blocks/craftmatic_collider.png`, data: transparentPng() },
             );
             Object.assign(terrainTextures, COLLIDER_TERRAIN_TEXTURE);
@@ -1752,6 +1773,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             diagnostics[leafId] = lgeo.diagnostics;
             warnings.push(...lgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
             emitCompiledEntity(leafId, lgeo, shellBehavior(leafId), undefined, true);
+            addEntityName(`${PACK_NAMESPACE}:${leafId}`, `${label} door leaf`, false);
             const at = sceneGridPoint(leaf.frame, lgeo.originLdu);
             actors.push({
                 typeId: `${PACK_NAMESPACE}:${leafId}`,
@@ -1855,6 +1877,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined, ekind !== 'figure');
+                addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });
                     cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
@@ -1874,6 +1897,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             fallbackCuboids += geo.cubeCount;
             files.push({ name: `${rp}entity/${cid}.entity.json`, data: json(clientEntity(cid, gridMeshBindings(cid, geo.meshIds))) }, { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) }, { name: `${rp}render_controllers/${cid}.render_controllers.json`, data: json(meshControllers(cid, gridMeshBindings(cid, geo.meshIds))) }, { name: `${rp}textures/entity/${cid}.png`, data: generateEntityLegoAtlasPng(geo.palette, blockRgb, blockAlpha) });
         }
+        addEntityName(fullTypeId, c.label, true);
         actors.push({ typeId: fullTypeId, label: c.label, ...componentSpawnPoint(c, grid), yaw: layout.actorYaw });
     }
     // Figures found in the scenery: one minifig NPC type each, standing where the source put them.
@@ -1895,6 +1919,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         diagnostics[fcid] = fgeo.diagnostics;
         warnings.push(...fgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
         emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks, options.figureCollisionHeight), fgeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
+        addEntityName(`${PACK_NAMESPACE}:${fcid}`, flabel, true);
         // A rigged figure faces exactly where its torso pointed; an unrigged one the nearest axis it was compiled to.
         const yaw = fgeo.figure ? yawForFacing(fgeo.figure.facingLdu) : (() => {
             const nose = snapFacing(fig.facingLdu);
@@ -1928,6 +1953,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${bp}scripts/coaster.js`, data: text(coasterScript(coasterConfig)) },
             { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nInteract with the grey Ride Cart to board; departure takes two seconds. Sneak to dismount. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks. In-game rider-carrying acceptance is still required.\n') },
         );
+        addEntityName(coasterConfig.typeId, `${label} Ride Cart`, false);
         coasterConfig.routes.forEach((route, index) => {
             const p = route.path.points[0]!;
             actors.push({ typeId: coasterConfig.typeId, label: `${route.label} Ride Cart`, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index });
@@ -1935,10 +1961,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         warnings.push(`${coasterConfig.routes.length} measured coaster route(s): interact with the grey Ride Cart. Open tracks shuttle; riders stay upright. Device acceptance pending.`);
     }
     const manualSeatId = options.shell ? `${id}_manual_seat` : undefined;
-    if (manualSeatId) files.push(
-        { name: `${bp}entities/${manualSeatId}.json`, data: json(seatBehavior(manualSeatId)) },
-        { name: `${rp}entity/${manualSeatId}.entity.json`, data: json(seatClient(manualSeatId)) },
-    );
+    if (manualSeatId) {
+        files.push(
+            { name: `${bp}entities/${manualSeatId}.json`, data: json(seatBehavior(manualSeatId)) },
+            { name: `${rp}entity/${manualSeatId}.entity.json`, data: json(seatClient(manualSeatId)) },
+        );
+        addEntityName(`${PACK_NAMESPACE}:${manualSeatId}`, `${label} Seat`, true);
+    }
     if (manualSeatId || seatList.length) files.push(
         { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
         { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
@@ -1950,6 +1979,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${bp}entities/${seatId}.json`, data: json(seatBehavior(seatId)) },
             { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) },
         );
+        addEntityName(`${PACK_NAMESPACE}:${seatId}`, `${label} Seat`, true);
         const seatActorStart = actors.length;
         for (const [k, seat] of seatList.entries()) {
             actors.push({ typeId: `${PACK_NAMESPACE}:${seatId}`, label: seat.label, x: seat.x, y: seat.y, z: seat.z, yaw: seat.yaw });
@@ -1966,6 +1996,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const screenId = /^[0-9]/.test(rawScreenId) ? `s_${rawScreenId}` : rawScreenId;
     if (screens.length) {
         files.push({ name: `${bp}entities/${screenId}.json`, data: json(screenBehavior(screenId)) }, { name: `${rp}entity/${screenId}.entity.json`, data: json(screenClient(screenId)) }, { name: `${rp}models/entity/control_screen.geo.json`, data: geoJson(SCREEN_GEOMETRY) }, { name: `${rp}textures/entity/craftmatic_screen.png`, data: palettePng(['cyan']) });
+        addEntityName(`${PACK_NAMESPACE}:${screenId}`, `${label} Control Screen`, false);
         for (const s of screens)
             actors.push({ typeId: `${PACK_NAMESPACE}:${screenId}`, label: s.label, x: Math.round(s.x), y: Math.round(s.y), z: Math.round(s.z) });
     }
@@ -2034,6 +2065,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         { name: `${rp}render_controllers/${id}_preview.render_controllers.json`, data: json(ghost.renderControllers) },
         { name: `${rp}textures/entity/${id}_preview.png`, data: ghost.texturePng },
     );
+    addEntityName(ghost.typeId, `${label} Preview`, false);
     const placement = buildPlacementPackAssets({ stem: id, label, width: grid.width, height: grid.height, length: grid.length,
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         preview: { typeId: ghost.typeId },
@@ -2051,11 +2083,24 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
+    // texts/en_US.lang: one name per entity this pack declares (localisedEntities,
+    // built up throughout the function above), plus the creator wand item name
+    // when a minifig creator is present. Unconditional — a plain model pack
+    // (no minifig creator) still has spawnable figures/vehicles/seats that need
+    // this file just as much as the creator entity did.
+    const langLines: string[] = [];
+    if (creatorConfig) langLines.push(`item.${creatorConfig.itemId}=${label} Minifig Creator Wand`);
+    for (const e of localisedEntities) {
+        langLines.push(`entity.${e.identifier}.name=${e.label}`);
+        if (e.spawnable) langLines.push(`item.spawn_egg.entity.${e.identifier}.name=${e.label} Spawn Egg`);
+    }
+    files.push(
+        { name: `${rp}texts/languages.json`, data: json(['en_US']) },
+        { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },
+    );
     if (creatorConfig) files.push(
         { name: `${bp}scripts/minifig-wand.js`, data: text(minifigWandScript(creatorConfig)) },
         { name: `${bp}functions/${creatorConfig.shortAlias}.mcfunction`, data: text(`give @s ${creatorConfig.itemId}`) },
-        { name: `${rp}texts/languages.json`, data: json(['en_US']) },
-        { name: `${rp}texts/en_US.lang`, data: text(`item.${creatorConfig.itemId}=${label} Minifig Creator Wand\nentity.${creatorConfig.figureType}.name=${label} Custom Minifig`) },
         { name: `${bp}MINIFIG-CREATOR.txt`, data: text(`Minifig Creator\n\nActivate both packs and rejoin. /function ${placement.shortAlias} gives both wands. /function ${creatorConfig.shortAlias} gives only the Minifig Creator Wand. Select it in your hotbar to open the creator; switch away and back to reopen. Choose compiled parts and colours, save a figure or copy its portable mf1 code, then place it at your feet or aimed block. Sneak-use makes an owned copy at your aim. Use the wand on your own placed figure to edit it. Close returns an edited figure to its NPC behaviour. Discard deletes the draft or the figure being edited. Mini-dolls are not supported. Special PBR finishes are not yet supported by creator swatches.`) },
     );
     const mainImports = [
