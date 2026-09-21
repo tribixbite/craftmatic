@@ -33,10 +33,10 @@ which is the same algebra `composeLxfPlacement` does in LDD space, with the
 correction expressed on the other side of the change of basis.
 
 Output shape — one row per design id, arrays to keep the asset small:
-  { "<designID>": ["<ldrawFile>", r0..r8, tx, ty, tz, support], ... }
+  { "<designID>": ["<ldrawFile>", r0..r8, tx, ty, tz, support, diagonal], ... }
 
 `r0..r8` is row-major and RE-ORTHONORMALISED here: the learner quantises its
-rotation votes to 1/20, so 303 of the 1,843 raw rows are not orthonormal (det
+rotation votes to 1/20, so 301 of the 1,843 raw rows are not orthonormal (det
 0.94 - 1.06).  Fixing that at generation time keeps an SVD out of the browser.
 
 Designs absent from this table keep falling back to `ldd-part-map.json`; the
@@ -59,6 +59,11 @@ if _CLEGO not in sys.path:
 SRC = Path(r'C:\git\clego\dbix_part_align.json')
 XMLMAP = Path(r'C:\git\craftmatic\web\public\ldd-part-map.json')
 OUT = Path(r'C:\git\craftmatic\web\public\ldd-measured-align.json')
+# The renderer's Studio library contains real meshes for the small residue of
+# Studio-only / `bl_*` names absent from clego's renderer-mirrored reference
+# tree.  This is the same source used to generate ldraw-part-dims-generated.ts;
+# it is geometry in the renderer's own LDraw frame, not catalogue dimensions.
+STUDIO_LDRAW = Path(_CLEGO) / 'extracted' / 'studio_release' / 'app' / 'ldraw'
 
 # clego's dbix_align.py drops rows this weakly supported (its own MIN_SUPPORT).
 MIN_SUPPORT = 2
@@ -103,6 +108,52 @@ BOUND_RATIO = 2.0
 _diag_cache: dict[str, float | None] = {}
 
 
+class StudioSections:
+    """Lazy section table over Studio's LDraw tree for `dat_bbox` recursion.
+
+    `io_authenticity.dat_bbox` accepts embedded-section mappings before its
+    normal reference tree.  Supplying this mapping lets the exact same
+    recursive vertex/AABB implementation measure Studio-only files and their
+    sub-references, while preserving the renderer's official/unofficial probe
+    order and mesh frame.
+    """
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.cache: dict[str, list[str] | None] = {}
+        self.normal_refs: set[str] = set()
+
+    def get(self, ref: str, default=None):
+        key = ref.replace('\\', '/').lower().strip()
+        import io_authenticity as _A
+        # Match the renderer's upstream-first ladder at every recursion level,
+        # not only for the root part. A Studio-only root can reference ordinary
+        # children whose upstream meshes must keep winning.
+        if key in self.normal_refs:
+            return default
+        if key in self.cache:
+            return self.cache[key] if self.cache[key] is not None else default
+        if _A.ref_dat_lines(key) is not None:
+            self.normal_refs.add(key)
+            return default
+        lines = None
+        for rel in _A.ref_candidates(key):
+            if rel.startswith('unofficial/'):
+                rel = 'UnOfficial/' + rel[len('unofficial/'):]
+            elif rel.startswith('official/'):
+                rel = rel[len('official/'):]
+            path = self.root.joinpath(*rel.split('/'))
+            if path.is_file():
+                text = path.read_text(encoding='utf-8', errors='replace')
+                lines = [line.strip() for line in text.splitlines()]
+                break
+        self.cache[key] = lines
+        return lines if lines is not None else default
+
+
+_studio_sections = StudioSections(STUDIO_LDRAW)
+
+
 def part_diagonal(stem: str) -> float | None:
     """Bounding-box diagonal of the LDraw part in LDU, or None if unresolved.
 
@@ -114,13 +165,22 @@ def part_diagonal(stem: str) -> float | None:
         return _diag_cache[key]
     import io_authenticity as _A          # heavy; only needed here
     val: float | None = None
-    for cand in (key, key[3:] if key.startswith('bl_') else None):
+    candidates = (key, key[3:] if key.startswith('bl_') else None)
+    for cand in candidates:
         if not cand:
             continue
         box = _A.dat_bbox(cand + '.dat', None)
         if box is not None:
             val = math.dist(box[0], box[1])
             break
+    if val is None and STUDIO_LDRAW.is_dir():
+        for cand in candidates:
+            if not cand:
+                continue
+            box = _A.dat_bbox(cand + '.dat', _studio_sections)
+            if box is not None:
+                val = math.dist(box[0], box[1])
+                break
     _diag_cache[key] = val
     return val
 

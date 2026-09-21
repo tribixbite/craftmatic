@@ -127,7 +127,7 @@ export type MeasuredAlign = [
  * correction, while the learned table's own distribution is bimodal with a
  * valley from 1.0x to 1.75x and a tail reaching past 20x.
  *
- * On the table shipped 2026-09-19 this rejects **244 of the 1,805 measurable
+ * On the table shipped 2026-09-20 this rejects **256 of the 1,839 measurable
  * rows**, the worst at 86x: `50665` Minifig Helmet Classic carries |e| = 4,360
  * LDU against a 52 LDU part, which is why 11374's only helmet landed 4,360 LDU
  * from the only head. Those rows are the mode of a vote taken over placements
@@ -195,7 +195,7 @@ export interface LxfTableReport {
   /**
    * well-formed rows dropped because the correction is longer than the part it
    * corrects (measured table only — see `MEASURED_BOUND_RATIO`). A non-zero
-   * value is NORMAL: the shipped table carries 244 such rows. It jumping is the
+   * value is NORMAL: the shipped table carries 256 such rows. A jump is the
    * signal that a regenerated table has a new learner problem.
    */
   boundRejected?: number;
@@ -222,10 +222,11 @@ export interface LxfDiagnostics {
   /**
    * mini-doll placements LEFT to their table row because the row that placed
    * them carries a real (non-identity) correction. With the shipped tables this
-   * is 13 placements over clego's 2,302 LXFML dumps, all of design `80911`
-   * (`bl_80911.dat`, a doll hair) whose MEASURED row is (1085, 23, -310) LDU —
-   * a bad learned vote, not an authored doll row. A large value means a table
-   * now authors doll corrections and this rule should be retired.
+   * is zero: design `80911` (`bl_80911.dat`, a doll hair) once reached this path
+   * through a bad MEASURED vote of (1085, 23, -310) LDU, but its 76.74 LDU mesh
+   * diagonal now lets the physical bound reject that row first. A non-zero
+   * value means a table now authors doll corrections and this rule should be
+   * reviewed.
    */
   miniDollDeferredToTable: number;
   /**

@@ -244,17 +244,33 @@ ghost tires). Pipeline defenses (classifier extracted to
   3818/3819 lines, 0 differing anywhere else**. Over 1,257 files / 8,734 arms the
   arm-to-nearest-torso median goes **327.5 → 18.1 LDU** and the count within
   25 LDU goes **6 (0.1 %) → 8,712 (99.7 %)**.
-- **The MINI-DOLL moulds are the one place where NEITHER correction table has an
-  answer, and a third rule fills it.** The learned/measured table has zero doll
-  rows and always will (0 of the 173 ground-truth sets contains a mini-doll
-  torso), and the five doll moulds Studio's `ldraw.xml` names are all-zero rows,
-  so a Friends doll came out at its raw LDD bone: hips ON the torso, head 50 LDU
-  up instead of 33.20, arms 20 instead of 11.00. Craftmatic's loader now applies
-  `MINIDOLL_SLOT_CORRECTION` (six per-SLOT vectors, clego `dbix_figure_align.py`)
-  AFTER both tables and ONLY where the row that named the file corrects nothing,
-  so the ldraw.xml-inverse-primary / measured-fallback order above is unchanged
-  for every other part. The doll skeleton shares NO number with the minifig's
-  (24 / 18 / 32 against 33.20 / 11.00 / 29.42) — never reuse one for the other.
+- **The MINI-DOLL moulds are the one place where neither correction table has a
+  usable answer, and a third rule fills it.** None of the 173 ground-truth sets
+  contains a mini-doll torso, and the five doll moulds Studio's `ldraw.xml`
+  names are all-zero rows. The learner did emit one spurious doll row: `80911`
+  hair at (1085, 23, -310) LDU. Its real mesh diagonal is 76.739625 LDU, so the
+  physical bound rejects that vote before slot correction. A Friends doll
+  otherwise came out at its raw LDD bone: hips ON the torso, head 50 LDU up
+  instead of 33.20, arms 20 instead of 11.00. Craftmatic's loader now applies
+  `MINIDOLL_SLOT_CORRECTION` (six per-SLOT vectors, clego
+  `dbix_figure_align.py`) AFTER both tables and ONLY where the row that named
+  the file corrects nothing, so the ldraw.xml-inverse-primary /
+  measured-fallback order above is unchanged for every other part. The doll
+  skeleton shares NO number with the minifig's (24 / 18 / 32 against 33.20 /
+  11.00 / 29.42) — never reuse one for the other.
+- **Every measured row is now physically bounded (2026-09-20).** The shipped
+  asset previously had 34 rows without a diagonal (SHA256
+  `cf9d0c067867f643f4407f3b91da9cbc2c840396ee22e3446a66b21728adaef4`). All
+  34 have real DAT meshes in Studio's extracted LDraw tree. The generator now
+  feeds those meshes through the SAME recursive vertex/AABB routine as the
+  renderer-mirrored tree, preserving upstream-first resolution for every root
+  and child; it does not infer catalogue boxes. Regeneration only appends the
+  34 diagonal fields (SHA256
+  `6e5b9dc323f51da6a2de7cec9aeb0a308a146e885be7f6481526cc8ba299d48b`):
+  unmeasured 34 -> 0 and bound-rejected 244 -> 256. The 12 newly rejected
+  designs are `64567`, `5200`, `4497`, `36060`, `64802`, `95226`, `18866`,
+  `98108`, `79816`, `79687`, `6018`, and `7185`. The loader policy is
+  unchanged: a genuinely unresolved row would still be accepted unbounded.
 - **`0 !LINEAGE <tool> <good|partial>` is the CANONICAL stamp** (clego
   converters emit it since 2026-08-28) and takes precedence over all legacy
   sniffs — the v2 DBIX reconverter's files also start with `0 LEGO DBIX v2`,

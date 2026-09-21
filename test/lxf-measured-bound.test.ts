@@ -118,11 +118,9 @@ describe('the shipped measured table is self-describing', () => {
     expect(rows.length).toBeGreaterThan(1500);
   });
 
-  it('carries a part diagonal on the overwhelming majority of rows', () => {
+  it('carries a real-geometry part diagonal on every row', () => {
     const withDiag = rows.filter(([, r]) => typeof r[14] === 'number').length;
-    // 1,805 of 1,839 on the 2026-09-19 table; the residue is `bl_*` ids the
-    // reference library does not have, and those are accepted unbounded.
-    expect(withDiag / rows.length).toBeGreaterThan(0.95);
+    expect(withDiag).toBe(rows.length);
   });
 
   it('the bound keeps the large majority and rejects a real minority', () => {
@@ -130,7 +128,7 @@ describe('the shipped measured table is self-describing', () => {
     const dropped = rows.length - kept;
     // A bound that dropped nothing would mean the generator stopped emitting
     // diagonals; one that dropped most would mean it emitted wrong ones.
-    expect(dropped).toBeGreaterThan(50);
+    expect(dropped).toBe(256);
     expect(dropped / rows.length).toBeLessThan(0.30);
   });
 
@@ -143,6 +141,14 @@ describe('the shipped measured table is self-describing', () => {
       expect(withinMeasuredBound(r as MeasuredAlign), `${design} must be out of bound`)
         .toBe(false);
     }
+  });
+
+  it('bounds the 80911 doll hair learned vote with its measured mesh', () => {
+    const r = SHIPPED['80911'];
+    expect(validateMeasuredAlign(r)).toBe(true);
+    expect((r as MeasuredAlign)[0]).toBe('bl_80911.dat');
+    expect((r as MeasuredAlign)[14]).toBeCloseTo(76.739625, 6);
+    expect(withinMeasuredBound(r as MeasuredAlign)).toBe(false);
   });
 
   it('keeps the minifig slots the figure gate depends on', () => {
