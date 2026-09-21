@@ -22,6 +22,9 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   Window trial: 299 files / 1,985 panes, all rerun-stable; full A/B pending.
   Accept only improved, nonregressing, pose-reviewed files, with exact backups
   and before/after hashes. No archive recovery on these generated classes.
+  `figure-preserve-proof-ab.json` is exploratory (earlier build, limited
+  metrics, no hashes), not final v3 acceptance. Regrade provisional candidates
+  with complete finite metrics and exact before/after byte provenance.
 - [ ] Finish the complete upstream board and build a **candidate** index.
   Current job: `board/`, logs `board-run.log` and `board-resume.log`;
   20,764 sources, 763 completed rows retained at restart, 16 workers,
@@ -86,6 +89,10 @@ Craftmatic began at `741f6700`. Clego refs were 523 ahead / 249 behind at
 assessment (not freshly fetched); the older 511-commit/630 MB snapshot-growth
 figure is historical. Ask before rewriting history. Do not recommit large
 scoreboard/index snapshots; this round's board is isolated under output.
+The full grade journal and `scoreboard_extra.json` are inputs, not disposable
+reports. Before untracking snapshots, provide checksum-backed recovery and
+prove a clean-clone rebuild with all consumers. Preserve the curated
+`lego_sets/ReconV8/_indexed.json` allow-list; no untracking occurred this round.
 
 Five pre-existing dirty clego files are NOT owned by this round:
 `mecabricks_align.json`, `geograde/mb_fix_report.json`,

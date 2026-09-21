@@ -1496,8 +1496,11 @@ No changes in this round have been published or pushed. Resume from
 Bulk figure application also requires per-file nonregression, stable reruns,
 and pose review. Socket ownership is now stable on repeated runs, and the
 opt-in `--preserve-pose` repair changes positions without rewriting rotation
-tokens; valid attached descendants move with their parent. A 16-file stress
-cohort reduces figure defects 53→12, but only six files pass every scalar
-nonregression check. Full conservative cohorts are still being measured.
+tokens; valid attached descendants move with their parent. The final 16-file
+stress check translated 72 placements with no rotation-token changes or
+second-pass placement changes. An earlier exploratory build reduced figure
+defects 53→12 with six files passing its limited scalar gate, but those grades
+lack full metrics and source hashes and do not certify the final bytes.
+Full conservative cohorts are still being measured.
 Lower aggregate defect counts alone are insufficient, and scalar acceptance
 does not replace visual review.
