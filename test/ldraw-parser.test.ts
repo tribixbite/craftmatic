@@ -146,6 +146,25 @@ describe('parseLDraw — geometry-primitive filtering', () => {
 });
 
 describe('parseLDraw — embedded part definitions vs shortcuts', () => {
+  it.each(['Part', 'Subpart', 'Unofficial_Subpart'])('preserves %s geometry identity', (kind) => {
+    expect(parseLDraw([
+      '0 FILE main.ldr', `1 4 0 0 0 ${I} embedded.dat`,
+      '0 FILE embedded.dat', `0 !LDRAW_ORG ${kind}`,
+      `1 16 0 0 0 ${I} 3001.dat`,
+    ].join('\n')).map(b => b.part)).toEqual(['embedded.dat']);
+  });
+
+  it('preserves Studio mesh parts but expands Studio assemblies', () => {
+    expect(parseLDraw([
+      '0 FILE main.ldr', `1 4 0 0 0 ${I} 80564.dat`,
+      `1 4 0 0 0 ${I} assembly.dat`,
+      '0 FILE 80564.dat', '0 IsSubModel False', '0 IsAssembly False',
+      '3 -1 0 0 0 10 0 0 0 10 0',
+      '0 FILE assembly.dat', '0 IsSubModel False', '0 IsAssembly True',
+      `1 16 0 0 0 ${I} 3001.dat`,
+    ].join('\n')).map(b => b.part)).toEqual(['80564.dat', '3001.dat']);
+  });
+
   it('treats Unofficial_Part as a terminal brick (not recursed) but recurses Unofficial_Shortcut', () => {
     const MPD = [
       '0 FILE main.ldr',
@@ -194,4 +213,3 @@ describe('parseLDraw — quoted filenames and direct hex colors', () => {
     expect(bricks[0].color).toBe(0x2ff0088);
   });
 });
-

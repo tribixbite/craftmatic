@@ -4,7 +4,53 @@ This file holds open work and the evidence needed to resume. Completed history
 belongs in `git log`, `docs/lego-sources-guide.md`, and
 `docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## Active round — 2026-09-21, deployed verification and playable accuracy
+## Active round — 2026-09-21, 10303 track repair and ride mechanism
+
+User asks to visually inspect/fix 10303's missing track and implement reusable
+rideable coasters. Root inspected the actual production closeups under
+`output/pipeline-2026-09-21/10303-prod-track-diagnosis/`: six `80564` loop-quarter
+placements are invisible. Exact geometry exists inside `IO/10303.io`'s
+`model2.ldr` but the `IOModel2V2` conversion discarded the embedded definitions.
+The other missing placements are hair `43753` ×1 and tooth `x346` ×2.
+
+Viewer parser repair: Studio DATs explicitly marked `IsSubModel False` and
+`IsAssembly False` remain terminal meshes; official Part/Subpart definitions
+do too, while shortcuts still expand. Studio inherited colour `-1` normalizes
+to LDraw `16` for geometry and nested placements. Parser/mesh regressions pass.
+The first repaired render restored 3808 placements and zero missing parts;
+root caught grey recovered rails, so final golden-colour visual acceptance is
+still required. Evidence: `10303-embedded-preserve-after-parser/` under the
+round output directory. Do not publish the earlier grey-rail candidate.
+
+- [ ] `door_implementation`: preserve unresolved embedded geometry and its
+  dependency closure in the clego converter, with tests and isolated repaired
+  10303 candidate. Compare fixed views before applying/publishing; keep existing
+  frame corrections for library-resolved moulds. No wrong-mould alias.
+- [ ] `set_audit`: true track centreline profiles and route extraction. The
+  first profile implementation has mesh-measured **endpoints** but interpolated
+  interiors; root rejected these as exact ride geometry. Measure the actual
+  curved rails (especially distinct 26559/26560 and asymmetric 80564) and pin
+  evidence/deviation before accepting export. Diagnose lift connections
+  explicitly; no invented nearest-endpoint bridge.
+- [ ] Root: `bedrock-coaster.ts`, pack/placement/shared-pipeline integration
+  and `test/bedrock-coaster.test.ts`. New grey ride cart follows 3D route with
+  upright rider; open paths shuttle, closed paths circulate. Placement stores
+  origin/yaw/size; Undo removes carts; unloaded chunks/failed teleports pause.
+  Runtime/route tests currently 26 pass and web typecheck passes, but geometry
+  profiles and actual Minecraft rider retention are NOT accepted yet.
+- [ ] `creator`: pure `coaster-path.ts`/tests done (strict measured sample-gap
+  guard, finite validation, conservative graph connections, serializable
+  sampler). Now sole device owner for import-readiness diagnosis; geometry
+  agent does not drive phone. No root/USB/reboot/data-clear/world overwrite.
+- [ ] Build real repaired 10303 through `_playable_ref.ts`, validate archive,
+  inspect exported track/cart route visually, exercise riding in Minecraft,
+  update guides, commit own changes, then publish/verify deployed functionality.
+
+Coaster code is uncommitted; do not mistake tests of route math for a completed
+or device-verified ride. Root alone stages/commits. Existing unrelated corpus
+dirty files and untracked `output/pdf-placement-diagnosis` remain untouched.
+
+## Prior round — deployed verification and playable accuracy
 
 User explicitly authorizes pushing and deployed-site verification; wireless
 ADB needs no USB or root for pack import. Feature commit `490a5746` and door

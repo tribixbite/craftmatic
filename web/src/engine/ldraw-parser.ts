@@ -118,7 +118,9 @@ export function embeddedPartTexts(doc: LDrawDocument): Array<[string, string]> {
  * `0x3RRGGBB`); a decimal parse would turn those into 0 (black).
  */
 export function parseLDrawColor(token: string): number {
-  return /^0x/i.test(token) ? parseInt(token, 16) : parseInt(token, 10);
+  const value = /^0x/i.test(token) ? parseInt(token, 16) : parseInt(token, 10);
+  // Studio embedded meshes spell the inherited main colour as -1.
+  return value === -1 ? 16 : value;
 }
 
 /**
@@ -227,18 +229,23 @@ function expandSection(
     );
 
     // LDraw .dat sub-sections embedded in MPDs can be either:
-    //   • Unofficial_Part / Unofficial_Subpart — geometry-only definitions that yield
+    //   • Part / Subpart (official or unofficial) — geometry definitions that yield
     //     no meaningful terminal bricks when recursed. Treat as terminal so the dims
     //     table can assign the correct bounding box.
     //   • Unofficial_Shortcut — assemblies of multiple parts; MUST be recursed so each
     //     constituent part (e.g. propeller + axle) is individually voxelized.
     //
-    // Detect via !LDRAW_ORG metadata in the first 15 lines of the section.
+    // Detect via metadata in the section header, including Studio mesh flags.
+    const definitionHeaders = subSection?.lines.slice(0, 30) ?? [];
+    // Studio's embedded meshes have no !LDRAW_ORG header. Its explicit
+    // non-submodel/non-assembly flags distinguish these from real assemblies.
+    const isStudioPart = definitionHeaders.some(l => /^0\s+IsSubModel\s+False\s*$/i.test(l))
+      && definitionHeaders.some(l => /^0\s+IsAssembly\s+False\s*$/i.test(l));
     const isEmbeddedPartDef = subSection != null
       && subSection.name.endsWith('.dat')
-      && subSection.lines.slice(0, 15).some(
-        l => /^0\s+!LDRAW_ORG\s+Unofficial_(?:Part|Subpart)/i.test(l),
-      );
+      && (isStudioPart || definitionHeaders.some(
+        l => /^0\s+!LDRAW_ORG\s+(?:Unofficial_)?(?:Part|Subpart)\b/i.test(l),
+      ));
 
     if (subSection && !isEmbeddedPartDef) {
       // Recurse into sub-model assembly, passing resolved color as the new parentColor.

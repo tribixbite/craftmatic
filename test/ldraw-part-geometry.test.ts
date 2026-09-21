@@ -57,6 +57,15 @@ const fetchPartText = async (id: string): Promise<string | null> => {
 };
 
 describe('createPartGeometryProvider', () => {
+  it('normalizes Studio inherited colours through triangles, quads and child references', async () => {
+    const provider = createPartGeometryProvider({ fetchPartText: async (id) => id === 'studio'
+      ? '3 -1 0 0 0 1 0 0 0 1 0\n4 -1 0 0 0 1 0 0 1 1 0 0 1 0\n1 -1 0 0 0 1 0 0 0 1 0 0 0 1 child.dat'
+      : id === 'child' ? '3 -1 0 0 1 1 0 1 0 1 1' : null });
+    const mesh = await provider.getPartMesh('studio');
+    expect(mesh?.triangles).toHaveLength(4);
+    expect(mesh?.triangles.every(triangle => triangle.color === 16)).toBe(true);
+  });
+
   it('resolves nested sub-file references with transforms, quads as two triangles, colour 16 symbolic', async () => {
     const provider = createPartGeometryProvider({ fetchPartText });
     const brick = await provider.getPartMesh('3005.dat');
