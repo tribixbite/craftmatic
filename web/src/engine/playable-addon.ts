@@ -128,13 +128,19 @@ export interface PlayableAddonOptions {
      */
     lod?: LodMode;
     /**
-     * Camera distance at which an LOD entity switches to its hull.
+     * Camera distance, in blocks, from the NEAREST CUBE of an LOD entity past
+     * which it may switch to its hull (default `DEFAULT_LOD_DISTANCE`).
      *
      * Mojang's Molang docs list `query.distance_from_camera` without a unit and
      * do not say whether a render controller's `geometry` field evaluates it.
      * The 2026-09-19 Pixel 8 Pro round settled both: it is evaluated, in blocks,
-     * and the switch appears at 26-28 blocks for this default of 32
-     * (`output/device-919/lod/LOD-RESULT.md`).
+     * and it measures to the entity's ROOT (`output/device-919/lod/LOD-RESULT.md`).
+     * A shell's root is above the model (`originAboveModel`), so 10303's ground
+     * track is 45 blocks from it and 68.7 % of the model's skin was past the
+     * old bare threshold of 32 — the hull drew for a camera standing at the
+     * tracks (user report 2026-09-21). Each entity's controllers therefore
+     * switch at `lodDistance + hull.radiusBlocks`, its reach from the root,
+     * which puts the camera at least `lodDistance` from every cube.
      */
     lodDistance?: number;
     /**
@@ -159,8 +165,23 @@ export interface PlayableAddonOptions {
 }
 /** `hull`: ship a per-colour surface hull beside the full model and switch to it at `lodDistance`. */
 export type LodMode = 'none' | 'hull';
-/** Default camera distance (in whatever unit `query.distance_from_camera` reports) at which the hull takes over. */
-export const DEFAULT_LOD_DISTANCE = 32;
+/**
+ * Default camera-to-nearest-cube distance, in blocks, past which the hull may
+ * take over (`PlayableAddonOptions.lodDistance`). The controllers add each
+ * entity's reach from its root on top of this.
+ *
+ * 96, up from 32 (2026-09-21): the hull is a 1-block voxelisation and must only
+ * replace detail the viewer cannot resolve. Bedrock's default FOV is 70° over
+ * the screen height, so a block at distance D covers H / (2·tan 35°·D) px: on
+ * the Pixel 8 Pro's 1344-px-tall landscape screen that is 960 / D. At 32 a
+ * hull cell was 30 px and a brick face (20 LDU = 0.375 block at minifig scale)
+ * 11 px — brick detail in plain sight was swapped for 30-px voxels. At 96 a
+ * hull cell is 10 px and a brick face 3.75 px, under the ~4 px at which brick
+ * edges stop resolving on that screen. Entities were seen drawn at 128 blocks
+ * on the same device (09-19 round), so the frame-time lever still exists for
+ * far sets; `--lod-distance` overrides it for the crowded A/B.
+ */
+export const DEFAULT_LOD_DISTANCE = 96;
 export type VehicleCameraStyle = 'orbit' | 'boom';
 export interface PlayableAddonResult {
     bytes: Uint8Array;
@@ -804,7 +825,11 @@ function textureKeys(bindings: MeshBinding[]): { textures: Record<string, string
  */
 interface LodBinding {
     fullCount: number;
-    /** Camera distance at which the hull takes over; see `PlayableAddonOptions.lodDistance`. */
+    /**
+     * Camera-to-ROOT distance the controllers test: `lodDistance` plus the
+     * entity's reach from its root (`LodHull.radiusBlocks`), so the camera is
+     * at least `lodDistance` from every cube when the hull draws.
+     */
     distance: number;
 }
 function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations, lod?: LodBinding): unknown {
@@ -846,7 +871,10 @@ function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'ent
  * on `distance > D` (far → empty) and the hull controllers on `distance <= D`
  * (near → empty). Verified on the Pixel 8 Pro 2026-09-19: the query IS
  * evaluated in a geometry field, its unit is blocks, the switch shows at 26-28
- * blocks for D = 32, and the content log stays clean.
+ * blocks for D = 32, and the content log stays clean. The query measures the
+ * camera to the entity's ROOT, so D is `lodDistance + radiusBlocks`
+ * (`LodBinding.distance`), never the bare option: a bare 32 flipped 10303 to
+ * its hull for a camera standing at the tracks (2026-09-21).
  */
 function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding): unknown {
     const controllers: Record<string, unknown> = {};
@@ -1582,12 +1610,18 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const emittedSwatches = new Set<string>();
     // The engine default stays `none` (unit tests and golden packs pin the bare
     // form); the PRODUCT default is `hull` at the pipeline/CLI entry since the
-    // 2026-09-19 device round: switch seen at 26-28 blocks for the default 32,
+    // 2026-09-19 device round: switch seen at 26-28 blocks for the then-default 32,
     // zero content-log errors, near-frame p90 33 -> 17 ms (`output/device-919/lod/LOD-RESULT.md`).
+    // That 32 was a root distance and put the hull in front of a camera standing
+    // at 10303's tracks; see `DEFAULT_LOD_DISTANCE` and `LodBinding.distance`.
     const lodMode: LodMode = options.lod ?? 'none';
     const lodDistance = Number.isFinite(options.lodDistance) && options.lodDistance! > 0 ? options.lodDistance! : DEFAULT_LOD_DISTANCE;
-    /** Per-entity LOD hull accounting, reported in `craftmatic-diagnostics.json` (nothing silent). */
-    const lodHulls: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number }> = {};
+    /**
+     * Per-entity LOD hull accounting, reported in `craftmatic-diagnostics.json`
+     * (nothing silent). `switchDistance` is the camera-to-root distance the
+     * controllers test: `lodDistance + radiusBlocks`.
+     */
+    const lodHulls: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number; radiusBlocks: number; switchDistance: number }> = {};
     let lodEmptyEmitted = false;
     const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false): void => {
         if (animations) minifigsEmitted++;
@@ -1607,7 +1641,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (lodMode === 'hull' && lodEligible) {
             const hull = buildLodHull(ecid, geo, { cellBlocks: DEFAULT_HULL_CELL_BLOCKS });
             if (hull) {
-                lod = { fullCount: bindings.length, distance: lodDistance };
+                // The query measures to the ROOT; adding the entity's reach keeps
+                // the camera at least `lodDistance` from its nearest cube.
+                const radiusBlocks = Math.round(hull.radiusBlocks * 10) / 10;
+                const switchDistance = Math.round((lodDistance + hull.radiusBlocks) * 10) / 10;
+                lod = { fullCount: bindings.length, distance: switchDistance };
                 for (const mesh of hull.meshes) bindings.push({
                     geometryId: mesh.id,
                     texture: `textures/entity/${legoMaterialSwatchName(mesh.material)}`,
@@ -1621,6 +1659,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 lodHulls[ecid] = {
                     cuboids: hull.cuboids, colours: hull.colours, geometries: hull.meshes.length, cellBlocks: hull.cellBlocks,
                     shareOfEntity: Math.round(hull.cuboids / Math.max(1, geo.diagnostics.cubeCount) * 1000) / 1000,
+                    radiusBlocks, switchDistance,
                 };
             }
         }
@@ -2036,7 +2075,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
-        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over past ${lodDistance} blocks (query.distance_from_camera measured in blocks on a Pixel 8 Pro, 2026-09-19: switch seen at 26-28 for the default 32).`);
+        const switches = Object.entries(lodHulls).map(([id, h]) => `${id} at ${h.switchDistance} (reach ${h.radiusBlocks})`).join(', ');
+        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over once the camera is more than ${lodDistance} blocks from a model's nearest cube; query.distance_from_camera reads in blocks to the entity ROOT (Pixel 8 Pro, 2026-09-19), so each entity switches at ${lodDistance} plus its reach from the root: ${switches}.`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length || coasterConfig) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
@@ -2044,9 +2084,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
         pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
         // `query.distance_from_camera` is evaluated in a geometry field and reads
-        // in blocks (device round 2026-09-19); the note records that so a reader of the
-        // device round settles both (see docs/bedrock-addon-guide.md).
-        lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks (Pixel 8 Pro 2026-09-19: switch at 26-28 for the default 32)' : 'off', entities: lodHulls },
+        // in blocks to the entity root (device round 2026-09-19); `distance` is the
+        // nearest-cube option and each entity's `switchDistance` adds its reach.
+        lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks to the entity ROOT (Pixel 8 Pro 2026-09-19); each entity switches at distance + its radiusBlocks (switchDistance)' : 'off', entities: lodHulls },
         entities: diagnostics,
         ...(coasterConfig ? { coaster: { cuboids: coasterCuboids, riderRoll: false, deviceVerified: false,
             routes: coasterConfig.routes.map(route => ({ label: route.label, lengthBlocks: route.path.length, samples: route.path.points.length, closed: route.path.closed })) } } : {}),

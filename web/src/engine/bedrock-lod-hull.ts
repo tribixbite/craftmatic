@@ -24,7 +24,20 @@
  * rather than an LOD. Box UV means a geometry carries exactly ONE colour
  * (`ldraw-entity-compiler.ts`), so "keep the colours" means one hull geometry
  * per colour, each bound to that colour's existing 16x16 swatch — no new
- * textures.
+ * textures. (The table above predates exclusive cell ownership, below, which
+ * removes the duplicate cubes those counts included: 10303's hull went from
+ * 1,143 to 753 cuboids, 2026-09-21.)
+ *
+ * EVERY SKIN CELL BELONGS TO EXACTLY ONE COLOUR. A block cell is 53 LDU at
+ * minifig scale and a brick is 20 LDU wide, so most cells hold cubes of several
+ * colours. The first version let every colour that touched a skin cell emit its
+ * own full-cell cube there, so up to nine coplanar cubes sat on one cell (10303,
+ * 2026-09-21: 1,523 of the 3,189 skin cells were claimed by two to nine colour
+ * geometries). Coplanar faces of different colours are resolved by the depth
+ * test, which on the phone's GPU reads as diagonal hatching that flickers
+ * between the colours as the camera moves — the user's "seizure-inducing"
+ * report. The cell now goes to the one colour with the most cube volume inside
+ * it (`claimVolumes`); a tie keeps the earlier colour in draw order.
  *
  * The hull is computed from the entity's FINAL emitted cube list (after the
  * cull, the merge and the studs), i.e. from the geometry document itself, so it
@@ -32,6 +45,14 @@
  * (bone-chain and per-cube rotations applied), voxelised on the block cell,
  * reduced to SURFACE voxels only (a voxel with an empty 6-neighbour) and
  * greedy-merged into axis-aligned cuboids.
+ *
+ * The same cube list gives the entity's REACH from its root (`radiusBlocks`):
+ * `query.distance_from_camera` measures the camera to the entity's root, not to
+ * its nearest cube, and a shell's root sits above the model
+ * (`originAboveModel` in `ldraw-entity-compiler.ts`). On 10303 the root is 45
+ * blocks over the ground and 68.7 % of the model's own skin is farther than 32
+ * blocks from it, so a switch at a bare 32 put the hull in front of a camera
+ * standing at the tracks. The switch has to be `lodDistance + radiusBlocks`.
  */
 
 import type { CompiledMesh } from './ldraw-entity-compiler.js';
@@ -60,7 +81,7 @@ export const LOD_EMPTY_GEOMETRY = {
   }],
 } as const;
 
-type Vec3 = [number, number, number];
+export type Vec3 = [number, number, number];
 
 /** A cube as a geometry document carries it. */
 interface GeoCube { origin: number[]; size: number[]; rotation?: number[]; pivot?: number[] }
@@ -95,6 +116,18 @@ export interface LodHull {
   colours: number;
   /** The cell the hull was voxelised on, in blocks. */
   cellBlocks: number;
+  /**
+   * World AABB of the entity's cubes in BLOCKS, relative to the entity root
+   * (rotations applied) — the point `query.distance_from_camera` measures from.
+   */
+  extentBlocks: { min: Vec3; max: Vec3 };
+  /**
+   * Farthest corner of `extentBlocks` from the root, in blocks. A render
+   * controller that switches at a bare distance D shows the hull to a camera
+   * standing at any cube more than D from the root; switching at
+   * `D + radiusBlocks` guarantees the camera is at least D from EVERY cube.
+   */
+  radiusBlocks: number;
 }
 
 export interface BuildLodHullOptions {
@@ -164,20 +197,60 @@ function voxelGrid(boxes: Aabb[], cell: number): VoxelGrid {
 }
 
 /**
- * Mark every cell a box touches. The span is treated as HALF-OPEN: a cube whose
- * max face lies exactly on a cell boundary (every unrotated LEGO cuboid on a
- * block-aligned grid) must not claim the cell beyond it, or a 1x1x1 block would
- * rasterise as 2x2x2 and one colour's hull would paint over its neighbour's.
+ * The inclusive cell range a box touches. The span is treated as HALF-OPEN: a
+ * cube whose max face lies exactly on a cell boundary (every unrotated LEGO
+ * cuboid on a block-aligned grid) must not claim the cell beyond it, or a 1x1x1
+ * block would rasterise as 2x2x2 and one colour's hull would paint over its
+ * neighbour's. Shared by the solid mask and the ownership volumes so the two
+ * can never disagree about which cells a cube is in.
  */
+function cellRange(grid: VoxelGrid, b: Aabb): CellBox {
+  const clamp = (i: number, n: number): number => Math.min(n - 1, Math.max(0, i));
+  const lo = (v: number, axis: number, n: number): number => clamp(Math.floor((v - grid.origin[axis]!) / grid.cell), n);
+  const hi = (v: number, axis: number, n: number, low: number): number => Math.max(low, clamp(Math.ceil((v - grid.origin[axis]!) / grid.cell) - 1, n));
+  const x0 = lo(b.min[0], 0, grid.nx), x1 = hi(b.max[0], 0, grid.nx, x0);
+  const y0 = lo(b.min[1], 1, grid.ny), y1 = hi(b.max[1], 1, grid.ny, y0);
+  const z0 = lo(b.min[2], 2, grid.nz), z1 = hi(b.max[2], 2, grid.nz, z0);
+  return { x0, y0, z0, x1, y1, z1 };
+}
+
+/** Mark every cell a box touches (see `cellRange` for the half-open rule). */
 function rasterise(grid: VoxelGrid, boxes: Aabb[], into: Uint8Array): void {
   for (const b of boxes) {
-    const clamp = (i: number, n: number): number => Math.min(n - 1, Math.max(0, i));
-    const lo = (v: number, axis: number, n: number): number => clamp(Math.floor((v - grid.origin[axis]!) / grid.cell), n);
-    const hi = (v: number, axis: number, n: number, low: number): number => Math.max(low, clamp(Math.ceil((v - grid.origin[axis]!) / grid.cell) - 1, n));
-    const x0 = lo(b.min[0], 0, grid.nx), x1 = hi(b.max[0], 0, grid.nx, x0);
-    const y0 = lo(b.min[1], 1, grid.ny), y1 = hi(b.max[1], 1, grid.ny, y0);
-    const z0 = lo(b.min[2], 2, grid.nz), z1 = hi(b.max[2], 2, grid.nz, z0);
+    const { x0, y0, z0, x1, y1, z1 } = cellRange(grid, b);
     for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) for (let z = z0; z <= z1; z++) into[grid.at(x, y, z)] = 1;
+  }
+}
+
+/**
+ * A degenerate cube (zero size on an axis) still occupies the cells `cellRange`
+ * gives it but has no volume; it claims this much so a cell nothing else
+ * touches is not left unowned. Far below any real cube's volume (the smallest
+ * compiler microcell is 4 LDU ≈ 1.2 units on a side, ~1.7 units³).
+ */
+const DEGENERATE_CLAIM = 1e-9;
+
+/**
+ * Accumulate, per cell, the volume (in model units³) the given boxes put inside
+ * it — the clipped intersection of each box with each cell it touches. This is
+ * the basis of exclusive cell ownership: the colour with the most volume in a
+ * skin cell is the one a viewer would see there.
+ */
+function claimVolumes(grid: VoxelGrid, boxes: Aabb[], into: Float32Array): void {
+  const { origin, cell } = grid;
+  for (const b of boxes) {
+    const { x0, y0, z0, x1, y1, z1 } = cellRange(grid, b);
+    const span = (axis: number, i: number): number => {
+      const lo = origin[axis]! + i * cell, hi = lo + cell;
+      return Math.max(0, Math.min(b.max[axis]!, hi) - Math.max(b.min[axis]!, lo));
+    };
+    for (let x = x0; x <= x1; x++) {
+      const sx = span(0, x);
+      for (let y = y0; y <= y1; y++) {
+        const sy = span(1, y);
+        for (let z = z0; z <= z1; z++) into[grid.at(x, y, z)] += Math.max(DEGENERATE_CLAIM, sx * sy * span(2, z));
+      }
+    }
   }
 }
 
@@ -258,17 +331,42 @@ export function buildLodHull(entityId: string, input: LodHullInput, options: Bui
   // and no colour paints over a neighbour's outside face.
   const surface = surfaceMask(grid, solid);
 
+  // EXCLUSIVE ownership of every skin cell (see the module comment): the colour
+  // with the most cube volume inside the cell takes it, a tie keeps the earlier
+  // colour in draw order (colours are visited in that order and only a STRICTLY
+  // larger volume displaces the holder). Without this, every colour touching a
+  // cell emitted a full-cell cube on it and the coplanar faces z-fought.
+  const colours = [...byColour.entries()].sort((a, b) => a[1].order - b[1].order);
+  const owner = new Int32Array(solid.length).fill(-1);
+  const best = new Float32Array(solid.length);
+  const volume = new Float32Array(solid.length);
+  colours.forEach(([colorId], ci) => {
+    volume.fill(0);
+    claimVolumes(grid, boxes.filter(b => b.colorId === colorId), volume);
+    for (let i = 0; i < volume.length; i++) {
+      if (!surface[i] || !volume[i]) continue;
+      if (owner[i] < 0 || volume[i]! > best[i]!) { owner[i] = ci; best[i] = volume[i]!; }
+    }
+  });
+
+  // Reach from the root, for the render controllers' switch distance.
+  const extentMin: Vec3 = [Infinity, Infinity, Infinity], extentMax: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const b of boxes) for (let i = 0; i < 3; i++) { if (b.min[i]! < extentMin[i]!) extentMin[i] = b.min[i]!; if (b.max[i]! > extentMax[i]!) extentMax[i] = b.max[i]!; }
+  let radius = 0;
+  for (const x of [extentMin[0], extentMax[0]]) for (const y of [extentMin[1], extentMax[1]]) for (const z of [extentMin[2], extentMax[2]])
+    radius = Math.max(radius, Math.hypot(x, y, z));
+  const toBlocks = (v: Vec3): Vec3 => [v[0] / UNITS_PER_BLOCK, v[1] / UNITS_PER_BLOCK, v[2] / UNITS_PER_BLOCK];
+
   const geometries: GeoMesh[] = [];
   const meshes: LodHullMesh[] = [];
   const template = doc['minecraft:geometry'][0]?.description;
   let cuboids = 0;
-  const colours = [...byColour.entries()].sort((a, b) => a[1].order - b[1].order);
-  for (const [colorId, info] of colours) {
+  colours.forEach(([, info], ci) => {
+    // `owner` is only ever set on skin cells, so this mask is already the colour's share of the skin.
     const mask = new Uint8Array(solid.length);
-    rasterise(grid, boxes.filter(b => b.colorId === colorId), mask);
-    for (let i = 0; i < mask.length; i++) if (mask[i] && !surface[i]) mask[i] = 0;
+    for (let i = 0; i < owner.length; i++) if (owner[i] === ci) mask[i] = 1;
     const cells = greedyBoxes(grid, mask);
-    if (!cells.length) continue;
+    if (!cells.length) return;
     const cubes: GeoCube[] = cells.map(b => ({
       origin: [grid.origin[0] + b.x0 * cell, grid.origin[1] + b.y0 * cell, grid.origin[2] + b.z0 * cell],
       size: [(b.x1 - b.x0 + 1) * cell, (b.y1 - b.y0 + 1) * cell, (b.z1 - b.z0 + 1) * cell],
@@ -286,7 +384,12 @@ export function buildLodHull(entityId: string, input: LodHullInput, options: Bui
         bones: [{ name: 'body', pivot: [0, 0, 0], cubes: cubes.slice(offset, offset + chunk) }],
       });
     }
-  }
+  });
   if (!meshes.length) return null;
-  return { value: { format_version: '1.12.0', 'minecraft:geometry': geometries }, meshes, cuboids, colours: new Set(meshes.map(m => m.material.colorId)).size, cellBlocks };
+  return {
+    value: { format_version: '1.12.0', 'minecraft:geometry': geometries }, meshes, cuboids,
+    colours: new Set(meshes.map(m => m.material.colorId)).size, cellBlocks,
+    extentBlocks: { min: toBlocks(extentMin), max: toBlocks(extentMax) },
+    radiusBlocks: radius / UNITS_PER_BLOCK,
+  };
 }

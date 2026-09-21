@@ -17,18 +17,8 @@ import type { CompiledMesh } from '../web/src/engine/ldraw-entity-compiler.js';
 interface GeoCube { origin: number[]; size: number[]; uv?: number[] }
 interface Geo { 'minecraft:geometry': Array<{ description: { identifier: string }; bones: Array<{ name: string; pivot: number[]; cubes?: GeoCube[] }> }> }
 
-/**
- * A 3x3x3 solid block of one-block cubes, split between colours by a predicate
- * on the cell — one geometry per colour, as box UV forces the compiler to emit.
- */
-const block = (colourAt: (x: number, y: number, z: number) => number): { value: Geo; meshes: CompiledMesh[] } => {
-  const byColour = new Map<number, GeoCube[]>();
-  for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
-    const id = colourAt(x, y, z);
-    const list = byColour.get(id) ?? [];
-    list.push({ origin: [x * UNITS_PER_BLOCK, y * UNITS_PER_BLOCK, z * UNITS_PER_BLOCK], size: [UNITS_PER_BLOCK, UNITS_PER_BLOCK, UNITS_PER_BLOCK], uv: [0, 0] });
-    byColour.set(id, list);
-  }
+/** One geometry per colour, in the given (draw) order, as box UV forces the compiler to emit. */
+const geometryOf = (byColour: Map<number, GeoCube[]>): { value: Geo; meshes: CompiledMesh[] } => {
   const meshes: CompiledMesh[] = [];
   const geometry: Geo['minecraft:geometry'] = [];
   for (const [colorId, cubes] of byColour) {
@@ -40,8 +30,42 @@ const block = (colourAt: (x: number, y: number, z: number) => number): { value: 
   return { value: { 'minecraft:geometry': geometry }, meshes };
 };
 
+/**
+ * A 3x3x3 solid block of one-block cubes, split between colours by a predicate
+ * on the cell.
+ */
+const block = (colourAt: (x: number, y: number, z: number) => number): { value: Geo; meshes: CompiledMesh[] } => {
+  const byColour = new Map<number, GeoCube[]>();
+  for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) {
+    const id = colourAt(x, y, z);
+    const list = byColour.get(id) ?? [];
+    list.push({ origin: [x * UNITS_PER_BLOCK, y * UNITS_PER_BLOCK, z * UNITS_PER_BLOCK], size: [UNITS_PER_BLOCK, UNITS_PER_BLOCK, UNITS_PER_BLOCK], uv: [0, 0] });
+    byColour.set(id, list);
+  }
+  return geometryOf(byColour);
+};
+
 const cubesOf = (hull: { value: unknown }): GeoCube[] =>
   (hull.value as Geo)['minecraft:geometry'].flatMap(g => g.bones.flatMap(b => b.cubes ?? []));
+
+/**
+ * How many hull GEOMETRIES cover each block cell. Two coplanar cubes from two
+ * colour geometries on one cell are exactly the z-fighting the user reported,
+ * so every value must be 1.
+ */
+const claimsPerCell = (doc: unknown): Map<string, number> => {
+  const claims = new Map<string, number>();
+  for (const g of (doc as Geo)['minecraft:geometry']) {
+    const cells = new Set<string>();
+    for (const c of g.bones.flatMap(b => b.cubes ?? [])) {
+      for (let x = c.origin[0]!; x < c.origin[0]! + c.size[0]!; x += UNITS_PER_BLOCK)
+        for (let y = c.origin[1]!; y < c.origin[1]! + c.size[1]!; y += UNITS_PER_BLOCK)
+          for (let z = c.origin[2]!; z < c.origin[2]! + c.size[2]!; z += UNITS_PER_BLOCK) cells.add(`${x},${y},${z}`);
+    }
+    for (const cell of cells) claims.set(cell, (claims.get(cell) ?? 0) + 1);
+  }
+  return claims;
+};
 
 describe('LOD hull geometry', () => {
   it('keeps only the surface of a solid block and greedy-merges it', () => {
@@ -87,6 +111,70 @@ describe('LOD hull geometry', () => {
     for (const m of hull.meshes) expect(m.id.startsWith('geometry.craftmatic.t_lod_')).toBe(true);
   });
 
+  it('gives a skin cell that two colours share to exactly one of them - the larger volume', () => {
+    // Two bricks side by side INSIDE one block cell (a brick is 0.375 block at
+    // minifig scale, so this is the normal case, not an edge one): red fills
+    // x 0-6 of cell 0, blue x 6-16; red also fills all of cell 1. Both colours'
+    // raster masks cover cell 0 and both cells are skin, so the first version
+    // emitted a red AND a blue full-cell cube on cell 0 - coplanar faces that
+    // z-fought (10303: 1,523 of 3,189 skin cells, up to nine claimants).
+    const U = UNITS_PER_BLOCK;
+    const hull = buildLodHull('t', geometryOf(new Map([
+      [4, [{ origin: [0, 0, 0], size: [6, U, U] }, { origin: [U, 0, 0], size: [U, U, U] }]],
+      [1, [{ origin: [6, 0, 0], size: [U - 6, U, U] }]],
+    ])), { cellBlocks: 1 })!;
+    expect(hull.colours).toBe(2);
+    // Exactly one cube per cell, and cell 0 went to blue (10 of 16 units of x).
+    expect(hull.cuboids).toBe(2);
+    expect([...claimsPerCell(hull.value).values()]).toEqual([1, 1]);
+    const byColour = new Map(hull.meshes.map((m, i) => [m.material.colorId, (hull.value as Geo)['minecraft:geometry'][i]!.bones[0]!.cubes!]));
+    expect(byColour.get(1)).toEqual([{ origin: [0, 0, 0], size: [U, U, U], uv: [0, 0] }]);
+    expect(byColour.get(4)).toEqual([{ origin: [U, 0, 0], size: [U, U, U], uv: [0, 0] }]);
+  });
+
+  it('breaks a volume tie by draw order and never leaves a skin cell to two colours', () => {
+    const U = UNITS_PER_BLOCK;
+    // Red and blue each fill half of the one cell: red is drawn first and keeps it.
+    const tie = buildLodHull('t', geometryOf(new Map([
+      [4, [{ origin: [0, 0, 0], size: [U / 2, U, U] }]],
+      [1, [{ origin: [U / 2, 0, 0], size: [U / 2, U, U] }]],
+    ])), { cellBlocks: 1 })!;
+    expect(tie.cuboids).toBe(1);
+    expect(tie.meshes.map(m => m.material.colorId)).toEqual([4]);
+    // A 3x3x3 checkerboard of quarter-block cubes: every skin cell holds several
+    // colours, and every one of them ends up with exactly one owner.
+    const byColour = new Map<number, GeoCube[]>();
+    for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) for (let z = 0; z < 6; z++) {
+      const id = [4, 1, 2, 14][(x + 2 * y + 3 * z) % 4]!;
+      byColour.set(id, [...(byColour.get(id) ?? []), { origin: [x * U / 2, y * U / 2, z * U / 2], size: [U / 2, U / 2, U / 2] }]);
+    }
+    const board = buildLodHull('t', geometryOf(byColour), { cellBlocks: 1 })!;
+    const claims = claimsPerCell(board.value);
+    expect(claims.size).toBe(26);
+    expect(Math.max(...claims.values())).toBe(1);
+    const volume = cubesOf(board).reduce((n, c) => n + c.size[0]! * c.size[1]! * c.size[2]!, 0);
+    expect(volume).toBe(26 * Math.pow(U, 3));
+  });
+
+  it('reports the entity extent and its reach from the root, in blocks', () => {
+    const U = UNITS_PER_BLOCK;
+    // A shell hangs BELOW its root (`originAboveModel`): a cube 45 blocks down
+    // and 2 blocks out reaches hypot(2, 45, 2) from the root, and that reach is
+    // what a render controller must add to the camera distance it tests.
+    const hull = buildLodHull('t', geometryOf(new Map([[4, [{ origin: [-2 * U, -45 * U, U], size: [U, U, U] }]]])), { cellBlocks: 1 })!;
+    expect(hull.extentBlocks).toEqual({ min: [-2, -45, 1], max: [-1, -44, 2] });
+    expect(hull.radiusBlocks).toBeCloseTo(Math.hypot(2, 45, 2), 6);
+    // A rotated bone reaches as far as its rotated corners: the same cube spun
+    // 90° about the root on Y lands at z = 1..2 -> x, and the reach is unchanged.
+    const spun = geometryOf(new Map([[4, [{ origin: [-2 * U, -45 * U, U], size: [U, U, U] }]]]));
+    (spun.value['minecraft:geometry'][0]!.bones[0] as { rotation?: number[] }).rotation = [0, 90, 0];
+    const rotated = buildLodHull('t', spun, { cellBlocks: 1 })!;
+    expect(rotated.radiusBlocks).toBeCloseTo(hull.radiusBlocks, 6);
+    expect(rotated.extentBlocks.min[1]).toBe(-45);
+    expect(rotated.extentBlocks.min[0]).toBeCloseTo(1, 6);
+    expect(rotated.extentBlocks.max[0]).toBeCloseTo(2, 6);
+  });
+
   it('is coarser and cheaper at a 2-block cell, and reports nothing for an empty geometry', () => {
     const fine = buildLodHull('t', block(() => 4), { cellBlocks: 1 })!;
     const coarse = buildLodHull('t', block(() => 4), { cellBlocks: 2 })!;
@@ -127,10 +215,14 @@ const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C 
 const shellPack = async (lod: 'none' | 'hull', lodDistance?: number) => {
   const grid = new BlockGrid(4, 3, 4);
   for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) grid.set(x, 0, z, 'minecraft:red_concrete');
-  // A wall of 2x4 bricks, three long and two courses high: enough surface for a hull.
+  // A wall of 2x4 bricks, three long and two courses high: enough surface for a
+  // hull. The first brick is red and the other two blue, so the hull has two
+  // colours that SHARE the block cells straddling the brick boundary (a brick
+  // is 80 LDU, a block 53), the case that z-fought. (Colouring by course would
+  // not do: both courses sit inside one 53-LDU cell row and tie on volume.)
   const bricks: ParsedBrick[] = [];
   for (let i = 0; i < 3; i++) for (let course = 0; course < 2; course++)
-    bricks.push({ part: '3001.dat', color: 4, x: i * 80, y: -course * 24, z: 0, rot: I });
+    bricks.push({ part: '3001.dat', color: i ? 1 : 4, x: i * 80, y: -course * 24, z: 0, rot: I });
   return buildPlayableAddon(grid, {
     stem: 'lodshed', label: 'Lod Shed', partGeometry: provider(), pbr: false, shell: { bricks, frame },
     lod, ...(lodDistance === undefined ? {} : { lodDistance }),
@@ -154,20 +246,23 @@ describe('the LOD hull inside a pack', () => {
     for (const name of invariant) {
       expect(await textOf(full.bytes, name), name).toBe(await textOf(hull.bytes, name));
     }
-    const controller = 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json';
-    expect((await textOf(full.bytes, controller)).replaceAll('1024', '1'))
-      .toBe(await textOf(hull.bytes, controller));
     for (const root of ['Craftmatic_lodshed_BP', 'Craftmatic_lodshed_RP']) {
       const a = JSON.parse(await textOf(full.bytes, `${root}/manifest.json`)) as { header: { uuid: string } };
       const b = JSON.parse(await textOf(hull.bytes, `${root}/manifest.json`)) as { header: { uuid: string } };
       expect(a.header.uuid).toBe(b.header.uuid);
     }
     const diagnostics = 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json';
-    const a = JSON.parse(await textOf(full.bytes, diagnostics)) as { pack: { cuboids: number }; lod: { cuboids: number } };
+    const a = JSON.parse(await textOf(full.bytes, diagnostics)) as { pack: { cuboids: number }; lod: { cuboids: number; entities: Record<string, { switchDistance: number }> } };
     const b = JSON.parse(await textOf(hull.bytes, diagnostics)) as typeof a;
     expect(a.pack.cuboids).toBe(b.pack.cuboids);
     expect(a.lod.cuboids).toBe(b.lod.cuboids);
     expect(a.lod.cuboids).toBeGreaterThan(0);
+    // The controllers differ ONLY by the switch distance (option + the same reach from the root).
+    const controller = 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json';
+    const near = a.lod.entities['lodshed_shell']!.switchDistance, far = b.lod.entities['lodshed_shell']!.switchDistance;
+    expect(near - far).toBeCloseTo(1024 - 1, 6);
+    expect((await textOf(full.bytes, controller)).replaceAll(String(near), String(far)))
+      .toBe(await textOf(hull.bytes, controller));
   });
 
   it('leaves the shipped form alone by default', async () => {
@@ -213,13 +308,8 @@ describe('the LOD hull inside a pack', () => {
       const index = Number(/_mesh_(\d+)$/.exec(name)![1]);
       expect(c.arrays.geometries['Array.g']).toEqual([`Geometry.mesh_${index}`, 'Geometry.empty']);
     }
-    const expressions = Object.values(controllers).map(c => c.geometry);
-    const fullCount = Object.keys(client.geometry).length - 1 - hullGeometries.length;
-    expect(expressions.filter(e => e === 'Array.g[query.distance_from_camera > 48]')).toHaveLength(fullCount);
-    expect(expressions.filter(e => e === 'Array.g[query.distance_from_camera <= 48]')).toHaveLength(hullGeometries.length);
-
     const diagnostics = JSON.parse(await textOf(on.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as {
-      lod: { mode: string; distance: number; cuboids: number; note: string; entities: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number }> };
+      lod: { mode: string; distance: number; cuboids: number; note: string; entities: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number; radiusBlocks: number; switchDistance: number }> };
       pack: { cuboids: number; lodCuboids: number; shareOfDeviceBudget: number };
       entities: Record<string, { cubeCount: number }>;
     };
@@ -228,9 +318,27 @@ describe('the LOD hull inside a pack', () => {
     expect(diagnostics.lod.note).toMatch(/in blocks/);
     const hull = diagnostics.lod.entities['lodshed_shell']!;
     expect(hull.cuboids).toBeGreaterThan(0);
-    expect(hull.colours).toBeGreaterThan(0);
+    expect(hull.colours).toBe(2);
     expect(hull.cellBlocks).toBe(1);
     expect(hull.geometries).toBe(hullGeometries.length);
+
+    // The controllers test the camera-to-ROOT distance, so they switch at the
+    // option PLUS the entity's reach from its root (the shell hangs below it),
+    // never at the bare option: the bare 32 flipped 10303 to its hull for a
+    // camera standing at the tracks.
+    expect(hull.radiusBlocks).toBeGreaterThan(1);
+    expect(hull.switchDistance).toBeCloseTo(48 + hull.radiusBlocks, 1);
+    const expressions = Object.values(controllers).map(c => c.geometry);
+    const fullCount = Object.keys(client.geometry).length - 1 - hullGeometries.length;
+    expect(expressions.filter(e => e === `Array.g[query.distance_from_camera > ${hull.switchDistance}]`)).toHaveLength(fullCount);
+    expect(expressions.filter(e => e === `Array.g[query.distance_from_camera <= ${hull.switchDistance}]`)).toHaveLength(hullGeometries.length);
+    expect(on.warnings.some(w => new RegExp(`lodshed_shell at ${hull.switchDistance} \\(reach ${hull.radiusBlocks}\\)`).test(w))).toBe(true);
+
+    // Two colours share block cells in this wall; no skin cell may carry a cube from both.
+    const hullDoc = JSON.parse(await textOf(on.bytes, 'Craftmatic_lodshed_RP/models/entity/lodshed_shell_lod.geo.json')) as unknown;
+    const claims = claimsPerCell(hullDoc);
+    expect(claims.size).toBeGreaterThan(0);
+    expect(Math.max(...claims.values())).toBe(1);
     expect(hull.shareOfEntity).toBeCloseTo(hull.cuboids / diagnostics.entities['lodshed_shell']!.cubeCount, 2);
     // The hull is RESIDENT, so the pack's budget counts it.
     expect(diagnostics.pack.lodCuboids).toBe(hull.cuboids);
