@@ -68,6 +68,35 @@ Open, all three in flight:
 
 Acceptance is a fresh device round with the user's own bar, not unit tests.
 
+**Device state changed 2026-09-21 evening: the user deleted every behavior and
+resource pack except the base Craftmatic one and created a new FLAT BLANK world
+called `921`.** That is the clean test bed — the duplicate-UUID folder trap is
+gone, so a fresh import should resolve correctly. Do not assume the old
+`CoasterQA` world or its packs still exist.
+
+Further user requirements from the same round:
+- [ ] Auto-scale RECOMMENDATION per model, measured not themed: architecture and
+  Icon sets are micro-scale and must be scaled up to be walkable. The bar is
+  that a player (0.6 x 1.8 blocks) can pass the model's doorways and stand under
+  its floors; the UI should say why ("doorways are 0.4 blocks at 100 %; 300 %
+  makes them 1.2"). Manual override always remains. Owner: scale-recommendation.
+- [ ] **A minifig must never become a giant.** The wand's 25-400 % steps scale
+  every entity today; a FIGURE must stay player-sized at any model size, while
+  buildings and vehicles keep scaling — without sinking figures through floors
+  or out of vehicle seats. Owner: scale-cap.
+- [ ] Suspected bug: no up/down movement inside a scaled-up model, because a
+  height is computed from the unscaled 1x grid. History: `e168bd49` (scaled
+  placements kept their old walls) and `e25af6e4` (keep local Y fractional until
+  after wand scaling, then quantize in world space). Must be reproduced or
+  disproved with a real placement at 200/400 %, not read off the code.
+  Owner: scale-cap.
+- [ ] Three-car train: make the cart three single-seat vehicles instead of one.
+  This dissolves the "no per-seat family restriction" blocker (each car carries
+  its own component-level family) and matches the source, whose three rider
+  clusters sit 120 LDU apart. Under evaluation by the coaster owner.
+- The source minifigs do NOT need to ride the coaster; they now stay posed in
+  the model geometry, which is already correct.
+
 ## Active round — 2026-09-21, 10303 track repair and ride mechanism
 
 User asks to visually inspect/fix 10303's missing track and implement reusable
