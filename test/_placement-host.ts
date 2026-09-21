@@ -28,6 +28,7 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   const set: Array<{ pos: any; states: any }> = [];
   const commands: string[] = [];
   const actionBars: string[] = [];
+  const playerProperties = new Map<string, unknown>();
   const blocks = new Map<string, any>();
   let loaded = false;
   const makeEntity = (id: string, typeId: string) => ({ id, typeId, nameTag: '', dimension: { id: 'overworld' }, events: [] as string[], teleport: vi.fn(), setRotation: vi.fn(), remove: vi.fn(), triggerEvent(ev: string) { this.events.push(ev); }, getComponent: () => undefined });
@@ -68,6 +69,8 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   let hit: any;
   const player: any = { id: 'player', location: { x: 100, y: 64, z: 200 }, dimension, selectedSlotIndex: 0,
     getBlockFromViewDirection: () => hit,
+    getDynamicProperty: (key: string) => playerProperties.get(key),
+    setDynamicProperty: (key: string, value: unknown) => playerProperties.set(key, value),
     getComponent: () => undefined, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: (s: string) => actionBars.push(s) } };
   const world = { afterEvents: { itemUse: { subscribe: (fn: any) => { use = fn; } }, playerLeave: { subscribe: vi.fn() } },
     getAllPlayers: () => [player], getDimension: () => dimension,
@@ -79,5 +82,5 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'BlockVolume', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory' }, BlockPermutation, BlockVolume, Form, Form);
   const flush = async (turns = 400) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const open = async (...r: any[]) => { responses.push(...r); use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
-  return { assets, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, setHit: (h: any) => { hit = h; }, blocks, fills };
+  return { assets, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, playerProperties, setHit: (h: any) => { hit = h; }, blocks, fills };
 }

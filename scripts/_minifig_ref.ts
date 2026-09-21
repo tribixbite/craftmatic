@@ -9,6 +9,7 @@
  *          [--legs=<colour>] [--hips=<colour>] [--arms=<colour>] [--hands=<colour>]
  *          [--held-right=<part>:<colour>] [--held-left=<part>:<colour>] [--cape=<colour>]
  *          [--spec=<file.json>]   (a MinifigSpec JSON; flags override its fields)
+ *          [--creator=starter]   (include the standalone in-game creator wand)
  *
  * Example: bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 --hair=3901:0 --legs=1 --held-right=3847:71 --cape=4
  */
@@ -18,11 +19,14 @@ import { minifigFromSpec, type MinifigSpec } from '../web/src/engine/minifig-rig
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.ts';
 import { BlockGrid } from '../src/schem/types.ts';
 import { modelExportStem } from '../web/src/engine/export-name.ts';
+import { isSupportedCreatorTier, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.ts';
 
 setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
 
 const positional = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+const creatorTier = flag('creator');
+if (creatorTier !== undefined && !isSupportedCreatorTier(creatorTier)) throw new Error(`Unsupported creator tier: ${creatorTier}. Use --creator=starter.`);
 const partColour = (v: string | undefined): { part: string; color: number } | undefined => {
   if (!v) return undefined;
   const [part, colour] = v.split(':');
@@ -56,6 +60,7 @@ const t0 = Date.now();
 // One figure standing at the centre of an empty 3×3 footprint, facing −Z (the rig's own frame).
 const pack = await buildPlayableAddon(new BlockGrid(3, 1, 3), {
   stem, label, figures: [{ bricks: figure.bricks, x: 1.5, y: 0, z: 1.5, facingLdu: [0, -1] }],
+  ...(creatorTier ? { minifigCreator: minifigCreatorLibrary('starter') } : {}),
 });
 writeFileSync(out, pack.bytes);
 console.log(JSON.stringify({

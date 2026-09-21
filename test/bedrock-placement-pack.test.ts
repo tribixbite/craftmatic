@@ -93,4 +93,30 @@ describe('Bedrock Brick Wand placement pack', () => {
     expect(assets.script).not.toContain('"x":120,"y":1,"z":2');
     expect(() => new Function(assets.script.replace(/^import .*;$/gm, ''))).not.toThrow();
   });
+
+  it('keeps an explicit brick-chair marker model-local so it follows size, turn and undo rather than guessing furniture', () => {
+    const assets = buildPlacementPackAssets({ stem: 'Chair test', label: 'Chair test', width: 12, height: 8, length: 10, tiles: [tile], manualSeatTypeId: 'craftmatic:chair_test_seat' });
+    expect(assets.script).toContain('manualSeatTypeId":"craftmatic:chair_test_seat"');
+    expect(assets.script).toContain('Add seat here');
+    expect(assets.script).toContain('const modelPoint =');
+    expect(assets.script).toContain('const q = worldPoint(st, seat)');
+    expect(assets.script).toContain('st.manualSeats || []');
+    expect(assets.script).toContain('world.getEntity(id)?.remove()');
+  });
+
+  it('offers the measured door size and re-hangs its two vanilla halves after scaled colliders', () => {
+    const assets = buildPlacementPackAssets({ stem: 'Door test', label: 'Door test', width: 12, height: 8, length: 10, tiles: [tile], runtimeDoorCandidates: [{ x: 4, y: 1, z: 5, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }] });
+    expect(assets.script).toContain('Use next door size');
+    expect(assets.script).toContain('st.size < door.requiredSize');
+    expect(assets.script).toContain('scripted ? config.runtimeDoorCandidates || [] : []');
+    expect(assets.script).toContain('no solid support exists below the resized opening');
+    expect(assets.script).toContain('BlockPermutation.resolve(door.lower.id');
+    expect(assets.script).toContain('runtimeDoorCandidates');
+  });
+
+  it('serializes an exclusive maximum size for source leaf actors', () => {
+    const assets = buildPlacementPackAssets({ stem: 'Leaf test', label: 'Leaf test', width: 2, height: 3, length: 2, tiles: [], actors: [{ typeId: 'craftmatic:leaf', label: 'Door leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 300 }] });
+    expect(assets.script).toContain('"maxSizeExclusive":300');
+    expect(assets.script).toContain('st.size >= actor.maxSizeExclusive');
+  });
 });

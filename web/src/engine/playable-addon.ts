@@ -12,11 +12,15 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type SceneGridFrame } from './bedrock-scene-actors.js';
-import { MINIFIG_ANIMATIONS, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
+import { MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
+import { minifigFromSpec } from './minifig-rig.js';
+import { minifigWandScript } from './bedrock-minifig-wand.js';
+import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
+import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
@@ -96,6 +100,8 @@ export interface PlayableAddonOptions {
      * origin the scenery grid was built with.
      */
     shell?: { bricks: ParsedBrick[]; frame: SceneGridFrame };
+    /** Exact source door leaves rendered only below their vanilla-door size threshold. */
+    leafActors?: Array<{ bricks: ParsedBrick[]; frame: SceneGridFrame; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean }>;
     /**
      * Model scale as a multiplier of the minifig scale (engine/addon-scale.ts),
      * default 1. Every brick-compiled entity is authored at
@@ -138,6 +144,14 @@ export interface PlayableAddonOptions {
      * this bypasses it entirely so an experiment can go below 1.0.
      */
     figureCollisionHeight?: number;
+    /** Compiled minifig creator library. Mini-dolls are rejected until their rig is measured. */
+    minifigCreator?: MinifigLibrarySpec;
+    /** Optional placement warning computed from semantic door geometry. */
+    interactionNote?: string;
+    /** Existing invisible seat type exposed to the brick-wand manual chair placer. */
+    manualSeatTypeId?: string;
+    /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
+    runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
 }
 /** `hull`: ship a per-colour surface hull beside the full model and switch to it at `lodDistance`. */
 export type LodMode = 'none' | 'hull';
@@ -1479,7 +1493,7 @@ function palettePng(palette: string[]): Uint8Array { const w = 16, h = Math.max(
 } const z = concat(Uint8Array.of(0x78, 0x01), ...blocks, u32((b << 16) | a)); return concat(Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10), pngChunk('IHDR', concat(u32(w), u32(h), Uint8Array.of(8, 6, 0, 0, 0))), pngChunk('IDAT', z), pngChunk('IEND', new Uint8Array())); }
 export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddonOptions): Promise<PlayableAddonResult> {
     // A pack of figures alone (a custom minifig from minifigFromSpec) has no blocks and is still a pack.
-    if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length)
+    if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length && !options.minifigCreator)
         throw new Error('Nothing to export — the model has no blocks.');
     const label = options.label ?? options.stem, id = safe(options.stem), mode = options.vehicleMode ?? 'auto';
     // One scale for everything compiled from parts (engine/addon-scale.ts).
@@ -1605,6 +1619,80 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
         }
     };
+    let creatorConfig: MinifigCreatorConfig | undefined;
+    if (options.minifigCreator) {
+        if (Object.keys(options.minifigCreator.slots.minidoll).length) throw new Error('Mini-doll creator export is unavailable: canonical doll rig positions are not measured.');
+        const source = options.minifigCreator.slots.minifig;
+        const library: MinifigCreatorConfig['library'] = { minifig: {}, minidoll: {} };
+        const geometry: Record<string, string> = {}, controllers: Record<string, unknown> = {}, printTextures: Record<string, string> = {};
+        const emptyGeometryId = `geometry.${PACK_NAMESPACE}.${id}_mf_empty`;
+        geometry.empty = emptyGeometryId;
+        files.push({ name: `${rp}models/entity/${id}_mf_empty.geo.json`, data: geoJson({ format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: emptyGeometryId, texture_width: 1, texture_height: 1, visible_bounds_width: 1, visible_bounds_height: 1, visible_bounds_offset: [0, 0, 0] }, bones: MINIFIG_BONES.map(b => ({ name: b.name, ...(b.parent ? { parent: b.parent } : {}), pivot: [0, 0, 0] })) }] }) });
+        let cuboids = 0;
+        for (const [slot, entries] of Object.entries(source) as Array<[CreatorSlot, NonNullable<typeof source[CreatorSlot]>]>) {
+            const optional = slot === 'hair' || slot === 'held_right' || slot === 'held_left' || slot === 'back';
+            const emitted: Array<[string, string, string]> = optional ? [['', 'None', '']] : [];
+            if (optional) geometry[`${slot}_0`] = emptyGeometryId;
+            for (let index = 0; index < entries.length; index++) {
+                const entry = entries[index]!;
+                const spec = slot === 'torso' ? { torso: { part: entry.part, color: 4 } }
+                    : slot === 'head' ? { torso: { part: '973', color: 4 }, head: { part: entry.part, color: 4 } }
+                    : slot === 'hair' ? { torso: { part: '973', color: 4 }, hair: { part: entry.part, color: 4 } }
+                    : slot === 'hips' ? { torso: { part: '973', color: 4 }, hips: { part: entry.part, color: 4 } }
+                    : slot === 'legs' ? (() => { if (entry.part !== '3816') throw new Error(`Creator legs require an explicit known pair; unsupported base ${entry.part}.`); return { torso: { part: '973', color: 4 }, legs: { right: '3816', left: '3817', color: 4 } }; })()
+                    : slot === 'arms' ? (() => { if (entry.part !== '3818') throw new Error(`Creator arms require an explicit known pair; unsupported base ${entry.part}.`); return { torso: { part: '973', color: 4 }, arms: { right: '3818', left: '3819', color: 4 } }; })()
+                    : slot === 'hands' ? { torso: { part: '973', color: 4 }, hands: { part: entry.part, color: 4 } }
+                    : slot === 'held_right' ? { torso: { part: '973', color: 4 }, heldRight: { part: entry.part, color: 4 } }
+                    : slot === 'held_left' ? { torso: { part: '973', color: 4 }, heldLeft: { part: entry.part, color: 4 } }
+                    : { torso: { part: '973', color: 4 }, cape: { part: entry.part, color: 4 } };
+                const assembled = minifigFromSpec(spec as Parameters<typeof minifigFromSpec>[0]);
+                const wanted = slot === 'torso' ? 'torso' : slot === 'head' ? 'head' : slot === 'hair' ? 'headwear' : slot === 'back' ? 'back' : slot.startsWith('held') ? 'held' : slot;
+                const bricks = assembled.bricks.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_')));
+                if (!bricks.length) { warnings.push(`${entry.part}: no ${slot} geometry was produced; omitted from creator library.`); continue; }
+                const cid = `${id}_mf_${slot}_${index}`;
+                const geo = await compileLdrawEntityGeometry(cid, 'figure', bricks, { scale: unitsPerLdu, partGeometry: options.partGeometry, quality: options.minifigCreator.quality ?? options.entityQuality, rig: { bones: assembled.rig.bones, boneOf: assembled.rig.boneOf.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_'))) }, wholeModel: true, pbr,
+                    // Canonical minifig feet are y=72 LDU. Every library slot
+                    // shares that origin; never recenter a head at its own floor.
+                    originLdu: [0, 72, 0], inheritMaterialId: true });
+                diagnostics[cid] = geo.diagnostics; cuboids += geo.diagnostics.cubeCount;
+                const printMeshes = geo.meshes.filter(candidate => candidate.material.colorId !== 16);
+                if (printMeshes.length > MAX_PRINT_LAYERS) {
+                    warnings.push(`${entry.part}: rejected from creator library; ${printMeshes.length} fixed print layers exceed the ${MAX_PRINT_LAYERS}-layer limit.`);
+                    continue;
+                }
+                files.push({ name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) });
+                const mesh = geo.meshes.find(candidate => candidate.material.colorId === 16); if (!mesh) { warnings.push(`${entry.part}: no inherited-colour base mesh was produced; omitted from creator library.`); continue; }
+                const key = `${slot}_${emitted.length}`; geometry[key] = mesh.id;
+                // A printed part has one symbolic/base-colour mesh plus one or
+                // more explicit-colour meshes.  Main geometry remains slot
+                // tinted; each print layer gets its own fixed swatch controller.
+                for (const [layer, print] of printMeshes.entries()) {
+                    const printKey = `${key}_print_${layer}`;
+                    geometry[printKey] = print.id;
+                    const textureKey = `print_${slot}_${emitted.length}_${layer}`;
+                    const textureName = legoMaterialSwatchName(print.material);
+                    printTextures[textureKey] = `textures/entity/${textureName}`;
+                    if (!emittedSwatches.has(textureName)) { emittedSwatches.add(textureName); const swatch = generateLegoMaterialSwatch(print.material, { pbr, textureName }); files.push({ name: `${rp}textures/entity/${textureName}.png`, data: swatch.colorPng }); }
+                    controllers[`controller.render.${PACK_NAMESPACE}.${id}_mf_${slot}_${emitted.length}_print_${layer}`] = { arrays: { geometries: { 'Array.p': ['Geometry.empty', `Geometry.${printKey}`] } }, geometry: `Array.p[q.property('craftmatic:${slot}') == ${emitted.length}]`, materials: [{ '*': 'Material.default' }], textures: [`Texture.${textureKey}`] };
+                }
+                emitted.push([entry.part, entry.label ?? entry.part, entry.group ?? 'Other']);
+            }
+            library.minifig[slot] = emitted;
+            if (emitted.length) controllers[`controller.render.${PACK_NAMESPACE}.${id}_mf_${slot}`] = { arrays: { geometries: { 'Array.g': emitted.map((_, i) => `Geometry.${slot}_${i}`) }, textures: { 'Array.swatch': (options.minifigCreator.colours ?? MINIFIG_CREATOR_COLOURS).map((_, i) => `Texture.sw_${i}`) } }, geometry: `Array.g[q.property('craftmatic:${slot}')]`, textures: [`Array.swatch[q.property('craftmatic:c_${slot}')]`], materials: [{ '*': 'Material.default' }] };
+        }
+        const colours = (options.minifigCreator.colours ?? MINIFIG_CREATOR_COLOURS).map(color => [color, `Colour ${color}`] as [number, string]);
+        const textures: Record<string, string> = { ...printTextures }; for (let i = 0; i < colours.length; i++) { const material = resolveLdrawEntityMaterial(colours[i]![0]); const name = legoMaterialSwatchName(material); textures[`sw_${i}`] = `textures/entity/${name}`; if (!emittedSwatches.has(name)) { emittedSwatches.add(name); const swatch = generateLegoMaterialSwatch(material, { pbr, textureName: name }); files.push({ name: `${rp}textures/entity/${name}.png`, data: swatch.colorPng }); } }
+        const defaults: Record<string, number> = { 'craftmatic:family': 0 };
+        const defaultColours: Partial<Record<CreatorSlot, number>> = { torso: 4, arms: 4, head: 14, hands: 14, hips: 1, legs: 1 };
+        for (const slot of Object.keys(library.minifig) as CreatorSlot[]) { defaults[`craftmatic:${slot}`] = 0; defaults[`craftmatic:c_${slot}`] = Math.max(0, colours.findIndex(([color]) => color === (defaultColours[slot] ?? 0))); }
+        const figureId = `${PACK_NAMESPACE}:${id}_minifig`;
+        creatorConfig = { id, label, itemId: `${PACK_NAMESPACE}:${id}_minifig_wand`, shortAlias: `mf_${id.slice(-6)}`, figureType: figureId, library, colours, firstTranslucentColour: 43, defaults: { minifig: defaults, minidoll: defaults }, presets: options.minifigCreator.presets ?? [], worldCap: 200, savedCap: 100, pageSize: 8 };
+        const properties: Record<string, unknown> = {}; for (const [slot, entries] of Object.entries(library.minifig)) { properties[`craftmatic:${slot}`] = { type: 'int', range: [0, Math.max(0, entries.length - 1)], default: 0, client_sync: true }; properties[`craftmatic:c_${slot}`] = { type: 'int', range: [0, colours.length - 1], default: 0, client_sync: true }; }
+        properties['craftmatic:family'] = { type: 'int', range: [0, 0], default: 0, client_sync: true }; properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
+        const creatorBehavior = { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: figureId, is_spawnable: true, is_summonable: true, properties }, components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } }, component_groups: { 'craftmatic:npc': { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: .8 }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .02 } } }, events: { 'craftmatic:release': { add: { component_groups: ['craftmatic:npc'] } }, 'craftmatic:npc_off': { remove: { component_groups: ['craftmatic:npc'] } } } } };
+        files.push({ name: `${bp}entities/${id}_minifig.json`, data: json(creatorBehavior) }, { name: `${rp}entity/${id}_minifig.entity.json`, data: json({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: figureId, materials: { default: 'entity_alphablend' }, textures, geometry, render_controllers: Object.keys(controllers), animations: MINIFIG_CLIENT_ANIMATIONS.animations, scripts: { animate: MINIFIG_CLIENT_ANIMATIONS.animate } } } }) }, { name: `${rp}animations/${id}_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) }, { name: `${rp}render_controllers/${id}_minifig.render_controllers.json`, data: json({ format_version: '1.8.0', render_controllers: controllers }) }, { name: `${bp}items/${id}_minifig_wand.json`, data: json({ format_version: '1.20.80', 'minecraft:item': { description: { identifier: `${PACK_NAMESPACE}:${id}_minifig_wand`, menu_category: { category: 'items' } }, components: { 'minecraft:icon': 'brick', 'minecraft:max_stack_size': 1 } } }) });
+        warnings.push(`${label}: creator library compiled ${cuboids} cuboids across ${Object.values(library.minifig).reduce((n, a) => n + a.length, 0)} selectable minifig parts. Mini-dolls are excluded because their canonical rig is unmeasured.`);
+    }
     // Brick-accurate building: the scenery's parts compiled as one static
     // entity on the grid's own frame, over invisible colliders that follow
     // the part heights (bedrock-building-shell.ts).
@@ -1639,6 +1727,38 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             warnings.push(`${label}: brick-accurate building - ${sgeo.diagnostics.cubeCount} cuboids at ${sgeo.diagnostics.quality.microcellLdu} LDU over ${colliders.stats.colliders} invisible collider blocks (${colliders.stats.partial} part-height, ${colliders.stats.kept} doors/lights kept).`);
         } catch (e) {
             warnings.push(`${label}: the brick-accurate building could not be compiled (${e instanceof Error ? e.message : String(e)}); exported as blocks.`);
+        }
+    }
+    // A door too small for a vanilla two-block opening cannot stay inside the
+    // monolithic shell: the shell cannot hide only that leaf when the wand is
+    // enlarged. Compile the exact source placement as its own static actor on
+    // the same source/grid frame, then let PlacementActor retire it precisely
+    // when runtimeDoorCandidates hangs the interactive vanilla permutation.
+    for (const [index, leaf] of (options.leafActors ?? []).entries()) {
+        if (!leaf.bricks.length) continue;
+        const leafId = `${id}_door_leaf_${index + 1}`;
+        options.onProgress?.(`compiling ${label} door leaf ${index + 1}`, 74);
+        try {
+            const lgeo = await compileLdrawEntityGeometry(leafId, 'prop', leaf.bricks, {
+                scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+                quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+                originAboveModel: true,
+            });
+            diagnostics[leafId] = lgeo.diagnostics;
+            warnings.push(...lgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+            emitCompiledEntity(leafId, lgeo, shellBehavior(leafId), undefined, true);
+            const at = sceneGridPoint(leaf.frame, lgeo.originLdu);
+            actors.push({
+                typeId: `${PACK_NAMESPACE}:${leafId}`,
+                label: `${label} door leaf`,
+                x: at[0], y: at[1] + lgeo.originLiftBlocks, z: at[2], yaw: 0,
+                maxSizeExclusive: leaf.maxSizeExclusive,
+                doorCandidateIndex: leaf.doorCandidateIndex,
+                hideAt100: leaf.hideAt100,
+            });
+            extraComponents.push({ id: leafId, label: `${label} door leaf`, kind: 'shell', provenance: `${leaf.bricks.length} exact source door placement${leaf.bricks.length === 1 ? '' : 's'} visible below ${leaf.maxSizeExclusive}%` });
+        } catch (e) {
+            warnings.push(`${label}: a source door leaf could not be compiled (${e instanceof Error ? e.message : String(e)}); its interactive vanilla replacement remains available at ${leaf.maxSizeExclusive}%.`);
         }
     }
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
@@ -1783,6 +1903,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     // Seats: one invisible rideable type shared by every chair and bench.
     const seatList = options.seats ?? [];
+    // Manual brick-chair placement needs a real type even when the source had
+    // no recognisable mould seat.  It is deliberately separate from inferred
+    // seats: the wand owns its lifecycle and placement location.
+    const manualSeatId = options.shell ? `${id}_manual_seat` : undefined;
+    if (manualSeatId) files.push(
+        { name: `${bp}entities/${manualSeatId}.json`, data: json(seatBehavior(manualSeatId)) },
+        { name: `${rp}entity/${manualSeatId}.entity.json`, data: json(seatClient(manualSeatId)) },
+    );
     if (seatList.length) {
         const rawSeat = `${id}_seat`;
         const seatId = /^[0-9]/.test(rawSeat) ? `s_${rawSeat}` : rawSeat;
@@ -1878,15 +2006,31 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         preview: { typeId: ghost.typeId },
         ...(placementColliders ? { colliders: placementColliders } : {}),
-        ...(timeMachineConfig ? { vehicleControls: true } : {}) });
-    files.push(...placement.files.map(file => ({ ...file, name: bp + file.name })));
+        ...(timeMachineConfig ? { vehicleControls: true } : {}),
+        ...(options.interactionNote ? { interactionNote: options.interactionNote } : {}),
+        ...(manualSeatId || options.manualSeatTypeId ? { manualSeatTypeId: manualSeatId ? `${PACK_NAMESPACE}:${manualSeatId}` : options.manualSeatTypeId } : {}),
+        ...(options.runtimeDoorCandidates ? { runtimeDoorCandidates: options.runtimeDoorCandidates } : {}) });
+    files.push(...placement.files.map(file => ({
+        ...file, name: bp + file.name,
+        ...(creatorConfig && file.name.endsWith('.mcfunction') ? {
+            data: text(`${new TextDecoder().decode(file.data)}\ngive @s ${creatorConfig.itemId} 1\n`),
+        } : {}),
+    })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
+    if (creatorConfig) files.push(
+        { name: `${bp}scripts/minifig-wand.js`, data: text(minifigWandScript(creatorConfig)) },
+        { name: `${bp}functions/${creatorConfig.shortAlias}.mcfunction`, data: text(`give @s ${creatorConfig.itemId}`) },
+        { name: `${rp}texts/languages.json`, data: json(['en_US']) },
+        { name: `${rp}texts/en_US.lang`, data: text(`item.${creatorConfig.itemId}=${label} Minifig Creator Wand\nentity.${creatorConfig.figureType}.name=${label} Custom Minifig`) },
+        { name: `${bp}MINIFIG-CREATOR.txt`, data: text(`Minifig Creator\n\nActivate both packs and rejoin. /function ${placement.shortAlias} gives both wands. /function ${creatorConfig.shortAlias} gives only the Minifig Creator Wand. Select it in your hotbar to open the creator; switch away and back to reopen. Choose compiled parts and colours, save a figure or copy its portable mf1 code, then place it at your feet or aimed block. Sneak-use makes an owned copy at your aim. Use the wand on your own placed figure to edit it. Close returns an edited figure to its NPC behaviour. Discard deletes the draft or the figure being edited. Mini-dolls are not supported. Special PBR finishes are not yet supported by creator swatches.`) },
+    );
     const mainImports = [
         "import './placement.js';",
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
+        ...(creatorConfig ? ["import './minifig-wand.js';"] : []),
     ].join('\n');
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size every entity takes that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);

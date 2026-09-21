@@ -4,8 +4,9 @@
  * scripts/_minifig_browser_check.mjs against the dev server.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MINIFIG_FORM, cleanPartId, sanitizeForm, specFromForm } from '../web/src/ui/minifig-builder.js';
+import { DEFAULT_MINIFIG_FORM, cleanPartId, figureCodeFromForm, formFromFigureCode, sanitizeForm, specFromForm } from '../web/src/ui/minifig-builder.js';
 import { minifigFromSpec } from '../web/src/engine/minifig-rig.js';
+import { minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 
 describe('specFromForm', () => {
   it('sends only the parts the user filled in, with the defaults for empty torso/head', () => {
@@ -15,7 +16,7 @@ describe('specFromForm', () => {
     expect(spec.hair).toEqual({ part: '3901', color: 0 });
     expect(spec.heldRight).toEqual({ part: '3847', color: 71 });
     expect(spec.heldLeft).toBeUndefined();
-    expect(spec.cape).toEqual({ color: 4 });
+    expect(spec.cape).toEqual({ part: '4524', color: 4 });
     expect(spec.legs).toEqual({ color: 1 });
     // The rig accepts it and builds a full figure (torso, head, hair, hips, 2 legs, 2 arms, 2 hands, sword, cape).
     const figure = minifigFromSpec(spec);
@@ -51,4 +52,28 @@ describe('sanitizeForm', () => {
 it('cleanPartId strips .dat and whitespace', () => {
   expect(cleanPartId(' 3847.DAT ')).toBe('3847');
   expect(cleanPartId('')).toBe('');
+});
+
+it('has a real starter creator catalogue for the separate creator-wand export action', () => {
+  const library = minifigCreatorLibrary('starter');
+  expect(library.tier).toBe('starter');
+  expect(library.slots.minifig.torso?.some(part => part.part === '973pbs')).toBe(true);
+});
+
+it('round-trips the builder state through a portable wand figure code', () => {
+  const source = { ...DEFAULT_MINIFIG_FORM, label: 'Knight', torsoPart: '973pbs', torsoColor: 4, hairPart: '3901', heldRightPart: '3847', cape: true };
+  const code = figureCodeFromForm(source);
+  expect(code).toContain('mf1|m|');
+  expect(formFromFigureCode(code)).toMatchObject(source);
+});
+
+it('preserves a backpack through code import and actual rig export', () => {
+  const form = formFromFigureCode('mf1|m|bk=2524:4|n=Explorer');
+  expect(form.backPart).toBe('2524');
+  expect(specFromForm(form).cape).toEqual({ part: '2524', color: 4 });
+  expect(figureCodeFromForm(form)).toContain('bk=2524:4');
+});
+
+it('rejects unsupported limb moulds instead of silently substituting defaults', () => {
+  expect(() => formFromFigureCode('mf1|m|le=99999:4|n=Figure')).toThrow('supports 3816');
 });

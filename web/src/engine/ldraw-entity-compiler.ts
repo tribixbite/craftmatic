@@ -498,6 +498,14 @@ export interface CompileLdrawEntityOptions {
    * shell inside its own colliders was lit as light 0). See `originLiftBlocks`.
    */
   originAboveModel?: boolean;
+  /**
+   * Fixed entity origin in the input LDraw frame.  Library slots use one
+   * shared figure origin so independently compiled head/torso/leg geometry
+   * remains assembled when render controllers select them together.
+   */
+  originLdu?: Vec3;
+  /** Keep LDraw inherited colour 16 symbolic instead of resolving it to the placement colour. */
+  inheritMaterialId?: boolean;
 }
 
 // ─── Internal geometry records ────────────────────────────────────────────────
@@ -1552,7 +1560,8 @@ export async function compileLdrawEntityGeometry(
       pp.placements++;
       perPart.set(proto.partId, pp);
       for (const c of proto.cuboids as PartCuboid[]) {
-        const cubeMaterial = c.color === 16 ? material : resolveLdrawEntityMaterial(c.color);
+        const cubeMaterial = c.color === 16 && options.inheritMaterialId ? resolveLdrawEntityMaterial(16)
+          : c.color === 16 ? material : resolveLdrawEntityMaterial(c.color);
         // World LDraw box (for stud exposure): exact for aligned parts, the OBB's AABB otherwise.
         const world = aabbOfCorners(cornersOf(c.min, c.max).map(v => { const r = apply(R, v); return [r[0] + t[0], r[1] + t[1], r[2] + t[2]] as Vec3; }));
         worldBoxes.push({ ...world, brick: brickIndex });
@@ -1708,7 +1717,8 @@ export async function compileLdrawEntityGeometry(
 
   // 6. Recentre: true geometric bounds in the render frame (floor at y = 0).
   const all = renderCuboids.length ? aabbOfCorners(renderCuboids.flatMap(c => [c.min, c.max])) : { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
-  const midX = (all.min[0] + all.max[0]) / 2, midZ = (all.min[2] + all.max[2]) / 2, floorY = all.min[1];
+  const automaticOrigin: Vec3 = [(all.min[0] + all.max[0]) / 2, all.min[1], (all.min[2] + all.max[2]) / 2];
+  const [midX, floorY, midZ] = options.originLdu ? apply(A, options.originLdu) : automaticOrigin;
   const totalWidth = (all.max[0] - all.min[0]) * scale / 16;
   const totalHeight = (all.max[1] - all.min[1]) * scale / 16;
   // An entity is lit by the block at its own position. A building shell's

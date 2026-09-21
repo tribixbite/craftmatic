@@ -301,7 +301,7 @@ export async function runSchemPipeline(
     const { buildPlayableAddon } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
-    const { discoverSceneActors, applySceneDoors, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
+    const { discoverSceneActors, applySceneDoors, runtimeDoorCandidates, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
@@ -309,7 +309,10 @@ export async function runSchemPipeline(
     const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }> = [];
     const seats: Array<{ x: number; y: number; z: number; yaw: number; label: string }> = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
+    let interactionNote: string | undefined;
+    let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
+    const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
     if (input.source.kind === 'bricks') {
       const source = input.source;
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
@@ -336,7 +339,26 @@ export async function runSchemPipeline(
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
           }
           sceneDoors = scene.doors;
-          for (const b of scene.doorBricks) doorLeaves.add(b);
+          runtimeDoors = runtimeDoorCandidates(sceneDoors, frame);
+          if (sceneDoors.length && !runtimeDoors.length) {
+            interactionNote = 'A measured source door leaf remains under the two-block vanilla clearance even at 400%, so the wand will not claim a usable door.';
+            warnings.push(`Interactive doors: ${interactionNote}`);
+          }
+          // A leaf usable at 100% is represented by the vanilla door in the
+          // structure. A smaller but runtime-usable leaf must be partitioned
+          // out of the monolithic shell so its exact geometry can disappear
+          // at the same size where the vanilla permutation takes over.
+          for (const d of scene.doors) {
+            const candidate = runtimeDoorCandidates([d], frame)[0];
+            if (!candidate || !d.brick) continue;
+            const doorCandidateIndex = runtimeDoors.findIndex(runtime => runtime.requiredSize === candidate.requiredSize && Math.abs(runtime.x - candidate.x) < 1e-6 && runtime.y === candidate.y && Math.abs(runtime.z - candidate.z) < 1e-6);
+            if (doorCandidateIndex < 0) continue;
+            doorLeaves.add(d.brick);
+            // Even a 100%-usable leaf needs its source geometry at the smaller
+            // 25/50/75% wand steps, where the structure is replaced by scaled
+            // colliders and a vanilla two-block door no longer fits.
+            leafActors.push({ bricks: [d.brick], frame, maxSizeExclusive: candidate.requiredSize, doorCandidateIndex, hideAt100: false, door: d });
+          }
         }
       }
       // Brick-accurate building: every placement that is not a vehicle, a
@@ -373,7 +395,9 @@ export async function runSchemPipeline(
       }
       if (sceneDoors.length && sourceOrigin) {
         onProgress('cutting doorways and hanging doors');
-        const d = applySceneDoors(grid, sceneDoors, sourceOrigin);
+        const hungDoors = new Set<import('./bedrock-scene-actors.js').SceneDoor>();
+        const d = applySceneDoors(grid, sceneDoors, sourceOrigin, hungDoors);
+        for (const leaf of leafActors) leaf.hideAt100 = hungDoors.has(leaf.door);
         if (d.doors) warnings.push(`${d.doors} door${d.doors === 1 ? '' : 's'} hung in ${sceneDoors.length - d.skippedSmall - d.skippedOutside} doorway${sceneDoors.length - d.skippedSmall - d.skippedOutside === 1 ? '' : 's'} (leaf cells opened: ${d.leavesCleared}, passage cells opened: ${d.passageCleared}${d.unreachable ? `, ${d.unreachable} with no room within three blocks` : ''}).`);
         if (d.skippedSmall) warnings.push(`${d.skippedSmall} door leaf${d.skippedSmall === 1 ? '' : 'ves'} under two blocks tall left as blocks.`);
         if (d.skippedOutside) warnings.push(`${d.skippedOutside} door leaf${d.skippedOutside === 1 ? '' : 'ves'} fell outside the export bounds.`);
@@ -386,7 +410,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

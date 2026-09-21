@@ -6,8 +6,25 @@ using only the three `@minecraft/server-ui` form types. Companion to the
 [Bedrock add-on guide](bedrock-addon-guide.md) and the tracker
 `TASKS-BEDROCK-ADDON.md`; the browser-side builder it extends is
 `web/src/ui/minifig-builder.ts` (`minifigFromSpec`, `engine/minifig-rig.ts`).
-Status: **architecture only — nothing here is implemented.** A typed skeleton
-of the shared contract compiles at `web/src/engine/minifig-creator-types.ts`.
+Status: **pre-device implementation.** The typed contract, strict portable figure
+code codec (`web/src/engine/minifig-creator.ts`), a conservative measured
+minifig starter catalogue, browser-builder export, pack emission, and generated
+Bedrock runtime exist. Mini-dolls remain intentionally unsupported: only their joint
+distances are measured, not their canonical placement vectors.
+
+Current material limitation: creator controllers use `entity_alphablend` for
+their slot-tinted swatches; per-colour opaque/transparent/PBR material routing
+remains a device-validation follow-up. Busy prints over six fixed layers are
+rejected with an exporter diagnostic.
+
+The implementation currently offers paged slots/colours, naming and portable
+codes, saved figures, aimed placement/copies, and editing owned NPCs. The larger
+library tiers, group/search filters, presets and behaviour-choice screens below
+are target architecture, not shipped features. Browser codes preserve backpacks
+as well as capes; unsupported custom limb moulds are rejected rather than
+silently replaced. Reload recovery preserves a placed NPC interrupted during
+editing, while disposable previews are cleaned up. The normal grant function
+gives both wands; `MINIFIG-CREATOR.txt` in the pack names the creator-only alias.
 
 Every claim below is tagged **[V]** (verified against code, the 2.9.0 / 2.1.0
 typings, or Microsoft's docs — sources in §9) or **[A]** (assumed; needs a
@@ -454,7 +471,9 @@ Every step names its files; tests are vitest under `test/` and run with
 `bun run test`. Gates after each step: `bun run typecheck`, `bun run
 typecheck:web`, `bun run test`; a device round after steps 4 and 6.
 
-1. **Contract** — `web/src/engine/minifig-creator-types.ts` (skeleton
+1. **Contract** — `web/src/engine/minifig-creator-types.ts` (implemented;
+   `minifig-creator.ts` also owns strict code encode/decode and the starter
+   catalogue; `test/minifig-creator.test.ts` covers both) (skeleton
    committed with this doc): `CreatorSlot`, `CREATOR_SLOTS`, property names
    (`slotProperty`, `colourProperty`, `FAMILY_PROPERTY`, `DRAFT_PROPERTY`),
    `MinifigLibrarySpec`, `MinifigLibraryEntry`, `CompiledMinifigLibrary`,

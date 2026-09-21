@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, sceneGridPoint, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, recommendDoorExportScale, runtimeDoorCandidates, sceneGridPoint, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -121,7 +121,7 @@ describe('applySceneDoors', () => {
     for (let z = 0; z < 6; z++) for (let y = 0; y < 6; y++) grid.set(2, y, z, 'minecraft:stone');
     const x = 2 * LDU_PER_BLOCK + 20;
     // Hinge at the max-Z end: seen from the east (facing east, viewer looks west), the viewer's left is south (+Z) → hinge left.
-    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [x - 3, -120, 2 * LDU_PER_BLOCK + 5], maxLdu: [x + 3, 0, 2 * LDU_PER_BLOCK + 45], alongAxis: 'z', hingeAtMin: false }], frame);
+    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [x - 3, -120, 2 * LDU_PER_BLOCK + 5], maxLdu: [x + 3, 0, 2 * LDU_PER_BLOCK + 65], alongAxis: 'z', hingeAtMin: false }], frame);
     expect(stats.doors).toBe(1);
     expect(grid.get(2, 0, 2)).toBe('minecraft:birch_door[facing=east,half=lower,hinge=left,open=false,powered=false]');
     expect(grid.get(2, 1, 2)).toBe('minecraft:birch_door[facing=east,half=upper,hinge=left,open=false,powered=false]');
@@ -138,6 +138,17 @@ describe('applySceneDoors', () => {
     expect(grid.get(1, 0, 2)).toMatch(/^minecraft:spruce_door\[facing=south,half=lower,hinge=left/);
     expect(grid.get(2, 0, 2)).toMatch(/^minecraft:spruce_door\[facing=south,half=lower,hinge=right/);
     expect(grid.get(3, 0, 2)).toBe('minecraft:stone');
+  });
+  it('does not duplicate a doorway when an imported source contains overlapping leaves', () => {
+    const grid = new BlockGrid(6, 6, 6);
+    wallOf(grid);
+    const z = 2 * LDU_PER_BLOCK + 20;
+    const leaf = { part: 'd', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, -144, z - 3] as [number, number, number], maxLdu: [LDU_PER_BLOCK + 80, 0, z + 3] as [number, number, number], alongAxis: 'x' as const, hingeAtMin: true };
+    const stats = applySceneDoors(grid, [leaf, { ...leaf, color: 15 }], frame);
+    expect(stats.doors).toBe(2);
+    // The first physical leaf owns the opening; a duplicate must not overwrite its material.
+    expect(grid.get(1, 0, 2)).toMatch(/^minecraft:spruce_door/);
+    expect(grid.get(2, 0, 2)).toMatch(/^minecraft:spruce_door/);
   });
   it('steps a leaf that reads one cell above the floor down onto it, and opens both cells of a wall the frame straddles', () => {
     const grid = new BlockGrid(6, 6, 6);
@@ -206,5 +217,43 @@ describe('applySceneDoors', () => {
     const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [LDU_PER_BLOCK, -24, LDU_PER_BLOCK], maxLdu: [LDU_PER_BLOCK + 40, 0, LDU_PER_BLOCK + 6], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(stats.skippedSmall).toBe(1);
     expect(grid.get(1, 0, 1)).toBe('minecraft:stone');
+  });
+  it('leaves a tall leaf under one physical block wide alone even when it straddles cells', () => {
+    const grid = new BlockGrid(4, 4, 4);
+    grid.set(1, 0, 1, 'minecraft:stone');
+    const leaf = { part: 'd', description: 'Door', color: 15, minLdu: [0.8 * LDU_PER_BLOCK, -144, LDU_PER_BLOCK] as [number, number, number], maxLdu: [1.6 * LDU_PER_BLOCK, 0, LDU_PER_BLOCK + 6] as [number, number, number], alongAxis: 'x' as const, hingeAtMin: true };
+    const hung = new Set<typeof leaf>();
+    const stats = applySceneDoors(grid, [leaf], frame, hung);
+    expect(stats).toMatchObject({ doors: 0, skippedSmall: 1 });
+    expect(hung.has(leaf)).toBe(false);
+    expect(grid.get(1, 0, 1)).toBe('minecraft:stone');
+  });
+});
+
+describe('recommendDoorExportScale', () => {
+  const door = (height: number) => ({ part: 'd', description: 'Door', color: 6, minLdu: [0, -height, 0] as [number, number, number], maxLdu: [80, 0, 6] as [number, number, number], alongAxis: 'x' as const, hingeAtMin: true });
+
+  it('measures a small semantic leaf against the player/vanilla two-block clearance and rounds up to an export step', () => {
+    const recommendation = recommendDoorExportScale([door(48)]);
+    expect(recommendation).toMatchObject({ shortestLeafLdu: 48, recommendedScale: 3 });
+    expect(recommendation!.requiredScale).toBeGreaterThan(2);
+    expect(recommendation!.note).toMatch(/Brick Wand sizes can otherwise swap exact semantic leaf geometry/);
+  });
+
+  it('abstains rather than pretending a door works when the required export scale exceeds 4×', () => {
+    const recommendation = recommendDoorExportScale([door(20)]);
+    expect(recommendation?.recommendedScale).toBeUndefined();
+    expect(recommendation?.note).toMatch(/No usable door is claimed/);
+  });
+
+  it('has no recommendation when the source has no semantic door leaf', () => {
+    expect(recommendDoorExportScale([])).toBeNull();
+  });
+
+  it('retains a small real leaf for a 300% wand door rather than dropping it at 100%', () => {
+    const candidates = runtimeDoorCandidates([door(48)], { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK });
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ requiredSize: 300 });
+    expect(candidates[0]!.lower).toMatchObject({ id: 'minecraft:spruce_door', states: { upper_block_bit: false, direction: 0 } });
   });
 });

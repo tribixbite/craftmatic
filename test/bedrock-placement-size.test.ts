@@ -140,6 +140,92 @@ describe('wand runtime: size, aim and turning', () => {
     expect(fig.entity.setRotation).toHaveBeenCalledWith({ x: 0, y: 45 });
   });
 
+  it('shows the exact leaf at 100%, swaps to a measured door at 300%, then restores the leaf at 100%', async () => {
+    const g = new BlockGrid(4, 3, 2);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 2; z++) for (let y = 0; y < 3; y++) g.set(x, y, z, 'craftmatic:collider[lo=0,hi=16]');
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const h = host({ stem: 'runtime-door', label: 'Runtime door', width: 4, height: 3, length: 2, tiles: [tile],
+      actors: [{ typeId: 'craftmatic:runtime_door_leaf_1', label: 'Runtime door leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false }],
+      colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      runtimeDoorCandidates: [{ x: 1, y: 0, z: 1, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }], settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ selection: 1 }, { canceled: true });
+    expect(h.buttons.at(-1)).toContain('Use next door size 300%');
+    await h.open({ selection: 5 }, { selection: 0 });
+    await h.flush(2000);
+    const baseLeaf = h.spawned.find(s => s.typeId === 'craftmatic:runtime_door_leaf_1')!;
+    expect(baseLeaf.at).toEqual({ x: 101, y: 66, z: 201 });
+    expect(h.set.filter(s => s.states?.upper_block_bit !== undefined)).toHaveLength(0);
+    await h.open({ selection: 3 }, { canceled: true }); // 90°: direction must turn with the model.
+    for (let i = 0; i < 3; i++) await h.open({ selection: 10 }, { canceled: true }); // 100 → 300
+    await h.open({ selection: 11 });
+    h.blocks.set('103,63,203', { typeId: 'minecraft:stone', isAir: false, permutation: { getState: () => undefined }, setPermutation() {} });
+    await h.open({ selection: 5 }, { selection: 0 });
+    await h.flush(2000);
+    expect(h.spawned.filter(s => s.typeId === 'craftmatic:runtime_door_leaf_1')).toHaveLength(1);
+    expect(baseLeaf.entity.remove).toHaveBeenCalledOnce();
+    expect(h.set.filter(s => s.states?.upper_block_bit === false)).toHaveLength(1);
+    expect(h.set.filter(s => s.states?.upper_block_bit === true)).toHaveLength(1);
+    expect(h.set.find(s => s.states?.upper_block_bit === false)?.states.direction).toBe(1);
+    // cycle 300 → 400 → 25 → 50 → 75 → 100 and place once more; the
+    // original-size candidate must still be hung exactly once, not duplicated.
+    for (let i = 0; i < 5; i++) await h.open({ selection: 10 }, { canceled: true });
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100%'))).toBe(true);
+    await h.open({ selection: 5 }, { selection: 0 });
+    await h.flush(2000);
+    // At 100% this genuinely short source leaf is again below the two-block
+    // clearance, so it does not leave a second, stale vanilla door behind.
+    expect(h.set.filter(s => s.states?.upper_block_bit === false)).toHaveLength(1);
+    const restoredLeaf = h.spawned.filter(s => s.typeId === 'craftmatic:runtime_door_leaf_1').at(-1)!;
+    expect(restoredLeaf).not.toBe(baseLeaf);
+    expect(restoredLeaf.at).toEqual({ x: 101, y: 66, z: 201 });
+    expect(restoredLeaf.entity.events).toEqual([]);
+  });
+
+  it('chooses the smallest pending door threshold and refuses an unsupported resized opening', async () => {
+    const g = new BlockGrid(3, 3, 3);
+    for (let x = 0; x < 3; x++) for (let z = 0; z < 3; z++) for (let y = 0; y < 3; y++) g.set(x, y, z, 'craftmatic:collider[lo=0,hi=16]');
+    const runs = encodeColliderRuns(g, 'craftmatic:collider');
+    const door = (requiredSize: number) => ({ x: 1, y: 0, z: 1, requiredSize, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } });
+    const h = host({ stem: 'door-order', label: 'Door order', width: 3, height: 3, length: 3, tiles: [tile],
+      actors: [{ typeId: 'craftmatic:door_order_leaf', label: 'Fallback leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 150, doorCandidateIndex: 1, hideAt100: false }],
+      colliders: { width: 3, height: 3, length: 3, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
+      runtimeDoorCandidates: [door(300), door(150)], settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ selection: 1 }, { canceled: true });
+    expect(h.buttons.at(-1)).toContain('Use next door size 150%');
+    await h.open({ selection: 11 });
+    await h.open({ selection: 5 }, { selection: 0 });
+    await h.flush(1000);
+    expect(h.set.some(s => s.states?.upper_block_bit !== undefined)).toBe(false);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('no solid support exists below the resized opening'));
+    const fallback = h.spawned.find(s => s.typeId === 'craftmatic:door_order_leaf')!;
+    expect(fallback.entity.events).toEqual(['craftmatic:size_150']);
+  });
+
+  it('persists one explicit marked chair anchor, follows a 400% quarter turn, and removes it through the management action', async () => {
+    const chairGrid = new BlockGrid(4, 3, 2), chairRuns = encodeColliderRuns(chairGrid, 'craftmatic:collider');
+    const h = host({ stem: 'marked-chair', label: 'Marked chair', width: 4, height: 3, length: 2, tiles: [tile],
+      colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: chairRuns.runs, keptCells: 0 },
+      manualSeatTypeId: 'craftmatic:marked_chair_manual_seat', settleTicks: 1, finalHoldTicks: 1 });
+    await h.open({ selection: 1 }, { canceled: true });
+    h.player.location = { x: 101, y: 65, z: 201 };
+    await h.open({ selection: 11 });
+    expect([...h.playerProperties.values()].join('')).toContain('anchors');
+    await h.open({ selection: 3 }, { canceled: true }); // 90°
+    for (let i = 0; i < 4; i++) await h.open({ selection: 10 }, { canceled: true }); // 100 → 400
+    await h.open({ selection: 5 }, { selection: 0 });
+    await h.flush(1000);
+    const seat = h.spawned.find(s => s.typeId === 'craftmatic:marked_chair_manual_seat')!;
+    expect(seat.at).toEqual({ x: 104, y: 68, z: 204 });
+    expect(seat.entity.events).toEqual(['craftmatic:size_400']);
+    // The same model-local anchor is rejected, then Manage removes both the
+    // persisted anchor and its live entity rather than leaving a stale seat.
+    h.player.location = { x: 104, y: 68, z: 204 };
+    await h.open({ selection: 11 });
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('already marked'));
+    await h.open({ selection: 12 }, { selection: 0 }, { canceled: true });
+    expect([...h.playerProperties.values()].join('')).not.toContain('"x"');
+  });
+
   it('lifts a figure spawned inside a full collider cell to the first clear cell, and says so when the aim finds no block', async () => {
     const g = new BlockGrid(2, 3, 2);
     for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) { g.set(x, 0, z, 'craftmatic:collider[lo=0,hi=16]'); g.set(x, 1, z, 'craftmatic:collider[lo=0,hi=16]'); }

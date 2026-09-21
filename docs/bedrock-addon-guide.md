@@ -510,8 +510,21 @@ round settles them.
   geometry bounds 7×5 vs 14×9 at 1×, collision 2.8×1.8 vs 3.5×2.5, seat 0.3 vs 2.84
   high, same 6,113 cuboids (the part grain stays in LDU). LEGO Icons car names
   (`mini cooper|aston martin|land rover|defender|volkswagen|caterham|ecto-1`) were
-  added to `CAR_WORDS` so their sets read as vehicles. Below ¾× a door leaf never
-  spans two cells, so no doors hang (the popover says so).
+  added to `CAR_WORDS` so their sets read as vehicles. A genuine LDraw door leaf is
+  measured in the exported grid for both a one-block width and two-block headroom.
+  If a supported wand step (100–400%) reaches both, the Brick Wand offers that exact
+  “Use door size …%” action and lays a rotated Bedrock door permutation after the
+  resized colliders; it does not claim a door above 400%. A leaf whose threshold is
+  at any supported threshold is partitioned by exact `SceneDoor.brick` identity out of the monolithic
+  shell and compiled as a separate static leaf actor on the same source/grid frame.
+  `PlacementActor.maxSizeExclusive` keeps that authentic leaf below its measured
+  threshold and hides it above only when the vanilla replacement was installed;
+  failed support/clearance checks keep the authentic leaf visible and report the
+  reason instead of leaving a hole. At 100% the actor hides only when `applySceneDoors`
+  recorded that exact source door as hung. Re-placing at 100% restores the leaf,
+  while the normal placement history removes the prior actor on resize and Undo.
+  Leaves that still cannot meet both dimensions at 400% remain part of the shell and
+  are not falsely advertised as interactive.
 - **Aircraft descend**: vanilla's only vertical input is Jump = climb; the Happy Ghast
   descends by LOOKING down, and under the script chase camera (which sets a
   `minecraft:free` camera every tick) that pitch was reported not to reach the entity.
@@ -535,9 +548,15 @@ round settles them.
     `[valueChar][countChar]` pairs, chalet ≈ a few KB) and the script re-lays it at the
     new size in ≤48-block boxes (backup → clear → `setPermutation` of
     `craftmatic:collider[lo,hi]`, sixteenths re-cut per world row, a block two cells
-    share keeps min lo / max hi, 400 blocks per tick), leaving doors/lights out; a
+    share keeps min lo / max hi, 400 blocks per tick), leaving doors/lights out except
+    measured semantic door leaves that are re-hung with Bedrock `BlockPermutation`
+    states at their offered size; a
     coloured-block export refuses a resized place with a message (entities-only sizing
-    is still offered). Undo restores the boxes.
+    is still offered). Undo restores the boxes. Brick-built furniture is intentionally
+    not guessed from arbitrary geometry: packs offer **Add seat here** only when the
+    player marks a chair surface at their feet. Up to 12 model-local anchors are
+    deduplicated, persisted per player across script reloads, rotated/scaled with the
+    placement, and removable via **Manage marked seats**.
   - *Fine turn*: a pack with no tiles (a vehicle, a figure) rotates in 15° steps both
     ways (`pointAt` turns about the footprint centre; `size()` is the turned bounding
     box); block packs keep 90°. DeLorean controls stay the LAST button.
@@ -1586,3 +1605,18 @@ cell and the units-per-LDU together, so `modelScale × f` still multiplies a
 zero. Guarded by `test/bedrock-placement-grounding.test.ts` (6 tests through
 the serialized runtime; 3 fail on the pre-fix code, 3 pin the halves that were
 already right).
+
+### 21060 access measurement (2026-09-21, offline only)
+
+The selected `DbixConvV3/21060.ldr` has no recognized semantic door leaves.
+At export scale 4× its collider archive contains 30,084 occupied cells in a
+108×40×55 footprint. The corrected supported-two-high-cell traversal reaches
+1,768 cells from the exterior, including the raised front approach at
+`y=5,z=3,x=34…63` and further terraces. Evidence and reproducible reader:
+`output/pipeline-2026-09-21/21060-access/{analyze.ts,result.json}`.
+An earlier palette-decoding error counted every grid cell as solid; discard
+that result. This proves a stepped approach exists, not that an interior door
+works. Do not advertise “400% working doors” for this source until an actual
+opening and interactive-door placement are verified in game. The current
+semantic-door recommendation correctly abstains; explicit marked seats still
+work independently of door recognition.

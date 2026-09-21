@@ -5,6 +5,7 @@ import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -25,6 +26,37 @@ const pngAlphas = (bytes: ArrayBuffer | Uint8Array): number[] => {
 };
 
 describe('playable Bedrock add-on',()=>{
+  it('emits a standalone minifig creator entity, property-driven controller, wand and runtime', async () => {
+    const provider = { getPartMesh: async (part: string) => ({ partId: part, resolvedAs: part, description: part === '973' ? 'Minifig Torso' : 'Minifig Head', triangles: [{ a: [0, 0, 0], b: [20, 0, 0], c: [0, 24, 0], color: 16 }], studs: [], bounds: { min: [0, 0, 0], max: [20, 24, 4] }, unresolvedRefs: [] }), report: () => ({ unresolved: [], printFallbacks: [], substitutions: [] }) };
+    const library = minifigCreatorLibrary('starter');
+    // Keep this archive-level acceptance fixture fast and independent of the external corpus.
+    library.slots.minifig = { torso: [{ part: '973', label: 'Torso', group: 'Core' }], head: [{ part: '3626c', label: 'Head', group: 'Core' }] };
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Creator', minifigCreator: library, partGeometry: provider });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_creator_BP/entities/creator_minifig.json');
+    expect(entries).toContain('Craftmatic_creator_BP/scripts/minifig-wand.js');
+    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/entities/creator_minifig.json')));
+    expect(entity['minecraft:entity'].description.properties['craftmatic:torso'].client_sync).toBe(true);
+    const controller = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_RP/render_controllers/creator_minifig.render_controllers.json'));
+    expect(controller).toContain("q.property('craftmatic:torso')");
+    expect(controller).toContain('Array.swatch');
+    const grantPath = `Craftmatic_creator_BP/functions/${result.functionCommand.replace('/function ', '')}.mcfunction`;
+    const grant = new TextDecoder().decode(await extractFile(buffer, grantPath));
+    expect(grant).toContain('give @s craftmatic:creator_brick_wand');
+    expect(grant).toContain('give @s craftmatic:creator_minifig_wand');
+    expect(entries).toContain('Craftmatic_creator_BP/MINIFIG-CREATOR.txt');
+    expect(entries).toContain('Craftmatic_creator_RP/texts/en_US.lang');
+  });
+
+  it('reserves optional creator slot index zero for a full-rig None geometry', async () => {
+    const provider = { getPartMesh: async (part: string) => ({ partId: part, resolvedAs: part, description: 'Minifig Hair', triangles: [{ a: [0, 0, 0], b: [20, 0, 0], c: [0, 24, 0], color: 16 }], studs: [], bounds: { min: [0, 0, 0], max: [20, 24, 4] }, unresolvedRefs: [] }), report: () => ({ unresolved: [], printFallbacks: [], substitutions: [] }) };
+    const library = minifigCreatorLibrary('starter'); library.slots.minifig = { hair: [{ part: '3901', label: 'Hair', group: 'Hair' }] };
+    const pack = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'NoneCreator', minifigCreator: library, partGeometry: provider });
+    const zip = ab(pack.bytes), entity = JSON.parse(new TextDecoder().decode(await extractFile(zip, 'Craftmatic_nonecreator_BP/entities/nonecreator_minifig.json')));
+    expect(entity['minecraft:entity'].description.properties['craftmatic:hair'].range).toEqual([0, 1]);
+    const empty = JSON.parse(new TextDecoder().decode(await extractFile(zip, 'Craftmatic_nonecreator_RP/models/entity/nonecreator_mf_empty.geo.json')));
+    expect(empty['minecraft:geometry'][0].bones.map((b: { name: string }) => b.name)).toContain('hand_left');
+  });
   it('moves the selected whole model without leaving a stationary duplicate', async () => {
     const result = await buildPlayableAddon(model(), { stem: 'Roadster', vehicleMode: 'car' });
     const entries = listZipEntries(ab(result.bytes));

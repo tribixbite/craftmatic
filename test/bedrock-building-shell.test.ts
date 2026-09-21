@@ -80,6 +80,7 @@ const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: nu
 const LIBRARY: Record<string, string> = {
   '3001': ['0 Brick 2 x 4', ...box6(-40, 40, -24, 0, -20, 20)].join('\n'),
   '3005': ['0 Brick 1 x 1', ...box6(-10, 10, -24, 0, -10, 10)].join('\n'),
+  'door': ['0 Door 1 x 2 x 2', ...box6(-10, 10, -48, 0, -3, 3)].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -150,5 +151,28 @@ describe('the building shell', () => {
     expect(Math.max(...tops)).toBeLessThan(0);
     expect(Math.min(...geo['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes.map(c => c.origin[1]!))))).toBeCloseTo(-32, 5);
     expect(geo['minecraft:geometry'][0]!.description.visible_bounds_offset[1]).toBeLessThan(0);
+  });
+
+  it('archives an undersized leaf as separate exact geometry at its source-frame origin', async () => {
+    const grid = new BlockGrid(5, 4, 5);
+    grid.set(2, 0, 2, 'minecraft:red_concrete');
+    const shellBrick: ParsedBrick = { part: '3001.dat', color: 4, x: 2 * C, y: 0, z: 2 * C, rot: I };
+    // This non-zero archive placement freezes the source-origin mapping: the
+    // leaf floor is one cell up at x=2,z=3 before its open-sky light lift.
+    const leaf: ParsedBrick = { part: 'door.dat', color: 6, x: 2 * C, y: -C, z: 3 * C, rot: I };
+    const pack = await buildPlayableAddon(grid, {
+      stem: 'micro-door', label: 'Micro door', partGeometry: provider(), pbr: false,
+      shell: { bricks: [shellBrick], frame },
+      leafActors: [{ bricks: [leaf], frame, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false }],
+    });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_micro_door_BP/entities/micro_door_door_leaf_1.json');
+    expect(entries).toContain('Craftmatic_micro_door_RP/models/entity/micro_door_door_leaf_1.geo.json');
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_micro_door_BP/scripts/placement.js'));
+    const actor = JSON.parse(/\{"typeId":"craftmatic:micro_door_door_leaf_1"[^}]*\}/.exec(placement)![0]);
+    expect(actor).toMatchObject({ x: 2, y: 3, yaw: 0, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false });
+    expect(actor.z).toBeCloseTo(3, 8);
+    expect(pack.components.find(c => c.id === 'micro_door_door_leaf_1')?.provenance).toContain('exact source door placement');
   });
 });

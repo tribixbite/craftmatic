@@ -13,6 +13,12 @@ export interface PlacementActor {
   label: string;
   x: number; y: number; z: number;
   yaw?: number;
+  /** Spawn only while the selected wand size is below this percentage. */
+  maxSizeExclusive?: number;
+  /** Runtime-door candidate whose successful installation may replace this actor. */
+  doorCandidateIndex?: number;
+  /** The 100% structure already contains the measured vanilla replacement. */
+  hideAt100?: boolean;
   /** Index of another actor this one rides once both are spawned (a figure found sitting on a seat). */
   rideOf?: number;
 }
@@ -52,6 +58,12 @@ export interface PlacementPackSpec {
   preview?: { typeId: string };
   /** The collider grid behind the structure tiles, for placement at another size. Absent: the blocks are fixed at 100 %. */
   colliders?: PlacementColliders;
+  /** Existing invisible-seat entity type, enabling an explicit user-marked brick chair. */
+  manualSeatTypeId?: string;
+  /** Semantic LDraw leaves preserved for a usable vanilla door after resizing. */
+  runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
+  /** A measured, export-time interaction warning shown in the Brick Wand. */
+  interactionNote?: string;
   /**
    * Ticks each tile's ticking area stays alive after its `structure load`, and
    * ticks the last area is held after the final piece. A ticking area removed
@@ -330,9 +342,16 @@ const text = (value: string) => enc.encode(value.endsWith('\n') ? value : `${val
 // its toString() output is a valid Bedrock script module after TS transpilation.
 function placementRuntime(config: any, openVehicleControls?: (player: any) => Promise<void>) {
   const states = new Map(), previews = new Set(), histories = new Map(), held = new Set(), showing = new Set();
+  // Dynamic properties survive a behavior-pack script reload. Keep this small:
+  // marked chairs are explicit user intent, never inferred furniture candidates.
+  const seatStoreKey = `craftmatic:${config.id}:manual_seats`, manualSeatCap = 12;
   let active: any;
   const rotations = [0, 90, 180, 270];
   const sizes: number[] = config.sizes && config.sizes.length ? config.sizes : [100];
+  const nextDoorSize = (size: number): number | undefined => {
+    const pending = (config.runtimeDoorCandidates || []).map((d: any) => d.requiredSize).filter((required: number) => required > size);
+    return pending.length ? Math.min(...pending) : undefined;
+  };
   const sizeEvent = (pct: number) => `${config.sizeEventPrefix || 'craftmatic:size_'}${pct}`;
   // A pack with no block structure (a vehicle, a figure) may turn in 15° steps; blocks turn by 90°.
   const fineTurn = config.tiles.length === 0;
@@ -389,8 +408,27 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       await wait(2);
     }
   };
+  const readManualSeats = (p: any) => {
+    try {
+      const saved = JSON.parse(String(p.getDynamicProperty?.(seatStoreKey) || '{}'));
+      const anchors = Array.isArray(saved.anchors) ? saved.anchors.filter((v: any) => [v.x, v.y, v.z, v.yaw].every(Number.isFinite)).slice(0, manualSeatCap) : [];
+      const entityIds = Array.isArray(saved.entityIds) ? saved.entityIds.filter((v: any) => typeof v === 'string').slice(0, manualSeatCap) : [];
+      return { anchors, entityIds };
+    } catch { return { anchors: [], entityIds: [] }; }
+  };
+  const saveManualSeats = (p: any, st: any) => {
+    try { p.setDynamicProperty?.(seatStoreKey, JSON.stringify({ anchors: (st.manualSeats || []).slice(0, manualSeatCap), entityIds: (st.manualSeatIds || []).slice(0, manualSeatCap) })); }
+    catch (e: any) { tell(p, `§eMarked seats cannot persist for this player (${e?.message || e}). They still last until this script reloads.`); }
+  };
+  const removeManualSeatEntities = (st: any) => {
+    for (const id of st.manualSeatIds || []) try { world.getEntity(id)?.remove(); } catch {}
+    st.manualSeatIds = [];
+  };
   const state = (p: any) => {
-    if (!states.has(p.id)) states.set(p.id, { anchor: undefined, dimension: undefined, rotation: 0, size: 100, aim: false });
+    if (!states.has(p.id)) {
+      const saved = readManualSeats(p);
+      states.set(p.id, { anchor: undefined, dimension: undefined, rotation: 0, size: 100, aim: false, manualSeats: saved.anchors, manualSeatIds: saved.entityIds });
+    }
     return states.get(p.id);
   };
   const factor = (s: any) => (s.size || 100) / 100;
@@ -431,6 +469,17 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   const worldPoint = (st: any, v: any) => {
     const q = pointAt(v, st.rotation), f = factor(st);
     return { x: st.anchor.x + q.x * f, y: st.anchor.y + q.y * f, z: st.anchor.z + q.z * f };
+  };
+  // Inverse of the exact quarter-turn mappings above. Building packs turn in
+  // quarter turns, so a marked chair stays on the same LEGO chair through a
+  // rotate/resize/re-place instead of becoming a world-fixed marker.
+  const modelPoint = (st: any, world: any) => {
+    const f = factor(st), q = { x: (world.x - st.anchor.x) / f, y: (world.y - st.anchor.y) / f, z: (world.z - st.anchor.z) / f };
+    const r = ((st.rotation % 360) + 360) % 360;
+    if (r === 90) return { x: q.z, y: q.y, z: config.length - q.x };
+    if (r === 180) return { x: config.width - q.x, y: q.y, z: config.length - q.z };
+    if (r === 270) return { x: config.width - q.z, y: q.y, z: q.x };
+    return q;
   };
   // The turned, sized footprint centre relative to the pin.
   const centreOffset = (st: any) => {
@@ -775,9 +824,44 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // reach every client before the area (and maybe the chunk) goes away.
         await wait(settle);
       }
+      // Structure tiles contain the 100% doors. At another size they are
+      // intentionally replaced by colliders, so re-hang only semantic leaves
+      // whose measured physical height now reaches two blocks.
+      const installedDoors = new Set<number>();
+      for (const [doorIndex, door] of (scripted ? (config.runtimeDoorCandidates || []) : []).entries()) {
+        if (st.size < door.requiredSize) continue;
+        const q = worldPoint(st, door), x = Math.floor(q.x), y = Math.floor(q.y), z = Math.floor(q.z);
+        try {
+          await load(dim, { x: x - 1, z: z - 1 }, { x: x + 1, z: z + 1 });
+          // Bedrock's legacy door direction is south=0, west=1, north=2,
+          // east=3. A quarter turn adds one; apply a real Bedrock permutation
+          // instead of emitting Java's facing/half/hinge command syntax.
+          const rotateDoor = (states: any) => typeof states.direction === 'number' ? { ...states, direction: (states.direction + st.rotation / 90) % 4 } : states;
+          if (x < bounds.from.x || x > bounds.to.x || y < bounds.from.y || y + 1 > bounds.to.y || z < bounds.from.z || z > bounds.to.z)
+            throw new Error('measured door clearance falls outside the resized placement');
+          const below = dim.getBlock({ x, y: y - 1, z }), lower = dim.getBlock({ x, y, z }), upper = dim.getBlock({ x, y: y + 1, z });
+          if (!below || !lower || !upper) throw new Error('door support or clearance cells are outside the loaded placement area');
+          if (below.isAir === true || below.typeId === 'minecraft:air') throw new Error('no solid support exists below the resized opening');
+          lower.setPermutation(BlockPermutation.resolve('minecraft:air'));
+          upper.setPermutation(BlockPermutation.resolve('minecraft:air'));
+          lower.setPermutation(BlockPermutation.resolve(door.lower.id, rotateDoor(door.lower.states)));
+          upper.setPermutation(BlockPermutation.resolve(door.upper.id, rotateDoor(door.upper.states)));
+          installedDoors.add(doorIndex);
+        } catch (e: any) { tell(p, `§eDoor could not be re-hung at ${st.size}% (${e?.message || e}).`); }
+      }
       const done0 = scripted ? 1 : config.tiles.length;
       for (let j = 0; j < config.actors.length; j++) {
         const actor = config.actors[j];
+        // A sub-scale source door leaf remains honest LEGO geometry until its
+        // measured opening can accept a two-block vanilla door. At and above
+        // that threshold runtimeDoorCandidates takes over; do not render both.
+        const doorReplaced = scripted
+          ? actor.doorCandidateIndex !== undefined && installedDoors.has(actor.doorCandidateIndex)
+          : st.size === 100 && actor.hideAt100 === true;
+        if (actor.maxSizeExclusive !== undefined && st.size >= actor.maxSizeExclusive && doorReplaced) {
+          progress(done0 + j + 1, `${actor.label} replaced by interactive blocks`);
+          continue;
+        }
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         const q = worldPoint(st, actor);
         progress(done0 + j, `spawning ${actor.label}`);
@@ -820,6 +904,31 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         }
         await wait(settle);
       }
+      // Brick-built chairs have no reliable LDraw mould signature. A player can
+      // explicitly mark the sitting surface; model-local anchors follow the
+      // normal rotation/size transform and are recorded for Undo.
+      removeManualSeatEntities(st);
+      for (const [k, seat] of (st.manualSeats || []).entries()) {
+        if (!config.manualSeatTypeId) break;
+        const q = worldPoint(st, seat);
+        try {
+          if (config.colliders) {
+            const block = dim.getBlock({ x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) });
+            if (block?.typeId === config.colliders.block) {
+              const lo = Number(block.permutation.getState(config.colliders.loState)), hi = Number(block.permutation.getState(config.colliders.hiState));
+              if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo >= 12) tell(p, `§eMarked seat ${k + 1} is inside a wall-height collider; stand on the chair surface and mark it again.`);
+            }
+          }
+          const entity = dim.spawnEntity(config.manualSeatTypeId, q);
+          entity.nameTag = `Marked seat ${k + 1}`;
+          entity.setRotation({ x: 0, y: (seat.yaw || 0) + st.rotation });
+          if (st.size !== 100) entity.triggerEvent(sizeEvent(st.size));
+          entities.push(entity.id);
+          st.manualSeatIds.push(entity.id);
+        } catch (e: any) { failedActors.push(`marked seat ${k + 1}`); tell(p, `§eMarked seat ${k + 1} could not be spawned (${e?.message || e}).`); }
+        await wait(settle);
+      }
+      saveManualSeats(p, st);
       // A figure the source seated on a chair rides that chair's seat entity (its sit pose plays while riding).
       for (let j = 0; j < config.actors.length; j++) {
         const actor = config.actors[j];
@@ -829,7 +938,12 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           if (!seat || !seat.addRider(spawned[j])) tell(p, `§e${actor.label} could not take its seat; it stands instead.`);
         } catch (e: any) { tell(p, `§e${actor.label} could not take its seat (${e && e.message ? e.message : e}).`); }
       }
-      if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
+      // Replacing a placement must retire its old actors too; otherwise every
+      // re-place duplicated figures, mould seats and user-marked brick chairs.
+      if (previous) {
+        for (const id of previous.entities) try { world.getEntity(id)?.remove(); } catch {}
+        for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
+      }
       histories.set(p.id, { dimension: dim.id, backups, entities, bounds });
       progress(total, 'done');
       await wait(hold);
@@ -855,14 +969,35 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     } catch (e: any) { tell(p, `Undo stopped: ${e.message || e}`); }
     finally { await unload(); active = undefined; }
   }
+  async function manageManualSeats(p: any, st: any) {
+    const seats = st.manualSeats || [];
+    const f = new ActionFormData().title(`${config.label} · marked seats`).body(seats.length ? 'Remove a marker if it is not on the sitting surface. Marked seats remain model-local through resize and quarter turns.' : 'No marked seats yet. Stand on a chair’s sitting surface and choose Add seat here.');
+    for (let i = 0; i < seats.length; i++) f.button(`Remove seat ${i + 1}`);
+    if (seats.length) f.button('Remove all marked seats');
+    f.button('Back');
+    const r = await show(p, f); if (r.canceled || r.selection === undefined) return;
+    if (r.selection < seats.length) seats.splice(r.selection, 1);
+    else if (seats.length && r.selection === seats.length) seats.splice(0, seats.length);
+    else return menu(p);
+    removeManualSeatEntities(st); saveManualSeats(p, st);
+    tell(p, 'Marked seat anchor removed. Re-place the build to update its seat entities.');
+    return menu(p);
+  }
   async function menu(p: any): Promise<any> {
     const st = state(p), running = active?.player === p.id;
     const nextSize = sizes[(sizes.indexOf(st.size) + 1) % sizes.length];
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
+    const interaction = config.interactionNote ? `\n\n§eInteraction scale: ${config.interactionNote}` : '';
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
     else {
       f.button('Pin centred on me').button('Pin corner at my feet').button('Edit coordinates').button(`Rotate → ${(st.rotation + turnStep) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
       f.button(st.aim ? 'Stop following my aim' : 'Follow my aim').button(`Size ${st.size}% → ${nextSize}%${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`);
+      const recommendedDoorSize = nextDoorSize(st.size);
+      if (recommendedDoorSize) f.button(`Use next door size ${recommendedDoorSize}%`);
+      if (config.manualSeatTypeId) {
+        f.button(`Add seat here (${(st.manualSeats || []).length}/${manualSeatCap})`);
+        f.button('Manage marked seats');
+      }
       if (fineTurn) f.button(`Turn back ← ${((st.rotation - turnStep) % 360 + 360) % 360}°`);
     }
     if (!running && config.vehicleControls) f.button('DeLorean controls');
@@ -897,8 +1032,26 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
       return menu(p);
     }
-    if (fineTurn && r.selection === 11) { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; if (st.anchor) previews.add(p.id); return menu(p); }
-    if (r.selection === (fineTurn ? 12 : 11) && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
+    const recommendedDoorSize = nextDoorSize(st.size);
+    if (recommendedDoorSize && r.selection === 11) { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${recommendedDoorSize}%. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }
+    const seatSelection = 11 + (recommendedDoorSize ? 1 : 0);
+    if (config.manualSeatTypeId && r.selection === seatSelection) {
+      try {
+        validate(p, st);
+        const at = modelPoint(st, p.location);
+        if (at.x < 0 || at.x > config.width || at.y < 0 || at.y > config.height || at.z < 0 || at.z > config.length) throw new Error('Stand on the chair seat inside the pinned build before marking it.');
+        if ((st.manualSeats || []).length >= manualSeatCap) throw new Error(`You can mark up to ${manualSeatCap} seats. Use Manage marked seats to remove one first.`);
+        if ((st.manualSeats || []).some((seat: any) => Math.abs(seat.x - at.x) < .25 && Math.abs(seat.y - at.y) < .25 && Math.abs(seat.z - at.z) < .25)) throw new Error('That chair surface is already marked.');
+        st.manualSeats = [...(st.manualSeats || []), { x: at.x, y: at.y, z: at.z, yaw: (p.getRotation?.().y || 0) - st.rotation }];
+        saveManualSeats(p, st);
+        return tell(p, 'Seat marked at your feet. Stand on the chair’s sitting surface; it will rotate, resize and be removed with this placement.');
+      } catch (e: any) { tell(p, e.message || String(e)); return menu(p); }
+    }
+    const manageSeatsSelection = seatSelection + 1;
+    if (config.manualSeatTypeId && r.selection === manageSeatsSelection) return manageManualSeats(p, st);
+    const afterSeat = (recommendedDoorSize ? 1 : 0) + (config.manualSeatTypeId ? 2 : 0);
+    if (fineTurn && r.selection === 11 + afterSeat) { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; if (st.anchor) previews.add(p.id); return menu(p); }
+    if (r.selection === (fineTurn ? 12 + afterSeat : 11 + afterSeat) && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
   }
   world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => menu(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
   console.warn(`BRICK_WAND_READY ${config.id}`);
@@ -909,7 +1062,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const itemId = `craftmatic:${id}_brick_wand`;
   const shortAlias = placementAlias(spec.stem);
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
-    preview: spec.preview ?? null, colliders: spec.colliders ?? null, sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
+    preview: spec.preview ?? null, colliders: spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
   const item = {

@@ -5,8 +5,8 @@
  * geometry) and the web builder (which round-trips figure codes).
  *
  * Architecture: `docs/minifig-creator-wand.md`. This module is the typed
- * skeleton that document names; it holds types and constants only — no
- * behaviour is implemented yet (see the plan in §8 of the doc).
+ * shared contract implemented by the exporter, generated runtime, and web
+ * builder (see the current validation status in the architecture doc).
  *
  * The runtime model: ONE entity type per pack whose whole look is a set of
  * client-synced integer entity properties (a part index and a colour index

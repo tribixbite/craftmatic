@@ -27,6 +27,8 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import { figureRole, groupFigures, isSeat, isTorso, cleanPartId } from './ldraw-entity-compiler.js';
 import type { BlockGrid } from '@craft/schem/types.js';
+import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
+import { toBedrockBlock } from './bedrock-blocks.js';
 
 export interface SceneFigure {
   bricks: ParsedBrick[];
@@ -54,6 +56,8 @@ export interface SceneDoor {
   part: string;
   description: string;
   color: number;
+  /** Source placement, retained so only viable leaves are removed from the shell. */
+  brick?: ParsedBrick;
   /** World AABB of the leaf, LDraw. */
   minLdu: Vec3;
   maxLdu: Vec3;
@@ -171,7 +175,7 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const centre: Vec3 = [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2];
     const frame = frames.find(f => centre[0] >= f.min[0] - 4 && centre[0] <= f.max[0] + 4 && centre[1] >= f.min[1] - 4 && centre[1] <= f.max[1] + 4 && centre[2] >= f.min[2] - 4 && centre[2] <= f.max[2] + 4);
     const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
-    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
+    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, brick: b, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
   }
   return { figures, seats, doors, figureBricks, doorBricks, meshes };
 }
@@ -219,6 +223,93 @@ export interface DoorPlacementStats {
   unreachable: number;
 }
 
+/** A measured export-scale recommendation for real, semantic LDraw door leaves. */
+export interface DoorScaleRecommendation {
+  /** The smallest leaf height found, before the model-scale multiplier. */
+  shortestLeafLdu: number;
+  /** The smallest multiplier that gives a player-height, two-block vanilla opening. */
+  requiredScale: number;
+  /** The first supported export scale at or above `requiredScale`, if any. */
+  recommendedScale?: number;
+  /** Why the wand must not promise that its runtime Size button can fix this. */
+  note: string;
+}
+
+const EXPORT_SCALE_STEPS = [1, 1.5, 2, 3, 4] as const;
+export const WAND_SIZE_STEPS = [25, 50, 75, 100, 150, 200, 300, 400] as const;
+
+/** A semantic leaf retained for the wand when it is too small at 100%. */
+export interface RuntimeDoorCandidate {
+  /** Model-local lower-door point in the exported block grid. */
+  x: number; y: number; z: number;
+  /** First supported wand factor that gives the leaf a two-block opening. */
+  requiredSize: number;
+  lower: { id: string; states: Record<string, string | number | boolean> };
+  upper: { id: string; states: Record<string, string | number | boolean> };
+}
+
+/**
+ * Retain a real leaf's measured opening for runtime resizing. This is deliberately
+ * leaf-only: an arbitrary brick gap is not enough evidence to add a door.
+ */
+export function runtimeDoorCandidates(doors: readonly SceneDoor[], frame: SceneGridFrame): RuntimeDoorCandidate[] {
+  const out: RuntimeDoorCandidate[] = [];
+  const seen = new Set<string>();
+  for (const d of doors) {
+    const a = sceneGridPoint(frame, d.minLdu), b = sceneGridPoint(frame, d.maxLdu);
+    const height = Math.abs(b[1] - a[1]);
+    const width = d.alongAxis === 'x' ? Math.abs(b[0] - a[0]) : Math.abs(b[2] - a[2]);
+    // A usable vanilla leaf needs both its two-block headroom and a full
+    // block across; height-only scaling can otherwise hang a door through a
+    // sub-block slit. The remaining leaf cell is deliberately the only block
+    // cleared: source door bricks were excluded from the collider shell.
+    const requiredSize = WAND_SIZE_STEPS.find(size => size >= 100 && height * size / 100 >= 2 && width * size / 100 >= 1);
+    if (!requiredSize) continue;
+    const x = (a[0] + b[0]) / 2, z = (a[2] + b[2]) / 2;
+    // LDraw Y is down; the lower edge maps to the smaller grid Y.
+    const y = Math.floor(Math.min(a[1], b[1]) + 0.02);
+    const key = `${x.toFixed(3)}:${y}:${z.toFixed(3)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const facing = d.alongAxis === 'x' ? 'south' : 'east';
+    const hinge = d.hingeAtMin === (d.alongAxis === 'x') ? 'left' : 'right';
+    const block = doorBlockForColor(d.color);
+    const lower = toBedrockBlock(`${block}[facing=${facing},half=lower,hinge=${hinge},open=false,powered=false]`);
+    const upper = toBedrockBlock(`${block}[facing=${facing},half=upper,hinge=${hinge},open=false,powered=false]`);
+    if (!lower || !upper) continue;
+    out.push({ x, y, z, requiredSize, lower: { id: lower.name, states: lower.states }, upper: { id: upper.name, states: upper.states } });
+  }
+  return out;
+}
+
+/**
+ * Measure whether genuine LDraw door leaves can become usable vanilla doors.
+ *
+ * A Minecraft player is 1.8 blocks high, but a vanilla door always needs a
+ * two-block opening. This recommends an export scale for doors at 100%; the
+ * separate runtime candidates measure each leaf against the exported grid
+ * and allow the wand to replace leaf actors at an eligible larger size.
+ */
+export function recommendDoorExportScale(doors: readonly SceneDoor[]): DoorScaleRecommendation | null {
+  if (!doors.length) return null;
+  const shortestLeafLdu = Math.min(...doors.map(d => Math.abs(d.maxLdu[1] - d.minLdu[1])));
+  const openingBlocks = Math.max(2, PLAYER_HEIGHT_BLOCKS);
+  const requiredScale = Math.max(...doors.map(d => Math.max(
+    openingBlocks * LDU_PER_BLOCK / Math.abs(d.maxLdu[1] - d.minLdu[1]),
+    LDU_PER_BLOCK / Math.abs(d.maxLdu[d.alongAxis === 'x' ? 0 : 2] - d.minLdu[d.alongAxis === 'x' ? 0 : 2]),
+  )));
+  const recommendedScale = EXPORT_SCALE_STEPS.find(scale => scale + 1e-9 >= requiredScale);
+  const roundedRequired = Math.ceil(requiredScale * 100) / 100;
+  if (!recommendedScale) return {
+    shortestLeafLdu, requiredScale,
+    note: `Shortest real door leaf is ${shortestLeafLdu} LDU: it needs ${roundedRequired}× minifig export scale for a ${openingBlocks}-block player opening, above the supported 4× export scale. No usable door is claimed.`,
+  };
+  return {
+    shortestLeafLdu, requiredScale, recommendedScale,
+    note: `Shortest real door leaf is ${shortestLeafLdu} LDU: export at ${recommendedScale}× minifig scale if every door must work at 100% (requires ${roundedRequired}×). Brick Wand sizes can otherwise swap exact semantic leaf geometry for vanilla doors at measured thresholds up to 400%.`,
+  };
+}
+
 /**
  * Cut each door leaf out of the block scenery and stand vanilla doors in the
  * opening. Facing is the leaf's thin axis toward the positive side; `hinge`
@@ -227,10 +318,21 @@ export interface DoorPlacementStats {
  * A leaf two or more cells wide gets one door per cell, outer hinges, so the
  * pair opens like double doors.
  */
-export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: SceneGridFrame): DoorPlacementStats {
+export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: SceneGridFrame, hungDoors?: Set<SceneDoor>): DoorPlacementStats {
   const stats: DoorPlacementStats = { doors: 0, leavesCleared: 0, skippedSmall: 0, skippedOutside: 0, passageCleared: 0, unreachable: 0 };
+  // Converted sources sometimes retain an overlapping leaf placement beside
+  // the visible one. A Bedrock door occupies one lower-cell coordinate, so
+  // placing both used to count two doors while silently overwriting the first
+  // block state (and could turn a double doorway into a duplicate single one).
+  const hungCells = new Set<string>();
   for (const d of doors) {
     const a = sceneGridPoint(frame, d.minLdu), b = sceneGridPoint(frame, d.maxLdu);
+    const physicalHeight = Math.abs(b[1] - a[1]);
+    const physicalWidth = d.alongAxis === 'x' ? Math.abs(b[0] - a[0]) : Math.abs(b[2] - a[2]);
+    // Cell straddling is not physical clearance. A narrow/tiny leaf can touch
+    // two voxel cells while remaining less than one block wide or two high;
+    // that leaf stays exact source geometry until a measured wand threshold.
+    if (physicalHeight + 1e-9 < 2 || physicalWidth + 1e-9 < 1) { stats.skippedSmall++; continue; }
     // Along the leaf and up: every cell it straddles. Across its thickness (6 LDU,
     // often astride a cell boundary): the one cell its centre line is in.
     const span = (lo: number, hi: number): [number, number] => [Math.floor(Math.min(lo, hi) + 0.02), Math.floor(Math.max(lo, hi) - 0.02)];
@@ -290,14 +392,16 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
     const [c0, c1] = acrossCells();
     const [px0, px1] = d.alongAxis === 'x' ? [x0, x1] : [c0, c1];
     const [pz0, pz1] = d.alongAxis === 'x' ? [c0, c1] : [z0, z1];
-    for (let y = y0; y <= y1; y++) for (let z = pz0; z <= pz1; z++) for (let x = px0; x <= px1; x++) { grid.set(x, y, z, 'minecraft:air'); stats.leavesCleared++; }
-    const block = doorBlockForColor(d.color);
-    // Thin axis = the one the leaf does NOT run along; the door faces its positive side.
-    const facing = d.alongAxis === 'x' ? 'south' : 'east';
     // Cells across the opening, ordered from the viewer's LEFT (facing south: west→east; facing east: south→north).
     const cells: Array<{ x: number; z: number }> = [];
     if (d.alongAxis === 'x') for (let x = x0; x <= x1; x++) cells.push({ x, z: z0 });
     else for (let z = z1; z >= z0; z--) cells.push({ x: x0, z });
+    // Do not let an overlapping duplicate leaf erase the already-hung vanilla door.
+    if (cells.every(c => hungCells.has(`${c.x},${y0},${c.z}`))) continue;
+    for (let y = y0; y <= y1; y++) for (let z = pz0; z <= pz1; z++) for (let x = px0; x <= px1; x++) { grid.set(x, y, z, 'minecraft:air'); stats.leavesCleared++; }
+    const block = doorBlockForColor(d.color);
+    // Thin axis = the one the leaf does NOT run along; the door faces its positive side.
+    const facing = d.alongAxis === 'x' ? 'south' : 'east';
     const hingeLeft = (i: number): boolean => {
       if (cells.length >= 2) return i < cells.length / 2; // double doors: outer hinges
       // Single door: the hinge end the mould marks, seen from the facing side.
@@ -318,12 +422,17 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
       for (let k = 1; k < airAt; k++) { const [x, z] = at(k); for (const y of [y0, y0 + 1]) if (cellAt(x, y, z) !== 'minecraft:air') { grid.set(x, y, z, 'minecraft:air'); stats.passageCleared++; } }
     }
     if (!reachable) stats.unreachable++;
+    const doorsBefore = stats.doors;
     cells.forEach((c, i) => {
+      const key = `${c.x},${y0},${c.z}`;
+      if (hungCells.has(key)) return;
       const hinge = hingeLeft(i) ? 'left' : 'right';
       grid.set(c.x, y0, c.z, `${block}[facing=${facing},half=lower,hinge=${hinge},open=false,powered=false]`);
       grid.set(c.x, y0 + 1, c.z, `${block}[facing=${facing},half=upper,hinge=${hinge},open=false,powered=false]`);
+      hungCells.add(key);
       stats.doors++;
     });
+    if (stats.doors > doorsBefore) hungDoors?.add(d);
   }
   return stats;
 }

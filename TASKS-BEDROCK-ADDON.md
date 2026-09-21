@@ -26,11 +26,12 @@ Current lanes (serialize staging/commits through the main agent):
   host `craftmatic.click` and imported packs over wireless ADB. Main coordinates
   the device lane; only one agent may drive the phone at a time.
 
-Current integration gates (uncommitted feature work; do not publish it yet):
+Current integration gates (offline implementation ready; device acceptance open):
 
-- `creator` owns library geometry/UI/compiler integration. Shared origin is
-  `[0,72,0]`; still verify optional None, inherited base-vs-print attribution,
-  numeric assembled poses and animations. Earlier starter packs are provisional.
+- Creator library/UI/compiler use shared origin `[0,72,0]`, explicit paired
+  moulds, optional None and fixed print layers. Actual archive coordinates,
+  base-vs-print controllers and requested paired moulds pass regression tests.
+  Runtime device acceptance remains open; earlier starter packs are provisional.
 - Root owns creator runtime integration: 13 behavior-host tests now exercise
   code colour IDs, strict atomic import, renamed saves, cross-dimension caps,
   cleanup, busy retry, hotbar opening and interrupted-edit reload recovery.
@@ -39,7 +40,11 @@ Current integration gates (uncommitted feature work; do not publish it yet):
   persisted seat anchors; actual device acceptance remains required.
 - Working ADB binary: `C:/Android/Sdk/platform-tools/adb.exe`; wireless serial
   `192.168.0.122:5555`. A missing agent PATH is not a transport failure.
-- Existing isolated Chrome CDP: `http://127.0.0.1:9227`, PID 14380; Vite 4000,
+- Phone candidate `output/bedrock-entity-qa/creator-device-final-current.mcaddon`
+  SHA256 `9ab0c64ede1ba5f3cab56889f9992ec1370addccd56c201273207ffc0de22b06`:
+  459 library cuboids, no unresolved parts; structural validator passes.
+  Later source adds grant/name/instruction metadata; rebuild before final delivery.
+- Existing isolated Chrome CDP: `http://127.0.0.1:9227`, PID 35280; Vite 4000,
   PID 33092. Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means
   still running, not an empty successful exit. Root stopped only duplicate
   probe PIDs 35880/18792; browser/server and all files were preserved.
@@ -58,6 +63,16 @@ Current integration gates (uncommitted feature work; do not publish it yet):
   `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
   20,764 entries, 8,936 verified / 11,828 defective; investigate four dropped
   stale grades and ranking changes before adoption. Live index untouched.
+- Latest integrated test run: **1,803 passed / 26 skipped**, exit 0, log
+  `output/pipeline-2026-09-21/integrated-test.log`. Root/web typechecks and web
+  build pass. Agent full runs had four external-service null failures; the
+  root rerun passed them without changing those tests. Recheck affected suites
+  after the final width-aware scale-advice correction.
+- Door leaf geometry is separate and retained until its corresponding vanilla
+  door is actually installed; support/clearance failure keeps the leaf visible.
+  Runtime host covers small→usable→small, rotation, fallback and Undo. 21060
+  has no recognized semantic leaf; its 4× terrace is reachable offline, but
+  no working interior door or 400% preset is claimed.
 
 Read next: sources guide §6b, §8b–8e, §9, §10; add-on guide's final sections.
 Evidence root: `output/corpus-improvements-2026-09-20/`.

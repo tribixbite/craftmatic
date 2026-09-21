@@ -14,6 +14,8 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
 import { minifigFromSpec, type MinifigSpec } from '@engine/minifig-rig.js';
 import { buildPlayableAddon } from '@engine/playable-addon.js';
+import { decodeFigureCode, encodeFigureCode, FigureCodeError } from '@engine/minifig-creator.js';
+import { minifigCreatorLibrary } from '@engine/minifig-creator.js';
 import { modelExportStem } from '@engine/export-name.js';
 import { downloadBytes } from '@ui/schem-export.js';
 
@@ -32,7 +34,7 @@ export interface MinifigFormValues {
   handsColor: number;
   heldRightPart: string; heldRightColor: number;
   heldLeftPart: string; heldLeftColor: number;
-  cape: boolean; capeColor: number;
+  cape: boolean; capeColor: number; backPart: string;
 }
 
 export const DEFAULT_MINIFIG_FORM: MinifigFormValues = {
@@ -43,7 +45,7 @@ export const DEFAULT_MINIFIG_FORM: MinifigFormValues = {
   legsColor: 1, hipsColor: 1, armsColor: 4, handsColor: 14,
   heldRightPart: '', heldRightColor: 71,
   heldLeftPart: '', heldLeftColor: 71,
-  cape: false, capeColor: 4,
+  cape: false, capeColor: 4, backPart: '4524',
 };
 
 /** Part suggestions offered beside the free-text part fields (id → what it is). */
@@ -97,8 +99,50 @@ export function specFromForm(f: MinifigFormValues): MinifigSpec {
   if (right) spec.heldRight = { part: right, color: f.heldRightColor };
   const left = cleanPartId(f.heldLeftPart);
   if (left) spec.heldLeft = { part: left, color: f.heldLeftColor };
-  if (f.cape) spec.cape = { color: f.capeColor };
+  if (f.cape) spec.cape = { part: cleanPartId(f.backPart) || '4524', color: f.capeColor };
   return spec;
+}
+
+/** Encode this browser form as the same portable code shown by the in-game wand. */
+export function figureCodeFromForm(f: MinifigFormValues): string {
+  return encodeFigureCode({
+    family: 'minifig', name: f.label.slice(0, 24), slots: {
+      torso: { part: cleanPartId(f.torsoPart) || '973', color: f.torsoColor },
+      head: { part: cleanPartId(f.headPart) || '3626c', color: f.headColor },
+      hair: { part: cleanPartId(f.hairPart), color: f.hairColor },
+      hips: { part: '3815', color: f.hipsColor }, legs: { part: '3816', color: f.legsColor },
+      arms: { part: '3818', color: f.armsColor }, hands: { part: '3820', color: f.handsColor },
+      held_right: { part: cleanPartId(f.heldRightPart), color: f.heldRightColor },
+      held_left: { part: cleanPartId(f.heldLeftPart), color: f.heldLeftColor },
+      back: { part: f.cape ? cleanPartId(f.backPart) || '4524' : '', color: f.capeColor },
+    },
+  });
+}
+
+/** Apply a minifig code to this form. Mini-dolls are intentionally rejected until their rig is measured. */
+export function formFromFigureCode(code: string): MinifigFormValues {
+  const figure = decodeFigureCode(code);
+  if (figure.family !== 'minifig') throw new FigureCodeError('Mini-doll codes are not supported yet: their canonical rig positions are unmeasured.');
+  const value = (slot: keyof typeof figure.slots) => figure.slots[slot];
+  const torso = value('torso'), head = value('head'), hair = value('hair'), hips = value('hips'), legs = value('legs');
+  const arms = value('arms'), hands = value('hands'), right = value('held_right'), left = value('held_left'), back = value('back');
+  // These form fields choose colours for canonical moulds, not arbitrary
+  // shapes. Refuse unsupported shapes rather than silently changing a code.
+  for (const [slot, expected] of [['hips', '3815'], ['legs', '3816'], ['arms', '3818'], ['hands', '3820']] as const) {
+    const selected = value(slot);
+    if (selected && selected.part !== expected) throw new FigureCodeError(`${slot}: this builder supports ${expected}, not ${selected.part}.`);
+  }
+  return {
+    ...DEFAULT_MINIFIG_FORM, label: figure.name,
+    ...(torso ? { torsoPart: torso.part, torsoColor: torso.color } : {}),
+    ...(head ? { headPart: head.part, headColor: head.color } : {}),
+    ...(hair ? { hairPart: hair.part, hairColor: hair.color } : {}),
+    ...(hips ? { hipsColor: hips.color } : {}), ...(legs ? { legsColor: legs.color } : {}),
+    ...(arms ? { armsColor: arms.color } : {}), ...(hands ? { handsColor: hands.color } : {}),
+    ...(right ? { heldRightPart: right.part, heldRightColor: right.color } : {}),
+    ...(left ? { heldLeftPart: left.part, heldLeftColor: left.color } : {}),
+    ...(back ? { cape: Boolean(back.part), capeColor: back.color, backPart: back.part || '4524' } : {}),
+  };
 }
 
 /** Validate stored form values field by field; anything odd falls back to the default. */
@@ -140,7 +184,7 @@ const CSS = `
 .mf-row input, .mf-row select { width: 100%; box-sizing: border-box; font-size: 0.72rem; padding: 3px 4px; border-radius: 3px;
   background: rgba(255,255,255,0.06); color: inherit; border: 1px solid rgba(255,255,255,0.18); }
 .mf-row input[list] { min-width: 0; }
-.mf-actions { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.mf-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; align-items: center; }
 .mf-actions button { font-size: 0.74rem; padding: 4px 10px; border-radius: 4px; cursor: pointer; border: 1px solid rgba(167,139,250,0.5);
   background: rgba(124,58,237,0.22); color: #c4b5fd; font-family: inherit; }
 .mf-actions button[disabled] { opacity: 0.5; cursor: wait; }
@@ -218,8 +262,10 @@ export function mountMinifigBuilder(host: HTMLElement, opts: MinifigBuilderMount
     <div class="mf-row"><label>Hands</label><span class="mf-note">3820 supplied</span>${colorSelect('mf-hands-color')}</div>
     <div class="mf-row"><label for="mf-held-right">Right hand</label>${partInput('mf-held-right', 'held', 'none')}${colorSelect('mf-held-right-color')}</div>
     <div class="mf-row"><label for="mf-held-left">Left hand</label>${partInput('mf-held-left', 'held', 'none')}${colorSelect('mf-held-left-color')}</div>
-    <div class="mf-row"><label for="mf-cape">Cape</label><label style="display:flex;gap:6px;align-items:center"><input id="mf-cape" type="checkbox" style="width:auto"> 4524 from the neck</label>${colorSelect('mf-cape-color')}</div>
-    <div class="mf-actions"><button id="mf-export" type="button">Download .mcaddon</button><span class="mf-note" data-role="result"></span></div>
+    <div class="mf-row"><label for="mf-cape">Back item</label><label style="display:flex;gap:6px;align-items:center"><input id="mf-cape" type="checkbox" style="width:auto"> Enabled</label>${colorSelect('mf-cape-color')}</div>
+    <div class="mf-row"><label for="mf-back-part">Back part</label><input id="mf-back-part" type="text" placeholder="4524 cape / 2524 backpack" style="grid-column:2 / 4"></div>
+    <div class="mf-row"><label for="mf-code">Figure code</label><textarea id="mf-code" rows="3" spellcheck="false" style="grid-column:2 / 4;resize:vertical;font:inherit"></textarea></div>
+    <div class="mf-actions"><button id="mf-export" type="button">Download figure pack</button><button id="mf-export-creator" type="button">Export creator wand pack</button><span class="mf-note" data-role="result"></span></div>
     <p class="mf-note">One walking, door-opening NPC on the jointed minifig rig; place it with its Brick Wand. Missing parts are supplied in the figure's own colours; a part the library lacks is reported, not silently dropped.</p>
   `;
   host.appendChild(btn);
@@ -235,10 +281,12 @@ export function mountMinifigBuilder(host: HTMLElement, opts: MinifigBuilderMount
     armsColor: q<HTMLSelectElement>('mf-arms-color'), handsColor: q<HTMLSelectElement>('mf-hands-color'),
     heldRightPart: q<HTMLInputElement>('mf-held-right'), heldRightColor: q<HTMLSelectElement>('mf-held-right-color'),
     heldLeftPart: q<HTMLInputElement>('mf-held-left'), heldLeftColor: q<HTMLSelectElement>('mf-held-left-color'),
-    cape: q<HTMLInputElement>('mf-cape'), capeColor: q<HTMLSelectElement>('mf-cape-color'),
+    cape: q<HTMLInputElement>('mf-cape'), capeColor: q<HTMLSelectElement>('mf-cape-color'), backPart: q<HTMLInputElement>('mf-back-part'),
   };
   const result = pop.querySelector<HTMLElement>('[data-role="result"]')!;
   const exportBtn = q<HTMLButtonElement>('mf-export');
+  const creatorExportBtn = q<HTMLButtonElement>('mf-export-creator');
+  const codeField = q<HTMLTextAreaElement>('mf-code');
 
   const read = (): MinifigFormValues => ({
     label: fields.label.value.trim() || DEFAULT_MINIFIG_FORM.label,
@@ -249,7 +297,7 @@ export function mountMinifigBuilder(host: HTMLElement, opts: MinifigBuilderMount
     armsColor: Number(fields.armsColor.value), handsColor: Number(fields.handsColor.value),
     heldRightPart: fields.heldRightPart.value, heldRightColor: Number(fields.heldRightColor.value),
     heldLeftPart: fields.heldLeftPart.value, heldLeftColor: Number(fields.heldLeftColor.value),
-    cape: fields.cape.checked, capeColor: Number(fields.capeColor.value),
+    cape: fields.cape.checked, capeColor: Number(fields.capeColor.value), backPart: fields.backPart.value,
   });
   const write = (f: MinifigFormValues): void => {
     fields.label.value = f.label;
@@ -261,6 +309,7 @@ export function mountMinifigBuilder(host: HTMLElement, opts: MinifigBuilderMount
     fields.heldRightPart.value = f.heldRightPart; fields.heldRightColor.value = String(f.heldRightColor);
     fields.heldLeftPart.value = f.heldLeftPart; fields.heldLeftColor.value = String(f.heldLeftColor);
     fields.cape.checked = f.cape; fields.capeColor.value = String(f.capeColor);
+    fields.backPart.value = f.backPart;
   };
 
   // Colour selects are filled once the names arrive; a stored value is applied after.
@@ -271,17 +320,25 @@ export function mountMinifigBuilder(host: HTMLElement, opts: MinifigBuilderMount
       sel.innerHTML = choices.map(c => `<option value="${c.id}" style="background:${c.rgb};color:#000">${c.id} · ${c.name}</option>`).join('');
     }
     write(loadForm());
+    refreshCode();
   };
   void fillColors();
 
-  pop.addEventListener('change', () => saveForm(read()), sig);
-  pop.addEventListener('input', () => saveForm(read()), sig);
+  const refreshCode = (): void => { try { codeField.value = figureCodeFromForm(read()); } catch { /* incomplete form while typing */ } };
+  codeField.addEventListener('change', () => {
+    try { write(formFromFigureCode(codeField.value)); saveForm(read()); result.textContent = 'figure code applied'; }
+    catch (e) { result.textContent = e instanceof Error ? e.message : String(e); }
+  }, sig);
 
-  exportBtn.addEventListener('click', async () => {
+  pop.addEventListener('change', event => { if (event.target !== codeField) { saveForm(read()); refreshCode(); } }, sig);
+  pop.addEventListener('input', event => { if (event.target !== codeField) { saveForm(read()); refreshCode(); } }, sig);
+
+  let creatorExportRequested = false;
+  const exportPack = async (): Promise<void> => {
     const f = read();
     saveForm(f);
     const spec = specFromForm(f);
-    exportBtn.disabled = true;
+    exportBtn.disabled = true; creatorExportBtn.disabled = true;
     result.textContent = 'compiling…';
     status(`Building minifig "${f.label}"…`, 'info');
     try {
@@ -291,21 +348,24 @@ export function mountMinifigBuilder(host: HTMLElement, opts: MinifigBuilderMount
       const pack = await buildPlayableAddon(new BlockGrid(3, 1, 3), {
         stem, label: f.label,
         figures: [{ bricks: figure.bricks, x: 1.5, y: 0, z: 1.5, facingLdu: [0, -1] }],
+        ...(creatorExportRequested ? { minifigCreator: minifigCreatorLibrary('starter') } : {}),
         onProgress: phase => { result.textContent = phase; },
       });
       downloadBytes(pack.bytes, `${stem}.mcaddon`);
       const ms = Math.round(performance.now() - t0);
       const warn = pack.warnings.filter(w => !/front\/rear direction/.test(w));
       result.textContent = `${(pack.bytes.length / 1024).toFixed(0)} KB · ${ms} ms${warn.length ? ` · ${warn.length} note${warn.length === 1 ? '' : 's'}` : ''}`;
-      status(`Minifig "${f.label}" exported (${figure.bricks.length} parts${figure.synthesized.length ? `, supplied: ${figure.synthesized.join(', ')}` : ''}). Import the .mcaddon, then ${pack.functionCommand} gives its Brick Wand.${warn.length ? ` Notes: ${warn.join(' ')}` : ''}`, warn.length ? 'info' : 'success');
+      status(`${creatorExportRequested ? 'Creator wand pack' : 'Minifig'} "${f.label}" exported (${figure.bricks.length} parts${figure.synthesized.length ? `, supplied: ${figure.synthesized.join(', ')}` : ''}). Import the .mcaddon, then ${pack.functionCommand} gives its Brick Wand.${warn.length ? ` Notes: ${warn.join(' ')}` : ''}`, warn.length ? 'info' : 'success');
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.textContent = 'failed';
       status(`Minifig export failed: ${msg}`, 'error');
     } finally {
-      exportBtn.disabled = false;
+      exportBtn.disabled = false; creatorExportBtn.disabled = false; creatorExportRequested = false;
     }
-  }, sig);
+  };
+  exportBtn.addEventListener('click', () => { void exportPack(); }, sig);
+  creatorExportBtn.addEventListener('click', () => { creatorExportRequested = true; void exportPack(); }, sig);
 
   const close = (): void => { pop.classList.remove('is-open'); };
   const open = (): void => {
