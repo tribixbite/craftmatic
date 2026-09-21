@@ -31,10 +31,10 @@ Current integration gates (uncommitted feature work; do not publish it yet):
 - `creator` owns library geometry/UI/compiler integration. Shared origin is
   `[0,72,0]`; still verify optional None, inherited base-vs-print attribution,
   numeric assembled poses and animations. Earlier starter packs are provisional.
-- `set_audit` owns the rewritten creator runtime and behavior-host tests.
-  Six tests now exercise code colour IDs, atomic import, renamed saves,
-  cross-dimension cap/owned copies, cleanup, busy retry and hotbar opening.
-- `doors` owns placement doors/manual seats and sole phone access. Offline
+- Root owns creator runtime integration: 13 behavior-host tests now exercise
+  code colour IDs, strict atomic import, renamed saves, cross-dimension caps,
+  cleanup, busy retry, hotbar opening and interrupted-edit reload recovery.
+- `door_implementation` owns placement doors/manual seats. Offline
   tests cover actual Bedrock permutations, size recommendation, rotation and
   persisted seat anchors; actual device acceptance remains required.
 - Working ADB binary: `C:/Android/Sdk/platform-tools/adb.exe`; wireless serial
@@ -43,14 +43,18 @@ Current integration gates (uncommitted feature work; do not publish it yet):
   PID 33092. Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means
   still running, not an empty successful exit. Root stopped only duplicate
   probe PIDs 35880/18792; browser/server and all files were preserved.
-- Fresh 39-set audit: 12 PASS / 27 DEFECTIVE, all full hashes match. Deployed
-  labels remain 13/26: 10326's four window defects newly fail the gate.
+- Fresh 39-set audit uses `bestIndexedModel`, not `models[0]`: 11 PASS /
+  28 DEFECTIVE. Twelve picks differ from first-entry ordering; the older
+  local-index labels are 14 verified / 25 defective, with stale passes on
+  10326/42172/910032.
+  Production 10303 selected IOModel2V2, rendered 3,808 bricks, and reported
+  nine missing pieces across 43753/80564/x346. Other production picks still
+  need live confirmation; local selection is not proof of remote bytes.
 - Exact-byte repair evidence under `output/pipeline-2026-09-21/`: 75397
   figures 8→2; 76286 2→1; 76435 3→0; 80049 10→7, other measured metrics
   unchanged. None applied: fixed-pose visual gates remain. 42639/42663 show
   no improvement; 76269 rejected because float rises 45→50 (big 35→40).
-- Full board and both legacy A/B jobs completed overnight. The old live-job
-  snapshots below are historical, not running PIDs. Isolated candidate index
+- Full board and both legacy A/B jobs completed. Isolated candidate index
   `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
   20,764 entries, 8,936 verified / 11,828 defective; investigate four dropped
   stale grades and ranking changes before adoption. Live index untouched.
@@ -58,20 +62,15 @@ Current integration gates (uncommitted feature work; do not publish it yet):
 Read next: sources guide §6b, §8b–8e, §9, §10; add-on guide's final sections.
 Evidence root: `output/corpus-improvements-2026-09-20/`.
 
-- [ ] Finish corrected figure A/B for MecabricksLDR and DbixConvV3 and window
-  A/B for DbixConvV2. Owner: corpus agent; evidence `corpus-repairs/README.md`.
+- [ ] Visually review exact-byte figure candidates before applying; use the
+  completed cohort A/B only for nominations (`corpus-repairs/README.md`).
   Original Mecabricks trial: 1,037 touched, figure defects 3,166→380, but
   per-file overlap/sunk regressions and needless pose changes prohibit broad
   application. Slot-owner instability fixed in clego `bb1adb01`; fresh trials
   are rerun-stable on all 1,020 Mecabricks and 644 DbixV3 touched outputs.
-  Window trial: 299 files / 1,985 panes, all rerun-stable; full A/B pending.
-  Live snapshot 2026-09-20 21:53 ET: legacy window A/B PID 18836 is 96/299;
-  legacy Mecabricks A/B PID 36996 is 242/1,020. These already-running jobs
-  write only their final `window-dbixv2-ab-strict.json` and
-  `figure-mecabricks-preserve-ab-strict.json`; they have no checkpoint, so do
-  not stop them or start a second writer. Exact commands, PIDs, outputs, and
-  recovery cautions are preserved in `corpus-repairs/LIVE-JOBS.md`; supporting
-  context is in `corpus-repairs/README.md`. The resumable helper is finalized at
+  Window trial: 299 files / 1,985 panes, all rerun-stable. Completed legacy
+  A/B nominates 251 window and 345 Mecabricks files, but lacks full hash
+  provenance; do not apply from those counts alone. The resumable helper is at
   clego `4d2dbad7` (five focused tests pass): it rehashes queued inputs before
   and after grading, requires an exact checkpoint key and complete finite
   metrics, records only successful pairs, and isolates torn suffixes. A future
@@ -86,11 +85,10 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   `figure-preserve-proof-ab.json` is exploratory (earlier build, limited
   metrics, no hashes), not final v3 acceptance. Regrade provisional candidates
   with complete finite metrics and exact before/after byte provenance.
-- [ ] Finish the complete upstream board and build a **candidate** index.
-  Current job: `board/`, logs `board-run.log` and `board-resume.log`;
-  20,764 sources, 763 completed rows retained at restart, 16 workers,
-  `OPENBLAS_NUM_THREADS=1`. Before restarting, inspect the active process
-  command line: never run two writers against this journal.
+- [ ] Review the completed upstream board and **candidate** index.
+  Board: 20,764 sources; selected sets 5,871 PASS / 4,298 DEFECTIVE,
+  zero ERROR. Candidate has four dropped stale grades to investigate.
+  Before any rerun inspect process command lines; never create two writers.
   After accepted corpus changes, resume grading so content hashes invalidate
   changed rows. From `C:/git/clego`, with `CLEGO_LDRAW_LIB=upstream`:
   `python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 16 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
@@ -160,8 +158,8 @@ Recheck after concurrent code changes.
 
 ## Repository and publication boundaries
 
-Craftmatic began at `741f6700`. Clego refs were 523 ahead / 249 behind at
-assessment (not freshly fetched); the older 511-commit/630 MB snapshot-growth
+Craftmatic began at `741f6700`. Clego refs after fetch were 544 ahead / 249
+behind; the older 511-commit/630 MB snapshot-growth
 figure is historical. Ask before rewriting history. Do not recommit large
 scoreboard/index snapshots; this round's board is isolated under output.
 The full grade journal and `scoreboard_extra.json` are inputs, not disposable
@@ -186,6 +184,12 @@ Sandbox shell startup fails `CreateProcessWithLogonW failed: 2`; scoped elevated
 PowerShell works. Use explicit shell and `login:false`.
 
 ## Device work — state restored
+
+Current sole phone owner: `set_audit`. Use ordinary pack import/file-manager
+workflow; user notes root is unnecessary and likely unavailable. User approved
+`adb root` if needed, but do not treat it as a prerequisite. No reboot/framework
+restart/data clear. Back up current world/pack state before any activation;
+the restoration report below is historical, not a fresh snapshot.
 
 Pixel `192.168.0.122:5555`; Minecraft 1.26.51. Latest report:
 `output/corpus-improvements-2026-09-20/device/REPORT.md`.
@@ -256,8 +260,9 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
 - [ ] Grader false-positive work: wheel/tyre, hand/weapon, axle/hole encased
   overlaps; inspect pairs before treating the old 52-file overlap tail as bad.
   Deliberate gaps: cone on torso neck and uncalibrated medium-leg band.
-- [ ] Minifig creator wand: designed, not built. See
-  `docs/minifig-creator-wand.md`; types are unconsumed; plan steps 4/6 need device.
+- [ ] Creator pack is implemented but not device-accepted. Actual emitted
+  geometry/print checks and phone save/load/edit/reload/NPC behavior remain
+  release gates; see `docs/minifig-creator-wand.md`.
 - [ ] Source compact-layout quality flag: staged DBIX instruction layouts can
   remain spread despite arm repair; proposed density threshold ~0.3 parts/stud²
   needs validation, not automatic promotion.
