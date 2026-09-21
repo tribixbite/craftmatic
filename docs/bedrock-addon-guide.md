@@ -1642,6 +1642,16 @@ index through the normal placement lifecycle. Movement preserves distance on
 failed teleports or unloaded chunks, stops without a rider, and restores its
 saved progress after script reload. Undo/re-place removes the cart.
 
+**Device-proved on 10303 (2026-09-21):** the cart spawned, climbed the measured
+track from y 66 to y 100 on a build spanning y 63-107, dwelled at the far end
+and retraced it, carried its rider 377 s unbroken, logged zero Actor/Molang/
+Scripting errors across the session, and Undo removed both cart and shell. Two
+things that run did NOT establish: whether the cart MODEL pitches and rolls
+through the loop (the chase camera clips inside the shell and an unmounted cart
+does not move, so there is no side-on view), and the touch "interact to ride"
+path — on a dense set the cart sits inside the shell with no reachable prompt,
+so boarding used `/ride`. Both are open items in `TASKS-BEDROCK-ADDON.md`.
+
 Closed paths circulate; open paths pause and reverse at their actual ends.
 Boarding has a two-second delay and sneak dismounts. Cart geometry, collision
 and seat scale with both export scale and wand size. Parallel-transport track
@@ -1727,6 +1737,26 @@ What works: confirm the old and new folders have identical file lists, back up
 every file with its SHA256, then copy the new content OVER the active folder
 on-device and verify with `md5sum`. Check the version by reading the ACTIVE
 folder's `manifest.json`, never the newest folder's.
+
+**Deactivating and re-activating the pack in the UI does NOT clear it** — the
+store keeps the uuid pinned to the folder it first saw, and the Available list
+exposes no Technical details link, so no folder can be chosen from the UI.
+Three more traps found overwriting a pack whose files had been RENAMED:
+
+- `adb push` cannot create a directory under `Android/data` **and still reports
+  "1 file pushed"**. Sha256-verify every pushed file; a new `texts/` directory
+  silently did not land.
+- Push does not truncate, so a file that shrank keeps its old tail. Pad the new
+  content to at least the old length (or write it elsewhere and copy on-device).
+- `rm` is denied there, so stale files from the previous build cannot be
+  removed — and a stale entity definition still loads and re-raises its errors.
+  Write the new content into the OLD filenames: Bedrock keys on the
+  `identifier` field in the JSON, not on the path.
+
+`/ride @s start_riding @e[type=…,c=1]` boards deterministically and does
+exercise a pack's ride runtime (Bedrock selectors use `c=1`, not `limit=1`), and
+`/camera @s set minecraft:third_person` works while riding. It is not a
+substitute for testing the touch interact path.
 
 Profile extraction must use the mould's rail endpoint/axis, not merely stud or
 sleeper origins. In 10303 those frames can differ by 32 LDU, producing false

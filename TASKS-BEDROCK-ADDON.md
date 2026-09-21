@@ -119,28 +119,39 @@ against the superseded `10303-coaster-measured-final.mcaddon` (SHA256
 `466ae9fd…`, which carries the integer-literal defect) shows ONLY the float
 literals, the two added stage names and the version. Earlier fragmented-route
 packs are superseded.
-**Device ride acceptance for the REAL pack found a SECOND defect, now fixed.**
-Bedrock refuses an entity identifier whose name begins with a digit
-(`ERROR: Invalid entity identifier 'craftmatic:10303loop_10303_coaster_cart',
-identifier cannot begin with a number`) and the entity then does not exist:
-the wand reported `Placed … (1 entity could not be spawned)` and
-`/testfor @e[type=craftmatic:10303loop_10303_coaster_cart]` was a syntax error
-while the prefixed shell type resolved. 13 of 15 entities carried a `b_`/`f_`/`p_`
-prefix; the cart and manual seat were the two that skipped it, and most LEGO
-stems are numeric, so this affected the cart and marked seats of essentially
-every set. Every entity id now goes through one `entityId(raw, prefix)` helper,
-`scripts/_mcaddon_check.py` REJECTS the class offline (it flags the old pack and
-passes the new one), and a pack-wide test asserts
-`^craftmatic:[a-z][a-z0-9_]*$` for a numeric stem.
-The float fix held through that run: `[Molang][error]` and `query.property`
-were both **0**.
-Retest pack: `output/bedrock-entity-qa/10303-coaster-idfix-20260921.mcaddon`,
-304,887 bytes, SHA256 `bd5af9ede4be6f574c1a0d83f7742da4f5cd1a5cac059fb0ecaececc12cb1332`,
-version `[2,695,26652]`, same BP uuid. **Device acceptance of the real ride is
-RUNNING again** — still unproven: no cart existed, so track-following,
-pitch/roll through the loop, reversal at the real open ends and rider retention
-on the real set have NEVER been observed. Do not claim them from the QA-pack
-run (stem `coaster_qa` starts with a letter, which is why it passed).
+**The REAL 10303 ride is DEVICE-PROVED (2026-09-21, after a second defect).**
+That run first found that Bedrock refuses an entity identifier beginning with a
+digit, so the cart never existed (`1 entity could not be spawned`); fixed in
+`90e70b40` — see the add-on guide. Retest pack
+`output/bedrock-entity-qa/10303-coaster-idfix-20260921.mcaddon`, SHA256
+`bd5af9ede4be6f574c1a0d83f7742da4f5cd1a5cac059fb0ecaececc12cb1332`,
+version `[2,695,26652]`. Measured on the phone:
+  * log gate CLEAN over the whole session (17:34:18-17:53:16, 135,168 bytes):
+    `[Actor][error]` 0, `[Molang][error]` 0, `[Scripting][error]` 0; the game
+    logged `PackId [f868c24d-…_2.695.26652]`, i.e. the fixed build;
+  * the cart spawned (`/testfor` -> "Found Track 1 Ride Cart"), placement
+    reported no unspawnable entity;
+  * **shuttle reversal proven**: a 34-frame 1.4 s trace climbs (1,68,-2) ->
+    (-16,94) -> dwells two frames at (-22,100,-9) -> retraces to (10,70);
+  * climbs y 66 -> 100 on a build spanning y 63-107, i.e. it reaches the lift top;
+  * **rider retained 377 s** (6 min 17 s) with the action bar unbroken, and zero
+    `paused`/`not loaded` lines in the log;
+  * Undo removed both cart and shell (`/testfor` matches neither afterwards).
+  Evidence: `output/bedrock-entity-qa/shots-10303/` (b26, b36, b41-b44, b47-b51)
+  and `coaster-10303-ContentLog-idfix-2026-09-21_17-33-45.txt`.
+- [ ] **Cart pitch/roll through the loop is STILL UNVERIFIED.** The position
+  trace follows the loop, but whether the cart MODEL tilts was never seen: the
+  chase camera clips inside the shell and an unmounted cart does not move, so
+  there is no side-on view. Needs a spectator/free-camera pass
+  (`/camera @s set minecraft:free` — `/tp` from height falls) or a smaller test
+  build where the track is exposed. Wheel-to-rail contact is likewise an
+  observation from the ride camera, not a proof.
+- [ ] **The ride cart cannot be BOARDED BY TOUCH on a dense set.** It sits deep
+  inside the shell geometry with no reachable interact prompt; the device run
+  boarded with `/ride @s start_riding @e[type=…,c=1]`, which exercised the ride
+  runtime but NOT the documented "interact to ride" path a player would use.
+  Decide the fix: place the cart at an exposed station point, or give the wand
+  a "board the ride" action. The pack README currently promises interaction.
 
 Current offline gates: full suite **1868 passed / 29 skipped, exit 0**
 (`output/bedrock-entity-qa/final-round-tests.log`), both typechecks and the
