@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { coasterCartAssets, coasterMaxSpacing, coasterRuntimeConfig, coasterScript, findCoasterStation } from '../web/src/engine/bedrock-coaster.js';
+import { coasterCartAssets, coasterMaxSpacing, coasterRuntimeConfig, coasterScript, findCoasterStation, resolveCoasterCars, COASTER_CAR_LENGTH } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { buildCoasterPath } from '../web/src/engine/coaster-path.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
@@ -9,48 +9,62 @@ import { host } from './_placement-host.js';
 
 interface RideHostOptions { riders?: boolean; scale?: number }
 
+/** One host per placement. A route that declares a train gets that many car
+ * entities, all spawned at the same station point the placement uses. */
 function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
-  const properties = new Map<string, unknown>([
-    ['craftmatic:coaster_origin', { x: 100, y: 64, z: 200 }],
-    ['craftmatic:coaster_rotation', 0], ['craftmatic:coaster_scale', options.scale ?? 1], ['craftmatic:coaster_route', 0],
-  ]);
-  const rider = { id: 'rider1', onScreenDisplay: { setActionBar: vi.fn() } };
-  // A cart now runs with or without a rider, so the default host is EMPTY and a
-  // test boards deliberately. `riders: true` starts with the rider aboard.
-  const riders: unknown[] = options.riders ? [rider] : [];
+  const config = coasterRuntimeConfig('craftmatic:test_cart', [route]);
+  const count = config.routes[0]!.cars.count;
   let loaded = true, removed = false;
-  /** Every teleported position, one per tick that actually moved the cart. */
-  const positions: Array<{ x: number; y: number; z: number }> = [];
-  /** Saved arc distance after each tick, whether or not the cart moved. */
-  const distances: number[] = [];
-  const entity: any = {
-    id: 'cart1', getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
-    setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
-    setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ x: 0, y: 0 }),
-    // Bedrock exposes removal through isValid; a removed cart must retire quietly.
-    isValid: () => !removed,
-    getComponent: () => ({ getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } }),
-  };
-  entity.tryTeleport = vi.fn((position: any, options2: unknown) => {
-    entity.teleport(position, options2); positions.push({ ...position }); return true;
+  /** Cars whose chunk has gone: Bedrock reports an unloaded entity as invalid. */
+  const gone = new Set<number>();
+  const cars = Array.from({ length: count }, (_, index) => {
+    const properties = new Map<string, unknown>([
+      ['craftmatic:coaster_origin', { x: 100, y: 64, z: 200 }],
+      ['craftmatic:coaster_rotation', 0], ['craftmatic:coaster_scale', options.scale ?? 1], ['craftmatic:coaster_route', 0],
+    ]);
+    const rider = { id: `rider${index}`, onScreenDisplay: { setActionBar: vi.fn() } };
+    // A cart now runs with or without a rider, so the default host is EMPTY and
+    // a test boards deliberately. `riders: true` starts with a rider aboard.
+    const riders: unknown[] = options.riders ? [rider] : [];
+    const positions: Array<{ x: number; y: number; z: number }> = [];
+    const entity: any = {
+      id: `cart${index}`, getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
+      setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
+      setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ x: 0, y: 0 }),
+      // Bedrock exposes removal through isValid; a removed cart must retire quietly.
+      isValid: () => !removed && !gone.has(index),
+      getComponent: () => ({ getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } }),
+    };
+    entity.tryTeleport = vi.fn((position: any, teleportOptions: unknown) => {
+      entity.teleport(position, teleportOptions); positions.push({ ...position }); return true;
+    });
+    entity.dimension = { getBlock: () => loaded ? {} : undefined };
+    return { entity, properties, rider, riders, positions };
   });
-  entity.dimension = { getBlock: () => loaded ? {} : undefined };
-  const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' && !removed ? [entity] : [] }) };
+  const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' && !removed
+    ? cars.filter((_, index) => !gone.has(index)).map(car => car.entity) : [] }) };
   let tick = () => {};
   const system = { runInterval: (callback: () => void) => { tick = callback; } };
-  const config = coasterRuntimeConfig('craftmatic:test_cart', [route]);
   const script = coasterScript(config);
   const start = () => new Function('world', 'system', script.replace(/^import .*;\n/, ''))(world, system);
   start();
-  return { entity, properties, riders, rider, start, positions, distances, config,
-    run: (n: number) => { for (let i = 0; i < n; i++) { tick(); distances.push(Number(properties.get('craftmatic:coaster_distance'))); } },
-    board: () => { riders.push(rider); }, dismount: () => { riders.length = 0; },
+  const lead = cars[0]!;
+  /** Saved ride distance after each tick (the train's centre), whether or not it moved. */
+  const distances: number[] = [];
+  const speedsOf = (positions: Array<{ x: number; y: number; z: number }>) => positions.slice(1).map((point, index) => {
+    const previous = positions[index]!;
+    return Math.hypot(point.x - previous.x, point.y - previous.y, point.z - previous.z) * 20;
+  });
+  return { cars, config, distances, start,
+    // Car 0 aliases keep the single-cart tests reading as they did.
+    entity: lead.entity, properties: lead.properties, riders: lead.riders, rider: lead.rider, positions: lead.positions,
+    run: (n: number) => { for (let i = 0; i < n; i++) { tick(); distances.push(Number(lead.properties.get('craftmatic:coaster_distance'))); } },
+    board: (index = 0) => { cars[index]!.riders.push(cars[index]!.rider); },
+    dismount: (index = 0) => { cars[index]!.riders.length = 0; },
     setLoaded: (value: boolean) => { loaded = value; }, remove: () => { removed = true; },
-    /** World blocks per second between consecutive teleports. */
-    speeds: () => positions.slice(1).map((point, index) => {
-      const previous = positions[index]!;
-      return Math.hypot(point.x - previous.x, point.y - previous.y, point.z - previous.z) * 20;
-    }),
+    unload: (index: number) => { gone.add(index); }, reload: (index: number) => { gone.delete(index); },
+    /** World blocks per second between consecutive teleports of one car. */
+    speeds: (index = 0) => speedsOf(cars[index]!.positions),
   };
 }
 
@@ -389,6 +403,181 @@ describe('serialized coaster runtime', () => {
       expect(-Math.sin(yaw)).toBeCloseTo((position.x - 100) / radius);
       expect(Math.cos(yaw)).toBeCloseTo((position.z - 200) / radius);
     }
+  });
+});
+
+/**
+ * 10303's three rider clusters sit at (-435.01, y, -99.99) with y = -1162,
+ * -1282 and -1402: identical but for exactly 120 LDU of pitch, i.e. a
+ * three-car train. At that pack's 53.333 LDU cell the pitch is 2.25 blocks.
+ */
+const TRAIN_CARS = 3, TRAIN_SPACING = 2.25;
+const towerTrain = (): CoasterRoute => ({ ...towerRoute('Tower train'), cars: { count: TRAIN_CARS, spacing: TRAIN_SPACING } });
+
+describe('measured train', () => {
+  it('defaults to a single cart and rejects an unmeasurable train', () => {
+    const path = buildCoasterPath(towerRoute().points, false, SPACING + 1e-6);
+    expect(resolveCoasterCars(path, undefined)).toEqual({ count: 1, spacing: 0, extent: 0 });
+    expect(resolveCoasterCars(path, { count: 1, spacing: 9 })).toEqual({ count: 1, spacing: 0, extent: 0 });
+    expect(() => resolveCoasterCars(path, { count: 2.5, spacing: 1 })).toThrow(/integer in \[1, 8\]/);
+    expect(() => resolveCoasterCars(path, { count: 3, spacing: 0 })).toThrow(/positive number of blocks/);
+  });
+  it('clamps a train longer than the track it runs on', () => {
+    // 42 blocks of route cannot hold three cars 20 blocks apart.
+    const path = buildCoasterPath(towerRoute().points, false, SPACING + 1e-6);
+    expect(resolveCoasterCars(path, { count: 3, spacing: 20 })).toMatchObject({ count: 2, spacing: 20, extent: 20 });
+    expect(resolveCoasterCars(path, { count: 3, spacing: TRAIN_SPACING }))
+      .toMatchObject({ count: 3, spacing: TRAIN_SPACING, extent: 2 * TRAIN_SPACING });
+  });
+  it('measures how far a route’s curvature closes a coupled train up', () => {
+    const tower = buildCoasterPath(towerRoute().points, false, SPACING + 1e-6);
+    // The tower route bends once, by asin(0.63) = 39.05 degrees: two cars
+    // 2.25 blocks apart along the arc close to 2.25 * cos(19.5 deg).
+    const bent = resolveCoasterCars(tower, { count: 3, spacing: TRAIN_SPACING }).minChord!;
+    expect(bent).toBeCloseTo(TRAIN_SPACING * Math.cos(Math.asin(CLIMB_GRADE) / 2), 2);
+    expect(bent).toBeLessThan(TRAIN_SPACING);
+    // A straight route leaves the pitch untouched.
+    expect(resolveCoasterCars(buildCoasterPath([[0, 0, 0], [40, 0, 0]], false, 40), { count: 3, spacing: 2 }).minChord)
+      .toBeCloseTo(2, 9);
+    // A tight circle closes two coupled cars right up — it is the SOURCE's
+    // curvature that does this, and the caller compares the result against
+    // COASTER_CAR_LENGTH to decide whether such a train is buildable. Measured
+    // on the real 10303 route: a 2.25-block pitch closes to 0.148 blocks at
+    // arc 104.1, and is under one car length on 3.9 % of the track.
+    const loop = buildCoasterPath(loopRoute(0.6, 64).points, true, 0.2);
+    const tight = resolveCoasterCars(loop, { count: 2, spacing: 1.88 });
+    expect(tight.count).toBe(2);
+    expect(tight.minChord!).toBeLessThan(COASTER_CAR_LENGTH);
+  });
+  it('parks the whole train centred on the platform, one car per spacing', () => {
+    const h = rideHost(towerTrain());
+    h.run(1);
+    expect(h.cars).toHaveLength(3);
+    // Station platform at arc 6; the train straddles it at 3.75 / 6 / 8.25.
+    expect(h.cars.map(car => car.positions[0]!.x)).toEqual([108.25, 106, 103.75]);
+    for (const car of h.cars) expect(car.positions[0]!.y).toBe(65);
+    // Every car carries the same ride state, so any loaded car can lead it.
+    for (const car of h.cars) expect(car.properties.get('craftmatic:coaster_distance')).toBeCloseTo(6);
+  });
+  it('holds the cars rigidly a spacing apart all the way round', () => {
+    const h = rideHost(towerTrain());
+    h.run(900);
+    const ticks = h.cars[0]!.positions.length;
+    expect(ticks).toBe(900);
+    for (const car of h.cars) expect(car.positions).toHaveLength(ticks);
+    // Invert this route's profile to recover each car's arc position: level
+    // run along x, then a constant grade. Cars are coupled along the ARC.
+    const arcOf = (point: { x: number; y: number }) =>
+      point.y > 65 + 1e-9 ? STATION_RUN + (point.y - 65) / CLIMB_GRADE : point.x - 100;
+    let worstArc = 0, shortestChord = Infinity, longestChord = 0;
+    for (let index = 0; index < ticks; index++) {
+      for (let car = 1; car < h.cars.length; car++) {
+        const a = h.cars[car - 1]!.positions[index]!, b = h.cars[car]!.positions[index]!;
+        worstArc = Math.max(worstArc, Math.abs(arcOf(a) - arcOf(b) - TRAIN_SPACING));
+        const chord = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+        shortestChord = Math.min(shortestChord, chord);
+        longestChord = Math.max(longestChord, chord);
+      }
+    }
+    expect(worstArc).toBeLessThan(1e-9);
+    // Straight-line spacing equals the arc pitch on straight track and closes
+    // up across a bend — the chord of a coupled train, never longer than it.
+    expect(longestChord).toBeLessThanOrEqual(TRAIN_SPACING + 1e-9);
+    expect(shortestChord).toBeGreaterThan(TRAIN_SPACING * 0.9);
+  });
+  it('gives each car its own pitch where the train straddles the grade', () => {
+    const h = rideHost(towerTrain());
+    h.run(400);
+    const pitchOf = (index: number) => {
+      const calls = h.cars[index]!.entity.setProperty.mock.calls as Array<[string, number]>;
+      return calls.filter(call => call[0] === 'craftmatic:track_pitch').map(call => call[1]);
+    };
+    const straddled = pitchOf(0).some((pitch, index) => Math.abs(pitch - pitchOf(2)[index]!) > 10);
+    expect(straddled).toBe(true);
+    // Still one shared speed: the cars never drift apart (asserted above).
+    for (let index = 0; index < 3; index++) expect(pitchOf(index).every(pitch => pitch >= -90 && pitch <= 90)).toBe(true);
+  });
+  it('reverses without flipping the cars past each other', () => {
+    const h = rideHost(towerTrain());
+    h.run(900);
+    const directions = h.distances.map((_, index) => index);
+    expect(directions.length).toBeGreaterThan(0);
+    // Car 0 keeps the greater arc for the whole run: the train's tail simply
+    // becomes its head when an open route reverses, nothing teleports across.
+    for (let index = 0; index < h.cars[0]!.positions.length; index++) {
+      expect(h.cars[0]!.positions[index]!.x).toBeGreaterThan(h.cars[2]!.positions[index]!.x);
+    }
+    // No car ever steps further than the authored sample spacing, including on
+    // the tick the train reverses at the end of the open route.
+    for (const car of h.cars) for (const speed of h.speeds(h.cars.indexOf(car))) expect(speed / 20).toBeLessThanOrEqual(SPACING + 1e-9);
+  });
+  it('keeps the whole train inside an open route at both ends', () => {
+    const h = rideHost(towerTrain());
+    h.run(1600);
+    const total = h.config.routes[0]!.path.length;
+    for (const distance of h.distances) {
+      expect(distance).toBeGreaterThanOrEqual(2 * TRAIN_SPACING / 2 - 1e-9);
+      expect(distance).toBeLessThanOrEqual(total - 2 * TRAIN_SPACING / 2 + 1e-9);
+    }
+  });
+  it('lets a player board any car, and holds the train while they do', () => {
+    const h = rideHost(towerTrain());
+    h.run(1);
+    h.run(95);
+    h.board(2);
+    const before = Number(h.properties.get('craftmatic:coaster_distance'));
+    h.run(39);
+    expect(h.properties.get('craftmatic:coaster_distance')).toBe(before);
+    h.run(2);
+    expect(Number(h.properties.get('craftmatic:coaster_distance'))).toBeGreaterThan(before);
+    // The rider is on car 2 and the ride carries them: three single-seat cars
+    // are three independent places for three different players.
+    expect(h.cars[2]!.riders).toHaveLength(1);
+    expect(h.cars[0]!.riders).toHaveLength(0);
+  });
+  it('stops the train at the platform on every lap', () => {
+    const h = rideHost(towerTrain());
+    h.run(1600);
+    const stop = h.config.routes[0]!.station.stop;
+    const dwells: number[] = [];
+    let run = 0;
+    for (let index = 1; index < h.distances.length; index++) {
+      const parked = Math.abs(h.distances[index]! - stop) < 1e-9 && h.distances[index] === h.distances[index - 1];
+      if (parked) run++; else { if (run) dwells.push(run); run = 0; }
+    }
+    if (run) dwells.push(run);
+    expect(dwells.length).toBeGreaterThanOrEqual(2);
+    for (const dwell of dwells) expect(dwell).toBeGreaterThanOrEqual(50);
+  });
+  it('keeps running when one car unloads, and takes it back where it belongs', () => {
+    const h = rideHost(towerTrain());
+    h.run(200);
+    // Bedrock reports an unloaded entity as invalid; the ride must not stop,
+    // and the remaining cars must not close the gap where it was.
+    h.unload(0);
+    const before = h.cars[1]!.positions.length;
+    h.run(200);
+    expect(h.cars[1]!.positions.length).toBe(before + 200);
+    expect(h.cars[0]!.positions.length).toBe(before);
+    // The state on car 1 carried the ride: it can lead in car 0's absence.
+    const centre = Number(h.cars[1]!.properties.get('craftmatic:coaster_distance'));
+    expect(centre).not.toBe(Number(h.cars[0]!.properties.get('craftmatic:coaster_distance')));
+    h.reload(0);
+    h.run(21);
+    const arcOf = (point: { x: number; y: number }) =>
+      point.y > 65 + 1e-9 ? STATION_RUN + (point.y - 65) / CLIMB_GRADE : point.x - 100;
+    // Its saved index puts it back a spacing ahead of car 1, not at the end of
+    // the train or on top of another car.
+    expect(arcOf(h.cars[0]!.positions.at(-1)!) - arcOf(h.cars[1]!.positions.at(-1)!)).toBeCloseTo(TRAIN_SPACING, 9);
+  });
+  it('holds the whole train when one car faces an unloaded chunk', () => {
+    const h = rideHost(towerTrain());
+    h.run(1);
+    for (const car of h.cars) expect(car.positions).toHaveLength(1);
+    h.setLoaded(false);
+    h.run(200);
+    for (const car of h.cars) expect(car.positions).toHaveLength(1);
+    expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(6);
   });
 });
 
