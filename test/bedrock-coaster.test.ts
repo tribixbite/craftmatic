@@ -18,6 +18,8 @@ function rideHost(route: CoasterRoute) {
     id: 'cart1', getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
     setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
     setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ x: 0, y: 0 }),
+    // Bedrock exposes removal through isValid; a removed cart must retire quietly.
+    isValid: () => !removed,
     getComponent: () => ({ getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } }),
   };
   entity.tryTeleport = vi.fn((position: unknown, options: unknown) => { entity.teleport(position, options); return true; });
@@ -114,6 +116,17 @@ describe('serialized coaster runtime', () => {
     expect(h.entity.teleport).toHaveBeenCalledTimes(1);
     h.run(1);
     expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(0.4);
+  });
+  it('retires a cart removed by Undo without reporting a movement error', () => {
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const h = rideHost(straight); h.run(45);
+      h.rider.onScreenDisplay.setActionBar.mockClear();
+      h.remove(); h.run(60);
+      // Undo is an ordinary retirement: no console fault, no message to a player.
+      expect(log).not.toHaveBeenCalled();
+      expect(h.rider.onScreenDisplay.setActionBar).not.toHaveBeenCalled();
+    } finally { log.mockRestore(); }
   });
   it('reports bounded movement errors with their stage and throttles repeated logs', () => {
     const log = vi.spyOn(console, 'warn').mockImplementation(() => {});

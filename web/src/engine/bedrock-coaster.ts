@@ -117,6 +117,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
     for (const [id, state] of tracked) {
       const entity = state.entity;
+      // Undo and re-place remove carts. A removed entity is an ordinary
+      // retirement, not a movement error: reading anything off it throws
+      // "Entity being invalid", which would otherwise be reported to the player
+      // and logged as a fault (observed on the device, 2026-09-21).
+      const valid = typeof entity.isValid === 'function' ? entity.isValid() : entity.isValid;
+      if (valid === false) { tracked.delete(id); continue; }
       let riders: any[] = [];
       let stage = 'read ride state';
       try {

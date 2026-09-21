@@ -22,10 +22,18 @@
  * Only int/bool/enum actor properties are safe as plain numbers.
  */
 
-/** Tag wrapping a float literal while it passes through `JSON.stringify`. */
-const FLOAT_TAG = '__craftmatic_float__';
+/**
+ * The tag is generated per serialization, so no value carried in the data —
+ * a model label, a set name, anything a user can influence — can forge it and
+ * have a string rewritten into a bare number. A fixed tag was forgeable: a
+ * label equal to the tag text emitted `"label": 42`, and the same text as an
+ * object key would have produced JSON Bedrock cannot parse at all.
+ */
+let activeTag: string | null = null;
+let tagCounter = 0;
+const nextTag = () => `__craftmatic_float_${(tagCounter++).toString(36)}_${Math.random().toString(36).slice(2)}__`;
 /** Matches the tagged string, including the quotes `JSON.stringify` added. */
-const FLOAT_TAGGED = new RegExp(`"${FLOAT_TAG}\\((-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?)\\)${FLOAT_TAG}"`, 'gi');
+const taggedPattern = (tag: string) => new RegExp(`"${tag}\\((-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?)\\)"`, 'g');
 
 /** `0` -> `0.0`; a value that already has a decimal point or exponent is kept. */
 function floatLiteralText(value: number): string {
@@ -41,7 +49,10 @@ export class BedrockFloat {
   constructor(readonly value: number) {
     if (!Number.isFinite(value)) throw new Error(`Bedrock float literal must be finite, received ${value}.`);
   }
-  toJSON(): string { return `${FLOAT_TAG}(${floatLiteralText(this.value)})${FLOAT_TAG}`; }
+  toJSON(): string {
+    if (!activeTag) throw new Error('A Bedrock float literal must be serialized with bedrockJsonText, not JSON.stringify.');
+    return `${activeTag}(${floatLiteralText(this.value)})`;
+  }
   valueOf(): number { return this.value; }
   toString(): string { return floatLiteralText(this.value); }
 }
@@ -55,6 +66,8 @@ export const bedrockFloat = (value: number): BedrockFloat => new BedrockFloat(va
  * anywhere in one of them costs the entity its whole property component.
  */
 export function floatActorProperty(range: [number, number], defaultValue: number, clientSync = true) {
+  if (!(range[0] <= range[1]))
+    throw new Error(`Bedrock float property range [${range[0]}, ${range[1]}] is reversed or not finite.`);
   if (!(range[0] <= defaultValue && defaultValue <= range[1]))
     throw new Error(`Bedrock float property default ${defaultValue} is outside its range [${range[0]}, ${range[1]}].`);
   return {
@@ -69,5 +82,14 @@ export function floatActorProperty(range: [number, number], defaultValue: number
  * numbers; only the literal spelling differs.
  */
 export function bedrockJsonText(value: unknown, indent?: number): string {
-  return JSON.stringify(value, null, indent).replace(FLOAT_TAGGED, '$1');
+  const tag = nextTag();
+  const previous = activeTag;
+  activeTag = tag;
+  let serialized: string;
+  try { serialized = JSON.stringify(value, null, indent); } finally { activeTag = previous; }
+  const text = serialized.replace(taggedPattern(tag), '$1');
+  // A surviving tag would mean a float literal shipped as a STRING where
+  // Bedrock needs a number — the exact fault this module exists to prevent.
+  if (text.includes(tag)) throw new Error('A Bedrock float literal did not survive serialization.');
+  return text;
 }
