@@ -23,6 +23,7 @@ describe('export resolver alias ladder', () => {
     mkdirSync(join(root, 'p'), { recursive: true });
     writeFileSync(join(root, 'parts', '6538.dat'), BRICK);
     writeFileSync(join(root, 'parts', '3626a.dat'), BRICK);
+    writeFileSync(join(root, 'parts', '41669.dat'), BRICK);
     setLDrawRoot(root);
     setLDrawMirror(null);
   });
@@ -50,11 +51,27 @@ describe('export resolver alias ladder', () => {
   });
 
   it('still reports a name nothing resolves as unresolved, never as a silent box', async () => {
-    expect(await getDatText('x346')).toBeNull();
-    expect(datSubstitutionFor('x346')).toBeUndefined();
+    // 88355 has no strippable suffix and no LDRAW_PART_ALIASES entry (see
+    // ldraw-part-aliases.ts) — genuinely nothing to offer, unlike x346 below.
+    expect(await getDatText('88355')).toBeNull();
+    expect(datSubstitutionFor('88355')).toBeUndefined();
     const provider = createPartGeometryProvider();
-    expect(await provider.getPartMesh('x346')).toBeNull();
-    expect(provider.report().unresolved).toEqual(['x346']);
+    expect(await provider.getPartMesh('88355')).toBeNull();
+    expect(provider.report().unresolved).toEqual(['88355']);
+  });
+
+  it('resolves the design-id alias (x346 → 41669) through the export resolver too', async () => {
+    // Same table the viewer uses (part-alias.test.ts pins the identity/frame
+    // evidence); this just confirms ldraw-geometry.ts's independent fetch path
+    // reaches the same substitution when the target actually exists in the
+    // configured library.
+    expect(await getDatText('x346')).toBe(BRICK);
+    expect(datSubstitutionFor('x346')).toBe('41669');
+    const provider = createPartGeometryProvider();
+    const mesh = await provider.getPartMesh('x346');
+    expect(mesh).not.toBeNull();
+    expect(provider.report().substitutions).toContainEqual({ part: 'x346', alias: '41669' });
+    expect(provider.report().unresolved).toEqual([]);
   });
 
   it('never applies the ladder to a primitive path', async () => {

@@ -131,6 +131,23 @@ export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freez
   //    the second-colour region), not a print — so this is the shape match,
   //    where the plain 41879a is the single-colour leg.
   '37679': '16709',
+
+  // ── Technic/Bionicle tooth: LEGO's internal design id for a part LDraw
+  //    catalogues under its BrickLink/first-release number instead. Verified
+  //    2026-09-21 both ways: IOModel2V2's 10303.ldr embeds its own `x346.dat`
+  //    (line ~11614, `IsSubModel False` / `IsAssembly False` — a terminal
+  //    mesh, not a reference) and that embedded mesh is BYTE-IDENTICAL to
+  //    `41669.dat` "Technic Tooth 1 x 3 with Axlehole" — same author (Guy
+  //    Vivan), same primitive list and matrices, same tooth-curve vertices to
+  //    three decimals (an official part, `!LDRAW_ORG Part UPDATE 2010-01`,
+  //    also cross-listed as element 48267). ~450 placements across ~92
+  //    corpus files carry `x346` with no embedded definition of their own and
+  //    were falling back to an AABB or going missing; sources that DO embed
+  //    it (10303) are unaffected because an embedded `0 FILE` definition is
+  //    seeded into the text cache before this table is ever consulted (see
+  //    `seedDatTexts`/the MPD inline parser) — the alias only fires on a
+  //    definitive miss.
+  'x346': '41669',
 });
 
 /**
@@ -154,7 +171,7 @@ export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freez
  * `u9132v1` → `u9132`).
  *
  * Deliberately NOT covered: names with no strippable suffix and no entry in
- * LDRAW_PART_ALIASES (`x346`, `88355`), Studio custom-part hashes
+ * LDRAW_PART_ALIASES (`88355`), Studio custom-part hashes
  * (`m102bdfd2_…`, only ever inside a .io archive), `bl_*` Studio synthetics,
  * and genuinely unmodelled moulds (10316 Rivendell's `20926`/`20932`/`1000341`
  * — see the table above for why guessing those is worse than a hole).

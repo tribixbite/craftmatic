@@ -56,7 +56,7 @@ describe('partAliasCandidates', () => {
   });
 
   it('offers nothing for names with no strippable suffix', () => {
-    for (const stem of ['3001', '3023', 'x346', '88355', 'stud', 'bl_5093']) {
+    for (const stem of ['3001', '3023', '88355', 'stud', 'bl_5093']) {
       expect(partAliasCandidates(stem), stem).toEqual([]);
     }
   });
@@ -80,6 +80,9 @@ describe('partAliasCandidates', () => {
     // to the real LDraw flag — the resolver recurses, so one hop is enough here.
     expect(partAliasCandidates('72154d13')).toEqual(['72154']);
     expect(partAliasCandidates('72154')[0]).toBe('30292a');
+    // Technic/Bionicle tooth: LEGO design id x346 → LDraw's 41669.dat, verified
+    // byte-identical to the corpus's own embedded x346 mesh (2026-09-21).
+    expect(partAliasCandidates('x346')).toEqual(['41669']);
   });
 
   it('leaves the deliberately-unmapped ids alone', () => {
