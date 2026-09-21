@@ -4,6 +4,48 @@ This file holds open work and the evidence needed to resume. Completed history
 belongs in `git log`, `docs/lego-sources-guide.md`, and
 `docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
+## Active round — 2026-09-21 evening, USER-REPORTED VISUAL REGRESSION (10303)
+
+The user placed 10303 on the Pixel 8 Pro from
+`output/bedrock-entity-qa/10303-coaster-idfix-20260921.mcaddon` and rejected the
+result: "the visual quality of the model looks horrendous and is unacceptable -
+even up close… once the player is moved a dozen or so individual blocks away…
+the visual quality goes from horrendous to deplorable - and on top of that the
+surfaces jitter between different colors in a seizure-inducing spasm."
+Their own screenshots are the evidence, pulled and downscaled to
+`output/bedrock-entity-qa/user-report-20260921/u-*.png` (raw beside them):
+
+- `u-183012` (player -17,82,95), `u-183028` (-20,82,92), `u-183034` (-19,82,93)
+  and `u-183927` (-27,64,49, point blank): the model draws as a coarse blocky
+  BLOB — the LOD hull — with heavy diagonal hatching on the surfaces.
+- `u-183050` (-33,85,78): the SAME model in full crisp detail.
+  So the hull is taking over at close range, and the hatching is two coplanar
+  surfaces fighting for depth. `query.distance_from_camera` measures to the
+  ENTITY, and the shell is ONE entity spanning ~42x44x21 blocks, so a camera
+  standing at the geometry is easily >32 (`DEFAULT_LOD_DISTANCE`) from its
+  origin. Working hypothesis, being verified: the threshold must include the
+  model's bounding radius and the base default must be far larger, and
+  per-colour hull cells may claim the same face.
+- `u-183050`/`u-183028` also show the figure defects: two riders stand bolt
+  UPRIGHT and FLOAT beside the near-vertical drop car, and hair pieces hang
+  detached above their heads.
+
+Open, all three in flight:
+- [ ] Visual fidelity: hull far too near, hull/full z-fighting, and whether the
+  CLI's DEFAULT quality (16,904 cuboids for 3,808 bricks) is why the full-detail
+  render is coarse against the user's "near-picture accurate" bar. Owner: LOD.
+- [ ] Figures: upright/floating riders and detached hair. A Bedrock actor has no
+  roll, so a source figure inside a pitched car cannot be reproduced as an
+  upright NPC — decide honestly between keeping it in the rigid shell and
+  emitting an NPC only when the source pose is near upright. Owner: figures.
+- [ ] Ride behaviour the user asked for: continuous motion with or without a
+  rider, real gravity (crawl uphill, fast on the drop), a dwell at the flat
+  reload station, and mounting by walking up and tapping — today the cart is
+  unreachable inside the shell and device QA had to board with `/ride`.
+  Owner: coaster.
+
+Acceptance is a fresh device round with the user's own bar, not unit tests.
+
 ## Active round — 2026-09-21, 10303 track repair and ride mechanism
 
 User asks to visually inspect/fix 10303's missing track and implement reusable
