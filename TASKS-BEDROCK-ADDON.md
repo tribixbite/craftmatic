@@ -120,13 +120,11 @@ against the superseded `10303-coaster-measured-final.mcaddon` (SHA256
 literals, the two added stage names and the version. It has NOT been imported to
 the phone yet. Earlier fragmented-route packs are superseded.
 
-Current offline gates, after the float-actor-property fix `0a3f6c9a` and its
-hardening `c4cab387` (**neither pushed yet**): full suite 1851 passed /
-26 skipped, exit 0 (`output/bedrock-entity-qa/coaster-floatprops-tests.log`);
-both typechecks and the production web build pass (`floatprops-webbuild.log`).
-Both float guards were confirmed by reintroducing the integer literal, and the
-helper refactor leaves the emitted entity bytes identical. Earlier partial runs
-(39/41 focused, 1847/1848 full) are superseded by that run.
+Current offline gates: full suite **1868 passed / 29 skipped, exit 0**
+(`output/bedrock-entity-qa/final-round-tests.log`), both typechecks and the
+production web build pass (`final-round-build.log`). Earlier partial runs are
+superseded. The float guards were confirmed by reintroducing the integer
+literal; the helper refactor leaves the emitted entity bytes identical.
 Commits `13a65adf`, `00e83471` and earlier are pushed and deployed. CI
 `35641616290` failed initially and on one rerun only at live MRLC canopy
 assertions (`test/import-nlcd.test.ts`, service returned null); 1839 passed,
