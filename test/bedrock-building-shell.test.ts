@@ -125,6 +125,10 @@ describe('the building shell', () => {
     expect(entries).toContain('Craftmatic_shed_RP/textures/blocks/craftmatic_collider.png');
     expect(entries).toContain('Craftmatic_shed_BP/entities/shed_shell.json');
     expect(entries).toContain('Craftmatic_shed_RP/models/entity/shed_shell.geo.json');
+    // The manual-chair tool exists even with no inferred mould seats.
+    expect(entries).toContain('Craftmatic_shed_RP/entity/shed_manual_seat.entity.json');
+    expect(entries).toContain('Craftmatic_shed_RP/models/entity/craftmatic_seat.geo.json');
+    expect(entries).toContain('Craftmatic_shed_RP/textures/entity/craftmatic_seat.png');
     expect(pack.components.some(c => c.kind === 'shell')).toBe(true);
     expect(pack.warnings.some(w => /brick-accurate building/.test(w))).toBe(true);
     // The terrain atlas carries the clear tile.

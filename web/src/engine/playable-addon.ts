@@ -24,6 +24,7 @@ import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
+import { coasterCartAssets, coasterRuntimeConfig, coasterScript, type CoasterRoute } from './bedrock-coaster.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -93,6 +94,8 @@ export interface PlayableAddonOptions {
     figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }>;
     /** Free seats in the scenery, in grid coordinates: each gets an invisible rideable seat entity. */
     seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
+    /** Continuous measured 3D track routes; open routes safely reverse at their ends. */
+    coasterRoutes?: CoasterRoute[];
     /**
      * Brick-accurate building: the scenery's placements (figures and door
      * leaves already taken out) compiled as one static entity over invisible
@@ -1906,10 +1909,35 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Manual brick-chair placement needs a real type even when the source had
     // no recognisable mould seat.  It is deliberately separate from inferred
     // seats: the wand owns its lifecycle and placement location.
+    const coasterId = `${id}_coaster_cart`;
+    const coasterConfig = options.coasterRoutes?.length
+      ? coasterRuntimeConfig(`${PACK_NAMESPACE}:${coasterId}`, options.coasterRoutes) : undefined;
+    if (coasterConfig) {
+        const cart = coasterCartAssets(coasterConfig.typeId, modelScale);
+        const texture = generateLegoMaterialSwatch(resolveLdrawEntityMaterial(71), { pbr: false, textureName: 'craftmatic_coaster' });
+        files.push(
+            { name: `${bp}entities/${coasterId}.json`, data: json(cart.behavior) },
+            { name: `${rp}entity/${coasterId}.entity.json`, data: json(cart.client) },
+            { name: `${rp}models/entity/${coasterId}.geo.json`, data: geoJson(cart.geometry) },
+            { name: `${rp}animations/${coasterId}.animation.json`, data: json(cart.animations) },
+            { name: `${rp}textures/entity/craftmatic_coaster.png`, data: texture.colorPng },
+            { name: `${bp}scripts/coaster.js`, data: text(coasterScript(coasterConfig)) },
+            { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nInteract with the grey Ride Cart to board; departure takes two seconds. Sneak to dismount. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks. In-game rider-carrying acceptance is still required.\n') },
+        );
+        coasterConfig.routes.forEach((route, index) => {
+            const p = route.path.points[0]!;
+            actors.push({ typeId: coasterConfig.typeId, label: `${route.label} Ride Cart`, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index });
+        });
+        warnings.push(`${coasterConfig.routes.length} measured coaster route(s): interact with the grey Ride Cart. Open tracks shuttle; riders stay upright. Device acceptance pending.`);
+    }
     const manualSeatId = options.shell ? `${id}_manual_seat` : undefined;
     if (manualSeatId) files.push(
         { name: `${bp}entities/${manualSeatId}.json`, data: json(seatBehavior(manualSeatId)) },
         { name: `${rp}entity/${manualSeatId}.entity.json`, data: json(seatClient(manualSeatId)) },
+    );
+    if (manualSeatId || seatList.length) files.push(
+        { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
+        { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
     );
     if (seatList.length) {
         const rawSeat = `${id}_seat`;
@@ -1917,8 +1945,6 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         files.push(
             { name: `${bp}entities/${seatId}.json`, data: json(seatBehavior(seatId)) },
             { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) },
-            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
-            { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
         );
         const seatActorStart = actors.length;
         for (const [k, seat] of seatList.entries()) {
@@ -1960,15 +1986,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Hull cuboids are RESIDENT beside the full model (add-on memory is
     // definition-side), so they count against the device budget like any other.
     const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
-    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids;
-    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0);
+    const coasterCuboids = coasterConfig ? 5 : 0;
+    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
+    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0) + (coasterConfig ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
         warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over past ${lodDistance} blocks (query.distance_from_camera measured in blocks on a Pixel 8 Pro, 2026-09-19: switch seen at 26-28 for the default 32).`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
-    if (Object.keys(diagnostics).length) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
+    if (Object.keys(diagnostics).length || coasterConfig) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
         generator: 'craftmatic', label,
         // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
         pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
@@ -1977,6 +2004,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // device round settles both (see docs/bedrock-addon-guide.md).
         lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks (Pixel 8 Pro 2026-09-19: switch at 26-28 for the default 32)' : 'off', entities: lodHulls },
         entities: diagnostics,
+        ...(coasterConfig ? { coaster: { cuboids: coasterCuboids, riderRoll: false, deviceVerified: false,
+            routes: coasterConfig.routes.map(route => ({ label: route.label, lengthBlocks: route.path.length, samples: route.path.points.length, closed: route.path.closed })) } } : {}),
     }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
@@ -2031,6 +2060,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
         ...(creatorConfig ? ["import './minifig-wand.js';"] : []),
+        ...(coasterConfig ? ["import './coaster.js';"] : []),
     ].join('\n');
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size every entity takes that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);

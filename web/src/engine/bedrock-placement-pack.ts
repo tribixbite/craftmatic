@@ -21,6 +21,8 @@ export interface PlacementActor {
   hideAt100?: boolean;
   /** Index of another actor this one rides once both are spawned (a figure found sitting on a seat). */
   rideOf?: number;
+  /** Measured track route index; the coaster runtime owns motion after placement. */
+  coasterRouteIndex?: number;
 }
 
 /**
@@ -895,6 +897,14 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           }
           const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
           entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
+          if (actor.coasterRouteIndex !== undefined) {
+            // Store the transformed model origin, not the cart's start point.
+            // Route samples use the same rotation/scale as every shell actor.
+            entity.setDynamicProperty('craftmatic:coaster_origin', worldPoint(st, { x: 0, y: 0, z: 0 }));
+            entity.setDynamicProperty('craftmatic:coaster_rotation', st.rotation);
+            entity.setDynamicProperty('craftmatic:coaster_scale', factor(st));
+            entity.setDynamicProperty('craftmatic:coaster_route', actor.coasterRouteIndex);
+          }
           if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${st.size}% (${e && e.message ? e.message : e}); it stands at 100%.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);
         } catch (e: any) {

@@ -31,7 +31,11 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   const playerProperties = new Map<string, unknown>();
   const blocks = new Map<string, any>();
   let loaded = false;
-  const makeEntity = (id: string, typeId: string) => ({ id, typeId, nameTag: '', dimension: { id: 'overworld' }, events: [] as string[], teleport: vi.fn(), setRotation: vi.fn(), remove: vi.fn(), triggerEvent(ev: string) { this.events.push(ev); }, getComponent: () => undefined });
+  const makeEntity = (id: string, typeId: string) => {
+    const properties = new Map<string, unknown>();
+    return { id, typeId, nameTag: '', dimension: { id: 'overworld' }, events: [] as string[], teleport: vi.fn(), setRotation: vi.fn(), remove: vi.fn(), triggerEvent(ev: string) { this.events.push(ev); }, getComponent: () => undefined,
+      setDynamicProperty: (key: string, value: unknown) => properties.set(key, value), getDynamicProperty: (key: string) => properties.get(key) };
+  };
   const dimension: any = { id: 'overworld', heightRange: { min: -64, max: 320 }, spawnParticle: vi.fn(),
     runCommand: (command: string) => {
       if (command.startsWith('tickingarea remove ')) { loaded = false; return { successCount: 1 }; }

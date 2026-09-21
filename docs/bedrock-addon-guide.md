@@ -39,7 +39,14 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   -t application/octet-stream --grant-read-uri-permission` (a `file://` VIEW
   imports nothing; an implicit intent lands in the chooser). A re-import of the
   same pack uuid lands in a `<name>(1)` folder and the world list must name the
-  NEW version. Activate packs by editing the world's `world_*_packs.json` ONLY
+  NEW version. Verified 2026-09-21: the command can report delivery to the
+  existing top-most Minecraft activity; establish import success by reading the
+  new behavior/resource pack manifests and their matching dependency UUIDs, not
+  from the `am start` exit status alone. For ADB taps, use raw screenshot
+  coordinates, not the tool's resized display: a 2244×1008 landscape capture
+  viewed at 1600×719 needs coordinates multiplied by 2244/1600. `wm size`
+  may still report portrait 1008×2244; that is not the active input frame.
+  Activate packs by editing the world's `world_*_packs.json` ONLY
   after `am force-stop` (the running app rewrites them from memory); `adb shell
   rm` inside `Android/data/com.mojang.minecraftpe` is denied, `adb push` works.
   The world list is sorted by last played — screenshot it before tapping a tile.
@@ -1624,3 +1631,27 @@ works. Do not advertise “400% working doors” for this source until an actual
 opening and interactive-door placement are verified in game. The current
 semantic-door recommendation correctly abstains; explicit marked seats still
 work independently of door recognition.
+
+### Measured coaster runtime (2026-09-21, acceptance in progress)
+
+`coaster-path.ts` validates explicit sampled routes, rejects oversized or
+zero-length segments, and joins only mutually unique compatible endpoints.
+`bedrock-coaster.ts` packages an added grey ride cart; it does not replace the
+source's LEGO cars. Each cart stores the model origin, rotation, size and route
+index through the normal placement lifecycle. Movement preserves distance on
+failed teleports or unloaded chunks, stops without a rider, and restores its
+saved progress after script reload. Undo/re-place removes the cart.
+
+Closed paths circulate; open paths pause and reverse at their actual ends.
+Boarding has a two-second delay and sneak dismounts. Cart geometry, collision
+and seat scale with both export scale and wand size. Track pitch animates the
+cart only: this does not promise upside-down player roll or a physical train
+simulation. Rider retention during actual Bedrock movement is a separate
+device gate, not established by host-script tests or successful pack import.
+
+Profile extraction must use the mould's rail endpoint/axis, not merely stud or
+sleeper origins. In 10303 those frames can differ by 32 LDU, producing false
+45-LDU gaps after rotation. A visually closed source model does not authorize
+nearest-endpoint shortcuts. Keep unresolved connections explicit until mesh
+measurements and route-overlay views agree; current acceptance is recorded in
+`TASKS-BEDROCK-ADDON.md`.

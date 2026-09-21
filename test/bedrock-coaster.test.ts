@@ -1,0 +1,135 @@
+import { describe, expect, it, vi } from 'vitest';
+import { coasterCartAssets, coasterRuntimeConfig, coasterScript } from '../web/src/engine/bedrock-coaster.js';
+import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
+import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
+import { BlockGrid } from '../src/schem/types.js';
+import { extractFile } from '../web/src/engine/zip-utils.js';
+import { host } from './_placement-host.js';
+
+function rideHost(route: CoasterRoute) {
+  const properties = new Map<string, unknown>([
+    ['craftmatic:coaster_origin', { x: 100, y: 64, z: 200 }],
+    ['craftmatic:coaster_rotation', 0], ['craftmatic:coaster_scale', 1], ['craftmatic:coaster_route', 0],
+  ]);
+  const rider = { id: 'rider1', onScreenDisplay: { setActionBar: vi.fn() } };
+  const riders: unknown[] = [rider];
+  let loaded = true, removed = false;
+  const entity: any = {
+    id: 'cart1', getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
+    setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
+    setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ x: 0, y: 0 }),
+    getComponent: () => ({ getRiders: () => riders, ejectRiders: () => { riders.length = 0; } }),
+  };
+  entity.tryTeleport = vi.fn((position: unknown, options: unknown) => { entity.teleport(position, options); return true; });
+  entity.dimension = { getBlock: () => loaded ? {} : undefined };
+  const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' && !removed ? [entity] : [] }) };
+  let tick = () => {};
+  const system = { runInterval: (callback: () => void) => { tick = callback; } };
+  const script = coasterScript(coasterRuntimeConfig('craftmatic:test_cart', [route]));
+  const start = () => new Function('world', 'system', script.replace(/^import .*;\n/, ''))(world, system);
+  start();
+  return { entity, properties, riders, rider, start,
+    run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
+    setLoaded: (value: boolean) => { loaded = value; }, remove: () => { removed = true; },
+  };
+}
+
+const straight: CoasterRoute = { label: 'Measured track', points: [[0, 0, 0], [10, 0, 0]], closed: false, maxSegmentLength: 10 };
+
+describe('serialized coaster runtime', () => {
+  it('waits for boarding, follows distance and stops without a rider', () => {
+    const h = rideHost(straight);
+    h.run(40); expect(h.entity.teleport).not.toHaveBeenCalled();
+    h.run(1); expect(h.entity.teleport.mock.calls[0][0]).toEqual({ x: 100.2, y: 64, z: 200 });
+    h.riders.length = 0; h.run(50); expect(h.entity.teleport).toHaveBeenCalledTimes(1);
+  });
+  it('uses the placement origin, yaw and size together without a constant lift', () => {
+    const h = rideHost({ ...straight, points: [[2, 1, 3], [12, 1, 3]] });
+    h.properties.set('craftmatic:coaster_rotation', 90); h.properties.set('craftmatic:coaster_scale', 4);
+    h.run(41);
+    const at = h.entity.teleport.mock.calls[0][0];
+    expect(at.x).toBeCloseTo(88); expect(at.y).toBe(68); expect(at.z).toBeCloseTo(208.2);
+  });
+  it('follows vertical track at lift speed without inventing horizontal movement', () => {
+    const h = rideHost({ ...straight, points: [[0, 0, 0], [0, 10, 0]] });
+    h.run(41); expect(h.entity.teleport.mock.calls[0][0]).toEqual({ x: 100, y: 64.075, z: 200 });
+    expect(h.entity.setProperty).toHaveBeenCalledWith('craftmatic:track_pitch', -90);
+  });
+  it('pauses at an unloaded chunk without advancing distance, then resumes', () => {
+    const h = rideHost(straight); h.setLoaded(false); h.run(60);
+    expect(h.entity.teleport).not.toHaveBeenCalled(); expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
+    h.setLoaded(true); h.run(1); expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(0.2);
+  });
+  it('reverses an open route at its measured endpoint; never wraps the gap', () => {
+    const h = rideHost(straight); h.properties.set('craftmatic:coaster_distance', 9.95); h.run(41);
+    expect(h.entity.teleport.mock.calls[0][0].x).toBe(110);
+    expect(h.properties.get('craftmatic:coaster_direction')).toBe(-1);
+    h.run(41); expect(h.entity.teleport.mock.calls[1][0].x).toBeCloseTo(109.8);
+  });
+  it('persists progress across a script reload and retires removed carts', () => {
+    const h = rideHost(straight); h.run(45);
+    expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(1);
+    h.start(); h.run(41); expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(1.2);
+    h.remove(); h.run(40); expect(h.entity.teleport).toHaveBeenCalledTimes(6);
+  });
+  it('does not move a summoned cart with no placement frame', () => {
+    const h = rideHost(straight); h.properties.delete('craftmatic:coaster_origin'); h.run(60);
+    expect(h.entity.teleport).not.toHaveBeenCalled();
+    expect(h.riders).toHaveLength(0);
+  });
+  it('holds distance after a failed teleport and resumes at the same next sample', () => {
+    const h = rideHost(straight); h.entity.tryTeleport.mockReturnValueOnce(false); h.run(41);
+    expect(h.entity.teleport).not.toHaveBeenCalled(); expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
+    h.run(1); expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(0.2);
+  });
+  it('rotates heading consistently with the placed track', () => {
+    for (const rotation of [0, 90, 180, 270]) {
+      const h = rideHost(straight); h.properties.set('craftmatic:coaster_rotation', rotation); h.run(41);
+      const yaw = h.entity.teleport.mock.calls[0][1].rotation.y * Math.PI / 180;
+      const position = h.entity.teleport.mock.calls[0][0];
+      // Check facing against actual movement, not a duplicated yaw formula.
+      expect(-Math.sin(yaw)).toBeCloseTo((position.x - 100) / 0.2);
+      expect(Math.cos(yaw)).toBeCloseTo((position.z - 200) / 0.2);
+    }
+  });
+});
+
+describe('coaster pack assets', () => {
+  it('initializes the cart route frame through the serialized placement lifecycle', async () => {
+    const h = host({ stem: 'coaster_frame', label: 'Ride', width: 12, height: 4, length: 8, tiles: [],
+      actors: [{ typeId: 'craftmatic:ride', label: 'Ride', x: 3, y: 2, z: 4, coasterRouteIndex: 0 }] });
+    await h.open({ selection: 1 }, { canceled: true });
+    await h.open({ selection: 5 }, { selection: 0 }); await h.flush(4000);
+    const cart = h.spawned.find(spawn => spawn.typeId === 'craftmatic:ride')!;
+    expect(cart).toBeDefined();
+    expect(cart.entity.getDynamicProperty('craftmatic:coaster_origin')).toEqual({ x: 100, y: 64, z: 200 });
+    expect(cart.entity.getDynamicProperty('craftmatic:coaster_scale')).toBe(1);
+    expect(cart.entity.getDynamicProperty('craftmatic:coaster_route')).toBe(0);
+  });
+  it('emits rideable non-gravity cart with synced visual pitch and scale groups', () => {
+    const assets = coasterCartAssets('craftmatic:ride');
+    const entity = (assets.behavior as any)['minecraft:entity'];
+    expect(entity.components['minecraft:physics']).toEqual({ has_gravity: false, has_collision: false });
+    expect(entity.description.properties['craftmatic:track_pitch'].client_sync).toBe(true);
+    expect(entity.component_groups['craftmatic:size_400']).toBeDefined();
+  });
+  it('scales cart geometry, collision and seat at export before applying wand size', () => {
+    const assets = coasterCartAssets('craftmatic:ride', 4);
+    const entity = (assets.behavior as any)['minecraft:entity'];
+    expect(entity.components['minecraft:collision_box'].width).toBe(2.6);
+    expect(entity.components['minecraft:rideable'].seats.position).toEqual([0, 1.4, 0]);
+    expect(assets.geometry['minecraft:geometry'][0]!.bones[0]!.cubes[0]!.size).toEqual([40, 8, 56]);
+    expect(entity.component_groups['craftmatic:size_400']['minecraft:collision_box'].width).toBe(10.4);
+  });
+  it('packages the runtime and source-frame route only for coaster-enabled exports', async () => {
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [straight] });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const decode = async (name: string) => new TextDecoder().decode(await extractFile(buffer, name));
+    expect(await decode('Craftmatic_coaster_BP/scripts/main.js')).toContain("import './coaster.js'");
+    expect(await decode('Craftmatic_coaster_BP/scripts/coaster.js')).toContain('Measured track');
+    const placement = await decode('Craftmatic_coaster_BP/scripts/placement.js');
+    const config = JSON.parse(/const CONFIG = (\{[\s\S]*?\});\n/.exec(placement)![1]!);
+    expect(config.actors.find((actor: any) => actor.coasterRouteIndex === 0)).toMatchObject({ x: 0, y: 0, z: 0 });
+  });
+});

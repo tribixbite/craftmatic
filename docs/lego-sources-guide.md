@@ -1513,3 +1513,28 @@ Mecabricks and 251 window files but lacks full hash provenance. Targeted hardene
 regrades and visual review are still required, not broad application.
 Lower aggregate defect counts alone are insufficient, and scalar acceptance
 does not replace visual review.
+
+### Studio-only track geometry: 10303 (2026-09-21)
+
+The six absent `80564` loop-quarter tracks were not absent from the author's
+model: `IO/10303.io` embeds their exact meshes in `model2.ldr`. The flattened
+`IOModel2V2` output had discarded those definitions. The converter now retains
+placed library-missing definitions and unresolved children. Library-resolved
+children must have an equivalent local frame; otherwise conversion reports an
+unsafe dependency instead of silently swapping geometry. Existing corrected
+placements remain unchanged. Studio colours are normalized (`-1` main colour,
+`-2` edge colour) and explicit colours use the model's established mapping.
+
+The viewer also needs to recognize Studio's explicit non-submodel,
+non-assembly DAT headers as terminal parts, and normalize inherited `-1` to
+LDraw `16`. Without the first fix it dissolves a mesh into child references;
+without the second it restores the loop in grey instead of gold. Both defects
+were caught in the actual render, not merely by counting resolved filenames.
+
+The accepted repaired source has 3,808 unchanged placements, all six `80564`
+instances, and zero missing parts (also recovering hair `43753` and two
+`x346` teeth). Gold closed-loop views and hashes are under
+`output/pipeline-2026-09-21/10303-embedded-preserve-final/`; the original is
+backed up in `10303-apply-backup/`. Publication status and ride-path acceptance
+remain in `TASKS-BEDROCK-ADDON.md`; geometry recovery does not prove a rideable
+closed circuit.

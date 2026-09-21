@@ -17,15 +17,25 @@ Viewer parser repair: Studio DATs explicitly marked `IsSubModel False` and
 `IsAssembly False` remain terminal meshes; official Part/Subpart definitions
 do too, while shortcuts still expand. Studio inherited colour `-1` normalizes
 to LDraw `16` for geometry and nested placements. Parser/mesh regressions pass.
-The first repaired render restored 3808 placements and zero missing parts;
-root caught grey recovered rails, so final golden-colour visual acceptance is
-still required. Evidence: `10303-embedded-preserve-after-parser/` under the
-round output directory. Do not publish the earlier grey-rail candidate.
+Final golden-colour render accepted: 3808 placements, zero missing parts,
+both loops closed. Evidence: `10303-embedded-preserve-final/` under the round
+output directory. Parser commit `caff7cff` is deployed; CI `35630253885` and
+deployment `35630254112` passed. Converter commit `922de02c` is local to clego
+(do not push its divergent master). Its 4 tests pass; unsafe embedded child
+frames are rejected instead of substituted.
 
-- [ ] `door_implementation`: preserve unresolved embedded geometry and its
-  dependency closure in the clego converter, with tests and isolated repaired
-  10303 candidate. Compare fixed views before applying/publishing; keep existing
-  frame corrections for library-resolved moulds. No wrong-mould alias.
+The repaired source is applied locally at `IOModel2V2/10303.ldr`, SHA256
+`df3b47c3c9f27623eaa1d8ab40fdf9a0938035cab5d5ffdaac20b55f31676b38`;
+original exact backup: `output/pipeline-2026-09-21/10303-apply-backup/10303.ldr`.
+**Publication is blocked by auto-review pending the user's exact public R2
+approval**, requested asynchronously. Do not bypass: intended command is
+`python sync_models_r2.py --only IOModel2V2/10303.ldr --no-index` in clego.
+Original/public pre-repair SHA256:
+`b51c0b67042cc31a0dbf371f3bf1d48ddbd40b308d1f5b6e2b616785a2b10656`.
+
+- [ ] `door_implementation`: production local-upload render/export verification
+  of the repaired candidate; then route overlay against actual rail meshes once
+  profiles stabilize. Source preservation/colour repair is complete above.
 - [ ] `set_audit`: true track centreline profiles and route extraction. The
   first profile implementation has mesh-measured **endpoints** but interpolated
   interiors; root rejected these as exact ride geometry. Measure the actual
@@ -36,19 +46,29 @@ round output directory. Do not publish the earlier grey-rail candidate.
   and `test/bedrock-coaster.test.ts`. New grey ride cart follows 3D route with
   upright rider; open paths shuttle, closed paths circulate. Placement stores
   origin/yaw/size; Undo removes carts; unloaded chunks/failed teleports pause.
-  Runtime/route tests currently 26 pass and web typecheck passes, but geometry
-  profiles and actual Minecraft rider retention are NOT accepted yet.
+  Runtime/pure-path tests: 20 pass. Regression suite excluding only the actively
+  edited track-profile test: 1829 pass, 26 skip; both typechecks and web build
+  pass. Geometry profiles and actual Minecraft rider retention are NOT accepted.
 - [ ] `creator`: pure `coaster-path.ts`/tests done (strict measured sample-gap
   guard, finite validation, conservative graph connections, serializable
-  sampler). Now sole device owner for import-readiness diagnosis; geometry
-  agent does not drive phone. No root/USB/reboot/data-clear/world overwrite.
+  sampler). Now sole device owner for riding in the NEW isolated `CoasterQA`
+  world (`IG8Iet9-XIU=`), using `coaster-qa-20260921.mcaddon`. Creation succeeded
+  after correcting screenshot-scaled tap coordinates; ordinary wireless
+  reconnect/readback and BP/RP activation verification are in progress. Existing
+  worlds stay untouched. No root/USB/reboot/data-clear/world overwrite.
 - [ ] Build real repaired 10303 through `_playable_ref.ts`, validate archive,
   inspect exported track/cart route visually, exercise riding in Minecraft,
   update guides, commit own changes, then publish/verify deployed functionality.
 
-Coaster code is uncommitted; do not mistake tests of route math for a completed
-or device-verified ride. Root alone stages/commits. Existing unrelated corpus
+Runtime and pure-path foundation are tested separately from the still-unaccepted
+profile extraction/shared-pipeline wiring. Do not mistake route-math tests for a
+completed or device-verified ride. Root alone stages/commits. Existing unrelated corpus
 dirty files and untracked `output/pdf-placement-diagnosis` remain untouched.
+Real repaired model builds through `_playable_ref.ts`; current interim pack
+`output/bedrock-entity-qa/10303-coaster-seats-20260921.mcaddon` passes archive
+validation (15 clients, 114 geometries, 129 textures), but its fragmented
+routes are diagnostic only. This gate found/fixed missing shared manual-seat
+assets when a shell has no inferred seats; regression in building-shell test.
 
 ## Prior round — deployed verification and playable accuracy
 
@@ -71,11 +91,14 @@ Current lanes (serialize staging/commits through the main agent):
 - [ ] Work from the completed 39-set source/freshness audit at
   `docs/set-quality-audit-2026-09-21.md`; rendering/export/in-game coverage is
   separate from the now-confirmed production source hashes.
-- [ ] Recover device acceptance over wireless ADB. Only `set_audit` drives
-  the phone; retry reached Android's chooser and selected Minecraft/Just once,
-  but returned to Files with no import result. Import is NOT verified.
-  Cleanup restored Minecraft and verified its foreground focus. Do not restart the
-  device/framework or alter existing worlds to work around transport failure.
+- [ ] Recover device acceptance over wireless ADB. Creator import is verified
+  (2026-09-21): with Minecraft foreground, the explicit content-URI VIEW
+  command below created fresh `Creator—Pl` behavior/resource folders at 12:58.
+  Their manifests identify `Creator — Playable` and matching UUIDs
+  `6cfa2e48-350d-478d-8fb0-4713d9c5ac9f` /
+  `94bd65f4-7693-4e29-9fd6-5d39fbe6abdd`, version `[2,694,28785]`.
+  No world was opened or changed. Activation and in-world acceptance remain
+  open; do not restart the device/framework or alter existing worlds.
 
 Current integration gates (offline implementation ready; device acceptance open):
 
@@ -95,11 +118,14 @@ Current integration gates (offline implementation ready; device acceptance open)
   SHA256 `f9b624e7ca7a3605caf5622e51b540e76303e3aac81e7c8974a2bfe4f28a38b7`:
   459 library cuboids, no unresolved parts; structural validator passes.
   Phone Download now also contains these committed bytes under
-  `000-creator-wand-490a5746.mcaddon`. Latest retry selected Minecraft and Just
-  once (both taps exit 0), then returned to Files at Internal storage > Download.
-  No import confirmation, installed-pack proof, or QA world; existing worlds
-  and activations were not modified. Wireless transport still intermittently
-  reports `closed`/`offline`; do not call an exit-0 chooser tap an import pass.
+  `000-creator-wand-490a5746.mcaddon`. Verified import command (with Minecraft
+  foreground): `C:/Android/Sdk/platform-tools/adb.exe -s 192.168.0.122:5555
+  shell am start -n com.mojang.minecraftpe/.MainActivity -a
+  android.intent.action.VIEW -d
+  content://com.android.externalstorage.documents/document/primary%3ADownload%2F000-creator-wand-490a5746.mcaddon
+  -t application/octet-stream --grant-read-uri-permission`. Android reports
+  delivery to the existing top-most Minecraft activity; verify installed pack
+  folders/manifests, rather than treating that exit code alone as success.
 - Isolated Chrome CDP: `http://127.0.0.1:9227`, last PID 37936; verify before
   reuse. Run `.mjs` probes with Node, not Bun's broken CDP WebSocket path.
   Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means running.
