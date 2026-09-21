@@ -80,7 +80,11 @@ Current integration gates (offline implementation ready; device acceptance open)
   One-file `--dry-run --only MecabricksLDR/75397.ldr --no-index` passes.
   Actual R2 upload was blocked by auto-review: request explicit corpus-upload
   approval before retrying. No upload occurred; production/index still name
-  original `5cfd6121f256…`. Other visual gates remain. 42639/42663 show
+  original `5cfd6121f256…`. 76286 also passed fixed front/iso/left and closeup
+  review (`76286-{before,after}-reviewed/`): only 41879b headwear moves 2.25 LDU
+  down, other poses/ship unchanged. Candidate SHA256
+  `51faf5b8e717bb01b0b855c20f53b3e9081a160d407c9e587ff0adf43522d5b3`
+  is NOT applied. 76435/80049 visual gates remain. 42639/42663 show
   no improvement; 76269 rejected because float rises 45→50 (big 35→40).
 - Full board and both legacy A/B jobs completed. Isolated candidate index
   `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
