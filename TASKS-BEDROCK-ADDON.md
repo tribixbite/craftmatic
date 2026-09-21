@@ -4,11 +4,26 @@ This file holds open work and the evidence needed to resume. Completed history
 belongs in `git log`, `docs/lego-sources-guide.md`, and
 `docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## Active round — 2026-09-20, user: “do all”
+## Active round — 2026-09-21, deployed verification and playable accuracy
 
-Local implementation and validation only. **No push, R2 publication, tag,
-release, or history rewrite is authorized.** Do not promote a model merely
-because an aggregate metric improves.
+User explicitly authorizes pushing and deployed-site verification; wireless
+ADB is available and USB is not a prerequisite. Prior tested Craftmatic HEAD
+`dea25691` was pushed to `origin/main`; CI/deployment verification is pending.
+No tags, destructive history rewrite, world deletion, or app-data reset.
+Do not promote a model merely because an aggregate metric improves.
+
+Current lanes (serialize staging/commits through the main agent):
+
+- [ ] Finish standalone minifig creator: library, runtime, web/CLI export,
+  persistence, and real Minecraft UI/geometry tests. Owner: `creator`.
+- [ ] Fix imported doors/furniture and offer measured usable door scale in the
+  placement wand, including 21060; do not assume 400% fits. Owner: `doors`.
+- [ ] Audit every user-requested set, separating source placement/floating
+  faults from rendering/export/interaction gaps. Owner: `set_audit`; report
+  `docs/set-quality-audit-2026-09-21.md`. Review overnight corpus results first.
+- [ ] Push tested changes, watch CI/deploy, then verify the actual supported
+  host `craftmatic.click` and imported packs over wireless ADB. Main coordinates
+  the device lane; only one agent may drive the phone at a time.
 
 Read next: sources guide §6b, §8b–8e, §9, §10; add-on guide's final sections.
 Evidence root: `output/corpus-improvements-2026-09-20/`.
@@ -35,7 +50,7 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   `$env:CLEGO_LDRAW_LIB='upstream'; python -B -u geograde/_ab_dirs.py C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-touched.txt C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/trials/window-dbixv2 C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-ab-resume.json 2`.
   Substitute the Mecabricks touched list/trial root and a new Mecabricks output
   name for that cohort. Final A/B only nominates candidates; targeted hardened
-  regrade and visual review remain required, and no corpus apply is authorized.
+  regrade and visual review remain required before any corpus apply/publication.
   Accept only improved, nonregressing, pose-reviewed files, with exact backups
   and before/after hashes. No archive recovery on these generated classes.
   `figure-preserve-proof-ab.json` is exploratory (earlier build, limited
