@@ -456,7 +456,15 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
 - [ ] Four rotation abstentions: 35186×81, 4526×14, 35473×5, 5443×2.
   Strict LXF cohort remains ~41% Technic / ~65% System; flex synthesis and
   equivalent-pose scoring are open (`output/lxf-gt/strict-hybrid_xml_first.json`).
-- [ ] Missing moulds: 28710, 30426, x346.
+- [x] Missing moulds, researched 2026-09-21: **`x346` is now mapped to `41669`**
+  (LEGO internal design id vs LDraw's number; the mesh 10303 embeds is
+  byte-identical to `41669.dat`), covering ~450 placements in ~92 corpus files.
+  `28710` has no BrickLink or LDraw catalogue entry at all and its only corpus
+  use is ONE placement in 76286 replicated across five pipeline-stage copies —
+  reads like a stray token, not a mould. `30426` is a cloth/cape element
+  (Rebrickable calls it "Special Mantle"), 22 refs across ~20 distinct sets,
+  almost all under `_MecabricksLDR_prev/`; LDraw ships no rigid equivalent, so
+  it stays unmapped rather than guessed. Do not invent geometry for either.
 - [ ] Mini-dolls are excluded from minifig held-part classification but not rigged.
   76419's microfigure auto-scales 2×, but its four-part torso group is not an NPC.
 - [ ] Grader false-positive work: wheel/tyre, hand/weapon, axle/hole encased
