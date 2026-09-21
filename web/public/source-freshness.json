@@ -1,24 +1,24 @@
 {
- "generated": "2026-09-14 13:06:07",
+ "generated": "2026-09-21 13:03:39",
  "model_index": {
   "source": "https://craftmatic.click/lego-models-index.json",
-  "generated": "2026-09-09",
+  "generated": "2026-09-20",
   "sets": 10169
  },
  "catalog": {
-  "sets": 28327,
-  "buildable": 16651
+  "sets": 28360,
+  "buildable": 16652
  },
  "channels": {
-  "dbix_skulist": 1959,
+  "dbix_skulist": 1960,
   "omr_sets": 1419
  },
  "sourceless": {
-  "total": 6166,
-  "recent": 475,
+  "total": 6167,
+  "recent": 476,
   "harvestable_dbix": 0,
   "harvestable_omr": 1,
-  "no_known_channel": 6165
+  "no_known_channel": 6166
  },
  "harvest_dbix": [],
  "harvest_omr": [
@@ -161,7 +161,6 @@
   "30725-1 Spider-Man vs. Anti-Venom Heist (2026, 31p)",
   "30732-1 Alex's Campfire Conflict (2026, 31p)",
   "6644842-1 Poké Ball Smart Tag Case (2026, 31p)",
-  "L0002261-1 Raptor and Volcano (2026, 31p)",
   "6636931-1 First Friendship (2026, 30p)",
   "6644880-1 Chopper's Hat (2026, 30p)",
   "6557640-13 Race Car (2026, 29p)",
@@ -171,6 +170,7 @@
   "5010100-1 Buildable Ruler with Construction Worker Minifigure (2026, 28p)",
   "9781837251759-1 City: Let's Fly (2026, 28p)",
   "L0002226-1 Beach Quad (2026, 28p)",
+  "L0002261-1 Raptor and Volcano (2026, 28p)",
   "L0002272-1 Bane in Prison (2026, 27p)",
   "LCS6301YDE-1 Star Wars: Stories from the Galaxy (2026, 27p)",
   "562601-1 Baking Set and Bunny (2026, 26p)",
@@ -206,6 +206,7 @@
   "L0002279-1 Iron Patriot (2026, 17p)",
   "40973-1 Crocs Multi (2026, 16p)",
   "L0002198-1 Tyr (2026, 16p)",
+  "L0002266-1 Corgi and Ice Cream Stand (2026, 16p)",
   "LCS6003YDE-1 City: Space Spectacular (2026, 16p)",
   "LCS6702YDE-1 Ninjago: Dragons Rising: Ninja Training Stories (2026, 16p)",
   "112601-1 Lloyd vs. Dragonian Warrior (2026, 14p)",
@@ -223,7 +224,6 @@
   "9781837251766-1 Ninjago: Dragons Rising: Dragon Powers (2026, 11p)",
   "9781837251773-1 Star Wars: Grogu's Adventures (2026, 11p)",
   "L0002200-1 Dragon Jay (2026, 11p)",
-  "L0002201-1 Dragon Lloyd (2026, 11p)",
-  "L0002204-1 Kai - Draconus Form (2026, 11p)"
+  "L0002201-1 Dragon Lloyd (2026, 11p)"
  ]
 }
