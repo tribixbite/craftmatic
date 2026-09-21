@@ -8,7 +8,8 @@ belongs in `git log`, `docs/lego-sources-guide.md`, and
 
 User explicitly authorizes pushing and deployed-site verification; wireless
 ADB is available and USB is not a prerequisite. Prior tested Craftmatic HEAD
-`dea25691` was pushed to `origin/main`; CI/deployment verification is pending.
+`dea25691` was pushed to `origin/main`; CI `35560020439` and deployment
+`35560020448` passed. Browser render/export acceptance is still pending.
 No tags, destructive history rewrite, world deletion, or app-data reset.
 Do not promote a model merely because an aggregate metric improves.
 
@@ -24,6 +25,35 @@ Current lanes (serialize staging/commits through the main agent):
 - [ ] Push tested changes, watch CI/deploy, then verify the actual supported
   host `craftmatic.click` and imported packs over wireless ADB. Main coordinates
   the device lane; only one agent may drive the phone at a time.
+
+Current integration gates (uncommitted feature work; do not publish it yet):
+
+- `creator` owns library geometry/UI/compiler integration. Shared origin is
+  `[0,72,0]`; still verify optional None, inherited base-vs-print attribution,
+  numeric assembled poses and animations. Earlier starter packs are provisional.
+- `set_audit` owns the rewritten creator runtime and behavior-host tests.
+  Six tests now exercise code colour IDs, atomic import, renamed saves,
+  cross-dimension cap/owned copies, cleanup, busy retry and hotbar opening.
+- `doors` owns placement doors/manual seats and sole phone access. Offline
+  tests cover actual Bedrock permutations, size recommendation, rotation and
+  persisted seat anchors; actual device acceptance remains required.
+- Working ADB binary: `C:/Android/Sdk/platform-tools/adb.exe`; wireless serial
+  `192.168.0.122:5555`. A missing agent PATH is not a transport failure.
+- Existing isolated Chrome CDP: `http://127.0.0.1:9227`, PID 14380; Vite 4000,
+  PID 33092. Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means
+  still running, not an empty successful exit. Root stopped only duplicate
+  probe PIDs 35880/18792; browser/server and all files were preserved.
+- Fresh 39-set audit: 12 PASS / 27 DEFECTIVE, all full hashes match. Deployed
+  labels remain 13/26: 10326's four window defects newly fail the gate.
+- Exact-byte repair evidence under `output/pipeline-2026-09-21/`: 75397
+  figures 8→2; 76286 2→1; 76435 3→0; 80049 10→7, other measured metrics
+  unchanged. None applied: fixed-pose visual gates remain. 42639/42663 show
+  no improvement; 76269 rejected because float rises 45→50 (big 35→40).
+- Full board and both legacy A/B jobs completed overnight. The old live-job
+  snapshots below are historical, not running PIDs. Isolated candidate index
+  `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
+  20,764 entries, 8,936 verified / 11,828 defective; investigate four dropped
+  stale grades and ranking changes before adoption. Live index untouched.
 
 Read next: sources guide §6b, §8b–8e, §9, §10; add-on guide's final sections.
 Evidence root: `output/corpus-improvements-2026-09-20/`.
