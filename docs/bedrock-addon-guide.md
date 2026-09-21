@@ -1518,18 +1518,20 @@ version bumped) replaced the installed ones in world 919:
 
 ### Crowded LOD follow-up (2026-09-20; evidence `output/corpus-improvements-2026-09-20/device/REPORT.md`)
 
-The missing crowded case is now measured with one Hogwarts 71043, one Milano
+The crowded distance transition was measured with one Hogwarts 71043, one Milano
 76286 and one Great Hall 76435 main actor in the same isolated scene. All three
 roots were 20–25 blocks from the near camera: **71,884 full-detail cuboids**
 gave 16.72 ms median / 24.74 mean / 33.40 p90 over 62 frames. The identical
 actors from an 80-block camera drew **3,160 hull cuboids** and held 16.67 /
 16.67 / 16.74 ms. Active definitions were 80,210 cuboids in both views;
-nativePss (426 vs 416 MB) and GL mtrack (362.5 vs 361.8 MB) stayed within
-run noise. Thus LOD removes the crowded scene's double-frame spikes; it still
-does not save resident memory. The chalet repeat was aborted before world load
+nativePss was 426 vs 416 MB and GL mtrack 362.5 vs 361.8 MB. This is **not a
+controlled LOD performance A/B**: distance changes screen coverage, and 62
+frames is a short sample. Keep the same-camera full-versus-hull gate open;
+do not attribute the observed frame-time difference to LOD alone or infer a
+memory effect. The chalet repeat was aborted before world load
 after repeated wireless-ADB chat-input drops, so the previous 0/7 vs 1/7 result
-remains the only evidence. Both worlds' pack JSON and the starting Play screen
-were restored and SHA-256 verified.
+remains the only evidence. Both worlds' pack JSON was restored and SHA-256
+verified; the app was returned to its starting Play screen.
 
 ### The wand's size factor multiplied a constant lift (fixed 2026-09-20; device PASS at 100/200/400 %)
 

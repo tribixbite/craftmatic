@@ -17,8 +17,9 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
       unrelated placements. Default OFF; no corpus promotion. Next: avoid
       reallocating the existing inventory when adding a torso.
 - [ ] Refresh the complete quality board and enable the calibrated window gate.
-- [ ] Run a clean-world chalet roaming experiment on Pixel; the crowded LOD
-      A/B is complete (evidence below).
+- [ ] Run controlled same-camera crowded LOD A/B and a clean-world chalet
+      roaming experiment. Near/far transition measured, but camera distance
+      confounds LOD's effect; device state restored after flaky ADB input.
 - [ ] Reconcile stale tracker claims, run checks, commit owned changes. No push,
       publish, or history rewrite. Existing clego dirty files remain user-owned.
 
@@ -36,9 +37,11 @@ Craftmatic checks: both typechecks pass; full Vitest suite 1,761 passed /
 26 skipped (118 passed files / 1 skipped), log `craftmatic-tests.log` in the
 round evidence directory. Missing-torso unit tests: 13 passed.
 Full upstream board running in `output/corpus-improvements-2026-09-20/board/`;
-log `board-run.log`, 20,764 sources. After corpus applies, resume hash-aware
+logs `board-run.log` and `board-resume.log`, 20,764 sources. Current pool is
+16 workers with `OPENBLAS_NUM_THREADS=1`; 763 saved rows survived restart.
+After corpus applies, resume hash-aware
 grading before reporting/rebuilding. Commands from `C:/git/clego`:
-`python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 8 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
+`python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 16 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
 (set `CLEGO_LDRAW_LIB=upstream`), then
 `python build_model_index.py --scoreboard C:/git/craftmatic/output/corpus-improvements-2026-09-20/board/scoreboard_full.json --out C:/git/craftmatic/output/corpus-improvements-2026-09-20/candidate-index.json`.
 
@@ -144,6 +147,10 @@ Done: culling PASS at 100–400 %, collider clear PASS, ceiling 487,856 cuboids
 survived (budget 480k), LOD switch verified (26–28 blocks), **Milano grounding PASS at 100/200/400 %**
 with `76286-v3` (`cd1954c1`; `round-2026-09-20/GROUNDING-RESULT.md`).
 
+- [ ] **Controlled crowded LOD test:** three actors at 20–25 blocks measured
+      near/full p90 33.40 ms, far/hull 16.74 ms (62 frames each). Camera distance
+      and screen coverage differ, so repeat full/hull at one fixed camera with
+      longer alternating samples. `output/corpus-improvements-2026-09-20/device/REPORT.md`.
 - [ ] **Chalet roaming**: collision height 0.95 freed 1 of 7 (control 0 of 7,
       `--figure-collision-height`, `811f4fb0`). The 2026-09-20 follow-up was
       aborted before world load because wireless ADB repeatedly dropped during

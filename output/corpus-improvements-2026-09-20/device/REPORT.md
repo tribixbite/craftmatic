@@ -4,7 +4,7 @@ Date: 2026-09-20. Device: Pixel 8 Pro at `192.168.0.122:5555`, Minecraft
 Bedrock 1.26.51. No reboot, app-data clear, pack import, or network publishing
 was performed.
 
-## Crowded LOD A/B — PASS
+## Crowded near/far transition — observed; controlled A/B still open
 
 World `919` loaded the already-installed LOD builds for Hogwarts 71043,
 Milano 76286, and Great Hall 76435. One main actor of each was summoned at
@@ -33,11 +33,15 @@ flaky transport retried the Hogwarts summon and briefly produced three
 coincident Hogwarts actors. Those copies were coordinate-bounded, killed, and
 replaced by one actor before the reported A/B.
 
-Result: the hull does not change resident definitions or materially change
-memory, but it removes the crowded near scene's double-frame spikes. Near has
-a 33.40 ms p90 and 24.74 ms mean; far is pinned to one refresh interval at
-16.67/16.74 ms mean/p90. This directly repeats the previously missing crowded
-case without the prior round's 66–108-block actor spacing.
+Observation: resident definitions are unchanged. Near has a 33.40 ms p90 and
+24.74 ms mean; far measured 16.67/16.74 ms mean/p90. This closes the scene-layout
+gap (three nearby actors), not the controlled performance gate: changing camera
+distance also changes screen coverage, so the difference cannot be attributed
+to hull LOD alone. Sixty-two frames is also too short to establish steady-state
+performance or a memory effect. Repeat with identical actors, camera, and
+screen coverage while toggling full geometry versus hulls, using longer
+alternating samples. The memory figures above are observations, not proof of
+an improvement or equivalence.
 
 Evidence:
 
