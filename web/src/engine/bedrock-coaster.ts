@@ -96,6 +96,7 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
 function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath) {
   const tracked = new Map<string, any>();
   let ticks = 0;
+  let lastErrorLogTick = -200;
   const key = 'craftmatic:coaster_';
   const warn = (riders: any[], message: string) => {
     for (const rider of riders) try { rider.onScreenDisplay?.setActionBar(message); } catch {}
@@ -114,9 +115,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     for (const [id, state] of tracked) {
       const entity = state.entity;
       let riders: any[] = [];
+      let stage = 'read ride state';
       try {
         const rideable = entity.getComponent('minecraft:rideable');
         riders = rideable?.getRiders() ?? [];
+        stage = 'read route placement';
         const routeIndex = entity.getDynamicProperty(key + 'route');
         const route = Number.isInteger(routeIndex) ? config.routes[routeIndex as number] : undefined;
         const origin = entity.getDynamicProperty(key + 'origin');
@@ -133,6 +136,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const direction = entity.getDynamicProperty(key + 'direction') === -1 ? -1 : 1;
         // Fixed real-world speed, independent of wand size. Vertical ascents
         // use a slower lift speed; a bounded downhill boost is not a physics sim.
+        stage = 'sample current track';
         const here = sample(route.path, distance);
         const slope = here.tangent[1] * direction;
         const speed = slope > 0.2 ? 1.5 : slope < -0.2 ? 6 : 4;
@@ -144,6 +148,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           nextDirection = -direction;
           state.wait = 40;
         }
+        stage = 'sample next track';
         const at = sample(route.path, next);
         const angle = rotation * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
         const p = at.position;
@@ -151,9 +156,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           y: origin.y + p[1] * scale, z: origin.z + (p[0] * s + p[2] * c) * scale };
         // Never teleport into an unloaded region. Holding distance allows a
         // later tick to resume without skipping track or abandoning the rider.
+        stage = 'check next chunk';
         let loaded = false;
         try { loaded = !!entity.dimension.getBlock({ x: Math.floor(position.x), y: Math.floor(position.y), z: Math.floor(position.z) }); } catch {}
         if (!loaded) { warn(riders, 'Coaster paused: next track chunk is not loaded'); continue; }
+        stage = 'orient cart';
         const tangent = at.tangent.map(value => value * direction);
         const horizontal = Math.hypot(tangent[0]!, tangent[2]!);
         const worldTx = tangent[0]! * c - tangent[2]! * s;
@@ -173,13 +180,17 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const yawZ = -ux * Math.sin(yawRad) + uz * Math.cos(yawRad);
         const localY = uy * Math.cos(pitchRad) + yawZ * Math.sin(pitchRad);
         const roll = Math.atan2(-localX, localY) * 180 / Math.PI;
+        stage = 'teleport cart';
         if (!entity.tryTeleport(position, { rotation: { x: 0, y: yaw }, keepVelocity: false, checkForBlocks: false })) {
           warn(riders, 'Coaster paused: movement could not complete'); continue;
         }
+        stage = 'save cart progress';
         entity.setDynamicProperty(key + 'distance', next);
         entity.setDynamicProperty(key + 'direction', nextDirection);
+        stage = 'animate cart';
         entity.setProperty('craftmatic:track_pitch', pitch);
         entity.setProperty('craftmatic:track_roll', roll);
+        stage = 'check rider retention';
         const retained = new Set((rideable?.getRiders() ?? []).map((rider: any) => rider.id));
         if (riders.some(rider => !retained.has(rider.id))) {
           state.wait = 40;
@@ -187,8 +198,14 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // Never force a rider back on: this may have been a deliberate dismount.
         }
         if (ticks % 20 === 0) warn(riders, `${route.label} — ${route.path.closed ? 'circuit' : 'open-track shuttle'} — sneak to dismount`);
-      } catch {
-        warn(riders, 'Coaster paused after a movement error; retrying safely');
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const boundedDetail = detail.slice(0, 160);
+        warn(riders, `Coaster paused at ${stage}: ${boundedDetail}`);
+        if (ticks - lastErrorLogTick >= 200) {
+          console.warn(`[Craftmatic coaster] ${config.typeId} ${id} at ${stage}: ${boundedDetail}`);
+          lastErrorLogTick = ticks;
+        }
         // Removed carts (Undo/re-place) must not survive as script-held state.
         tracked.delete(id);
       }

@@ -43,19 +43,22 @@ The apparent 45.25-LDU ramp gap was a sleeper-origin error: actual rail ends
 meet within 0.0385 LDU. Nine-cuboid cart overlays show wheel contact on flat and
 loop track; parallel-transport frames animate cart pitch/roll, not player roll.
 
-- [ ] Actual mounted movement, rider retention, dismount and Undo: `creator`
+- [ ] Actual mounted movement, rider retention and Undo: `coaster_device`
   owns the phone/new isolated `CoasterQA` world (`IG8Iet9-XIU=`). Cheats and
   diagnostic BP/RP are enabled only there. Existing worlds remain untouched.
   No root/USB/reboot/data-clear/world overwrite. Host tests are not device proof.
-  Current blocker: after enabling cheats and a safe app relaunch, selecting
-  CoasterQA briefly transitions then returns to the world list without an error
-  dialog. Initial helper was rejected before cheats were enabled, so no cart
-  placement/mount/motion/dismount/Undo has been observed. Inspect fresh logs;
-  do not treat a successful import or tap command as in-game acceptance.
+  CoasterQA is loaded (`coaster-qa-diagnosis-current-1600.png`); the apparent
+  world-list return was a delayed transition, not a persistent load failure.
+  Placement and mounting now observed; diagnostic ride hits generic movement
+  catch (`coaster-qa-current-1600.png`). Dismount observed in
+  `coaster-qa-dismount-1600.png`; continuous rider-carrying motion and Undo are
+  unproven. Stage/error diagnostics added; updated same-identity test pack
+  `output/bedrock-entity-qa/coaster-qa-errors-20260921.mcaddon` passes structural
+  validation, helper `/function b_5c68ec`. Import/reload then capture exact error.
+  Do not treat import/tap success as proof.
 - [ ] Implement explicit lift/transfer semantics. The main route is OPEN and
   currently shuttles; source inspection found carriage hardware but no measured
   connecting rail between station and tower top. Never invent a rail bridge.
-- [ ] Finish regression/deployment verification of automatic extraction.
 - [ ] Publish only the repaired source after the exact R2 approval above.
 
 Current real pack: `output/bedrock-entity-qa/10303-coaster-measured-final.mcaddon`,
@@ -65,7 +68,18 @@ fragmented-route packs are superseded. Focused coaster tests: 39 pass. Full
 network-enabled regression suite: 1848 pass, 26 skip; log
 `output/bedrock-entity-qa/coaster-final-tests-network.log` (restricted-network
 run had four unrelated live-service failures; network-enabled rerun passed).
-Both TypeScript checks and the production web build pass.
+Both TypeScript checks and the production web build pass. Follow-up diagnostic
+and rider-loss tests: 41 focused coaster tests pass; both typechecks pass.
+Follow-up full suite: 1847 pass, 29 skip (environment-dependent live skips),
+`output/bedrock-entity-qa/coaster-diagnostics-tests.log`.
+Implementation `13a65adf` is pushed; CI `35633747175` and deployment
+`35633747049` passed. Fresh production local-upload render/export passed:
+`output/pipeline-2026-09-21/10303-production-final-13a65adf-render/` has 3808
+source bricks and zero missing parts; sibling `-export/10303.mcaddon` is
+289772 bytes, SHA256 `22b83419288888fadb9031add4f518a037824cb036022dd49e9f58349e964047`.
+It contains one open 1066-point route (174.884724 blocks), nine cart cuboids,
+zero unresolved source parts, and no browser page errors. Public source is
+still unchanged pending the exact approval above.
 Foundation commit `3d445a9d` is deployed (CI `35631850545`, deploy `35631850715`
 passed); production repaired-source local-upload render has zero missing parts
 and its export includes the previously missing shared manual-seat assets.

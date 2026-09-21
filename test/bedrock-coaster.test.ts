@@ -18,7 +18,7 @@ function rideHost(route: CoasterRoute) {
     id: 'cart1', getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
     setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
     setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ x: 0, y: 0 }),
-    getComponent: () => ({ getRiders: () => riders, ejectRiders: () => { riders.length = 0; } }),
+    getComponent: () => ({ getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } }),
   };
   entity.tryTeleport = vi.fn((position: unknown, options: unknown) => { entity.teleport(position, options); return true; });
   entity.dimension = { getBlock: () => loaded ? {} : undefined };
@@ -95,6 +95,39 @@ describe('serialized coaster runtime', () => {
     const h = rideHost(straight); h.entity.tryTeleport.mockReturnValueOnce(false); h.run(41);
     expect(h.entity.teleport).not.toHaveBeenCalled(); expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
     h.run(1); expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(0.2);
+  });
+  it('stops after rider loss without forcing a remount and allows deliberate reboarding', () => {
+    const h = rideHost(straight);
+    h.entity.tryTeleport.mockImplementationOnce((position: unknown, options: unknown) => {
+      h.entity.teleport(position, options);
+      h.riders.length = 0;
+      return true;
+    });
+    h.run(41);
+    expect(h.rider.onScreenDisplay.setActionBar).toHaveBeenCalledWith('Coaster mount was interrupted. Reboard the cart to continue.');
+    h.run(60);
+    expect(h.riders).toHaveLength(0);
+    expect(h.entity.teleport).toHaveBeenCalledTimes(1);
+    expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(0.2);
+    h.riders.push(h.rider);
+    h.run(40);
+    expect(h.entity.teleport).toHaveBeenCalledTimes(1);
+    h.run(1);
+    expect(h.properties.get('craftmatic:coaster_distance')).toBeCloseTo(0.4);
+  });
+  it('reports bounded movement errors with their stage and throttles repeated logs', () => {
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const h = rideHost(straight);
+      h.entity.tryTeleport.mockImplementation(() => { throw new Error('movement denied ' + 'x'.repeat(200)); });
+      h.run(150);
+      expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
+      expect(log).toHaveBeenCalledTimes(1);
+      expect(log.mock.calls[0]![0]).toContain('at teleport cart: movement denied');
+      expect(h.rider.onScreenDisplay.setActionBar).toHaveBeenCalledWith('Coaster paused at teleport cart: ' + ('movement denied ' + 'x'.repeat(200)).slice(0, 160));
+      h.run(150);
+      expect(log).toHaveBeenCalledTimes(2);
+    } finally { log.mockRestore(); }
   });
   it('rotates heading consistently with the placed track', () => {
     for (const rotation of [0, 90, 180, 270]) {
