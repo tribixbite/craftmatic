@@ -33,42 +33,43 @@ approval**, requested asynchronously. Do not bypass: intended command is
 Original/public pre-repair SHA256:
 `b51c0b67042cc31a0dbf371f3bf1d48ddbd40b308d1f5b6e2b616785a2b10656`.
 
-- [ ] `door_implementation`: production local-upload render/export verification
-  of the repaired candidate; then route overlay against actual rail meshes once
-  profiles stabilize. Source preservation/colour repair is complete above.
-- [ ] `set_audit`: true track centreline profiles and route extraction. The
-  first profile implementation has mesh-measured **endpoints** but interpolated
-  interiors; root rejected these as exact ride geometry. Measure the actual
-  curved rails (especially distinct 26559/26560 and asymmetric 80564) and pin
-  evidence/deviation before accepting export. Diagnose lift connections
-  explicitly; no invented nearest-endpoint bridge.
-- [ ] Root: `bedrock-coaster.ts`, pack/placement/shared-pipeline integration
-  and `test/bedrock-coaster.test.ts`. New grey ride cart follows 3D route with
-  upright rider; open paths shuttle, closed paths circulate. Placement stores
-  origin/yaw/size; Undo removes carts; unloaded chunks/failed teleports pause.
-  Runtime/pure-path tests: 20 pass. Regression suite excluding only the actively
-  edited track-profile test: 1829 pass, 26 skip; both typechecks and web build
-  pass. Geometry profiles and actual Minecraft rider retention are NOT accepted.
-- [ ] `creator`: pure `coaster-path.ts`/tests done (strict measured sample-gap
-  guard, finite validation, conservative graph connections, serializable
-  sampler). Now sole device owner for riding in the NEW isolated `CoasterQA`
-  world (`IG8Iet9-XIU=`), using `coaster-qa-20260921.mcaddon`. Creation succeeded
-  after correcting screenshot-scaled tap coordinates; ordinary wireless
-  reconnect/readback and BP/RP activation verification are in progress. Existing
-  worlds stay untouched. No root/USB/reboot/data-clear/world overwrite.
-- [ ] Build real repaired 10303 through `_playable_ref.ts`, validate archive,
-  inspect exported track/cart route visually, exercise riding in Minecraft,
-  update guides, commit own changes, then publish/verify deployed functionality.
+Measured profiles and rendered overlays now agree: 42 placed moulds become
+41 fragments (one opposed vertical 25061 pair), 34 joins, components
+`[29,7,1,1,1,1,1]`, zero ambiguous endpoints. Exactly one automatic ride route
+is emitted: 29 fragments, 1066 points, 9327.185 LDU, including all six 80564s.
+The seven-piece vertical guide and five isolated decorative tracks are withheld.
+Evidence: `output/pipeline-2026-09-21/10303-route-overlay-visual-corrected/`.
+The apparent 45.25-LDU ramp gap was a sleeper-origin error: actual rail ends
+meet within 0.0385 LDU. Nine-cuboid cart overlays show wheel contact on flat and
+loop track; parallel-transport frames animate cart pitch/roll, not player roll.
 
-Runtime and pure-path foundation are tested separately from the still-unaccepted
-profile extraction/shared-pipeline wiring. Do not mistake route-math tests for a
-completed or device-verified ride. Root alone stages/commits. Existing unrelated corpus
-dirty files and untracked `output/pdf-placement-diagnosis` remain untouched.
-Real repaired model builds through `_playable_ref.ts`; current interim pack
-`output/bedrock-entity-qa/10303-coaster-seats-20260921.mcaddon` passes archive
-validation (15 clients, 114 geometries, 129 textures), but its fragmented
-routes are diagnostic only. This gate found/fixed missing shared manual-seat
-assets when a shell has no inferred seats; regression in building-shell test.
+- [ ] Actual mounted movement, rider retention, dismount and Undo: `creator`
+  owns the phone/new isolated `CoasterQA` world (`IG8Iet9-XIU=`). Cheats and
+  diagnostic BP/RP are enabled only there. Existing worlds remain untouched.
+  No root/USB/reboot/data-clear/world overwrite. Host tests are not device proof.
+  Current blocker: after enabling cheats and a safe app relaunch, selecting
+  CoasterQA briefly transitions then returns to the world list without an error
+  dialog. Initial helper was rejected before cheats were enabled, so no cart
+  placement/mount/motion/dismount/Undo has been observed. Inspect fresh logs;
+  do not treat a successful import or tap command as in-game acceptance.
+- [ ] Implement explicit lift/transfer semantics. The main route is OPEN and
+  currently shuttles; source inspection found carriage hardware but no measured
+  connecting rail between station and tower top. Never invent a rail bridge.
+- [ ] Finish regression/deployment verification of automatic extraction.
+- [ ] Publish only the repaired source after the exact R2 approval above.
+
+Current real pack: `output/bedrock-entity-qa/10303-coaster-measured-final.mcaddon`,
+SHA256 `466ae9fd1d37c61dbead80226c0cd0f02235a737b51e7dbe5079846adb3e7999`.
+Archive validation passes (15 clients, 114 geometries, 129 textures). Earlier
+fragmented-route packs are superseded. Focused coaster tests: 39 pass. Full
+network-enabled regression suite: 1848 pass, 26 skip; log
+`output/bedrock-entity-qa/coaster-final-tests-network.log` (restricted-network
+run had four unrelated live-service failures; network-enabled rerun passed).
+Both TypeScript checks and the production web build pass.
+Foundation commit `3d445a9d` is deployed (CI `35631850545`, deploy `35631850715`
+passed); production repaired-source local-upload render has zero missing parts
+and its export includes the previously missing shared manual-seat assets.
+Root alone stages/commits; unrelated corpus files and `output/pdf-*` stay untouched.
 
 ## Prior round — deployed verification and playable accuracy
 

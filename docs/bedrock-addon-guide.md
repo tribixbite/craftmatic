@@ -1644,8 +1644,10 @@ saved progress after script reload. Undo/re-place removes the cart.
 
 Closed paths circulate; open paths pause and reverse at their actual ends.
 Boarding has a two-second delay and sneak dismounts. Cart geometry, collision
-and seat scale with both export scale and wand size. Track pitch animates the
-cart only: this does not promise upside-down player roll or a physical train
+and seat scale with both export scale and wand size. Parallel-transport track
+frames animate cart pitch and roll, including inverted loops. The nine-cuboid
+cart uses the measured 60-LDU wheel gauge and rail-top contact datum. This does
+not promise upside-down player roll or a physical train
 simulation. Rider retention during actual Bedrock movement is a separate
 device gate, not established by host-script tests or successful pack import.
 
@@ -1655,3 +1657,13 @@ sleeper origins. In 10303 those frames can differ by 32 LDU, producing false
 nearest-endpoint shortcuts. Keep unresolved connections explicit until mesh
 measurements and route-overlay views agree; current acceptance is recorded in
 `TASKS-BEDROCK-ADDON.md`.
+
+`coaster-track.ts` supports ten measured track moulds, including source-embedded
+80564 geometry. It requires compatible endpoint tangents, mutual unique joins,
+and available render geometry; it never bridges a missing piece. In 10303 the
+main 29-fragment course includes all six repaired loop sections. A geometrically
+verified opposed vertical 25061 pair is treated as one composite running curve.
+Vertical guide-only chains and isolated decorative moulds do not spawn carts.
+The tower transfer remains a TODO: the main course shuttles at its real ends,
+not a fabricated closed circuit. This mechanism also applies to other sets
+using supported moulds; unsupported track shapes remain explicit gaps.

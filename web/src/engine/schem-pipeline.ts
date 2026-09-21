@@ -308,6 +308,7 @@ export async function runSchemPipeline(
     const screens = [];
     const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }> = [];
     const seats: Array<{ x: number; y: number; z: number; yaw: number; label: string }> = [];
+    const coasterRoutes: import('./bedrock-coaster.js').CoasterRoute[] = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
     let interactionNote: string | undefined;
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
@@ -329,6 +330,16 @@ export async function runSchemPipeline(
           warnings.push('Figures, seats and doors were found but the source geometry did not resolve, so they stay as blocks.');
         } else if (sourceOrigin) {
           const frame = sourceOrigin;
+          const { extractCoasterTrackRoutes } = await import('./coaster-track.js');
+          const tracks = extractCoasterTrackRoutes(source.bricks.filter(b => !movable.has(b)), {
+            isGeometryAvailable: (_part, brick) => (scene.meshes.get(brick.part)?.triangles.length ?? 0) > 0,
+          });
+          warnings.push(...tracks.warnings.map(warning => `Coaster: ${warning}`));
+          for (const route of tracks.routes) coasterRoutes.push({
+            label: route.label, closed: route.closed,
+            points: route.points.map(point => sceneGridPoint(frame, [...point])),
+            maxSegmentLength: route.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY),
+          });
           for (const f of scene.figures) {
             const p = sceneGridPoint(frame, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
             figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
@@ -410,7 +421,7 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
   }
 

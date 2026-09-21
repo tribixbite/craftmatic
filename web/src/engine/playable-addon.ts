@@ -1912,8 +1912,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const coasterId = `${id}_coaster_cart`;
     const coasterConfig = options.coasterRoutes?.length
       ? coasterRuntimeConfig(`${PACK_NAMESPACE}:${coasterId}`, options.coasterRoutes) : undefined;
+    let coasterCuboids = 0;
     if (coasterConfig) {
         const cart = coasterCartAssets(coasterConfig.typeId, modelScale);
+        coasterCuboids = cart.geometry['minecraft:geometry'].reduce((total, geometry) => total + geometry.bones.reduce((sum, bone) => sum + bone.cubes.length, 0), 0);
         const texture = generateLegoMaterialSwatch(resolveLdrawEntityMaterial(71), { pbr: false, textureName: 'craftmatic_coaster' });
         files.push(
             { name: `${bp}entities/${coasterId}.json`, data: json(cart.behavior) },
@@ -1986,7 +1988,6 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Hull cuboids are RESIDENT beside the full model (add-on memory is
     // definition-side), so they count against the device budget like any other.
     const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
-    const coasterCuboids = coasterConfig ? 5 : 0;
     const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
     const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0) + (coasterConfig ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);

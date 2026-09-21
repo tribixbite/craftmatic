@@ -46,6 +46,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 
 ## Gotchas
 
+- **ADB taps use raw landscape screenshot coordinates, not resized tool-view
+  pixels.** Pixel capture 2244×1008 displayed at 1600×719 requires ×1.4025;
+  `wm size` can remain portrait. A mis-scaled Create tap looked like ignored
+  input until this was corrected (2026-09-21). Resize evidence below 2000 px.
+- **Studio embedded DATs need identity AND inherited colour preserved.**
+  `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
+  LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
+  grey. Source conversion must retain unresolved private geometry safely.
 - **PWA service worker** caches all modules and serves stale code. If changes
   don't take effect: unregister SW + clear caches, then hard reload. (See the
   snippet history; `navigator.serviceWorker.getRegistrations()...` + `caches.keys()...`.)

@@ -237,6 +237,102 @@ export function buildCoasterPath(points: readonly CoasterVec3[], closed: boolean
   return { points: route.points, cumulative: route.cumulative, length: route.length, closed };
 }
 
+/**
+ * Build a minimally twisting unit-up vector at every authored path point.
+ * This function is dependency-free because its source is serialized into the
+ * Bedrock runtime. Closed paths distribute residual seam holonomy rather than
+ * applying a visible roll snap at the repeated final point.
+ */
+export function buildCoasterFrames(path: CoasterPath, initialUp: CoasterVec3 = [0, 1, 0]): CoasterVec3[] {
+  const epsilon = 1e-9;
+  const finite = (v: readonly number[]): boolean => v.length === 3 && v.every(Number.isFinite);
+  const dot = (a: readonly number[], b: readonly number[]): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+  const cross = (a: readonly number[], b: readonly number[]): CoasterVec3 => [
+    a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!,
+  ];
+  const normalize = (v: readonly number[], label: string): CoasterVec3 => {
+    const length = Math.hypot(v[0]!, v[1]!, v[2]!);
+    if (!Number.isFinite(length) || length <= epsilon) throw new Error(`${label} must have finite non-zero length.`);
+    return [v[0]! / length, v[1]! / length, v[2]! / length];
+  };
+  const project = (up: readonly number[], tangent: readonly number[]): CoasterVec3 => {
+    const along = dot(up, tangent);
+    const projected = [up[0]! - along * tangent[0]!, up[1]! - along * tangent[1]!, up[2]! - along * tangent[2]!];
+    const length = Math.hypot(...projected);
+    if (length > 1e-6) return [projected[0]! / length, projected[1]! / length, projected[2]! / length];
+    const axes: CoasterVec3[] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const fallback = axes.sort((a, b) => Math.abs(dot(a, tangent)) - Math.abs(dot(b, tangent)))[0]!;
+    const fallbackAlong = dot(fallback, tangent);
+    return normalize([
+      fallback[0] - fallbackAlong * tangent[0]!, fallback[1] - fallbackAlong * tangent[1]!, fallback[2] - fallbackAlong * tangent[2]!,
+    ], 'Coaster frame fallback up');
+  };
+  const rotate = (v: readonly number[], axis: readonly number[], angle: number): CoasterVec3 => {
+    const cosine = Math.cos(angle), sine = Math.sin(angle), axial = dot(axis, v) * (1 - cosine), crossed = cross(axis, v);
+    return [
+      v[0]! * cosine + crossed[0] * sine + axis[0]! * axial,
+      v[1]! * cosine + crossed[1] * sine + axis[1]! * axial,
+      v[2]! * cosine + crossed[2] * sine + axis[2]! * axial,
+    ];
+  };
+
+  if (!path || typeof path !== 'object' || !Array.isArray(path.points) || !Array.isArray(path.cumulative)
+    || typeof path.closed !== 'boolean' || !Number.isFinite(path.length) || path.length <= 0
+    || path.points.length < 2 || path.cumulative.length !== path.points.length) {
+    throw new Error('Coaster path has invalid points, cumulative lengths, or total length.');
+  }
+  if (!finite(initialUp)) throw new Error('Coaster frame initialUp must have three finite components.');
+  normalize(initialUp, 'Coaster frame initialUp');
+  if (path.cumulative[0] !== 0 || Math.abs(path.cumulative.at(-1)! - path.length) > Math.max(1, path.length) * 1e-9) {
+    throw new Error('Coaster path cumulative lengths must start at zero and end at total length.');
+  }
+  for (let index = 0; index < path.points.length; index++) {
+    if (!finite(path.points[index]!) || !Number.isFinite(path.cumulative[index]!)) throw new Error(`Coaster path point ${index} or cumulative length is invalid.`);
+    if (index > 0 && path.cumulative[index]! <= path.cumulative[index - 1]!) throw new Error(`Coaster path cumulative length ${index} must increase.`);
+  }
+  if (path.closed) {
+    const first = path.points[0]!, last = path.points.at(-1)!;
+    if (Math.hypot(last[0] - first[0], last[1] - first[1], last[2] - first[2]) > epsilon) {
+      throw new Error('Closed coaster path must repeat its first point at the end.');
+    }
+  }
+
+  const tangents: CoasterVec3[] = [];
+  const lastIndex = path.points.length - 1;
+  for (let index = 0; index <= lastIndex; index++) {
+    if (path.closed && index === lastIndex) { tangents.push(tangents[0]!); continue; }
+    const previousIndex = index === 0 ? (path.closed ? lastIndex - 1 : 0) : index - 1;
+    const nextIndex = index === lastIndex ? lastIndex : index + 1;
+    const previous = path.points[previousIndex]!, next = path.points[nextIndex]!, current = path.points[index]!;
+    let delta = [next[0] - previous[0], next[1] - previous[1], next[2] - previous[2]];
+    if (Math.hypot(...delta) <= epsilon) delta = [next[0] - current[0], next[1] - current[1], next[2] - current[2]];
+    if (Math.hypot(...delta) <= epsilon) delta = [current[0] - previous[0], current[1] - previous[1], current[2] - previous[2]];
+    tangents.push(normalize(delta, `Coaster frame tangent ${index}`));
+  }
+
+  const frames: CoasterVec3[] = [project(initialUp, tangents[0]!)];
+  for (let index = 1; index < tangents.length; index++) {
+    const before = tangents[index - 1]!, after = tangents[index]!, axisVector = cross(before, after);
+    const sine = Math.hypot(...axisVector), cosine = Math.max(-1, Math.min(1, dot(before, after)));
+    // A true 180-degree cusp has no unique roll axis. Preserve the prior up;
+    // it is already orthogonal to both antiparallel tangents.
+    const transported = sine > epsilon
+      ? rotate(frames[index - 1]!, axisVector.map(value => value / sine), Math.atan2(sine, cosine))
+      : frames[index - 1]!;
+    frames.push(project(transported, after));
+  }
+
+  if (path.closed && frames.length > 2) {
+    const seamTangent = tangents[0]!, lastUp = frames.at(-1)!, firstUp = frames[0]!;
+    const residual = Math.atan2(dot(seamTangent, cross(lastUp, firstUp)), Math.max(-1, Math.min(1, dot(lastUp, firstUp))));
+    if (Math.abs(residual) > epsilon) for (let index = 1; index < frames.length; index++) {
+      frames[index] = project(rotate(frames[index]!, tangents[index]!, residual * path.cumulative[index]! / path.length), tangents[index]!);
+    }
+    frames[frames.length - 1] = frames[0]!;
+  }
+  return frames;
+}
+
 /** Normalize a distance into a route's valid domain without inventing motion beyond an open endpoint. */
 export function normalizeCoasterDistance(route: CoasterRoute, distance: number): number {
   if (!Number.isFinite(distance)) throw new Error('Coaster route distance must be finite.');

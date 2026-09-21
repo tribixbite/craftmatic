@@ -2,7 +2,7 @@
  * These are deliberately distinct from vanilla rails: no track is flattened,
  * and an open track shuttles rather than inventing a connection across a gap.
  */
-import { buildCoasterPath, sampleCoasterPath, type CoasterPath } from './coaster-path.js';
+import { buildCoasterFrames, buildCoasterPath, sampleCoasterPath, type CoasterPath, type CoasterVec3 } from './coaster-path.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { withSizeGroups } from './bedrock-placement-pack.js';
 
@@ -20,20 +20,23 @@ export interface CoasterRoute {
 
 export interface CoasterRuntimeConfig {
   typeId: string;
-  routes: Array<{ label: string; path: CoasterPath }>;
+  routes: Array<{ label: string; path: CoasterPath; up: CoasterVec3[] }>;
 }
 
 /** Validate routes before putting them in an executable add-on. */
 export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): CoasterRuntimeConfig {
   if (routes.length > 16) throw new Error('At most 16 independent coaster routes are supported per pack.');
-  return { typeId, routes: routes.map(route => ({ label: route.label, path: buildCoasterPath(route.points, route.closed, route.maxSegmentLength) })) };
+  return { typeId, routes: routes.map(route => {
+    const path = buildCoasterPath(route.points, route.closed, route.maxSegmentLength);
+    return { label: route.label, path, up: buildCoasterFrames(path) };
+  }) };
 }
 
 /** A purpose-built ride vehicle, not invented replacement LEGO geometry.
  * The imported set and its display cars remain intact. */
 export function coasterCartAssets(typeId: string, modelScale = 1) {
   if (!Number.isFinite(modelScale) || modelScale <= 0 || modelScale > 4) throw new Error('Coaster cart export scale must be in (0, 4].');
-  const collision = { width: 0.65 * modelScale, height: 0.6 * modelScale };
+  const collision = { width: 1.375 * modelScale, height: 0.6 * modelScale };
   const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'Ride coaster',
     crouching_skip_interact: true, seats: { position: [0, 0.35 * modelScale, 0], lock_rider_rotation: 181 } };
   const geometryId = `geometry.${typeId.replace(':', '.')}`;
@@ -41,7 +44,10 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
   return {
     behavior: withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
       description: { identifier: typeId, is_spawnable: false, is_summonable: true,
-        properties: { 'craftmatic:track_pitch': { type: 'float', range: [-90, 90], default: 0, client_sync: true } } },
+        properties: {
+          'craftmatic:track_pitch': { type: 'float', range: [-90, 90], default: 0, client_sync: true },
+          'craftmatic:track_roll': { type: 'float', range: [-180, 180], default: 0, client_sync: true },
+        } },
       components: {
         'minecraft:type_family': { family: ['craftmatic_coaster'] },
         'minecraft:persistent': {}, 'minecraft:nameable': {},
@@ -62,16 +68,26 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
     geometry: { format_version: '1.12.0', 'minecraft:geometry': [{
       description: { identifier: geometryId, texture_width: 2, texture_height: 2,
         visible_bounds_width: 8 * modelScale, visible_bounds_height: 8 * modelScale, visible_bounds_offset: [0, 0, 0] },
-      bones: [{ name: 'cart', pivot: [0, 0, 0], cubes: [
-        { origin: [-5, 0, -7], size: [10, 2, 14], uv: [0, 0] },
-        { origin: [-5, 2, -7], size: [1, 4, 14], uv: [0, 0] },
-        { origin: [4, 2, -7], size: [1, 4, 14], uv: [0, 0] },
-        { origin: [-4, 2, -7], size: [8, 5, 1], uv: [0, 0] },
-        { origin: [-4, 2, 6], size: [8, 3, 1], uv: [0, 0] },
+      // Separate pitch/roll bones make composition explicit, independent of
+      // the engine's Euler order. The entity itself only rotates in yaw.
+      bones: [{ name: 'track_pitch', pivot: [0, 0, 0], cubes: [] as Array<{ origin: number[]; size: number[]; uv: number[] }> },
+      { name: 'cart', parent: 'track_pitch', pivot: [0, 0, 0], cubes: [
+        { origin: [-11, 0, -10], size: [22, 2, 20], uv: [0, 0] },
+        { origin: [-11, 2, -10], size: [1, 4, 20], uv: [0, 0] },
+        { origin: [10, 2, -10], size: [1, 4, 20], uv: [0, 0] },
+        { origin: [-10, 2, -10], size: [20, 5, 1], uv: [0, 0] },
+        { origin: [-10, 2, 9], size: [20, 3, 1], uv: [0, 0] },
+        // Standard rails are 60 LDU apart: wheel centres ±9 entity units.
+        // The running datum is 32 LDU above sleepers, rail tops 10 LDU:
+        // wheels reach down 22 LDU = 6.6 entity units, avoiding a floating tub.
+        ...[-11, 7].flatMap(x => [-8, 4].map(z => ({ origin: [x, -6.6, z], size: [4, 6.6, 4], uv: [0, 0] }))),
       ].map(cube => ({ ...cube, origin: cube.origin.map(v => v * modelScale), size: cube.size.map(v => v * modelScale) })) }],
     }] },
     animations: { format_version: '1.8.0', animations: { [animationId]: {
-      loop: true, bones: { cart: { rotation: ["query.property('craftmatic:track_pitch')", 0, 0] } },
+      loop: true, bones: {
+        track_pitch: { rotation: ["query.property('craftmatic:track_pitch')", 0, 0] },
+        cart: { rotation: [0, 0, "query.property('craftmatic:track_roll')"] },
+      },
     } } },
   };
 }
@@ -144,12 +160,26 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const worldTz = tangent[0]! * s + tangent[2]! * c;
         const yaw = horizontal > 1e-6 ? Math.atan2(-worldTx, worldTz) * 180 / Math.PI : entity.getRotation().y;
         const pitch = -Math.atan2(tangent[1]!, horizontal) * 180 / Math.PI;
+        const i = at.segmentIndex;
+        const ratio = (at.distance - route.path.cumulative[i]) / (route.path.cumulative[i + 1] - route.path.cumulative[i]);
+        const up0 = route.up[i], up1 = route.up[i + 1];
+        const up = up0.map((value, axis) => value + (up1[axis] - value) * ratio);
+        const ux = up[0] * c - up[2] * s, uy = up[1], uz = up[0] * s + up[2] * c;
+        // Remove entity yaw then bone pitch from the transported track up.
+        // The remaining angle is local roll; at a loop apex this turns the
+        // cart upside down without attempting unsupported player-camera roll.
+        const yawRad = yaw * Math.PI / 180, pitchRad = pitch * Math.PI / 180;
+        const localX = ux * Math.cos(yawRad) + uz * Math.sin(yawRad);
+        const yawZ = -ux * Math.sin(yawRad) + uz * Math.cos(yawRad);
+        const localY = uy * Math.cos(pitchRad) + yawZ * Math.sin(pitchRad);
+        const roll = Math.atan2(-localX, localY) * 180 / Math.PI;
         if (!entity.tryTeleport(position, { rotation: { x: 0, y: yaw }, keepVelocity: false, checkForBlocks: false })) {
           warn(riders, 'Coaster paused: movement could not complete'); continue;
         }
         entity.setDynamicProperty(key + 'distance', next);
         entity.setDynamicProperty(key + 'direction', nextDirection);
         entity.setProperty('craftmatic:track_pitch', pitch);
+        entity.setProperty('craftmatic:track_roll', roll);
         const retained = new Set((rideable?.getRiders() ?? []).map((rider: any) => rider.id));
         if (riders.some(rider => !retained.has(rider.id))) {
           state.wait = 40;

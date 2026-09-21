@@ -55,6 +55,20 @@ describe('serialized coaster runtime', () => {
     h.run(41); expect(h.entity.teleport.mock.calls[0][0]).toEqual({ x: 100, y: 64.075, z: 200 });
     expect(h.entity.setProperty).toHaveBeenCalledWith('craftmatic:track_pitch', -90);
   });
+  it('inverts the cart visually at a loop apex while leaving player rotation upright', () => {
+    const points: [number, number, number][] = Array.from({ length: 65 }, (_, i) => {
+      const angle = i / 64 * Math.PI * 2;
+      return [0, 10 * (1 - Math.cos(angle)), 10 * Math.sin(angle)];
+    });
+    points[64] = [...points[0]!];
+    const route: CoasterRoute = { label: 'Loop', points, closed: true, maxSegmentLength: 1 };
+    const h = rideHost(route);
+    h.properties.set('craftmatic:coaster_distance', coasterRuntimeConfig('craftmatic:ride', [route]).routes[0]!.path.length / 2);
+    h.run(41);
+    const roll = h.entity.setProperty.mock.calls.find((call: unknown[]) => call[0] === 'craftmatic:track_roll')?.[1];
+    expect(Math.abs(roll)).toBeGreaterThan(170);
+    expect(h.entity.teleport.mock.calls[0][1].rotation.x).toBe(0);
+  });
   it('pauses at an unloaded chunk without advancing distance, then resumes', () => {
     const h = rideHost(straight); h.setLoaded(false); h.run(60);
     expect(h.entity.teleport).not.toHaveBeenCalled(); expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
@@ -116,10 +130,14 @@ describe('coaster pack assets', () => {
   it('scales cart geometry, collision and seat at export before applying wand size', () => {
     const assets = coasterCartAssets('craftmatic:ride', 4);
     const entity = (assets.behavior as any)['minecraft:entity'];
-    expect(entity.components['minecraft:collision_box'].width).toBe(2.6);
+    expect(entity.components['minecraft:collision_box'].width).toBe(5.5);
     expect(entity.components['minecraft:rideable'].seats.position).toEqual([0, 1.4, 0]);
-    expect(assets.geometry['minecraft:geometry'][0]!.bones[0]!.cubes[0]!.size).toEqual([40, 8, 56]);
-    expect(entity.component_groups['craftmatic:size_400']['minecraft:collision_box'].width).toBe(10.4);
+    const body = assets.geometry['minecraft:geometry'][0]!.bones.find(bone => bone.name === 'cart')!;
+    expect(body.cubes[0]!.size).toEqual([88, 8, 80]);
+    expect(entity.component_groups['craftmatic:size_400']['minecraft:collision_box'].width).toBe(22);
+    const wheels = body.cubes.slice(5);
+    expect(wheels).toHaveLength(4);
+    expect(wheels[0]!.origin[1]).toBe(-26.4);
   });
   it('packages the runtime and source-frame route only for coaster-enabled exports', async () => {
     const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
