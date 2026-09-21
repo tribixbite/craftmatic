@@ -31,13 +31,35 @@ Their own screenshots are the evidence, pulled and downscaled to
   detached above their heads.
 
 Open, all three in flight:
-- [ ] Visual fidelity: hull far too near, hull/full z-fighting, and whether the
-  CLI's DEFAULT quality (16,904 cuboids for 3,808 bricks) is why the full-detail
-  render is coarse against the user's "near-picture accurate" bar. Owner: LOD.
-- [ ] Figures: upright/floating riders and detached hair. A Bedrock actor has no
-  roll, so a source figure inside a pitched car cannot be reproduced as an
-  upright NPC — decide honestly between keeping it in the rigid shell and
-  emitting an NPC only when the source pose is near upright. Owner: figures.
+- [x] **LOD fixed (`eba9b515`).** `query.distance_from_camera` measures to the
+  entity ROOT, and a shell's root sits ABOVE the model (`originAboveModel`),
+  45 blocks over 10303's ground track: 68.7 % of the skin (2,190 of 3,189
+  cells) was already past the 32-block threshold, so a ground camera saw the
+  hull at ANY distance. The switch is now `lodDistance + the entity's reach
+  from its root` and the default is 96 (at 70 degrees FOV a brick face is
+  3.75 px there); 10303 switches at 146.3. The shimmer was 1,523 of 3,189 hull
+  cells carrying a cube from 2-9 colours at once; a cell now belongs to the
+  colour with the most volume in it — every cell single-owner, hull 1,143 ->
+  753 cuboids. Not device-verified yet.
+- [x] **Figures fixed (`4c032ce6`).** The source riders ARE seated 90 degrees
+  nose-down (matrix `0 -1 0 / 0 0 -1 / 1 0 0`). A figure tilted past 30 degrees
+  now stays whole in the model at its source pose; the floor comes from body
+  parts only (hanging hands no longer set it); cluster membership is measured
+  in the torso's frame so legs are not left behind and re-synthesised; and
+  BrickLink-form descriptions plus head-origin adoption keep 43753 hair on its
+  head. 10303 ships 8 NPCs instead of 11 and the shell regains 20 rider parts.
+  Open follow-up in `bedrock-coaster.ts`: seating those posed riders ON the
+  cart (figure family + extra seats) would make them live along the track.
+- [ ] **Close-up fidelity — the user's headline complaint, still open.** The CLI
+  AND web default is `balanced`: 8 LDU microcell, 64 cubes/part, 13,936 shell
+  cuboids for 10303 = 3.5 % of the 480k device ceiling. `ultra` is 4 LDU /
+  256 cubes = 47,726 shell, 54,481 pack, 11.4 %, and 8 such packs still fit.
+  **`high` is broken**: it asks for 4 LDU but its own 32,768 `maxModelCubes`
+  cap forces a fallback to 8, so it buys almost nothing. There is NO budget
+  clamp in `playable-addon.ts` (`packCuboidBudget` only warns at >=10 %), so
+  nothing vetoes a finer mesh; the dial is `LEGO_SHELL_QUALITY` in
+  `bedrock-building-shell.ts`. Separate DRAW limit: ~50-100k visible for
+  60 fps, ~150k for 30 fps. User's bar: "drastically" better.
 - [ ] Ride behaviour the user asked for: continuous motion with or without a
   rider, real gravity (crawl uphill, fast on the drop), a dwell at the flat
   reload station, and mounting by walking up and tapping — today the cart is
