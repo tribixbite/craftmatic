@@ -17,7 +17,8 @@ and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
       unrelated placements. Default OFF; no corpus promotion. Next: avoid
       reallocating the existing inventory when adding a torso.
 - [ ] Refresh the complete quality board and enable the calibrated window gate.
-- [ ] Run crowded LOD A/B and a clean-world chalet roaming experiment on Pixel.
+- [ ] Run a clean-world chalet roaming experiment on Pixel; the crowded LOD
+      A/B is complete (evidence below).
 - [ ] Reconcile stale tracker claims, run checks, commit owned changes. No push,
       publish, or history rewrite. Existing clego dirty files remain user-owned.
 
@@ -143,14 +144,12 @@ Done: culling PASS at 100–400 %, collider clear PASS, ceiling 487,856 cuboids
 survived (budget 480k), LOD switch verified (26–28 blocks), **Milano grounding PASS at 100/200/400 %**
 with `76286-v3` (`cd1954c1`; `round-2026-09-20/GROUNDING-RESULT.md`).
 
-- [ ] **Multi-set LOD fps A/B still not repeated**: the 2026-09-20 row spaced
-      sets 66–108 blocks apart so only one was ever near the camera (all rows
-      16.7 ms). Re-run with 3+ full-detail sets inside 32 blocks vs the same
-      scene in LOD packs (`round-2026-09-20/lod2/` has Titanic/Colosseum/Taj
-      LOD packs). Give each wand fresh via `/function` right before use.
 - [ ] **Chalet roaming**: collision height 0.95 freed 1 of 7 (control 0 of 7,
-      `--figure-collision-height`, `811f4fb0`). Next: height from each figure's
-      interior clearance, longer dwell. "blank" world still has the h095 pack.
+      `--figure-collision-height`, `811f4fb0`). The 2026-09-20 follow-up was
+      aborted before world load because wireless ADB repeatedly dropped during
+      chat input; both worlds' pack JSON was byte-restored. Next: height from
+      each figure's interior clearance, four-walker denominator, ≥10 min dwell.
+      "blank" world still has the h095 pack.
 - [ ] 76435 at 400 % shows small detached objects above the roofline
       (`shots/226-all3-view2.jpg`): `extras` at source positions or polish-parked
       parts of the regenerated file?
