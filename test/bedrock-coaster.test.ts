@@ -3,7 +3,7 @@ import { coasterCartAssets, coasterRuntimeConfig, coasterScript } from '../web/s
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { BlockGrid } from '../src/schem/types.js';
-import { extractFile } from '../web/src/engine/zip-utils.js';
+import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { host } from './_placement-host.js';
 
 function rideHost(route: CoasterRoute) {
@@ -192,6 +192,29 @@ describe('coaster pack assets', () => {
     const parsed = JSON.parse(entityJson)['minecraft:entity'].description.properties;
     expect(parsed['craftmatic:track_pitch']).toEqual({ type: 'float', range: [-90, 90], default: 0, client_sync: true });
     expect(parsed['craftmatic:track_roll']).toEqual({ type: 'float', range: [-180, 180], default: 0, client_sync: true });
+  });
+  it('keeps every float property in every emitted entity out of integer literals', async () => {
+    // Safety net for entities added later: one integer literal anywhere in a
+    // float property drops the whole property component for that entity.
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [straight] });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const names = listZipEntries(buffer).filter(name => /_BP\/entities\/.+\.json$/.test(name));
+    expect(names.length).toBeGreaterThan(0);
+    let floatProperties = 0;
+    for (const name of names) {
+      const source = new TextDecoder().decode(await extractFile(buffer, name));
+      const properties = JSON.parse(source)['minecraft:entity']?.description?.properties as
+        Record<string, { type?: string }> | undefined;
+      for (const [id, property] of Object.entries(properties ?? {})) {
+        if (property?.type !== 'float') continue;
+        floatProperties++;
+        const block = new RegExp(`"${id}": \\{[\\s\\S]*?\\n {8}\\}`).exec(source)![0]!;
+        expect.soft(block, `${name} ${id}`).not.toMatch(/: -?\d+(?![.\d])/);
+        expect.soft(block, `${name} ${id}`).not.toMatch(/\n\s+-?\d+(?![.\d])/);
+      }
+    }
+    expect(floatProperties).toBe(2);
   });
   it('packages the runtime and source-frame route only for coaster-enabled exports', async () => {
     const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');

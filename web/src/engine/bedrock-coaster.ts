@@ -5,7 +5,7 @@
 import { buildCoasterFrames, buildCoasterPath, sampleCoasterPath, type CoasterPath, type CoasterVec3 } from './coaster-path.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { withSizeGroups } from './bedrock-placement-pack.js';
-import { bedrockFloat } from './bedrock-json.js';
+import { floatActorProperty } from './bedrock-json.js';
 
 declare const world: any;
 declare const system: any;
@@ -48,8 +48,8 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
         properties: {
           // Float actor properties MUST serialize with a decimal point or Bedrock
           // drops the whole property component; see `bedrock-json.ts`.
-          'craftmatic:track_pitch': { type: 'float', range: [bedrockFloat(-90), bedrockFloat(90)], default: bedrockFloat(0), client_sync: true },
-          'craftmatic:track_roll': { type: 'float', range: [bedrockFloat(-180), bedrockFloat(180)], default: bedrockFloat(0), client_sync: true },
+          'craftmatic:track_pitch': floatActorProperty([-90, 90], 0),
+          'craftmatic:track_roll': floatActorProperty([-180, 180], 0),
         } },
       components: {
         'minecraft:type_family': { family: ['craftmatic_coaster'] },

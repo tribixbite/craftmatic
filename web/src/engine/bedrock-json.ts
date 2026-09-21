@@ -50,6 +50,20 @@ export class BedrockFloat {
 export const bedrockFloat = (value: number): BedrockFloat => new BedrockFloat(value);
 
 /**
+ * A `float` actor property, with every number already marked as a float literal.
+ * Build float properties with this rather than by hand: an integer literal
+ * anywhere in one of them costs the entity its whole property component.
+ */
+export function floatActorProperty(range: [number, number], defaultValue: number, clientSync = true) {
+  if (!(range[0] <= defaultValue && defaultValue <= range[1]))
+    throw new Error(`Bedrock float property default ${defaultValue} is outside its range [${range[0]}, ${range[1]}].`);
+  return {
+    type: 'float', range: [bedrockFloat(range[0]), bedrockFloat(range[1])],
+    default: bedrockFloat(defaultValue), client_sync: clientSync,
+  };
+}
+
+/**
  * `JSON.stringify` for pack files, restoring {@link BedrockFloat} values as bare
  * float literals. The output stays valid JSON and parses back to the same
  * numbers; only the literal spelling differs.
