@@ -239,6 +239,28 @@ function scaleRideable(rideable: Record<string, unknown>, f: number): Record<str
 }
 
 /**
+ * How an entity follows the wand's size steps.
+ *
+ * `playerSized` marks a FIGURE, or a seat whose rider is one. The rule
+ * (2026-09-21, verbatim): "when scaling a model it should never result in the
+ * minifigs becoming giants - the minifigs should be capped to always be the
+ * same size as a player". A minifig at 100 % IS player height by the one
+ * shared scale (lego-scale.ts: 96 LDU = 1.8 blocks, 2.03 with hair on the
+ * device), so its scale, collision box and any rider offset follow the step
+ * only BELOW 100 % (`figureSizeFactor`); at 150-400 % they keep the 100 %
+ * values and a 400 % building is walked by player-sized figures. For the
+ * invisible seat the offset is where a player-sized rider's origin sits under
+ * the pan (-0.3), not a measurement inside the model, so it is capped the
+ * same way.
+ */
+export interface SizeGroupOptions {
+  playerSized?: boolean;
+}
+
+/** The size factor a player-sized entity takes at wand factor `f`: never above 1. */
+export const figureSizeFactor = (f: number): number => Math.min(1, f);
+
+/**
  * Give an entity definition one component group per size step, each setting
  * `minecraft:scale`, a collision box scaled to match and (for a mount) its
  * seats scaled too - `minecraft:scale` does not move a rider's seat, so a
@@ -246,11 +268,16 @@ function scaleRideable(rideable: Record<string, unknown>, f: number): Record<str
  * `craftmatic:size_<pct>` event selects one step and drops the others;
  * `craftmatic:size_100` drops them all. Groups and events the definition
  * already has (an aircraft's descend group) are kept.
+ *
+ * A `playerSized` entity (see `SizeGroupOptions`) still carries every group,
+ * so the runtime's one `triggerEvent(size_<pct>)` per actor works unchanged,
+ * but the groups above 100 % hold the 100 % values.
  */
 export function withSizeGroups(
   behavior: unknown,
   collision: { width: number; height: number },
   rideable?: Record<string, unknown>,
+  options: SizeGroupOptions = {},
 ): unknown {
   const b = behavior as { 'minecraft:entity': Record<string, unknown> };
   const e = b['minecraft:entity'];
@@ -259,7 +286,8 @@ export function withSizeGroups(
   const names = SIZE_STEPS.filter(p => p !== 100).map(p => `${SIZE_EVENT_PREFIX}${p}`);
   for (const pct of SIZE_STEPS) {
     if (pct === 100) continue;
-    const f = pct / 100, name = `${SIZE_EVENT_PREFIX}${pct}`;
+    const name = `${SIZE_EVENT_PREFIX}${pct}`;
+    const f = options.playerSized ? figureSizeFactor(pct / 100) : pct / 100;
     groups[name] = {
       'minecraft:scale': { value: f },
       'minecraft:collision_box': { width: round3(collision.width * f), height: round3(collision.height * f) },
@@ -873,27 +901,47 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // must not stop the rest: the Pixel round of 2026-09-16 lost every
         // vehicle placement to its first figure NPC.
         try {
-          // A figure dropped into a WALL cell can never path out: lift it to the first
-          // cell whose feet and head cells are not walls. A part-height collider (a
-          // floor plate 0..3/16, a ceiling slab) is not a wall - the game stands the
-          // figure on it - so only a collider spanning 12+ sixteenths counts. If no
-          // clear cell is found within three blocks the figure stays where the source
-          // put it (round b lifted one onto the roof by testing "any collider").
+          // A figure must stand ON the floor where the source put it - not inside
+          // a wall it can never path out of, not sunk into a floor plate, and not
+          // inside the world block under the pin. The figure is player-sized at
+          // every step at or above 100 % (its body never scales up), while the
+          // floors and walls around it do, so the check is geometric rather than
+          // a cell rule: the body [feet, feet + height) is raised to the top of
+          // whatever collision span it overlaps, repeatedly, until it is clear.
+          // A floor plate (0..3/16 at 100 %, 0..12/16 at 400 %) lifts the feet by
+          // its own thickness only; a wall lifts past itself; a ceiling slab over
+          // the head is left alone unless the body actually reaches it. If the
+          // lift would exceed three cells (three blocks × the size factor) the
+          // figure stays where the source put it (round b lifted one onto the
+          // roof by treating "any collider" as a wall - that is why the budget).
           let spawnY = q.y;
           if (config.colliders && /_fig[0-9]+$/.test(actor.typeId)) {
-            const bx = Math.floor(q.x), bz = Math.floor(q.z);
-            const wall = (y: number) => {
+            const bx = Math.floor(q.x), bz = Math.floor(q.z), f = factor(st);
+            const bodyHeight = 1.8 * Math.min(1, f), budget = 3 * f;
+            // The collision span [bottom, top] of the block in world row `y`, or null for air.
+            const spanAt = (y: number) => {
               try {
                 const b = dim.getBlock({ x: bx, y, z: bz });
-                if (!b || b.typeId !== config.colliders.block) return false;
-                const lo = Number(b.permutation.getState(config.colliders.loState)), hi = Number(b.permutation.getState(config.colliders.hiState));
-                return !(Number.isFinite(lo) && Number.isFinite(hi)) || hi - lo >= 12;
-              } catch { return false; }
+                if (!b) return null;
+                if (b.typeId === config.colliders.block) {
+                  const lo = Number(b.permutation.getState(config.colliders.loState)), hi = Number(b.permutation.getState(config.colliders.hiState));
+                  return Number.isFinite(lo) && Number.isFinite(hi) ? [y + lo / 16, y + hi / 16] : [y, y + 1];
+                }
+                if (b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return null;
+                return [y, y + 1];
+              } catch { return null; }
             };
-            const y0 = Math.floor(q.y);
-            for (let up = 0; up <= 3; up++) {
-              if (!wall(y0 + up) && !wall(y0 + up + 1)) { spawnY = up ? y0 + up : q.y; break; }
+            let feet = q.y;
+            for (let guard = 0; guard < 64; guard++) {
+              let lifted = false;
+              for (let y = Math.floor(feet); y <= Math.floor(feet + bodyHeight - 1e-9); y++) {
+                const s = spanAt(y);
+                // The body overlaps a span when the span starts below the head and ends above the feet.
+                if (s && s[0] < feet + bodyHeight - 1e-9 && s[1] > feet + 1e-9) { feet = s[1]; lifted = true; break; }
+              }
+              if (!lifted) break;
             }
+            if (feet - q.y <= budget + 1e-9) spawnY = feet;
           }
           const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
           entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;

@@ -111,7 +111,10 @@ export interface PlayableAddonOptions {
      * default 1. Every brick-compiled entity is authored at
      * `BEDROCK_UNITS_PER_LDU × modelScale` and the figures beside a vehicle are
      * placed at `LDU_PER_BLOCK / modelScale` LDU per block, so they agree with
-     * a block grid voxelized at that cell.
+     * a block grid voxelized at that cell. FIGURES are the exception: their
+     * geometry is compiled at `figureModelScale(modelScale)`, never above 1×,
+     * so a minifig stays player height in a 2× or 4× export (their POSITIONS
+     * still follow the model, so they stand where the source put them).
      */
     modelScale?: number;
     /**
@@ -516,6 +519,20 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
  * Player-sized (a minifig IS player height at this scale) so it fits the
  * doorways and corridors of a minifig-scale building.
  */
+/**
+ * The model scale a FIGURE's geometry is compiled at: the model's scale, capped
+ * at 1× so a minifig is never a giant. At 1× a standing minifig is
+ * `LDU_PER_MINIFIG` = 96 LDU = `PLAYER_HEIGHT_BLOCKS` = 1.8 blocks by the one
+ * shared scale (2.03 with hair, measured on the Pixel), i.e. the player's own
+ * size - the rule "the minifigs should be capped to always be the same size as
+ * a player". Below 1× the figure follows the model (a half-size set keeps
+ * half-size figures; only a giant is forbidden). The wand's in-game size
+ * steps apply the same cap at runtime (`withSizeGroups`, `playerSized`).
+ */
+export function figureModelScale(modelScale: number): number {
+    return Math.min(1, Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1);
+}
+
 function figureBehavior(id: string, size: { width: number; height: number; length: number }, collisionHeightOverride?: number): unknown {
     // No bigger than the player (0.6 x 1.8), who walks every room and doorway of
     // a minifig-scale build: at 0.9 x 2.0 six of seven chalet figures could not
@@ -555,7 +572,8 @@ function figureBehavior(id: string, size: { width: number; height: number; lengt
         'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: 0.02 },
         'minecraft:behavior.random_look_around': { priority: 8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } }, collision);
+    // Player-sized at every wand step at or above 100 %: a figure never becomes a giant (SizeGroupOptions).
+    } } }, collision, undefined, { playerSized: true });
 }
 
 /** A static object beside the vehicle (a service cart without wheels, a crate): solid, immovable, unhurt. */
@@ -594,7 +612,11 @@ function seatBehavior(id: string): unknown {
         // A figure the source seated rides too (placement.js addRider); the sit animation plays while it does.
         'minecraft:rideable': rideable,
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } }, { width: 0.5, height: 0.5 }, rideable);
+    // The rider (a player, or a figure capped at player size) does not grow with
+    // the build, so the -0.3 offset under the pan is not scaled above 100 %: the
+    // seat entity itself is spawned at the SCALED pan (`worldPoint`), and the
+    // rider sits 0.3 blocks under it at every size.
+    } } }, { width: 0.5, height: 0.5 }, rideable, { playerSized: true });
 }
 function seatClient(id: string): unknown {
     return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: 'textures/entity/craftmatic_seat' }, geometry: { default: `geometry.${PACK_NAMESPACE}.seat` }, render_controllers: ['controller.render.default'] } } };
@@ -1543,6 +1565,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const modelScale = Number.isFinite(options.modelScale) && options.modelScale! > 0 ? options.modelScale! : 1;
     const unitsPerLdu = BEDROCK_UNITS_PER_LDU * modelScale;
     const lduPerBlock = LDU_PER_BLOCK / modelScale;
+    // Figures are compiled at the CAPPED scale (never above 1×): a minifig is the player's size, not a giant.
+    const figureUnitsPerLdu = BEDROCK_UNITS_PER_LDU * figureModelScale(modelScale);
     const isTimeMachine = /\b10300\b|delorean|de lorean|time machine/i.test(`${id} ${label}`);
     const shortAlias = placementAlias(id);
     const components = options.components?.slice() ?? [];
@@ -1717,7 +1741,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const bricks = assembled.bricks.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_')));
                 if (!bricks.length) { warnings.push(`${entry.part}: no ${slot} geometry was produced; omitted from creator library.`); continue; }
                 const cid = `${id}_mf_${slot}_${index}`;
-                const geo = await compileLdrawEntityGeometry(cid, 'figure', bricks, { scale: unitsPerLdu, partGeometry: options.partGeometry, quality: options.minifigCreator.quality ?? options.entityQuality, rig: { bones: assembled.rig.bones, boneOf: assembled.rig.boneOf.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_'))) }, wholeModel: true, pbr,
+                const geo = await compileLdrawEntityGeometry(cid, 'figure', bricks, { scale: figureUnitsPerLdu, partGeometry: options.partGeometry, quality: options.minifigCreator.quality ?? options.entityQuality, rig: { bones: assembled.rig.bones, boneOf: assembled.rig.boneOf.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_'))) }, wholeModel: true, pbr,
                     // Canonical minifig feet are y=72 LDU. Every library slot
                     // shares that origin; never recenter a head at its own floor.
                     originLdu: [0, 72, 0], inheritMaterialId: true });
@@ -1912,7 +1936,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 let egeo: CompiledLdrawGeometry;
                 try {
                     egeo = await compileLdrawEntityGeometry(ecid, ekind, extra.bricks, {
-                        scale: unitsPerLdu,
+                        scale: ekind === 'figure' ? figureUnitsPerLdu : unitsPerLdu,
                         ...(extra.facingLdu ? { facing: snapFacing(extra.facingLdu) } : {}),
                         partGeometry: options.partGeometry, quality: options.entityQuality, pbr,
                     });
@@ -1960,7 +1984,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         options.onProgress?.(`compiling ${flabel}`);
         let fgeo: CompiledLdrawGeometry;
         try {
-            fgeo = await compileLdrawEntityGeometry(fcid, 'figure', fig.bricks, { scale: unitsPerLdu, facing: snapFacing(fig.facingLdu), partGeometry: options.partGeometry, quality: options.entityQuality, pbr });
+            fgeo = await compileLdrawEntityGeometry(fcid, 'figure', fig.bricks, { scale: figureUnitsPerLdu, facing: snapFacing(fig.facingLdu), partGeometry: options.partGeometry, quality: options.entityQuality, pbr });
         } catch (e) {
             warnings.push(`${flabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
             continue;
@@ -2054,7 +2078,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // One animation file serves every minifig entity: the rig's bone names are shared.
     if (minifigsEmitted) files.push({ name: `${rp}animations/craftmatic_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) });
     if (unmapped.size) warnings.push(`${unmapped.size} block type${unmapped.size === 1 ? '' : 's'} had no Bedrock equivalent and ${unmapped.size === 1 ? 'was' : 'were'} omitted: ${[...unmapped].join(', ')}`);
-    if (modelScale !== 1) warnings.push(`${label}: exported at ${modelScale}× minifig scale (1 block = ${Math.round(lduPerBlock * 100) / 100} LDU) - blocks, colliders, entities and figures alike.`);
+    if (modelScale !== 1) warnings.push(`${label}: exported at ${modelScale}× minifig scale (1 block = ${Math.round(lduPerBlock * 100) / 100} LDU) - blocks, colliders and vehicles alike; figures ${modelScale > 1 ? 'stay at 1× (player-sized, never giants)' : 'follow the model'}.`);
     // ── Pack cuboid budget ───────────────────────────────────────────────────
     // `maxModelCubes` caps ONE entity. Nothing capped a PACK, and the device's
     // ceiling is the cuboid sum over every add-on the world has active
@@ -2162,7 +2186,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(creatorConfig ? ["import './minifig-wand.js';"] : []),
         ...(coasterConfig ? ["import './coaster.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size every entity takes that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
