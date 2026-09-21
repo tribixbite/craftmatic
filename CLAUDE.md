@@ -54,6 +54,9 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
   grey. Source conversion must retain unresolved private geometry safely.
+- **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`
+  is refused and the entity never exists). Most set stems are numeric, so build
+  ids with `entityId(raw, prefix)`; `scripts/_mcaddon_check.py` gates it.
 - **Bedrock rejects a `float` actor property written as an integer literal.**
   `"default": 0` fails with "'default' value does not match the specified type
   'float'" and drops the entity's WHOLE property component, so `query.property`

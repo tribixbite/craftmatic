@@ -1687,6 +1687,31 @@ lines — one distinct message at ~60/s for two hours — and that single number
 catches the whole class (dropped property component, typo'd property name,
 property queried on the wrong entity). A clean pack reads 0.
 
+#### An entity identifier may not begin with a digit (2026-09-21)
+
+`craftmatic:10303loop_10303_coaster_cart` is refused outright —
+`ERROR: Invalid entity identifier …, identifier cannot begin with a number` —
+and the entity then does not exist: the wand places the build and reports
+`1 entity could not be spawned`, and `/testfor @e[type=…]` is a *syntax* error
+rather than "no targets matched". **Most LEGO set stems are numeric**, so this
+silently removed the ride cart and marked seats of essentially every set while
+shells, figures and previews (which carried a `b_`/`f_`/`p_` prefix) were fine.
+
+Every entity id now goes through `entityId(raw, prefix)` in `playable-addon.ts`.
+The rule is also in `scripts/_mcaddon_check.py`, so it fails offline: five
+separate inline copies of the same test is how the two newest entities missed
+it, and a convention that is not enforced by a gate is not a convention.
+
+Other device facts from that round: **the content log can stop growing while
+the app runs** (it died at 34,893,824 bytes and never rotated, so a world load
+produced on-screen error toasts and nothing on disk) — force-stop and relaunch
+to start a fresh log before trusting a zero count. `input tap`/`input swipe`
+are unreliable on Bedrock's UI where `input motionevent DOWN/UP` works; the
+chat field drops and reorders characters from `input text`, so type one
+character at a time and insert the leading `/` LAST (typing it first opens
+command autocomplete, which steals focus). A 16,904-cuboid shell actor is not
+drawn at all from ~69 blocks away — stay within ~35 blocks for screenshots.
+
 #### A same-UUID pack upgrade needs the ACTIVE FOLDER overwritten (2026-09-21)
 
 Deterministic manifest UUIDs make a rebuilt pack upgrade in place — but each
