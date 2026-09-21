@@ -72,10 +72,18 @@ loop track; parallel-transport frames animate cart pitch/roll, not player roll.
   connecting rail between station and tower top. Never invent a rail bridge.
 - [ ] Publish only the repaired source after the exact R2 approval above.
 
-Current real pack: `output/bedrock-entity-qa/10303-coaster-measured-final.mcaddon`,
-SHA256 `466ae9fd1d37c61dbead80226c0cd0f02235a737b51e7dbe5079846adb3e7999`.
-Archive validation passes (15 clients, 114 geometries, 129 textures). Earlier
-fragmented-route packs are superseded. Focused coaster tests: 39 pass. Full
+Current real pack: `output/bedrock-entity-qa/10303-coaster-floatprops-20260921.mcaddon`,
+SHA256 `151244ed3b564a39e94188232ed2f0422788347485727aafc87a58dd7c408131`,
+304171 bytes, version `[2,695,19507]`, rebuilt from the repaired local source
+`C:/git/clego/lego_sets/IOModel2V2/10303.ldr` (SHA256 `df3b47c3…`) with
+`bun scripts/_playable_ref.ts <that source> <out> --label="10303-Loop-Coaster"`.
+Archive validation passes with the same shape as before (15 clients, 114
+geometries, 129 textures), same BP uuid `f868c24d-…`, same 16,904 cuboids and
+the same single 1066-sample 174.885-block open route; an archive-wide file diff
+against the superseded `10303-coaster-measured-final.mcaddon` (SHA256
+`466ae9fd…`, which carries the integer-literal defect) shows ONLY the float
+literals, the two added stage names and the version. It has NOT been imported to
+the phone yet. Earlier fragmented-route packs are superseded. Focused coaster tests: 39 pass. Full
 network-enabled regression suite: 1848 pass, 26 skip; log
 `output/bedrock-entity-qa/coaster-final-tests-network.log` (restricted-network
 run had four unrelated live-service failures; network-enabled rerun passed).
@@ -87,8 +95,12 @@ Diagnostics commit `00e83471` is pushed; deployment `35641616211` succeeded.
 CI `35641616290` failed initially and on one rerun only at live MRLC canopy
 assertions (`test/import-nlcd.test.ts`, service returned null); 1839 passed,
 36 skipped and both typechecks passed. Do not describe that CI run as green.
-Float-actor-property fix gates: full suite 1851 passed / 26 skipped, exit 0
-(`output/bedrock-entity-qa/coaster-floatprops-tests.log`); both typechecks pass.
+Float-actor-property fix gates (`0a3f6c9a`, hardening `c4cab387`, neither
+pushed yet): full suite 1851 passed / 26 skipped, exit 0
+(`output/bedrock-entity-qa/coaster-floatprops-tests.log`); both typechecks and
+the production web build pass (`floatprops-webbuild.log`). Both float guards
+were confirmed by reintroducing the integer literal, and the helper refactor
+leaves the emitted entity bytes identical.
 The emitted entity file is asserted at byte level, and the rebuilt QA pack
 differs from the previous one ONLY in those float literals, the two added stage
 names and the version — verified by an archive-wide file diff.
