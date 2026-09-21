@@ -475,6 +475,51 @@ describe('repairIncompleteGeometry() rebuilds parts emptied by the prefetch race
       .toContain('throttledpart');
   });
 
+  it('drops a partial parent before the next load so a recovered 503 child returns', async () => {
+    mockFetch({
+      rev: 'missing',
+      batchOk: true,
+      transient: ['recoverchild'],
+      files: {
+        recoverchild: tris(4),
+        recoverparent: `${tris(1)}\n${ref('recoverchild')}`,
+      },
+    });
+    const {
+      resolvePartGeometry,
+      repairIncompleteGeometry,
+      clearTransientMisses,
+      transientMissNames,
+      unresolvedDatNames,
+    } = await freshSession();
+
+    expect((await resolvePartGeometry('recoverparent')).tris.length,
+      'precondition: the parent keeps its own triangle but loses the 503 child').toBe(1);
+    const report = await repairIncompleteGeometry(['recoverparent']);
+    expect(report.passes,
+      'a non-empty partial parent is not a repair seed during the same throttle').toBe(0);
+    expect(transientMissNames(),
+      'the partial hole must be available to viewer diagnostics').toContain('recoverchild');
+    expect(unresolvedDatNames,
+      'a transient outage must not be mislabeled or cached as a definitive miss')
+      .not.toContain('recoverchild');
+
+    // Next load: the upstream throttle has cleared. Its reset must evict the
+    // partial parent, not merely forget the transient name.
+    mockFetch({
+      rev: 'missing',
+      batchOk: true,
+      files: {
+        recoverchild: tris(4),
+        recoverparent: `${tris(1)}\n${ref('recoverchild')}`,
+      },
+    });
+    clearTransientMisses();
+    expect((await resolvePartGeometry('recoverparent')).tris.length,
+      'the recovered child must be folded into a rebuilt parent').toBe(5);
+    expect(transientMissNames()).toEqual([]);
+  });
+
   it('caps its passes so an unrenderable part cannot loop forever', async () => {
     mockFetch({ rev: 'missing', files: { capempty: '0 BFC CERTIFY CCW' } });
     const { resolvePartGeometry, repairIncompleteGeometry } = await freshSession();

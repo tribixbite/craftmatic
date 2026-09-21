@@ -41,12 +41,25 @@ const transientMisses = new Set<string>();
 
 /**
  * Let a fresh load retry every name the previous one could not reach.
+ *
+ * A transient child can leave a parent with PARTIAL but non-empty assembled
+ * geometry. The repair pass deliberately does not re-probe during the same
+ * throttle window, so invalidate the child's whole ancestor closure here;
+ * otherwise the next load returns that partial parent straight from
+ * `partGeomCache` and never gives the recovered child a chance to load.
  * Called from `LDrawViewer.load()` beside the other per-model cache resets.
  */
-export function clearTransientMisses(): void { transientMisses.clear(); }
+export function clearTransientMisses(): void {
+  const dropped = new Set<string>();
+  for (const key of transientMisses) invalidateGeomTree(key, dropped);
+  transientMisses.clear();
+}
 
 /** How many names this load has written off as unreachable (diagnostics). */
 export function transientMissCount(): number { return transientMisses.size; }
+
+/** Exact names unreachable this load, so partial parent holes are reportable. */
+export function transientMissNames(): string[] { return [...transientMisses]; }
 
 /**
  * Reverse dependency edges: child part key → every parent whose ASSEMBLED

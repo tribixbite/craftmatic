@@ -45,6 +45,7 @@ import {
   normId,
   partTextureUrls,
   repairIncompleteGeometry,
+  transientMissNames,
   unresolvedDatNames,
   substitutedDatNames,
 } from './parts.js';
@@ -614,7 +615,10 @@ export class LDrawViewer {
     // parent parts (the parent still renders its other geometry). Surface
     // them so geometry gaps are never invisible.
     const topLevelMissing = new Set(missing.keys());
-    this.unresolvedSubparts = [...unresolvedDatNames].filter(n => !topLevelMissing.has(n));
+    this.unresolvedSubparts = [...new Set([
+      ...unresolvedDatNames,
+      ...transientMissNames(),
+    ])].filter(n => !topLevelMissing.has(n));
     this.substitutedParts = uniqueParts
       .filter(p => substitutedDatNames.has(p))
       .map(p => ({ part: p, renderedAs: substitutedDatNames.get(p)!, count: instCount.get(p) ?? 1 }))
@@ -627,7 +631,7 @@ export class LDrawViewer {
     }
     if (this.unresolvedSubparts.length > 0) {
       console.warn(
-        `[LDrawViewer] ${this.unresolvedSubparts.length} sub-part file(s) unresolved — minor geometry gaps:`,
+        `[LDrawViewer] ${this.unresolvedSubparts.length} sub-part file(s) unresolved/unreachable — minor geometry gaps:`,
         this.unresolvedSubparts.join(', '),
       );
     }

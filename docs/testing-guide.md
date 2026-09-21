@@ -118,9 +118,19 @@ path or the exporters. Each drives the REAL app in headless Chrome against
     production and not only under `PROBE_SLOW_INDEX_MS`.
   - Residual, not a stall: one 10303 run in six rendered 3,814 instances
     instead of 3,816 with an identical missing-parts list, on a load whose
-    part fetches were 182 × 503. Two instances lost to the upstream throttle.
-    # TODO: confirm whether repairIncompleteGeometry can drop an instance
-    silently when every candidate path 503s.
+    part fetches were 182 × 503. Two instances were lost on that throttled load.
+    Offline fault injection now confirms one silent-loss mechanism: when every
+    candidate path for a child subpart 503s, a parent with its own triangles is
+    non-empty, so `repairIncompleteGeometry` intentionally does not re-probe it
+    inside the same throttle window. The partial parent used to remain cached
+    across the next load, preventing recovery, while the transient child was
+    absent from the unresolved-subpart diagnostic. The next-load reset now
+    invalidates the transient child's assembled ancestor closure, and the
+    affected load reports the transient subpart gap. The focused regression is
+    in `test/part-cache-revision.test.ts`. This does **not** prove those exact
+    two 10303 instances used this mechanism—the production run did not capture
+    the failed stems/dependency paths—so the historical attribution remains
+    observational rather than causal.
 - **The probe can inject production's timing on dev**, which is the only way to
   regression-test the class above without a deploy:
   - `PROBE_SLOW_INDEX_MS=8000` — holds every DUPLICATE `/lego-models-index.json`
