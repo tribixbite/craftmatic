@@ -34,6 +34,12 @@ and conventions there; keep this file as the short project entry point.
   runner, which globs the whole tree including copied apps under `output/`
   (2,755 tests, 74 failures that are not this code) and takes 16 minutes.
   See the [testing guide](docs/testing-guide.md) for suites and manual gates.
+- **Commit before generating any add-on pack.** A pack stamps the export
+  pipeline's provenance into its NAME so an older build is recognisable at a
+  glance in Minecraft's pack list; built from a dirty tree it can only say
+  "dirty", which makes the pack on the phone unidentifiable. This has already
+  cost a device round (a stale pack folder resolved while a new one sat beside
+  it). Commit, then export.
 - Use **Chrome** for browser testing, not Edge.
 - Run Playwright `.mjs` probes with **Node**: Bun 1.3.11 can fetch a CDP
   `/json/version` yet time out on its WebSocket connection (measured 2026-09-21).
