@@ -24,10 +24,13 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   legacy Mecabricks A/B PID 36996 is 242/1,020. These already-running jobs
   write only their final `window-dbixv2-ab-strict.json` and
   `figure-mecabricks-preserve-ab-strict.json`; they have no checkpoint, so do
-  not stop them or start a second writer. Resumable-helper work begins at clego
-  `1e3c956c` but is still under review for grade-input hash races and torn-tail
-  framing; do not use it until the follow-up fix/tests land. After validation,
-  a future retry must use a **new** output name, which creates
+  not stop them or start a second writer. Exact commands, PIDs, outputs, and
+  recovery cautions are preserved in `corpus-repairs/LIVE-JOBS.md`; supporting
+  context is in `corpus-repairs/README.md`. The resumable helper is finalized at
+  clego `4d2dbad7` (five focused tests pass): it rehashes queued inputs before
+  and after grading, requires an exact checkpoint key and complete finite
+  metrics, records only successful pairs, and isolates torn suffixes. A future
+  retry must use a **new** output name, which creates
   `<out>.progress.jsonl`, for example from `C:/git/clego` in PowerShell:
   `$env:CLEGO_LDRAW_LIB='upstream'; python -B -u geograde/_ab_dirs.py C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-touched.txt C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/trials/window-dbixv2 C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-ab-resume.json 2`.
   Substitute the Mecabricks touched list/trial root and a new Mecabricks output
@@ -58,10 +61,6 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   `--verify-legacy` compares full remote/local SHA256 without any PUT and writes
   observed-readback receipts. All 33 mocked tests pass (`35858706`); no real
   migration/publication run. It does not certify everlasting CDN/origin state.
-- [ ] Finish eight exact no-op override removals with isolated byte-identical
-  before/after index proof. Owner: MPD agent; `overrides/REPORT.md`.
-  Candidate output must not overwrite the shared index or its summary.
-  Keep the ten conversion-target and six visual-choice overrides intact.
 - [ ] Missing-torso placement remains gated. `beam.build(..., recover_torsos=True)`
   is experimental/default OFF (`85ddc410`). Inventory recovery works, but
   70100 globally reallocates unrelated parts and leaves an exploded figure.
@@ -83,6 +82,14 @@ window 1→0, other metrics unchanged; source SHA256
 40809 remains evidence-only because floating parts rise 10→11; see `mpd/`.
 MPD repair is section-local, not cross-submodel matching; repeated definitions
 also preclude archive inventory recovery.
+
+Eight exact no-op overrides were removed in clego `4d2dbad7`. Isolated
+before/after indexes are byte-identical at SHA256
+`6553ef921a12a9e8d55e1af0120d0f29712899d8ff32e3cdadcca981841c9fd0`
+(10,169 sets / 20,764 entries); candidate summaries are isolated from the live
+summary, and the ten conversion-target plus six visual-choice overrides remain.
+The focused index tests pass 6/6; the live index and tracked summary were not
+changed. Evidence: `overrides/REPORT.md`.
 
 Transient all-candidate-503 subpart recovery is committed (`4a658505`). Offline
 fault injection reproduced a partial, non-empty assembled parent that repair
