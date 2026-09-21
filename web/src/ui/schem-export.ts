@@ -28,6 +28,7 @@ import {
 import { planAddonScale } from '@engine/addon-scale.js';
 import { LDU_PER_BLOCK } from '@engine/lego-scale.js';
 import { safeFilenameStem } from '@engine/export-name.js';
+import { currentPipelineStamp, type SourceProvenance } from '@engine/pipeline-version.js';
 import { exportLayerGuide } from '@viewer/exporter.js';
 import { collectDatTexts } from '@viewer/ldraw/parts.js';
 import { beginExportProgress, type ExportProgressHandle } from '@ui/export-progress.js';
@@ -334,6 +335,12 @@ export interface MinecraftExportRequest {
   settings?: SchemExportSettings;
   /** Override the interactive Bedrock add-on's automatic vehicle classifier. */
   vehicleMode?: 'auto' | 'car' | 'plane' | 'boat' | 'static';
+  /**
+   * Bedrock packs: the model file the loaded bricks came from, with its
+   * sha256/12 (the index's convention), recorded in the pack's provenance.
+   * `null`/absent when the tab does not know (a generated grid).
+   */
+  sourceProvenance?: SourceProvenance | null;
   /** Mirror phase/result text into a tab's own status line (the LEGO tab's log). */
   onStatus?: (message: string, kind: 'info' | 'success' | 'error') => void;
 }
@@ -344,6 +351,16 @@ export interface MinecraftExportResult {
   width?: number; height?: number; length?: number; nonAir?: number; lights?: number;
   /** Present only for the Bedrock `.mcpack` format. */
   mcpack?: McpackSummary;
+}
+
+/**
+ * Pack provenance for a Bedrock export: the build-injected pipeline stamp,
+ * read here on the MAIN thread (so the Worker bundle need not carry the
+ * `__PIPELINE_STAMP__` define), and the source file the tab loaded.
+ */
+function provenanceInput(req: MinecraftExportRequest): Pick<SchemWorkerInput, 'pipelineStamp' | 'sourceProvenance'> {
+  if (req.format !== 'mcpack' && req.format !== 'mcaddon') return {};
+  return { pipelineStamp: currentPipelineStamp(), sourceProvenance: req.sourceProvenance ?? null };
 }
 
 /**
@@ -406,6 +423,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
         buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
         ...(modelScale !== undefined ? { modelScale } : {}),
+        ...provenanceInput(req),
       };
     } else {
       const g = req.source.grid;
@@ -429,6 +447,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         entityQuality: settings.addonDetail,
         mainVehicleOnly: settings.addonMainVehicleOnly === true,
         buildingFidelity: settings.addonBuildingBricks === false ? 'blocks' : 'bricks',
+        ...provenanceInput(req),
       };
     }
 
@@ -478,10 +497,13 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     // Bedrock: the file alone is not actionable — explain how to acquire and
     // use the included BrickWand without implying that import places anything.
     if ((format === 'mcpack' || format === 'mcaddon') && job.mcpack) {
-      const { functionCommand, tileCount, unmapped, warnings = [], components = [] } = job.mcpack;
+      const { functionCommand, tileCount, unmapped, warnings = [], components = [], provenance } = job.mcpack;
       const tileNote = tileCount > 1
         ? `, split into ${tileCount} structures (Bedrock caps one at 64×384×64)`
         : '';
+      // The stamp the pack NAME carries, so the log says which pipeline built
+      // the file the user is about to sideload (pipeline-version.ts).
+      if (provenance) status(`Pack stamped "${provenance.display}" — ${provenance.source ? `from ${provenance.source.file}${provenance.source.hash ? ` (${provenance.source.hash})` : ''}` : 'source unrecorded'}; manifest version ${provenance.packVersion.value.join('.')} = ${provenance.packVersion.encodes}.`, 'info');
       const componentNote = format === 'mcaddon'
         ? (components.length > 0 ? ` Interactive components: ${components.join(', ')}.` : ' No interactive component was identified; the structure remains static.')
         : '';

@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
-import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
+import { buildPlayableAddon, measureCoasterTrain, COASTER_SAME_CAR_ARC } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
+import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceProvenance } from '../web/src/engine/pipeline-version.js';
+import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -436,7 +438,10 @@ describe('playable Bedrock add-on',()=>{
       const a = await manifests(first.bytes), b = await manifests(second.bytes);
       expect(b.bp.header.uuid).toBe(a.bp.header.uuid);
       expect(b.rp.header.uuid).toBe(a.rp.header.uuid);
-      expect(b.bp.header.version).toEqual([2, 663, 4_417]);
+      // `packVersionAt`: [YYMM, DDHH, MMSS] UTC, so 2026-09-09T12:00:01Z reads as 2609.912.1
+      // in the game's Technical details (was the opaque [2, 663, 4417] of the legacy encoding).
+      expect(b.bp.header.version).toEqual([2609, 912, 1]);
+      expect(a.bp.header.version).toEqual([2609, 912, 0]);
       expect(b.bp.header.version).not.toEqual(a.bp.header.version);
       expect(b.bp.modules.every((module: { version: number[] }) =>
         JSON.stringify(module.version) === JSON.stringify(b.bp.header.version))).toBe(true);
@@ -677,5 +682,118 @@ describe('pack identity — two models must never share a manifest uuid', () => 
   it('falls back to the stem when no label was given, and never yields an empty identity', () => {
     expect(packIdentity('Colosseum-10276')).toBe('colosseum 10276');
     expect(packIdentity('!!!', '')).toBe('model');
+  });
+});
+
+describe('pack provenance — the pipeline stamp in the pack NAME, never in its identity', () => {
+  const stamped = (over: Partial<PipelineStamp> = {}): PipelineStamp => ({
+    kind: 'stamped', hash: '0123456789ab', files: 40, commit: '1b74f4ee', date: '2026-09-21', head: '1b74f4ee', headDate: '2026-09-21',
+    dirty: false, dirtyFiles: [], treeDirty: false, shallow: false, computedAt: '2026-09-21T14:30:59.000Z', ...over,
+  });
+  const source: SourceProvenance = { file: '10303 Loop Coaster.io', hash: 'abcdefabcdef', origin: 'index', path: 'IO/10303 Loop Coaster.io', setNum: '10303-1' };
+  const manifests = async (bytes: Uint8Array, id: string) => {
+    const buffer = ab(bytes);
+    const read = async (name: string) => JSON.parse(new TextDecoder().decode(await extractFile(buffer, name)));
+    return { bp: await read(`Craftmatic_${id}_BP/manifest.json`), rp: await read(`Craftmatic_${id}_RP/manifest.json`) };
+  };
+  const uuidsOf = (m: { bp: any; rp: any }): string[] => [
+    m.bp.header.uuid, ...m.bp.modules.map((x: { uuid: string }) => x.uuid), m.rp.header.uuid, ...m.rp.modules.map((x: { uuid: string }) => x.uuid),
+  ];
+
+  it('shows the stamp in both pack names and the source in both descriptions', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Loop-Coaster-10303', label: '10303 Loop Coaster', vehicleMode: 'car', pipelineStamp: stamped(), source });
+    const m = await manifests(result.bytes, 'loop_coaster_10303');
+    expect(m.bp.header.name).toBe('10303 Loop Coaster — Playable (2026-09-21 1b74f4ee)');
+    expect(m.rp.header.name).toBe('10303 Loop Coaster — Playable Resources (2026-09-21 1b74f4ee)');
+    const sentence = provenanceSentence(stamped(), source);
+    expect(sentence).toBe('Built from 10303 Loop Coaster.io (abcdefabcdef) by pipeline 0123456789ab @ 1b74f4ee.');
+    expect(m.bp.header.description).toContain(sentence);
+    expect(m.rp.header.description).toContain(sentence);
+    // A dirty tree says so in the name, dated by the stamp itself.
+    const dirty = await buildPlayableAddon(model(), { stem: 'Loop-Coaster-10303', label: '10303 Loop Coaster', vehicleMode: 'car', pipelineStamp: stamped({ dirty: true, dirtyFiles: ['web/src/engine/playable-addon.ts'] }), source });
+    expect((await manifests(dirty.bytes, 'loop_coaster_10303')).bp.header.name).toBe('10303 Loop Coaster — Playable (2026-09-21 1b74f4ee+dirty)');
+  });
+
+  it('two different stamps produce different names but the SAME uuids (a pipeline build is an upgrade, not a new pack)', async () => {
+    const opts = { stem: 'Loop-Coaster-10303', label: '10303 Loop Coaster', vehicleMode: 'car' as const, source };
+    const a = await manifests((await buildPlayableAddon(model(), { ...opts, pipelineStamp: stamped() })).bytes, 'loop_coaster_10303');
+    const b = await manifests((await buildPlayableAddon(model(), { ...opts, pipelineStamp: stamped({ commit: 'deadbeef', date: '2026-10-01', hash: 'fedcba987654' }) })).bytes, 'loop_coaster_10303');
+    const c = await manifests((await buildPlayableAddon(model(), { ...opts, pipelineStamp: unstampedPipeline() })).bytes, 'loop_coaster_10303');
+    expect(a.bp.header.name).not.toBe(b.bp.header.name);
+    expect(b.bp.header.name).not.toBe(c.bp.header.name);
+    expect(c.bp.header.name).toBe('10303 Loop Coaster — Playable (unstamped)');
+    expect(uuidsOf(b)).toEqual(uuidsOf(a));
+    expect(uuidsOf(c)).toEqual(uuidsOf(a));
+    expect(new Set(uuidsOf(a)).size).toBe(uuidsOf(a).length);
+    // The uuids are what the raw stem/label derive — the stamped NAME never enters.
+    expect(packIdentity('Loop-Coaster-10303', '10303 Loop Coaster')).toBe('10303 loop coaster | loop coaster 10303');
+  });
+
+  it('defaults to the injected stamp (unstamped under vitest) and a null source, and says so honestly', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Roadster', vehicleMode: 'car' });
+    const m = await manifests(result.bytes, 'roadster');
+    expect(m.bp.header.name).toBe('Roadster — Playable (unstamped)');
+    expect(m.bp.header.description).toContain('Built from an unrecorded source by pipeline unstamped.');
+    expect(result.provenance).toMatchObject({ generator: 'craftmatic', display: 'unstamped', source: null, pipeline: { kind: 'unstamped' } });
+  });
+
+  it('writes craftmatic-provenance.json, returns the same record, and spreads it into the diagnostics', async () => {
+    const route: CoasterRoute = { label: 'Track', points: [[0, 0, 0], [10, 0, 0]], closed: false, maxSegmentLength: 10 };
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const result = await buildPlayableAddon(grid, { stem: 'Loop-Coaster-10303', label: '10303 Loop Coaster', pipelineStamp: stamped(), source, coasterRoutes: [route] });
+    const buffer = ab(result.bytes);
+    const read = async (name: string) => JSON.parse(new TextDecoder().decode(await extractFile(buffer, name)));
+    const provenance = await read('Craftmatic_loop_coaster_10303_BP/craftmatic-provenance.json');
+    expect(provenance).toEqual(result.provenance);
+    expect(provenance).toMatchObject({ generator: 'craftmatic', display: '2026-09-21 1b74f4ee', pipeline: stamped(), source });
+    const manifest = (await manifests(result.bytes, 'loop_coaster_10303')).bp;
+    expect(provenance.packVersion.value).toEqual(manifest.header.version);
+    expect(provenance.packVersion.encodes).toMatch(/^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
+    const diagnostics = await read('Craftmatic_loop_coaster_10303_BP/craftmatic-diagnostics.json');
+    for (const key of ['generator', 'builtAt', 'packVersion', 'display', 'pipeline', 'source'] as const) expect(diagnostics[key]).toEqual(provenance[key]);
+    expect(diagnostics.label).toBe('10303 Loop Coaster');
+  });
+});
+
+describe('measured coaster train (measureCoasterTrain)', () => {
+  /** A vertical drop: the 10303 case, in model blocks at a 53.33-LDU cell. */
+  const drop = { points: [[0, 20, 0], [0, 0, 0]] as [number, number, number][], closed: false };
+  it('reads three riders exactly a pitch apart on a vertical drop as a three-car train', () => {
+    // 10303: torsos at identical x/z, 120 LDU apart = 2.25 blocks; ~0.9 blocks off the running line.
+    const riders: [number, number, number][] = [[0.9, 15, 0], [0.9, 12.75, 0], [0.9, 10.5, 0]];
+    expect(measureCoasterTrain(drop, riders, 1.5)).toEqual({ count: 3, spacing: 2.25, riders: 3, pitches: [2.25, 2.25] });
+  });
+  it('is a single cart (undefined) with one rider, none, or riders off the track', () => {
+    expect(measureCoasterTrain(drop, [[0.9, 15, 0]], 1.5)).toBeUndefined();
+    expect(measureCoasterTrain(drop, [], 1.5)).toBeUndefined();
+    // Two figures standing 4 blocks away from the track are not riders.
+    expect(measureCoasterTrain(drop, [[4, 15, 0], [4, 12.75, 0]], 1.5)).toBeUndefined();
+    // A figure beside the track and one on it: one car is no train.
+    expect(measureCoasterTrain(drop, [[4, 15, 0], [0.9, 12.75, 0]], 1.5)).toBeUndefined();
+  });
+  it('seats riders abreast in ONE car, and reads the pitch between cars', () => {
+    const riders: [number, number, number][] = [[0.9, 15, 0.4], [0.9, 15, -0.4], [0.9, 12.75, 0.4], [0.9, 12.75, -0.4]];
+    expect(measureCoasterTrain(drop, riders, 1.5)).toEqual({ count: 2, spacing: 2.25, riders: 4, pitches: [2.25] });
+    expect(COASTER_SAME_CAR_ARC).toBe(0.5);
+  });
+  it('takes the longest run of consistent pitches and ignores a rider that breaks the pattern', () => {
+    // Four riders 2 apart, then a stray one 5 further on: the train is four cars at 2.
+    const riders: [number, number, number][] = [[0.9, 18, 0], [0.9, 16, 0], [0.9, 14, 0], [0.9, 12, 0], [0.9, 7, 0]];
+    expect(measureCoasterTrain(drop, riders, 1.5)).toEqual({ count: 4, spacing: 2, riders: 5, pitches: [2, 2, 2] });
+    // Two riders 3 apart is a two-car train even though a third sits at an unrelated pitch.
+    expect(measureCoasterTrain(drop, [[0.9, 18, 0], [0.9, 15, 0], [0.9, 5, 0]], 1.5)).toEqual({ count: 2, spacing: 3, riders: 3, pitches: [3] });
+  });
+  it('measures the pitch along the ARC of a bent route, not as a straight-line distance', () => {
+    // An L: 10 blocks along +x, then 10 along +y. Riders at arc 8 and arc 12 are 4 apart along the track.
+    const bent = { points: [[0, 0, 0], [10, 0, 0], [10, 10, 0]] as [number, number, number][], closed: false };
+    const train = measureCoasterTrain(bent, [[8, 0.5, 0], [10.5, 2, 0]], 1);
+    expect(train).toMatchObject({ count: 2, spacing: 4, riders: 2 });
+  });
+  it('never declares more cars than the runtime accepts', () => {
+    const riders = Array.from({ length: 12 }, (_, k) => [0.9, 19 - k * 1.5, 0] as [number, number, number]);
+    const train = measureCoasterTrain(drop, riders, 1.5)!;
+    expect(train.count).toBe(8);
+    expect(train.spacing).toBe(1.5);
+    expect(train.riders).toBe(12);
   });
 });

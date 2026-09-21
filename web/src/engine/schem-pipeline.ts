@@ -30,6 +30,7 @@ import { applyPartElements, type ElementStats } from './part-elements.js';
 import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { BlockEntity } from '@craft/types/index.js';
+import type { PackProvenance, PipelineStamp, SourceProvenance } from './pipeline-version.js';
 
 /**
  * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
@@ -140,6 +141,16 @@ export interface SchemWorkerInput {
    * 1.0-1.8; see `figureBehavior` in `playable-addon.ts`.
    */
   figureCollisionHeight?: number;
+  /**
+   * `.mcpack` / `.mcaddon`: the export pipeline's identity (pipeline-version.ts),
+   * shown in the pack NAME and written to `craftmatic-provenance.json`. The
+   * main thread passes the build-injected stamp so the Worker bundle need not
+   * carry the define; a CLI passes the stamp it computed from its tree. Absent,
+   * the pack builders fall back to `currentPipelineStamp()`.
+   */
+  pipelineStamp?: PipelineStamp;
+  /** `.mcpack` / `.mcaddon`: the model file the bytes came from, with its sha256/12. */
+  sourceProvenance?: SourceProvenance | null;
 }
 
 /** What a Bedrock `.mcpack` export produced, for the status line. */
@@ -152,6 +163,8 @@ export interface McpackSummary {
   tileCount: number;
   /** Java block ids with no Bedrock equivalent (written as air). */
   unmapped: string[];
+  /** The pack's provenance record (`craftmatic-provenance.json`), for the status line. */
+  provenance?: PackProvenance;
 }
 
 export type SchemWorkerOutput =
@@ -298,10 +311,11 @@ export async function runSchemPipeline(
   }
 
   if (input.format === 'mcaddon') {
-    const { buildPlayableAddon } = await import('./playable-addon.js');
+    const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
     const { discoverSceneActors, applySceneDoors, runtimeDoorCandidates, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
+    const { isTorso } = await import('./ldraw-entity-compiler.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
@@ -337,11 +351,30 @@ export async function runSchemPipeline(
             isGeometryAvailable: (_part, brick) => (scene.meshes.get(brick.part)?.triangles.length ?? 0) > 0,
           });
           warnings.push(...tracks.warnings.map(warning => `Coaster: ${warning}`));
-          for (const route of tracks.routes) coasterRoutes.push({
-            label: route.label, closed: route.closed,
-            points: route.points.map(point => sceneGridPoint(frame, [...point])),
-            maxSegmentLength: route.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY),
+          // The train is measured from the riders the source posed OFF upright
+          // (nose-down on a drop, hanging in a loop): a figure a Bedrock actor
+          // cannot stand in for is, on a coaster, a figure sitting in a car.
+          // Their torso placements are the car positions — the cluster centre
+          // shifts with hair and held items (10303: 115 LDU by centre, exactly
+          // 120 by torso). Upright figures near the track are NOT riders here:
+          // a queue on the platform would lengthen the train.
+          const riderAnchors = scene.posedFigures.map(f => {
+            const torso = f.bricks.find(b => isTorso(b.part, scene.meshes.get(b.part)?.description ?? ''));
+            return sceneGridPoint(frame, torso ? [torso.x, torso.y, torso.z] : f.centreLdu);
           });
+          // A seated rider's torso sits about 50 LDU off the running line on
+          // 10303; 80 LDU admits larger cars and still rejects the next track over.
+          const riderMaxOffset = 80 * frame.scale / Math.min(frame.cellXZ, frame.cellY);
+          for (const route of tracks.routes) {
+            const points = route.points.map(point => sceneGridPoint(frame, [...point]));
+            const train = measureCoasterTrain({ points, closed: route.closed }, riderAnchors, riderMaxOffset);
+            if (train) warnings.push(`Coaster: ${route.label} carries a measured train of ${train.count} cars at a ${train.spacing}-block pitch (${train.riders} posed rider${train.riders === 1 ? '' : 's'} on the track; pitches ${train.pitches.join(', ')}).`);
+            coasterRoutes.push({
+              label: route.label, closed: route.closed, points,
+              maxSegmentLength: route.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY),
+              ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}),
+            });
+          }
           for (const f of scene.figures) {
             const p = sceneGridPoint(frame, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
             figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
@@ -423,8 +456,8 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), onProgress });
-    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`) } };
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance } };
   }
 
   if (input.format === 'mcpack') {
@@ -434,6 +467,8 @@ export async function runSchemPipeline(
     const pack = await buildMcpack(grid, {
       stem: input.packStem ?? 'model',
       ...(input.packLabel ? { label: input.packLabel } : {}),
+      ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}),
+      ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}),
       onProgress,
     });
     return {
@@ -444,6 +479,7 @@ export async function runSchemPipeline(
         tileCount: pack.tiles.length,
         unmapped: pack.unmapped,
         warnings: bedrockExportNotes(grid),
+        provenance: pack.provenance,
       },
     };
   }

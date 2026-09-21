@@ -27,6 +27,8 @@ import { planResolution, planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTI
 import { planAddonScale, type AddonScaleChoice } from '../web/src/engine/addon-scale.ts';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.ts';
 import { modelExportStem } from '../web/src/engine/export-name.ts';
+import { sourceHash12, type SourceProvenance } from '../web/src/engine/pipeline-version.ts';
+import { computePipelineStamp } from './pipeline-stamp.ts';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 setLDrawRoot(LDRAW_ROOT);
@@ -116,6 +118,12 @@ let colorSpace: 'bl' | 'ldraw' = 'ldraw';
 let customParts = new Map<string, string>();
 let seeded = 0;
 let bricks: ParsedBrick[];
+// Pack provenance (engine/pipeline-version.ts): the source file's sha256/12 —
+// the model index's convention, over the bytes on disk — and the pipeline
+// stamp computed from THIS working tree (the browser gets it injected by Vite).
+const sourceBytes = readFileSync(file);
+const sourceProvenance: SourceProvenance = { file: basename(file), hash: sourceHash12(sourceBytes), origin: 'cli', path: file, ...(setMatch ? { setNum: setMatch[0] } : {}) };
+const { closure: _closure, ...pipelineStamp } = computePipelineStamp();
 if (/\.lxf(ml)?$/i.test(file)) {
   // `.lxf` is LDD XML in a ZIP. The browser reaches it through
   // `parseLxfWithDiagnostics`, which wants a DOM and fetches its two alignment
@@ -124,7 +132,7 @@ if (/\.lxf(ml)?$/i.test(file)) {
   installXmlDomShim();
   installPublicAssetFetch();
   const { parseLxfWithDiagnostics, describeLxfDiagnostics } = await import('../web/src/engine/lxf-parser.ts');
-  const b = readFileSync(file);
+  const b = sourceBytes;
   const parsed = await parseLxfWithDiagnostics(
     b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer,
   );
@@ -133,13 +141,13 @@ if (/\.lxf(ml)?$/i.test(file)) {
 } else {
   let text: string;
   if (/\.io$/i.test(file)) {
-    const b = readFileSync(file);
+    const b = sourceBytes;
     const io = await extractIoModel(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength) as ArrayBuffer);
     text = io.text;
     colorSpace = io.colorSpace === 'bl' ? 'bl' : 'ldraw';
     customParts = io.customParts;
   } else {
-    text = readFileSync(file, 'utf8');
+    text = sourceBytes.toString('utf8');
   }
   const doc = parseLDrawDocument(synthesizeLSynth(text).text);
   // Embedded part definitions beat the library, exactly as the viewer seeds the Worker.
@@ -174,6 +182,8 @@ const result = await runSchemPipeline({
   lod: (flag('lod') ?? 'hull') as 'none' | 'hull',
   ...(flag('lod-distance') ? { lodDistance: Number(flag('lod-distance')) } : {}),
   ...(flag('figure-collision-height') ? { figureCollisionHeight: Number(flag('figure-collision-height')) } : {}),
+  pipelineStamp,
+  sourceProvenance,
 }, (phase, pct) => { if (process.env.VERBOSE) console.error(`  ${phase}${pct !== undefined ? ` ${pct}%` : ''}`); });
 const ms = Date.now() - t0;
 
@@ -186,14 +196,22 @@ const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byt
 const entries = listZipEntries(buffer);
 const diagName = entries.find(e => e.endsWith('/craftmatic-diagnostics.json'));
 const diagnostics = diagName ? JSON.parse(new TextDecoder().decode(await extractFile(buffer, diagName))) : null;
+// The pack NAMES as Minecraft shows them and the provenance record, read back
+// from the archive rather than echoed from the inputs.
+const readJson = async (suffix: string): Promise<any> => { const name = entries.find(e => e.endsWith(suffix)); return name ? JSON.parse(new TextDecoder().decode(await extractFile(buffer, name))) : null; };
+const bpManifest = await readJson('_BP/manifest.json'), rpManifest = await readJson('_RP/manifest.json');
+const provenance = await readJson('/craftmatic-provenance.json');
 
 console.log(JSON.stringify({
   file, stem, label, bricks: bricks.length, embeddedParts: seeded, colorSpace, quality, vehicleMode, vehicleFacing,
   scale: { choice: scalePlan.choice, scale: modelScale, cue: scalePlan.cue, cellLDU: plan.cellLDU, reason: scalePlan.reason },
+  packNames: { bp: bpManifest?.header?.name ?? null, rp: rpManifest?.header?.name ?? null, version: bpManifest?.header?.version ?? null },
+  provenance,
   components: result.mcpack?.components ?? [],
   warnings: result.mcpack?.warnings ?? [],
   entities: diagnostics?.entities ?? null,
   lod: diagnostics?.lod ?? null,
+  coaster: diagnostics?.coaster ?? null,
   packBudget: diagnostics?.pack ?? null,
   geoFiles: entries.filter(e => /\.geo\.json$/.test(e)),
   textureSets: entries.filter(e => /\.texture_set\.json$/.test(e)),

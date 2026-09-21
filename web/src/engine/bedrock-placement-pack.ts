@@ -23,6 +23,8 @@ export interface PlacementActor {
   rideOf?: number;
   /** Measured track route index; the coaster runtime owns motion after placement. */
   coasterRouteIndex?: number;
+  /** This car's place in its route's train (0 = lead); written so the order is deterministic, not first-seen. */
+  coasterCarIndex?: number;
 }
 
 /**
@@ -952,6 +954,9 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
             entity.setDynamicProperty('craftmatic:coaster_rotation', st.rotation);
             entity.setDynamicProperty('craftmatic:coaster_scale', factor(st));
             entity.setDynamicProperty('craftmatic:coaster_route', actor.coasterRouteIndex);
+            // A train's car order: the runtime honours a written index and only
+            // assigns one itself when this is absent (bedrock-coaster.ts).
+            if (actor.coasterCarIndex !== undefined) entity.setDynamicProperty('craftmatic:coaster_car', actor.coasterCarIndex);
           }
           if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${st.size}% (${e && e.message ? e.message : e}); it stands at 100%.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);

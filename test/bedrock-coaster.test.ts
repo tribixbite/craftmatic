@@ -592,6 +592,71 @@ describe('coaster pack assets', () => {
     expect(cart.entity.getDynamicProperty('craftmatic:coaster_origin')).toEqual({ x: 100, y: 64, z: 200 });
     expect(cart.entity.getDynamicProperty('craftmatic:coaster_scale')).toBe(1);
     expect(cart.entity.getDynamicProperty('craftmatic:coaster_route')).toBe(0);
+    // No car index in the actor: none written, the runtime assigns one on first sight.
+    expect(cart.entity.getDynamicProperty('craftmatic:coaster_car')).toBeUndefined();
+  });
+  it('writes each train car its placement-assigned index, all spawned at the station point', async () => {
+    const at = { x: 3, y: 2, z: 4 };
+    const h = host({ stem: 'coaster_train', label: 'Ride', width: 12, height: 4, length: 8, tiles: [],
+      actors: [0, 1, 2].map(car => ({ typeId: 'craftmatic:ride', label: `Ride Car ${car + 1}`, ...at, coasterRouteIndex: 0, coasterCarIndex: car })) });
+    await h.open({ selection: 1 }, { canceled: true });
+    await h.open({ selection: 5 }, { selection: 0 }); await h.flush(4000);
+    const cars = h.spawned.filter(spawn => spawn.typeId === 'craftmatic:ride');
+    expect(cars).toHaveLength(3);
+    expect(cars.map(car => car.entity.getDynamicProperty('craftmatic:coaster_car'))).toEqual([0, 1, 2]);
+    for (const car of cars) {
+      expect(car.entity.getDynamicProperty('craftmatic:coaster_route')).toBe(0);
+      expect(car.entity.getDynamicProperty('craftmatic:coaster_origin')).toEqual({ x: 100, y: 64, z: 200 });
+      expect(car.at).toEqual(cars[0]!.at);
+    }
+  });
+  it('spawns one actor per measured car and records the train beside the station in the diagnostics', async () => {
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const train: CoasterRoute = { ...straight, label: 'Train track', cars: { count: 3, spacing: 2.25 } };
+    const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [straight, train] });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const decode = async (name: string) => new TextDecoder().decode(await extractFile(buffer, name));
+    const placement = JSON.parse(/const CONFIG = (\{[\s\S]*?\});\n/.exec(await decode('Craftmatic_coaster_BP/scripts/placement.js'))![1]!);
+    const runtime = JSON.parse(/const CONFIG = (\{[\s\S]*?\});\n/.exec(await decode('Craftmatic_coaster_BP/scripts/coaster.js'))![1]!);
+    // Route 0 (no `cars`): the single device-proved cart, one actor, index 0.
+    const single = placement.actors.filter((actor: any) => actor.coasterRouteIndex === 0);
+    expect(single.map((actor: any) => actor.coasterCarIndex)).toEqual([0]);
+    expect(single[0].label).toBe('Measured track Ride Cart');
+    expect(runtime.routes[0].cars).toEqual({ count: 1, spacing: 0, extent: 0 });
+    // Route 1: three actors, one per car, every one at the station point, indexed 0..2.
+    const cars = placement.actors.filter((actor: any) => actor.coasterRouteIndex === 1);
+    expect(cars.map((actor: any) => actor.coasterCarIndex)).toEqual([0, 1, 2]);
+    expect(cars.map((actor: any) => actor.label)).toEqual(['Train track Car 1', 'Train track Car 2', 'Train track Car 3']);
+    const station = runtime.routes[1].station;
+    for (const car of cars) expect(car).toMatchObject({ x: station.point[0], y: station.point[1], z: station.point[2] });
+    expect(runtime.routes[1].cars).toEqual({ count: 3, spacing: 2.25, extent: 4.5, minChord: 2.25 });
+    // Diagnostics: count/spacing/extent/minChord beside the station, per route.
+    const diagnostics = JSON.parse(await decode('Craftmatic_coaster_BP/craftmatic-diagnostics.json'));
+    expect(diagnostics.coaster.carLength).toBe(COASTER_CAR_LENGTH);
+    expect(diagnostics.coaster.routes[0]).toMatchObject({ label: 'Measured track', cars: { count: 1, spacing: 0, extent: 0 }, station: { stop: 5, length: 10 } });
+    expect(diagnostics.coaster.routes[1]).toMatchObject({ label: 'Train track', cars: { count: 3, spacing: 2.25, extent: 4.5, minChord: 2.25, overlaps: false }, station: { stop: 5, point: station.point } });
+    // A straight never closes coupled cars up, so nothing warns about overlap.
+    expect(pack.warnings.some(w => /visibly intersect/.test(w))).toBe(false);
+  });
+  it('surfaces, and never clamps, a train whose route curvature closes the cars under one car length', async () => {
+    // A hairpin: 10 blocks out, a 0.4-block turn, 10 blocks back, sampled every
+    // half block on the return leg (minimumCoupledChord measures at authored
+    // samples). Two cars a 2.25-block arc apart straddle the turn 0.43 blocks
+    // apart in a straight line - the fold shape 10303's stitched route has at
+    // its fragment joins. The pack keeps the measured train and says where it
+    // will intersect (craftmatic-diagnostics.json + a warning); nothing clamps.
+    const points: [number, number, number][] = [[0, 1, 0], [10, 1, 0]];
+    for (let x = 10; x >= 0; x -= 0.5) points.push([x, 1, 0.4]);
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [{ label: 'Hairpin', points, closed: false, maxSegmentLength: 10, cars: { count: 3, spacing: 2.25 } }] });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const diagnostics = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_coaster_BP/craftmatic-diagnostics.json')));
+    const cars = diagnostics.coaster.routes[0].cars;
+    expect(cars.count).toBe(3);
+    expect(cars.minChord).toBeCloseTo(Math.hypot(0.15, 0.4), 6);
+    expect(cars.minChord).toBeLessThan(COASTER_CAR_LENGTH);
+    expect(cars.overlaps).toBe(true);
+    expect(pack.warnings.find(w => /visibly intersect/.test(w))).toContain(`${Math.round(cars.minChord * 1000) / 1000}-block chord`);
   });
   it('emits rideable non-gravity cart with synced visual pitch and scale groups', () => {
     const assets = coasterCartAssets('craftmatic:ride');

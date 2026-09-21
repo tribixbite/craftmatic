@@ -1,7 +1,8 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import { getBlockColor } from '@craft/blocks/colors.js';
 import { createZip } from './zip-utils.js';
-import { deterministicUuid, exportVersion, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
+import { deterministicUuid, packIdentity, PACK_NAMESPACE, toBedrockIdentifier } from './mcpack.js';
+import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, provenanceSentence, type PackProvenance, type PipelineStamp, type SourceProvenance } from './pipeline-version.js';
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
@@ -24,7 +25,7 @@ import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
-import { coasterCartAssets, coasterRuntimeConfig, coasterScript, type CoasterRoute } from './bedrock-coaster.js';
+import { COASTER_CAR_LENGTH, coasterCartAssets, coasterRuntimeConfig, coasterScript, type CoasterRoute } from './bedrock-coaster.js';
 import { bedrockJsonText } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
@@ -165,6 +166,15 @@ export interface PlayableAddonOptions {
     manualSeatTypeId?: string;
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
     runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
+    /**
+     * The export pipeline's identity (pipeline-version.ts): shown in both pack
+     * NAMES and written in full to `craftmatic-provenance.json`. Defaults to the
+     * stamp the Vite build injected (`unstamped` under vitest / a bare import);
+     * a CLI passes the one it computed from its working tree.
+     */
+    pipelineStamp?: PipelineStamp;
+    /** The model file the pack was built from, with its sha256/12 (the index's convention). `null` when unknown. */
+    source?: SourceProvenance | null;
 }
 /** `hull`: ship a per-colour surface hull beside the full model and switch to it at `lodDistance`. */
 export type LodMode = 'none' | 'hull';
@@ -199,6 +209,8 @@ export interface PlayableAddonResult {
     warnings: string[];
     /** Geometry diagnostics per brick-compiled entity id (also written into the BP). */
     diagnostics: Record<string, LegoGeometryDiagnostics>;
+    /** What built this pack and from which file — the record in `craftmatic-provenance.json`. */
+    provenance: PackProvenance;
 }
 const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
@@ -1581,18 +1593,32 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         name: string;
         data: Uint8Array;
     }> = [];
-    const version = exportVersion();
+    // A BUILD instant, readable as a UTC date in the game's Technical details
+    // (pipeline-version.ts): a re-export at another scale or quality must rank
+    // newer than the installed pack even when the pipeline did not change.
+    const version = packVersionAt();
+    // Provenance: the pipeline stamp goes in both pack NAMES so an older pack
+    // is readable at a glance in Minecraft's pack list, and in full into
+    // `craftmatic-provenance.json` (also spread into the diagnostics).
+    const pipelineStamp = options.pipelineStamp ?? currentPipelineStamp();
+    const source = options.source ?? null;
+    const provenance = packProvenance({ stamp: pipelineStamp, source, version });
     // Manifest UUIDs are keyed on the model's IDENTITY, not on `id`: `id` is the
     // 12-char name stem, so every Hogwarts set shipped one BP/RP uuid and a
     // second import could never be activated beside the first (see packIdentity).
+    // The identity takes the RAW label — never the stamped display name below.
+    // A stamp in it would make every pipeline build a NEW pack beside the old
+    // one instead of an upgrade, which is the stale-folder trap the stamp exists
+    // to expose (pinned by "different stamps, same uuid" in playable-addon.test).
     const identity = packIdentity(options.stem, options.label);
     const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${identity}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${identity}`);
-    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable`, description: `Place with /function ${shortAlias}; ride vehicles and use computer screens.`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${identity}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${identity}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
+    files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable', pipelineStamp), description: `Place with /function ${shortAlias}; ride vehicles and use computer screens. ${provenanceSentence(pipelineStamp, source)}`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${identity}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${identity}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
     // Vibrant Visuals texture sets are emitted for brick-compiled entities; the
     // manifest must declare the capability or the game ignores the MER/normal maps.
     const pbr = options.pbr ?? true;
     const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: `${label} — Playable Resources`, description: 'Faithful Craftmatic vehicle geometry and HD LEGO textures', uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Faithful Craftmatic vehicle geometry and HD LEGO textures. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    files.push({ name: `${bp}craftmatic-provenance.json`, data: json(provenance) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
     /** Cuboids of the BlockGrid-fallback entities, which have no `LegoGeometryDiagnostics` to carry them. */
     let fallbackCuboids = 0;
@@ -2024,14 +2050,28 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${rp}animations/${coasterId}.animation.json`, data: json(cart.animations) },
             { name: `${rp}textures/entity/craftmatic_coaster.png`, data: texture.colorPng },
             { name: `${bp}scripts/coaster.js`, data: text(coasterScript(coasterConfig)) },
-            { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nThe grey Ride Cart runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to it while it is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount. It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.\n') },
+            { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nThe grey Ride Cart runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to it while it is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount. It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). A set whose riders sit in a row of cars runs that many single-seat cars as one train; any car can be boarded. Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.\n') },
         );
         addEntityName(coasterConfig.typeId, `${label} Ride Cart`, false);
         coasterConfig.routes.forEach((route, index) => {
             // Spawn where the runtime parks it: the measured station platform,
-            // so a player meets the cart at the reload zone, not at arc 0.
+            // so a player meets the cart at the reload zone, not at arc 0. A
+            // measured train spawns one actor PER CAR, all at that point, each
+            // with its car index written by the placement (deterministic; the
+            // runtime would otherwise assign one on first sight). Both halves
+            // ship together: a `cars` config without the extra actors would
+            // leave the lone car unable to reach the first `extent` blocks.
             const p = route.station.point;
-            actors.push({ typeId: coasterConfig.typeId, label: `${route.label} Ride Cart`, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index });
+            const { count } = route.cars;
+            for (let car = 0; car < count; car++) {
+                const carLabel = count > 1 ? `${route.label} Car ${car + 1}` : `${route.label} Ride Cart`;
+                actors.push({ typeId: coasterConfig.typeId, label: carLabel, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index, coasterCarIndex: car });
+            }
+            // Not clamped, only surfaced: the overlap is a property of the SOURCE
+            // route's curvature at that pitch (or of a fold in the stitched route).
+            if (route.cars.minChord !== undefined && route.cars.minChord < COASTER_CAR_LENGTH) {
+                warnings.push(`${route.label}: the ${count}-car train at a ${route.cars.spacing}-block pitch closes to a ${Math.round(route.cars.minChord * 1000) / 1000}-block chord between coupled cars somewhere on the route, under the ${COASTER_CAR_LENGTH}-block car length, so the cars will visibly intersect there (craftmatic-diagnostics.json coaster.routes[].cars).`);
+            }
         });
         warnings.push(`${coasterConfig.routes.length} measured coaster route(s): the grey Ride Cart runs on its own and stops at the reload zone — walk up and tap to ride. Open tracks shuttle; riders stay upright.`);
     }
@@ -2106,7 +2146,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length || coasterConfig) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
-        generator: 'craftmatic', label,
+        // The provenance record (pipeline stamp, source file + hash, build
+        // instant) is spread in whole, so one file answers "which build made this".
+        ...provenance, label,
         // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
         pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
         // `query.distance_from_camera` is evaluated in a geometry field and reads
@@ -2114,8 +2156,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // nearest-cube option and each entity's `switchDistance` adds its reach.
         lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks to the entity ROOT (Pixel 8 Pro 2026-09-19); each entity switches at distance + its radiusBlocks (switchDistance)' : 'off', entities: lodHulls },
         entities: diagnostics,
-        ...(coasterConfig ? { coaster: { cuboids: coasterCuboids, riderRoll: false, deviceVerified: false,
-            routes: coasterConfig.routes.map(route => ({ label: route.label, lengthBlocks: route.path.length, samples: route.path.points.length, closed: route.path.closed })) } } : {}),
+        ...(coasterConfig ? { coaster: { cuboids: coasterCuboids, riderRoll: false, deviceVerified: false, carLength: COASTER_CAR_LENGTH,
+            routes: coasterConfig.routes.map(route => ({
+                label: route.label, lengthBlocks: route.path.length, samples: route.path.points.length, closed: route.path.closed,
+                station: { stop: route.station.stop, length: route.station.length, point: route.station.point },
+                // The resolved train beside the station: count/spacing/extent in
+                // model blocks; `minChord` is the tightest straight-line gap the
+                // route leaves between coupled cars (bedrock-coaster.ts), reported
+                // and never clamped — under `carLength` the cars intersect there.
+                cars: { ...route.cars, ...(route.cars.minChord !== undefined ? { overlaps: route.cars.minChord < COASTER_CAR_LENGTH } : {}) },
+            })) } } : {}),
     }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
@@ -2189,5 +2239,101 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance };
+}
+
+// ── Measured coaster train ───────────────────────────────────────────────────
+
+/** Riders whose arc positions differ by less than this sit in the SAME car (two seats abreast). */
+export const COASTER_SAME_CAR_ARC = 0.5;
+/** Consecutive car pitches must agree within this fraction to be one train. */
+export const COASTER_PITCH_TOLERANCE = 0.08;
+/** Most cars a route may declare (`resolveCoasterCars` rejects more). */
+const COASTER_MAX_CARS = 8;
+
+export interface CoasterTrainMeasurement {
+    /** Cars in the longest consistent run of riders (2..8). */
+    count: number;
+    /** Their mean arc pitch, model blocks (rounded to 1e-3). */
+    spacing: number;
+    /** Riders that projected onto the route within `maxOffset`. */
+    riders: number;
+    /** Every consecutive pitch in the chosen run, model blocks. */
+    pitches: number[];
+}
+
+/**
+ * Derive a route's train from the SOURCE's own evidence: the riders it posed
+ * along the track. Nothing here assumes a pitch — a train is a measurement of
+ * the set, and a set with no measurable train gets the single device-proved
+ * cart (`undefined`).
+ *
+ * Rule: each rider anchor (the torso placement, in the same model blocks as
+ * the route) is projected onto the route polyline; anchors further than
+ * `maxOffset` from it are not riders. Anchors within `COASTER_SAME_CAR_ARC` of
+ * each other along the arc share a car (two seats abreast). The remaining car
+ * positions are sorted by arc, and the longest run of consecutive pitches that
+ * agree within `COASTER_PITCH_TOLERANCE` of their running mean is the train:
+ * its car count and mean pitch. Fewer than two cars in a run is no train.
+ *
+ * 10303 Loop Coaster: three riders posed nose-down (tilt 90°) on the vertical
+ * drop, torsos at identical x/z exactly 120 LDU apart, project to three car
+ * positions 2.25 blocks apart at that pack's 53.33-LDU cell, so the rule
+ * returns `{ count: 3, spacing: 2.25 }`. Riders standing beside the track are
+ * not passed in (only figures posed OFF upright are — see schem-pipeline.ts),
+ * so a queue on the platform cannot lengthen the train.
+ */
+export function measureCoasterTrain(route: { points: readonly Vec3[]; closed: boolean }, riders: readonly Vec3[], maxOffset: number): CoasterTrainMeasurement | undefined {
+    const points = route.points;
+    if (points.length < 2 || riders.length < 2 || !(maxOffset > 0)) return undefined;
+    // Cumulative arc length of the polyline.
+    const cumulative = [0];
+    for (let i = 1; i < points.length; i++) {
+        const a = points[i - 1]!, b = points[i]!;
+        cumulative.push(cumulative[i - 1]! + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
+    }
+    // Nearest point on the polyline for each rider: (arc, perpendicular distance).
+    const arcs: number[] = [];
+    for (const r of riders) {
+        let best = { d: Infinity, arc: 0 };
+        for (let i = 1; i < points.length; i++) {
+            const a = points[i - 1]!, b = points[i]!;
+            const ab: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            const len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+            const t = len2 > 0 ? Math.max(0, Math.min(1, ((r[0] - a[0]) * ab[0] + (r[1] - a[1]) * ab[1] + (r[2] - a[2]) * ab[2]) / len2)) : 0;
+            const d = Math.hypot(r[0] - (a[0] + ab[0] * t), r[1] - (a[1] + ab[1] * t), r[2] - (a[2] + ab[2] * t));
+            if (d < best.d) best = { d, arc: cumulative[i - 1]! + Math.sqrt(len2) * t };
+        }
+        if (best.d <= maxOffset) arcs.push(best.arc);
+    }
+    if (arcs.length < 2) return undefined;
+    arcs.sort((a, b) => a - b);
+    // Riders abreast in one car collapse to that car's mean arc.
+    const cars: number[] = [];
+    let group: number[] = [arcs[0]!];
+    for (let i = 1; i <= arcs.length; i++) {
+        const arc = arcs[i];
+        if (arc !== undefined && arc - group[group.length - 1]! < COASTER_SAME_CAR_ARC) { group.push(arc); continue; }
+        cars.push(group.reduce((s, v) => s + v, 0) / group.length);
+        if (arc !== undefined) group = [arc];
+    }
+    if (cars.length < 2) return undefined;
+    // Longest run of consecutive pitches that agree with their running mean.
+    let best: { start: number; length: number } = { start: 0, length: 0 };
+    let start = 0, sum = 0;
+    for (let i = 1; i < cars.length; i++) {
+        const pitch = cars[i]! - cars[i - 1]!;
+        // Pitches already in the run: cars[start..i-1] hold i-1-start of them.
+        const inRun = i - 1 - start;
+        const mean = inRun > 0 ? sum / inRun : pitch;
+        if (inRun > 0 && Math.abs(pitch - mean) > COASTER_PITCH_TOLERANCE * mean) { start = i - 1; sum = 0; }
+        sum += pitch;
+        const length = i - start;
+        if (length > best.length) best = { start, length };
+    }
+    if (best.length < 1) return undefined;
+    const pitches = Array.from({ length: Math.min(best.length, COASTER_MAX_CARS - 1) }, (_, k) => cars[best.start + k + 1]! - cars[best.start + k]!);
+    const spacing = Math.round(pitches.reduce((s, v) => s + v, 0) / pitches.length * 1000) / 1000;
+    if (!(spacing > 0)) return undefined;
+    return { count: pitches.length + 1, spacing, riders: arcs.length, pitches: pitches.map(p => Math.round(p * 1000) / 1000) };
 }

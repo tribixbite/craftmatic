@@ -27,6 +27,7 @@ import {
   BEDROCK_BLOCK_VERSION, BEDROCK_MAX_TILE, MCSTRUCTURE_FORMAT_VERSION,
 } from '../web/src/engine/mcstructure-encode.js';
 import { buildMcpack, deterministicUuid, exportVersion, toBedrockIdentifier, PACK_NAMESPACE } from '../web/src/engine/mcpack.js';
+import { describePackVersion, packVersionAt } from '../web/src/engine/pipeline-version.js';
 import { listZipEntries, extractFile } from '../web/src/engine/zip-utils.js';
 
 /** Decode `.mcstructure` bytes with the third-party little-endian NBT reader. */
@@ -293,9 +294,20 @@ describe('.mcpack', () => {
     const manifest = JSON.parse(new TextDecoder().decode(await extractFile(buf, 'manifest.json')));
 
     expect(manifest.format_version).toBe(2);
-    expect(manifest.header.name).toBe('Colosseum (10276)');
-    expect(manifest.header.version[0]).toBeGreaterThanOrEqual(2);
+    // The pipeline stamp rides in the NAME (pipeline-version.ts); nothing is
+    // injected under vitest, so the pack says so rather than inventing a commit.
+    expect(manifest.header.name).toBe('Colosseum (10276) (unstamped)');
+    expect(manifest.header.description).toContain('Built from an unrecorded source by pipeline unstamped.');
+    // `packVersionAt`: [YYMM, DDHH, MMSS] UTC — readable in the game, and above
+    // every tuple the legacy encoding produced (its first component was 2 or 3).
+    expect(manifest.header.version[0]).toBeGreaterThanOrEqual(2601);
+    expect(describePackVersion(manifest.header.version)).toMatch(/^20\d\d-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
     expect(manifest.header.version).toEqual(manifest.modules[0].version);
+    // The record a tool reads: the same version, decoded, and the (absent) source.
+    const provenance = JSON.parse(new TextDecoder().decode(await extractFile(buf, 'craftmatic-provenance.json')));
+    expect(provenance).toMatchObject({ generator: 'craftmatic', display: 'unstamped', source: null, pipeline: { kind: 'unstamped' } });
+    expect(provenance.packVersion.value).toEqual(manifest.header.version);
+    expect(provenance.packVersion.encodes).toBe(describePackVersion(manifest.header.version));
     // Pinned to the oldest release that has every id we emit.
     expect(manifest.header.min_engine_version).toEqual([1, 26, 40]);
     // Structures/functions/items are data; the Brick Wand UI is a script.
@@ -354,7 +366,11 @@ describe('.mcpack', () => {
 });
 
 describe('pack identity', () => {
-  it('orders compact export versions across component boundaries', () => {
+  it('keeps the LEGACY export version ordered across component boundaries (no builder uses it; packVersionAt must outrank it)', () => {
+    // `exportVersion` is the pre-2026-09-21 encoding every installed pack carries.
+    // It stays pinned here so the readable `packVersionAt` can be proved to rank
+    // newer than anything it produced — Minecraft only replaces a pack when the
+    // version rises — which pipeline-version.test.ts checks against 2059-12-31.
     const epoch = Date.UTC(2026, 0, 1), second = 1_000, radix = 32_768;
     const versions = [
       exportVersion(epoch - 1),
@@ -372,6 +388,12 @@ describe('pack identity', () => {
     const ordered = versions.slice(1).map(version => version[0] * radix * radix + version[1] * radix + version[2]);
     expect(ordered).toEqual([...ordered].sort((a, b) => a - b));
     expect(() => exportVersion(Number.NaN)).toThrow('finite');
+    // The manifests now carry the readable build instant; the same instant
+    // ranks above the legacy tuple, so the transition upgrades in place.
+    const at = Date.UTC(2026, 8, 21, 14, 30, 59);
+    expect(packVersionAt(at)).toEqual([2609, 2114, 3059]);
+    const rank = (v: readonly number[]) => v[0]! * radix * radix + v[1]! * radix + v[2]!;
+    expect(rank(packVersionAt(at))).toBeGreaterThan(rank(exportVersion(at)));
   });
 
   it('is deterministic — the same set re-exports as the same pack', () => {

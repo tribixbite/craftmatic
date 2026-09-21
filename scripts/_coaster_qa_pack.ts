@@ -6,9 +6,12 @@
  * UUIDs), so a rebuilt pack upgrades the one already activated in the isolated
  * CoasterQA world instead of installing beside it.
  *
- * Usage: bun scripts/_coaster_qa_pack.ts [out.mcaddon] [--loop]
- *   --loop  also emits a closed 16-point vertical loop route, for pitch/roll
- *           animation checks that a flat straight cannot show.
+ * Usage: bun scripts/_coaster_qa_pack.ts [out.mcaddon] [--loop] [--train]
+ *   --loop   also emits a closed 16-point vertical loop route, for pitch/roll
+ *            animation checks that a flat straight cannot show.
+ *   --train  declares 10303's measured train (3 cars, 2.25-block pitch) on the
+ *            straight, so the multi-car placement and ride can be checked on a
+ *            device without loading the whole set.
  *
  * Output defaults to output/bedrock-entity-qa/coaster-qa.mcaddon (gitignored).
  */
@@ -18,17 +21,20 @@ import { createHash } from 'node:crypto';
 import { BlockGrid } from '../src/schem/types.ts';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.ts';
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.ts';
+import { computePipelineStamp } from './pipeline-stamp.ts';
 
 const positional = process.argv.slice(2).filter(argument => !argument.startsWith('--'));
 const out = positional[0] ?? 'output/bedrock-entity-qa/coaster-qa.mcaddon';
 const withLoop = process.argv.includes('--loop');
+const withTrain = process.argv.includes('--train');
 
 const WIDTH = 12, LENGTH = 4;
 const grid = new BlockGrid(WIDTH, 2, LENGTH);
 for (let x = 0; x < WIDTH; x++) for (let z = 0; z < LENGTH; z++) grid.set(x, 0, z, 'minecraft:stone');
 
 const routes: CoasterRoute[] = [
-  { label: 'QA straight', points: [[0, 1, 0], [10, 1, 0]], closed: false, maxSegmentLength: 10 },
+  { label: 'QA straight', points: [[0, 1, 0], [10, 1, 0]], closed: false, maxSegmentLength: 10,
+    ...(withTrain ? { cars: { count: 3, spacing: 2.25 } } : {}) },
 ];
 if (withLoop) {
   // A closed vertical circle in the XY plane: every frame of pitch and roll is
@@ -44,9 +50,12 @@ if (withLoop) {
   routes.push({ label: 'QA loop', points: loop, closed: true, maxSegmentLength: 2 });
 }
 
-const pack = await buildPlayableAddon(grid, { stem: 'Coaster QA', coasterRoutes: routes });
+// A CLI exporter computes the pipeline stamp from its own tree; the route is synthetic, so there is no source file to hash.
+const { closure: _closure, ...pipelineStamp } = computePipelineStamp();
+const pack = await buildPlayableAddon(grid, { stem: 'Coaster QA', coasterRoutes: routes, pipelineStamp, source: { file: 'synthetic QA route (scripts/_coaster_qa_pack.ts)', hash: null, origin: 'cli' } });
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, pack.bytes);
 console.log(`${out}\n  ${pack.bytes.byteLength} bytes  sha256=${createHash('sha256').update(pack.bytes).digest('hex')}`);
-console.log(`  routes: ${routes.map(route => `${route.label} (${route.points.length} pts, ${route.closed ? 'closed' : 'open'})`).join(', ')}`);
+console.log(`  pipeline: ${pack.provenance.display}  manifest version ${pack.provenance.packVersion.value.join('.')} (${pack.provenance.packVersion.encodes})`);
+console.log(`  routes: ${routes.map(route => `${route.label} (${route.points.length} pts, ${route.closed ? 'closed' : 'open'}${route.cars ? `, ${route.cars.count} cars @ ${route.cars.spacing}` : ''})`).join(', ')}`);
 for (const warning of pack.warnings ?? []) console.log(`  warning: ${warning}`);

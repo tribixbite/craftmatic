@@ -32,6 +32,10 @@ import {
   type StructureTile,
 } from './mcstructure-encode.js';
 import { buildPlacementPackAssets } from './bedrock-placement-pack.js';
+import {
+  currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, provenanceSentence,
+  type PackProvenance, type PipelineStamp, type SourceProvenance,
+} from './pipeline-version.js';
 
 /** Namespace all our structures and functions live under. */
 export const PACK_NAMESPACE = 'craftmatic';
@@ -71,6 +75,8 @@ export interface McpackResult {
   unmapped: string[];
   /** Total bytes of `.mcstructure` payload before zipping. */
   rawStructureBytes: number;
+  /** What built this pack and from which file — also shipped as `craftmatic-provenance.json`. */
+  provenance: PackProvenance;
 }
 
 export interface McpackOptions {
@@ -81,6 +87,13 @@ export interface McpackOptions {
   /** Override the tile size (tests). Defaults to Bedrock's 64×384×64 limit. */
   maxTile?: { x: number; y: number; z: number };
   onProgress?: (phase: string, pct?: number) => void;
+  /**
+   * The export pipeline's identity (pipeline-version.ts). Defaults to the stamp
+   * the build injected; a CLI passes the one it computed from its working tree.
+   */
+  pipelineStamp?: PipelineStamp;
+  /** The model file the pack was built from, with its sha256/12. `null` when unknown. */
+  source?: SourceProvenance | null;
 }
 
 /**
@@ -163,9 +176,12 @@ export function packIdentity(stem: string, label?: string | undefined): string {
 }
 
 /**
- * A monotonically ordered manifest version for browser-generated pack updates.
- * UUIDs stay stable per export name, while a later export replaces the earlier
- * pack in Minecraft instead of appearing as a duplicate.
+ * LEGACY manifest version: seconds since 2026-01-01 in base 32768, the encoding
+ * every pack shipped before the readable `packVersionAt` (pipeline-version.ts).
+ * No pack builder uses it any more. It is kept so the transition can be proved
+ * monotonic — `packVersionAt` must rank NEWER than anything this ever produced,
+ * or Minecraft would refuse to replace an installed pack — and its test pins
+ * the old tuples for exactly that comparison.
  */
 export function exportVersion(now = Date.now()): [number, number, number] {
   if (!Number.isFinite(now)) throw new RangeError('Pack version timestamp must be finite.');
@@ -180,17 +196,27 @@ export function exportVersion(now = Date.now()): [number, number, number] {
   return version;
 }
 
-/** The behavior-pack manifest. `format_version` 2 is the modern pack format. */
-function buildManifest(stem: string, label: string, tileCount: number, version: [number, number, number]): string {
+/**
+ * The behavior-pack manifest. `format_version` 2 is the modern pack format.
+ *
+ * The UUIDs are keyed on `packIdentity(stem, label)` — the RAW label, never the
+ * stamped display name. The stamp changes with every pipeline build, and a
+ * stamp in the identity would make each build a NEW pack beside the old one
+ * instead of an upgrade of it: the stale-folder trap the stamp exists to expose.
+ */
+function buildManifest(stem: string, label: string, tileCount: number, version: [number, number, number], stamp: PipelineStamp, source: SourceProvenance | null): string {
   // UUIDs are keyed on the model's identity, never on the 12-char stem — see packIdentity().
   const identity = packIdentity(stem, label);
   const manifest = {
     format_version: 2,
     header: {
-      name: label,
+      // The pipeline stamp is in the NAME so an older pack is readable at a
+      // glance in Minecraft's own pack list (pipeline-version.ts).
+      name: packDisplayName(label, null, stamp),
       description:
         `${label} — ${tileCount} structure${tileCount === 1 ? '' : 's'} exported from Craftmatic. ` +
-        `Run the included function to receive a BrickWand and preview it before placement.`,
+        `Run the included function to receive a BrickWand and preview it before placement. ` +
+        provenanceSentence(stamp, source),
       // Header and module UUIDs must differ (manifest validation CHKMANIF110),
       // so the two are salted differently.
       uuid: deterministicUuid(`craftmatic.pack.header:${identity}`),
@@ -329,7 +355,15 @@ export async function buildMcpack(grid: BlockGrid, options: McpackOptions): Prom
     if (seenNonAir++ % sampleEvery === 0) previewPoints.push({ x: x + .5, y: y + .5, z: z + .5 });
   }
   const placement = buildPlacementPackAssets({ stem, label, width: grid.width, height: grid.height, length: grid.length, tiles, previewPoints });
-  files.unshift({ name: 'manifest.json', data: enc.encode(buildManifest(stem, label, tiles.length, exportVersion())) });
+  // A BUILD instant (readable as a UTC date in the game's Technical details),
+  // not the pipeline version: a re-export at another resolution must still
+  // rank newer than the installed pack, or Minecraft keeps the old one.
+  const version = packVersionAt();
+  const stamp = options.pipelineStamp ?? currentPipelineStamp();
+  const source = options.source ?? null;
+  const provenance = packProvenance({ stamp, source, version });
+  files.unshift({ name: 'manifest.json', data: enc.encode(buildManifest(stem, label, tiles.length, version, stamp, source)) });
+  files.push({ name: 'craftmatic-provenance.json', data: enc.encode(JSON.stringify(provenance, null, 2) + '\n') });
   files.push(...placement.files);
   files.push({
     name: 'README.txt',
@@ -348,5 +382,6 @@ export async function buildMcpack(grid: BlockGrid, options: McpackOptions): Prom
     tiles,
     unmapped: [...unmapped],
     rawStructureBytes,
+    provenance,
   };
 }

@@ -21,6 +21,7 @@ import {
 import { studioColorToBlock } from '@engine/studio-colors.js';
 import { reconstructionQuality, sourceCaveat } from '@engine/source-quality.js';
 import { modelExportStem } from '@engine/export-name.js';
+import { sourceHash12, type SourceProvenance } from '@engine/pipeline-version.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
   ensureCatalog, searchCatalog, splitQueryTerms, getThemes, isLoaded, isInOmr, isOmrLoaded,
@@ -210,6 +211,13 @@ let directRenderMode = false;
 /** Current parsed bricks for step-slider re-voxelization */
 let currentBricks: ParsedBrick[] | null = null;
 let currentBricksLabel = '';
+/**
+ * The file `currentBricks` came from, with its sha256/12, for a Bedrock pack's
+ * provenance record (engine/pipeline-version.ts). Set by every loader that has
+ * the bytes (indexed load, the three upload branches, the OMR/BFF fallbacks)
+ * and cleared when a load starts, so a pack can never name the previous model.
+ */
+let currentSource: SourceProvenance | null = null;
 let currentBricksColorFn: ((id: number) => string) | undefined;
 
 /**
@@ -1695,24 +1703,30 @@ function reportLxfDiagnostics(d: LxfDiagnostics, model: string): void {
 
 /**
  * sha256/12 of the raw bytes — the same identity clego stamps into the index.
- * Returns null wherever WebCrypto isn't available (insecure context), because
- * "could not check" must never read as "did not match".
+ * Pure TypeScript (engine/pipeline-version.ts), NOT `crypto.subtle`: WebCrypto
+ * is absent on an insecure origin, which is exactly how the phone loads the
+ * dev server (`http://10.0.0.211:4000`), and there the hash used to come back
+ * null — so the index check silently never ran and a pack's provenance would
+ * have had no source hash. ~50 ms for a 4 MB model on the main thread.
+ * Returns null only if hashing itself throws, because "could not check" must
+ * never read as "did not match".
  */
-async function contentHash12(buf: ArrayBuffer): Promise<string | null> {
+function contentHash12(buf: ArrayBuffer): string | null {
   try {
-    const subtle = globalThis.crypto?.subtle;
-    if (!subtle) return null;
-    const digest = await subtle.digest('SHA-256', buf);
-    return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
+    return sourceHash12(buf);
   } catch {
     return null;
   }
 }
 
+/** File name as the user saw it (`10303 Loop Coaster.io`) from an index path or URL. */
+const fileNameOf = (path: string): string => path.split(/[\\/]/).pop() || path;
+
 async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: number,
                                     epoch: number, allowBroken: boolean): Promise<boolean> {
   const url = `${MODELS_BASE}/${encodeModelPath(model.path)}`;
   loadDiag.url = url;
+  currentSource = null;
   setStatus(`Loading ${sourceLabel(model)}: ${model.path}…`, 'info');
   const resp = await fetch(url);
   if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${model.path}`);
@@ -1723,12 +1737,15 @@ async function loadIndexedModelBody(set: CatalogSet, model: IndexModel, idx: num
   // the content hash below covers exactly what rendered — not a second fetch
   // that could serve different bytes.
   const buf = await resp.arrayBuffer();
-  const actualHash = await contentHash12(buf);
+  const actualHash = contentHash12(buf);
   loadDiag.contentHash = {
     expected: model.hash ?? null,
     actual: actualHash,
     match: model.hash && actualHash ? model.hash === actualHash : null,
   };
+  // What a Bedrock pack built from these bytes will name as its source: the
+  // hash of what actually rendered, falling back to the index's claim.
+  currentSource = { file: fileNameOf(model.path), hash: actualHash ?? model.hash ?? null, origin: 'index', path: model.path, setNum: set.set_num };
   if (loadDiag.contentHash.match === false) {
     // The deployed file is NOT the file the index describes. Everything the
     // index says about it — grade, severity, defects, lineage — describes other
@@ -1895,6 +1912,7 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
           if (bricks.length > 0) {
             const warn = caveat ? ` ⚠ ${caveat}` : '';
             setStatus(`Loaded reconstructed 3D model for ${set.set_num} (${bricks.length} parts)${warn}`, 'info');
+            currentSource = { file: fileNameOf(filename), hash: contentHash12(new TextEncoder().encode(text).buffer as ArrayBuffer), origin: 'unknown', path: filename, setNum: set.set_num };
             await voxelizeAndDisplay(bricks, set.set_num);
             return;
           }
@@ -1916,6 +1934,9 @@ async function autoLoadFromOMR(set: CatalogSet): Promise<void> {
       currentCustomParts = undefined;
       const bricks = parseLDraw(ldrText);
       if (bricks.length > 0) {
+        // A synthesised inventory layout, not a file anyone has: hashed so the
+        // provenance still identifies exactly what was exported.
+        currentSource = { file: `${set.set_num} BrickLink inventory (generated).ldr`, hash: contentHash12(new TextEncoder().encode(ldrText).buffer as ArrayBuffer), origin: 'unknown', setNum: set.set_num };
         setStatus(
           `⚠ 2D colour map only — no 3D model available (${parts.length} part types from BL inventory)`,
           'info',
@@ -2088,6 +2109,8 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base,
         settings: getSchemSettings(),
         vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
+        // The loaded file + its sha256/12, for the pack's provenance record.
+        sourceProvenance: currentSource,
         onStatus: (m, k) => setStatus(m, k),
       });
       return;
@@ -2191,13 +2214,19 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
   // uploading a 374-piece train right after browsing a 6,838-piece set
   // produced "file contains 374 of the set's 6,838 catalog pieces").
   selectedSet = null;
+  currentSource = null;
   setStatus(`Parsing ${file.name}…`, 'info');
+  // Provenance for a pack built from this file: the bytes as chosen, hashed
+  // BEFORE any LSynth/parse rewriting, so the hash matches the file on disk.
+  const origin: SourceProvenance['origin'] = loader === 'upload' ? 'upload' : 'unknown';
+  const recordSource = (buf: ArrayBuffer): void => { currentSource = { file: file.name, hash: contentHash12(buf), origin }; };
 
   try {
     const ext = file.name.split('.').pop()?.toLowerCase();
 
     if (ext === 'lxf' || ext === 'lxfml') {
       const buf = await file.arrayBuffer();
+      recordSource(buf);
       const parsed = await parseLxfWithDiagnostics(buf);
       if (loadAbandoned('upload:after-lxf-parse', epoch)) return;
       const bricks = parsed.bricks;
@@ -2212,6 +2241,7 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
     let text: string;
     if (ext === 'io') {
       const buf = await file.arrayBuffer();
+      recordSource(buf);
       const ioModel = await extractIoModel(buf);
       if (loadAbandoned('upload:after-io-extract', epoch)) return;
       text = maybeSynthesize(ioModel.text);
@@ -2234,7 +2264,13 @@ async function parseMpdFile(file: File, loader = 'upload'): Promise<void> {
       return;
     }
 
-    text = maybeSynthesize(await file.text());
+    {
+      // Read the bytes once: hashed for provenance, then decoded as UTF-8
+      // exactly as `file.text()` would (BOM stripped, no throw on bad bytes).
+      const buf = await file.arrayBuffer();
+      recordSource(buf);
+      text = maybeSynthesize(new TextDecoder().decode(buf));
+    }
     if (loadAbandoned('upload:after-text-read', epoch)) return;
     currentMpdContent = text; // store for 3D renderer inline sub-model resolution
     currentCustomParts = undefined;
