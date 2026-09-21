@@ -28,7 +28,7 @@ Current lanes (serialize staging/commits through the main agent):
 - [ ] Recover device acceptance over wireless ADB. Only `set_audit` drives
   the phone; retry reached Android's chooser and selected Minecraft/Just once,
   but returned to Files with no import result. Import is NOT verified.
-  Restore Minecraft foreground when transport permits. Do not restart the
+  Cleanup restored Minecraft and verified its foreground focus. Do not restart the
   device/framework or alter existing worlds to work around transport failure.
 
 Current integration gates (offline implementation ready; device acceptance open):
