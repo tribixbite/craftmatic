@@ -57,11 +57,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   load the user had just started — silently, with the source badge still
   reporting success. Invisible on dev, where the same file is a local read.
   Root causes and the reproduction recipe: [testing guide](docs/testing-guide.md).
-- **clego's `sync_models_r2.py` has no `--help`; an unknown flag runs a FULL
-  resumable sync** (uploads every un-recorded file and re-puts the index). Use
-  `--only-file <listing> --no-index` for corpus files and `--only-file
-  geograde/_empty_publish_list.txt` for the index alone. On a shared checkout a
-  stray flag is how another agent's half-finished corpus reaches prod.
+- **clego publisher now validates its CLI** (`c8bd5ce6`, 2026-09-20): `--help`,
+  `--status`, and `--dry-run` do not upload; unknown options fail. Use
+  `--only-file <listing> --no-index` for corpus-only publication. Failed or
+  concurrently rewritten models block index publication. Older checkouts
+  lacked argument parsing and could start a full upload on `--help`.
 - **A load path may never abandon itself silently.** Every staleness guard in
   `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the

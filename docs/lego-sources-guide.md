@@ -1213,11 +1213,13 @@ Verified on prod by per-entry hash: 10022 -> `IO/10022 Santa Fe Cars Set II.io`
 `OMR/8054-1_Model-D.mpd` (`257a38b82370`); two republished window files match too
 (`abe99490caae`, `f4d32d96286f`). vitest 1,755 passed / 26 skipped / 0 failed.
 
-> **`sync_models_r2.py` has NO `--help`, and an unrecognised flag silently runs a
-> FULL resumable sync.** Running `--help` to confirm `--no-index` existed pushed
-> the 2 indexed files missing from `_r2_uploaded.txt` and re-put the index.
-> Harmless here, but on a shared checkout that is exactly how another agent's
-> half-finished corpus reaches prod. Check a flag against the source.
+> **Publisher CLI fixed locally, 2026-09-20 (`c8bd5ce6`).** `--help`, `--status`
+> and `--dry-run` are read-only; unknown options fail before uploads. Model
+> failures and exceptions block index publication and return nonzero. A follow-up
+> guards concurrent source/index rewrites and passes filenames without a shell.
+> Older checkouts had no argument parser: `--help` once unintentionally uploaded
+> two models and the index. PUT success is checked; public-CDN byte verification
+> remains a separate publication check.
 
 
 ### 9. Windows: the defect class nothing measured, measured and repaired (2026-09-20)
@@ -1406,7 +1408,7 @@ byte snapshot and its apply (their `0 !FIGURE_ASSEMBLE v2` stamp and figure
 lines moved underneath it), plus 155 `Reconstructed` and 3 `MecabricksLDR` files
 the index does not reference at all.
 
-#### 9.8 The shared checkout took 56 of them back, and the resume command
+#### 9.8 The shared checkout took 56 of them back (resolved)
 
 Between this round's apply and its verification another agent REGENERATED 56
 `ReconV3` files from `recon_v3/beam.py`, which rewrites a file from scratch and
@@ -1414,21 +1416,57 @@ therefore dropped the `0 !WINDOW_ASSEMBLE v1` stamp and the seated panes with
 it. Caught by hashing prod against disk: `ReconV3/7597.ldr` read `86be53059ff4`
 locally against `02e995d3f59f` live, which is the wrong way round for a file
 this round had just published. **Re-applied on disk** — 56 files, 231 panes
-re-seated, 0 left unstamped — but deliberately NOT republished: those files are
-a moving target while that agent runs, and pushing them would publish its
-in-flight work. They are listed in
-`clego/geograde/_window_round/publish2.txt`; the next sync is
-
-```bash
-cd C:/git/clego && python sync_models_r2.py --only-file geograde/_window_round/publish2.txt
-```
+re-seated, 0 left unstamped. Publication was initially deferred while that
+agent ran. The later §8e reconciliation republished all 56 successfully before
+index `64c4746eb7e7`; this is not an outstanding resume/upload command.
 
 The durable protection is the wiring in `recon_v3/beam.py`, so a regeneration
-seats its own panes. **That wiring is on disk and uncommitted**: beam.py also
-carries 16 lines of the other agent's figure-v2 call into 432 uncommitted lines
-of `recon_figure_assemble.py`, so committing beam.py alone would leave HEAD
-calling symbols HEAD does not have. It goes in with their commit.
+seats its own panes. That wiring and its figure-v2 dependency are now committed
+in clego. An export still must be graded against its own bytes: a previous
+snapshot's passing score does not certify a regenerated model.
 
 The A/B in §9.5 was measured on a consistent snapshot taken before that
 regeneration. The 56 files' current bytes are theirs plus a fresh window pass,
 so those rows are the ones to re-measure first next round.
+
+### 10. Local pipeline hardening and corpus validation (2026-09-20)
+
+No changes in this round have been published or pushed. Resume from
+`TASKS-BEDROCK-ADDON.md`; evidence is under
+`output/corpus-improvements-2026-09-20/`.
+
+- Clego's publisher now uses a strict CLI and literal subprocess arguments.
+  `--help`, `--status`, and `--dry-run` cannot upload or write resume state.
+  Upload failures, worker exceptions, concurrent source/index changes, and
+  index/local-model hash mismatches block index publication. The hash check
+  covers all indexed sources, including unselected and resume-skipped paths.
+  `--no-index` permits explicit model-only repair with a stale index. The old
+  resume ledger remains path-only: local validation and successful PUT status
+  do not replace remote CDN hash verification. Sixteen offline publisher tests
+  pass (`60076051`, following `c8bd5ce6` and `d7e52f0a`).
+- The quality gate now flags `window_defects >= 2`, retaining the calibrated
+  authentic noise floor of one. `scoreboard.py --all-entries` grades every
+  indexed alternative, even when its primary passes. Per-row measurement time
+  and SHA256 prevent a report rebuild or an old successful journal entry from
+  relabelling changed source bytes as verified. `--out-dir` isolates expensive
+  resumable runs; the index builder accepts `--scoreboard` and `--out` for
+  candidate validation without replacing the shipped index. Missing/error
+  grades remain unverified (`e5f20b21`, `7d74c064`).
+- Figure/window repair supports MPD section-local coordinates and preserves
+  repeated/rotated parent references (`f540c89b`). This is not cross-submodel
+  matching. MPD archive-inventory recovery stays disabled because a definition
+  can be instantiated repeatedly. On real generated trials, 40746 improves
+  figure defects 10→6 and windows 1→0 with other metrics unchanged. 40809
+  improves those counts but adds a floating part, so it is not accepted.
+- Missing standard torso identities can enter the PDF reader through
+  `beam.build(..., recover_torsos=True)` (`85ddc410`). It collapses duplicate
+  bare/composite inventory records, abstains on ambiguous existing torsos or
+  unknown colours, and diagnoses its unprinted fallback. It uses no reference
+  poses. **Default off:** 70100's visual trial changes unrelated placements
+  and leaves an exploded/floating figure despite zero scalar figure defects.
+  That trial is evidence of a placement problem, not an accepted corpus repair.
+
+Bulk figure application also requires per-file nonregression, stable reruns,
+and pose review. Lower aggregate defect counts alone are insufficient: the
+Mecabricks trial moves parts in many files with no figure-metric gain, and
+some files regress overlap/sunk metrics or change again on a second pass.

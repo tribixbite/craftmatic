@@ -7,15 +7,49 @@ hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
 the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
 and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## State (2026-09-20 — everything PUSHED and DEPLOYED; corpus rounds on windows + figures live)
+## Active round (2026-09-20 — authorized: "do all"; local changes only)
 
-`main` == `origin/main` (`05e024a8`), CI `35513740098` + Deploy `35513740104`
-green, `bun run test` 1,755 passing. Prod serves index `64c4746eb7e7` on the
+- [ ] A/B MecabricksLDR and DbixConvV3 figures and DbixConvV2 windows,
+      snapshot originals, inspect regressions, then apply validated repairs.
+      Owner: corpus agent; evidence `output/corpus-improvements-2026-09-20/`.
+- [ ] Recover missing ReconV3 torso placements from runtime-legal evidence;
+      opt-in reader implemented (`85ddc410`), but 70100 visual trial regresses
+      unrelated placements. Default OFF; no corpus promotion. Next: avoid
+      reallocating the existing inventory when adding a torso.
+- [ ] Refresh the complete quality board and enable the calibrated window gate.
+- [ ] Run crowded LOD A/B and a clean-world chalet roaming experiment on Pixel.
+- [ ] Reconcile stale tracker claims, run checks, commit owned changes. No push,
+      publish, or history rewrite. Existing clego dirty files remain user-owned.
+
+Local Craftmatic starts at `741f6700`. Clego tracking refs are diverged
+(523 ahead / 249 behind at assessment, not freshly fetched). The loader already
+has a measured-alignment magnitude bound; unmeasured moulds remain exempt.
+Sandbox process startup currently fails `CreateProcessWithLogonW failed: 2`;
+scoped elevated PowerShell commands work. Pixel `192.168.0.122:5555` is online.
+
+Implemented locally: publisher CLI/failure/race checks (`c8bd5ce6`, `d7e52f0a`),
+MPD-local repairs (`f540c89b`), inclusive window gate and all-source grading
+(`e5f20b21`), per-row time/content-hash index freshness (`7d74c064`). No upload.
+Publisher also validates all index/source hashes (`60076051`, 16 tests).
+Craftmatic checks: both typechecks pass; full Vitest suite 1,761 passed /
+26 skipped (118 passed files / 1 skipped), log `craftmatic-tests.log` in the
+round evidence directory. Missing-torso unit tests: 13 passed.
+Full upstream board running in `output/corpus-improvements-2026-09-20/board/`;
+log `board-run.log`, 20,764 sources. After corpus applies, resume hash-aware
+grading before reporting/rebuilding. Commands from `C:/git/clego`:
+`python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 8 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
+(set `CLEGO_LDRAW_LIB=upstream`), then
+`python build_model_index.py --scoreboard C:/git/craftmatic/output/corpus-improvements-2026-09-20/board/scoreboard_full.json --out C:/git/craftmatic/output/corpus-improvements-2026-09-20/candidate-index.json`.
+
+## Previous deployment (2026-09-20 — corpus rounds on windows + figures live)
+
+Last recorded deployment: `05e024a8`, CI `35513740098` + Deploy `35513740104`
+green, `bun run test` 1,755 passing. Prod served index `64c4746eb7e7` on the
 plain URL: **every indexed entry graded** (ungraded 4,716 -> 0), 9,066 verified
 / 11,698 defective stamps, `models[0]` verified 5,343 -> 5,652. clego is
-committed locally (`1cf35aff`) and **NOT pushed: its 511-commit delta is 630 MB
-of recommitted scoreboard/index snapshots** (no blob > 45 MB, no secrets) —
-Will decides whether to gitignore/rewrite before pushing. The corpus on disk is
+**NOT pushed**: the earlier 511-commit/630 MB snapshot-growth assessment is
+historical; see current tracking-ref divergence above. Will decides whether to
+gitignore/rewrite before pushing. The corpus on disk is
 NOT git-tracked (`lego_sets/` is ignored) — R2 is its only durable copy.
 
 Handoff for a fresh session: read this file, then `docs/lego-sources-guide.md`
@@ -68,8 +102,9 @@ off-frame 80 -> 14 placements, 19 -> 6 sets; §9), **figures v2**
 (`recon_figure_assemble.py` reads Studio's `errorPartList.err`, runs on
 torso-less files; corpus figure defects 12,781 -> 8,837, 192 files flip to
 PASS; §6b), **37 visual source switches** (§8b), 4,716 + 61 + 366 + 873 fresh
-stamps. `sync_models_r2.py` gained `--no-index`; **it has no `--help` and an
-unknown flag runs a FULL sync** (§8e).
+stamps. Local `sync_models_r2.py` now safely supports `--help`, `--status`,
+`--dry-run`, and `--no-index`, rejects unknown flags, and blocks index upload
+on failed model PUTs or concurrent changes (§8e).
 
 - [ ] **Figure residue, next targets** (§6b): `MecabricksLDR` 2,593 defects /
       502 picks and `DbixConvV3` 1,459 / 490 are now the biggest blocks;
@@ -78,8 +113,8 @@ unknown flag runs a FULL sync** (§8e).
       the READER to place them (`# TODO(recon)` in the module).
 - [ ] **Windows, next**: `DbixConvV2` (2,070 panes / 303 files, run
       `--src DbixConvV2 --in-place`), MPD sources, `.io` archives, EurobricksLDR
-      (8 hand-authored). `window_defects` is reported but NOT gated in
-      `verdict()` — gate `>= 2` with the next full board. The DBIX per-mould
+      (8 hand-authored). `window_defects >= 2` is now gated locally; the full
+      regrade is running before index adoption. The DBIX per-mould
       constant offsets are a wrong learned alignment row; the snap hides it.
 - [ ] **Override table hygiene**: 8 `BEST_OVERRIDES` rows are no-ops and 10
       point at a `conv: 1` entry the 2026-09-09 rule forbids
@@ -97,8 +132,8 @@ unknown flag runs a FULL sync** (§8e).
 `geograde/mb_fix_report_MecabricksSearchLDR.json` (the Mecabricks fit tables,
 also carrying 17 `stem-mesh` rows from another agent), `discovery/eb_ldd_sample_grades.json`,
 `recon_v7_work/pdfpick_cache.json`. Left alone; do not sweep them into a commit.
-The scoreboard `_targets.json` / `_grades.jsonl` / `dbix_reconvert_summary.json`
-ARE this round's and get committed with the report.
+This round's board artifacts are isolated under Craftmatic output; do not
+recommit large snapshots or sweep old reports into feature commits.
 
 ### Device rounds 2026-09-19/20 (world 919) — what is open on the phone
 
@@ -173,52 +208,28 @@ with `76286-v3` (`cd1954c1`; `round-2026-09-20/GROUNDING-RESULT.md`).
       `5443` x2) — near-symmetric, translated correctly, may face the wrong way.
 - [ ] A part can be lost to upstream 503s (one 10303 load gave 3,814 instances
       instead of 3,816); `# TODO` in `docs/testing-guide.md`.
-- [ ] **The loader has no magnitude bound** like clego's `within_bound`, so 13
-      doll-hair placements defer to a (1085, 23, -310) LDU learned vote.
-- [ ] The Bedrock minifig assembler classifies doll parts as `held`, so a doll
-      exported as a playable entity is not rigged.
+- [ ] **Loader bound coverage:** measured alignments are bounded; unmeasured
+      moulds remain exempt. Audit the 80911 doll-hair vote (1085, 23, -310 LDU).
+- [ ] Dolls are excluded from minifig `held` parts but are still not rigged.
 - [ ] **Class B residual.** 108 `different` stems / 4,795 placements have no
       exact overlay (needs a per-stem alias to an upstream file with Studio's
       geometry; none found by description). The `.io`/`.lxf` picks are now
       re-framed client-side (`abea544e`, `class-b-reframe.ts`) — verified by
-      unit tests only; a browser load of an `.lxf` set with `70681` should
-      show `N placements re-framed` in the `.lxf` status note.
+      browser loads as well as unit tests (60118: 6, 21061: 80 re-framed).
       `docs/lego-sources-guide.md` §7a.
-- [x] ~~**Windows are still open.**~~ **DONE 2026-09-20**, `docs/lego-sources-guide.md`
-      §9. `clego/geograde/window_family.py` + `window_seats.py` are the rule (seats
-      fitted over the 1,820-file authentic OMR corpus; controls: authentic-36
-      1 of 378 judged panes, `omr` 0 of 37, `ldr` 0 of 8) and
-      `clego/recon_window_assemble.py` the repair. Random-500 picks **80 -> 14
-      off-frame placements in 19 -> 6 sets**; 545 corpus files rewritten,
-      **window defects 2,218 -> 119**; 366 published + prod-verified by sha.
 - [ ] **Windows, what is LEFT** (all measured 2026-09-20, `docs/lego-sources-guide.md`
       §9.3/§9.7):
-      - `scoreboard.verdict()` does not gate on `window_defects` yet — deliberately,
-        because the 09-19 board predates the rule. Add `window_defects >= 2`
-        (the authentic floor is 1) **with the next full board**, not before.
       - `eurobricks` 8 off-frame placements in 1 of 43 picks: `EurobricksLDR` is
         hand-authored and outside the repair's generated-sources allow-list.
         Decide whether to admit it (its class is only 18 % PASS).
-      - `pdf_recon`: both affected picks are **MPD**, which the pass skips
-        (`# TODO(window)` in `recon_window_assemble.py`). Same gap the figure
-        assembler has.
+      - MPD-local repairs now work; cross-submodel figure/pane claims remain
+        unsupported. 40746 trial improves without metric regressions; 40809
+        gains a floating part and remains unapplied. Evidence `output/corpus-improvements-2026-09-20/mpd/`.
       - `io`: `.io` archives are not LDraw text; the client-side path
         (`io-extractor.ts`) would have to apply the seats.
       - `DbixConvV2` is untouched and would give **2,070 panes in 303 files** —
         `python recon_window_assemble.py --src DbixConvV2 --in-place`. Left out
         to keep this round's publish small.
-      - **21 + 56 `ReconV3` files carry the fix on disk but are NOT published.**
-        21 were excluded at publish time (another agent had rewritten them);
-        another 56 were regenerated from `recon_v3/beam.py` AFTER the publish,
-        which dropped the stamp — re-applied on disk (231 panes), listed in
-        `clego/geograde/_window_round/publish2.txt`. Resume:
-        `cd C:/git/clego && python sync_models_r2.py --only-file geograde/_window_round/publish2.txt`
-        (do it when that agent's ReconV3 run is finished, not before).
-      - **`recon_v3/beam.py`'s window wiring is UNCOMMITTED** and must not be
-        lost: it is what stops a regeneration undoing the fix. It cannot be
-        committed on its own because the same file now calls
-        `recon_figure_assemble.dropped_figure_parts`, which is in 432
-        uncommitted lines another agent owns. It goes in with their commit.
       - The DBIX constant-offset panes (43222's 21 x 79.9 LDU) are a wrong
         LEARNED ALIGNMENT ROW. The snap hides it; the row itself is still wrong
         and will come back on a regeneration that does not run the snap.
@@ -237,13 +248,6 @@ with `76286-v3` (`cd1954c1`; `round-2026-09-20/GROUNDING-RESULT.md`).
         are untouched by v2 and are now the two biggest blocks.
       - `HuntArchiveLDR` has the worst RATE left: 52 picks, 25 affected,
         **13.4 defects per affected pick**, nothing ever aimed at it.
-      - The index still carries the PRE-v2 grades for the 861 republished
-        files; the rows are in `clego/geograde/scoreboard_extra.json` and land
-        on the next index rebuild (owned elsewhere this round).
-- [ ] **The 744 picks that never had a grade** are now graded (47.3 % PASS) and
-      have a different profile: 13.8 % carry duplicate placements against 0.4 %
-      in the random sample. `EurobricksLDD` and `EurobricksTopicLDR` are 100 %
-      of their classes and were invisible to every earlier census.
 - [ ] **The minifig creator wand is designed, not built.** Architecture and an
       ordered plan with its vitest assertions: `docs/minifig-creator-wand.md`;
       typed skeleton `web/src/engine/minifig-creator-types.ts`, imported by
@@ -280,9 +284,9 @@ CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=�
       plates under a ceiling ~2.25 blocks up. A `/tp`'d figure on open grass walks at once (round 1).
       Hypothesis: mob navigation needs TWO full air cells above a walkable block (the 1.8-tall
       player fits under a 2.25 ceiling, the nav mesh does not), so every interior cell is
-      unpathable. Next experiment (one number): figure `collision_box.height` 1.8 → 0.95 in
-      `figureBehavior` and re-census; if that frees them, make the height a function of the
-      interior clearance. Alternative: spawn figures OUTSIDE the footprint (the porch/garden cells).
+      unpathable. The 1.8 → 0.95 collision-height trial freed only 1 of 7;
+      repeat in a clean world with longer dwell before deriving per-figure
+      clearance. Alternative: spawn figures OUTSIDE the footprint (porch/garden cells).
 
 ### Still unverified on a device
 - [ ] Whether LOOK DOWN still dives under the script chase camera — **not testable from adb**:
