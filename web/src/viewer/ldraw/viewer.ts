@@ -631,7 +631,7 @@ export class LDrawViewer {
     }
     if (this.unresolvedSubparts.length > 0) {
       console.warn(
-        `[LDrawViewer] ${this.unresolvedSubparts.length} sub-part file(s) unresolved/unreachable — minor geometry gaps:`,
+        `[LDrawViewer] ${this.unresolvedSubparts.length} sub-part file(s) unresolved/unreachable — geometry gaps:`,
         this.unresolvedSubparts.join(', '),
       );
     }

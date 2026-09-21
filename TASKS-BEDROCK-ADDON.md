@@ -20,6 +20,19 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   application. Slot-owner instability fixed in clego `bb1adb01`; fresh trials
   are rerun-stable on all 1,020 Mecabricks and 644 DbixV3 touched outputs.
   Window trial: 299 files / 1,985 panes, all rerun-stable; full A/B pending.
+  Live snapshot 2026-09-20 21:53 ET: legacy window A/B PID 18836 is 96/299;
+  legacy Mecabricks A/B PID 36996 is 242/1,020. These already-running jobs
+  write only their final `window-dbixv2-ab-strict.json` and
+  `figure-mecabricks-preserve-ab-strict.json`; they have no checkpoint, so do
+  not stop them or start a second writer. Resumable-helper work begins at clego
+  `1e3c956c` but is still under review for grade-input hash races and torn-tail
+  framing; do not use it until the follow-up fix/tests land. After validation,
+  a future retry must use a **new** output name, which creates
+  `<out>.progress.jsonl`, for example from `C:/git/clego` in PowerShell:
+  `$env:CLEGO_LDRAW_LIB='upstream'; python -B -u geograde/_ab_dirs.py C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-touched.txt C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/trials/window-dbixv2 C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-ab-resume.json 2`.
+  Substitute the Mecabricks touched list/trial root and a new Mecabricks output
+  name for that cohort. Final A/B only nominates candidates; targeted hardened
+  regrade and visual review remain required, and no corpus apply is authorized.
   Accept only improved, nonregressing, pose-reviewed files, with exact backups
   and before/after hashes. No archive recovery on these generated classes.
   `figure-preserve-proof-ab.json` is exploratory (earlier build, limited
@@ -71,6 +84,14 @@ window 1→0, other metrics unchanged; source SHA256
 MPD repair is section-local, not cross-submodel matching; repeated definitions
 also preclude archive inventory recovery.
 
+Transient all-candidate-503 subpart recovery is committed (`4a658505`). Offline
+fault injection reproduced a partial, non-empty assembled parent that repair
+correctly did not re-probe in the same throttle window but then falsely stayed
+cached across the next load. The load reset now invalidates the transient child
+and assembled ancestors, and the affected load reports the subpart gap. This
+proves the mechanism and recovery, not that the historical two lost 10303
+instances had this cause—the production trace lacks failed stems/dependencies.
+
 Measured alignment enrichment is committed (`293ea949`): 34 previously
 unmeasured rows now have actual-mesh bounds, recursive upstream-before-Studio
 resolution retained; 12 additional rows rejected, 1,839/1,839 bounded.
@@ -78,10 +99,12 @@ resolution retained; 12 additional rows rejected, 1,839/1,839 bounded.
 was stale. Controlled LOD pack invariants are covered by `7a2d582d`, not a
 device performance acceptance.
 
-Latest completed checks: both TypeScript checks pass; Vitest 1,763 passed /
-26 skipped (118 files passed / 1 skipped); combined clego figure/window/reader/
-index tests 160 passed; publisher 33 passed. Full integrated rerun log:
-`craftmatic-tests-integrated.log`. Recheck after concurrent code changes.
+Latest completed checks after `4a658505`: `bun run test` exit 0, 1,764 passed /
+26 skipped (118 files passed / 1 skipped); both `bun run typecheck` and
+`bun run typecheck:web` pass; focused part-cache suite 16/16 passes. Integrated
+log: `output/corpus-improvements-2026-09-20/integration/bun-test-after-4a658505.log`.
+Combined clego figure/window/reader/index tests 160 passed; publisher 33 passed.
+Recheck after concurrent code changes.
 
 ## Repository and publication boundaries
 
@@ -175,8 +198,7 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
 - [ ] Four rotation abstentions: 35186×81, 4526×14, 35473×5, 5443×2.
   Strict LXF cohort remains ~41% Technic / ~65% System; flex synthesis and
   equivalent-pose scoring are open (`output/lxf-gt/strict-hybrid_xml_first.json`).
-- [ ] Upstream 503 can still lose parts (10303 once 3,814 instead of 3,816);
-  see testing guide TODO. Missing moulds: 28710, 30426, x346.
+- [ ] Missing moulds: 28710, 30426, x346.
 - [ ] Mini-dolls are excluded from minifig held-part classification but not rigged.
   76419's microfigure auto-scales 2×, but its four-part torso group is not an NPC.
 - [ ] Grader false-positive work: wheel/tyre, hand/weapon, axle/hole encased
