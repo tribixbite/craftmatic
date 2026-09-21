@@ -2000,14 +2000,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${rp}animations/${coasterId}.animation.json`, data: json(cart.animations) },
             { name: `${rp}textures/entity/craftmatic_coaster.png`, data: texture.colorPng },
             { name: `${bp}scripts/coaster.js`, data: text(coasterScript(coasterConfig)) },
-            { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nInteract with the grey Ride Cart to board; departure takes two seconds. Sneak to dismount. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks. In-game rider-carrying acceptance is still required.\n') },
+            { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nThe grey Ride Cart runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to it while it is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount. It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.\n') },
         );
         addEntityName(coasterConfig.typeId, `${label} Ride Cart`, false);
         coasterConfig.routes.forEach((route, index) => {
-            const p = route.path.points[0]!;
+            // Spawn where the runtime parks it: the measured station platform,
+            // so a player meets the cart at the reload zone, not at arc 0.
+            const p = route.station.point;
             actors.push({ typeId: coasterConfig.typeId, label: `${route.label} Ride Cart`, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index });
         });
-        warnings.push(`${coasterConfig.routes.length} measured coaster route(s): interact with the grey Ride Cart. Open tracks shuttle; riders stay upright. Device acceptance pending.`);
+        warnings.push(`${coasterConfig.routes.length} measured coaster route(s): the grey Ride Cart runs on its own and stops at the reload zone — walk up and tap to ride. Open tracks shuttle; riders stay upright.`);
     }
     const manualSeatId = options.shell ? entityId(`${id}_manual_seat`, 's') : undefined;
     if (manualSeatId) {

@@ -38,6 +38,9 @@ if (withLoop) {
     const angle = index / SEGMENTS * Math.PI * 2;
     return [5 + Math.sin(angle) * RADIUS, 1 + RADIUS - Math.cos(angle) * RADIUS, 2] as [number, number, number];
   });
+  // A closed route must repeat its first point exactly; a recomputed one would
+  // not be bit-identical (sin(2*PI) is -2.4e-16, not 0).
+  loop.push([...loop[0]!] as [number, number, number]);
   routes.push({ label: 'QA loop', points: loop, closed: true, maxSegmentLength: 2 });
 }
 

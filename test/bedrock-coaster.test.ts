@@ -505,6 +505,11 @@ describe('coaster pack assets', () => {
     expect(JSON.parse(/const CONFIG = (\{[\s\S]*?\});\n/.exec(coaster)![1]!).routes[0].station.stop).toBeCloseTo(5);
     const placement = await decode('Craftmatic_coaster_BP/scripts/placement.js');
     const config = JSON.parse(/const CONFIG = (\{[\s\S]*?\});\n/.exec(placement)![1]!);
-    expect(config.actors.find((actor: any) => actor.coasterRouteIndex === 0)).toMatchObject({ x: 0, y: 0, z: 0 });
+    // The cart spawns on the station platform, where the runtime parks it and
+    // where a player can walk up to it — not at arc 0, wherever that lands.
+    const station = JSON.parse(/const CONFIG = (\{[\s\S]*?\});\n/.exec(coaster)![1]!).routes[0].station;
+    expect(config.actors.find((actor: any) => actor.coasterRouteIndex === 0))
+      .toMatchObject({ x: station.point[0], y: station.point[1], z: station.point[2] });
+    expect(station.point[0]).toBeCloseTo(5);
   });
 });
