@@ -5,9 +5,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  ADDON_SCALE_OPTIONS, MIN_AUTO_SCALE, VEHICLE_TARGET_BLOCKS, describeAddonScale, hasMinifigCue,
-  modelExtentLdu, planAddonScale,
+  ACCESS_SCALE_STEPS, ADDON_SCALE_OPTIONS, JUMP_HEIGHT_BLOCKS, MIN_AUTO_SCALE, PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS, PLAYER_WIDTH_BLOCKS,
+  STEP_HEIGHT_BLOCKS, VEHICLE_TARGET_BLOCKS, accessStepFor, describeAddonScale, hasMinifigCue, modelExtentLdu, passageRequiredScale, planAddonScale,
 } from '../web/src/engine/addon-scale.js';
+import { WAND_SIZE_STEPS } from '../web/src/engine/bedrock-scene-actors.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
@@ -92,5 +93,46 @@ describe('planAddonScale', () => {
   it('describes the plan with its footprint in blocks', () => {
     const line = describeAddonScale(planAddonScale(rowOf('3001.dat', 500), '0.5', 'Mini Cooper (10242)'));
     expect(line).toMatch(/^0\.5× minifig scale, as chosen — ≈ \d+×\d+×\d+ blocks$/);
+  });
+});
+
+describe('the player passage and the access size ladder', () => {
+  it('a passage is one block wide and two high: the whole-block quantisation of a 0.6 × 1.8 player', () => {
+    expect(PLAYER_WIDTH_BLOCKS).toBe(0.6);
+    expect(PASSAGE_WIDTH_BLOCKS).toBe(1);
+    expect(PASSAGE_HEIGHT_BLOCKS).toBe(2);
+  });
+
+  it("the ladder is every export scale at or above 1×, which is the wand's 100…400 % steps", () => {
+    expect(ACCESS_SCALE_STEPS).toEqual([1, 1.5, 2, 3, 4]);
+    expect(ACCESS_SCALE_STEPS).toEqual(WAND_SIZE_STEPS.filter(p => p >= 100).map(p => p / 100));
+    expect(ACCESS_SCALE_STEPS.map(String)).toEqual(ADDON_SCALE_OPTIONS.map(o => o.value).filter(v => v !== 'auto' && Number(v) >= 1));
+  });
+
+  it('the required scale is whichever of width and height is further from the passage', () => {
+    // A 1×4×6 doorway (60 × 144) clears at 0.89×: its width is the limit. A one-stud, one-brick gap needs 4.44×: its height.
+    expect(passageRequiredScale(60, 144)).toBeCloseTo(LDU_PER_BLOCK / 60, 9);
+    expect(passageRequiredScale(20, 24)).toBeCloseTo(2 * LDU_PER_BLOCK / 24, 9);
+    // No lintel: width alone decides.
+    expect(passageRequiredScale(40, Infinity)).toBeCloseTo(LDU_PER_BLOCK / 40, 9);
+  });
+
+  it('a brick riser (24 LDU) is a step at 100 %, a jump at 200 % and a wall from 300 %', () => {
+    expect(STEP_HEIGHT_BLOCKS).toBe(0.6);
+    expect(JUMP_HEIGHT_BLOCKS).toBe(1.25);
+    const riserBlocks = (scale: number): number => 24 * scale / LDU_PER_BLOCK;
+    expect(riserBlocks(1)).toBeLessThanOrEqual(STEP_HEIGHT_BLOCKS);
+    expect(riserBlocks(2)).toBeLessThanOrEqual(JUMP_HEIGHT_BLOCKS);
+    expect(riserBlocks(2)).toBeGreaterThan(STEP_HEIGHT_BLOCKS);
+    expect(riserBlocks(3)).toBeGreaterThan(JUMP_HEIGHT_BLOCKS);
+  });
+
+  it('rounds a required scale up to the next supported step and abstains above 4×', () => {
+    expect(accessStepFor(0.5)).toBe(1);
+    expect(accessStepFor(1)).toBe(1);
+    expect(accessStepFor(1.03)).toBe(1.5);
+    expect(accessStepFor(2.22)).toBe(3);
+    expect(accessStepFor(4)).toBe(4);
+    expect(accessStepFor(4.44)).toBeUndefined();
   });
 });

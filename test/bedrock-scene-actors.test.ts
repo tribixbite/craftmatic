@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, recommendDoorExportScale, runtimeDoorCandidates, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -30,6 +30,10 @@ const LIBRARY: Record<string, string> = {
   '60623': ['0 Door  1 x  4 x  6 with 4 Panes and Stud Handle', ...box6(0, 80, -144, 0, -3, 3)].join('\n'),
   '60596': ['0 Door  1 x  4 x  6 Frame', ...box6(-40, 40, -144, 0, -10, 10)].join('\n'),
   '3821': ['0 Door  1 x  3 x  1 Right', ...box6(-15, 10, -24, 0, -10, 50)].join('\n'),
+  // Access measurement stand-ins: a 1×1 brick, a 4×12 plate, and a frame with a REAL hole (two jambs and a lintel).
+  '3005': ['0 Brick  1 x  1', ...box6(-10, 10, -24, 0, -10, 10)].join('\n'),
+  '3029': ['0 Plate  4 x 12', ...box6(-120, 120, -8, 0, -40, 40)].join('\n'),
+  '60599': ['0 Door  1 x  4 x  6 Frame', ...box6(-40, -30, -144, 0, -10, 10), ...box6(30, 40, -144, 0, -10, 10), ...box6(-40, 40, -144, -120, -10, 10)].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '').replace(/\.dat$/i, '')] ?? null });
 const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -333,5 +337,224 @@ describe('recommendDoorExportScale', () => {
     const [candidate] = runtimeDoorCandidates([elevated], { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK });
     expect(candidate!.y).toBeCloseTo(1.8, 8);
     expect(Math.floor(candidate!.y * 3)).toBe(5);
+  });
+});
+
+describe('sceneFloorPoint', () => {
+  const frame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
+
+  it('measures a height up from the model\'s underside, not the voxel row-0 bottom', () => {
+    // A model whose underside is at LDraw y = 8 (a plate on the ground): feet on that plane are at 0, feet on the plate top (y = 0) at +0.15.
+    expect(sceneFloorPoint(frame, 8, [0, 8, 0])[1]).toBeCloseTo(0, 9);
+    expect(sceneFloorPoint(frame, 8, [0, 0, 0])[1]).toBeCloseTo(8 / LDU_PER_BLOCK, 9);
+    // The voxel frame put the same feet a plate BELOW the pin (the chalet's −0.15).
+    expect(sceneGridPoint(frame, [0, 8, 0])[1]).toBeCloseTo(-8 / LDU_PER_BLOCK, 9);
+    // X and Z are the grid's.
+    expect(sceneFloorPoint(frame, 8, [LDU_PER_BLOCK * 2, 8, LDU_PER_BLOCK])).toEqual([2, 0, 1]);
+    // No underside known: fall back to the grid mapping.
+    expect(sceneFloorPoint(frame, NaN, [0, 8, 0])[1]).toBeCloseTo(-8 / LDU_PER_BLOCK, 9);
+  });
+
+  it('discoverSceneActors reports the underside of the non-figure placements', async () => {
+    // A 2×4 brick at y = 0 (bottom at 0) and a figure standing 8 LDU lower on the ground beside it: the underside is the brick's.
+    const scene = await discoverSceneActors([{ part: '3001.dat', color: 4, x: 0, y: 0, z: 0, rot: I }, ...figure(300, 0).map(b => ({ ...b, y: b.y + 8 }))], provider());
+    expect(scene.figures).toHaveLength(1);
+    expect(scene.groundLdu).toBe(0);
+    expect(scene.figures[0]!.floorLdu).toBe(72);
+    expect(sceneFloorPoint({ x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK }, scene.groundLdu, [0, scene.figures[0]!.floorLdu, 0])[1]).toBeCloseTo(-72 / LDU_PER_BLOCK, 9);
+  });
+});
+
+describe('measureSceneAccess / recommendAccessScale', () => {
+  const brick = (part: string, x: number, y: number, z: number, rot = I): ParsedBrick => ({ part, color: 4, x, y, z, rot });
+  /**
+   * A wall of 1×1 bricks along X (columns at x = −110 … 110, 20 LDU thick at
+   * z = 0), `rows` bricks high, with the columns in `gapColumns` left out of
+   * the bottom `gapRows` rows: a doorway with a lintel above it.
+   */
+  const wall = (rows: number, gapColumns: number[], gapRows: number, z = 0, columns = [-110, -90, -70, -50, -30, -10, 10, 30, 50, 70, 90, 110]): ParsedBrick[] => {
+    const out: ParsedBrick[] = [];
+    for (let r = 0; r < rows; r++) for (const x of columns) {
+      if (r < gapRows && gapColumns.includes(x)) continue;
+      out.push(brick('3005.dat', x, -24 * r, z));
+    }
+    return out;
+  };
+  const meshesOf = async (bricks: ParsedBrick[]) => (await discoverSceneActors(bricks, provider())).meshes;
+
+  it('a minifig-scale doorway (60 × 144 LDU) in a wall clears the 1×2 passage at 100 %', async () => {
+    const bricks = wall(8, [-30, -10, 10], 6);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.cell).toEqual({ xz: 5, y: 4 });
+    expect(m.openings).toHaveLength(1);
+    expect(m.openings[0]).toMatchObject({ source: 'aperture', axis: 'z', widthLdu: 60, heightLdu: 144 });
+    expect(m.openings[0]!.requiredScale).toBeCloseTo(Math.max(LDU_PER_BLOCK / 60, 2 * LDU_PER_BLOCK / 144), 6);
+    // The threshold sits on the ground row under the wall, centred on the gap.
+    expect(m.openings[0]!.centreLdu[0]).toBeCloseTo(-10, 6);
+    expect(m.openings[0]!.centreLdu[1]).toBeCloseTo(0, 6);
+    const rec = recommendAccessScale(m);
+    expect(rec).toMatchObject({ scale: 1, sizePct: 100, basis: 'apertures' });
+    expect(rec.doorway).toMatchObject({ widthBlocks: 1.1, heightBlocks: 2.7, count: 1, passable: 1 });
+    expect(rec.reason).toMatch(/^Wall openings are 1\.1×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear the 1×2 passage\)/);
+  });
+
+  it('a microscale doorway (40 × 48 LDU) needs 300 %, and the reason says what that makes it', async () => {
+    const bricks = wall(6, [-10, 10], 2);
+    const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
+    expect(rec).toMatchObject({ scale: 3, sizePct: 300, basis: 'apertures' });
+    expect(rec.doorway).toMatchObject({ widthBlocks: 0.8, heightBlocks: 0.9, passable: 1 });
+    expect(rec.doorway!.requiredScale).toBeCloseTo(2 * LDU_PER_BLOCK / 48, 6);
+    expect(rec.reason).toBe('Wall openings are 0.8×0.9 blocks at 100 %; 300 % makes them 2.3×2.7 (a player needs 1×2; 1/1 clear it); floors are 2.7 blocks under the ceiling at 300 %.');
+  });
+
+  it('a one-stud, one-brick gap (20 × 24 LDU) is beyond 400 %: no step is claimed, and the numbers say why', async () => {
+    const bricks = wall(6, [-10], 1);
+    const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
+    expect(rec.scale).toBeUndefined();
+    expect(rec.sizePct).toBeUndefined();
+    expect(rec.basis).toBe('apertures');
+    expect(rec.doorway).toMatchObject({ count: 1, passable: 0 });
+    expect(rec.reason).toBe('No size step makes the model walkable: its largest doorway is 0.4×0.5 blocks at 100 % and 1.5×1.8 at 400 % (a player needs 1×2).');
+  });
+
+  it('a solid wall has no opening and no interior: it says so instead of inventing a number', async () => {
+    const bricks = wall(6, [], 0);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings).toHaveLength(0);
+    expect(m.headroomLdu).toBeNull();
+    const rec = recommendAccessScale(m);
+    expect(rec).toMatchObject({ basis: 'none' });
+    expect(rec.scale).toBeUndefined();
+    expect(rec.reason).toMatch(/^No doorway or interior floor found/);
+  });
+
+  it('a semantic door leaf is the doorway: it is measured once, by its own extent, and decides the recommendation', async () => {
+    // An 80-wide gap with a 1×4×6 leaf hung in it (hinge at x = −40): the aperture through the gap is the leaf's.
+    const bricks = [...wall(8, [-30, -10, 10, 30], 6), { part: '60623.dat', color: 6, x: -40, y: 0, z: 0, rot: I }];
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings).toHaveLength(1);
+    expect(m.openings[0]).toMatchObject({ source: 'door-leaf', axis: 'z', widthLdu: 80, heightLdu: 144 });
+    const rec = recommendAccessScale(m);
+    expect(rec).toMatchObject({ scale: 1, sizePct: 100, basis: 'door-leaves' });
+    expect(rec.reason).toMatch(/^Door leaves are 1\.5×2\.7 blocks at 100 %: a player walks through as exported \(1\/1 clear/);
+  });
+
+  it('a leaf wider than it is tall (a 1×3×1 cupboard door) is a hatch, never door evidence', async () => {
+    const bricks = [brick('3821.dat', 0, 0, 0), brick('3001.dat', 200, 0, 0)];
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings.map(o => o.source)).toEqual(['hatch-leaf']);
+    const rec = recommendAccessScale(m);
+    expect(rec.basis).toBe('apertures');
+    expect(rec.scale).toBeUndefined();
+  });
+
+  it('the frame of a door mould keeps its hole: the aperture is measured between the jambs and under the lintel', async () => {
+    // The frame (jambs 10 wide, lintel 24 deep) fills an 80-wide gap in a wall that carries on above it.
+    const bricks = [...wall(8, [-30, -10, 10, 30], 6), { part: '60599.dat', color: 6, x: 0, y: 0, z: 0, rot: I }];
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings).toHaveLength(1);
+    expect(m.openings[0]).toMatchObject({ source: 'aperture', widthLdu: 60, heightLdu: 120 });
+  });
+
+  it('a slot far wider than it is tall (the gap under a raised plate) is not a doorway', async () => {
+    // A 4×12 plate on two 1×1 bricks 220 apart: a 200 × 24 LDU slot, walled at both ends, open front and back.
+    const bricks = [brick('3005.dat', -110, 0, 0), brick('3005.dat', 110, 0, 0), brick('3029.dat', 0, -24, 0)];
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.openings).toHaveLength(0);
+  });
+
+  it('a gap that leads only into a closed niche is not a doorway (it must open up on both sides)', async () => {
+    // The doorway wall, then a closet behind it: side columns at x = ±50, a back wall at z = 60, a plate ceiling over it.
+    const closet = [
+      ...[20, 40].flatMap(z => [0, 1, 2, 3, 4, 5].flatMap(r => [brick('3005.dat', -50, -24 * r, z), brick('3005.dat', 50, -24 * r, z)])),
+      ...wall(6, [], 0, 60, [-50, -30, -10, 10, 30, 50]),
+      brick('3029.dat', 0, -144, 30),
+    ];
+    const open = wall(8, [-30, -10, 10, 30], 6);
+    const meshes = await meshesOf([...open, ...closet]);
+    expect(measureSceneAccess(open, meshes).openings).toHaveLength(1);
+    expect(measureSceneAccess([...open, ...closet], meshes).openings).toHaveLength(0);
+  });
+
+  it('interior headroom is the median floor-to-ceiling, and a low ceiling raises the recommended step', async () => {
+    // A room: the doorway wall in front, a 4×12 plate ceiling 48 LDU up over a floor behind it (rows 0-1 open in the gap).
+    // The doorway itself (40 × 48) needs 2.22× (300 %); the room's 48 LDU ceiling needs the same, so 300 % stands.
+    const bricks = [...wall(4, [-10, 10], 2), brick('3029.dat', 0, -48, 40)];
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    expect(m.headroomLdu).toBe(48);
+    expect(m.interiorFloorCells).toBeGreaterThan(0);
+    const rec = recommendAccessScale(m);
+    expect(rec.headroom).toMatchObject({ blocks: 0.9, scale: 3 });
+    expect(rec.headroom!.requiredScale).toBeCloseTo(2 * LDU_PER_BLOCK / 48, 6);
+    expect(rec.scale).toBe(3);
+  });
+
+  it('excluded placements (a figure standing in the doorway) do not block it', async () => {
+    const bricks = wall(8, [-30, -10, 10], 6);
+    // Three columns of bricks filling the doorway: a wall again unless they are excluded.
+    const blockers = [-30, -10, 10].flatMap(x => [0, 1, 2, 3, 4, 5].map(r => brick('3005.dat', x, -24 * r, 0)));
+    const meshes = await meshesOf([...bricks, ...blockers]);
+    expect(measureSceneAccess([...bricks, ...blockers], meshes).openings).toHaveLength(0);
+    expect(measureSceneAccess([...bricks, ...blockers], meshes, { exclude: new Set(blockers) }).openings).toHaveLength(1);
+  });
+
+  /** A staircase of 1×1 bricks behind the wall: four steps of 24 LDU (0.45 blocks), one stud deep, four studs wide. */
+  const stairs = (): ParsedBrick[] => [0, 1, 2, 3].flatMap(step => [-30, -10, 10, 30].flatMap(x => Array.from({ length: step + 1 }, (_, r) => brick('3005.dat', x, -24 * r, 40 + 20 * step))));
+
+  it('the reach walk climbs a brick staircase while its risers are within a jump: through 200 %, not at 300 %', async () => {
+    const bricks = [...wall(8, [-30, -10, 10], 6), ...stairs()];
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    // The highest standing surface is the wall's top (8 bricks, open sky); the stairs reach 96.
+    expect(m.topFloorLdu).toBe(192);
+    expect(m.reach.map(r => r.scale)).toEqual([1, 1.5, 2, 3, 4]);
+    // A 24 LDU riser is 0.45 blocks at 100 %, 0.9 at 200 % (a jump), 1.35 at 300 % (a wall).
+    expect(m.reach.map(r => r.highestReachedLdu)).toEqual([96, 96, 96, 0, 0]);
+    expect(m.reach[0]!.reachedSurfaces).toBeGreaterThan(m.reach[3]!.reachedSurfaces / 100);
+  });
+
+  it('a microscale doorway with that staircase: the doorway wants 300 %, the stairs stop at 200 %, and the reason names both', async () => {
+    const bricks = [...wall(6, [-10, 10], 2), ...stairs()];
+    const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
+    expect(rec.scale).toBe(3);
+    // The stairs (96) against the wall top (144): two thirds of the height at 100 %, none at 300 %.
+    expect(rec.climb).toMatchObject({ bestStep: 1, climbableAtScale: false });
+    expect(rec.climb!.fraction).toBe(0);
+    expect(rec.climb!.bestFraction).toBeCloseTo(96 / 144, 9);
+    expect(rec.reason).toMatch(/But at 300 % a player reaches only 0 % of the model's height \(its top floor is 2\.7 blocks up at 100 %\), against 67 % at 100 %: rises the player jumped at 100 % are above the 1\.25-block jump at 300 %\. 100 % keeps the floors but leaves doorways at 0\.8×0\.9 - under the 1×2 passage; the choice is between the doors and the stairs\.$/);
+  });
+
+  it('a minifig-scale doorway with the same staircase: 100 % is recommended and nothing is lost', async () => {
+    const bricks = [...wall(8, [-30, -10, 10], 6), ...stairs()];
+    const rec = recommendAccessScale(measureSceneAccess(bricks, await meshesOf(bricks)));
+    expect(rec.scale).toBe(1);
+    expect(rec.climb).toMatchObject({ fraction: 0.5, bestFraction: 0.5, climbableAtScale: true });
+    expect(rec.reason).not.toMatch(/reaches only/);
+  });
+
+  it('a flat model has no floor to climb, and says nothing about stairs', async () => {
+    const bricks = wall(8, [-30, -10, 10], 6);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks));
+    // The wall top is a floor with open sky above it; nothing reaches it at any step.
+    expect(m.topFloorLdu).toBe(192);
+    expect(m.reach.every(r => r.highestReachedLdu === 0)).toBe(true);
+    expect(recommendAccessScale(m).climb).toMatchObject({ fraction: 0, bestFraction: 0, climbableAtScale: true });
+  });
+
+  it('a forced coarser cell measures the same doorway to within a cell', async () => {
+    const bricks = wall(8, [-30, -10, 10], 6);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks), { cell: { xz: 10, y: 8 } });
+    expect(m.cell).toEqual({ xz: 10, y: 8 });
+    expect(m.openings).toHaveLength(1);
+    expect(Math.abs(m.openings[0]!.widthLdu - 60)).toBeLessThanOrEqual(10);
+    expect(Math.abs(m.openings[0]!.heightLdu - 144)).toBeLessThanOrEqual(8);
+  });
+
+  it('coarsens the cells for a model over the cell budget and says which it used', async () => {
+    const bricks = wall(8, [-30, -10, 10], 6);
+    const m = measureSceneAccess(bricks, await meshesOf(bricks), { maxCells: 5_000 });
+    expect(m.cell.xz).toBeGreaterThan(5);
+    expect(m.cell.y).toBeGreaterThan(4);
+    expect(m.grid.x * m.grid.y * m.grid.z).toBeLessThanOrEqual(5_000);
+    expect(m.openings).toHaveLength(1);
   });
 });

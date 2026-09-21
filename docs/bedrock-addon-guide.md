@@ -1915,3 +1915,91 @@ DeLorean 41,600 (as a shell), all at 2 LDU with nothing coarsened.
   same grain and no slower than `balanced` (fewer planning passes).
 - The stud facet ladder (4 → 3 → 1) and the 25 % stud cap are unchanged;
   a 2-facet step or a stud share tied to the plan would help 71043-class sets.
+
+## Walk-through size recommendation, measured from geometry (2026-09-21)
+
+The user asked for an auto size suggestion so that "doors can become real
+doors and a player can walk through them", and for it to reach 150-400 % on
+micro-scale Architecture/Icons sets. This is now a MEASUREMENT of the model,
+not a reading of its name or theme, and it is DATA (`recommendAccessScale` in
+`engine/bedrock-scene-actors.ts`): a recommended step plus the numbers in a
+sentence. `planAddonScale`'s `auto` is untouched and no export changes size.
+
+**The rule.** A player needs a clear opening 1 block wide by 2 high and two
+blocks of headroom (`PASSAGE_*` in `engine/addon-scale.ts` - the whole-block
+quantisation of the 0.6 × 1.8 player; `JUMP_HEIGHT_BLOCKS` 1.25,
+`STEP_HEIGHT_BLOCKS` 0.6). `measureSceneAccess(bricks, scene.meshes,
+{ exclude: scene.figureBricks })` builds an occupancy grid of the whole model
+at a 5 × 4 LDU cell aligned to world multiples (half-stud × half-plate, so an
+axis-aligned opening measures exactly; a plate-sized cell under-read a 104 LDU
+doorway by a cell and pushed it from 100 % to 150 %), part boxes for ordinary
+parts and a three-axis ray-parity solid fill for moulds with a hole
+(`Door|Window|Arch` descriptions), door LEAVES left out because they open.
+It then measures:
+
+1. **Openings.** Semantic door leaves by their own extent (a leaf wider than
+   tall is a hatch - the Titanic's 44 1×3×1 hull doors - and never door
+   evidence), and geometric APERTURES: every floor-level air run walled on both
+   sides, under a lintel, at least 16 × 24 LDU, no wider than 2.5× its height
+   (the gap under a car is not a doorway), that opens into a wider space or the
+   outside within 100 LDU on BOTH faces. Each gets `requiredScale =
+   max(1 block / width, 2 blocks / height)`.
+2. **Headroom.** The median floor-to-ceiling over interior floor cells.
+3. **The reach walk**, once per step (100/150/200/300/400 %): a breadth-first
+   walk from the outside ring over cells that are a floor with player headroom
+   and a player-wide clear run (foot, waist and head rows), moving to a
+   neighbour at most one jump up. A LEGO brick riser is 0.45 blocks: a step at
+   100 %, a jump at 200 %, a wall at 300 % - so a size that opens the doorways
+   can lose the upper floors. The walk reports the highest floor reached per
+   step against the model's top standing surface.
+
+The recommendation: door leaves decide when present (their MEDIAN required
+scale), else the aperture at the 25th percentile of required scale (the larger
+openings; small gaps between furniture are the rest); rounded up to the first
+step; raised to the headroom step when one exists; and if that step loses
+more than a quarter of the reachable height against another step, the reason
+says so and names that step ("the choice is between the doors and the
+stairs") instead of choosing silently. No opening at any step, or a solid
+model, is said plainly.
+
+**Measured** (`bun scripts/_access_scale.ts <source>`; heights in blocks at 100 %):
+
+| set | source | leaves | openings | pick at 100 % | headroom | reach 1×/1.5×/2×/3×/4× (top) | recommends |
+|---|---|---|---|---|---|---|---|
+| 10255 Assembly Square | IO | 13 | 274 | 1.3×2.5 | 3.8 | 0.7/1.0/0.4/0.4/0.2 (21.9) | **100 %**, 13/13 leaves clear |
+| 10278 Police Station | IO | 8 | 61 | 1.3×2.5 | 2.9 | 11.6/2.6/1.9/1.4/1.6 (17.6) | **100 %**, 8/8 |
+| 31141 Main Street sm01 | LDR | 5 | 86 | 1.3×2.5 | 2.3 | 0.5/0.5/0.5/0.2/0.2 (14.0) | **100 %**, 5/5 |
+| 910004 Winter Chalet | IO | 3 | 43 | 1.3×2.5 | 2.1 | 5.3/5.6/5.6/4.1/0 (10.1) | **100 %**, 3/3 |
+| 10303 Loop Coaster | IO | 0 | 149 | 1.7×1.5 | 2.5 | 5.4/2.0/1.7/1.5/0.2 (43.2) | **150 %** (cells coarsened to 7.5×6) |
+| 71043 Hogwarts | IO | 0 | 323 | 0.6×2.3 | 1.7 | 0 at every step (31.8; the rock base is a cliff) | **200 %** |
+| 76419 Hogwarts micro | DbixConvV3 | 0 | 49 | 0.8×0.9 | 3.5 | 1.5/0/0/0/0 (13.7) | **300 %** |
+| 21060 Himeji | DbixConvV3 | 0 | 23 | 0.4×0.6 | 0.75 | 9.8/0.6/0.6/0/0 (9.8) | **400 %** opens 19/23 to 1.5×2.4, but the terraces are lost: "the choice is between the doors and the stairs" |
+| 21034 London | IO | 0 | 12 | 0.4×5.1 | 1.2 | 5.0/3.1/1.5/1.5/0.8 (7.1) | **300 %**, same tension (21 % vs 70 % of the height) |
+| 21058 Pyramid | IO | 0 | 13 | 0.4×0.9 | 0.9 | 9.5/9.5/9.5/2.4/2.4 (9.5) | **300 %**, same tension (25 % vs 100 %) |
+| 21042 Statue of Liberty | IO | 0 | 81 | 0.7×0.9 | 1.4 | 0 at every step | **300 %** (the pedestal's arcade) |
+| 21054 White House | IO | 0 | 0 | - | 1.4 | 0 | **none**: "No doorway found; interior floors are 1.4 blocks under the ceiling at 100 % (150 % gives standing room), but nothing leads into them" |
+| 10242 Mini Cooper | IO | 0 | 9 | 0.3×0.6 | 0.7 | 1.1/0/0/0/0 (5.9) | 400 % (geometry only; `planAddonScale` says vehicle 0.38× - the UI should show the auto plan and offer this as "to walk inside") |
+| 10294 Titanic | IO | 44 hatches | 373 | 1.1×0.9 | 1.9 | 1.2/1.2/0/0/0 (21.2) | 300 % |
+
+The 21060 finding above stands: 400 % opens one-stud wall openings to
+1.5 × 2.4 blocks geometrically; nothing here proves an interior door works in
+game, and the walk shows the raised approach is lost at that size.
+
+**Also in this round.** `SceneActors.groundLdu` (the model's underside) and
+`sceneFloorPoint(frame, groundLdu, p)`: a figure's height must be measured up
+from the pin plane the shell and colliders stand on, not from the voxel grid's
+row-0 bottom, which the voxelizer's surface pass rounds up to half a cell above
+a thin baseplate. The chalet's seven figures (DbixConvV3/910004.ldr, standing
+on the ground beside the model, feet at LDraw y 8 = the underside) came out at
+−0.15 blocks; `floorLdu` itself is exact (IO/910004.io: three figures' feet at
+the tile/plate tops under them, to the LDU). Doors keep `sceneGridPoint`: they
+are cut into the block grid and were device-verified.
+
+**Not wired yet** (the pipeline, the pack diagnostics and the UI are other
+agents' files): `schem-pipeline.ts` should call `measureSceneAccess` +
+`recommendAccessScale` after `discoverSceneActors`, map figures and seats
+through `sceneFloorPoint(frame, scene.groundLdu, …)`, and ship the
+recommendation in the export result and `craftmatic-diagnostics.json`; the
+settings popover's "Model scale" row and the wand's Size menu should show
+`sizePct` + `reason` beside the auto plan. The measurement is ~0.1-4.6 s per
+set in bun (48 M-cell budget; 71043 and 10303 coarsen to 7.5 × 6 LDU).

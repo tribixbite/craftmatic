@@ -167,3 +167,50 @@ export function describeAddonScale(plan: AddonScalePlan): string {
   const { x, y, z } = plan.sizeBlocks;
   return `${plan.reason} — ≈ ${Math.ceil(x)}×${Math.ceil(y)}×${Math.ceil(z)} blocks`;
 }
+
+// ─── The player's passage: what an opening must clear to be walked through ────
+
+/**
+ * A Minecraft player is 0.6 blocks wide and 1.8 tall, but the world is made of
+ * whole blocks: an opening in a block wall is a whole number of cells, so the
+ * smallest passage a player fits through is ONE block wide and TWO high (a
+ * vanilla door is exactly that). Standing headroom under a ceiling is the
+ * same two blocks. These are the numbers every access measurement
+ * (`bedrock-scene-actors.ts`, `measureSceneAccess`) compares a model against.
+ */
+export const PLAYER_WIDTH_BLOCKS = 0.6;
+export const PASSAGE_WIDTH_BLOCKS = 1;
+export const PASSAGE_HEIGHT_BLOCKS = 2;
+/**
+ * How far up a player gets without and with a jump (Minecraft's own numbers:
+ * the 0.6 auto-step, the 1.25-block jump). A LEGO brick riser is 24 LDU =
+ * 0.45 blocks: a step at 100 %, a jump at 200 % (0.9), and a wall at 300 %
+ * (1.35) - which is why a size that opens a micro-scale set's doorways can
+ * leave its stairs unclimbable (measured on the coaster's platforms, 2026-09-21).
+ */
+export const STEP_HEIGHT_BLOCKS = 0.6;
+export const JUMP_HEIGHT_BLOCKS = 1.25;
+
+/**
+ * The size ladder a walk-through recommendation may name: the export scales
+ * `planAddonScale` offers at or above 1× (`1.5`…`4`), which are the Brick
+ * Wand's 150…400 % size steps (`WAND_SIZE_STEPS`) applied to a 1× export.
+ * Steps below 1× only shrink a model, so they can never open a doorway.
+ */
+export const ACCESS_SCALE_STEPS: readonly number[] = [1, 1.5, 2, 3, 4];
+
+/**
+ * The smallest multiplier of the minifig scale at which an opening
+ * `widthLdu` wide and `heightLdu` high clears the player's passage. An
+ * opening with no lintel (`heightLdu` = Infinity) is limited by width alone.
+ */
+export function passageRequiredScale(widthLdu: number, heightLdu: number): number {
+  const byWidth = PASSAGE_WIDTH_BLOCKS * LDU_PER_BLOCK / Math.max(widthLdu, 1e-9);
+  const byHeight = Number.isFinite(heightLdu) ? PASSAGE_HEIGHT_BLOCKS * LDU_PER_BLOCK / Math.max(heightLdu, 1e-9) : 0;
+  return Math.max(byWidth, byHeight);
+}
+
+/** The first supported step at or above `requiredScale`; undefined when even 4× is not enough. */
+export function accessStepFor(requiredScale: number): number | undefined {
+  return ACCESS_SCALE_STEPS.find(step => step + 1e-9 >= requiredScale);
+}

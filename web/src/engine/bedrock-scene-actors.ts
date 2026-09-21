@@ -40,6 +40,7 @@ import { classifyMinifigPart } from './minifig-rig.js';
 import type { BlockGrid } from '@craft/schem/types.js';
 import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { toBedrockBlock } from './bedrock-blocks.js';
+import { ACCESS_SCALE_STEPS, JUMP_HEIGHT_BLOCKS, PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS, accessStepFor, passageRequiredScale } from './addon-scale.js';
 
 export interface SceneFigure {
   bricks: ParsedBrick[];
@@ -120,6 +121,16 @@ export interface SceneActors {
   /** Every door LEAF placement (a vanilla door stands in for it, so a brick shell leaves it out). */
   doorBricks: Set<ParsedBrick>;
   meshes: Map<string, LdrawPartMesh | null>;
+  /**
+   * The model's underside, LDraw (the largest world y over every placement
+   * that is not a spawned figure): the plane the brick shell is grounded on
+   * and the wand pins to. Heights the pack ships (figures, seats) are measured
+   * up from it (`sceneFloorPoint`), NOT from the voxel grid's row 0, whose
+   * bottom the voxelizer's surface pass rounds up to half a cell above a thin
+   * baseplate (the chalet's 7 figures spawned at −0.15 blocks, one plate under
+   * the pin plane, 2026-09-21). NaN when the model has no placements.
+   */
+  groundLdu: number;
 }
 
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -241,7 +252,14 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
     doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, brick: b, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
   }
-  return { figures, posedFigures, seats, doors, figureBricks, doorBricks, meshes, warnings };
+  let groundLdu = -Infinity;
+  for (const b of bricks) {
+    if (figureBricks.has(b)) continue;
+    const m = meshes.get(b.part);
+    const bottom = m && m.triangles.length ? worldBounds(b, m).max[1] : b.y;
+    if (bottom > groundLdu) groundLdu = bottom;
+  }
+  return { figures, posedFigures, seats, doors, figureBricks, doorBricks, meshes, warnings, groundLdu: Number.isFinite(groundLdu) ? groundLdu : NaN };
 }
 
 /** The voxelizer's grid frame (`VoxelizeResult.gridOrigin`). */
@@ -250,6 +268,19 @@ export interface SceneGridFrame { x: number; y: number; z: number; scale: number
 /** An LDraw point in grid coordinates (fractional cells; LDraw Y down → grid Y up). */
 export function sceneGridPoint(frame: SceneGridFrame, p: Vec3): Vec3 {
   return [(p[0] / frame.cellXZ - frame.x) * frame.scale, (-p[1] / frame.cellY - frame.y) * frame.scale, (p[2] / frame.cellXZ - frame.z) * frame.scale];
+}
+
+/**
+ * An LDraw point in grid coordinates whose HEIGHT is measured up from the
+ * model's underside (`SceneActors.groundLdu`, the pin plane the shell and the
+ * colliders stand on) instead of the voxel grid's row-0 bottom. Use it for
+ * anything an actor stands or sits on: feet on a baseplate's top land at
+ * +0.15 blocks (one plate), feet on the ground beside the model at 0.
+ * Doors keep `sceneGridPoint`: they are cut into the block grid itself.
+ */
+export function sceneFloorPoint(frame: SceneGridFrame, groundLdu: number, p: Vec3): Vec3 {
+  const g = sceneGridPoint(frame, p);
+  return [g[0], Number.isFinite(groundLdu) ? (groundLdu - p[1]) / frame.cellY * frame.scale : g[1], g[2]];
 }
 
 /** Bedrock yaw (degrees; 0 faces +Z, forward = (−sin, cos)) for a horizontal LDraw direction. Grid axes are LDraw's. */
@@ -299,7 +330,7 @@ export interface DoorScaleRecommendation {
   note: string;
 }
 
-const EXPORT_SCALE_STEPS = [1, 1.5, 2, 3, 4] as const;
+const EXPORT_SCALE_STEPS = ACCESS_SCALE_STEPS;
 export const WAND_SIZE_STEPS = [25, 50, 75, 100, 150, 200, 300, 400] as const;
 
 /** A semantic leaf retained for the wand when it is too small at 100%. */
@@ -502,4 +533,513 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
     if (stats.doors > doorsBefore) hungDoors?.add(d);
   }
   return stats;
+}
+
+// ─── Access: doorways, headroom and the walk-through size recommendation ─────
+//
+// A player needs a clear opening one block wide and two high to pass, and two
+// blocks of headroom to stand (addon-scale.ts, `PASSAGE_*`). Whether a set has
+// such openings is a property of its GEOMETRY, not of its theme: a modular's
+// 1×4×6 doors clear it at 1×, an Architecture landmark's one-stud gateways
+// need 300-400 %, a sculpture has nothing to walk through at any size. The
+// measurement below therefore reads the model itself, in two tiers:
+//
+//  1. Semantic door LEAVES (the library's own "Door …" descriptions, the same
+//     rule `discoverSceneActors` hangs vanilla doors by): the leaf's extent is
+//     the opening. Strong evidence when present - a set with door moulds was
+//     built for its figures to walk through them.
+//  2. APERTURES in an occupancy grid of the whole model: every part's box
+//     (moulds with a hole - doors, windows, arches - are rasterised from their
+//     triangles so the hole stays open) at a plate-sized cell, then every
+//     floor-level air run that is walled on both sides, has a lintel, and opens
+//     into a wider space (or the outside) within a wall's thickness on BOTH
+//     sides. That is a doorway however it was built: a door frame, a brick
+//     arch, or the one-stud gap in a microscale gatehouse.
+//
+// The recommendation is the smallest supported step (100/150/200/300/400 %) at
+// which the model's representative doorway clears the passage AND its floors
+// clear standing headroom; it is DATA for the caller to show ("doorways are
+// 0.4 blocks wide at 100 %; 300 % makes them 1.2"), never an applied size.
+
+/** Moulds with an aperture: their triangles are rasterised into the occupancy, not their bounding box. */
+const APERTURE_MOULD = /^[~=_]*\s*(?:Half\s+|Duplo\s+)?(?:Door|Window|Arch)\b/i;
+
+/**
+ * Occupancy cells for the access grid, LDU, and the grid is aligned to world
+ * multiples of them. LEGO geometry sits on half-stud (10 LDU) multiples
+ * horizontally and plate (8 LDU) multiples vertically - a door frame's jambs
+ * are at ±30, a brick is 24 tall - so with a 5 × 4 cell an axis-aligned
+ * opening is measured exactly. A plate-sized cell under-read a 104 LDU
+ * (1.95-block) doorway by up to a cell, enough to push a 100 % doorway to
+ * 150 %. Coarsened (×1.5 steps) for very large models (`maxCells`).
+ */
+export const ACCESS_CELL_LDU: Readonly<{ xz: number; y: number }> = { xz: 5, y: 4 };
+/** The cells an access grid may hold before its cells are coarsened (48 MB; a 71043 goes to 7.5 × 6 LDU). */
+const ACCESS_MAX_CELLS = 48_000_000;
+/** A wall's thickness, LDU: how far past a doorway's throat the space must widen for it to be a doorway. */
+const WALL_DEPTH_LDU = 100;
+/** The smallest aperture counted, LDU: a brick tall (below that it is the gap between two plates). */
+const MIN_APERTURE_HEIGHT_LDU = 24;
+const MIN_APERTURE_WIDTH_LDU = 16;
+/**
+ * A doorway is not a slot: an opening wider than this many times its height
+ * is the gap under a car, between a plate and the ground, under eaves. A
+ * garage door (3 wide × 2.5 high) stays in; a 5.3 × 0.6 undercarriage does not.
+ */
+const MAX_APERTURE_ASPECT = 2.5;
+
+export interface SceneOpening {
+  /** How it was found: a door-shaped semantic leaf's own extent, a leaf wider than tall (a hatch), or an aperture in the occupancy grid. */
+  source: 'door-leaf' | 'hatch-leaf' | 'aperture';
+  /** The horizontal axis a player travels along to pass through it. */
+  axis: 'x' | 'z';
+  /** Clear width across the opening and clear height under its lintel, LDU. */
+  widthLdu: number;
+  heightLdu: number;
+  /** Centre of the opening's threshold, LDraw. */
+  centreLdu: Vec3;
+  /** Smallest multiplier of the minifig scale at which a 1×2-block passage clears it. */
+  requiredScale: number;
+}
+
+export interface SceneAccessMeasurement {
+  /** Occupancy cells used, LDU (horizontal, vertical). */
+  cell: { xz: number; y: number };
+  /** The occupancy grid's cells and how many are solid. */
+  grid: { x: number; y: number; z: number; solid: number };
+  /** Every opening found, by ascending `requiredScale` (the easiest to pass first). */
+  openings: SceneOpening[];
+  /** Interior floor-to-ceiling: the median finite headroom over floor cells at least a brick high, LDU; null when the model has no interior. */
+  headroomLdu: number | null;
+  /** Floor cells behind that median. */
+  interiorFloorCells: number;
+  /**
+   * The highest floor surface a player could stand on anywhere in the model
+   * (at least a brick of headroom), LDU above the model's ground; null when
+   * there is none. The reach walk's ceiling.
+   */
+  topFloorLdu: number | null;
+  /**
+   * The walk: at each supported step, how far into and UP the model a player
+   * gets from the outside. Columns one block wide at that step (the collider
+   * re-lay claims a column by its centre), standing surfaces with player
+   * headroom, moves to a neighbouring column's surface up to one jump higher
+   * (and any drop). Rises grow with the model while the player does not, so
+   * a brick riser (0.45 blocks) that is a step at 100 % is a wall at 300 %:
+   * `highestReachedLdu` then falls to the ground floor.
+   */
+  reach: SceneReach[];
+}
+
+export interface SceneReach {
+  scale: number;
+  /** Standing surfaces (column × floor) the walk reached. */
+  reachedSurfaces: number;
+  /** Highest reached surface, LDU above the model's ground. */
+  highestReachedLdu: number;
+}
+
+export interface SceneAccessOptions {
+  /** Placements left out of the occupancy (a scene's spawned figures: an NPC standing in a doorway is not a wall). */
+  exclude?: ReadonlySet<ParsedBrick>;
+  /** Force the cells, LDU (default `ACCESS_CELL_LDU`, coarsened to fit `maxCells`). */
+  cell?: { xz: number; y: number };
+  maxCells?: number;
+}
+
+/**
+ * Measure what a player could walk through: the model's doorways (semantic
+ * leaves and geometric apertures) and its interior headroom. Pure and
+ * synchronous given the part meshes (`discoverSceneActors` already loads
+ * them); the pipeline calls it once per export and ships the result as data.
+ */
+export function measureSceneAccess(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, options: SceneAccessOptions = {}): SceneAccessMeasurement {
+  type Box = { min: Vec3; max: Vec3 };
+  const boxes: Box[] = [];
+  const rasterised: Array<{ brick: ParsedBrick; mesh: LdrawPartMesh }> = [];
+  const leaves: Array<Box & { alongAxis: 'x' | 'z' }> = [];
+  for (const b of bricks) {
+    if (options.exclude?.has(b)) continue;
+    const m = meshes.get(b.part);
+    const box: Box = m && m.triangles.length ? worldBounds(b, m) : { min: [b.x - 10, b.y - 24, b.z - 10], max: [b.x + 10, b.y, b.z + 10] };
+    if (m && m.triangles.length && isDoorLeafDescription(m.description)) {
+      // A leaf opens: it is the doorway, not a wall.
+      leaves.push({ ...box, alongAxis: box.max[0] - box.min[0] >= box.max[2] - box.min[2] ? 'x' : 'z' });
+      continue;
+    }
+    if (m && m.triangles.length && APERTURE_MOULD.test(m.description)) rasterised.push({ brick: b, mesh: m });
+    else boxes.push(box);
+  }
+  const all = [...boxes, ...rasterised.map(r => worldBounds(r.brick, r.mesh)), ...leaves];
+  if (!all.length) return { cell: { ...(options.cell ?? ACCESS_CELL_LDU) }, grid: { x: 0, y: 0, z: 0, solid: 0 }, openings: [], headroomLdu: null, interiorFloorCells: 0, topFloorLdu: null, reach: [] };
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const b of all) for (let i = 0; i < 3; i++) { if (b.min[i]! < min[i]!) min[i] = b.min[i]!; if (b.max[i]! > max[i]!) max[i] = b.max[i]!; }
+
+  // Cells: half a stud by half a plate, coarsened until the grid fits the budget.
+  const maxCells = options.maxCells ?? ACCESS_MAX_CELLS;
+  let cell = options.cell ?? ACCESS_CELL_LDU, cellXZ = cell.xz, cellY = cell.y;
+  const cellsAt = (): number => (Math.floor((max[0] - min[0]) / cellXZ) + 2 * Math.ceil(LDU_PER_BLOCK / cellXZ) + 3) * (Math.floor((max[1] - min[1]) / cellY) + 3) * (Math.floor((max[2] - min[2]) / cellXZ) + 2 * Math.ceil(LDU_PER_BLOCK / cellXZ) + 3);
+  if (options.cell === undefined) while (cellsAt() > maxCells) { cellXZ *= 1.5; cellY *= 1.5; }
+  cell = { xz: cellXZ, y: cellY };
+  // Grid frame, aligned to world multiples of the cell: one air cell of padding
+  // around, a SOLID ground row under the model (it stands on the world), LDraw
+  // Y down mapped to grid Y up.
+  // The horizontal padding is a whole block at 1×, so the outermost column of
+  // the reach walk stands on open ground at every step.
+  const pad = Math.ceil(LDU_PER_BLOCK / cellXZ) + 1;
+  const ox = Math.floor(min[0] / cellXZ) * cellXZ - pad * cellXZ, oz = Math.floor(min[2] / cellXZ) * cellXZ - pad * cellXZ;
+  const bottom = Math.ceil(max[1] / cellY) * cellY + cellY; // LDraw y of the ground row's underside
+  const gx = (x: number): number => Math.floor((x - ox) / cellXZ);
+  const gz = (z: number): number => Math.floor((z - oz) / cellXZ);
+  const gy = (y: number): number => Math.floor((bottom - y) / cellY);
+  const sx = gx(max[0]) + pad + 1, sz = gz(max[2]) + pad + 1, sy = gy(min[1]) + 2;
+  const solid = new Uint8Array(sx * sy * sz);
+  const idx = (x: number, y: number, z: number): number => (y * sz + z) * sx + x;
+  const mark = (x: number, y: number, z: number): void => { if (x >= 0 && y >= 0 && z >= 0 && x < sx && y < sy && z < sz) solid[idx(x, y, z)] = 1; };
+  for (let x = 0; x < sx; x++) for (let z = 0; z < sz; z++) solid[idx(x, 0, z)] = 1;
+  // A face exactly on a cell boundary claims only its own side (the 0.05-cell
+  // tolerance); a part thinner than that still claims the cell it lies in.
+  const lo = (v: number): number => Math.floor(v + 0.05), hi = (v: number, from: number): number => Math.max(Math.ceil(v - 0.05) - 1, from);
+  for (const b of boxes) {
+    const x0 = lo((b.min[0] - ox) / cellXZ), x1 = hi((b.max[0] - ox) / cellXZ, x0);
+    const z0 = lo((b.min[2] - oz) / cellXZ), z1 = hi((b.max[2] - oz) / cellXZ, z0);
+    const y0 = lo((bottom - b.max[1]) / cellY), y1 = hi((bottom - b.min[1]) / cellY, y0);
+    for (let y = Math.max(0, y0); y <= Math.min(sy - 1, y1); y++) for (let z = Math.max(0, z0); z <= Math.min(sz - 1, z1); z++) {
+      const row = idx(0, y, z);
+      for (let x = Math.max(0, x0); x <= Math.min(sx - 1, x1); x++) solid[row + x] = 1;
+    }
+  }
+  // Aperture moulds: a solid voxelization of the mould's own triangles (ray
+  // parity along all three axes at cell centres, unioned - the voxelizer's
+  // own method), so the jambs and the lintel are solid and the hole between
+  // them is air. Sampling the surface cannot do this: an axis-aligned face on
+  // a cell boundary does not know which side is solid, and a 60 LDU frame
+  // opening read 56 or 80.
+  const centreX = (i: number): number => ox + (i + 0.5) * cellXZ;
+  const centreZ = (i: number): number => oz + (i + 0.5) * cellXZ;
+  const centreY = (i: number): number => bottom - (i + 0.5) * cellY;
+  /** Where the axis-`w` ray through (u, v) crosses a triangle, or null. `p` = the vertex components picked per axis. */
+  const cross = (u: number, v: number, a: [number, number, number], b: [number, number, number], c: [number, number, number]): number | null => {
+    const d = (b[1] - c[1]) * (a[0] - c[0]) + (c[0] - b[0]) * (a[1] - c[1]);
+    if (Math.abs(d) < 1e-9) return null; // edge-on to the ray
+    const l0 = ((b[1] - c[1]) * (u - c[0]) + (c[0] - b[0]) * (v - c[1])) / d;
+    const l1 = ((c[1] - a[1]) * (u - c[0]) + (a[0] - c[0]) * (v - c[1])) / d;
+    const l2 = 1 - l0 - l1;
+    if (l0 < -1e-6 || l1 < -1e-6 || l2 < -1e-6) return null;
+    return l0 * a[2] + l1 * b[2] + l2 * c[2];
+  };
+  for (const { brick, mesh } of rasterised) {
+    const tris = mesh.triangles.map(t => [local(brick, t.a), local(brick, t.b), local(brick, t.c)] as [Vec3, Vec3, Vec3]);
+    const box = worldBounds(brick, mesh);
+    const x0 = Math.max(0, gx(box.min[0])), x1 = Math.min(sx - 1, gx(box.max[0]));
+    const z0 = Math.max(0, gz(box.min[2])), z1 = Math.min(sz - 1, gz(box.max[2]));
+    const y0 = Math.max(0, gy(box.max[1])), y1 = Math.min(sy - 1, gy(box.min[1]));
+    const hits: number[] = [];
+    /** Sorted, de-duplicated crossings paired into solid spans; cells whose centre lies in a span are marked by `markSpan`. */
+    const fill = (markSpan: (w0: number, w1: number) => void): void => {
+      hits.sort((p, q) => p - q);
+      let n = 0;
+      for (const h of hits) if (n === 0 || h - hits[n - 1]! > 1e-4) hits[n++] = h;
+      for (let k = 0; k + 1 < n; k += 2) markSpan(hits[k]!, hits[k + 1]!);
+      hits.length = 0;
+    };
+    // Rays along Y (LDraw down) through each (x, z) column.
+    for (let ix = x0; ix <= x1; ix++) for (let iz = z0; iz <= z1; iz++) {
+      const u = centreX(ix), v = centreZ(iz);
+      for (const [a, b, c] of tris) { const w = cross(u, v, [a[0], a[2], a[1]], [b[0], b[2], b[1]], [c[0], c[2], c[1]]); if (w !== null) hits.push(w); }
+      fill((w0, w1) => { for (let iy = Math.max(y0, Math.ceil((bottom - w1) / cellY - 0.5)); iy <= Math.min(y1, Math.floor((bottom - w0) / cellY - 0.5)); iy++) mark(ix, iy, iz); });
+    }
+    // Rays along X through each (y, z).
+    for (let iy = y0; iy <= y1; iy++) for (let iz = z0; iz <= z1; iz++) {
+      const u = centreY(iy), v = centreZ(iz);
+      for (const [a, b, c] of tris) { const w = cross(u, v, [a[1], a[2], a[0]], [b[1], b[2], b[0]], [c[1], c[2], c[0]]); if (w !== null) hits.push(w); }
+      fill((w0, w1) => { for (let ix = Math.max(x0, Math.ceil((w0 - ox) / cellXZ - 0.5)); ix <= Math.min(x1, Math.floor((w1 - ox) / cellXZ - 0.5)); ix++) mark(ix, iy, iz); });
+    }
+    // Rays along Z through each (x, y).
+    for (let ix = x0; ix <= x1; ix++) for (let iy = y0; iy <= y1; iy++) {
+      const u = centreX(ix), v = centreY(iy);
+      for (const [a, b, c] of tris) { const w = cross(u, v, [a[0], a[1], a[2]], [b[0], b[1], b[2]], [c[0], c[1], c[2]]); if (w !== null) hits.push(w); }
+      fill((w0, w1) => { for (let iz = Math.max(z0, Math.ceil((w0 - oz) / cellXZ - 0.5)); iz <= Math.min(z1, Math.floor((w1 - oz) / cellXZ - 0.5)); iz++) mark(ix, iy, iz); });
+    }
+  }
+  let solidCount = 0;
+  for (let i = sx * sz; i < solid.length; i++) solidCount += solid[i]!;
+
+  const isSolid = (x: number, y: number, z: number): boolean => solid[idx(x, y, z)] === 1;
+  /** Air cells from (x,y,z) upward until a solid; Infinity when the sky is reached. */
+  const headroom = (x: number, y: number, z: number): number => {
+    let h = 0;
+    for (let yy = y; yy < sy; yy++) { if (isSolid(x, yy, z)) return h; h++; }
+    return Infinity;
+  };
+  const minWidthCells = Math.max(1, Math.round(MIN_APERTURE_WIDTH_LDU / cellXZ));
+  const minHeightCells = Math.max(1, Math.round(MIN_APERTURE_HEIGHT_LDU / cellY));
+  const wallDepthCells = Math.max(2, Math.ceil(WALL_DEPTH_LDU / cellXZ));
+
+  // ── Apertures: floor-level air runs across a wall, walled both sides, with a lintel, open beyond both faces.
+  interface Run { y: number; d: number; w0: number; w1: number; h: number }
+  interface Aperture { y: number; w0: number; w1: number; d0: number; d1: number; throat: Run; minH: number }
+  const openings: SceneOpening[] = [];
+  for (const axis of ['x', 'z'] as const) {
+    const depthN = axis === 'x' ? sx : sz, widthN = axis === 'x' ? sz : sx;
+    const at = (d: number, y: number, w: number): boolean => axis === 'x' ? isSolid(d, y, w) : isSolid(w, y, d);
+    const head = (d: number, y: number, w: number): number => axis === 'x' ? headroom(d, y, w) : headroom(w, y, d);
+    const floorAir = (d: number, y: number, w: number): boolean => !at(d, y, w) && at(d, y - 1, w);
+    /** Length of the air run along the width axis through w at (d, y); Infinity when it reaches the grid edge. */
+    const runThrough = (d: number, y: number, w: number): number => {
+      let a = w, b = w;
+      while (a - 1 >= 0 && !at(d, y, a - 1)) a--;
+      while (b + 1 < widthN && !at(d, y, b + 1)) b++;
+      return a === 0 || b === widthN - 1 ? Infinity : b - a + 1;
+    };
+    /** From the throat, along `dir`: does the space open up (a room, the outside, a drop, the sky) within a wall's depth, unobstructed? */
+    const opensBeyond = (d: number, y: number, w: number, dir: 1 | -1, n: number): boolean => {
+      for (let k = 1; k <= wallDepthCells; k++) {
+        const dd = d + dir * k;
+        if (dd < 0 || dd >= depthN) return true;
+        if (at(dd, y, w)) return false;
+        if (!at(dd, y - 1, w)) return true;
+        if (runThrough(dd, y, w) >= 2 * n || head(dd, y, w) === Infinity) return true;
+      }
+      return false;
+    };
+    const runs: Run[] = [];
+    for (let y = 1; y < sy; y++) for (let d = 0; d < depthN; d++) {
+      for (let w = 0; w < widthN;) {
+        if (!floorAir(d, y, w)) { w++; continue; }
+        const w0 = w;
+        while (w < widthN && floorAir(d, y, w)) w++;
+        const w1 = w - 1;
+        if (w0 - 1 < 0 || w1 + 1 >= widthN || !at(d, y, w0 - 1) || !at(d, y, w1 + 1)) continue;
+        const n = w1 - w0 + 1;
+        if (n < minWidthCells) continue;
+        const wc = (w0 + w1) >> 1;
+        const h = head(d, y, wc);
+        if (!Number.isFinite(h) || h < minHeightCells) continue;
+        if (!opensBeyond(d, y, wc, 1, n) || !opensBeyond(d, y, wc, -1, n)) continue;
+        runs.push({ y, d, w0, w1, h });
+      }
+    }
+    // A wall several cells thick yields the same aperture once per cell of depth: merge
+    // depth-adjacent, overlapping runs and keep the narrowest run as the throat.
+    const apertures: Aperture[] = [];
+    runs.sort((p, q) => p.y - q.y || p.d - q.d || p.w0 - q.w0);
+    for (const r of runs) {
+      const width = r.w1 - r.w0 + 1;
+      const home = apertures.find(a => a.y === r.y && a.d1 === r.d - 1 && r.w0 <= a.w1 && r.w1 >= a.w0);
+      if (home) {
+        home.d1 = r.d;
+        home.w0 = Math.min(home.w0, r.w0); home.w1 = Math.max(home.w1, r.w1);
+        home.minH = Math.min(home.minH, r.h);
+        const throatWidth = home.throat.w1 - home.throat.w0 + 1;
+        if (width < throatWidth || (width === throatWidth && r.h < home.throat.h)) home.throat = r;
+      } else apertures.push({ y: r.y, w0: r.w0, w1: r.w1, d0: r.d, d1: r.d, throat: r, minH: r.h });
+    }
+    for (const a of apertures) {
+      const widthLdu = (a.throat.w1 - a.throat.w0 + 1) * cellXZ, heightLdu = a.minH * cellY;
+      if (widthLdu > MAX_APERTURE_ASPECT * heightLdu) continue;
+      const dc = (a.d0 + a.d1 + 1) / 2 * cellXZ, wc = (a.throat.w0 + a.throat.w1 + 1) / 2 * cellXZ;
+      const centreLdu: Vec3 = axis === 'x' ? [ox + dc, bottom - a.y * cellY, oz + wc] : [ox + wc, bottom - a.y * cellY, oz + dc];
+      openings.push({ source: 'aperture', axis, widthLdu, heightLdu, centreLdu, requiredScale: passageRequiredScale(widthLdu, heightLdu) });
+    }
+  }
+  // Semantic leaves are the doorway they hang in: drop the aperture measured
+  // through their frame. A leaf wider than it is tall (1×3×1 cupboard doors,
+  // the Titanic's 44 hull hatches) is a hatch, not a doorway: it counts as an
+  // opening like any aperture, never as door evidence.
+  const leafOpenings: SceneOpening[] = leaves.map(l => {
+    const widthLdu = l.alongAxis === 'x' ? l.max[0] - l.min[0] : l.max[2] - l.min[2];
+    const heightLdu = l.max[1] - l.min[1];
+    const centreLdu: Vec3 = [(l.min[0] + l.max[0]) / 2, l.max[1], (l.min[2] + l.max[2]) / 2];
+    return { source: heightLdu >= widthLdu ? 'door-leaf' : 'hatch-leaf', axis: l.alongAxis === 'x' ? 'z' : 'x', widthLdu, heightLdu, centreLdu, requiredScale: passageRequiredScale(widthLdu, heightLdu) };
+  });
+  const inLeaf = (o: SceneOpening): boolean => leaves.some(l =>
+    o.centreLdu[0] >= l.min[0] - cellXZ && o.centreLdu[0] <= l.max[0] + cellXZ &&
+    o.centreLdu[1] >= l.min[1] - cellY && o.centreLdu[1] <= l.max[1] + cellY &&
+    o.centreLdu[2] >= l.min[2] - cellXZ && o.centreLdu[2] <= l.max[2] + cellXZ);
+  const merged = [...leafOpenings, ...openings.filter(o => !inLeaf(o))].sort((p, q) => p.requiredScale - q.requiredScale);
+
+  // ── Headroom: the median floor-to-ceiling over interior floor cells (finite, at least a brick).
+  const hist = new Map<number, number>();
+  let floorCells = 0;
+  for (let y = 1; y < sy; y++) for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) {
+    if (isSolid(x, y, z) || !isSolid(x, y - 1, z)) continue;
+    const h = headroom(x, y, z);
+    if (!Number.isFinite(h) || h < minHeightCells) continue;
+    hist.set(h, (hist.get(h) ?? 0) + 1);
+    floorCells++;
+  }
+  let headroomLdu: number | null = null;
+  if (floorCells) {
+    let seen = 0;
+    for (const h of [...hist.keys()].sort((p, q) => p - q)) { seen += hist.get(h)!; if (seen * 2 >= floorCells) { headroomLdu = h * cellY; break; } }
+  }
+
+  // ── The reach walk, once per supported step: a breadth-first walk over the
+  // fine grid's standing cells from the outside ring. A cell is standable at a
+  // step when it is a floor with player headroom and a player-wide clear run
+  // through it along one horizontal axis (checked at foot, waist and head
+  // height); a move to a neighbouring standing cell may rise at most one jump.
+  const isFloor = (x: number, y: number, z: number): boolean => y >= 1 && !isSolid(x, y, z) && isSolid(x, y - 1, z);
+  let topFloorLdu: number | null = null;
+  for (let y = sy - 1; y >= 1 && topFloorLdu === null; y--) for (let z = 0; z < sz && topFloorLdu === null; z++) for (let x = 0; x < sx; x++) {
+    if (isFloor(x, y, z) && headroom(x, y, z) >= minHeightCells) { topFloorLdu = (y - 1) * cellY; break; }
+  }
+  const reach: SceneReach[] = [];
+  const visited = new Uint8Array(Math.ceil(solid.length / 8));
+  const airAt = (x: number, y: number, z: number): boolean => y >= sy || !isSolid(x, y, z);
+  for (const scale of ACCESS_SCALE_STEPS) {
+    const blockLdu = LDU_PER_BLOCK / scale;
+    const needCells = Math.ceil(PLAYER_HEIGHT_BLOCKS * blockLdu / cellY - 1e-9);
+    const wideCells = Math.ceil(PASSAGE_WIDTH_BLOCKS * blockLdu / cellXZ - 1e-9);
+    const jumpCells = JUMP_HEIGHT_BLOCKS * blockLdu / cellY;
+    const rows = (y: number): [number, number, number] => [y, y + (needCells >> 1), y + needCells - 1];
+    /** Contiguous cells through (x, z) along `axis` that are air at all three body rows, capped at `wideCells`. */
+    const clearRun = (x: number, y: number, z: number, axis: 'x' | 'z'): number => {
+      const [r0, r1, r2] = rows(y);
+      const open = (i: number): boolean => axis === 'x' ? (i >= 0 && i < sx && airAt(i, r0, z) && airAt(i, r1, z) && airAt(i, r2, z)) : (i >= 0 && i < sz && airAt(x, r0, i) && airAt(x, r1, i) && airAt(x, r2, i));
+      const at = axis === 'x' ? x : z;
+      let n = 1;
+      for (let i = at - 1; n < wideCells && open(i); i--) n++;
+      for (let i = at + 1; n < wideCells && open(i); i++) n++;
+      return n;
+    };
+    const standable = (x: number, y: number, z: number): boolean =>
+      isFloor(x, y, z) && headroom(x, y, z) >= needCells && (clearRun(x, y, z, 'x') >= wideCells || clearRun(x, y, z, 'z') >= wideCells);
+    visited.fill(0);
+    const queue: number[] = [];
+    const push = (x: number, y: number, z: number): void => {
+      const k = idx(x, y, z);
+      if (visited[k >> 3]! & (1 << (k & 7))) return;
+      visited[k >> 3]! |= 1 << (k & 7);
+      queue.push(k);
+    };
+    // The outside: the padding ring's ground (and any surface standing on it there).
+    for (let z = 0; z < sz; z++) for (let x = 0; x < sx; x++) {
+      if (x !== 0 && z !== 0 && x !== sx - 1 && z !== sz - 1) continue;
+      for (let y = 1; y < sy; y++) if (standable(x, y, z)) push(x, y, z);
+    }
+    let highest = 0;
+    for (let h = 0; h < queue.length; h++) {
+      const k = queue[h]!, x = k % sx, rest = (k - x) / sx, z = rest % sz, y = (rest - z) / sz;
+      if (y - 1 > highest) highest = y - 1;
+      for (const [nx, nz] of [[x + 1, z], [x - 1, z], [x, z + 1], [x, z - 1]] as const) {
+        if (nx < 0 || nz < 0 || nx >= sx || nz >= sz) continue;
+        // The neighbour column's floors within a jump up (or any drop): scan from the ceiling of this cell down.
+        const top = Math.min(sy - 1, y + Math.floor(jumpCells + 1e-9));
+        for (let ny = top; ny >= 1; ny--) if (standable(nx, ny, nz)) push(nx, ny, nz);
+      }
+    }
+    reach.push({ scale, reachedSurfaces: queue.length, highestReachedLdu: highest * cellY });
+  }
+  return { cell, grid: { x: sx, y: sy, z: sz, solid: solidCount }, openings: merged, headroomLdu, interiorFloorCells: floorCells, topFloorLdu, reach };
+}
+
+/**
+ * Which doorway the recommendation is measured on. Semantic leaves are all
+ * real doorways, so their MEDIAN speaks for the set. Apertures include every
+ * gap the geometry happens to form (between a chair and a wall, under a
+ * shelf), which are small; the doorways proper are the larger ones, so the
+ * aperture at the 25th percentile of required scale (among the easiest
+ * quarter to pass) stands for them.
+ */
+const LEAF_PERCENTILE = 0.5;
+const APERTURE_PERCENTILE = 0.25;
+
+export interface AccessScaleRecommendation {
+  /** Recommended multiplier of the minifig scale (1, 1.5, 2, 3 or 4); absent when no step makes the model walkable. */
+  scale?: number;
+  /** The same step as the Brick Wand's size percentage (100…400). */
+  sizePct?: number;
+  /** What the recommendation was measured on. */
+  basis: 'door-leaves' | 'apertures' | 'none';
+  /** The representative doorway at 100 %, blocks, and how many of its kind clear the passage at the recommended step. */
+  doorway?: { widthBlocks: number; heightBlocks: number; requiredScale: number; count: number; passable: number };
+  /** Interior floor-to-ceiling at 100 %, blocks, and the first step that gives standing room (absent: none does). */
+  headroom?: { blocks: number; requiredScale: number; scale?: number };
+  /**
+   * How far UP the model the reach walk gets at the recommended step, as a
+   * fraction of the model's top floor (`topFloorLdu`), against the best any
+   * step manages. A doorway step that loses the upper floors hands the user a
+   * building they can enter and not climb - `reason` names that tension and
+   * the step that keeps the floors, instead of choosing silently.
+   */
+  climb?: { fraction: number; bestFraction: number; bestStep: number; climbableAtScale: boolean };
+  /** One sentence for the UI, with the measured numbers. */
+  reason: string;
+}
+
+const blocks1 = (ldu: number, scale = 1): string => (Math.round(ldu * scale / LDU_PER_BLOCK * 10) / 10).toFixed(1);
+/** A step must lose at least this much of the model's height against another step before the reason calls it a tension. */
+const CLIMB_LOSS_FRACTION = 0.25;
+const pctOf = (scale: number): string => `${Math.round(scale * 100)} %`;
+
+/** The smallest supported size at which a player can walk through the measured model, as data with its reason. */
+export function recommendAccessScale(m: SceneAccessMeasurement): AccessScaleRecommendation {
+  const leaves = m.openings.filter(o => o.source === 'door-leaf');
+  const pool = leaves.length ? leaves : m.openings;
+  const basis: AccessScaleRecommendation['basis'] = leaves.length ? 'door-leaves' : pool.length ? 'apertures' : 'none';
+  const need = `a player needs ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS}`;
+  const headroom = m.headroomLdu !== null ? (() => {
+    const requiredScale = PASSAGE_HEIGHT_BLOCKS * LDU_PER_BLOCK / m.headroomLdu!;
+    const scale = accessStepFor(requiredScale);
+    return { blocks: Number(blocks1(m.headroomLdu!)), requiredScale, ...(scale !== undefined ? { scale } : {}) };
+  })() : undefined;
+  /** The walk's verdict at `scale`: what fraction of the model's height it reaches, against the best step. */
+  const climbAt = (scale: number) => {
+    if (m.topFloorLdu === null || m.topFloorLdu <= 0 || !m.reach.length) return undefined;
+    const fractionAt = (s: number): number => Math.min(1, (m.reach.find(r => r.scale === s)?.highestReachedLdu ?? 0) / m.topFloorLdu!);
+    const best = m.reach.reduce((b, r) => fractionAt(r.scale) > fractionAt(b.scale) + 1e-9 ? r : b, m.reach[0]!);
+    const fraction = fractionAt(scale), bestFraction = fractionAt(best.scale);
+    return { fraction, bestFraction, bestStep: best.scale, climbableAtScale: fraction + CLIMB_LOSS_FRACTION >= bestFraction };
+  };
+  if (!pool.length) {
+    const reason = headroom
+      ? `No doorway found; interior floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %${headroom.scale ? ` (${pctOf(headroom.scale)} gives standing room)` : ''}, but nothing leads into them.`
+      : 'No doorway or interior floor found: a solid model with nothing to walk through at any size.';
+    return { basis, ...(headroom ? { headroom } : {}), reason };
+  }
+  // `pool` is sorted by ascending required scale: the percentile picks the representative doorway.
+  const pick = pool[Math.min(pool.length - 1, Math.floor((pool.length - 1) * (leaves.length ? LEAF_PERCENTILE : APERTURE_PERCENTILE)))]!;
+  const doorStep = accessStepFor(pick.requiredScale);
+  const kind = leaves.length ? 'Door leaves' : 'Wall openings';
+  const size = (o: SceneOpening, s = 1): string => `${blocks1(o.widthLdu, s)}×${blocks1(o.heightLdu, s)}`;
+  if (doorStep === undefined) {
+    const easiest = pool[0]!;
+    const top = ACCESS_SCALE_STEPS[ACCESS_SCALE_STEPS.length - 1]!;
+    return {
+      basis, doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable: 0 }, ...(headroom ? { headroom } : {}),
+      reason: `No size step makes the model walkable: its largest doorway is ${size(easiest)} blocks at 100 % and ${size(easiest, top)} at ${pctOf(top)} (${need}).`,
+    };
+  }
+  // Floors must clear standing headroom too, when a step can give it; a model
+  // whose rooms stay low at every step still gets its doorway step, said plainly.
+  const scale = headroom?.scale !== undefined ? Math.max(doorStep, headroom.scale) : doorStep;
+  const passable = pool.filter(o => o.requiredScale <= scale + 1e-9).length;
+  let reason = scale === 1
+    ? `${kind} are ${size(pick)} blocks at 100 %: a player walks through as exported (${passable}/${pool.length} clear the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage)`
+    : `${kind} are ${size(pick)} blocks at 100 %; ${pctOf(scale)} makes them ${size(pick, scale)} (${need}; ${passable}/${pool.length} clear it)`;
+  if (headroom) {
+    if (headroom.scale !== undefined && headroom.scale > doorStep) reason += `; floors are ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 %, so ${pctOf(scale)} is what gives standing room (${blocks1(m.headroomLdu!, scale)})`;
+    else if (headroom.scale === undefined) reason += `; floors are only ${blocks1(m.headroomLdu!)} blocks under the ceiling at 100 % and ${blocks1(m.headroomLdu!, scale)} at ${pctOf(scale)} - stooping room, not standing`;
+    else reason += `; floors are ${blocks1(m.headroomLdu!, scale)} blocks under the ceiling at ${pctOf(scale)}`;
+  }
+  // The floors must still be reachable at that size: a rise the player could
+  // jump at 100 % grows with the model while the player does not.
+  const climb = climbAt(scale);
+  const pctFloors = (f: number): string => `${Math.round(f * 100)} %`;
+  if (climb && !climb.climbableAtScale) {
+    const alt = climb.bestStep;
+    reason += `. But at ${pctOf(scale)} a player reaches only ${pctFloors(climb.fraction)} of the model's height (its top floor is ${blocks1(m.topFloorLdu!)} blocks up at 100 %), against ${pctFloors(climb.bestFraction)} at ${pctOf(alt)}: rises the player jumped at ${pctOf(alt)} are above the ${JUMP_HEIGHT_BLOCKS}-block jump at ${pctOf(scale)}`;
+    reason += `. ${pctOf(alt)} keeps the floors but leaves doorways at ${size(pick, alt)}${alt < doorStep ? ` - under the ${PASSAGE_WIDTH_BLOCKS}×${PASSAGE_HEIGHT_BLOCKS} passage` : ''}; the choice is between the doors and the stairs`;
+  } else if (climb && scale > 1 && climb.bestFraction > 0) {
+    reason += `; a player still reaches ${pctFloors(climb.fraction)} of the model's height at ${pctOf(scale)}`;
+  }
+  return {
+    scale, sizePct: Math.round(scale * 100), basis,
+    doorway: { widthBlocks: Number(blocks1(pick.widthLdu)), heightBlocks: Number(blocks1(pick.heightLdu)), requiredScale: pick.requiredScale, count: pool.length, passable },
+    ...(headroom ? { headroom } : {}),
+    ...(climb ? { climb } : {}),
+    reason: `${reason}.`,
+  };
 }
