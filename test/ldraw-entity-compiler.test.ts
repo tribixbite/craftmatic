@@ -448,7 +448,8 @@ describe('compileLdrawEntityGeometry', () => {
     expect(r.diagnostics.cubeCount).toBe(12);
     expect(r.diagnostics.studsOmitted).toBe(12);
     expect(r.warnings.some(w => /stud budget/.test(w))).toBe(true);
-    expect(r.diagnostics.prototypeCacheHits).toBe(11);
+    // One prototype for the twelve placements; the planning pass instances it too, so the hit count is at least the eleven repeats.
+    expect(r.diagnostics.prototypeCacheHits).toBeGreaterThanOrEqual(11);
   });
 
   // Bedrock frustum-culls an entity against the box its GEOMETRY declares, and
@@ -592,5 +593,54 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     // Everything that is hull or canopy stays; the hull's own underside IS the envelope, so no hull brick is claimed.
     expect(r.keptSourceIndices).toEqual(Array.from({ length: 21 }, (_, i) => i));
     expect(r.warnings.some(w => /2 placements hanging off the display stand below the hull/.test(w))).toBe(true);
+  });
+});
+
+describe('the cuboid budget is spent per part', () => {
+  // Twelve slopes (many cuboids at 2 LDU) beside a row of 1x1 bricks with exposed studs.
+  const model = (): ParsedBrick[] => {
+    const bricks: ParsedBrick[] = [];
+    for (let i = 0; i < 12; i++) bricks.push({ part: '3040b.dat', color: 4, x: i * 20, y: -24, z: 0 });
+    for (let i = 0; i < 12; i++) bricks.push({ part: '3005.dat', color: 1, x: i * 20, y: 0, z: 60 });
+    return bricks;
+  };
+
+  it('keeps every part at the requested grain, and says so, when the model fits', async () => {
+    const r = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality: { microcellLdu: 2, maxModelCubes: 100_000, maxPartCubes: 4096 } });
+    expect(r.diagnostics.modelCoarsened).toBe(0);
+    expect(r.diagnostics.grainPlan).toMatchObject({ requestedMicrocellLdu: 2, partsCoarsened: 0, fits: true, partsAtGrain: { '2': 2 } });
+    expect(r.diagnostics.cubesAtRequestedDetail).toBe(r.diagnostics.grainPlan.cuboids);
+    expect(r.warnings.some(w => /coarser than/.test(w))).toBe(false);
+    expect(r.diagnostics.heaviestParts.every(p => p.microcellLdu === 2)).toBe(true);
+  });
+
+  it('coarsens the parts that show least, keeps the studs their facets, and reports the plan', async () => {
+    // At 2 LDU the twelve slopes are 12 cuboids each (156 with the bricks) and the
+    // twelve studs reserve 48, so a 200 budget fits with the slopes at 4 LDU (6
+    // each) and a 120 budget needs 8 LDU (3 each). The plan counts prototype
+    // cuboids BEFORE the merge, which is why the emitted count lands well under.
+    const r = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality: { microcellLdu: 2, maxModelCubes: 200, maxPartCubes: 4096 } });
+    expect(r.diagnostics.cubeCount).toBeLessThanOrEqual(200);
+    expect(r.diagnostics.grainPlan).toMatchObject({ fits: true, budget: 152, cuboidsAtRequested: 156, cuboids: 84, partsCoarsened: 1, placementsCoarsened: 12, steps: 1 });
+    // The slope is what gets coarsened; the 1x1 brick is a box at every grain and stays put.
+    expect(r.diagnostics.modelCoarsened).toBe(1);
+    expect(r.diagnostics.heaviestParts.find(p => p.part === '3005')!.microcellLdu).toBe(2);
+    expect(r.diagnostics.heaviestParts.find(p => p.part === '3040b')!.microcellLdu).toBe(4);
+    const tighter = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality: { microcellLdu: 2, maxModelCubes: 120, maxPartCubes: 4096 } });
+    expect(tighter.diagnostics.heaviestParts.find(p => p.part === '3040b')!.microcellLdu).toBe(8);
+    expect(tighter.diagnostics.grainPlan).toMatchObject({ fits: true, cuboids: 48, steps: 2 });
+    expect(tighter.diagnostics.studFacets).toBe(4);
+    // The stud reserve came off the body budget first: the twelve studs keep all four facets.
+    expect(r.diagnostics.studFacets).toBe(4);
+    expect(r.diagnostics.studCubeCount).toBe(48);
+    expect(r.diagnostics.grainPlan.fidelity).toBeLessThanOrEqual(r.diagnostics.grainPlan.fidelityAtRequested);
+    expect(r.warnings.some(w => /12 placements of 1 part compiled coarser than 2 LDU/.test(w))).toBe(true);
+  });
+
+  it('says plainly when the budget cannot be met even at the coarsest cell', async () => {
+    const r = await compileLdrawEntityGeometry('t', 'car', model(), { partGeometry: provider(), facing: '+z', quality: { microcellLdu: 2, maxModelCubes: 20, maxPartCubes: 4096 } });
+    expect(r.diagnostics.grainPlan.fits).toBe(false);
+    expect(r.diagnostics.grainPlan.coarsestMicrocellLdu).toBe(8);
+    expect(r.warnings.some(w => /exceed the 20 budget even with every part at 8 LDU/.test(w))).toBe(true);
   });
 });

@@ -1809,3 +1809,109 @@ Vertical guide-only chains and isolated decorative moulds do not spawn carts.
 The tower transfer remains a TODO: the main course shuttles at its real ends,
 not a fabricated closed circuit. This mechanism also applies to other sets
 using supported moulds; unsupported track shapes remain explicit gaps.
+
+## Close-up fidelity: the budget is spent per part, where it shows (2026-09-21)
+
+The user's report was that the capacity work "tanked" the close-up. Measured,
+the four capacity commits did not touch 10303's close-up at all: its shell was
+13,872 cuboids at 8 LDU on 2026-09-18 11:13 (`output/addon-verify-2026-09-18/
+10303/10303.json`, before `348d9069`, `b662f354`, `ae982fac`, `d3a66020`) and
+13,936 at 8 LDU after all four. Box UV changed no colour (0 of 79,392 cubes),
+the cull removed 126 never-visible cuboids, the decomposition choice only
+changes counts. What the close-up had been since brick-accurate buildings
+shipped (`9c9f0809`, 09-16) was the `LEGO_SHELL_QUALITY` table itself:
+
+- `balanced` = **8 LDU with a 64-cuboid part cap**. The cap coarsens exactly
+  the detailed parts: 10303's track moulds 25061 / 26559 / 26560 / 80564 are
+  151 / 137 / 123 / 115 cuboids at 8 LDU, so they shipped at **16 LDU**
+  (41 / 40 / 37 / 37 cuboids), the coarsest thing in the set.
+- `high` asked for 4 LDU under a 32,768 cap; 10303 is 37-39k there, so the
+  whole model fell back to 8 LDU (`modelCoarsened: 1`) and `high` bought
+  4-facet studs and nothing else.
+- Whole-model coarsening doubled EVERY part's cell when the model was over
+  budget by any amount.
+
+### Fidelity versus grain, measured (10303, 298 moulds, 3,495 placements)
+
+Six-view silhouette IoU per part against its own triangles (the entity gate's
+measure, part-local), weighted by placements × silhouette area, with prototype
+cuboid sums before the cull and the merge (`scratchpad` scripts of the session;
+the per-part table is reproducible with `planPartGrains` + `silhouetteIoU`):
+
+| uniform grain | cuboids | area-weighted IoU | compile (all moulds) |
+|---|---:|---:|---:|
+| 8 LDU | 15,128 | 0.930 | 0.5 s |
+| 4 LDU | 50,863 | 0.949 | 1-5 s |
+| 2 LDU | 141,866 | 0.967 | 3.5-10 s |
+| 1 LDU | 315,738 | 0.977 | 68 s |
+
+The loss at 8 LDU is concentrated: the track moulds sit at 0.71-0.75 (0.82-0.86
+at 4, 0.90-0.92 at 2), Technic pins at 0.69, 2x2 round bricks at 0.92 at both 8
+and 4 (only 2 LDU rounds them). 1,860 of the placements are a single cuboid at
+any grain (plates, bricks, tiles) and cost nothing to keep fine.
+
+Two policies for fitting a budget, simulated on that table from a 2 LDU start
+(box parts never move; a step is the next cell with fewer cuboids):
+
+| body budget | uniform grain | largest spender first | least IoU loss per cuboid saved |
+|---:|---|---:|---:|
+| 48k | 4 LDU = 0.949 | 0.949 | **0.957**, track at 2-4 LDU |
+| 64k | | 0.956 | **0.960** |
+| 96k | | 0.962 | **0.964** |
+
+### What shipped
+
+- **`planPartGrains`** (`ldraw-part-prototype.ts`): every part starts at the
+  preset's microcell; while `placements × prototype cuboids` (plus unresolved
+  boxes) exceeds the budget, the one part whose next useful cell loses the
+  least `placements × silhouetteArea × ΔIoU` per cuboid saved is coarsened,
+  never past `PLANNER_COARSEST_LDU` = 8. The compiler
+  (`compileLdrawEntityGeometry`) reserves the studs' share first from a draft
+  instantiation, plans, instantiates, re-measures the exposed studs on the
+  planned model (the count FALLS as holes close: 10303 exposes 2,616 studs at
+  2 LDU and 1,302 after the plan) and re-plans with what they gave back, up
+  to three passes. Everything is in `diagnostics.grainPlan` (budget, cuboids
+  and fidelity before/after, parts and placements per cell) and one warning
+  names what was coarsened; `heaviestParts` carries each mould's cell.
+- **Silhouette scorer** (`silhouetteReference` / `silhouetteIoU`): the gate's
+  six views at ≤256 px, 1.5 px/LDU; boxes are rect-filled in the five axis
+  views and three faces in the isometric. ~0.4 s for all of 10303's moulds;
+  the 2 LDU compile itself (3.5-10 s, best-of) is the planner's cost.
+- **Presets retuned** so microcell and budget agree, against the device
+  limits (~480k resident cuboids; ~50k drawn for 60 fps, ~100k for 30):
+  shells `balanced` 2 LDU / 49,152, `high` 2 / 98,304, `ultra` 2 / 163,840;
+  vehicles `balanced` 2 / 24,576, `high` 2 / 49,152, `ultra` 1 / 98,304.
+  `maxPartCubes` is 4,096 everywhere: a guard, no longer the fidelity dial.
+  Figures still clamp to `high` (2 LDU, unchanged).
+
+### Measured result, 10303 (`scripts/_playable_ref.ts`, 2026-09-21)
+
+| preset | shell cuboids (studs) | pack | device share | plan fidelity | placements at 2 / 4 / 8 LDU | pipeline |
+|---|---:|---:|---:|---:|---|---:|
+| before (balanced, 8 LDU, cap 64) | 13,936 (3,450 @3 facets) | 16,904 | 3.5 % | 0.930 (offline) | 0 / 0 / 3,495 (track at 16) | 9 s |
+| **balanced** | 44,824 (5,208 @4) | 50,765 | 10.6 %, 9 packs | 0.918 of 0.938 at full 2 LDU (scorer scale) | 2,149 / 458 / 975 | 27-29 s |
+| high | 93,968 (5,984 @4) | 99,908 | 20.8 %, 4 packs | 0.934 of 0.938 | 2,726 / 364 / 492 | 39 s |
+| ultra | 151,663 (10,464 @4) | 157,654 | 32.8 %, 3 packs | 0.938 (nothing coarsened) | 3,582 / 0 / 0 | 28 s |
+
+At balanced the track moulds are at 2-4 LDU (25059, 26021 at 2; 25061, 26559,
+26560, 80564 at 4), Technic holes are open, and the 975 placements left at
+8 LDU are tiles, pins and 2x2 round bricks whose silhouette does not move
+between 4 and 8 (333 of them are a plain box at 8 anyway). The scorer's
+absolute IoU runs ~0.03 under the 512-px offline table (coarser pixels on the
+big moulds); the ordering is what the plan uses. 71043 (5,936 parts) fits
+balanced at 46.2k with fidelity 0.957 of 0.967 - but its 8,720 exposed studs
+fall to 1 facet under the 25 % stud cap (they were OMITTED before); a set that
+size wants `high`. Golden vehicles at balanced: X-wing 12,316, McLaren 6,231,
+DeLorean 41,600 (as a shell), all at 2 LDU with nothing coarsened.
+
+### Not verified here
+
+- No device run of the new packs. Meshes per entity rise (10303 balanced 63,
+  high 113, ultra 169 geometries against the 82 of the 71043 castle that ran);
+  the 480k resident ceiling was measured with box UV and holds, but a 150k
+  ultra set fully in view is a ~30 fps scene by the drawn-cuboid curve.
+- Compile time: the 2 LDU start costs 20-30 s per 3,800-part set in bun on
+  this box under contention; the web Worker will be slower. `ultra` is the
+  same grain and no slower than `balanced` (fewer planning passes).
+- The stud facet ladder (4 → 3 → 1) and the 25 % stud cap are unchanged;
+  a 2-facet step or a stud share tied to the plan would help 71043-class sets.

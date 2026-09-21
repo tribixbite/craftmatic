@@ -46,13 +46,35 @@ export const SHELL_FRAME: readonly number[] = [-1, 0, 0, 0, -1, 0, 0, 0, -1];
 /**
  * Cuboid budgets for a building shell - a whole building is many times a
  * vehicle. Bricks are single boxes at any grain, so the grain only decides
- * slopes and curves: balanced starts at 8 LDU (a plate is 8) and the
- * compiler coarsens further when the count still exceeds the budget.
+ * slopes, curves and holes.
+ *
+ * `microcellLdu` is where every part STARTS; `maxModelCubes` is what the
+ * entity must fit, and the compiler's per-part planner (`planPartGrains`)
+ * coarsens individual parts, least visible loss per cuboid first, until it
+ * does. Retuned 2026-09-21 from a table that had `balanced` at 8 LDU with a
+ * 64-cuboid part cap: on 10303 (3,808 parts) that shipped 13.9k cuboids at an
+ * area-weighted six-view silhouette IoU of 0.930, with the four coaster track
+ * moulds - the set's whole point - pushed to 16 LDU by the part cap; `high`
+ * asked for 4 LDU but its 32,768 cap sent the whole model back to 8. Measured
+ * on the same set: uniform 4 LDU is 50.9k cuboids / 0.949, uniform 2 LDU
+ * 142k / 0.967, 1 LDU 316k / 0.977 (and 68 s of compile). The device limits
+ * (guide): ~480k resident cuboids over every active pack, ~50k DRAWN for
+ * 60 fps, ~100k for 30. So:
+ *
+ *   balanced  48k total: one set fully in view stays at 60 fps, 10 % of the
+ *             device; 10303 plans to IoU 0.957 with its track at 2-4 LDU.
+ *   high      96k: a 30 fps scene when the whole set is near, 20 %.
+ *   ultra    160k: everything at 2 LDU for a set this size (10303 is 157k),
+ *             a third of the device. 1 LDU is not offered for a shell: 2.2x
+ *             the cuboids again for +0.010 IoU, and a minute of compile.
+ *
+ * `maxPartCubes` is only a guard against a pathological mould now; the
+ * planner, not the cap, decides what a detailed part may cost.
  */
 export const LEGO_SHELL_QUALITY: Record<'balanced' | 'high' | 'ultra', LegoEntityQuality> = {
-  balanced: { maxModelCubes: 16384, maxPartCubes: 64, microcellLdu: 8, meshChunkCubes: 1024, maxStudCubes: 4096, studFacets: 4 },
-  high: { maxModelCubes: 32768, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 8192, studFacets: 4 },
-  ultra: { maxModelCubes: 65536, maxPartCubes: 256, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 16384, studFacets: 4 },
+  balanced: { maxModelCubes: 49152, maxPartCubes: 4096, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 12288, studFacets: 4 },
+  high: { maxModelCubes: 98304, maxPartCubes: 4096, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 16384, studFacets: 4 },
+  ultra: { maxModelCubes: 163840, maxPartCubes: 4096, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 24576, studFacets: 4 },
 };
 
 /** Blocks that stay VISIBLE under the shell: what the scene made live, and light sources. */

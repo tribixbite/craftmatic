@@ -48,18 +48,26 @@ export interface LegoEntityQuality {
 }
 
 /**
- * Craftmatic policy defaults, NOT Bedrock engine limits. Tuned 2026-09-14
- * against a Pixel 8 Pro (Bedrock 1.26.45): the previous greedy path shipped
- * 6,823 cuboids for the Batmobile and it rendered fine there, and at a
- * 6,144 balanced budget the 340-part X-wing keeps its 4 LDU grain (4,681
- * cuboids) and the 1,906-part DeLorean lands at 8 LDU (5,401) — both above the
- * 0.95 six-view silhouette gate, where the spec's 4,096 pushed them to 8 and 16
- * LDU and the X-wing under the gate (TASKS-BEDROCK-ADDON.md §6).
+ * Craftmatic policy defaults for VEHICLES, figures and props, NOT Bedrock
+ * engine limits (building shells have their own table,
+ * `LEGO_SHELL_QUALITY` in bedrock-building-shell.ts).
+ *
+ * `microcellLdu` is the grain every part STARTS at; `maxModelCubes` is the
+ * budget the entity must fit, and `planPartGrains` coarsens individual parts
+ * — least visible loss per cuboid saved first — until it does. So the two
+ * numbers no longer contradict each other the way the 2026-09-14 table did:
+ * there `balanced` asked for 4 LDU under a 6,144 cap, and a 1,906-part
+ * DeLorean fell to 8 LDU for EVERY part (5,401 cuboids), the same uniform
+ * fall that put a 3,808-part coaster's hero track at 16 LDU. The budgets are
+ * sized against the device (2026-09-21): ~480,000 resident cuboids across all
+ * active packs and, separately, ~50k DRAWN cuboids for 60 fps / ~100k for 30
+ * (`docs/bedrock-addon-guide.md`). A vehicle is always in view when ridden and
+ * usually shares the pack with scenery, so `balanced` is a 5 % share.
  */
 export const LEGO_ENTITY_QUALITY = {
-  balanced: { maxModelCubes: 6144, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1536, studFacets: 4 },
-  high: { maxModelCubes: 12288, maxPartCubes: 256, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 3072, studFacets: 4 },
-  ultra: { maxModelCubes: 24576, maxPartCubes: 512, microcellLdu: 1, meshChunkCubes: 1024, maxStudCubes: 6144, studFacets: 4 },
+  balanced: { maxModelCubes: 24576, maxPartCubes: 4096, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 6144, studFacets: 4 },
+  high: { maxModelCubes: 49152, maxPartCubes: 4096, microcellLdu: 2, meshChunkCubes: 1024, maxStudCubes: 12288, studFacets: 4 },
+  ultra: { maxModelCubes: 98304, maxPartCubes: 4096, microcellLdu: 1, meshChunkCubes: 1024, maxStudCubes: 16384, studFacets: 4 },
 } as const satisfies Record<string, LegoEntityQuality>;
 
 export type LegoEntityQualityName = keyof typeof LEGO_ENTITY_QUALITY;
@@ -93,10 +101,12 @@ export function resolveEntityQuality(quality?: LegoEntityQualityName | Partial<L
  * `balanced`, and 260,000 over either is the SAME 5 packs; 76286 is 13 packs
  * either way. `balanced` would give up 0.03 IoU per figure and buy no extra
  * pack. Drop to `balanced` only if a measurement shows a pack count actually
- * turning on it.
+ * turning on it. (Since 2026-09-21 `balanced` and `high` both start at 2 LDU
+ * and differ in budget, which a ~10-part figure never reaches, so the clamp
+ * changes a figure only when the pack is `ultra`.)
  *
- * Field-by-field rather than "replace with balanced" so a caller that asked
- * for something COARSER than balanced keeps it.
+ * Field-by-field rather than "replace with high" so a caller that asked for
+ * something COARSER than high keeps it.
  */
 export function clampFigureQuality(quality: LegoEntityQuality): LegoEntityQuality {
   const b = LEGO_ENTITY_QUALITY.high;
@@ -593,3 +603,333 @@ export function createPrototypeCache(): PrototypeCache {
     get hits() { return hits; },
   };
 }
+
+// ─── Silhouette fidelity ──────────────────────────────────────────────────────
+
+/**
+ * The six orthographic views of the entity silhouette gate
+ * (`scripts/_entity_silhouette.ts`): front, back, left, right, top and an
+ * isometric. Each is a row-major 3x3 taking part-local LDU to (screen x,
+ * screen y, depth).
+ */
+const SILHOUETTE_VIEWS: readonly number[][] = (() => {
+  const s = Math.SQRT1_2;
+  const yaw = [s, 0, s, 0, 1, 0, -s, 0, s];
+  const p = Math.atan(Math.SQRT1_2), cp = Math.cos(p), sp = Math.sin(p);
+  const pitch = [1, 0, 0, 0, cp, -sp, 0, sp, cp];
+  const iso = [0, 1, 2].flatMap(i => [0, 1, 2].map(j => pitch[i * 3]! * yaw[j]! + pitch[i * 3 + 1]! * yaw[3 + j]! + pitch[i * 3 + 2]! * yaw[6 + j]!));
+  return [
+    [1, 0, 0, 0, 1, 0, 0, 0, 1], [-1, 0, 0, 0, 1, 0, 0, 0, -1],
+    [0, 0, 1, 0, 1, 0, -1, 0, 0], [0, 0, -1, 0, 1, 0, 1, 0, 0],
+    [1, 0, 0, 0, 0, 1, 0, -1, 0], iso,
+  ];
+})();
+
+/** Longest bitmap side the silhouette scorer uses; bigger parts get fewer pixels per LDU. */
+const SILHOUETTE_MAX_PX = 256;
+/** Pixels per LDU the scorer asks for (a 2 LDU grain step is then 3 px), until `SILHOUETTE_MAX_PX` caps it. */
+const SILHOUETTE_PX_PER_LDU = 1.5;
+const SILHOUETTE_MIN_PX = 48;
+
+/**
+ * A part's own six-view silhouette, rasterised once so every candidate
+ * prototype can be scored against it. `areaLdu2` is the mean silhouette area
+ * over the six views, the weight a part's fidelity carries in a model.
+ */
+export interface SilhouetteReference {
+  px: number;
+  pxPerLdu: number;
+  centre: Vec3;
+  bitmaps: Uint8Array[];
+  /** Silhouette pixels per view (mean over the six). */
+  areaPx: number;
+  areaLdu2: number;
+}
+
+type Tri3 = readonly [Vec3, Vec3, Vec3];
+
+const applyM = (m: number[], v: Vec3): Vec3 => [
+  m[0]! * v[0] + m[1]! * v[1] + m[2]! * v[2], m[3]! * v[0] + m[4]! * v[1] + m[5]! * v[2], m[6]! * v[0] + m[7]! * v[1] + m[8]! * v[2],
+];
+
+/** Scan-line rasterise triangles into a px x px bitmap through one view; no depth, silhouette only. */
+function rasterizeSilhouette(tris: Iterable<Tri3>, view: number[], centre: Vec3, pxPerLdu: number, px: number, into: Uint8Array): void {
+  const half = px / 2;
+  for (const [a, b, c] of tris) {
+    const pa = applyM(view, [a[0] - centre[0], a[1] - centre[1], a[2] - centre[2]]);
+    const pb = applyM(view, [b[0] - centre[0], b[1] - centre[1], b[2] - centre[2]]);
+    const pc = applyM(view, [c[0] - centre[0], c[1] - centre[1], c[2] - centre[2]]);
+    const x0 = half + pa[0] * pxPerLdu, y0 = half - pa[1] * pxPerLdu;
+    const x1 = half + pb[0] * pxPerLdu, y1 = half - pb[1] * pxPerLdu;
+    const x2 = half + pc[0] * pxPerLdu, y2 = half - pc[1] * pxPerLdu;
+    const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
+    if (Math.abs(area) < 1e-9) continue;
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2))), maxY = Math.min(px - 1, Math.ceil(Math.max(y0, y1, y2)));
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2))), maxX = Math.min(px - 1, Math.ceil(Math.max(x0, x1, x2)));
+    for (let y = minY; y <= maxY; y++) {
+      const py = y + 0.5;
+      for (let x = minX; x <= maxX; x++) {
+        const pxc = x + 0.5;
+        const w0 = ((x1 - pxc) * (y2 - py) - (x2 - pxc) * (y1 - py)) / area;
+        const w1 = ((x2 - pxc) * (y0 - py) - (x0 - pxc) * (y2 - py)) / area;
+        const w2 = 1 - w0 - w1;
+        if (w0 >= -1e-6 && w1 >= -1e-6 && w2 >= -1e-6) into[y * px + x] = 1;
+      }
+    }
+  }
+}
+
+/**
+ * A box's silhouette in one view: the three faces that face the camera (one
+ * per axis, chosen by the sign of the view's depth row) already cover the
+ * projection, so six triangles are rasterised, not twelve. The three facing
+ * away would do equally; a MIX of the two sets would not.
+ */
+function* boxSilhouetteTriangles(min: Vec3, max: Vec3, view: number[]): Generator<Tri3> {
+  const pick = (axis: number, lo: number, hi: number): number => (view[6 + axis]! >= 0 ? hi : lo);
+  const x = pick(0, min[0], max[0]), y = pick(1, min[1], max[1]), z = pick(2, min[2], max[2]);
+  // The x face at `x` spans y and z; likewise for the other two.
+  yield [[x, min[1], min[2]], [x, max[1], min[2]], [x, max[1], max[2]]];
+  yield [[x, min[1], min[2]], [x, max[1], max[2]], [x, min[1], max[2]]];
+  yield [[min[0], y, min[2]], [max[0], y, min[2]], [max[0], y, max[2]]];
+  yield [[min[0], y, min[2]], [max[0], y, max[2]], [min[0], y, max[2]]];
+  yield [[min[0], min[1], z], [max[0], min[1], z], [max[0], max[1], z]];
+  yield [[min[0], min[1], z], [max[0], max[1], z], [min[0], max[1], z]];
+}
+
+/** True for a view whose rows are signed axes: a box projects to an axis-aligned rectangle in it. */
+const isAxisView = (view: number[]): boolean => view.every(v => v === 0 || v === 1 || v === -1);
+
+/**
+ * Fill the rectangle a box projects to in an axis view (its corners' projected
+ * extents), with the SAME coverage rule as `rasterizeSilhouette`: a pixel is
+ * in when its centre is inside the rectangle, edges inclusive - so a box part
+ * scores exactly 1 against its own triangles.
+ */
+function fillBoxRect(min: Vec3, max: Vec3, view: number[], centre: Vec3, pxPerLdu: number, px: number, into: Uint8Array): void {
+  const half = px / 2, eps = 1e-6;
+  const lo = applyM(view, [min[0] - centre[0], min[1] - centre[1], min[2] - centre[2]]);
+  const hi = applyM(view, [max[0] - centre[0], max[1] - centre[1], max[2] - centre[2]]);
+  const xa = half + Math.min(lo[0], hi[0]) * pxPerLdu, xb = half + Math.max(lo[0], hi[0]) * pxPerLdu;
+  const ya = half - Math.max(lo[1], hi[1]) * pxPerLdu, yb = half - Math.min(lo[1], hi[1]) * pxPerLdu;
+  const x0 = Math.max(0, Math.ceil(xa - 0.5 - eps)), x1 = Math.min(px - 1, Math.floor(xb - 0.5 + eps));
+  const y0 = Math.max(0, Math.ceil(ya - 0.5 - eps)), y1 = Math.min(px - 1, Math.floor(yb - 0.5 + eps));
+  if (x1 < x0) return;
+  for (let y = y0; y <= y1; y++) into.fill(1, y * px + x0, y * px + x1 + 1);
+}
+
+/** Rasterise a part's triangles from the six views, once. Studs are excluded on both sides of the comparison. */
+export function silhouetteReference(mesh: LdrawPartMesh): SilhouetteReference {
+  const { min, max } = mesh.bounds;
+  const centre: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+  const radius = Math.hypot(max[0] - min[0], max[1] - min[1], max[2] - min[2]) / 2 || 1;
+  const px = Math.max(SILHOUETTE_MIN_PX, Math.min(SILHOUETTE_MAX_PX, Math.ceil(radius * 2 * SILHOUETTE_PX_PER_LDU)));
+  const pxPerLdu = (px / 2) / radius;
+  const tris: Tri3[] = mesh.triangles.map(t => [t.a, t.b, t.c] as const);
+  let areaPx = 0;
+  const bitmaps = SILHOUETTE_VIEWS.map(view => {
+    const bmp = new Uint8Array(px * px);
+    rasterizeSilhouette(tris, view, centre, pxPerLdu, px, bmp);
+    for (let i = 0; i < bmp.length; i++) areaPx += bmp[i]!;
+    return bmp;
+  });
+  areaPx /= SILHOUETTE_VIEWS.length;
+  return { px, pxPerLdu, centre, bitmaps, areaPx, areaLdu2: areaPx / (pxPerLdu * pxPerLdu) };
+}
+
+/**
+ * Mean six-view silhouette intersection-over-union of a cuboid set against
+ * the part's reference silhouette: 1 for a box part's own box, lower the more
+ * a grain rounds off a curve or fills a hole. The same measure the entity
+ * silhouette gate reports, taken per part in part-local space.
+ */
+export function silhouetteIoU(ref: SilhouetteReference, cuboids: readonly PartCuboid[]): number {
+  if (!cuboids.length) return ref.areaPx ? 0 : 1;
+  let sum = 0;
+  const scratch = new Uint8Array(ref.px * ref.px);
+  for (let v = 0; v < SILHOUETTE_VIEWS.length; v++) {
+    scratch.fill(0);
+    const view = SILHOUETTE_VIEWS[v]!;
+    if (isAxisView(view)) for (const c of cuboids) fillBoxRect(c.min, c.max, view, ref.centre, ref.pxPerLdu, ref.px, scratch);
+    else for (const c of cuboids) rasterizeSilhouette(boxSilhouetteTriangles(c.min, c.max, view), view, ref.centre, ref.pxPerLdu, ref.px, scratch);
+    const s = ref.bitmaps[v]!;
+    let inter = 0, union = 0;
+    for (let i = 0; i < s.length; i++) { if (s[i]! && scratch[i]!) inter++; if (s[i]! || scratch[i]!) union++; }
+    sum += union ? inter / union : 1;
+  }
+  return sum / SILHOUETTE_VIEWS.length;
+}
+
+// ─── Per-part grain planning ──────────────────────────────────────────────────
+
+/** One unique part (by id and hollowness) the model places, with how often. */
+export interface GrainPlanPart {
+  /** Cache key the caller instances by, e.g. `${partId}|${hollow}`. */
+  key: string;
+  mesh: LdrawPartMesh;
+  placements: number;
+  hollow: boolean;
+}
+
+export interface GrainPlanOptions {
+  decomposition: PartDecomposition;
+  /** Cuboids the plan must fit, INCLUDING `fixedCuboids`. */
+  budget: number;
+  /** Cuboids the plan cannot change (unresolved parts drawn as dims-table boxes). */
+  fixedCuboids?: number;
+}
+
+/**
+ * The coarsest cell the planner will push any part to: a plate's height. The
+ * old uniform coarsening could take a whole model to 32 or 64 LDU, and the
+ * old 64-cuboid part cap put 10303's track moulds at 16; past 8 LDU a curved
+ * or holed part is its bounding box in all but name, so a model that still
+ * does not fit at 8 LDU is reported as over budget instead.
+ */
+export const PLANNER_COARSEST_LDU = 8;
+
+/** What `planPartGrains` decided, for the compile diagnostics. */
+export interface GrainPlanSummary {
+  requestedMicrocellLdu: number;
+  /** The coarsest cell a part may be pushed to: up to three doublings, never past `PLANNER_COARSEST_LDU` (unless the request itself is coarser). */
+  coarsestMicrocellLdu: number;
+  budget: number;
+  fixedCuboids: number;
+  /** Placements x prototype cuboids at the requested grain, before the cull and the merge. */
+  cuboidsAtRequested: number;
+  /** The same sum after the plan. */
+  cuboids: number;
+  /** Six-view silhouette IoU, weighted by placements x silhouette area, at the requested grain. */
+  fidelityAtRequested: number;
+  fidelity: number;
+  partsCoarsened: number;
+  placementsCoarsened: number;
+  /** Unique parts per microcell, e.g. `{ "2": 185, "4": 86, "8": 27 }`. */
+  partsAtGrain: Record<string, number>;
+  placementsAtGrain: Record<string, number>;
+  /** False when every part is at the coarsest cell and the sum is still over budget. */
+  fits: boolean;
+  /** Coarsening steps taken. */
+  steps: number;
+}
+
+export interface GrainPlan {
+  /** Microcell per part key. */
+  grains: Map<string, number>;
+  summary: GrainPlanSummary;
+}
+
+/**
+ * Choose a microcell PER PART so the model fits `budget` cuboids, spending the
+ * budget where it shows.
+ *
+ * Every part starts at the requested grain. While the sum of placements x
+ * prototype cuboids is over budget, one part is coarsened one useful step
+ * (the next cell at which its prototype actually has fewer cuboids, up to
+ * three doublings), and the part chosen is the one whose step loses the least
+ * VISIBLE fidelity per cuboid saved:
+ *
+ *     loss = placements x silhouetteArea x (IoU before - IoU after)
+ *     save = placements x (cuboids before - cuboids after)
+ *
+ * with the six-view silhouette IoU of `silhouetteIoU`. Box parts never move
+ * (one cuboid at any grain, nothing to save); a many-placement round brick
+ * whose IoU barely changes between 4 and 8 LDU goes early; a rare, large,
+ * curved hero part (a coaster's track) goes last.
+ *
+ * Measured on 10303 (3,495 placements, 298 moulds, 2026-09-21): uniform grains
+ * give area-weighted IoU 0.930 at 8 LDU (15.1k cuboids), 0.949 at 4 (50.9k),
+ * 0.967 at 2 (142k); this plan from a 2 LDU start reaches 0.957 at a 48k
+ * budget - above uniform 4 LDU for fewer cuboids, with the track at 2-4 LDU -
+ * where the uniform whole-model coarsening it replaces would have dropped
+ * EVERY part to 4 LDU, and coarsening by the largest spender first (no
+ * fidelity term) manages 0.949.
+ *
+ * Deterministic: ties go to the lexically smaller key. The prototypes it
+ * compiles stay in `cache`, so instancing them afterwards costs nothing more.
+ */
+export function planPartGrains(parts: readonly GrainPlanPart[], quality: LegoEntityQuality, cache: PrototypeCache, options: GrainPlanOptions): GrainPlan {
+  const requested = quality.microcellLdu;
+  const ladder = Array.from({ length: MAX_COARSENING + 1 }, (_, i) => requested * 2 ** i)
+    .filter((cell, i) => i === 0 || cell <= Math.max(requested, PLANNER_COARSEST_LDU));
+  const fixed = options.fixedCuboids ?? 0;
+
+  interface State {
+    part: GrainPlanPart;
+    ref: SilhouetteReference | null;
+    /** Index into `ladder`. */
+    level: number;
+    /** Memoised (cuboids, IoU) per ladder level. */
+    at: Array<{ cuboids: number; iou: number } | undefined>;
+  }
+  const states: State[] = parts.map(part => ({ part, ref: null, level: 0, at: [] }));
+  const measure = (s: State, level: number): { cuboids: number; iou: number } => {
+    const memo = s.at[level];
+    if (memo) return memo;
+    const proto = cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[level]! }, { hollow: s.part.hollow, decomposition: options.decomposition });
+    // A box part's silhouette is its own box: exact at every grain, no raster needed.
+    let iou = 1;
+    if (proto.source !== 'exact-box' && proto.source !== 'empty') {
+      s.ref ??= silhouetteReference(s.part.mesh);
+      iou = silhouetteIoU(s.ref, proto.cuboids);
+    }
+    const m = { cuboids: proto.cuboids.length, iou };
+    s.at[level] = m;
+    return m;
+  };
+  const weight = (s: State): number => s.part.placements * (s.ref?.areaLdu2 ?? 0);
+
+  let total = fixed;
+  for (const s of states) total += s.part.placements * measure(s, 0).cuboids;
+  const cuboidsAtRequested = total;
+  const fidelityOf = (): number => {
+    let num = 0, den = 0;
+    for (const s of states) { const w = weight(s); num += w * measure(s, s.level).iou; den += w; }
+    return den ? num / den : 1;
+  };
+  const fidelityAtRequested = fidelityOf();
+
+  let steps = 0;
+  while (total > options.budget) {
+    let best: { s: State; level: number; priority: number } | null = null;
+    for (const s of states) {
+      const cur = measure(s, s.level);
+      // The next coarser level that actually saves cuboids; a level that saves
+      // nothing is skipped over rather than paid for.
+      for (let level = s.level + 1; level < ladder.length; level++) {
+        const next = measure(s, level);
+        const save = s.part.placements * (cur.cuboids - next.cuboids);
+        if (save <= 0) continue;
+        const loss = weight(s) * Math.max(0, cur.iou - next.iou);
+        const priority = loss / save;
+        if (!best || priority < best.priority || (priority === best.priority && s.part.key < best.s.part.key)) best = { s, level, priority };
+        break;
+      }
+    }
+    if (!best) break;
+    total -= best.s.part.placements * (measure(best.s, best.s.level).cuboids - measure(best.s, best.level).cuboids);
+    best.s.level = best.level;
+    steps++;
+  }
+
+  const grains = new Map<string, number>();
+  const partsAtGrain: Record<string, number> = {}, placementsAtGrain: Record<string, number> = {};
+  let partsCoarsened = 0, placementsCoarsened = 0;
+  for (const s of states) {
+    const cell = ladder[s.level]!;
+    grains.set(s.part.key, cell);
+    partsAtGrain[cell] = (partsAtGrain[cell] ?? 0) + 1;
+    placementsAtGrain[cell] = (placementsAtGrain[cell] ?? 0) + s.part.placements;
+    if (s.level > 0) { partsCoarsened++; placementsCoarsened += s.part.placements; }
+  }
+  return {
+    grains,
+    summary: {
+      requestedMicrocellLdu: requested, coarsestMicrocellLdu: ladder[ladder.length - 1]!, budget: options.budget, fixedCuboids: fixed,
+      cuboidsAtRequested, cuboids: total, fidelityAtRequested: round4(fidelityAtRequested), fidelity: round4(fidelityOf()),
+      partsCoarsened, placementsCoarsened, partsAtGrain, placementsAtGrain, fits: total <= options.budget, steps,
+    },
+  };
+}
+
+const round4 = (v: number): number => Math.round(v * 10000) / 10000;

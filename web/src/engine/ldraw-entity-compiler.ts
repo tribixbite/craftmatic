@@ -38,8 +38,8 @@ export type EntityKind = PlayableKind | 'figure' | 'prop';
 import { getPartDims } from './ldraw-part-dims.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type LdrawStud, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import {
-  clampFigureQuality, createPrototypeCache, resolveEntityQuality,
-  type CompiledPartPrototype, type LegoEntityQuality, type LegoEntityQualityName, type PartCuboid,
+  clampFigureQuality, createPrototypeCache, planPartGrains, resolveEntityQuality,
+  type CompiledPartPrototype, type GrainPlanPart, type GrainPlanSummary, type LegoEntityQuality, type LegoEntityQualityName, type PartCuboid,
   type PartDecomposition,
 } from './ldraw-part-prototype.js';
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
@@ -309,10 +309,21 @@ export interface LegoGeometryDiagnostics {
   printFallbackParts: string[];
   /** Parts skipped as buried Technic internals. */
   skippedInternalCount: number;
-  /** How many times the whole model was coarsened to meet `maxModelCubes`. */
+  /**
+   * Unique parts compiled coarser than the requested microcell to meet
+   * `maxModelCubes` (until 2026-09-21 this counted whole-model doublings; the
+   * budget is now spent per part - see `grainPlan`).
+   */
   modelCoarsened: number;
-  /** Body cuboid count at the requested microcell, before any coarsening. */
+  /** Placements × prototype cuboids at the requested microcell, before the cull and the merge. */
   cubesAtRequestedDetail: number;
+  /**
+   * How the cuboid budget was spent across the model's parts
+   * (`planPartGrains`): the grain every part started at, how many parts and
+   * placements ended at each cell, and the area-weighted six-view silhouette
+   * fidelity before and after.
+   */
+  grainPlan: GrainPlanSummary;
   quality: LegoEntityQuality;
   pbr: boolean;
   /** Library names served by the alias ladder (a sibling mould / unprinted base stood in). */
@@ -371,7 +382,7 @@ export interface LegoGeometryDiagnostics {
   /** Body cuboids absorbed by a same-colour face-adjacent neighbour (`mergeAlignedCuboids`, lossless). */
   mergedCubes: number;
   /** The parts that cost the most cuboids in total (prototype cuboids × placements), heaviest first. */
-  heaviestParts: Array<{ part: string; placements: number; cubesEach: number; cubes: number }>;
+  heaviestParts: Array<{ part: string; placements: number; cubesEach: number; microcellLdu: number; cubes: number }>;
   /** Which LDraw end became the nose, with every vote that decided it (`vehicle-facing.ts`). */
   facing: FacingDecision;
 }
@@ -1521,8 +1532,12 @@ export async function compileLdrawEntityGeometry(
   }
 
   // 4. Instantiate prototypes into the render frame (body cuboids first, studs after exposure).
-  const compileAt = (quality: LegoEntityQuality) => {
-    const cache = createPrototypeCache();
+  //    Prototypes are compiled once per (part, grain, hollowness) and shared by
+  //    the planning pass and the final pass through this one cache.
+  const cache = createPrototypeCache();
+  const quality: LegoEntityQuality = { ...baseQuality };
+  const protoKey = (mesh: LdrawPartMesh, hollow: boolean): string => `${mesh.partId}|${mesh.resolvedAs}|${hollow ? 'h' : 's'}`;
+  const instantiate = (grainOf: (key: string) => number, cullAndMerge: boolean) => {
     const renderCuboids: RenderCuboid[] = [];
     const worldBoxes: WorldBox[] = [];
     const studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string }> = [];
@@ -1530,7 +1545,7 @@ export async function compileLdrawEntityGeometry(
     bones.set('body', { pivot: [0, 0, 0] });
     for (const b of options.rig?.bones ?? []) bones.set(b.name, { pivot: apply(A, b.pivotLdu), ...(b.parent ? { parent: b.parent } : {}) });
     const aabbFallback = new Map<string, { count: number; reason: string }>();
-    const perPart = new Map<string, { placements: number; cubesEach: number }>();
+    const perPart = new Map<string, { placements: number; cubesEach: number; microcellLdu: number }>();
     let rotatedBoneCount = 0;
     let unresolvedCount = 0;
 
@@ -1572,7 +1587,8 @@ export async function compileLdrawEntityGeometry(
         entry.count++;
         aabbFallback.set(proto.partId, entry);
       } else {
-        proto = cache.get(mesh, quality, { hollow: material.alpha < 1, decomposition });
+        const hollow = material.alpha < 1;
+        proto = cache.get(mesh, { ...quality, microcellLdu: grainOf(protoKey(mesh, hollow)) }, { hollow, decomposition });
         if (proto.source === 'aabb-fallback') {
           const entry = aabbFallback.get(proto.partId) ?? { count: 0, reason: `over ${quality.maxPartCubes} cuboids after coarsening` };
           entry.count++;
@@ -1580,7 +1596,7 @@ export async function compileLdrawEntityGeometry(
         }
       }
 
-      const pp = perPart.get(proto.partId) ?? { placements: 0, cubesEach: proto.cuboids.length };
+      const pp = perPart.get(proto.partId) ?? { placements: 0, cubesEach: proto.cuboids.length, microcellLdu: proto.microcellLdu };
       pp.placements++;
       perPart.set(proto.partId, pp);
       for (const c of proto.cuboids as PartCuboid[]) {
@@ -1606,6 +1622,15 @@ export async function compileLdrawEntityGeometry(
       for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material, bone });
     });
 
+    const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, microcellLdu: v.microcellLdu, cubes: v.placements * v.cubesEach }))
+      .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
+    if (!cullAndMerge) {
+      // The planning pass: only the world boxes and stud candidates are needed
+      // (for the stud reserve), so the cull and the merge are skipped.
+      const cullPlan: HiddenCullPlan = { hidden: new Set(), cellLdu: 0, requestedCellLdu: 0, gridCells: 0, coarsened: false, skipped: false };
+      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts };
+    }
+
     // Buried cuboids cost budget and draw calls for nothing: cull them. The
     // occupancy is sampled in the render frame, where aligned boxes are exact;
     // a rotated bone's cuboid is stored unrotated at its pivot, so its render
@@ -1621,72 +1646,101 @@ export async function compileLdrawEntityGeometry(
     // Lossless: same-colour face-adjacent body boxes become one (see mergeAlignedCuboids).
     const mergedResult = mergeAlignedCuboids(visibleCuboids);
 
-    const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, cubes: v.placements * v.cubesEach }))
-      .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
-
-    return { cache, renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts };
+    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts };
   };
 
-  // Whole-model budget: coarsen everything (deterministically) before giving up detail per part.
-  let quality = { ...baseQuality };
-  let modelCoarsened = 0;
-  let built = compileAt(quality);
-  const cubesAtRequestedDetail = built.renderCuboids.length;
-  while (built.renderCuboids.length > quality.maxModelCubes && modelCoarsened < 3) {
-    quality = { ...quality, microcellLdu: quality.microcellLdu * 2 };
-    modelCoarsened++;
-    built = compileAt(quality);
+  // 5. Exposed studs: a stud whose top is inside another part's box is covered.
+  interface ExposedStud { centre: Vec3; up: Vec3; radius: number; height: number; material: LdrawEntityMaterial; bone: string }
+  const findExposedStuds = (worldBoxes: WorldBox[], studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string }>): ExposedStud[] => {
+    const CELL = 40;
+    const hash = new Map<string, WorldBox[]>();
+    const keyOf = (x: number, y: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(y / CELL)},${Math.floor(z / CELL)}`;
+    for (const wb of worldBoxes) {
+      for (let x = Math.floor(wb.min[0] / CELL); x <= Math.floor(wb.max[0] / CELL); x++)
+        for (let y = Math.floor(wb.min[1] / CELL); y <= Math.floor(wb.max[1] / CELL); y++)
+          for (let z = Math.floor(wb.min[2] / CELL); z <= Math.floor(wb.max[2] / CELL); z++) {
+            const k = `${x},${y},${z}`;
+            const list = hash.get(k);
+            if (list) list.push(wb); else hash.set(k, [wb]);
+          }
+    }
+    const covered = (p: Vec3, ownBrick: number): boolean => {
+      const list = hash.get(keyOf(p[0], p[1], p[2]));
+      if (!list) return false;
+      for (const wb of list) {
+        if (wb.brick === ownBrick) continue;
+        if (p[0] > wb.min[0] + 0.5 && p[0] < wb.max[0] - 0.5 && p[1] > wb.min[1] + 0.5 && p[1] < wb.max[1] - 0.5 && p[2] > wb.min[2] + 0.5 && p[2] < wb.max[2] - 0.5) return true;
+      }
+      return false;
+    };
+    const exposed: ExposedStud[] = [];
+    for (const cand of studCandidates) {
+      const { s, R, t, brick, material, bone } = cand;
+      const centerW = apply(R, s.center);
+      const upW = apply(R, s.up);
+      const probe: Vec3 = [
+        centerW[0] + t[0] + upW[0] * (s.height + 2), centerW[1] + t[1] + upW[1] * (s.height + 2), centerW[2] + t[2] + upW[2] * (s.height + 2),
+      ];
+      if (covered(probe, brick)) continue;
+      if (bone === 'body') {
+        // Render frame: the stud's base centre and axis through the placement.
+        exposed.push({ centre: apply(A, [centerW[0] + t[0], centerW[1] + t[1], centerW[2] + t[2]]), up: apply(A, upW), radius: s.radius, height: s.height, material, bone });
+      } else {
+        // Rotated bone: the cube is authored unrotated at the brick origin; the bone's rotation places it.
+        const at = apply(A, t), c = apply(A, s.center);
+        exposed.push({ centre: [c[0] + at[0], c[1] + at[1], c[2] + at[2]], up: apply(A, s.up), radius: s.radius, height: s.height, material, bone });
+      }
+    }
+    return exposed;
+  };
+
+  // Whole-model budget, spent PER PART where it shows (planPartGrains): every
+  // part starts at the requested grain and, while the model is over budget,
+  // the part whose next coarser grain loses the least silhouette per cuboid
+  // saved is coarsened - never the whole model at once.
+  //
+  // The studs' share of `maxModelCubes` is reserved before the body is
+  // planned, from the exposed-stud count of a draft instantiation at the
+  // requested grain. That count FALLS as parts coarsen (a stud seen through a
+  // Technic hole is covered once the hole closes: 10303 exposes 2,616 studs at
+  // 2 LDU and 1,280 after its balanced plan), so the reserve is re-measured on
+  // the planned model and the body re-planned with what the studs gave back,
+  // until the two agree within 1 % of the budget or the loop has run three
+  // times. Every pass reuses the prototype cache; only the instancing repeats.
+  const requestedFacets = Math.max(1, Math.round(quality.studFacets));
+  const planParts = new Map<string, GrainPlanPart>();
+  for (const b of placed) {
+    const mesh = meshes.get(b.part);
+    if (!mesh) continue;
+    const hollow = resolveLdrawEntityMaterial(b.color).alpha < 1;
+    const key = protoKey(mesh, hollow);
+    const entry = planParts.get(key);
+    if (entry) entry.placements++; else planParts.set(key, { key, mesh, placements: 1, hollow });
   }
-  if (built.renderCuboids.length > quality.maxModelCubes) {
-    warnings.push(`${cid}: ${built.renderCuboids.length} cuboids exceed the ${quality.maxModelCubes} budget even at ${quality.microcellLdu} LDU; the pack keeps them all, expect a heavy entity.`);
+  const studReserveOf = (r: ReturnType<typeof instantiate>): number => Math.min(quality.maxStudCubes, findExposedStuds(r.worldBoxes, r.studCandidates).length * requestedFacets);
+  const draft = instantiate(() => quality.microcellLdu, false);
+  let studReserve = studReserveOf(draft);
+  let plan = planPartGrains([...planParts.values()], quality, cache, { decomposition, budget: Math.max(0, quality.maxModelCubes - studReserve), fixedCuboids: draft.unresolvedCount });
+  let built = instantiate(key => plan.grains.get(key) ?? quality.microcellLdu, true);
+  for (let pass = 1; pass < 3 && plan.summary.partsCoarsened; pass++) {
+    const measured = studReserveOf(built);
+    if (studReserve - measured <= quality.maxModelCubes * 0.01) break;
+    studReserve = measured;
+    plan = planPartGrains([...planParts.values()], quality, cache, { decomposition, budget: Math.max(0, quality.maxModelCubes - studReserve), fixedCuboids: draft.unresolvedCount });
+    built = instantiate(key => plan.grains.get(key) ?? quality.microcellLdu, true);
   }
-  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, cache, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts } = built;
+  const grainPlan = plan.summary;
+  if (!grainPlan.fits) {
+    warnings.push(`${cid}: ${built.renderCuboids.length} cuboids exceed the ${quality.maxModelCubes} budget even with every part at ${grainPlan.coarsestMicrocellLdu} LDU; the pack keeps them all, expect a heavy entity.`);
+  } else if (grainPlan.partsCoarsened) {
+    warnings.push(`${cid}: ${grainPlan.placementsCoarsened} placement${grainPlan.placementsCoarsened === 1 ? '' : 's'} of ${grainPlan.partsCoarsened} part${grainPlan.partsCoarsened === 1 ? '' : 's'} compiled coarser than ${grainPlan.requestedMicrocellLdu} LDU to fit the ${quality.maxModelCubes}-cuboid budget (silhouette fidelity ${grainPlan.fidelity} against ${grainPlan.fidelityAtRequested} at full grain); the other ${grainPlan.placementsAtGrain[grainPlan.requestedMicrocellLdu] ?? 0} keep ${grainPlan.requestedMicrocellLdu} LDU.`);
+  }
+  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts } = built;
   if (cullPlan.skipped) {
     warnings.push(`${cid}: buried-cuboid culling was skipped - the model spans ${Math.round(Math.cbrt(cullPlan.gridCells))} cells a side even at ${cullPlan.cellLdu} LDU, over the ${CULL_GRID_CELL_BUDGET / 1_000_000} M-cell occupancy budget; a few hundred never-visible cuboids ship with it.`);
   }
-
-  // 5. Exposed studs: a stud whose top is inside another part's box is covered.
-  const CELL = 40;
-  const hash = new Map<string, WorldBox[]>();
-  const keyOf = (x: number, y: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(y / CELL)},${Math.floor(z / CELL)}`;
-  for (const wb of worldBoxes) {
-    for (let x = Math.floor(wb.min[0] / CELL); x <= Math.floor(wb.max[0] / CELL); x++)
-      for (let y = Math.floor(wb.min[1] / CELL); y <= Math.floor(wb.max[1] / CELL); y++)
-        for (let z = Math.floor(wb.min[2] / CELL); z <= Math.floor(wb.max[2] / CELL); z++) {
-          const k = `${x},${y},${z}`;
-          const list = hash.get(k);
-          if (list) list.push(wb); else hash.set(k, [wb]);
-        }
-  }
-  const covered = (p: Vec3, ownBrick: number): boolean => {
-    const list = hash.get(keyOf(p[0], p[1], p[2]));
-    if (!list) return false;
-    for (const wb of list) {
-      if (wb.brick === ownBrick) continue;
-      if (p[0] > wb.min[0] + 0.5 && p[0] < wb.max[0] - 0.5 && p[1] > wb.min[1] + 0.5 && p[1] < wb.max[1] - 0.5 && p[2] > wb.min[2] + 0.5 && p[2] < wb.max[2] - 0.5) return true;
-    }
-    return false;
-  };
   let studCubeCount = 0, studsOmitted = 0;
-  interface ExposedStud { centre: Vec3; up: Vec3; radius: number; height: number; material: LdrawEntityMaterial; bone: string }
-  const exposedStuds: ExposedStud[] = [];
-  for (const cand of studCandidates) {
-    const { s, R, t, brick, material, bone } = cand;
-    const centerW = apply(R, s.center);
-    const upW = apply(R, s.up);
-    const probe: Vec3 = [
-      centerW[0] + t[0] + upW[0] * (s.height + 2), centerW[1] + t[1] + upW[1] * (s.height + 2), centerW[2] + t[2] + upW[2] * (s.height + 2),
-    ];
-    if (covered(probe, brick)) continue;
-    if (bone === 'body') {
-      // Render frame: the stud's base centre and axis through the placement.
-      exposedStuds.push({ centre: apply(A, [centerW[0] + t[0], centerW[1] + t[1], centerW[2] + t[2]]), up: apply(A, upW), radius: s.radius, height: s.height, material, bone });
-    } else {
-      // Rotated bone: the cube is authored unrotated at the brick origin; the bone's rotation places it.
-      const at = apply(A, t), c = apply(A, s.center);
-      exposedStuds.push({ centre: [c[0] + at[0], c[1] + at[1], c[2] + at[2]], up: apply(A, s.up), radius: s.radius, height: s.height, material, bone });
-    }
-  }
+  const exposedStuds = findExposedStuds(worldBoxes, studCandidates);
   /**
    * A stud is a cylinder; Bedrock only has cuboids. One axis-aligned box reads
    * as a square peg, so a stud is emitted as `facets` equal rectangles fanned
@@ -1725,7 +1779,6 @@ export async function compileLdrawEntityGeometry(
   };
   // Facets are the first detail traded for budget: 4 → 3 → 1 → none.
   const studBudget = Math.min(quality.maxStudCubes, Math.max(0, quality.maxModelCubes - renderCuboids.length));
-  const requestedFacets = Math.max(1, Math.round(quality.studFacets));
   let studFacets = 0;
   for (const facets of [requestedFacets, 3, 1]) {
     if (facets > requestedFacets) continue;
@@ -1922,8 +1975,9 @@ export async function compileLdrawEntityGeometry(
     aabbFallbackParts,
     printFallbackParts: report.printFallbacks.map(f => f.part),
     skippedInternalCount,
-    modelCoarsened,
-    cubesAtRequestedDetail,
+    modelCoarsened: grainPlan.partsCoarsened,
+    cubesAtRequestedDetail: grainPlan.cuboidsAtRequested,
+    grainPlan,
     quality,
     pbr: options.pbr ?? false,
     substitutedParts: report.substitutions,

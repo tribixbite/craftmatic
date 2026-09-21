@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import {
-  LEGO_ENTITY_QUALITY, bestOfCuboids, compilePartPrototype, createPrototypeCache, downsample, fillInterior, greedyCuboids, greedyCuboidsOrdered,
-  maxBoxCuboids, rasterizeSurface, resolveEntityQuality, triangleBoxOverlap,
+  LEGO_ENTITY_QUALITY, PLANNER_COARSEST_LDU, bestOfCuboids, compilePartPrototype, createPrototypeCache, downsample, fillInterior, greedyCuboids, greedyCuboidsOrdered,
+  maxBoxCuboids, planPartGrains, rasterizeSurface, resolveEntityQuality, silhouetteIoU, silhouetteReference, triangleBoxOverlap,
+  type GrainPlanPart, type LegoEntityQuality,
 } from '../web/src/engine/ldraw-part-prototype.js';
 
 // ─── Synthetic meshes (part-local LDU, LDraw −Y up) ───────────────────────────
@@ -64,7 +65,15 @@ function wedge(): LdrawTriangle[] {
   ];
 }
 
-const Q = LEGO_ENTITY_QUALITY.balanced;
+/**
+ * A 4 LDU grain with a tight part cap, pinned explicitly: the decomposition
+ * tests below are about what the lattice does at that grain and how the cap
+ * coarsens, not about the shipped preset (which starts at 2 LDU with a
+ * planner-sized cap since 2026-09-21).
+ */
+const Q: LegoEntityQuality = { maxModelCubes: 6144, maxPartCubes: 128, microcellLdu: 4, meshChunkCubes: 1024, maxStudCubes: 1536, studFacets: 4 };
+/** 2 LDU under a 256-cuboid part cap, the grain/cap pair the dome test needs. */
+const Q2: LegoEntityQuality = { ...Q, microcellLdu: 2, maxPartCubes: 256 };
 const volume = (c: { min: Vec3; max: Vec3 }): number => (c.max[0] - c.min[0]) * (c.max[1] - c.min[1]) * (c.max[2] - c.min[2]);
 const aabbVolume = (p: { boundsLdu: { min: Vec3; max: Vec3 } }): number => volume(p.boundsLdu);
 const inside = (c: { min: Vec3; max: Vec3 }, b: { min: Vec3; max: Vec3 }): boolean =>
@@ -273,13 +282,13 @@ describe('best-of decomposition', () => {
   });
 
   it('keeps a finer microcell where the greedy merge had to coarsen to meet the cap', () => {
-    // At `high` (2 LDU, 256 cap) the greedy dome exceeds the cap and coarsens to 4 LDU; best-of fits under it at 2 LDU.
-    const g = compilePartPrototype(mesh('dome', dome()), LEGO_ENTITY_QUALITY.high);
-    const b = compilePartPrototype(mesh('dome', dome()), LEGO_ENTITY_QUALITY.high, { decomposition: 'best-of' });
+    // At 2 LDU under a 256 cap the greedy dome exceeds the cap and coarsens to 4 LDU; best-of fits under it at 2 LDU.
+    const g = compilePartPrototype(mesh('dome', dome()), Q2);
+    const b = compilePartPrototype(mesh('dome', dome()), Q2, { decomposition: 'best-of' });
     expect(g.metrics.coarsened).toBe(1);
     expect(b.metrics.coarsened).toBe(0);
     expect(b.microcellLdu).toBe(2);
-    expect(b.cuboids.length).toBeLessThanOrEqual(LEGO_ENTITY_QUALITY.high.maxPartCubes);
+    expect(b.cuboids.length).toBeLessThanOrEqual(Q2.maxPartCubes);
   });
 
   it('is deterministic and keyed separately in the cache', () => {
@@ -310,5 +319,95 @@ describe('best-of decomposition', () => {
     expect(cellsOf(g).size).toBe(solid);
     for (const c of [ordered, mb, best]) expect(cellsOf(c)).toEqual(cellsOf(g));
     expect(best.length).toBe(Math.min(g.length, mb.length, ...[[0, 1, 2], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]].map(o => greedyCuboidsOrdered(coarse, m.bounds.max, o as [number, number, number]).length)));
+  });
+});
+
+// ─── Silhouette fidelity and the per-part grain plan ─────────────────────────
+
+describe('silhouetteIoU', () => {
+  it('scores a box part as exact and a cylinder finer the finer the grain', () => {
+    const brick = mesh('brick', box(-20, 20, -24, 0, -10, 10));
+    expect(silhouetteIoU(silhouetteReference(brick), compilePartPrototype(brick, Q).cuboids)).toBeCloseTo(1, 3);
+    const wheel = mesh('wheel', cylinderX(24, -12, 12));
+    const ref = silhouetteReference(wheel);
+    const at = (cell: number): number => silhouetteIoU(ref, compilePartPrototype(wheel, { ...Q, microcellLdu: cell, maxPartCubes: 4096 }).cuboids);
+    const [c8, c4, c2] = [at(8), at(4), at(2)];
+    expect(c8).toBeLessThan(c4);
+    expect(c4).toBeLessThan(c2);
+    expect(c2).toBeLessThan(1);
+    expect(c8).toBeGreaterThan(0.6);
+    expect(ref.areaLdu2).toBeGreaterThan(0);
+  });
+});
+
+describe('planPartGrains', () => {
+  const fine: LegoEntityQuality = { ...Q, microcellLdu: 2, maxPartCubes: 4096 };
+  const parts = (): GrainPlanPart[] => [
+    { key: 'wheel', mesh: mesh('wheel', cylinderX(24, -12, 12)), placements: 20, hollow: false },
+    { key: 'slope', mesh: mesh('slope', slope()), placements: 20, hollow: false },
+    { key: 'brick', mesh: mesh('brick', box(-20, 20, -24, 0, -10, 10)), placements: 100, hollow: false },
+  ];
+  const sum = (r: Record<string, number>): number => Object.values(r).reduce((a, b) => a + b, 0);
+
+  it('keeps every part at the requested grain when the model already fits', () => {
+    const plan = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'greedy', budget: 1_000_000 });
+    expect([...plan.grains.values()]).toEqual([2, 2, 2]);
+    expect(plan.summary).toMatchObject({ requestedMicrocellLdu: 2, coarsestMicrocellLdu: PLANNER_COARSEST_LDU, partsCoarsened: 0, placementsCoarsened: 0, fits: true, steps: 0 });
+    expect(plan.summary.cuboids).toBe(plan.summary.cuboidsAtRequested);
+    expect(plan.summary.fidelity).toBe(plan.summary.fidelityAtRequested);
+    expect(plan.summary.partsAtGrain).toEqual({ '2': 3 });
+  });
+
+  it('coarsens individual parts until the model fits, never a box part, never past a plate', () => {
+    const cache = createPrototypeCache();
+    const full = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget: 1_000_000 }).summary.cuboidsAtRequested;
+    const budget = Math.round(full * 0.4);
+    const plan = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget, fixedCuboids: 7 });
+    expect(plan.summary.fits).toBe(true);
+    expect(plan.summary.cuboids).toBeLessThanOrEqual(budget);
+    expect(plan.summary.fixedCuboids).toBe(7);
+    expect(plan.summary.partsCoarsened).toBeGreaterThan(0);
+    expect(plan.summary.steps).toBeGreaterThan(0);
+    // A box is one cuboid at any grain: nothing to save, so it is never touched.
+    expect(plan.grains.get('brick')).toBe(2);
+    for (const cell of plan.grains.values()) expect(cell).toBeLessThanOrEqual(PLANNER_COARSEST_LDU);
+    expect(sum(plan.summary.partsAtGrain)).toBe(3);
+    expect(sum(plan.summary.placementsAtGrain)).toBe(140);
+    expect(plan.summary.fidelity).toBeLessThanOrEqual(plan.summary.fidelityAtRequested);
+    expect(plan.summary.fidelity).toBeGreaterThan(0.5);
+  });
+
+  it('takes the step that loses the least silhouette per cuboid saved', () => {
+    // Independently rank each part's first useful coarsening; the planner's one step must be the cheapest.
+    const cache = createPrototypeCache();
+    const candidates = parts().filter(p => p.key !== 'brick');
+    const ranked = candidates.map(p => {
+      const ref = silhouetteReference(p.mesh);
+      const at = (cell: number) => { const c = cache.get(p.mesh, { ...fine, microcellLdu: cell }, { decomposition: 'greedy' }).cuboids; return { n: c.length, iou: silhouetteIoU(ref, c) }; };
+      const cur = at(2);
+      const next = [4, 8].map(at).find(m => m.n < cur.n)!;
+      return { key: p.key, priority: (p.placements * ref.areaLdu2 * Math.max(0, cur.iou - next.iou)) / (p.placements * (cur.n - next.n)) };
+    }).sort((a, b) => a.priority - b.priority);
+    const total = planPartGrains(candidates, fine, cache, { decomposition: 'greedy', budget: 1_000_000 }).summary.cuboidsAtRequested;
+    const plan = planPartGrains(candidates, fine, cache, { decomposition: 'greedy', budget: total - 1 });
+    expect(plan.summary.steps).toBe(1);
+    expect(plan.grains.get(ranked[0]!.key)).toBeGreaterThan(2);
+    expect(plan.grains.get(ranked[1]!.key)).toBe(2);
+  });
+
+  it('reports a model that cannot fit rather than coarsening past the floor', () => {
+    const plan = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'greedy', budget: 10 });
+    expect(plan.summary.fits).toBe(false);
+    expect(plan.grains.get('wheel')).toBe(PLANNER_COARSEST_LDU);
+    expect(plan.grains.get('slope')).toBe(PLANNER_COARSEST_LDU);
+    expect(plan.grains.get('brick')).toBe(2);
+    expect(plan.summary.cuboids).toBeGreaterThan(10);
+  });
+
+  it('is deterministic', () => {
+    const a = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'best-of', budget: 300 });
+    const b = planPartGrains(parts(), fine, createPrototypeCache(), { decomposition: 'best-of', budget: 300 });
+    expect([...a.grains]).toEqual([...b.grains]);
+    expect(a.summary).toEqual(b.summary);
   });
 });
