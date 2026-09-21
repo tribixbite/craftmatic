@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import { resolve } from 'path';
 import { existsSync, createReadStream, readFileSync } from 'node:fs';
+import { computePipelineStamp } from '../scripts/pipeline-stamp.ts';
+import { pipelineStampText, unstampedPipeline, type PipelineStamp } from './src/engine/pipeline-version.ts';
 
 // Path to clego's reconstructed LDR files (dev only)
 const CLEGO_RECONSTRUCTED = 'C:/git/clego/lego_sets/Reconstructed';
@@ -14,11 +16,32 @@ const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 /** Build-time version string: v2026.02.20 */
 const appVersion = `v${new Date().toISOString().slice(0, 10).replace(/-/g, '.')}`;
 
+/**
+ * Export-pipeline provenance stamp, injected as `__PIPELINE_STAMP__` and read
+ * by `src/engine/pipeline-version.ts` (the browser has no git and no files,
+ * so this is the only place it can come from). Computed once per build/dev
+ * start from the import closure of the pack builders + git; see
+ * `scripts/pipeline-stamp.ts`. A failure here must never break the build —
+ * the engine then reports the pack as `unstamped`, which is the truth.
+ */
+const pipelineStamp = ((): PipelineStamp => {
+  try {
+    const { closure: _closure, ...stamp } = computePipelineStamp();
+    console.log(`[pipeline-stamp] ${pipelineStampText(stamp)} — hash ${stamp.hash}, ${stamp.files} files${stamp.dirty ? `, dirty: ${stamp.dirtyFiles.join(', ')}` : ''}${stamp.shallow ? ', shallow clone' : ''}`);
+    return stamp;
+  } catch (err) {
+    const reason = `stamp computation failed at build: ${err instanceof Error ? err.message : String(err)}`;
+    console.warn(`[pipeline-stamp] ${reason}`);
+    return unstampedPipeline(reason);
+  }
+})();
+
 export default defineConfig({
   root: resolve(__dirname),
   base: './',
   define: {
     __APP_VERSION__: JSON.stringify(appVersion),
+    __PIPELINE_STAMP__: JSON.stringify(pipelineStamp),
   },
   build: {
     outDir: 'dist',
