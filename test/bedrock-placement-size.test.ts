@@ -147,7 +147,7 @@ describe('wand runtime: size, aim and turning', () => {
     const h = host({ stem: 'runtime-door', label: 'Runtime door', width: 4, height: 3, length: 2, tiles: [tile],
       actors: [{ typeId: 'craftmatic:runtime_door_leaf_1', label: 'Runtime door leaf', x: 1, y: 2, z: 1, maxSizeExclusive: 300, doorCandidateIndex: 0, hideAt100: false }],
       colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
-      runtimeDoorCandidates: [{ x: 1, y: 0, z: 1, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }], settleTicks: 1, finalHoldTicks: 1 });
+      runtimeDoorCandidates: [{ x: 1, y: 1.8, z: 1, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }], settleTicks: 1, finalHoldTicks: 1 });
     await h.open({ selection: 1 }, { canceled: true });
     expect(h.buttons.at(-1)).toContain('Use next door size 300%');
     await h.open({ selection: 5 }, { selection: 0 });
@@ -166,6 +166,7 @@ describe('wand runtime: size, aim and turning', () => {
     expect(h.set.filter(s => s.states?.upper_block_bit === false)).toHaveLength(1);
     expect(h.set.filter(s => s.states?.upper_block_bit === true)).toHaveLength(1);
     expect(h.set.find(s => s.states?.upper_block_bit === false)?.states.direction).toBe(1);
+    expect(h.set.find(s => s.states?.upper_block_bit === false)?.pos.y).toBe(69); // 64 + floor(1.8 × 3), never 64 + floor(1.8) × 3.
     // cycle 300 → 400 → 25 → 50 → 75 → 100 and place once more; the
     // original-size candidate must still be hung exactly once, not duplicated.
     for (let i = 0; i < 5; i++) await h.open({ selection: 10 }, { canceled: true });

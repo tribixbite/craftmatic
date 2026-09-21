@@ -256,4 +256,13 @@ describe('recommendDoorExportScale', () => {
     expect(candidates[0]).toMatchObject({ requiredSize: 300 });
     expect(candidates[0]!.lower).toMatchObject({ id: 'minecraft:spruce_door', states: { upper_block_bit: false, direction: 0 } });
   });
+
+  it('preserves fractional storey elevation until after wand scaling', () => {
+    const elevated = door(48);
+    elevated.minLdu[1] -= 1.8 * LDU_PER_BLOCK;
+    elevated.maxLdu[1] -= 1.8 * LDU_PER_BLOCK;
+    const [candidate] = runtimeDoorCandidates([elevated], { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK });
+    expect(candidate!.y).toBeCloseTo(1.8, 8);
+    expect(Math.floor(candidate!.y * 3)).toBe(5);
+  });
 });

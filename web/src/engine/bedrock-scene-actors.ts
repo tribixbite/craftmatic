@@ -267,7 +267,10 @@ export function runtimeDoorCandidates(doors: readonly SceneDoor[], frame: SceneG
     if (!requiredSize) continue;
     const x = (a[0] + b[0]) / 2, z = (a[2] + b[2]) / 2;
     // LDraw Y is down; the lower edge maps to the smaller grid Y.
-    const y = Math.floor(Math.min(a[1], b[1]) + 0.02);
+    // Keep the physical edge fractional until worldPoint applies the wand
+    // factor. Flooring here magnifies the error (1.8 × 3 must land at 5.4,
+    // not floor(1.8) × 3 = 3) and moves upper-storey doors off their floors.
+    const y = Math.min(a[1], b[1]);
     const key = `${x.toFixed(3)}:${y}:${z.toFixed(3)}`;
     if (seen.has(key)) continue;
     seen.add(key);

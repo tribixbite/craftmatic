@@ -7,9 +7,9 @@ belongs in `git log`, `docs/lego-sources-guide.md`, and
 ## Active round — 2026-09-21, deployed verification and playable accuracy
 
 User explicitly authorizes pushing and deployed-site verification; wireless
-ADB is available and USB is not a prerequisite. Prior tested Craftmatic HEAD
-`dea25691` was pushed to `origin/main`; CI `35560020439` and deployment
-`35560020448` passed. Browser render/export acceptance is still pending.
+ADB needs no USB or root for pack import. Craftmatic feature commit `490a5746`
+was pushed to `origin/main`; CI `35602310515` and deployment `35602310529`
+passed. Browser render/export and actual Minecraft acceptance remain pending.
 No tags, destructive history rewrite, world deletion, or app-data reset.
 Do not promote a model merely because an aggregate metric improves.
 
@@ -40,10 +40,11 @@ Current integration gates (offline implementation ready; device acceptance open)
   persisted seat anchors; actual device acceptance remains required.
 - Working ADB binary: `C:/Android/Sdk/platform-tools/adb.exe`; wireless serial
   `192.168.0.122:5555`. A missing agent PATH is not a transport failure.
-- Phone candidate `output/bedrock-entity-qa/creator-device-final-current.mcaddon`
-  SHA256 `9ab0c64ede1ba5f3cab56889f9992ec1370addccd56c201273207ffc0de22b06`:
+- Current committed pack `output/bedrock-entity-qa/creator-wand-490a5746.mcaddon`
+  SHA256 `f9b624e7ca7a3605caf5622e51b540e76303e3aac81e7c8974a2bfe4f28a38b7`:
   459 library cuboids, no unresolved parts; structural validator passes.
-  Later source adds grant/name/instruction metadata; rebuild before final delivery.
+  Phone Download contains older metadata-only predecessor `creator-device-final-current.mcaddon`
+  (`9ab0c64ede1b…`), not imported. Existing worlds/activations untouched.
 - Existing isolated Chrome CDP: `http://127.0.0.1:9227`, PID 35280; Vite 4000,
   PID 33092. Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means
   still running, not an empty successful exit. Root stopped only duplicate
@@ -66,8 +67,10 @@ Current integration gates (offline implementation ready; device acceptance open)
 - Latest integrated test run: **1,803 passed / 26 skipped**, exit 0, log
   `output/pipeline-2026-09-21/integrated-test.log`. Root/web typechecks and web
   build pass. Agent full runs had four external-service null failures; the
-  root rerun passed them without changing those tests. Recheck affected suites
-  after the final width-aware scale-advice correction.
+  root rerun passed them without changing those tests. Final affected suite
+  55/55 and both typechecks passed. Follow-up fractional door-elevation fix
+  has 31 focused tests and both typechecks passing: keep local Y fractional
+  until after wand scaling, then quantize in world space.
 - Door leaf geometry is separate and retained until its corresponding vanilla
   door is actually installed; support/clearance failure keeps the leaf visible.
   Runtime host covers small→usable→small, rotation, fallback and Undo. 21060
@@ -205,6 +208,10 @@ workflow; user notes root is unnecessary and likely unavailable. User approved
 `adb root` if needed, but do not treat it as a prerequisite. No reboot/framework
 restart/data clear. Back up current world/pack state before any activation;
 the restoration report below is historical, not a fresh snapshot.
+Current transport blocker: connect succeeds but even a persistent TTY shell
+exits 1 with `error: closed` before a prompt. No import/activation occurred.
+Files by Google is last known foreground; restore Minecraft when transport
+recovers. Root asked user asynchronously about unlock/authorization prompt.
 
 Pixel `192.168.0.122:5555`; Minecraft 1.26.51. Latest report:
 `output/corpus-improvements-2026-09-20/device/REPORT.md`.

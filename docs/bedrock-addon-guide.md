@@ -525,6 +525,10 @@ round settles them.
   while the normal placement history removes the prior actor on resize and Undo.
   Leaves that still cannot meet both dimensions at 400% remain part of the shell and
   are not falsely advertised as interactive.
+  Retain a candidate's fractional model-local floor until `worldPoint` scales it;
+  quantize only in world space. Flooring 1.8 before 300% incorrectly places the
+  door at 3 blocks instead of 5 (physical edge 5.4). A source and serialized-runtime
+  regression pin this upper-storey case.
 - **Aircraft descend**: vanilla's only vertical input is Jump = climb; the Happy Ghast
   descends by LOOKING down, and under the script chase camera (which sets a
   `minecraft:free` camera every tick) that pitch was reported not to reach the entity.
