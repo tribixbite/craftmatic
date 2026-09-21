@@ -8,8 +8,9 @@ belongs in `git log`, `docs/lego-sources-guide.md`, and
 
 User explicitly authorizes pushing and deployed-site verification; wireless
 ADB needs no USB or root for pack import. Feature commit `490a5746` and door
-elevation follow-up `e25af6e4` were pushed to `origin/main`; latest CI
-`35602735929` and deployment `35602735723` passed. Production creator export
+elevation follow-up `e25af6e4` were pushed to `origin/main`. Validation commit
+`e5a2b936` is pushed through merge `0ab7f1eb` (preserving the scheduled source
+refresh); CI `35603541570` and deployment `35603541576` passed. Production creator export
 and desktop/mobile browser checks passed; actual Minecraft acceptance is open.
 No tags, destructive history rewrite, world deletion, or app-data reset.
 Do not promote a model merely because an aggregate metric improves.
@@ -46,8 +47,10 @@ Current integration gates (offline implementation ready; device acceptance open)
 - Current committed pack `output/bedrock-entity-qa/creator-wand-490a5746.mcaddon`
   SHA256 `f9b624e7ca7a3605caf5622e51b540e76303e3aac81e7c8974a2bfe4f28a38b7`:
   459 library cuboids, no unresolved parts; structural validator passes.
-  Phone Download contains older metadata-only predecessor `creator-device-final-current.mcaddon`
-  (`9ab0c64ede1b…`), not imported. Existing worlds/activations untouched.
+  Phone Download now also contains these committed bytes under
+  `000-creator-wand-490a5746.mcaddon`, not imported. Recovery briefly restored
+  Minecraft then reopened Files for import; transport went offline again.
+  Last foreground: Files raw internal storage. Existing worlds/activations untouched.
 - Isolated Chrome CDP: `http://127.0.0.1:9227`, last PID 37936; verify before
   reuse. Run `.mjs` probes with Node, not Bun's broken CDP WebSocket path.
   Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means running.
@@ -71,8 +74,13 @@ Current integration gates (offline implementation ready; device acceptance open)
   figures 8→2; 76286 2→1; 76435 3→0; 80049 10→7, other measured metrics
   unchanged. 75397 fixed front/iso/left views and figure closeups are accepted
   (`75397-{before,after}-reviewed/`): detached gold arms/hands are reattached
-  with the asymmetric pose preserved. No corpus apply yet; other visual gates
-  remain. 42639/42663 show
+  with the asymmetric pose preserved. 75397 is now applied locally with exact
+  original backup in `75397-apply-backup/`; candidate full SHA256 is
+  `b552734a27a762898b9bb7492a1d4b26ac79a0376948259bf7f5c56df4a9e140`.
+  One-file `--dry-run --only MecabricksLDR/75397.ldr --no-index` passes.
+  Actual R2 upload was blocked by auto-review: request explicit corpus-upload
+  approval before retrying. No upload occurred; production/index still name
+  original `5cfd6121f256…`. Other visual gates remain. 42639/42663 show
   no improvement; 76269 rejected because float rises 45→50 (big 35→40).
 - Full board and both legacy A/B jobs completed. Isolated candidate index
   `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
