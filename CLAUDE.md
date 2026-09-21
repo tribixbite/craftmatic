@@ -54,6 +54,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
   grey. Source conversion must retain unresolved private geometry safely.
+- **Bedrock rejects a `float` actor property written as an integer literal.**
+  `"default": 0` fails with "'default' value does not match the specified type
+  'float'" and drops the entity's WHOLE property component, so `query.property`
+  errors every frame and `setProperty` throws far from the cause. Use
+  `bedrockFloat()` from `web/src/engine/bedrock-json.ts`. Diagnose this class of
+  fault from the device **content log** (`…/files/games/com.mojang/logs/`,
+  newest file, grep on-device) — none of it reaches logcat.
 - **PWA service worker** caches all modules and serves stale code. If changes
   don't take effect: unregister SW + clear caches, then hard reload. (See the
   snippet history; `navigator.serviceWorker.getRegistrations()...` + `caches.keys()...`.)

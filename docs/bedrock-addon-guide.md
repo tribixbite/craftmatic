@@ -1651,6 +1651,35 @@ not promise upside-down player roll or a physical train
 simulation. Rider retention during actual Bedrock movement is a separate
 device gate, not established by host-script tests or successful pack import.
 
+#### A `float` actor property needs a FLOAT LITERAL in the JSON (2026-09-21)
+
+Bedrock types an actor property's `default`/`range` numbers by their **literal
+form**, not by the declared `type`. `JSON.stringify(0)` writes `0`, and the game
+then rejects the property:
+
+```
+[Actor][error]-… craftmatic:coaster_qa_coaster_cart | minecraft:entity | description |
+  Error loading property 'craftmatic:track_pitch': 'default' value does not match the specified type 'float'
+[Actor][error]-… | Error loading Actor Properties
+```
+
+One bad property drops the **whole** property component, so the failure surfaces
+far from its cause: the client's `query.property(...)` animation errors on every
+frame (`query.property called on an actor without a property component`) and the
+server's `Entity.setProperty` throws inside the movement tick, which the ride
+runtime catches, warns about and untracks — the cart stops after one step. The
+in-game symptom is a generic "Coaster paused" message with no mention of JSON.
+
+`web/src/engine/bedrock-json.ts` wraps such values in `bedrockFloat()` and the
+pack serializer restores them as bare `0.0` / `-90.0` literals; `int`, `bool` and
+`enum` properties are safe as plain numbers (the creator wand's are). Covered by
+a byte-level test on the emitted entity file in `test/bedrock-coaster.test.ts`.
+
+Read the device **content log**, not logcat, for this class of fault: Bedrock
+writes nothing about it to logcat. The log lives in
+`/sdcard/Android/data/com.mojang.minecraftpe/files/games/com.mojang/logs/`
+(newest file by mtime, tens of MB — grep it on-device).
+
 Profile extraction must use the mould's rail endpoint/axis, not merely stud or
 sleeper origins. In 10303 those frames can differ by 32 LDU, producing false
 45-LDU gaps after rotation. A visually closed source model does not authorize

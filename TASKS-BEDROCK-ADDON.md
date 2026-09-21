@@ -47,15 +47,26 @@ loop track; parallel-transport frames animate cart pitch/roll, not player roll.
   owns the phone/new isolated `CoasterQA` world (`IG8Iet9-XIU=`). Cheats and
   diagnostic BP/RP are enabled only there. Existing worlds remain untouched.
   No root/USB/reboot/data-clear/world overwrite. Host tests are not device proof.
-  CoasterQA is loaded (`coaster-qa-diagnosis-current-1600.png`); the apparent
-  world-list return was a delayed transition, not a persistent load failure.
-  Placement and mounting now observed; diagnostic ride hits generic movement
-  catch (`coaster-qa-current-1600.png`). Dismount observed in
-  `coaster-qa-dismount-1600.png`; continuous rider-carrying motion and Undo are
-  unproven. Stage/error diagnostics added; updated same-identity test pack
-  `output/bedrock-entity-qa/coaster-qa-errors-20260921.mcaddon` passes structural
-  validation, helper `/function b_5c68ec`. Import/reload then capture exact error.
-  Do not treat import/tap success as proof.
+  **The exact error was captured, from the device CONTENT LOG rather than a
+  screenshot** (`…/files/games/com.mojang/logs/`, newest by mtime; nothing about
+  it reaches logcat). The cart's float actor properties serialized as integer
+  literals, so Bedrock rejected them and dropped the entity's whole property
+  component: `Error loading property 'craftmatic:track_pitch': 'default' value
+  does not match the specified type 'float'`, then `Error loading Actor
+  Properties`, then `query.property called on an actor without a property
+  component` every frame — and `setProperty` threw inside the movement tick, so
+  the generic catch untracked the cart after one step. Root cause and the fix
+  (`bedrockFloat`) are in the add-on guide; offline gates below.
+  Same-identity fixed pack: `output/bedrock-entity-qa/coaster-qa-floatprops-20260921.mcaddon`,
+  33048 bytes, SHA256 `0d05998ca550b160170a67d8e46ed2cc138a9a2833b82766135783bebb313915`,
+  version `[2,695,19240]` (BP uuid unchanged `8cc962ea-…`, so it upgrades in
+  place). Rebuild it with `bun scripts/_coaster_qa_pack.ts <out.mcaddon> [--loop]`.
+  Device re-verification is RUNNING: reload CoasterQA, confirm zero `[Actor][error]`
+  and zero Molang property errors after the reload timestamp, then prove
+  rider-carrying motion (coordinates HUD moving), shuttle reversal at the open
+  end, rider retention over 30 s, and Undo. Android permits overwriting existing
+  world activation files here but denies creating `.new` files; back up originals
+  before any edit. Do not treat import/tap success as proof.
 - [ ] Implement explicit lift/transfer semantics. The main route is OPEN and
   currently shuttles; source inspection found carriage hardware but no measured
   connecting rail between station and tower top. Never invent a rail bridge.
@@ -72,6 +83,15 @@ Both TypeScript checks and the production web build pass. Follow-up diagnostic
 and rider-loss tests: 41 focused coaster tests pass; both typechecks pass.
 Follow-up full suite: 1847 pass, 29 skip (environment-dependent live skips),
 `output/bedrock-entity-qa/coaster-diagnostics-tests.log`.
+Diagnostics commit `00e83471` is pushed; deployment `35641616211` succeeded.
+CI `35641616290` failed initially and on one rerun only at live MRLC canopy
+assertions (`test/import-nlcd.test.ts`, service returned null); 1839 passed,
+36 skipped and both typechecks passed. Do not describe that CI run as green.
+Float-actor-property fix gates: full suite 1851 passed / 26 skipped, exit 0
+(`output/bedrock-entity-qa/coaster-floatprops-tests.log`); both typechecks pass.
+The emitted entity file is asserted at byte level, and the rebuilt QA pack
+differs from the previous one ONLY in those float literals, the two added stage
+names and the version — verified by an archive-wide file diff.
 Implementation `13a65adf` is pushed; CI `35633747175` and deployment
 `35633747049` passed. Fresh production local-upload render/export passed:
 `output/pipeline-2026-09-21/10303-production-final-13a65adf-render/` has 3808

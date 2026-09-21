@@ -172,6 +172,27 @@ describe('coaster pack assets', () => {
     expect(wheels).toHaveLength(4);
     expect(wheels[0]!.origin[1]).toBe(-26.4);
   });
+  it('writes float actor properties as float literals so Bedrock loads the property component', async () => {
+    // Bedrock types actor-property JSON numbers by their LITERAL form. A float
+    // property serialized as `"default": 0` is rejected with "'default' value does
+    // not match the specified type 'float'", which drops the WHOLE property
+    // component: client Molang `query.property` then errors every frame and the
+    // server's `setProperty` throws, stalling the ride. Measured on a Pixel 8 Pro
+    // (Bedrock 1.26.51) 2026-09-21 in the device content log.
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [straight] });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const entityJson = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_coaster_BP/entities/coaster_coaster_cart.json'));
+    const properties = /"properties": \{[\s\S]*?\n {6}\}/.exec(entityJson)![0]!;
+    expect(properties).not.toMatch(/"default": -?\d+(?!\.)/);
+    expect(properties).toContain('"default": 0.0');
+    expect(properties).toMatch(/"range": \[\s*-90\.0,\s*90\.0\s*\]/);
+    expect(properties).toMatch(/"range": \[\s*-180\.0,\s*180\.0\s*\]/);
+    // Still valid JSON carrying the same numeric meaning.
+    const parsed = JSON.parse(entityJson)['minecraft:entity'].description.properties;
+    expect(parsed['craftmatic:track_pitch']).toEqual({ type: 'float', range: [-90, 90], default: 0, client_sync: true });
+    expect(parsed['craftmatic:track_roll']).toEqual({ type: 'float', range: [-180, 180], default: 0, client_sync: true });
+  });
   it('packages the runtime and source-frame route only for coaster-enabled exports', async () => {
     const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
     const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [straight] });

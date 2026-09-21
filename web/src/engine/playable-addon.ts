@@ -25,6 +25,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_G
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { coasterCartAssets, coasterRuntimeConfig, coasterScript, type CoasterRoute } from './bedrock-coaster.js';
+import { bedrockJsonText } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -177,7 +178,8 @@ export interface PlayableAddonResult {
 }
 const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
-const json = (v: unknown) => text(JSON.stringify(v, null, 2));
+/** Pack JSON: `bedrockJsonText` keeps declared float values as float literals. */
+const json = (v: unknown) => text(bedrockJsonText(v, 2));
 /**
  * Geometry serializer: MINIFIED, unlike every other file in the pack.
  *
@@ -201,7 +203,7 @@ const json = (v: unknown) => text(JSON.stringify(v, null, 2));
  * render controllers and `craftmatic-diagnostics.json` total ~0.15 MB and are
  * meant to be read by a human opening the archive.
  */
-const geoJson = (v: unknown) => text(JSON.stringify(v));
+const geoJson = (v: unknown) => text(bedrockJsonText(v));
 const safe = (s: string) => toBedrockIdentifier(s).slice(0, 48);
 /**
  * Cuboids a phone can hold across ALL active add-on packs at once. Measured
