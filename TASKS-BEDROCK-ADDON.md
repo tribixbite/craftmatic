@@ -117,8 +117,16 @@ geometries, 129 textures), same BP uuid `f868c24d-…`, same 16,904 cuboids and
 the same single 1066-sample 174.885-block open route; an archive-wide file diff
 against the superseded `10303-coaster-measured-final.mcaddon` (SHA256
 `466ae9fd…`, which carries the integer-literal defect) shows ONLY the float
-literals, the two added stage names and the version. It has NOT been imported to
-the phone yet. Earlier fragmented-route packs are superseded.
+literals, the two added stage names and the version. Earlier fragmented-route
+packs are superseded.
+**Device ride acceptance for this REAL pack is IN PROGRESS** (the proved ride
+above used the small QA pack). If it has not reported, resume it: import the
+pack, activate both packs for CoasterQA through the in-game Edit World UI,
+reload, gate on `grep -cE '\[Molang\]\[error\]'` being 0 after the load
+timestamp, then place, ride and Undo. Watch the 480k resident-cuboid budget —
+this pack is 16,904 cuboids, so deactivate the small QA pack first if needed.
+Check for a duplicate `f868c24d…` folder BEFORE importing; see the add-on
+guide's active-folder rule.
 
 Current offline gates: full suite **1868 passed / 29 skipped, exit 0**
 (`output/bedrock-entity-qa/final-round-tests.log`), both typechecks and the
