@@ -1498,6 +1498,41 @@ throughout and nothing from the new packs placed:
   swap and survived Save & Quit; not investigated. The 14 new packs remain
   installed on the phone, active in no world.
 
+### The LOD hull shipped broken for two days (user report 2026-09-21)
+
+A user placed 10303 and called the result "horrendous… even up close", with
+surfaces that "jitter between different colors in a seizure-inducing spasm".
+Both causes were in the LOD, and both are the kind that a host test cannot see.
+
+**`query.distance_from_camera` measures to the entity ROOT, and a shell's root
+is not inside the model.** `originAboveModel` spawns the actor
+`ceil(height)+1` blocks ABOVE the build, with the geometry hanging below it, so
+for 10303 the root sits 45 blocks over the ground track. Measured on the
+shipped hull: **68.7 % of the skin (2,190 of 3,189 cells) was already past the
+32-block threshold**, so any ground-level camera saw the hull at ANY distance —
+the user's point-blank screenshot is a blob. A bare distance constant cannot be
+right across a minifig and a 44-block tower: the switch is now
+`lodDistance + the entity's reach from its root` (`buildLodHull` returns
+`extentBlocks`/`radiusBlocks`, rotation-aware), which guarantees the camera is
+at least `lodDistance` from every cube. The default rose 32 -> 96: at Bedrock's
+70 degree FOV on the Pixel's 1344-px screen a block covers 960/D px, so at 32 a
+brick face was 11 px in plain sight, and at 96 it is 3.75 px. 10303 switches at
+146.3. Diagnostics now report `radiusBlocks` and `switchDistance` per entity.
+
+**A per-colour hull must give each cell ONE owner.** The rasteriser ran each
+colour's mask independently, so a skin cell touched by several colours got a
+full-cell cube from each — **1,523 of 3,189 cells carried 2 to 9 cubes**, since
+a block is 53 LDU and a brick 20. Coplanar faces of different colours are the
+diagonal hatching, and which one wins flips with camera motion: that is the
+"seizure" flicker. A cell now belongs to the colour with the most clipped cube
+volume in it, ties to the earlier draw order. Every cell is single-claimant and
+the hull got CHEAPER: 1,143 -> 753 cuboids, 28 -> 22 colour geometries.
+
+Consequence worth weighing: for a large set the hull now draws only past ~146
+blocks, and entities have been seen drawn at 128 on the Pixel, so it may never
+appear while still costing ~753 resident cuboids. `lod: 'none'` is the switch if
+a pack should not pay for it.
+
 ### LOD hull verified on the Pixel; default ON at the pipeline (2026-09-19, night)
 
 `output/device-919/lod/LOD-RESULT.md`, `shots/`. The three LOD packs (same uuids,
