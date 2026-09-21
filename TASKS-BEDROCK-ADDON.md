@@ -119,14 +119,28 @@ against the superseded `10303-coaster-measured-final.mcaddon` (SHA256
 `466ae9fd…`, which carries the integer-literal defect) shows ONLY the float
 literals, the two added stage names and the version. Earlier fragmented-route
 packs are superseded.
-**Device ride acceptance for this REAL pack is IN PROGRESS** (the proved ride
-above used the small QA pack). If it has not reported, resume it: import the
-pack, activate both packs for CoasterQA through the in-game Edit World UI,
-reload, gate on `grep -cE '\[Molang\]\[error\]'` being 0 after the load
-timestamp, then place, ride and Undo. Watch the 480k resident-cuboid budget —
-this pack is 16,904 cuboids, so deactivate the small QA pack first if needed.
-Check for a duplicate `f868c24d…` folder BEFORE importing; see the add-on
-guide's active-folder rule.
+**Device ride acceptance for the REAL pack found a SECOND defect, now fixed.**
+Bedrock refuses an entity identifier whose name begins with a digit
+(`ERROR: Invalid entity identifier 'craftmatic:10303loop_10303_coaster_cart',
+identifier cannot begin with a number`) and the entity then does not exist:
+the wand reported `Placed … (1 entity could not be spawned)` and
+`/testfor @e[type=craftmatic:10303loop_10303_coaster_cart]` was a syntax error
+while the prefixed shell type resolved. 13 of 15 entities carried a `b_`/`f_`/`p_`
+prefix; the cart and manual seat were the two that skipped it, and most LEGO
+stems are numeric, so this affected the cart and marked seats of essentially
+every set. Every entity id now goes through one `entityId(raw, prefix)` helper,
+`scripts/_mcaddon_check.py` REJECTS the class offline (it flags the old pack and
+passes the new one), and a pack-wide test asserts
+`^craftmatic:[a-z][a-z0-9_]*$` for a numeric stem.
+The float fix held through that run: `[Molang][error]` and `query.property`
+were both **0**.
+Retest pack: `output/bedrock-entity-qa/10303-coaster-idfix-20260921.mcaddon`,
+304,887 bytes, SHA256 `bd5af9ede4be6f574c1a0d83f7742da4f5cd1a5cac059fb0ecaececc12cb1332`,
+version `[2,695,26652]`, same BP uuid. **Device acceptance of the real ride is
+RUNNING again** — still unproven: no cart existed, so track-following,
+pitch/roll through the loop, reversal at the real open ends and rider retention
+on the real set have NEVER been observed. Do not claim them from the QA-pack
+run (stem `coaster_qa` starts with a letter, which is why it passed).
 
 Current offline gates: full suite **1868 passed / 29 skipped, exit 0**
 (`output/bedrock-entity-qa/final-round-tests.log`), both typechecks and the

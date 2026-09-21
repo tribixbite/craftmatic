@@ -229,6 +229,26 @@ describe('coaster pack assets', () => {
     }
     expect(floatProperties).toBe(2);
   });
+  it('never emits an entity identifier that Bedrock rejects for a numeric set stem', async () => {
+    // Bedrock refuses an identifier whose name begins with a digit ("identifier
+    // cannot begin with a number") and the entity then does not exist at all.
+    // Most LEGO stems are numeric: 10303's ride cart and manual seat were
+    // rejected on the device 2026-09-21 while its 13 prefixed entities loaded.
+    const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
+    const pack = await buildPlayableAddon(grid, {
+      stem: '10303', label: '10303-Loop-Coaster', coasterRoutes: [straight],
+      shell: { bricks: [], origin: [0, 0, 0] } as never,
+      seats: [{ label: 'Bench', x: 1, y: 1, z: 1, yaw: 0 }] as never,
+      screens: [{ label: 'Screen', x: 2, y: 1, z: 1 }] as never,
+    });
+    const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
+    const names = listZipEntries(buffer).filter(name => /_BP\/entities\/.+\.json$/.test(name));
+    expect(names.length).toBeGreaterThan(1);
+    for (const name of names) {
+      const identifier = JSON.parse(new TextDecoder().decode(await extractFile(buffer, name)))['minecraft:entity'].description.identifier as string;
+      expect.soft(identifier, name).toMatch(/^craftmatic:[a-z][a-z0-9_]*$/);
+    }
+  });
   it('packages the runtime and source-frame route only for coaster-enabled exports', async () => {
     const grid = new BlockGrid(12, 2, 4); grid.set(0, 0, 0, 'minecraft:stone');
     const pack = await buildPlayableAddon(grid, { stem: 'Coaster', coasterRoutes: [straight] });

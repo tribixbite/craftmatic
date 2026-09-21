@@ -206,6 +206,16 @@ const json = (v: unknown) => text(bedrockJsonText(v, 2));
 const geoJson = (v: unknown) => text(bedrockJsonText(v));
 const safe = (s: string) => toBedrockIdentifier(s).slice(0, 48);
 /**
+ * A Bedrock ENTITY identifier's name part may not begin with a digit: the game
+ * rejects the whole definition with "identifier cannot begin with a number"
+ * and the entity simply does not exist in world. Measured on the device
+ * 2026-09-21 — 10303's ride cart and manual seat never spawned, while the 13
+ * entities that happened to carry a prefix were fine. Most LEGO set stems ARE
+ * numeric, so every entity id must go through here; the per-kind letter keeps
+ * ids distinct and matches what already-shipped packs use.
+ */
+const entityId = (raw: string, prefix: string) => /^[0-9]/.test(raw) ? `${prefix}_${raw}` : raw;
+/**
  * Cuboids a phone can hold across ALL active add-on packs at once. Measured
  * 2026-09-18 on a Pixel 8 Pro (11.83 GB RAM, Bedrock 1.26.51.1): a world loads
  * 9 Ultra packs - 258,972 cuboids summed over the active packs, 1.58 GB
@@ -1717,7 +1727,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // the part heights (bedrock-building-shell.ts).
     if (options.shell && options.shell.bricks.length && scenery.countNonAir()) {
         const rawShell = `${id}_shell`;
-        const shellId = /^[0-9]/.test(rawShell) ? `b_${rawShell}` : rawShell;
+        const shellId = entityId(rawShell, 'b');
         options.onProgress?.(`compiling ${label} brick geometry`, 72);
         try {
             const sgeo = await compileLdrawEntityGeometry(shellId, 'prop', options.shell.bricks, {
@@ -1813,7 +1823,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     for (const c of components) {
         const rawCid = safe(`${id}_${c.id}`).length === `${id}_${c.id}`.length ? safe(`${id}_${c.id}`) : safe(`${id.slice(0, 24)}_${c.id.slice(0, 12)}_${deterministicUuid(`${id}:${c.id}`).slice(0, 8)}`);
-        const cid = /^[0-9]/.test(rawCid) ? `v_${rawCid}` : rawCid;
+        const cid = entityId(rawCid, 'v');
         const fullTypeId = `${PACK_NAMESPACE}:${cid}`;
         const requestedFacing = options.vehicleFacing && options.vehicleFacing !== 'auto' ? options.vehicleFacing : c.forwardDirection ?? 'auto';
         // A brick component's nose is inferred by the compiler from its parts
@@ -1906,7 +1916,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const figureActorIndex = new Map<number, number>();
     for (const [k, fig] of (options.figures ?? []).entries()) {
         const rawFig = `${id}_fig${k + 1}`;
-        const fcid = /^[0-9]/.test(rawFig) ? `f_${rawFig}` : rawFig;
+        const fcid = entityId(rawFig, 'f');
         const flabel = `${label} figure ${k + 1}`;
         options.onProgress?.(`compiling ${flabel}`);
         let fgeo: CompiledLdrawGeometry;
@@ -1936,7 +1946,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Manual brick-chair placement needs a real type even when the source had
     // no recognisable mould seat.  It is deliberately separate from inferred
     // seats: the wand owns its lifecycle and placement location.
-    const coasterId = `${id}_coaster_cart`;
+    const coasterId = entityId(`${id}_coaster_cart`, 'c');
     const coasterConfig = options.coasterRoutes?.length
       ? coasterRuntimeConfig(`${PACK_NAMESPACE}:${coasterId}`, options.coasterRoutes) : undefined;
     let coasterCuboids = 0;
@@ -1960,7 +1970,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         });
         warnings.push(`${coasterConfig.routes.length} measured coaster route(s): interact with the grey Ride Cart. Open tracks shuttle; riders stay upright. Device acceptance pending.`);
     }
-    const manualSeatId = options.shell ? `${id}_manual_seat` : undefined;
+    const manualSeatId = options.shell ? entityId(`${id}_manual_seat`, 's') : undefined;
     if (manualSeatId) {
         files.push(
             { name: `${bp}entities/${manualSeatId}.json`, data: json(seatBehavior(manualSeatId)) },
@@ -1974,7 +1984,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     );
     if (seatList.length) {
         const rawSeat = `${id}_seat`;
-        const seatId = /^[0-9]/.test(rawSeat) ? `s_${rawSeat}` : rawSeat;
+        const seatId = entityId(rawSeat, 's');
         files.push(
             { name: `${bp}entities/${seatId}.json`, data: json(seatBehavior(seatId)) },
             { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) },
@@ -1993,7 +2003,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
     }
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
-    const screenId = /^[0-9]/.test(rawScreenId) ? `s_${rawScreenId}` : rawScreenId;
+    const screenId = entityId(rawScreenId, 's');
     if (screens.length) {
         files.push({ name: `${bp}entities/${screenId}.json`, data: json(screenBehavior(screenId)) }, { name: `${rp}entity/${screenId}.entity.json`, data: json(screenClient(screenId)) }, { name: `${rp}models/entity/control_screen.geo.json`, data: geoJson(SCREEN_GEOMETRY) }, { name: `${rp}textures/entity/craftmatic_screen.png`, data: palettePng(['cyan']) });
         addEntityName(`${PACK_NAMESPACE}:${screenId}`, `${label} Control Screen`, false);

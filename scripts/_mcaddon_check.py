@@ -5,7 +5,8 @@ WHY. `scripts/_playable_ref.ts` and the LEGO tab both report component counts an
 warnings, and a pack can satisfy every one of them and still fail to appear in
 Minecraft: a geometry an entity names but the pack never defines, a texture path
 with no file, a behaviour pack that does not depend on its resource pack, a
-script `entry` that is not in the archive. Those are load-time failures with no
+script `entry` that is not in the archive, an entity identifier the game
+refuses to parse. Those are load-time failures with no
 in-game symptom beyond "nothing is there", and they cost a device round to find.
 
 This is not a substitute for loading the pack. It is the cheap gate that catches
@@ -58,6 +59,24 @@ def check(path):
                 full = m.rsplit('manifest.json', 1)[0] + ep
                 if full not in names: problems.append(f'script entry missing: {full}')
                 else: notes.append(f'script entry ok: {ep}')
+    # Actor identifiers Bedrock will accept. A name beginning with a digit is
+    # rejected outright ("identifier cannot begin with a number") and the entity
+    # then does not exist in world, with nothing in logcat and only two quiet
+    # content-log lines to show for it. Most LEGO set stems are numeric, so this
+    # cost a whole device round on 10303 (2026-09-21): its ride cart and manual
+    # seat were rejected while the 13 prefixed entities loaded normally.
+    ident_ok = re.compile(r'^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$')
+    n_server = 0
+    for n in [x for x in names if '/entities/' in x and x.endswith('.json')]:
+        d = json.loads(z.read(n).decode('utf-8-sig'))
+        ident = ((d.get('minecraft:entity') or {}).get('description') or {}).get('identifier')
+        if not ident:
+            problems.append(f'{n}: no entity identifier')
+            continue
+        n_server += 1
+        if not ident_ok.match(ident):
+            problems.append(f'{n}: Bedrock rejects the identifier {ident!r}')
+    notes.append(f'{n_server} server entities')
     # geometries the pack defines
     geo_ids = set()
     for n in [x for x in names if x.endswith('.geo.json')]:
