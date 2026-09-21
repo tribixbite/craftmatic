@@ -94,6 +94,16 @@ Further user requirements from the same round:
   This dissolves the "no per-seat family restriction" blocker (each car carries
   its own component-level family) and matches the source, whose three rider
   clusters sit 120 LDU apart. Under evaluation by the coaster owner.
+- [ ] Pack PROVENANCE stamp: every pack should say which export-pipeline build
+  and which source model produced it, so a pack on the phone can be identified
+  without reading `manifest.json` by hand (a device round was already lost to a
+  stale folder). NOTE the trap: git does not preserve mtimes, so a
+  "last modified" stamp differs per clone and in CI — the reproducible
+  equivalent is the last pipeline COMMIT's date/sha, or a content hash over the
+  engine sources. The web app builds packs in the BROWSER (no git, no fs), so
+  anything git-derived must be injected at build time with an honest fallback,
+  and the Bedrock `version` must stay `[int,int,int]` and MONOTONIC or the
+  stale-folder confusion returns. Owner: provenance.
 - The source minifigs do NOT need to ride the coaster; they now stay posed in
   the model geometry, which is already correct.
 
