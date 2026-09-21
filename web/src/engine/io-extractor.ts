@@ -214,6 +214,10 @@ export async function extractIoLDraw(buffer: ArrayBuffer): Promise<string> {
  * Prefer this over extractIoLDraw for rendering — Studio references its
  * bundled custom parts by name from the model, and they exist nowhere else.
  */
+/** Every readable LDraw entry in the archive, for diagnosing what a conversion dropped. */
+export async function ioEntryTexts(buffer: ArrayBuffer): Promise<Map<string, string>> {
+  return readCandidates(buffer);
+}
 export async function extractIoModel(buffer: ArrayBuffer): Promise<IoModel> {
   const entries = await readCandidates(buffer);
   const { entry: sourceEntry, text: studioText } = chooseEntry(entries);

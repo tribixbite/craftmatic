@@ -1,4 +1,6 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
 import { COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
 import { buildCoasterPath } from '../web/src/engine/coaster-path.js';
 
@@ -164,5 +166,55 @@ describe('measured coaster track profiles', () => {
     const points = extraction.routes[0]!.points;
     expect(points[0]).toEqual(points.at(-1));
     expect(() => buildCoasterPath(points, true, extraction.routes[0]!.maxSegmentLengthLdu)).not.toThrow();
+  });
+});
+
+/**
+ * The published 10303 source is a real corpus file; skip where it is absent (CI).
+ * These facts were established 2026-09-21 against the deployed render: the
+ * lift is a brick-built 4.1-degree platform that rides the tower's front
+ * column, NOT a track mould, so the course's high end hangs in mid-air at the
+ * tower by design and the vertical 25059 stack is the counterweight's guide.
+ */
+const PUBLISHED_10303 = 'C:/git/clego/lego_sets/IOModel2V2/10303.ldr';
+describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpus file)', () => {
+  const bricks = parseLDrawDocument(readFileSync(PUBLISHED_10303, 'utf8')).bricks;
+  const extraction = extractCoasterTrackRoutes(bricks, { isGeometryAvailable: () => true });
+  const near = (a: readonly number[], b: readonly number[], tolerance: number): boolean =>
+    Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!) <= tolerance;
+
+  it('places all 42 track moulds and orders the main course as one open chain', () => {
+    expect(bricks.filter(brick => coasterTrackProfile(brick.part))).toHaveLength(42);
+    expect(extraction.routes).toHaveLength(1);
+    const [course] = extraction.routes;
+    expect(course!.closed).toBe(false);
+    expect(course!.fragmentIds).toHaveLength(29);
+    // Station end (cars roll downhill toward the tower onto the platform).
+    expect(near(course!.points[0]!, [-382.41, -156.44, -580], .05)).toBe(true);
+    // High end: the 80566 tip where the raised platform hands the cars over.
+    expect(near(course!.points.at(-1)!, [-781.8, -2014.26, -579.71], .05)).toBe(true);
+  });
+
+  it('withholds the seven-piece vertical guide and the five canopy moulds, bridging nothing', () => {
+    const guide = extraction.warnings.find(warning => warning.startsWith('Withheld vertical guide/lift'));
+    expect(guide).toBeDefined();
+    expect(guide!.match(/25059:\d+/g)).toHaveLength(7);
+    expect(extraction.warnings.filter(warning => warning.startsWith('Withheld isolated track mould'))).toHaveLength(5);
+    expect(extraction.graph.gaps).toHaveLength(14);
+  });
+
+  it('has no track mould at the hand-off point: the platform, not a missing piece, closes the lift', () => {
+    const handOff = [-781.8, -2014.26, -579.71] as const;
+    // The only track connector within 200 LDU of the tip is the tip itself; the
+    // nearest other connector (the guide's top, 25059:2352:end) is ~443 LDU away.
+    const connectorsWithinReach = extraction.graph.endpoints
+      .filter(endpoint => near(endpoint.point, handOff, 200))
+      .map(endpoint => endpoint.key);
+    expect(connectorsWithinReach).toEqual(['80566:2474:end']);
+    // Elevator platform: every member carries the same 4.1-degree tilt about Z at the tower base.
+    const platform = bricks.filter(brick => brick.rot && Math.abs(Math.abs(brick.rot[1]!) - .0715) < .002 && Math.abs(brick.rot[8]!) > .9);
+    expect(platform.length).toBe(42);
+    expect(Math.min(...platform.map(brick => brick.x))).toBeCloseTo(-759.4, 0);
+    expect(Math.max(...platform.map(brick => brick.y))).toBeCloseTo(-83.9, 0);
   });
 });

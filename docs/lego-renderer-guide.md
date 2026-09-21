@@ -312,3 +312,29 @@ and placements that never rendered so the audit never saw them.
   while highlighted.
 - **LDCad snaps (offline, supplement)**: `scripts/ldcad_connectivity.py <model.io|.ldr>` uses the real LDCad shadow library to match male/female SNAP_CYL/CLP/FGR/GEN connectors. **COMPLETE but proven insufficient ALONE** — even 21063 (geometry-proven 100%) only reaches 69% via snaps, because LEGO joints are dominated by clutch/tile/flush contacts snaps don't encode. It is also the offline reference the browser table is generated from (above).
 - **Settled findings**: 21063 fully connected; **71043 has no floating pieces** (verified geometrically + visually). Don't re-litigate.
+
+## 10303 lift hand-off is a brick-built platform, not a track mould (2026-09-21)
+
+- A user report of "the top piece of the track is missing" on the deployed 10303
+  was measured against prod and the source and is **not a render or source
+  defect**. Prod loaded `IOModel2V2/10303.ldr` at hash `df3b47c3c9f2`, 3,808
+  bricks, `missing: []`, `unresolvedSubparts: []`, no track-mould request failed
+  (the only 503/404s were minifig prints resolved via aliases). All 42 track
+  placements (39 of the nine loop/ramp moulds + 3 x `26022`) are identical
+  between the archive's `model2.ldr` and the published file; the three `80566`
+  position differences are the documented `!ORIGIN_FIX` re-basing.
+- The course's high end is the `80566` tip at model LDU
+  `[-781.8, -2014.26, -579.71]`, heading +X, hanging in mid-air at the tower.
+  That is the design: the lift is a **brick-built platform** (42 members, all
+  tilted 4.1 degrees about Z, x -759..-422, z -600..-560, parked at the base
+  y -170..-84) riding the tower's front column on 6 x `55981` + 8 x `4185`
+  wheels. Cars roll off the station straight (which descends toward the tower)
+  onto it; raised ~1,860 LDU its -X end meets the `80566` tip and the cars
+  roll downhill through the U-turn into the vertical drop.
+- The seven vertically stacked `25059` (x -578, z -260, y -4..-2244) are the
+  **counterweight's guide**, not a car path: a dark-blue `26021` chassis with
+  4 x `24869` wheels rides them, parked at the top while the platform is down.
+  The ~390 LDU between that guide's top and the course's high end is
+  therefore not a track gap and no rail belongs there; the "authored transfer
+  mechanism" the route extraction asks for is the platform's translation.
+  Regression: `test/coaster-track.test.ts` ("published 10303 route").
