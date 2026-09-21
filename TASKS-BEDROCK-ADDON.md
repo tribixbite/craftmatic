@@ -1,390 +1,209 @@
 # LEGO model → Bedrock add-on — tracker
 
-**Handoff rule:** assume a context switch after every turn. This file holds OPEN
-work and the measurements a decision still needs. Completed items are deleted;
-history is `git log` and `docs/bedrock-addon-guide.md`, which carries every
-hard-won fact (frame, budgets, Pixel import/command/camera recipe, riding facts,
-the 2026-09-15/16 rounds, the minifig rig, the building shell, the model scale
-and the wand's size/aim). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
+This file holds open work and the evidence needed to resume. Completed history
+belongs in `git log`, `docs/lego-sources-guide.md`, and
+`docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## Active round (2026-09-20 — authorized: "do all"; local changes only)
+## Active round — 2026-09-20, user: “do all”
 
-- [ ] A/B MecabricksLDR and DbixConvV3 figures and DbixConvV2 windows,
-      snapshot originals, inspect regressions, then apply validated repairs.
-      Owner: corpus agent; evidence `output/corpus-improvements-2026-09-20/`.
-- [ ] Recover missing ReconV3 torso placements from runtime-legal evidence;
-      opt-in reader implemented (`85ddc410`), but 70100 visual trial regresses
-      unrelated placements. Default OFF; no corpus promotion. Next: avoid
-      reallocating the existing inventory when adding a torso.
-- [ ] Refresh the complete quality board and enable the calibrated window gate.
-- [ ] Run controlled same-camera crowded LOD A/B and a clean-world chalet
-      roaming experiment. Near/far transition measured, but camera distance
-      confounds LOD's effect; device state restored after flaky ADB input.
-- [ ] Reconcile stale tracker claims, run checks, commit owned changes. No push,
-      publish, or history rewrite. Existing clego dirty files remain user-owned.
+Local implementation and validation only. **No push, R2 publication, tag,
+release, or history rewrite is authorized.** Do not promote a model merely
+because an aggregate metric improves.
 
-Local Craftmatic starts at `741f6700`. Clego tracking refs are diverged
-(523 ahead / 249 behind at assessment, not freshly fetched). The loader already
-has a measured-alignment magnitude bound; unmeasured moulds remain exempt.
-Sandbox process startup currently fails `CreateProcessWithLogonW failed: 2`;
-scoped elevated PowerShell commands work. Pixel `192.168.0.122:5555` is online.
+Read next: sources guide §6b, §8b–8e, §9, §10; add-on guide's final sections.
+Evidence root: `output/corpus-improvements-2026-09-20/`.
 
-Implemented locally: publisher CLI/failure/race checks (`c8bd5ce6`, `d7e52f0a`),
-MPD-local repairs (`f540c89b`), inclusive window gate and all-source grading
-(`e5f20b21`), per-row time/content-hash index freshness (`7d74c064`). No upload.
-Publisher also validates all index/source hashes (`60076051`, 16 tests).
-Craftmatic checks: both typechecks pass; full Vitest suite 1,761 passed /
-26 skipped (118 passed files / 1 skipped), log `craftmatic-tests.log` in the
-round evidence directory. Missing-torso unit tests: 13 passed.
-Full upstream board running in `output/corpus-improvements-2026-09-20/board/`;
-logs `board-run.log` and `board-resume.log`, 20,764 sources. Current pool is
-16 workers with `OPENBLAS_NUM_THREADS=1`; 763 saved rows survived restart.
-After corpus applies, resume hash-aware
-grading before reporting/rebuilding. Commands from `C:/git/clego`:
-`python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 16 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
-(set `CLEGO_LDRAW_LIB=upstream`), then
-`python build_model_index.py --scoreboard C:/git/craftmatic/output/corpus-improvements-2026-09-20/board/scoreboard_full.json --out C:/git/craftmatic/output/corpus-improvements-2026-09-20/candidate-index.json`.
+- [ ] Finish corrected figure A/B for MecabricksLDR and DbixConvV3 and window
+  A/B for DbixConvV2. Owner: corpus agent; evidence `corpus-repairs/README.md`.
+  Original Mecabricks trial: 1,037 touched, figure defects 3,166→380, but
+  per-file overlap/sunk regressions and needless pose changes prohibit broad
+  application. Slot-owner instability fixed in clego `bb1adb01`; fresh trials
+  are rerun-stable on all 1,020 Mecabricks and 644 DbixV3 touched outputs.
+  Window trial: 299 files / 1,985 panes, all rerun-stable; full A/B pending.
+  Accept only improved, nonregressing, pose-reviewed files, with exact backups
+  and before/after hashes. No archive recovery on these generated classes.
+- [ ] Finish the complete upstream board and build a **candidate** index.
+  Current job: `board/`, logs `board-run.log` and `board-resume.log`;
+  20,764 sources, 763 completed rows retained at restart, 16 workers,
+  `OPENBLAS_NUM_THREADS=1`. Before restarting, inspect the active process
+  command line: never run two writers against this journal.
+  After accepted corpus changes, resume grading so content hashes invalidate
+  changed rows. From `C:/git/clego`, with `CLEGO_LDRAW_LIB=upstream`:
+  `python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 16 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
+  then
+  `python build_model_index.py --scoreboard C:/git/craftmatic/output/corpus-improvements-2026-09-20/board/scoreboard_full.json --out C:/git/craftmatic/output/corpus-improvements-2026-09-20/candidate-index.json`.
+  Inspect errors, missing/stale grades, indexed hash coverage, and pick changes
+  before adopting it. Do not fresh-date old measurements.
+- [ ] Finish publisher content-bound resume receipts. Owner: publisher agent.
+  Current hardening already rejects unknown CLI flags, upload failures, source
+  races, and index/local hash mismatches. Legacy path-only resume entries still
+  cannot prove remote bytes; unchanged-content receipts must close that gap.
+  Actual read-only preflight correctly refuses the changed 40746 source until
+  the index is rebuilt (`publish-preflight.log`).
+- [ ] Finish measured-bound geometry enrichment review. Owner: MPD agent.
+  Audit found actual meshes for 34 previously unmeasured rows; verify the
+  recursive upstream-before-Studio resolution ladder before accepting new
+  diagonals. **80911 already had a diagonal and was rejected by the bound**;
+  the old “no bound / 13 displaced doll hairs” tracker claim was stale.
+- [ ] Missing-torso placement remains gated. `beam.build(..., recover_torsos=True)`
+  is experimental/default OFF (`85ddc410`). Inventory recovery works, but
+  70100 globally reallocates unrelated parts and leaves an exploded figure.
+  Controls 31045/75031/8533 retain scores; zero scalar figure defects is not
+  acceptance evidence. A post-allocation arm-anchor prototype avoids global
+  re-layout but adds sunk hips on 40300. Next: unique opposite-arm pair,
+  bounded spacing/support, floor-aware hips/legs, abstain on ambiguity, wider
+  visual A/B. Evidence `torso-reader/`, `torso-reader-final/`,
+  `torso-reader-local-anchor/`. No trial reader model promoted.
+- [ ] Reconcile final evidence, rerun affected checks, update guides, and commit
+  own changes. Preserve user-owned dirty files below.
 
-## Previous deployment (2026-09-20 — corpus rounds on windows + figures live)
+Implemented locally: window gate ≥2 and all-alternative grading
+(`e5f20b21`), per-row time/SHA256 index freshness (`7d74c064`), MPD-local
+repairs (`f540c89b`), strict publisher/race/hash checks (`c8bd5ce6`,
+`d7e52f0a`, `60076051`). MPD 40746 accepted on disk: figure 10→6,
+window 1→0, other metrics unchanged; source SHA256
+`b1fafa93b2a2c7216b5c138988d6521af600a9bddb72c22a33ab9a343ef2dce2`.
+40809 remains evidence-only because floating parts rise 10→11; see `mpd/`.
+MPD repair is section-local, not cross-submodel matching; repeated definitions
+also preclude archive inventory recovery.
 
-Last recorded deployment: `05e024a8`, CI `35513740098` + Deploy `35513740104`
-green, `bun run test` 1,755 passing. Prod served index `64c4746eb7e7` on the
-plain URL: **every indexed entry graded** (ungraded 4,716 -> 0), 9,066 verified
-/ 11,698 defective stamps, `models[0]` verified 5,343 -> 5,652. clego is
-**NOT pushed**: the earlier 511-commit/630 MB snapshot-growth assessment is
-historical; see current tracking-ref divergence above. Will decides whether to
-gitignore/rewrite before pushing. The corpus on disk is
-NOT git-tracked (`lego_sets/` is ignored) — R2 is its only durable copy.
+Checks before the current alignment enrichment: both TypeScript checks pass;
+Vitest 1,761 passed / 26 skipped (118 files passed / 1 skipped);
+combined clego figure/window/reader/index tests 153 passed; publisher 16 passed.
+Logs: `craftmatic-tests.log`. Recheck after concurrent code changes.
 
-Handoff for a fresh session: read this file, then `docs/lego-sources-guide.md`
-§6b (figures v2), §8b-8e (visual review, reconciliation, sync trap), §9
-(windows), and `docs/bedrock-addon-guide.md`'s last four sections (five
-proposals, ceiling run, LOD verified). Memory index:
-`~/.claude/projects/C--git-craftmatic/memory/MEMORY.md`.
+## Repository and publication boundaries
 
-### Shipped this round — detail in `git log` / the guides, kept where a decision needs the number
+Craftmatic began at `741f6700`. Clego refs were 523 ahead / 249 behind at
+assessment (not freshly fetched); the older 511-commit/630 MB snapshot-growth
+figure is historical. Ask before rewriting history. Do not recommit large
+scoreboard/index snapshots; this round's board is isolated under output.
 
-- **Figures, v2** (`clego/recon_figure_assemble.py`, wired into
-  `recon_v3/beam.py`): the v1 pass never ran on a torso-less file, and the
-  torsos are missing because Studio leaves every PRINTED figure part in the
-  `.io`'s `errorPartList.err`, which the reader's inventory never reads. v2
-  runs the torso-less passes and recovers a dropped part onto the torso that
-  is missing it; the same socket snap at radius 700 fixes `EurobricksLDD`,
-  whose LDD conversion flings both arms 187–648 LDU. **873 files rewritten,
-  861 republished to R2**; corpus figure defects 12,781 → **8,837**, 192 files
-  DEFECTIVE → PASS, 0 duplicates introduced. `docs/lego-sources-guide.md` §6b.
-- **Class-B mould mismatch re-framed exactly** (`clego/class_b_census.py`,
-  `class_b_apply.py`, wired into `reconvert_dbix.py`, the Mecabricks harvester
-  and `recon_v3`): 8,073 of 12,868 primary placements are the SAME mould in
-  another frame (70681 is a 20 LDU shift, not a different part) and were
-  rewritten in place across 3,800 generated files (21,309 placements incl.
-  alternates). **The grader now resolves parts UPSTREAM-first**
-  (`CLEGO_LDRAW_LIB=upstream`, prod's ladder) — the running board is the first
-  graded that way. The `.io`/`.lxf` picks are re-framed CLIENT-side
-  (`class-b-reframe.ts`, verified in the browser: 60118 6, 21061 80). Not
-  covered: 108 `different` stems (4,795 placements). §7a.
-- **Mecabricks A/B against ORIGINAL bytes** (`geograde/_ab_prev.py`): the
-  regen-vs-regen caveat is closed — 477 files 4,577 → 706 figure defects, 33
-  search files 178 → 76, nothing else moved. §7.
-- **The Milano stands on its hull** (`bd3e7dc0` + the fittings fix): the stand
-  drop now continues through the mast (5 beams + 3 pins on 76286,
-  `standContinued: 8`, `strandedRepaired: 0`); the device saw it hovering on
-  a stalk because the render frame grounds the model on its lowest cuboid.
-  `output/device-919/76286-v2.mcaddon` is on the phone and **PASS at 100 %**
-  (`ceiling/shots/milano-v2-100-view.jpg`); 400 % not yet looked at.
-- Device round 1 (Opus, `output/device-919/HANDOFF.md`): 3 packs built and
-  activated in world 919 (77,345 cuboids = 29.7 % of the ceiling); **culling
-  at 100 % PASS** (origin 69.5° off-axis, hull intact); place latency
-  2.1–5.3 s. Incident: the Play screen's LAN tile shifts local worlds one
-  slot — read the tile LABEL before every tap.
-
-### Corpus — what is live and what is next (2026-09-20)
-
-Live on prod this round, all verified by sha on the plain URL: **windows**
-(`recon_window_assemble.py`, 545 files / 2,100 panes seated, 500-sample
-off-frame 80 -> 14 placements, 19 -> 6 sets; §9), **figures v2**
-(`recon_figure_assemble.py` reads Studio's `errorPartList.err`, runs on
-torso-less files; corpus figure defects 12,781 -> 8,837, 192 files flip to
-PASS; §6b), **37 visual source switches** (§8b), 4,716 + 61 + 366 + 873 fresh
-stamps. Local `sync_models_r2.py` now safely supports `--help`, `--status`,
-`--dry-run`, and `--no-index`, rejects unknown flags, and blocks index upload
-on failed model PUTs or concurrent changes (§8e).
-
-- [ ] **Figure residue, next targets** (§6b): `MecabricksLDR` 2,593 defects /
-      502 picks and `DbixConvV3` 1,459 / 490 are now the biggest blocks;
-      `HuntArchiveLDR` the worst rate (13.4 per pick, 52 picks). ReconV3's
-      remaining 3,440 are torso-less files whose torsos have no anchor — needs
-      the READER to place them (`# TODO(recon)` in the module).
-- [ ] **Windows, next**: `DbixConvV2` (2,070 panes / 303 files, run
-      `--src DbixConvV2 --in-place`), MPD sources, `.io` archives, EurobricksLDR
-      (8 hand-authored). `window_defects >= 2` is now gated locally; the full
-      regrade is running before index adoption. The DBIX per-mould
-      constant offsets are a wrong learned alignment row; the snap hides it.
-- [ ] **Override table hygiene**: 8 `BEST_OVERRIDES` rows are no-ops and 10
-      point at a `conv: 1` entry the 2026-09-09 rule forbids
-      (`geograde/rerank_visual_2026-09-20.json`). Six visual accepts were
-      judgement calls on near-identical pairs (71425, 71441, 71481, 72035,
-      80117, 72045); 71439/71440 rejected as "cannot tell".
-- [ ] `28710` (and `30426`, `x346`) have no mould anywhere.
-- [ ] 41 MB rollback snapshot of the pre-window bytes at
-      `clego/geograde/_window_round/before_bytes/` (gitignored) — delete when
-      the round is trusted.
-
-### Five files are dirty in clego and are NOT this round's
-
+Five pre-existing dirty clego files are NOT owned by this round:
 `mecabricks_align.json`, `geograde/mb_fix_report.json`,
-`geograde/mb_fix_report_MecabricksSearchLDR.json` (the Mecabricks fit tables,
-also carrying 17 `stem-mesh` rows from another agent), `discovery/eb_ldd_sample_grades.json`,
-`recon_v7_work/pdfpick_cache.json`. Left alone; do not sweep them into a commit.
-This round's board artifacts are isolated under Craftmatic output; do not
-recommit large snapshots or sweep old reports into feature commits.
+`geograde/mb_fix_report_MecabricksSearchLDR.json`,
+`discovery/eb_ldd_sample_grades.json`, `recon_v7_work/pdfpick_cache.json`.
+Never stage them with feature work. `lego_sets/` is ignored: preserve local
+byte snapshots; do not force-add the corpus. No local corpus apply is live
+until separately authorized publication.
 
-### Device rounds 2026-09-19/20 (world 919) — what is open on the phone
+Last recorded deployed index: `64c4746eb7e7`, 9,066 verified / 11,698
+defective entries, 5,652 verified primaries, zero ungraded. These are historical
+pre-round measurements, not the result of the running board. Previous window
+republishing and beam wiring are complete; do not repeat stale §9.8 commands.
 
-Durable numbers in `docs/bedrock-addon-guide.md`; evidence
-`output/device-919/{REPORT,ceiling/CEILING,lod/LOD-RESULT,round-2026-09-20/REPORT}.md`.
-Done: culling PASS at 100–400 %, collider clear PASS, ceiling 487,856 cuboids
-survived (budget 480k), LOD switch verified (26–28 blocks), **Milano grounding PASS at 100/200/400 %**
-with `76286-v3` (`cd1954c1`; `round-2026-09-20/GROUNDING-RESULT.md`).
+Sandbox shell startup fails `CreateProcessWithLogonW failed: 2`; scoped elevated
+PowerShell works. Use explicit shell and `login:false`.
 
-- [ ] **Controlled crowded LOD test:** three actors at 20–25 blocks measured
-      near/full p90 33.40 ms, far/hull 16.74 ms (62 frames each). Camera distance
-      and screen coverage differ, so repeat full/hull at one fixed camera with
-      longer alternating samples. `output/corpus-improvements-2026-09-20/device/REPORT.md`.
-- [ ] **Chalet roaming**: collision height 0.95 freed 1 of 7 (control 0 of 7,
-      `--figure-collision-height`, `811f4fb0`). The 2026-09-20 follow-up was
-      aborted before world load because wireless ADB repeatedly dropped during
-      chat input; both worlds' pack JSON was byte-restored. Next: height from
-      each figure's interior clearance, four-walker denominator, ≥10 min dwell.
-      "blank" world still has the h095 pack.
-- [ ] 76435 at 400 % shows small detached objects above the roofline
-      (`shots/226-all3-view2.jpg`): `extras` at source positions or polish-parked
-      parts of the regenerated file?
-- [ ] Phone carries 3 round packs + 14 ceiling packs + `WinterChal(1)`,
-      `Titanic102(1)`, `Colosseum1(1)`, `TajMahal10(1)`, active in no world 919
-      slot; removal is file-manager only. `/sdcard/Download/dev920-*.mcaddon`
-      can be removed over adb.
+## Device work — state restored
 
-### Measured and CLOSED — do not re-open
+Pixel `192.168.0.122:5555`; Minecraft 1.26.51. Latest report:
+`output/corpus-improvements-2026-09-20/device/REPORT.md`.
+World 919's original three pack versions and blank's original h0.95 version
+were byte/SHA256-restored; test actors removed with a coordinate-bounded
+selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
 
-- **Entity instancing of part geometry: NO-GO.** Bedrock cannot instance
-  geometry inside an entity (no reference key in any format version;
-  `geometry.child:parent` is invalid in modern formats; a render controller draws
-  one geometry with no per-controller transform). The mesh IS shared between
-  instances of one entity TYPE — a second summon of the 71043 shell costs
-  +10.3 MB against 148 — so 93 % of the cost is definition-side. But an Actor
-  costs **31-48 kB** against a 10 kB gate and 2,000 of them DOUBLE frame time
-  (6,000 run at 7.5 fps with none on screen, so it is not overdraw); 71043 would
-  need 1.23 GB of Actor overhead against 148 MB today. Blocks instance but are
-  dead here: a part-block needs 20,480 permutations against a 65,536 world cap,
-  and voxel-signature dedup measures 1.01-1.07x at shipped scale, because the
-  28.7x cuboid-level dedup does not survive being cut on a world grid. 71043 is
-  not even one lattice — 46.7 % of its cubes sit in a frame yawed 53.3 degrees.
-- **A resident "master" part library, instanced per set: still NO-GO, for a
-  corrected reason (2026-09-19, second pass).** The 534,354-cuboid whole-library
-  number is right but was the wrong question: ranked by sets-per-cuboid, a
-  7,563-part library costs 259,957 cuboids (1.00x the ceiling) and fully covers
-  7,201 of 10,169 sets (70.8 % by resolvable parts, 62.4 % strictly), and at
-  half the ceiling (130k) the median set's residue is 71 cuboids (p90 425). What
-  still kills it is the CONSUMER: a block cell holds one block, and at minifig
-  scale 71043 has 3.1 placements per cell (9.8 % of placements alone in theirs),
-  10307 2.9 (9.9 %); the 65,536 permutation cap is per WORLD and is NOT the
-  problem (659 / 1,632 permutations for those two sets). And the library IS the
-  ceiling: the entity route ships a median set for ~3,600 cuboids, 36-70x less
-  device memory than a resident library. Corrected working, frontier tables and
-  the five harnesses: `docs/bedrock-addon-guide.md`, last section.
-- Better cuboid merging (0.1 % left), smaller atlases (textures <= 0.85 MB),
-  chunking overhead (2.6 % of bytes).
-- The `split0` union repair: it recreates a false positive on authentic `.io`
-  (42202 goes 0 -> 87 big-floating).
-- Guard rails from the same round: **~50-100k VISIBLE cuboids hold 60 fps,
-  ~150k hold 30**; killing 6,000 entities leaked 142 MB.
+- [ ] Controlled crowded LOD A/B: three roots 20–25 blocks from camera measured
+  near/full p90 33.40 ms versus far/hull 16.74 ms (62 frames each). Moving the
+  camera changes screen coverage, so this is a transition observation, not an
+  isolated LOD effect. Repeat full/hull with identical actors/camera and longer
+  alternating samples. Active definitions 80,210; drawn 71,884 versus 3,160.
+- [ ] Chalet roaming: old h1.8 control 0/7 versus h0.95 1/7. New dwell trial
+  aborted before world load due repeated ADB chat-input drops. Keep seated
+  figures 4/5/6 out of the walker denominator; census walkers 1/2/3/7 for ≥10 min.
+  Test local clearance before changing global height. Walkers have floor
+  support but ceilings/head-cell colliders; an actor moved to open grass walks.
+  Alternative: nearest navigable porch/garden cell. Blank still intentionally
+  has its restored h0.95 pack; deactivate it explicitly for a future clean test.
+- [ ] 76435 detached roofline objects at 400%: distinguish source extras from
+  polished/parked parts. Source is exploded (42 clusters); IO/76435.io has
+  70 clusters and no IOModel2V2 replacement exists.
+- [ ] Remove only the confirmed obsolete inactive pack folders via file manager
+  when approved/identifiable: 3 round + 14 ceiling + WinterChal(1),
+  Titanic102(1), Colosseum1(1), TajMahal10(1) were recorded previously.
+  Inventory again before removal; some counts may overlap. ADB removal was
+  denied. Do not remove active packs or user worlds.
+- [ ] Device visuals for 71043/76435 source repairs; pack archive checks do not
+  establish rendered content quality. Dense 71043/31201 exports need Ultra detail.
+- [ ] Human/device input gates: look-down dive under chase camera; joystick
+  steering; X-wing walk cycle / first-person cockpit; sitting thigh sign;
+  doors/lights omitted at 200% confirmed only by dialog text; door tapping
+  (1/7) and museum “no room within three blocks”; figure home/edge restraint.
+  ADB look swipes did not work, /rotate absent, /tp dismounts riders.
+  Historical single-pointer/SELinux findings may differ on the now-rooted phone.
 
-### Still open from the 18-set round
+## Other corpus and renderer backlog
 
-- [ ] **76435's loose parts are its exploded source** (42 clusters). The guide's
-      "cut buildings from the `.io`/IOModel2V2" advice is WRONG for this set —
-      there is no `IOModel2V2/76435`, and `IO/76435.io` is 70 clusters, worse.
-- [ ] **`io_part_count` inflation** demotes the authentic `.io` for 390 of 406
-      sets. **Do not fix the count alone** — the app cannot render those `.io`s
-      better yet (`io-extractor.ts` prefers `model.ldr`, whose `bl_*.dat` refs do
-      not resolve; `ldraw-parser.ts:237` needs `!LDRAW_ORG Unofficial_Part`,
-      which Studio omits).
-- [ ] **4 part ids abstain from rotation** (`35186` x81, `4526` x14, `35473` x5,
-      `5443` x2) — near-symmetric, translated correctly, may face the wrong way.
-- [ ] A part can be lost to upstream 503s (one 10303 load gave 3,814 instances
-      instead of 3,816); `# TODO` in `docs/testing-guide.md`.
-- [ ] **Loader bound coverage:** measured alignments are bounded; unmeasured
-      moulds remain exempt. Audit the 80911 doll-hair vote (1085, 23, -310 LDU).
-- [ ] Dolls are excluded from minifig `held` parts but are still not rigged.
-- [ ] **Class B residual.** 108 `different` stems / 4,795 placements have no
-      exact overlay (needs a per-stem alias to an upstream file with Studio's
-      geometry; none found by description). The `.io`/`.lxf` picks are now
-      re-framed client-side (`abea544e`, `class-b-reframe.ts`) — verified by
-      browser loads as well as unit tests (60118: 6, 21061: 80 re-framed).
-      `docs/lego-sources-guide.md` §7a.
-- [ ] **Windows, what is LEFT** (all measured 2026-09-20, `docs/lego-sources-guide.md`
-      §9.3/§9.7):
-      - `eurobricks` 8 off-frame placements in 1 of 43 picks: `EurobricksLDR` is
-        hand-authored and outside the repair's generated-sources allow-list.
-        Decide whether to admit it (its class is only 18 % PASS).
-      - MPD-local repairs now work; cross-submodel figure/pane claims remain
-        unsupported. 40746 trial improves without metric regressions; 40809
-        gains a floating part and remains unapplied. Evidence `output/corpus-improvements-2026-09-20/mpd/`.
-      - `io`: `.io` archives are not LDraw text; the client-side path
-        (`io-extractor.ts`) would have to apply the seats.
-      - `DbixConvV2` is untouched and would give **2,070 panes in 303 files** —
-        `python recon_window_assemble.py --src DbixConvV2 --in-place`. Left out
-        to keep this round's publish small.
-      - The DBIX constant-offset panes (43222's 21 x 79.9 LDU) are a wrong
-        LEARNED ALIGNMENT ROW. The snap hides it; the row itself is still wrong
-        and will come back on a regeneration that does not run the snap.
-- [ ] **Figure defects — what is LEFT after the v2 assembler (2026-09-20).**
-      Corpus 12,781 -> **8,837** over 10,169 picks; ReconV3 6,093 -> **3,440**,
-      EurobricksLDD 1,487 -> **196**, 192 files DEFECTIVE -> PASS. Cause and
-      numbers: `docs/lego-sources-guide.md` §6b, clego GEOGRADE.md root cause F.
-      Open, in priority order:
-      - **ReconV3's 3,440 are the TORSO-LESS files** (`orphan_hand` 2,181,
-        `torso_no_hips` 413). Their printed torsos are in the `.io`'s
-        `errorPartList.err` with no anchor in the file to hang them on, so the
-        repair has to move into the READER — `recon_v3` must place them, not
-        just name them. Measure first with
-        `python geograde/figure_residue.py --src ReconV3 --workers 12 --out <f>`.
-      - `MecabricksLDR` **2,593 / 502 picks** and `DbixConvV3` **1,459 / 490**
-        are untouched by v2 and are now the two biggest blocks.
-      - `HuntArchiveLDR` has the worst RATE left: 52 picks, 25 affected,
-        **13.4 defects per affected pick**, nothing ever aimed at it.
-- [ ] **The minifig creator wand is designed, not built.** Architecture and an
-      ordered plan with its vitest assertions: `docs/minifig-creator-wand.md`;
-      typed skeleton `web/src/engine/minifig-creator-types.ts`, imported by
-      nothing yet. Steps 4 and 6 of that plan each need a device round.
-- [ ] Two grader false-positive classes left deliberately: a torso whose neck
-      holds a cone rather than a head (a fix would only loosen what the rule
-      means), and a `Minifig Leg Medium` band that cannot be refitted because no
-      authentic example of that pair exists anywhere in OMR.
+- [ ] Remaining figure residue after this round: HuntArchiveLDR (52 picks,
+  25 affected; old mean 13.4 defects/affected pick), decorated Mecabricks torsos
+  (47 unresolved refs / 256 placements in 55/2,002 arm-bearing files), and
+  posed wrists. Map decorated 973j/973aq identities without misclassifying 2550
+  monkey body; do not canonicalize intentional arm poses.
+- [ ] Windows: hand-authored EurobricksLDR (8 off-frame placements / 1 of 43
+  picks) needs explicit policy/visual review; .io requires an archive/client
+  path; cross-submodel MPD pairs unsupported. Fix DBIX's wrong learned constant
+  offsets upstream so regeneration cannot undo a seating pass.
+- [ ] Override hygiene: re-audit eight formerly no-op rows and ten conv:1
+  targets against the candidate index and actual frontend ranking before
+  removing them. Six near-identical visual calls remain reviewable:
+  71425, 71441, 71481, 72035, 80117, 72045; 71439/71440 were rejected.
+  Evidence `clego/geograde/rerank_visual_2026-09-20.json`.
+- [ ] `io_part_count` inflation demotes authentic .io in 390/406 sets. Do NOT
+  fix the count alone: model.ldr's bl_* refs and Studio's omitted
+  !LDRAW_ORG Unofficial_Part header still need renderer support.
+- [ ] Class-B residual: 108 different stems / 4,795 placements need actual
+  geometry aliases. Exact reframes already browser-verified (60118:6,
+  21061:80), not merely unit-tested.
+- [ ] Four rotation abstentions: 35186×81, 4526×14, 35473×5, 5443×2.
+  Strict LXF cohort remains ~41% Technic / ~65% System; flex synthesis and
+  equivalent-pose scoring are open (`output/lxf-gt/strict-hybrid_xml_first.json`).
+- [ ] Upstream 503 can still lose parts (10303 once 3,814 instead of 3,816);
+  see testing guide TODO. Missing moulds: 28710, 30426, x346.
+- [ ] Mini-dolls are excluded from minifig held-part classification but not rigged.
+  76419's microfigure auto-scales 2×, but its four-part torso group is not an NPC.
+- [ ] Grader false-positive work: wheel/tyre, hand/weapon, axle/hole encased
+  overlaps; inspect pairs before treating the old 52-file overlap tail as bad.
+  Deliberate gaps: cone on torso neck and uncalibrated medium-leg band.
+- [ ] Minifig creator wand: designed, not built. See
+  `docs/minifig-creator-wand.md`; types are unconsumed; plan steps 4/6 need device.
+- [ ] Source compact-layout quality flag: staged DBIX instruction layouts can
+  remain spread despite arm repair; proposed density threshold ~0.3 parts/stud²
+  needs validation, not automatic promotion.
+- [ ] World-block mirror (x,y,z → x,−y,z) is a separate explicit decision: changing
+  it changes every schematic. Entity frame −I currently matches that grid.
+- [ ] Beds/brick-built chairs undetected; door sizing/straddled-cell duplication
+  and <¾-scale leaf height; 910047 sparse fill 17%; repeated-part budget
+  (76240 70695×184); Tumbler 32-LDU grain reads 14.5 wide versus 11.5 true;
+  figure hair/stud height 2.03 blocks; unused _chase/_boom presets.
+- [ ] Retain rollback snapshots until trusted, including the 41 MB pre-window
+  `clego/geograde/_window_round/before_bytes/`; do not delete during validation.
 
-## The add-on chain and its CLI gates
+## Closed architectural routes — do not reopen without new evidence
 
-```
-lego.ts ─► ui/schem-export.ts (planAddonScale → cell + modelScale) ─► Worker: schem-pipeline.ts
-   ├─ discoverPlayableComponents()   playable-components.ts  (named submodel ≥ ½ wins)
-   ├─ discoverSceneActors()          bedrock-scene-actors.ts (figures / seats / door leaves)
-   ├─ shell = scenery − vehicles − figures − door leaves   (buildingFidelity 'bricks', default)
-   └─ buildPlayableAddon(modelScale) playable-addon.ts
-        ├─ every compile at BEDROCK_UNITS_PER_LDU × modelScale; extras at LDU_PER_BLOCK / modelScale
-        ├─ every behaviour wrapped by withSizeGroups() (size_25..400)
-        ├─ shell → buildColliderGrid → encodeColliderRuns → PlacementColliders in the wand config
-        └─ buildPlacementPackAssets(): aim / size / fine-turn runtime
-```
-CLI gates: `bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--main-only] [--buildings=bricks|blocks] [--scale=auto|0.25..4]`;
-`bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 …`; `python scripts/lxf_gt_eval.py --all --variants shipped`
-(strict cohort: a `[Model B]` .lxf only against a `[Model B]` .io; results `output/lxf-gt/strict-*.json`).
-**A CLI label must read as the vehicle** (`--label="X-wing Starfighter 7140"`; `XWing 7140` exported a shell + figures, no plane).
+Entity-per-part instancing and a resident master part library are NO-GO;
+Bedrock actor overhead (31–48 kB each), lack of geometry-instance transforms,
+and multi-placement-per-block occupancy defeat them. Detailed corrections and
+measurements are in the add-on guide, not a proposal to repeat these trials.
+Cuboid merging has only 0.1% left; textures ≤0.85 MB; chunk overhead 2.6%.
+split0 union repair creates false positives on authentic .io.
+Measured device guardrails: resident ceiling 487,856 (budget 480k), roughly
+50–100k visible cuboids for 60fps / 150k for 30fps; 6,000 entities leaked 142 MB.
+Culling 100–400%, collider clear, and Milano grounding 100/200/400% are verified.
 
-### Carried forward from the 2026-09-17 device round
+## Hard rules and entry points
 
-- [ ] **Chalet figures do not roam inside the shell: 0 of 7 moved over 6.5 min** (round b 2 of 7,
-      round 1 1 of 7). Figures 4/5/6 are seated (by design). Walkers 1/2/3/7 spawn at +4.06 / +2.19
-      / +3.94 / 0.00 with a `craftmatic:collider` under the feet (lo 0, hi 1 / 3 / 15 / a slab above
-      fig 7) and a collider in the head cell for 1, 2 and 7 - i.e. they stand correctly on floor
-      plates under a ceiling ~2.25 blocks up. A `/tp`'d figure on open grass walks at once (round 1).
-      Hypothesis: mob navigation needs TWO full air cells above a walkable block (the 1.8-tall
-      player fits under a 2.25 ceiling, the nav mesh does not), so every interior cell is
-      unpathable. The 1.8 → 0.95 collision-height trial freed only 1 of 7;
-      repeat in a clean world with longer dwell before deriving per-figure
-      clearance. Alternative: spawn figures OUTSIDE the footprint (porch/garden cells).
-
-### Still unverified on a device
-- [ ] Whether LOOK DOWN still dives under the script chase camera — **not testable from adb**:
-      look-area swipes do not register, `/rotate` does not exist in 1.26.51, and
-      `/tp @s … facing …` dismounts a rider. Needs a human, or a debug command that sets pitch.
-- [ ] Joystick steering on 1.26.51: the round-5 stick centre (337,550) is the LOOK area now and
-      no probe found the ring. Two simultaneous touches are impossible from adb (single pointer;
-      `sendevent` on `/dev/input/event2` is SELinux-denied for shell, phone unrooted). Workarounds
-      that DO work are listed in the round's notes (stylus source = 2nd pointer;
-      `input keyboard keyevent --duration` holds a key; SPACE dismounts a rider).
-- [ ] Doors/lights left out at 200 % is confirmed only by the confirm dialog's own text.
-
-
-### Interpenetration: not fixed by this round, and mostly not a defect either
-
-Will's report named three symptoms. Floating and misplaced are answered above.
-**Overlapping is untouched** by the arm fix — only arm lines moved, so
-`overlap_parts_pct` is bit-identical across the 1,259 changed files: mean
-**0.148 %**, max **5.97 %**, **52 files above geograde's 1.0 % threshold**,
-while the median file is exactly 0 and 979 of 1,259 are clean. (Sunk parts do
-improve slightly as a side effect, 791 → 768.) Both sets Will photographed
-measure **0.00 %**, so this tail is not what he saw.
-
-**Then the tail was examined, and it is largely a GRADER limit.** Grading the
-seven worst and tallying `worst_overlaps` by part: **`6014b` Wheel Rim 12 x 11
-dominates — 16 instances / 1,792 LDU³ across 5 of the 7 files** — followed by
-`5330` Minifig Weapon Hilt, `69754` Projectile Launcher, `32062` Technic Axle 2
-and `32016` Angle Connector. Those are rims inside tyres, a hilt inside a hand,
-an axle inside a hole: legitimate insert geometry. GEOGRADE.md states its 8 LDU
-erosion cancels "studs in tubes, axles in holes, bars in clips", and a rim
-seated in a tyre is a deeper insert than that, so it survives erosion and scores
-as bulk-inside-bulk. **Before treating any of these 52 files as broken, check
-whether its worst overlaps are a wheel/tyre or hand/weapon pair.** The real work
-here is a geograde exemption for encased pairs, not a converter change.
-
-
-- [ ] **`mecabricks` residual, after the minifig fix shipped** (clego `5810501d`;
-      full write-up in `docs/lego-sources-guide.md`). **55 of 2,002 arm-bearing files
-      (2.7 %) still have no resolvable torso**: Mecabricks decorated refs `973j`,
-      `973aq` … (47 refs / 256 placements) that LDraw names `973pNNN`, emitted
-      verbatim and resolving to nothing, plus `2550` falsely hitting LDraw's "Animal
-      Monkey Body". Needs a decorated-torso map in `mb_partmap.DESIGN_TO_LDRAW` —
-      the same place `3814 → 973` went. After that: hands `3820v2` (11,579
-      placements) sit ~12 LDU off the LDraw wrist, because Mecabricks models the
-      rest arm with the wrist 68.6° forward against LDraw's 27.9°; that is a
-      decision (rotate the arms, or accept), not a bug.
-      Pre-fix bytes kept at `lego_sets/_MecabricksLDR_prev` and
-      `_MecabricksSearchLDR_prev` (the A/B against them is in §7); the corpus is
-      stamped `MB_ALIGN v5` but was built with the v6 table (nothing reads the
-      stamp; the next full harvest corrects it).
-
-- [ ] **71043 and 76435 on the phone — the only step left on the reported defects.**
-      Prod is deployed and verified offline (see SHIPPED above): the three spots measure
-      clean and the browser renders confirm them. What is NOT verified is how they look
-      on Will's Pixel and, for the add-ons, in Minecraft itself. `scripts/_mcaddon_check.py`
-      passes 8/8 on the built packs, but it checks the ARCHIVE, not the content.
-      Note for a dense set: export 71043 or 31201 with **Vehicle detail = Ultra** or the
-      studs are dropped.
-
-- [ ] LXF residuals (strict cohort `output/lxf-gt/strict-hybrid_xml_first.json`): Technic sets score
-      ~41 % weighted (pins/axles stored in the other of two equivalent poses; flex parts), System
-      ~65 %. Next levers: synthesise multi-bone flex parts; per-part pose symmetry in the scorer.
-- [ ] Sit pose leg sign (round 5: thighs read forward, hips occluded) - still unproven.
-- [ ] X-wing figures' walk cycle and a first-person rider-in-cockpit view (round 5 J.1/J.2).
-- [ ] Figure height reads 2.03 blocks (hair + head stud over the 1.8 player).
-- [ ] `natural_fig4` walked off the platform edge in round 4; `minecraft:home` not re-measured.
-- [ ] **The block grid is a mirror image of the LEGO model** (LDraw (x,y,z) → cells (x,−y,z)).
-      Invisible on symmetric builds; fixing it changes every schematic byte-for-byte (rule 5) -
-      a separate decision. The shell is compiled to the mirrored grid (frame −I) so it is consistent.
-- [ ] Door openability under-measured (round 3: 1 of 7 taps toggled a leaf); a scripted
-      `setPermutation`/`open_bit` probe from the wand would settle it.
-- [ ] Which source the LEGO tab serves: prod index lists `IO/10326-noprint.io` first for 10326
-      and DbixConvV3 for 1,705 sets. Those dbix files ARE spread instruction layouts and the
-      arm fix barely moved that (chalet 125×116 → 124×97 studs) — so a "compact layout"
-      quality flag, density below ~0.3 parts/stud², is still wanted (lego-sources-guide).
-- [ ] Two museum doors "no room within three blocks"; 910047 sparse (17 % fill).
-- [ ] Hogwarts 76419 is microscale: `auto` scale now reads its microfigure (85863) and exports at
-      2× so it stands player height; its one 4-part torso group is still not an NPC (figureRole).
-- [ ] Beds / brick-built chairs are not detected (no bed mould; chairs are bricks).
-- [ ] Door sizing: a 1×4×6 leaf hangs 2 doors when it straddles two cells and 1 at 1.36 cells;
-      below ¾× model scale no leaf reaches two cells, so no doors hang (documented in the popover).
-- [ ] Repeated-part budget (76240 `70695` ×184); Tumbler 32 LDU grain reads 14.5 wide (11.5 true).
-- [ ] Swipe-to-look untestable over adb; `30426`/`28710`/`x346` ids with no mould; stale pack
-      folders on the Pixel (`adb shell rm` denied); `_chase`/`_boom` orbit presets ship unused.
-
-## Hard rules (from the spec)
-
-1. No whole-model voxelization on the entity path; no `poly_mesh`.
-2. `getPartDims()` only as an explicit, diagnosed AABB fallback.
+1. No whole-model voxelization or poly_mesh on the entity path.
+2. getPartDims only as an explicit, diagnosed AABB fallback.
 3. No Minecraft block colours on the entity path.
-4. Nothing silent: every part/print/transparency/pose/cluster/figure/door
-   degradation lands in `craftmatic-diagnostics.json` and the export warning.
-5. Don't touch the world-block pipeline, rideability, the DeLorean behaviour or
-   the BlockGrid fallback to solve an entity-rendering problem.
-6. Compile per unique part once; instance many; preserve exact source transforms.
+4. Diagnose every part/print/transparency/pose/cluster/figure/door degradation.
+5. Do not change world blocks, rideability, DeLorean behavior, or BlockGrid fallback
+   to fix entity rendering.
+6. Compile each unique part once; instance it; preserve exact source transforms.
+
+Chain: lego.ts → schem-export.ts scale plan → schem-pipeline worker →
+playable-components / bedrock-scene-actors → playable-addon →
+placement assets/colliders. CLI:
+`bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--main-only] [--buildings=bricks|blocks] [--scale=auto|0.25..4]`;
+`bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 …`;
+`python scripts/lxf_gt_eval.py --all --variants shipped`.
+Use a vehicle-readable label (“X-wing Starfighter 7140”, not “XWing 7140”).
