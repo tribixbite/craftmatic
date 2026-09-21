@@ -144,7 +144,18 @@ const SLOT_BONE: Record<MinifigSlot, string> = {
 const cleanId = (part: string): string => part.replace(/^.*[\\/]/, '').replace(/\.dat$/i, '').toLowerCase();
 /** `bl_973pb5574c01_torso` → `973pb5574c01`; a print suffix stays (it still names the mould family). */
 const familyId = (part: string): string => cleanId(part).replace(/^bl_/, '').replace(/_(torso|head|legs|hips|arm|hand)$/, '');
-const stripAlias = (description: string): string => description.replace(/^[~=_]+\s*/, '');
+/**
+ * A description with its alias marks stripped and BrickLink's naming folded
+ * onto LDraw's. A Studio-private part (an `.io` embedded definition the
+ * library lacks) is described the BrickLink way - `Minifigure, Hair Swept
+ * Back Tousled`, `Minifigure, Headgear Hat …` - which `^Minifig\b` never
+ * matches (`Minifigure` carries on past the word boundary). 10303's top
+ * drop-track rider lost her hair 43753 to the building shell that way
+ * (Pixel 8 Pro, 2026-09-21).
+ */
+export const normaliseFigureDescription = (description: string): string =>
+  description.replace(/^[~=_]+\s*/, '').replace(/^Minifigure,\s*/i, 'Minifig ');
+const stripAlias = normaliseFigureDescription;
 
 /**
  * LDraw retires a mould by leaving a one-line stub whose whole description is
@@ -183,7 +194,8 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   if (/^Minifig Arm Left\b/i.test(d) || /^3819(?![0-9])/.test(id)) return 'arm_left';
   if (/^Minifig Hand\b/i.test(d) || /^(3820|983)(?![0-9])/.test(id)) return 'hand_right'; // side decided by position
   if (/^Minifig Head\b/i.test(d) || /^(3626|3625|3624)(?![0-9])/.test(id) || /_head$/.test(cleanId(part))) return 'head';
-  if (/^Minifig (Hair|Hat|Helmet|Cap|Hood|Crown|Mask|Bandana|Beard|Visor|Headdress|Turban|Wig|Tiara)\b/i.test(d)) return 'headwear';
+  // `Headgear` is BrickLink's word (`Minifigure, Headgear Hat …`), folded in by `normaliseFigureDescription`.
+  if (/^Minifig (Hair|Hat|Headgear|Helmet|Cap|Hood|Crown|Mask|Bandana|Beard|Visor|Headdress|Turban|Wig|Tiara)\b/i.test(d)) return 'headwear';
   if (/^(3901|3624|3833|2446|30370|4485|4498|2447|3878|30367|30369|59363|85975|93553|62810)(?![0-9])/.test(id)) return 'headwear';
   if (/^Minifig (Cape|Backpack|Airtank|Epaulette|Armou?r|Neckwear|Wings?|Skirt|Tail|Jetpack|Quiver|Scabbard)\b/i.test(d)) return 'back';
   if (/^(3838|2524|4524|50231|2526|30375)(?![0-9])/.test(id)) return 'back';
@@ -292,6 +304,11 @@ export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawP
   // A second head is headwear on top of the first (a helmet described as a head, a mask).
   const heads = source.filter(s => s.slot === 'head');
   for (const extra of heads.slice(1)) extra.slot = 'headwear';
+  // A part no vocabulary could name that sits AT the head's origin is worn on
+  // the head: every hair, hat and helmet mould is placed exactly there. Left
+  // as `held`, the nearest-hand rule below (60 LDU reach) put it in a fist.
+  const headOrigin: Vec3 = heads[0]?.local ?? MINIFIG_CANON.head.position;
+  for (const s of source) if (s.slot === 'held' && Math.hypot(...sub(s.local, headOrigin)) <= 6) s.slot = 'headwear';
 
   const out: ParsedBrick[] = [];
   const slots: MinifigSlot[] = [];

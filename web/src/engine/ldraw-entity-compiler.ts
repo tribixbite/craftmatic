@@ -45,7 +45,7 @@ import {
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { mouldFamilyId, assembleMinifig, type EntityRig } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, normaliseFigureDescription, type EntityRig } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -88,7 +88,8 @@ function figureId(part: string): string {
 
 /** A minifig body/clothing/accessory part, by the library description first and the id family second. */
 export function isFigurePart(part: string, description: string): boolean {
-  const d = description.replace(/^[~=_]+\s*/, '');
+  // BrickLink's `Minifigure, …` (a Studio-private part) folds onto LDraw's `Minifig …`.
+  const d = normaliseFigureDescription(description);
   if (/^Minifig\b/i.test(d)) return !/^Minifig (Seat|Chair|Steering|Stand|Display|Bench)\b/i.test(d);
   if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
   // `mouldFamilyId` follows LDraw's `~Moved to <id>` retirement stubs, whose
@@ -930,28 +931,51 @@ export function connectedClusters(boxes: Array<{ min: Vec3; max: Vec3 }>, tol = 
   return [...members.values()].sort((a, b) => b.length - a.length);
 }
 
+/** A minifig head mould, by description, id family or a custom part's `_head` suffix. */
+const isHeadPart = (part: string, description: string): boolean =>
+  /^Minifig Head\b/i.test(normaliseFigureDescription(description)) || /^(3626|3625|3624)(?![0-9])/.test(mouldFamilyId(part, description)) || /_head$/.test(cleanPartId(part));
+
 /**
  * Minifig parts grouped into figures around each torso: a part joins the
- * nearest torso within 40 LDU horizontally and from 48 LDU above it (hair,
- * a helmet) to 80 LDU below (the feet). Loose accessories stay ungrouped.
+ * nearest torso within 40 LDU beside it and from 48 LDU above it (hair, a
+ * helmet) to 80 LDU below (the feet) - measured in the TORSO'S OWN frame, not
+ * the world's. A figure the source posed lying or pitched keeps its legs that
+ * way: 10303's drop-track riders sit nose-down at 90°, so in world axes their
+ * legs stood 44 LDU "beside" the torso, failed the 40 LDU radius and were left
+ * in the building shell while the rig supplied standard legs (2026-09-21).
+ * For an upright figure the two frames differ by a yaw and agree exactly.
+ *
+ * A placement the vocabulary cannot name that sits at a grouped head's origin
+ * is that figure's headwear: every hair, hat and helmet mould is placed there.
+ * Loose accessories stay ungrouped.
  */
 export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): Array<{ torso: number; parts: number[] }> {
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const torsos: number[] = [];
-  bricks.forEach((b, i) => { if (isTorso(b.part, meshes.get(b.part)?.description ?? '')) torsos.push(i); });
+  bricks.forEach((b, i) => { if (isTorso(b.part, desc(b))) torsos.push(i); });
   if (!torsos.length) return [];
   const torsoSet = new Set(torsos);
   const groups = torsos.map(t => ({ torso: t, parts: [t] }));
+  const grouped = new Set<number>();
+  /** A placement's offset from the torso in the torso's frame (Y down, −Z forward). */
+  const inTorsoFrame = (T: ParsedBrick, b: ParsedBrick): Vec3 => apply(transpose(T.rot ?? IDENTITY), [b.x - T.x, b.y - T.y, b.z - T.z]);
   bricks.forEach((b, i) => {
-    if (torsoSet.has(i) || !isFigurePart(b.part, meshes.get(b.part)?.description ?? '')) return;
+    if (torsoSet.has(i) || !isFigurePart(b.part, desc(b))) return;
     let best = -1, bestD = Infinity;
     torsos.forEach((t, k) => {
-      const T = bricks[t]!;
-      const dx = b.x - T.x, dz = b.z - T.z, dy = b.y - T.y;
+      const [dx, dy, dz] = inTorsoFrame(bricks[t]!, b);
       if (Math.hypot(dx, dz) > 40 || dy < -48 || dy > 80) return;
       const d = Math.hypot(dx, dz) + Math.abs(dy) * 0.25;
       if (d < bestD) { bestD = d; best = k; }
     });
-    if (best >= 0) groups[best]!.parts.push(i);
+    if (best >= 0) { groups[best]!.parts.push(i); grouped.add(i); }
+  });
+  // Headwear the library cannot name: an ungrouped placement within 4 LDU of a grouped head's origin.
+  const heads = groups.flatMap((g, k) => g.parts.filter(i => isHeadPart(bricks[i]!.part, desc(bricks[i]!))).map(i => ({ k, head: bricks[i]! })));
+  if (heads.length) bricks.forEach((b, i) => {
+    if (torsoSet.has(i) || grouped.has(i)) return;
+    const worn = heads.find(h => Math.hypot(h.head.x - b.x, h.head.y - b.y, h.head.z - b.z) <= 4);
+    if (worn) groups[worn.k]!.parts.push(i);
   });
   return groups;
 }
@@ -965,7 +989,7 @@ export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPar
  */
 export function figureRole(parts: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): 'npc' | 'statue' | 'partial' {
   const colours = new Set(parts.map(b => b.color));
-  const d = (b: ParsedBrick): string => (meshes.get(b.part)?.description ?? '').replace(/^[~=_]+\s*/, '');
+  const d = (b: ParsedBrick): string => normaliseFigureDescription(meshes.get(b.part)?.description ?? '');
   // The minifig rig (minifig-rig.ts) supplies missing legs, arms and a head,
   // so a figure only needs its torso plus one more BODY part to be one - the
   // IOModel2V2 museum has three figures with no legs (its arms DO exist -

@@ -21,11 +21,22 @@
  * Positions come back in LDraw; the pipeline maps them into grid cells with
  * the voxelizer's own `gridOrigin` (`sceneGridPoint`), so an actor lands on
  * the block its part became.
+ *
+ * A figure becomes an NPC only when the source stood it (near) upright. A
+ * Bedrock entity has a yaw and a head pitch and no roll: the rig re-poses
+ * every figure standing, so a torso the source pitched or laid over cannot be
+ * reproduced by an actor at all. 10303's three drop-track riders sit
+ * nose-down at 90° in a vertical train; as NPCs they stood bolt upright,
+ * anchored at their cluster's lowest point (their hanging hands), straddling
+ * the car in mid-air (Pixel 8 Pro, 2026-09-21). Such a figure now stays in
+ * the build's geometry at its exact source pose (`posedFigures`), reported in
+ * `warnings`, never silently dropped.
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import { figureRole, groupFigures, isSeat, isTorso, cleanPartId } from './ldraw-entity-compiler.js';
+import { classifyMinifigPart } from './minifig-rig.js';
 import type { BlockGrid } from '@craft/schem/types.js';
 import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { toBedrockBlock } from './bedrock-blocks.js';
@@ -34,14 +45,37 @@ export interface SceneFigure {
   bricks: ParsedBrick[];
   /** Centre of the figure's real bounds, LDraw. */
   centreLdu: Vec3;
-  /** Its lowest point (LDraw Y down: the largest y) - the floor it stands on. */
+  /**
+   * The lowest point of its BODY (torso, head, hips, legs; LDraw Y down: the
+   * largest y) - the floor it stands on. Held and worn parts are left out: a
+   * pushbroom reaching 12 LDU under the feet would otherwise hang the figure.
+   */
   floorLdu: number;
   /** Torso's local −Z through its placement, horizontal unit (x, z). */
   facingLdu: [number, number];
+  /** Angle between the torso's up axis and world up, degrees (0 = standing straight). */
+  tiltDeg: number;
   /** True when the figure sits on a seat. */
   seated: boolean;
   /** Index into `seats` of the seat it sits on: it spawns riding that seat's entity. */
   seatIndex?: number;
+}
+
+/**
+ * The widest lean an upright NPC can stand in for. The rig discards the
+ * torso's lean anyway, so a figure within this angle reads as standing;
+ * beyond it the source posed something an actor cannot show (lying, hanging,
+ * riding a vertical drop) and the figure keeps its exact pose in the geometry.
+ */
+export const FIGURE_UPRIGHT_MAX_TILT_DEG = 30;
+
+/** A figure the source posed off upright: kept in the build's geometry, not spawned. */
+export interface ScenePosedFigure {
+  bricks: ParsedBrick[];
+  /** Angle between the torso's up axis and world up, degrees. */
+  tiltDeg: number;
+  /** Centre of the figure's real bounds, LDraw. */
+  centreLdu: Vec3;
 }
 
 export interface SceneSeat {
@@ -75,10 +109,14 @@ export interface SceneDoor {
 
 export interface SceneActors {
   figures: SceneFigure[];
+  /** Figures beyond `FIGURE_UPRIGHT_MAX_TILT_DEG`: they stay in the geometry (their bricks are NOT in `figureBricks`). */
+  posedFigures: ScenePosedFigure[];
   seats: SceneSeat[];
   doors: SceneDoor[];
-  /** Every placement that belongs to a figure (to leave out of the block scenery). */
+  /** Every placement that belongs to a spawned figure (to leave out of the block scenery). */
   figureBricks: Set<ParsedBrick>;
+  /** What the scene could not make live and why, for the export's warning list. */
+  warnings: string[];
   /** Every door LEAF placement (a vanilla door stands in for it, so a brick shell leaves it out). */
   doorBricks: Set<ParsedBrick>;
   meshes: Map<string, LdrawPartMesh | null>;
@@ -96,6 +134,19 @@ const horizontal = (b: ParsedBrick, v: Vec3): [number, number] | null => {
   const h = Math.hypot(r[0], r[2]);
   return h > 0.5 ? [r[0] / h, r[2] / h] : null;
 };
+/**
+ * How far a placement's up axis (local −Y, LDraw Y down) leans from world up,
+ * degrees. The cosine is the matrix's middle element, normalised so Studio's
+ * 0.999988-scaled rotations and a mirrored axis still give a real angle.
+ */
+export function tiltDegOf(rot: readonly number[] | undefined): number {
+  const m = rot ?? IDENTITY;
+  const len = Math.hypot(m[1]!, m[4]!, m[7]!) || 1;
+  const cos = Math.max(-1, Math.min(1, m[4]! / len));
+  return Math.round(Math.acos(cos) * 180 / Math.PI * 10) / 10;
+}
+/** Torso, head, hips and legs: the parts whose lowest point is the floor a figure stands on. */
+const BODY_SLOTS = new Set(['torso', 'head', 'hips', 'hips_legs', 'leg_right', 'leg_left']);
 function worldBounds(b: ParsedBrick, mesh: LdrawPartMesh): { min: Vec3; max: Vec3 } {
   const { min: lo, max: hi } = mesh.bounds;
   const corners: Vec3[] = [
@@ -122,7 +173,9 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
 
   // Figures: a torso with at least a head or legs beside it.
   const figures: SceneFigure[] = [];
+  const posedFigures: ScenePosedFigure[] = [];
   const figureBricks = new Set<ParsedBrick>();
+  const warnings: string[] = [];
   for (const g of groupFigures(bricks, meshes)) {
     if (g.parts.length < 3) continue;
     const parts = g.parts.map(i => bricks[i]!);
@@ -131,14 +184,25 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const torso = bricks[g.torso]!;
     const facing = horizontal(torso, [0, 0, -1]) ?? [0, -1];
     let min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    let bodyFloor = -Infinity;
     for (const b of parts) {
       const m = meshes.get(b.part);
       const box = m && m.triangles.length ? worldBounds(b, m) : { min: [b.x - 10, b.y - 24, b.z - 10] as Vec3, max: [b.x + 10, b.y, b.z + 10] as Vec3 };
       min = [Math.min(min[0], box.min[0]), Math.min(min[1], box.min[1]), Math.min(min[2], box.min[2])];
       max = [Math.max(max[0], box.max[0]), Math.max(max[1], box.max[1]), Math.max(max[2], box.max[2])];
+      if (BODY_SLOTS.has(classifyMinifigPart(b.part, desc(b)) ?? '')) bodyFloor = Math.max(bodyFloor, box.max[1]);
     }
+    const centreLdu: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+    const tiltDeg = tiltDegOf(torso.rot);
+    // An actor stands upright whatever the source did: a figure posed past the
+    // limit keeps its whole cluster (legs, hair, held items) in the geometry.
+    if (tiltDeg > FIGURE_UPRIGHT_MAX_TILT_DEG) { posedFigures.push({ bricks: parts, tiltDeg, centreLdu }); continue; }
     for (const b of parts) figureBricks.add(b);
-    figures.push({ bricks: parts, centreLdu: [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2], floorLdu: max[1], facingLdu: facing, seated: false });
+    figures.push({ bricks: parts, centreLdu, floorLdu: Number.isFinite(bodyFloor) ? bodyFloor : max[1], facingLdu: facing, tiltDeg, seated: false });
+  }
+  if (posedFigures.length) {
+    const tilts = posedFigures.map(p => `${p.tiltDeg}°`).join(', ');
+    warnings.push(`${posedFigures.length} figure${posedFigures.length === 1 ? '' : 's'} the source posed off upright (torso tilt ${tilts}, over ${FIGURE_UPRIGHT_MAX_TILT_DEG}°) stay${posedFigures.length === 1 ? 's' : ''} in the build's geometry at the exact source pose instead of walking: a Bedrock entity stands upright (yaw only, no roll), so a pitched or lying rider cannot be an NPC.`);
   }
 
   // Seats: the sitting surface is one plate above the mould's origin (4079: the
@@ -177,7 +241,7 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
     doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, brick: b, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
   }
-  return { figures, seats, doors, figureBricks, doorBricks, meshes };
+  return { figures, posedFigures, seats, doors, figureBricks, doorBricks, meshes, warnings };
 }
 
 /** The voxelizer's grid frame (`VoxelizeResult.gridOrigin`). */

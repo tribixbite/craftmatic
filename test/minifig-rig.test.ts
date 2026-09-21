@@ -69,6 +69,26 @@ describe('classifyMinifigPart', () => {
     expect(classifyMinifigPart('2524', 'Minifig Backpack Non-Opening')).toBe('back');
     expect(classifyMinifigPart('3836', 'Minifig Pushbroom')).toBe('held');
     expect(classifyMinifigPart('3846', 'Minifig Shield Triangular')).toBe('held');
+    // A Studio-private part (an `.io` embedded definition) is described the
+    // BrickLink way; 10303's rider hair 43753 is in no library and no id list.
+    expect(classifyMinifigPart('43753', 'Minifigure, Hair Swept Back Tousled')).toBe('headwear');
+    expect(classifyMinifigPart('x999', 'Minifigure, Headgear Hat, Cowboy')).toBe('headwear');
+    expect(classifyMinifigPart('x998', 'Minifigure, Utensil Cup')).toBe('held');
+  });
+});
+
+describe('assembleMinifig headwear', () => {
+  it('wears a part no vocabulary names when it sits at the head origin, instead of putting it in a hand', async () => {
+    // `9999` is in no library: description '', so it classifies as `held`;
+    // the canonical hands are 43 LDU from the head origin, inside the 60 LDU
+    // reach that used to claim it.
+    const src: ParsedBrick[] = [at('973', 25, 0, 0, 0), at('3626c', 14, 0, -24, 0), at('9999', 72, 0, -24, 0)];
+    const a = assembleMinifig(src, await meshesFor(src));
+    expect(bySlot(a, 'held')).toHaveLength(0);
+    const worn = bySlot(a, 'headwear');
+    expect(worn).toHaveLength(1);
+    expect([worn[0]!.x, worn[0]!.y, worn[0]!.z]).toEqual([0, -24, 0]);
+    expect(a.rig.boneOf[a.bricks.indexOf(worn[0]!)]).toBe('head');
   });
 });
 

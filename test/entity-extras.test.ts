@@ -24,6 +24,8 @@ const LIBRARY: Record<string, string> = {
   '3817': ['0 Minifig Leg Right', ...box6(1.5, 19.5, -9, 28, -11, 9)].join('\n'),
   '56908': ['0 Wheel Rim', ...box6(-10, 10, -10, 10, -4, 4)].join('\n'),
   '3823': ['0 Windscreen', ...box6(-20, 20, -40, 0, -2, 2)].join('\n'),
+  // A Studio-private hair (10303's embedded 43753): BrickLink's description form, in no id list.
+  '43753': ['0 Minifigure, Hair Swept Back Tousled', ...box6(-17, 17, -10, 8, -17, 17)].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '').replace(/\.dat$/i, '')] ?? null });
 const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -55,6 +57,9 @@ describe('part helpers', () => {
     // Studio custom torsos (BrickLink Designer Program sets) carry a bl_ prefix and a _torso suffix.
     expect(isFigurePart('bl_973pb5574c01_torso', 'FILE bl_973pb5574c01_torso.dat')).toBe(true);
     expect(baseMould('bl_973pb5574c01_torso')).toBe('973'); // the print suffix goes too: the mould is the plain torso
+    // A Studio-private part is described the BrickLink way: `Minifigure, …` is `Minifig …`.
+    expect(isFigurePart('43753', 'Minifigure, Hair Swept Back Tousled')).toBe(true);
+    expect(isFigurePart('x999', 'Minifigure, Headgear Hat, Cowboy')).toBe(true);
   });
   it('snapFacing picks the nearest axis', () => {
     expect(snapFacing([0, -1])).toBe('-z');
@@ -84,6 +89,27 @@ describe('groupFigures', () => {
     const groups = groupFigures(bricks, meshes);
     expect(groups).toHaveLength(2);
     expect(groups.map(g => g.parts.length)).toEqual([5, 5]);
+  });
+
+  it('measures membership in the torso frame, so a rider pitched nose-down keeps its legs and hair', async () => {
+    // 10303's drop-track rider, exact source matrices: spine along +X, face down, legs bent 90°.
+    const R = [0, -1, 0, 0, 0, -1, 1, 0, 0], RL = [0, 0, -1, 0, 1, 0, 1, 0, 0];
+    const bricks: ParsedBrick[] = [
+      { part: '973.dat', color: 29, x: -435, y: -1402, z: -100, rot: R },
+      { part: '3626.dat', color: 14, x: -411, y: -1402, z: -100, rot: R },
+      { part: '43753.dat', color: 72, x: -411, y: -1402, z: -100, rot: R },   // hair at the head's origin, BrickLink description
+      { part: '3815.dat', color: 19, x: -467, y: -1402, z: -100, rot: R },
+      { part: '3816.dat', color: 19, x: -479, y: -1402, z: -100, rot: RL },  // 44 LDU along the spine: outside a world-axis radius
+      { part: '3817.dat', color: 19, x: -479, y: -1402, z: -100, rot: RL },
+      { part: '9999.dat', color: 0, x: -411, y: -1402, z: -100, rot: R },    // unknown to the library, at the head's origin: worn
+      { part: '9999.dat', color: 0, x: -411, y: -1432, z: -100, rot: R },    // unknown, 30 LDU off the head: not the figure's
+    ];
+    const meshes = new Map<string, Awaited<ReturnType<ReturnType<typeof provider>['getPartMesh']>>>();
+    const p = provider();
+    for (const b of bricks) if (!meshes.has(b.part)) meshes.set(b.part, await p.getPartMesh(b.part));
+    const groups = groupFigures(bricks, meshes);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.parts.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6]);
   });
 });
 

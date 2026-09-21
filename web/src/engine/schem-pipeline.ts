@@ -326,6 +326,8 @@ export async function runSchemPipeline(
       if (input.format === 'mcaddon' && !input.mainVehicleOnly) {
         onProgress('finding figures, seats and doors');
         const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)));
+        // Figures posed off upright stay in the geometry; say so rather than dropping them silently.
+        warnings.push(...scene.warnings);
         if (!sourceOrigin && (scene.figures.length || scene.seats.length || scene.doors.length)) {
           warnings.push('Figures, seats and doors were found but the source geometry did not resolve, so they stay as blocks.');
         } else if (sourceOrigin) {

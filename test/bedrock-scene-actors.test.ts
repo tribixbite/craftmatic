@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, recommendDoorExportScale, runtimeDoorCandidates, sceneGridPoint, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, recommendDoorExportScale, runtimeDoorCandidates, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -22,6 +22,10 @@ const LIBRARY: Record<string, string> = {
   '3816': ['0 Minifig Leg Left', ...box6(-19.5, -1.5, -9, 28, -11, 9)].join('\n'),
   '3817': ['0 Minifig Leg Right', ...box6(1.5, 19.5, -9, 28, -11, 9)].join('\n'),
   '4079': ['0 Minifig Seat  2 x  2', ...box6(-20, 20, -24, 0, -20, 20)].join('\n'),
+  // A Studio-private hair (10303's embedded 43753): described the BrickLink way, absent from every id list.
+  '43753': ['0 Minifigure, Hair Swept Back Tousled', ...box6(-17, 17, -10, 8, -17, 17)].join('\n'),
+  // A held item reaching 84 LDU down from the hand: 12 LDU below the feet of a figure holding it at the hip.
+  '3836': ['0 Minifig Pushbroom', ...box6(-17, 17, 0, 84, -6, 10)].join('\n'),
   // A 1×4×6 leaf: 80 wide along +X from the hinge at the origin, 144 tall (up = −Y), 6 thick.
   '60623': ['0 Door  1 x  4 x  6 with 4 Panes and Stud Handle', ...box6(0, 80, -144, 0, -3, 3)].join('\n'),
   '60596': ['0 Door  1 x  4 x  6 Frame', ...box6(-40, 40, -144, 0, -10, 10)].join('\n'),
@@ -68,6 +72,71 @@ describe('discoverSceneActors', () => {
     expect(scene.doors[0]).toMatchObject({ alongAxis: 'x', hingeAtMin: true, color: 6 });
     expect(scene.doors[0]!.minLdu).toEqual([1200, -144, -3]);
     expect(scene.doors[0]!.maxLdu).toEqual([1280, 0, 3]);
+  });
+
+  /**
+   * 10303's drop-track rider, the exact source matrices: the torso is pitched
+   * nose-down (spine along +X, face toward LDraw +Y = straight down), the
+   * legs are bent 90° and hang down, hair and head share the torso's matrix.
+   * Head and hair 24 LDU along the spine, hips 32, legs 44 (IOModel2V2/10303.ldr).
+   */
+  const RIDER_ROT = [0, -1, 0, 0, 0, -1, 1, 0, 0];
+  const RIDER_LEG_ROT = [0, 0, -1, 0, 1, 0, 1, 0, 0];
+  const rider = (tx: number, ty: number, tz: number): ParsedBrick[] => [
+    { part: '973.dat', color: 29, x: tx, y: ty, z: tz, rot: RIDER_ROT },
+    { part: '3626.dat', color: 14, x: tx + 24, y: ty, z: tz, rot: RIDER_ROT },
+    { part: '43753.dat', color: 72, x: tx + 24, y: ty, z: tz, rot: RIDER_ROT },
+    { part: '3815.dat', color: 19, x: tx - 32, y: ty, z: tz, rot: RIDER_ROT },
+    { part: '3816.dat', color: 19, x: tx - 44, y: ty, z: tz, rot: RIDER_LEG_ROT },
+    { part: '3817.dat', color: 19, x: tx - 44, y: ty, z: tz, rot: RIDER_LEG_ROT },
+  ];
+
+  it('keeps a rider the source pitched nose-down in the geometry, whole (legs and hair included), and says so', async () => {
+    const bricks: ParsedBrick[] = [...rider(-435, -1402, -100), ...figure(0, 0)];
+    const scene = await discoverSceneActors(bricks, provider());
+    // Only the standing figure walks; the rider is not an NPC and none of its six parts leave the shell.
+    expect(scene.figures).toHaveLength(1);
+    expect(scene.figures[0]!.tiltDeg).toBe(0);
+    expect(scene.figureBricks.size).toBe(5);
+    expect(scene.posedFigures).toHaveLength(1);
+    expect(scene.posedFigures[0]!.tiltDeg).toBe(90);
+    expect(scene.posedFigures[0]!.bricks.map(b => b.part).sort()).toEqual(['3626.dat', '3815.dat', '3816.dat', '3817.dat', '43753.dat', '973.dat']);
+    for (const b of scene.posedFigures[0]!.bricks) expect(scene.figureBricks.has(b)).toBe(false);
+    expect(scene.warnings).toHaveLength(1);
+    expect(scene.warnings[0]).toMatch(/^1 figure the source posed off upright \(torso tilt 90°, over 30°\) stays in the build's geometry/);
+  });
+
+  it('an upright figure keeps a BrickLink-described private hair, and a held item does not lower its floor', async () => {
+    const bricks: ParsedBrick[] = [
+      ...figure(0, 0),
+      { part: '43753.dat', color: 72, x: 0, y: -32, z: 0, rot: I },          // hair at the head's origin
+      { part: '3836.dat', color: 8, x: 24, y: 20, z: -10, rot: I },          // pushbroom in the hand, reaching y 104
+    ];
+    const scene = await discoverSceneActors(bricks, provider());
+    expect(scene.figures).toHaveLength(1);
+    expect(scene.posedFigures).toHaveLength(0);
+    expect(scene.warnings).toEqual([]);
+    expect(scene.figureBricks.size).toBe(7);
+    expect(scene.figureBricks.has(bricks[5]!)).toBe(true);
+    // Feet at 64, not the broom's 104.
+    expect(scene.figures[0]!.floorLdu).toBe(64);
+  });
+
+  it('a lean inside the limit is still an NPC; a yaw is no lean', async () => {
+    const lean = (deg: number): number[] => { const c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180); return [1, 0, 0, 0, c, -s, 0, s, c]; };
+    const scene = await discoverSceneActors([...figure(0, 0, lean(20)), ...figure(400, 0, yaw180), ...figure(800, 0, lean(FIGURE_UPRIGHT_MAX_TILT_DEG + 5))], provider());
+    expect(scene.figures.map(f => f.tiltDeg)).toEqual([20, 0]);
+    expect(scene.posedFigures.map(f => f.tiltDeg)).toEqual([35]);
+  });
+
+  it('tiltDegOf reads the lean off a placement matrix, scaled or mirrored', () => {
+    expect(tiltDegOf(undefined)).toBe(0);
+    expect(tiltDegOf(I)).toBe(0);
+    expect(tiltDegOf(yaw180)).toBe(0);
+    expect(tiltDegOf(RIDER_ROT)).toBe(90);
+    expect(tiltDegOf([1, 0, 0, 0, -1, 0, 0, 0, -1])).toBe(180);
+    expect(tiltDegOf([0.999988, 0, 0, 0, 0.999988, 0, 0, 0, 0.999988])).toBe(0);
+    expect(tiltDegOf([-1, 0, 0, 0, 1, 0, 0, 0, 1])).toBe(0);
   });
 
   it('isDoorLeafDescription takes leaves and refuses frames, glass, sliders and stickers', () => {
