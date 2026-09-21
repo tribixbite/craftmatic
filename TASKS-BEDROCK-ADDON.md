@@ -34,17 +34,18 @@ Evidence root: `output/corpus-improvements-2026-09-20/`.
   `python build_model_index.py --scoreboard C:/git/craftmatic/output/corpus-improvements-2026-09-20/board/scoreboard_full.json --out C:/git/craftmatic/output/corpus-improvements-2026-09-20/candidate-index.json`.
   Inspect errors, missing/stale grades, indexed hash coverage, and pick changes
   before adopting it. Do not fresh-date old measurements.
-- [ ] Finish publisher content-bound resume receipts. Owner: publisher agent.
-  Current hardening already rejects unknown CLI flags, upload failures, source
-  races, and index/local hash mismatches. Legacy path-only resume entries still
-  cannot prove remote bytes; unchanged-content receipts must close that gap.
-  Actual read-only preflight correctly refuses the changed 40746 source until
-  the index is rebuilt (`publish-preflight.log`).
-- [ ] Finish measured-bound geometry enrichment review. Owner: MPD agent.
-  Audit found actual meshes for 34 previously unmeasured rows; verify the
-  recursive upstream-before-Studio resolution ladder before accepting new
-  diagonals. **80911 already had a diagonal and was rejected by the bound**;
-  the old “no bound / 13 displaced doll hairs” tracker claim was stale.
+- [ ] Review eventual publication plan separately. Content-bound receipts,
+  immutable upload snapshots, interrupted-tail recovery, preflight receipt
+  coverage, and explicit legacy readback migration are implemented. Status has
+  20,764 indexed sources, zero content-certified receipts, and 20,704 legacy-only
+  paths. `sync_models_r2.py --verify-legacy --dry-run` only lists candidates;
+  `--verify-legacy` compares full remote/local SHA256 without any PUT and writes
+  observed-readback receipts. All 33 mocked tests pass (`35858706`); no real
+  migration/publication run. It does not certify everlasting CDN/origin state.
+- [ ] Finish eight exact no-op override removals with isolated byte-identical
+  before/after index proof. Owner: MPD agent; `overrides/REPORT.md`.
+  Candidate output must not overwrite the shared index or its summary.
+  Keep the ten conversion-target and six visual-choice overrides intact.
 - [ ] Missing-torso placement remains gated. `beam.build(..., recover_torsos=True)`
   is experimental/default OFF (`85ddc410`). Inventory recovery works, but
   70100 globally reallocates unrelated parts and leaves an exploded figure.
@@ -67,10 +68,17 @@ window 1→0, other metrics unchanged; source SHA256
 MPD repair is section-local, not cross-submodel matching; repeated definitions
 also preclude archive inventory recovery.
 
-Checks before the current alignment enrichment: both TypeScript checks pass;
-Vitest 1,761 passed / 26 skipped (118 files passed / 1 skipped);
-combined clego figure/window/reader/index tests 153 passed; publisher 16 passed.
-Logs: `craftmatic-tests.log`. Recheck after concurrent code changes.
+Measured alignment enrichment is committed (`293ea949`): 34 previously
+unmeasured rows now have actual-mesh bounds, recursive upstream-before-Studio
+resolution retained; 12 additional rows rejected, 1,839/1,839 bounded.
+80911 already had a bound and was rejected; the former missing-bound claim
+was stale. Controlled LOD pack invariants are covered by `7a2d582d`, not a
+device performance acceptance.
+
+Latest completed checks: both TypeScript checks pass; Vitest 1,763 passed /
+26 skipped (118 files passed / 1 skipped); combined clego figure/window/reader/
+index tests 160 passed; publisher 33 passed. Full integrated rerun log:
+`craftmatic-tests-integrated.log`. Recheck after concurrent code changes.
 
 ## Repository and publication boundaries
 

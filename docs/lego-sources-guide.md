@@ -1456,10 +1456,21 @@ No changes in this round have been published or pushed. Resume from
   Upload failures, worker exceptions, concurrent source/index changes, and
   index/local-model hash mismatches block index publication. The hash check
   covers all indexed sources, including unselected and resume-skipped paths.
-  `--no-index` permits explicit model-only repair with a stale index. The old
-  resume ledger remains path-only: local validation and successful PUT status
-  do not replace remote CDN hash verification. Sixteen offline publisher tests
-  pass (`60076051`, following `c8bd5ce6` and `d7e52f0a`).
+  `--no-index` permits explicit model-only repair with a stale index. Resume now
+  requires a full-SHA256 receipt for the current bytes; legacy path-only rows
+  remain uncertain, not successful skips. PUTs read immutable snapshots, and
+  index publication requires matching receipts for every indexed source.
+  Impossible partial plans fail before uploading anything. Interrupted final
+  receipt fragments are quarantined on the next write; read-only commands do
+  not repair state. These receipts record successful publication, not an
+  everlasting guarantee about CDN content. `--verify-legacy --dry-run` lists
+  migration candidates without network/state changes; `--verify-legacy` alone
+  streams canonical client-visible CDN bytes, requiring matching full local
+  SHA256 before/after, with bounded workers and read timeouts. Failures remain
+  pending and return nonzero; no PUT or index publication occurs in this mode.
+  Successful readback receipts can avoid blindly re-uploading every legacy
+  object on the first strict resume. Thirty-three offline tests pass
+  (`35858706`); no real remote migration was run.
 - The quality gate now flags `window_defects >= 2`, retaining the calibrated
   authentic noise floor of one. `scoreboard.py --all-entries` grades every
   indexed alternative, even when its primary passes. Per-row measurement time
@@ -1483,6 +1494,10 @@ No changes in this round have been published or pushed. Resume from
   That trial is evidence of a placement problem, not an accepted corpus repair.
 
 Bulk figure application also requires per-file nonregression, stable reruns,
-and pose review. Lower aggregate defect counts alone are insufficient: the
-Mecabricks trial moves parts in many files with no figure-metric gain, and
-some files regress overlap/sunk metrics or change again on a second pass.
+and pose review. Socket ownership is now stable on repeated runs, and the
+opt-in `--preserve-pose` repair changes positions without rewriting rotation
+tokens; valid attached descendants move with their parent. A 16-file stress
+cohort reduces figure defects 53→12, but only six files pass every scalar
+nonregression check. Full conservative cohorts are still being measured.
+Lower aggregate defect counts alone are insufficient, and scalar acceptance
+does not replace visual review.
