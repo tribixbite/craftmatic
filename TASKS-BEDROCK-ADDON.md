@@ -90,10 +90,31 @@ Further user requirements from the same round:
   after wand scaling, then quantize in world space). Must be reproduced or
   disproved with a real placement at 200/400 %, not read off the code.
   Owner: scale-cap.
-- [ ] Three-car train: make the cart three single-seat vehicles instead of one.
-  This dissolves the "no per-seat family restriction" blocker (each car carries
-  its own component-level family) and matches the source, whose three rider
-  clusters sit 120 LDU apart. Under evaluation by the coaster owner.
+- [x] **Three-car train BUILT (`d2d18e49`), runtime side only.** Each car is its
+  own single-seat rideable, so no seat is contended and up to three players ride
+  one train. Arc distance tracks the train's CENTRE — offsets fixed to the
+  centre mean a reversal only flips direction; measuring from a lead car would
+  teleport every car across the train in one tick and blow the step cap. The
+  train is atomic on unloaded chunks and refused teleports. 90-96 us/tick for
+  three cars against a 50,000 us tick.
+- [ ] **WIRE the train in `playable-addon.ts` — both halves or neither.** With
+  the config passed but the extra actors not spawned, the lone car cannot reach
+  the first `extent` blocks of the route. Needed: `cars: { count, spacing }` on
+  the route, `count` actors spawned per route all at `route.station.point` with
+  a `coasterCarIndex`, the placement runtime writing
+  `craftmatic:coaster_car`, and `cars` (count/spacing/extent/minChord) in
+  `craftmatic-diagnostics.json`. **Do not hard-code 120 LDU**: derive the pitch
+  and count from the source's own rider clusters along the route (10303 has
+  three at exactly 120 LDU), and fall back to one car when there is no measured
+  train. Blocked only on `playable-addon.ts` being free.
+- [ ] **Decide the car overlap.** At the measured 2.25-block pitch the route's
+  curvature closes adjacent cars to a 0.148-block minimum chord, under one car
+  length (`COASTER_CAR_LENGTH` 1.25) on 3.9 % of the track, so they would
+  visibly intersect through the tight loop. Options: ship 3 and accept it, ship
+  1 for this set, or shorten the drawn car. Worth checking first whether that
+  0.148 is genuine loop curvature or a CUSP at a fragment join — the route has
+  43 near-duplicate samples (minimum spacing 7.5e-7 blocks) from mould
+  stitching, and a kink would produce the same number without being real.
 - [ ] Pack PROVENANCE stamp: every pack should say which export-pipeline build
   and which source model produced it, so a pack on the phone can be identified
   without reading `manifest.json` by hand (a device round was already lost to a
