@@ -11,9 +11,12 @@ source, index, or ranking was changed.
 - All 39 auto-selected files match both the index hash and the fresh board row's
   full SHA-256 exactly. `fresh` is therefore source-grade freshness, not merely
   an index-to-disk comparison.
-- `index V/D` is the local index's older `asm` label; only 10303's production
-  selection was probed, so this report does not claim the complete deployed
-  index is byte-identical. `board PASS/DEF` is the
+- `index V/D` is the index's older `asm` label. A read-only production GET
+  audit found the deployed index byte-identical to the local index and all 39
+  auto-selected production files full-SHA-identical to the locally graded
+  bytes; the per-row evidence is in
+  `output/pipeline-2026-09-21/selected39-production-freshness.md`.
+  `board PASS/DEF` is the
   newer hash-matched measurement. The auto-picks have 11 PASS and 28 DEFECTIVE
   fresh rows; their local-index labels say 14 verified and 25 defective. The
   three disagreements are 10326 (four off-frame panes), 42172 (fresh
@@ -114,7 +117,11 @@ Exact leading candidate files:
 - Figure: `output/corpus-improvements-2026-09-20/corpus-repairs/trials/figure-mecabricks-preserve/MecabricksLDR/75397.ldr`
 - Window example: `output/corpus-improvements-2026-09-20/corpus-repairs/trials/window-dbixv2/DbixConvV2/42670.ldr`
 
-The next legal step for 75397 is fixed-camera source/pose review. Other legacy
+75397 passed fixed-camera front/iso/left and figure closeup review: the gold
+figure's detached arms/hands reattach while retaining its asymmetric pose;
+the lineup, stands and ship are unchanged. Evidence is under
+`output/pipeline-2026-09-21/75397-{before,after}-reviewed/`. This accepts the
+hash-pinned candidate, not an already-published correction. Other legacy
 nominations still need a small hardened, hash-pinned targeted regrade followed
 by visual review. Do not apply the whole trial cohort.
 
@@ -139,8 +146,8 @@ by visual review. Do not apply the whole trial cohort.
 
 ## Highest-value cohorts
 
-1. Harden and render the single strong selected-file candidate, 75397
-   preserve-pose. It directly reduces a known defect on the bytes users select.
+1. Back up and apply the visually accepted, hash-pinned 75397 preserve-pose
+   candidate, then publish narrowly and read back the exact repaired bytes.
 2. Target near-pass figure residue on 76286, 42639, 42663, and 910047. These
    avoid broad source switches and have small, concentrated figure counts.
 3. Treat 10354/10365/41703/42652/76435/80049 as v3 polish/alignment work; their

@@ -1447,7 +1447,8 @@ so those rows are the ones to re-measure first next round.
 
 ### 10. Local pipeline hardening and corpus validation (2026-09-20)
 
-No changes in this round have been published or pushed. Resume from
+The 2026-09-20 corpus hardening below remains local; subsequent Craftmatic
+creator/door code was pushed and deployed on 2026-09-21. Resume from
 `TASKS-BEDROCK-ADDON.md`; evidence is under
 `output/corpus-improvements-2026-09-20/`.
 
@@ -1501,6 +1502,8 @@ stress check translated 72 placements with no rotation-token changes or
 second-pass placement changes. An earlier exploratory build reduced figure
 defects 53→12 with six files passing its limited scalar gate, but those grades
 lack full metrics and source hashes and do not certify the final bytes.
-Full conservative cohorts are still being measured.
+Both conservative cohort jobs completed; their legacy A/B nominates 345
+Mecabricks and 251 window files but lacks full hash provenance. Targeted hardened
+regrades and visual review are still required, not broad application.
 Lower aggregate defect counts alone are insufficient, and scalar acceptance
 does not replace visual review.

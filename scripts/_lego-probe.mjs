@@ -39,7 +39,10 @@ const SEARCH_MS = Number(process.env.PROBE_SEARCH_MS ?? 45_000);
  */
 const MODEL_MS = Number(process.env.PROBE_MODEL_MS ?? 240_000);
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const cdpUrl = process.env.PROBE_CDP_URL ?? process.env.CHROME_CDP_URL;
+const browser = cdpUrl
+  ? await chromium.connectOverCDP(cdpUrl)
+  : await chromium.launch({ channel: 'chrome', headless: true });
 // `serviceWorkers: 'block'` is REQUIRED, not hygiene. The PWA service worker
 // installs on first load and then intercepts `/lego-models/*`; in a fresh
 // automation context those fetches come back `net::ERR_FAILED`, the loader

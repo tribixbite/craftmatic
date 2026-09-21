@@ -35,6 +35,10 @@ and conventions there; keep this file as the short project entry point.
   (2,755 tests, 74 failures that are not this code) and takes 16 minutes.
   See the [testing guide](docs/testing-guide.md) for suites and manual gates.
 - Use **Chrome** for browser testing, not Edge.
+- Run Playwright `.mjs` probes with **Node**: Bun 1.3.11 can fetch a CDP
+  `/json/version` yet time out on its WebSocket connection (measured 2026-09-21).
+  Node connects to the same isolated Chrome successfully. Keep bun/bunx for
+  package commands; a CDP transport timeout is not evidence of a site failure.
 
 ## Key tabs
 

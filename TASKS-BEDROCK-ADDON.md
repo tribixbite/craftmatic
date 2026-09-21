@@ -7,24 +7,27 @@ belongs in `git log`, `docs/lego-sources-guide.md`, and
 ## Active round — 2026-09-21, deployed verification and playable accuracy
 
 User explicitly authorizes pushing and deployed-site verification; wireless
-ADB needs no USB or root for pack import. Craftmatic feature commit `490a5746`
-was pushed to `origin/main`; CI `35602310515` and deployment `35602310529`
-passed. Browser render/export and actual Minecraft acceptance remain pending.
+ADB needs no USB or root for pack import. Feature commit `490a5746` and door
+elevation follow-up `e25af6e4` were pushed to `origin/main`; latest CI
+`35602735929` and deployment `35602735723` passed. Production creator export
+and desktop/mobile browser checks passed; actual Minecraft acceptance is open.
 No tags, destructive history rewrite, world deletion, or app-data reset.
 Do not promote a model merely because an aggregate metric improves.
 
 Current lanes (serialize staging/commits through the main agent):
 
-- [ ] Finish standalone minifig creator: library, runtime, web/CLI export,
-  persistence, and real Minecraft UI/geometry tests. Owner: `creator`.
-- [ ] Fix imported doors/furniture and offer measured usable door scale in the
-  placement wand, including 21060; do not assume 400% fits. Owner: `doors`.
-- [ ] Audit every user-requested set, separating source placement/floating
-  faults from rendering/export/interaction gaps. Owner: `set_audit`; report
-  `docs/set-quality-audit-2026-09-21.md`. Review overnight corpus results first.
-- [ ] Push tested changes, watch CI/deploy, then verify the actual supported
-  host `craftmatic.click` and imported packs over wireless ADB. Main coordinates
-  the device lane; only one agent may drive the phone at a time.
+- [ ] Verify creator UI, persistence, geometry and lifecycle in Minecraft;
+  starter library/runtime/web/CLI implementation is deployed. Owner: `creator`.
+- [ ] Verify scaled door replacement and manual seats in Minecraft. Broader
+  furniture and custom brick-built openings remain open; 21060 has no detected
+  semantic leaf, so do not advertise a 400% working-door preset.
+- [ ] Work from the completed 39-set source/freshness audit at
+  `docs/set-quality-audit-2026-09-21.md`; rendering/export/in-game coverage is
+  separate from the now-confirmed production source hashes.
+- [ ] Recover device acceptance over wireless ADB. Only `set_audit` drives
+  the phone; repeated shell `error: closed` prevented import. Files was last
+  foreground; restore Minecraft when transport permits. Do not restart the
+  device/framework or alter existing worlds to work around transport failure.
 
 Current integration gates (offline implementation ready; device acceptance open):
 
@@ -45,20 +48,31 @@ Current integration gates (offline implementation ready; device acceptance open)
   459 library cuboids, no unresolved parts; structural validator passes.
   Phone Download contains older metadata-only predecessor `creator-device-final-current.mcaddon`
   (`9ab0c64ede1b…`), not imported. Existing worlds/activations untouched.
-- Existing isolated Chrome CDP: `http://127.0.0.1:9227`, PID 35280; Vite 4000,
-  PID 33092. Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means
-  still running, not an empty successful exit. Root stopped only duplicate
-  probe PIDs 35880/18792; browser/server and all files were preserved.
+- Isolated Chrome CDP: `http://127.0.0.1:9227`, last PID 37936; verify before
+  reuse. Run `.mjs` probes with Node, not Bun's broken CDP WebSocket path.
+  Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means running.
+- Production creator evidence: `output/minifig-browser-check-creator-20260921-prod-diagnostics/`.
+  Actual downloaded `Browser.mcaddon` passes archive validation (3 client
+  entities, 37 geometries, 66 textures); all 23 diagnostic entities report zero
+  unresolved/AABB/print/substitution fallbacks. Backpack code round-trip passes,
+  desktop 1400×950 and mobile 390×844 popovers fit. Latest harness passed with
+  zero page errors; URL-level logs retain 50 HTTP 404s, 37 HTTP 503s and 67
+  aborted requests despite the successful export. Investigate network overhead
+  separately; do not claim the site is free of request errors.
 - Fresh 39-set audit uses `bestIndexedModel`, not `models[0]`: 11 PASS /
   28 DEFECTIVE. Twelve picks differ from first-entry ordering; the older
   local-index labels are 14 verified / 25 defective, with stale passes on
   10326/42172/910032.
   Production 10303 selected IOModel2V2, rendered 3,808 bricks, and reported
-  nine missing pieces across 43753/80564/x346. Other production picks still
-  need live confirmation; local selection is not proof of remote bytes.
+  nine missing pieces across 43753/80564/x346. All 39 production selected files
+  returned HTTP 200 and matched graded local SHA256; deployed/local indexes
+  also match. Evidence: `selected39-production-freshness.md` under the root below.
 - Exact-byte repair evidence under `output/pipeline-2026-09-21/`: 75397
   figures 8→2; 76286 2→1; 76435 3→0; 80049 10→7, other measured metrics
-  unchanged. None applied: fixed-pose visual gates remain. 42639/42663 show
+  unchanged. 75397 fixed front/iso/left views and figure closeups are accepted
+  (`75397-{before,after}-reviewed/`): detached gold arms/hands are reattached
+  with the asymmetric pose preserved. No corpus apply yet; other visual gates
+  remain. 42639/42663 show
   no improvement; 76269 rejected because float rises 45→50 (big 35→40).
 - Full board and both legacy A/B jobs completed. Isolated candidate index
   `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
