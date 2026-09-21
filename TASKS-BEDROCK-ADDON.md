@@ -26,8 +26,9 @@ Current lanes (serialize staging/commits through the main agent):
   `docs/set-quality-audit-2026-09-21.md`; rendering/export/in-game coverage is
   separate from the now-confirmed production source hashes.
 - [ ] Recover device acceptance over wireless ADB. Only `set_audit` drives
-  the phone; repeated shell `error: closed` prevented import. Files was last
-  foreground; restore Minecraft when transport permits. Do not restart the
+  the phone; retry reached Android's chooser and selected Minecraft/Just once,
+  but returned to Files with no import result. Import is NOT verified.
+  Restore Minecraft foreground when transport permits. Do not restart the
   device/framework or alter existing worlds to work around transport failure.
 
 Current integration gates (offline implementation ready; device acceptance open):
@@ -48,9 +49,11 @@ Current integration gates (offline implementation ready; device acceptance open)
   SHA256 `f9b624e7ca7a3605caf5622e51b540e76303e3aac81e7c8974a2bfe4f28a38b7`:
   459 library cuboids, no unresolved parts; structural validator passes.
   Phone Download now also contains these committed bytes under
-  `000-creator-wand-490a5746.mcaddon`, not imported. Recovery briefly restored
-  Minecraft then reopened Files for import; transport went offline again.
-  Last foreground: Files raw internal storage. Existing worlds/activations untouched.
+  `000-creator-wand-490a5746.mcaddon`. Latest retry selected Minecraft and Just
+  once (both taps exit 0), then returned to Files at Internal storage > Download.
+  No import confirmation, installed-pack proof, or QA world; existing worlds
+  and activations were not modified. Wireless transport still intermittently
+  reports `closed`/`offline`; do not call an exit-0 chooser tap an import pass.
 - Isolated Chrome CDP: `http://127.0.0.1:9227`, last PID 37936; verify before
   reuse. Run `.mjs` probes with Node, not Bun's broken CDP WebSocket path.
   Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means running.
@@ -74,13 +77,19 @@ Current integration gates (offline implementation ready; device acceptance open)
   figures 8→2; 76286 2→1; 76435 3→0; 80049 10→7, other measured metrics
   unchanged. 75397 fixed front/iso/left views and figure closeups are accepted
   (`75397-{before,after}-reviewed/`): detached gold arms/hands are reattached
-  with the asymmetric pose preserved. 75397 is now applied locally with exact
+  with the asymmetric pose preserved. 75397 is now applied and published with exact
   original backup in `75397-apply-backup/`; candidate full SHA256 is
   `b552734a27a762898b9bb7492a1d4b26ac79a0376948259bf7f5c56df4a9e140`.
-  One-file `--dry-run --only MecabricksLDR/75397.ldr --no-index` passes.
-  Actual R2 upload was blocked by auto-review: request explicit corpus-upload
-  approval before retrying. No upload occurred; production/index still name
-  original `5cfd6121f256…`. 76286 also passed fixed front/iso/left and closeup
+  User explicitly approved the single public R2 replacement. Scoped publisher
+  `--only MecabricksLDR/75397.ldr --no-index` returned `ok=1 fail=0`; canonical
+  live GET matches the full repaired SHA (`75397-cdn-readback.ldr`). Production
+  index is byte-unchanged at `64c4746e…9191a` (`75397-postpublish-index.json`),
+  intentionally retaining the old hash/8-defect warning until controlled index
+  regeneration/publication. Production browser load passes (3,973 bricks;
+  same-origin browser fetch matches exact SHA and repair marker), evidence
+  `75397-prod-postpublish-20260921/`. Viewer correctly warns about the stale
+  index hash; this warning is expected, not a failed model load.
+  76286 also passed fixed front/iso/left and closeup
   review (`76286-{before,after}-reviewed/`): only 41879b headwear moves 2.25 LDU
   down, other poses/ship unchanged. Candidate SHA256
   `51faf5b8e717bb01b0b855c20f53b3e9081a160d407c9e587ff0adf43522d5b3`

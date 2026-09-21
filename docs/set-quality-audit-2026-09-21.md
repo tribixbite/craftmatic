@@ -5,7 +5,7 @@ from `C:/git/clego/lego-models-index.json`, the current bytes under
 `C:/git/clego/lego_sets`, and the completed 2026-09-20 upstream-library board
 at `output/corpus-improvements-2026-09-20/board/scoreboard_full.json`. The table
 records the pre-repair production snapshot. Subsequently only 75397 was repaired
-locally (details below); no production corpus, index, or ranking was changed.
+and published (details below); the index and ranking remain unchanged.
 
 ## Evidence boundary
 
@@ -68,7 +68,7 @@ locally (details below); no production corpus, index, or ranking was changed.
 | 60446 | `io_model2_v2` `IOModel2V2/60446-base.ldr` | `706cc6f2570c` | index D; board DEF / yes | 20/20 · 0 · 1 · 0 · 27 | side 453 | Render `DbixConvV3/60446.ldr` (2/0 float, 1 figure, 0 unknown) and verify base-model identity. |
 | 71040 | `mecabricks` `MecabricksLDR/71040.ldr` | `dbe8fcadd6dc` | index V; board PASS / yes | 0/0 · 0 · 0 · 0 · 0 | sunk 1 | Completed preserve-pose trial is a no-op; retain source. |
 | 71043 | `lxf` `LXF/71043_hogwarts_castle.lxf` | `479bdba847f9` | index D; board DEF / yes | 23/0 · 30 · 5 · 0 · 0 | side 159, ovl .05%, sunk 5 | Source/render inspection; sole LDR alternate adds 22 big-float parts. |
-| 75397 | `mecabricks` `MecabricksLDR/75397.ldr` | `5cfd6121f256` | index D; board DEF / yes | 88/80 · 0 · 8 · 0 · 13 | side 160, ovl .18%, sunk 12 | Hardened A/B and fixed-pose visuals pass: figures 8→2, all other metrics and n=3,973 unchanged. Applied locally only; production still uses this original hash. |
+| 75397 | `mecabricks` `MecabricksLDR/75397.ldr` | `5cfd6121f256` | index D; board DEF / yes | 88/80 · 0 · 8 · 0 · 13 | side 160, ovl .18%, sunk 12 | Pre-repair row. Hardened A/B and fixed-pose visuals pass: figures 8→2, all other metrics and n=3,973 unchanged. Repaired bytes `b552734a27a7` now live; index metadata remains old. |
 | 76269 | `mecabricks` `MecabricksLDR/76269.ldr` | `945fb96c1898` | index D; board DEF / yes | 97/88 · 0 · 12 · 0 · 59 | side 475, ovl .06% | Conv demotion chooses this over v3, but v3 has 45/35 float and U0; visually compare before revising the policy or source rank. |
 | 76286 | `dbix_conv_v3` `DbixConvV3/76286.ldr` | `b5be43f938ac` | index D; board DEF / yes | 3/0 · 1 · 2 · 0 · 1 | side 50, sunk 4 | Target two figures, then renderer-check the one grader unknown. |
 | 76417 | `dbix_conv_v3` `DbixConvV3/76417.ldr` | `f18bca56f6f9` | index D; board DEF / yes | 32/0 · 15 · 7 · 0 · 0 | side 1,639, stage .598 | Staged/multi-build visual diagnosis before any repair. |
@@ -122,13 +122,20 @@ Exact leading candidate files:
 figure's detached arms/hands reattach while retaining its asymmetric pose;
 the lineup, stands and ship are unchanged. Evidence is under
 `output/pipeline-2026-09-21/75397-{before,after}-reviewed/`. This accepts the
-hash-pinned candidate, not an already-published correction. It is now applied
-locally at full SHA256 `b552734a27a762898b9bb7492a1d4b26ac79a0376948259bf7f5c56df4a9e140`.
+hash-pinned candidate. With explicit user approval, it is now applied and
+published at full SHA256 `b552734a27a762898b9bb7492a1d4b26ac79a0376948259bf7f5c56df4a9e140`.
 The exact original (`5cfd6121f256142eff4d9a61a7ba27976de5c94b7a20a90416e2c81dcae0c5aa`)
 is backed up in `output/pipeline-2026-09-21/75397-apply-backup/`.
-One-file publisher dry-run passed; actual R2 upload was blocked by auto-review
-pending explicit corpus-upload authorization. No remote write occurred, and
-the index remains unchanged. Other legacy
+One-file publisher returned `ok=1 fail=0` with index skipped. Canonical public
+GET matched the complete repaired hash (`75397-cdn-readback.ldr` under the
+evidence root above); production index readback remains SHA256
+`64c4746eb7e7254211bf32e5053a79c7c2e90dc6819c7abe5636e9bb1909191a`.
+Its 75397 hash/grade metadata intentionally remains stale, not newly certified.
+Production browser auto-load rendered 3,973 bricks (3,963 live instances, 681
+meshes); its same-origin fetch returned the exact repaired SHA and provenance
+marker. The viewer correctly displays an index-hash mismatch warning. Evidence:
+`output/pipeline-2026-09-21/75397-prod-postpublish-20260921/`.
+Other legacy
 nominations still need a small hardened, hash-pinned targeted regrade followed
 by visual review. Do not apply the whole trial cohort.
 
@@ -153,8 +160,8 @@ by visual review. Do not apply the whole trial cohort.
 
 ## Highest-value cohorts
 
-1. Obtain explicit R2 corpus-upload approval for the locally applied 75397
-   candidate, then publish narrowly and read back the exact repaired bytes.
+1. Include the published 75397 repair in the next controlled board/index refresh;
+   do not mistake the unchanged index's 8-defect row for its new 2-defect bytes.
 2. Target near-pass figure residue on 76286, 42639, 42663, and 910047. These
    avoid broad source switches and have small, concentrated figure counts.
 3. Treat 10354/10365/41703/42652/76435/80049 as v3 polish/alignment work; their

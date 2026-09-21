@@ -1447,8 +1447,14 @@ so those rows are the ones to re-measure first next round.
 
 ### 10. Local pipeline hardening and corpus validation (2026-09-20)
 
-The 2026-09-20 corpus hardening below remains local; subsequent Craftmatic
-creator/door code was pushed and deployed on 2026-09-21. Resume from
+The 2026-09-20 corpus hardening code below remains local; subsequent Craftmatic
+creator/door code was pushed and deployed on 2026-09-21. One accepted source
+repair, `MecabricksLDR/75397.ldr`, was explicitly authorized and published alone
+with `--only MecabricksLDR/75397.ldr --no-index`. Canonical public readback matches
+SHA256 `b552734a27a762898b9bb7492a1d4b26ac79a0376948259bf7f5c56df4a9e140`:
+figure defects 8→2, other measured metrics unchanged, pose-reviewed. The index
+is unchanged and still carries its old hash/grade; a later controlled refresh
+must reconcile that metadata. Publisher regression tests pass 33/33. Resume from
 `TASKS-BEDROCK-ADDON.md`; evidence is under
 `output/corpus-improvements-2026-09-20/`.
 
