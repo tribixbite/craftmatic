@@ -1640,7 +1640,9 @@ export function initImport(
 
     // Phase 5 P0: vegetation/landscape data
     if (prop.canopyCoverPct != null) {
-      currentNlcdCanopy = { canopyCoverPct: prop.canopyCoverPct as number };
+      // Restored from a saved property record: the value is present, so the
+      // same status a live query would have reported.
+      currentNlcdCanopy = { canopyCoverPct: prop.canopyCoverPct as number, status: 'ok' };
     }
     if (prop.hardinessZone) {
       currentHardiness = { zone: prop.hardinessZone as string };

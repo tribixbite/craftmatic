@@ -14,6 +14,15 @@ const TCC_LAYER = 'nlcd_tcc_conus_2021_v2021-4';
 export interface NlcdCanopyResult {
   /** Tree canopy cover percentage (0–99), or null if outside CONUS */
   canopyCoverPct: number | null;
+  /**
+   * Why `canopyCoverPct` is null, which the percentage alone cannot say:
+   * `no-data` is the service answering "nothing here" (outside CONUS, or a
+   * value outside the palette), `unavailable` is a transport/HTTP failure.
+   * Conflating the two read a third-party outage as a regression and failed CI
+   * twice (2026-09-20, 2026-09-21) — a reachable GetCapabilities does not
+   * promise that an individual GetFeatureInfo answers.
+   */
+  status: 'ok' | 'no-data' | 'unavailable';
 }
 
 /**
@@ -50,17 +59,18 @@ export async function queryNlcdCanopy(
     const res = await fetch(`${MRLC_WMS_URL}?${params}`, {
       signal: AbortSignal.timeout(8000),
     });
-    if (!res.ok) return { canopyCoverPct: null };
+    if (!res.ok) return { canopyCoverPct: null, status: 'unavailable' };
 
     const data = await res.json() as {
       features?: { properties?: { PALETTE_INDEX?: number } }[];
     };
 
     const val = data.features?.[0]?.properties?.PALETTE_INDEX;
-    if (val == null || val < 0 || val > 99) return { canopyCoverPct: null };
+    if (val == null || val < 0 || val > 99) return { canopyCoverPct: null, status: 'no-data' };
 
-    return { canopyCoverPct: val };
+    return { canopyCoverPct: val, status: 'ok' };
   } catch {
-    return { canopyCoverPct: null };
+    // Timeout, DNS, TLS or a malformed body: the point is unknown, not empty.
+    return { canopyCoverPct: null, status: 'unavailable' };
   }
 }
