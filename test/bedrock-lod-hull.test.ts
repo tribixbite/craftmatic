@@ -140,6 +140,36 @@ const shellPack = async (lod: 'none' | 'hull', lodDistance?: number) => {
 const textOf = async (bytes: Uint8Array, name: string): Promise<string> => new TextDecoder().decode(await extractFile(ab(bytes), name));
 
 describe('the LOD hull inside a pack', () => {
+  it('can compare full and hull at one camera without changing resident geometry', async () => {
+    // At a fixed 20–25 block camera, the existing distance option can force
+    // either representation. Both packs retain BOTH meshes, isolating drawing
+    // cost from residency and screen-coverage changes in a device experiment.
+    const full = await shellPack('hull', 1024);
+    const hull = await shellPack('hull', 1);
+    const entries = listZipEntries(ab(full.bytes));
+    expect(listZipEntries(ab(hull.bytes))).toEqual(entries);
+    const invariant = entries.filter(name =>
+      /\/models\/entity\/|\/entity\/|\/entities\/|\/scripts\//.test(name));
+    expect(invariant.length).toBeGreaterThan(0);
+    for (const name of invariant) {
+      expect(await textOf(full.bytes, name), name).toBe(await textOf(hull.bytes, name));
+    }
+    const controller = 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json';
+    expect((await textOf(full.bytes, controller)).replaceAll('1024', '1'))
+      .toBe(await textOf(hull.bytes, controller));
+    for (const root of ['Craftmatic_lodshed_BP', 'Craftmatic_lodshed_RP']) {
+      const a = JSON.parse(await textOf(full.bytes, `${root}/manifest.json`)) as { header: { uuid: string } };
+      const b = JSON.parse(await textOf(hull.bytes, `${root}/manifest.json`)) as { header: { uuid: string } };
+      expect(a.header.uuid).toBe(b.header.uuid);
+    }
+    const diagnostics = 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json';
+    const a = JSON.parse(await textOf(full.bytes, diagnostics)) as { pack: { cuboids: number }; lod: { cuboids: number } };
+    const b = JSON.parse(await textOf(hull.bytes, diagnostics)) as typeof a;
+    expect(a.pack.cuboids).toBe(b.pack.cuboids);
+    expect(a.lod.cuboids).toBe(b.lod.cuboids);
+    expect(a.lod.cuboids).toBeGreaterThan(0);
+  });
+
   it('leaves the shipped form alone by default', async () => {
     const off = await shellPack('none');
     const again = await shellPack('none');

@@ -108,6 +108,9 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
   camera changes screen coverage, so this is a transition observation, not an
   isolated LOD effect. Repeat full/hull with identical actors/camera and longer
   alternating samples. Active definitions 80,210; drawn 71,884 versus 3,160.
+  Existing `--lod=hull --lod-distance=1024` versus `--lod-distance=1` isolates
+  the representation at one near camera while keeping resident geometry equal;
+  pack invariant test and version-selection recipe are in the add-on guide.
 - [ ] Chalet roaming: old h1.8 control 0/7 versus h0.95 1/7. New dwell trial
   aborted before world load due repeated ADB chat-input drops. Keep seated
   figures 4/5/6 out of the walker denominator; census walkers 1/2/3/7 for ≥10 min.

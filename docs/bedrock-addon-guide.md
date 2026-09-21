@@ -1533,6 +1533,18 @@ after repeated wireless-ADB chat-input drops, so the previous 0/7 vs 1/7 result
 remains the only evidence. Both worlds' pack JSON was restored and SHA-256
 verified; the app was returned to its starting Play screen.
 
+For the controlled repeat, no production feature is missing: export the same
+source/label/options twice with `--lod=hull --lod-distance=1024` (full at the
+fixed near camera) and `--lod=hull --lod-distance=1` (hull at that same camera).
+Both packs retain the same full and hull geometry, so residency is held fixed.
+`test/bedrock-lod-hull.test.ts` checks equal geometry, entities, scripts, pack
+cuboid counts and UUIDs; controller thresholds are the intended difference.
+Select the correct generated pack version explicitly and verify its diagnostics
+after each switch. Use identical actor positions/camera, warm up, then collect
+longer alternating full/hull samples (e.g. ≥30 seconds each, several repeats).
+Record thermal/load conditions and actor counts; restore exact original pack
+JSON afterward. This fixture test prepares the experiment, not a device pass.
+
 ### The wand's size factor multiplied a constant lift (fixed 2026-09-20; device PASS at 100/200/400 %)
 
 Evidence: `output/device-919/round-2026-09-20/GROUNDING.md`; the device check
