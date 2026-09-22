@@ -67,8 +67,37 @@ Open after this round:
   46.2k but its 8,720 studs drop to 1 facet. A 2-facet step would help that class.
 - [ ] `mainVehicleOnly` exports get no walk-through measurement (the scene block
   is skipped); grid sources cannot have one. Deliberate, not an oversight.
-- [ ] Should 300-400 % stairs be made climbable with intermediate collider
-  treads? That is invisible geometry — the user's call.
+- [x] DECIDED by the user: invisible geometry that UNLOCKS interactivity is
+  wanted; an invisible wall that restricts movement for no reason in the model
+  is a bug. Intermediate collider treads for scaled-up stairs are approved and
+  in progress; the test for any collider added is that the set of reachable
+  cells strictly GROWS and that 100 % output is byte-identical.
+
+## Next round — the set's own cars, a working elevator, and 10261
+
+User direction, verbatim: "the existing lego-designed cart should be the moving
+mountable multi-vehicle object - not a new fabrication. And obviously the
+elevator needs to function to complete the loop. Make the physics and track/car
+system universally adaptable when done and apply it next to set 10261".
+
+- [ ] **The set's own cars become the ride vehicles.** Today the pack adds a
+  fabricated nine-cuboid grey cart and leaves the set's cars in the static
+  shell. Detect the car assemblies from geometry (proximity to the running
+  line, wheel moulds, a repeated assembly at a consistent pitch) — 10303's
+  three rider torsos sit at identical x/z exactly 120 LDU apart — compile each
+  as the rideable entity's geometry, and take them out of the shell. The posed
+  riders belong IN those cars.
+- [ ] **The elevator must work, so the circuit completes.** 10303's lift is a
+  brick-built platform (42 parts at 4.10 degrees on six 55981 and eight 4185
+  wheels), parked at the base; raised ~1,860 LDU its -X end meets the 80566 tip
+  and the station straight descends onto it. Detect it, animate its travel, and
+  hand the car between platform and track at the two dock arcs. The vertical
+  25059 stack is the COUNTERWEIGHT guide, not a car path — never route on it.
+- [ ] **Universal, then 10261.** The rules must work on both sets with no
+  special-casing: where 10261 differs the DATA differs, not the code. Sources:
+  `C:/git/clego/lego_sets/IOModel2V2/10261.ldr`, plus `LDR/10261 Roller
+  Coaster.mpd` and an `.io` in the index (4,124 catalog parts, 2018). Establish
+  what 10261's lift actually is before assuming it matches 10303's.
 
 ## Active round — 2026-09-21, 10303 track repair and ride mechanism
 
