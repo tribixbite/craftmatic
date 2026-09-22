@@ -37,6 +37,7 @@
     "gen-part-dims": "bun scripts/gen-part-dims.ts",
     "prebuild": "bun run prebuild:lego && bun run prebuild:omr && bun run prebuild:seymouria",
     "scrape:lego-thumbs": "bun scripts/scrape-lego-thumbs.ts",
+    "console": "bun tools/console/server.ts",
     "clean": "rm -rf dist web/dist",
     "prepublishOnly": "npm run build && npm run build:web"
   },

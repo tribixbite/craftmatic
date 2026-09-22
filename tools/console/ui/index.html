@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Craftmatic Console</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header id="top">
+  <div class="brand"><span class="dot"></span>craftmatic console</div>
+  <div id="status" class="status">connecting…</div>
+  <nav class="tabs-mobile" id="mobile-nav">
+    <button data-panel="select" class="on">Select</button>
+    <button data-panel="ops">Operations</button>
+    <button data-panel="runs">Runs</button>
+  </nav>
+</header>
+<main id="main">
+  <section id="panel-select" class="panel on" aria-label="Selection"></section>
+  <section id="panel-ops" class="panel" aria-label="Operations"></section>
+  <section id="panel-runs" class="panel" aria-label="Runs"></section>
+</main>
+<script type="module" src="/app.js"></script>
+</body>
+</html>
