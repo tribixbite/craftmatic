@@ -58,6 +58,36 @@ bricks read as squares. That is the voxel cell; 1 LDU costs 316k cuboids.
 - **Every in-game `%` is spelt "percent"** (`b3ec0c02`, `9831d222`) — Bedrock's
   form renderer deletes a bare percent sign.
 
+### Device verdict 2026-09-22: both coasters ride, four defects left
+
+The user rode BOTH sets on a device: 10261 "nearly flawless", 10303 "nearly
+perfect". Screenshots in the session images dir (`2.jpg`/`3.jpg` 10261 cars
+tipping, `4.jpg`/`5.jpg` 10303 at the lift top). Remaining, in their words:
+
+1. "Friction too high//acceleration too low - the cart should accelerate faster
+   after pulled to the top of the track and released." Likely NOT friction: the
+   per-tick step is clamped to one authored sample spacing (7.5 blocks/s on a
+   1x 10303) and the module's own comment admits a 35-block descent "would
+   otherwise reach ~26". The fix is substepping inside a tick, not raising the
+   cap — the cap is what stops a step cutting the polyline's corners.
+2. "The individual cars tip up and down too much … should be impossible due to
+   the grey under-track glide attachment and connection anchor to other cars."
+   A car pitches from the tangent at its own centre; it should ride the chord
+   between its front and rear wheel contacts. The detector already measures
+   `wheels[]` and `wheelGeometry` (axle 17.5 LDU below origin, tread band
+   24-33) on 141-LDU cars.
+3. 10303 only: "at the top of the elevator the cart is suddenly rotated to the
+   wrong position … fixed at the bottom of the final loop" — the delivery
+   hand-off sets the wrong heading/frame.
+4. "The player (as rider) view … inside the loops instead of upside down the
+   player view goes above … outside the track." A Bedrock player cannot roll,
+   so a seat offset along the car's up vector throws the rider outside an
+   inversion; the rider should stay near the track centreline through it.
+5. "both/all roller coasters should have a second cart in loading bay until
+   first cart is half way (then second should depart)." 10261 HAS a second
+   train (the detector parks it on a siding); 10303 has one, so its second
+   train would be a second instance of the set's own cars — flag that.
+
 ### Open
 
 - [ ] **Device acceptance of the current pack on world 921.** Specifically
