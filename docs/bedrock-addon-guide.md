@@ -1932,6 +1932,80 @@ seen side-on), the rider bone actually hiding under `scale: 0.0`, the seat
 height inside the tub at 0.3 blocks (the compiler's clamp), and the platform
 carrying a player visibly (a rider is retained through the lift on the host).
 
+### Ride polish after the first rides (2026-09-22): speed, wheelbase, track ups, the rider inside the loop, two trains
+
+The user rode both sets ("nearly flawless" / "nearly perfect") and reported
+four things; every one was measured on the host before it was touched, in
+`bedrock-coaster.ts` only (`output/bedrock-entity-qa/coaster-polish-2026-09-22/
+sim-ride.ts` runs a pack's own `coaster.js` and prints the numbers below).
+
+- **"Friction too high" was the sample-spacing ceiling**, not friction: the
+  per-tick arc step was clamped to one authored sample (7.5 blocks/s on 10303).
+  A tick is now integrated in SUBSTEPS no longer than a sample spacing, each
+  sampling the grade where the train is, so the polyline bounds the step and
+  the physics bounds the speed (`MAX_SPEED` 12 → 16, `ROLLING` 0.15 → 0.12,
+  `DRAG` 0.012 → 0.008). Drops: 10303 peak 8.9 → **16.0**, mean 7.3 → 10.2
+  blocks/s; 10261 peak 7.5 → **13.0**, mean 5.7 → 7.7.
+- **Cars see-sawed because each pitched on the local tangent.** A car now
+  pitches on the CHORD between its wheel contacts (`wheelbase`: 50 LDU on the
+  26021 base — the 24869 wheels measured at ±25 on 10303, and the same figure
+  from `26021c01.dat` for 10261's composite chassis via `CHASSIS_WHEELBASE_LDU`,
+  because a shortcut part exposes no wheel to measure). Adjacent-car pitch
+  difference: 10303 worst 66 → 38°, median 7.3 → 2.1°; 10261 worst 55 → 39°,
+  over 20° on 11.2 → 6.9 % of car-pair ticks. What is left is real: the loops
+  (r ≈ 3.7 blocks; two cars 2.25 apart differ by 35° there) and the
+  fragment-join jogs in the extracted polyline (10261 arc 79-81 climbs 1 block
+  in 0.5 of run, 64° for one chord length) — those belong to
+  `coaster-track.ts`, not to the runtime. Coupling needs no extra constraint:
+  cars are already a fixed arc apart, so the chord fix is the coupling.
+- **"Rotated wrong at the top of the elevator" was parallel transport.** The
+  helical loops have torsion; the minimum-twist frame left the cars 61-84° on
+  their side from the first loop onward and delivered them to the top deck
+  rolled **−117°** (the sim's hand-off row: roll 0.0 → −117.2 on the delivery
+  tick), unwinding only back down through the loops. `coasterTrackUps` twists
+  each transported up toward the physical up — gravity's where the track is
+  within 60° of upright (LEGO track is never banked), the smoothed curve
+  normal when banked further inside a vertical curve tighter than 8 blocks
+  with its centre on the car's up side (a loop, never a crest) — at most
+  20°/block. 10303's upright twist is now ≤ 20° (in the loop exits) and the
+  hand-off is 0.0/0.0; 10261 is unchanged at 0°. A first attempt that used the
+  curve normal on ANY vertical bend rolled 10261's dips by 11° from the
+  polyline's join noise — the 60° gate is what stops that.
+- **The rider left the loop** because a Bedrock seat is a fixed offset in the
+  entity's yaw-only frame: inverted, it put the player 1.55 blocks ABOVE the
+  rails. The runtime now places the ENTITY where the rider's head belongs
+  (seat and 1.25-block eye carried through the car's real pitch and roll, less
+  the upright eye) and draws the body back onto the rails through three synced
+  float properties `craftmatic:body_x/y/z` on the root `track_pitch` bone's
+  `position` (model units, entity frame: X mirrored, −Z forward). Eye at both
+  10303 apexes: **−1.57 blocks below the rails** (inside), 0.25 lateral, never
+  higher than −0.50 through an inversion. On upright track all three offsets
+  are exactly 0, so nothing device-proved moves; on a climb the entity (and
+  its hit box) sits behind and below the bricks by the eye's tilt.
+  **Not device-verified:** that Bedrock applies an animated root-bone
+  `position` in the geometry's own axis convention (the derivation is in
+  `coasterRuntime`); if the drawn body sits off the rails in a loop or on the
+  vertical drop, that sign is the first suspect.
+- **Two trains.** A route with the set's own cars runs `COASTER_TRAINS` = 2:
+  the second waits at a block point one train length + 0.5 behind the
+  platform (10303 arc 27.5, 10261 arc 211.8 — both inside the level station
+  run) and departs once the first is half a lap ahead; a train returning to an
+  occupied platform holds there. 10261's second train IS the siding's three
+  cars (Track 2, 1.9 blocks from the circuit; they leave the shell). **10303
+  has only three cars, so its second train is a second copy of them.** The
+  hoist is one per placement (`hoists`, owner = the train on it), so the
+  second train waits at the terminal while the platform returns. Host cycle:
+  10303 T1 departs t100, T2 t725 (T1 at 50.0 %), then alternately every 741
+  ticks; 10261 T2 departs at 50.0 %, then every 795 ticks; never both on the
+  platform, never closer than the gap.
+
+Unchanged and still device-proved by construction: riderless running, the
+station brake and dwell, the boarding hold, the tap prompt, chunk holds,
+refused-teleport holds, Undo retirement and the property ranges (three new
+float properties, all clamped). Pre-existing and untouched: the roll bone
+snaps where the track passes vertical (the yaw/pitch/roll decomposition has no
+yaw there; 256°/block at 10303 arc 95 in both the old and new packs).
+
 ## Close-up fidelity: the budget is spent per part, where it shows (2026-09-21)
 
 The user's report was that the capacity work "tanked" the close-up. Measured,

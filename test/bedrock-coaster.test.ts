@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  COASTER_MAX_CARS, PARKED_SIDING_FACTOR, buildCoasterRideAssets, canonicalCoasterCar, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
-  coasterRuntimeConfig, coasterScript, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
+  COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
+  coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -15,18 +15,20 @@ import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometr
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { sceneGridPoint } from '../web/src/engine/bedrock-scene-actors.js';
 import { BEDROCK_UNITS_PER_LDU } from '../web/src/engine/lego-scale.js';
-import { buildCoasterPath } from '../web/src/engine/coaster-path.js';
+import { buildCoasterFrames, buildCoasterPath } from '../web/src/engine/coaster-path.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { BlockGrid } from '../src/schem/types.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { host } from './_placement-host.js';
 
-interface RideHostOptions { riders?: boolean; scale?: number }
+interface RideHostOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number] }
 
 /** One host per placement. A route that declares a train gets that many car
- * entities, all spawned at the same station point the placement uses. */
+ * entities, all spawned at the same station point the placement uses. The
+ * cart's wheelbase and seat are what `buildCoasterRideAssets` would fill in. */
 function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
-  const config = coasterRuntimeConfig('craftmatic:test_cart', [route]);
+  const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
+  const config = { ...bare, types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
   const count = config.routes[0]!.cars.count;
   let loaded = true, removed = false;
   /** Cars whose chunk has gone: Bedrock reports an unloaded entity as invalid. */
@@ -71,6 +73,13 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
     const previous = positions[index]!;
     return Math.hypot(point.x - previous.x, point.y - previous.y, point.z - previous.z) * 20;
   });
+  const total = config.routes[0]!.path.length, closed = config.routes[0]!.path.closed;
+  /** Ride speed in world blocks per second from consecutive saved arc distances (the train's centre). */
+  const arcSpeeds = () => distances.slice(1).map((distance, index) => {
+    let step = Math.abs(distance - distances[index]!);
+    if (closed) step = Math.min(step, total - step);
+    return step * 20 * (options.scale ?? 1);
+  });
   return { cars, config, distances, start,
     // Car 0 aliases keep the single-cart tests reading as they did.
     entity: lead.entity, properties: lead.properties, riders: lead.riders, rider: lead.rider, positions: lead.positions,
@@ -79,9 +88,32 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
     dismount: (index = 0) => { cars[index]!.riders.length = 0; },
     setLoaded: (value: boolean) => { loaded = value; }, remove: () => { removed = true; },
     unload: (index: number) => { gone.add(index); }, reload: (index: number) => { gone.delete(index); },
-    /** World blocks per second between consecutive teleports of one car. */
+    /** World blocks per second between consecutive teleports of one car: the ENTITY's speed, which carries the rider's head offset. */
     speeds: (index = 0) => speedsOf(cars[index]!.positions),
+    arcSpeeds,
+    /** Where the car's bricks are drawn: the entity position plus its body offset, i.e. the track datum. */
+    datums: (index = 0) => datumsOf(cars[index]!, options.scale ?? 1),
   };
+}
+
+/**
+ * The track datum of every teleport: the entity position plus the body offset
+ * the runtime set on the same tick, turned from model units into the world.
+ * Bedrock draws a model's -Z toward the entity's facing (yaw θ faces
+ * (-sin θ, 0, cos θ)) with the model mirrored in X, so a model vector (mx, my,
+ * mz) is the world vector (-(cos θ·mx) + sin θ·mz, my, -(sin θ·mx) - cos θ·mz)
+ * scaled by the wand size over 16 units per block.
+ */
+function datumsOf(car: { entity: any; positions: Array<{ x: number; y: number; z: number }> }, scale: number) {
+  const calls = car.entity.setProperty.mock.calls as Array<[string, number]>;
+  const yaws = (car.entity.teleport.mock.calls as any[][]).map(call => call[1].rotation.y as number);
+  const body = (name: string) => calls.filter(call => call[0] === name).map(call => call[1]);
+  const bx = body('craftmatic:body_x'), by = body('craftmatic:body_y'), bz = body('craftmatic:body_z');
+  return car.positions.map((p, k) => {
+    const yaw = yaws[k]! * Math.PI / 180, c = Math.cos(yaw), s = Math.sin(yaw);
+    const mx = (bx[k] ?? 0) / 16 * scale, my = (by[k] ?? 0) / 16 * scale, mz = (bz[k] ?? 0) / 16 * scale;
+    return { x: p.x + (-c * mx + s * mz), y: p.y + my, z: p.z + (-s * mx - c * mz) };
+  });
 }
 
 const straight: CoasterRoute = { label: 'Measured track', points: [[0, 0, 0], [10, 0, 0]], closed: false, maxSegmentLength: 10 };
@@ -182,9 +214,12 @@ describe('serialized coaster runtime', () => {
   it('crawls up the measured grade and runs away on the drop', () => {
     const h = rideHost(towerRoute());
     h.run(1200);
+    // The cart's bricks (the datum) trace the track; the entity itself also
+    // carries the rider's head offset, so speeds are read off the datums.
+    const datums = h.datums();
     const climbing: number[] = [], falling: number[] = [];
-    for (let index = 1; index < h.positions.length; index++) {
-      const from = h.positions[index - 1]!, to = h.positions[index]!;
+    for (let index = 1; index < datums.length; index++) {
+      const from = datums[index - 1]!, to = datums[index]!;
       const step = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z);
       if (step < 1e-9) continue;
       const grade = (to.y - from.y) / step;
@@ -193,17 +228,21 @@ describe('serialized coaster runtime', () => {
     const mean = (values: number[]) => values.reduce((total, value) => total + value, 0) / values.length;
     expect(climbing.length).toBeGreaterThan(100);
     expect(falling.length).toBeGreaterThan(100);
-    // The chain lift holds the climb at its own speed; the drop is bounded only
-    // by the sample-spacing ceiling (20 * scale * 0.375 = 7.5 blocks/s).
+    // The chain lift holds the climb at its own speed; the 19-block drop is
+    // bounded by the physics (sqrt(2 g h) = 19 blocks/s) and the 16 blocks/s
+    // ceiling — no longer by the sample spacing (7.5 blocks/s on this route).
     expect(mean(climbing)).toBeGreaterThan(2.2);
     expect(mean(climbing)).toBeLessThan(2.6);
-    expect(mean(falling) / mean(climbing)).toBeGreaterThan(2.5);
-    // The chain never overdrives the climb, and the drop reaches the ceiling.
+    expect(mean(falling) / mean(climbing)).toBeGreaterThan(3);
+    // The chain never overdrives the climb; the drop runs well past the old
+    // 7.5 blocks/s spacing ceiling and is bounded here by the station brake
+    // curve (sqrt(2 · 3.5 · 24) = 13 blocks/s at the top of the drop, which
+    // ends 6 blocks from the platform), never by the 16 blocks/s ceiling.
     expect(Math.max(...climbing)).toBeLessThanOrEqual(2.6);
-    expect(Math.max(...falling)).toBeGreaterThan(7.4);
-    expect(Math.max(...falling)).toBeLessThanOrEqual(7.5 + 1e-9);
+    expect(Math.max(...falling)).toBeGreaterThan(12);
+    expect(Math.max(...falling)).toBeLessThanOrEqual(16 + 1e-6);
   });
-  it('never advances more than one authored sample spacing in a tick', () => {
+  it('integrates each tick in substeps no longer than a sample spacing, so speed is bounded by physics, not resolution', () => {
     for (const scale of [1, 4]) {
       const h = rideHost(towerRoute(), { scale });
       h.run(1500);
@@ -213,9 +252,52 @@ describe('serialized coaster runtime', () => {
         const step = Math.abs(h.distances[index]! - h.distances[index - 1]!);
         if (step > largest) largest = step;
       }
-      expect(largest).toBeGreaterThan(0);
-      expect(largest).toBeLessThanOrEqual(spacing + 1e-9);
+      // The arc step per tick exceeds one sample spacing on the drop at 1x (the
+      // old ceiling; at 4x the same 16 blocks/s is 0.2 model blocks) and never
+      // the ride ceiling of 16 blocks/s.
+      if (scale === 1) expect(largest).toBeGreaterThan(spacing);
+      expect(largest).toBeLessThanOrEqual(16 / (20 * scale) + 1e-9);
+      expect(Math.max(...h.arcSpeeds())).toBeLessThanOrEqual(16 + 1e-6);
     }
+    // A ceiling-limited drop still follows every sample: the datums lie on the polyline.
+    const h = rideHost(towerRoute());
+    h.run(1200);
+    const dx = Math.sqrt(1 - CLIMB_GRADE * CLIMB_GRADE);
+    for (const d of h.datums()) {
+      if (d.x <= 100 + STATION_RUN + 1e-6) expect(d.y).toBeCloseTo(65, 6);
+      else expect(d.y - 65).toBeCloseTo((d.x - 100 - STATION_RUN) / dx * CLIMB_GRADE, 6);
+    }
+  });
+  it('carries the rider\'s head through the car\'s pitch and draws the bricks back on the track', () => {
+    // On the 39-degree climb the seat and eye (1.25 blocks) tilt back with the
+    // car: the entity sits behind and below the datum by exactly that, and the
+    // body offset returns the bricks to the rails. On the level run all three
+    // offsets are zero, byte for byte the device-proved placement.
+    const h = rideHost(towerRoute());
+    h.run(600);
+    const calls = h.entity.setProperty.mock.calls as Array<[string, number]>;
+    const body = (name: string) => calls.filter(call => call[0] === name).map(call => call[1]);
+    const bx = body('craftmatic:body_x'), by = body('craftmatic:body_y'), bz = body('craftmatic:body_z');
+    expect(bx).toHaveLength(h.positions.length);
+    const datums = h.datums();
+    let level = 0, climbing = 0;
+    for (let k = 0; k < h.positions.length; k++) {
+      const p = h.positions[k]!, d = datums[k]!;
+      if (d.x <= 100 + STATION_RUN + 1e-6) {
+        level++;
+        expect(p).toEqual(d);
+        expect([bx[k], by[k], bz[k]].map(Math.abs)).toEqual([0, 0, 0]);
+      } else if (d.x > 100 + STATION_RUN + 2) {
+        climbing++;
+        const tilt = Math.asin(CLIMB_GRADE);
+        // Eye 1.25 up the car's up vector (which leans back by the climb angle) versus 1.25 straight up.
+        expect(p.x - d.x).toBeCloseTo(-1.25 * Math.sin(tilt), 3);
+        expect(p.y - d.y).toBeCloseTo(1.25 * (Math.cos(tilt) - 1), 3);
+        expect(bx[k]).toBeCloseTo(0, 6);
+      }
+    }
+    expect(level).toBeGreaterThan(50);
+    expect(climbing).toBeGreaterThan(50);
   });
   it('brakes into the platform, dwells, and departs again each lap', () => {
     const h = rideHost(towerRoute());
@@ -282,13 +364,22 @@ describe('serialized coaster runtime', () => {
     const h = rideHost({ ...straight, points: [[0, 0, 0], [0, 10, 0]] });
     h.run(101);
     // 99 ticks parked at the foot of the climb, then the station drive push,
-    // after which the chain takes over at its own speed.
-    expect(h.positions[0]).toEqual({ x: 100, y: 64, z: 200 });
-    expect(h.positions[98]).toEqual({ x: 100, y: 64, z: 200 });
-    expect(h.positions[99]!.y).toBeCloseTo(64.15, 9);
-    expect(h.positions[100]!.y).toBeCloseTo(64.275, 9);
+    // after which the chain takes over at its own speed. The bricks (datums)
+    // climb the track; the entity carries the rider's head, which on a
+    // vertical car lies 1.25 blocks to the car's up side, and no further.
+    const datums = h.datums();
+    expect(datums[0]!.x).toBeCloseTo(100, 6); expect(datums[0]!.y).toBeCloseTo(64, 6); expect(datums[0]!.z).toBeCloseTo(200, 6);
+    expect(datums[98]!.y).toBeCloseTo(64, 6);
+    expect(datums[99]!.y).toBeCloseTo(64.15, 9);
+    // The push decays under gravity to the chain's speed within the next tick.
+    expect(datums[100]!.y).toBeCloseTo(64.275, 3);
+    for (let k = 0; k < datums.length; k++) {
+      expect(datums[k]!.x).toBeCloseTo(100, 6);
+      expect(Math.hypot(h.positions[k]!.x - datums[k]!.x, h.positions[k]!.z - datums[k]!.z)).toBeCloseTo(1.25, 6);
+      expect(h.positions[k]!.y - datums[k]!.y).toBeCloseTo(-1.25, 6);
+    }
     h.run(20);
-    const speeds = h.speeds().slice(-10);
+    const speeds = h.arcSpeeds().slice(-10);
     for (const speed of speeds) expect(speed).toBeCloseTo(2.5, 6);
     expect(h.entity.setProperty).toHaveBeenCalledWith('craftmatic:track_pitch', -90);
   });
@@ -396,16 +487,20 @@ describe('serialized coaster runtime', () => {
       expect(log).toHaveBeenCalledTimes(2);
     } finally { log.mockRestore(); }
   });
-  it('stays inside the declared pitch and roll property ranges over a whole ride', () => {
-    const h = rideHost(loopRoute());
+  it('stays inside the declared pitch, roll and body-offset property ranges over a whole ride', () => {
+    const h = rideHost(loopRoute(), { scale: 0.25 });
     h.run(1500);
     const calls = h.entity.setProperty.mock.calls as Array<[string, number]>;
     expect(calls.length).toBeGreaterThan(2000);
+    const seen = new Set<string>();
     for (const [name, value] of calls) {
+      seen.add(name);
       expect(Number.isFinite(value)).toBe(true);
       if (name === 'craftmatic:track_pitch') { expect(value).toBeGreaterThanOrEqual(-90); expect(value).toBeLessThanOrEqual(90); }
-      else { expect(value).toBeGreaterThanOrEqual(-180); expect(value).toBeLessThanOrEqual(180); }
+      else if (name === 'craftmatic:track_roll') { expect(value).toBeGreaterThanOrEqual(-180); expect(value).toBeLessThanOrEqual(180); }
+      else { expect(name).toMatch(/^craftmatic:body_[xyz]$/); expect(value).toBeGreaterThanOrEqual(-320); expect(value).toBeLessThanOrEqual(320); }
     }
+    expect([...seen].sort()).toEqual(['craftmatic:body_x', 'craftmatic:body_y', 'craftmatic:body_z', 'craftmatic:track_pitch', 'craftmatic:track_roll']);
   });
   it('rotates heading consistently with the placed track', () => {
     for (const rotation of [0, 90, 180, 270]) {
@@ -433,8 +528,8 @@ const towerTrain = (): CoasterRoute => ({ ...towerRoute('Tower train'), cars: { 
 describe('measured train', () => {
   it('defaults to a single cart and rejects an unmeasurable train', () => {
     const path = buildCoasterPath(towerRoute().points, false, SPACING + 1e-6);
-    expect(resolveCoasterCars(path, undefined)).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0 });
-    expect(resolveCoasterCars(path, { count: 1, spacing: 9 })).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0 });
+    expect(resolveCoasterCars(path, undefined)).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 });
+    expect(resolveCoasterCars(path, { count: 1, spacing: 9 })).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 });
     expect(() => resolveCoasterCars(path, { count: 2.5, spacing: 1 })).toThrow(/integer in \[1, 8\]/);
     expect(() => resolveCoasterCars(path, { count: 3, spacing: 0 })).toThrow(/positive number of blocks/);
   });
@@ -481,24 +576,26 @@ describe('measured train', () => {
     const ticks = h.cars[0]!.positions.length;
     expect(ticks).toBe(900);
     for (const car of h.cars) expect(car.positions).toHaveLength(ticks);
-    // Invert this route's profile to recover each car's arc position: level
-    // run along x, then a constant grade. Cars are coupled along the ARC.
+    // Invert this route's profile to recover each car's arc position from where
+    // its bricks are drawn: level run along x, then a constant grade. Cars are
+    // coupled along the ARC.
     const arcOf = (point: { x: number; y: number }) =>
       point.y > 65 + 1e-9 ? STATION_RUN + (point.y - 65) / CLIMB_GRADE : point.x - 100;
+    const datums = h.cars.map((_, index) => h.datums(index));
     let worstArc = 0, shortestChord = Infinity, longestChord = 0;
     for (let index = 0; index < ticks; index++) {
       for (let car = 1; car < h.cars.length; car++) {
-        const a = h.cars[car - 1]!.positions[index]!, b = h.cars[car]!.positions[index]!;
+        const a = datums[car - 1]![index]!, b = datums[car]![index]!;
         worstArc = Math.max(worstArc, Math.abs(arcOf(a) - arcOf(b) - TRAIN_SPACING));
         const chord = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
         shortestChord = Math.min(shortestChord, chord);
         longestChord = Math.max(longestChord, chord);
       }
     }
-    expect(worstArc).toBeLessThan(1e-9);
+    expect(worstArc).toBeLessThan(1e-6);
     // Straight-line spacing equals the arc pitch on straight track and closes
     // up across a bend — the chord of a coupled train, never longer than it.
-    expect(longestChord).toBeLessThanOrEqual(TRAIN_SPACING + 1e-9);
+    expect(longestChord).toBeLessThanOrEqual(TRAIN_SPACING + 1e-6);
     expect(shortestChord).toBeGreaterThan(TRAIN_SPACING * 0.9);
   });
   it('gives each car its own pitch where the train straddles the grade', () => {
@@ -520,12 +617,13 @@ describe('measured train', () => {
     expect(directions.length).toBeGreaterThan(0);
     // Car 0 keeps the greater arc for the whole run: the train's tail simply
     // becomes its head when an open route reverses, nothing teleports across.
-    for (let index = 0; index < h.cars[0]!.positions.length; index++) {
-      expect(h.cars[0]!.positions[index]!.x).toBeGreaterThan(h.cars[2]!.positions[index]!.x);
+    const first = h.datums(0), last = h.datums(2);
+    for (let index = 0; index < first.length; index++) {
+      expect(first[index]!.x).toBeGreaterThan(last[index]!.x);
     }
-    // No car ever steps further than the authored sample spacing, including on
-    // the tick the train reverses at the end of the open route.
-    for (const car of h.cars) for (const speed of h.speeds(h.cars.indexOf(car))) expect(speed / 20).toBeLessThanOrEqual(SPACING + 1e-9);
+    // The train never steps further than the 16 blocks/s ceiling allows,
+    // including on the tick it reverses at the end of the open route.
+    for (const speed of h.arcSpeeds()) expect(speed).toBeLessThanOrEqual(16 + 1e-6);
   });
   it('keeps the whole train inside an open route at both ends', () => {
     const h = rideHost(towerTrain());
@@ -638,14 +736,16 @@ describe('coaster pack assets', () => {
     const single = placement.actors.filter((actor: any) => actor.coasterRouteIndex === 0);
     expect(single.map((actor: any) => actor.coasterCarIndex)).toEqual([0]);
     expect(single[0].label).toBe('Measured track Ride Cart');
-    expect(runtime.routes[0].cars).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0 });
+    expect(runtime.routes[0].cars).toEqual({ count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 });
     // Route 1: three actors, one per car, every one at the station point, indexed 0..2.
     const cars = placement.actors.filter((actor: any) => actor.coasterRouteIndex === 1);
     expect(cars.map((actor: any) => actor.coasterCarIndex)).toEqual([0, 1, 2]);
     expect(cars.map((actor: any) => actor.label)).toEqual(['Train track Car 1', 'Train track Car 2', 'Train track Car 3']);
     const station = runtime.routes[1].station;
     for (const car of cars) expect(car).toMatchObject({ x: station.point[0], y: station.point[1], z: station.point[2] });
-    expect(runtime.routes[1].cars).toEqual({ count: 3, spacing: 2.25, extent: 4.5, minChord: 2.25, heading: 0 });
+    expect(runtime.routes[1].cars).toEqual({ count: 3, spacing: 2.25, extent: 4.5, minChord: 2.25, heading: 0, trains: 1 });
+    // The fabricated cart carries its wheelbase and seat into the runtime's types.
+    expect(runtime.types['craftmatic:coaster_coaster_cart']).toEqual({ role: 'car', riders: 0, wheelbase: 1.125, seat: [0, 0.35, 0] });
     // Diagnostics: count/spacing/extent/minChord beside the station, per route.
     const diagnostics = JSON.parse(await decode('Craftmatic_coaster_BP/craftmatic-diagnostics.json'));
     expect(diagnostics.coaster.carLength).toBe(COASTER_CAR_LENGTH);
@@ -741,7 +841,8 @@ describe('coaster pack assets', () => {
         expect.soft(block, `${name} ${id}`).not.toMatch(/\n\s+-?\d+(?![.\d])/);
       }
     }
-    expect(floatProperties).toBe(2);
+    // Pitch, roll and the three body offsets.
+    expect(floatProperties).toBe(5);
   });
   it('never emits an entity identifier that Bedrock rejects for a numeric set stem', async () => {
     // Bedrock refuses an identifier whose name begins with a digit ("identifier
@@ -1239,6 +1340,268 @@ describe('routes from the detector', () => {
   });
 });
 
+// ─── Track up vectors ────────────────────────────────────────────────────────
+
+/** Twist between consecutive ups about the track, degrees per block: the previous up carried onto the next tangent, then the rotation left over. */
+function twistRates(path: { points: readonly Vec3[]; cumulative: readonly number[] }, ups: readonly Vec3[]): number[] {
+  const unit = (v: Vec3): Vec3 => { const l = Math.hypot(...v); return [v[0] / l, v[1] / l, v[2] / l]; };
+  const dot = (a: Vec3, b: Vec3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const tangentAt = (i: number): Vec3 => { const a = path.points[Math.max(0, i - 1)]!, b = path.points[Math.min(path.points.length - 1, i + 1)]!; return unit([b[0] - a[0], b[1] - a[1], b[2] - a[2]]); };
+  const rates: number[] = [];
+  for (let i = 1; i < ups.length; i++) {
+    const before = tangentAt(i - 1), after = tangentAt(i), axis = cross(before, after), s = Math.hypot(...axis), c = dot(before, after);
+    let carried = ups[i - 1]!;
+    if (s > 1e-9) {
+      const k = [axis[0] / s, axis[1] / s, axis[2] / s] as Vec3, angle = Math.atan2(s, c), cs = Math.cos(angle), sn = Math.sin(angle), kd = dot(k, carried) * (1 - cs), kx = cross(k, carried);
+      carried = [carried[0] * cs + kx[0] * sn + k[0] * kd, carried[1] * cs + kx[1] * sn + k[1] * kd, carried[2] * cs + kx[2] * sn + k[2] * kd];
+    }
+    const along = dot(carried, after);
+    carried = unit([carried[0] - along * after[0], carried[1] - along * after[1], carried[2] - along * after[2]]);
+    const twist = Math.atan2(dot(cross(carried, ups[i]!), after), dot(carried, ups[i]!)) * 180 / Math.PI;
+    rates.push(Math.abs(twist) / (path.cumulative[i]! - path.cumulative[i - 1]!));
+  }
+  return rates;
+}
+
+/**
+ * A level run into a HELICAL loop (radius 4, drifting 2 blocks sideways over
+ * the turn, like 10303's) and out onto level track: a vertical loop with
+ * torsion, which parallel transport leaves banked forever.
+ */
+function helixRoute(): { route: CoasterRoute; loopStart: number; loopEnd: number } {
+  const points: Vec3[] = [];
+  const step = 0.25;
+  for (let x = 0; x < 12; x += step) points.push([x, 1, 0]);
+  const radius = 4, turns = 96;
+  for (let k = 0; k <= turns; k++) {
+    const a = k / turns * Math.PI * 2;
+    points.push([12 + radius * Math.sin(a), 1 + radius * (1 - Math.cos(a)), 2 * k / turns]);
+  }
+  for (let x = 12 + step; x <= 30; x += step) points.push([x, 1, 2]);
+  return { route: { label: 'Helix', points, closed: false, maxSegmentLength: 0.3 }, loopStart: 12, loopEnd: 12 + 2 * Math.PI * Math.hypot(radius, 2 / (2 * Math.PI)) };
+}
+
+describe('track up vectors', () => {
+  const gravityTwist = (path: { points: readonly Vec3[] }, ups: readonly Vec3[], i: number): number => {
+    const a = path.points[Math.max(0, i - 1)]!, b = path.points[Math.min(path.points.length - 1, i + 1)]!;
+    const t = [b[0] - a[0], b[1] - a[1], b[2] - a[2]] as Vec3, l = Math.hypot(...t);
+    const h = Math.hypot(t[0] / l, t[2] / l);
+    const g: Vec3 = [-t[1] / l * t[0] / l / h, h, -t[1] / l * t[2] / l / h];
+    const u = ups[i]!;
+    return Math.acos(Math.max(-1, Math.min(1, u[0] * g[0] + u[1] * g[1] + u[2] * g[2]))) * 180 / Math.PI;
+  };
+  it('keeps gravity as the up on level track, on a crest and in a dip', () => {
+    const points: Vec3[] = [];
+    // Level, a 4-block-radius crest, a 4-block-radius dip, level: never banked.
+    for (let x = 0; x <= 40; x += 0.25) points.push([x, 1 + 2 * Math.sin(x / 4) * Math.sin(x / 4), 0]);
+    const path = buildCoasterPath(points, false, 0.3);
+    const ups = coasterTrackUps(path);
+    for (let i = 0; i < ups.length; i++) expect(gravityTwist(path, ups, i)).toBeLessThan(1e-4);
+  });
+  it('returns to upright after a helical loop where parallel transport stays banked, within the twist-rate bound', () => {
+    const { route, loopEnd } = helixRoute();
+    const path = buildCoasterPath(route.points, false, route.maxSegmentLength);
+    const transported = buildCoasterFrames(path);
+    const ups = coasterTrackUps(path);
+    const last = ups.length - 1;
+    // The transport leaves the level exit banked; the physical up does not.
+    expect(gravityTwist(path, transported, last)).toBeGreaterThan(20);
+    expect(gravityTwist(path, ups, last)).toBeLessThan(1e-6);
+    // Upright again within two blocks of leaving the loop, and inverted at its apex.
+    for (let i = 0; i < ups.length; i++) {
+      if (path.cumulative[i]! > loopEnd + 2) expect(gravityTwist(path, ups, i)).toBeLessThan(0.5);
+      if (path.cumulative[i]! < 12) expect(gravityTwist(path, ups, i)).toBeLessThan(1e-6);
+    }
+    const apex = ups.reduce((best, up, i) => (path.points[i]![1] > path.points[best]![1] ? i : best), 0);
+    expect(ups[apex]![1]).toBeLessThan(-0.9);
+    // No correction twists faster than the declared rate.
+    for (const rate of twistRates(path, ups)) expect(rate).toBeLessThanOrEqual(TRACK_TWIST_RATE_DEG_PER_BLOCK + 1e-6);
+  });
+  it('keeps a closed route continuous at its seam', () => {
+    const ups = coasterTrackUps(buildCoasterPath(loopRoute().points, true, 2));
+    expect(ups.at(-1)).toEqual(ups[0]);
+    expect(ups[0]![1]).toBeGreaterThan(0.99);
+  });
+});
+
+// ─── Wheelbase chord and body offset ─────────────────────────────────────────
+
+describe('car orientation', () => {
+  /** A level run with one sample jogged 0.3 blocks up: the fold a stitched route has at a fragment join. */
+  const jogged = (): CoasterRoute => {
+    const points: Vec3[] = Array.from({ length: 81 }, (_, k) => [k * 0.375, 1, 0]);
+    points[40] = [15, 1.3, 0];
+    return { label: 'Jog', points, closed: false, maxSegmentLength: 0.5 };
+  };
+  const pitches = (h: ReturnType<typeof rideHost>, index = 0) => (h.cars[index]!.entity.setProperty.mock.calls as Array<[string, number]>)
+    .filter(call => call[0] === 'craftmatic:track_pitch').map(call => call[1]);
+  it('pitches a car on the chord between its wheels, so a jogged sample no longer see-saws it', () => {
+    const tangent = rideHost(jogged());
+    tangent.run(600);
+    const chord = rideHost(jogged(), { wheelbase: 2 });
+    chord.run(600);
+    // On the local tangent the jog pitches the cart by atan(0.3 / 0.375) = 39 degrees; over a 2-block chord by at most atan(0.3 / 2) = 8.5.
+    expect(Math.max(...pitches(tangent).map(Math.abs))).toBeGreaterThan(35);
+    expect(Math.max(...pitches(chord).map(Math.abs))).toBeLessThan(9);
+    // The bricks still trace the track itself: the datum is the centre sample,
+    // on the polyline, with or without the chord.
+    for (const host of [tangent, chord]) for (const d of host.datums()) {
+      const x = d.x - 100;
+      const jog = Math.max(0, 0.3 * (1 - Math.abs(x - 15) / 0.375));
+      expect(d.y).toBeCloseTo(65 + jog, 6);
+      expect(d.z).toBeCloseTo(200, 6);
+    }
+  });
+  it('lets coupled cars differ only by the curvature over one pitch', () => {
+    const train: CoasterRoute = { ...jogged(), cars: { count: 3, spacing: 2.25 } };
+    const worstGap = (h: ReturnType<typeof rideHost>) => {
+      const p = [pitches(h, 0), pitches(h, 1), pitches(h, 2)];
+      let worst = 0;
+      for (let k = 0; k < p[0]!.length; k++) worst = Math.max(worst, Math.abs(p[0]![k]! - p[1]![k]!), Math.abs(p[1]![k]! - p[2]![k]!));
+      return worst;
+    };
+    const tangent = rideHost(train); tangent.run(700);
+    const chord = rideHost(train, { wheelbase: 2 }); chord.run(700);
+    // Two chords can straddle the jog with opposite slopes (up to 2 × 8.5).
+    expect(worstGap(tangent)).toBeGreaterThan(35);
+    expect(worstGap(chord)).toBeLessThan(17);
+  });
+  it('keeps the rider inside a loop: the entity sinks so the eye follows the car, the bricks stay on the rails', () => {
+    const route = loopRoute();
+    const h = rideHost(route, { seat: [0, 0.35, 0] });
+    const total = coasterRuntimeConfig('craftmatic:ride', [route]).routes[0]!.path.length;
+    h.properties.set('craftmatic:coaster_distance', total / 2);
+    h.run(1);
+    // The apex of a 10-radius loop: the datum is the track point (y 64 + 20,
+    // one floor-speed tick past the apex on the 64-gon).
+    const datum = h.datums()[0]!;
+    expect(datum.y).toBeCloseTo(84, 2);
+    // Inverted, the seat and the eye (0.35 + 1.25) hang BELOW the rails; the
+    // upright seat then puts the entity 1.6 lower still, so the eye lands 1.6
+    // under the rails instead of 1.6 above them.
+    const entity = h.positions[0]!;
+    expect(entity.y).toBeCloseTo(datum.y - 2 * 1.6, 2);
+    expect(Math.hypot(entity.x - datum.x, entity.z - datum.z)).toBeLessThan(0.1);
+    const roll = h.entity.setProperty.mock.calls.find((call: unknown[]) => call[0] === 'craftmatic:track_roll')?.[1];
+    expect(Math.abs(roll)).toBeGreaterThan(170);
+    // Player rotation stays upright, as before.
+    expect(h.entity.teleport.mock.calls[0][1].rotation.x).toBe(0);
+  });
+});
+
+// ─── Two trains ──────────────────────────────────────────────────────────────
+
+/** A level 60-block closed rectangle with the set's own two-car train; the whole run is level, so its station is the seam's midpoint. */
+function circuitRoute(trains = 2): CoasterRoute {
+  const points: Vec3[] = [];
+  const along = (from: Vec3, to: Vec3, n: number) => { for (let k = 0; k < n; k++) points.push([from[0] + (to[0] - from[0]) * k / n, 1, from[2] + (to[2] - from[2]) * k / n]); };
+  along([0, 1, 0], [20, 1, 0], 40); along([20, 1, 0], [20, 1, 10], 20); along([20, 1, 10], [0, 1, 10], 40); along([0, 1, 10], [0, 1, 0], 20);
+  points.push([0, 1, 0]);
+  return { label: 'Circuit', points, closed: true, maxSegmentLength: 0.5 + 1e-6, trains, vehicles: [routeCar([5, 1, 0], 1), routeCar([3, 1, 0], 1)] };
+}
+
+describe('two trains on one route', () => {
+  it('plans the second train from the siding\'s cars, or as a copy, and never on a shuttle', () => {
+    const own = planCoasterVehicles('craftmatic:x_coaster_cart', [{ ...circuitRoute(), reserve: [routeCar([50, 1, 0], 1, 'b', 'r2'), routeCar([48, 1, 0], 1, 'b', '')] }]).routes[0]!;
+    expect(own.trains).toBe(2);
+    expect(own.reserveUsed).toBe(true);
+    expect(own.slots.map(s => `${s.train}:${s.type.replace(/^.*_vehicle_/, 'v')}/${s.rider}`)).toEqual(['0:v1/0', '0:v1/0', '1:v2/0', '1:v2/1']);
+    expect(own.slots.map(s => s.label)).toEqual(['Circuit Car 1', 'Circuit Car 2', 'Circuit Train 2 Car 1', 'Circuit Train 2 Car 2']);
+    const copy = planCoasterVehicles('craftmatic:x_coaster_cart', [{ ...circuitRoute(), reserve: [routeCar([50, 1, 0], 1, 'b')] }]);
+    expect(copy.routes[0]!.reserveUsed).toBe(false);
+    expect(copy.routes[0]!.slots.map(s => s.type)).toEqual(Array(4).fill('craftmatic:x_coaster_vehicle_1'));
+    expect(copy.types[0]!.cars).toBe(4);
+    expect(copy.warnings.some(w => /1 spare car\(s\) are fewer than the 2-car train/.test(w))).toBe(true);
+    const shuttle = planCoasterVehicles('craftmatic:x_coaster_cart', [{ ...towerRoute(), trains: 2, vehicles: [routeCar([3, 1, 0], 1)] }]);
+    expect(shuttle.routes[0]!.trains).toBe(1);
+    expect(shuttle.warnings.some(w => /open shuttle runs one train/.test(w))).toBe(true);
+  });
+  it('waits in the loading bay, holds behind an occupied platform, and leaves once the other train is half a lap ahead', () => {
+    const h = liftHost(circuitRoute());
+    const route = h.route, stop = route.station.stop, lap = route.dispatch!.lap, hold = route.dispatch!.hold;
+    expect(route.cars.trains).toBe(2);
+    expect(h.cars).toHaveLength(4);
+    expect(hold).toBeCloseTo(((stop - (2 + 2 + 0.5)) % lap + lap) % lap, 6);
+    const second = h.cars[2]!;
+    const arcOf = (car: typeof second) => Number(car.properties.get('craftmatic:coaster_distance'));
+    const speedOf = (car: typeof second) => Number(car.properties.get('craftmatic:coaster_speed'));
+    h.run(1);
+    expect(arcOf(h.lead)).toBeCloseTo(stop, 6);
+    expect(arcOf(second)).toBeCloseTo(hold, 6);
+    // The first train dwells and leaves; the second stays in the bay until the platform is clear by a train length.
+    h.runUntil(() => speedOf(h.lead) > 0);
+    expect(arcOf(second)).toBeCloseTo(hold, 6);
+    const left = h.runUntil(() => speedOf(second) > 0);
+    expect(left).toBeGreaterThan(20);
+    const ahead = ((arcOf(h.lead) - stop) % lap + lap) % lap;
+    expect(ahead).toBeGreaterThanOrEqual(2 + 2 + 1 - 1e-6);
+    // It brakes into the platform and then waits there until the first train is half a lap ahead.
+    h.runUntil(() => speedOf(second) === 0 && Math.abs(arcOf(second) - stop) < 1e-6);
+    h.runUntil(() => speedOf(second) > 0, 6000);
+    const halfway = ((arcOf(h.lead) - arcOf(second)) % lap + lap) % lap;
+    expect(halfway).toBeGreaterThanOrEqual(lap / 2 - 0.2);
+    expect(halfway).toBeLessThan(lap / 2 + 1);
+    // Over several laps the trains alternate, never both on the platform, never closer than the gap.
+    let closest = Infinity, bothParked = 0;
+    for (let t = 0; t < 6000; t++) {
+      h.run(1);
+      const a = arcOf(h.lead), b = arcOf(second);
+      let apart = Math.abs(a - b); apart = Math.min(apart, lap - apart);
+      closest = Math.min(closest, apart);
+      if (Math.abs(a - stop) < 1e-6 && Math.abs(b - stop) < 1e-6) bothParked++;
+    }
+    expect(bothParked).toBe(0);
+    expect(closest).toBeGreaterThanOrEqual(2 + 2 + 0.5 - 1e-6);
+    for (const car of h.cars) expect(car.positions.length).toBeGreaterThan(6000);
+  });
+  it('shares one lift between two trains: the second waits at the terminal until the platform is back', () => {
+    const h = liftHost({ ...liftRoute(), trains: 2 });
+    expect(h.route.cars.trains).toBe(2);
+    expect(h.route.dispatch).toMatchObject({ lap: 25, ahead: 12.5, hold: 19.5 });
+    const second = h.cars[2]!;
+    const phaseOf = (car: typeof second) => String(car.properties.get('craftmatic:coaster_phase') ?? 'track');
+    const arcOf = (car: typeof second) => Number(car.properties.get('craftmatic:coaster_distance'));
+    h.run(1);
+    expect(arcOf(second)).toBeCloseTo(19.5, 6);
+    // First train up and away; only then does the second reach the deck, and never while the platform is away.
+    h.runUntil(() => phaseOf(h.lead) === 'delivered');
+    expect(phaseOf(second)).toBe('track');
+    let liftingTogether = 0, secondLiftedAt = -1;
+    for (let t = 0; t < 5000 && secondLiftedAt < 0; t++) {
+      h.run(1);
+      if (phaseOf(h.lead) !== 'track' && phaseOf(second) !== 'track') liftingTogether++;
+      if (phaseOf(second) === 'lifting') secondLiftedAt = t;
+    }
+    expect(secondLiftedAt).toBeGreaterThan(0);
+    expect(liftingTogether).toBe(0);
+    // While the second rises the first is on the course; the platform is up for the second, not the first.
+    h.runUntil(() => phaseOf(second) === 'delivered');
+    expect(h.progress()).toBe(0);
+    expect(Number(second.properties.get('craftmatic:coaster_lift'))).toBe(1);
+    expect(h.platform!.positions.at(-1)!.x).toBeCloseTo(122.5, 6);
+  });
+});
+
+describe('wheelbase from the set', () => {
+  const carWith = (wheelXs: number[], chassis = '26021.dat') => {
+    const origin: Vec3 = [100, -46, 50];
+    const bricks = [brick(chassis, origin[0], origin[1], origin[2], IDENTITY, 322), ...wheelXs.map(x => brick('24869.dat', origin[0] + x, origin[1] + 17.4, origin[2], [0, 0, 1, 0, 1, 0, -1, 0, 0], 72))];
+    const car = { ...detectedCar('car:0', origin, IDENTITY, bricks.map((_, k) => k)), wheels: wheelXs.map((_, k) => k + 1), chassis: { index: 0, part: chassis, description: '' } };
+    return { car, bricks };
+  };
+  it('measures separate wheel parts, and falls back to the mould table for a composite chassis', () => {
+    const measured = carWith([-30, 30]);
+    expect(coasterCarWheelbaseLdu(measured.car, measured.bricks)).toBe(60);
+    const single = carWith([25]);
+    expect(coasterCarWheelbaseLdu(single.car, single.bricks)).toBe(50);
+    const composite = carWith([], '26021c01.dat');
+    expect(coasterCarWheelbaseLdu(composite.car, composite.bricks)).toBe(50);
+    const unknown = carWith([], '99999.dat');
+    expect(coasterCarWheelbaseLdu(unknown.car, unknown.bricks)).toBeUndefined();
+  });
+});
+
 // ─── Real corpus files (skipped where absent, e.g. CI) ───────────────────────
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
@@ -1281,7 +1644,7 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
     const [runtime] = config.routes;
     expect(runtime!.direction).toBe(-1);
     expect(runtime!.cars).toMatchObject({ count: 3, spacing: 2.25, heading: -1 });
-    expect(runtime!.cars.slots).toHaveLength(3);
+    expect(runtime!.cars.slots).toHaveLength(6);
     expect(runtime!.lift!.deckLength).toBeCloseTo(7.08, 1);
     expect(runtime!.lift!.travel[1]).toBeCloseTo(35.34, 1);
     expect(Math.abs(runtime!.lift!.travel[0])).toBeLessThan(0.5);
@@ -1305,32 +1668,83 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
       expect(rideable.seats.position[1]).toBeGreaterThanOrEqual(0.3);
       expect(Math.abs(rideable.seats.position[2])).toBeLessThan(0.5);
     }
-    expect(assets.actors.filter(a => a.coasterCarIndex !== undefined)).toHaveLength(3);
+    // Two trains: six car actors (indices 0..5), the second train a copy of the first's types.
+    expect(runtime!.cars.trains).toBe(2);
+    expect(runtime!.dispatch).toMatchObject({ ahead: expect.any(Number) });
+    expect(runtime!.dispatch!.hold).toBeCloseTo(20.29 + 4.5 + 2.25 + 0.5, 1);
+    expect(runtime!.dispatch!.lap).toBeCloseTo(runtime!.path.length - runtime!.lift!.deckLength, 2);
+    expect(runtime!.cars.slots!.map(s => s.train)).toEqual([0, 0, 0, 1, 1, 1]);
+    expect(runtime!.cars.slots!.slice(3).map(s => s.type)).toEqual(runtime!.cars.slots!.slice(0, 3).map(s => s.type));
+    expect(runtime!.cars.slots![3]!.label).toBe('Track 1 Train 2 Car 1');
+    expect(assets.actors.filter(a => a.coasterCarIndex !== undefined).map(a => a.coasterCarIndex)).toEqual([0, 1, 2, 3, 4, 5]);
     expect(assets.actors.filter(a => a.coasterCarIndex === undefined)).toHaveLength(2);
     expect(assets.warnings.some(w => /55-part lift platform/.test(w))).toBe(true);
+    expect(assets.warnings.some(w => /second copy of the set's 3 cars/.test(w))).toBe(true);
+    // The 24869 wheels sit at ±25 LDU on the 26021 base: a 50-LDU wheelbase, 0.9375 blocks at this cell.
+    expect(route!.vehicles!.every(car => car.wheelbaseLdu === 50)).toBe(true);
+    for (const type of assets.compiled.filter(e => e.role === 'car')) expect(assets.types[type.typeId]!.wheelbase).toBeCloseTo(50 / 53.333333, 3);
+    // Upright at the top of the lift: the up vector on the delivered deck is gravity's.
+    expect(runtime!.up.at(-1)![1]).toBeGreaterThan(0.99);
+    // Through the two helical loops the transported frame would leave the cars
+    // 61-84 degrees on their side; the physical up is within 20 degrees of
+    // gravity's wherever the track is upright.
+    const path = runtime!.path;
+    let worstTwist = 0;
+    for (let i = 1; i < path.points.length - 1; i++) {
+      const a = path.points[i - 1]!, b = path.points[i + 1]!;
+      const t = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l = Math.hypot(...t);
+      const h = Math.hypot(t[0]! / l, t[2]! / l);
+      if (h < 0.5) continue;
+      const g = [-t[1]! / l * t[0]! / l / h, h, -t[1]! / l * t[2]! / l / h];
+      const u = runtime!.up[i]!;
+      if (u[1] <= 0) continue;
+      const twist = Math.acos(Math.max(-1, Math.min(1, u[0] * g[0]! + u[1] * g[1]! + u[2] * g[2]!))) * 180 / Math.PI;
+      worstTwist = Math.max(worstTwist, twist);
+    }
+    expect(worstTwist).toBeLessThan(21);
   }, 240_000);
 });
 
-describe.skipIf(!HAVE_CORPUS)('10261 Roller Coaster: its own train under its chain lift, the siding left parked', () => {
-  it('runs the closed circuit with six cars found, three riding and three parked', async () => {
+describe.skipIf(!HAVE_CORPUS)("10261 Roller Coaster: its own train under its chain lift, the siding's train as the second", () => {
+  it('runs the closed circuit with six cars found, three riding and three dispatched from the siding', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10261);
     expect(scene.routes).toHaveLength(1);
-    expect(scene.parked).toEqual([expect.objectContaining({ label: 'Track 2', cars: 3 })]);
+    expect(scene.parked).toEqual([expect.objectContaining({ label: 'Track 2', cars: 3, dispatchedTo: 'Track 1' })]);
     const [route] = scene.routes;
     expect(route!.closed).toBe(true);
     expect(route!.vehicles).toHaveLength(3);
     expect(route!.vehicles!.every(car => car.chassis === '26021c01.dat' && car.rider.length > 0)).toBe(true);
+    // The composite chassis exposes no wheel parts: its wheelbase is the mould's (26021c01.dat places 24869 at ±25).
+    expect(route!.vehicles!.every(car => car.wheelbaseLdu === 50)).toBe(true);
+    expect(route!.trains).toBe(2);
+    expect(route!.reserve).toHaveLength(3);
+    expect(route!.reserve!.every(car => car.chassis === '26021c01.dat')).toBe(true);
     expect(route!.lift).toMatchObject({ kind: 'chain', climbDirection: 1 });
     const runtime = coasterRuntimeConfig('craftmatic:c_10261_coaster_cart', scene.routes).routes[0]!;
     expect(runtime.direction).toBe(1);
-    expect(runtime.cars).toMatchObject({ count: 3, heading: 1 });
+    expect(runtime.cars).toMatchObject({ count: 3, heading: 1, trains: 2 });
     expect(runtime.cars.spacing).toBeCloseTo(126 / 53.333333, 2);
     expect(runtime.chain!.start).toBeCloseTo(127.3 / 53.333333, 1);
     expect(runtime.chain!.end).toBeCloseTo(1690.9 / 53.333333, 1);
     expect(runtime.lift).toBeUndefined();
-    // The three riders on the circuit leave the shell; the siding's bricks do not.
-    expect(scene.riderIndices.size).toBeGreaterThanOrEqual(3 * 4);
-    expect(scene.movedIndices.size).toBeLessThan(3 * 16 + 3 * 12);
+    // The second train waits one train length plus the gap behind the platform on the closed circuit.
+    expect(runtime.dispatch!.hold).toBeCloseTo(runtime.station.stop - (runtime.cars.extent + runtime.cars.spacing + 0.5), 3);
+    expect(runtime.dispatch!.lap).toBeCloseTo(runtime.path.length, 2);
+    expect(runtime.cars.slots!.map(s => s.train)).toEqual([0, 0, 0, 1, 1, 1]);
+    // The siding's three riders leave the shell with the circuit's three, and so do the siding's cars.
+    expect(scene.riderIndices.size).toBeGreaterThanOrEqual(6 * 4);
+    expect(scene.movedIndices.size).toBeGreaterThan(3 * 16 + 3 * 12);
+    expect(scene.warnings.some(w => /Track 2: its 3 parked cars run as Track 1's second train/.test(w))).toBe(true);
+    // No loop, no twist: every up vector is gravity's projected off the track (never banked).
+    const path = runtime.path;
+    for (let i = 1; i < path.points.length - 1; i++) {
+      const a = path.points[i - 1]!, b = path.points[i + 1]!;
+      const t = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], l = Math.hypot(...t);
+      const h = Math.hypot(t[0]! / l, t[2]! / l);
+      const g = [-t[1]! / l * t[0]! / l / h, h, -t[1]! / l * t[2]! / l / h];
+      const u = runtime.up[i]!;
+      expect(u[0] * g[0]! + u[1] * g[1]! + u[2] * g[2]!).toBeGreaterThan(Math.cos(0.5 * Math.PI / 180));
+    }
   }, 120_000);
 });
 

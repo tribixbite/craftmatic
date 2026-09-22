@@ -27,13 +27,32 @@
  *   limited to `sqrt(2 * brake * remaining)`, which reaches zero exactly at the
  *   platform; departure is a bounded push from the station drive tyres.
  * - **Floor and ceiling** — a floor so the ride can never deadlock on a grade,
- *   and a ceiling of one authored sample spacing per tick so a step can never
- *   cut the corner of the measured polyline.
+ *   and an absolute speed ceiling (`MAX_SPEED`). A tick is integrated in
+ *   SUBSTEPS no longer than one authored sample spacing, each sampling the
+ *   grade where the train actually is, so the polyline's resolution bounds the
+ *   integration step and never the speed: a 35-block drop reaches the ceiling
+ *   rather than the 7.5 blocks/s that one-sample-per-tick used to allow.
  *
- * The ceiling does bleed energy out of the longest drops (a 35-block descent
- * would otherwise reach ~26 blocks/s, four times the spacing limit on a 1x
- * 10303). That is deliberate: the sampled path, not the physics, sets the
- * maximum safe step, and the chain lift restores what the clip removed.
+ * ## Car orientation
+ *
+ * A car rides on two wheel contacts, not on a point: its pitch and yaw are the
+ * CHORD between its front and rear wheels on the path (`wheelbase`, measured
+ * from the set's wheel parts), so a car no longer see-saws over every sample
+ * join, and coupled cars differ only by the track's real curvature over one
+ * car pitch. Its roll comes from the per-sample up vectors (`coasterTrackUps`):
+ * gravity's up wherever the track is upright — LEGO track moulds are never
+ * banked — and the loop's own normal through a loop, with a bounded twist rate
+ * between the two. A pure parallel transport carried the helical loops'
+ * holonomy (84 degrees on 10303) all the way onto the lift's top deck.
+ *
+ * A Bedrock player cannot roll, and a seat is a fixed offset in the entity's
+ * yaw-only frame, so through an inversion the seat would carry the rider to
+ * the OUTSIDE of the loop. The runtime therefore places the entity where the
+ * rider's head belongs (the seat carried through the car's real pitch and
+ * roll, less the player's upright eye height) and offsets the drawn body back
+ * onto the track through three synced `craftmatic:body_*` properties, so the
+ * bricks stay on the rails and the rider stays inside the loop. On upright
+ * track every one of these offsets is exactly zero.
  *
  * ## The set's own cars
  *
@@ -67,6 +86,17 @@
  *
  * With `cars` absent the train is one car, `extent` is zero, and every one of
  * these expressions collapses to the single-cart ride that was device-proved.
+ *
+ * A route with the set's own cars runs TWO trains (`trains`): the second waits
+ * in the loading bay — a block point one train length behind the platform, on
+ * the station's level run — and is dispatched when the first is half a lap
+ * ahead; a train arriving at an occupied station holds at that same block
+ * point. Where the set parks a spare train on a siding (10261's Track 2) those
+ * cars ARE the second train and leave the shell; otherwise the first train's
+ * car types are instanced again (10303 ships three cars, so its second train
+ * is a second copy of them). Every train keeps its own ride state; the lift's
+ * hoist is shared per placement, so a train reaching the deck while the
+ * platform is still away waits at the terminal as before.
  *
  * ## The set's own lift
  *
@@ -124,7 +154,32 @@ export interface CoasterRouteCar {
   datumPoint: Vec3;
   /** +1 when the car's nose (canonical +X) points along increasing arc. */
   heading: 1 | -1;
+  /**
+   * Distance between the front and rear wheel contacts along the car's travel,
+   * in model blocks (and in LDU): the car's pitch is the chord between them on
+   * the path. Measured from the set's wheel parts where they are separate
+   * (10303's 24869 wheels sit at ±25 LDU on the 26021 base); a composite
+   * chassis with built-in wheels falls back to the mould table. Absent means
+   * the runtime pitches the car on the local tangent, as before.
+   */
+  wheelbase?: number;
+  wheelbaseLdu?: number;
 }
+
+/** How many trains a route with the set's own cars runs: one riding, one waiting in the loading bay. */
+export const COASTER_TRAINS = 2;
+/** Clearance kept between the waiting train and the one on the platform, model blocks. */
+export const COASTER_HOLD_GAP = 0.5;
+/** The second train departs once the first is this fraction of a lap ahead. */
+export const COASTER_DISPATCH_FRACTION = 0.5;
+/**
+ * Wheel contact spacing of chassis moulds whose wheels are built in, measured
+ * from the LDraw shortcut that places them: `26021c01.dat` puts its two 24869
+ * wheels at x ±25 on the `26021` Train Base 4 x 5 Roller Coaster. A composite
+ * chassis exposes no separate wheel parts to measure, so this is the same
+ * measurement taken from the part library instead of the placed set.
+ */
+const CHASSIS_WHEELBASE_LDU: Readonly<Record<string, number>> = { '26021': 50 };
 
 export interface CoasterRouteChainLift {
   kind: 'chain';
@@ -176,6 +231,19 @@ export interface CoasterRoute {
   cars?: { count: number; spacing: number };
   /** The set's own ride cars on this route (`coasterRoutesFromAssemblies`); absent means the fabricated cart. */
   vehicles?: CoasterRouteCar[];
+  /**
+   * How many trains run this route (default 1). A second train needs a route
+   * that circulates: a closed circuit or a platform-lift route; an open
+   * shuttle keeps one train. Only meaningful with `vehicles`.
+   */
+  trains?: number;
+  /**
+   * The set's own cars for the SECOND train, in the order they stand on their
+   * siding (highest arc first): they leave the shell and run instead of a
+   * copy of the first train's cars. Fewer than the first train's count are
+   * not used (the first train is instanced again and a warning says so).
+   */
+  reserve?: CoasterRouteCar[];
   /** The set's own lift on this route, when one was measured. */
   lift?: CoasterRouteLift;
 }
@@ -195,8 +263,18 @@ export interface CoasterStation {
   point: CoasterVec3;
 }
 
-/** One car of a train as the runtime sees it: which entity type, which rider variant, and its name tag. */
-export interface CoasterCarSlot { type: string; rider: number; label: string }
+/** One car of a train as the runtime sees it: which entity type, which rider variant, its name tag, and which train it belongs to (slot index = train × count + car). */
+export interface CoasterCarSlot { type: string; rider: number; label: string; train: number }
+
+/** Where a route's second train waits and when it may go. */
+export interface CoasterDispatch {
+  /** Arc of the waiting train's centre: one train length plus `COASTER_HOLD_GAP` behind the platform, against the ride direction. */
+  hold: number;
+  /** Arc length of one lap for dispatch purposes: the route's, or a lift route's course without the deck it rides twice. */
+  lap: number;
+  /** A train may leave the platform once the other is this far ahead along the lap. */
+  ahead: number;
+}
 
 export interface CoasterRuntimeLift {
   /** Entity types of the platform and (when the set has one) its counterweight. */
@@ -224,8 +302,11 @@ export interface CoasterRuntimeRoute {
    * coupled cars; a train whose cars are longer than it overlaps on that curve.
    * `heading` fixes the cars' noses along the route (+1/-1); 0 lets the
    * fabricated cart face its direction of motion. `slots` names each car's
-   * entity type and rider variant; absent for the fabricated cart. */
-  cars: { count: number; spacing: number; extent: number; minChord?: number; heading: 1 | -1 | 0; slots?: CoasterCarSlot[] };
+   * entity type and rider variant for every train (`trains` × `count` of
+   * them); absent for the fabricated cart. */
+  cars: { count: number; spacing: number; extent: number; minChord?: number; heading: 1 | -1 | 0; trains: number; slots?: CoasterCarSlot[] };
+  /** Present when `cars.trains` > 1: where the second train waits and the lap it is dispatched against. */
+  dispatch?: CoasterDispatch;
   /** Fixed ride direction (a closed circuit's, or toward a platform lift's deck); 0 shuttles an open route. */
   direction: 1 | -1 | 0;
   /** A measured chain drive: the chain assist engages only on this arc span. Absent keeps it on every climb. */
@@ -233,8 +314,15 @@ export interface CoasterRuntimeRoute {
   lift?: CoasterRuntimeLift;
 }
 
-/** What each entity type in a placement is: a ride car (and how many rider variants it carries), the platform, or its counterweight. */
-export interface CoasterRuntimeType { role: 'car' | 'platform' | 'counterweight'; riders: number }
+/**
+ * What each entity type in a placement is: a ride car (and how many rider
+ * variants it carries), the platform, or its counterweight. A car also carries
+ * its `wheelbase` (model blocks at the exported scale; the runtime pitches it
+ * on the chord between its wheels) and its `seat` (the rideable seat offset in
+ * blocks, entity frame), both filled by `buildCoasterRideAssets`, which is
+ * where the compiled body and the export scale are known.
+ */
+export interface CoasterRuntimeType { role: 'car' | 'platform' | 'counterweight'; riders: number; wheelbase?: number; seat?: [number, number, number] }
 
 export interface CoasterRuntimeConfig {
   /** The fabricated cart's type id; also the stem the set's own vehicle types are named from. */
@@ -252,6 +340,15 @@ const STATION_LOW_BAND = 0.25;
 export const COASTER_MAX_CARS = 8;
 /** Actor-property names shared by every ride car. */
 const PROP_PITCH = 'craftmatic:track_pitch', PROP_ROLL = 'craftmatic:track_roll', PROP_RIDER = 'craftmatic:rider', PROP_OCCUPIED = 'craftmatic:occupied';
+/**
+ * The drawn body's offset from the entity origin, model units (1/16 block),
+ * entity frame. The runtime moves the ENTITY so the rider's head follows the
+ * car through an inversion, and these put the bricks back on the rails. The
+ * range covers twice the seat-plus-eye height at the smallest wand size
+ * (2 × (1 + 1.25) blocks / 0.25 × 16 = 288); the runtime clamps to it.
+ */
+const PROP_BODY = ['craftmatic:body_x', 'craftmatic:body_y', 'craftmatic:body_z'] as const;
+const BODY_OFFSET_RANGE = 320;
 /** The type family every coaster entity carries; the runtime discovers them by it. */
 export const COASTER_FAMILY = 'craftmatic_coaster';
 /** A seated minifig's eye sits this far above its hips joint along the figure's up: torso origin 44 LDU up (hips 32 + leg pivot 12), eye 11 above that (`findCockpit`). */
@@ -366,18 +463,107 @@ export function minimumCoupledChord(path: CoasterPath, spacing: number): number 
  * what fits — visibly, in the emitted config, rather than by overrunning.
  */
 export function resolveCoasterCars(path: CoasterPath, cars: CoasterRoute['cars']): CoasterRuntimeRoute['cars'] {
-  if (!cars) return { count: 1, spacing: 0, extent: 0, heading: 0 };
+  if (!cars) return { count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 };
   if (!Number.isInteger(cars.count) || cars.count < 1 || cars.count > COASTER_MAX_CARS) {
     throw new Error(`Coaster train car count must be an integer in [1, ${COASTER_MAX_CARS}], received ${cars.count}.`);
   }
-  if (cars.count === 1) return { count: 1, spacing: 0, extent: 0, heading: 0 };
+  if (cars.count === 1) return { count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 };
   if (!Number.isFinite(cars.spacing) || cars.spacing <= 0) {
     throw new Error('Coaster train car spacing must be a finite positive number of blocks.');
   }
   const fits = Math.max(1, Math.min(cars.count, Math.floor(path.length / cars.spacing)));
-  if (fits === 1) return { count: 1, spacing: 0, extent: 0, heading: 0 };
+  if (fits === 1) return { count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 };
   return { count: fits, spacing: cars.spacing, extent: (fits - 1) * cars.spacing,
-    minChord: minimumCoupledChord(path, cars.spacing), heading: 0 };
+    minChord: minimumCoupledChord(path, cars.spacing), heading: 0, trains: 1 };
+}
+
+// ─── Track up vectors ────────────────────────────────────────────────────────
+
+/** Fastest the up vector may twist about the tangent, degrees per model block: bounds every correction below. */
+export const TRACK_TWIST_RATE_DEG_PER_BLOCK = 20;
+/** A vertical curve tighter than this radius (model blocks) whose centre is above the car is a loop: the up follows its normal. */
+const LOOP_RADIUS_MAX = 8;
+/** Curvature is measured between tangents this far either side of a sample, so one kinked join is not a loop. */
+const CURVATURE_HALF_WINDOW = 0.75;
+
+/**
+ * The physical up vector at every authored sample. Parallel transport
+ * (`buildCoasterFrames`) is the minimum-twist frame, which is exactly wrong
+ * for a coaster: a helical loop has torsion, so the transported frame leaves
+ * the loop banked and STAYS banked — on 10303 the cars ran 61-84 degrees on
+ * their side from the first loop to the top of the lift, and the deck at the
+ * top received them rolled 117 degrees. LEGO track is never banked: upright
+ * track carries gravity's up, and through a loop the rails face the loop's
+ * centre. So each transported up is twisted about the tangent toward that
+ * target — gravity's up projected off the tangent where the track is upright
+ * (weighted by how upright and how level it is), the smoothed curve normal
+ * where the track bends in a vertical plane tighter than `LOOP_RADIUS_MAX`
+ * with its centre on the car's up side (a loop or a dip, never a crest) — at
+ * no more than `TRACK_TWIST_RATE_DEG_PER_BLOCK`, and a correction applied at
+ * one sample is carried by the transport into every later one. Vertical and
+ * inverted track outside a loop keeps the transport. A closed route's seam
+ * stays continuous: the last frame is the first.
+ */
+export function coasterTrackUps(path: CoasterPath): CoasterVec3[] {
+  const transported = buildCoasterFrames(path);
+  const points = path.points, cumulative = path.cumulative, last = points.length - 1;
+  const dot = (a: readonly number[], b: readonly number[]): number => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+  const cross = (a: readonly number[], b: readonly number[]): Vec3 => [a[1]! * b[2]! - a[2]! * b[1]!, a[2]! * b[0]! - a[0]! * b[2]!, a[0]! * b[1]! - a[1]! * b[0]!];
+  const unit = (v: readonly number[]): Vec3 => { const l = len3(v); return l > 1e-12 ? [v[0]! / l, v[1]! / l, v[2]! / l] : [0, 0, 0]; };
+  const perpendicular = (v: readonly number[], t: readonly number[]): Vec3 => { const a = dot(v, t); return unit([v[0]! - a * t[0]!, v[1]! - a * t[1]!, v[2]! - a * t[2]!]); };
+  const rotate = (v: readonly number[], axis: readonly number[], angle: number): Vec3 => {
+    const c = Math.cos(angle), s = Math.sin(angle), k = dot(axis, v) * (1 - c), x = cross(axis, v);
+    return [v[0]! * c + x[0] * s + axis[0]! * k, v[1]! * c + x[1] * s + axis[1]! * k, v[2]! * c + x[2] * s + axis[2]! * k];
+  };
+  // The same central-difference tangents the transport was built on.
+  const tangents: Vec3[] = [];
+  for (let i = 0; i <= last; i++) {
+    if (path.closed && i === last) { tangents.push(tangents[0]!); continue; }
+    const p = points[i === 0 ? (path.closed ? last - 1 : 0) : i - 1]!, n = points[i === last ? last : i + 1]!;
+    let t = unit(sub3(n, p));
+    if (!len3(t)) t = unit(sub3(n, points[i]!));
+    tangents.push(t);
+  }
+  const ups: CoasterVec3[] = [];
+  let carried = 0, before = 0;
+  for (let i = 0; i <= last; i++) {
+    const t = tangents[i]!;
+    let up = perpendicular(rotate(transported[i]!, t, carried), t);
+    // Curvature over a window: the tangents CURVATURE_HALF_WINDOW behind and ahead.
+    while (before < i && cumulative[before + 1]! <= cumulative[i]! - CURVATURE_HALF_WINDOW) before++;
+    let after = i;
+    while (after < last && cumulative[after]! < cumulative[i]! + CURVATURE_HALF_WINDOW) after++;
+    const span = cumulative[after]! - cumulative[before]!;
+    const turn = sub3(tangents[after]!, tangents[before]!);
+    const curvature = span > 0 ? len3(turn) / span : 0;
+    const normal = perpendicular(turn, t);
+    const binormal = cross(t, normal);
+    let target: Vec3 | undefined, weight = 0;
+    const level = Math.hypot(t[0], t[2]);
+    const gravity = level > 1e-6 ? perpendicular([0, 1, 0], t) : undefined;
+    const upright = gravity ? dot(up, gravity) : -1;
+    if (upright > 0.5 && gravity) {
+      // Within 60 degrees of upright: gravity's up, weighted by how upright and how level.
+      target = gravity; weight = upright * level;
+    } else if (curvature > 1 / LOOP_RADIUS_MAX && Math.abs(binormal[1]) < 0.5 && dot(normal, up) > 0.5) {
+      // Banked past that inside a vertical curve with its centre on the car's
+      // up side: the loop's normal. A dip is upright and never reaches here, so
+      // the sample-join noise in a polyline's normal cannot roll a level car.
+      target = normal; weight = 1;
+    } else if (upright > 0 && gravity) {
+      target = gravity; weight = upright * level;
+    }
+    if (target) {
+      const twist = Math.atan2(dot(cross(up, target), t), dot(up, target));
+      const cap = i === 0 ? Math.PI : TRACK_TWIST_RATE_DEG_PER_BLOCK * Math.PI / 180 * (cumulative[i]! - cumulative[i - 1]!);
+      const step = Math.max(-cap, Math.min(cap, weight * twist));
+      up = perpendicular(rotate(up, t, step), t);
+      carried += step;
+    }
+    ups.push(up);
+  }
+  if (path.closed) ups[last] = ups[0]!;
+  return ups;
 }
 
 // ─── Small geometry helpers (config time; the runtime carries its own) ───────
@@ -468,14 +654,22 @@ export interface CoasterVehicleType {
   /** Distinct posed riders across the cars of this type (canonical frame); index = the `craftmatic:rider` property value. */
   riders: ParsedBrick[][];
   seatLdu?: Vec3;
+  /** Wheel contact spacing in model blocks, from the first car of this body that measured one. */
+  wheelbase?: number;
   /** Routes and car counts that use this type, for the label and diagnostics. */
   cars: number;
 }
 
 export interface CoasterVehiclePlan {
   types: CoasterVehicleType[];
-  /** Per route (parallel to the input): the train's slots by DECREASING arc (slot 0 leads at `centre + extent/2`), or undefined for the fabricated cart. */
-  routes: Array<{ slots: CoasterCarSlot[]; spacing: number; pitches: number[]; heading: 1 | -1; datumArcs: number[]; headingsAgree: boolean } | undefined>;
+  /**
+   * Per route (parallel to the input): every train's slots, train 0 first,
+   * each train by DECREASING arc (its slot 0 leads at `centre + extent/2`),
+   * or undefined for the fabricated cart. `reserveUsed` says whether the
+   * second train is the set's own spare cars or a copy of the first train.
+   */
+  routes: Array<{ slots: CoasterCarSlot[]; count: number; trains: number; reserveUsed: boolean; spacing: number; pitches: number[]; heading: 1 | -1; datumArcs: number[]; headingsAgree: boolean } | undefined>;
+  warnings: string[];
 }
 
 const stripNamespace = (typeId: string): string => typeId.includes(':') ? typeId.slice(typeId.indexOf(':') + 1) : typeId;
@@ -492,6 +686,27 @@ export function planCoasterVehicles(typeId: string, routes: readonly CoasterRout
   const types: CoasterVehicleType[] = [];
   const byBody = new Map<string, CoasterVehicleType>();
   const riderIndex = new Map<CoasterVehicleType, Map<string, number>>();
+  const warnings: string[] = [];
+  /** The type a car's body compiles to (created on first sight) and its rider variant on that type. */
+  const slotOf = (car: CoasterRouteCar, label: string, train: number): CoasterCarSlot => {
+    const body = placementSignature(car.bricks);
+    let type = byBody.get(body);
+    if (!type) {
+      const n = types.length + 1;
+      type = { typeId: `${stem}_vehicle_${n}`, id: `${stripNamespace(stem)}_vehicle_${n}`, chassis: car.chassis, bricks: car.bricks, riders: [], cars: 0, ...(car.seatLdu ? { seatLdu: car.seatLdu } : {}) };
+      types.push(type); byBody.set(body, type); riderIndex.set(type, new Map());
+    }
+    if (!type.seatLdu && car.seatLdu) type.seatLdu = car.seatLdu;
+    if (type.wheelbase === undefined && car.wheelbase !== undefined && car.wheelbase > 0) type.wheelbase = car.wheelbase;
+    type.cars++;
+    let rider = -1;
+    if (car.rider.length) {
+      const variants = riderIndex.get(type)!;
+      const key = placementSignature(car.rider);
+      rider = variants.get(key) ?? (variants.set(key, type.riders.length), type.riders.push(car.rider) - 1);
+    }
+    return { type: type.typeId, rider, label, train };
+  };
   const planned = routes.map(route => {
     const vehicles = route.vehicles;
     if (!vehicles || !vehicles.length) return undefined;
@@ -502,36 +717,46 @@ export function planCoasterVehicles(typeId: string, routes: readonly CoasterRout
     // Slot 0 is the car at the HIGHEST arc: the runtime puts slot k at `centre + extent/2 - k * spacing`.
     placed.sort((a, b) => b.arc - a.arc);
     const kept = placed.slice(0, COASTER_MAX_CARS);
+    const count = kept.length;
     const pitches = kept.slice(1).map((entry, k) => round3(kept[k]!.arc - entry.arc));
     const spacing = pitches.length ? round3(pitches.reduce((s, v) => s + v, 0) / pitches.length) : 0;
     const votes = kept.reduce((sum, entry) => sum + entry.car.heading, 0);
     const heading: 1 | -1 = votes < 0 ? -1 : 1;
-    const slots = kept.map(({ car }, k) => {
-      const body = placementSignature(car.bricks);
-      let type = byBody.get(body);
-      if (!type) {
-        const n = types.length + 1;
-        type = { typeId: `${stem}_vehicle_${n}`, id: `${stripNamespace(stem)}_vehicle_${n}`, chassis: car.chassis, bricks: car.bricks, riders: [], cars: 0, ...(car.seatLdu ? { seatLdu: car.seatLdu } : {}) };
-        types.push(type); byBody.set(body, type); riderIndex.set(type, new Map());
+    const carLabel = (k: number, train: number): string => {
+      const prefix = train ? `${route.label} Train ${train + 1}` : route.label;
+      return count > 1 ? `${prefix} Car ${k + 1}` : `${prefix} Ride Car`;
+    };
+    const slots = kept.map(({ car }, k) => slotOf(car, carLabel(k, 0), 0));
+    // A second train needs a route that circulates; a shuttle would run its
+    // two trains into each other at the dead end.
+    const circulates = route.closed || route.lift?.kind === 'platform';
+    const trains = Math.max(1, Math.floor(route.trains ?? 1));
+    if (trains > 1 && !circulates) warnings.push(`${route.label}: an open shuttle runs one train; the second was not added.`);
+    const trainCount = circulates ? Math.min(trains, 2) : 1;
+    let reserveUsed = false;
+    for (let train = 1; train < trainCount; train++) {
+      const reserve = route.reserve ?? [];
+      if (reserve.length >= count) {
+        reserveUsed = true;
+        for (let k = 0; k < count; k++) slots.push(slotOf(reserve[k]!, carLabel(k, train), train));
+      } else {
+        if (reserve.length) warnings.push(`${route.label}: ${reserve.length} spare car(s) are fewer than the ${count}-car train; the second train instances the first train's cars.`);
+        for (let k = 0; k < count; k++) {
+          const first = slots[k]!;
+          const type = types.find(t => t.typeId === first.type)!;
+          type.cars++;
+          slots.push({ ...first, label: carLabel(k, train), train });
+        }
       }
-      if (!type.seatLdu && car.seatLdu) type.seatLdu = car.seatLdu;
-      type.cars++;
-      let rider = -1;
-      if (car.rider.length) {
-        const variants = riderIndex.get(type)!;
-        const key = placementSignature(car.rider);
-        rider = variants.get(key) ?? (variants.set(key, type.riders.length), type.riders.push(car.rider) - 1);
-      }
-      return { type: type.typeId, rider, label: kept.length > 1 ? `${route.label} Car ${k + 1}` : `${route.label} Ride Car` };
-    });
-    return { slots, spacing, pitches, heading, datumArcs: kept.map(entry => round3(entry.arc)), headingsAgree: kept.every(entry => entry.car.heading === heading) };
+    }
+    return { slots, count, trains: trainCount, reserveUsed, spacing, pitches, heading, datumArcs: kept.map(entry => round3(entry.arc)), headingsAgree: kept.every(entry => entry.car.heading === heading) };
   });
   // A car with no rider on a type that has variants still needs a value the
   // property accepts: `riders.length` is the "none" variant (no bone matches).
   for (const plan of planned) if (plan) for (const slot of plan.slots) {
     if (slot.rider < 0) slot.rider = types.find(t => t.typeId === slot.type)!.riders.length;
   }
-  return { types, routes: planned };
+  return { types, routes: planned, warnings };
 }
 
 // ─── Lift-extended route ─────────────────────────────────────────────────────
@@ -552,6 +777,7 @@ function reverseRoute(route: CoasterRoute): CoasterRoute {
     ...route,
     points: [...route.points].reverse(),
     ...(route.vehicles ? { vehicles: route.vehicles.map(car => ({ ...car, heading: car.heading === 1 ? -1 : 1 })) } : {}),
+    ...(route.reserve ? { reserve: route.reserve.map(car => ({ ...car, heading: car.heading === 1 ? -1 : 1 })) } : {}),
     ...(lift?.kind === 'chain' ? { lift: { ...lift, arcStart: total - lift.arcEnd, arcEnd: total - lift.arcStart, climbDirection: lift.climbDirection === 1 ? -1 : 1 } } : {}),
     ...(lift?.kind === 'platform' ? { lift: { ...lift, parkedEnd: 'start' as const } } : {}),
   };
@@ -576,10 +802,10 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     // The measured train: the set's cars, or the rider-measured `cars`, or one cart.
     let cars: CoasterRuntimeRoute['cars'];
     if (vehicles) {
-      const count = vehicles.slots.length;
+      const { count, trains } = vehicles;
       cars = count > 1
-        ? { count, spacing: vehicles.spacing, extent: round3((count - 1) * vehicles.spacing), minChord: minimumCoupledChord(routePath, vehicles.spacing), heading: vehicles.heading, slots: vehicles.slots }
-        : { count: 1, spacing: 0, extent: 0, heading: vehicles.heading, slots: vehicles.slots };
+        ? { count, spacing: vehicles.spacing, extent: round3((count - 1) * vehicles.spacing), minChord: minimumCoupledChord(routePath, vehicles.spacing), heading: vehicles.heading, trains, slots: vehicles.slots }
+        : { count: 1, spacing: 0, extent: 0, heading: vehicles.heading, trains, slots: vehicles.slots };
     } else cars = resolveCoasterCars(routePath, route.cars);
     let path = routePath, station = routeStation, deckLength = 0;
     let runtimeLift: CoasterRuntimeLift | undefined;
@@ -616,8 +842,24 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     const direction: 1 | -1 | 0 = lift?.kind === 'chain' && route.closed ? lift.climbDirection
       : route.closed ? (cars.heading || 1)
       : lift?.kind === 'platform' ? -1 : 0;
+    // A second train waits one train length behind the platform, against the
+    // ride direction, and is dispatched against the lap: the circuit, or a
+    // lift route's course without the deck (which the runtime path holds twice).
+    let dispatch: CoasterDispatch | undefined;
+    if (cars.trains > 1) {
+      if (!direction) throw new Error(`${route.label}: a second train needs a fixed ride direction.`);
+      const trainLength = cars.extent + (cars.count > 1 ? cars.spacing : COASTER_CAR_LENGTH);
+      let hold = station.stop - direction * (trainLength + COASTER_HOLD_GAP);
+      if (path.closed) hold = ((hold % path.length) + path.length) % path.length;
+      const lap = path.closed ? path.length : path.length - deckLength;
+      if (!path.closed && (hold < deckLength + cars.extent / 2 || hold > path.length - deckLength - cars.extent / 2)) {
+        throw new Error(`${route.label}: the second train's waiting point (arc ${round3(hold)}) falls off the course.`);
+      }
+      dispatch = { hold: round3(hold), lap: round3(lap), ahead: round3(lap * COASTER_DISPATCH_FRACTION) };
+    }
     return {
-      label: route.label, path, up: buildCoasterFrames(path), maxSpacing: coasterMaxSpacing(path), station, cars, direction,
+      label: route.label, path, up: coasterTrackUps(path), maxSpacing: coasterMaxSpacing(path), station, cars, direction,
+      ...(dispatch ? { dispatch } : {}),
       ...(lift?.kind === 'chain' ? { chain: { start: round3(Math.min(lift.arcStart, lift.arcEnd) + deckLength), end: round3(Math.max(lift.arcStart, lift.arcEnd) + deckLength) } } : {}),
       ...(runtimeLift ? { lift: runtimeLift } : {}),
     };
@@ -647,6 +889,7 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
           // drops the whole property component; see `bedrock-json.ts`.
           [PROP_PITCH]: floatActorProperty([-90, 90], 0),
           [PROP_ROLL]: floatActorProperty([-180, 180], 0),
+          ...bodyOffsetProperties(),
         } },
       components: {
         'minecraft:type_family': { family: [COASTER_FAMILY] },
@@ -685,11 +928,24 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
     }] },
     animations: { format_version: '1.8.0', animations: { [animationId]: {
       loop: true, bones: {
-        track_pitch: { rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
+        track_pitch: { position: bodyOffsetExpression(), rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
         cart: { rotation: [0, 0, `query.property('${PROP_ROLL}')`] },
       },
     } } },
   };
+}
+
+/** The fabricated cart's wheel contact spacing in model blocks: its wheel cubes are centred 18 entity units apart. */
+export const COASTER_CART_WHEELBASE = 18 / 16;
+
+/** The three synced body-offset properties every ride car declares (float literals, see `bedrock-json.ts`). */
+function bodyOffsetProperties(): Record<string, unknown> {
+  return Object.fromEntries(PROP_BODY.map(name => [name, floatActorProperty([-BODY_OFFSET_RANGE, BODY_OFFSET_RANGE], 0)]));
+}
+
+/** The root bone's animated position: the body offset the runtime sets, in model units. */
+function bodyOffsetExpression(): string[] {
+  return PROP_BODY.map(name => `query.property('${name}')`);
 }
 
 /** Client animation bindings, in the shape `playable-addon.ts`'s `clientEntity` takes. */
@@ -726,6 +982,8 @@ export interface CoasterRideDeps {
 
 export interface CoasterRideAssets {
   compiled: CoasterCompiledEntity[];
+  /** The runtime's entity types with each car's measured wheelbase and seat filled in: what `coaster.js` actually carries. */
+  types: Record<string, CoasterRuntimeType>;
   /** Files the caller pushes as they are: the fabricated cart (when a route needs it), the car animations, the runtime script and the readme. */
   files: Array<{ name: string; data: Uint8Array }>;
   actors: PlacementActor[];
@@ -777,6 +1035,7 @@ function carBehavior(typeId: string, riders: number, collision: { width: number;
       properties: {
         [PROP_PITCH]: floatActorProperty([-90, 90], 0),
         [PROP_ROLL]: floatActorProperty([-180, 180], 0),
+        ...bodyOffsetProperties(),
         // Which posed rider this car carries (`riders` = none), and whether a
         // player is in the seat: the rider bone is hidden while it is.
         ...(riders ? { [PROP_RIDER]: { type: 'int', range: [0, riders], default: 0, client_sync: true }, [PROP_OCCUPIED]: { type: 'bool', default: false, client_sync: true } } : {}),
@@ -815,7 +1074,7 @@ function liftBehavior(typeId: string, collision: { width: number; height: number
 /** The car's track animation: pitch/roll bones from the synced properties, rider variants shown by `craftmatic:rider` and hidden by `craftmatic:occupied`. */
 function carAnimation(animationId: string, riders: number): unknown {
   const bones: Record<string, unknown> = {
-    track_pitch: { rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
+    track_pitch: { position: bodyOffsetExpression(), rotation: [`query.property('${PROP_PITCH}')`, 0, 0] },
     track_roll: { rotation: [0, 0, `query.property('${PROP_ROLL}')`] },
   };
   for (let k = 0; k < riders; k++) {
@@ -831,6 +1090,7 @@ const COASTER_README = (own: boolean, lift: boolean): string => [
     : 'The grey Ride Cart runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to it while it is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount.',
   'It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent where the set has one. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The car follows the source track in 3D; the player stays upright (no upside-down player roll). A set whose cars form a train runs them as one train; any car can be boarded.',
   ...(lift ? ["The set's own lift completes the circuit: the train rolls onto the platform, which carries it up its measured travel (its counterweight sinks opposite) and lets it go at the top. The platform returns for the next lap; a train that arrives first waits at the foot."] : []),
+  ...(own ? ['Two trains share each track: the second waits in the loading bay behind the platform and leaves once the first is half a lap ahead; a train coming back to an occupied platform holds behind it. Through a loop the car turns over on its rails while you stay upright inside the loop.'] : []),
   own ? "Cars with no track of their own stay where the set parked them. Undo/re-place removes the ride cars and lift. Motion pauses at unloaded chunks." : 'Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.',
 ].join('\n');
 
@@ -852,9 +1112,15 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
   const warnings: string[] = [];
   const cartTypeUsed = config.routes.some(route => !route.cars.slots);
   let cartCuboids = 0, vehicleCuboids = 0;
+  // The runtime's types, with what only this stage knows: the fabricated
+  // cart's wheelbase at the export scale, each compiled car's seat.
+  const types: Record<string, CoasterRuntimeType> = Object.fromEntries(Object.entries(config.types).map(([id, type]) => [id, { ...type }]));
+  warnings.push(...plan.warnings);
   if (cartTypeUsed) {
     const cartId = stripNamespace(config.typeId);
     const cart = coasterCartAssets(config.typeId, deps.modelScale);
+    const cartSeat = (cart.behavior as { 'minecraft:entity': { components: { 'minecraft:rideable': { seats: { position: [number, number, number] } } } } })['minecraft:entity'].components['minecraft:rideable'].seats.position;
+    types[config.typeId] = { ...(types[config.typeId] ?? { role: 'car', riders: 0 }), wheelbase: round3(COASTER_CART_WHEELBASE * deps.modelScale), seat: cartSeat };
     cartCuboids = cart.geometry['minecraft:geometry'].reduce((total, geometry) => total + geometry.bones.reduce((sum, bone) => sum + bone.cubes.length, 0), 0);
     files.push(
       { name: `${bp}entities/${cartId}.json`, data: jsonBytes(cart.behavior) },
@@ -890,6 +1156,8 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
       const units = mul3(eye, deps.unitsPerLdu);
       seat = [Math.abs(units[0] / 16) < 0.3 ? 0 : round3(units[0] / 16), Math.max(0.3, round3(units[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS)), round3(units[2] / 16)];
     } else warnings.push(`${label}: ${type.chassis} ride car has no measured seat (no posed rider on this chassis); the player sits at the car's mid height.`);
+    if (type.wheelbase === undefined) warnings.push(`${label}: ${type.chassis} ride car has no measured wheelbase; it pitches on the track's local tangent instead of the chord between its wheels.`);
+    types[type.typeId] = { ...(types[type.typeId] ?? { role: 'car', riders: type.riders.length }), seat, ...(type.wheelbase !== undefined ? { wheelbase: round3(type.wheelbase) } : {}) };
     const animationId = `animation.${type.typeId.replace(':', '.')}.track`;
     files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length)) });
     compiled.push({
@@ -928,15 +1196,18 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     if (trainLength > lift.deckLength) warnings.push(`${route.label}: the ${route.cars.count}-car train spans ${round3(trainLength)} blocks and the lift deck is ${lift.deckLength} blocks long, so the cars overhang the platform while it moves (measured, not clamped).`);
     warnings.push(`${route.label}: the set's own ${m.members}-part lift platform (deck ${round3(m.deckLengthLdu)} LDU, tilt ${m.tiltDeg}°) rides ${round3(m.travelLdu)} LDU between its terminals (authored travel ${round3(m.axisDistanceLdu)}, terminal-to-terminal ${round3(m.betweenTerminalsLdu)}; parked pose snapped ${round3(m.parkedMisfitLdu)} LDU onto its dock, delivery ${round3(m.deliveredMisfitLdu)})${data.counterweight ? `, with its ${data.counterweight.bricks.length}-part counterweight moving opposite` : ''}.`);
   }
-  // ── Car actors: one per slot, all at the station point ──
+  // ── Car actors: one per slot of every train, all at the station point ──
   config.routes.forEach((route, index) => {
     const p = route.station.point;
-    const { count } = route.cars;
+    const { count, trains } = route.cars;
     const plannedRoute = plan.routes[index];
-    for (let car = 0; car < count; car++) {
+    for (let car = 0; car < count * trains; car++) {
       const slot = route.cars.slots?.[car];
       const carLabel = slot?.label ?? (count > 1 ? `${route.label} Car ${car + 1}` : `${route.label} Ride Cart`);
       actors.push({ typeId: slot?.type ?? config.typeId, label: carLabel, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index, coasterCarIndex: car });
+    }
+    if (trains > 1 && route.dispatch) {
+      warnings.push(`${route.label}: a second ${count}-car train waits in the loading bay at arc ${route.dispatch.hold} (${plannedRoute?.reserveUsed ? "the set's own spare cars from its siding" : `a second copy of the set's ${count} car${count === 1 ? '' : 's'}; the set has no spare`}) and departs once the first is ${route.dispatch.ahead} blocks (half a lap) ahead.`);
     }
     if (plannedRoute && !plannedRoute.headingsAgree) warnings.push(`${route.label}: its cars do not all face the same way along the track; the train faces the majority's way (${route.cars.heading === 1 ? 'with' : 'against'} the route's arc).`);
     if (route.cars.slots && route.direction && route.cars.heading && route.direction !== route.cars.heading) {
@@ -948,19 +1219,20 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
   });
   const own = plan.types.length > 0, lifted = config.routes.some(route => route.lift);
   files.push(
-    { name: `${bp}scripts/coaster.js`, data: textBytes(coasterScript(config)) },
+    { name: `${bp}scripts/coaster.js`, data: textBytes(coasterScript({ ...config, types })) },
     { name: `${bp}COASTER.txt`, data: textBytes(COASTER_README(own, lifted)) },
   );
   const ownRoutes = config.routes.filter(route => route.cars.slots).length;
   warnings.push(`${config.routes.length} measured coaster route(s): ${ownRoutes ? `the set's own cars run ${ownRoutes === config.routes.length ? 'every route' : `${ownRoutes} of them`}${lifted ? ' and its lift completes the circuit' : ''}` : 'the grey Ride Cart runs on its own'} and stop at the reload zone — walk up and tap to ride. ${config.routes.some(route => !route.direction) ? 'Open tracks shuttle; riders' : 'Riders'} stay upright.`);
-  return { compiled, files, actors, names, warnings, cartCuboids, vehicleCuboids, entityTypes: compiled.length + (cartTypeUsed ? 1 : 0), cartTypeUsed };
+  return { compiled, types, files, actors, names, warnings, cartCuboids, vehicleCuboids, entityTypes: compiled.length + (cartTypeUsed ? 1 : 0), cartTypeUsed };
 }
 
 /** The `coaster` block of `craftmatic-diagnostics.json`. */
 export function coasterDiagnostics(config: CoasterRuntimeConfig, assets: CoasterRideAssets): unknown {
   return {
     cuboids: assets.cartCuboids, vehicleCuboids: assets.vehicleCuboids, riderRoll: false, deviceVerified: false, carLength: COASTER_CAR_LENGTH,
-    types: assets.compiled.map(entity => ({ id: entity.typeId, role: entity.role, cuboids: entity.cuboids, riderCuboids: entity.riderCuboids, riders: entity.riders, seat: (entity.behavior as any)?.['minecraft:entity']?.components?.['minecraft:rideable']?.seats?.position ?? null })),
+    twistRateDegPerBlock: TRACK_TWIST_RATE_DEG_PER_BLOCK,
+    types: assets.compiled.map(entity => ({ id: entity.typeId, role: entity.role, cuboids: entity.cuboids, riderCuboids: entity.riderCuboids, riders: entity.riders, seat: (entity.behavior as any)?.['minecraft:entity']?.components?.['minecraft:rideable']?.seats?.position ?? null, wheelbase: assets.types[entity.typeId]?.wheelbase ?? null })),
     routes: config.routes.map(route => ({
       label: route.label, lengthBlocks: route.path.length, samples: route.path.points.length, closed: route.path.closed,
       station: { stop: route.station.stop, length: route.station.length, point: route.station.point },
@@ -970,6 +1242,7 @@ export function coasterDiagnostics(config: CoasterRuntimeConfig, assets: Coaster
       // under `carLength` the fabricated cars intersect there.
       cars: { ...route.cars, ...(route.cars.minChord !== undefined ? { overlaps: route.cars.minChord < COASTER_CAR_LENGTH } : {}) },
       direction: route.direction,
+      ...(route.dispatch ? { dispatch: route.dispatch } : {}),
       ...(route.chain ? { chain: route.chain } : {}),
       ...(route.lift ? { lift: route.lift } : {}),
     })),
@@ -1000,9 +1273,26 @@ export interface CoasterSceneRoutes {
   movedIndices: Set<number>;
   /** Of those, the posed riders' figure parts (they also leave the NPC list). */
   riderIndices: Set<number>;
-  /** Routes that were left out with their reason (a parked siding), by track label. */
-  parked: Array<{ label: string; cars: number; reason: string }>;
+  /** Routes that were left out with their reason (a parked siding), by track label; `dispatchedTo` names the ride route whose second train the siding's cars became. */
+  parked: Array<{ label: string; cars: number; reason: string; dispatchedTo?: string }>;
   warnings: string[];
+}
+
+/**
+ * A car's wheel contact spacing along its travel axis, in LDU: the spread of
+ * its separate wheel parts' origins in the car frame, or the mould table for
+ * a composite chassis whose wheels are built in. Undefined when neither knows.
+ */
+export function coasterCarWheelbaseLdu(car: CoasterCar, bricks: readonly ParsedBrick[]): number | undefined {
+  if (car.wheels.length >= 2) {
+    const rot = car.frame.rot.length === 9 ? car.frame.rot : IDENTITY;
+    const toLocal = transposeM(rot);
+    const along = car.wheels.map(index => { const b = bricks[index]!; return applyM(toLocal, sub3([b.x, b.y, b.z], car.frame.originLdu))[0]; });
+    const spread = Math.max(...along) - Math.min(...along);
+    if (spread > 1) return round3(spread);
+  }
+  const stem = /^(\d+)/.exec(car.chassis.part.toLowerCase())?.[1];
+  return stem ? CHASSIS_WHEELBASE_LDU[stem] : undefined;
 }
 
 /** An LDraw vector (not a point) in grid blocks: LDraw Y down → grid Y up. */
@@ -1026,6 +1316,25 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
   const warnings: string[] = [];
   const toBlocks = (p: readonly number[]): Vec3 => sceneGridPoint(frame, [p[0]!, p[1]!, p[2]!]);
   const usedStrays = new Set<string>();
+  /** A detected car as a route vehicle, its bricks and rider taken out of the shell. */
+  const routeCar = (car: CoasterCar): CoasterRouteCar => {
+    const originAboveDatum = car.route!.originAboveDatumLdu;
+    const canonical = canonicalCoasterCar(car, bricks, originAboveDatum);
+    const datumLdu = sub3(car.frame.originLdu, mul3(car.frame.upWorld, originAboveDatum));
+    for (const i of car.bricks) movedIndices.add(i);
+    for (const seat of car.seats) for (const i of seat.riderBricks) { movedIndices.add(i); riderIndices.add(i); }
+    const wheelbaseLdu = coasterCarWheelbaseLdu(car, bricks);
+    return {
+      chassis: car.chassis.part, sourceIndices: [...car.bricks, ...car.seats.flatMap(seat => [...seat.riderBricks])],
+      bricks: canonical.bricks, rider: canonical.rider, ...(canonical.seatLdu ? { seatLdu: canonical.seatLdu } : {}),
+      datumPoint: toBlocks(datumLdu), heading: car.route!.heading,
+      ...(wheelbaseLdu !== undefined ? { wheelbaseLdu, wheelbase: round3(wheelbaseLdu / frame.cellXZ * frame.scale) } : {}),
+    };
+  };
+  /** Sidings: their cars stay parked unless a ride route takes them as its second train. */
+  const sidings: Array<{ label: string; cars: CoasterCar[]; points: Vec3[]; parked: CoasterSceneRoutes['parked'][number]; stays: string }> = [];
+  /** Per emitted route: the ride routes that may take a spare train, with the count they need. */
+  const rideRoutes: Array<{ route: CoasterRoute; points: Vec3[]; count: number }> = [];
   tracks.routes.forEach((track, routeIndex) => {
     const points = track.points.map(toBlocks);
     const maxSegmentLength = track.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY);
@@ -1048,24 +1357,14 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
       const longest = Math.max(...cars.map(car => car.lengthLdu));
       const trainLength = (train?.extentLdu ?? 0) + Math.max(train?.meanPitchLdu ?? 0, longest);
       if (!track.closed && lengthLdu < PARKED_SIDING_FACTOR * trainLength) {
-        parked.push({ label: track.label, cars: cars.length, reason: `an open ${round3(lengthLdu)}-LDU track holding a ${round3(trainLength)}-LDU train is a siding` });
-        warnings.push(`${track.label}: its ${cars.length} car${cars.length === 1 ? '' : 's'} stay parked - ${round3(lengthLdu)} LDU of open track is under ${PARKED_SIDING_FACTOR} train lengths (${round3(trainLength)} LDU), a siding rather than a ride.`);
+        const entry = { label: track.label, cars: cars.length, reason: `an open ${round3(lengthLdu)}-LDU track holding a ${round3(trainLength)}-LDU train is a siding` };
+        parked.push(entry);
+        sidings.push({ label: track.label, cars, points, parked: entry, stays: `${track.label}: its ${cars.length} car${cars.length === 1 ? '' : 's'} stay parked - ${round3(lengthLdu)} LDU of open track is under ${PARKED_SIDING_FACTOR} train lengths (${round3(trainLength)} LDU), a siding rather than a ride.` });
         return;
       }
       const kept = cars.slice(0, COASTER_MAX_CARS);
       if (kept.length < cars.length) warnings.push(`${track.label}: ${cars.length} cars found; the ${cars.length - kept.length} lowest on the track stay in the shell (the runtime carries at most ${COASTER_MAX_CARS} per train).`);
-      vehicles = kept.map(car => {
-        const originAboveDatum = car.route!.originAboveDatumLdu;
-        const canonical = canonicalCoasterCar(car, bricks, originAboveDatum);
-        const datumLdu = sub3(car.frame.originLdu, mul3(car.frame.upWorld, originAboveDatum));
-        for (const i of car.bricks) movedIndices.add(i);
-        for (const seat of car.seats) for (const i of seat.riderBricks) { movedIndices.add(i); riderIndices.add(i); }
-        return {
-          chassis: car.chassis.part, sourceIndices: [...car.bricks, ...car.seats.flatMap(seat => [...seat.riderBricks])],
-          bricks: canonical.bricks, rider: canonical.rider, ...(canonical.seatLdu ? { seatLdu: canonical.seatLdu } : {}),
-          datumPoint: toBlocks(datumLdu), heading: car.route!.heading,
-        };
-      });
+      vehicles = kept.map(routeCar);
     }
 
     // ── The route's lift ──
@@ -1082,8 +1381,30 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
         break;
       }
     }
-    routes.push({ ...base, ...(vehicles ? { vehicles } : {}), ...(lift ? { lift } : {}) });
+    const route: CoasterRoute = { ...base, ...(vehicles ? { vehicles } : {}), ...(lift ? { lift } : {}) };
+    // The set's own cars run two trains where the route circulates (a circuit, or the lift's).
+    if (vehicles && (track.closed || lift?.kind === 'platform')) {
+      route.trains = COASTER_TRAINS;
+      rideRoutes.push({ route, points, count: vehicles.length });
+    }
+    routes.push(route);
   });
+  // A siding's cars become the nearest ride route's second train when there
+  // are enough of them; each siding serves one route, nearest first.
+  const cumulativeOf = (points: readonly Vec3[]): number[] => { const c = [0]; for (let i = 1; i < points.length; i++) c.push(c[i - 1]! + len3(sub3(points[i]!, points[i - 1]!))); return c; };
+  for (const ride of rideRoutes) {
+    const cumulative = cumulativeOf(ride.points);
+    const candidates = sidings.filter(s => !s.parked.dispatchedTo && s.cars.length >= ride.count)
+      .map(s => ({ s, distance: Math.min(...s.points.map(p => projectArcOnPolyline(ride.points, cumulative, p).distance)) }))
+      .sort((a, b) => a.distance - b.distance);
+    const nearest = candidates[0];
+    if (!nearest) continue;
+    const spare = nearest.s.cars.slice(0, ride.count);
+    ride.route.reserve = spare.map(routeCar);
+    nearest.s.parked.dispatchedTo = ride.route.label;
+    warnings.push(`${nearest.s.label}: its ${spare.length} parked car${spare.length === 1 ? '' : 's'} run as ${ride.route.label}'s second train (${round3(nearest.distance)} blocks from that track)${nearest.s.cars.length > spare.length ? `; ${nearest.s.cars.length - spare.length} stay in the shell` : ''}.`);
+  }
+  for (const s of sidings) if (!s.parked.dispatchedTo) warnings.push(s.stays);
   return { routes, movedIndices, riderIndices, parked, warnings };
 }
 
@@ -1150,13 +1471,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   /** Constant wheel and bearing loss, blocks/s². A real coaster loses one to
    * two per cent of g to rolling resistance; a larger value eats the momentum
    * that is supposed to carry the cart over the next crest. */
-  const ROLLING = 0.15;
-  /** Quadratic drag coefficient, 1/block: the loss term is DRAG * v², blocks/s². */
-  const DRAG = 0.012;
+  const ROLLING = 0.12;
+  /** Quadratic drag coefficient, 1/block: the loss term is DRAG * v², blocks/s².
+   * Terminal speed on a vertical drop is sqrt(g / DRAG) = 35 blocks/s, so the
+   * ceiling, not the air, is what bounds the big drops. */
+  const DRAG = 0.008;
   /** Speed floor, blocks/s. The ride may never deadlock on a grade. */
   const MIN_SPEED = 0.8;
-  /** Absolute speed ceiling, blocks/s, independent of wand size. */
-  const MAX_SPEED = 12;
+  /** Absolute speed ceiling, blocks/s, independent of wand size: 0.8 blocks per tick. */
+  const MAX_SPEED = 16;
   /** Chain lift: engages only above this grade and holds exactly LIFT_SPEED.
    * The chain is a kinematic constraint rather than a force, so LIFT_ACCEL only
    * smooths the catch — it must exceed GRAVITY or the chain would "slip" on a
@@ -1173,14 +1496,20 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * and after it arrives (ticks), and how far past the delivered deck (model
    * blocks) the train must be before the platform goes back down. */
   const PLATFORM_SPEED = 2.5, PLATFORM_DWELL = 30, PLATFORM_CLEARANCE = 1;
+  /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
+  const RIDER_EYE = 1.25;
+  /** Declared range of the body-offset properties, model units. */
+  const BODY_RANGE = 320;
   /** A route emitted before trains existed, or a partially overwritten pack. */
-  const SINGLE = { count: 1, spacing: 0, extent: 0, heading: 0 };
+  const SINGLE = { count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 };
   const types = config.types || {};
 
   /** Loaded coaster entities, by entity id. */
   const tracked = new Map<string, any>();
-  /** Shared ride state, one entry per placed route (a train, not a car). */
+  /** Shared ride state, one entry per placed train (a train, not a car). */
   const trains = new Map<string, any>();
+  /** The platform lift of each placement, shared by the trains that use it. */
+  const hoists = new Map<string, any>();
   let ticks = 0;
   let lastErrorLogTick = -200;
   const key = 'craftmatic:coaster_';
@@ -1196,6 +1525,25 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       lastErrorLogTick = ticks;
     }
   };
+  /** Position and tangent at an arc, without the validated sampler's per-call checks (those run once per car per tick). */
+  const locate = (path: any, arc: number) => {
+    const total = path.length;
+    const distance = path.closed ? ((arc % total) + total) % total : Math.max(0, Math.min(total, arc));
+    let low = 0, high = path.points.length - 2;
+    while (low < high) { const middle = (low + high + 1) >> 1; if (path.cumulative[middle] <= distance) low = middle; else high = middle - 1; }
+    const from = path.points[low], to = path.points[low + 1], length = path.cumulative[low + 1] - path.cumulative[low];
+    const ratio = length > 0 ? (distance - path.cumulative[low]) / length : 0;
+    return { position: [from[0] + (to[0] - from[0]) * ratio, from[1] + (to[1] - from[1]) * ratio, from[2] + (to[2] - from[2]) * ratio],
+      tangent: [(to[0] - from[0]) / length, (to[1] - from[1]) / length, (to[2] - from[2]) / length] };
+  };
+  /** The direction a car points at an arc: the chord between its wheel contacts, or the local tangent for a car with no measured wheelbase. */
+  const chordAt = (path: any, arc: number, wheelbase: number): number[] => {
+    if (!(wheelbase > 0)) return locate(path, arc).tangent;
+    const front = locate(path, arc + wheelbase / 2).position, rear = locate(path, arc - wheelbase / 2).position;
+    const chord = [front[0] - rear[0], front[1] - rear[1], front[2] - rear[2]];
+    const length = Math.hypot(chord[0], chord[1], chord[2]);
+    return length > 1e-6 ? [chord[0] / length, chord[1] / length, chord[2] / length] : locate(path, arc).tangent;
+  };
   const tick = () => {
     ticks++;
     if (ticks === 1 || ticks % 20 === 0) {
@@ -1209,11 +1557,13 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         } catch { /* A dimension may be unavailable during world startup. */ }
       }
     }
-    // ── Group every loaded entity by its placement: one train per placed route ──
+    // ── Group every loaded entity by its placement and train ──
     // Cars of one train share a single ride state, so they move rigidly; a
-    // single-cart route is simply a train of one and is unchanged by this. The
-    // route's platform and counterweight join the same group.
+    // single-cart route is simply a train of one and is unchanged by this. A
+    // route's second train is its own group; the placement's platform and
+    // counterweight belong to the placement, shared by its trains.
     const groups = new Map<string, any>();
+    const places = new Map<string, any>();
     for (const [id, state] of tracked) {
       const entity = state.entity;
       // Undo and re-place remove carts. A removed entity is an ordinary
@@ -1238,49 +1588,74 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           continue;
         }
         const cars = route.cars || SINGLE;
-        const placement = `${routeIndex}@${origin.x},${origin.y},${origin.z}/${rotation}/${scale}`;
-        let group = groups.get(placement);
-        if (!group) groups.set(placement, group = { route, cars, origin, rotation, scale, list: [], platform: undefined, counterweight: undefined });
-        if (state.role === 'platform') { group.platform = { id, entity, state }; continue; }
-        if (state.role === 'counterweight') { group.counterweight = { id, entity, state }; continue; }
+        const trainCount = cars.trains || 1;
+        const base = `${routeIndex}@${origin.x},${origin.y},${origin.z}/${rotation}/${scale}`;
+        let place = places.get(base);
+        if (!place) places.set(base, place = { platform: undefined, counterweight: undefined, groups: [] as string[] });
+        if (state.role === 'platform') { place.platform = { id, entity, state }; continue; }
+        if (state.role === 'counterweight') { place.counterweight = { id, entity, state }; continue; }
         // A car index written by the placement wins; otherwise one is assigned
-        // below and saved, so a car never changes place in its train.
-        const index = entity.getDynamicProperty(key + 'car');
-        group.list.push({ id, entity, rideable, riders, state,
-          index: Number.isInteger(index) && index >= 0 && index < cars.count ? index as number : -1 });
+        // below and saved, so a car never changes place in its train. The index
+        // runs over every train: train = index / count, car = index % count.
+        const stored = entity.getDynamicProperty(key + 'car');
+        const index = Number.isInteger(stored) && stored >= 0 && stored < cars.count * trainCount ? stored as number : -1;
+        const train = index >= 0 ? Math.floor(index / cars.count) : 0;
+        const placement = `${base}/t${train}`;
+        let group = groups.get(placement);
+        if (!group) { groups.set(placement, group = { base, train, route, cars, origin, rotation, scale, list: [] }); place.groups.push(placement); }
+        group.list.push({ id, entity, rideable, riders, state, index });
       } catch (error) { report(id, stage, error, riders); tracked.delete(id); }
     }
-    for (const [placement, group] of groups) {
+    // A placement's hoist, restored once from whichever of its trains saved
+    // the platform away from its parked pose (a train that is not carrying or
+    // returning it saves 0).
+    for (const [base, place] of places) {
+      if (hoists.has(base)) continue;
+      let progress = 0, owner: string | null = null;
+      for (const placement of place.groups) {
+        const group = groups.get(placement);
+        if (!group?.route.lift) continue;
+        const saved = Number(group.list[0]?.entity.getDynamicProperty(key + 'lift'));
+        if (Number.isFinite(saved) && saved > progress) { progress = Math.min(1, saved); owner = placement; }
+      }
+      if (groups.get(place.groups[0])?.route.lift) hoists.set(base, { progress, owner, placed: false });
+    }
+    // The first train of a placement is processed first, so a second train
+    // always sees where the first stands before deciding to leave the bay.
+    for (const [placement, group] of [...groups].sort((a, b) => a[1].train - b[1].train)) {
       const route = group.route, path = route.path, total = path.length, station = route.station;
-      const cars = group.cars, extent = cars.extent, list = group.list;
+      const cars = group.cars, extent = cars.extent, count = cars.count, list = group.list;
       const origin = group.origin, rotation = group.rotation, scale = group.scale;
-      const lift = route.lift;
-      // A platform whose cars are all unloaded has nothing to follow: hold it.
+      const lift = route.lift, dispatch = cars.trains > 1 ? route.dispatch : undefined;
+      const place = places.get(group.base);
+      const hoist = lift ? hoists.get(group.base) : undefined;
       if (!list.length) continue;
       const taken = new Set(list.filter((car: any) => car.index >= 0).map((car: any) => car.index));
       for (const car of list) {
         if (car.index >= 0) continue;
-        let index = 0;
-        while (taken.has(index) && index < cars.count - 1) index++;
+        let index = group.train * count;
+        while (taken.has(index) && index < (group.train + 1) * count - 1) index++;
         taken.add(index); car.index = index;
         try { car.entity.setDynamicProperty(key + 'car', index); } catch {}
       }
+      for (const car of list) car.slot = car.index % count;
       list.sort((a: any, b: any) => a.index - b.index || (a.id < b.id ? -1 : 1));
       const lead = list[0];
       const riders = list.reduce((all: any[], car: any) => all.concat(car.riders), []);
       let train = trains.get(placement);
-      if (!train) trains.set(placement, train = { dwell: 0, armed: true, boarded: false, grade: undefined, seen: 0, liftDwell: 0, liftPlaced: false });
+      if (!train) trains.set(placement, train = { dwell: 0, armed: true, boarded: false, holding: false, waiting: false, seen: 0, liftDwell: 0, progress: NaN });
       train.seen = ticks;
       let stage = 'restore cart progress';
       try {
-        // Arc distance of car `index` from the train's centre. The centre, not
+        // Arc distance of car `slot` from the train's centre. The centre, not
         // a car, is the tracked position: it keeps the offsets fixed when an
         // open route reverses and the train's tail becomes its head, instead of
         // flipping every car to the other side of a lead.
-        const carArc = (middle: number, index: number) => {
-          const arc = middle + extent / 2 - index * cars.spacing;
+        const carArc = (middle: number, slot: number) => {
+          const arc = middle + extent / 2 - slot * cars.spacing;
           return path.closed ? ((arc % total) + total) % total : Math.max(0, Math.min(total, arc));
         };
+        const wheelbaseOf = (car: any): number => { const wheelbase = types[car.entity.typeId]?.wheelbase; return wheelbase !== undefined && wheelbase > 0 ? wheelbase : 0; };
         // The whole train has to fit on an open route, so its centre cannot
         // reach either end by half the train's length.
         const low = path.closed ? 0 : extent / 2, high = path.closed ? total : total - extent / 2;
@@ -1288,8 +1663,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const storedDistance = Number(lead.entity.getDynamicProperty(key + 'distance'));
         const placed = !Number.isFinite(storedDistance);
         // A newly placed train waits on the platform, the one part of the route
-        // a player can be expected to reach, rather than wherever it spawned.
-        let centre = placed ? target
+        // a player can be expected to reach, rather than wherever it spawned; a
+        // second train waits in the loading bay behind it.
+        let centre = placed ? (group.train > 0 && dispatch ? dispatch.hold : target)
           : path.closed ? ((storedDistance % total) + total) % total
             : Math.max(low, Math.min(high, storedDistance));
         // A fixed ride direction (a circuit, or a lift route) always wins over
@@ -1301,35 +1677,69 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const facing: 1 | -1 = cars.heading === 1 || cars.heading === -1 ? cars.heading : direction;
         const storedSpeed = Number(lead.entity.getDynamicProperty(key + 'speed'));
         let speed = Number.isFinite(storedSpeed) ? Math.max(0, Math.min(MAX_SPEED, storedSpeed)) : 0;
-        // Lift state: which phase the train is in and how far the platform has
-        // travelled (0 parked, 1 delivered). Both persist across script reloads.
+        // Lift state: which phase this train is in, and (shared by the
+        // placement's trains) how far the platform has travelled, 0 parked to
+        // 1 delivered. Both persist across script reloads.
         const storedPhase = lead.entity.getDynamicProperty(key + 'phase');
         let phase: string = lift && (storedPhase === 'lifting' || storedPhase === 'delivered') ? storedPhase : 'track';
-        const storedProgress = Number(lead.entity.getDynamicProperty(key + 'lift'));
-        let progress = lift && Number.isFinite(storedProgress) ? Math.max(0, Math.min(1, storedProgress)) : 0;
+        const owns = !!hoist && (hoist.owner === placement || hoist.owner === null);
+        let progress = hoist ? hoist.progress : 0;
+        // Only the train the hoist carries may be lifting; a reload that says
+        // otherwise is stale and that train is back on the track.
+        if (phase !== 'track' && hoist && hoist.owner !== null && hoist.owner !== placement) phase = 'track';
         const deckLength = lift ? lift.deckLength : 0;
         const progressBefore = progress;
-        if (placed) { train.dwell = DWELL_EMPTY; train.armed = false; }
+        if (placed) {
+          if (group.train > 0 && dispatch) { train.holding = true; train.armed = true; }
+          else { train.dwell = DWELL_EMPTY; train.armed = false; }
+        }
         // Boarding mid-ride (a command, or a moving car) must not stall the
         // ride; boarding on the platform holds it for the full boarding delay.
         if (riders.length) {
           if (!train.boarded) { train.boarded = true; if (train.dwell > 0 && train.dwell < BOARD_TICKS) train.dwell = BOARD_TICKS; }
         } else train.boarded = false;
+        // ── The other train on this placement, for dispatch ──
+        // Lap progress counts arc from the platform in the ride direction; on a
+        // lift route the hoist is a jump, so the deck is counted once.
+        const lap = dispatch ? dispatch.lap : total;
+        const lapProgress = (arc: number, liftPhase: string): number => {
+          let p: number;
+          if (!lift) p = ((arc - station.stop) * direction % total + total) % total;
+          else if (liftPhase !== 'track') p = station.stop - deckLength / 2;
+          else if (arc > station.stop) p = station.stop - deckLength / 2 + (total - deckLength / 2 - arc);
+          else p = station.stop - arc;
+          p = ((p % lap) + lap) % lap;
+          return lap - p < 1e-6 ? 0 : p;
+        };
+        let other: any;
+        if (dispatch && place) {
+          for (const sibling of place.groups) {
+            if (sibling === placement) continue;
+            const state = trains.get(sibling);
+            const siblingGroup = groups.get(sibling);
+            if (!state || !siblingGroup) continue;
+            const arc = Number.isFinite(state.centre) ? state.centre : Number(siblingGroup.list[0]?.entity.getDynamicProperty(key + 'distance'));
+            if (!Number.isFinite(arc)) continue;
+            other = { progress: lapProgress(arc, state.phase || 'track') };
+            break;
+          }
+        }
+        const mine = lapProgress(centre, phase);
+        const otherAhead = other ? (((other.progress - mine) % lap) + lap) % lap : Infinity;
+        const trainLength = extent + (count > 1 ? cars.spacing : 0);
+        /** The platform is taken while the other train stands on it or has not yet
+         * cleared a train length past it; a second train placed before its sibling
+         * has reported assumes the platform is taken. */
+        const stationBusy = other ? other.progress < trainLength + 1 : placed && group.train > 0;
+        const mayDepart = !other || otherAhead >= (dispatch ? dispatch.ahead : 0);
 
         stage = 'integrate ride physics';
-        if (train.grade === undefined) {
-          let sum = 0;
-          for (const car of list) sum += sample(path, carArc(centre, car.index)).tangent[1];
-          train.grade = sum / list.length;
-        }
-        // sin(theta) of the track under the train, averaged over its cars in
-        // the direction of travel: a train straddling a crest feels both sides.
-        const grade = train.grade * direction;
         let next = centre;
         let nextDirection = direction;
         let arrived: string | null = null;
         /** Platform displacement applied to the cars this tick (they ride it while lifting). */
         let carLift = 0;
+        train.waiting = false;
         if (phase === 'lifting') {
           // The train sits on the deck; the platform carries it. Nothing rolls.
           speed = 0;
@@ -1358,40 +1768,74 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             train.dwell--;
             speed = 0;
             // Leaving the platform: a bounded push from the station drive, and the
-            // brake disarmed until the train is clear of its own station.
-            if (train.dwell === 0) { speed = DEPART_SPEED; train.armed = false; }
+            // brake disarmed until the train is clear of its own station — once
+            // the other train is far enough ahead.
+            if (train.dwell === 0) {
+              if (mayDepart) { speed = DEPART_SPEED; train.armed = false; }
+              else { train.dwell = 1; train.waiting = true; }
+            }
+          } else if (train.holding) {
+            // In the loading bay behind an occupied platform: wait for it.
+            speed = 0;
+            if (!stationBusy) { train.holding = false; speed = DEPART_SPEED; train.armed = true; }
           } else {
-            speed = Math.max(0, speed + (-GRAVITY * grade - ROLLING - DRAG * speed * speed) / 20);
-            // The chain catches a cart slower than itself on a climb and carries
-            // it at chain speed; it never touches a cart that is already faster.
-            // A measured drive engages only over its own sprockets.
-            const chainHere = !route.chain || (centre >= route.chain.start - extent / 2 && centre <= route.chain.end + extent / 2);
-            if (chainHere && grade > LIFT_GRADE && speed < LIFT_SPEED) speed = Math.min(LIFT_SPEED, speed + LIFT_ACCEL / 20);
-            speed = Math.max(speed, MIN_SPEED);
+            // Integrate in substeps no longer than one authored sample spacing,
+            // each sampling the grade where the train actually is: the polyline
+            // bounds the integration step, never the speed.
+            const bound = (speed + (GRAVITY + LIFT_ACCEL) / 20) / (20 * scale);
+            const substeps = Math.max(1, Math.ceil(bound / route.maxSpacing));
+            const dt = 1 / 20 / substeps;
+            let advanced = 0;
+            for (let sub = 0; sub < substeps; sub++) {
+              const here = centre + advanced * direction;
+              // sin(theta) of the track under the train, averaged over its cars
+              // in the direction of travel: a train straddling a crest feels both.
+              let sum = 0;
+              for (const car of list) sum += chordAt(path, carArc(here, car.slot), wheelbaseOf(car))[1];
+              const grade = sum / list.length * direction;
+              speed = Math.max(0, speed + (-GRAVITY * grade - ROLLING - DRAG * speed * speed) * dt);
+              // The chain catches a cart slower than itself on a climb and carries
+              // it at chain speed; it never touches a cart that is already faster.
+              // A measured drive engages only over its own sprockets.
+              const chainHere = !route.chain || (here >= route.chain.start - extent / 2 && here <= route.chain.end + extent / 2);
+              if (chainHere && grade > LIFT_GRADE && speed < LIFT_SPEED) speed = Math.min(LIFT_SPEED, speed + LIFT_ACCEL * dt);
+              speed = Math.max(speed, MIN_SPEED);
+              advanced += speed * dt / scale;
+            }
+            train.advanced = advanced;
           }
           // Arc distance to the next stop in the direction of travel, or -1 when
           // nothing is ahead: the platform (armed, ahead, not still clearing it),
-          // and on a lift route heading down, the parked deck's centre — or the
-          // terminal, where the train waits while the platform is still away.
+          // the loading bay behind an occupied platform, and on a lift route
+          // heading down, the parked deck's centre — or the terminal, where the
+          // train waits while the platform is still away.
           let toStop = -1, stopAt = target, stopKind = 'station';
-          if (train.armed && train.dwell <= 0) {
+          if (train.armed && train.dwell <= 0 && !train.holding) {
             let ahead = (target - centre) * direction;
             if (path.closed) { ahead %= total; if (ahead < 0) ahead += total; }
             if (ahead >= 0) { toStop = ahead; }
           }
+          if (dispatch && stationBusy && !train.holding && train.dwell <= 0) {
+            let ahead = (dispatch.hold - centre) * direction;
+            if (path.closed) { ahead %= total; if (ahead < 0) ahead += total; }
+            if (ahead >= 0 && (toStop < 0 || ahead < toStop)) { toStop = ahead; stopAt = dispatch.hold; stopKind = 'hold'; }
+          }
           if (lift && direction === -1) {
-            const deckTarget = progress <= 0 ? deckLength / 2 : deckLength + extent / 2;
+            // The parked deck is free when the platform is down and no other
+            // train is standing on it about to rise.
+            const deckFree = progress <= 0 && owns;
+            const deckTarget = deckFree ? deckLength / 2 : deckLength + extent / 2;
             const ahead = centre - deckTarget;
-            if (ahead >= 0 && (toStop < 0 || ahead < toStop)) { toStop = ahead; stopAt = deckTarget; stopKind = progress <= 0 ? 'deck' : 'wait'; }
+            if (ahead >= 0 && (toStop < 0 || ahead < toStop)) { toStop = ahead; stopAt = deckTarget; stopKind = deckFree ? 'deck' : 'wait'; }
           }
           // Kinematic brake: v = sqrt(2 a s) reaches zero exactly at the stop.
-          // `toStop` is in model blocks; the brake works in world blocks.
+          // `toStop` is in model blocks; the brake works in world blocks. The
+          // integrated advance shrinks with the speed the brake and ceiling leave.
+          const integrated = speed;
           if (toStop >= 0) speed = Math.min(speed, Math.sqrt(2 * STATION_BRAKE * toStop * scale));
-          // A step may never exceed one authored sample spacing, or it would cut
-          // the corner of the measured polyline instead of following it. Every car
-          // advances by the same step, so no car can exceed it either.
-          speed = Math.min(speed, MAX_SPEED, 20 * scale * route.maxSpacing);
-          const step = speed / (20 * scale);
+          speed = Math.min(speed, MAX_SPEED);
+          const step = train.advanced !== undefined && integrated > 0 ? train.advanced * speed / integrated : speed / (20 * scale);
+          train.advanced = undefined;
           next = centre + step * direction;
           if (toStop >= 0 && step >= toStop) { next = stopAt; arrived = stopKind; }
           else if (path.closed) next = ((next % total) + total) % total;
@@ -1414,7 +1858,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             }
           }
           if (arrived === 'station') { speed = 0; train.dwell = riders.length ? DWELL_LOADED : DWELL_EMPTY; }
-          else if (arrived === 'deck') { speed = 0; phase = 'lifting'; train.liftDwell = PLATFORM_DWELL; }
+          else if (arrived === 'hold') { speed = 0; train.holding = true; }
+          else if (arrived === 'deck') {
+            // The deck is one platform: the train that reaches it first takes the hoist.
+            if (hoist && hoist.owner !== null && hoist.owner !== placement) { speed = 0; }
+            else { speed = 0; phase = 'lifting'; train.liftDwell = PLATFORM_DWELL; if (hoist) hoist.owner = placement; }
+          }
           else if (arrived === 'wait') { speed = 0; }
           else if (!train.armed) {
             const inside = station.start <= station.end
@@ -1425,7 +1874,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         }
         // The platform goes back down once the delivered train has rolled clear
         // of the deck; it never moves under a train that is still on it.
-        if (lift && phase === 'track' && progress > 0) {
+        if (lift && owns && phase === 'track' && progress > 0) {
           const trailing = next + extent / 2;
           if (trailing < total - deckLength - PLATFORM_CLEARANCE) {
             const travelLength = Math.hypot(lift.travel[0], lift.travel[1], lift.travel[2]);
@@ -1437,14 +1886,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const angle = rotation * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
         const toWorld = (p: readonly number[]) => ({ x: origin.x + (p[0]! * c - p[2]! * s) * scale, y: origin.y + p[1]! * scale, z: origin.z + (p[0]! * s + p[2]! * c) * scale });
         const frames: any[] = [];
-        let gradeSum = 0;
         for (const car of list) {
-          const at = sample(path, carArc(next, car.index));
-          gradeSum += at.tangent[1];
+          const arc = carArc(next, car.slot);
+          const at = sample(path, arc);
           const p = at.position;
           const lifted = lift && carLift > 0 ? [p[0] + lift.travel[0] * carLift, p[1] + lift.travel[1] * carLift, p[2] + lift.travel[2] * carLift] : p;
-          const position = toWorld(lifted);
-          const tangent = at.tangent.map((value: number) => value * facing);
+          const datum = toWorld(lifted);
+          // The car points along the chord between its wheel contacts, which is
+          // the local tangent for a car that measured no wheelbase.
+          const tangent = chordAt(path, arc, wheelbaseOf(car)).map((value: number) => value * facing);
           const horizontal = Math.hypot(tangent[0], tangent[2]);
           const worldTx = tangent[0] * c - tangent[2] * s;
           const worldTz = tangent[0] * s + tangent[2] * c;
@@ -1455,25 +1905,54 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const up0 = route.up[i], up1 = route.up[i + 1];
           const up = up0.map((value: number, axis: number) => value + (up1[axis] - value) * ratio);
           const ux = up[0] * c - up[2] * s, uy = up[1], uz = up[0] * s + up[2] * c;
-          // Remove entity yaw then bone pitch from the transported track up.
-          // The remaining angle is local roll; at a loop apex this turns the
-          // cart upside down without attempting unsupported player-camera roll.
+          // Remove entity yaw then bone pitch from the track up. The remaining
+          // angle is local roll; at a loop apex this turns the cart upside down
+          // without attempting unsupported player-camera roll.
           const yawRad = yaw * Math.PI / 180, pitchRad = pitch * Math.PI / 180;
           const localX = ux * Math.cos(yawRad) + uz * Math.sin(yawRad);
           const yawZ = -ux * Math.sin(yawRad) + uz * Math.cos(yawRad);
           const localY = uy * Math.cos(pitchRad) + yawZ * Math.sin(pitchRad);
           const roll = Math.atan2(-localX, localY) * 180 / Math.PI;
-          frames.push({ car, position, yaw, pitch, roll });
+          // ── Where the rider's head belongs ──
+          // The seat is a fixed offset in the entity's yaw-only frame (model
+          // +X right, +Y up, +Z back; the entity faces model -Z), so on inverted
+          // track it would put the player outside the loop. Carry the seat and
+          // the player's eye through the car's real frame instead, place the
+          // ENTITY so the upright seat lands there, and draw the body back on
+          // the rails through the body-offset properties. Upright: all zero.
+          const type = types[car.entity.typeId];
+          const seat = type && type.seat ? type.seat : [0, 0, 0];
+          const nose = [worldTx, tangent[1], worldTz];
+          let cu = [ux, uy, uz];
+          const along = cu[0] * nose[0] + cu[1] * nose[1] + cu[2] * nose[2];
+          cu = [cu[0] - along * nose[0], cu[1] - along * nose[1], cu[2] - along * nose[2]];
+          const cuLength = Math.hypot(cu[0], cu[1], cu[2]) || 1;
+          cu = [cu[0] / cuLength, cu[1] / cuLength, cu[2] / cuLength];
+          const right = [nose[1] * cu[2] - nose[2] * cu[1], nose[2] * cu[0] - nose[0] * cu[2], nose[0] * cu[1] - nose[1] * cu[0]];
+          const sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
+          const noseFlat = [-sinYaw, 0, cosYaw], rightFlat = [-cosYaw, 0, -sinYaw];
+          const offset = [0, 0, 0];
+          for (let axis = 0; axis < 3; axis++) {
+            const real = (seat[0] * right[axis] + seat[1] * cu[axis] - seat[2] * nose[axis]) * scale + RIDER_EYE * cu[axis];
+            const flat = (seat[0] * rightFlat[axis] + seat[1] * (axis === 1 ? 1 : 0) - seat[2] * noseFlat[axis]) * scale + RIDER_EYE * (axis === 1 ? 1 : 0);
+            offset[axis] = real - flat;
+          }
+          const position = { x: datum.x + offset[0], y: datum.y + offset[1], z: datum.z + offset[2] };
+          // The body offset in model units: the world vector back to the datum,
+          // turned into the entity's frame (yaw plus the model's 180-degree facing).
+          const gx = -offset[0], gy = -offset[1], gz = -offset[2];
+          const body = [-(cosYaw * gx + sinYaw * gz), gy, sinYaw * gx - cosYaw * gz].map(value => Math.max(-BODY_RANGE, Math.min(BODY_RANGE, value * 16 / scale)));
+          frames.push({ car, position, yaw, pitch, roll, body });
         }
         // The platform and counterweight: placed once on first sight and then
-        // whenever the hoist moves. Absent entities (removed, unloaded) are
-        // simply not moved; their pose is a function of `progress`, so they are
-        // right again the moment they are seen.
+        // whenever the hoist moves, by the train that holds it. Absent entities
+        // (removed, unloaded) are simply not moved; their pose is a function of
+        // `progress`, so they are right again the moment they are seen.
         const liftFrames: any[] = [];
-        if (lift && (platformMoving || !train.liftPlaced)) {
+        if (lift && hoist && owns && (platformMoving || !hoist.placed)) {
           const t = lift.travel;
-          if (group.platform) liftFrames.push({ entity: group.platform.entity, position: toWorld([lift.parkedPoint[0] + t[0] * progress, lift.parkedPoint[1] + t[1] * progress, lift.parkedPoint[2] + t[2] * progress]) });
-          if (group.counterweight && lift.counterweightPoint) liftFrames.push({ entity: group.counterweight.entity, position: toWorld([lift.counterweightPoint[0] - t[0] * progress, lift.counterweightPoint[1] - t[1] * progress, lift.counterweightPoint[2] - t[2] * progress]) });
+          if (place?.platform) liftFrames.push({ entity: place.platform.entity, position: toWorld([lift.parkedPoint[0] + t[0] * progress, lift.parkedPoint[1] + t[1] * progress, lift.parkedPoint[2] + t[2] * progress]) });
+          if (place?.counterweight && lift.counterweightPoint) liftFrames.push({ entity: place.counterweight.entity, position: toWorld([lift.counterweightPoint[0] - t[0] * progress, lift.counterweightPoint[1] - t[1] * progress, lift.counterweightPoint[2] - t[2] * progress]) });
         }
         // Never teleport into an unloaded region. Holding the centre allows a
         // later tick to resume without skipping track or abandoning a rider;
@@ -1501,7 +1980,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // A car that moved before a later one failed is put back next tick: the
         // saved centre is still the old one, so the train re-places from it.
         if (!moved) { warn(riders, 'Coaster paused: movement could not complete'); continue; }
-        if (lift) train.liftPlaced = true;
+        if (hoist && owns) {
+          hoist.placed = true;
+          hoist.progress = progress;
+          hoist.owner = progress > 0 || phase !== 'track' ? placement : null;
+        }
         stage = 'save cart progress';
         // Every car carries the same ride state, so any loaded car can lead it.
         // `distance` on a train car is the TRAIN's centre, not that car's arc.
@@ -1509,15 +1992,19 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           frame.car.entity.setDynamicProperty(key + 'distance', next);
           frame.car.entity.setDynamicProperty(key + 'direction', nextDirection);
           frame.car.entity.setDynamicProperty(key + 'speed', speed);
-          if (lift) { frame.car.entity.setDynamicProperty(key + 'phase', phase); frame.car.entity.setDynamicProperty(key + 'lift', progress); }
+          if (lift) { frame.car.entity.setDynamicProperty(key + 'phase', phase); frame.car.entity.setDynamicProperty(key + 'lift', owns ? progress : 0); }
         }
-        train.grade = gradeSum / frames.length;
+        train.centre = next;
+        train.phase = phase;
         stage = 'animate cart';
         // A value outside a declared actor-property range throws, which would
         // otherwise untrack the cart mid-ride; the angles are already in range.
         for (const frame of frames) {
           frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-90, Math.min(90, frame.pitch)));
           frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, frame.roll)));
+          frame.car.entity.setProperty('craftmatic:body_x', frame.body[0]);
+          frame.car.entity.setProperty('craftmatic:body_y', frame.body[1]);
+          frame.car.entity.setProperty('craftmatic:body_z', frame.body[2]);
           // The set's own car: show its posed rider unless a player has the seat.
           const type = types[frame.car.entity.typeId];
           const slot = cars.slots && cars.slots[frame.car.index];
@@ -1536,7 +2023,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // dismount. The ride keeps running and comes back to the platform.
           if (lost.length) warn(lost, 'Coaster ride ended. Board again when the cart stops at the station.');
           if (ticks % 20 === 0) {
-            warn(aboard, train.dwell > 0 ? 'Coaster departing — sneak to dismount'
+            warn(aboard, train.waiting ? `${route.label} — waiting for the other train — sneak to dismount`
+              : train.dwell > 0 ? 'Coaster departing — sneak to dismount'
+              : train.holding ? `${route.label} — waiting for the platform — sneak to dismount`
               : phase === 'lifting' ? `${route.label} — lift rising — sneak to dismount`
               : phase === 'delivered' ? `${route.label} — at the top — sneak to dismount`
               : arrived === 'wait' ? `${route.label} — waiting for the lift — sneak to dismount`
@@ -1547,13 +2036,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         report(lead.id, stage, error, riders);
         // Removed carts (Undo/re-place) must not survive as script-held state.
         for (const car of list) tracked.delete(car.id);
-        if (group.platform) tracked.delete(group.platform.id);
-        if (group.counterweight) tracked.delete(group.counterweight.id);
+        if (place?.platform) tracked.delete(place.platform.id);
+        if (place?.counterweight) tracked.delete(place.counterweight.id);
         trains.delete(placement);
+        hoists.delete(group.base);
       }
     }
     // Forget the ride state of a train whose cars have all gone.
     for (const [placement, train] of trains) if (train.seen !== ticks) trains.delete(placement);
+    for (const base of [...hoists.keys()]) if (!places.has(base)) hoists.delete(base);
   };
   system.runInterval(tick, 1);
 }
