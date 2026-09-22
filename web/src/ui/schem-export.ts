@@ -388,6 +388,12 @@ export interface MinecraftExportResult {
   width?: number; height?: number; length?: number; nonAir?: number; lights?: number;
   /** Present only for the Bedrock `.mcpack` format. */
   mcpack?: McpackSummary;
+  /**
+   * The `.mcaddon` bytes just downloaded, so the LEGO tab can open the pack
+   * in the add-on walk (ui/addon-preview.ts) without a file round trip.
+   * Only the add-on format carries them; a schematic's bytes are not kept.
+   */
+  bytes?: Uint8Array;
 }
 
 /**
@@ -580,6 +586,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
         ok: true, message: msg,
         width: job.width, height: job.height, length: job.length,
         nonAir: blocks, lights: job.lights, mcpack: job.mcpack,
+        ...(format === 'mcaddon' && job.bytes ? { bytes: job.bytes } : {}),
       };
     }
 

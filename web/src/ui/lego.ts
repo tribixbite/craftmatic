@@ -390,6 +390,10 @@ const resetLoadDiag = (loader: string, models: IndexModel[] | null = null,
  */
 import type { LDrawViewer as LDrawViewerType } from '@viewer/ldraw/index.js';
 let currentLDrawViewer: LDrawViewerType | null = null;
+/** The last `.mcaddon` exported from this tab, kept for the add-on walk (no file round trip). */
+let lastAddonExport: { bytes: Uint8Array; label: string } | null = null;
+/** The open add-on walk (ui/addon-preview.ts), if any; it borrows the viewer's renderer while open. */
+let addonWalk: import('@ui/addon-preview.js').AddonPreviewHandle | null = null;
 /** Total number of steps in the current model (1 = no step markers) */
 let totalSteps = 1;
 /**
@@ -604,6 +608,10 @@ function buildUI(): void {
         </select>
       </label>
       <span id="lego-mc-settings" style="margin-left:6px;display:inline-flex"></span>
+      <button id="lego-addon-walk" type="button" class="lego-scale-btn" disabled
+        title="Walk the collider blocks the last add-on exported here lays, in the browser: legend, reach on foot, sizes. Export an add-on (.mcaddon) first.">Walk add-on</button>
+      <button id="lego-addon-walk-open" type="button" class="lego-scale-btn" title="Walk a built .mcaddon from disk (one from the CLI, or an older export)">Open .mcaddon…</button>
+      <input type="file" id="lego-addon-walk-file" accept=".mcaddon,.zip" hidden>
     </div>
 
     <!-- Assembly step / vertical layer slider (hidden until a model loads) -->
@@ -845,6 +853,8 @@ function wireEvents(): void {
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' ||
         target.tagName === 'SELECT' || target.isContentEditable) return;
+    // The add-on walk owns the keyboard while it is open (WASD, F, R, Esc...).
+    if (addonWalk?.open) return;
     // Only act when LEGO tab is the active view (heuristic: viewer is visible)
     const viewer = document.getElementById('lego-viewer');
     if (!viewer || viewer.offsetParent === null) return;
@@ -956,6 +966,26 @@ function wireEvents(): void {
     if (!fmt) return;
     void exportLoadedModel(fmt);
   });
+
+  // ── Add-on walk: the last export, or a built .mcaddon from disk ───────────
+  document.getElementById('lego-addon-walk')?.addEventListener('click', () => {
+    if (!lastAddonExport) { setStatus('Export an add-on (.mcaddon) first, or open a built one with "Open .mcaddon…".', 'info'); return; }
+    void openAddonWalk(lastAddonExport.bytes, lastAddonExport.label);
+  });
+  document.getElementById('lego-addon-walk-open')?.addEventListener('click', () => {
+    (document.getElementById('lego-addon-walk-file') as HTMLInputElement | null)?.click();
+  });
+  document.getElementById('lego-addon-walk-file')?.addEventListener('change', e => {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    void (async () => {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      void openAddonWalk(bytes, file.name.replace(/\.[^.]+$/, ''));
+    })();
+  });
+  updateAddonWalkButtons();
 
   // ── Minecraft export settings (shared with the Upload tab) ────────────────
   const mcSettingsHost = document.getElementById('lego-mc-settings');
@@ -1993,6 +2023,45 @@ function loadColorNames(): Promise<Record<string, string>> {
   return colorNamesPromise;
 }
 
+/** The "Walk add-on" button follows whether an add-on has been exported in this session. */
+function updateAddonWalkButtons(): void {
+  const btn = document.getElementById('lego-addon-walk') as HTMLButtonElement | null;
+  if (!btn) return;
+  btn.disabled = !lastAddonExport;
+  btn.title = lastAddonExport
+    ? `Walk the collider blocks ${lastAddonExport.label} lays, in the browser: legend, reach on foot, sizes`
+    : 'Walk the collider blocks the last add-on exported here lays, in the browser: legend, reach on foot, sizes. Export an add-on (.mcaddon) first.';
+}
+
+/**
+ * Open the add-on walk (ui/addon-preview.ts, lazy) over the tab's viewer for
+ * a built `.mcaddon`. The viewer is mounted if the tab has not rendered in 3D
+ * yet; the walk borrows its renderer and hands it back on exit.
+ */
+async function openAddonWalk(bytes: Uint8Array, label: string): Promise<void> {
+  try {
+    addonWalk?.close();
+    const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
+      ?? document.getElementById('lego-viewer');
+    if (!viewerEl) { setStatus('The LEGO viewer panel is missing; cannot open the walk.', 'error'); return; }
+    setStatus(`Reading ${label}…`, 'info');
+    const [{ openAddonPreview }, { loadAddonPreviewModel }] = await Promise.all([
+      import('@ui/addon-preview.js'),
+      import('@ui/addon-preview-data.js'),
+    ]);
+    const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const model = await loadAddonPreviewModel(buffer);
+    const viewer = await mountDirectViewer(viewerEl);
+    addonWalk = openAddonPreview({
+      viewer, model,
+      onStatus: (m, k) => setStatus(m, k),
+      onClose: () => { addonWalk = null; setStatus(`Left the add-on walk of ${label}.`, 'info'); },
+    });
+  } catch (err) {
+    setStatus(`Add-on walk failed: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
+}
+
 async function exportLoadedModel(fmt: string): Promise<void> {
   if (!currentBricks) { setStatus('Load a set first, then export.', 'error'); return; }
   const base = exportStem();
@@ -2096,7 +2165,8 @@ async function exportLoadedModel(fmt: string): Promise<void> {
       // Resolution / block mapping / interior lights come from the ⚙ settings
       // popover; the defaults reproduce the shipped proportion-exact behaviour
       // byte-for-byte.
-      await runMinecraftExport({
+      const exportLabel = selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base;
+      const exported = await runMinecraftExport({
         source: {
           kind: 'bricks',
           bricks: currentBricks,
@@ -2106,13 +2176,20 @@ async function exportLoadedModel(fmt: string): Promise<void> {
         basename: base,
         // The pack's name in Minecraft's own add-on list, where "Colosseum
         // (10276)" reads better than the filename stem.
-        label: selectedSet ? `${selectedSet.name} (${selectedSet.set_num})` : base,
+        label: exportLabel,
         settings: getSchemSettings(),
         vehicleMode: ((document.getElementById('lego-vehicle-mode') as HTMLSelectElement | null)?.value ?? 'auto') as 'auto' | 'car' | 'plane' | 'boat' | 'static',
         // The loaded file + its sha256/12, for the pack's provenance record.
         sourceProvenance: currentSource,
         onStatus: (m, k) => setStatus(m, k),
       });
+      // The add-on just built stays in memory for the walk (ui/addon-preview.ts):
+      // the questions it answers used to need a device round per iteration.
+      if (fmt === 'mcaddon' && exported.ok && exported.bytes) {
+        lastAddonExport = { bytes: exported.bytes, label: exportLabel };
+        updateAddonWalkButtons();
+        setStatus(`${exported.message} Walk it in the browser with "Walk add-on".`, 'success');
+      }
       return;
     }
 
@@ -2348,6 +2425,85 @@ function updateStepSlider(): void {
   row.style.display = hasAny ? '' : 'none';
 }
 
+/**
+ * Mount the direct 3D viewer on the tab's viewer panel once; `load()` is
+ * called per model. Shared by the render path and the add-on walk (which
+ * borrows the renderer and can open before any model is loaded).
+ */
+async function mountDirectViewer(viewerEl: HTMLElement): Promise<LDrawViewerType> {
+  const { LDrawViewer } = await import('@viewer/ldraw/index.js');
+  if (currentLDrawViewer && currentLDrawViewer.container !== viewerEl) {
+    currentLDrawViewer.dispose();
+    currentLDrawViewer = null;
+  }
+  if (currentLDrawViewer) return currentLDrawViewer;
+  viewerEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:12px">
+    <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite"></div>
+    <span style="color:#999;font-size:13px">Loading geometry…</span>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  </div>`;
+  currentLDrawViewer = await LDrawViewer.create(viewerEl);
+  // GPU context loss (driver reset / GPU OOM, common on mobile with
+  // mega-sets) used to leave a permanently black panel. Rebuild the
+  // whole viewer and re-display the current model instead.
+  currentLDrawViewer.onContextLost = () => {
+    setStatus('Graphics context was lost — reloading the model…', 'info');
+    try { currentLDrawViewer?.dispose(); } catch { /* already dead */ }
+    currentLDrawViewer = null;
+    if (currentBricks) {
+      void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
+    }
+  };
+  currentLDrawViewer.onBrickHover = (brick, x, y) => {
+    const tip = document.getElementById('lego-hover-tooltip');
+    if (!tip) return;
+    if (!brick) { tip.hidden = true; return; }
+    const partName = brick.part.replace(/\.dat$/i, '');
+    tip.textContent = `${partName} · color ${brick.color}`;
+    // Position 12px down-right of cursor, clamp to viewport
+    const tipW = tip.offsetWidth || 100;
+    const tipH = tip.offsetHeight || 20;
+    const px = Math.min(x + 12, window.innerWidth - tipW - 4);
+    const py = Math.min(y + 12, window.innerHeight - tipH - 4);
+    tip.style.left = `${px}px`;
+    tip.style.top = `${py}px`;
+    tip.hidden = false;
+  };
+  currentLDrawViewer.onBrickClick = async brick => {
+    const el = document.getElementById('lego-picked-brick');
+    if (!el) return;
+    const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
+    const colorHex = LDRAW_COLOR_RGB[brick.color] ?? '#808080';
+    const partName = brick.part.replace(/\.dat$/i, '');
+    el.replaceChildren();
+    const swatch = document.createElement('span');
+    swatch.style.cssText = `display:inline-block;width:10px;height:10px;background:${colorHex};border:1px solid rgba(255,255,255,0.3);border-radius:2px;margin-right:6px;vertical-align:middle`;
+    const colorRow = document.createElement('div');
+    colorRow.appendChild(swatch);
+    colorRow.append(`Color id ${brick.color} (${colorHex})`);
+    const lines = [
+      `Part: ${partName}`,
+    ];
+    for (const line of lines) {
+      const div = document.createElement('div');
+      div.textContent = line;
+      el.appendChild(div);
+    }
+    el.appendChild(colorRow);
+    const posDiv = document.createElement('div');
+    posDiv.textContent = `Pos: ${brick.x.toFixed(1)}, ${brick.y.toFixed(1)}, ${brick.z.toFixed(1)}`;
+    el.appendChild(posDiv);
+    if (brick.step != null) {
+      const stepDiv = document.createElement('div');
+      stepDiv.textContent = `Step: ${brick.step}`;
+      el.appendChild(stepDiv);
+    }
+    el.hidden = false;
+  };
+  return currentLDrawViewer;
+}
+
+
 async function voxelizeAndDisplay(
   bricks: ParsedBrick[],
   filename: string,
@@ -2391,8 +2547,7 @@ async function voxelizeAndDisplay(
       : filename.replace(/\.[^.]+$/, '');
     setStatus(`Rendering ${label} — ${bricks.length} bricks (loading geometry…)`, 'info');
     try {
-      const { LDrawViewer } = await import('@viewer/ldraw/index.js');
-      if (loadAbandoned('display:after-viewer-import', displayEpoch)) return;
+      if (loadAbandoned('display:before-viewer-mount', displayEpoch)) return;
       const viewerEl = rootEl.closest('.tab-content')?.querySelector('.viewer-area, .inline-viewer') as HTMLElement
         ?? document.getElementById('lego-viewer');
       if (viewerEl) {
@@ -2404,71 +2559,10 @@ async function voxelizeAndDisplay(
           currentLDrawViewer.dispose();
           currentLDrawViewer = null;
         }
-        if (!currentLDrawViewer) {
-          viewerEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;gap:12px">
-            <div style="width:40px;height:40px;border:3px solid rgba(255,255,255,0.2);border-top-color:#7c3aed;border-radius:50%;animation:spin 0.8s linear infinite"></div>
-            <span style="color:#999;font-size:13px">Loading geometry…</span>
-            <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
-          </div>`;
-          currentLDrawViewer = await LDrawViewer.create(viewerEl);
-          // GPU context loss (driver reset / GPU OOM, common on mobile with
-          // mega-sets) used to leave a permanently black panel. Rebuild the
-          // whole viewer and re-display the current model instead.
-          currentLDrawViewer.onContextLost = () => {
-            setStatus('Graphics context was lost — reloading the model…', 'info');
-            try { currentLDrawViewer?.dispose(); } catch { /* already dead */ }
-            currentLDrawViewer = null;
-            if (currentBricks) {
-              void voxelizeAndDisplay(currentBricks, currentBricksLabel, currentBricksColorFn);
-            }
-          };
-          currentLDrawViewer.onBrickHover = (brick, x, y) => {
-            const tip = document.getElementById('lego-hover-tooltip');
-            if (!tip) return;
-            if (!brick) { tip.hidden = true; return; }
-            const partName = brick.part.replace(/\.dat$/i, '');
-            tip.textContent = `${partName} · color ${brick.color}`;
-            // Position 12px down-right of cursor, clamp to viewport
-            const tipW = tip.offsetWidth || 100;
-            const tipH = tip.offsetHeight || 20;
-            const px = Math.min(x + 12, window.innerWidth - tipW - 4);
-            const py = Math.min(y + 12, window.innerHeight - tipH - 4);
-            tip.style.left = `${px}px`;
-            tip.style.top = `${py}px`;
-            tip.hidden = false;
-          };
-          currentLDrawViewer.onBrickClick = async brick => {
-            const el = document.getElementById('lego-picked-brick');
-            if (!el) return;
-            const { LDRAW_COLOR_RGB } = await import('@engine/ldraw-colors.js');
-            const colorHex = LDRAW_COLOR_RGB[brick.color] ?? '#808080';
-            const partName = brick.part.replace(/\.dat$/i, '');
-            el.replaceChildren();
-            const swatch = document.createElement('span');
-            swatch.style.cssText = `display:inline-block;width:10px;height:10px;background:${colorHex};border:1px solid rgba(255,255,255,0.3);border-radius:2px;margin-right:6px;vertical-align:middle`;
-            const colorRow = document.createElement('div');
-            colorRow.appendChild(swatch);
-            colorRow.append(`Color id ${brick.color} (${colorHex})`);
-            const lines = [
-              `Part: ${partName}`,
-            ];
-            for (const line of lines) {
-              const div = document.createElement('div');
-              div.textContent = line;
-              el.appendChild(div);
-            }
-            el.appendChild(colorRow);
-            const posDiv = document.createElement('div');
-            posDiv.textContent = `Pos: ${brick.x.toFixed(1)}, ${brick.y.toFixed(1)}, ${brick.z.toFixed(1)}`;
-            el.appendChild(posDiv);
-            if (brick.step != null) {
-              const stepDiv = document.createElement('div');
-              stepDiv.textContent = `Step: ${brick.step}`;
-              el.appendChild(stepDiv);
-            }
-            el.hidden = false;
-          };
-        }
+        // The assignment is what narrows `currentLDrawViewer` for the rest of
+        // this block; mountDirectViewer stores the same instance itself.
+        currentLDrawViewer = await mountDirectViewer(viewerEl);
+        if (loadAbandoned('display:after-viewer-mount', displayEpoch)) return;
         let lastProgressUpdate = 0;
         showProgress(0);
         // Nothing past this point may be mute: `onStage` covers the phases
