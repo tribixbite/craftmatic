@@ -1891,7 +1891,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             });
             diagnostics[shellId] = sgeo.diagnostics;
             warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId), undefined, true);
+            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId, sgeo.sizeBlocks), undefined, true);
             addEntityName(`${PACK_NAMESPACE}:${shellId}`, `${label} bricks`, false);
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
             actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
@@ -1935,7 +1935,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             });
             diagnostics[leafId] = lgeo.diagnostics;
             warnings.push(...lgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-            emitCompiledEntity(leafId, lgeo, shellBehavior(leafId), undefined, true);
+            emitCompiledEntity(leafId, lgeo, shellBehavior(leafId, lgeo.sizeBlocks), undefined, true);
             addEntityName(`${PACK_NAMESPACE}:${leafId}`, `${label} door leaf`, false);
             const at = sceneGridPoint(leaf.frame, lgeo.originLdu);
             actors.push({

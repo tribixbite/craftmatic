@@ -443,60 +443,45 @@ describe('the LOD hull inside a pack', () => {
     expect(on.warnings.some(w => /distance LOD on/.test(w) && /blocks/.test(w))).toBe(true);
   });
 
-  it('derives the default switch one chunk under the shell\'s 64-block cull, and drops the hull of a shell that reaches too far for that', async () => {
+  it("derives the switch from the shell's own render cull, which its collision box sizes", async () => {
     interface LodDiag {
       lod: { cuboids: number; entities: Record<string, { switchDistance: number; requestedSwitchDistance: number; renderCullBlocks: number; nearestCubeBlocks: number; hullWindowBlocks: number; switchSource: string; radiusBlocks: number }>; skipped: Record<string, { reason: string; hullCuboidsNotShipped: number; requestedSwitchDistance: number; renderCullBlocks: number; latestSwitchDistance: number; nearestCubeBlocks: number; collisionBox: { width: number; height: number } | null }> };
       pack: { cuboids: number; lodCuboids: number };
     }
-    // The two-course shed: 96 + its ~3-block reach is past the cull, so the
-    // switch is capped at 64 - 16 = 48 and the camera is still 40+ blocks
-    // from the nearest brick when the hull takes over.
+    // Bedrock stops drawing an actor at a distance its collision box sets, and
+    // the hull is the SAME actor — a hull that takes over past that point can
+    // never be seen. The shell sizes its box from the model, so a taller build
+    // draws further and leaves the hull more room.
     const shed = await shellPack('hull');
     const shedDiag = JSON.parse(await textOf(shed.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
     const h = shedDiag.lod.entities['lodshed_shell']!;
-    expect(h.switchDistance).toBe(64 - LOD_CULL_MARGIN_BLOCKS);
-    expect(h.switchSource).toBe('render-cull');
-    expect(h.requestedSwitchDistance).toBeCloseTo(DEFAULT_LOD_DISTANCE + h.radiusBlocks, 1);
-    expect(h.renderCullBlocks).toBe(64);
-    expect(h.nearestCubeBlocks).toBeCloseTo(48 - h.radiusBlocks, 1);
-    expect(h.nearestCubeBlocks).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
-    expect(h.hullWindowBlocks).toBe(LOD_CULL_MARGIN_BLOCKS);
     expect(shedDiag.lod.skipped).toEqual({});
+    expect(h.switchDistance - (h.renderCullBlocks - LOD_CULL_MARGIN_BLOCKS)).toBeLessThanOrEqual(0.05);
+    expect(h.switchDistance).toBeLessThanOrEqual(h.requestedSwitchDistance);
+    expect(h.nearestCubeBlocks).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
+    expect(h.requestedSwitchDistance).toBeCloseTo(DEFAULT_LOD_DISTANCE + h.radiusBlocks, 1);
     const controllers = JSON.parse(await textOf(shed.bytes, 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json')).render_controllers as Record<string, { geometry: string }>;
-    expect(Object.values(controllers).some(c => c.geometry === 'Array.g[query.distance_from_camera > 48]')).toBe(true);
-    expect(shed.warnings.some(w => /distance LOD on/.test(w) && /capped from/.test(w) && /culls at 64/.test(w))).toBe(true);
+    expect(Object.values(controllers).some(c => c.geometry === `Array.g[query.distance_from_camera > ${h.switchDistance}]`)).toBe(true);
 
-    // Forty courses: the root sits ~20 blocks above the floor, so the latest
-    // switch (48) leaves the camera under 32 blocks from the top bricks. The
-    // hull is built, counted, and NOT shipped: no hull file, no empty
-    // geometry, plain controllers, zero resident hull cuboids.
+    // Forty courses: a taller model, a bigger box, a further cull. Its hull
+    // ships, and its switch still sits under its own cull.
     const tower = await shellPack('hull', undefined, 40);
-    const entries = listZipEntries(ab(tower.bytes));
-    expect(entries.filter(e => /_lod\.geo\.json$|craftmatic_lod_empty/.test(e))).toEqual([]);
-    const towerControllers = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json')).render_controllers as Record<string, { arrays?: unknown; geometry: string }>;
-    for (const c of Object.values(towerControllers)) {
-      expect(c.arrays).toBeUndefined();
-      expect(c.geometry).toMatch(/^Geometry\.mesh_\d+$/);
-    }
-    const client = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_RP/entity/lodshed_shell.entity.json'))['minecraft:client_entity'].description as { geometry: Record<string, string> };
-    expect(client.geometry.empty).toBeUndefined();
     const towerDiag = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
-    expect(towerDiag.lod.cuboids).toBe(0);
-    expect(towerDiag.pack.lodCuboids).toBe(0);
-    expect(towerDiag.lod.entities).toEqual({});
-    const skipped = towerDiag.lod.skipped['lodshed_shell']!;
-    expect(skipped.hullCuboidsNotShipped).toBeGreaterThan(0);
-    expect(skipped.renderCullBlocks).toBe(64);
-    expect(skipped.latestSwitchDistance).toBe(48);
-    expect(skipped.nearestCubeBlocks).toBeLessThan(MIN_LOD_NEAREST_CUBE_BLOCKS);
-    expect(skipped.collisionBox).toEqual({ width: 0.1, height: 0.1 });
-    expect(skipped.reason).toMatch(/not drawn past 64 blocks/);
-    // The pack without the option has the same resident cuboids: nothing was shipped for the LOD.
+    const t = towerDiag.lod.entities['lodshed_shell']!;
+    expect(towerDiag.lod.skipped).toEqual({});
+    expect(towerDiag.lod.cuboids).toBeGreaterThan(0);
+    expect(t.renderCullBlocks).toBeGreaterThan(h.renderCullBlocks);
+    expect(t.switchDistance - (t.renderCullBlocks - LOD_CULL_MARGIN_BLOCKS)).toBeLessThanOrEqual(0.05);
+    expect(t.nearestCubeBlocks).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
+    expect(listZipEntries(ab(tower.bytes)).some(e => /_lod\.geo\.json$/.test(e))).toBe(true);
+
+    // The hull is resident geometry: the same pack without it is cheaper by
+    // exactly the hull's cuboids, and the export says the LOD is on.
     const plain = await shellPack('none', undefined, 40);
     const plainDiag = JSON.parse(await textOf(plain.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
-    expect(towerDiag.pack.cuboids).toBe(plainDiag.pack.cuboids);
-    expect(tower.warnings.some(w => /distance LOD dropped/.test(w) && /collision box/.test(w) && /hull cuboids not shipped/.test(w))).toBe(true);
-    expect(tower.warnings.some(w => /distance LOD on/.test(w))).toBe(false);
+    expect(towerDiag.pack.cuboids - plainDiag.pack.cuboids).toBe(towerDiag.lod.cuboids);
+    expect(plainDiag.lod?.cuboids ?? 0).toBe(0);
+    expect(tower.warnings.some(w => /distance LOD on/.test(w))).toBe(true);
   });
 
   it('hands the wand a walk-through reason the game can show: every percent sign spelt out, the diagnostics untouched', async () => {
