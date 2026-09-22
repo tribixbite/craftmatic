@@ -25,7 +25,7 @@ import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
-import { COASTER_CAR_LENGTH, coasterCartAssets, coasterRuntimeConfig, coasterScript, type CoasterRoute } from './bedrock-coaster.js';
+import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { bedrockJsonText } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
@@ -1726,7 +1726,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const lodSkipped: Record<string, { reason: string; radiusBlocks: number; requestedSwitchDistance: number; renderCullBlocks: number; latestSwitchDistance: number; nearestCubeBlocks: number; collisionBox: CollisionBox | null; hullCuboidsNotShipped: number }> = {};
     let lodEmptyEmitted = false;
     const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false): void => {
-        if (animations) minifigsEmitted++;
+        if (animations === MINIFIG_CLIENT_ANIMATIONS) minifigsEmitted++;
         // Each geometry holds one LDraw colour and is textured with that
         // colour's flat swatch (box UV: `ldraw-entity-compiler.ts`).
         const bindings: MeshBinding[] = geo.meshes.map(m => ({
@@ -2103,41 +2103,33 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const coasterConfig = options.coasterRoutes?.length
       ? coasterRuntimeConfig(`${PACK_NAMESPACE}:${coasterId}`, options.coasterRoutes) : undefined;
     let coasterCuboids = 0;
+    let coasterRide: CoasterRideAssets | undefined;
     if (coasterConfig) {
-        const cart = coasterCartAssets(coasterConfig.typeId, modelScale);
-        coasterCuboids = cart.geometry['minecraft:geometry'].reduce((total, geometry) => total + geometry.bones.reduce((sum, bone) => sum + bone.cubes.length, 0), 0);
-        const texture = generateLegoMaterialSwatch(resolveLdrawEntityMaterial(71), { pbr: false, textureName: 'craftmatic_coaster' });
-        files.push(
-            { name: `${bp}entities/${coasterId}.json`, data: json(cart.behavior) },
-            { name: `${rp}entity/${coasterId}.entity.json`, data: json(cart.client) },
-            { name: `${rp}models/entity/${coasterId}.geo.json`, data: geoJson(cart.geometry) },
-            { name: `${rp}animations/${coasterId}.animation.json`, data: json(cart.animations) },
-            { name: `${rp}textures/entity/craftmatic_coaster.png`, data: texture.colorPng },
-            { name: `${bp}scripts/coaster.js`, data: text(coasterScript(coasterConfig)) },
-            { name: `${bp}COASTER.txt`, data: text('Measured-track coaster rides\n\nThe grey Ride Cart runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to it while it is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount. It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The cart follows the source track in 3D; the player stays upright (no upside-down player roll). A set whose riders sit in a row of cars runs that many single-seat cars as one train; any car can be boarded. Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.\n') },
-        );
-        addEntityName(coasterConfig.typeId, `${label} Ride Cart`, false);
-        coasterConfig.routes.forEach((route, index) => {
-            // Spawn where the runtime parks it: the measured station platform,
-            // so a player meets the cart at the reload zone, not at arc 0. A
-            // measured train spawns one actor PER CAR, all at that point, each
-            // with its car index written by the placement (deterministic; the
-            // runtime would otherwise assign one on first sight). Both halves
-            // ship together: a `cars` config without the extra actors would
-            // leave the lone car unable to reach the first `extent` blocks.
-            const p = route.station.point;
-            const { count } = route.cars;
-            for (let car = 0; car < count; car++) {
-                const carLabel = count > 1 ? `${route.label} Car ${car + 1}` : `${route.label} Ride Cart`;
-                actors.push({ typeId: coasterConfig.typeId, label: carLabel, x: p[0], y: p[1], z: p[2], coasterRouteIndex: index, coasterCarIndex: car });
-            }
-            // Not clamped, only surfaced: the overlap is a property of the SOURCE
-            // route's curvature at that pitch (or of a fold in the stitched route).
-            if (route.cars.minChord !== undefined && route.cars.minChord < COASTER_CAR_LENGTH) {
-                warnings.push(`${route.label}: the ${count}-car train at a ${route.cars.spacing}-block pitch closes to a ${Math.round(route.cars.minChord * 1000) / 1000}-block chord between coupled cars somewhere on the route, under the ${COASTER_CAR_LENGTH}-block car length, so the cars will visibly intersect there (craftmatic-diagnostics.json coaster.routes[].cars).`);
-            }
+        // The set's own ride cars, lift platform and counterweight compiled
+        // from their bricks, the fabricated grey cart only where a route has
+        // no car of its own, the placement actors and the runtime script
+        // (bedrock-coaster.ts). Compiled entities go through emitCompiledEntity
+        // so their swatches, controllers and diagnostics are the pack's own.
+        options.onProgress?.(`compiling ${label} coaster ride`, 76);
+        coasterRide = await buildCoasterRideAssets(coasterConfig, options.coasterRoutes!, {
+            namespace: PACK_NAMESPACE, label, bp, rp, modelScale, unitsPerLdu, pbr, partGeometry: options.partGeometry,
+            quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], onProgress: options.onProgress,
         });
-        warnings.push(`${coasterConfig.routes.length} measured coaster route(s): the grey Ride Cart runs on its own and stops at the reload zone — walk up and tap to ride. Open tracks shuttle; riders stay upright.`);
+        for (const entity of coasterRide.compiled) {
+            diagnostics[entity.id] = entity.geo.diagnostics;
+            emitCompiledEntity(entity.id, entity.geo, entity.behavior, entity.animations);
+            extraComponents.push({ id: entity.id, label: entity.label, kind: entity.role === 'car' ? 'car' : 'prop',
+                provenance: entity.role === 'car' ? `the set's own ride car (${entity.cuboids} cuboids, ${entity.riders} posed rider variant${entity.riders === 1 ? '' : 's'})` : `the set's own lift ${entity.role} (${entity.cuboids} cuboids)` });
+        }
+        if (coasterRide.cartTypeUsed) {
+            const texture = generateLegoMaterialSwatch(resolveLdrawEntityMaterial(71), { pbr: false, textureName: 'craftmatic_coaster' });
+            files.push({ name: `${rp}textures/entity/craftmatic_coaster.png`, data: texture.colorPng });
+        }
+        files.push(...coasterRide.files);
+        for (const name of coasterRide.names) addEntityName(name.identifier, name.label, false);
+        actors.push(...coasterRide.actors);
+        warnings.push(...coasterRide.warnings);
+        coasterCuboids = coasterRide.cartCuboids;
     }
     const manualSeatId = options.shell ? entityId(`${id}_manual_seat`, 's') : undefined;
     if (manualSeatId) {
@@ -2201,7 +2193,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // definition-side), so they count against the device budget like any other.
     const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
     const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
-    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0) + (coasterConfig ? 1 : 0);
+    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
@@ -2243,16 +2235,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // resized by it (`modelScale` is what it was exported at).
         ...(options.access ? { access: options.access } : {}),
         entities: diagnostics,
-        ...(coasterConfig ? { coaster: { cuboids: coasterCuboids, riderRoll: false, deviceVerified: false, carLength: COASTER_CAR_LENGTH,
-            routes: coasterConfig.routes.map(route => ({
-                label: route.label, lengthBlocks: route.path.length, samples: route.path.points.length, closed: route.path.closed,
-                station: { stop: route.station.stop, length: route.station.length, point: route.station.point },
-                // The resolved train beside the station: count/spacing/extent in
-                // model blocks; `minChord` is the tightest straight-line gap the
-                // route leaves between coupled cars (bedrock-coaster.ts), reported
-                // and never clamped — under `carLength` the cars intersect there.
-                cars: { ...route.cars, ...(route.cars.minChord !== undefined ? { overlaps: route.cars.minChord < COASTER_CAR_LENGTH } : {}) },
-            })) } } : {}),
+        ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
     }) });
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));

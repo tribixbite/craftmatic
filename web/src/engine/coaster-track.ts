@@ -270,8 +270,18 @@ const profiles = new Map<string, CoasterTrackProfile>([
   ['80566', profile('80566', elevatedQuarterCurve(), 'library')],
 ]);
 
+/**
+ * An OMR/MPD source embeds its unofficial parts as `<set> - <mould>.dat`
+ * sections (`10261 - 25061.dat`) and references them by that full name, so
+ * the index's first pick for 10261 extracted ZERO track moulds. The prefix is
+ * the set number the document belongs to, never part of the mould id; strip
+ * it here rather than resolving every reference through the document's
+ * sections, which the parser has already flattened away by the time the
+ * placed bricks reach this module.
+ */
+const EMBEDDED_SET_PREFIX = /^\d{3,7}(?:-\d{1,2})?\s*-\s*/;
 const stem = (part: string): string => {
-  const name = part.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase() ?? '';
+  const name = part.replace(/\\/g, '/').split('/').at(-1)?.toLowerCase().replace(EMBEDDED_SET_PREFIX, '') ?? '';
   return name.endsWith('.dat') ? name.slice(0, -4) : name;
 };
 

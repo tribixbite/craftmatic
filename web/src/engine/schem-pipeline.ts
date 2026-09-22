@@ -367,10 +367,33 @@ export async function runSchemPipeline(
         } else if (sourceOrigin) {
           const frame = sourceOrigin;
           const { extractCoasterTrackRoutes } = await import('./coaster-track.js');
-          const tracks = extractCoasterTrackRoutes(source.bricks.filter(b => !movable.has(b)), {
+          const sceneBricks = source.bricks.filter(b => !movable.has(b));
+          const tracks = extractCoasterTrackRoutes(sceneBricks, {
             isGeometryAvailable: (_part, brick) => (scene.meshes.get(brick.part)?.triangles.length ?? 0) > 0,
           });
           warnings.push(...tracks.warnings.map(warning => `Coaster: ${warning}`));
+          // The set's OWN ride cars, trains and lift, measured from the same
+          // placements (coaster-assemblies.ts). Their bricks - the cars, the
+          // riders posed in them, the lift platform and its counterweight -
+          // become the moving entities and leave the static shell, so nothing
+          // is drawn twice. A route with no detected car keeps the fabricated
+          // cart below; a short open siding holding a train stays parked.
+          const { detectCoasterAssemblies } = await import('./coaster-assemblies.js');
+          const { coasterRoutesFromAssemblies } = await import('./bedrock-coaster.js');
+          const assemblies = tracks.routes.length ? detectCoasterAssemblies(sceneBricks, scene.meshes, tracks) : undefined;
+          if (assemblies) warnings.push(...assemblies.warnings.map(warning => `Coaster: ${warning}`));
+          const own = assemblies ? coasterRoutesFromAssemblies(tracks, assemblies, sceneBricks, frame) : undefined;
+          const riderBricks = new Set<ParsedBrick>();
+          if (own) {
+            warnings.push(...own.warnings.map(warning => `Coaster: ${warning}`));
+            for (const i of own.movedIndices) movable.add(sceneBricks[i]!);
+            for (const i of own.riderIndices) riderBricks.add(sceneBricks[i]!);
+            for (const route of own.routes) {
+              if (!route.vehicles) continue;
+              const riders = route.vehicles.filter(car => car.rider.length).length;
+              warnings.push(`Coaster: ${route.label} runs the set's own ${route.vehicles.length} car${route.vehicles.length === 1 ? '' : 's'} (${route.vehicles.map(car => car.chassis.replace(/\.dat$/i, '')).join(', ')}; ${riders} posed rider${riders === 1 ? '' : 's'} aboard${route.lift ? `; ${route.lift.kind} lift` : ''}).`);
+            }
+          }
           // The train is measured from the riders the source posed OFF upright
           // (nose-down on a drop, hanging in a loop): a figure a Bedrock actor
           // cannot stand in for is, on a coaster, a figure sitting in a car.
@@ -385,15 +408,17 @@ export async function runSchemPipeline(
           // A seated rider's torso sits about 50 LDU off the running line on
           // 10303; 80 LDU admits larger cars and still rejects the next track over.
           const riderMaxOffset = 80 * frame.scale / Math.min(frame.cellXZ, frame.cellY);
-          for (const route of tracks.routes) {
-            const points = route.points.map(point => sceneGridPoint(frame, [...point]));
-            const train = measureCoasterTrain({ points, closed: route.closed }, riderAnchors, riderMaxOffset);
+          const plainRoutes: import('./bedrock-coaster.js').CoasterRoute[] = own ? own.routes : tracks.routes.map(route => ({
+            label: route.label, closed: route.closed, points: route.points.map(point => sceneGridPoint(frame, [...point])),
+            maxSegmentLength: route.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY),
+          }));
+          for (const route of plainRoutes) {
+            // The set's own cars ARE the train; only a route without them is
+            // measured from its posed riders and given the fabricated cart.
+            if (route.vehicles) { coasterRoutes.push(route); continue; }
+            const train = measureCoasterTrain({ points: route.points, closed: route.closed }, riderAnchors, riderMaxOffset);
             if (train) warnings.push(`Coaster: ${route.label} carries a measured train of ${train.count} cars at a ${train.spacing}-block pitch (${train.riders} posed rider${train.riders === 1 ? '' : 's'} on the track; pitches ${train.pitches.join(', ')}).`);
-            coasterRoutes.push({
-              label: route.label, closed: route.closed, points,
-              maxSegmentLength: route.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY),
-              ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}),
-            });
+            coasterRoutes.push({ ...route, ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}) });
           }
           // A figure's feet and a seat's surface are grounded on the model's
           // UNDERSIDE (`scene.groundLdu`, the pin plane the shell and the
@@ -403,6 +428,9 @@ export async function runSchemPipeline(
           // plane, and inside the grass at 400 % (2026-09-21). Doors keep
           // `sceneGridPoint`: they are cut into the block grid itself.
           for (const f of scene.figures) {
+            // A figure seated in a ride car (upright in a station, 10261) rides
+            // in that car's entity, not as a wandering NPC.
+            if (f.bricks.some(b => riderBricks.has(b))) continue;
             const p = sceneFloorPoint(frame, scene.groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
             figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);

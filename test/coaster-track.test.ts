@@ -345,3 +345,35 @@ describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpu
     expect(Math.max(...platform.map(brick => brick.y))).toBeCloseTo(-83.9, 0);
   });
 });
+
+describe('OMR/MPD embedded part names', () => {
+  it("strips a leading '<set> - ' from an embedded mould stem, so the index's OMR sources extract at all", () => {
+    // 10261-1.mpd embeds its unofficial track as `0 FILE 10261 - 25061.dat` and
+    // references it by that name; the set prefix is not part of the mould id.
+    expect(coasterTrackProfile('10261 - 25061.dat')).toBe(coasterTrackProfile('25061.dat'));
+    expect(coasterTrackProfile('10261-1 - 26559.dat')).toBe(coasterTrackProfile('26559.dat'));
+    expect(coasterTrackProfile('models/10303 - 80564.dat')?.partId).toBe('80564');
+    // A bare mould id, a path, and an unrelated name are untouched.
+    expect(coasterTrackProfile('s/25061.dat')).toBe(coasterTrackProfile('25061.dat'));
+    expect(coasterTrackProfile('3001.dat')).toBeUndefined();
+    const extraction = extractCoasterTrackRoutes([
+      { color: 4, x: 0, y: 0, z: 0, rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], part: '10261 - 80562.dat' },
+      { color: 4, x: 80, y: 0, z: 0, rot: [1, 0, 0, 0, 1, 0, 0, 0, 1], part: '10261 - 80562.dat' },
+    ], { isGeometryAvailable: () => true });
+    expect(extraction.routes).toHaveLength(1);
+    expect(extraction.routes[0]!.fragmentIds).toEqual(['80562:0', '80562:1']);
+  });
+});
+
+const OMR_10261 = 'C:/git/clego/lego_sets/OMR/10261-1.mpd';
+describe.skipIf(!existsSync(OMR_10261))('10261-1.mpd (OMR source, embedded track parts)', () => {
+  it('extracts the circuit from parts named `10261 - <mould>.dat`', () => {
+    const doc = parseLDrawDocument(readFileSync(OMR_10261, 'utf8'));
+    const named = doc.bricks.filter(b => /^10261 - \d+\.dat$/i.test(b.part));
+    expect(named.length).toBeGreaterThan(0);
+    const extraction = extractCoasterTrackRoutes(doc.bricks, { isGeometryAvailable: () => true });
+    expect(extraction.fragments.length).toBeGreaterThan(30);
+    expect(extraction.routes.length).toBeGreaterThan(0);
+    expect(Math.max(...extraction.routes.map(r => r.points.length))).toBeGreaterThan(500);
+  });
+});

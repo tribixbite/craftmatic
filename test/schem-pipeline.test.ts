@@ -25,6 +25,7 @@ import { seedDatTexts } from '../web/src/engine/ldraw-geometry.js';
 import { sceneFloorPoint, sceneGridPoint } from '../web/src/engine/bedrock-scene-actors.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
+import { bedrockInGameText } from '../web/src/engine/playable-addon.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
 /** Hollow stone box (sealed interior) inside a 1-cell air margin. */
@@ -288,9 +289,12 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     const diagnostics = JSON.parse(new TextDecoder().decode(await extractFile(buffer, diagName)));
     expect(diagnostics.access).toEqual(access);
 
-    // …and handed to the Brick Wand, which NAMES the step and quotes the reason.
+    // …and handed to the Brick Wand, which NAMES the step and quotes the reason
+    // as Bedrock's form renderer can show it: a bare `%` is deleted there, so
+    // the in-game string spells "percent" (`bedrockInGameText`, b3ec0c02); the
+    // diagnostics above keep the measured `%`.
     const config = await placementConfig(r.bytes!);
-    expect(config.access).toEqual({ sizePct: access!.sizePct, reason: access!.reason });
+    expect(config.access).toEqual({ sizePct: access!.sizePct, reason: bedrockInGameText(access!.reason) });
     // A recommendation only: nothing resized the export itself.
     expect(config.sizes).toEqual([25, 50, 75, 100, 150, 200, 300, 400]);
   }, 120_000);

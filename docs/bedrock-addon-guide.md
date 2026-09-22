@@ -1810,6 +1810,94 @@ The tower transfer remains a TODO: the main course shuttles at its real ends,
 not a fabricated closed circuit. This mechanism also applies to other sets
 using supported moulds; unsupported track shapes remain explicit gaps.
 
+### The set's own cars are the ride, and its own lift closes the circuit (2026-09-22)
+
+The fabricated grey cart is now the fallback, not the ride. Where
+`detectCoasterAssemblies` (`coaster-assemblies.ts`, `ab2aebf9`) finds ride cars
+on a route, `coasterRoutesFromAssemblies` (`bedrock-coaster.ts`) hands the pack
+those cars, their posed riders and the set's lift, and `schem-pipeline.ts` takes
+every one of their bricks out of the static shell, so nothing is drawn twice.
+The rules are data, never set-specific:
+
+- **Car → entity.** Each car's bricks are re-expressed in a canonical frame
+  (`canonicalCoasterCar`: travel +X, up -Y, the running datum at the origin; a
+  det -1 Studio frame is made proper by flipping local Z) and compiled with
+  `ldrawToRenderRotation('+x')` and `originLdu [0,0,0]`, so the entity origin is
+  the point the runtime puts on the track and the car sits its measured
+  `originAboveDatum` above the rails. Every root bone is re-parented under
+  `track_pitch` → `track_roll` (`wrapTrackBones`), the same pitch/roll bones
+  the cart had. **One entity type per distinct car body** (`planCoasterVehicles`
+  keys on part+colour+pose of the body bricks); cars with the same body share
+  the definition and are instanced per car.
+- **Riders ride along.** A car's posed rider is compiled INTO the car as a
+  `rider_<k>` rig bone (one variant per distinct rider on that body), selected
+  per instance by the `craftmatic:rider` int property and hidden while a player
+  has the seat (`craftmatic:occupied` bool; the track animation scales the
+  bone to 0). The player's seat is the rider's measured hips joint through the
+  compiler's own seated-eye rule (`RIDER_EYE_ABOVE_HIPS_LDU` 55 = torso 44 +
+  eye 11, then `SEATED_EYE_HEIGHT_BLOCKS`), so the player sits where the figure
+  sat. The rider's figure parts also leave the NPC list (10261's riders sit
+  upright in the station and would have wandered off).
+- **Heading is authored.** A car's nose keeps its measured heading along the
+  route (`cars.heading` ±1); the fabricated cart keeps facing its motion
+  (`heading` 0). A shuttle with real cars therefore runs backwards on the
+  return leg instead of spinning every car round at the dead end.
+- **Platform lift = the route plus the deck.** On an open route with a platform
+  lift the runtime path is the route with the deck's own running line
+  appended at BOTH terminals: the deck at its parked pose before arc 0 and,
+  translated by the measured travel, after the far end (`coasterRuntimeConfig`;
+  a lift docked at the `end` terminal reverses the route first, so every lift
+  route reads the same way, direction -1 toward the deck). Both docks are
+  SNAPPED onto their terminals; 10303's authored pose sits 30.2 LDU above and
+  15.2 short of the station terminal, and the deck's 27-LDU tilt rise means the
+  travel that meets both terminals is **1,884.9 LDU** (1,857.8 terminal-to-
+  terminal, 1,854.6 authored), 22.8 LDU off vertical (0.7°). The physics, the
+  brake and the frames need no special case: the train rolls off the course
+  onto the deck, brakes to its centre, the platform entity (the deck's 55
+  bricks, compiled like a shell at yaw 0) and its counterweight (the strays
+  riding the tower guides parallel to the hoist within
+  `COUNTERWEIGHT_LATERAL_MAX_LDU`, moving opposite) translate at
+  `PLATFORM_SPEED` 2.5 blocks/s carrying the cars, the arc is re-based onto the
+  delivered deck (`arc + total - deckLength`) and the train departs down the
+  course. The platform returns once the train has cleared the deck; a train
+  arriving before it is back holds at the terminal. Holding guarantees are the
+  cart's: an unloaded chunk or a refused teleport under the hoist holds
+  progress; a removed platform lets the cars proceed; Undo retires everything.
+- **Chain lift = the assist, confined.** A measured chain drive sets the
+  circuit's direction (the way it climbs) and confines the existing chain assist
+  to its arc span (`route.chain`); elsewhere a climb is on momentum down to the
+  0.8 floor. No entity is needed. A set with no detected drive keeps the assist
+  on every climb, as device-proved.
+- **A siding stays parked.** An open route shorter than `PARKED_SIDING_FACTOR`
+  (2) train lengths holding a train is display, not a ride: no route is
+  emitted for it and its bricks stay in the shell (10261's 480-LDU siding with
+  a 394-LDU train).
+- **Fallback unchanged.** A route with no detected car keeps the rider-measured
+  train and the fabricated cart, byte-for-byte the device-proved behaviour
+  (`rideHost` suite, 49 tests unchanged).
+
+Measured on the two sets (`bun --preload <scratch>/preload.ts scripts/_playable_ref.ts`,
+the tree's `playable-addon.ts` served patched; the patch is in the report):
+
+| | 10303 Loop Coaster | 10261 Roller Coaster |
+|---|---|---|
+| Route | open, 8,930.5 LDU + deck ×2 = **181.6 blocks** (1,044 samples) | closed, **244.7 blocks** (1,713 samples) |
+| Cars | 3 × `26021` at 2.25 blocks, heading -1, 3 body types (bodies differ), 1 rider each | 3 × `26021c01` at 2.363 blocks, heading +1, 3 types, 1 rider each; 3 more parked on Track 2 |
+| Lift | platform: deck 7.06 blocks, travel (-0.43, 35.34, 0.005), 390 cuboids + 2,351-cuboid counterweight | chain over arcs 2.39–31.7 blocks (7 drive parts), direction +1 |
+| Station | stop 20.29 (was 13.23 + the 7.06 deck) | stop 219.41 (unchanged) |
+| Cuboids | cart 0; vehicles 6,719; pack 57,579 / 14 entities (was 50,765 / 10) | cart 0; vehicles 4,922; pack 54,538 / 12 entities (was 52,750 / 13: three rider NPCs gone) |
+| Host cycle (`scratch/sim/sim-lift.ts` on the built pack's own `coaster.js`) | station dwell → deck stop at arc 3.53 → 14 s hoist → delivered at 178.07 → course → station, 1,112 ticks per lap; counterweight 102.5 → 67.2 while the platform 65.8 → 101.1; cars 2.03–2.25 apart; rider kept through the lift | circulates, chain holds 2.5 on the hill, max 7.5 blocks/s, cars 2.14–2.36 apart |
+
+Both packs pass `scripts/_mcaddon_check.py`. `coaster-track.ts` now strips a
+leading `<set> - ` from embedded part stems, so the OMR `10261-1.mpd` (parts
+named `10261 - 25061.dat`) extracts its track at all.
+
+**Not verified on the device** (host-simulated only): the compiled cars' pitch
+and roll SIGN through the loop (the same convention as the cart, itself never
+seen side-on), the rider bone actually hiding under `scale: 0.0`, the seat
+height inside the tub at 0.3 blocks (the compiler's clamp), and the platform
+carrying a player visibly (a rider is retained through the lift on the host).
+
 ## Close-up fidelity: the budget is spent per part, where it shows (2026-09-21)
 
 The user's report was that the capacity work "tanked" the close-up. Measured,
