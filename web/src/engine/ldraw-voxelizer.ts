@@ -21,6 +21,7 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { getPartDims, getPartShape, getPartFrameThickness, getBracketShelfDir, hasDims } from './ldraw-part-dims.js';
 import type { ShapeHints } from './block-shapes.js';
+import { partStem } from './part-id.js';
 
 /**
  * Large flat LEGO baseplates that dominate the view and obscure the model.
@@ -297,7 +298,7 @@ export function voxelizeLDraw(
     // and should not be voxelized as standalone blocks.
     if (isLDrawPrimitive(brick.part)) continue;
     // Skip large flat baseplates that dominate the 3D view (opt-out via skipBaseplates:false)
-    const barePartId = brick.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
+    const barePartId = partStem(brick.part);
     if (skipBaseplates && BASEPLATE_PARTS.has(barePartId)) continue;
     // Skip Technic structural parts (pins, axles, bushes) — they go inside beam holes
     // and add noise without contributing to the visual silhouette.

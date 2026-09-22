@@ -1,4 +1,5 @@
 import type { ParsedBrick } from './ldraw-parser.js';
+import { partStem } from './part-id.js';
 
 export type VehicleMode = 'auto' | 'car' | 'plane' | 'boat' | 'static';
 export type PlayableKind = 'car' | 'plane' | 'boat';
@@ -32,7 +33,7 @@ const ROAD_WHEELS = new Set([
   '30699', '4624', '44309', '87697', '56145', '4185',
 ]);
 
-const stem = (part: string) => part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
+const stem = (part: string) => partStem(part);
 
 /** The source's first assembly is the complete 399-part Batmobile. Match every
  * placement (including its transform), not just the set number or a box around
@@ -149,7 +150,7 @@ export function discoverPlayableComponents(
         '4079', '4079b', '3829', '3829c01', '73081'
       ]);
       const cockpitParts = component.bricks.filter(b => {
-        const p = b.part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
+        const p = stem(b.part);
         return CANOPY_SET.has(p) || (b.color >= 33 && b.color <= 47) || b.color === 52 || b.color === 54 || b.color === 111;
       });
       if (cockpitParts.length) {

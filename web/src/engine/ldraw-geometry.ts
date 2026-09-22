@@ -41,6 +41,7 @@ import {
   elementKindForDescription, MAX_ELEMENT_CELLS, ELEMENT_NONE, type ElementKind,
 } from './part-elements.js';
 import { getPartDims } from './ldraw-part-dims.js';
+import { partStem } from './part-id.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1170,7 +1171,7 @@ export async function voxelizeLDrawGeometry(
     brickIdx++;
     if (isLDrawPrimitive(brick.part)) continue;
     // Skip Technic structural parts (pins, axles, bushes) — same as bbox voxelizer
-    const barePartId = brick.part.replace(/\.dat$/i, '').toLowerCase().replace(/^.*[/\\]/, '');
+    const barePartId = partStem(brick.part);
     if (TECHNIC_INTERNAL_PARTS.has(barePartId)) continue;
 
     const block = resolveColor(brick.color);

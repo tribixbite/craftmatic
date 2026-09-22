@@ -35,6 +35,7 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
+import { partStem } from './part-id.js';
 
 export type MinifigSlot =
   | 'torso' | 'head' | 'headwear' | 'back'
@@ -141,7 +142,7 @@ const SLOT_BONE: Record<MinifigSlot, string> = {
   held: 'body',
 };
 
-const cleanId = (part: string): string => part.replace(/^.*[\\/]/, '').replace(/\.dat$/i, '').toLowerCase();
+const cleanId = (part: string): string => partStem(part);
 /** `bl_973pb5574c01_torso` → `973pb5574c01`; a print suffix stays (it still names the mould family). */
 const familyId = (part: string): string => cleanId(part).replace(/^bl_/, '').replace(/_(torso|head|legs|hips|arm|hand)$/, '');
 /**

@@ -20,6 +20,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { PlayableKind } from './playable-components.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
+import { partStem } from './part-id.js';
 
 export type NoseDirection = '+x' | '-x' | '+z' | '-z';
 
@@ -44,7 +45,7 @@ export interface FacingDecision {
 }
 
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-const stem = (part: string): string => part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
+const stem = (part: string): string => partStem(part);
 const apply = (m: readonly number[], v: Vec3): Vec3 => [
   m[0]! * v[0] + m[1]! * v[1] + m[2]! * v[2],
   m[3]! * v[0] + m[4]! * v[1] + m[5]! * v[2],

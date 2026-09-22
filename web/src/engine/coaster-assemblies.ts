@@ -42,6 +42,7 @@ import { peekDatText } from './ldraw-geometry.js';
 import { groupFigures, isFigurePart, snapSignedPermutation } from './ldraw-entity-compiler.js';
 import { coasterTrackProfile, type CoasterTrackExtraction } from './coaster-track.js';
 import type { CoasterVec3 } from './coaster-path.js';
+import { partStem } from './part-id.js';
 
 // ─── Tunables (all LDU; each is a physical statement, not a fit) ─────────────
 
@@ -565,7 +566,7 @@ export function detectCoasterAssemblies(
     const torso = bricks[g.torso]!;
     // The seat is the hips/legs joint: the legs' origin when the figure has
     // legs, otherwise 44 LDU down the torso's own axis (hips 32 + leg pivot 12).
-    const legs = g.parts.map(i => bricks[i]!).find(p => /^(971|972|3816|3817)(?![0-9])/.test(p.part.replace(/^.*[/\\]/, '').toLowerCase()) || /^Minifig Leg\b/i.test(clean(desc(p))));
+    const legs = g.parts.map(i => bricks[i]!).find(p => /^(971|972|3816|3817)(?![0-9])/.test(partStem(p.part)) || /^Minifig Leg\b/i.test(clean(desc(p))));
     const world: V = legs ? originOf(legs) : add(originOf(torso), apply(rotOf(torso), [0, 44, 0]));
     return { local: apply(transpose(rot), sub(world, origin)), world };
   };

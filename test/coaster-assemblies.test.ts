@@ -286,6 +286,9 @@ const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 const PUBLISHED_10303 = 'C:/git/clego/lego_sets/IOModel2V2/10303.ldr';
 const PUBLISHED_10261 = 'C:/git/clego/lego_sets/IOModel2V2/10261.ldr';
 const HAVE_CORPUS = existsSync(LDRAW_ROOT) && existsSync(PUBLISHED_10303) && existsSync(PUBLISHED_10261);
+/** The index's FIRST pick for 10261: an MPD that embeds its parts as `<set> - <mould>.dat`. */
+const EMBEDDED_10261 = 'C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd';
+const HAVE_EMBEDDED = existsSync(LDRAW_ROOT) && existsSync(EMBEDDED_10261);
 
 async function detectFile(file: string) {
   setLDrawRoot(LDRAW_ROOT);
@@ -407,5 +410,44 @@ describe.skipIf(!HAVE_CORPUS)('10261 Roller Coaster (IOModel2V2 source)', () => 
     expect(ride.filter(car => car.route!.routeIndex === 0).every(car => car.route!.heading === 1)).toBe(true);
     // The station gear under the platform straight is reported and rejected on its own.
     expect(result.warnings.some(w => w.includes('11955@'))).toBe(true);
+  });
+});
+
+/**
+ * The same set from the source whose parts are EMBEDDED as `<set> - <mould>.dat`
+ * sections. This is the index's FIRST pick for 10261 and the shape that shipped
+ * a grey cart: the placed ids carry the document's set number and the embedded
+ * description lines are stubs that just repeat the mould number, so every
+ * canonical-id match and every description match failed at once. Detection then
+ * found no cars and the exporter fabricated one — silently, because failing to
+ * match is not an error. Pinned beside the `.ldr` case so the two sources of the
+ * same set cannot diverge again.
+ */
+describe.skipIf(!HAVE_EMBEDDED)('10261 Roller Coaster (embedded-part MPD source)', () => {
+  it('finds the six cars, both trains and the chain lift through the set prefix', async () => {
+    const { result } = await detectFile(EMBEDDED_10261);
+    const ride = result.cars.filter(car => car.route);
+    expect(ride).toHaveLength(6);
+
+    // The placed id still carries the document's set number, as authored...
+    expect(new Set(ride.map(car => car.chassis.part))).toEqual(new Set(['10261 - 26021.dat']));
+    // ...while the description resolves to the library mould. The embedded
+    // section says only "26021", which `isWheelPart`/`isSelfWheeledPart` and
+    // every other classifier ignore.
+    expect(new Set(ride.map(car => car.chassis.description))).toEqual(new Set(['Train Base  4 x  5 Roller Coaster']));
+
+    // Three riding on the closed circuit, three waiting on the 480 LDU siding —
+    // the second train the ride dispatches at half a lap.
+    const trains = [...result.trains].sort((a, b) => a.routeIndex - b.routeIndex);
+    expect(trains.map(train => train.carIds.length)).toEqual([3, 3]);
+    expect(trains[0]!.routeClosed).toBe(true);
+    expect(trains[1]!.routeClosed).toBe(false);
+    expect(trains.every(train => train.meanPitchLdu === 124)).toBe(true);
+
+    // The hill's chain drive, on the circuit rather than the siding.
+    const chains = result.lifts.filter((lift): lift is CoasterChainLift => lift.kind === 'chain');
+    expect(chains).toHaveLength(1);
+    expect(chains[0]!.routeIndex).toBe(0);
+    expect(chains[0]!.riseLdu).toBeCloseTo(981.1, 0);
   });
 });

@@ -81,6 +81,7 @@ import type { ParsedBrick } from './ldraw-parser';
 import { MINIDOLL_SLOTS } from './minidoll-slots-generated.js';
 import type { MiniDollSlot } from './minifig-rig.js';
 import { reframeClassB } from './class-b-reframe.js';
+import { partStem } from './part-id.js';
 
 /** 1 cm = 25 LDraw units (1 stud = 0.8cm = 20 LDU → 1cm = 25 LDU). */
 const CM_TO_LDU = 25;
@@ -628,7 +629,7 @@ export const MINIDOLL_SLOT_CORRECTION: Readonly<Partial<Record<MiniDollSlot, rea
 
 /** `parts/92198p01.dat` → `92198p01`. */
 const stemOfPart = (part: string): string =>
-  part.replace(/^.*[\\/]/, '').replace(/\.dat$/i, '').toLowerCase();
+  partStem(part);
 
 /**
  * The mini-doll SLOT of an LDraw part, or null for everything that is not a

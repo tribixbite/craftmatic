@@ -25,6 +25,7 @@
 import type { LDrawDocument } from './ldraw-parser.js';
 import { embeddedPartTexts, parseLDrawColor } from './ldraw-parser.js';
 import { datSubstitutionFor, getDatText } from './ldraw-geometry.js';
+import { partStem } from './part-id.js';
 
 export type Vec3 = [number, number, number];
 
@@ -164,6 +165,16 @@ export function descriptionOf(text: string): string {
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
 
+/**
+ * A description that only repeats the mould id carries no classifiable
+ * wording. A Studio/OMR `.mpd` embeds its parts as `<set> - <mould>.dat`
+ * sections whose description line is exactly that stub (`0 26021`).
+ */
+const isStubDescription = (description: string, canonical: string): boolean => {
+  const d = description.replace(/^[~=_]+\s*/, '').trim().toLowerCase();
+  return d === '' || d === canonical || d === `${canonical}.dat`;
+};
+
 export function createPartGeometryProvider(options: PartGeometryProviderOptions = {}): PartGeometryProvider {
   const fetchPartText = options.fetchPartText ?? getDatText;
   const substitutionFor = options.substitutionFor ?? (options.fetchPartText ? () => undefined : datSubstitutionFor);
@@ -183,6 +194,27 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
   const unresolved = new Set<string>();
   const printFallbacks = new Map<string, string>();
   const substitutions = new Map<string, string>();
+
+  /**
+   * The description a detector should classify this part by.
+   *
+   * An embedded `<set> - <mould>.dat` section usually carries a STUB
+   * description that just repeats the mould number, losing the wording every
+   * description-based detector keys on: 10261's `.mpd` gives `26021`/`24869`
+   * where the library gives `Train Base 4 x 5 Roller Coaster`/`Wheels Roller
+   * Coaster`, so its ride cars and minifigs were invisible to detection while
+   * the same set's `.ldr` resolved both. Fall back to the canonical mould's
+   * LIBRARY description in exactly that case; a section with real wording,
+   * and a part the library does not have, keep their own.
+   */
+  async function describedAs(key: string, text: string): Promise<string> {
+    const own = descriptionOf(text);
+    const canonical = partStem(key);
+    if (!isStubDescription(own, canonical)) return own;
+    // Deliberately not `textFor`: the embedded section IS the stub being replaced.
+    const library = await fetchPartText(canonical);
+    return library === null ? own : (descriptionOf(library) || own);
+  }
 
   async function textFor(key: string): Promise<string | null> {
     const own = embedded.get(key) ?? embedded.get(stemOf(key));
@@ -218,7 +250,7 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
     const promise = (async (): Promise<RawMesh | null> => {
       const text = await textFor(key);
       if (text === null) return null;
-      const mesh: RawMesh = { triangles: [], studs: [], unresolvedRefs: [], description: descriptionOf(text) };
+      const mesh: RawMesh = { triangles: [], studs: [], unresolvedRefs: [], description: await describedAs(key, text) };
       rawCache.set(key, mesh); // early, so a cycle sees a (partial) mesh instead of recursing forever
       const subPromises: Promise<void>[] = [];
 

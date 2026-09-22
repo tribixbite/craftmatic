@@ -53,6 +53,7 @@ const PACK_NAMESPACE = 'craftmatic';
 export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BLOCKS, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
+import { partStem } from './part-id.js';
 
 /**
  * Canopy / windscreen moulds — used for COCKPIT DETECTION only. Whether a
@@ -113,7 +114,7 @@ const WHEEL_PARTS = new Set(['56908', '44771', '44772', '87697', '92912', '15413
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 export function cleanPartId(part: string): string {
-  return part.replace(/^.*[/\\]/, '').replace(/\.dat$/i, '').toLowerCase();
+  return partStem(part);
 }
 
 // ─── Small linear algebra (row-major 3×3) ─────────────────────────────────────
