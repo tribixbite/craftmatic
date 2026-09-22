@@ -293,6 +293,23 @@ export class ScaledColliderGrid {
     return this.clear(x, z, t, t2 + PLAYER_NEED16);
   }
 
+  /**
+   * A move from a surface to one in the ADJACENT column, which is what a walk
+   * actually does. `canRise` only judges the origin column, so on its own it
+   * let a walk DROP into a neighbour without asking whether the neighbour is
+   * passable between the two heights — stepping through that column's own
+   * floor into the underpass beneath it. A simulated player walking the same
+   * blocks cannot make that move, and neither can one in game: every
+   * disagreement between the two models on 10303 and 10261 was this
+   * (`addon-walk.ts`, 2026-09-22).
+   */
+  canMove(x: number, z: number, t: number, nx: number, nz: number, t2: number): boolean {
+    if (!this.canRise(x, z, t, t2)) return false;
+    // Entering the neighbour at the origin's height and falling to t2: that
+    // span of the neighbour column has to be free for the player's body.
+    return t2 >= t || this.clear(nx, nz, t2, t + PLAYER_NEED16);
+  }
+
   /** Replace (or add) a block of a column; the column's surfaces are recomputed on the next read. */
   write(x: number, z: number, block: ColumnBlock): void {
     const col = this.column(x, z);
@@ -362,7 +379,7 @@ export function walkScaledColliders(
       if (!grid.inRing(nx, nz)) continue;
       for (const t of grid.surfaces(nx, nz)) {
         if (visited.has(grid.key(nx, nz, t))) continue;
-        if (grid.canRise(s.x, s.z, s.t, t)) { push({ x: nx, z: nz, t }); continue; }
+        if (grid.canMove(s.x, s.z, s.t, nx, nz, t)) { push({ x: nx, z: nz, t }); continue; }
         if (onBlocked && onBlocked(s, { x: nx, z: nz, t }, push, visited)) push({ x: nx, z: nz, t });
       }
     }
