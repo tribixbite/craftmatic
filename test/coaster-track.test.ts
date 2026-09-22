@@ -1,15 +1,65 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
-import { COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
-import { buildCoasterPath } from '../web/src/engine/coaster-path.js';
+import { COASTER_TRACK_DUPLICATE_EPSILON_LDU, COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
+import { buildCoasterPath, type CoasterVec3 } from '../web/src/engine/coaster-path.js';
+import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
+
+const distanceLdu = (a: readonly number[], b: readonly number[]): number => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
+const polylineLengthLdu = (points: readonly CoasterVec3[]): number => points.slice(1).reduce((sum, point, index) => sum + distanceLdu(points[index]!, point), 0);
+
+/**
+ * Smallest straight-line distance between two points `pitch` apart along the
+ * polyline's arc, scanned at 1 LDU steps. This is what keeps a train's cars
+ * from intersecting: two cars 2.25 blocks apart on the arc must never be
+ * closer than a car length.
+ */
+function minimumChordLdu(points: readonly CoasterVec3[], pitch: number): number {
+  const cumulative = [0];
+  for (let index = 1; index < points.length; index++) cumulative.push(cumulative[index - 1]! + distanceLdu(points[index - 1]!, points[index]!));
+  const at = (arc: number): CoasterVec3 => {
+    let segment = 0;
+    while (segment < cumulative.length - 2 && cumulative[segment + 1]! < arc) segment++;
+    const t = (arc - cumulative[segment]!) / (cumulative[segment + 1]! - cumulative[segment]!);
+    const a = points[segment]!, b = points[segment + 1]!;
+    return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+  };
+  let minimum = Number.POSITIVE_INFINITY;
+  for (let arc = 0; arc + pitch <= cumulative.at(-1)!; arc += 1) minimum = Math.min(minimum, distanceLdu(at(arc), at(arc + pitch)));
+  return minimum;
+}
 
 describe('measured coaster track profiles', () => {
   it('keeps 80564 embedded-mesh connector coordinates and its real lateral shift', () => {
     const profile = coasterTrackProfile('80564.dat')!;
     expect(profile.samples[0]).toEqual([-20.2, -40, -122.2]);
-    expect(profile.samples.at(-1)).toEqual([19.8, -240, 89.72]);
-    expect(profile.samples.at(-1)![0] - profile.samples[0]![0]).toBe(40);
+    // B end: base-plate datum z=109.8 on the y=-240 plane (radius 232 about the
+    // sweep centre y=-240, z=-122.2), running line 32 LDU inward at z=77.8.
+    // The earlier 89.72 came from the tail stud's tip (117.72 + 4), which is
+    // 11.9 LDU outside the mesh.
+    expect(profile.railSamples.at(-1)).toEqual([19.8, -240, 109.8]);
+    const end = profile.samples.at(-1)!;
+    expect(end[0]).toBe(19.8);
+    expect(end[1]).toBeCloseTo(-240, 9);
+    expect(end[2]).toBeCloseTo(77.8, 9);
+    expect(end[0] - profile.samples[0]![0]).toBe(40);
+  });
+
+  it('keeps the 80564 running line a fold-free circle of radius 200 about its measured sweep centre', () => {
+    const profile = coasterTrackProfile('80564.dat')!;
+    const centreY = -240, centreZ = -122.2;
+    // Every running sample sits on the radius-200 ring (the 5 LDU connector
+    // stubs are tangent lines, .05 LDU outside it); every rail sample on the
+    // radius-232 base-plate datum ring.
+    for (const sample of profile.samples) expect(Math.hypot(sample[1] - centreY, sample[2] - centreZ)).toBeCloseTo(200, 0);
+    for (const sample of profile.railSamples) expect(Math.hypot(sample[1] - centreY, sample[2] - centreZ)).toBeCloseTo(232, 0);
+    // The sweep angle must be strictly monotone from the A connector (+Z) to
+    // the B connector (-Y): a running sample that doubles back is the fold
+    // that reversed 10303's cart three times per loop and stacked the train.
+    const angles = profile.samples.map(sample => Math.atan2(sample[2] - centreZ, sample[1] - centreY));
+    for (let index = 1; index < angles.length; index++) expect(angles[index]!).toBeGreaterThan(angles[index - 1]!);
+    expect(angles[0]).toBeCloseTo(0, 6);
+    expect(angles.at(-1)).toBeCloseTo(Math.PI / 2, 6);
   });
 
   it('uses connector-plane endpoints rather than geometry bounding boxes', () => {
@@ -153,6 +203,36 @@ describe('measured coaster track profiles', () => {
     expect(extraction.warnings).toContain('Withheld vertical guide/lift (25059:0, 25059:1): vertical guide/lift requires authored transfer mechanism.');
   });
 
+  it('keeps 10303\'s four-quarter 80564 helix free of reversals and clears a 1.25-block car at 2.25-block pitch', () => {
+    // The four 80564 placements of 10303's first loop, verbatim from the
+    // published source. Studio overlaps the quarters by .8 LDU (615.2 - 136 =
+    // 479.2 against 2 x 240), so every seam is a backward step unless the
+    // matched connector is represented once.
+    const extraction = extractCoasterTrackRoutes([
+      { color: 191, x: 781.996236, y: -615.2001, z: -239.796432, rot: [0, 0, .999988, 0, -1, 0, .999988, 0, 0], part: '80564.dat' },
+      { color: 191, x: 537.999064, y: -615.2001, z: -280.195998, rot: [0, 0, -.999988, 0, -1, 0, -.999988, 0, 0], part: '80564.dat' },
+      { color: 191, x: 537.998864, y: -136.0001, z: -319.795642, rot: [0, 0, -.999988, 0, 1, 0, .999988, 0, .000001], part: '80564.dat' },
+      { color: 191, x: 781.996236, y: -136, z: -200.196738, rot: [-.000001, 0, .999988, 0, 1, 0, -.999988, 0, -.000001], part: '80564.dat' },
+    ], { isGeometryAvailable: () => true });
+    expect(extraction.graph.connections).toHaveLength(3);
+    expect(extraction.routes).toHaveLength(1);
+    const { points, closed, maxSegmentLengthLdu } = extraction.routes[0]!;
+    expect(closed).toBe(false);
+    // One vertex per matched connector: 4 x 33 samples minus 3 merged seams.
+    expect(points).toHaveLength(4 * 33 - 3);
+    // The running line is a radius-200 helix about the loop axis (x 660,
+    // y -375.6): the lower pair turns about y -376 and the upper about -375.2
+    // because of that .8 LDU overlap, and 20 LDU chords sag .25, so 1 LDU.
+    for (const point of points) expect(Math.abs(Math.hypot(point[0] - 660, point[1] + 375.6) - 200)).toBeLessThan(1);
+    // No consecutive segments may oppose each other, and none may turn past 90 degrees.
+    for (let index = 2; index < points.length; index++) {
+      const a = points[index - 2]!, b = points[index - 1]!, c = points[index]!;
+      expect((b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1]) + (b[2] - a[2]) * (c[2] - b[2])).toBeGreaterThan(0);
+    }
+    expect(minimumChordLdu(points, 2.25 * LDU_PER_BLOCK)).toBeGreaterThan(1.25 * LDU_PER_BLOCK);
+    expect(() => buildCoasterPath(points, false, maxSegmentLengthLdu)).not.toThrow();
+  });
+
   it('orders an exact four-quarter loop without duplicate seam vertices', () => {
     const rotations = [
       [1, 0, 0, 0, 1, 0, 0, 0, 1],
@@ -193,6 +273,53 @@ describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpu
     expect(near(course!.points[0]!, [-382.41, -156.44, -580], .05)).toBe(true);
     // High end: the 80566 tip where the raised platform hands the cars over.
     expect(near(course!.points.at(-1)!, [-781.8, -2014.26, -579.71], .05)).toBe(true);
+  });
+
+  it('never doubles back and keeps a 1.25-block car clear at 2.25-block pitch everywhere', () => {
+    const [course] = extraction.routes;
+    const { points } = course!;
+    // Measured 2026-09-21 at 53.333 LDU/block: the floor was 7.9 LDU (.148
+    // blocks, three folds per 80564 loop) and is now 108.1 LDU (2.03 blocks,
+    // inside the 26559:1421 transition, the same floor the old route had away
+    // from the loops). COASTER_CAR_LENGTH in bedrock-coaster.ts is 1.25 blocks.
+    const floor = minimumChordLdu(points, 2.25 * LDU_PER_BLOCK);
+    expect(floor).toBeGreaterThan(1.25 * LDU_PER_BLOCK);
+    expect(floor).toBeGreaterThan(100);
+    // No reversal anywhere: consecutive segments never oppose, and the sharpest
+    // vertex is the 64.6-degree mirrored-ramp wiggle at the two 26559 start joins.
+    let sharpest = 0;
+    for (let index = 2; index < points.length; index++) {
+      const a = points[index - 2]!, b = points[index - 1]!, c = points[index]!;
+      const dot = (b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1]) + (b[2] - a[2]) * (c[2] - b[2]);
+      expect(dot).toBeGreaterThan(0);
+      const cosine = Math.max(-1, Math.min(1, dot / (distanceLdu(a, b) * distanceLdu(b, c))));
+      sharpest = Math.max(sharpest, Math.acos(cosine) * 180 / Math.PI);
+    }
+    expect(sharpest).toBeLessThan(66);
+    for (let index = 1; index < points.length; index++) {
+      const spacing = distanceLdu(points[index - 1]!, points[index]!);
+      expect(spacing).toBeGreaterThan(COASTER_TRACK_DUPLICATE_EPSILON_LDU);
+      expect(spacing).toBeLessThanOrEqual(COASTER_TRACK_MAX_SAMPLE_SPACING_LDU);
+    }
+    expect(() => buildCoasterPath(points, false, course!.maxSegmentLengthLdu)).not.toThrow();
+  });
+
+  it('represents each of its 28 matched connectors once and keeps the measured length', () => {
+    const [course] = extraction.routes;
+    const byId = new Map(extraction.fragments.map(fragment => [fragment.id, fragment]));
+    // 29 moulds' running lines summed with no seam chords at all.
+    const fragmentSum = course!.fragmentIds.reduce((sum, id) => sum + polylineLengthLdu(byId.get(id)!.samples), 0);
+    const routeLength = polylineLengthLdu(course!.points);
+    // Was 9327.185 LDU with the folds and 34 duplicated seam vertices (1066
+    // points); the six 80564s alone shed 385.5 LDU of doubling-back.
+    expect(course!.points).toHaveLength(1012);
+    expect(routeLength).toBeCloseTo(8930.513, 2);
+    // Merging a connector's two measurements changes the length by less than
+    // the endpoint tolerance per seam; measured net -1.10 LDU over 28 seams.
+    expect(Math.abs(routeLength - fragmentSum)).toBeLessThan(28 * COASTER_TRACK_ENDPOINT_TOLERANCE_LDU);
+    expect(Math.abs(routeLength - fragmentSum)).toBeLessThan(1.2);
+    const sampleTotal = course!.fragmentIds.reduce((sum, id) => sum + byId.get(id)!.samples.length, 0);
+    expect(sampleTotal - course!.points.length).toBe(28);
   });
 
   it('withholds the seven-piece vertical guide and the five canopy moulds, bridging nothing', () => {

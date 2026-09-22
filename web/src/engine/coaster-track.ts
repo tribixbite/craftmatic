@@ -28,6 +28,16 @@ export interface CoasterTrackProfile {
 export const COASTER_TRACK_ENDPOINT_TOLERANCE_LDU = 3;
 /** All authored neighbouring samples are at most this far apart. */
 export const COASTER_TRACK_MAX_SAMPLE_SPACING_LDU = 25;
+/**
+ * Adjacent route vertices closer than this collapse into one. It absorbs the
+ * .01 LDU rail-axis probes inside the ramp profiles and the sub-.04 LDU seam
+ * mismatch between two moulds' running lines (Studio's .999988 rotations), so
+ * the runtime never sees a segment whose direction is numerical noise. The
+ * smallest real running-line seam step in 10303 is .2 LDU and the largest
+ * 2.94 LDU, so no physical seam is merged. Each removed vertex changes the
+ * route length by at most this much; both route endpoints are kept exactly.
+ */
+export const COASTER_TRACK_DUPLICATE_EPSILON_LDU = .05;
 
 export interface CoasterTrackRouteLdu {
   label: string;
@@ -109,12 +119,21 @@ const measuredRamp = (
 const offsetAbove = (samples: readonly CoasterVec3[]): CoasterVec3[] =>
   samples.map(point => [point[0], point[1] - 32, point[2]] as const);
 
-/** Loop normal stays in its authored Y/Z curvature plane: -Y at A, -Z at B. */
-const offsetLoop = (samples: readonly CoasterVec3[]): CoasterVec3[] => samples.map((point, index) => {
-  const before = samples[Math.max(0, index - 1)]!, after = samples[Math.min(samples.length - 1, index + 1)]!;
-  const dy = after[1] - before[1], dz = after[2] - before[2], length = Math.hypot(dy, dz);
-  return [point[0], point[1] - 32 * dz / length, point[2] + 32 * dy / length] as const;
-});
+/**
+ * A loop mould is a circular sweep of one cross-section, so its running line
+ * is the datum ring moved 32 LDU toward the sweep centre in the Y/Z curvature
+ * plane: -Y at the A connector, -Z at the B connector, and exactly radial in
+ * between. Estimating the normal from neighbouring samples instead (the
+ * previous approach) swung it by 24-51 degrees across the 5 LDU connector
+ * stubs and folded the running line back over itself at both ends.
+ */
+const offsetRadial = (samples: readonly CoasterVec3[], centreYZ: readonly [y: number, z: number]): CoasterVec3[] =>
+  samples.map(point => {
+    const dy = point[1] - centreYZ[0], dz = point[2] - centreYZ[1], radius = Math.hypot(dy, dz);
+    if (radius <= 32) throw new Error('Loop track control lies inside its 32 LDU running-line offset.');
+    const scale = (radius - 32) / radius;
+    return [point[0], centreYZ[0] + dy * scale, centreYZ[1] + dz * scale] as const;
+  });
 
 /** Radius and angular controls come directly from 25061's rail subpart rotations. */
 const quarterCurve = (): CoasterVec3[] => Array.from({ length: STEPS + 1 }, (_, index) => {
@@ -133,15 +152,31 @@ const elevatedQuarterCurve = (): CoasterVec3[] => {
 
 /**
  * 80564 exists only as Studio-embedded geometry in 10303's source archive
- * (section SHA-256 4d771a13ce5b7bff30ead8f314277c913f010c4ee10caaf99f0304a1e88c9794).
+ * (section SHA-256 4d771a13ce5b7bff30ead8f314277c913f010c4ee10caaf99f0304a1e88c9794;
+ * the published `IOModel2V2/10303.ldr` carrying it is
+ * df3b47c3c9f27623eaa1d8ab40fdf9a0938035cab5d5ffdaac20b55f31676b38).
  * Its stud anchors put the lower connector centre at x=-20.2 and the upper at
  * x=19.8: the +40 LDU lateral shift is real and must not be normalised away.
- * Interior points are the centroid of eight independently traced longitudinal
- * type-2 rail-edge chains, resampled by their own arc lengths.
+ *
+ * Measured on that mesh (2026-09-21): the quarter is a circular sweep about
+ * y=-240, z=-122.2. Its inner rail face is at radius 214.0 +- .1 in every
+ * 6-degree sector, its outer face at 240 (bbox y 0 / z 117.8), and the base
+ * plate's inner face - the same datum the straight moulds' sleeper controls
+ * use, 8 LDU inside the outer face - is at radius 232 on BOTH connector planes:
+ * y=-8 on the z=-122.2 plane and z=109.8 on the y=-240 plane. The tail stud
+ * (`stud.dat` at z=117.72, pointing outward) is not that datum; its tip
+ * (121.72) had been used, which put the B end 11.9 LDU outside the mesh and
+ * made the loop 424 LDU wide by 399 tall in 10303.
+ *
+ * `LOOP_TRACED_CHAIN_CENTROIDS` are the centroid of eight independently traced
+ * longitudinal type-2 rail-edge chains, resampled by their own arc lengths.
+ * They lie on the radius 224.3 ring (224.2-225.6), 7.7 LDU inside the plate
+ * datum, so each keeps its measured lateral x and is re-projected radially onto
+ * the datum ring. Keeping them literal keeps a re-trace reviewable.
  */
-const loopQuarter = (): CoasterVec3[] => [
-  [-20.2, -8, -122.2],
-  [-20.2, -8, -117.2],
+const LOOP_SWEEP_CENTRE_YZ = [-240, -122.2] as const;
+const LOOP_DATUM_RADIUS = 232;
+const LOOP_TRACED_CHAIN_CENTROIDS: readonly CoasterVec3[] = [
   [-20.1363, -14.9615, -106.3161], [-19.5611, -18.9683, -83.8775],
   [-18.6457, -24.0411, -61.2821], [-17.2298, -31.4127, -39.3518],
   [-15.3883, -41.1163, -18.3761], [-13.1754, -52.7322, 1.5758],
@@ -149,8 +184,22 @@ const loopQuarter = (): CoasterVec3[] => [
   [-4.6172, -99.1191, 52.3662], [-1.3527, -117.664, 65.9036],
   [2.1217, -137.509, 77.3868], [5.8567, -158.3794, 86.7711],
   [9.6304, -180.0986, 93.938], [13.1841, -202.4633, 98.8364],
-  [16.8989, -224.6637, 102.5061], [19.8, -235, 121.72], [19.8, -240, 121.72],
+  [16.8989, -224.6637, 102.5061],
 ];
+const loopQuarter = (): CoasterVec3[] => {
+  const [centreY, centreZ] = LOOP_SWEEP_CENTRE_YZ;
+  const onDatumRing = (point: CoasterVec3): CoasterVec3 => {
+    const dy = point[1] - centreY, dz = point[2] - centreZ, radius = Math.hypot(dy, dz);
+    return [point[0], centreY + dy * LOOP_DATUM_RADIUS / radius, centreZ + dz * LOOP_DATUM_RADIUS / radius];
+  };
+  return [
+    // 5 LDU connector stubs along each connector axis (+Z at A, -Y at B) give
+    // the stitcher the measured terminal direction.
+    [-20.2, -8, -122.2], [-20.2, -8, -117.2],
+    ...LOOP_TRACED_CHAIN_CENTROIDS.map(onDatumRing),
+    [19.8, -235, 109.8], [19.8, -240, 109.8],
+  ];
+};
 
 /*
  * Ramp controls below are literal `s/34738s03.dat` sleeper-centre transforms
@@ -162,9 +211,9 @@ const loopQuarter = (): CoasterVec3[] => [
  */
 const profile = (
   partId: string, controls: readonly CoasterVec3[], geometry: 'library' | 'embedded',
-  loop = false,
+  loopCentreYZ?: readonly [y: number, z: number],
 ): CoasterTrackProfile => {
-  const running = loop ? offsetLoop(controls) : offsetAbove(controls);
+  const running = loopCentreYZ ? offsetRadial(controls, loopCentreYZ) : offsetAbove(controls);
   const topology = controls;
   const railSamples: CoasterVec3[] = [topology[0]!], samples: CoasterVec3[] = [running[0]!];
   for (let index = 1; index < controls.length; index++) {
@@ -180,8 +229,28 @@ const profile = (
       samples.push(runA.map((value, axis) => value + (runB[axis]! - value) * t) as unknown as CoasterVec3);
     }
   }
-  return { partId, railSamples, samples, geometry };
+  // The .01 LDU rail-axis probes exist for the stitcher's terminal tangent and
+  // stay in railSamples; on the running line they would only survive into the
+  // route as sub-epsilon vertices at every ramp connector.
+  return { partId, railSamples, samples: dropNearDuplicates(samples, COASTER_TRACK_DUPLICATE_EPSILON_LDU), geometry };
 };
+
+/**
+ * Keep-first merge of consecutive samples closer than `epsilon`; the last
+ * sample always wins over a predecessor within `epsilon`, so both measured
+ * connector positions are preserved exactly.
+ */
+function dropNearDuplicates(samples: readonly CoasterVec3[], epsilon: number): CoasterVec3[] {
+  const kept: CoasterVec3[] = [];
+  samples.forEach((sample, index) => {
+    const previous = kept.at(-1);
+    if (!previous) { kept.push(sample); return; }
+    const near = Math.hypot(sample[0] - previous[0], sample[1] - previous[1], sample[2] - previous[2]) <= epsilon;
+    if (!near) kept.push(sample);
+    else if (index === samples.length - 1 && kept.length > 1) kept[kept.length - 1] = sample;
+  });
+  return kept;
+}
 const profiles = new Map<string, CoasterTrackProfile>([
   ['25059', profile('25059', line([-160, 0, 0], [160, 0, 0]), 'library')],
   ['25061', profile('25061', quarterCurve(), 'library')],
@@ -197,7 +266,7 @@ const profiles = new Map<string, CoasterTrackProfile>([
   ['26561', profile('26561', line([-10, 0, 0], [150, 144, 0]), 'library')],
   ['34738', profile('34738', measuredRamp([[-10, 0], [0, 0], [59.8, .7], [108.1, 13.5], [154.4, 32.4], [201.4, 49.6], [250.1, 61], [300, 72], [310, 72]]), 'library')],
   ['80562', profile('80562', line([-40, 0, 0], [40, 0, 0], 4), 'library')],
-  ['80564', profile('80564', loopQuarter(), 'embedded', true)],
+  ['80564', profile('80564', loopQuarter(), 'embedded', LOOP_SWEEP_CENTRE_YZ)],
   ['80566', profile('80566', elevatedQuarterCurve(), 'library')],
 ]);
 
@@ -381,18 +450,30 @@ function orderComponent(
   const visited = new Set<string>();
   const orderedIds: string[] = [];
   const points: CoasterVec3[] = [];
-  const append = (point: CoasterVec3): void => {
-    const previous = points.at(-1);
-    if (previous && Math.hypot(point[0] - previous[0], point[1] - previous[1], point[2] - previous[2]) <= 1e-6) return;
-    points.push(point);
-  };
+  const distance = (a: CoasterVec3, b: CoasterVec3): number => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
   while (!visited.has(id)) {
     const fragment = fragments.get(id);
     if (!fragment) return undefined;
     visited.add(id);
     orderedIds.push(id);
     const oriented = entry === 'start' ? fragment.samples : [...fragment.samples].reverse();
-    for (const point of oriented) append(point); // preserves real <=2 LDU seams, removes only exact duplicate vertices
+    // A connector the stitcher matched is ONE physical point measured twice,
+    // within COASTER_TRACK_ENDPOINT_TOLERANCE_LDU. The previous mould's
+    // terminal sample already stands for it; repeating this mould's own
+    // measurement would insert a seam step of up to that tolerance, and where
+    // the source placements overlap (10303: 0.2-0.97 LDU at every loop seam)
+    // that step points against travel and flips the runtime's per-segment
+    // tangent for a tick. The step is kept as measured only when merging
+    // would stretch the next chord past the authored spacing guard.
+    const previous = points.at(-1);
+    const mergeConnector = previous !== undefined && oriented.length > 1
+      && distance(previous, oriented[1]!) <= COASTER_TRACK_MAX_SAMPLE_SPACING_LDU;
+    for (const point of oriented.slice(mergeConnector ? 1 : 0)) {
+      // The profiles are already free of sub-epsilon neighbours; this only
+      // guards an unmerged seam whose two measurements coincide.
+      if (points.length && distance(point, points.at(-1)!) <= COASTER_TRACK_DUPLICATE_EPSILON_LDU) continue;
+      points.push(point);
+    }
     const exit: 'start' | 'end' = entry === 'start' ? 'end' : 'start';
     const nextKey = links.get(`${id}:${exit}`);
     if (!nextKey) break;
@@ -403,10 +484,12 @@ function orderComponent(
   }
   if (visited.size !== component.length) return undefined;
   if (closed) {
-    const first = points[0]!, last = points.at(-1)!;
-    const seam = Math.hypot(first[0] - last[0], first[1] - last[1], first[2] - last[2]);
-    if (seam <= 1e-6) points[points.length - 1] = first;
-    else points.push(first);
+    // The closing connector is merged the same way: the first vertex stands
+    // for it unless that would stretch the final chord past the guard.
+    const first = points[0]!;
+    if (points.length > 2 && distance(points.at(-2)!, first) <= COASTER_TRACK_MAX_SAMPLE_SPACING_LDU) points[points.length - 1] = first;
+    else if (distance(points.at(-1)!, first) > 1e-9) points.push(first);
+    else points[points.length - 1] = first;
   }
   return { points, ids: orderedIds, closed };
 }
