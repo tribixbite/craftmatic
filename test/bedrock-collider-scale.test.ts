@@ -176,6 +176,10 @@ async function relaySequence(dims: GridDims, runs: string, pcts: readonly number
     tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: dims.width, height: dims.height, length: dims.length, nonAir: 1 }],
     actors: [],
     colliders: { ...dims, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs, keptCells: 0 },
+    // This suite pins the re-lay ALONE against the model's volume. The invisible
+    // steps a pack ships by default (bedrock-collider-scale.ts) are blocks the model
+    // does not have, on purpose; test/bedrock-collider-treads.test.ts covers them.
+    treads: false,
     settleTicks: 1, finalHoldTicks: 1,
   });
   // Menu indices, from the button order in `menu()`: 1 = pin at my feet, 3 = rotate

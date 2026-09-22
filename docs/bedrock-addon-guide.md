@@ -2003,3 +2003,67 @@ recommendation in the export result and `craftmatic-diagnostics.json`; the
 settings popover's "Model scale" row and the wand's Size menu should show
 `sizePct` + `reason` beside the auto plan. The measurement is ~0.1-4.6 s per
 set in bun (48 M-cell budget; 71043 and 10303 coarsen to 7.5 × 6 LDU).
+
+## Invisible steps where scaling broke a climb (2026-09-22)
+
+The decision (user): "Invisible geometry that unlocks interactivity and
+enhances gameplay is almost always desirable. Invisible walls restrict rather
+than unlock player movement and actions without any reason (sheer bug)." A
+player stays player-sized at every wand size while a model's risers grow with
+it (a brick riser is 0.45 blocks: a step at 100 %, a jump at 200 %, past the
+1.25-block jump from 300 %), so `engine/bedrock-collider-scale.ts` plans
+**treads** - `craftmatic:collider` blocks with partial `lo`/`hi` - that a
+brick-shell pack ships per size step (150-400 %) and quarter turn, and the
+wand's re-lay sets after the collider runs of each box (`placeColliders`).
+
+- **The rule.** A run of treads is laid only for an edge from a surface the
+  reach walk has reached to an adjacent standable surface whose rise at the
+  chosen size exceeds the jump, whose rise in the 100 % grid is within it (a
+  move the set's own figures make), and which the unassisted walk reaches by
+  no route. The run is laid back over floor the walk already reaches (that
+  level, then no higher: a lower step, the ground before a plinth), solid
+  down to it, in half-block hops where the floor allows and the fewest
+  jump-height hops otherwise, keeping the player's standing headroom and a
+  jump's arc clear. A run may absorb the earlier run that arrived at its start
+  (a one-block ledge between the ground and a higher surface needs one
+  continuous staircase), but only when the merged staircase is gentle.
+- **Never block.** The walk is re-run from scratch and compared with the bare
+  walk: every surface reachable before stays reachable (a floor block that now
+  carries a tread is reachable at the tread's height), every tread and every
+  restored surface is reachable; a run that would break that is reverted.
+  `test/bedrock-collider-treads.test.ts` checks the invariant independently by
+  walking the emitted blocks, and that at 100 % the runs, tiles and wand
+  commands are byte-identical with the feature on and off.
+- **The walk** (`walkScaledColliders`) is the block-grid form of
+  `measureSceneAccess`'s, with one addition: a rise above the 0.6 auto-step is
+  a jump and needs its arc clear above the ORIGIN column (origin headroom >=
+  rise + 1.8). `measureSceneAccess` does not yet apply this.
+- **Measured** (`bun scripts/_collider_treads.ts <pack.mcaddon | source> [--turns]
+  [--target=x,y,z:label] [--route] [--refused]`; highest surface a player reaches
+  on foot from outside, blocks at 100 %, bare -> with treads, 0° turn):
+
+  | set | 100 % | 150 % | 200 % | 300 % | 400 % | tread blocks 150/200/300/400 |
+  |---|---|---|---|---|---|---|
+  | 910004 chalet (shipped pack) | 2.0 | 0.25 -> 2.0 | 0.44 -> 2.0 | 0.25 -> 2.0 | 0.25 -> 2.0 | 12 / 20 / 69 / 182 |
+  | 10303 coaster (shipped pack) | 5.56 | 0 -> 5.58 | 0.63 -> 5.56 | 0.38 -> 5.56 | 0.19 -> 5.56 | 228 / 312 / 1,302 / 3,268 |
+  | 21060 Himeji (DbixConvV3) | 4.0 | 1.0 -> 4.0 | 0.19 -> 4.0 | 0.19 -> 4.0 | 0.19 -> 4.5 | 70 / 210 / 662 / 1,573 |
+  | 76419 Hogwarts micro (DbixConvV3) | 0 | 0 -> 1.38 | 0 -> 2.0 | 0 -> 2.0 | 0 -> 2.0 | 4 / 8 / 18 / 30 |
+
+  The coaster's station platform (`coaster.routes[0].station.point`, model
+  `[24.66, 3.30, 9.26]`) is reached bare at 100 % by the walk (route printed by
+  `--route`: two one-block jumps at x 36.5/35.5 along z 7.5, one at x 30.5),
+  and with treads at 150/200/300/400 %. The device round of 2026-09-21 found
+  no route on foot at 100 %; the walk's route is what to check there.
+- **Pack.** `PlacementColliders.treads` (`plans[\`${pct}:${turn}\`]`, 7 chars
+  per block; the coaster's 16 plans are 18,207 blocks, ~125 KB of plan text,
+  1.3 s to plan at export), `craftmatic-treads.json`
+  beside the diagnostics (counts, refused edges, walk before/after per plan),
+  and the wand's Place confirmation and result name the count. `treads: false`
+  on the spec ships the bare grid (the re-lay suites use it).
+- **Shell cull box.** Bedrock draws an actor to `64 x max(1, |collision box
+  diagonal|)` blocks (Pixel 8 Pro, 2026-09-21). `shellCollisionBox(extent)` is a
+  0.1-wide needle tall enough for four times the model's largest dimension
+  (10303: 176 blocks, a 5-block model: 64, 400 %: 704, 25 %: 64), standing above
+  the roof. `playable-addon.ts` must pass `sgeo.sizeBlocks` to `shellBehavior`
+  (until then a 44-block extent is assumed) and re-derive its LOD switch from
+  `actorCullDistance` instead of 64.

@@ -88,9 +88,9 @@ it('spawns a ghost at the rotated footprint centre, turns it with the rotation, 
   expect(removed).toEqual(['e1', 'e2']);
   expect(commands).toEqual(['structure load craftmatic:t0 100 64 200 90_degrees none']);
   expect(spawned.filter(s => s.typeId === 'craftmatic:car')).toHaveLength(1);
-  expect(actionBars.some(s => s.includes('▱') && s.includes(' 0% ') && s.includes('loading area for piece 1/1'))).toBe(true);
-  expect(actionBars.some(s => s.includes('50%') && s.includes('piece 1/1 placed'))).toBe(true);
-  expect(actionBars.some(s => s.includes('100%') && s.includes('done'))).toBe(true);
+  expect(actionBars.some(s => s.includes('▱') && s.includes(' 0 percent ') && s.includes('loading area for piece 1/1'))).toBe(true);
+  expect(actionBars.some(s => s.includes('50 percent') && s.includes('piece 1/1 placed'))).toBe(true);
+  expect(actionBars.some(s => s.includes('100 percent') && s.includes('done'))).toBe(true);
   expect(timeouts).toContain(3);
   expect(timeouts).toContain(5);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placing Ghosted: 1 structure piece and 1 entity.'));

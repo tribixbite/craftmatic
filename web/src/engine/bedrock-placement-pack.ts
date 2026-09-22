@@ -1,3 +1,5 @@
+import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+
 declare const world: any;
 declare const system: any;
 declare const StructureSaveMode: any;
@@ -46,6 +48,33 @@ export interface PlacementColliders {
   runs: string;
   /** Cells that are not colliders (doors, lights); they stay blocks only at 100 %. */
   keptCells: number;
+  /** Invisible steps per size and turn (bedrock-collider-scale.ts); absent when the feature is off or no size needed one. */
+  treads?: PlacementTreads;
+}
+
+/**
+ * The tread plans a brick-shell pack ships: for every size step above 100 %
+ * and every quarter turn, the FINAL collider pair of each world block a tread
+ * run changes (`encodeTreadPlan`), set by the runtime after its re-lay. Only
+ * keys with at least one block are present; 100 % never has one.
+ */
+export interface PlacementTreads {
+  /** `${sizePct}:${rotation}` → encoded blocks. */
+  plans: Record<string, string>;
+  /** Blocks per key, for the wand's messages. */
+  counts: Record<string, number>;
+}
+
+/** What the planner found, per size and turn, for the pack's own diagnostics. */
+export interface PlacementTreadReport {
+  rule: string;
+  plans: Array<Omit<TreadPlan, 'blocks' | 'before' | 'after'> & { blocks: number; before: TreadReachSummary; after: TreadReachSummary }>;
+}
+
+/** A walk's result with its highest surface in blocks at 100 %, comparable across sizes. */
+export interface TreadReachSummary {
+  surfaces: number; columns: number;
+  highestBlocks: number;
 }
 
 /**
@@ -89,6 +118,14 @@ export interface PlacementPackSpec {
   /** The measured walk-through size and its reason, named (never applied) by the wand. */
   access?: PlacementAccess;
   /**
+   * Invisible steps where a scaled-up rise the model's own figures could climb
+   * has grown past the player's jump (bedrock-collider-scale.ts). Default on;
+   * `false` ships the bare collider grid. Needs `colliders`.
+   */
+  treads?: boolean;
+  /** Model points that should be reachable on foot (a boarding platform), reported per size in the tread diagnostics. */
+  reachTargets?: ReachTarget[];
+  /**
    * Ticks each tile's ticking area stays alive after its `structure load`, and
    * ticks the last area is held after the final piece. A ticking area removed
    * the moment the command returns can unload the chunk before its block
@@ -103,6 +140,8 @@ export interface PlacementPackAssets {
   shortAlias: string;
   script: string;
   files: Array<{ name: string; data: Uint8Array }>;
+  /** The tread planner's findings (also written as `craftmatic-treads.json`); absent for a pack without colliders or with `treads: false`. */
+  treads?: PlacementTreadReport;
 }
 
 export interface PlacementTile {
@@ -323,23 +362,8 @@ export function withSizeGroups(
 
 // ─── Collider runs ───────────────────────────────────────────────────────────
 
-/** Sequential index (1..136) of a `(lo, hi)` sixteenth pair with lo < hi; 0 is air. */
-export function colliderPairIndex(lo: number, hi: number): number {
-  let n = 1;
-  for (let l = 0; l < lo; l++) n += 16 - l;
-  return n + (hi - lo - 1);
-}
-
-/** Inverse of `colliderPairIndex`. */
-export function colliderPairOf(index: number): [number, number] {
-  let n = 1;
-  for (let l = 0; l < 16; l++) {
-    const span = 16 - l;
-    if (index < n + span) return [l, l + 1 + (index - n)];
-    n += span;
-  }
-  throw new Error(`collider pair index out of range: ${index}`);
-}
+/** The pair codec lives with the scaled grid (bedrock-collider-scale.ts); re-exported so callers keep one import. */
+export { colliderPairIndex, colliderPairOf };
 
 /** Run-length code: `[valueChar][countChar]` pairs, value 0..136 as char 40+v, count 1..200 as char 40+n−1. */
 const RUN_BASE = 40, RUN_MAX = 200;
@@ -387,12 +411,90 @@ export function decodeColliderRuns(runs: string): Uint8Array {
   return Uint8Array.from(cells);
 }
 
+/** The solid cells of a shipped collider grid, decoded from its runs. */
+export function colliderSourceCells(c: Pick<PlacementColliders, 'width' | 'height' | 'length' | 'runs'>): SourceCell[] {
+  const cells = decodeColliderRuns(c.runs);
+  const out: SourceCell[] = [];
+  for (let i = 0; i < cells.length; i++) {
+    const v = cells[i]!;
+    if (v === 0) continue;
+    const [lo, hi] = colliderPairOf(v);
+    out.push({ z: i % c.length, y: Math.floor(i / c.length) % c.height, x: Math.floor(i / (c.length * c.height)), lo, hi });
+  }
+  return out;
+}
+
+/**
+ * Tread plan code: 7 chars per block - x, y, z as two base-200 digits each
+ * (char 40 + digit, high digit first) and the collider pair index as one
+ * char (40 + index). Coordinates are world blocks from the pin at that size
+ * and turn (up to 39,999, far past a 400 % footprint).
+ */
+const TREAD_DIGIT_BASE = 200;
+export function encodeTreadPlan(blocks: readonly TreadBlock[]): string {
+  const digits = (v: number): string => {
+    if (v < 0 || v >= TREAD_DIGIT_BASE * TREAD_DIGIT_BASE) throw new Error(`tread coordinate out of range: ${v}`);
+    return String.fromCharCode(RUN_BASE + Math.floor(v / TREAD_DIGIT_BASE)) + String.fromCharCode(RUN_BASE + v % TREAD_DIGIT_BASE);
+  };
+  return blocks.map(b => `${digits(b.x)}${digits(b.y)}${digits(b.z)}${String.fromCharCode(RUN_BASE + colliderPairIndex(b.lo, b.hi))}`).join('');
+}
+
+/** Inverse of `encodeTreadPlan`. */
+export function decodeTreadPlan(plan: string): TreadBlock[] {
+  const out: TreadBlock[] = [];
+  for (let k = 0; k + 6 < plan.length; k += 7) {
+    const v = (o: number): number => (plan.charCodeAt(k + o) - RUN_BASE) * TREAD_DIGIT_BASE + plan.charCodeAt(k + o + 1) - RUN_BASE;
+    const [lo, hi] = colliderPairOf(plan.charCodeAt(k + 6) - RUN_BASE);
+    out.push({ x: v(0), y: v(2), z: v(4), lo, hi });
+  }
+  return out;
+}
+
+/** The planner's rule in one sentence, carried in the pack's diagnostics beside the counts. */
+export const TREAD_RULE = 'An invisible step is laid only where a rise between two standable surfaces exceeds the player\'s 1.25-block jump at the chosen size while being within that jump in the 100 % grid (a rise the model\'s own figures climb), laid back over floor the player already reaches, in half-block hops where the floor allows and the fewest jump-height hops otherwise, keeping full standing headroom; a run that would make any previously reachable surface unreachable is reverted, so reachability only grows.';
+
+/**
+ * Plan treads for every size step above 100 % and every quarter turn, and
+ * attach the encoded plans to the shipped colliders. 100 % is never planned:
+ * the tiles carry the grid verbatim and the planner is empty there by
+ * construction (asserted in test/bedrock-collider-treads.test.ts).
+ */
+export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = []): { colliders: PlacementColliders; report: PlacementTreadReport } {
+  const cells = colliderSourceCells(colliders);
+  const dims = { width: colliders.width, height: colliders.height, length: colliders.length };
+  const plans: Record<string, string> = {}, counts: Record<string, number> = {};
+  const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
+  const blocksAt100 = (t16: number, f: number): number => Math.round(t16 / 16 / f * 100) / 100;
+  for (const pct of SIZE_STEPS) {
+    if (pct <= 100) continue;
+    for (const r of QUARTER_TURNS) {
+      const plan = planColliderTreads(cells, dims, pct, r, targets);
+      const f = pct / 100;
+      const { blocks, before, after, ...rest } = plan;
+      report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
+      if (!blocks.length) continue;
+      const key = `${pct}:${r}`;
+      plans[key] = encodeTreadPlan(blocks);
+      counts[key] = blocks.length;
+    }
+  }
+  return { colliders: Object.keys(plans).length ? { ...colliders, treads: { plans, counts } } : colliders, report };
+}
+
+/** Blocks a tread plan changes, for a size and turn, from the shipped colliders. */
+export function treadBlocksFor(colliders: PlacementColliders, sizePct: number, rotation: QuarterTurn): TreadBlock[] {
+  const plan = colliders.treads?.plans[`${sizePct}:${rotation}`];
+  return plan ? decodeTreadPlan(plan) : [];
+}
+
 const enc = new TextEncoder();
 const text = (value: string) => enc.encode(value.endsWith('\n') ? value : `${value}\n`);
 
 // Serialized into each generated pack. Keep this function plain JavaScript so
 // its toString() output is a valid Bedrock script module after TS transpilation.
 function placementRuntime(config: any, openVehicleControls?: (player: any) => Promise<void>) {
+  // Bedrock's form renderer drops a bare `%` ("100%" rendered "100" on the Pixel, 2026-09-21); the word, as playable-addon.ts's bedrockInGameText.
+  const percent = (n: any) => `${n} percent`;
   const states = new Map(), previews = new Set(), histories = new Map(), held = new Set(), showing = new Set();
   // Dynamic properties survive a behavior-pack script reload. Keep this small:
   // marked chairs are explicit user intent, never inferred furniture candidates.
@@ -409,10 +511,10 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   // the wand names the step and quotes the whole reason; it never resizes by itself.
   const access = config.access || null;
   const recommendedSize: number = access && access.sizePct ? access.sizePct : 0;
-  const sizeLabel = (pct: number) => `${pct}%${pct === recommendedSize ? ' (recommended)' : ''}`;
+  const sizeLabel = (pct: number) => `${percent(pct)}${pct === recommendedSize ? ' (recommended)' : ''}`;
   /** The measurement as one line for a menu body, with the reason carried whole. */
   const walkThroughLine = (): string => !access || !access.reason ? ''
-    : `\n\n§aWalk-through: ${recommendedSize ? `${recommendedSize}%` : 'no size fits'}§r — ${access.reason}`;
+    : `\n\n§aWalk-through: ${recommendedSize ? `${percent(recommendedSize)}` : 'no size fits'}§r — ${access.reason}`;
   // A pack with no block structure (a vehicle, a figure) may turn in 15° steps; blocks turn by 90°.
   const fineTurn = config.tiles.length === 0;
   const turnStep = fineTurn ? 15 : 90;
@@ -554,13 +656,13 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   const blocksResizable = !config.tiles.length || !!config.colliders;
   const summary = (st: any) => {
     const d = dims(st);
-    const sizeNote = st.size !== 100 ? ` · ${st.size}%${config.tiles.length && !config.colliders ? ' (blocks stay 100%)' : ''}` : '';
+    const sizeNote = st.size !== 100 ? ` · ${percent(st.size)}${config.tiles.length && !config.colliders ? ' (blocks stay 100 percent)' : ''}` : '';
     return `${d.width} × ${d.height} × ${d.length} blocks · ${st.rotation}°${sizeNote}${st.aim ? ' · following your aim' : ''}\nOrigin: ${st.anchor ? `${st.anchor.x}, ${st.anchor.y}, ${st.anchor.z} in ${st.dimension}` : 'not pinned'}`;
   };
   const validate = (p: any, st: any) => {
     if (!st.anchor) throw new Error('Pin an origin, follow your aim or enter coordinates first.');
     if (st.dimension !== p.dimension.id) throw new Error(`Origin is pinned in ${st.dimension}. Re-pin after changing dimensions.`);
-    if (st.size !== 100 && !blocksResizable) throw new Error('This pack\'s blocks were exported as coloured blocks and cannot be resized in game. Set the size back to 100%, or export again at another model scale.');
+    if (st.size !== 100 && !blocksResizable) throw new Error('This pack\'s blocks were exported as coloured blocks and cannot be resized in game. Set the size back to 100 percent, or export again at another model scale.');
     const d = dims(st), range = p.dimension.heightRange;
     if (st.anchor.y < range.min || st.anchor.y + d.height - 1 >= range.max) throw new Error(`Build exceeds world height ${range.min}–${range.max - 1}.`);
     return d;
@@ -622,7 +724,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const worldCorner = (q: any) => ({ x: st.anchor.x + q.x, y: st.anchor.y + q.y, z: st.anchor.z + q.z });
     const mark = (effect: string, q: any) => particles.push({ effect, point: worldCorner(q) });
     const mode = st.aim ? 'AIMING' : 'PINNED PREVIEW';
-    p.onScreenDisplay.setActionBar(`${mode} · ${config.label} · ${d.width}×${d.height}×${d.length} · ${st.rotation}°${st.size !== 100 ? ` · ${st.size}%` : ''} · §cX §aY §9Z §6MODEL -Z${st.aim ? ' · open the wand to pin' : ''}`);
+    p.onScreenDisplay.setActionBar(`${mode} · ${config.label} · ${d.width}×${d.height}×${d.length} · ${st.rotation}°${st.size !== 100 ? ` · ${percent(st.size)}` : ''} · §cX §aY §9Z §6MODEL -Z${st.aim ? ' · open the wand to pin' : ''}`);
     for (const q of outline(d)) mark('minecraft:endrod', q);
     const axisLength = 6;
     for (let i = 0; i <= axisLength; i++) {
@@ -691,8 +793,8 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const scripted = st.size !== 100 && config.tiles.length && config.colliders;
     // The measured walk-through size is stated here too, whenever the chosen
     // size is not it — the last moment at which changing it costs nothing.
-    const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${recommendedSize}%, not ${st.size}%: ${access.reason}` : '';
-    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\nBlocks in this area will be replaced.${scripted ? `\nAt ${st.size}% the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100% export are left out.` : ''}${walkNote}`).button('Place now').button('Back'));
+    const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${percent(recommendedSize)}, not ${percent(st.size)}: ${access.reason}` : '';
+    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\nBlocks in this area will be replaced.${scripted ? `\nAt ${percent(st.size)} the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100 percent export are left out.${stepsNote(st)}` : ''}${walkNote}`).button('Place now').button('Back'));
     if (!r.canceled && r.selection === 0) return place(p);
     return menu(p);
   }
@@ -786,7 +888,12 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     }
     const boxes = placementBoxes(d.width, d.height, d.length);
     const runs: string = c.runs;
-    let placed = 0;
+    // Invisible steps for THIS size and turn (bedrock-collider-scale.ts): the
+    // final pair of every block a tread run changes, 7 chars per block (x, y,
+    // z as two base-200 digits each, then the pair index). Set after the
+    // re-lay of each box so a tread wins over the cell it stands on.
+    const treadPlan: string = (c.treads && c.treads.plans && c.treads.plans[`${st.size}:${r}`]) || '';
+    let placed = 0, steps = 0;
     for (let bi = 0; bi < boxes.length; bi++) {
       const b = boxes[bi];
       if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
@@ -840,10 +947,31 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           }
         }
       }
+      for (let k = 0; k + 6 < treadPlan.length; k += 7) {
+        const digits = (o: number) => (treadPlan.charCodeAt(k + o) - 40) * 200 + treadPlan.charCodeAt(k + o + 1) - 40;
+        const tx = digits(0), ty = digits(2), tz = digits(4);
+        if (tx < b.x0 || tx > b.x1 || ty < b.y0 || ty > b.y1 || tz < b.z0 || tz > b.z1) continue;
+        const [tl, th] = pairOf(treadPlan.charCodeAt(k + 6) - 40);
+        const pos = { x: st.anchor.x + tx, y: st.anchor.y + ty, z: st.anchor.z + tz };
+        let block: any;
+        try { block = dim.getBlock(pos); } catch {}
+        if (!block) continue;
+        try { block.setPermutation(BlockPermutation.resolve(c.block, { [c.loState]: tl, [c.hiState]: th })); written.add(`${pos.x},${pos.y},${pos.z}`); steps++; } catch {}
+        if (++budget % 400 === 0) {
+          if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+          await wait(1);
+        }
+      }
       await wait(config.settleTicks);
     }
-    return placed;
+    return { placed, steps };
   }
+  // Invisible steps the pack adds at a size and turn (0 at 100 %, or when the model needs none).
+  const stepsAt = (st: any): number => (config.colliders && config.colliders.treads && config.colliders.treads.counts && config.colliders.treads.counts[`${st.size}:${st.rotation}`]) || 0;
+  const stepsNote = (st: any): string => {
+    const n = stepsAt(st);
+    return n ? ` ${n} invisible step${n === 1 ? '' : 's'} ${n === 1 ? 'is' : 'are'} added where the LEGO risers grew past a player's jump - the model's own stairs and ledges, climbable at 100 percent; nothing that was walkable is blocked.` : '';
+  };
   async function place(p: any) {
     if (active) return tell(p, 'Another placement is running.');
     const st = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
@@ -861,14 +989,16 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const total = (scripted ? 1 : config.tiles.length) + config.actors.length, settle = config.settleTicks, hold = config.finalHoldTicks;
     const progress = (done: number, what: string) => {
       const n = 12, k = Math.max(0, Math.min(n, Math.round(done / Math.max(1, total) * n)));
-      try { p.onScreenDisplay.setActionBar(`§b[Brick Wand]§r ${'▰'.repeat(k)}§8${'▱'.repeat(n - k)}§r ${Math.round(done / Math.max(1, total) * 100)}% · ${what}`); } catch {}
+      try { p.onScreenDisplay.setActionBar(`§b[Brick Wand]§r ${'▰'.repeat(k)}§8${'▱'.repeat(n - k)}§r ${percent(Math.round(done / Math.max(1, total) * 100))} · ${what}`); } catch {}
     };
-    const pieces = `${scripted ? 'the walkable blocks' : `${config.tiles.length} structure piece${config.tiles.length === 1 ? '' : 's'}`}${config.actors.length ? ` and ${config.actors.length} entit${config.actors.length === 1 ? 'y' : 'ies'}` : ''}${st.size !== 100 ? ` at ${st.size}%` : ''}`;
+    const pieces = `${scripted ? 'the walkable blocks' : `${config.tiles.length} structure piece${config.tiles.length === 1 ? '' : 's'}`}${config.actors.length ? ` and ${config.actors.length} entit${config.actors.length === 1 ? 'y' : 'ies'}` : ''}${st.size !== 100 ? ` at ${percent(st.size)}` : ''}`;
     tell(p, `Placing ${config.label}: ${pieces}. Watch the bar above the hotbar.`);
+    let stepsAdded = 0;
     try {
       if (scripted) {
-        const placed = await placeColliders(st, dim, backups, what => progress(0, what), key, previous && previous.bounds);
-        progress(1, `${placed} walkable blocks laid`);
+        const laid = await placeColliders(st, dim, backups, what => progress(0, what), key, previous && previous.bounds);
+        stepsAdded = laid.steps;
+        progress(1, `${laid.placed} walkable blocks laid${laid.steps ? `, ${laid.steps} invisible steps added` : ''}`);
       } else for (let i = 0; i < config.tiles.length; i++) {
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
         const t = tileAt(config.tiles[i], st.rotation), from = { x: st.anchor.x + t.dx, y: st.anchor.y + t.dy, z: st.anchor.z + t.dz }, to = { x: from.x + t.width - 1, y: from.y + t.height - 1, z: from.z + t.length - 1 }, name = `craftmatic:${key}_${i}`;
@@ -887,7 +1017,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // reach every client before the area (and maybe the chunk) goes away.
         await wait(settle);
       }
-      // Structure tiles contain the 100% doors. At another size they are
+      // Structure tiles contain the 100 percent doors. At another size they are
       // intentionally replaced by colliders, so re-hang only semantic leaves
       // whose measured physical height now reaches two blocks.
       const installedDoors = new Set<number>();
@@ -910,7 +1040,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           lower.setPermutation(BlockPermutation.resolve(door.lower.id, rotateDoor(door.lower.states)));
           upper.setPermutation(BlockPermutation.resolve(door.upper.id, rotateDoor(door.upper.states)));
           installedDoors.add(doorIndex);
-        } catch (e: any) { tell(p, `§eDoor could not be re-hung at ${st.size}% (${e?.message || e}).`); }
+        } catch (e: any) { tell(p, `§eDoor could not be re-hung at ${percent(st.size)} (${e?.message || e}).`); }
       }
       const done0 = scripted ? 1 : config.tiles.length;
       for (let j = 0; j < config.actors.length; j++) {
@@ -989,7 +1119,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
             // assigns one itself when this is absent (bedrock-coaster.ts).
             if (actor.coasterCarIndex !== undefined) entity.setDynamicProperty('craftmatic:coaster_car', actor.coasterCarIndex);
           }
-          if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${st.size}% (${e && e.message ? e.message : e}); it stands at 100%.`); } }
+          if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);
         } catch (e: any) {
           failedActors.push(actor.label);
@@ -1041,7 +1171,8 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       histories.set(p.id, { dimension: dim.id, backups, entities, bounds });
       progress(total, 'done');
       await wait(hold);
-      tell(p, failedActors.length ? `§aPlaced ${config.label} (${failedActors.length} entit${failedActors.length === 1 ? 'y' : 'ies'} could not be spawned). Use the Brick Wand to undo.` : `§aPlaced ${config.label}. Use the Brick Wand to undo.`);
+      const stepsDone = stepsAdded ? ` ${stepsAdded} invisible step${stepsAdded === 1 ? '' : 's'} added where its risers grew past a jump.` : '';
+      tell(p, failedActors.length ? `§aPlaced ${config.label} (${failedActors.length} entit${failedActors.length === 1 ? 'y' : 'ies'} could not be spawned).${stepsDone} Use the Brick Wand to undo.` : `§aPlaced ${config.label}.${stepsDone} Use the Brick Wand to undo.`);
     } catch (e: any) {
       if (backups.length || entities.length) {
         if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
@@ -1087,7 +1218,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       f.button('Pin centred on me').button('Pin corner at my feet').button('Edit coordinates').button(`Rotate → ${(st.rotation + turnStep) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
       f.button(st.aim ? 'Stop following my aim' : 'Follow my aim').button(`Size ${sizeLabel(st.size)} → ${sizeLabel(nextSize)}${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`);
       const recommendedDoorSize = nextDoorSize(st.size);
-      if (recommendedDoorSize) f.button(`Use next door size ${recommendedDoorSize}%`);
+      if (recommendedDoorSize) f.button(`Use next door size ${percent(recommendedDoorSize)}`);
       if (config.manualSeatTypeId) {
         f.button(`Add seat here (${(st.manualSeats || []).length}/${manualSeatCap})`);
         f.button('Manage marked seats');
@@ -1125,11 +1256,11 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       if (st.anchor) previews.add(p.id);
       if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
       // The measured reason, quoted whole, the moment the wand lands on that step.
-      if (recommendedSize && nextSize === recommendedSize) tell(p, `${nextSize}% is the measured walk-through size: ${access.reason}`);
+      if (recommendedSize && nextSize === recommendedSize) tell(p, `${percent(nextSize)} is the measured walk-through size: ${access.reason}`);
       return menu(p);
     }
     const recommendedDoorSize = nextDoorSize(st.size);
-    if (recommendedDoorSize && r.selection === 11) { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${recommendedDoorSize}%. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }
+    if (recommendedDoorSize && r.selection === 11) { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }
     const seatSelection = 11 + (recommendedDoorSize ? 1 : 0);
     if (config.manualSeatTypeId && r.selection === seatSelection) {
       try {
@@ -1157,8 +1288,11 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const id = spec.stem.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'model';
   const itemId = `craftmatic:${id}_brick_wand`;
   const shortAlias = placementAlias(spec.stem);
+  // Invisible steps are planned from the shipped grid here, so a brick-shell
+  // pack carries them without the pipeline knowing (bedrock-collider-scale.ts).
+  const treads = spec.colliders && spec.treads !== false ? withColliderTreads(spec.colliders, spec.reachTargets ?? []) : undefined;
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
-    preview: spec.preview ?? null, colliders: spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
+    preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
   const item = {
@@ -1180,6 +1314,10 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
       { name: 'scripts/placement.js', data: text(script) },
       { name: `functions/${shortAlias}.mcfunction`, data: text(grant) },
       { name: `functions/craftmatic/${id}.mcfunction`, data: text(grant) },
+      // The planner's findings, inspectable from the pack: counts per size and
+      // turn, what could not be restored and why, and the walk before/after.
+      ...(treads ? [{ name: 'craftmatic-treads.json', data: text(JSON.stringify(treads.report, null, 1)) }] : []),
     ],
+    ...(treads ? { treads: treads.report } : {}),
   };
 }

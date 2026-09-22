@@ -119,7 +119,7 @@ describe('wand runtime: size, aim and turning', () => {
     await h.open({ selection: 1 }, { canceled: true });
     await h.open({ selection: 10 }, { canceled: true });
     await h.open({ selection: 10 }, { canceled: true });
-    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200% → 300%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200 percent → 300 percent'))).toBe(true);
     // Place at 200 %: no structure command; colliders re-laid over the 8×4×4 footprint.
     await h.open({ selection: 5 }, { selection: 0 });
     await h.flush(2000);
@@ -149,7 +149,7 @@ describe('wand runtime: size, aim and turning', () => {
       colliders: { width: 4, height: 3, length: 2, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
       runtimeDoorCandidates: [{ x: 1, y: 1.8, z: 1, requiredSize: 300, lower: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: false } }, upper: { id: 'minecraft:wooden_door', states: { direction: 0, upper_block_bit: true } } }], settleTicks: 1, finalHoldTicks: 1 });
     await h.open({ selection: 1 }, { canceled: true });
-    expect(h.buttons.at(-1)).toContain('Use next door size 300%');
+    expect(h.buttons.at(-1)).toContain('Use next door size 300 percent');
     await h.open({ selection: 5 }, { selection: 0 });
     await h.flush(2000);
     const baseLeaf = h.spawned.find(s => s.typeId === 'craftmatic:runtime_door_leaf_1')!;
@@ -170,7 +170,7 @@ describe('wand runtime: size, aim and turning', () => {
     // cycle 300 → 400 → 25 → 50 → 75 → 100 and place once more; the
     // original-size candidate must still be hung exactly once, not duplicated.
     for (let i = 0; i < 5; i++) await h.open({ selection: 10 }, { canceled: true });
-    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100 percent'))).toBe(true);
     await h.open({ selection: 5 }, { selection: 0 });
     await h.flush(2000);
     // At 100% this genuinely short source leaf is again below the two-block
@@ -192,7 +192,7 @@ describe('wand runtime: size, aim and turning', () => {
       colliders: { width: 3, height: 3, length: 3, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs.runs, keptCells: 0 },
       runtimeDoorCandidates: [door(300), door(150)], settleTicks: 1, finalHoldTicks: 1 });
     await h.open({ selection: 1 }, { canceled: true });
-    expect(h.buttons.at(-1)).toContain('Use next door size 150%');
+    expect(h.buttons.at(-1)).toContain('Use next door size 150 percent');
     await h.open({ selection: 11 });
     await h.open({ selection: 5 }, { selection: 0 });
     await h.flush(1000);
@@ -290,7 +290,7 @@ describe('wand runtime: size, aim and turning', () => {
     // At 150 % the centre offset is (3, 1.5): anchor floor(−3, 64, −1.5) = (−3, 64, −2), centre (0, 64, −0.5).
     expect(ghost.entity.teleport).toHaveBeenLastCalledWith({ x: 0, y: 64, z: -0.5 }, { rotation: { x: 0, y: 0 } });
     expect(h.actionBars.at(-1)).toMatch(/^PINNED PREVIEW/);
-    expect(h.actionBars.at(-1)).toContain('150%');
+    expect(h.actionBars.at(-1)).toContain('150 percent');
   });
 
   it('an entity-only pack turns in 15° steps both ways and places the actor on the turned footprint', async () => {
@@ -323,24 +323,24 @@ describe('wand runtime: size, aim and turning', () => {
     // The step is NAMED, not applied: the wand still opens at 100 %.
     await h.open({ selection: 1 }, { canceled: true });
     const first = h.buttons.at(-1)!;
-    expect(first.some(l => l.startsWith('Size 100% → 150% (recommended)'))).toBe(true);
+    expect(first.some(l => l.startsWith('Size 100 percent → 150 percent (recommended)'))).toBe(true);
     // The whole reason is in the wand's body, never cut down to the number.
     expect(h.assets.script).toContain(JSON.stringify(reason));
     // Cycling onto it says why, quoting the measurement.
     await h.open({ selection: 10 }, { canceled: true });
     expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining(reason));
-    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 150% (recommended) → 200%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 150 percent (recommended) → 200 percent'))).toBe(true);
     // Past it again the marker moves with the step, and the size itself is
     // whatever the user chose — the recommendation never overrides it.
     await h.open({ selection: 10 }, { canceled: true });   // 150 → 200
-    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200% → 300%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200 percent → 300 percent'))).toBe(true);
     expect(h.buttons.at(-1)!.some(l => /recommended/.test(l))).toBe(false);
   });
 
   it('says nothing about a walk-through size when the export measured none', async () => {
     const h = host({ stem: 'unmeasured', label: 'Unmeasured', width: 4, height: 2, length: 2, tiles: [tile], actors: [] });
     await h.open({ selection: 1 }, { canceled: true });
-    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100% → 150%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100 percent → 150 percent'))).toBe(true);
     expect(h.buttons.at(-1)!.some(l => /recommended/.test(l))).toBe(false);
   });
 });

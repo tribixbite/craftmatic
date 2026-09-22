@@ -185,8 +185,54 @@ export const COLLIDER_BLOCKS_JSON = {
 /** Terrain texture entry for the clear tile. */
 export const COLLIDER_TERRAIN_TEXTURE = { craftmatic_collider: { textures: 'textures/blocks/craftmatic_collider' } } as const;
 
-/** The static shell entity: no gravity, no collision, cannot be selected, hurt or pushed. */
-export function shellBehavior(id: string): unknown {
+/**
+ * Bedrock stops DRAWING an actor beyond a distance that scales with its
+ * collision box: measured on the Pixel 8 Pro (2026-09-21, 10303 photographed
+ * in full at 60 blocks and absent at 70, 86, 100 and 168 with the old
+ * 0.1 × 0.1 shell box; the 0.6 × 1.8 figures still drawn at 100 and gone by
+ * 168), the fit is `64 × max(1, |box diagonal|)` blocks. It is not the
+ * geometry's `visible_bounds` (frustum culling; the shell declared 177 × 189)
+ * and not the LOD hull (same actor, same cull). So the shell's box is sized
+ * for the cull distance the model deserves: `SHELL_CULL_PER_MODEL_BLOCK`
+ * times its largest dimension, never under the 64-block floor.
+ *
+ * The box is a NEEDLE: `SHELL_BOX_WIDTH` wide and as tall as the diagonal
+ * needs. Width barely moves the diagonal, and a thin box intercepts no taps.
+ * It stands above the model: the shell's origin is lifted a block over its
+ * roof (`originAboveModel`, every cube's top is below the origin) and a
+ * collision box extends UP from the origin, so the needle is in the sky over
+ * the model's centre column and touches nothing the player stands on
+ * (asserted in test/bedrock-building-shell.test.ts). The wand's size groups
+ * scale it with the model (`withSizeGroups`), so the cull distance scales
+ * too: a 400 % placement is drawn four times as far, a 25 % one keeps the floor.
+ *
+ * TODO(playable-addon.ts, not this file): pass `sgeo.sizeBlocks` as the
+ * second argument of `shellBehavior` so the box derives from the model;
+ * until then `SHELL_FALLBACK_EXTENT_BLOCKS` (10303's height, the largest set
+ * measured) stands in.
+ */
+export const ACTOR_CULL_FLOOR_BLOCKS = 64;
+export const SHELL_CULL_PER_MODEL_BLOCK = 4;
+export const SHELL_BOX_WIDTH = 0.1;
+export const SHELL_FALLBACK_EXTENT_BLOCKS = 44;
+
+/** The distance at which Bedrock stops drawing an actor with this collision box at wand factor `f` (the measured fit above). */
+export function actorCullDistance(box: { width: number; height: number }, f = 1): number {
+  return ACTOR_CULL_FLOOR_BLOCKS * Math.max(1, f * Math.hypot(box.width, box.width, box.height));
+}
+
+/** The shell's collision box for a model of this extent (blocks at 100 %): a needle tall enough for its cull distance. */
+export function shellCollisionBox(extent?: { width: number; height: number; length: number }): { width: number; height: number } {
+  const largest = extent ? Math.max(extent.width, extent.height, extent.length) : SHELL_FALLBACK_EXTENT_BLOCKS;
+  const wanted = Math.max(ACTOR_CULL_FLOOR_BLOCKS, SHELL_CULL_PER_MODEL_BLOCK * largest);
+  const diagonal = wanted / ACTOR_CULL_FLOOR_BLOCKS;
+  const height = Math.max(SHELL_BOX_WIDTH, Math.sqrt(Math.max(0, diagonal * diagonal - 2 * SHELL_BOX_WIDTH * SHELL_BOX_WIDTH)));
+  return { width: SHELL_BOX_WIDTH, height: Math.ceil(height * 1000) / 1000 };
+}
+
+/** The static shell entity: no gravity, no collision, cannot be selected, hurt or pushed; its collision box only sets how far it is drawn. */
+export function shellBehavior(id: string, extentBlocks?: { width: number; height: number; length: number }): unknown {
+  const box = shellCollisionBox(extentBlocks);
   return withSizeGroups({
     format_version: '1.26.30',
     'minecraft:entity': {
@@ -197,12 +243,12 @@ export function shellBehavior(id: string): unknown {
         'minecraft:health': { value: 100, max: 100 },
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
         'minecraft:fire_immune': {},
-        'minecraft:collision_box': { width: 0.1, height: 0.1 },
+        'minecraft:collision_box': box,
         'minecraft:physics': { has_gravity: false, has_collision: false },
         'minecraft:pushable_by_block': {},
         'minecraft:knockback_resistance': { value: 1 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 120, max_dropped_ticks: 20, use_motion_prediction_hints: false } },
       },
     },
-  }, { width: 0.1, height: 0.1 });
+  }, box);
 }

@@ -170,6 +170,11 @@ async function relay(spec: { dims: GridDims; runs: string; stem: string }, pct: 
     tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: spec.dims.width, height: spec.dims.height, length: spec.dims.length, nonAir: 1 }],
     actors: [],
     colliders: { ...spec.dims, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: spec.runs, keptCells: 0 },
+    // This suite measures the re-lay ALONE: the surfaces must be exactly f × the
+    // 1× ones, and the "blocked" verdicts below are what that geometry gives a
+    // player. The invisible steps a pack ships by default (bedrock-collider-scale.ts)
+    // add surfaces on purpose; test/bedrock-collider-treads.test.ts measures them.
+    treads: false,
     settleTicks: 1, finalHoldTicks: 1,
   });
   await h.open({ selection: PIN_AT_FEET }, { canceled: true });
