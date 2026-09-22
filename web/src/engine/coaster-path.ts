@@ -98,6 +98,14 @@ export interface CoasterTrackStitchOptions {
   endpointToleranceLdu: number;
   /** Minimum dot product between opposing outward tangents, in [-1, 1]. */
   minTangentDot: number;
+  /**
+   * Largest LONGITUDINAL overlap (LDU) at which two rails still join: a
+   * placement may sit so its rail runs past its neighbour's tip along the
+   * travel direction while the running lines stay within `endpointToleranceLdu`
+   * of each other laterally (10303's rotated 26559s: 7.8 LDU along, .08
+   * across). Omitted, only the plain distance test applies.
+   */
+  overlapToleranceLdu?: number;
 }
 
 const DEFAULT_MAX_COORDINATE = 30_000_000;
@@ -119,6 +127,8 @@ export function stitchCoasterTrackFragments(
 ): CoasterTrackGraph {
   if (!Number.isFinite(options.endpointToleranceLdu) || options.endpointToleranceLdu <= 0) throw new Error('Track endpointToleranceLdu must be finite and positive.');
   if (!Number.isFinite(options.minTangentDot) || options.minTangentDot < -1 || options.minTangentDot > 1) throw new Error('Track minTangentDot must be in [-1, 1].');
+  const overlapTolerance = options.overlapToleranceLdu;
+  if (overlapTolerance !== undefined && (!Number.isFinite(overlapTolerance) || overlapTolerance < 0)) throw new Error('Track overlapToleranceLdu must be finite and non-negative.');
   const ids = new Set<string>();
   const endpoints: CoasterTrackEndpoint[] = [];
   for (const fragment of fragments) {
@@ -141,7 +151,22 @@ export function stitchCoasterTrackFragments(
     if (left.fragmentId === right.fragmentId) continue;
     const distance = distanceBetween(left.point, right.point);
     const tangentDot = -(left.outwardTangent[0] * right.outwardTangent[0] + left.outwardTangent[1] * right.outwardTangent[1] + left.outwardTangent[2] * right.outwardTangent[2]);
-    if (distance <= options.endpointToleranceLdu && tangentDot >= options.minTangentDot) {
+    if (tangentDot < options.minTangentDot) continue;
+    let compatible = distance <= options.endpointToleranceLdu;
+    if (!compatible && overlapTolerance !== undefined) {
+      // Travel from left into right is along left's outward tangent and against
+      // right's; the separation is split into an along-travel part (negative
+      // where the rails overlap) and the lateral remainder.
+      const forward = [
+        left.outwardTangent[0] - right.outwardTangent[0], left.outwardTangent[1] - right.outwardTangent[1], left.outwardTangent[2] - right.outwardTangent[2],
+      ];
+      const forwardLength = Math.hypot(forward[0]!, forward[1]!, forward[2]!);
+      const offset = [right.point[0] - left.point[0], right.point[1] - left.point[1], right.point[2] - left.point[2]];
+      const along = (offset[0]! * forward[0]! + offset[1]! * forward[1]! + offset[2]! * forward[2]!) / forwardLength;
+      const lateral = Math.sqrt(Math.max(0, distance * distance - along * along));
+      compatible = along < 0 && -along <= overlapTolerance && lateral <= options.endpointToleranceLdu;
+    }
+    if (compatible) {
       candidates.get(left.key)!.push({ other: right, distance, tangentDot });
       candidates.get(right.key)!.push({ other: left, distance, tangentDot });
     }

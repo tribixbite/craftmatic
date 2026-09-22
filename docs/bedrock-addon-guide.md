@@ -2006,6 +2006,54 @@ float properties, all clamped). Pre-existing and untouched: the roll bone
 snaps where the track passes vertical (the yaw/pitch/roll decomposition has no
 yaw there; 256°/block at 10303 arc 95 in both the old and new packs).
 
+### The ramps' running line was on two datums (2026-09-22, `coaster-track.ts`)
+
+The residue the chord fix left — 10261 arc 79-81 climbing a block in half a
+block of run, 10303 arcs 37/39/89/91/115-132 — was track data, and it was
+the 80564 fault again: controls on two datums. The four ramp moulds (26559,
+26560, 26561, 34738) were built from sleeper origins in the interior and
+hand-added connector controls at every end, all offset a vertical 32 LDU.
+Ray-cast at the tread band on Studio's meshes (`scripts` in
+`output/bedrock-entity-qa/coaster-track-datum-2026-09-22/` — rail top by
+vertical ray at z 29-31), every straight mould has its rail top at -17.8 and
+its running line at -32: the running datum is **14.2 LDU above the rail top**
+(the `measureDatumAboveRailTop` 14). The ramps' level ends matched that to
+.01 LDU; every SLOPED end put the running line 3.9 LDU **below** the rail
+top instead of 18.6 above it (the .9-gradient clip planes are 36-44 LDU under
+the rail, not 17.8), so the whole of 26561 rode 23 LDU inside its rails and
+each transition into one jogged 14-31 LDU in a few LDU of run. The interior
+sleepers sit 11.5-13.8 LDU under the rail on these moulds (not 17.8), so the
+middle was 2-6 LDU high as well.
+
+All four ramps are now one datum: a literal rail-top table at 5 LDU steps
+(`RAMP_RAIL_TOP`, the x = -10 tip taken on the rail line because the mesh
+carries a 5 LDU end relief there) offset 14.2 LDU along the local normal
+(`COASTER_RUNNING_ABOVE_RAIL_TOP_LDU`). Nothing is smoothed: the
+`jogs.ts`/`seams.ts` scans find **0** chord-pitch clusters over 40°/block and
+**0** vertices over 25° on either set (10303 had 6 clusters and 10 vertices,
+10261 10 and 20). 10261 keeps all 43 seams (≤ 1.14 LDU). 10303's three
+26559s that stand rotated 90° (`26559:1429`, `1421`, `2153`, the drop's
+pull-outs) are not clip-mated: with honest tips their rails run **7.66-7.80
+LDU past their neighbours' along the travel direction**, laterally within
+.08 LDU, at 7.6-8.9° kinks (the modelled rails are 40.6° and 42.0°, not 45).
+The stitcher admits that as an overlap (`overlapToleranceLdu`,
+`COASTER_TRACK_OVERLAP_TOLERANCE_LDU` 8) and the route builder drops the
+doubly measured samples the way it already dropped a matched connector, so
+the route never steps backwards. The kinks are the set's geometry and stay.
+
+Measured with the runtime owner's `sim-ride.ts` on rebuilt packs
+(`coaster-track-datum-2026-09-22/sim-summary.txt`): 10303 worst adjacent-car
+pitch 38.4° → **36.0°** (now the loops: two cars 2.25 blocks apart on a
+3.7-block radius), and none of the named arcs remains over 20°; 10261 worst
+38.8° → **26.1°** (a real valley where a descending 26559 meets its mirror),
+over 20° on 6.9 % → **1.8 %** of car-pair ticks, p99 33.4° → 21.3°. Routes
+are 181.14 / 243.55 blocks (were 181.6 / 244.7), stations 20.38 / 217.78,
+10303's upright twist ≤ 19.6°. Composite chassis: `CoasterCar.wheelbaseLdu`
+is now measured (separate wheels: the spread of their origins along the
+travel axis; a shortcut: its own wheel subfile placements read through the
+shared text cache, `peekDatText`) — `26021c01` measures **50 LDU** (two
+24869 at x ±25), the same as `CHASSIS_WHEELBASE_LDU` assumed, which can go.
+
 ## Close-up fidelity: the budget is spent per part, where it shows (2026-09-21)
 
 The user's report was that the capacity work "tanked" the close-up. Measured,

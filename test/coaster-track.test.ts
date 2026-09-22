@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.js';
-import { COASTER_TRACK_DUPLICATE_EPSILON_LDU, COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
-import { buildCoasterPath, type CoasterVec3 } from '../web/src/engine/coaster-path.js';
+import { COASTER_RUNNING_ABOVE_RAIL_TOP_LDU, COASTER_TRACK_DUPLICATE_EPSILON_LDU, COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, COASTER_TRACK_MAX_SAMPLE_SPACING_LDU, COASTER_TRACK_OVERLAP_TOLERANCE_LDU, coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
+import { buildCoasterPath, stitchCoasterTrackFragments, type CoasterVec3 } from '../web/src/engine/coaster-path.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 
 const distanceLdu = (a: readonly number[], b: readonly number[]): number => Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!);
@@ -65,39 +65,110 @@ describe('measured coaster track profiles', () => {
   it('uses connector-plane endpoints rather than geometry bounding boxes', () => {
     expect(coasterTrackProfile('25061.dat')!.samples[0]).toEqual([240, -32, 0]);
     expect(coasterTrackProfile('25061.dat')!.samples.at(-1)![2]).toBe(240);
-    expect(coasterTrackProfile('26559.dat')!.railSamples[0]).toEqual([-10, 0, 0]);
-    expect(coasterTrackProfile('26559.dat')!.railSamples.at(-1)).toEqual([310, 144, 0]);
-    expect(coasterTrackProfile('26559.dat')!.railSamples).toContainEqual([39.5, 20.5, 0]);
-    expect(coasterTrackProfile('26560.dat')!.railSamples).toContainEqual([50.5, -1.7, 0]);
+    // A ramp's topology datum is its ray-cast rail top: at 26559's sloped tip
+    // the rail line reaches the x = -10 plane at -35.96 (the 5 LDU end relief
+    // reads -33.51 and is bridged by the wheel); at its level end the top is
+    // the straights' -17.8 below the 144 clip plane.
+    expect(coasterTrackProfile('26559.dat')!.railSamples[0]).toEqual([-10, -35.96, 0]);
+    expect(coasterTrackProfile('26559.dat')!.railSamples.at(-1)).toEqual([310, 126.2, 0]);
+    expect(coasterTrackProfile('26559.dat')!.railSamples).toContainEqual([40, 7.11, 0]);
+    expect(coasterTrackProfile('26560.dat')!.railSamples).toContainEqual([50, -13.4, 0]);
+  });
+
+  it('keeps every running line one measured clearance above its rail top', () => {
+    // The straights: rail top -17.8, running line -32, on the level.
+    expect(COASTER_RUNNING_ABOVE_RAIL_TOP_LDU).toBe(14.2);
+    expect(coasterTrackProfile('80562.dat')!.samples[0]).toEqual([-40, -32, 0]);
+    // A ramp's level end reproduces that to the rail's residual gradient at
+    // the plane: 26560's rail already climbs .052 per LDU at x = -10 (-17.8 to
+    // -17.54 over the first 5) and 26559's .038 at x = 310, so the clearance
+    // tilts with it (.74 and .54 LDU along x, .02 and .01 short in y).
+    expect(coasterTrackProfile('26560.dat')!.samples[0]![1]).toBeCloseTo(-17.8 - 14.2 * 5 / Math.hypot(5, .26), 6);
+    expect(coasterTrackProfile('26560.dat')!.samples[0]![0]).toBeCloseTo(-10 + 14.2 * .26 / Math.hypot(5, .26), 6);
+    const lowerEnd = coasterTrackProfile('26559.dat')!.samples.at(-1)!;
+    expect(lowerEnd[1]).toBeCloseTo(126.2 - 14.2 * 5 / Math.hypot(5, .19), 6);
+    expect(lowerEnd[0]).toBeCloseTo(310 + 14.2 * .19 / Math.hypot(5, .19), 6);
+    // On the slope the clearance is perpendicular: 26561's rail rises .902 per
+    // LDU, so every running sample sits 14.2 from the rail line, never the
+    // 3.9 LDU BELOW it the old sleeper-plane connector controls produced.
+    const straight = coasterTrackProfile('26561.dat')!;
+    const [x0, y0] = straight.railSamples[0]!, [x1, y1] = straight.railSamples.at(-1)!;
+    const gradient = (y1 - y0) / (x1 - x0);
+    expect(gradient).toBeCloseTo(.902, 3);
+    for (const sample of straight.samples) {
+      const clearance = Math.abs(gradient * (sample[0] - x0) - (sample[1] - y0)) / Math.hypot(gradient, 1);
+      expect(clearance).toBeCloseTo(COASTER_RUNNING_ABOVE_RAIL_TOP_LDU, 1);
+      expect(sample[1]).toBeLessThan(y0 + gradient * (sample[0] - x0));
+    }
+    // Every ramp sample is offset exactly the clearance from its rail-top
+    // control, and the vertical share of that is 14.2 / sqrt(1 + m^2): the
+    // full 14.2 on the level, never under the 10.5 of the steepest (.902) rail.
+    for (const id of ['26559', '26560', '26561', '34738']) {
+      const profile = coasterTrackProfile(id)!;
+      profile.samples.forEach((sample, index) => {
+        const rail = profile.railSamples[index]!;
+        expect(Math.hypot(sample[0] - rail[0], sample[1] - rail[1])).toBeCloseTo(COASTER_RUNNING_ABOVE_RAIL_TOP_LDU, 6);
+        expect(rail[1] - sample[1]).toBeGreaterThan(14.2 / Math.hypot(1, .902) - .01);
+        expect(rail[1] - sample[1]).toBeLessThanOrEqual(COASTER_RUNNING_ABOVE_RAIL_TOP_LDU);
+      });
+    }
   });
 
   it('preserves measured sloped terminal rail axes instead of flattening connector helpers', () => {
     const straightRamp = coasterTrackProfile('26561.dat')!.railSamples;
-    expect(straightRamp[0]).toEqual([-10, 0, 0]);
-    expect(straightRamp.at(-1)).toEqual([150, 144, 0]);
+    expect(straightRamp[0]).toEqual([-10, -36.16, 0]);
+    expect(straightRamp.at(-1)).toEqual([150, 108.13, 0]);
+    // 26559's sloped tip is a .856 gradient (40.6 degrees), the straight .902
+    // (42.0): the modelled rails are not 45 degrees, and the 1.4 degree kink
+    // at a clip-mated seam is theirs.
     const lowerTransition = coasterTrackProfile('26559.dat')!.railSamples;
     const start = lowerTransition[0]!, after = lowerTransition[1]!;
-    expect((after[1] - start[1]) / (after[0] - start[0])).toBeCloseTo(.9, 2);
+    expect((after[1] - start[1]) / (after[0] - start[0])).toBeCloseTo(.856, 2);
+    const upperTransition = coasterTrackProfile('26560.dat')!.railSamples;
+    const before = upperTransition.at(-2)!, end = upperTransition.at(-1)!;
+    expect((end[1] - before[1]) / (end[0] - before[0])).toBeCloseTo(.852, 2);
 
-    // Exact adjacent placements from 10303: the straight 45-degree rail and
-    // lower transition meet within .006 LDU and have opposing terminal axes.
+    // Exact adjacent placements from 10303: the straight rail and the lower
+    // transition are clip-mated, so their running lines meet within .43 LDU
+    // (14.2 LDU of clearance across that 1.4 degree kink) with opposing axes.
     const extraction = extractCoasterTrackRoutes([
       { color: 191, x: 189.9978, y: -432, z: -179.9956, rot: [.999988, 0, 0, 0, 1, 0, 0, 0, .999988], part: '26561.dat' },
       { color: 191, x: 350.0013, y: -288, z: -179.9969, rot: [.999988, 0, 0, 0, 1, 0, 0, 0, .999988], part: '26559.dat' },
     ]);
     expect(extraction.graph.connections).toHaveLength(1);
+    expect(extraction.graph.connections[0]!.distance).toBeCloseTo(.43, 2);
     expect(extraction.routes[0]!.fragmentIds).toEqual(['26559:1', '26561:0']);
   });
 
-  it('joins the real 10303 cut rail tips rather than their 32-LDU-away sleeper planes', () => {
+  it('joins a rotated 26559 whose rail overlaps the straight longitudinally, and drops the doubly measured rail', () => {
+    // 10303's vertical-drop pull-out: this 26559 stands rotated 90 degrees and
+    // is not clip-mated to the straight. Its rail runs 7.66 LDU past the
+    // straight's tip along the travel direction, laterally within .08 LDU, at
+    // a 7.6 degree kink. The old sleeper-plane tips matched to .04 LDU only
+    // because both sat 4 LDU inside the rail on axes 90 degrees apart.
     const extraction = extractCoasterTrackRoutes([
       { color: 191, x: 148.023138, y: -473.97964, z: -180.00192, rot: [.000345, -.999988, 0, -1, -.000345, 0, 0, 0, -.999988], part: '26559.dat' },
       { color: 191, x: 189.9978, y: -432, z: -179.9956, rot: [.999988, 0, 0, 0, 1, 0, 0, 0, .999988], part: '26561.dat' },
     ]);
     expect(extraction.graph.connections).toHaveLength(1);
-    expect(extraction.graph.connections[0]!.distance).toBeCloseTo(.0385, 2);
+    const [seam] = extraction.graph.connections;
+    expect(seam!.distance).toBeCloseTo(7.663, 2);
+    expect(seam!.distance).toBeLessThanOrEqual(COASTER_TRACK_OVERLAP_TOLERANCE_LDU);
+    expect(seam!.tangentDot).toBeCloseTo(Math.cos(7.6 * Math.PI / 180), 2);
     expect(extraction.routes).toHaveLength(1);
-    expect(() => buildCoasterPath(extraction.routes[0]!.points, false, extraction.routes[0]!.maxSegmentLengthLdu)).not.toThrow();
+    const { points } = extraction.routes[0]!;
+    // Two of the incoming mould's leading samples lie behind the straight's
+    // tip and are dropped, so the route never steps backwards over the overlap.
+    const sampleTotal = extraction.fragments.reduce((sum, fragment) => sum + fragment.samples.length, 0);
+    expect(sampleTotal - points.length).toBe(2);
+    for (let index = 2; index < points.length; index++) {
+      const a = points[index - 2]!, b = points[index - 1]!, c = points[index]!;
+      expect((b[0] - a[0]) * (c[0] - b[0]) + (b[1] - a[1]) * (c[1] - b[1]) + (b[2] - a[2]) * (c[2] - b[2])).toBeGreaterThan(0);
+    }
+    expect(() => buildCoasterPath(points, false, extraction.routes[0]!.maxSegmentLengthLdu)).not.toThrow();
+    // Without the overlap admission the two are a gap, never a nearest-point bridge.
+    const strict = stitchCoasterTrackFragments(extraction.fragments, { endpointToleranceLdu: COASTER_TRACK_ENDPOINT_TOLERANCE_LDU, minTangentDot: .97 });
+    expect(strict.connections).toEqual([]);
   });
 
   it('recognises the paired vertical 25061 quarter-turn from its measured outer rails', () => {
@@ -138,7 +209,9 @@ describe('measured coaster track profiles', () => {
     const rampEnd = fragments[1]!.samples.at(-1)!;
     const distance = Math.hypot(loopStart[0] - rampEnd[0], loopStart[1] - rampEnd[1], loopStart[2] - rampEnd[2]);
     expect(distance).toBeLessThan(COASTER_TRACK_ENDPOINT_TOLERANCE_LDU);
-    expect(distance).toBeCloseTo(.2, 1);
+    // The placements overlap by .2 LDU; the ramp's level end adds the .54 LDU
+    // its rail's residual .038 gradient carries the clearance past the plane.
+    expect(distance).toBeCloseTo(.74, 2);
   });
 
   it('applies the complete LDraw placement matrix and ignores unsupported parts', () => {
@@ -281,14 +354,16 @@ describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpu
     const [course] = extraction.routes;
     const { points } = course!;
     // Measured 2026-09-21 at 53.333 LDU/block: the floor was 7.9 LDU (.148
-    // blocks, three folds per 80564 loop) and is now 108.1 LDU (2.03 blocks,
-    // inside the 26559:1421 transition, the same floor the old route had away
-    // from the loops). COASTER_CAR_LENGTH in bedrock-coaster.ts is 1.25 blocks.
+    // blocks, three folds per 80564 loop), then 108.1 with the loops rebuilt,
+    // and is 117.5 LDU (2.20 blocks) with the ramps on the rail-top datum.
+    // COASTER_CAR_LENGTH in bedrock-coaster.ts is 1.25 blocks.
     const floor = minimumChordLdu(points, 2.25 * LDU_PER_BLOCK);
     expect(floor).toBeGreaterThan(1.25 * LDU_PER_BLOCK);
-    expect(floor).toBeGreaterThan(100);
-    // No reversal anywhere: consecutive segments never oppose, and the sharpest
-    // vertex is the 64.6-degree mirrored-ramp wiggle at the two 26559 start joins.
+    expect(floor).toBeGreaterThan(115);
+    // No reversal anywhere: consecutive segments never oppose. The sharpest
+    // vertex was the 64.6-degree wiggle the sleeper-plane connector controls
+    // put at every 26559 sloped end; it is now the 23.5-degree turn where the
+    // rotated 26559:1429 meets its loop 1.34 LDU off-line (a set placement).
     let sharpest = 0;
     for (let index = 2; index < points.length; index++) {
       const a = points[index - 2]!, b = points[index - 1]!, c = points[index]!;
@@ -297,7 +372,7 @@ describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpu
       const cosine = Math.max(-1, Math.min(1, dot / (distanceLdu(a, b) * distanceLdu(b, c))));
       sharpest = Math.max(sharpest, Math.acos(cosine) * 180 / Math.PI);
     }
-    expect(sharpest).toBeLessThan(66);
+    expect(sharpest).toBeLessThan(25);
     for (let index = 1; index < points.length; index++) {
       const spacing = distanceLdu(points[index - 1]!, points[index]!);
       expect(spacing).toBeGreaterThan(COASTER_TRACK_DUPLICATE_EPSILON_LDU);
@@ -306,22 +381,27 @@ describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpu
     expect(() => buildCoasterPath(points, false, course!.maxSegmentLengthLdu)).not.toThrow();
   });
 
-  it('represents each of its 28 matched connectors once and keeps the measured length', () => {
+  it('represents each of its 28 matched connectors once, drops the three rail overlaps, and keeps the measured length', () => {
     const [course] = extraction.routes;
     const byId = new Map(extraction.fragments.map(fragment => [fragment.id, fragment]));
     // 29 moulds' running lines summed with no seam chords at all.
     const fragmentSum = course!.fragmentIds.reduce((sum, id) => sum + polylineLengthLdu(byId.get(id)!.samples), 0);
     const routeLength = polylineLengthLdu(course!.points);
     // Was 9327.185 LDU with the folds and 34 duplicated seam vertices (1066
-    // points); the six 80564s alone shed 385.5 LDU of doubling-back.
-    expect(course!.points).toHaveLength(1012);
-    expect(routeLength).toBeCloseTo(8930.513, 2);
+    // points), then 8930.513 (1012) with the loops on one datum; the ramps on
+    // the rail-top datum shed the 23 LDU the three rotated 26559s overlap
+    // their neighbours by, and the 45-degree straights are 23 LDU higher.
+    expect(course!.points).toHaveLength(990);
+    expect(routeLength).toBeCloseTo(8905.855, 2);
     // Merging a connector's two measurements changes the length by less than
-    // the endpoint tolerance per seam; measured net -1.10 LDU over 28 seams.
-    expect(Math.abs(routeLength - fragmentSum)).toBeLessThan(28 * COASTER_TRACK_ENDPOINT_TOLERANCE_LDU);
-    expect(Math.abs(routeLength - fragmentSum)).toBeLessThan(1.2);
+    // the endpoint tolerance per seam, and each of the three rotated seams
+    // drops up to one rail overlap: measured net -27.50 LDU (28 seams -1.1,
+    // three overlaps of 7.66-7.80 and the level-end shifts the rest).
+    expect(Math.abs(routeLength - fragmentSum)).toBeLessThan(28 * COASTER_TRACK_ENDPOINT_TOLERANCE_LDU + 3 * COASTER_TRACK_OVERLAP_TOLERANCE_LDU);
+    expect(routeLength - fragmentSum).toBeCloseTo(-27.5, 1);
     const sampleTotal = course!.fragmentIds.reduce((sum, id) => sum + byId.get(id)!.samples.length, 0);
-    expect(sampleTotal - course!.points.length).toBe(28);
+    // 28 connectors represented once plus one overlapped sample at each of the three rotated seams.
+    expect(sampleTotal - course!.points.length).toBe(31);
   });
 
   it('withholds the seven-piece vertical guide and the five canopy moulds, bridging nothing', () => {

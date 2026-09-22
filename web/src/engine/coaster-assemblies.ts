@@ -36,8 +36,9 @@
  * The 10303 and 10261 measurements these rules produce are recorded in
  * `test/coaster-assemblies.test.ts` (corpus-gated) and in the addon guide.
  */
-import type { ParsedBrick } from './ldraw-parser.js';
-import type { LdrawPartMesh } from './ldraw-part-geometry.js';
+import { parseLDrawDocument, type ParsedBrick } from './ldraw-parser.js';
+import { descriptionOf, type LdrawPartMesh } from './ldraw-part-geometry.js';
+import { peekDatText } from './ldraw-geometry.js';
 import { groupFigures, isFigurePart, snapSignedPermutation } from './ldraw-entity-compiler.js';
 import { coasterTrackProfile, type CoasterTrackExtraction } from './coaster-track.js';
 import type { CoasterVec3 } from './coaster-path.js';
@@ -136,6 +137,15 @@ export interface CoasterCar {
    * either side of the car centre (24869: flange at 21.5-24, tread 24-33).
    */
   wheelGeometry?: { axleBelowOriginLdu: number; flangeRadiusLdu: number; treadBandLdu: readonly [inner: number, outer: number] };
+  /**
+   * Wheel contact spacing along the travel axis, in LDU: the spread of the
+   * separate wheel parts' origins in the car frame (10303: the two 24869 at
+   * +/-25 on the 26021), or, for a composite chassis with its wheels built in,
+   * the spread of the wheel subfile placements in its own DAT (`26021c01`:
+   * two 24869 at x +/-25, so 50). Undefined when neither can be measured; the
+   * runtime then pitches the car on the local tangent instead of the chord.
+   */
+  wheelbaseLdu?: number;
   route?: CoasterCarRoutePosition;
 }
 
@@ -412,6 +422,36 @@ function pointAtArc(route: RouteGeometry, arc: number): V {
 export interface CoasterAssemblyOptions {
   /** Override the measured chassis-origin height over the datum used for docking when no ride car provides one. */
   originAboveDatumLdu?: number;
+  /**
+   * The `.dat` text of a library part by id (`26021c01.dat`), used to read a
+   * composite chassis's own wheel subfile placements. Defaults to the shared
+   * text cache the meshes were resolved through (`peekDatText`); a test or a
+   * caller with its own loader supplies the texts directly.
+   */
+  partText?: (partId: string) => string | null | undefined;
+}
+
+/**
+ * The wheelbase of a composite chassis from the wheel-described subfile
+ * placements in its own DAT, measured along `travelLocal` in the part's
+ * frame. One level deep: a shortcut places its wheels directly (`26021c01`
+ * places two `24869`). Undefined without the text, fewer than two wheel
+ * children, or no spread between them.
+ */
+function compositeWheelbaseLdu(
+  chassisPart: string, travelLocal: V, partText: (partId: string) => string | null | undefined,
+): number | undefined {
+  const text = partText(chassisPart);
+  if (!text) return undefined;
+  const along: number[] = [];
+  for (const child of parseLDrawDocument(text).bricks) {
+    const childText = partText(child.part);
+    if (!childText || !isWheelPart(descriptionOf(childText))) continue;
+    along.push(child.x * travelLocal[0] + child.y * travelLocal[1] + child.z * travelLocal[2]);
+  }
+  if (along.length < 2) return undefined;
+  const spread = Math.max(...along) - Math.min(...along);
+  return spread > 1 ? round(spread) : undefined;
 }
 
 /**
@@ -549,10 +589,19 @@ export function detectCoasterAssemblies(
     const own = localBounds(mesh(b));
     const travelLocal: V = (own.max[0] - own.min[0]) >= (own.max[2] - own.min[2]) ? [1, 0, 0] : [0, 0, 1];
     let wheelGeometry: CoasterCar['wheelGeometry'];
+    let wheelbaseLdu: number | undefined;
     if (wheels.length) {
-      const axle = wheels.reduce((s, w) => s + apply(transpose(rot), sub(originOf(bricks[w]!), origin))[1], 0) / wheels.length;
+      const wheelsLocal = wheels.map(w => apply(transpose(rot), sub(originOf(bricks[w]!), origin)));
+      const axle = wheelsLocal.reduce((s, p) => s + p[1], 0) / wheels.length;
       const measured = wheelMeshGeometry(mesh(bricks[wheels[0]!]!));
       if (measured) wheelGeometry = { axleBelowOriginLdu: round(axle), flangeRadiusLdu: measured.flangeRadius, treadBandLdu: measured.treadBand };
+      if (wheels.length >= 2) {
+        const along = wheelsLocal.map(p => p[0] * travelLocal[0] + p[1] * travelLocal[1] + p[2] * travelLocal[2]);
+        const spread = Math.max(...along) - Math.min(...along);
+        if (spread > 1) wheelbaseLdu = round(spread);
+      }
+    } else {
+      wheelbaseLdu = compositeWheelbaseLdu(b.part, travelLocal, options.partText ?? peekDatText);
     }
     cars.push({
       id: `car:${c}`,
@@ -566,6 +615,7 @@ export function detectCoasterAssemblies(
       heightLdu: round(extent.max[1] - extent.min[1]),
       seats,
       ...(wheelGeometry ? { wheelGeometry } : {}),
+      ...(wheelbaseLdu !== undefined ? { wheelbaseLdu } : {}),
     });
   }
   // A car with no rider takes the seat measured on a ridden car of the same chassis mould.

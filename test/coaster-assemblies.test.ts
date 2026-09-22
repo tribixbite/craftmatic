@@ -86,7 +86,19 @@ function carAt(x: number, z = 0, withRider = true): ParsedBrick[] {
   return parts;
 }
 const STRAIGHT_ROUTE = [brick('80562.dat', 0, 0, 0), brick('80562.dat', 80, 0, 0)];
-const run = (bricks: ParsedBrick[]) => detectCoasterAssemblies(bricks, MESHES, extractCoasterTrackRoutes(bricks, { isGeometryAvailable: () => true }));
+/** The library texts a composite chassis is measured from: `26021c01.dat` verbatim (official 2019-01) and its children's first lines. */
+const PART_TEXTS = new Map<string, string>([
+  ['26021c01.dat', [
+    '0 Train Base  4 x  5 Roller Coaster with Dark Bluish Gray Wheels', '0 Name: 26021c01.dat', '0 !LDRAW_ORG Shortcut UPDATE 2019-01', '',
+    '1 16 0 0 0 1 0 0 0 1 0 0 0 1 26021.dat', '1 72 -25 17.4 0 0 0 1 0 1 0 -1 0 0 24869.dat', '1 72 25 17.4 0 0 0 1 0 1 0 -1 0 0 24869.dat', '',
+  ].join('\n')],
+  ['26021.dat', '0 Train Base  4 x  5 Roller Coaster\n0 Name: 26021.dat\n'],
+  ['24869.dat', '0 Wheels Roller Coaster\n0 Name: 24869.dat\n'],
+]);
+const partText = (id: string): string | undefined => PART_TEXTS.get(id.toLowerCase());
+/** Synthetic runs never consult the shared text cache, so they cannot depend on which corpus test ran first. */
+const run = (bricks: ParsedBrick[], texts: (id: string) => string | undefined = partText) =>
+  detectCoasterAssemblies(bricks, MESHES, extractCoasterTrackRoutes(bricks, { isGeometryAvailable: () => true }), { partText: texts });
 
 describe('coaster assemblies: part classes by library description', () => {
   it('names wheels, self-wheeled composites, sprockets and chain links without an id list', () => {
@@ -130,6 +142,8 @@ describe('coaster assemblies: ride cars', () => {
     expect(car!.seats[0]!.riderBricks).toHaveLength(4);
     expect(car!.route).toMatchObject({ routeIndex: 0, offsetLdu: 14.3, originAboveDatumLdu: 14.3, heading: 1 });
     expect(car!.route!.arcLdu).toBeCloseTo(80, 3);
+    // The two wheels' origins are 50 LDU apart along the travel axis.
+    expect(car!.wheelbaseLdu).toBe(50);
     expect(result.originAboveDatumLdu).toBe(14.3);
     expect(result.datumAboveRailTopLdu).toBe(14);
     expect(result.trains).toEqual([expect.objectContaining({ routeIndex: 0, carIds: [car!.id], pitchesLdu: [], extentLdu: 0 })]);
@@ -140,7 +154,15 @@ describe('coaster assemblies: ride cars', () => {
     const composite = (x: number, withRider: boolean): ParsedBrick[] => carAt(x, 0, withRider).filter(b => b.part !== '24869.dat').map(b => b.part === '26021.dat' ? { ...b, part: '26021c01.dat' } : b);
     const result = run([...STRAIGHT_ROUTE, ...composite(-20, true), ...composite(106, false)]);
     expect(result.cars).toHaveLength(2);
-    for (const car of result.cars) { expect(car.wheels).toEqual([]); expect(car.wheelGeometry).toBeUndefined(); }
+    // No wheel PART is placed, so the wheel mesh geometry is unknown, but the
+    // shortcut's own DAT places two 24869 at x +/-25: a 50 LDU wheelbase.
+    for (const car of result.cars) { expect(car.wheels).toEqual([]); expect(car.wheelGeometry).toBeUndefined(); expect(car.wheelbaseLdu).toBe(50); }
+    // Without the shortcut's text there is nothing to measure, and nothing is assumed.
+    const blind = run([...STRAIGHT_ROUTE, ...composite(-20, true)], () => undefined);
+    expect(blind.cars[0]!.wheelbaseLdu).toBeUndefined();
+    // A child whose description is unknown is not a wheel; one wheel is no wheelbase.
+    const oneWheel = run([...STRAIGHT_ROUTE, ...composite(-20, true)], id => id.toLowerCase() === '26021c01.dat' ? PART_TEXTS.get('26021c01.dat')!.replace('1 72 25 17.4 0 0 0 1 0 1 0 -1 0 0 24869.dat', '1 72 25 17.4 0 0 0 1 0 1 0 -1 0 0 3005.dat') : partText(id));
+    expect(oneWheel.cars[0]!.wheelbaseLdu).toBeUndefined();
     expect(result.cars[0]!.seats[0]!.source).toBe('rider');
     expect(result.cars[1]!.seats[0]).toMatchObject({ source: 'sibling', localLdu: [-18, -1, 0], riderBricks: [] });
     expect(result.trains).toHaveLength(1);
@@ -185,7 +207,9 @@ describe('coaster assemblies: chain lift', () => {
     // The sprockets project inside the two ramps' 288 LDU descent: their span rises less than the whole hill.
     expect(lift.riseLdu).toBeGreaterThanOrEqual(LIFT_MIN_RISE_LDU);
     expect(lift.riseLdu).toBeLessThan(288);
-    expect(lift.riseLdu).toBeCloseTo(232.9, 0);
+    // Measured on the running line, which since the rail-top datum sits 14.2
+    // LDU perpendicular above 26561's .902 rail (was 232.9 on the old line).
+    expect(lift.riseLdu).toBeCloseTo(231.2, 0);
     // An open route is ordered from its lowest endpoint, so the climb runs with increasing arc.
     expect(lift.climbDirection).toBe(1);
     expect(lift.arcStartLdu).toBeLessThan(lift.arcEndLdu);
@@ -289,6 +313,8 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster (published IOModel2V2 source)'
       expect(car.route!.offsetLdu).toBeCloseTo(14, 1);
       expect(car.route!.heading).toBe(-1);
       expect(car.wheelGeometry).toEqual({ axleBelowOriginLdu: 17.502, flangeRadiusLdu: 13.4, treadBandLdu: [24, 33] });
+      // The two 24869 sit 50 LDU apart along the chassis (+/-25 in the shortcut, the same figure placed separately here).
+      expect(car.wheelbaseLdu).toBeCloseTo(50, 1);
       expect(car.lengthLdu).toBe(141);
       expect(car.widthLdu).toBe(80);
     }
@@ -341,6 +367,8 @@ describe.skipIf(!HAVE_CORPUS)('10261 Roller Coaster (IOModel2V2 source)', () => 
     for (const car of ride) {
       expect(car.chassis.part).toBe('26021c01.dat');
       expect(car.wheels).toEqual([]);
+      // Read from the shortcut's own DAT through the cache the meshes came from: two 24869 at x +/-25.
+      expect(car.wheelbaseLdu).toBe(50);
       expect(car.seats).toHaveLength(1);
       expect(car.seats[0]!.localLdu[0]).toBeCloseTo(-18, 1);
       expect(car.seats[0]!.localLdu[1]).toBeCloseTo(-1, 1);
@@ -368,9 +396,12 @@ describe.skipIf(!HAVE_CORPUS)('10261 Roller Coaster (IOModel2V2 source)', () => 
     expect(lift!.sprockets).toHaveLength(7);
     expect(lift!.sprockets.filter(i => bricks[i]!.part === '4185.dat')).toHaveLength(4);
     expect(lift!.links).toEqual([]);
-    expect(lift!.riseLdu).toBeCloseTo(966.9, 0);
-    expect(lift!.arcStartLdu).toBeCloseTo(127.3, 0);
-    expect(lift!.arcEndLdu).toBeCloseTo(1690.9, 0);
+    // On the rail-top datum (was 966.9 on the sleeper-plane line, whose 26561s rode 23 LDU low).
+    expect(lift!.riseLdu).toBeCloseTo(965.9, 0);
+    // Arcs along the rail-top-datum route (the crest end was 1690.9 when the
+    // 26561 straights' running line ran 23 LDU inside the rails).
+    expect(lift!.arcStartLdu).toBeCloseTo(127.5, 0);
+    expect(lift!.arcEndLdu).toBeCloseTo(1679.5, 0);
     // The cars travel with increasing arc and the lift climbs the same way.
     expect(lift!.climbDirection).toBe(1);
     expect(ride.filter(car => car.route!.routeIndex === 0).every(car => car.route!.heading === 1)).toBe(true);

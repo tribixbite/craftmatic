@@ -277,6 +277,17 @@ export function getDatText(id: string): Promise<string | null> {
   return fetchDatText(id);
 }
 
+/**
+ * The cached `.dat` text of a part, synchronously: a string once it has been
+ * fetched or seeded, `null` for a known miss, `undefined` when it was never
+ * asked for. For consumers that run AFTER the meshes were resolved through
+ * this cache (the coaster detector reading a shortcut's subfile placements);
+ * it never fetches, so it can only miss where the provider was bypassed.
+ */
+export function peekDatText(id: string): string | null | undefined {
+  return datTextCache.get(normId(id));
+}
+
 // ─── Triangle resolution ──────────────────────────────────────────────────────
 
 /**
