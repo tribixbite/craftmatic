@@ -518,8 +518,27 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
 - [ ] Source compact-layout quality flag: staged DBIX instruction layouts can
   remain spread despite arm repair; proposed density threshold ~0.3 parts/stud²
   needs validation, not automatic promotion.
-- [ ] World-block mirror (x,y,z → x,−y,z) is a separate explicit decision: changing
-  it changes every schematic. Entity frame −I currently matches that grid.
+- [~] **The world-block mirror is being REMOVED (user decision, 2026-09-22).**
+  It was never just the grid: LDraw is Y-down right-handed and the project
+  converted by negating Y alone, which is a REFLECTION, so every model rendered
+  mirrored. Measured on 10261's printed `3069bp82`: `det(instance matrix)`
+  -0.9996 and **932 of 932 glyph triangles reversed** from the printed side.
+  The user saw it as `COASTER` reading backwards against the box art.
+  Mirrored today: viewer, GLB/OBJ/STL/3MF (an STL prints chiral-wrong with
+  inward normals), the block grid, .schem/.litematic/.mcstructure, the shell,
+  and the add-on preview — all mutually consistent. Chirally CORRECT: Bedrock
+  vehicle/figure entities (det +1, Pixel-proven) and the LXF import since
+  2026-09-17. `SHELL_FRAME = -I` is a COMPENSATION that exists only to land on
+  the mirrored grid.
+  Watch for the double-flip trap: before 2026-09-17 the LXF parser was itself
+  mirrored and the viewer cancelled it, so LXF sets looked RIGHT while every
+  other source looked wrong. Any source whose text reads correctly today is
+  therefore suspect, not correct.
+  The fix is `diag(1,-1,-1)` everywhere (the convention `FRAME_SIGN` and
+  `ldrawToRenderRotation('+z')` already use). It is breaking: every previously
+  exported pack or schematic becomes mirror-inconsistent with builds already
+  placed in worlds, and **every Pixel-verified ride round was verified in the
+  mirrored frame and needs re-verification**.
 - [ ] Beds/brick-built chairs undetected; door sizing/straddled-cell duplication
   and <¾-scale leaf height; 910047 sparse fill 17%; repeated-part budget
   (76240 70695×184); Tumbler 32-LDU grain reads 14.5 wide versus 11.5 true;
