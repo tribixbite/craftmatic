@@ -3,9 +3,9 @@
  * shell of an entity's FINAL emitted cube list, switched in by camera distance.
  */
 import { describe, expect, it } from 'vitest';
-import { buildLodHull, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, UNITS_PER_BLOCK } from '../web/src/engine/bedrock-lod-hull.js';
+import { buildLodHull, entityRenderCullBlocks, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, UNITS_PER_BLOCK } from '../web/src/engine/bedrock-lod-hull.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
-import { buildPlayableAddon, DEFAULT_LOD_DISTANCE, DEVICE_CUBOID_BUDGET } from '../web/src/engine/playable-addon.js';
+import { bedrockInGameText, buildPlayableAddon, DEFAULT_LOD_DISTANCE, DEVICE_CUBOID_BUDGET, type PlayableAddonOptions } from '../web/src/engine/playable-addon.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -192,6 +192,88 @@ describe('LOD hull geometry', () => {
   });
 });
 
+// ─── The actor's render cull, and the switch that has to sit under it ─────────
+
+describe('the render cull and the LOD switch', () => {
+  it('draws an actor to 64 blocks per unit of collision-box diagonal, never under 64', () => {
+    // The three device observations the constant fits (round921 + 09-19):
+    // a 0.1 shell culls at 64, a 0.6 x 1.8 figure at ~127, a metre-scale
+    // vehicle box far past 128.
+    expect(entityRenderCullBlocks({ width: 0.1, height: 0.1 })).toBe(64);
+    expect(entityRenderCullBlocks(undefined)).toBe(64);
+    expect(entityRenderCullBlocks({ width: 0.6, height: 1.8 })).toBeCloseTo(64 * Math.hypot(0.6, 1.8, 0.6), 6);
+    expect(entityRenderCullBlocks({ width: 0.6, height: 1.8 })).toBeGreaterThan(100);
+    expect(entityRenderCullBlocks({ width: 0.6, height: 1.8 })).toBeLessThan(168);
+    expect(entityRenderCullBlocks({ width: 3.5, height: 2.5 })).toBeGreaterThan(300);
+  });
+
+  it('drops the hull for 10303: a 0.1-box shell with a 50.3-block reach culls at 64, so no switch is both under the cull and far enough from the cubes', () => {
+    const plan = planLodSwitch({ lodDistance: 96, radiusBlocks: 50.3, collisionBox: { width: 0.1, height: 0.1 } });
+    expect(plan.ship).toBe(false);
+    if (plan.ship) throw new Error('unreachable');
+    expect(plan.requestedSwitchDistance).toBe(146.3);
+    expect(plan.renderCullBlocks).toBe(64);
+    expect(plan.latestSwitchDistance).toBe(64 - LOD_CULL_MARGIN_BLOCKS);
+    // The camera would be INSIDE the model's reach at the latest possible switch.
+    expect(plan.nearestCubeBlocks).toBeCloseTo(48 - 50.3, 6);
+    expect(plan.reason).toMatch(/not drawn past 64 blocks/);
+    expect(plan.reason).toMatch(/0\.1 x 0\.1/);
+  });
+
+  it('keeps the requested switch for a vehicle whose box draws it far past the switch', () => {
+    const plan = planLodSwitch({ lodDistance: 96, radiusBlocks: 12, collisionBox: { width: 3.5, height: 2.5 } });
+    expect(plan.ship).toBe(true);
+    if (!plan.ship) throw new Error('unreachable');
+    expect(plan.switchDistance).toBe(108);
+    expect(plan.switchSource).toBe('requested');
+    expect(plan.nearestCubeBlocks).toBe(96);
+    expect(plan.hullWindowBlocks).toBeCloseTo(plan.renderCullBlocks - 108, 6);
+    expect(plan.hullWindowBlocks).toBeGreaterThan(200);
+  });
+
+  it('caps the switch one chunk under the cull for a small shell, down to the 32-block floor, and drops it below', () => {
+    const shed = planLodSwitch({ lodDistance: 96, radiusBlocks: 4, collisionBox: { width: 0.1, height: 0.1 } });
+    expect(shed.ship).toBe(true);
+    if (!shed.ship) throw new Error('unreachable');
+    expect(shed.switchDistance).toBe(48);
+    expect(shed.switchSource).toBe('render-cull');
+    expect(shed.nearestCubeBlocks).toBe(44);
+    expect(shed.hullWindowBlocks).toBe(LOD_CULL_MARGIN_BLOCKS);
+    // Exactly at the floor ships; a tenth of a block past it does not.
+    const atFloor = planLodSwitch({ lodDistance: 96, radiusBlocks: 48 - MIN_LOD_NEAREST_CUBE_BLOCKS, collisionBox: { width: 0.1, height: 0.1 } });
+    expect(atFloor.ship).toBe(true);
+    const pastFloor = planLodSwitch({ lodDistance: 96, radiusBlocks: 48 - MIN_LOD_NEAREST_CUBE_BLOCKS + 0.1, collisionBox: { width: 0.1, height: 0.1 } });
+    expect(pastFloor.ship).toBe(false);
+    // A requested switch already under the cap stands as requested.
+    const near = planLodSwitch({ lodDistance: 40, radiusBlocks: 4, collisionBox: { width: 0.1, height: 0.1 } });
+    expect(near.ship && near.switchDistance).toBe(44);
+    expect(near.ship && near.switchSource).toBe('requested');
+  });
+
+  it('honours an explicit distance as asked and only reports whether the cull lets it show', () => {
+    // The device A/B ships a never-hull (1024) and an always-hull (1) pack;
+    // both must keep their hull geometry resident.
+    const never = planLodSwitch({ lodDistance: 1024, radiusBlocks: 50.3, collisionBox: { width: 0.1, height: 0.1 }, explicit: true });
+    expect(never.ship && never.switchDistance).toBe(1074.3);
+    expect(never.ship && never.hullWindowBlocks).toBeLessThan(0);
+    const always = planLodSwitch({ lodDistance: 1, radiusBlocks: 50.3, collisionBox: { width: 0.1, height: 0.1 }, explicit: true });
+    expect(always.ship && always.switchDistance).toBe(51.3);
+    expect(always.ship && always.hullWindowBlocks).toBeCloseTo(64 - 51.3, 6);
+    expect(always.ship && always.nearestCubeBlocks).toBe(1);
+  });
+
+  it('spells a percent sign out for text the game shows, and leaves everything else alone', () => {
+    // Bedrock's text formatter deletes a bare `%` (round921-21-wand-top.jpg);
+    // the word cannot be misrendered, unlike a `%%` that has not been seen
+    // rendered from a script form on a device.
+    expect(bedrockInGameText('at 100 %; 150 % makes them 2.5×2.2')).toBe('at 100 percent; 150 percent makes them 2.5×2.2');
+    expect(bedrockInGameText('Size 100% → 150%')).toBe('Size 100 percent → 150 percent');
+    expect(bedrockInGameText('reaches 5 % of the height')).toBe('reaches 5 percent of the height');
+    expect(bedrockInGameText('no sign here')).toBe('no sign here');
+    expect(bedrockInGameText('')).toBe('');
+  });
+});
+
 // ─── Through the pack: an opt-in that changes nothing until it is asked for ───
 
 const partBox = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): string[] => {
@@ -211,8 +293,12 @@ const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const C = LDU_PER_BLOCK;
 const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
 
-/** A small brick-built shell pack, with and without the LOD option. */
-const shellPack = async (lod: 'none' | 'hull', lodDistance?: number) => {
+/**
+ * A small brick-built shell pack, with and without the LOD option. `courses`
+ * makes the wall taller: a shell's root sits above the model, so a tall wall
+ * has a long reach from it and its hull cannot fit under the 64-block cull.
+ */
+const shellPack = async (lod: 'none' | 'hull', lodDistance?: number, courses = 2, extra: Partial<PlayableAddonOptions> = {}) => {
   const grid = new BlockGrid(4, 3, 4);
   for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) grid.set(x, 0, z, 'minecraft:red_concrete');
   // A wall of 2x4 bricks, three long and two courses high: enough surface for a
@@ -221,11 +307,11 @@ const shellPack = async (lod: 'none' | 'hull', lodDistance?: number) => {
   // is 80 LDU, a block 53), the case that z-fought. (Colouring by course would
   // not do: both courses sit inside one 53-LDU cell row and tie on volume.)
   const bricks: ParsedBrick[] = [];
-  for (let i = 0; i < 3; i++) for (let course = 0; course < 2; course++)
+  for (let i = 0; i < 3; i++) for (let course = 0; course < courses; course++)
     bricks.push({ part: '3001.dat', color: i ? 1 : 4, x: i * 80, y: -course * 24, z: 0, rot: I });
   return buildPlayableAddon(grid, {
     stem: 'lodshed', label: 'Lod Shed', partGeometry: provider(), pbr: false, shell: { bricks, frame },
-    lod, ...(lodDistance === undefined ? {} : { lodDistance }),
+    lod, ...(lodDistance === undefined ? {} : { lodDistance }), ...extra,
   });
 };
 
@@ -276,8 +362,11 @@ describe('the LOD hull inside a pack', () => {
     }
     const client = JSON.parse(await textOf(off.bytes, 'Craftmatic_lodshed_RP/entity/lodshed_shell.entity.json'))['minecraft:client_entity'].description as { geometry: Record<string, string> };
     expect(client.geometry.empty).toBeUndefined();
-    const diagnostics = JSON.parse(await textOf(off.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as { lod: unknown };
-    expect(diagnostics.lod).toEqual({ mode: 'none', distance: DEFAULT_LOD_DISTANCE, cuboids: 0, note: 'off', entities: {} });
+    const diagnostics = JSON.parse(await textOf(off.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as { lod: { renderCull: { blocksPerUnitDiagonal: number; evidence: string } } };
+    expect(diagnostics.lod).toMatchObject({ mode: 'none', distance: DEFAULT_LOD_DISTANCE, explicitDistance: false, cuboids: 0, note: 'off', entities: {}, skipped: {} });
+    // The cull rule the switch is derived from is stated in every pack, with its evidence.
+    expect(diagnostics.lod.renderCull.blocksPerUnitDiagonal).toBe(RENDER_CULL_BLOCKS_PER_UNIT);
+    expect(diagnostics.lod.renderCull.evidence).toMatch(/round921/);
     // Two builds of the same input agree byte for byte on the geometry (the pack
     // version comes from the clock, so the archive itself cannot be compared).
     expect(await textOf(off.bytes, 'Craftmatic_lodshed_RP/models/entity/lodshed_shell.geo.json'))
@@ -309,12 +398,13 @@ describe('the LOD hull inside a pack', () => {
       expect(c.arrays.geometries['Array.g']).toEqual([`Geometry.mesh_${index}`, 'Geometry.empty']);
     }
     const diagnostics = JSON.parse(await textOf(on.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as {
-      lod: { mode: string; distance: number; cuboids: number; note: string; entities: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number; radiusBlocks: number; switchDistance: number }> };
+      lod: { mode: string; distance: number; explicitDistance: boolean; cuboids: number; note: string; entities: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number; radiusBlocks: number; switchDistance: number; renderCullBlocks: number; switchSource: string }> };
       pack: { cuboids: number; lodCuboids: number; shareOfDeviceBudget: number };
       entities: Record<string, { cubeCount: number }>;
     };
     expect(diagnostics.lod.mode).toBe('hull');
     expect(diagnostics.lod.distance).toBe(48);
+    expect(diagnostics.lod.explicitDistance).toBe(true);
     expect(diagnostics.lod.note).toMatch(/in blocks/);
     const hull = diagnostics.lod.entities['lodshed_shell']!;
     expect(hull.cuboids).toBeGreaterThan(0);
@@ -327,12 +417,16 @@ describe('the LOD hull inside a pack', () => {
     // never at the bare option: the bare 32 flipped 10303 to its hull for a
     // camera standing at the tracks.
     expect(hull.radiusBlocks).toBeGreaterThan(1);
+    // An EXPLICIT distance (the device A/B's lever) is honoured as asked; the
+    // shell's 0.1 box culls it at 64, which is reported beside it.
     expect(hull.switchDistance).toBeCloseTo(48 + hull.radiusBlocks, 1);
+    expect(hull.switchSource).toBe('requested');
+    expect(hull.renderCullBlocks).toBe(64);
     const expressions = Object.values(controllers).map(c => c.geometry);
     const fullCount = Object.keys(client.geometry).length - 1 - hullGeometries.length;
     expect(expressions.filter(e => e === `Array.g[query.distance_from_camera > ${hull.switchDistance}]`)).toHaveLength(fullCount);
     expect(expressions.filter(e => e === `Array.g[query.distance_from_camera <= ${hull.switchDistance}]`)).toHaveLength(hullGeometries.length);
-    expect(on.warnings.some(w => new RegExp(`lodshed_shell at ${hull.switchDistance} \\(reach ${hull.radiusBlocks}\\)`).test(w))).toBe(true);
+    expect(on.warnings.some(w => new RegExp(`lodshed_shell at ${hull.switchDistance} \\(reach ${hull.radiusBlocks}, culls at 64\\)`).test(w))).toBe(true);
 
     // Two colours share block cells in this wall; no skin cell may carry a cube from both.
     const hullDoc = JSON.parse(await textOf(on.bytes, 'Craftmatic_lodshed_RP/models/entity/lodshed_shell_lod.geo.json')) as unknown;
@@ -347,5 +441,83 @@ describe('the LOD hull inside a pack', () => {
     // `shareOfDeviceBudget` is reported rounded; a shed is a rounding error of the phone's budget.
     expect(diagnostics.pack.shareOfDeviceBudget).toBeCloseTo(diagnostics.pack.cuboids / DEVICE_CUBOID_BUDGET, 3);
     expect(on.warnings.some(w => /distance LOD on/.test(w) && /blocks/.test(w))).toBe(true);
+  });
+
+  it('derives the default switch one chunk under the shell\'s 64-block cull, and drops the hull of a shell that reaches too far for that', async () => {
+    interface LodDiag {
+      lod: { cuboids: number; entities: Record<string, { switchDistance: number; requestedSwitchDistance: number; renderCullBlocks: number; nearestCubeBlocks: number; hullWindowBlocks: number; switchSource: string; radiusBlocks: number }>; skipped: Record<string, { reason: string; hullCuboidsNotShipped: number; requestedSwitchDistance: number; renderCullBlocks: number; latestSwitchDistance: number; nearestCubeBlocks: number; collisionBox: { width: number; height: number } | null }> };
+      pack: { cuboids: number; lodCuboids: number };
+    }
+    // The two-course shed: 96 + its ~3-block reach is past the cull, so the
+    // switch is capped at 64 - 16 = 48 and the camera is still 40+ blocks
+    // from the nearest brick when the hull takes over.
+    const shed = await shellPack('hull');
+    const shedDiag = JSON.parse(await textOf(shed.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
+    const h = shedDiag.lod.entities['lodshed_shell']!;
+    expect(h.switchDistance).toBe(64 - LOD_CULL_MARGIN_BLOCKS);
+    expect(h.switchSource).toBe('render-cull');
+    expect(h.requestedSwitchDistance).toBeCloseTo(DEFAULT_LOD_DISTANCE + h.radiusBlocks, 1);
+    expect(h.renderCullBlocks).toBe(64);
+    expect(h.nearestCubeBlocks).toBeCloseTo(48 - h.radiusBlocks, 1);
+    expect(h.nearestCubeBlocks).toBeGreaterThanOrEqual(MIN_LOD_NEAREST_CUBE_BLOCKS);
+    expect(h.hullWindowBlocks).toBe(LOD_CULL_MARGIN_BLOCKS);
+    expect(shedDiag.lod.skipped).toEqual({});
+    const controllers = JSON.parse(await textOf(shed.bytes, 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json')).render_controllers as Record<string, { geometry: string }>;
+    expect(Object.values(controllers).some(c => c.geometry === 'Array.g[query.distance_from_camera > 48]')).toBe(true);
+    expect(shed.warnings.some(w => /distance LOD on/.test(w) && /capped from/.test(w) && /culls at 64/.test(w))).toBe(true);
+
+    // Forty courses: the root sits ~20 blocks above the floor, so the latest
+    // switch (48) leaves the camera under 32 blocks from the top bricks. The
+    // hull is built, counted, and NOT shipped: no hull file, no empty
+    // geometry, plain controllers, zero resident hull cuboids.
+    const tower = await shellPack('hull', undefined, 40);
+    const entries = listZipEntries(ab(tower.bytes));
+    expect(entries.filter(e => /_lod\.geo\.json$|craftmatic_lod_empty/.test(e))).toEqual([]);
+    const towerControllers = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_RP/render_controllers/lodshed_shell.render_controllers.json')).render_controllers as Record<string, { arrays?: unknown; geometry: string }>;
+    for (const c of Object.values(towerControllers)) {
+      expect(c.arrays).toBeUndefined();
+      expect(c.geometry).toMatch(/^Geometry\.mesh_\d+$/);
+    }
+    const client = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_RP/entity/lodshed_shell.entity.json'))['minecraft:client_entity'].description as { geometry: Record<string, string> };
+    expect(client.geometry.empty).toBeUndefined();
+    const towerDiag = JSON.parse(await textOf(tower.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
+    expect(towerDiag.lod.cuboids).toBe(0);
+    expect(towerDiag.pack.lodCuboids).toBe(0);
+    expect(towerDiag.lod.entities).toEqual({});
+    const skipped = towerDiag.lod.skipped['lodshed_shell']!;
+    expect(skipped.hullCuboidsNotShipped).toBeGreaterThan(0);
+    expect(skipped.renderCullBlocks).toBe(64);
+    expect(skipped.latestSwitchDistance).toBe(48);
+    expect(skipped.nearestCubeBlocks).toBeLessThan(MIN_LOD_NEAREST_CUBE_BLOCKS);
+    expect(skipped.collisionBox).toEqual({ width: 0.1, height: 0.1 });
+    expect(skipped.reason).toMatch(/not drawn past 64 blocks/);
+    // The pack without the option has the same resident cuboids: nothing was shipped for the LOD.
+    const plain = await shellPack('none', undefined, 40);
+    const plainDiag = JSON.parse(await textOf(plain.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as LodDiag;
+    expect(towerDiag.pack.cuboids).toBe(plainDiag.pack.cuboids);
+    expect(tower.warnings.some(w => /distance LOD dropped/.test(w) && /collision box/.test(w) && /hull cuboids not shipped/.test(w))).toBe(true);
+    expect(tower.warnings.some(w => /distance LOD on/.test(w))).toBe(false);
+  });
+
+  it('hands the wand a walk-through reason the game can show: every percent sign spelt out, the diagnostics untouched', async () => {
+    const reason = 'Wall openings are 1.7×1.5 blocks at 100 %; 150 % makes them 2.5×2.2 (a player needs 1×2; 49/149 clear it); a player still reaches 5 % of the model\'s height at 150 %.';
+    const pack = await shellPack('none', undefined, 2, {
+      access: { basis: 'apertures', scale: 1.5, sizePct: 150, reason },
+      interactionNote: 'A measured source door leaf remains under the two-block vanilla clearance even at 400%, so the wand will not claim a usable door.',
+    });
+    const script = await textOf(pack.bytes, 'Craftmatic_lodshed_BP/scripts/placement.js');
+    // Exactly the text the wand embeds, as it will render (round921-21-wand-top.jpg showed the `%` deleted).
+    expect(script).toContain(JSON.stringify('Wall openings are 1.7×1.5 blocks at 100 percent; 150 percent makes them 2.5×2.2 (a player needs 1×2; 49/149 clear it); a player still reaches 5 percent of the model\'s height at 150 percent.'));
+    expect(script).toContain('even at 400 percent, so the wand');
+    expect(script).not.toContain(JSON.stringify(reason));
+    // Nothing this pack hands the wand carries a sign the formatter would
+    // delete (the wand runtime's own `${size}%` templates are its module's).
+    const config = /^const CONFIG = (.*);$/m.exec(script)![1]!;
+    expect(config).not.toMatch(/%/);
+    // The recommended step itself still travels as a number for the Size button.
+    expect(config).toContain('"sizePct":150');
+    // The diagnostics record keeps the measurement as measured.
+    const diagnostics = JSON.parse(await textOf(pack.bytes, 'Craftmatic_lodshed_BP/craftmatic-diagnostics.json')) as { access: { reason: string } };
+    expect(diagnostics.access.reason).toBe(reason);
   });
 });

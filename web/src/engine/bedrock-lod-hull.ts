@@ -53,6 +53,17 @@
  * blocks over the ground and 68.7 % of the model's own skin is farther than 32
  * blocks from it, so a switch at a bare 32 put the hull in front of a camera
  * standing at the tracks. The switch has to be `lodDistance + radiusBlocks`.
+ *
+ * THE HULL IS THE SAME ACTOR AS THE MODEL, SO IT CULLS WHEN THE MODEL CULLS.
+ * Bedrock stops drawing an actor at a camera distance that follows its
+ * `minecraft:collision_box`, not its geometry or `visible_bounds_*`
+ * (`entityRenderCullBlocks`). A shell's box is 0.1 x 0.1 and it culls ~64
+ * blocks from its root: 10303 (round921, 2026-09-21) was drawn whole at the
+ * 60-block stop and absent at 70, 86, 100 and 168, while its 0.6 x 1.8 figures
+ * were still drawn at 100. The switch this morning was 146.3 (96 + 50.3 reach),
+ * so its 760 hull cuboids were resident and never drawn once. `planLodSwitch`
+ * now derives the switch from the cull and drops the hull when the actor culls
+ * before the hull could be anything but a blob in plain sight.
  */
 
 import type { CompiledMesh } from './ldraw-entity-compiler.js';
@@ -391,5 +402,155 @@ export function buildLodHull(entityId: string, input: LodHullInput, options: Bui
     colours: new Set(meshes.map(m => m.material.colorId)).size, cellBlocks,
     extentBlocks: { min: toBlocks(extentMin), max: toBlocks(extentMax) },
     radiusBlocks: radius / UNITS_PER_BLOCK,
+  };
+}
+
+// ─── Where the actor stops drawing, and the switch that fits under it ────────
+
+/** `minecraft:collision_box` as a behaviour file declares it (blocks). */
+export interface CollisionBox { width: number; height: number }
+
+/**
+ * Blocks of camera distance the Bedrock client keeps drawing an actor, per unit
+ * of its collision-box diagonal. Java's `Entity.shouldRenderAtSqrDistance`
+ * draws to 64 x the bounding-box diagonal; Bedrock's counterpart is
+ * undocumented, and this constant is what three Pixel 8 Pro observations
+ * (Bedrock 1.26.51) fit:
+ *
+ *   - 10303's shell, box 0.1 x 0.1, root 45 blocks above the track: drawn
+ *     whole at the 60-block camera stop, absent at 70, 86, 100 and 168
+ *     (`output/bedrock-entity-qa/round921/round921-53-d60.jpg` … `-49-far160`).
+ *   - its figures, box 0.6 x 1.8 (diagonal 1.99 -> 127 blocks): drawn at 70,
+ *     86 and 100, gone by 168 (`-50-d100.jpg`, `-49-far160.jpg`).
+ *   - the Milano 76286, a vehicle with a metre-scale box: drawn at 92-128
+ *     (`output/device-919/lod/LOD-RESULT.md`; the "128" there was the SHIP,
+ *     the Hogwarts shell was only ever confirmed to 48).
+ *
+ * Neither the geometry's extent nor its `visible_bounds_*` enter into it:
+ * 10303 declares a 177 x 189-block culling box and still vanished.
+ */
+export const RENDER_CULL_BLOCKS_PER_UNIT = 64;
+
+/**
+ * The diagonal below which the cull stops shrinking. A 0.1-block box has a
+ * 0.17-block diagonal and would cull at 11 blocks under the bare rule; the
+ * shell was drawn at 60, so the client clamps small actors to one unit
+ * (64 blocks). Inferred, not documented; the lower end is what a device
+ * round should walk out from a placed shell to pin down.
+ */
+export const RENDER_CULL_MIN_UNITS = 1;
+
+/**
+ * Camera-to-root distance past which the client stops drawing an actor with
+ * this collision box at 100 %. The size groups scale the box with the model
+ * (a 25 % shell has a 0.025 box), which changes nothing under the clamp for a
+ * shell and shortens a vehicle's cull; the plan is made at 100 %.
+ */
+export function entityRenderCullBlocks(box: CollisionBox | undefined): number {
+  const width = Math.max(0, box?.width ?? 0), height = Math.max(0, box?.height ?? 0);
+  return RENDER_CULL_BLOCKS_PER_UNIT * Math.max(RENDER_CULL_MIN_UNITS, Math.hypot(width, height, width));
+}
+
+/**
+ * Blocks of camera travel the hull must be on screen for before the actor
+ * culls, or it never shows in practice: the 09-19 round measured the switch
+ * landing 4-6 blocks before its nominal value (26-28 for 32), and one chunk
+ * of margin covers that with room for the camera sitting ahead of the player.
+ */
+export const LOD_CULL_MARGIN_BLOCKS = 16;
+
+/**
+ * The closest the camera may be to the model's nearest cube when the hull
+ * takes over. The 09-19 round accepted the 1-block hull from 28 blocks
+ * (silhouette and colours kept, brick texture gone); the point-blank blob the
+ * user reported on 10303 was a switch that let the camera stand AT the
+ * cubes. Below this the hull is degradation in plain sight, and shipping it
+ * is worse than the pop the cull already causes.
+ */
+export const MIN_LOD_NEAREST_CUBE_BLOCKS = 32;
+
+export interface LodSwitchInput {
+  /** Camera-to-nearest-cube distance the pack asks for (`PlayableAddonOptions.lodDistance`). */
+  lodDistance: number;
+  /** The entity's reach from its root (`LodHull.radiusBlocks`). */
+  radiusBlocks: number;
+  /** The entity's `minecraft:collision_box` at 100 %; absent means the clamp (64 blocks). */
+  collisionBox?: CollisionBox;
+  /**
+   * `lodDistance` was set by the operator (`--lod-distance`), so the switch is
+   * honoured as asked — the device A/B ships packs that never or always hull
+   * — and an unreachable switch is only reported. The derived rule applies to
+   * the pipeline default.
+   */
+  explicit?: boolean;
+}
+
+export interface LodSwitchPlan {
+  ship: true;
+  /** Camera-to-ROOT distance the render controllers test. */
+  switchDistance: number;
+  /** `lodDistance + radiusBlocks`: the switch the option alone would give. */
+  requestedSwitchDistance: number;
+  /** Camera-to-root distance past which this actor is not drawn at all. */
+  renderCullBlocks: number;
+  /** Guaranteed camera-to-nearest-cube distance when the hull takes over (`switchDistance - radiusBlocks`). */
+  nearestCubeBlocks: number;
+  /** Blocks of camera travel between the switch and the cull; negative means the hull is never drawn. */
+  hullWindowBlocks: number;
+  /** Which bound set the switch. */
+  switchSource: 'requested' | 'render-cull';
+}
+
+export interface LodSwitchSkip {
+  ship: false;
+  reason: string;
+  requestedSwitchDistance: number;
+  renderCullBlocks: number;
+  /** What the switch would have had to be to sit under the cull, and how close to the cubes that puts the camera. */
+  latestSwitchDistance: number;
+  nearestCubeBlocks: number;
+}
+
+export type LodSwitchDecision = LodSwitchPlan | LodSwitchSkip;
+
+const round1 = (v: number): number => Math.round(v * 10) / 10;
+
+/**
+ * The rule for one entity's switch, derived rather than set:
+ *
+ *   requested = lodDistance + radiusBlocks        (the camera is `lodDistance` from every cube)
+ *   cull      = entityRenderCullBlocks(box)       (past this the actor is not drawn at all)
+ *   latest    = cull - LOD_CULL_MARGIN_BLOCKS     (the hull must be seen for a chunk of travel)
+ *   switch    = min(requested, latest)
+ *   ship only if switch - radiusBlocks >= MIN_LOD_NEAREST_CUBE_BLOCKS
+ *
+ * 10303 (reach 50.3, box 0.1): requested 146.3, cull 64, latest 48, so the
+ * camera would be 2.3 blocks INSIDE the model's reach at the switch — the hull
+ * is dropped and its 760 cuboids are not shipped. A vehicle with a 3.5 x 2.5
+ * box culls at 358, so its requested switch stands.
+ */
+export function planLodSwitch(input: LodSwitchInput): LodSwitchDecision {
+  const requestedSwitchDistance = round1(input.lodDistance + input.radiusBlocks);
+  const renderCullBlocks = round1(entityRenderCullBlocks(input.collisionBox));
+  const latestSwitchDistance = round1(renderCullBlocks - LOD_CULL_MARGIN_BLOCKS);
+  if (input.explicit) {
+    // The operator's number, as asked; reachability is reported, not enforced.
+    return {
+      ship: true, switchDistance: requestedSwitchDistance, requestedSwitchDistance, renderCullBlocks,
+      nearestCubeBlocks: round1(input.lodDistance), hullWindowBlocks: round1(renderCullBlocks - requestedSwitchDistance), switchSource: 'requested',
+    };
+  }
+  const switchDistance = Math.min(requestedSwitchDistance, latestSwitchDistance);
+  const nearestCubeBlocks = round1(switchDistance - input.radiusBlocks);
+  if (nearestCubeBlocks < MIN_LOD_NEAREST_CUBE_BLOCKS) {
+    return {
+      ship: false, requestedSwitchDistance, renderCullBlocks, latestSwitchDistance, nearestCubeBlocks,
+      reason: `the actor is not drawn past ${renderCullBlocks} blocks from its root (collision box ${input.collisionBox ? `${input.collisionBox.width} x ${input.collisionBox.height}` : 'absent'}), so the hull could only take over by ${latestSwitchDistance}; with a reach of ${round1(input.radiusBlocks)} that puts the camera ${nearestCubeBlocks} blocks from the nearest cube, under the ${MIN_LOD_NEAREST_CUBE_BLOCKS} at which the 1-block hull is acceptable`,
+    };
+  }
+  return {
+    ship: true, switchDistance, requestedSwitchDistance, renderCullBlocks, nearestCubeBlocks,
+    hullWindowBlocks: round1(renderCullBlocks - switchDistance),
+    switchSource: switchDistance < requestedSwitchDistance ? 'render-cull' : 'requested',
   };
 }

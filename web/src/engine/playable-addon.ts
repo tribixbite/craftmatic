@@ -22,7 +22,7 @@ import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
 import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
-import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID } from './bedrock-lod-hull.js';
+import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { COASTER_CAR_LENGTH, coasterCartAssets, coasterRuntimeConfig, coasterScript, type CoasterRoute } from './bedrock-coaster.js';
@@ -144,7 +144,11 @@ export interface PlayableAddonOptions {
      * old bare threshold of 32 — the hull drew for a camera standing at the
      * tracks (user report 2026-09-21). Each entity's controllers therefore
      * switch at `lodDistance + hull.radiusBlocks`, its reach from the root,
-     * which puts the camera at least `lodDistance` from every cube.
+     * which puts the camera at least `lodDistance` from every cube — capped
+     * under the actor's own render cull (`planLodSwitch`), or the hull is
+     * dropped: an entity whose collision box culls it at 64 blocks cannot
+     * show a hull switched at 146 (10303, the same day). Set explicitly, the
+     * value is honoured as asked and only reported when unreachable.
      */
     lodDistance?: number;
     /**
@@ -198,9 +202,16 @@ export type LodMode = 'none' | 'hull';
  * hull cell was 30 px and a brick face (20 LDU = 0.375 block at minifig scale)
  * 11 px — brick detail in plain sight was swapped for 30-px voxels. At 96 a
  * hull cell is 10 px and a brick face 3.75 px, under the ~4 px at which brick
- * edges stop resolving on that screen. Entities were seen drawn at 128 blocks
- * on the same device (09-19 round), so the frame-time lever still exists for
- * far sets; `--lod-distance` overrides it for the crowded A/B.
+ * edges stop resolving on that screen.
+ *
+ * This is the distance the pack ASKS for. Whether an entity can honour it is
+ * decided per entity by `planLodSwitch`: the client stops drawing an actor at
+ * a distance set by its `minecraft:collision_box` (a 0.1-box shell at ~64
+ * blocks from its root — 10303 vanished between the 60- and 70-block camera
+ * stops on 2026-09-21), and the hull is the same actor, so a switch past that
+ * cull is never reached. The "drawn at 128 blocks" of the 09-19 round was the
+ * Milano, a vehicle with a metre-scale box. `--lod-distance` sets an explicit
+ * distance that is honoured as asked, for the device A/B.
  */
 export const DEFAULT_LOD_DISTANCE = 96;
 export type VehicleCameraStyle = 'orbit' | 'boom';
@@ -861,6 +872,30 @@ function textureKeys(bindings: MeshBinding[]): { textures: Record<string, string
     return { textures, keyOf };
 }
 
+/** The `minecraft:collision_box` a behaviour document declares at 100 %, for the render-cull rule (`planLodSwitch`). */
+function collisionBoxOf(behavior: unknown): CollisionBox | undefined {
+    const box = (behavior as { 'minecraft:entity'?: { components?: { 'minecraft:collision_box'?: Partial<CollisionBox> } } } | null | undefined)?.['minecraft:entity']?.components?.['minecraft:collision_box'];
+    return box && typeof box.width === 'number' && typeof box.height === 'number' ? { width: box.width, height: box.height } : undefined;
+}
+/**
+ * A string for the game to SHOW - a form body or button, a chat line, an
+ * action bar. The client passes every one of them through its localisation
+ * formatter, where `%` opens a format argument (`%s`, `%1`, `%d`) and a `%`
+ * that opens nothing is deleted: the wand rendered "at 100 %; 150 % makes"
+ * as "at 100 ; 150  makes" and the Size button "100%" as "100" (Pixel 8 Pro,
+ * `output/bedrock-entity-qa/round921/round921-21-wand-top.jpg`, `-20-size-menu`).
+ * Mojang's own `en_US.lang` spells a literal percent `%%`
+ * (`options.percent.format=%s%%`, `attribute.modifier.plus.1=+%d%% %s`,
+ * `world_recovery.progress=… %4%% complete`), so `%%` is the lang-file
+ * escape; whether a script form body honours the same escape has not been
+ * seen on a device, and a `%%` that rendered literally would be worse than a
+ * word. So the word, until a device round confirms `%%` - then this one
+ * replacement changes. Applied at the hand-off to the wand; the diagnostics
+ * JSON and the README keep the sign, nothing renders them in game.
+ */
+export function bedrockInGameText(s: string): string {
+    return s.replace(/\s*%/g, ' percent');
+}
 /**
  * How a client entity's geometries are split between the full model and its LOD
  * hull. `fullCount` bindings come first (the model), the rest are the hull.
@@ -1673,13 +1708,22 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // That 32 was a root distance and put the hull in front of a camera standing
     // at 10303's tracks; see `DEFAULT_LOD_DISTANCE` and `LodBinding.distance`.
     const lodMode: LodMode = options.lod ?? 'none';
-    const lodDistance = Number.isFinite(options.lodDistance) && options.lodDistance! > 0 ? options.lodDistance! : DEFAULT_LOD_DISTANCE;
+    const lodExplicit = Number.isFinite(options.lodDistance) && options.lodDistance! > 0;
+    const lodDistance = lodExplicit ? options.lodDistance! : DEFAULT_LOD_DISTANCE;
     /**
      * Per-entity LOD hull accounting, reported in `craftmatic-diagnostics.json`
      * (nothing silent). `switchDistance` is the camera-to-root distance the
-     * controllers test: `lodDistance + radiusBlocks`.
+     * controllers test: `lodDistance + radiusBlocks`, capped under the actor's
+     * render cull by `planLodSwitch`; `hullWindowBlocks` is how far the camera
+     * can travel with the hull on screen before the actor stops drawing.
      */
-    const lodHulls: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number; radiusBlocks: number; switchDistance: number }> = {};
+    const lodHulls: Record<string, { cuboids: number; colours: number; geometries: number; cellBlocks: number; shareOfEntity: number; radiusBlocks: number; switchDistance: number; requestedSwitchDistance: number; renderCullBlocks: number; nearestCubeBlocks: number; hullWindowBlocks: number; switchSource: 'requested' | 'render-cull' }> = {};
+    /**
+     * Entities whose hull was built and then NOT shipped, because the actor
+     * culls before the hull could take over at an acceptable distance. The
+     * cuboids saved are named so the decision is auditable from the pack.
+     */
+    const lodSkipped: Record<string, { reason: string; radiusBlocks: number; requestedSwitchDistance: number; renderCullBlocks: number; latestSwitchDistance: number; nearestCubeBlocks: number; collisionBox: CollisionBox | null; hullCuboidsNotShipped: number }> = {};
     let lodEmptyEmitted = false;
     const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false): void => {
         if (animations) minifigsEmitted++;
@@ -1699,26 +1743,38 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (lodMode === 'hull' && lodEligible) {
             const hull = buildLodHull(ecid, geo, { cellBlocks: DEFAULT_HULL_CELL_BLOCKS });
             if (hull) {
-                // The query measures to the ROOT; adding the entity's reach keeps
-                // the camera at least `lodDistance` from its nearest cube.
+                // The query measures to the ROOT; the plan adds the entity's reach
+                // so the camera is at least `lodDistance` from its nearest cube,
+                // then fits the switch under the actor's render cull — or drops
+                // the hull, since a hull the actor culls before showing is only
+                // resident cuboids (10303's 760, 2026-09-21).
                 const radiusBlocks = Math.round(hull.radiusBlocks * 10) / 10;
-                const switchDistance = Math.round((lodDistance + hull.radiusBlocks) * 10) / 10;
-                lod = { fullCount: bindings.length, distance: switchDistance };
-                for (const mesh of hull.meshes) bindings.push({
-                    geometryId: mesh.id,
-                    texture: `textures/entity/${legoMaterialSwatchName(mesh.material)}`,
-                    translucent: mesh.translucent,
-                });
-                files.push({ name: `${rp}models/entity/${ecid}_lod.geo.json`, data: geoJson(hull.value) });
-                if (!lodEmptyEmitted) {
-                    lodEmptyEmitted = true;
-                    files.push({ name: `${rp}models/entity/craftmatic_lod_empty.geo.json`, data: geoJson(LOD_EMPTY_GEOMETRY) });
+                const collisionBox = collisionBoxOf(behavior);
+                const plan = planLodSwitch({ lodDistance, radiusBlocks: hull.radiusBlocks, collisionBox, explicit: lodExplicit });
+                if (plan.ship) {
+                    lod = { fullCount: bindings.length, distance: plan.switchDistance };
+                    for (const mesh of hull.meshes) bindings.push({
+                        geometryId: mesh.id,
+                        texture: `textures/entity/${legoMaterialSwatchName(mesh.material)}`,
+                        translucent: mesh.translucent,
+                    });
+                    files.push({ name: `${rp}models/entity/${ecid}_lod.geo.json`, data: geoJson(hull.value) });
+                    if (!lodEmptyEmitted) {
+                        lodEmptyEmitted = true;
+                        files.push({ name: `${rp}models/entity/craftmatic_lod_empty.geo.json`, data: geoJson(LOD_EMPTY_GEOMETRY) });
+                    }
+                    lodHulls[ecid] = {
+                        cuboids: hull.cuboids, colours: hull.colours, geometries: hull.meshes.length, cellBlocks: hull.cellBlocks,
+                        shareOfEntity: Math.round(hull.cuboids / Math.max(1, geo.diagnostics.cubeCount) * 1000) / 1000,
+                        radiusBlocks, switchDistance: plan.switchDistance, requestedSwitchDistance: plan.requestedSwitchDistance,
+                        renderCullBlocks: plan.renderCullBlocks, nearestCubeBlocks: plan.nearestCubeBlocks, hullWindowBlocks: plan.hullWindowBlocks, switchSource: plan.switchSource,
+                    };
+                } else {
+                    lodSkipped[ecid] = {
+                        reason: plan.reason, radiusBlocks, requestedSwitchDistance: plan.requestedSwitchDistance, renderCullBlocks: plan.renderCullBlocks,
+                        latestSwitchDistance: plan.latestSwitchDistance, nearestCubeBlocks: plan.nearestCubeBlocks, collisionBox: collisionBox ?? null, hullCuboidsNotShipped: hull.cuboids,
+                    };
                 }
-                lodHulls[ecid] = {
-                    cuboids: hull.cuboids, colours: hull.colours, geometries: hull.meshes.length, cellBlocks: hull.cellBlocks,
-                    shareOfEntity: Math.round(hull.cuboids / Math.max(1, geo.diagnostics.cubeCount) * 1000) / 1000,
-                    radiusBlocks, switchDistance,
-                };
             }
         }
         files.push(
@@ -2149,8 +2205,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
-        const switches = Object.entries(lodHulls).map(([id, h]) => `${id} at ${h.switchDistance} (reach ${h.radiusBlocks})`).join(', ');
-        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over once the camera is more than ${lodDistance} blocks from a model's nearest cube; query.distance_from_camera reads in blocks to the entity ROOT (Pixel 8 Pro, 2026-09-19), so each entity switches at ${lodDistance} plus its reach from the root: ${switches}.`);
+        const switches = Object.entries(lodHulls).map(([id, h]) => `${id} at ${h.switchDistance} (reach ${h.radiusBlocks}, culls at ${h.renderCullBlocks}${h.switchSource === 'render-cull' ? `, capped from ${h.requestedSwitchDistance}` : ''}${h.hullWindowBlocks <= 0 ? ', NEVER DRAWN: the switch is past the cull' : ''})`).join(', ');
+        warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over once the camera is more than ${lodDistance} blocks from a model's nearest cube; query.distance_from_camera reads in blocks to the entity ROOT (Pixel 8 Pro, 2026-09-19), so each entity switches at ${lodDistance} plus its reach from the root, capped ${LOD_CULL_MARGIN_BLOCKS} blocks under the distance its collision box lets the client draw it to (${RENDER_CULL_BLOCKS_PER_UNIT} blocks per unit of box diagonal, at least ${RENDER_CULL_BLOCKS_PER_UNIT * RENDER_CULL_MIN_UNITS}; Pixel 8 Pro, 2026-09-21): ${switches}.`);
+    }
+    // A hull the actor culls before it could take over is dropped, and the
+    // pack says so, with the collision box that would let it ship.
+    if (Object.keys(lodSkipped).length) {
+        const boxFor = (requested: number): string => (Math.ceil((requested + LOD_CULL_MARGIN_BLOCKS) / (RENDER_CULL_BLOCKS_PER_UNIT * Math.sqrt(3)) * 10) / 10).toFixed(1);
+        const dropped = Object.entries(lodSkipped).map(([id, s]) => `${id} (${s.hullCuboidsNotShipped} hull cuboids not shipped: ${s.reason}; a ${boxFor(s.requestedSwitchDistance)} x ${boxFor(s.requestedSwitchDistance)} collision box would draw it to ${s.requestedSwitchDistance + LOD_CULL_MARGIN_BLOCKS}+ blocks)`).join('; ');
+        warnings.push(`${label}: distance LOD dropped for ${Object.keys(lodSkipped).length} entit${Object.keys(lodSkipped).length === 1 ? 'y' : 'ies'} - the client stops drawing the whole actor before its hull could take over at ${MIN_LOD_NEAREST_CUBE_BLOCKS}+ blocks from its nearest cube, so the model pops out at that cull whether or not a hull ships: ${dropped}.`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
     if (Object.keys(diagnostics).length || coasterConfig || options.access) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
@@ -2161,8 +2224,18 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
         // `query.distance_from_camera` is evaluated in a geometry field and reads
         // in blocks to the entity root (device round 2026-09-19); `distance` is the
-        // nearest-cube option and each entity's `switchDistance` adds its reach.
-        lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks to the entity ROOT (Pixel 8 Pro 2026-09-19); each entity switches at distance + its radiusBlocks (switchDistance)' : 'off', entities: lodHulls },
+        // nearest-cube option and each entity's `switchDistance` adds its reach,
+        // capped under the actor's render cull (`renderCull`, device round
+        // 2026-09-21) or the hull is dropped (`skipped`).
+        lod: {
+            mode: lodMode, distance: lodDistance, explicitDistance: lodExplicit, cuboids: lodCuboids,
+            note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks to the entity ROOT (Pixel 8 Pro 2026-09-19); each entity switches at distance + its radiusBlocks, capped marginBlocks under its renderCullBlocks (switchDistance), or ships no hull (skipped)' : 'off',
+            renderCull: {
+                blocksPerUnitDiagonal: RENDER_CULL_BLOCKS_PER_UNIT, minUnits: RENDER_CULL_MIN_UNITS, marginBlocks: LOD_CULL_MARGIN_BLOCKS, minNearestCubeBlocks: MIN_LOD_NEAREST_CUBE_BLOCKS,
+                evidence: 'Pixel 8 Pro, Bedrock 1.26.51, 2026-09-21 (output/bedrock-entity-qa/round921): 10303 shell, collision box 0.1 x 0.1, drawn at the 60-block stop and absent at 70/86/100/168 while its 0.6 x 1.8 figures were drawn at 100 and gone at 168; visible_bounds (177 x 189) and simulation distance ruled out (the player stood at the model). The 64-per-unit constant is Java\'s shouldRenderAtSqrDistance rule; Bedrock\'s is undocumented and the clamp at one unit is inferred.',
+            },
+            entities: lodHulls, skipped: lodSkipped,
+        },
         // The measured walk-through size, whole: the recommended step, what it
         // was measured on (door leaves or wall openings), the representative
         // doorway, the interior headroom and how far up the model a player
@@ -2211,9 +2284,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         preview: { typeId: ghost.typeId },
         ...(placementColliders ? { colliders: placementColliders } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
-        ...(options.interactionNote ? { interactionNote: options.interactionNote } : {}),
-        // The wand names the measured walk-through step and quotes the reason whole.
-        ...(options.access ? { access: { ...(options.access.sizePct !== undefined ? { sizePct: options.access.sizePct } : {}), reason: options.access.reason } } : {}),
+        ...(options.interactionNote ? { interactionNote: bedrockInGameText(options.interactionNote) } : {}),
+        // The wand names the measured walk-through step and quotes the reason
+        // whole - spelt for Bedrock's text formatter, which deletes a bare `%`.
+        ...(options.access ? { access: { ...(options.access.sizePct !== undefined ? { sizePct: options.access.sizePct } : {}), reason: bedrockInGameText(options.access.reason) } } : {}),
         ...(manualSeatId || options.manualSeatTypeId ? { manualSeatTypeId: manualSeatId ? `${PACK_NAMESPACE}:${manualSeatId}` : options.manualSeatTypeId } : {}),
         ...(options.runtimeDoorCandidates ? { runtimeDoorCandidates: options.runtimeDoorCandidates } : {}) });
     files.push(...placement.files.map(file => ({
