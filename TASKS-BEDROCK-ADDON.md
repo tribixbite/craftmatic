@@ -4,129 +4,71 @@ This file holds open work and the evidence needed to resume. Completed history
 belongs in `git log`, `docs/lego-sources-guide.md`, and
 `docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## Active round — 2026-09-21 evening, USER-REPORTED VISUAL REGRESSION (10303)
+## Active round — 2026-09-21 night, quality rebuild shipped to world 921
 
-The user placed 10303 on the Pixel 8 Pro from
-`output/bedrock-entity-qa/10303-coaster-idfix-20260921.mcaddon` and rejected the
-result: "the visual quality of the model looks horrendous and is unacceptable -
-even up close… once the player is moved a dozen or so individual blocks away…
-the visual quality goes from horrendous to deplorable - and on top of that the
-surfaces jitter between different colors in a seizure-inducing spasm."
-Their own screenshots are the evidence, pulled and downscaled to
-`output/bedrock-entity-qa/user-report-20260921/u-*.png` (raw beside them):
+The user rejected the previous pack ("horrendous and unacceptable" close-up,
+surfaces that "jitter between different colors in a seizure-inducing spasm").
+Their screenshots are at `output/bedrock-entity-qa/user-report-20260921/u-*.png`.
+Everything below is committed, fully gated (2014 passed / 26 skipped, both
+typechecks, production build, structural validator) and built into ONE pack:
 
-- `u-183012` (player -17,82,95), `u-183028` (-20,82,92), `u-183034` (-19,82,93)
-  and `u-183927` (-27,64,49, point blank): the model draws as a coarse blocky
-  BLOB — the LOD hull — with heavy diagonal hatching on the surfaces.
-- `u-183050` (-33,85,78): the SAME model in full crisp detail.
-  So the hull is taking over at close range, and the hatching is two coplanar
-  surfaces fighting for depth. `query.distance_from_camera` measures to the
-  ENTITY, and the shell is ONE entity spanning ~42x44x21 blocks, so a camera
-  standing at the geometry is easily >32 (`DEFAULT_LOD_DISTANCE`) from its
-  origin. Working hypothesis, being verified: the threshold must include the
-  model's bounding radius and the base default must be far larger, and
-  per-colour hull cells may claim the same face.
-- `u-183050`/`u-183028` also show the figure defects: two riders stand bolt
-  UPRIGHT and FLOAT beside the near-vertical drop car, and hair pieces hang
-  detached above their heads.
+`output/bedrock-entity-qa/10303-round921.mcaddon`, 510,429 bytes, SHA256
+`3ae2e61bab85865f96c584eddca556dc5339613e8ecd4e78b7ba39255a469647`, pack list
+name `10303-Loop-Coaster — Playable (2026-09-21 bbb26a58)` (clean, no `+dirty`),
+manifest version `[2609,2200,1506]` = 2026-09-22T00:15:06Z, 50,765 cuboids over
+10 entities (10.6 % of the 480k ceiling). **Device round is RUNNING on the
+user's new flat blank world `921`; nothing below is device-verified.**
 
-Open, all three in flight:
-- [x] **LOD fixed (`eba9b515`).** `query.distance_from_camera` measures to the
-  entity ROOT, and a shell's root sits ABOVE the model (`originAboveModel`),
-  45 blocks over 10303's ground track: 68.7 % of the skin (2,190 of 3,189
-  cells) was already past the 32-block threshold, so a ground camera saw the
-  hull at ANY distance. The switch is now `lodDistance + the entity's reach
-  from its root` and the default is 96 (at 70 degrees FOV a brick face is
-  3.75 px there); 10303 switches at 146.3. The shimmer was 1,523 of 3,189 hull
-  cells carrying a cube from 2-9 colours at once; a cell now belongs to the
-  colour with the most volume in it — every cell single-owner, hull 1,143 ->
-  753 cuboids. Not device-verified yet.
-- [x] **Figures fixed (`4c032ce6`).** The source riders ARE seated 90 degrees
-  nose-down (matrix `0 -1 0 / 0 0 -1 / 1 0 0`). A figure tilted past 30 degrees
-  now stays whole in the model at its source pose; the floor comes from body
-  parts only (hanging hands no longer set it); cluster membership is measured
-  in the torso's frame so legs are not left behind and re-synthesised; and
-  BrickLink-form descriptions plus head-origin adoption keep 43753 hair on its
-  head. 10303 ships 8 NPCs instead of 11 and the shell regains 20 rider parts.
-  Open follow-up in `bedrock-coaster.ts`: seating those posed riders ON the
-  cart (figure family + extra seats) would make them live along the track.
-- [ ] **Close-up fidelity — the user's headline complaint, still open.** The CLI
-  AND web default is `balanced`: 8 LDU microcell, 64 cubes/part, 13,936 shell
-  cuboids for 10303 = 3.5 % of the 480k device ceiling. `ultra` is 4 LDU /
-  256 cubes = 47,726 shell, 54,481 pack, 11.4 %, and 8 such packs still fit.
-  **`high` is broken**: it asks for 4 LDU but its own 32,768 `maxModelCubes`
-  cap forces a fallback to 8, so it buys almost nothing. There is NO budget
-  clamp in `playable-addon.ts` (`packCuboidBudget` only warns at >=10 %), so
-  nothing vetoes a finer mesh; the dial is `LEGO_SHELL_QUALITY` in
-  `bedrock-building-shell.ts`. Separate DRAW limit: ~50-100k visible for
-  60 fps, ~150k for 30 fps. User's bar: "drastically" better.
-- [ ] Ride behaviour the user asked for: continuous motion with or without a
-  rider, real gravity (crawl uphill, fast on the drop), a dwell at the flat
-  reload station, and mounting by walking up and tapping — today the cart is
-  unreachable inside the shell and device QA had to board with `/ride`.
-  Owner: coaster.
+What changed, with the measurement that justified it:
+- **LOD** (`eba9b515`): the switch measured to the entity ROOT, which sits 45
+  blocks ABOVE the build, so 68.7 % of the skin was past the 32-block threshold
+  and a ground camera saw the hull at any distance. Now `lodDistance + the
+  entity's reach`, default 96, so 10303 switches at ~146. Hull cells had 2-9
+  colour claimants (1,523 of 3,189) — coplanar faces, the shimmer; each cell now
+  has one owner and the hull got cheaper (1,143 -> 753 cuboids).
+- **Close-up fidelity** (`f79fa0d4`): the capacity commits were NOT the cause
+  (13,872 -> 13,936 cuboids across all four). `balanced` was 8 LDU under a
+  64-cuboid part cap that coarsened exactly the detailed parts, so the hero
+  track shipped at 16 LDU. A per-part planner now coarsens whichever part loses
+  the least `placements x silhouette area x delta IoU` per cuboid saved:
+  0.957 IoU against 0.949 for uniform 4 LDU at the same cost. Shell
+  13,936 -> 44,824. NOTE for the memory model: Bedrock has no in-entity
+  instancing, so memory is the sum over PLACEMENTS, not unique moulds.
+- **Figures** (`4c032ce6`, `bbb26a58`): source riders are seated 90 degrees
+  nose-down; a figure past 30 degrees tilt now stays posed in the geometry
+  rather than standing beside the car. Feet come off the model underside, not
+  voxel row 0 (a plate high). Figures are capped at player size (`f6ebdc00`).
+- **Ride** (`28c990b9`, `d2d18e49`, `7d6da6cf`, `1e0fbce0`): gravity
+  integration (2.81 blocks/s up the lift, 6.08 mean on the drops), a chain lift,
+  a station derived from the route's longest low level run, continuous running
+  with or without a rider, and a measured THREE-CAR train (torso pitches, 2.25
+  blocks) whose cars spawn at the station.
+- **Route** (`84571c96`): 80564's running line was built on two different
+  datums, folding the polyline three times. Rebuilt on the r=232 base-plate
+  datum: the world loop was 424x399 and is now 400x400, min car chord
+  7.9 -> 108.12 LDU, zero reversals, `overlaps: false`.
+- **Walk-through size** (`8a245e64`, `bbb26a58`): measured recommendation per
+  model (10303 -> 150 %), which names the doors-versus-stairs tension when they
+  conflict. A brick riser is unclimbable at 300-400 % because the player stays
+  player-sized — that is physics, not a bug; the collider re-lay was proved
+  correct at every step.
+- **Provenance** (`c78f2787`, `1e0fbce0`): packs carry the pipeline build in
+  their NAME. Identity is a content hash over the pipeline's 66-file import
+  closure (mtimes do not survive a clone; CI checks out at depth 1), the
+  readable half is the last closure commit, and a dirty tree says `+dirty`.
 
-Acceptance is a fresh device round with the user's own bar, not unit tests.
-
-**Device state changed 2026-09-21 evening: the user deleted every behavior and
-resource pack except the base Craftmatic one and created a new FLAT BLANK world
-called `921`.** That is the clean test bed — the duplicate-UUID folder trap is
-gone, so a fresh import should resolve correctly. Do not assume the old
-`CoasterQA` world or its packs still exist.
-
-Further user requirements from the same round:
-- [ ] Auto-scale RECOMMENDATION per model, measured not themed: architecture and
-  Icon sets are micro-scale and must be scaled up to be walkable. The bar is
-  that a player (0.6 x 1.8 blocks) can pass the model's doorways and stand under
-  its floors; the UI should say why ("doorways are 0.4 blocks at 100 %; 300 %
-  makes them 1.2"). Manual override always remains. Owner: scale-recommendation.
-- [ ] **A minifig must never become a giant.** The wand's 25-400 % steps scale
-  every entity today; a FIGURE must stay player-sized at any model size, while
-  buildings and vehicles keep scaling — without sinking figures through floors
-  or out of vehicle seats. Owner: scale-cap.
-- [ ] Suspected bug: no up/down movement inside a scaled-up model, because a
-  height is computed from the unscaled 1x grid. History: `e168bd49` (scaled
-  placements kept their old walls) and `e25af6e4` (keep local Y fractional until
-  after wand scaling, then quantize in world space). Must be reproduced or
-  disproved with a real placement at 200/400 %, not read off the code.
-  Owner: scale-cap.
-- [x] **Three-car train BUILT (`d2d18e49`), runtime side only.** Each car is its
-  own single-seat rideable, so no seat is contended and up to three players ride
-  one train. Arc distance tracks the train's CENTRE — offsets fixed to the
-  centre mean a reversal only flips direction; measuring from a lead car would
-  teleport every car across the train in one tick and blow the step cap. The
-  train is atomic on unloaded chunks and refused teleports. 90-96 us/tick for
-  three cars against a 50,000 us tick.
-- [ ] **WIRE the train in `playable-addon.ts` — both halves or neither.** With
-  the config passed but the extra actors not spawned, the lone car cannot reach
-  the first `extent` blocks of the route. Needed: `cars: { count, spacing }` on
-  the route, `count` actors spawned per route all at `route.station.point` with
-  a `coasterCarIndex`, the placement runtime writing
-  `craftmatic:coaster_car`, and `cars` (count/spacing/extent/minChord) in
-  `craftmatic-diagnostics.json`. **Do not hard-code 120 LDU**: derive the pitch
-  and count from the source's own rider clusters along the route (10303 has
-  three at exactly 120 LDU), and fall back to one car when there is no measured
-  train. Blocked only on `playable-addon.ts` being free.
-- [ ] **Decide the car overlap.** At the measured 2.25-block pitch the route's
-  curvature closes adjacent cars to a 0.148-block minimum chord, under one car
-  length (`COASTER_CAR_LENGTH` 1.25) on 3.9 % of the track, so they would
-  visibly intersect through the tight loop. Options: ship 3 and accept it, ship
-  1 for this set, or shorten the drawn car. Worth checking first whether that
-  0.148 is genuine loop curvature or a CUSP at a fragment join — the route has
-  43 near-duplicate samples (minimum spacing 7.5e-7 blocks) from mould
-  stitching, and a kink would produce the same number without being real.
-- [ ] Pack PROVENANCE stamp: every pack should say which export-pipeline build
-  and which source model produced it, so a pack on the phone can be identified
-  without reading `manifest.json` by hand (a device round was already lost to a
-  stale folder). NOTE the trap: git does not preserve mtimes, so a
-  "last modified" stamp differs per clone and in CI — the reproducible
-  equivalent is the last pipeline COMMIT's date/sha, or a content hash over the
-  engine sources. The web app builds packs in the BROWSER (no git, no fs), so
-  anything git-derived must be injected at build time with an honest fallback,
-  and the Bedrock `version` must stay `[int,int,int]` and MONOTONIC or the
-  stale-folder confusion returns. Owner: provenance.
-- The source minifigs do NOT need to ride the coaster; they now stay posed in
-  the model geometry, which is already correct.
+Open after this round:
+- [ ] Device acceptance of ALL of the above on world 921 — especially the
+  close-up bar and tap-to-board at the station.
+- [ ] Two 64.6 degree zigzags remain at the mirrored 26559 start-start joins: a
+  +/-1.1 LDU wobble from `measuredRamp`'s flat controls carrying a 0.9 endpoint
+  slope. Pre-existing ramp-profile question, not a fold.
+- [ ] Stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced at
+  46.2k but its 8,720 studs drop to 1 facet. A 2-facet step would help that class.
+- [ ] `mainVehicleOnly` exports get no walk-through measurement (the scene block
+  is skipped); grid sources cannot have one. Deliberate, not an oversight.
+- [ ] Should 300-400 % stairs be made climbable with intermediate collider
+  treads? That is invisible geometry — the user's call.
 
 ## Active round — 2026-09-21, 10303 track repair and ride mechanism
 
