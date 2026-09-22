@@ -258,7 +258,9 @@ describe('measured coaster track profiles', () => {
  */
 const PUBLISHED_10303 = 'C:/git/clego/lego_sets/IOModel2V2/10303.ldr';
 describe.skipIf(!existsSync(PUBLISHED_10303))('published 10303 route (real corpus file)', () => {
-  const bricks = parseLDrawDocument(readFileSync(PUBLISHED_10303, 'utf8')).bricks;
+  // `describe.skipIf` still EXECUTES this body to register the skipped tests,
+  // so the corpus read must be guarded or CI (no clego checkout) dies here.
+  const bricks = existsSync(PUBLISHED_10303) ? parseLDrawDocument(readFileSync(PUBLISHED_10303, 'utf8')).bricks : [];
   const extraction = extractCoasterTrackRoutes(bricks, { isGeometryAvailable: () => true });
   const near = (a: readonly number[], b: readonly number[], tolerance: number): boolean =>
     Math.hypot(a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!) <= tolerance;
