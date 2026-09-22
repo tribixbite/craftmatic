@@ -68,6 +68,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
   grey. Source conversion must retain unresolved private geometry safely.
+- **Match a part by `partStem()` (`engine/part-id.ts`), never by your own
+  basename+lowercase.** A Studio/OMR `.mpd` embeds its parts as
+  `<set> - <mould>.dat` sections, so a placed id reads `10261 - 26021`, and the
+  embedded description line is a STUB repeating the mould number where the
+  library gives `Train Base 4 x 5 Roller Coaster`. Both make every canonical-id
+  and description match fail OPEN — no error, just "this set has no cars", which
+  shipped 10261 with a fabricated grey cart and zero minifigs while the same
+  set's `.ldr` shipped six of each. 10.9 % of corpus sources have this shape,
+  and an MPD is the index's FIRST pick for some sets, so **a test that pins only
+  the `.ldr` proves nothing about what users export** (`ce50c838`).
 - **Bedrock culls an actor by its `minecraft:collision_box`, not its visible
   bounds** (`cull ≈ 64 × max(1, box diagonal)` blocks). A 0.1×0.1 shell box made
   every model vanish at 64 blocks; the box is now sized from the model extent in

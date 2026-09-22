@@ -7,15 +7,20 @@ belongs in `git log`, `docs/lego-sources-guide.md`, and
 ## Active round — 2026-09-22, the set's own cars and a working elevator
 
 **Current pack, device acceptance NOT yet run:**
-`output/bedrock-entity-qa/10303-owncars.mcaddon`, 684,092 bytes, SHA256
-`1194c3147303e37e28a5de82c9a5d9eeeffd71196b8f789a0093dd1f7801888f`, pack-list
-name `10303-Loop-Coaster — Playable (2026-09-22 47a4495a)` (clean, no `+dirty`),
-57,579 cuboids over 14 entities, `coaster.cuboids` **0** — no fabricated cart.
-Rebuild either set with
-`bun scripts/_playable_ref.ts C:/git/clego/lego_sets/IOModel2V2/<set>.ldr <out>.mcaddon --label="..."`.
-Gates at `47a4495a`: `bun run test` 2,098 passed / 26 skipped exit 0, both
-typechecks, `scripts/_mcaddon_check.py` OK on both packs.
+`output/bedrock-entity-qa/10261-mpd-fixed.mcaddon`, 731,388 bytes, SHA256
+`f70a977bc0be506ea116f44f5a6c174c1b1ec34c77c89f9a38d381111d025ba5`, built at
+`ce50c838` from `C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd`.
+**6 own ride cars + 8 figures + 2 trains** — it replaces the 18:03 pack the
+user installed in world 922, which had 1 fabricated grey cart and 0 figures.
+Rebuild any set with
+`bun scripts/_playable_ref.ts <source> <out>.mcaddon --label="..."`.
+Gates at `ce50c838`: `bun run test` 2,191 passed / 26 skipped exit 0, both
+typechecks, `build:web` clean.
 **Commit before building a pack** — the name carries the pipeline stamp.
+
+**A pack's own `COASTER.txt` says which cart it has**: "The set's own cars are
+the ride" vs "The grey Ride Cart". Read it before blaming the device — it is
+the cheapest possible check that an export detected the set's cars.
 
 ### The previous pack PASSED on the device (world 921, 2026-09-21 night)
 
@@ -118,8 +123,32 @@ Next steps for them, none urgent:
   pulls `CapsuleGeometry`/`Box3Helper`/`GridHelper` that were tree-shaken
   before. That chunk loads with the viewer, so ~21 kB is paid by everyone.
 
+### Fixed 2026-09-22 evening: the grey cart was a SOURCE-SHAPE bug (`ce50c838`)
+
+The user's world-922 pack showed one grey cart and no minifigs. Cause was not
+the ride code: that pack was built from `LDR/10261 Roller Coaster.mpd` (the
+index's FIRST pick for the set) while every green test and every earlier device
+round used `IOModel2V2/10261.ldr`. An MPD embeds its parts as
+`<set> - <mould>.dat` sections, so the placed id was `10261 - 26021` and the
+embedded description line a stub (`0 26021`) where the library says
+`Train Base 4 x 5 Roller Coaster`. Only `coaster-track.ts` stripped that
+prefix; **eight other detectors kept their own normaliser**. Both matches fail
+OPEN, so detection found nothing and the exporter fabricated a cart — no error
+anywhere. `partStem()` (`web/src/engine/part-id.ts`) is now the single
+normaliser and a stub description falls back to the library mould.
+**697 of 6,375 corpus sources (10.9 %) have this shape**, so any set whose
+first pick is an MPD was degraded the same way.
+
 ### Open
 
+- [ ] **Re-test 10261 in world 922 with `10261-mpd-fixed.mcaddon`** — the pack
+  the user rode there was the broken one. Expect 6 LEGO cars in two 3-car
+  trains, the second leaving the bay once the first is 121.8 blocks (half of
+  243.6) ahead, and 8 minifigs.
+- [ ] **Sweep the 697 embedded-part sources for other silent losses.** Figures,
+  doors, chairs, vehicle facing and the voxelizer skip-lists all used the same
+  broken id match, so those sets may have been exporting degraded packs too.
+  Cheapest probe: export one and diff its entity list against the `.ldr` pick.
 - [ ] **Device round for everything since the last one.** Unverified: the
   faster drops (16 blocks/s rider retention — only 7.5 is device-proved), the
   wheelbase ride, gravity-up at the lift hand-off, the rider-inside-loop body
