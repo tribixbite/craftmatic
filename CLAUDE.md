@@ -15,7 +15,7 @@ and conventions there; keep this file as the short project entry point.
 - **Bedrock playable add-ons:** [add-on guide](docs/bedrock-addon-guide.md) — entity geometry, vehicle controls/cameras, pack constraints, and Pixel QA.
 - **LEGO/LDraw rendering:** [renderer guide](docs/lego-renderer-guide.md) — architecture, imports, rendering, colors, mesh metadata, contact checks, and download UI.
 - **LEGO models and parts:** [source guide](docs/lego-sources-guide.md) — dev/prod libraries, source-quality gates, index schema, offline data, and source freshness.
-- **Testing:** [testing guide](docs/testing-guide.md) — offline suites, manual validation gates, and browser-automation caveats.
+- **Testing:** [testing guide](docs/testing-guide.md) — offline suites, manual validation gates, browser-automation caveats, and the two QA surfaces below.
 - **Deployment:** [deployment guide](docs/deployment-guide.md) — supported host, Cloudflare Worker routes, and pending deployment requirements.
 
 > **Where to go next** → see **[ROADMAP.md](ROADMAP.md)**: the near-term (~100h)
@@ -40,6 +40,14 @@ and conventions there; keep this file as the short project entry point.
   "dirty", which makes the pack on the phone unidentifiable. This has already
   cost a device round (a stale pack folder resolved while a new one sat beside
   it). Commit, then export.
+- **Answer it offline before the phone.** `bun run console` (port 4600) is the
+  operator console — every runnable operation with its real arguments, over one
+  model or a filtered batch; `tools/console/inventory.ts` is the cheat sheet and
+  the single place to add one. The LEGO tab's **"Walk add-on"** walks a built
+  pack in first person over the exact collider blocks it ships, with a key
+  counting figures/seats/doors/track/vehicles/colliders/treads. Neither proves
+  Bedrock's rendering, culling, form text or ride physics — those stay on the
+  device. See the [testing guide](docs/testing-guide.md).
 - Use **Chrome** for browser testing, not Edge.
 - Run Playwright `.mjs` probes with **Node**: Bun 1.3.11 can fetch a CDP
   `/json/version` yet time out on its WebSocket connection (measured 2026-09-21).

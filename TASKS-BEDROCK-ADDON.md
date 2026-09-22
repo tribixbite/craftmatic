@@ -58,44 +58,77 @@ bricks read as squares. That is the voxel cell; 1 LDU costs 316k cuboids.
 - **Every in-game `%` is spelt "percent"** (`b3ec0c02`, `9831d222`) — Bedrock's
   form renderer deletes a bare percent sign.
 
-### Device verdict 2026-09-22: both coasters ride, four defects left
+### Device verdict 2026-09-22: both coasters ride; the four defects are FIXED
 
-The user rode BOTH sets on a device: 10261 "nearly flawless", 10303 "nearly
-perfect". Screenshots in the session images dir (`2.jpg`/`3.jpg` 10261 cars
-tipping, `4.jpg`/`5.jpg` 10303 at the lift top). Remaining, in their words:
+The user rode BOTH sets: 10261 "nearly flawless", 10303 "nearly perfect".
+Screenshots in the session images dir. All four reported defects are fixed in
+`680936ba` and `64dd5ecd`, NONE device-verified yet:
 
-1. "Friction too high//acceleration too low - the cart should accelerate faster
-   after pulled to the top of the track and released." Likely NOT friction: the
-   per-tick step is clamped to one authored sample spacing (7.5 blocks/s on a
-   1x 10303) and the module's own comment admits a 35-block descent "would
-   otherwise reach ~26". The fix is substepping inside a tick, not raising the
-   cap — the cap is what stops a step cutting the polyline's corners.
-2. "The individual cars tip up and down too much … should be impossible due to
-   the grey under-track glide attachment and connection anchor to other cars."
-   A car pitches from the tangent at its own centre; it should ride the chord
-   between its front and rear wheel contacts. The detector already measures
-   `wheels[]` and `wheelGeometry` (axle 17.5 LDU below origin, tread band
-   24-33) on 141-LDU cars.
-3. 10303 only: "at the top of the elevator the cart is suddenly rotated to the
-   wrong position … fixed at the bottom of the final loop" — the delivery
-   hand-off sets the wrong heading/frame.
-4. "The player (as rider) view … inside the loops instead of upside down the
-   player view goes above … outside the track." A Bedrock player cannot roll,
-   so a seat offset along the car's up vector throws the rider outside an
-   inversion; the rider should stay near the track centreline through it.
-5. "both/all roller coasters should have a second cart in loading bay until
-   first cart is half way (then second should depart)." 10261 HAS a second
-   train (the detector parks it on a siding); 10303 has one, so its second
-   train would be a second instance of the set's own cars — flag that.
+1. Slow drops were the per-tick step clamped to one authored sample spacing
+   (7.5 blocks/s on a 1x 10303), not friction. Ticks now SUBSTEP, each substep
+   still within the spacing: drops 10303 peak 8.9 -> 16.0, mean 7.3 -> 10.2
+   blocks/s; 10261 peak 7.5 -> 13.0.
+2. Cars see-sawed because each pitched on the tangent at its own centre. They
+   ride the chord between wheel contacts now (50 LDU wheelbase, measured).
+   Worst adjacent-car pitch 10303 66 -> 38 deg, median 7.3 -> 2.1.
+3. The lift hand-off was NOT wrong: parallel transport carried the loops'
+   torsion forward, leaving cars 61-84 deg banked, and delivery unwound roll
+   0 -> -117 deg in one tick. Up vectors are gravity-up within 60 deg of
+   upright, the smoothed curve normal when banked further inside a tight
+   vertical curve, <= 20 deg/block. Hand-off now reads 0.0 both sides.
+4. A player cannot roll, so a seat offset along the car's up vector threw the
+   rider OUTSIDE an inversion. The entity now sits where the rider's head
+   belongs and the body is drawn back on the rails through synced properties:
+   eye 1.57 blocks BELOW the rails at both 10303 apexes (was 1.55 above), and
+   every offset is exactly 0 on upright track.
+5. Second trains dispatch at half a lap. 10261's is the siding's own three
+   cars; **10303's is a second COPY of its own three — the set has no spare.**
+
+Then the residue: the cars still tipped, and it was track data, the same
+two-datum fault as the 80564 loops. `26559`/`26560`/`26561`/`34738` put their
+SLOPED ends' running line 3.9 LDU below the rail top instead of 18.6 above.
+Rebuilt on a measured rail-top table: vertices turning >25 deg went 10303
+10 -> 0 (sharpest 64.6 -> 23.5) and 10261 20 -> 0; 10261's worst car-pair pitch
+38.8 -> 26.1 deg. 10303's three rotated 26559 pull-outs are REAL 7.6-8.9 deg
+kinks and were left, with an explicit stitcher overlap tolerance.
+
+### Two QA surfaces now exist — use them before the phone
+
+Documented in `docs/testing-guide.md`; `tools/console/README.md` for the first.
+- **`bun run console`** (port 4600): every operation with its real arguments,
+  over one model or a filtered batch, exporting results with their filter.
+  `tools/console/inventory.ts` is the cheat sheet AND the single place to add
+  an operation.
+- **LEGO tab -> "Walk add-on"**: first-person walk over a built pack, colliding
+  against the exact blocks it ships, with a key counting
+  figures/seats/doors/track/vehicles/colliders/treads and a
+  reachable/unreachable overlay.
+Neither proves Bedrock's rendering, cull, form text, ride physics or memory.
+
+Next steps for them, none urgent:
+- [ ] Console: window filtering must go through the census op (the index's
+  `defects` strings never carry "window"); browser and device operations are
+  wired but never exercised; `_pixel_perf.sh ref` takes no label.
+- [ ] Preview: `addon-walk.ts` exposes `world.simulated()`/`compareReach`
+  (BFS-vs-player divergence) that the HUD does not surface yet — the natural
+  next step, since that comparison is what found the BFS drop bug.
+- [ ] Preview: no door candidates exist in either coaster pack, so the door row
+  is only exercised by a synthetic test; cars on a route get no reach verdict.
+- [ ] Preview cost: the `three` chunk grew 532.6 -> 554.1 kB because the walk
+  pulls `CapsuleGeometry`/`Box3Helper`/`GridHelper` that were tree-shaken
+  before. That chunk loads with the viewer, so ~21 kB is paid by everyone.
 
 ### Open
 
-- [ ] **Device acceptance of the current pack on world 921.** Specifically
-  unverified: the pitch/roll SIGN of the compiled cars (never seen side-on),
-  the rider bone hiding under `scale: 0.0`, the platform visibly carrying a
-  player, the treads, the 176-block draw distance, and whether the station is
-  reachable ON FOOT at 100 % (the tread walk says yes, bare, via two one-block
-  jumps; the last QA agent could only `/tp` there).
+- [ ] **Device round for everything since the last one.** Unverified: the
+  faster drops (16 blocks/s rider retention — only 7.5 is device-proved), the
+  wheelbase ride, gravity-up at the lift hand-off, the rider-inside-loop body
+  offset (it relies on Bedrock applying an animated root-bone `position` in the
+  geometry's axis convention — zero on upright track, so if the body sits off
+  the rails inside a loop that SIGN is the first suspect), the second trains,
+  the ramp datum fix, the treads, and the 176-block draw distance.
+  Settled offline since the last round: the 10303 station IS reachable on foot,
+  bare, at 100 % — the earlier `/tp` was unnecessary.
 - [ ] **10261 has never been device-tested at all** — its chain ride is
   host-simulation only.
 - [ ] Close-up fidelity is still short of the user's bar. Next lever is the

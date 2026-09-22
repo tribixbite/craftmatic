@@ -5,6 +5,75 @@ Read before validating renderer, resolver, alignment, or exporter changes. PDF-s
 [Project guide](../CLAUDE.md). Paths in code spans are relative to the repository root unless explicitly qualified.
 
 - Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests). Two more from the 2026-09-08 audit: `test/part-cache-revision.test.ts` (persistent-cache identity + transitive geometry invalidation, over a fake IndexedDB that survives `vi.resetModules()` — the WARM-browser path, not an incognito one) and `test/schem-real-set.test.ts` (real set through the real export pipeline; skips without the local corpus).
+## Two QA surfaces built 2026-09-22 — use them before the phone
+
+Every semantic question in the September coaster rounds cost a 20-90 minute
+device round: are the riders in the car, is the station walkable, did the
+treads help, is the model drawn at 60 blocks. Most were answerable offline.
+These two surfaces exist to answer them in seconds. Neither replaces the
+device: neither can prove Bedrock's rendering, its per-actor render cull, form
+text, ride physics, rider retention or memory.
+
+### The operator console — `bun run console` (`tools/console/`)
+
+http://127.0.0.1:4600. **`tools/console/inventory.ts` is the cheat sheet and the
+single source of truth**: 43 operations, each with what it answers, its real
+argv template with options read from that script's own argument parsing, how
+its output is parsed, where its evidence lands and roughly how long it takes.
+A further 15 script families are listed as deliberately NOT wired, with reasons,
+so the omissions are legible. Add an operation there, not in the UI.
+
+It SPAWNS the real entry points — nothing is reimplemented — and shows the
+exact command line before running, so it teaches the CLI. A test enforces that:
+every declared flag must appear in the target script's source and every entry
+point must exist on disk.
+
+Select one model or a batch: the model index filtered by set, name, free text,
+year, part count, source type, `asm` state, severity and tier; a pasted or
+uploaded CSV; or the packs under `output/`. The match count updates before
+anything runs. Results export to CSV/JSON **carrying the filter that produced
+them**, so a run is reproducible. Runs stream, survive a server restart, and
+are cancellable.
+
+Two guards worth keeping: batch dispatch pauses above 85 % CPU, sampled from
+`os.cpus()` because `loadavg` reads 0 on Windows (a stray load generator cost
+this project a day); and anything that publishes to R2, writes the index or
+touches the device is separated, requires typing the operation id, and defaults
+to `--dry-run`.
+
+Known gaps: the index's `defects` strings never carry "window" (window defects
+are report-only in geograde), so window filtering must go through the census
+operation; `_pixel_perf.sh ref` takes no label; browser and device operations
+are wired but unexercised.
+
+### The walkable add-on preview (LEGO tab → "Walk add-on")
+
+A first-person walk over a generated pack, borrowing the viewer's renderer.
+It is worth trusting because it collides against **the exact blocks the pack
+ships**: `web/src/engine/addon-walk.ts` over the runtime's own re-laid collider
+grid and the wand's own tread plan, at 20 Hz with Minecraft's numbers — a
+0.6 x 1.8 box, gravity 0.08 under 0.98 drag, a 0.42 jump peaking at 1.2522,
+4.317 blocks/s, and the reach walk's own 9/16 auto-step so the two models agree
+by construction. Unreachable here means unreachable in game.
+
+The key counts figures, seats, doors, track, vehicles, colliders and treads,
+each with show and highlight toggles for markers and perimeter boxes, alongside
+the coaster route, station, lift travel and the reachable/unreachable overlay —
+that last one is what keeps costing device time. A size selector re-lays
+colliders and treads so scaling's effect on walkability is visible at once.
+
+Below 100 % the walk module refuses by design (`ScaledColliderGrid` is defined
+for f >= 1); the preview falls back to free-fly and says why.
+
+It has already earned itself twice. It settled that 10303's station IS
+reachable on foot, bare, at 100 % — a device agent had concluded otherwise and
+used `/tp`. And simulating a player over the grid the BFS walks found a real
+bug in the BFS: it allowed a DROP into an adjacent column without checking that
+column was passable, stepping through the column's own floor into the underpass
+beneath. That walk decides what the walk-through recommendation reports and
+where treads are laid, so it had been claiming reachability no player had.
+Fixed; the two now agree on 12,112 surfaces at 400 %.
+
 ## Manual gates (Chrome + the local corpus — deliberately NOT in CI)
 
 Run these after touching the renderer, the part resolver, the LXF/alignment
