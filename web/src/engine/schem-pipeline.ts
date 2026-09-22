@@ -504,11 +504,8 @@ export async function runSchemPipeline(
         if (d.skippedOutside) warnings.push(`${d.skippedOutside} door leaf${d.skippedOutside === 1 ? '' : 'ves'} fell outside the export bounds.`);
       }
       if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
-        const a = sourceOrigin;
-        screens.push({ id: anchor.id, label: anchor.label,
-          x: (anchor.ldraw[0] / a.cellXZ - a.x) * a.scale,
-          y: (-anchor.ldraw[1] / a.cellY - a.y) * a.scale,
-          z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
+        const [x, y, z] = sceneGridPoint(sourceOrigin, [anchor.ldraw[0], anchor.ldraw[1], anchor.ldraw[2]]);
+        screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
     const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });

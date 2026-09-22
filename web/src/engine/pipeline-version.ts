@@ -79,11 +79,26 @@ export interface SourceProvenance {
   setNum?: string;
 }
 
+/**
+ * The LDraw → world frame this pipeline places everything in, recorded in the
+ * provenance so a pack can be told apart from one built before 2026-09-22.
+ * Until then the block grid, the building shell and every 3D export negated
+ * Y ALONE (det −1): they were the model's MIRROR IMAGE, and a hinge, a printed
+ * sign or a coaster's turn came out on the wrong side. `x180` is the half turn
+ * about X: LDraw (x, y, z) → world (x, −y, −z), the model's −Z front to +Z
+ * (south). A pack WITHOUT this field was built by the mirrored pipeline; its
+ * structure cannot be overlaid on a new export of the same model, and the
+ * export notes say so (`bedrock-export-notes.ts`).
+ */
+export const LDRAW_WORLD_FRAME = 'x180' as const;
+
 /** The full record written into the pack. */
 export interface PackProvenance {
   generator: 'craftmatic';
   /** ISO-8601 instant the pack was built. */
   builtAt: string;
+  /** The LDraw → world frame (`LDRAW_WORLD_FRAME`); absent in packs from the mirrored pipeline (before 2026-09-22). */
+  frame: typeof LDRAW_WORLD_FRAME;
   /** Bedrock manifest version, and its meaning. */
   packVersion: { value: [number, number, number]; encodes: string };
   /** The stamp as shown in the pack name. */
@@ -226,6 +241,7 @@ export function packProvenance(args: { stamp: PipelineStamp; source: SourceProve
   return {
     generator: 'craftmatic',
     builtAt,
+    frame: LDRAW_WORLD_FRAME,
     packVersion: { value: args.version, encodes: describePackVersion(args.version) },
     display: pipelineStampText(args.stamp),
     pipeline: args.stamp,

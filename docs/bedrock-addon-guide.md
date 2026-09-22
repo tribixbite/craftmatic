@@ -333,18 +333,20 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
   from 4, ultra 65,536; the compiler coarsens when over. Measured: museum
   10,931 cuboids / 12 meshes / 22.9 s, chalet 6,922 / 8 / 6.6 s, 910047
   8,806, Hogwarts 6,488, all at 8 LDU without coarsening.
-- **The grid frame is a MIRROR of LDraw.** The voxelizer maps LDraw (x, y, z)
-  to cells (x, −y, z); LDraw and Minecraft are both right-handed, so every
-  block export is the model's mirror image (invisible on symmetric builds;
-  a hinge side would show). Entities are compiled through PROPER rotations
-  and land unmirrored, so a shell compiled like a vehicle could never sit on
-  its own colliders. The shell therefore uses the point reflection −I as its
-  LDraw→render matrix (`SHELL_FRAME`): the world at yaw 0 sees render
-  (−x, y, −z) (`extraPlacement`, Pixel-proven), which composes to (x, −y, z)
-  - the grid's frame. Its actor stands at `sceneGridPoint(frame, originLdu)`
-  with yaw 0 and turns with the wand like every actor. Fixing the mirror in
-  the block pipeline is a separate decision (it changes every schematic
-  byte-for-byte; rule 5).
+- **The grid frame is LDraw turned half a turn about X (since 2026-09-22).**
+  The voxelizer maps LDraw (x, y, z) to cells (x, −y, −z): LDraw and
+  Minecraft are both right-handed, so that is the proper rotation between
+  them (det +1), and the model's −Z front lands at grid +Z (south). Until
+  2026-09-22 the grid was (x, −y, z) — a MIRROR — so every block export was
+  the model's mirror image, and the shell used the point reflection −I as
+  its LDraw→render matrix purely to land on that mirrored grid. That
+  compensation is gone: the shell is now compiled like a vehicle whose nose
+  is LDraw −Z (`SHELL_FRAME = ldrawToRenderRotation('-z')`, det +1); the
+  world at yaw 0 sees render (−x, y, −z) (`extraPlacement`, Pixel-proven),
+  which composes to exactly (x, −y, −z) — the grid's frame. Its actor stands
+  at `sceneGridPoint(frame, originLdu)` with yaw 0 and turns with the wand
+  like every actor. The full change and what it invalidated on the device:
+  "The grid was a mirror" (2026-09-22) at the end of this guide.
 - **Colliders** (`buildColliderGrid`): integer states `craftmatic:lo` (0..15)
   and `craftmatic:hi` (1..16), sixteenths; 136 permutations each setting
   `minecraft:collision_box` origin/size; measured per cell from the shell's
@@ -2247,6 +2249,95 @@ recommendation in the export result and `craftmatic-diagnostics.json`; the
 settings popover's "Model scale" row and the wand's Size menu should show
 `sizePct` + `reason` beside the auto plan. The measurement is ~0.1-4.6 s per
 set in bun (48 M-cell budget; 71043 and 10303 coarsen to 7.5 × 6 LDU).
+
+## The grid was a mirror; every LDraw → world frame is now the same rotation (2026-09-22, breaking)
+
+The renderer's finding (LEGO rendering guide, "The LDraw → scene frame is a
+ROTATION"): LDraw (Y down) was converted to three.js (Y up) by negating Y
+alone — a reflection, det −1 — so every model rendered mirrored. The block
+grid had the same reflection (`(x, −y, z)`), which is why this guide used to
+say "the grid frame is a MIRROR of LDraw" and why the building shell needed
+`SHELL_FRAME = −I`: a proper entity could only land on a mirrored grid through
+a second reflection. The user accepted the breaking change; the whole tree
+moved to the half turn about X, `(x, −y, −z)`, at once.
+
+**What changed on the Bedrock side, and how each site now derives:**
+- `sceneGridPoint` / `sceneGridVector`: `gz = −z / cellXZ` (was `+z`). Every
+  actor position, route point, lift travel, screen anchor and door cell maps
+  through them, so the whole scene moved to `length − z` in the grid.
+- `yawForFacing`: world Z is LDraw −Z, so a figure facing LDraw −Z (the
+  front) is yaw 0 (was 180) and +Z is 180; ±X keep ∓90. `componentLayout`'s
+  `actorYaw` now calls it: a −Z-nosed vehicle stands at yaw 0, a +Z one at
+  180, ±X unchanged. The grid-fallback geometry and the grid-derived seats
+  are authored for the new yaw (the Z-axis branches swapped); the compiled
+  entities need nothing, because a compiled −Z nose at yaw 0 IS the grid
+  frame: world sees render `(−x, y, −z)`, render = `diag(−1,−1,1)·LDraw`,
+  product `(x, −y, −z)`.
+- `SHELL_FRAME` is `ldrawToRenderRotation('-z')` (det +1) — the −I
+  compensation is deleted, and the shell, the lift platform and the
+  counterweight (all compiled through it at yaw 0) land on the new grid.
+- Door hinges: `SceneDoor.hingeAtMin` is measured in LDraw; along Z the
+  grid runs the other way, so `applySceneDoors` and `runtimeDoorCandidates`
+  read the hinge through `hingeAtGridMin`. Along X nothing changed.
+- `block-shapes.ts` stairs: an LDraw +Z rise faces north (was south); the
+  legacy `ldraw-voxelizer.ts` slope/wedge/corner/bracket masks read their Z
+  direction against `gzMin`/`gzMax` the other way round; `bridgePartContacts`
+  and the fallback AABB negate Z like Y.
+- Java `display-entities.ts`: `cz = midZ − z` and the quaternion is the
+  conjugation by `diag(1, −1, −1)` (a yaw about LDraw's down-pointing Y is the
+  opposite yaw about Minecraft's up; a roll about X keeps its sign).
+- `extraPlacement`, the entity JSON's X mirror, the car/figure compile frames
+  (`ldrawToRenderRotation`), the canonical coaster car frame, the runtime's
+  yaw/pitch/roll and `body_x/y/z` maths are all entity- or world-frame and
+  did not move. Vehicles and figures keep their Pixel-proven chirality.
+- Every Bedrock export's notes now open with `FRAME_CHANGE_NOTE`
+  (`bedrock-export-notes.ts`) and `craftmatic-provenance.json` carries
+  `frame: "x180"` (`pipeline-version.ts`); a pack without it is mirrored.
+
+**Measured on the two coaster packs (`scripts/_playable_ref.ts`, the
+published `IOModel2V2/*.ldr`, before → after):**
+- 10303: route 181.1417 → **181.1417** blocks, station stop 20.3778 →
+  **20.3778**, station length 26.6365 → 26.6365; shell 44,953 → **44,902**
+  cuboids, lift 390 → 390, counterweight 2,351 → 2,346, vehicle cuboids
+  6,719 → 6,714, pack 57,579 → 57,553. Station point z 9.34 → 10.66, lift
+  parked z 6.14 → 13.86, counterweight z 12.39 → 7.61, lift travel z 0.005 →
+  −0.005 (all `length − z`, the mirror undone).
+- 10261: route 243.5521 → **243.5521**, station 217.7820 → **217.7820**,
+  station length 26.0035 → 26.0035; shell 42,121 → **42,123**, vehicle
+  cuboids 8,050 → 8,050, pack 56,293 → 56,286, colliders 5,268 → 5,268.
+  Station point z 1.62 → 19.38.
+- The route lengths and station arcs did NOT move, and that is the correct
+  outcome, not a missed site: the track extraction and the assemblies work
+  in LDraw and only the final `sceneGridPoint` changed, and the new grid is
+  an isometry of the old one (a reflection of the polyline has the same arc
+  lengths). The handful of cuboids that moved are the 2 LDU micro-cell
+  planner sampling the un-mirrored geometry on the other side of each cell.
+
+**Device-proven results this INVALIDATES (a Pixel round is needed; nothing
+below can be re-verified from the workstation):**
+- The shell standing on its own colliders (chalet, museum, 10303, 10261;
+  rounds 2026-09-16..22): the shell frame and the grid both moved, the
+  composition is proven only on paper (`test/ldraw-frame.test.ts` pins the
+  algebra) and by the unchanged collider count.
+- Figure and seat yaws in buildings (a figure now faces the way the source
+  did instead of its mirror), the door hinge side on the Z-axis doors, and
+  the wand's ghost/preview alignment with the structure (the ghost is
+  grid→entity and unchanged; the grid under it is not).
+- The coaster: the lift platform and counterweight at yaw 0 on the moved
+  grid, the second train's loading-bay arc, the cars' `heading` on the
+  un-mirrored track (heading is measured in LDraw and did not change sign;
+  the track's turns did), and "the rider inside the loop" — the runtime maths
+  is world-frame and unchanged, but the world it runs in is the other
+  handedness.
+- Java `block_display` exports were never device-verified and now differ
+  in both position and rotation.
+- One thing this change did NOT touch but that the same analysis makes
+  suspicious: `bedrock-preview-entity.ts` and the grid-fallback `geometry()`
+  author a world offset `(dx, dz)` as JSON `(−dx, −dz)`, while the compiler's
+  Pixel-proven derivation (JSON x = −render x, world at yaw 0 = (−render x,
+  y, −render z)) gives JSON x = +world dx. Symmetric ghosts hide an X mirror;
+  an asymmetric grid-only component would show it. Not changed here — it is
+  grid→entity, independent of the LDraw frame, and needs a device to settle.
 
 ## Invisible steps where scaling broke a climb (2026-09-22)
 

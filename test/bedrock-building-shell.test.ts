@@ -26,10 +26,11 @@ describe('buildColliderGrid', () => {
     grid.set(0, 1, 0, 'minecraft:white_concrete'); // gap fill: no part reaches it
     grid.set(1, 2, 0, 'minecraft:white_concrete'); // a ceiling slab at the TOP of its cell
     // LDraw Y down: the plate spans y −8..0 (top at −8), the wall −C..0, the slab sits at the top of cell y=2: y −3C..−3C+8.
+    // Grid z 0 is LDraw z −C..0: the grid is a half turn about X, so grid +Z is LDraw −Z.
     const boxes = [
-      { min: [0, -8, 0] as [number, number, number], max: [C, 0, C] as [number, number, number] },
-      { min: [C, -C, 0] as [number, number, number], max: [2 * C, 0, C] as [number, number, number] },
-      { min: [C, -3 * C, 0] as [number, number, number], max: [2 * C, -3 * C + 8, C] as [number, number, number] },
+      { min: [0, -8, -C] as [number, number, number], max: [C, 0, 0] as [number, number, number] },
+      { min: [C, -C, -C] as [number, number, number], max: [2 * C, 0, 0] as [number, number, number] },
+      { min: [C, -3 * C, -C] as [number, number, number], max: [2 * C, -3 * C + 8, 0] as [number, number, number] },
     ];
     const { grid: out, stats } = buildColliderGrid(grid, boxes, frame);
     expect(out.get(0, 0, 0)).toBe(colliderState(0, 3));
@@ -129,7 +130,7 @@ const provider = () => createPartGeometryProvider({ fetchPartText: async id => L
 const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 describe('the building shell', () => {
-  it('compiles on the grid frame: an LDraw +X, +Z brick lands at +X, +Z of the entity at yaw 0, and every loose piece stays', async () => {
+  it('compiles on the grid frame: an LDraw +X, +Z brick lands at +X and, in the world at yaw 0, −Z (grid +Z is LDraw −Z), and every loose piece stays', async () => {
     // Two separate pieces (no clustering may drop the small one): a 2×4 at the origin and a 1×1 far along +X/+Z.
     const bricks: ParsedBrick[] = [
       { part: '3001.dat', color: 4, x: 0, y: 0, z: 0, rot: I },
@@ -141,12 +142,14 @@ describe('the building shell', () => {
     const cubes = (geo.value as { 'minecraft:geometry': Array<{ bones: Array<{ cubes: Array<{ origin: number[]; size: number[] }> }> }> })['minecraft:geometry'].flatMap(m => m.bones.flatMap(b => b.cubes));
     const small = cubes.find(c => Math.abs(c.size[0]! - 6) < 0.01)!;
     const big = cubes.find(c => Math.abs(c.size[0]! - 24) < 0.01)!;
-    // Render frame = −I·LDraw, so render = (−x, −y, −z). The JSON mirrors X (Bedrock's left-handed
-    // model frame): JSON x = −render x = LDraw x, JSON z = render z = −LDraw z. The world at yaw 0
-    // sees render (−x, y, −z) (extraPlacement, Pixel-proven) = LDraw (x, −y, z): the grid's frame.
-    // So in the JSON the small brick (LDraw +300, +200) is at LARGER x and SMALLER z than the big one.
+    // SHELL_FRAME is the −Z-nose rotation diag(−1, −1, 1), so render = (−x, −y, z). The JSON mirrors X
+    // (Bedrock's left-handed model frame): JSON x = −render x = LDraw x, JSON z = render z = LDraw z.
+    // The world at yaw 0 sees render (−x, y, −z) (extraPlacement, Pixel-proven) = LDraw (x, −y, −z):
+    // the grid's frame, a proper rotation (det +1). So in the JSON the small brick (LDraw +300, +200)
+    // is at LARGER x and LARGER z than the big one; the old −I frame put it at smaller z, which was
+    // the mirror the grid used to carry.
     expect(small.origin[0]!).toBeGreaterThan(big.origin[0]!);
-    expect(small.origin[2]!).toBeLessThan(big.origin[2]!);
+    expect(small.origin[2]!).toBeGreaterThan(big.origin[2]!);
     // Higher in LDraw (−24) is higher in the model.
     expect(small.origin[1]!).toBeGreaterThan(big.origin[1]!);
     // Whole-model: no facing warning, no stand rules.
@@ -209,10 +212,11 @@ describe('the building shell', () => {
   it('archives an undersized leaf as separate exact geometry at its source-frame origin', async () => {
     const grid = new BlockGrid(5, 4, 5);
     grid.set(2, 0, 2, 'minecraft:red_concrete');
-    const shellBrick: ParsedBrick = { part: '3001.dat', color: 4, x: 2 * C, y: 0, z: 2 * C, rot: I };
+    // Grid +Z is LDraw −Z (the frame is a half turn about X), so cell z 2 is LDraw z −2C.
+    const shellBrick: ParsedBrick = { part: '3001.dat', color: 4, x: 2 * C, y: 0, z: -2 * C, rot: I };
     // This non-zero archive placement freezes the source-origin mapping: the
     // leaf floor is one cell up at x=2,z=3 before its open-sky light lift.
-    const leaf: ParsedBrick = { part: 'door.dat', color: 6, x: 2 * C, y: -C, z: 3 * C, rot: I };
+    const leaf: ParsedBrick = { part: 'door.dat', color: 6, x: 2 * C, y: -C, z: -3 * C, rot: I };
     const pack = await buildPlayableAddon(grid, {
       stem: 'micro-door', label: 'Micro door', partGeometry: provider(), pbr: false,
       shell: { bricks: [shellBrick], frame },

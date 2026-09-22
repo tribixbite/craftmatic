@@ -250,9 +250,9 @@ describe('stairCodeForPlacement', () => {
     return [c, 0, s, 0, 1, 0, -s, 0, c];
   };
 
-  it('rotates the facing with the brick, grid +z being south', () => {
+  it('rotates the facing with the brick; grid +z (south) is LDraw −z, so an LDraw +z rise faces north', () => {
     const facings = [0, 90, 180, 270].map(d => decodeStairCode(stairCodeForPlacement(slope, yaw(d)))!.facing);
-    expect(facings).toEqual(['south', 'east', 'north', 'west']);
+    expect(facings).toEqual(['north', 'east', 'south', 'west']);
   });
 
   it('flips an upside-down placement to half=top and back', () => {

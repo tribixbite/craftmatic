@@ -155,13 +155,13 @@ describe('discoverSceneActors', () => {
 
 describe('grid mapping', () => {
   const frame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
-  it('sceneGridPoint maps LDraw into cells with Y flipped', () => {
-    const p = sceneGridPoint(frame, [LDU_PER_BLOCK * 2, -LDU_PER_BLOCK * 3, LDU_PER_BLOCK]);
+  it('sceneGridPoint maps LDraw into cells with Y and Z flipped (a half turn about X, not a mirror)', () => {
+    const p = sceneGridPoint(frame, [LDU_PER_BLOCK * 2, -LDU_PER_BLOCK * 3, -LDU_PER_BLOCK]);
     expect(p[0]).toBeCloseTo(2, 9); expect(p[1]).toBeCloseTo(3, 9); expect(p[2]).toBeCloseTo(1, 9);
   });
-  it('yawForFacing: −Z is 180, +Z is 0, +X is −90, −X is 90', () => {
-    expect(yawForFacing([0, -1])).toBe(180);
-    expect(yawForFacing([0, 1])).toBe(0);
+  it('yawForFacing: −Z (the LDraw front) is 0, +Z is 180, +X is −90, −X is 90', () => {
+    expect(yawForFacing([0, -1])).toBe(0);
+    expect(yawForFacing([0, 1])).toBe(180);
     expect(yawForFacing([1, 0])).toBe(-90);
     expect(yawForFacing([-1, 0])).toBe(90);
   });
@@ -175,11 +175,13 @@ describe('grid mapping', () => {
 describe('applySceneDoors', () => {
   const frame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
   const wallOf = (grid: BlockGrid): void => { for (let x = 0; x < grid.width; x++) for (let y = 0; y < grid.height; y++) grid.set(x, y, 2, 'minecraft:stone'); };
+  // Grid +Z is LDraw −Z (the grid frame is a half turn about X, `sceneGridPoint`):
+  // a leaf in grid cell z is authored at LDraw z = −(cell + fraction) · cell size.
   it('opens the leaf cells and hangs double doors with outer hinges in a 1.5-cell-wide leaf', () => {
     const grid = new BlockGrid(6, 6, 6);
     wallOf(grid);
     // Leaf along X from x=53 (cell 1) 80 LDU wide, 144 tall from the floor, thin in Z inside the wall at z cell 2.
-    const z = 2 * LDU_PER_BLOCK + 20;
+    const z = -(2 * LDU_PER_BLOCK + 20);
     const stats = applySceneDoors(grid, [{ part: '60623', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, -144, z - 3], maxLdu: [LDU_PER_BLOCK + 80, 0, z + 3], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(stats).toEqual({ doors: 2, leavesCleared: 6, skippedSmall: 0, skippedOutside: 0, passageCleared: 0, unreachable: 0 });
     expect(grid.get(1, 0, 2)).toBe('minecraft:spruce_door[facing=south,half=lower,hinge=left,open=false,powered=false]');
@@ -193,8 +195,9 @@ describe('applySceneDoors', () => {
     const grid = new BlockGrid(6, 6, 6);
     for (let z = 0; z < 6; z++) for (let y = 0; y < 6; y++) grid.set(2, y, z, 'minecraft:stone');
     const x = 2 * LDU_PER_BLOCK + 20;
-    // Hinge at the max-Z end: seen from the east (facing east, viewer looks west), the viewer's left is south (+Z) → hinge left.
-    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [x - 3, -120, 2 * LDU_PER_BLOCK + 5], maxLdu: [x + 3, 0, 2 * LDU_PER_BLOCK + 65], alongAxis: 'z', hingeAtMin: false }], frame);
+    // Hinge at the LDraw min-Z end, which is the grid's max-Z (south) end: seen from the east
+    // (facing east, viewer looks west), the viewer's left is south (+Z) → hinge left.
+    const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [x - 3, -120, -(2 * LDU_PER_BLOCK + 65)], maxLdu: [x + 3, 0, -(2 * LDU_PER_BLOCK + 5)], alongAxis: 'z', hingeAtMin: true }], frame);
     expect(stats.doors).toBe(1);
     expect(grid.get(2, 0, 2)).toBe('minecraft:birch_door[facing=east,half=lower,hinge=left,open=false,powered=false]');
     expect(grid.get(2, 1, 2)).toBe('minecraft:birch_door[facing=east,half=upper,hinge=left,open=false,powered=false]');
@@ -203,7 +206,7 @@ describe('applySceneDoors', () => {
   it('a 1.5-cell leaf that straddles three cells gets two doors where it covers most, and the sliver stays wall', () => {
     const grid = new BlockGrid(6, 6, 6);
     wallOf(grid);
-    const z = 2 * LDU_PER_BLOCK + 20;
+    const z = -(2 * LDU_PER_BLOCK + 20);
     // From 0.8 to 2.3 cells: covers cell 0 by 0.2, cell 1 fully, cell 2 by 0.3 → doors in cells 1 and 2.
     const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 6, minLdu: [0.8 * LDU_PER_BLOCK, -144, z - 3], maxLdu: [2.3 * LDU_PER_BLOCK, 0, z + 3], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(stats.doors).toBe(2);
@@ -215,7 +218,7 @@ describe('applySceneDoors', () => {
   it('does not duplicate a doorway when an imported source contains overlapping leaves', () => {
     const grid = new BlockGrid(6, 6, 6);
     wallOf(grid);
-    const z = 2 * LDU_PER_BLOCK + 20;
+    const z = -(2 * LDU_PER_BLOCK + 20);
     const leaf = { part: 'd', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, -144, z - 3] as [number, number, number], maxLdu: [LDU_PER_BLOCK + 80, 0, z + 3] as [number, number, number], alongAxis: 'x' as const, hingeAtMin: true };
     const stats = applySceneDoors(grid, [leaf, { ...leaf, color: 15 }], frame);
     expect(stats.doors).toBe(2);
@@ -229,7 +232,7 @@ describe('applySceneDoors', () => {
     // the cell under the leaf's bottom cell is air; rooms either side.
     for (let x = 0; x < 6; x++) for (let z = 0; z < 6; z++) grid.set(x, 0, z, 'minecraft:stone');
     for (let x = 0; x < 6; x++) for (let y = 2; y < 6; y++) { grid.set(x, y, 2, 'minecraft:stone'); grid.set(x, y, 3, 'minecraft:stone'); }
-    const zc = 3 * LDU_PER_BLOCK; // the boundary between cells 2 and 3: the leaf's centre cell is 3
+    const zc = -3 * LDU_PER_BLOCK; // the boundary between cells 2 and 3 (LDraw −Z is grid +Z): the leaf's centre cell is 3
     const bottom = -(2 * LDU_PER_BLOCK + 8); // bottom edge reads cell 2, over air in cell 1
     const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, bottom - 144, zc - 3], maxLdu: [LDU_PER_BLOCK + 80, bottom, zc + 3], alongAxis: 'x', hingeAtMin: true, frameAcrossLdu: [zc - 10, zc + 10] }], frame);
     expect(stats.doors).toBe(2);
@@ -247,7 +250,7 @@ describe('applySceneDoors', () => {
     for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) grid.set(x, 0, z, 'minecraft:stone');
     // Facade three cells deep (z 2..4) from y 1 up; the door leaf sits in cell z 3; air beyond z 4 (the street) and before z 2 (the room).
     for (let x = 0; x < 8; x++) for (let y = 1; y < 6; y++) for (const z of [2, 3, 4]) grid.set(x, y, z, 'minecraft:stone');
-    const zc = 3 * LDU_PER_BLOCK + 20;
+    const zc = -(3 * LDU_PER_BLOCK + 20);
     const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 6, minLdu: [LDU_PER_BLOCK, -LDU_PER_BLOCK - 144, zc - 3], maxLdu: [LDU_PER_BLOCK + 80, -LDU_PER_BLOCK, zc + 3], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(stats.doors).toBe(2);
     expect(stats.unreachable).toBe(0);
@@ -258,7 +261,7 @@ describe('applySceneDoors', () => {
     // A door with solid on both sides for more than three cells is reported, not tunnelled.
     const solid = new BlockGrid(10, 6, 10);
     for (let x = 0; x < 10; x++) for (let y = 0; y < 6; y++) for (let z = 0; z < 10; z++) solid.set(x, y, z, 'minecraft:stone');
-    const zs = 5 * LDU_PER_BLOCK + 20;
+    const zs = -(5 * LDU_PER_BLOCK + 20);
     const s2 = applySceneDoors(solid, [{ part: 'd', description: 'Door', color: 6, minLdu: [4 * LDU_PER_BLOCK, -LDU_PER_BLOCK - 144, zs - 3], maxLdu: [4 * LDU_PER_BLOCK + 80, -LDU_PER_BLOCK, zs + 3], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(s2.unreachable).toBe(1);
     expect(s2.passageCleared).toBe(0);
@@ -268,7 +271,7 @@ describe('applySceneDoors', () => {
     const grid = new BlockGrid(6, 6, 9);
     for (let x = 0; x < 6; x++) for (let z = 0; z < 9; z++) grid.set(x, 0, z, 'minecraft:stone');
     for (let x = 0; x < 6; x++) for (let y = 1; y < 6; y++) grid.set(x, y, 4, 'minecraft:stone');
-    const zc = 4 * LDU_PER_BLOCK + 20, bottom = -8;
+    const zc = -(4 * LDU_PER_BLOCK + 20), bottom = -8;
     const stats = applySceneDoors(grid, [{ part: 'd', description: 'Door', color: 15, minLdu: [LDU_PER_BLOCK, bottom - 144, zc - 3], maxLdu: [LDU_PER_BLOCK + 80, bottom, zc + 3], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(stats.doors).toBe(2);
     expect(stats.unreachable).toBe(0);
@@ -279,7 +282,7 @@ describe('applySceneDoors', () => {
     const edge = new BlockGrid(6, 6, 4);
     for (let x = 0; x < 6; x++) for (let z = 0; z < 4; z++) edge.set(x, 0, z, 'minecraft:stone');
     for (let x = 0; x < 6; x++) for (let y = 1; y < 6; y++) for (const z of [0, 1, 2]) edge.set(x, y, z, 'minecraft:stone');
-    const ze = 20;
+    const ze = -20;
     const s2 = applySceneDoors(edge, [{ part: 'd', description: 'Door', color: 15, minLdu: [LDU_PER_BLOCK, bottom - 144, ze - 3], maxLdu: [LDU_PER_BLOCK + 80, bottom, ze + 3], alongAxis: 'x', hingeAtMin: true }], frame);
     expect(s2.unreachable).toBe(0);
     expect(edge.get(1, 1, 0)).toMatch(/half=lower/);
@@ -349,8 +352,8 @@ describe('sceneFloorPoint', () => {
     expect(sceneFloorPoint(frame, 8, [0, 0, 0])[1]).toBeCloseTo(8 / LDU_PER_BLOCK, 9);
     // The voxel frame put the same feet a plate BELOW the pin (the chalet's −0.15).
     expect(sceneGridPoint(frame, [0, 8, 0])[1]).toBeCloseTo(-8 / LDU_PER_BLOCK, 9);
-    // X and Z are the grid's.
-    expect(sceneFloorPoint(frame, 8, [LDU_PER_BLOCK * 2, 8, LDU_PER_BLOCK])).toEqual([2, 0, 1]);
+    // X and Z are the grid's (grid +Z is LDraw −Z).
+    expect(sceneFloorPoint(frame, 8, [LDU_PER_BLOCK * 2, 8, -LDU_PER_BLOCK])).toEqual([2, 0, 1]);
     // No underside known: fall back to the grid mapping.
     expect(sceneFloorPoint(frame, NaN, [0, 8, 0])[1]).toBeCloseTo(-8 / LDU_PER_BLOCK, 9);
   });

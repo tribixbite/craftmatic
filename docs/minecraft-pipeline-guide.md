@@ -12,6 +12,24 @@ Read before changing schematic export, voxelization, resolution, block palettes,
   minifigs are real separate components). The build guide stays at 1
   cell/stud. GLB/OBJ/STL were verified axis-exact already (STL bbox matches
   studs×8mm per axis to the decimal).
+- **The grid frame is LDraw turned half a turn about X (2026-09-22, breaking).**
+  `engine/ldraw-geometry.ts` `rasterizeTriangles` maps LDraw (x, y, z) to
+  cells `(x/c, −y/c, −z/c)`: LDraw (Y down) and Minecraft (Y up) are both
+  right-handed, so the change of basis is a rotation (det +1) and the model's
+  −Z front lands at +Z (south). Until this date the grid was `(x, −y, z)` — a
+  reflection — so **every `.schem`/`.litematic`/`.mcstructure`/`.mcaddon` ever
+  exported was the model's mirror image** (a hinge on the wrong side, a
+  printed sign backwards; symmetric builds hid it), and so were the Java
+  `block_display` exports (`display-entities.ts`). The legacy
+  `ldraw-voxelizer.ts` and its slope/wedge/corner/bracket direction masks, the
+  fallback AABB, `bridgePartContacts`, and `block-shapes.ts` stair facings (an
+  LDraw +Z rise now faces north) all follow the same frame; every consumer of
+  the grid in the Bedrock stack maps through `sceneGridPoint`. A new export
+  will NOT overlay a placement made from an older file: the export notes say
+  so (`bedrock-export-notes.ts` `FRAME_CHANGE_NOTE`) and
+  `craftmatic-provenance.json` now records `frame: "x180"`. Pinned by
+  `test/ldraw-frame.test.ts`; the renderer side of the same fix is in the
+  [LEGO rendering guide](lego-renderer-guide.md).
 - **Minecraft export runs in a Web Worker + the OOM cause (S3, 2026-09-01).**
   `web/src/engine/schem-worker.ts` runs voxelize → fillSingleVoxelGaps → NBT →
   gzip off the main thread and streams `{phase, pct}` to the banner;

@@ -32,6 +32,7 @@ import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 import type { Vec3, Triangle, LDrawViewerOptions } from './types.js';
+import { ldrawInstanceMatrix, pushLdrawPointToScene } from './frame.js';
 import type { ConnectivityReport } from './connectivity-audit.js';
 import { WarpLoader } from './warp-loader.js';
 import {
@@ -193,7 +194,10 @@ export class LDrawViewer {
   // Model-aware orientation, recomputed per load(). frontDir is the world
   // direction the model's "front face" points to; rightDir is the model's
   // right side. Both are unit horizontal vectors (Y=0). Defaults match the
-  // pre-heuristic LDraw convention (front=+Z, right=+X).
+  // pre-heuristic LDraw convention: a model faces LDraw −Z, which the frame
+  // (frame.ts, a half turn about X) maps to scene +Z, so the default front is
+  // scene +Z. detectOrientation() overrides both from the brick mass; only
+  // the empty-model fallback uses these values.
   private frontDir = new THREE.Vector3(0, 0, 1);
   private rightDir = new THREE.Vector3(1, 0, 0);
   /** Parts that resolved with no geometry (missing from library / LSynth).
@@ -1534,15 +1538,11 @@ export class LDrawViewer {
       if (bLayer < minRawLayer) minRawLayer = bLayer;
       if (bLayer > maxRawLayer) maxRawLayer = bLayer;
 
-      // Per-instance matrix: applies rotation+translation, then scale + Y-flip
-      // (LDraw is Y-down, scene is Y-up). Pre-baked so the InstancedMesh
-      // doesn't need its own Y-flip in shader.
-      const m = new THREE.Matrix4().set(
-        scale * R[0]!,  scale * R[1]!,  scale * R[2]!,  scale * T[0],
-        -scale * R[3]!, -scale * R[4]!, -scale * R[5]!, -scale * T[1],
-        scale * R[6]!,  scale * R[7]!,  scale * R[8]!,  scale * T[2],
-        0, 0, 0, 1,
-      );
+      // Per-instance matrix: rotation+translation, then the scale and the
+      // LDraw→scene frame (frame.ts: a half turn about X, det +1 — NOT a Y
+      // flip, which mirrored every model). Pre-baked so the InstancedMesh
+      // needs no frame change in shader; the exporters bake these matrices.
+      const m = ldrawInstanceMatrix(R, T, scale);
 
       const bucketKey = `${partId}|${cid}`;
       let bucket = buckets.get(bucketKey);
@@ -1559,23 +1559,16 @@ export class LDrawViewer {
       // Stop collecting once over the LOD budget; the model-wide edge mesh is
       // then dropped entirely below (no inconsistent partial outlines).
       if (!edgesOverBudget) {
+        // Same frame as the instance matrices (frame.ts), so an edge sits on its brick.
         for (const [ev0, ev1] of geom.edges) {
-          const we0 = applyMat(ev0, R, T);
-          const we1 = applyMat(ev1, R, T);
-          segPos.push(
-            we0[0]! * scale, -we0[1]! * scale, we0[2]! * scale,
-            we1[0]! * scale, -we1[1]! * scale, we1[2]! * scale,
-          );
+          pushLdrawPointToScene(segPos, applyMat(ev0, R, T), scale);
+          pushLdrawPointToScene(segPos, applyMat(ev1, R, T), scale);
           segColor.push(cid); segStepArr.push(bStep); segLayerArr.push(bLayer); segCount++;
         }
         for (const [ccid, cedges] of geom.colorEdges) {
           for (const [ev0, ev1] of cedges) {
-            const we0 = applyMat(ev0, R, T);
-            const we1 = applyMat(ev1, R, T);
-            segPos.push(
-              we0[0]! * scale, -we0[1]! * scale, we0[2]! * scale,
-              we1[0]! * scale, -we1[1]! * scale, we1[2]! * scale,
-            );
+            pushLdrawPointToScene(segPos, applyMat(ev0, R, T), scale);
+            pushLdrawPointToScene(segPos, applyMat(ev1, R, T), scale);
             segColor.push(ccid); segStepArr.push(bStep); segLayerArr.push(bLayer); segCount++;
           }
         }

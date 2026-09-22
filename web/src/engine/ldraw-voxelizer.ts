@@ -273,9 +273,11 @@ export function voxelizeLDraw(
   // ── Orientation normalization ─────────────────────────────────────────────
   // LDraw convention: Y increases downward. Properly oriented models have
   // the floor at Y≈0 and extend into positive Y (downward bounding box).
-  // Auto-flip disabled: LDraw convention is Y-down, grid conversion handles
-  // the inversion (gy = -wy / LDU_PER_Y). Previous heuristic incorrectly
-  // flipped models with all-negative Y (standard upward-pointing models).
+  // Auto-flip disabled: LDraw convention is Y-down, the grid frame handles the
+  // inversion (gy = -wy / LDU_PER_Y, gz = -wz / LDU_PER_XZ: the half turn about
+  // X of ldraw-geometry.ts `rasterizeTriangles`, the same grid the geometry
+  // voxelizer fills). Previous heuristic incorrectly flipped models with
+  // all-negative Y (standard upward-pointing models).
   const shouldFlip = false;
   const maxStep = options?.maxStep;
   const effectiveBricks: ParsedBrick[] = (shouldFlip || maxStep != null)
@@ -347,13 +349,14 @@ export function voxelizeLDraw(
     }
 
     // Convert world AABB to grid cells.
-    // X/Z: stud pitch (20 LDU); Y: LDU_PER_Y (plate=8 or stud=20), flipped
+    // X/Z: stud pitch (20 LDU); Y: LDU_PER_Y (plate=8 or stud=20). Y and Z
+    // both negate (the grid frame), so their ranges run world MAX → MIN.
     const gxMin = Math.round(wxMin / LDU_PER_XZ);
     const gxMax = Math.round(wxMax / LDU_PER_XZ);
     const gyMin = Math.round(-wyMax / LDU_PER_Y);
     const gyMax = Math.round(-wyMin / LDU_PER_Y);
-    const gzMin = Math.round(wzMin / LDU_PER_XZ);
-    const gzMax = Math.round(wzMax / LDU_PER_XZ);
+    const gzMin = Math.round(-wzMax / LDU_PER_XZ);
+    const gzMax = Math.round(-wzMin / LDU_PER_XZ);
 
     // ── Thin-beam line rasterization ──────────────────────────────────────────
     // For elongated thin parts (sH=1, one horizontal dim=1, other ≥4), the AABB
@@ -378,9 +381,9 @@ export function voxelizeLDraw(
       const w1x = R[0]*e1x + R[1]*e1y + R[2]*e1z + brick.x;
       const w1y = R[3]*e1x + R[4]*e1y + R[5]*e1z + brick.y;
       const w1z = R[6]*e1x + R[7]*e1y + R[8]*e1z + brick.z;
-      // Convert to grid coordinates
-      const g0x = w0x / LDU_PER_XZ, g0y = -w0y / LDU_PER_Y, g0z = w0z / LDU_PER_XZ;
-      const g1x = w1x / LDU_PER_XZ, g1y = -w1y / LDU_PER_Y, g1z = w1z / LDU_PER_XZ;
+      // Convert to grid coordinates (the grid frame: Y and Z negate)
+      const g0x = w0x / LDU_PER_XZ, g0y = -w0y / LDU_PER_Y, g0z = -w0z / LDU_PER_XZ;
+      const g1x = w1x / LDU_PER_XZ, g1y = -w1y / LDU_PER_Y, g1z = -w1z / LDU_PER_XZ;
       // Rasterize line: step along the longest axis, compute the other two
       const steps = Math.max(1, Math.round(Math.max(
         Math.abs(g1x - g0x), Math.abs(g1y - g0y), Math.abs(g1z - g0z)
@@ -402,6 +405,8 @@ export function voxelizeLDraw(
 
     // Determine slope ascending axis from rotation matrix.
     // In local space, a slope ascends along -Z; world-space ascending = R*[0,0,-1].
+    // Directions along Z are read in GRID Z, which is world −Z (the grid frame),
+    // so a world +Z direction points toward gzMin.
     let slopeAxis: 'x' | 'z' | null = null;
     let slopeAscDir = 1;
     if ((shape === 'slope' || shape === 'slope_inv' || shape === 'slope_double') && spanY > 0) {
@@ -412,7 +417,7 @@ export function voxelizeLDraw(
         slopeAscDir = ascX >= 0 ? 1 : -1;
       } else if (spanZ > 0) {
         slopeAxis = 'z';
-        slopeAscDir = ascZ >= 0 ? 1 : -1;
+        slopeAscDir = ascZ >= 0 ? -1 : 1;
       }
     }
 
@@ -432,7 +437,7 @@ export function voxelizeLDraw(
         wedgeTaperDir = tipX >= 0 ? 1 : -1;
       } else if (spanZ > 0) {
         wedgeTaperAxis = 'z';
-        wedgeTaperDir = tipZ >= 0 ? 1 : -1;
+        wedgeTaperDir = tipZ >= 0 ? -1 : 1;  // grid Z is world −Z
       }
     }
 
@@ -480,7 +485,7 @@ export function voxelizeLDraw(
     // The inner corner of the L is at local (-lxHalf, _, -lzHalf). Its world position
     // determines which AABB corner is the "pivot". For a square part (lxHalf = lzHalf):
     //   cornerX = (R[0] + R[2]) > 0 ? gxMin : gxMax
-    //   cornerZ = (R[6] + R[8]) > 0 ? gzMin : gzMax
+    //   cornerZ = (R[6] + R[8]) > 0 ? gzMax : gzMin   (grid Z is world −Z)
     //
     // A cell is kept if it lies on either 1-stud-wide arm from the corner:
     //   x === cornerX  (Z-axis arm)  OR  z === cornerZ  (X-axis arm)
@@ -488,7 +493,7 @@ export function voxelizeLDraw(
     const isCorner = shape === 'corner';
     if (isCorner) {
       cornerX = (R[0] + R[2]) > 0 ? gxMin : gxMax;
-      cornerZ = (R[6] + R[8]) > 0 ? gzMin : gzMax;
+      cornerZ = (R[6] + R[8]) > 0 ? gzMax : gzMin;
     }
 
     // Bracket masking: L-shaped plate+face in the vertical plane.
@@ -509,7 +514,7 @@ export function voxelizeLDraw(
       const faceWorldX = -R[2], faceWorldZ = -R[8];
       if (Math.abs(faceWorldZ) >= Math.abs(faceWorldX) && spanZ > 0) {
         bracketFaceAxis = 'z';
-        bracketFacePos = faceWorldZ >= 0 ? gzMax : gzMin;
+        bracketFacePos = faceWorldZ >= 0 ? gzMin : gzMax;  // grid Z is world −Z
       } else if (spanX > 0) {
         bracketFaceAxis = 'x';
         bracketFacePos = faceWorldX >= 0 ? gxMax : gxMin;

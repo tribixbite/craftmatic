@@ -360,8 +360,10 @@ export function stairCodeForPlacement(slope: SlopeAnalysis, rot: readonly number
   const wz = (rot[6] ?? 0) * slope.ux + (rot[8] ?? 1) * slope.uz;
   const ax = Math.abs(wx), az = Math.abs(wz);
   if (Math.max(ax, az) < 0.9) return 0;                // rotated off-axis
-  // Grid X is world X (east +x) and grid Z is world Z (south +z).
-  const facing: StairFacing = ax >= az ? (wx > 0 ? 'east' : 'west') : (wz > 0 ? 'south' : 'north');
+  // Grid X is LDraw X (east +x); grid Z is LDraw −Z (the grid frame is a half
+  // turn about X, `ldraw-geometry.ts` rasterizeTriangles), so an LDraw +Z
+  // rise faces north.
+  const facing: StairFacing = ax >= az ? (wx > 0 ? 'east' : 'west') : (wz > 0 ? 'north' : 'south');
   const flipped = upright < 0;                          // brick placed upside-down
   return stairCode(facing, slope.inverted !== flipped ? 'top' : 'bottom');
 }

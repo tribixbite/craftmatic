@@ -160,12 +160,16 @@ export function buildDisplayEntitiesFunction(
 
 /**
  * Convert row-major 3x3 rotation matrix to quaternion [qx, qy, qz, qw] for Java Display Entities.
- * LDraw has +Y down, Minecraft has +Y up.
+ * LDraw has +Y down, Minecraft has +Y up: the change of basis is the half turn
+ * about X, `F = diag(1, −1, −1)` (the same frame as the block grid,
+ * `ldraw-geometry.ts`), so the rotation is conjugated, `F · R · F`, which
+ * negates the four entries that mix X with Y or Z. A Y-only sign flip is a
+ * reflection and placed every brick as its mirror image.
  */
 export function matrixToQuaternion(r: number[]): [number, number, number, number] {
-  const r00 = r[0], r01 = -r[1], r02 = r[2];
-  const r10 = -r[3], r11 = r[4], r12 = -r[5];
-  const r20 = r[6], r21 = -r[7], r22 = r[8];
+  const r00 = r[0], r01 = -r[1], r02 = -r[2];
+  const r10 = -r[3], r11 = r[4], r12 = r[5];
+  const r20 = -r[6], r21 = r[7], r22 = r[8];
 
   const trace = r00 + r11 + r22;
   let qx = 0, qy = 0, qz = 0, qw = 1;
@@ -249,9 +253,10 @@ export function ldrawToDisplayEntities(
     const sy = (sH * 8 * lduToBlock).toFixed(3);
     const sz = (sL * 20 * lduToBlock).toFixed(3);
 
+    // The block-grid frame (half turn about X): Y up, and Java +Z is LDraw −Z.
     const cx = (b.x - midX) * lduToBlock;
     const cy = (maxY - b.y) * lduToBlock;
-    const cz = (b.z - midZ) * lduToBlock;
+    const cz = (midZ - b.z) * lduToBlock;
 
     const tx = (ox + cx).toFixed(3);
     const ty = (oy + cy).toFixed(3);

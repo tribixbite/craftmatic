@@ -16,20 +16,24 @@
  * interior stays lit by daylight) and has no selection box, so a tap reaches
  * the vanilla door behind it.
  *
- * Frame: the block grid maps LDraw (x, y, z) to cells as (x, −y, z) - a
- * MIRROR of the model (LDraw and Minecraft are both right-handed; only Y
- * flips). The shell must land on the same cells, so it is compiled with the
- * point reflection −I as its LDraw→render matrix: at yaw 0 the world sees the
- * render frame as (−x, y, −z) (extraPlacement, proven on the Pixel), which
- * composes to exactly (x, −y, z) - the grid's frame. The shell's actor
- * position is its floor centre mapped through the voxelizer's grid origin
- * like every figure and seat.
+ * Frame: the block grid maps LDraw (x, y, z) to cells as (x, −y, −z) - a half
+ * turn about X, the proper rotation between two right-handed frames
+ * (`sceneGridPoint`). The shell must land on the same cells: at yaw 0 the
+ * world sees the render frame as (−x, y, −z) (extraPlacement, proven on the
+ * Pixel), so the shell is compiled like a vehicle whose nose is LDraw −Z,
+ * `ldrawToRenderRotation('-z')` = diag(−1, −1, 1), which composes to exactly
+ * (x, −y, −z) - the grid's frame. Until 2026-09-22 the grid was the MIRROR
+ * (x, −y, z) and the shell used the point reflection −I to land on it: a
+ * compensation for the mirror, not a frame of its own, and it made every
+ * building read backwards. The shell's actor position is its floor centre
+ * mapped through the voxelizer's grid origin like every figure and seat.
  */
 
 import { withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
+import { ldrawToRenderRotation } from './ldraw-entity-compiler.js';
 import { PACK_NAMESPACE } from './mcpack.js';
 import type { LegoEntityQuality } from './ldraw-part-prototype.js';
 
@@ -40,8 +44,8 @@ export const COLLIDER_HI_STATE = `${PACK_NAMESPACE}:hi`;
 /** The block-state string the grid carries for a collider spanning lo..hi sixteenths. */
 export const colliderState = (lo: number, hi: number): string => `${COLLIDER_BLOCK_ID}[lo=${lo},hi=${hi}]`;
 
-/** The LDraw → render matrix for a building shell: the point reflection (see the header). */
-export const SHELL_FRAME: readonly number[] = [-1, 0, 0, 0, -1, 0, 0, 0, -1];
+/** The LDraw → render matrix for a building shell at yaw 0: a −Z nose, det +1 (see the header). */
+export const SHELL_FRAME: readonly number[] = ldrawToRenderRotation('-z');
 
 /**
  * Cuboid budgets for a building shell - a whole building is many times a

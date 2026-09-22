@@ -540,10 +540,20 @@ function buildTriBuckets(
  * This captures geometry that a single-axis sweep would miss (thin plates
  * parallel to the sweep direction, angled panels, etc.).
  *
- * Grid coordinate system:
- *   gx = world_x / LDU_STUD        (LDraw X → grid X)
+ * Grid coordinate system (the LDraw → Minecraft frame, `viewer/ldraw/frame.ts`):
+ *   gx =  world_x / LDU_PER_XZ     (LDraw X → grid X)
  *   gy = -world_y / LDU_PER_Y      (LDraw Y-down → grid Y-up)
- *   gz = world_z / LDU_STUD         (LDraw Z → grid Z)
+ *   gz = -world_z / LDU_PER_XZ     (LDraw −Z, the model's front → grid +Z, south)
+ *
+ * That is a half turn about X (det +1). LDraw and Minecraft are both
+ * right-handed, so flipping Y ALONE would be a reflection: until 2026-09-22
+ * the grid was `(x, −y, z)` and every block export was the model's mirror
+ * image (a printed sign read backwards; a hinge changed sides). The sweeps
+ * below still run in the LDraw-signed Z (`gz_ldraw = world_z / LDU_PER_XZ`);
+ * the frame is applied ONCE, where cells are emitted, because cells are
+ * centred on multiples of the cell size and negation maps cell to cell
+ * exactly. Every LDraw → grid conversion elsewhere (`sceneGridPoint`, the
+ * fallback AABB, the bridge window, the legacy voxelizer) uses the same signs.
  */
 function rasterizeTriangles(
   worldTris: Triangle[],
@@ -743,17 +753,18 @@ function rasterizeTriangles(
           addCell(x, y, z);
   }
 
-  // Emit the deduplicated cells
+  // Emit the deduplicated cells, turning the sweeps' LDraw-signed Z into the
+  // grid's (see the header: gz = −world_z / LDU_PER_XZ).
   for (const key of cellSet) {
     const dz = key % nZ;
     const rest = (key - dz) / nZ;
     const dy = rest % nY;
     const dx = (rest - dy) / nY;
-    emit(dx + oX, dy + oY, dz + oZ);
+    emit(dx + oX, dy + oY, -(dz + oZ));
   }
   for (const key of overflow) {
     const [x, y, z] = key.split(',').map(Number) as [number, number, number];
-    emit(x, y, z);
+    emit(x, y, -z);
   }
 }
 
@@ -1022,9 +1033,10 @@ function bridgePartContacts(
       const wxn = Math.max(f.xn, g.xn) - windowPadLDU, wxx = Math.min(f.xx, g.xx) + windowPadLDU;
       const wyn = Math.max(f.yn, g.yn) - windowPadLDU, wyx = Math.min(f.yx, g.yx) + windowPadLDU;
       const wzn = Math.max(f.zn, g.zn) - windowPadLDU, wzx = Math.min(f.zx, g.zx) + windowPadLDU;
+      // LDU window → grid cells through the grid frame (Y and Z negate).
       const bxLo = Math.floor(wxn / cellLDU_XZ) - 1, bxHi = Math.ceil(wxx / cellLDU_XZ) + 1;
       const byLo = Math.floor(-wyx / cellLDU_Y) - 1, byHi = Math.ceil(-wyn / cellLDU_Y) + 1;
-      const bzLo = Math.floor(wzn / cellLDU_XZ) - 1, bzHi = Math.ceil(wzx / cellLDU_XZ) + 1;
+      const bzLo = Math.floor(-wzx / cellLDU_XZ) - 1, bzHi = Math.ceil(-wzn / cellLDU_XZ) + 1;
 
       // Partner cells inside that window; bail out the moment a face is shared.
       const window: number[] = [];
@@ -1116,9 +1128,10 @@ export async function voxelizeLDrawGeometry(
   const LDU_PER_Y = cell ?? (detail ? 8 : (options?.cubicScale ? LDU_STUD : 8));
   const LDU_XZ = cell ?? (detail ? 8 : LDU_STUD);
 
-  // Auto-flip disabled: LDraw convention is Y-down, and our grid conversion
-  // (gy = -wy / LDU_PER_Y) already handles the inversion. Flipping was
-  // incorrectly inverting models with all-negative Y (standard LDraw orientation).
+  // Auto-flip disabled: LDraw convention is Y-down, and the grid frame
+  // (rasterizeTriangles header: gy = -wy / LDU_PER_Y, gz = -wz / LDU_PER_XZ)
+  // already handles the inversion. Flipping was incorrectly inverting models
+  // with all-negative Y (standard LDraw orientation).
   const shouldFlip = false;
   const maxStep = options?.maxStep;
 
@@ -1191,9 +1204,11 @@ export async function voxelizeLDrawGeometry(
           }
         }
       }
+      // Grid frame (rasterizeTriangles header): Y and Z both negate, so each
+      // axis's grid range runs from the world MAX to the world MIN.
       const fbxMin = Math.round(bxMin / LDU_XZ), fbxMax = Math.round(bxMax / LDU_XZ);
       const fbyMin = Math.round(-byMax / LDU_PER_Y), fbyMax = Math.round(-byMin / LDU_PER_Y);
-      const fbzMin = Math.round(bzMin / LDU_XZ), fbzMax = Math.round(bzMax / LDU_XZ);
+      const fbzMin = Math.round(-bzMax / LDU_XZ), fbzMax = Math.round(-bzMin / LDU_XZ);
       const fbStart = cells.count;
       for (let x = fbxMin; x <= fbxMax; x++)
         for (let y = fbyMin; y <= fbyMax; y++)

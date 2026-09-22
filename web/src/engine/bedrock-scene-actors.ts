@@ -96,7 +96,7 @@ export interface SceneDoor {
   /** World AABB of the leaf, LDraw. */
   minLdu: Vec3;
   maxLdu: Vec3;
-  /** The horizontal axis the leaf runs along, and which end of it the hinge is on. */
+  /** The horizontal axis the leaf runs along, and which end of it (in LDRAW coordinates) the hinge is on. */
   alongAxis: 'x' | 'z';
   hingeAtMin: boolean;
   /**
@@ -265,9 +265,16 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
 /** The voxelizer's grid frame (`VoxelizeResult.gridOrigin`). */
 export interface SceneGridFrame { x: number; y: number; z: number; scale: number; cellXZ: number; cellY: number }
 
-/** An LDraw point in grid coordinates (fractional cells; LDraw Y down → grid Y up). */
+/**
+ * An LDraw point in grid coordinates (fractional cells). The grid is LDraw
+ * turned half a turn about X: `(x, −y, −z)` per cell size, then the grid
+ * origin — the SAME frame `ldraw-geometry.ts` `rasterizeTriangles` fills the
+ * blocks in, so an actor lands on the block its part became. LDraw Y down is
+ * grid Y up, and LDraw −Z (the model's front) is grid +Z (south). A Y-only
+ * flip would be a mirror (det −1): that was the grid until 2026-09-22.
+ */
 export function sceneGridPoint(frame: SceneGridFrame, p: Vec3): Vec3 {
-  return [(p[0] / frame.cellXZ - frame.x) * frame.scale, (-p[1] / frame.cellY - frame.y) * frame.scale, (p[2] / frame.cellXZ - frame.z) * frame.scale];
+  return [(p[0] / frame.cellXZ - frame.x) * frame.scale, (-p[1] / frame.cellY - frame.y) * frame.scale, (-p[2] / frame.cellXZ - frame.z) * frame.scale];
 }
 
 /**
@@ -283,10 +290,22 @@ export function sceneFloorPoint(frame: SceneGridFrame, groundLdu: number, p: Vec
   return [g[0], Number.isFinite(groundLdu) ? (groundLdu - p[1]) / frame.cellY * frame.scale : g[1], g[2]];
 }
 
-/** Bedrock yaw (degrees; 0 faces +Z, forward = (−sin, cos)) for a horizontal LDraw direction. Grid axes are LDraw's. */
+/**
+ * Bedrock yaw (degrees; 0 faces +Z, forward = (−sin, cos)) for a horizontal
+ * LDraw direction (x, z). World Z is LDraw −Z (`sceneGridPoint`), so the
+ * world direction is (x, −z): a figure facing LDraw −Z (the front) faces
+ * world +Z, yaw 0.
+ */
 export function yawForFacing(f: [number, number]): number {
-  return normaliseYaw(Math.atan2(-f[0] || 0, f[1]) * 180 / Math.PI);
+  return normaliseYaw(Math.atan2(-f[0] || 0, -f[1]) * 180 / Math.PI);
 }
+
+/**
+ * Whether a door leaf's hinge is at the grid-MIN end of its axis. `hingeAtMin`
+ * is measured in LDraw; along X the axes agree, along Z the grid runs the
+ * other way (`sceneGridPoint`), so the LDraw-min end is the grid-max end.
+ */
+const hingeAtGridMin = (d: Pick<SceneDoor, 'alongAxis' | 'hingeAtMin'>): boolean => d.alongAxis === 'x' ? d.hingeAtMin : !d.hingeAtMin;
 
 /** Round to a tenth of a degree in (−180, 180], never −0. */
 export function normaliseYaw(deg: number): number {
@@ -370,7 +389,7 @@ export function runtimeDoorCandidates(doors: readonly SceneDoor[], frame: SceneG
     if (seen.has(key)) continue;
     seen.add(key);
     const facing = d.alongAxis === 'x' ? 'south' : 'east';
-    const hinge = d.hingeAtMin === (d.alongAxis === 'x') ? 'left' : 'right';
+    const hinge = hingeAtGridMin(d) === (d.alongAxis === 'x') ? 'left' : 'right';
     const block = doorBlockForColor(d.color);
     const lower = toBedrockBlock(`${block}[facing=${facing},half=lower,hinge=${hinge},open=false,powered=false]`);
     const upper = toBedrockBlock(`${block}[facing=${facing},half=upper,hinge=${hinge},open=false,powered=false]`);
@@ -502,8 +521,9 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
     const facing = d.alongAxis === 'x' ? 'south' : 'east';
     const hingeLeft = (i: number): boolean => {
       if (cells.length >= 2) return i < cells.length / 2; // double doors: outer hinges
-      // Single door: the hinge end the mould marks, seen from the facing side.
-      const hingeAtLeftEnd = d.alongAxis === 'x' ? d.hingeAtMin : !d.hingeAtMin;
+      // Single door: the hinge end the mould marks, seen from the facing side
+      // (facing south, the viewer's left is grid −X; facing east, it is grid +Z).
+      const hingeAtLeftEnd = d.alongAxis === 'x' ? hingeAtGridMin(d) : !hingeAtGridMin(d);
       return hingeAtLeftEnd;
     };
     // A door implies a passage: across its thin axis, on each side, open the

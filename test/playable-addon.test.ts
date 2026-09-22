@@ -246,9 +246,13 @@ describe('playable Bedrock add-on',()=>{
     const buffer = ab(result.bytes);
     const meshes = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_asymmetric_RP/models/entity/asymmetric_car.geo.json')))['minecraft:geometry'];
     const cubes = meshes.flatMap((mesh: any) => mesh.bones[0].cubes);
-    expect(cubes.map((cube: any) => cube.origin.slice(0, 3))).toEqual([[16, 0, 16], [-32, 0, -32]]);
+    // A +Z nose is yaw 180 in the world (grid +Z is LDraw −Z, and an entity at
+    // yaw 0 faces +Z), so the grid geometry is authored for yaw 180: a cell's
+    // offset from the centre is kept, not negated. Both cells keep their
+    // relative placement, nothing is mirrored.
+    expect(cubes.map((cube: any) => cube.origin.slice(0, 3))).toEqual([[-32, 0, -32], [16, 0, 16]]);
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_asymmetric_BP/scripts/placement.js'));
-    expect(placement).toContain('"yaw":0');
+    expect(placement).toContain('"yaw":180');
   });
 
   it('preserves a complex model across bounded independently rendered meshes', async () => {

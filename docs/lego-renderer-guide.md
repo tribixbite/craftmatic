@@ -94,6 +94,56 @@ for 2,417 placements). `mirrorOf` marks the floor-reflection clones; skip those.
   empty assembly) referenced at identity. Already-synthesized / non-tube blocks
   pass through untouched — can't break working files. Tests: `test/lsynth.test.ts`.
 
+## The LDraw → scene frame is a ROTATION, not a Y flip (2026-09-22, breaking)
+
+- **The finding.** LDraw is right-handed with +Y down; three.js is right-handed
+  with +Y up. The viewer converted between them by negating Y alone,
+  `diag(s, −s, s)`, which has determinant −1: a reflection. Every model was
+  rendered as its mirror image — invisible on symmetric builds, visible on
+  text and chiral layouts. The user saw it on 10261's `COASTER` sign reading
+  backwards against the box art; measured objectively on the printed
+  `3069bp82` (TICKET) tile: `det(placement R) = 0.9996`, `det(instance
+  matrix) = −0.9996`, and **932 of 932 glyph triangles reversed their apparent
+  winding** from the printed side. `exporter.ts` bakes those matrices, so
+  every GLB/OBJ/STL/3MF was mirrored too — an STL printed chirally wrong with
+  inward-facing normals.
+- **The fix.** The frame is `diag(1, −1, −1)`, a half turn about X — the map
+  between two right-handed frames, the convention `lxf-parser.ts`
+  `FRAME_SIGN` and `ldraw-entity-compiler.ts` `ldrawToRenderRotation('+z')`
+  already used. It lives in ONE module, `web/src/viewer/ldraw/frame.ts`
+  (`ldrawInstanceMatrix`, `pushLdrawPointToScene`); `viewer.ts` builds every
+  instance matrix and every edge segment through it. LDraw −Z (the model's
+  front) is now scene +Z, so the pre-heuristic `frontDir` default `(0, 0, 1)`
+  IS the LDraw front. **Never write an inline `-scale * R[3]` again** — go
+  through `frame.ts`, and `test/ldraw-frame.test.ts` pins `det = +scale³ ·
+  det(R)` (a mirrored sub-part keeps its own `det(R) = −1`, nothing else
+  flips), the printed-glyph winding from the printed side, and a baked STL's
+  facets all pointing outward.
+- **The same reflection ran through the whole project** and was replaced
+  everywhere at once (a half-flipped tree would be worse than either state):
+  the block grid (`ldraw-geometry.ts` `rasterizeTriangles`, the fallback
+  AABB, `bridgePartContacts`, the legacy `ldraw-voxelizer.ts` and its
+  direction-dependent slope/wedge/corner/bracket masks), `block-shapes.ts`
+  stair facings (an LDraw +Z rise now faces north), `bedrock-scene-actors.ts`
+  `sceneGridPoint` / `yawForFacing` / door hinges, `bedrock-coaster.ts`
+  `sceneGridVector`, `playable-addon.ts` `componentLayout` actor yaws and the
+  grid-fallback geometry/seat authoring, `display-entities.ts` (Java
+  `block_display` positions and the quaternion conjugation), and the building
+  shell, whose `SHELL_FRAME = −I` existed only to land on the mirrored grid
+  and is now `ldrawToRenderRotation('-z')` (det +1). Details and what it
+  invalidated on the device: [Bedrock guide](bedrock-addon-guide.md), "The
+  grid was a mirror" (2026-09-22).
+- **Users with older files.** Every export made before this change is the
+  model's mirror image; a new export of the same model will not overlay a
+  placement made from an old file. `bedrock-export-notes.ts` says so in every
+  Bedrock export's notes (`FRAME_CHANGE_NOTE`) and `craftmatic-provenance.json`
+  now carries `frame: "x180"` (`pipeline-version.ts` `LDRAW_WORLD_FRAME`); a
+  pack without that field is a mirrored one.
+- **Unchanged on purpose:** the floor-reflection clones (`mirror.scale.set(1,
+  −1, 1)`) are a deliberate mirror; the Bedrock vehicle and figure entities
+  were already compiled through proper rotations (Pixel-proven) and keep their
+  in-game chirality; the LXF import was fixed the same way on 2026-09-17.
+
 ## Renderer conventions (hard-won — do not regress)
 
 - **NO `logarithmicDepthBuffer`.** It forces per-fragment depth writes that

@@ -1297,7 +1297,8 @@ export function coasterCarWheelbaseLdu(car: CoasterCar, bricks: readonly ParsedB
 
 /** An LDraw vector (not a point) in grid blocks: LDraw Y down → grid Y up. */
 export function sceneGridVector(frame: SceneGridFrame, v: readonly number[]): Vec3 {
-  return [v[0]! / frame.cellXZ * frame.scale, -v[1]! / frame.cellY * frame.scale, v[2]! / frame.cellXZ * frame.scale];
+  // The same half turn about X as `sceneGridPoint`, without the origin.
+  return [v[0]! / frame.cellXZ * frame.scale, -v[1]! / frame.cellY * frame.scale, -v[2]! / frame.cellXZ * frame.scale];
 }
 
 /**

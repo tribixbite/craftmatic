@@ -378,7 +378,11 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     const width = (longitudinalAxis === 'x' ? grid.length : grid.width) * scale;
     const length = (longitudinalAxis === 'x' ? grid.width : grid.length) * scale;
     const height = grid.height * scale;
-    const actorYaw = longitudinalAxis === 'x' ? -90 * forwardSign : forwardSign < 0 ? 180 : 0;
+    // The world yaw at which the compiled entity's nose points along its LDraw
+    // nose in the grid: the entity at yaw 0 faces world +Z, and the grid is
+    // LDraw turned half a turn about X (`sceneGridPoint`: world Z is LDraw −Z),
+    // so an LDraw −Z nose is yaw 0, +Z is 180, ±X keep ∓90 (`yawForFacing`).
+    const actorYaw = yawForFacing(longitudinalAxis === 'x' ? [forwardSign, 0] : [0, forwardSign]);
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
@@ -403,9 +407,11 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
         const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
         // Mojang's vanilla horse geometry establishes -Z as model-forward. Keep
-        // the source footprint fixed while its selected nose follows that axis.
-        seatX = layout.longitudinalAxis === 'x' ? layout.forwardSign * oz : -layout.forwardSign * ox;
-        seatZ = layout.longitudinalAxis === 'x' ? -layout.forwardSign * ox : -layout.forwardSign * oz;
+        // the source footprint fixed while its selected nose follows that axis:
+        // the seat is authored for `layout.actorYaw` (along Z, a −Z nose is
+        // yaw 0 and the grid offset is negated; +Z is yaw 180 and keeps it).
+        seatX = layout.longitudinalAxis === 'x' ? layout.forwardSign * oz : layout.forwardSign * ox;
+        seatZ = layout.longitudinalAxis === 'x' ? -layout.forwardSign * ox : layout.forwardSign * oz;
         seatY = Math.max(.35, Math.min(layout.height - .35, layout.height * seat.y));
     }
     // Vanilla third-person camera distance for a rider (Happy Ghast: 8 / 6),
@@ -789,13 +795,15 @@ function geometry(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: 
         // Map top face to embossed stud tile; sides and bottom to beveled seam tile
         const topFace = { uv: [0, 1 + colorIdx * 16], uv_size: [16, 16] };
         const sideFace = { uv: [16, 1 + colorIdx * 16], uv_size: [16, 16] };
+        // Authored for `layout.actorYaw`: along Z a −Z nose (yaw 0) negates the
+        // grid offsets, a +Z nose (yaw 180) keeps them; along X unchanged.
         const origin = layout.longitudinalAxis === 'x'
             ? [layout.forwardSign > 0 ? (b.z - grid.length / 2) * 16 * scale : (grid.length / 2 - b.z - b.sz) * 16 * scale,
                 b.y * 16 * scale,
                 layout.forwardSign > 0 ? (grid.width / 2 - b.x - b.sx) * 16 * scale : (b.x - grid.width / 2) * 16 * scale]
-            : [layout.forwardSign > 0 ? (grid.width / 2 - b.x - b.sx) * 16 * scale : (b.x - grid.width / 2) * 16 * scale,
+            : [layout.forwardSign < 0 ? (grid.width / 2 - b.x - b.sx) * 16 * scale : (b.x - grid.width / 2) * 16 * scale,
                 b.y * 16 * scale,
-                layout.forwardSign > 0 ? (grid.length / 2 - b.z - b.sz) * 16 * scale : (b.z - grid.length / 2) * 16 * scale];
+                layout.forwardSign < 0 ? (grid.length / 2 - b.z - b.sz) * 16 * scale : (b.z - grid.length / 2) * 16 * scale];
         const size = layout.longitudinalAxis === 'x'
             ? [b.sz * 16 * scale, b.sy * 16 * scale, b.sx * 16 * scale]
             : [b.sx * 16 * scale, b.sy * 16 * scale, b.sz * 16 * scale];
@@ -2086,8 +2094,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // A rigged figure faces exactly where its torso pointed; an unrigged one the nearest axis it was compiled to.
         const yaw = fgeo.figure ? yawForFacing(fgeo.figure.facingLdu) : (() => {
             const nose = snapFacing(fig.facingLdu);
-            const n: [number, number] = nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1];
-            return normaliseYaw(Math.atan2(-n[0] || 0, n[1]) * 180 / Math.PI);
+            return yawForFacing(nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1]);
         })();
         actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: fig.x, y: fig.y, z: fig.z, yaw });
         figureActorIndex.set(k, actors.length - 1);
