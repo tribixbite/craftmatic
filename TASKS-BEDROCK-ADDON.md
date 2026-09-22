@@ -4,270 +4,110 @@ This file holds open work and the evidence needed to resume. Completed history
 belongs in `git log`, `docs/lego-sources-guide.md`, and
 `docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
-## Active round — 2026-09-21 night, quality rebuild shipped to world 921
+## Active round — 2026-09-22, the set's own cars and a working elevator
 
-The user rejected the previous pack ("horrendous and unacceptable" close-up,
-surfaces that "jitter between different colors in a seizure-inducing spasm").
-Their screenshots are at `output/bedrock-entity-qa/user-report-20260921/u-*.png`.
-Everything below is committed, fully gated (2014 passed / 26 skipped, both
-typechecks, production build, structural validator) and built into ONE pack:
+**Current pack, device acceptance NOT yet run:**
+`output/bedrock-entity-qa/10303-owncars.mcaddon`, 684,092 bytes, SHA256
+`1194c3147303e37e28a5de82c9a5d9eeeffd71196b8f789a0093dd1f7801888f`, pack-list
+name `10303-Loop-Coaster — Playable (2026-09-22 47a4495a)` (clean, no `+dirty`),
+57,579 cuboids over 14 entities, `coaster.cuboids` **0** — no fabricated cart.
+Rebuild either set with
+`bun scripts/_playable_ref.ts C:/git/clego/lego_sets/IOModel2V2/<set>.ldr <out>.mcaddon --label="..."`.
+Gates at `47a4495a`: `bun run test` 2,098 passed / 26 skipped exit 0, both
+typechecks, `scripts/_mcaddon_check.py` OK on both packs.
+**Commit before building a pack** — the name carries the pipeline stamp.
 
-`output/bedrock-entity-qa/10303-round921.mcaddon`, 510,429 bytes, SHA256
-`3ae2e61bab85865f96c584eddca556dc5339613e8ecd4e78b7ba39255a469647`, pack list
-name `10303-Loop-Coaster — Playable (2026-09-21 bbb26a58)` (clean, no `+dirty`),
-manifest version `[2609,2200,1506]` = 2026-09-22T00:15:06Z, 50,765 cuboids over
-10 entities (10.6 % of the 480k ceiling). **Device round is RUNNING on the
-user's new flat blank world `921`; nothing below is device-verified.**
+### The previous pack PASSED on the device (world 921, 2026-09-21 night)
 
-What changed, with the measurement that justified it:
-- **LOD** (`eba9b515`): the switch measured to the entity ROOT, which sits 45
-  blocks ABOVE the build, so 68.7 % of the skin was past the 32-block threshold
-  and a ground camera saw the hull at any distance. Now `lodDistance + the
-  entity's reach`, default 96, so 10303 switches at ~146. Hull cells had 2-9
-  colour claimants (1,523 of 3,189) — coplanar faces, the shimmer; each cell now
-  has one owner and the hull got cheaper (1,143 -> 753 cuboids).
-- **Close-up fidelity** (`f79fa0d4`): the capacity commits were NOT the cause
-  (13,872 -> 13,936 cuboids across all four). `balanced` was 8 LDU under a
-  64-cuboid part cap that coarsened exactly the detailed parts, so the hero
-  track shipped at 16 LDU. A per-part planner now coarsens whichever part loses
-  the least `placements x silhouette area x delta IoU` per cuboid saved:
-  0.957 IoU against 0.949 for uniform 4 LDU at the same cost. Shell
-  13,936 -> 44,824. NOTE for the memory model: Bedrock has no in-entity
-  instancing, so memory is the sum over PLACEMENTS, not unique moulds.
-- **Figures** (`4c032ce6`, `bbb26a58`): source riders are seated 90 degrees
-  nose-down; a figure past 30 degrees tilt now stays posed in the geometry
-  rather than standing beside the car. Feet come off the model underside, not
-  voxel row 0 (a plate high). Figures are capped at player size (`f6ebdc00`).
-- **Ride** (`28c990b9`, `d2d18e49`, `7d6da6cf`, `1e0fbce0`): gravity
-  integration (2.81 blocks/s up the lift, 6.08 mean on the drops), a chain lift,
-  a station derived from the route's longest low level run, continuous running
-  with or without a rider, and a measured THREE-CAR train (torso pitches, 2.25
-  blocks) whose cars spawn at the station.
-- **Route** (`84571c96`): 80564's running line was built on two different
-  datums, folding the polyline three times. Rebuilt on the r=232 base-plate
-  datum: the world loop was 424x399 and is now 400x400, min car chord
-  7.9 -> 108.12 LDU, zero reversals, `overlaps: false`.
-- **Walk-through size** (`8a245e64`, `bbb26a58`): measured recommendation per
-  model (10303 -> 150 %), which names the doors-versus-stairs tension when they
-  conflict. A brick riser is unclimbable at 300-400 % because the player stays
-  player-sized — that is physics, not a bug; the collider re-lay was proved
-  correct at every step.
-- **Provenance** (`c78f2787`, `1e0fbce0`): packs carry the pipeline build in
-  their NAME. Identity is a content hash over the pipeline's 66-file import
-  closure (mtimes do not survive a clone; CI checks out at depth 1), the
-  readable half is the last closure commit, and a dirty tree says `+dirty`.
+Evidence `output/bedrock-entity-qa/round921/` (133 files). Log gate 0 Actor /
+0 Molang / 0 Scripting. The colour shimmer is GONE (six frames 0.4 blocks apart
+near a surface: one flat colour, no hatching). The ride passed every point:
+runs riderless, gravity profile 7.5/7.5/4.2/2.7/0.8/2.4/2.5/2.5 blocks/s,
+station brake and dwell, **the "Ride the coaster" prompt appeared and tapping it
+boarded** (no `/ride`), 70+ s carry, three cars visibly separated, Undo removed
+everything. Riders sit in their car with hair; standalone figures within ~15 %
+of the player. Size row read `Size 100 → 150 (recommended)`.
+User's standing verdict on close-up: **better but not yet "near-picture
+accurate"** — at 2-5 blocks round track tubes are stair-stepped and 2x2 round
+bricks read as squares. That is the voxel cell; 1 LDU costs 316k cuboids.
 
-Open after this round:
-- [ ] Device acceptance of ALL of the above on world 921 — especially the
-  close-up bar and tap-to-board at the station.
-- [ ] Two 64.6 degree zigzags remain at the mirrored 26559 start-start joins: a
+### What has landed since that pack (all committed, none device-verified)
+
+- **The set's own cars ride** (`ab2aebf9`, `47a4495a`). Cars, riders, platform
+  and counterweight leave the shell; one entity type per distinct car body;
+  each rider is a bone in its car, hidden while a player occupies the seat.
+  A route with no detected car keeps the fabricated cart.
+- **The elevator closes the circuit** (`47a4495a`). State machine track ->
+  lifting -> delivered -> track, counterweight opposite, same
+  unloaded-chunk/refused-teleport/quiet-retire guarantees as the cart. 10303
+  cycles every 1,112 ticks in host simulation with the rider retained.
+- **10261 runs on the same code**: closed 244.7-block circuit, 3 of 6 cars
+  riding, siding train parked by the short-route rule, chain lift holding
+  2.5 blocks/s. `coaster-track.ts` now strips a leading `<set> - ` from
+  embedded stems, without which its first-choice index source extracts NOTHING.
+- **Model no longer vanishes** (`b3ec0c02`, `9831d222`, `54ed4805`). Bedrock
+  culls an actor by its COLLISION BOX: a 0.1 x 0.1 shell culled at 64 blocks,
+  which is why the device saw it disappear at 70. The box now sizes from the
+  model (10303 draws to 176) and the LOD hull, being the same actor, is planned
+  against that cull instead of shipping unreachable geometry.
+- **Invisible steps where scaling outgrew a jump** (`9831d222`). Reach on foot,
+  bare -> with treads: chalet 0.25 -> 2.0 at every size; coaster 0 -> 5.58 at
+  150 % and 5.56 restored at 400 %; Himeji 0.19 -> 4.0 (4.5 at 400 %); micro
+  Hogwarts 0 -> 2.0. Verified so reachable-before is a subset of
+  reachable-after; 100 % output byte-identical.
+- **Every in-game `%` is spelt "percent"** (`b3ec0c02`, `9831d222`) — Bedrock's
+  form renderer deletes a bare percent sign.
+
+### Open
+
+- [ ] **Device acceptance of the current pack on world 921.** Specifically
+  unverified: the pitch/roll SIGN of the compiled cars (never seen side-on),
+  the rider bone hiding under `scale: 0.0`, the platform visibly carrying a
+  player, the treads, the 176-block draw distance, and whether the station is
+  reachable ON FOOT at 100 % (the tread walk says yes, bare, via two one-block
+  jumps; the last QA agent could only `/tp` there).
+- [ ] **10261 has never been device-tested at all** — its chain ride is
+  host-simulation only.
+- [ ] Close-up fidelity is still short of the user's bar. Next lever is the
+  stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced at
+  46.2k but its 8,720 studs drop to 1 facet.
+- [ ] Both 10303 lift docks are SNAPPED (travel 1,884.9 LDU, 0.7 degrees off
+  vertical) rather than the pure-axis 1,857.8, so the car lands on track at
+  both ends. Reported in the pack warnings; revisit if it reads wrong in game.
+- [ ] Counterweight detection is a heuristic (`COUNTERWEIGHT_LATERAL_MAX_LDU`
+  480, axis parallel within cos 25 degrees).
+- [ ] Two 64.6 degree zigzags at the mirrored 26559 start-start joins: a
   +/-1.1 LDU wobble from `measuredRamp`'s flat controls carrying a 0.9 endpoint
   slope. Pre-existing ramp-profile question, not a fold.
-- [ ] Stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced at
-  46.2k but its 8,720 studs drop to 1 facet. A 2-facet step would help that class.
 - [ ] `mainVehicleOnly` exports get no walk-through measurement (the scene block
-  is skipped); grid sources cannot have one. Deliberate, not an oversight.
-- [x] DECIDED by the user: invisible geometry that UNLOCKS interactivity is
-  wanted; an invisible wall that restricts movement for no reason in the model
-  is a bug. Intermediate collider treads for scaled-up stairs are approved and
-  in progress; the test for any collider added is that the set of reachable
-  cells strictly GROWS and that 100 % output is byte-identical.
+  is skipped); grid sources cannot have one. Deliberate.
+- [ ] A device round could try `%%` on one string; if Bedrock's form renderer
+  honours it, `bedrockInGameText()` is the only change.
 
-## Next round — the set's own cars, a working elevator, and 10261
+## Closed 2026-09-21: 10303 track repair, publication and the first rideable
 
-User direction, verbatim: "the existing lego-designed cart should be the moving
-mountable multi-vehicle object - not a new fabrication. And obviously the
-elevator needs to function to complete the loop. Make the physics and track/car
-system universally adaptable when done and apply it next to set 10261".
+Kept only because a later round could re-open one of these; the full story is in
+`git log` and `docs/bedrock-addon-guide.md`.
 
-- [ ] **The set's own cars become the ride vehicles.** Today the pack adds a
-  fabricated nine-cuboid grey cart and leaves the set's cars in the static
-  shell. Detect the car assemblies from geometry (proximity to the running
-  line, wheel moulds, a repeated assembly at a consistent pitch) — 10303's
-  three rider torsos sit at identical x/z exactly 120 LDU apart — compile each
-  as the rideable entity's geometry, and take them out of the shell. The posed
-  riders belong IN those cars.
-- [ ] **The elevator must work, so the circuit completes.** 10303's lift is a
-  brick-built platform (42 parts at 4.10 degrees on six 55981 and eight 4185
-  wheels), parked at the base; raised ~1,860 LDU its -X end meets the 80566 tip
-  and the station straight descends onto it. Detect it, animate its travel, and
-  hand the car between platform and track at the two dock arcs. The vertical
-  25059 stack is the COUNTERWEIGHT guide, not a car path — never route on it.
-- [ ] **Universal, then 10261.** The rules must work on both sets with no
-  special-casing: where 10261 differs the DATA differs, not the code. Sources:
-  `C:/git/clego/lego_sets/IOModel2V2/10261.ldr`, plus `LDR/10261 Roller
-  Coaster.mpd` and an `.io` in the index (4,124 catalog parts, 2018). Establish
-  what 10261's lift actually is before assuming it matches 10303's.
-
-## Active round — 2026-09-21, 10303 track repair and ride mechanism
-
-User asks to visually inspect/fix 10303's missing track and implement reusable
-rideable coasters. Root inspected the actual production closeups under
-`output/pipeline-2026-09-21/10303-prod-track-diagnosis/`: six `80564` loop-quarter
-placements are invisible. Exact geometry exists inside `IO/10303.io`'s
-`model2.ldr` but the `IOModel2V2` conversion discarded the embedded definitions.
-Hair `43753` ×1 and tooth `x346` ×2 were ALSO fixed by that same parser change,
-not just the six `80564`s: all three are embedded-definition ids, and a fresh
-measured run of the repaired source reports `unresolvedParts: []` for all 12
-entities (shell 3710 source / 302 unique / 302 resolved, `embeddedParts: 3`),
-with neither id among the 10 sibling-mould substitutions. Evidence
-`output/bedrock-entity-qa/10303-before.log`. `x346` remains absent from the
-LDraw library for OTHER sets that do not embed it (~450 references).
-
-Viewer parser repair: Studio DATs explicitly marked `IsSubModel False` and
-`IsAssembly False` remain terminal meshes; official Part/Subpart definitions
-do too, while shortcuts still expand. Studio inherited colour `-1` normalizes
-to LDraw `16` for geometry and nested placements. Parser/mesh regressions pass.
-Final golden-colour render accepted: 3808 placements, zero missing parts,
-both loops closed. Evidence: `10303-embedded-preserve-final/` under the round
-output directory. Parser commit `caff7cff` is deployed; CI `35630253885` and
-deployment `35630254112` passed. Converter commit `922de02c` is local to clego
-(do not push its divergent master). Its 4 tests pass; unsafe embedded child
-frames are rejected instead of substituted.
-
-The repaired source is applied locally AND published at `IOModel2V2/10303.ldr`,
-SHA256 `df3b47c3c9f27623eaa1d8ab40fdf9a0938035cab5d5ffdaac20b55f31676b38`;
-original exact backup: `output/pipeline-2026-09-21/10303-apply-backup/10303.ldr`,
-pre-repair SHA256 `b51c0b67042cc31a0dbf371f3bf1d48ddbd40b308d1f5b6e2b616785a2b10656`.
-The user has since granted STANDING approval for public R2 publication and for
-index corrections, so a future single-file repair no longer waits on an ask —
-but still publish scoped (`--only <path>`), verify by plain-URL readback against
-the full SHA256, and keep the index diff to the entries you actually changed.
-
-Measured profiles and rendered overlays now agree: 42 placed moulds become
-41 fragments (one opposed vertical 25061 pair), 34 joins, components
-`[29,7,1,1,1,1,1]`, zero ambiguous endpoints. Exactly one automatic ride route
-is emitted: 29 fragments, 1066 points, 9327.185 LDU, including all six 80564s.
-The seven-piece vertical guide and five isolated decorative tracks are withheld.
-Evidence: `output/pipeline-2026-09-21/10303-route-overlay-visual-corrected/`.
-The apparent 45.25-LDU ramp gap was a sleeper-origin error: actual rail ends
-meet within 0.0385 LDU. Nine-cuboid cart overlays show wheel contact on flat and
-loop track; parallel-transport frames animate cart pitch/roll, not player roll.
-
-- [x] **Actual mounted movement, rider retention and Undo: PROVED on the
-  device (Pixel 8 Pro, Bedrock 1.26.51, 2026-09-21).** A mounted rider traversed
-  the 10-block measured route, reversed at BOTH open ends, stayed on the cart
-  for 60+ s and dismounted cleanly; Undo removed the placement. Coordinates at
-  16:26:57 `-5,64,-34` -> 16:27:11 `5,64,-34` -> 16:27:34 `-4,64,-34` ->
-  16:28:00 `1,64,-34`. Evidence `output/bedrock-entity-qa/coaster-float-*`
-  (`ride-t0/t5/t15/t20`, `159-dismountconfirm`, `161-undotap`), device backups
-  with SHA256 under `device-backups/`.
-  Root cause of the earlier stall, captured from the device CONTENT LOG (nothing
-  about it reaches logcat): float actor properties serialized as integer
-  literals, so Bedrock rejected them and dropped the cart's whole property
-  component. Fixed in `0a3f6c9a`/`c4cab387`; see the add-on guide.
-  Measured before/after in one continuous log: `[Actor][error]` 6 -> 9 while
-  broken (3 per load), then ZERO new after the fixed pack went live;
-  `query.property called on an actor without a property component` 348,797 lines
-  at ~60/s for two hours, then ZERO new. **Use `grep -cE '\[Molang\]\[error\]'`
-  as the pass/fail gate for future device rounds** — it catches the whole class
-  (dropped property component, typo'd property, property queried on the wrong
-  entity) in one number, and a clean pack reads 0.
-- [ ] **Device pack UPGRADES need the active folder overwritten, not a version
-  pin.** Three folders shared one pack UUID (`CoasterQA—`, `—(1)`, `—(2)` at
-  versions 11111/17308/19240) and Bedrock resolved the world to the folder its
-  own store already associated with that UUID: hand-editing
-  `world_behavior_packs.json`/`world_resource_packs.json` was silently reverted
-  on load, "Technical details" still showed 2.695.11111, and a reload produced 3
-  FRESH `[Actor][error]` lines citing the old path. What worked: confirm the old
-  and new folders have identical file lists, back up all 40 files with SHA256,
-  then `cp` the new content over the ACTIVE folder in place and verify by
-  `md5sum`. Open work: stop shipping duplicate-UUID installs — either clean up
-  the stale folders (file manager; ADB removal is denied) or give QA packs a
-  per-build UUID so versions can coexist.
-- [x] **Lift/transfer semantics: MEASURED, and the withhold is correct.** The
-  main course's open ends and the seven-piece `25059` vertical guide's ends were
-  measured in model LDU: closest pairing `80566:33:end` <-> `25059:23:start` is
-  **389.74 LDU (19.49 blocks)** with tangentDot **-0.017**; the next three are
-  404.85 / 450.31 / 451.26 LDU, all with |tangentDot| <= 0.12. The joiner
-  requires <= 3 LDU and tangentDot >= 0.97 (`COASTER_TRACK_ENDPOINT_TOLERANCE_LDU`,
-  `stitchCoasterTrackFragments`), so every candidate misses distance by 130-700x
-  and tangent by ~1.0. This is a real physical gap (the guide sits at x=-578,
-  z=-260 against course ends at x=-382/-782, z=-580), not the 32-LDU
-  sleeper-datum artifact. The open route is therefore correct and shuttles.
-  Any lift would be an AUTHORED transfer mechanism, a separate decision: never
-  bridge it with invented rail.
-- [x] **Repaired 10303 source PUBLISHED (user-approved, 2026-09-21).**
-  `python sync_models_r2.py --only IOModel2V2/10303.ldr --no-index` returned
-  `ok=1 fail=0`; plain-URL readback of
-  `https://craftmatic.click/lego-models/IOModel2V2/10303.ldr` returns 818,156
-  bytes at SHA256 `df3b47c3…` (the repaired file), confirmed twice. The index
-  entry was patched surgically — production before/after differ by **12 bytes**,
-  one field: `sets[10303].models[1].hash` `b51c0b67042c` -> `df3b47c3c9f2`; set
-  count and every other entry unchanged. The gated publisher path refuses while
-  unrelated local WIP files differ from their index hashes, so the index went
-  through the publisher's own `_put_stable_file` primitive on that one key.
-  `web/public/lego-models-index.json` carries the same patch.
-  **Production served the pre-repair source until this point** (18 placements
-  across 10 primitive ids were absent), so earlier "zero missing parts" claims
-  were about the LOCAL file only.
-
-Current real pack: `output/bedrock-entity-qa/10303-coaster-floatprops-20260921.mcaddon`,
-SHA256 `151244ed3b564a39e94188232ed2f0422788347485727aafc87a58dd7c408131`,
-304171 bytes, version `[2,695,19507]`, rebuilt from the repaired local source
-`C:/git/clego/lego_sets/IOModel2V2/10303.ldr` (SHA256 `df3b47c3…`) with
-`bun scripts/_playable_ref.ts <that source> <out> --label="10303-Loop-Coaster"`.
-Archive validation passes with the same shape as before (15 clients, 114
-geometries, 129 textures), same BP uuid `f868c24d-…`, same 16,904 cuboids and
-the same single 1066-sample 174.885-block open route; an archive-wide file diff
-against the superseded `10303-coaster-measured-final.mcaddon` (SHA256
-`466ae9fd…`, which carries the integer-literal defect) shows ONLY the float
-literals, the two added stage names and the version. Earlier fragmented-route
-packs are superseded.
-**The REAL 10303 ride is DEVICE-PROVED (2026-09-21, after a second defect).**
-That run first found that Bedrock refuses an entity identifier beginning with a
-digit, so the cart never existed (`1 entity could not be spawned`); fixed in
-`90e70b40` — see the add-on guide. Retest pack
-`output/bedrock-entity-qa/10303-coaster-idfix-20260921.mcaddon`, SHA256
-`bd5af9ede4be6f574c1a0d83f7742da4f5cd1a5cac059fb0ecaececc12cb1332`,
-version `[2,695,26652]`. Measured on the phone:
-  * log gate CLEAN over the whole session (17:34:18-17:53:16, 135,168 bytes):
-    `[Actor][error]` 0, `[Molang][error]` 0, `[Scripting][error]` 0; the game
-    logged `PackId [f868c24d-…_2.695.26652]`, i.e. the fixed build;
-  * the cart spawned (`/testfor` -> "Found Track 1 Ride Cart"), placement
-    reported no unspawnable entity;
-  * **shuttle reversal proven**: a 34-frame 1.4 s trace climbs (1,68,-2) ->
-    (-16,94) -> dwells two frames at (-22,100,-9) -> retraces to (10,70);
-  * climbs y 66 -> 100 on a build spanning y 63-107, i.e. it reaches the lift top;
-  * **rider retained 377 s** (6 min 17 s) with the action bar unbroken, and zero
-    `paused`/`not loaded` lines in the log;
-  * Undo removed both cart and shell (`/testfor` matches neither afterwards).
-  Evidence: `output/bedrock-entity-qa/shots-10303/` (b26, b36, b41-b44, b47-b51)
-  and `coaster-10303-ContentLog-idfix-2026-09-21_17-33-45.txt`.
-- [ ] **Cart pitch/roll through the loop is STILL UNVERIFIED.** The position
-  trace follows the loop, but whether the cart MODEL tilts was never seen: the
-  chase camera clips inside the shell and an unmounted cart does not move, so
-  there is no side-on view. Needs a spectator/free-camera pass
-  (`/camera @s set minecraft:free` — `/tp` from height falls) or a smaller test
-  build where the track is exposed. Wheel-to-rail contact is likewise an
-  observation from the ride camera, not a proof.
-- [ ] **The ride cart cannot be BOARDED BY TOUCH on a dense set.** It sits deep
-  inside the shell geometry with no reachable interact prompt; the device run
-  boarded with `/ride @s start_riding @e[type=…,c=1]`, which exercised the ride
-  runtime but NOT the documented "interact to ride" path a player would use.
-  Decide the fix: place the cart at an exposed station point, or give the wand
-  a "board the ride" action. The pack README currently promises interaction.
-
-Current offline gates: full suite **1868 passed / 29 skipped, exit 0**
-(`output/bedrock-entity-qa/final-round-tests.log`), both typechecks and the
-production web build pass (`final-round-build.log`). Earlier partial runs are
-superseded. The float guards were confirmed by reintroducing the integer
-literal; the helper refactor leaves the emitted entity bytes identical.
-Commits `13a65adf`, `00e83471` and earlier are pushed and deployed. CI
-`35641616290` failed initially and on one rerun only at live MRLC canopy
-assertions (`test/import-nlcd.test.ts`, service returned null); 1839 passed,
-36 skipped and both typechecks passed. Do not describe that CI run as green.
-Fresh production local-upload render/export passed:
-`output/pipeline-2026-09-21/10303-production-final-13a65adf-render/` has 3808
-source bricks and zero missing parts; sibling `-export/10303.mcaddon` is
-289772 bytes, SHA256 `22b83419288888fadb9031add4f518a037824cb036022dd49e9f58349e964047`.
-It contains one open 1066-point route (174.884724 blocks), nine cart cuboids,
-zero unresolved source parts, and no browser page errors. Public source is
-still unchanged pending the exact approval above.
-Foundation commit `3d445a9d` is deployed (CI `35631850545`, deploy `35631850715`
-passed); production repaired-source local-upload render has zero missing parts
-and its export includes the previously missing shared manual-seat assets.
-Root alone stages/commits; unrelated corpus files and `output/pdf-*` stay untouched.
+- Six invisible `80564` loop quarters, the `43753` hair and the `x346` teeth
+  were all fixed by ONE parser change (`caff7cff`): Studio DATs marked
+  `IsSubModel False` / `IsAssembly False` are terminal meshes, and inherited
+  colour `-1` normalises to LDraw 16. The repaired source is published — prod
+  serves `df3b47c3…` and the index entry matches (75397 likewise, `b552734a…`).
+  The user has since granted STANDING approval for scoped R2 publication and
+  index corrections; publish with `--only <path>`, verify on the PLAIN url.
+- The ride was device-proved on 2026-09-21 (377 s rider retention, shuttle
+  reversal, clean log gate) and again on world 921. `x346` maps to `41669`
+  (byte-identical mesh); `28710` and `30426` stay unmapped, honestly.
+- The "missing top track piece" is not missing: 10303's lift is a brick-built
+  platform parked at the base. The vertical `25059` stack is the
+  COUNTERWEIGHT's guide — never route a car on it.
+- **Still open from that round:** a same-UUID pack upgrade needs the ACTIVE
+  folder overwritten (a UI deactivate/re-activate does NOT repoint a pinned
+  uuid, and `adb push` cannot create a directory under `Android/data` while
+  still reporting success). The user has since cleared every pack except the
+  base Craftmatic one and made a flat blank world `921`, so a fresh import
+  should be clean — check for a duplicate uuid folder before importing anyway.
 
 ## Prior round — deployed verification and playable accuracy
 
@@ -507,17 +347,30 @@ republishing and beam wiring are complete; do not repeat stale §9.8 commands.
 Sandbox shell startup fails `CreateProcessWithLogonW failed: 2`; scoped elevated
 PowerShell works. Use explicit shell and `login:false`.
 
-## Device work — state restored
+## Device work — current state
 
-Current sole phone owner: `set_audit`. Use ordinary pack import/file-manager
-workflow; user notes root is unnecessary and likely unavailable. User approved
-`adb root` if needed, but do not treat it as a prerequisite. No reboot/framework
-restart/data clear. Back up current world/pack state before any activation;
-the restoration report below is historical, not a fresh snapshot.
-Current transport blocker: connect succeeds but even a persistent TTY shell
-exits 1 with `error: closed` before a prompt. No import/activation occurred.
-Files by Google is last known foreground; restore Minecraft when transport
-recovers. Root asked user asynchronously about unlock/authorization prompt.
+The user cleaned the phone on 2026-09-21: **every behavior and resource pack
+except the base Craftmatic one was deleted, and a new FLAT BLANK world `921`
+was created** for QA. Use world 921. No reboot, no framework restart, no data
+clear, no world deletion, and **no recursive delete anywhere** (the user
+objected to one being attempted). Back up any device file before overwriting,
+with sha256, under `output/bedrock-entity-qa/device-backups/`.
+
+Working recipe, all measured:
+- `C:/Android/Sdk/platform-tools/adb.exe -s 192.168.0.122:5555`. `error: closed`
+  and `device offline` fire constantly — reconnect and retry; it is not a device
+  failure. Wrap every call.
+- Import with the content-URI VIEW intent while Minecraft is in the foreground,
+  then verify by reading the INSTALLED folder's `manifest.json`, never the exit
+  code. Check for a folder already carrying the pack's uuid FIRST.
+- Gate a round on `grep -cE '\[Molang\]\[error\]'` over the newest content log
+  in `…/files/games/com.mojang/logs/`. Nothing of this class reaches logcat, and
+  the log can stop flushing mid-round — force-stop and relaunch to rotate it.
+- `input motionevent DOWN/UP` does NOT activate in-game form buttons; a held
+  press (`input swipe x y x y 150`) does. Main-menu buttons take motionevent.
+- Git Bash mangles a device path ARGUMENT (`adb pull /sdcard/...`): use
+  `MSYS_NO_PATHCONV=1` or PowerShell. Inside `adb shell "…"` it is fine.
+- Screenshots: downscale below 2000 px and 4 MB before reading.
 
 Pixel `192.168.0.122:5555`; Minecraft 1.26.51. Latest report:
 `output/corpus-improvements-2026-09-20/device/REPORT.md`.

@@ -1757,6 +1757,40 @@ character at a time and insert the leading `/` LAST (typing it first opens
 command autocomplete, which steals focus). A 16,904-cuboid shell actor is not
 drawn at all from ~69 blocks away — stay within ~35 blocks for screenshots.
 
+#### Bedrock culls an actor by its COLLISION BOX, not its visible bounds (2026-09-22)
+
+A device round photographed 10303 in full detail at 60 blocks and **completely
+absent** at 70, 86, 100 and 168 — the model popped out of existence. It was not
+the LOD, not frustum culling (the shell declares `visible_bounds` of 177 x 189
+blocks, so a camera 70 out is well inside it) and not simulation distance (the
+player never left the model's own ticking chunks).
+
+It is Bedrock's per-actor render cull, which scales with
+`minecraft:collision_box` — and a brick shell declared **0.1 x 0.1**. Three
+observations fit `cull = 64 x max(1, box diagonal)` blocks: the 0.1-box shell
+stops at ~64, the 0.6 x 1.8 figures were still drawn at 100 and gone by 168, and
+the guide's earlier "drawn at 128" was the Milano, not a shell. The 64-per-unit
+constant is Java's `shouldRenderAtSqrDistance` rule; Bedrock's counterpart is
+undocumented, so treat the fit as measured-not-documented.
+
+Two consequences. The shell's box is now a needle sized for four times the
+model's largest dimension, so 10303 draws to 176 blocks instead of 64, and the
+size groups scale it (a 25 % placement would otherwise cull at 16). And the LOD
+hull is the SAME actor, so it culls at the same distance: a switch past the cull
+can never be reached. `planLodSwitch` derives the switch from the entity's own
+cull and SKIPS the hull when nothing fits, rather than shipping geometry no
+camera can see — for a while 10303 was carrying 760 such cuboids.
+
+#### Bedrock's form renderer deletes a bare `%` (2026-09-22)
+
+The wand's size button rendered `100%` as `100`, and the walk-through reason
+lost every sign: "at 100 ;", "reaches 5  of the model's height". Mojang's own
+`en_US.lang` escapes a literal percent as `%%` (`options.percent.format=%s%%`),
+but nothing here confirms a script FORM honours that escape, and a visible `%%`
+would be worse than the loss — so in-game strings spell "percent" while
+`craftmatic-diagnostics.json` keeps the measured `%`. A device round can try
+`%%` on one string; if it renders, `bedrockInGameText()` is the only change.
+
 #### A same-UUID pack upgrade needs the ACTIVE FOLDER overwritten (2026-09-21)
 
 Deterministic manifest UUIDs make a rebuilt pack upgrade in place — but each

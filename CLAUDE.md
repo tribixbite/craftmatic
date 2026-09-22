@@ -60,6 +60,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
   grey. Source conversion must retain unresolved private geometry safely.
+- **Bedrock culls an actor by its `minecraft:collision_box`, not its visible
+  bounds** (`cull ≈ 64 × max(1, box diagonal)` blocks). A 0.1×0.1 shell box made
+  every model vanish at 64 blocks; the box is now sized from the model extent in
+  `bedrock-building-shell.ts`. The LOD hull is the SAME actor, so its switch must
+  sit under that cull or it can never be seen.
+- **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
+  "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`
   is refused and the entity never exists). Most set stems are numeric, so build
   ids with `entityId(raw, prefix)`; `scripts/_mcaddon_check.py` gates it.
