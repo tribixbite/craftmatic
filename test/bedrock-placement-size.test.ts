@@ -315,4 +315,32 @@ describe('wand runtime: size, aim and turning', () => {
     expect(car.at.x).toBeCloseTo(100 + w / 2 + 2 * Math.cos(a), 5);
     expect(car.at.z).toBeCloseTo(200 + l / 2 + 2 * Math.sin(a), 5);
   });
+
+  it('names the measured walk-through step in the Size button and quotes its reason, without changing the size', async () => {
+    const reason = 'Door leaves are 1.5x1.8 blocks at 100 %; 150 % makes them 2.2x2.7 (a player needs 1x2; 1/1 clear it). But at 150 % a player reaches only 40 % of the model height; the choice is between the doors and the stairs.';
+    const h = host({ stem: 'walkable', label: 'Walkable', width: 4, height: 2, length: 2, tiles: [tile], actors: [],
+      access: { sizePct: 150, reason }, settleTicks: 1, finalHoldTicks: 1 });
+    // The step is NAMED, not applied: the wand still opens at 100 %.
+    await h.open({ selection: 1 }, { canceled: true });
+    const first = h.buttons.at(-1)!;
+    expect(first.some(l => l.startsWith('Size 100% → 150% (recommended)'))).toBe(true);
+    // The whole reason is in the wand's body, never cut down to the number.
+    expect(h.assets.script).toContain(JSON.stringify(reason));
+    // Cycling onto it says why, quoting the measurement.
+    await h.open({ selection: 10 }, { canceled: true });
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining(reason));
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 150% (recommended) → 200%'))).toBe(true);
+    // Past it again the marker moves with the step, and the size itself is
+    // whatever the user chose — the recommendation never overrides it.
+    await h.open({ selection: 10 }, { canceled: true });   // 150 → 200
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 200% → 300%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => /recommended/.test(l))).toBe(false);
+  });
+
+  it('says nothing about a walk-through size when the export measured none', async () => {
+    const h = host({ stem: 'unmeasured', label: 'Unmeasured', width: 4, height: 2, length: 2, tiles: [tile], actors: [] });
+    await h.open({ selection: 1 }, { canceled: true });
+    expect(h.buttons.at(-1)!.some(l => l.startsWith('Size 100% → 150%'))).toBe(true);
+    expect(h.buttons.at(-1)!.some(l => /recommended/.test(l))).toBe(false);
+  });
 });

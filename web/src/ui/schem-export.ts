@@ -25,7 +25,8 @@ import {
   planResolution, planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS,
   type SchemExportSettings,
 } from '@engine/schem-settings.js';
-import { planAddonScale } from '@engine/addon-scale.js';
+import { planAddonScale, type AddonScaleCue } from '@engine/addon-scale.js';
+import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
 import { LDU_PER_BLOCK } from '@engine/lego-scale.js';
 import { safeFilenameStem } from '@engine/export-name.js';
 import { currentPipelineStamp, type SourceProvenance } from '@engine/pipeline-version.js';
@@ -42,6 +43,42 @@ import { pipelineWorkerError, shouldRetryWorkerInline } from '@engine/schem-work
 export type { SchemWorkerFormat };
 /** Re-exported so UI callers have one import for everything export-related. */
 export { spanOfBricks };
+
+/**
+ * The walk-through size the last add-on export measured, by the model LABEL it
+ * was measured on.
+ *
+ * The measurement needs the model's part MESHES and costs 0.1-4.6 s per set, so
+ * it runs once per export, in the Worker (`engine/schem-pipeline.ts`) - never in
+ * the settings popover, which re-renders on every open and lives on the main
+ * thread. The popover therefore reports the last measured answer for the model
+ * it is looking at, and says nothing at all for a model never exported.
+ */
+let lastAccess: { label: string; access: AccessScaleRecommendation } | null = null;
+
+/** The measured walk-through recommendation for `label`, or null when this model has not been exported yet. */
+export function getAccessRecommendation(label: string): AccessScaleRecommendation | null {
+  return lastAccess && lastAccess.label === label ? lastAccess.access : null;
+}
+
+/**
+ * One line for a status line or the settings popover.
+ *
+ * The whole `reason` is carried: where the measurement found a tension (a size
+ * that opens the doors and puts the stairs past the player's jump) the sentence
+ * names it and the alternative, and a bare number would lose that.
+ *
+ * For a `vehicle` cue the two answers are BOTH true and neither replaces the
+ * other: a 1:12 Mini Cooper is shrunk to 0.38x to sit on a table like the real
+ * car, and enlarged to 400 % to be walked into. The caller shows this BESIDE
+ * `describeAddonScale(plan)`, never instead of it.
+ */
+export function describeAccessRecommendation(access: AccessScaleRecommendation, cue?: AddonScaleCue): string {
+  const head = access.sizePct === undefined
+    ? 'Walk-through: no size makes it walkable'
+    : `Walk-through: ${access.sizePct} %${cue === 'vehicle' ? ' to walk inside' : ''}`;
+  return `${head} — ${access.reason}`;
+}
 
 /** Trigger a browser download of raw bytes. */
 export function downloadBytes(bytes: Uint8Array, filename: string): void {
@@ -377,6 +414,8 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
   try {
     let input: SchemWorkerInput;
     let resNote = '';
+    /** What `auto` sized the model from, for the walk-through wording (a vehicle gets both answers). */
+    let scaleCue: AddonScaleCue | undefined;
 
     if (req.source.kind === 'bricks') {
       // The build guide is meant to be humanly followable — it stays at one
@@ -398,6 +437,7 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       const opts: VoxelizeOptions = { cellLDU: plan.cellLDU, maxDim: 700 };
       resNote = ` at ${plan.cellsPerStud}× stud resolution (proportion-exact)`;
       status(`Voxelizing for Minecraft at ${plan.cellsPerStud}× stud resolution (${Math.round(plan.cellLDU * 100) / 100} LDU cells)…`, 'info');
+      scaleCue = scalePlan?.cue;
       if (scalePlan) status(`Add-on scale: ${scalePlan.reason}${modelScale !== undefined && Math.abs(modelScale - scalePlan.scale) > 0.001 ? ` (cell adjusted to ${plan.cellLDU} LDU → ${modelScale}×)` : ''}.`, 'info');
       if (!plan.requestedHonored) {
         status(`Requested ${20 / (plan.requestedCellLDU ?? 20)}× stud resolution exceeds Minecraft-sane bounds — using ${plan.cellsPerStud}×.`, 'info');
@@ -497,7 +537,14 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
     // Bedrock: the file alone is not actionable — explain how to acquire and
     // use the included BrickWand without implying that import places anything.
     if ((format === 'mcpack' || format === 'mcaddon') && job.mcpack) {
-      const { functionCommand, tileCount, unmapped, warnings = [], components = [], provenance } = job.mcpack;
+      const { functionCommand, tileCount, unmapped, warnings = [], components = [], provenance, access } = job.mcpack;
+      // The measured walk-through size, remembered for the settings popover
+      // (which must not measure) and said once in the log. It is a
+      // recommendation: this export's size was NOT changed by it.
+      if (access) {
+        lastAccess = { label: req.label ?? base, access };
+        status(describeAccessRecommendation(access, scaleCue), 'info');
+      }
       const tileNote = tileCount > 1
         ? `, split into ${tileCount} structures (Bedrock caps one at 64×384×64)`
         : '';
@@ -518,10 +565,15 @@ export async function runMinecraftExport(req: MinecraftExportRequest): Promise<M
       if (unmapped.length > 0) {
         status(`${unmapped.length} block type(s) had no Bedrock equivalent and were left as air: ${unmapped.join(', ')}`, 'info');
       }
-      for (const warning of warnings) status(`Add-on warning: ${warning}`, 'info');
-      status(warnings.length ? `${msg} ${warnings.length} add-on warning${warnings.length === 1 ? '' : 's'} above.` : msg, 'success');
+      // The pipeline carries the walk-through sentence in `warnings` too (that
+      // is its only per-export note channel); it was already said above, with
+      // its size step, so it is neither repeated here nor counted as a warning.
+      const walkWarning = access ? `Walk-through size: ${access.reason}` : null;
+      const addonWarnings = walkWarning ? warnings.filter(w => w !== walkWarning) : warnings;
+      for (const warning of addonWarnings) status(`Add-on warning: ${warning}`, 'info');
+      status(addonWarnings.length ? `${msg} ${addonWarnings.length} add-on warning${addonWarnings.length === 1 ? '' : 's'} above.` : msg, 'success');
       const interactionSummary = format === 'mcaddon'
-        ? ` · ${components.length} interactive component${components.length === 1 ? '' : 's'}${warnings.length ? ` · ${warnings.length} warning${warnings.length === 1 ? '' : 's'}` : ''}`
+        ? ` · ${components.length} interactive component${components.length === 1 ? '' : 's'}${addonWarnings.length ? ` · ${addonWarnings.length} warning${addonWarnings.length === 1 ? '' : 's'}` : ''}`
         : '';
       progress.done(`${blocks.toLocaleString()} blocks · ${tileCount} structure${tileCount === 1 ? '' : 's'}${interactionSummary} · ${functionCommand}`);
       return {

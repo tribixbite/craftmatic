@@ -48,6 +48,24 @@ export interface PlacementColliders {
   keptCells: number;
 }
 
+/**
+ * The measured size at which a player can actually walk through this model
+ * (`recommendAccessScale` in bedrock-scene-actors.ts), carried into the pack so
+ * the wand can name it.
+ *
+ * It is a RECOMMENDATION and nothing else: the wand labels that step, quotes
+ * the reason and never changes the size by itself. `reason` is carried WHOLE —
+ * where the measurement found a tension (a size that opens the doors but puts
+ * the stairs past the player's jump) the sentence says so, and truncating it to
+ * a number would throw away the half the user needs.
+ */
+export interface PlacementAccess {
+  /** The size step (100…400) the measurement recommends; absent when no step makes the model walkable. */
+  sizePct?: number;
+  /** The measurement's own sentence, for the wand menu and the placement confirmation. */
+  reason: string;
+}
+
 export interface PlacementPackSpec {
   stem: string;
   label: string;
@@ -68,6 +86,8 @@ export interface PlacementPackSpec {
   runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
   /** A measured, export-time interaction warning shown in the Brick Wand. */
   interactionNote?: string;
+  /** The measured walk-through size and its reason, named (never applied) by the wand. */
+  access?: PlacementAccess;
   /**
    * Ticks each tile's ticking area stays alive after its `structure load`, and
    * ticks the last area is held after the final piece. A ticking area removed
@@ -385,6 +405,14 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     return pending.length ? Math.min(...pending) : undefined;
   };
   const sizeEvent = (pct: number) => `${config.sizeEventPrefix || 'craftmatic:size_'}${pct}`;
+  // The measured walk-through size (bedrock-scene-actors.ts). A RECOMMENDATION:
+  // the wand names the step and quotes the whole reason; it never resizes by itself.
+  const access = config.access || null;
+  const recommendedSize: number = access && access.sizePct ? access.sizePct : 0;
+  const sizeLabel = (pct: number) => `${pct}%${pct === recommendedSize ? ' (recommended)' : ''}`;
+  /** The measurement as one line for a menu body, with the reason carried whole. */
+  const walkThroughLine = (): string => !access || !access.reason ? ''
+    : `\n\n§aWalk-through: ${recommendedSize ? `${recommendedSize}%` : 'no size fits'}§r — ${access.reason}`;
   // A pack with no block structure (a vehicle, a figure) may turn in 15° steps; blocks turn by 90°.
   const fineTurn = config.tiles.length === 0;
   const turnStep = fineTurn ? 15 : 90;
@@ -661,7 +689,10 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   async function confirmPlace(p: any): Promise<any> {
     const st = state(p); try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); }
     const scripted = st.size !== 100 && config.tiles.length && config.colliders;
-    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\nBlocks in this area will be replaced.${scripted ? `\nAt ${st.size}% the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100% export are left out.` : ''}`).button('Place now').button('Back'));
+    // The measured walk-through size is stated here too, whenever the chosen
+    // size is not it — the last moment at which changing it costs nothing.
+    const walkNote = recommendedSize && st.size !== recommendedSize ? `\n\nWalk-through size is ${recommendedSize}%, not ${st.size}%: ${access.reason}` : '';
+    const r = await show(p, new ActionFormData().title(`Place ${config.label}?`).body(`${summary(st)}\n\nBlocks in this area will be replaced.${scripted ? `\nAt ${st.size}% the invisible walkable blocks are re-laid to size; the ${config.colliders.keptCells} visible block${config.colliders.keptCells === 1 ? '' : 's'} (doors, lights) of the 100% export are left out.` : ''}${walkNote}`).button('Place now').button('Back'));
     if (!r.canceled && r.selection === 0) return place(p);
     return menu(p);
   }
@@ -1050,11 +1081,11 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const st = state(p), running = active?.player === p.id;
     const nextSize = sizes[(sizes.indexOf(st.size) + 1) % sizes.length];
     const interaction = config.interactionNote ? `\n\n§eInteraction scale: ${config.interactionNote}` : '';
-    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
+    const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}${walkThroughLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
     if (running) f.button('Cancel placement');
     else {
       f.button('Pin centred on me').button('Pin corner at my feet').button('Edit coordinates').button(`Rotate → ${(st.rotation + turnStep) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
-      f.button(st.aim ? 'Stop following my aim' : 'Follow my aim').button(`Size ${st.size}% → ${nextSize}%${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`);
+      f.button(st.aim ? 'Stop following my aim' : 'Follow my aim').button(`Size ${sizeLabel(st.size)} → ${sizeLabel(nextSize)}${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`);
       const recommendedDoorSize = nextDoorSize(st.size);
       if (recommendedDoorSize) f.button(`Use next door size ${recommendedDoorSize}%`);
       if (config.manualSeatTypeId) {
@@ -1093,6 +1124,8 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       st.size = nextSize;
       if (st.anchor) previews.add(p.id);
       if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
+      // The measured reason, quoted whole, the moment the wand lands on that step.
+      if (recommendedSize && nextSize === recommendedSize) tell(p, `${nextSize}% is the measured walk-through size: ${access.reason}`);
       return menu(p);
     }
     const recommendedDoorSize = nextDoorSize(st.size);
@@ -1125,7 +1158,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const itemId = `craftmatic:${id}_brick_wand`;
   const shortAlias = placementAlias(spec.stem);
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
-    preview: spec.preview ?? null, colliders: spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
+    preview: spec.preview ?? null, colliders: spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
   const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
   const item = {

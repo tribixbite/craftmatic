@@ -210,6 +210,11 @@ console.log(JSON.stringify({
   components: result.mcpack?.components ?? [],
   warnings: result.mcpack?.warnings ?? [],
   entities: diagnostics?.entities ?? null,
+  // The measured walk-through size, read back OUT of the pack's own
+  // craftmatic-diagnostics.json - so this prints what shipped, not what the
+  // pipeline returned in memory. It is a recommendation: `scale` above is what
+  // the pack was actually exported at.
+  access: diagnostics?.access ?? null,
   lod: diagnostics?.lod ?? null,
   coaster: diagnostics?.coaster ?? null,
   packBudget: diagnostics?.pack ?? null,

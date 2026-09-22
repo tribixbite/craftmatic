@@ -31,6 +31,7 @@ import { getBlockProfile, type BrickColorSpace } from './block-profiles.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { BlockEntity } from '@craft/types/index.js';
 import type { PackProvenance, PipelineStamp, SourceProvenance } from './pipeline-version.js';
+import type { AccessScaleRecommendation } from './bedrock-scene-actors.js';
 
 /**
  * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
@@ -165,6 +166,14 @@ export interface McpackSummary {
   unmapped: string[];
   /** The pack's provenance record (`craftmatic-provenance.json`), for the status line. */
   provenance?: PackProvenance;
+  /**
+   * `.mcaddon`: the measured size at which a player can actually walk through
+   * the model (engine/bedrock-scene-actors.ts, `recommendAccessScale`), run
+   * over the scene's own part meshes. A RECOMMENDATION carried as data - the
+   * export was NOT resized by it - for the settings panel, the status line and
+   * the pack's own `craftmatic-diagnostics.json`.
+   */
+  access?: AccessScaleRecommendation;
 }
 
 export type SchemWorkerOutput =
@@ -314,7 +323,7 @@ export async function runSchemPipeline(
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
-    const { discoverSceneActors, applySceneDoors, runtimeDoorCandidates, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
+    const { discoverSceneActors, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
     const { isTorso } = await import('./ldraw-entity-compiler.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
@@ -325,6 +334,8 @@ export async function runSchemPipeline(
     const coasterRoutes: import('./bedrock-coaster.js').CoasterRoute[] = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
     let interactionNote: string | undefined;
+    /** The measured walk-through size (see `measureSceneAccess` below); undefined when no scene was discovered. */
+    let access: AccessScaleRecommendation | undefined;
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
@@ -342,6 +353,15 @@ export async function runSchemPipeline(
         const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)));
         // Figures posed off upright stay in the geometry; say so rather than dropping them silently.
         warnings.push(...scene.warnings);
+        // The size at which a player can actually walk through this model, over
+        // the same placements the scene was found in (the vehicles are movable
+        // and the figures standing in a doorway are not a wall). Costs
+        // 0.1-4.6 s per set, which is why it lives HERE, in the Worker, and
+        // never in the main-thread settings popover. It is a recommendation
+        // and nothing more: the export's size is `input.modelScale`, untouched.
+        onProgress('measuring the walk-through size');
+        access = recommendAccessScale(measureSceneAccess(source.bricks.filter(b => !movable.has(b)), scene.meshes, { exclude: scene.figureBricks }));
+        warnings.push(`Walk-through size: ${access.reason}`);
         if (!sourceOrigin && (scene.figures.length || scene.seats.length || scene.doors.length)) {
           warnings.push('Figures, seats and doors were found but the source geometry did not resolve, so they stay as blocks.');
         } else if (sourceOrigin) {
@@ -375,13 +395,20 @@ export async function runSchemPipeline(
               ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}),
             });
           }
+          // A figure's feet and a seat's surface are grounded on the model's
+          // UNDERSIDE (`scene.groundLdu`, the pin plane the shell and the
+          // colliders stand on), not on the voxel grid's row-0 bottom: the
+          // voxelizer's surface pass rounds a thin baseplate into row 0, so the
+          // grid put the chalet's figures at y -0.15 - one plate under the pin
+          // plane, and inside the grass at 400 % (2026-09-21). Doors keep
+          // `sceneGridPoint`: they are cut into the block grid itself.
           for (const f of scene.figures) {
-            const p = sceneGridPoint(frame, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
+            const p = sceneFloorPoint(frame, scene.groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
             figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);
           }
           for (const s of scene.seats) {
-            const p = sceneGridPoint(frame, s.surfaceLdu);
+            const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
           }
           sceneDoors = scene.doors;
@@ -456,8 +483,8 @@ export async function runSchemPipeline(
           z: (anchor.ldraw[2] / a.cellXZ - a.z) * a.scale });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
-    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance } };
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
   }
 
   if (input.format === 'mcpack') {

@@ -20,6 +20,7 @@ import {
 } from '@engine/schem-settings.js';
 import { BLOCK_PROFILES } from '@engine/block-profiles.js';
 import { ADDON_SCALE_OPTIONS, describeAddonScale, planAddonScale, type AddonScaleChoice } from '@engine/addon-scale.js';
+import { describeAccessRecommendation, getAccessRecommendation } from '@ui/schem-export.js';
 import type { ParsedBrick } from '@engine/ldraw-parser.js';
 
 const STORAGE_KEY = 'craftmatic.mcExportSettings';
@@ -261,9 +262,19 @@ export function mountSchemSettings(host: HTMLElement, opts: SchemSettingsMountOp
     profNote.textContent = BLOCK_PROFILES.find(p => p.id === profSel.value)?.description ?? '';
     // The add-on scale's decision for the loaded model, so `auto` is never a surprise at export time.
     const ctx = opts.getScaleContext?.() ?? null;
-    scaleNote.textContent = ctx
-      ? `${describeAddonScale(planAddonScale(ctx.bricks, scaleSel.value as AddonScaleChoice, ctx.label))}. ${scaleNoteDefault}`
-      : scaleNoteDefault;
+    if (!ctx) scaleNote.textContent = scaleNoteDefault;
+    else {
+      const plan = planAddonScale(ctx.bricks, scaleSel.value as AddonScaleChoice, ctx.label);
+      // The walk-through size is MEASURED (it needs the part meshes and costs
+      // 0.1-4.6 s), so it is never computed here - the popover only reports
+      // what the last export of this model measured in the Worker. A vehicle
+      // gets BOTH answers, side by side: `describeAddonScale` says what it is
+      // shrunk to so it sits on a table at its real size, and this says what
+      // it must be enlarged to before a player can walk inside it.
+      const access = getAccessRecommendation(ctx.label);
+      const walk = access ? ` ${describeAccessRecommendation(access, plan.cue)}.` : '';
+      scaleNote.textContent = `${describeAddonScale(plan)}.${walk} ${scaleNoteDefault}`;
+    }
     if (!opts.resolutionApplicable) {
       preview.textContent = 'The uploaded model is already a block grid — its resolution is fixed.';
       return;

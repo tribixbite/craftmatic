@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { BlockGrid } from '../src/schem/types.js';
 import { parseToGrid } from '../src/schem/parse.js';
 import { encodeSchemBytes } from '../web/src/viewer/exporter.js';
+import { describeAccessRecommendation, getAccessRecommendation } from '../web/src/ui/schem-export.js';
 
 // A small grid with several distinct blocks + air gaps, exercising the
 // palette, varint block data, and YZX ordering.
@@ -96,5 +97,43 @@ describe('encodeSchemBytes → Sponge v2 .schem', () => {
     const back = await parseToGrid(file);
     expect(back.get(19, 0, 19)).toBe(g.get(19, 0, 19));
     expect(back.countNonAir()).toBe(400);
+  });
+});
+
+/**
+ * The walk-through recommendation as the UI says it (`ui/schem-export.ts`).
+ *
+ * The measurement itself is the Worker's (engine/bedrock-scene-actors.ts); what
+ * is pinned here is the WORDING, because two of its properties are load-bearing:
+ * the whole reason is carried (a size that opens the doors and loses the stairs
+ * says so), and a display vehicle gets the walk-through answer BESIDE its auto
+ * shrink rather than instead of it.
+ */
+describe('describeAccessRecommendation', () => {
+  const tension = 'Door leaves are 0.6x1.3 blocks at 100 %; 400 % makes them 2.2x5.1 (a player needs 1x2; 19/23 clear it). But at 400 % a player reaches only 12 % of the model height, against 96 % at 100 %: the choice is between the doors and the stairs.';
+
+  it('quotes the measured step and the WHOLE reason', () => {
+    const line = describeAccessRecommendation({ scale: 4, sizePct: 400, basis: 'door-leaves', reason: tension });
+    expect(line).toBe(`Walk-through: 400 % — ${tension}`);
+    // Never truncated to the number: the tension is the half the user acts on.
+    expect(line).toContain('between the doors and the stairs');
+  });
+
+  it('adds "to walk inside" for a vehicle, whose auto shrink is a different question', () => {
+    const reason = 'Wall openings are 0.4x0.9 blocks at 100 %; 300 % makes them 1.2x2.6 (a player needs 1x2; 3/7 clear it).';
+    expect(describeAccessRecommendation({ scale: 3, sizePct: 300, basis: 'apertures', reason }, 'vehicle'))
+      .toBe(`Walk-through: 300 % to walk inside — ${reason}`);
+    // Any other cue: the plain wording.
+    expect(describeAccessRecommendation({ scale: 3, sizePct: 300, basis: 'apertures', reason }, 'minifig'))
+      .toBe(`Walk-through: 300 % — ${reason}`);
+  });
+
+  it('says plainly when no size makes the model walkable', () => {
+    const reason = 'No doorway or interior floor found: a solid model with nothing to walk through at any size.';
+    expect(describeAccessRecommendation({ basis: 'none', reason })).toBe(`Walk-through: no size makes it walkable — ${reason}`);
+  });
+
+  it('reports nothing for a model no export has measured', () => {
+    expect(getAccessRecommendation('a model that was never exported')).toBeNull();
   });
 });

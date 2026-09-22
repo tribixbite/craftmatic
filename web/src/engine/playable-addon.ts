@@ -12,7 +12,7 @@ import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } fro
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
-import { normaliseYaw, sceneGridPoint, yawForFacing, type SceneGridFrame } from './bedrock-scene-actors.js';
+import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
 import { minifigWandScript } from './bedrock-minifig-wand.js';
@@ -162,6 +162,14 @@ export interface PlayableAddonOptions {
     minifigCreator?: MinifigLibrarySpec;
     /** Optional placement warning computed from semantic door geometry. */
     interactionNote?: string;
+    /**
+     * The measured size at which a player can walk through this model
+     * (`recommendAccessScale`, run by schem-pipeline.ts over the scene's
+     * meshes). It is written whole into `craftmatic-diagnostics.json` and its
+     * step + reason go to the Brick Wand, which NAMES the step and never
+     * applies it: no export changes size on its own.
+     */
+    access?: AccessScaleRecommendation;
     /** Existing invisible seat type exposed to the brick-wand manual chair placer. */
     manualSeatTypeId?: string;
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
@@ -2145,7 +2153,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         warnings.push(`${label}: distance LOD on - ${lodCuboids} extra hull cuboids over ${Object.keys(lodHulls).length} entit${Object.keys(lodHulls).length === 1 ? 'y' : 'ies'} (${Math.round(lodCuboids / Math.max(1, packCuboids) * 100)}% of this pack, ${Math.round(lodCuboids / DEVICE_CUBOID_BUDGET * 1000) / 10}% of the device budget), resident beside the full model. The hull takes over once the camera is more than ${lodDistance} blocks from a model's nearest cube; query.distance_from_camera reads in blocks to the entity ROOT (Pixel 8 Pro, 2026-09-19), so each entity switches at ${lodDistance} plus its reach from the root: ${switches}.`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
-    if (Object.keys(diagnostics).length || coasterConfig) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
+    if (Object.keys(diagnostics).length || coasterConfig || options.access) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
         // The provenance record (pipeline stamp, source file + hash, build
         // instant) is spread in whole, so one file answers "which build made this".
         ...provenance, label,
@@ -2155,6 +2163,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // in blocks to the entity root (device round 2026-09-19); `distance` is the
         // nearest-cube option and each entity's `switchDistance` adds its reach.
         lod: { mode: lodMode, distance: lodDistance, cuboids: lodCuboids, note: lodMode === 'hull' ? 'query.distance_from_camera is in blocks to the entity ROOT (Pixel 8 Pro 2026-09-19); each entity switches at distance + its radiusBlocks (switchDistance)' : 'off', entities: lodHulls },
+        // The measured walk-through size, whole: the recommended step, what it
+        // was measured on (door leaves or wall openings), the representative
+        // doorway, the interior headroom and how far up the model a player
+        // still reaches at that size. A recommendation - this pack was NOT
+        // resized by it (`modelScale` is what it was exported at).
+        ...(options.access ? { access: options.access } : {}),
         entities: diagnostics,
         ...(coasterConfig ? { coaster: { cuboids: coasterCuboids, riderRoll: false, deviceVerified: false, carLength: COASTER_CAR_LENGTH,
             routes: coasterConfig.routes.map(route => ({
@@ -2198,6 +2212,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(placementColliders ? { colliders: placementColliders } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
         ...(options.interactionNote ? { interactionNote: options.interactionNote } : {}),
+        // The wand names the measured walk-through step and quotes the reason whole.
+        ...(options.access ? { access: { ...(options.access.sizePct !== undefined ? { sizePct: options.access.sizePct } : {}), reason: options.access.reason } } : {}),
         ...(manualSeatId || options.manualSeatTypeId ? { manualSeatTypeId: manualSeatId ? `${PACK_NAMESPACE}:${manualSeatId}` : options.manualSeatTypeId } : {}),
         ...(options.runtimeDoorCandidates ? { runtimeDoorCandidates: options.runtimeDoorCandidates } : {}) });
     files.push(...placement.files.map(file => ({
