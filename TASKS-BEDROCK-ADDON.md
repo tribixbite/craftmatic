@@ -139,6 +139,75 @@ normaliser and a stub description falls back to the library mould.
 **697 of 6,375 corpus sources (10.9 %) have this shape**, so any set whose
 first pick is an MPD was degraded the same way.
 
+### Source-directive coverage — 2026-09-23 (`74d0911d`, `ba446503`, `e43bdc58`)
+
+The reader acted on 2 of the 74 line-type-0 directives the corpus contains;
+the rest were comments to it. What the sweep of 69,867 LDraw + 9,357 LXFML
+files found, and what changed, is in the commits. The permanent tools:
+
+- `web/src/engine/ldraw-directives.ts` — every LDraw directive, its effect
+  (geometry / colour / structure / view / metadata), whether the reader acts
+  on it, and the corpus count. `viaExpansion: true` means "described by a meta
+  we ignore, but written out as ordinary geometry we do read" (LSynth, LDCad
+  flex, MLCad hoses) — NOT a gap.
+- `web/src/engine/lxfml-schema.ts` — the same for LXFML elements and
+  attributes, plus `LXFML_ELEMENT_PREFIXES` for the `EBT_SCENE_PREFS_*` family.
+- `bun scripts/_converter_coverage_audit.ts [--class X] [--json out] [--no-archives]`
+  — walks every source file INCLUDING `.lxf`/`.io` archives and exits 1 on a
+  directive missing from those tables. **0 unknown** today; 28 known
+  model-affecting gaps across 4,225 sets. Takes ~180 s with archives, ~90 s
+  without.
+- `test/ldraw-directives.test.ts` — 23 tests pinning each behaviour.
+- `node scripts/_shoot_set.mjs <set> <out.png> [waitMs]` — load a set in the
+  LEGO tab at localhost:4000 and screenshot the viewer (needs `bun dev:web`).
+- `node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers]` —
+  open a built pack in the in-app walk, set the legend layers (e.g.
+  `model,collider`), fly out, screenshot.
+
+**Two readings the corpus overturned — do not redo these.**
+`0 MLCAD SKIP_BEGIN` reads as "content the file excludes"; honouring it deletes
+40,862 parts, because all 231 blocks in the corpus expand a `MLCAD FLEXHOSE`,
+`RUBBER_BELT` or `SPRING` and the block IS the hose. Skipping is gated on
+`IMPLEMENTED_GENERATORS` in `ldraw-parser.ts`, which is empty.
+`0 MLCAD HIDE` looks like parts we lose; 1,235 of 1,627 land on an origin a
+visible part already occupies (the archive sweep raised the footprint to 181
+sets / 3,492 lines, same shape). Still skipped, on purpose.
+
+#### Open gaps, largest first (from the audit's `--json`)
+
+None is a correctness bug in what we DO read; each is a feature of the source
+we do not carry. Sets counted over the whole corpus, not first picks.
+
+- [ ] `Part@decoration` — 3,874 sets. Printed parts; LDraw has no print layer.
+  Needs a decoration→texture route into the Bedrock swatch, which the entity
+  path could carry since it already uses per-material textures.
+- [ ] `MultiBuildBrick@originalBrickRef`/`actualBrickRef` — 1,785 sets. An
+  alternate build SWAPS a brick. We render the primary build only, which is
+  right, but nothing verifies we are not mixing the two.
+- [ ] `Sticker` / `StickerAttributes` — 1,757 / 283 sets.
+- [ ] `PartDeformation` + `Bone@index`/`position`/`rotation` — 847 sets. A flex
+  part carries one bone per segment and `lxf-parser.ts` takes bone 0, so a hose
+  draws from its first anchor undeformed. Needs skinning, not N copies.
+- [ ] `Part@variantID` / `PartVariant` — 746 / 506 sets. Mould variants;
+  `normalizeDesignId` strips the suffix and uses the base mould.
+- [ ] `Part@materials` comma list — 54,620 placements. A multi-mould part has
+  one colour per shell; an LDraw part is one colour, so the first is used.
+
+**Settled 2026-09-23, measured negatives — do not re-chase.**
+`SubBuild@position` is "0,0,0" in all 29,169 occurrences sampled, so it is not
+the Gringotts signal; `<Explode>` remains it. `Group@transformation` (35 sets)
+sits on EMPTY self-closing `<Group>` elements inside `<PartGroupSystem>` — a
+posing manipulator naming no members (31 of 31 groups in 31151 and 46 of 46 in
+21270 resolved to zero bricks). Both are recorded in `lxfml-schema.ts`.
+Also corrected there: a group names its members through NESTED
+`<Brick brickRef="…"/>` children as well as a `brickRefs` attribute, and DBIX
+files identify bricks by `uuid` with no `refID` at all — a reader that assumes
+`refID` finds nothing in them.
+
+Reach today: the LXFML reader serves 271 `LXF` + 162 `EurobricksLDD` first
+picks. `DbixConvV3` (1,713 first picks) is converted from LXFML by the clego
+checkout, so the same gaps there need fixing in THAT repo.
+
 ### Open
 
 - [ ] **Re-test 10261 in world 922 with `10261-mpd-fixed.mcaddon`** — the pack
