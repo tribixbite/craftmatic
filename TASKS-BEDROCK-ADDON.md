@@ -188,13 +188,30 @@ first pick is an MPD was degraded the same way.
      COARSE rungs the budget forces round parts onto — 3941 is 26 cuboids at
      0.919 at 4 LDU and 5 at 0.919 at 8 LDU, against **4 at 0.929** as facets.
      194 of 239 round placements in 10303 qualify.
-     **What is left: emitting them.** The compiler must take the
-     rotated-cuboid route `studCuboids` already uses (rotation + pivot appended
-     to `renderCuboids` AFTER the lattice, cull and merge stages, so no
-     axis-aligned invariant is touched), add facets as a ladder rung in
-     `planPartGrains`, and fall back to the lattice when a placement's rotation
-     does not map the profile axis to a cardinal axis. Nothing is wired in yet,
-     so exports are unchanged.
+     **What is left: emitting them.** Nothing is wired in, so exports are
+     unchanged. The constraints, read out of `ldraw-entity-compiler.ts` so the
+     next attempt does not rediscover them:
+     - `worldBoxes` and `renderCuboids` are built STRICTLY IN PARALLEL inside
+       `instantiate` (one push each per prototype cuboid) and `forCull` indexes
+       one by the other, so a facet path may not simply drop a part's cuboids —
+       it must emit one worldBox per facet box or the indices desynchronise.
+     - `mergeAlignedCuboids` would merge a rotated box with its neighbours, and
+       `cullHiddenCuboidsWithinBudget` samples occupancy from the UNROTATED
+       min/max when `aligned` is true. Facets must therefore not be `aligned`.
+     - But `aligned: false` already means "unrotated box stored at the brick's
+       pivot, placed by that bone's rotation", which is a different thing from
+       "box carrying its own cube rotation". `studCuboids` dodges all of this by
+       appending AFTER the cull and merge with no `aligned` field at all; the
+       facet path most likely wants the same treatment, which then needs the
+       part's occlusion volume still represented in `worldBoxes` so that stud
+       exposure and culling of NEIGHBOURING parts stay correct.
+     - Only `aligned` placements need facets (a signed-permutation matrix maps
+       the profile axis to a cardinal axis exactly). A cylinder is rotationally
+       symmetric, so the fan's absolute angle about that axis does not matter —
+       the placement's in-plane rotation can be ignored rather than composed.
+     - Facets are grain-INDEPENDENT, so a round part renders round even when the
+       planner coarsened it. Teaching `planPartGrains` to re-spend the saving is
+       a second step; without it the pack simply lands under budget.
   3. The stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced
      at 46.2k but its 8,720 studs drop to 1 facet.
   Measure with `bun scripts/_round_part_fidelity.ts` (true per-part IoU per
