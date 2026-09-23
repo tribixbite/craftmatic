@@ -407,6 +407,22 @@ function expandSection(
 
   /** Act on a line-type-0 meta command. */
   function handleMeta(line: string): void {
+    // The block delimiters come FIRST, and everything else is gated behind
+    // them: a directive inside skipped content must not act, including `STEP`,
+    // which would otherwise number steps for a block that is not built.
+    //
+    // Skip a block only if we could draw its generator ourselves; see the note
+    // on `skipDepth`. `IMPLEMENTED_GENERATORS` is empty today, so every block
+    // is kept — and the day a generator lands, adding its name there is the
+    // whole change.
+    if (/^0\s+MLCAD\s+SKIP_BEGIN\b/i.test(line)) {
+      if (lastGenerator === null || IMPLEMENTED_GENERATORS.has(lastGenerator)) skipDepth++;
+      lastGenerator = null;
+      return;
+    }
+    if (/^0\s+MLCAD\s+SKIP_END\b/i.test(line)) { skipDepth = Math.max(0, skipDepth - 1); return; }
+    if (skipDepth > 0) return;
+
     // Track assembly step markers at any depth. Many OMR sets (e.g., 31084
     // Pirate Roller Coaster) keep all top-level brick references in one
     // block and put the STEP markers inside each sub-assembly file —
@@ -418,18 +434,6 @@ function expandSection(
     // Remember which generator a following SKIP block belongs to.
     const gen = /^0\s+MLCAD\s+(FLEXHOSE|RUBBER_BELT|SPRING)\b/i.exec(line);
     if (gen) { lastGenerator = gen[1]!.toUpperCase(); return; }
-
-    // Skip the block only if we could draw its generator ourselves; see the
-    // note on `skipDepth`. `IMPLEMENTED_GENERATORS` is empty today, so every
-    // block is kept — and the day a generator lands, adding its name here is
-    // the whole change.
-    if (/^0\s+MLCAD\s+SKIP_BEGIN\b/i.test(line)) {
-      if (lastGenerator === null || IMPLEMENTED_GENERATORS.has(lastGenerator)) skipDepth++;
-      lastGenerator = null;
-      return;
-    }
-    if (/^0\s+MLCAD\s+SKIP_END\b/i.test(line)) { skipDepth = Math.max(0, skipDepth - 1); return; }
-    if (skipDepth > 0) return;
 
     // `0 BUFEXCHG <buffer> STORE` saves the model so far and `RETRIEVE` puts
     // it back — an instruction-time "set this aside and pick it up later".
