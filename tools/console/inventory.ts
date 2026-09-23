@@ -479,6 +479,26 @@ export const OPERATIONS: readonly Operation[] = [
 
   // ─────────────────── Windows, parts & corpus checks ───────────────────
   {
+    id: 'converter-coverage',
+    group: 'Windows, parts & corpus checks',
+    title: 'Source-directive coverage audit',
+    answers: 'Does the converter have a function for every instruction the sources carry? Walks every .ldr/.mpd/.dat/.lxfml AND every .lxf/.io archive, classifies each line-type-0 directive and each LXFML element/attribute against the coverage tables, and reports what is UNKNOWN (a gap nobody has looked at), what is a known gap that can change the model, and what is only described by a meta whose geometry is written out anyway.',
+    entry: 'scripts/_converter_coverage_audit.ts',
+    runtime: 'bun', cwd: 'craftmatic', input: 'none', batch: 'one-process',
+    args: [{ opt: 'root' }, { opt: 'cls' }, { opt: 'json' }, { opt: 'noArchives' }],
+    options: [
+      { key: 'root', flag: 'root', render: 'space', type: 'path', default: 'C:/git/clego/lego_sets', help: 'Corpus root to walk.' },
+      { key: 'cls', flag: 'class', render: 'space', type: 'string', help: 'Limit to one corpus class, e.g. OMR.' },
+      { key: 'json', flag: 'json', render: 'space', type: 'path', help: 'Also write the full classification as JSON.' },
+      { key: 'noArchives', flag: 'no-archives', render: 'switch', type: 'boolean', default: false, help: 'Skip .lxf/.io archives (about half the time, but 38,840 fewer LDraw files).' },
+    ],
+    parse: { kind: 'none' }, columns: [],
+    evidence: {},
+    duration: '~180 s with archives, ~90 s without',
+    docs: ['TASKS-BEDROCK-ADDON.md'],
+    notes: 'Exit code is non-zero when anything in the corpus is missing from web/src/engine/ldraw-directives.ts or lxfml-schema.ts. Add a new directive to the table in the same change that meets it.',
+  },
+  {
     id: 'window-census',
     group: 'Windows, parts & corpus checks',
     title: 'Window defect census',
