@@ -160,9 +160,22 @@ first pick is an MPD was degraded the same way.
   bare, at 100 % — the earlier `/tp` was unnecessary.
 - [ ] **10261 has never been device-tested at all** — its chain ride is
   host-simulation only.
-- [ ] Close-up fidelity is still short of the user's bar. Next lever is the
-  stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced at
-  46.2k but its 8,720 studs drop to 1 facet.
+- [ ] Close-up fidelity is still short of the user's bar, but one measured
+  cause is now FIXED (`0913f4f7`): the planner scored a coarsened cylinder as a
+  perfect box, so round parts were always coarsened first. 10303's shell now
+  puts 22 parts at the coarsest 8 LDU instead of 40, at the same budget.
+  Remaining levers, in measured order:
+  1. **Budget.** 10303 wants 139,409 cuboids at its requested 2 LDU against a
+     43,976 budget — a 3.2x squeeze, so 36 % of placements still ship coarser.
+     Raising it trades directly against the ~480k all-packs device ceiling.
+  2. Rotated-cuboid facets for round PROFILES, as studs already use
+     (`studCuboids` fans rectangles about an axis). A few rotated boxes read
+     rounder AND cost less than many microcells — the one lever that improves
+     fidelity and cost together. Not yet attempted.
+  3. The stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced
+     at 46.2k but its 8,720 studs drop to 1 facet.
+  Measure with `bun scripts/_round_part_fidelity.ts` (true per-part IoU per
+  grain) and the `grainPlan` block in any export's diagnostics.
 - [ ] Both 10303 lift docks are SNAPPED (travel 1,884.9 LDU, 0.7 degrees off
   vertical) rather than the pure-axis 1,857.8, so the car lands on track at
   both ends. Reported in the pack warnings; revisit if it reads wrong in game.

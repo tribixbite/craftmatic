@@ -78,6 +78,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   set's `.ldr` shipped six of each. 10.9 % of corpus sources have this shape,
   and an MPD is the index's FIRST pick for some sets, so **a test that pins only
   the `.ldr` proves nothing about what users export** (`ce50c838`).
+- **`exact-box` means "a single bbox-filling cuboid", NOT "this part is a box".**
+  `compilePartPrototype` applies the label to any such cuboid, and its "reached
+  only by coarsening" guard counts only its own internal loop — the grain
+  planner walks its ladder by passing `microcellLdu`, so the guard never fires
+  there. A 1x1 round brick is `exact-box` at 8 LDU. Reading the label as a
+  perfect silhouette scored coarsening a cylinder into a cube at 1.000 against
+  0.931 at 4 LDU — better AND cheaper — so round parts were coarsened first and
+  read as squares up close (`0913f4f7`). Decide box-ness at the FINEST grain and
+  measure everything else; `scripts/_round_part_fidelity.ts` prints the true
+  per-part IoU per grain.
 - **Bedrock culls an actor by its `minecraft:collision_box`, not its visible
   bounds** (`cull ≈ 64 × max(1, box diagonal)` blocks). A 0.1×0.1 shell box made
   every model vanish at 64 blocks; the box is now sized from the model extent in
