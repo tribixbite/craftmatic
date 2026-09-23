@@ -10,7 +10,13 @@
  * Line type 1 (sub-file reference / brick placement):
  *   1 <colour> x y z a b c d e f g h i <filename>
  * where (a-i) is the 3×3 rotation matrix in row-major order.
+ *
+ * Line type 0 is a meta-command. Most are comments or view hints, but several
+ * move parts in or out of the model — see `ldraw-directives.ts`, which lists
+ * every directive the corpus contains and is checked against the whole corpus
+ * by `scripts/_converter_coverage_audit.ts`.
  */
+import { LDRAW_COLOR_RGB } from './ldraw-colors.js';
 
 export interface ParsedBrick {
   /** LDraw color ID */
@@ -43,6 +49,22 @@ export interface ParsedBrick {
   sourcePath?: string[];
 }
 
+/**
+ * A colour code a document defines for ITSELF, via `0 !COLOUR` or the LDLite
+ * `0 COLOR`. These are not decoration: 85 codes across the corpus are
+ * redefined away from the official palette and 26 more are codes the shared
+ * table has never heard of, and the same code carries different RGB in
+ * different files — so the palette genuinely belongs to the document.
+ */
+export interface LDrawLocalColour {
+  code: number;
+  /** `#RRGGBB`. */
+  rgb: string;
+  /** 0–255; below 255 the colour is transparent. */
+  alpha: number;
+  name: string;
+}
+
 /** One `0 FILE` section of an MPD (or the whole of a plain `.ldr`). */
 export interface LDrawSection {
   /** Normalised name: lower-case, forward slashes, as referenced by type-1 lines. */
@@ -65,6 +87,8 @@ export interface LDrawDocument {
   sections: Map<string, LDrawSection>;
   /** Name of the section that was expanded as the model root. */
   rootSection: string;
+  /** Colour codes this document defines for itself, keyed by code. */
+  colours: Map<number, LDrawLocalColour>;
 }
 
 /**
@@ -89,13 +113,119 @@ export function parseLDrawDocument(content: string): LDrawDocument {
     // The parser's own lookup finds the FIRST section of a name; keep that one.
     if (!sectionMap.has(s.name)) sectionMap.set(s.name, { name: s.name, lines: s.lines.slice() });
   }
-  if (sections.length === 0) return { bricks: [], sections: sectionMap, rootSection: '__main__' };
+  const colours = parseLocalColours(content);
+  if (sections.length === 0) return { bricks: [], sections: sectionMap, rootSection: '__main__', colours };
 
   const bricks: ParsedBrick[] = [];
   const IDENTITY = [1, 0, 0,  0, 1, 0,  0, 0, 1];
   const stepRef = { step: 1 };
-  expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef, [sections[0].name]);
-  return { bricks, sections: sectionMap, rootSection: sections[0].name };
+  const docState: DocumentState = { step: stepRef, buffers: new Map(), overrides: colourOverrides(colours) };
+  expandSection(sections[0].lines, sections, IDENTITY, [0, 0, 0], bricks, 0, 16, stepRef, [sections[0].name], docState);
+  return { bricks, sections: sectionMap, rootSection: sections[0].name, colours };
+}
+
+/**
+ * Read every colour a document defines for itself.
+ *
+ * Two spellings occur in the corpus: the LDraw standard
+ * `0 !COLOUR <name> CODE <n> VALUE #RRGGBB [ALPHA <a>]` and LDLite's
+ * `0 COLOR <n> <name> <r> <g> <b> <a> …`. Both are read here so neither
+ * dialect silently falls back to the shared palette.
+ */
+export function parseLocalColours(content: string): Map<number, LDrawLocalColour> {
+  const out = new Map<number, LDrawLocalColour>();
+  for (const raw of content.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.charCodeAt(0) !== 48 /* '0' */) continue;
+    const std = /^0\s+!?COLOUR\s+(\S+)\s+CODE\s+(\d+)\s+VALUE\s+(#[0-9A-Fa-f]{6})(?:.*?\bALPHA\s+(\d+))?/i.exec(line);
+    if (std) {
+      const code = Number(std[2]);
+      if (!out.has(code)) {
+        out.set(code, { code, rgb: std[3]!.toUpperCase(), alpha: std[4] ? Number(std[4]) : 255, name: std[1]! });
+      }
+      continue;
+    }
+    // LDLite: `0 COLOR <code> <name> <flags> <r> <g> <b> <a> <er> <eg> <eb> <ea>`
+    //
+    // The name may contain spaces ("Dark Bluish Gray") and a FLAGS field sits
+    // between the name and the colour, so the fields are counted from the end:
+    // all 3,819 corpus lines carry exactly nine numbers after the name. Taking
+    // the first three numbers instead reads `<flags> <r> <g>` and paints every
+    // such model with a channel-shifted palette at alpha 63.
+    const lite = /^0\s+COLOR\s+(\d+)\s+(.+?)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/i.exec(line);
+    if (lite) {
+      const code = Number(lite[1]);
+      if (out.has(code)) continue;
+      const hex = '#' + [lite[4], lite[5], lite[6]]
+        .map(v => Number(v).toString(16).padStart(2, '0')).join('').toUpperCase();
+      out.set(code, { code, rgb: hex, alpha: Number(lite[7]), name: lite[2]!.trim() });
+    }
+  }
+  return out;
+}
+
+/**
+ * Flexible-part generators this reader can draw itself.
+ *
+ * Empty: we place the pre-expanded segments MLCad wrote instead. Adding a name
+ * here makes the parser skip that generator's expanded block, which is only
+ * correct once something actually synthesises the part from its spec.
+ */
+const IMPLEMENTED_GENERATORS: ReadonlySet<string> = new Set<string>();
+
+/** LDraw direct-colour encodings: `0x2RRGGBB` opaque, `0x3RRGGBB` transparent. */
+const DIRECT_OPAQUE = 0x2000000;
+const DIRECT_TRANSPARENT = 0x3000000;
+
+/**
+ * Codes whose local definition DISAGREES with the shared palette, mapped to the
+ * equivalent LDraw direct colour.
+ *
+ * Rewriting to a direct colour rather than mutating a shared table is what
+ * makes a per-document palette safe: the exact RGB rides along on the brick
+ * itself, so two models open at once cannot corrupt each other's colours, and
+ * every consumer that already understands `0x2RRGGBB` needs no change at all.
+ *
+ * A definition that merely restates the official value is left alone, so named
+ * colours keep their material class (chrome, pearl, rubber) instead of
+ * flattening to a plain RGB.
+ */
+export function colourOverrides(colours: Map<number, LDrawLocalColour>): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const [code, def] of colours) {
+    // 16 (main) and 24 (edge) are contextual — a file that "defines" them is
+    // restating the convention, and overriding them would break inheritance.
+    if (code === 16 || code === 24) continue;
+    const official = LDRAW_COLOR_RGB[code];
+    if (official && def.alpha >= 255 && channelDistance(official, def.rgb) <= COLOUR_KEEP_THRESHOLD) continue;
+    const value = parseInt(def.rgb.slice(1), 16);
+    out.set(code, (def.alpha < 255 ? DIRECT_TRANSPARENT : DIRECT_OPAQUE) | value);
+  }
+  return out;
+}
+
+/**
+ * How far a local definition may sit from the shared palette and still be
+ * treated as the same colour, per channel out of 255.
+ *
+ * Measured over the corpus: 97.4 % of overrides move a colour by more than
+ * this (code 67 is "rubber white" in the shared table and plain blue #0043DF
+ * in the files that define it, across 264 bricks of 10131), so the threshold
+ * changes almost nothing — but the handful it catches keep their material
+ * class, and an 8/255 shift is far less visible than turning a chrome part
+ * into a plastic one. Only 9 brick placements in the whole corpus were losing
+ * a class over a difference this small.
+ */
+const COLOUR_KEEP_THRESHOLD = 8;
+
+/** Largest per-channel difference between two `#RRGGBB` strings. */
+function channelDistance(a: string, b: string): number {
+  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
+  return Math.max(
+    Math.abs(((pa >> 16) & 0xff) - ((pb >> 16) & 0xff)),
+    Math.abs(((pa >> 8) & 0xff) - ((pb >> 8) & 0xff)),
+    Math.abs((pa & 0xff) - (pb & 0xff)),
+  );
 }
 
 /**
@@ -139,6 +269,9 @@ function splitIntoSections(content: string): Section[] {
   const lines = content.split(/\r?\n/);
   const sections: Section[] = [];
   let current: Section | null = null;
+  // Once a `0 FILE` has been seen, a line outside any section is orphaned
+  // rather than the start of an implicit main model.
+  let sawFile = false;
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
@@ -149,10 +282,20 @@ function splitIntoSections(content: string): Section[] {
       const rawName = fileMatch[1].trim().replace(/^"(.*)"$/, '$1').trim();
       current = { name: rawName.toLowerCase().replace(/\\/g, '/'), lines: [] };
       sections.push(current);
+      sawFile = true;
+      continue;
+    }
+
+    // `0 NOFILE` closes the current MPD section. Anything between it and the
+    // next `0 FILE` belongs to no model — 8 corpus files carry 94 such lines,
+    // and appending them to the section just closed would place their parts.
+    if (/^0\s+NOFILE\s*$/i.test(line)) {
+      current = null;
       continue;
     }
 
     if (!current) {
+      if (sawFile) continue;  // orphaned: after a NOFILE, outside every section
       // LDR (single-file) — create implicit main section
       current = { name: '__main__', lines: [] };
       sections.push(current);
@@ -166,6 +309,18 @@ function splitIntoSections(content: string): Section[] {
 
 // ─── Section Expansion ───────────────────────────────────────────────────────
 
+/**
+ * Document-wide state that survives recursion into sub-models: the step
+ * counter, the buffer-exchange rollback points, and the local palette.
+ */
+interface DocumentState {
+  step: { step: number };
+  /** `0 BUFEXCHG <name> STORE` → the output length to roll back to. */
+  buffers: Map<string, number>;
+  /** Colour code → LDraw direct colour, for codes this document redefines. */
+  overrides: Map<number, number>;
+}
+
 function expandSection(
   lines: string[],
   allSections: Section[],
@@ -176,32 +331,121 @@ function expandSection(
   parentColor: number = 16, // inherited color context for color-16 resolution
   stepRef: { step: number } = { step: 1 }, // shared step counter (mutated at depth 0)
   sourcePath: string[] = [],
+  doc: DocumentState = { step: stepRef, buffers: new Map(), overrides: new Map() },
 ): void {
   // Guard against runaway recursion (circular references or deep nesting)
   if (depth > 50) return;
 
+  /**
+   * Nesting level of `0 MLCAD SKIP_BEGIN` blocks we are choosing to skip.
+   *
+   * A skip block is NOT dead content. MLCad wraps it around geometry it can
+   * regenerate from a preceding generator meta, and a corpus sweep found that
+   * every one of the 231 blocks in 63 files sits directly under `MLCAD
+   * FLEXHOSE` (215 blocks, 40,390 parts), `MLCAD RUBBER_BELT` (14) or `MLCAD
+   * SPRING` (2) — there is not a single block used for anything else. So a
+   * reader that implements the generator must skip the block or draw the hose
+   * twice, and a reader that does not must KEEP it or the hose vanishes.
+   * Skipping unconditionally deleted 40,862 parts' worth of flexible hoses.
+   */
+  let skipDepth = 0;
+  /** The generator meta a SKIP block would be regenerated from, if any. */
+  let lastGenerator: string | null = null;
+  /**
+   * Inside a `0 !TEXMAP` block, geometry is written twice: once prefixed
+   * `0 !:` for readers that draw the texture, and once plainly after
+   * `0 !TEXMAP FALLBACK` for readers that do not. Taking both DOUBLES every
+   * textured part, so the prefixed lines are held here and used only if the
+   * block ends without a fallback.
+   */
+  // Held in an object, not two `let`s: TypeScript does not narrow a `let`
+  // that only a nested function assigns, so the flush below would be typed
+  // against the initial `null`.
+  const texmap: { pending: string[] | null; hasFallback: boolean } = { pending: null, hasFallback: false };
+
   for (const line of lines) {
     if (!line) continue;
 
+    if (line.charCodeAt(0) === 48 /* '0' */) {
+      handleMeta(line);
+      continue;
+    }
+    if (skipDepth > 0) continue;
+    place(line);
+  }
+
+  // A file that ends mid-TEXMAP still owes us its geometry.
+  if (texmap.pending && !texmap.hasFallback) for (const l of texmap.pending) place(l);
+
+  /** Act on a line-type-0 meta command. */
+  function handleMeta(line: string): void {
     // Track assembly step markers at any depth. Many OMR sets (e.g., 31084
     // Pirate Roller Coaster) keep all top-level brick references in one
     // block and put the STEP markers inside each sub-assembly file —
     // limiting step-counting to depth 0 would give those models step=1/1.
     // Counting at every depth produces finer building-manual-style steps
     // (sub-assemblies build themselves out, then the next sub-assembly).
-    if (line.startsWith('0')) {
-      if (/^0\s+STEP\s*$/i.test(line)) {
-        stepRef.step++;
+    if (/^0\s+STEP\s*$/i.test(line)) { stepRef.step++; return; }
+
+    // Remember which generator a following SKIP block belongs to.
+    const gen = /^0\s+MLCAD\s+(FLEXHOSE|RUBBER_BELT|SPRING)\b/i.exec(line);
+    if (gen) { lastGenerator = gen[1]!.toUpperCase(); return; }
+
+    // Skip the block only if we could draw its generator ourselves; see the
+    // note on `skipDepth`. `IMPLEMENTED_GENERATORS` is empty today, so every
+    // block is kept — and the day a generator lands, adding its name here is
+    // the whole change.
+    if (/^0\s+MLCAD\s+SKIP_BEGIN\b/i.test(line)) {
+      if (lastGenerator === null || IMPLEMENTED_GENERATORS.has(lastGenerator)) skipDepth++;
+      lastGenerator = null;
+      return;
+    }
+    if (/^0\s+MLCAD\s+SKIP_END\b/i.test(line)) { skipDepth = Math.max(0, skipDepth - 1); return; }
+    if (skipDepth > 0) return;
+
+    // `0 BUFEXCHG <buffer> STORE` marks a rollback point and `RETRIEVE`
+    // discards everything placed since — an instruction-time undo that leaves
+    // duplicate parts in the model if it is ignored.
+    const buf = /^0\s+BUFEXCHG\s+(\S+)\s+(STORE|RETRIEVE)\b/i.exec(line);
+    if (buf) {
+      const name = buf[1]!.toUpperCase();
+      if (buf[2]!.toUpperCase() === 'STORE') doc.buffers.set(name, output.length);
+      else {
+        const mark = doc.buffers.get(name);
+        if (mark !== undefined && mark <= output.length) output.length = mark;
       }
-      continue;
+      return;
     }
 
+    // `0 GHOST <type-1 line>` is a part MLCad draws faded. It is in the model.
+    const ghost = /^0\s+GHOST\s+(1\s+.*)$/i.exec(line);
+    if (ghost) { place(ghost[1]!); return; }
+
+    if (/^0\s+!TEXMAP\s+(START|NEXT)\b/i.test(line)) { texmap.pending = []; texmap.hasFallback = false; return; }
+    if (/^0\s+!TEXMAP\s+FALLBACK\b/i.test(line)) { texmap.hasFallback = true; return; }
+    if (/^0\s+!TEXMAP\s+END\b/i.test(line)) {
+      if (texmap.pending && !texmap.hasFallback) for (const l of texmap.pending) place(l);
+      texmap.pending = null;
+      texmap.hasFallback = false;
+      return;
+    }
+    // Geometry inside a TEXMAP block, hidden behind the `0 !:` prefix.
+    const textured = /^0\s+!:\s+(.*)$/.exec(line);
+    if (textured && texmap.pending) { texmap.pending.push(textured[1]!); return; }
+  }
+
+  /** Place one type-1 sub-file reference. */
+  function place(line: string): void {
     const tokens = line.split(/\s+/);
-    if (tokens.length < 15 || tokens[0] !== '1') continue;
+    if (tokens.length < 15 || tokens[0] !== '1') return;
 
     const rawColor = parseLDrawColor(tokens[1]);
     // LDraw color 16 = "Main Color" — inherit from parent reference context
-    const color = rawColor === 16 ? parentColor : rawColor;
+    const inherited = rawColor === 16 ? parentColor : rawColor;
+    // A code this document redefines becomes the equivalent direct colour, so
+    // the file's own palette travels with the brick instead of being looked up
+    // in a shared table that disagrees with it.
+    const color = doc.overrides.get(inherited) ?? inherited;
     const lx = parseFloat(tokens[2]);
     const ly = parseFloat(tokens[3]);
     const lz = parseFloat(tokens[4]);
@@ -252,7 +496,7 @@ function expandSection(
       // Step tracking is only done at depth 0; sub-models don't have their own STEP markers.
       expandSection(
         subSection.lines, allSections, childRot, [wx, wy, wz], output,
-        depth + 1, color, stepRef, [...sourcePath, subSection.name],
+        depth + 1, color, stepRef, [...sourcePath, subSection.name], doc,
       );
     } else if (!isLDrawPrimitive(basename)) {
       // Terminal part (.dat or unknown) — record brick placement with rotation.
