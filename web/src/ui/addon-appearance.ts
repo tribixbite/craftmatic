@@ -78,6 +78,22 @@ export type AppearanceSources = ReadonlyMap<string, string>;
 export const APPEARANCE_FILE_PATTERN =
   /(^|\/)(entity\/[^/]+\.entity\.json|render_controllers\/[^/]+\.render_controllers\.json|models\/entity\/[^/]+\.geo\.json)$/;
 
+/**
+ * Render controllers Minecraft itself provides, which a pack references but
+ * must never ship. Without this the preview reports every seat and screen as
+ * "render controller controller.render.default not in the pack" — a warning
+ * about the pack being CORRECT, which is worse than no warning at all because
+ * it trains the reader to ignore the notes.
+ *
+ * `controller.render.default` draws `geometry.default` with `textures.default`,
+ * so the entity's own maps give the preview everything it needs.
+ */
+const VANILLA_RENDER_CONTROLLERS: ReadonlySet<string> = new Set([
+  'controller.render.default',
+  'controller.render.armor_stand',
+  'controller.render.item_default',
+]);
+
 const vec3 = (v: unknown, fallback: [number, number, number] = [0, 0, 0]): [number, number, number] =>
   Array.isArray(v) && v.length >= 3 && v.every(n => typeof n === 'number')
     ? [v[0] as number, v[1] as number, v[2] as number]
@@ -237,9 +253,14 @@ export function buildAddonAppearance(sources: AppearanceSources): AddonAppearanc
       const name = typeof entry === 'string' ? entry : Object.keys(entry as object)[0];
       if (!name) continue;
       const controller = controllers.get(name);
-      if (!controller) { notes.push(`${typeId}: render controller ${name} not in the pack.`); continue; }
+      if (!controller && !VANILLA_RENDER_CONTROLLERS.has(name)) {
+        notes.push(`${typeId}: render controller ${name} not in the pack.`);
+        continue;
+      }
 
-      const geoKey = geometryKeyOf(controller);
+      // A vanilla controller draws `geometry.default` with `textures.default`,
+      // which is exactly what the entity's own maps already declare.
+      const geoKey = controller ? geometryKeyOf(controller) : 'default';
       const geoId = geoKey ? geometryMap[geoKey] : undefined;
       if (!geoId) { notes.push(`${typeId}: ${name} names no geometry the entity declares.`); continue; }
       const geo = geometries.get(geoId);
@@ -247,7 +268,7 @@ export function buildAddonAppearance(sources: AppearanceSources): AddonAppearanc
       // ship; an absent geometry is normal there, so it is a note, not a fault.
       if (!geo) { notes.push(`${typeId}: geometry ${geoId} is not in the pack.`); continue; }
 
-      const texKey = textureKeyOf(controller);
+      const texKey = controller ? textureKeyOf(controller) : 'default';
       const texPath = texKey ? textureMap[texKey] : undefined;
       const ldrawColor = texPath ? swatchColorId(texPath) : null;
       const { colorHex, alpha } = hexOf(ldrawColor);

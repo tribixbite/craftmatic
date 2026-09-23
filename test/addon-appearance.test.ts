@@ -133,6 +133,29 @@ describe('buildAddonAppearance', () => {
     expect(app.notes.join(' ')).toContain('not in the pack');
   });
 
+  it('draws an entity whose controller is one MINECRAFT ships', () => {
+    // A seat names `controller.render.default`, which is vanilla and must NOT
+    // be in the pack. Treating it as missing reported every correct pack as
+    // broken and drew nothing, which is the failure this preview exists to
+    // catch rather than to cause.
+    const vanilla = sources();
+    vanilla.set('Craftmatic_BP/entity/seat.entity.json', JSON.stringify({
+      'minecraft:client_entity': {
+        description: {
+          identifier: 'craftmatic:s_seat',
+          geometry: { default: 'geometry.craftmatic.shell_mesh_0' },
+          textures: { default: 'textures/entity/craftmatic_swatch_4' },
+          render_controllers: ['controller.render.default'],
+        },
+      },
+    }));
+    const app = buildAddonAppearance(vanilla);
+    const seat = app.byType.get('craftmatic:s_seat');
+    expect(seat, app.notes.join(' | ')).toBeDefined();
+    expect(seat!.groups[0]!.cubes.length).toBeGreaterThan(0);
+    expect(app.notes.join(' ')).not.toContain('controller.render.default');
+  });
+
   it('survives a malformed file by noting it', () => {
     const broken = sources();
     broken.set('Craftmatic_RP/models/entity/shell.geo.json', '{ not json');
