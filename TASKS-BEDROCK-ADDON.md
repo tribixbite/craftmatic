@@ -165,9 +165,19 @@ first pick is an MPD was degraded the same way.
   perfect box, so round parts were always coarsened first. 10303's shell now
   puts 22 parts at the coarsest 8 LDU instead of 40, at the same budget.
   Remaining levers, in measured order:
-  1. **Budget.** 10303 wants 139,409 cuboids at its requested 2 LDU against a
-     43,976 budget — a 3.2x squeeze, so 36 % of placements still ship coarser.
-     Raising it trades directly against the ~480k all-packs device ceiling.
+  1. **Budget — MEASURED, and deliberately not taken.** 10303 wants 139,409
+     cuboids at its requested 2 LDU against a 43,976 budget; 10261 wants
+     219,272 against 44,696; 42172 wants 223,809 against 48,716 (the worst, at
+     69 % of placements coarsened). Exporting at `high` instead of `balanced`:
+     10261 fidelity 0.8964 -> 0.9108 with placements at the coarsest 8 LDU
+     1,120 -> 712, and 42172 0.8813 -> 0.9038 with 1,371 -> 324 — for 2x the
+     pack cuboids (57.8k -> 97.7k, 46.6k -> 95.6k), i.e. ~4-5 simultaneous
+     packs instead of ~8. **Not changed**: the user asked to restore close-up
+     quality *while keeping* the memory reduction, and this spends exactly the
+     memory. The UI already offers `high`/`ultra` per export
+     (`schem-settings-panel.ts`, default `balanced`) if a one-off is wanted.
+     Only the SHELL budget ever binds — figures use ~500 of 24,572 and door
+     leaves 61 of 49,144, so there is no per-entity waste to reclaim.
   2. **Rotated-cuboid facets for round profiles — measured and half-built
      (`b4612548`).** `web/src/engine/ldraw-round-facets.ts` fits a part to a
      disc-swept-along-an-axis profile and measures the fan's IoU;
@@ -192,6 +202,16 @@ first pick is an MPD was degraded the same way.
 - [ ] Both 10303 lift docks are SNAPPED (travel 1,884.9 LDU, 0.7 degrees off
   vertical) rather than the pure-axis 1,857.8, so the car lands on track at
   both ends. Reported in the pack warnings; revisit if it reads wrong in game.
+- [ ] **The "loose in the SOURCE" warning fires on 39 of 40 favourites, so it
+  carries no signal.** `connectedClusters` (ldraw-entity-compiler.ts) unions
+  AABBs within 4 LDU; on 76417 it reports 1,832 placements in 72 pieces "will
+  look like floating pieces in game", but geograde grades that same source
+  float=24 (0.5 %) with BIG=0 and rates it the BEST of the set's three sources.
+  The two agree on the geometry — geograde's zero-tolerance `split0` is
+  1,806p — and differ only in tolerance, so the add-on is almost certainly
+  over-reporting. Decide it by looking at one of these models in game before
+  changing a threshold; totals per set are in
+  `output/bedrock-entity-qa/favorites-sweep-v2/summary.json`.
 - [ ] Counterweight detection is a heuristic (`COUNTERWEIGHT_LATERAL_MAX_LDU`
   480, axis parallel within cos 25 degrees).
 - [ ] Two 64.6 degree zigzags at the mirrored 26559 start-start joins: a
