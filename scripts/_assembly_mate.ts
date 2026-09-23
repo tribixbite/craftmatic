@@ -71,9 +71,14 @@ function occupancyOf(group: readonly number[]): Set<number> {
   const cells = new Set<number>();
   for (const index of group) {
     const b = boxes[index]!;
-    const x0 = Math.floor(b.min[0]! / STUD), x1 = Math.ceil(b.max[0]! / STUD);
-    const y0 = Math.floor(b.min[1]! / PLATE), y1 = Math.ceil(b.max[1]! / PLATE);
-    const z0 = Math.floor(b.min[2]! / STUD), z1 = Math.ceil(b.max[2]! / STUD);
+    // ERODE before filling. Flooring the min and ceiling the max inflates every
+    // brick by up to a whole cell, so two parts that merely TOUCH end up sharing
+    // cells and the search rejects the true alignment as interpenetration —
+    // which is why the first attempt found only grazing contacts. Rounding to
+    // the nearest lattice line keeps a brick's own cells and no more.
+    const x0 = Math.round(b.min[0]! / STUD), x1 = Math.round(b.max[0]! / STUD);
+    const y0 = Math.round(b.min[1]! / PLATE), y1 = Math.round(b.max[1]! / PLATE);
+    const z0 = Math.round(b.min[2]! / STUD), z1 = Math.round(b.max[2]! / STUD);
     for (let x = x0; x < x1; x++) for (let y = y0; y < y1; y++) for (let z = z0; z < z1; z++) {
       cells.add(((x + 1024) * 4096 + (y + 1024)) * 4096 + (z + 1024));
     }
