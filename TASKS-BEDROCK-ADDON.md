@@ -219,6 +219,25 @@ first pick is an MPD was degraded the same way.
 - [ ] Both 10303 lift docks are SNAPPED (travel 1,884.9 LDU, 0.7 degrees off
   vertical) rather than the pure-axis 1,857.8, so the car lands on track at
   both ends. Reported in the pack warnings; revisit if it reads wrong in game.
+- [ ] **8 of 38 favourites ship as SEVERAL sub-builds laid out side by side,
+  not assembled** — measured with `bun scripts/_source_connectivity.ts`,
+  counting a piece holding 5 %+ of the model as a sub-build:
+  60446 51.4 % largest / 3 sub-builds, 76417 59.4 % / 2, 10354 72.5 % / 2,
+  77092 73.6 % / 2, 42652 86.7 % / 2, 76269 89.6 % / 2, 42639 90.5 % / 2,
+  42663 90.7 % / 2. (71043 is an `.lxf`; the LDraw reader returns nothing for
+  it, so it is UNMEASURED rather than 0 %.) 76417 is the case the device
+  confirmed: the white bank (2,867 parts) and the dark rock vault (1,511) stand
+  115 studs apart at the same height, each ~46 studs tall, where the box art
+  shows one ~90-stud tower. NOTHING in LEGO's own instruction file carries a
+  placement transform for them — see the memory note, which lists every element
+  checked so it is not re-searched.
+  Deriving the join by contact-maximisation was tried and FAILED
+  (`bun scripts/_assembly_mate.ts`): 2,240 offsets make contact, the best
+  scores 36 contact cells over a 46x46-stud footprint and ties with the next, a
+  0 % margin. AABB occupancy is too coarse. A real attempt needs stud and
+  anti-stud geometry, and possibly rotation — which is the physical-validity
+  work ROADMAP.md already names as the moat, and 8 affected favourites justify
+  it over hand-fitting one transform.
 - [ ] **The "loose in the SOURCE" warning fires on 39 of 40 favourites, so it
   carries no signal.** `connectedClusters` (ldraw-entity-compiler.ts) unions
   AABBs within 4 LDU; on 76417 it reports 1,832 placements in 72 pieces "will
