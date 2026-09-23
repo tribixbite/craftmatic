@@ -52,7 +52,9 @@ for (const file of process.argv.slice(2).filter(a => !a.startsWith('--'))) {
     const mesh = meshes.get(brick.part);
     const R = brick.rot ?? IDENTITY;
     const t: Vec3 = [brick.x, brick.y, brick.z];
-    if (!mesh) return { min: t, max: t };
+    // A part with no mesh OR no bounds contributes a point, never `undefined`:
+    // a hole here reaches connectedClusters and throws on `.min`.
+    if (!mesh?.bounds?.min || !mesh.bounds.max) return { min: t, max: t };
     const { min, max } = mesh.bounds;
     const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
     for (const corner of [[min[0], min[1], min[2]], [max[0], min[1], min[2]], [min[0], max[1], min[2]], [max[0], max[1], min[2]],
