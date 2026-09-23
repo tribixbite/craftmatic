@@ -43,21 +43,26 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
     // a test boards deliberately. `riders: true` starts with a rider aboard.
     const riders: unknown[] = options.riders ? [rider] : [];
     const positions: Array<{ x: number; y: number; z: number }> = [];
+    /** The rotation Bedrock would remember between ticks; the runtime reads it back to hold a yaw. */
+    const rotation = { x: 0, y: 0 };
+    const yaws: number[] = [];
     const entity: any = {
       // The runtime discovers coaster entities by family and resolves each one's
       // role from its type, so the mock carries the cart's type id.
       id: `cart${index}`, typeId: 'craftmatic:test_cart', getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
       setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
-      setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ x: 0, y: 0 }),
+      setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ ...rotation }),
       // Bedrock exposes removal through isValid; a removed cart must retire quietly.
       isValid: () => !removed && !gone.has(index),
       getComponent: () => ({ getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } }),
     };
-    entity.tryTeleport = vi.fn((position: any, teleportOptions: unknown) => {
-      entity.teleport(position, teleportOptions); positions.push({ ...position }); return true;
+    entity.tryTeleport = vi.fn((position: any, teleportOptions: any) => {
+      entity.teleport(position, teleportOptions); positions.push({ ...position });
+      if (teleportOptions?.rotation) { rotation.x = teleportOptions.rotation.x; rotation.y = teleportOptions.rotation.y; yaws.push(teleportOptions.rotation.y); }
+      return true;
     });
     entity.dimension = { getBlock: () => loaded ? {} : undefined };
-    return { entity, properties, rider, riders, positions };
+    return { entity, properties, rider, riders, positions, yaws };
   });
   const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' && !removed
     ? cars.filter((_, index) => !gone.has(index)).map(car => car.entity) : [] }) };
@@ -138,6 +143,26 @@ function towerRoute(label = 'Tower shuttle'): CoasterRoute {
 }
 
 /** A closed vertical circle: no level track at all, and an inverted apex. */
+/**
+ * How far the cart's own up has tipped, from the two bones that carry it:
+ * rotating (0,1,0) by the pitch about X and the roll about Z leaves
+ * `cos(pitch) * cos(roll)` as its y, so -1 is fully inverted.
+ *
+ * Deliberately representation-independent. A loop used to be drawn by flipping
+ * the YAW 180 degrees and rolling the cart over; it is now drawn by running the
+ * PITCH past vertical with the yaw held, because the first spun the car about
+ * the vertical axis at every loop. Both put the cart upside down, and a test
+ * that names one of them is testing the parametrisation, not the ride.
+ */
+function cartUpY(h: { entity: { setProperty: { mock: { calls: unknown[][] } } } }): number {
+  const last = (name: string): number => {
+    const calls = h.entity.setProperty.mock.calls.filter(call => call[0] === name);
+    return calls.length ? Number(calls[calls.length - 1]![1]) : 0;
+  };
+  const toRad = Math.PI / 180;
+  return Math.cos(last('craftmatic:track_pitch') * toRad) * Math.cos(last('craftmatic:track_roll') * toRad);
+}
+
 function loopRoute(radius = 10, segments = 64): CoasterRoute {
   const points: Array<[number, number, number]> = Array.from({ length: segments + 1 }, (_, index) => {
     const angle = index / segments * Math.PI * 2;
@@ -383,13 +408,40 @@ describe('serialized coaster runtime', () => {
     for (const speed of speeds) expect(speed).toBeCloseTo(2.5, 6);
     expect(h.entity.setProperty).toHaveBeenCalledWith('craftmatic:track_pitch', -90);
   });
+  it('turns the cart over through a loop without ever spinning its yaw', () => {
+    // The reported defect: "the cart does a physically impossible around-track
+    // swivel when entering/exiting upside-down loops". A vertical loop passes
+    // through two vertical tangents and its heading's horizontal component
+    // reverses past the top, so a yaw taken from that horizontal flips 180
+    // degrees twice a lap. The cart is on rails: it turns OVER.
+    const h = rideHost(loopRoute());
+    h.run(400);
+    const yaws = h.cars[0]!.yaws;
+    expect(yaws.length).toBeGreaterThan(100);
+    const step = (a: number, b: number): number => {
+      let delta = (b - a) % 360;
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      return Math.abs(delta);
+    };
+    const worst = yaws.slice(1).reduce((most, yaw, index) => Math.max(most, step(yaws[index]!, yaw)), 0);
+    expect(worst).toBeLessThan(45);
+
+    // The rotation has to go SOMEWHERE: the pitch carries it past vertical,
+    // which is why the property's range is the full turn and not +/-90.
+    const pitches = (h.entity.setProperty.mock.calls as Array<[string, number]>)
+      .filter(([name]) => name === 'craftmatic:track_pitch').map(([, value]) => value);
+    expect(Math.max(...pitches.map(Math.abs))).toBeGreaterThan(95);
+    // And the cart really does end up inverted somewhere on the lap.
+    expect(Math.min(...pitches.map(p => Math.cos(p * Math.PI / 180)))).toBeLessThan(-0.9);
+  });
+
   it('inverts the cart visually at a loop apex while leaving player rotation upright', () => {
     const route = loopRoute();
     const h = rideHost(route);
     h.properties.set('craftmatic:coaster_distance', coasterRuntimeConfig('craftmatic:ride', [route]).routes[0]!.path.length / 2);
     h.run(1);
-    const roll = h.entity.setProperty.mock.calls.find((call: unknown[]) => call[0] === 'craftmatic:track_roll')?.[1];
-    expect(Math.abs(roll)).toBeGreaterThan(170);
+    expect(cartUpY(h)).toBeLessThan(-0.9);
     expect(h.entity.teleport.mock.calls[0][1].rotation.x).toBe(0);
   });
   it('keeps a closed circuit circulating and stops at its lowest point', () => {
@@ -496,7 +548,7 @@ describe('serialized coaster runtime', () => {
     for (const [name, value] of calls) {
       seen.add(name);
       expect(Number.isFinite(value)).toBe(true);
-      if (name === 'craftmatic:track_pitch') { expect(value).toBeGreaterThanOrEqual(-90); expect(value).toBeLessThanOrEqual(90); }
+      if (name === 'craftmatic:track_pitch') { expect(value).toBeGreaterThanOrEqual(-180); expect(value).toBeLessThanOrEqual(180); }
       else if (name === 'craftmatic:track_roll') { expect(value).toBeGreaterThanOrEqual(-180); expect(value).toBeLessThanOrEqual(180); }
       else { expect(name).toMatch(/^craftmatic:body_[xyz]$/); expect(value).toBeGreaterThanOrEqual(-320); expect(value).toBeLessThanOrEqual(320); }
     }
@@ -813,11 +865,12 @@ describe('coaster pack assets', () => {
     const properties = /"properties": \{[\s\S]*?\n {6}\}/.exec(entityJson)![0]!;
     expect(properties).not.toMatch(/"default": -?\d+(?!\.)/);
     expect(properties).toContain('"default": 0.0');
-    expect(properties).toMatch(/"range": \[\s*-90\.0,\s*90\.0\s*\]/);
     expect(properties).toMatch(/"range": \[\s*-180\.0,\s*180\.0\s*\]/);
-    // Still valid JSON carrying the same numeric meaning.
+    // Still valid JSON carrying the same numeric meaning. Pitch runs the full
+    // turn: a car in a loop rotates past vertical on its rails rather than
+    // flipping its yaw, which is what a +/-90 range used to force.
     const parsed = JSON.parse(entityJson)['minecraft:entity'].description.properties;
-    expect(parsed['craftmatic:track_pitch']).toEqual({ type: 'float', range: [-90, 90], default: 0, client_sync: true });
+    expect(parsed['craftmatic:track_pitch']).toEqual({ type: 'float', range: [-180, 180], default: 0, client_sync: true });
     expect(parsed['craftmatic:track_roll']).toEqual({ type: 'float', range: [-180, 180], default: 0, client_sync: true });
   });
   it('keeps every float property in every emitted entity out of integer literals', async () => {
@@ -1483,8 +1536,7 @@ describe('car orientation', () => {
     const entity = h.positions[0]!;
     expect(entity.y).toBeCloseTo(datum.y - 2 * 1.6, 2);
     expect(Math.hypot(entity.x - datum.x, entity.z - datum.z)).toBeLessThan(0.1);
-    const roll = h.entity.setProperty.mock.calls.find((call: unknown[]) => call[0] === 'craftmatic:track_roll')?.[1];
-    expect(Math.abs(roll)).toBeGreaterThan(170);
+    expect(cartUpY(h)).toBeLessThan(-0.9);
     // Player rotation stays upright, as before.
     expect(h.entity.teleport.mock.calls[0][1].rotation.x).toBe(0);
   });

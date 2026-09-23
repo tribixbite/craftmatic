@@ -483,6 +483,24 @@ export function resolveCoasterCars(path: CoasterPath, cars: CoasterRoute['cars']
 export const TRACK_TWIST_RATE_DEG_PER_BLOCK = 20;
 /** A vertical curve tighter than this radius (model blocks) whose centre is above the car is a loop: the up follows its normal. */
 const LOOP_RADIUS_MAX = 8;
+/**
+ * How level the track must be for GRAVITY to be a meaningful up target: the
+ * horizontal fraction of the tangent, so 0.05 is a pitch of about 87 degrees.
+ *
+ * Gravity's up is `perpendicular([0, 1, 0], t)`, whose DIRECTION on a
+ * near-vertical tangent is just that tangent's azimuth — numerically
+ * meaningless. Measured on 10303 at arc 370.8, where the horizontal fraction is
+ * 0.002, `dot(up, gravity)` swung +0.883 -> -0.598 -> +0.502 over three
+ * samples and the branch flipped with it.
+ *
+ * This only stops an ill-conditioned target being chased; it is NOT what fixed
+ * the reported swivel. That was the ride runtime taking the car's yaw from a
+ * heading whose horizontal reverses past a loop's top — see the car frame
+ * there. A larger threshold was tried and rejected: suppressing gravity up to
+ * 69 degrees left 10303's tower parallel-transported through its own crest and
+ * inverted the car for 83 blocks.
+ */
+const TRACK_LEVEL_MIN = 0.05;
 /** Curvature is measured between tangents this far either side of a sample, so one kinked join is not a loop. */
 const CURVATURE_HALF_WINDOW = 0.75;
 
@@ -540,7 +558,7 @@ export function coasterTrackUps(path: CoasterPath): CoasterVec3[] {
     const binormal = cross(t, normal);
     let target: Vec3 | undefined, weight = 0;
     const level = Math.hypot(t[0], t[2]);
-    const gravity = level > 1e-6 ? perpendicular([0, 1, 0], t) : undefined;
+    const gravity = level > TRACK_LEVEL_MIN ? perpendicular([0, 1, 0], t) : undefined;
     const upright = gravity ? dot(up, gravity) : -1;
     if (upright > 0.5 && gravity) {
       // Within 60 degrees of upright: gravity's up, weighted by how upright and how level.
@@ -887,7 +905,7 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
         properties: {
           // Float actor properties MUST serialize with a decimal point or Bedrock
           // drops the whole property component; see `bedrock-json.ts`.
-          [PROP_PITCH]: floatActorProperty([-90, 90], 0),
+          [PROP_PITCH]: floatActorProperty([-180, 180], 0),
           [PROP_ROLL]: floatActorProperty([-180, 180], 0),
           ...bodyOffsetProperties(),
         } },
@@ -1033,7 +1051,7 @@ function carBehavior(typeId: string, riders: number, collision: { width: number;
   return withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
     description: { identifier: typeId, is_spawnable: false, is_summonable: true,
       properties: {
-        [PROP_PITCH]: floatActorProperty([-90, 90], 0),
+        [PROP_PITCH]: floatActorProperty([-180, 180], 0),
         [PROP_ROLL]: floatActorProperty([-180, 180], 0),
         ...bodyOffsetProperties(),
         // Which posed rider this car carries (`riders` = none), and whether a
@@ -1499,6 +1517,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const PLATFORM_SPEED = 2.5, PLATFORM_DWELL = 30, PLATFORM_CLEARANCE = 1;
   /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
   const RIDER_EYE = 1.25;
+  // How much horizontal a tangent needs before its azimuth may set the car's
+  // yaw: 0.20 is a pitch of about 78 degrees. Declared HERE, inside the
+  // runtime, because this function is serialized with `toString()` and a
+  // module-level constant would be a ReferenceError on the device.
+  const YAW_HOLD_HORIZONTAL = 0.20;
   /** Declared range of the body-offset properties, model units. */
   const BODY_RANGE = 320;
   /** A route emitted before trains existed, or a partially overwritten pack. */
@@ -1899,13 +1922,33 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const horizontal = Math.hypot(tangent[0], tangent[2]);
           const worldTx = tangent[0] * c - tangent[2] * s;
           const worldTz = tangent[0] * s + tangent[2] * c;
-          const yaw = horizontal > 1e-6 ? Math.atan2(-worldTx, worldTz) * 180 / Math.PI : car.entity.getRotation().y;
-          const pitch = -Math.atan2(tangent[1], horizontal) * 180 / Math.PI;
           const i = at.segmentIndex;
           const ratio = (at.distance - path.cumulative[i]) / (path.cumulative[i + 1] - path.cumulative[i]);
           const up0 = route.up[i], up1 = route.up[i + 1];
           const up = up0.map((value: number, axis: number) => value + (up1[axis] - value) * ratio);
           const ux = up[0] * c - up[2] * s, uy = up[1], uz = up[0] * s + up[2] * c;
+          // A vertical loop MUST pass through two vertical tangents, and past
+          // the top the heading's horizontal component REVERSES. Taking the yaw
+          // from that horizontal every frame therefore spun the car 180 degrees
+          // about the vertical axis at each loop — the reported "physically
+          // impossible around-track swivel" — and at the vertical itself
+          // `atan2` was reading the azimuth of an almost-zero vector, the blip
+          // just before it (measured on 10303 at arc 370.8: horizontal 0.002).
+          //
+          // The car is on rails, so it turns OVER, it does not spin. While it
+          // is upright and the heading is well conditioned the yaw follows the
+          // track; once the track up has gone under the horizon — the car is in
+          // a loop — the yaw is HELD and the pitch carries the rotation in that
+          // held heading's own vertical plane, running continuously past 90
+          // degrees. Reversing on level track keeps the up above the horizon,
+          // so a shuttle still turns around properly instead of being drawn
+          // upside down.
+          const heldYaw = car.entity.getRotation().y;
+          const upright = uy >= 0 && horizontal > YAW_HOLD_HORIZONTAL;
+          const yaw = upright ? Math.atan2(-worldTx, worldTz) * 180 / Math.PI : heldYaw;
+          const yawHeading = yaw * Math.PI / 180;
+          const alongHeading = -worldTx * Math.sin(yawHeading) + worldTz * Math.cos(yawHeading);
+          const pitch = -Math.atan2(tangent[1], alongHeading) * 180 / Math.PI;
           // Remove entity yaw then bone pitch from the track up. The remaining
           // angle is local roll; at a loop apex this turns the cart upside down
           // without attempting unsupported player-camera roll.
@@ -2001,7 +2044,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // A value outside a declared actor-property range throws, which would
         // otherwise untrack the cart mid-ride; the angles are already in range.
         for (const frame of frames) {
-          frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-90, Math.min(90, frame.pitch)));
+          frame.car.entity.setProperty('craftmatic:track_pitch', Math.max(-180, Math.min(180, frame.pitch)));
           frame.car.entity.setProperty('craftmatic:track_roll', Math.max(-180, Math.min(180, frame.roll)));
           frame.car.entity.setProperty('craftmatic:body_x', frame.body[0]);
           frame.car.entity.setProperty('craftmatic:body_y', frame.body[1]);
