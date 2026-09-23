@@ -3,15 +3,20 @@
  *
  * LEGO's own instruction format carries far more than brick placements: which
  * bricks enter at which step, which belong to which sub-build, which are
- * decorated, which are flexible, and which are swapped out in an alternate
- * build. The reader takes four attributes out of it — `Brick@designID`,
+ * decorated, which are flexible, and which sub-build is built several times.
+ * The reader takes four attributes out of it — `Brick@designID`,
  * `Part@designID`, `Part@materials` and `Bone@transformation` — so everything
  * else is dropped silently and looks like a model that simply lacks the detail.
  *
  * Every element and attribute in the corpus is listed here with what it does
  * and whether we act on it, so the difference between "LXFML does not say" and
  * "we never read it" is written down instead of rediscovered. The counts are
- * from the 2026-09-23 sweep of 4,881 LXFML files covering 4,044 sets.
+ * from the 2026-09-23 sweep of 9,357 LXFML documents covering 4,044 sets —
+ * 4,881 loose .lxfml plus the .lxf archives, which an earlier pass skipped.
+ *
+ * A note that says MEASURED carries a result that closed the question; several
+ * attributes that looked like gaps (SubBuild@position, Group@transformation,
+ * MultiBuildBrick) turned out to carry nothing we are missing.
  *
  * `scripts/_converter_coverage_audit.ts` checks this against the whole corpus
  * and fails on any element it has never seen.
@@ -81,7 +86,7 @@ export const LXFML_ELEMENTS: Readonly<Record<string, LxfmlSpec>> = {
   // ── appearance ──────────────────────────────────────────────────────────
   Sticker: e('appearance', false, 'a sticker placed on a part (1,757 sets); LDraw has no sticker layer'),
   StickerAttributes: e('appearance', false, 'sticker anchor offsets (283 sets)'),
-  PartVariant: e('appearance', false, 'per-part mould variant override (506 sets); `normalizeDesignId` strips the variant suffix, so the base mould is used'),
+  PartVariant: e('appearance', false, 'the DECORATION variants available for a part (506 sets). MEASURED 2026-09-23: `variantID` is a 7-digit element id (1011682, 1016827), not a 4-5 digit mould, and one part carries several — so it is a print catalogue, not a mould override. Folds into the `Part@decoration` gap; it changes no geometry.'),
   Ghosted: e('view', false, 'bricks drawn semi-transparent in the instruction (84 sets); they are in the model'),
 
   // ── structure ───────────────────────────────────────────────────────────
@@ -95,9 +100,9 @@ export const LXFML_ELEMENTS: Readonly<Record<string, LxfmlSpec>> = {
   Steps: e('structure', false, 'a step sequence'),
   Step: e('structure', false, 'one build step (1,493,695 rows in 4,044 sets). Its `In` children name the bricks that enter here — a true step order the LDraw `0 STEP` count only approximates.'),
   In: e('structure', false, 'one brick entering at this step, by `brickRef` (3,604,193 rows in 4,044 sets)'),
-  SubBuild: e('structure', false, 'a named sub-assembly (309,557 rows in 4,044 sets) — this is what says a model is built in pieces. 955 sets also give it a `position`.'),
-  MultiBuild: e('structure', false, 'an alternate build (1,785 sets)'),
-  MultiBuildBrick: e('geometry', false, 'a brick SWAPPED in the alternate build: `originalBrickRef` → `actualBrickRef` (164,112 rows in 1,785 sets)'),
+  SubBuild: e('structure', false, 'a named sub-assembly (309,557 rows in 4,044 sets) — this is what says a model is built in pieces. Its `position` is always zero; see that attribute.'),
+  MultiBuild: e('structure', false, 'a sub-build BUILT SEVERAL TIMES, drawn once in the instructions (1,785 sets). Not an alternate build — nothing is chosen between.'),
+  MultiBuildBrick: x('maps a brick of the master copy to its counterpart in another copy: `originalBrickRef` → `actualBrickRef` (164,112 rows in 1,785 sets). MEASURED 2026-09-23: both bricks are in `<Bricks>` in 12,015 of 12,015 pairs and they sit APART (10313: the same mould at z=47.6 and z=57.2, 9.6 units), so both belong in the model and placing both is correct. It is a mapping, not a swap.'),
   Dependency: e('structure', false, 'ordering constraint between instruction nodes'),
   BIGraph: e('structure', false, 'instruction dependency graph'),
   GraphNode: e('structure', false, 'a node in that graph'),
@@ -204,7 +209,7 @@ export const LXFML_ATTRIBUTES: Readonly<Record<string, LxfmlSpec>> = {
   'Part@decoration': e('appearance', false, 'the print on this part (3,874 sets) — prints are not carried into the LDraw pipeline'),
   'Part@stickerSheetId': e('appearance', false, 'sticker sheet the part\'s sticker comes from (2,021 sets)'),
   'Part@stickerSheetVersion': e('appearance', false, 'sticker sheet version'),
-  'Part@variantID': e('appearance', false, 'mould variant (746 sets)'),
+  'Part@variantID': e('appearance', false, 'the decoration this part carries, as a 7-digit element id (746 sets) — see `PartVariant`'),
   'Part@uuid': e('metadata', false, 'stable identity'),
   'Part@partRef': e('metadata', false, 'uuid of the source part'),
   'Part@version': e('metadata', false, 'mould version'),
@@ -243,14 +248,14 @@ export const LXFML_ATTRIBUTES: Readonly<Record<string, LxfmlSpec>> = {
   'Group@pivot': x('that manipulator\'s pivot; the same empty groups'),
   'Group@uuid': e('metadata', false, 'stable identity'),
 
-  'MultiBuildBrick@originalBrickRef': e('geometry', false, 'the brick replaced in the alternate build'),
-  'MultiBuildBrick@actualBrickRef': e('geometry', false, 'the brick that replaces it'),
+  'MultiBuildBrick@originalBrickRef': x('the brick in the master copy'),
+  'MultiBuildBrick@actualBrickRef': x('its counterpart in this copy; both are in `<Bricks>` and both belong in the model'),
   'MultiBuildBrick@name': e('metadata', false, 'its description'),
-  'MultiBuild@masterSubBuildRef': e('structure', false, 'the sub-build the alternate belongs to'),
-  'MultiBuild@name': e('metadata', false, 'alternate build name'),
+  'MultiBuild@masterSubBuildRef': e('structure', false, 'the sub-build being repeated'),
+  'MultiBuild@name': e('metadata', false, 'the repeat group name'),
 
-  'PartVariant@partRef': e('appearance', false, 'the part whose variant is overridden'),
-  'PartVariant@variantID': e('appearance', false, 'the variant'),
+  'PartVariant@partRef': e('appearance', false, 'the part the decoration variants belong to'),
+  'PartVariant@variantID': e('appearance', false, 'one available decoration, as a 7-digit element id'),
   'Sticker@stuckToPartRef': e('appearance', false, 'the part the sticker is on'),
   'Sticker@anchor': e('appearance', false, 'where on the part'),
   'Ghosted@opacity': e('view', false, 'ghost opacity'),
