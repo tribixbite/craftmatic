@@ -358,6 +358,30 @@ describe('planPartGrains', () => {
     expect(plan.summary.partsAtGrain).toEqual({ '2': 3 });
   });
 
+  it('does not read a coarse grain\'s collapsed cuboid as a perfect box', () => {
+    // A 1x1-round-brick shape: 20 LDU across and 20 tall. At 8 LDU its lattice
+    // is a single bbox-filling cell, and `compilePartPrototype` labels ANY such
+    // cuboid `exact-box` — its "reached only by coarsening" guard counts only
+    // its own internal loop, which the planner never triggers because it walks
+    // the ladder by passing `microcellLdu`.
+    const round = mesh('round', cylinderX(10, -10, 10));
+    const coarse = compilePartPrototype(round, { ...fine, microcellLdu: 8 });
+    expect(coarse.cuboids).toHaveLength(1);
+    expect(coarse.source).toBe('exact-box'); // the trap, pinned deliberately
+
+    // Reading that label as a perfect silhouette told the planner a cylinder
+    // turned into a cube scored 1.000 against 0.931 at 4 LDU — better AND
+    // cheaper — so round parts were coarsened first and read as squares up
+    // close. Coarsening one must cost fidelity.
+    const plan = planPartGrains(
+      [{ key: 'round', mesh: round, placements: 50, hollow: false }],
+      fine, createPrototypeCache(), { decomposition: 'greedy', budget: 60 },
+    );
+    expect(plan.grains.get('round')).toBeGreaterThan(2);
+    expect(plan.summary.fidelity).toBeLessThan(0.99);
+    expect(plan.summary.fidelity).toBeLessThan(plan.summary.fidelityAtRequested);
+  });
+
   it('coarsens individual parts until the model fits, never a box part, never past a plate', () => {
     const cache = createPrototypeCache();
     const full = planPartGrains(parts(), fine, cache, { decomposition: 'greedy', budget: 1_000_000 }).summary.cuboidsAtRequested;

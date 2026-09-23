@@ -859,17 +859,36 @@ export function planPartGrains(parts: readonly GrainPlanPart[], quality: LegoEnt
     ref: SilhouetteReference | null;
     /** Index into `ladder`. */
     level: number;
+    /** Whether the part is a box AT THE FINEST GRAIN — see `measure`. Lazily decided. */
+    boxAtFinest: boolean | null;
     /** Memoised (cuboids, IoU) per ladder level. */
     at: Array<{ cuboids: number; iou: number } | undefined>;
   }
-  const states: State[] = parts.map(part => ({ part, ref: null, level: 0, at: [] }));
+  const states: State[] = parts.map(part => ({ part, ref: null, level: 0, boxAtFinest: null, at: [] }));
   const measure = (s: State, level: number): { cuboids: number; iou: number } => {
     const memo = s.at[level];
     if (memo) return memo;
     const proto = cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[level]! }, { hollow: s.part.hollow, decomposition: options.decomposition });
+    // Is this part genuinely a box, or did a COARSE grain merely collapse it to
+    // one? `compilePartPrototype` reports `exact-box` for ANY single
+    // bbox-filling cuboid, and its "reached only by coarsening" guard counts
+    // only its own internal loop — the planner walks the ladder by passing
+    // `microcellLdu`, so that guard never fires here. A 1x1 round brick is
+    // therefore `exact-box` at 8 LDU, and taking the shortcut below told the
+    // planner that turning a cylinder into a cube IMPROVES its silhouette
+    // (1.000 against 0.931 at 4 LDU) while saving five cuboids. Round parts
+    // were consequently coarsened FIRST and read as squares up close, which is
+    // exactly the reported defect. Box-ness is decided at the finest grain,
+    // where the label means what it says; everything else is measured.
+    if (s.boxAtFinest === null) {
+      const finest = level === 0
+        ? proto
+        : cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[0]! }, { hollow: s.part.hollow, decomposition: options.decomposition });
+      s.boxAtFinest = finest.source === 'exact-box';
+    }
     // A box part's silhouette is its own box: exact at every grain, no raster needed.
     let iou = 1;
-    if (proto.source !== 'exact-box' && proto.source !== 'empty') {
+    if (proto.source !== 'empty' && !s.boxAtFinest) {
       s.ref ??= silhouetteReference(s.part.mesh);
       iou = silhouetteIoU(s.ref, proto.cuboids);
     }
