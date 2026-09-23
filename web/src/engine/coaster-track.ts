@@ -362,9 +362,53 @@ const profiles = new Map<string, CoasterTrackProfile>([
  */
 const stem = partStem;
 
+/**
+ * BrickLink-named copies of a mould: the SAME LEGO design, a DIFFERENT file,
+ * and a different origin.
+ *
+ * Studio's library ships `bl_80566.dat` beside `80566.dat` — its header says
+ * `BL_Item_No`, so it is the same design — and 76417 Gringotts places the
+ * BrickLink name for all seven quarters of its vault-cart rail. Two things go
+ * wrong from that one fact: `partStem('bl_80566')` is `bl_80566`, so no
+ * profile is found and the pieces are invisible to routing; and the two meshes
+ * sit in different frames, so simply matching the id would sample the running
+ * line in the wrong place.
+ *
+ * The offset is the translation between the two DATs, which is pure: both
+ * bound 274.0 x 98.0 x 274.0 LDU, and `bl_80566` runs x -137..137, y -98.1..0,
+ * z -420.6..-146.9 where `80566` runs 0..274, -18..80, 0..274. Applying it
+ * turns 76417 from nothing routable into one 154.8-stud run whose eight
+ * internal joins all close to 0.00 LDU.
+ *
+ * Add an entry here only with that measurement done — a wrong offset does not
+ * fail, it silently samples the wrong line.
+ */
+const FRAME_ALIASES: ReadonlyMap<string, { readonly partId: string; readonly offset: CoasterVec3 }> = new Map([
+  ['bl_80566', { partId: '80566', offset: [-137, -80, -420.634] as CoasterVec3 }],
+]);
+
+/** Derived alias profiles, built once: the extractor asks per placement. */
+const aliasProfiles = new Map<string, CoasterTrackProfile | undefined>();
+
+const shift = (points: readonly CoasterVec3[], by: CoasterVec3): CoasterVec3[] =>
+  points.map(p => [p[0] + by[0], p[1] + by[1], p[2] + by[2]] as CoasterVec3);
+
 /** Return a read-only measured profile for an exact mould id. */
 export function coasterTrackProfile(part: string): CoasterTrackProfile | undefined {
-  return profiles.get(stem(part));
+  const id = stem(part);
+  const direct = profiles.get(id);
+  if (direct) return direct;
+  const alias = FRAME_ALIASES.get(id);
+  if (!alias) return undefined;
+  if (aliasProfiles.has(id)) return aliasProfiles.get(id);
+  const base = profiles.get(alias.partId);
+  const derived = base && {
+    ...base,
+    samples: shift(base.samples, alias.offset),
+    railSamples: shift(base.railSamples, alias.offset),
+  };
+  aliasProfiles.set(id, derived);
+  return derived;
 }
 
 const transform = (brick: ParsedBrick, point: CoasterVec3): CoasterVec3 => {

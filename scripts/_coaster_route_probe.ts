@@ -22,6 +22,7 @@ import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
 import { coasterTrackProfile, extractCoasterTrackFragments, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.ts';
 import { stitchCoasterTrackFragments } from '../web/src/engine/coaster-path.ts';
 import { partStem } from '../web/src/engine/part-id.ts';
+import { DERIVED_ALIGN } from '../web/src/engine/lxf-parser.ts';
 
 /** The endpoint tolerance and tangent agreement the extractor itself uses. */
 const TOLERANCE_LDU = 3;
@@ -32,7 +33,10 @@ const mapEntries = (partMap['entries'] ?? partMap) as Record<string, unknown>;
 const measured = JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')) as Record<string, unknown>;
 const measEntries = (measured['entries'] ?? measured) as Record<string, unknown>;
 const alignmentOf = (mould: string): string =>
-  mapEntries[mould] ? 'ldraw.xml' : measEntries[mould] ? 'measured' : 'NONE';
+  mapEntries[mould] ? 'ldraw.xml'
+    : measEntries[mould] ? 'measured'
+    : DERIVED_ALIGN[mould] ? 'derived'
+    : 'NONE';
 
 const files = process.argv.slice(2).filter(a => !a.startsWith('--'));
 if (!files.length) {

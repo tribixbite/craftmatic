@@ -431,7 +431,62 @@ export function applyMeasuredBound(t: LxfMeasuredTable): LxfMeasuredTable {
 
 /** clego's MEASURED per-design correction (~163 KB) — the fallback alignment. */
 export function loadMeasuredAlign(): Promise<LxfMeasuredTable> {
-  return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign).then(applyMeasuredBound);
+  return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign)
+    .then(applyMeasuredBound)
+    .then(applyDerivedAlign);
+}
+
+/**
+ * Corrections MEASURED here, for designs neither shipped table names.
+ *
+ * `ldd-measured-align.json` comes from clego's learner, which votes over sets
+ * carrying both a DBIX LXFML and an authentic Studio `.io`; a design no such
+ * set uses gets no row and is placed from its raw LDD origin. For most parts
+ * that is a small error. For coaster track it is fatal, because each piece of
+ * a spiralling run carries a different rotation, so the missing `R·e` displaces
+ * every piece differently and the run stops being a run.
+ *
+ * These rows live in code, not in the JSON, because the JSON is generated:
+ * `scripts/gen-ldd-measured-align.py` rewrites it wholesale and would drop
+ * them. They are merged UNDER the learned table — a learned row always wins —
+ * and they still pass `withinMeasuredBound`, which is why each carries its
+ * part's real diagonal.
+ *
+ * HOW THEY WERE MEASURED, and how to add another: place the design's pieces,
+ * then solve for the rigid correction that makes their running-line endpoints
+ * meet their neighbours' (`scripts/_solve_track_align.ts`, which is validated
+ * by returning identity on 10261 where identity is right). Accept it only when
+ * the whole run closes. Both rows below were confirmed on 76417 Gringotts: its
+ * vault-cart rail goes from nine pieces joining nothing to ONE 154.8-stud run
+ * of all nine, with every internal join at 0.00 LDU.
+ */
+export const DERIVED_ALIGN: Readonly<Record<string, MeasuredAlign>> = {
+  // Roller-coaster quarter curve with a 3-brick rise. LDD's origin is the
+  // low-end corner stud on the plate bottom; LDraw's is the arc corner.
+  // Diagonal 399.7 LDU measured from 80566.dat (274.0 x 98.0 x 274.0).
+  80566: ['80566.dat', 1, 0, 0, 0, 1, 0, 0, 0, 1, -230, -80, -10, 0, 399.7],
+  // Roller-coaster straight 4 x 16. LDD's frame is turned a quarter about Y
+  // (its rails run along local z) with the origin again at a corner stud.
+  // Diagonal 328.2 LDU measured from 25059.dat (320.0 x 26.0 x 68.0).
+  25059: ['25059.dat', 0, 0, 1, 0, 1, 0, -1, 0, 0, 10, -8, 150, 0, 328.2],
+};
+
+/**
+ * Merge `DERIVED_ALIGN` under a loaded table.
+ *
+ * Never overrides a row the learner produced: a measured vote over real sets
+ * beats a correction solved from one model's geometry.
+ */
+export function applyDerivedAlign(t: LxfMeasuredTable): LxfMeasuredTable {
+  if (t.state !== 'ok') return t;
+  const added: string[] = [];
+  const entries = { ...t.entries };
+  for (const [id, row] of Object.entries(DERIVED_ALIGN)) {
+    if (entries[id]) continue;
+    entries[id] = row;
+    added.push(id);
+  }
+  return added.length === 0 ? t : { ...t, entries };
 }
 
 /** Axis-angle (radians) → 3×3 row-major rotation matrix. */

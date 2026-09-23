@@ -18,34 +18,41 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import {
-  applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics,
+  applyDerivedAlign, applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics,
   validatePartAlign, validateMeasuredAlign, validateTable,
   type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable,
 } from '../web/src/engine/lxf-parser.js';
 
 const argv = process.argv.slice(2);
 const QUIET = argv.includes('--quiet');
-const positional = argv.filter(a => !a.startsWith('--'));
+// `--part-map <path>` swaps the shipped ldraw.xml table for another one, so a
+// candidate row can be tested against a model before it is generated into
+// `web/public/ldd-part-map.json`.
+const partMapIndex = argv.indexOf('--part-map');
+const PART_MAP = partMapIndex >= 0 ? argv[partMapIndex + 1] : undefined;
+const partMapValueIndex = partMapIndex >= 0 ? partMapIndex + 1 : -1;
+const positional = argv.filter((a, i) => !a.startsWith('--') && i !== partMapValueIndex);
 const IN = positional[0];
-if (!IN) {
-  console.error('usage: bun scripts/_lxfml_to_ldr.ts <in.lxfml|in.lxf> [out.ldr]');
+if (!IN || (partMapIndex >= 0 && !PART_MAP)) {
+  console.error('usage: bun scripts/_lxfml_to_ldr.ts <in.lxfml|in.lxf> [out.ldr] [--part-map <table.json>] [--quiet]');
   process.exit(64);
 }
 const OUT = positional[1];
 
+const PART_MAP_PATH = PART_MAP ?? 'web/public/ldd-part-map.json';
 const table = validateTable(
-  JSON.parse(readFileSync('web/public/ldd-part-map.json', 'utf8')),
-  'web/public/ldd-part-map.json', validatePartAlign,
+  JSON.parse(readFileSync(PART_MAP_PATH, 'utf8')),
+  PART_MAP_PATH, validatePartAlign,
 ) as LxfAlignmentTable;
 // `applyMeasuredBound` is NOT optional. The learned table carries 325 rows
 // whose origin correction is longer than the part it corrects — 50665 Minifig
 // Helmet moves 4,360 LDU on a 52 LDU part — and the app drops them on load.
 // A script that validates the table without this ships those rows and flings
 // parts across the model, which then reads as a bad source.
-const measured = applyMeasuredBound(validateTable(
+const measured = applyDerivedAlign(applyMeasuredBound(validateTable(
   JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')),
   'web/public/ldd-measured-align.json', validateMeasuredAlign,
-) as LxfMeasuredTable);
+) as LxfMeasuredTable));
 
 /** The single LXFML entry of a `.lxf` ZIP (stored or deflated), or the file itself. */
 function lxfmlBytes(path: string): Buffer {

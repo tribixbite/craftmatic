@@ -43,9 +43,18 @@ function scanPartsDir(dir: string, label: string): void {
   try { entries = readdirSync(dir); } catch { return; }
   for (const name of entries) {
     if (!name.toLowerCase().endsWith('.dat')) continue;
-    let head: string;
-    try { head = readFileSync(join(dir, name), 'latin1').slice(0, 400).split('\n')[0] ?? ''; } catch { continue; }
-    const description = head.replace(/^0\s*/, '').trim();
+    let description: string;
+    try {
+      // The description is the first line — UNLESS the DAT opens with an MPD
+      // style `0 FILE <name>` header, as Studio's BrickLink copies do. Reading
+      // line 1 blindly gives "FILE bl_80566.dat", the mould reads as
+      // undescribed, and it never reaches this audit — which is exactly how
+      // 76417's entire vault rail hid from it while a profile for that design
+      // already existed.
+      const lines = readFileSync(join(dir, name), 'latin1').slice(0, 600).split('\n');
+      const first = (lines[0] ?? '').replace(/^0\s*/, '').trim();
+      description = /^FILE\b/i.test(first) ? (lines[1] ?? '').replace(/^0\s*/, '').trim() : first;
+    } catch { continue; }
     if (!TRACK_WORDS.test(description) || NOT_TRACK.test(description)) continue;
     const id = name.slice(0, -4).toLowerCase();
     if (!moulds.has(id)) moulds.set(id, { id, description, dir: label });
@@ -113,4 +122,70 @@ for (const r of known) {
 const reach = new Set<string>();
 for (const r of missing) for (const s of usage.get(r.id) ?? []) reach.add(s);
 console.log(`\nsets using at least one unprofiled coaster mould: ${reach.size}`);
-process.exit(missing.some(r => r.sets > 0) ? 1 : 0);
+
+// ── the check that does not depend on wording ──────────────────────────────
+//
+// Finding moulds by their DESCRIPTION missed 76417's entire vault rail twice
+// over: `bl_80566.dat` opens with `0 FILE`, so line 1 is not a description at
+// all, and its real description is `RAIL 13X13X3 1/3, 1/4 CIRCLE`, which says
+// neither "roller coaster" nor "coaster track". Seven pieces of a profiled
+// design were invisible and this audit reported full coverage.
+//
+// So ask the question that cannot be worded away: of every part id actually
+// PLACED in the corpus, which ones fail to resolve to a profile while a
+// sibling naming of the same design would resolve? Those are alias gaps, and
+// each one silently removes real track from a model.
+const placed = new Map<string, Set<string>>();
+function collectPlaced(dir: string, rel: string): void {
+  let entries: string[];
+  try { entries = readdirSync(dir); } catch { return; }
+  for (const name of entries) {
+    const full = join(dir, name);
+    const childRel = rel ? `${rel}/${name}` : name;
+    let st;
+    try { st = statSync(full); } catch { continue; }
+    if (st.isDirectory()) { collectPlaced(full, childRel); continue; }
+    if (!/\.(ldr|mpd)$/i.test(name)) continue;
+    if (ONLY_SET && !childRel.includes(ONLY_SET)) continue;
+    let text: string;
+    try { text = readFileSync(full, 'latin1'); } catch { continue; }
+    const set = setOf(childRel);
+    for (const line of text.split('\n')) {
+      if (line.charCodeAt(0) !== 49) continue;
+      const tokens = line.trim().split(/\s+/);
+      if (tokens.length < 15) continue;
+      const id = partStem(tokens.slice(14).join(' '));
+      if (!/^(bl_)?[0-9]/.test(id)) continue;
+      let a = placed.get(id);
+      if (!a) { a = new Set(); placed.set(id, a); }
+      a.add(set);
+    }
+  }
+}
+collectPlaced(CORPUS, '');
+
+/** Other ways the same design can be named in a file. */
+const siblings = (id: string): string[] =>
+  id.startsWith('bl_') ? [id.slice(3)] : [`bl_${id}`];
+
+const aliasGaps: Array<{ id: string; via: string; sets: number }> = [];
+const aliasUsed: Array<{ id: string; sets: number }> = [];
+for (const [id, sets] of placed) {
+  const direct = coasterTrackProfile(`${id}.dat`);
+  const sib = siblings(id).find(v => coasterTrackProfile(`${v}.dat`) !== undefined);
+  if (!direct && sib) aliasGaps.push({ id, via: sib, sets: sets.size });
+  else if (direct && direct.partId !== id) aliasUsed.push({ id, sets: sets.size });
+}
+aliasGaps.sort((a, b) => b.sets - a.sets);
+aliasUsed.sort((a, b) => b.sets - a.sets);
+
+console.log(`\nALIAS GAPS - a placed id with no profile whose design IS profiled: ${aliasGaps.length}`);
+for (const g of aliasGaps) {
+  console.log(`  ${String(g.sets).padStart(4)} sets  ${g.id.padEnd(14)} would resolve as ${g.via}`);
+}
+if (aliasUsed.length) {
+  console.log(`\nresolved through a frame alias (working):`);
+  for (const a of aliasUsed) console.log(`  ${String(a.sets).padStart(4)} sets  ${a.id}`);
+}
+
+process.exit(missing.some(r => r.sets > 0) || aliasGaps.length > 0 ? 1 : 0);
