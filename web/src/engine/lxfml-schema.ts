@@ -74,13 +74,13 @@ export const LXFML_ELEMENTS: Readonly<Record<string, LxfmlSpec>> = {
   Bricks: e('geometry', true, 'the brick list'),
   Brick: e('geometry', true, 'one brick; `designID` is the fallback mould when the Part omits it'),
   Part: e('geometry', true, 'one moulded part of a brick; every Part is read, not just the first'),
-  Bone: e('geometry', true, 'the placement transform. Only the FIRST bone is used — see `PartDeformation`'),
+  Bone: e('geometry', true, 'the placement transform. A rigid part has one; a FLEX part has a chain (10314 gives designID 75216 thirty-four bones tracing the hose), and the reader uses the first.'),
   RigidSystems: x('rigid-body grouping used by the connectivity solver'),
   RigidSystem: x('one rigid assembly'),
   Rigid: x('a rigid body whose `transformation` RESTATES the transform its bones already carry, which is the one the reader uses'),
   RigidRef: x('a joint endpoint on a rigid body; articulation, not placement'),
   Joint: x('hinge/slider between two rigid bodies (2,440 sets); it says how a part COULD move, not where it is'),
-  PartDeformation: e('geometry', false, 'marks a FLEXIBLE part (847 sets, type="flex"). Its `Bone` children carry one `index`/`position`/`rotation` per segment, and taking only the first collapses a hose or string to a single stub at its root.'),
+  PartDeformation: e('view', false, 'the per-step deformation of a flexible part during the instruction ANIMATION. MEASURED 2026-09-23: it sits inside `<Explode>`, not in `<Bricks>`, so it is not the stored shape (847 sets). The stored shape is the flex part own bone chain; see `Bone@index`.'),
   FlexAnchors: e('geometry', false, 'flex manipulator anchors (368 sets)'),
 
   // ── appearance ──────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ export const LXFML_ATTRIBUTES: Readonly<Record<string, LxfmlSpec>> = {
   'Part@designID': e('geometry', true, 'the mould; the `;C` variant suffix is stripped by `normalizeDesignId`'),
   'Part@refID': e('geometry', true, 'the id `Parts@partRefs` and `PartDeformation@partRef` refer to'),
   'Part@materials': e('appearance', true, 'colour. Two shapes occur: `28:0` (material:shell, 2,989,494 rows) and a comma list for a MULTI-MOULD part (54,620 rows) of which only the first is used, because an LDraw part is a single colour.'),
-  'Part@partType': e('geometry', false, '"rigid" or "flexible"'),
+  'Part@partType': e('geometry', false, 'MEASURED 2026-09-23 over DBIX: rigid 1,562,110; sticker 18,320; flex 2,371; unknown 2. A `sticker` part carries a 7-digit element id (1003554) that has no LDraw mould, so it resolves to nothing and adds no geometry — which is correct, since a sticker is not a brick.'),
   'Part@decoration': e('appearance', false, 'the print on this part (3,874 sets) — prints are not carried into the LDraw pipeline'),
   'Part@stickerSheetId': e('appearance', false, 'sticker sheet the part\'s sticker comes from (2,021 sets)'),
   'Part@stickerSheetVersion': e('appearance', false, 'sticker sheet version'),
@@ -216,7 +216,7 @@ export const LXFML_ATTRIBUTES: Readonly<Record<string, LxfmlSpec>> = {
 
   'Bone@transformation': e('geometry', true, 'row-major 3×3 plus translation; the placement the reader uses'),
   'Bone@refID': e('geometry', true, 'bone id'),
-  'Bone@index': e('geometry', false, 'segment index of a FLEX bone (847 sets) — the reader takes index 0 only'),
+  'Bone@index': e('geometry', false, 'segment index along a FLEX part (847 sets); the reader uses index 0. MEASURED 2026-09-23: that places the WHOLE element undeformed at the first anchor, not a stub — 27965 is a 432 LDU cable and 92338 is 117 LDU, so the mass and the anchor are right and only the PATH is lost. Deforming it needs the mould cut into segments and skinned along the chain, which no mapping supplies; `partType="flex"` is 2,371 of 1,562,110 parts (0.15 %).'),
   'Bone@position': e('geometry', false, 'flex segment position (847 sets)'),
   'Bone@rotation': e('geometry', false, 'flex segment rotation quaternion (847 sets)'),
   'Bone@uuid': e('metadata', false, 'stable identity'),
