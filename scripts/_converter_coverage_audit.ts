@@ -24,11 +24,14 @@
  *   bun scripts/_converter_coverage_audit.ts --root C:/git/clego/lego_sets
  *   bun scripts/_converter_coverage_audit.ts --json out.json
  *   bun scripts/_converter_coverage_audit.ts --class OMR      (one corpus class)
+ *   bun scripts/_converter_coverage_audit.ts --no-archives   (skip .lxf/.io)
  *
  * Exit code 1 when an unknown directive or element is found, so it can gate CI.
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { extractMatching } from '../web/src/engine/zip-utils.ts';
+import { ioEntryTexts } from '../web/src/engine/io-extractor.ts';
 import { classifyDirective, directiveKey, LDRAW_DIRECTIVES, type DirectiveSpec } from '../web/src/engine/ldraw-directives.ts';
 import { LXFML_ATTRIBUTES, LXFML_ELEMENTS, lxfmlElementSpec, type LxfmlSpec } from '../web/src/engine/lxfml-schema.ts';
 
@@ -41,6 +44,8 @@ const ROOT = flag('--root', 'C:/git/clego/lego_sets');
 const ONLY_CLASS = argv.includes('--class') ? flag('--class', '') : '';
 const JSON_OUT = argv.includes('--json') ? flag('--json', 'coverage-audit.json') : '';
 const QUIET = argv.includes('--quiet');
+/** `.lxf`/`.io` are archives; opening 23,724 of them costs minutes. */
+const SKIP_ARCHIVES = argv.includes('--no-archives');
 
 interface Tally {
   lines: number;
@@ -54,7 +59,7 @@ const ldraw = new Map<string, Tally>();
 const elements = new Map<string, Tally>();
 const attributes = new Map<string, Tally>();
 const seenInFile = new Set<string>();
-let ldrawFiles = 0, xmlFiles = 0;
+let ldrawFiles = 0, xmlFiles = 0, archives = 0, archiveErrors = 0;
 
 function bump(map: Map<string, Tally>, key: string, set: string, file: string, example: string): void {
   let t = map.get(key);
@@ -105,6 +110,35 @@ const trackedElements = new Set(
   Object.keys(LXFML_ATTRIBUTES).map(k => k.split('@')[0]!),
 );
 
+/**
+ * `.lxf` and `.io` are ZIP ARCHIVES, and an audit that reads only loose files
+ * skips 23,724 of them — the same blind spot it exists to find. `.lxf` wraps
+ * IMAGE100.LXFML; `.io` wraps an LDraw model, encrypted on older files.
+ */
+async function scanArchive(full: string, childRel: string, set: string): Promise<void> {
+  const bytes = readFileSync(full);
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  if (/\.lxf$/i.test(childRel)) {
+    const found = await extractMatching(buffer, n => /\.lxfml$/i.test(n));
+    if (!found) throw new Error('no .lxfml entry');
+    xmlFiles++;
+    scanXml(new TextDecoder('latin1').decode(found.data), set, `${childRel}!${found.name}`);
+    return;
+  }
+  // `.io`: every LDraw entry, so an embedded part definition is audited too.
+  const texts = await ioEntryTexts(buffer);
+  let any = false;
+  for (const [name, text] of texts) {
+    if (!/\.(ldr|mpd|dat)$/i.test(name)) continue;
+    any = true;
+    ldrawFiles++;
+    scanLdraw(text, set, `${childRel}!${name}`);
+  }
+  if (!any) throw new Error('no LDraw entry');
+}
+
+const archiveQueue: Array<{ full: string; childRel: string; set: string }> = [];
+
 function walk(dir: string, rel: string): void {
   let entries: string[];
   try { entries = readdirSync(dir); } catch { return; }
@@ -120,6 +154,8 @@ function walk(dir: string, rel: string): void {
     }
     const isLdraw = /\.(ldr|mpd|dat)$/i.test(name);
     const isXml = /\.lxfml$/i.test(name);
+    const isArchive = !SKIP_ARCHIVES && /\.(lxf|io)$/i.test(name);
+    if (isArchive) { archiveQueue.push({ full, childRel, set: setOf(childRel) }); continue; }
     if (!isLdraw && !isXml) continue;
     let text: string;
     try { text = readFileSync(full, 'latin1'); } catch { continue; }
@@ -131,6 +167,13 @@ function walk(dir: string, rel: string): void {
 
 const t0 = Date.now();
 walk(ROOT, '');
+
+for (const job of archiveQueue) {
+  archives++;
+  try { await scanArchive(job.full, job.childRel, job.set); }
+  catch { archiveErrors++; }
+  if (!QUIET && archives % 2000 === 0) console.error(`  …${archives}/${archiveQueue.length} archives`);
+}
 const elapsed = ((Date.now() - t0) / 1000).toFixed(0);
 
 // ── classify ────────────────────────────────────────────────────────────────
@@ -177,6 +220,7 @@ function report(title: string, rows: Row[], withNote: boolean): void {
 }
 
 console.log(`converter coverage audit — ${ldrawFiles} LDraw files, ${xmlFiles} LXFML files, ${elapsed}s`);
+console.log(`archives opened: ${archives}${archiveErrors ? ` (${archiveErrors} unreadable)` : ''}${SKIP_ARCHIVES ? ' — skipped (--no-archives)' : ''}`);
 console.log(`root: ${ROOT}${ONLY_CLASS ? `  class: ${ONLY_CLASS}` : ''}`);
 
 console.log('\n' + '='.repeat(72));
