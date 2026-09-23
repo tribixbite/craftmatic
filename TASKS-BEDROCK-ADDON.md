@@ -168,10 +168,23 @@ first pick is an MPD was degraded the same way.
   1. **Budget.** 10303 wants 139,409 cuboids at its requested 2 LDU against a
      43,976 budget — a 3.2x squeeze, so 36 % of placements still ship coarser.
      Raising it trades directly against the ~480k all-packs device ceiling.
-  2. Rotated-cuboid facets for round PROFILES, as studs already use
-     (`studCuboids` fans rectangles about an axis). A few rotated boxes read
-     rounder AND cost less than many microcells — the one lever that improves
-     fidelity and cost together. Not yet attempted.
+  2. **Rotated-cuboid facets for round profiles — measured and half-built
+     (`b4612548`).** `web/src/engine/ldraw-round-facets.ts` fits a part to a
+     disc-swept-along-an-axis profile and measures the fan's IoU;
+     `bun scripts/_round_facet_yield.ts <model>` prints the per-part verdict.
+     Why it matters: round parts are 19.6 % of 10303's cuboids and **44.4 % of
+     10261's** (one part, `6143` x530, is 76,850 cuboids = a third of the
+     model). Facets do not compete with the finest grain, they dominate the
+     COARSE rungs the budget forces round parts onto — 3941 is 26 cuboids at
+     0.919 at 4 LDU and 5 at 0.919 at 8 LDU, against **4 at 0.929** as facets.
+     194 of 239 round placements in 10303 qualify.
+     **What is left: emitting them.** The compiler must take the
+     rotated-cuboid route `studCuboids` already uses (rotation + pivot appended
+     to `renderCuboids` AFTER the lattice, cull and merge stages, so no
+     axis-aligned invariant is touched), add facets as a ladder rung in
+     `planPartGrains`, and fall back to the lattice when a placement's rotation
+     does not map the profile axis to a cardinal axis. Nothing is wired in yet,
+     so exports are unchanged.
   3. The stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced
      at 46.2k but its 8,720 studs drop to 1 facet.
   Measure with `bun scripts/_round_part_fidelity.ts` (true per-part IoU per
