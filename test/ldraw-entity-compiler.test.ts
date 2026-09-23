@@ -551,7 +551,7 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'wheel-envelope' });
     // The overhanging bodywork (input indices 10, 11) survives.
     expect(r.keptSourceIndices).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
-    expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
+    expect(r.diagnostics.orphans).toMatchObject({ clusters: 0, placements: 0 });
   });
   it('puts back the placements a display-stand drop would have left hanging in mid-air', async () => {
     const body: ParsedBrick[] = Array.from({ length: 6 }, (_, i) => ({ part: '3001.dat', color: 4, x: i * 80, y: 0, z: 0 }));
@@ -565,7 +565,7 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     // The post came back so the tip still hangs on something; only the plate went.
     expect(r.diagnostics.strandedRepaired).toBe(1);
     expect(r.diagnostics.displayDropped).toEqual({ placements: 5, rule: 'wheel-envelope' });
-    expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
+    expect(r.diagnostics.orphans).toMatchObject({ clusters: 0, placements: 0 });
   });
   it('a plane stand takes its mast with it: parts hanging off the stand below the hull go out too', async () => {
     // The Milano (76286) on the Pixel, world 919, 2026-09-19: the stand drop left
@@ -589,7 +589,7 @@ describe('display-stand drop is reported and the kept placements are indexed', (
     expect(r.diagnostics.displayDropped).toEqual({ placements: 6, rule: 'stand-below-canopy' });
     expect(r.diagnostics.standContinued).toBe(2);
     expect(r.diagnostics.strandedRepaired).toBe(0);
-    expect(r.diagnostics.orphans).toEqual({ clusters: 0, placements: 0 });
+    expect(r.diagnostics.orphans).toMatchObject({ clusters: 0, placements: 0 });
     // Everything that is hull or canopy stays; the hull's own underside IS the envelope, so no hull brick is claimed.
     expect(r.keptSourceIndices).toEqual(Array.from({ length: 21 }, (_, i) => i));
     expect(r.warnings.some(w => /2 placements hanging off the display stand below the hull/.test(w))).toBe(true);

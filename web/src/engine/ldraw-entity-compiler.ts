@@ -109,6 +109,66 @@ const TECHNIC_INTERNAL = new Set([
   '61332', '65304', // Type-2 friction pins (76240: 106 + 24 placements, one buried cuboid each)
 ]);
 
+/**
+ * A connected group this big is a SUB-BUILD, not debris: a model displayed as
+ * separate structures is normal, and only small pieces are candidates for
+ * "floating". Whichever is larger, so a big model does not call a 200-part
+ * outbuilding debris and a small one does not call half of itself a sub-build.
+ */
+const SUB_BUILD_MIN_PARTS = 200, SUB_BUILD_MIN_SHARE = 0.05;
+/** Clear air around a fragment before a player would call it floating (one stud). */
+const FLOATER_CLEARANCE_LDU = 20;
+
+/**
+ * What the placements actually break into: how many pieces, how many of those
+ * are big enough to be sub-builds, and how much genuinely floats clear.
+ *
+ * Used by BOTH preparation paths — a building shell goes through
+ * `prepareWholeModel`, which is the case this matters for.
+ */
+function analyseOrphans(boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>): {
+  clusters: number; placements: number; subBuilds: number;
+  floatingParts: number; floatingGroups: number; worstClearanceLdu: number;
+} {
+  const groups = connectedClusters(boxes as Array<{ min: Vec3; max: Vec3 }>);
+  const orphanGroups = groups.slice(1);
+  const subBuildMin = Math.max(SUB_BUILD_MIN_PARTS, boxes.length * SUB_BUILD_MIN_SHARE);
+  const subBuilds = groups.filter(group => group.length >= subBuildMin);
+  const fragments = groups.filter(group => group.length < subBuildMin);
+  /** Distance from a fragment to the nearest part of any sub-build, in LDU. */
+  const clearanceOf = (group: readonly number[]): number => {
+    let best = Infinity;
+    for (const index of group) {
+      const a = boxes[index]!;
+      for (const build of subBuilds) for (const j of build) {
+        const b = boxes[j]!;
+        let squared = 0;
+        for (let axis = 0; axis < 3; axis++) {
+          const gap = Math.max(0, Math.max(b.min[axis]! - a.max[axis]!, a.min[axis]! - b.max[axis]!));
+          squared += gap * gap;
+        }
+        if (squared === 0) return 0;
+        if (squared < best) best = squared;
+      }
+    }
+    return best === Infinity ? Infinity : Math.sqrt(best);
+  };
+  let floatingParts = 0, floatingGroups = 0, worstClearanceLdu = 0;
+  if (subBuilds.length) {
+    for (const group of fragments) {
+      const clearance = clearanceOf(group);
+      if (clearance <= FLOATER_CLEARANCE_LDU) continue;
+      floatingParts += group.length;
+      floatingGroups++;
+      if (Number.isFinite(clearance) && clearance > worstClearanceLdu) worstClearanceLdu = clearance;
+    }
+  }
+  return {
+    clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0),
+    subBuilds: subBuilds.length, floatingParts, floatingGroups, worstClearanceLdu,
+  };
+}
+
 const WHEEL_PARTS = new Set(['56908', '44771', '44772', '87697', '92912', '15413', '41897', '23798', '23799']);
 
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -369,7 +429,15 @@ export interface LegoGeometryDiagnostics {
    * after the stranding repair is loose in the SOURCE, so it is reported, not
    * hidden: 31141 ships 22 such placements in 9 pieces, 76435 ships 60 in 43.
    */
-  orphans: { clusters: number; placements: number };
+  orphans: {
+    clusters: number; placements: number;
+    /** Groups big enough to be a sub-build rather than debris. */
+    subBuilds: number;
+    /** Parts in small groups with more than a stud of clear air around them. */
+    floatingParts: number; floatingGroups: number;
+    /** The furthest such group's clearance, in LDU. */
+    worstClearanceLdu: number;
+  };
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
   /**
@@ -859,7 +927,15 @@ export interface PreparedEntityPlacements {
    * come from the SOURCE (a converted model whose parts do not meet), so the
    * count is reported rather than fixed.
    */
-  orphans: { clusters: number; placements: number };
+  orphans: {
+    clusters: number; placements: number;
+    /** Groups big enough to be a sub-build rather than debris. */
+    subBuilds: number;
+    /** Parts in small groups with more than a stud of clear air around them. */
+    floatingParts: number; floatingGroups: number;
+    /** The furthest such group's clearance, in LDU. */
+    worstClearanceLdu: number;
+  };
   /** World-LDraw AABB of a placement from its REAL part bounds (dims-table box when unresolved). */
   worldBoundsOf: (b: ParsedBrick) => { min: Vec3; max: Vec3 };
 }
@@ -1085,13 +1161,14 @@ export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeo
   // A shell compiles every placement as given, so its loose pieces are the
   // SOURCE's (an exploded instruction layout, a converted model with gaps):
   // counted here so the export can say so instead of the player finding them.
-  const orphanGroups = connectedClusters(placed.map(worldBoundsOf)).slice(1);
+  const wholeOrphans = analyseOrphans(placed.map(worldBoundsOf));
   return {
     level: { bricks, rotation: null, centre, alignedBefore: bricks.length, alignedAfter: bricks.length, angleDeg: 0 },
     placed, placedIdx, meshes,
     displayDropped: { placements: 0, rule: null }, detached: { placements: 0, groups: 0 }, extras: [],
     skippedInternalCount, strandedRepaired: 0, standContinued: 0,
-    orphans: { clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0) },
+    // This early path has no sub-build analysis to report.
+    orphans: wholeOrphans,
     worldBoundsOf,
   };
 }
@@ -1326,9 +1403,16 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
     placedIdx.push(i); placed.push(b);
   }
   // What a player would see floating, AFTER every rule has run.
-  const finalGroups = connectedClusters(placed.map(worldBoundsOf));
-  const orphanGroups = finalGroups.slice(1);
-  const orphans = { clusters: orphanGroups.length, placements: orphanGroups.reduce((a, g) => a + g.length, 0) };
+  //
+  // The group count alone says nothing: a model may legitimately be several
+  // sub-builds standing apart. 76417 Gringotts is TWO halves of 2,867 and
+  // 1,511 parts about 115 studs apart in every one of its five sources - that
+  // is how the set is displayed, not a fault. What a player calls a floating
+  // piece is a SMALL group with clear air around it, and 76417 has 409 parts
+  // in 50 of those, up to 43.7 studs clear. One number for both said "1,832
+  // placements in 72 pieces", which cannot tell them apart and fired on 39 of
+  // 40 sets.
+  const orphans = analyseOrphans(placed.map(worldBoundsOf));
   return { level: { ...level, bricks }, placed, placedIdx, meshes, displayDropped, detached, extras, skippedInternalCount, strandedRepaired, standContinued, orphans, worldBoundsOf };
 }
 
@@ -1481,7 +1565,15 @@ export async function compileLdrawEntityGeometry(
   if (displayDropped.placements) warnings.push(`${cid}: ${displayDropped.placements} placement${displayDropped.placements === 1 ? '' : 's'} left out as a display stand (${displayDropped.rule === 'wheel-envelope' ? 'below the wheel line' : 'a small cluster far below the canopy'}).`);
   if (strandedRepaired) warnings.push(`${cid}: ${strandedRepaired} placement${strandedRepaired === 1 ? '' : 's'} were put back after the display-stand drop: leaving them out would have left part of the model hanging in mid-air.`);
   if (standContinued) warnings.push(`${cid}: ${standContinued} placement${standContinued === 1 ? '' : 's'} hanging off the display stand below the hull (its mast) went out with it, so the model stands on its hull, not on a stalk.`);
-  if (orphans.clusters && kind !== 'figure') warnings.push(`${cid}: ${orphans.placements} placement${orphans.placements === 1 ? '' : 's'} in ${orphans.clusters} piece${orphans.clusters === 1 ? '' : 's'} do not touch the rest of the model - they are loose in the SOURCE and will look like floating pieces in game.`);
+  if (orphans.clusters && kind !== 'figure') {
+    const structure = orphans.subBuilds > 1
+      ? `the model is ${orphans.subBuilds} sub-builds standing apart (normal for a set displayed that way)`
+      : `${orphans.placements} placement${orphans.placements === 1 ? '' : 's'} in ${orphans.clusters} piece${orphans.clusters === 1 ? '' : 's'} do not touch the rest of the model`;
+    const floating = orphans.floatingParts
+      ? ` ${orphans.floatingParts} part${orphans.floatingParts === 1 ? '' : 's'} in ${orphans.floatingGroups} piece${orphans.floatingGroups === 1 ? '' : 's'} float more than a stud clear of it${orphans.worstClearanceLdu ? `, up to ${(orphans.worstClearanceLdu / 20).toFixed(1)} studs` : ''} - those are loose in the SOURCE and will look like floating pieces in game.`
+      : ' Nothing floats clear of it.';
+    warnings.push(`${cid}: ${structure};${floating}`);
+  }
   if (detached.placements) warnings.push(`${cid}: ${detached.placements} placement${detached.placements === 1 ? '' : 's'} in ${detached.groups} separate object${detached.groups === 1 ? '' : 's'} beside the vehicle left out of it (${summariseExtras(extras)}).`);
 
   // 2. Frame: nose direction → A. The nose is INFERRED from the placements
@@ -2034,3 +2126,6 @@ export async function compileLdrawEntityGeometry(
     warnings,
   };
 }
+
+
+
