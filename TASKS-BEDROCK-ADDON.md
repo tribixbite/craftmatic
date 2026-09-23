@@ -164,7 +164,7 @@ files found, and what changed, is in the commits. The permanent tools:
   open a built pack in the in-app walk, set the legend layers (e.g.
   `model,collider`), fly out, screenshot.
 
-**Two readings the corpus overturned — do not redo these.**
+**Three readings the corpus overturned — do not redo these.**
 `0 MLCAD SKIP_BEGIN` reads as "content the file excludes"; honouring it deletes
 40,862 parts, because all 231 blocks in the corpus expand a `MLCAD FLEXHOSE`,
 `RUBBER_BELT` or `SPRING` and the block IS the hose. Skipping is gated on
@@ -172,6 +172,9 @@ files found, and what changed, is in the commits. The permanent tools:
 `0 MLCAD HIDE` looks like parts we lose; 1,235 of 1,627 land on an origin a
 visible part already occupies (the archive sweep raised the footprint to 181
 sets / 3,492 lines, same shape). Still skipped, on purpose.
+`0 BUFEXCHG RETRIEVE` reads as a rollback to a saved LENGTH; the saved state
+can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
+249. It restores a snapshot.
 
 #### Open gaps, largest first (from the audit's `--json`)
 

@@ -80,6 +80,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   written-out expansion of that generator, kept because we do not synthesise
   one. Honouring the name deleted 40,862 parts of hose. Skipping is gated on
   `IMPLEMENTED_GENERATORS` in `ldraw-parser.ts`, which is empty by design.
+- **`0 BUFEXCHG <b> RETRIEVE` restores a SNAPSHOT, it does not truncate.** The
+  saved state can be LONGER than the current one: OMR/358-1 stores B, builds a
+  30-part sub-assembly, stores A, retrieves B to set it aside, builds something
+  else, then retrieves A to bring the 30 back and drop the temporary parts.
+  Implemented as a rollback length it does the opposite — loses the 30, keeps
+  the 5. The other shape is OMR/8063-1, which places a pin at x=160/x=0,
+  retrieves, then places the SAME pin at x=140/x=20: the first pair is the
+  instruction's part-way-in preview and must go, or the Hauler ships four pins.
 - **Every source directive is in a table, and the audit gates it.**
   `engine/ldraw-directives.ts` and `engine/lxfml-schema.ts` list every
   line-type-0 directive and every LXFML element/attribute with its effect,
