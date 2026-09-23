@@ -176,13 +176,20 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
 249. It restores a snapshot.
 
-### Coaster track: 76417 has none, 42703 is blocked on 5 missing alignments
+### Coaster track: neither 76417 nor 42703 has a contiguous track in its source
 
-**76417 Gringotts is not a coaster set.** It carries exactly two track
-placements (one `25059`, one `80562`) plus one `26021` cart base — a vault-cart
-detail — and its built pack reports `Track 0`. There is no circuit to make
-contiguous; the work that set needed was ASSEMBLY, and that is done (largest
-connected piece 60.3 % -> 92.9 %).
+**76417 Gringotts DOES have a vault-cart ride** — the box art shows a rail
+spiralling the rock with a cart on it, and an earlier note here calling it "not
+a coaster set" was wrong. What is true is that the ride is not in the source we
+ship: `DbixConvV3/76417.ldr` carries one `26021` cart base, two `24869` wheels
+and exactly two track placements (one `25059`, one `80562`), no continuous
+rail, and no flexible rail either — its only five flex parts are `92338`
+CHAIN 6M, about 5 studs each. The built pack reports `Track 0` because there
+is nothing to route.
+- [ ] **Identify what builds 76417's vault rail and whether the source has it.**
+  The inventory count matches the set (4,826 placements against ~4,803 pieces),
+  so the parts are probably present under moulds not described as track. Start
+  from the rock sub-build and list the moulds along the spiral.
 
 **42703 Mermaid Roller Coaster Ride routes nothing, and the cause is measured.**
 `bun scripts/_coaster_route_probe.ts <model.ldr>` prints each track mould with
@@ -211,14 +218,38 @@ proven. `bun scripts/_coaster_mould_audit.ts` sweeps the library for moulds
 described as coaster track and reports which lack a profile — today only cars
 and wheels (`24869`, `26021`), correctly.
 
-- [ ] **Derive the five missing alignments.** Each is a rigid correction from
-  the LDD origin to the LDraw origin for the SAME mould, so it is bounded by
-  the part's own diagonal (`MEASURED_BOUND_RATIO`). The constraint is available
-  without new data: in a model whose track is a physical chain, the ALIGNED
-  pieces anchor the frame and the unknown mould's correction is what makes its
-  endpoints meet its neighbours'. 42703 gives 7 unaligned pieces against 3
-  anchors; verify a candidate on the other 40-51 sets that use the mould.
-  Expected payoff: a routable circuit for 42703 and 100+ other sets.
+**The missing alignments are NOT why 42703's track is broken — measured, and
+it overturns the reading above.** That the aligned pieces joined and the
+unaligned ones did not is a correlation; `bun scripts/_solve_track_align.ts`
+tests it directly by searching every axis-aligned rotation and every endpoint
+hypothesis for a correction that joins a mould to the anchors, scoring each on
+the WHOLE model. On 42703 the best candidates need 244-335 LDU offsets on parts
+of about 80 LDU and tie at half the endpoints — the signature of coincidence,
+not of an origin convention.
+
+The solver is trusted because it passes a positive control: on 10261, whose
+track routes closed, it returns `e = (0,0,0)` with `D` identity as the top
+answer for `25059` (5/6 joins) and `e = (-0.7,0,0)` identity for `26560` (6/8).
+It finds identity where identity is right.
+
+**The Mecabricks ground-truth route is dead too, and not just for this.** Two
+independent and both-good sources of one set — `DbixConvV3/60372.ldr` and
+`MecabricksLDR/60372.ldr` — agree on **6.2 %** of placements (53 of 857) under
+the best of the 24 axis-aligned frames. A Mecabricks model is rebuilt, not
+transcribed, so it cannot be used as positional ground truth for an LDD
+correction. `scripts/_derive_ldd_align.ts` implements that method and reports
+its own refusal; keep it for a corpus where the pairing IS exact.
+
+- [ ] **Five coaster moulds still have no alignment row** — `25059` (51 corpus
+  sets), `26560` (42), `80562` (40), `26561` (13), `80566`. That remains a real
+  gap worth closing for placement accuracy; it is simply not the cause of a
+  broken track. Deriving it needs a source pairing that is exact, which neither
+  Mecabricks nor the LXFML/LDR pairs provide today.
+- [ ] **42703's track is not contiguous in ANY source.** Shipped DbixConvV3: 8
+  pieces, 0 routes. Ours from the LXFML: 12 pieces, 1 open route of 55.5 studs.
+  Mecabricks 31142 Space Roller Coaster, an independent build with no LDD
+  conversion anywhere, also routes 0 with 5-23 stud gaps. Before more work on
+  the reader, establish whether these sets' captures contain the ride at all.
 
 **Our own LXFML reader beats the shipped source for 42703.** Built with
 `bun scripts/_lxfml_to_ldr.ts <in.lxfml> <out.ldr>` (the DOM-free core of
@@ -232,8 +263,10 @@ and wheels (`24869`, `26021`), correctly.
 | track moulds found | 8 | **12** (recovers 4 x `80566`) |
 | routes | 0 | **1** (55.5 studs, open) |
 
-Not published: the track is still open, so it would trade one defect for a
-smaller one. Do the alignment work first, then re-measure and decide.
+Not published yet. It is a strict improvement on every measured axis and the
+standing approval covers it, but the track is open either way, so publishing
+buys completeness and connectivity, not a working ride. A candidate source is
+staged at `C:/git/clego/lego_sets/LxfmlDirect/42703.ldr` (56,190 bytes).
 
 **`applyMeasuredBound` is not optional in a script.** The learned table carries
 325 rows whose correction is longer than the part it corrects (`50665` Minifig
