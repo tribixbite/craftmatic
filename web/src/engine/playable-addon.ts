@@ -1874,7 +1874,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const defaults: Record<string, number> = { 'craftmatic:family': 0 };
         const defaultColours: Partial<Record<CreatorSlot, number>> = { torso: 4, arms: 4, head: 14, hands: 14, hips: 1, legs: 1 };
         for (const slot of Object.keys(library.minifig) as CreatorSlot[]) { defaults[`craftmatic:${slot}`] = 0; defaults[`craftmatic:c_${slot}`] = Math.max(0, colours.findIndex(([color]) => color === (defaultColours[slot] ?? 0))); }
-        const figureId = `${PACK_NAMESPACE}:${id}_minifig`;
+        const figureId = `${PACK_NAMESPACE}:${entityId(`${id}_minifig`, 'f')}`;
         creatorConfig = { id, label, itemId: `${PACK_NAMESPACE}:${id}_minifig_wand`, shortAlias: `mf_${id.slice(-6)}`, figureType: figureId, library, colours, firstTranslucentColour: 43, defaults: { minifig: defaults, minidoll: defaults }, presets: options.minifigCreator.presets ?? [], worldCap: 200, savedCap: 100, pageSize: 8 };
         const properties: Record<string, unknown> = {}; for (const [slot, entries] of Object.entries(library.minifig)) { properties[`craftmatic:${slot}`] = { type: 'int', range: [0, Math.max(0, entries.length - 1)], default: 0, client_sync: true }; properties[`craftmatic:c_${slot}`] = { type: 'int', range: [0, colours.length - 1], default: 0, client_sync: true }; }
         properties['craftmatic:family'] = { type: 'int', range: [0, 0], default: 0, client_sync: true }; properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
@@ -1933,7 +1933,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // when runtimeDoorCandidates hangs the interactive vanilla permutation.
     for (const [index, leaf] of (options.leafActors ?? []).entries()) {
         if (!leaf.bricks.length) continue;
-        const leafId = `${id}_door_leaf_${index + 1}`;
+        const leafId = entityId(`${id}_door_leaf_${index + 1}`, 'd');
         options.onProgress?.(`compiling ${label} door leaf ${index + 1}`, 74);
         try {
             const lgeo = await compileLdrawEntityGeometry(leafId, 'prop', leaf.bricks, {
@@ -2244,6 +2244,26 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         entities: diagnostics,
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
     }) });
+    // A Bedrock entity identifier may not begin with a digit: the engine drops
+    // the WHOLE definition, so the entity simply never exists in game and
+    // nothing is logged. `entityId()` guards each id, but a new path can forget
+    // it — the door leaf did, and only a set with BOTH a numeric stem and a
+    // door (31084) ever revealed it. Refuse to emit such a pack instead of
+    // shipping one that is broken on the device.
+    for (const file of files) {
+        if (!/\/entities\/[^/]+\.json$/.test(file.name)) continue;
+        const parsed = JSON.parse(new TextDecoder().decode(file.data)) as {
+            'minecraft:entity'?: { description?: { identifier?: string } };
+        };
+        const identifier = parsed['minecraft:entity']?.description?.identifier ?? '';
+        if (/^[0-9]/.test(identifier.split(':')[1] ?? '')) {
+            throw new Error(
+                `Bedrock rejects the entity identifier '${identifier}' in ${file.name}: `
+                + 'an identifier may not begin with a digit. Build it through entityId().',
+            );
+        }
+    }
+
     const previewPoints = previewSamples(scenery, components.length ? 90 : 120);
     const perVehicle = Math.floor((120 - previewPoints.length) / Math.max(1, components.length));
     for (const c of components) {

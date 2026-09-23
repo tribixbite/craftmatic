@@ -801,3 +801,46 @@ describe('measured coaster train (measureCoasterTrain)', () => {
     expect(train.riders).toBe(12);
   });
 });
+
+describe('Bedrock entity identifiers', () => {
+  /**
+   * A Bedrock entity identifier may not begin with a digit: the engine drops
+   * the WHOLE definition, so the entity never exists in game and nothing is
+   * logged. Most LEGO set stems ARE numeric, so every id must go through
+   * `entityId()`. The door leaf and the minifig creator entity did not, and it
+   * took a set with BOTH a numeric stem and a door (31084 Pirate Roller
+   * Coaster) to expose it — its `door_leaf_1` entity could never exist. The
+   * builder now refuses to emit such a pack; these pin that it cannot come back.
+   */
+  const identifiers = async (bytes: Uint8Array): Promise<string[]> => {
+    const buffer = ab(bytes);
+    const names = listZipEntries(buffer).filter(name => /\/entities\/[^/]+\.json$/.test(name));
+    return Promise.all(names.map(async name => {
+      const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, name))) as {
+        'minecraft:entity': { description: { identifier: string } };
+      };
+      return entity['minecraft:entity'].description.identifier;
+    }));
+  };
+
+  it('never begins an identifier with a digit, whatever the stem', async () => {
+    const result = await buildPlayableAddon(model(), { stem: '31084 Pirate Coaster', vehicleMode: 'car' });
+    const ids = await identifiers(result.bytes);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(id.split(':')[1] ?? '').not.toMatch(/^[0-9]/);
+  });
+
+  it('prefixes the minifig creator entity for a numeric stem, and leaves a named one alone', async () => {
+    const provider = { getPartMesh: async (part: string) => ({ partId: part, resolvedAs: part, description: 'Minifig Torso', triangles: [{ a: [0, 0, 0] as [number, number, number], b: [20, 0, 0] as [number, number, number], c: [0, 24, 0] as [number, number, number], color: 16 }], studs: [], bounds: { min: [0, 0, 0] as [number, number, number], max: [20, 24, 4] as [number, number, number] }, unresolvedRefs: [] }), report: () => ({ unresolved: [], printFallbacks: [], substitutions: [] }) };
+    const library = minifigCreatorLibrary('starter');
+    library.slots.minifig = { torso: [{ part: '973', label: 'Torso', group: 'Core' }] };
+
+    const numeric = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: '31084', minifigCreator: library, partGeometry: provider });
+    expect(await identifiers(numeric.bytes)).toContain('craftmatic:f_31084_minifig');
+
+    // entityId() is the identity on a stem that already starts with a letter,
+    // so an existing pack's identifier is untouched by the fix.
+    const named = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Creator', minifigCreator: library, partGeometry: provider });
+    expect(await identifiers(named.bytes)).toContain('craftmatic:creator_minifig');
+  });
+});
