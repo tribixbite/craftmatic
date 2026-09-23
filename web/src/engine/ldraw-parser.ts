@@ -17,6 +17,7 @@
  * by `scripts/_converter_coverage_audit.ts`.
  */
 import { LDRAW_COLOR_RGB } from './ldraw-colors.js';
+import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 
 export interface ParsedBrick {
   /** LDraw color ID */
@@ -197,7 +198,7 @@ export function colourOverrides(colours: Map<number, LDrawLocalColour>): Map<num
     // restating the convention, and overriding them would break inheritance.
     if (code === 16 || code === 24) continue;
     const official = LDRAW_COLOR_RGB[code];
-    if (official && def.alpha >= 255 && channelDistance(official, def.rgb) <= COLOUR_KEEP_THRESHOLD) continue;
+    if (official && def.alpha >= 255 && channelDistance(official, def.rgb) <= keepThreshold(code)) continue;
     const value = parseInt(def.rgb.slice(1), 16);
     out.set(code, (def.alpha < 255 ? DIRECT_TRANSPARENT : DIRECT_OPAQUE) | value);
   }
@@ -217,6 +218,25 @@ export function colourOverrides(colours: Map<number, LDrawLocalColour>): Map<num
  * a class over a difference this small.
  */
 const COLOUR_KEEP_THRESHOLD = 8;
+
+/**
+ * The same, for a code the shared table gives a non-plastic FINISH.
+ *
+ * A direct colour carries RGB and nothing else, so overriding a chrome or
+ * rubber code turns the part into plain ABS. Losing the finish is a bigger
+ * visual error than a moderate RGB shift — 42097 defines code 496 as #969696
+ * where the table says #A3A2A4, 14/255 apart, and taking the file's value
+ * costs 160 bricks their rubber finish to gain a difference nobody can see.
+ * The LDLite-era remappings this whole mechanism exists for are 200+ apart,
+ * so a wider window here does not let any of them through.
+ */
+const COLOUR_KEEP_THRESHOLD_FINISHED = 32;
+
+/** Codes whose material class is not plain plastic keep a wider window. */
+function keepThreshold(code: number): number {
+  const cls = resolveLdrawEntityMaterial(code).materialClass;
+  return cls === 'abs' || cls === 'transparent' ? COLOUR_KEEP_THRESHOLD : COLOUR_KEEP_THRESHOLD_FINISHED;
+}
 
 /** Largest per-channel difference between two `#RRGGBB` strings. */
 function channelDistance(a: string, b: string): number {
