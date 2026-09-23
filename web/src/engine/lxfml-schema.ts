@@ -301,13 +301,3 @@ export const LXFML_ATTRIBUTES: Readonly<Record<string, LxfmlSpec>> = {
   'SubBuild@explosionArrowStyle': e('view', false, 'arrow style'),
   'SubBuild@functionArrowColor': e('view', false, 'arrow colour'),
 };
-
-/** Elements and attributes that change the model and which we do NOT read. */
-export function unhandledModelFeatures(): string[] {
-  const out: string[] = [];
-  const gap = (v: LxfmlSpec): boolean =>
-    !v.handled && !v.viaExpansion && (v.effect === 'geometry' || v.effect === 'appearance');
-  for (const [k, v] of Object.entries(LXFML_ELEMENTS)) if (gap(v)) out.push(k);
-  for (const [k, v] of Object.entries(LXFML_ATTRIBUTES)) if (gap(v)) out.push(k);
-  return out.sort();
-}

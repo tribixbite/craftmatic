@@ -32,7 +32,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { ioEntryTexts } from '../web/src/engine/io-extractor.ts';
-import { classifyDirective, directiveKey, LDRAW_DIRECTIVES, type DirectiveSpec } from '../web/src/engine/ldraw-directives.ts';
+import { directiveKey, LDRAW_DIRECTIVES, type DirectiveSpec } from '../web/src/engine/ldraw-directives.ts';
 import { LXFML_ATTRIBUTES, LXFML_ELEMENTS, lxfmlElementSpec, type LxfmlSpec } from '../web/src/engine/lxfml-schema.ts';
 
 const argv = process.argv.slice(2);

@@ -265,11 +265,3 @@ export function classifyDirective(line: string): DirectiveSpec | 'unknown' | nul
   // mystery, but still counts as unknown.
   return 'unknown';
 }
-
-/** Directives that change the model and which the reader does NOT act on. */
-export function unhandledGeometryDirectives(): string[] {
-  return Object.entries(LDRAW_DIRECTIVES)
-    .filter(([, s]) => !s.handled && (s.effect === 'geometry' || s.effect === 'colour'))
-    .map(([k]) => k)
-    .sort();
-}
