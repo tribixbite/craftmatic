@@ -175,34 +175,33 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 
 #### Open gaps, largest first (from the audit's `--json`)
 
-None is a correctness bug in what we DO read; each is a feature of the source
-we do not carry. Sets counted over the whole corpus, not first picks.
+None is a bug in what we DO read; each is a feature of the source we do not
+carry, and each was measured before being written down. Sets counted over the
+whole corpus, not first picks.
 
-- [ ] `Part@decoration` — 3,874 sets. Printed parts; LDraw has no print layer.
-  Needs a decoration→texture route into the Bedrock swatch, which the entity
-  path could carry since it already uses per-material textures.
-- [ ] `MultiBuildBrick@originalBrickRef`/`actualBrickRef` — 1,785 sets. An
-  alternate build SWAPS a brick. We render the primary build only, which is
-  right, but nothing verifies we are not mixing the two.
-- [ ] `Sticker` / `StickerAttributes` — 1,757 / 283 sets.
-- [ ] `PartDeformation` + `Bone@index`/`position`/`rotation` — 847 sets. A flex
-  part carries one bone per segment and `lxf-parser.ts` takes bone 0, so a hose
-  draws from its first anchor undeformed. Needs skinning, not N copies.
-- [ ] `Part@variantID` / `PartVariant` — 746 / 506 sets. Mould variants;
-  `normalizeDesignId` strips the suffix and uses the base mould.
-- [ ] `Part@materials` comma list — 54,620 placements. A multi-mould part has
-  one colour per shell; an LDraw part is one colour, so the first is used.
-
-**Settled 2026-09-23, measured negatives — do not re-chase.**
-`SubBuild@position` is "0,0,0" in all 29,169 occurrences sampled, so it is not
-the Gringotts signal; `<Explode>` remains it. `Group@transformation` (35 sets)
-sits on EMPTY self-closing `<Group>` elements inside `<PartGroupSystem>` — a
-posing manipulator naming no members (31 of 31 groups in 31151 and 46 of 46 in
-21270 resolved to zero bricks). Both are recorded in `lxfml-schema.ts`.
-Also corrected there: a group names its members through NESTED
-`<Brick brickRef="…"/>` children as well as a `brickRefs` attribute, and DBIX
-files identify bricks by `uuid` with no `refID` at all — a reader that assumes
-`refID` finds nothing in them.
+- [ ] **Prints** — `Part@decoration` 3,874 sets, plus `PartVariant` (506) and
+  `Part@variantID` (746), which are the SAME thing: the decoration catalogue
+  for a part, keyed by 7-digit element id. LDraw has no print layer, but the
+  Bedrock entity path already gives each material its own texture, so a
+  decoration could ride in as a swatch. Largest remaining gap by set count.
+- [ ] **Stickers** — `Sticker` 1,757 sets, `StickerAttributes` 283. A sticker
+  `<Part>` carries a 7-digit element id with no LDraw mould, so it already
+  resolves to nothing and adds no geometry; what is missing is its APPEARANCE
+  on the part it is stuck to (`stuckToPartRef` + `anchor`).
+- [ ] **Flex path** — `Bone@index`/`position`/`rotation`, 847 sets. A flex part
+  carries a bone chain (10314 gives designID 75216 thirty-four bones) and the
+  reader uses bone 0. That places the WHOLE element undeformed at the right
+  anchor — 27965 is a 432 LDU cable — so the mass and the anchor are right and
+  only the path is lost. Deforming it needs the mould cut into segments and
+  skinned; nothing supplies that mapping. `partType="flex"` is 0.15 % of
+  placements (2,371 of 1,562,110), so this is small and awkward, not urgent.
+- [ ] **Second shell colour** — `Part@materials` comma list. 81.6 % of those
+  lists repeat the same colour (minifig arms and legs list one material per
+  shell and both match), so the first entry is exact there. The real gap is
+  the other 18.4 %: ~10,050 placements corpus-wide.
+- [ ] **`MLCAD HIDE`** (LDraw side) — 181 sets, 3,492 lines, deliberately
+  skipped; see the note above. Revisit only with device evidence that a set is
+  missing a part.
 
 Reach today: the LXFML reader serves 271 `LXF` + 162 `EurobricksLDD` first
 picks. `DbixConvV3` (1,713 first picks) is converted from LXFML by the clego

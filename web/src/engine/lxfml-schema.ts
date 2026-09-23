@@ -204,7 +204,7 @@ export const LXFML_ATTRIBUTES: Readonly<Record<string, LxfmlSpec>> = {
 
   'Part@designID': e('geometry', true, 'the mould; the `;C` variant suffix is stripped by `normalizeDesignId`'),
   'Part@refID': e('geometry', true, 'the id `Parts@partRefs` and `PartDeformation@partRef` refer to'),
-  'Part@materials': e('appearance', true, 'colour. Two shapes occur: `28:0` (material:shell, 2,989,494 rows) and a comma list for a MULTI-MOULD part (54,620 rows) of which only the first is used, because an LDraw part is a single colour.'),
+  'Part@materials': e('appearance', true, 'colour. Two shapes occur: `28:0` (material:shell, 2,989,494 rows) and a comma list, one entry per shell, for a multi-mould part (54,620 rows). Only the first is used, because an LDraw part is a single colour. MEASURED 2026-09-23 over 150 DBIX files: 81.6 % of comma lists repeat the SAME colour (minifig arms 3818/3819 and legs 3816/3817 list a material per shell and both match), so the first entry is exact there. Only 18.4 % genuinely differ — about 10,050 placements corpus-wide, not 54,620.'),
   'Part@partType': e('geometry', false, 'MEASURED 2026-09-23 over DBIX: rigid 1,562,110; sticker 18,320; flex 2,371; unknown 2. A `sticker` part carries a 7-digit element id (1003554) that has no LDraw mould, so it resolves to nothing and adds no geometry — which is correct, since a sticker is not a brick.'),
   'Part@decoration': e('appearance', false, 'the print on this part (3,874 sets) — prints are not carried into the LDraw pipeline'),
   'Part@stickerSheetId': e('appearance', false, 'sticker sheet the part\'s sticker comes from (2,021 sets)'),

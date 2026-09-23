@@ -64,6 +64,31 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   pixels.** Pixel capture 2244×1008 displayed at 1600×719 requires ×1.4025;
   `wm size` can remain portrait. A mis-scaled Create tap looked like ignored
   input until this was corrected (2026-09-21). Resize evidence below 2000 px.
+- **A source file's OWN palette wins.** `0 !COLOUR` and LDLite `0 COLOR` define
+  colour codes FOR THAT DOCUMENT, and 85 codes across the corpus are redefined
+  away from the official value: code 67 is "rubber white" in the shared table
+  and plain blue in the 264 bricks of 10131 that use it. The parser rewrites a
+  disagreeing code to an LDraw DIRECT colour (`0x2RRGGBB`, `0x3RRGGBB` for
+  alpha) on the brick, so the palette travels with the model instead of
+  mutating a shared table. A definition within 8/255 of the official value is
+  left alone — 32/255 when the code has a FINISH — so a chrome or rubber part
+  does not flatten to ABS over a difference nobody can see. The LDLite form
+  counts its fields from the END: the name may contain spaces and a flags field
+  sits before the colour, so `lite[3..5]` reads `<flags> <r> <g>` at alpha 63.
+- **`0 MLCAD SKIP_BEGIN` is not content to skip.** All 231 blocks in the corpus
+  sit under `MLCAD FLEXHOSE`, `RUBBER_BELT` or `SPRING`: the block IS MLCad's
+  written-out expansion of that generator, kept because we do not synthesise
+  one. Honouring the name deleted 40,862 parts of hose. Skipping is gated on
+  `IMPLEMENTED_GENERATORS` in `ldraw-parser.ts`, which is empty by design.
+- **Every source directive is in a table, and the audit gates it.**
+  `engine/ldraw-directives.ts` and `engine/lxfml-schema.ts` list every
+  line-type-0 directive and every LXFML element/attribute with its effect,
+  whether the reader acts on it, and the corpus count;
+  `bun scripts/_converter_coverage_audit.ts` walks every source file INCLUDING
+  `.lxf`/`.io` archives and exits 1 on anything missing from them. Add a new
+  directive to the table in the same change that meets it. `viaExpansion: true`
+  means "described by a meta we ignore, but written out as ordinary geometry we
+  read" — LSynth, LDCad flex, MLCad hoses — and is NOT a gap.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
