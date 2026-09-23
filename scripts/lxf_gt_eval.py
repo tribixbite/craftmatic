@@ -47,8 +47,11 @@ sys.path.insert(0, str(CLEGO))
 from dbix_gt_compare import compare, load_any, best_alignment, geo_match, norm_stem  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-PART_MAP = ROOT / 'web' / 'public' / 'ldd-part-map.json'
-MEASURED = ROOT / 'web' / 'public' / 'ldd-measured-align.json'
+# `CRAFTMATIC_PART_MAP` / `CRAFTMATIC_MEASURED_ALIGN` point a run at a candidate
+# table, so two tables can be scored side by side without swapping the shipped
+# files in the working tree.
+PART_MAP = Path(os.environ.get('CRAFTMATIC_PART_MAP', ROOT / 'web' / 'public' / 'ldd-part-map.json'))
+MEASURED = Path(os.environ.get('CRAFTMATIC_MEASURED_ALIGN', ROOT / 'web' / 'public' / 'ldd-measured-align.json'))
 LXF_DIR = CLEGO / 'lego_sets' / 'LXF'
 IO_DIR = CLEGO / 'lego_sets' / 'IO'
 CM_TO_LDU = 25.0

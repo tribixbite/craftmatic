@@ -18,7 +18,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import {
-  applyDerivedAlign, applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics,
+  applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics,
   validatePartAlign, validateMeasuredAlign, validateTable,
   type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable,
 } from '../web/src/engine/lxf-parser.js';
@@ -49,10 +49,10 @@ const table = validateTable(
 // Helmet moves 4,360 LDU on a 52 LDU part — and the app drops them on load.
 // A script that validates the table without this ships those rows and flings
 // parts across the model, which then reads as a bad source.
-const measured = applyDerivedAlign(applyMeasuredBound(validateTable(
+const measured = applyMeasuredBound(validateTable(
   JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')),
   'web/public/ldd-measured-align.json', validateMeasuredAlign,
-) as LxfMeasuredTable));
+) as LxfMeasuredTable);
 
 /** The single LXFML entry of a `.lxf` ZIP (stored or deflated), or the file itself. */
 function lxfmlBytes(path: string): Buffer {

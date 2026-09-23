@@ -176,110 +176,84 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
 249. It restores a snapshot.
 
-### Coaster track: neither 76417 nor 42703 has a contiguous track in its source
+### Coaster track: SOLVED — Studio ships a second mapping table we never read
 
-**76417 Gringotts DOES have a vault-cart ride** — the box art shows a rail
-spiralling the rock with a cart on it, and an earlier note here calling it "not
-a coaster set" was wrong. What is true is that the ride is not in the source we
-ship: `DbixConvV3/76417.ldr` carries one `26021` cart base, two `24869` wheels
-and exactly two track placements (one `25059`, one `80562`), no continuous
-rail, and no flexible rail either — its only five flex parts are `92338`
-CHAIN 6M, about 5 studs each. The built pack reports `Track 0` because there
-is nothing to route.
-- [ ] **Identify what builds 76417's vault rail and whether the source has it.**
-  The inventory count matches the set (4,826 placements against ~4,803 pieces),
-  so the parts are probably present under moulds not described as track. Start
-  from the rock sub-build and list the moulds along the spiral.
+Both sets' track now routes. The cause was never the sources: it was that
+`scripts/gen-ldd-part-map.py` read only `ldraw.xml` (4,390 design ids,
+Sep 2025) and ignored `ldraw_lxfv56.xml` beside it (5,406 ids, Feb 2026, 1,007
+of them found ONLY there) — which is the table Studio itself uses to import an
+LXF, and the only one naming the coaster moulds `25059`, `26560`, `26561`,
+`80562` and `80566`. Without a row those placed at their raw LDD origin, and
+because the pieces of a spiral each carry a different rotation the missing
+`R·e` displaced every one of them differently.
 
-**42703 Mermaid Roller Coaster Ride routes nothing, and the cause is measured.**
-`bun scripts/_coaster_route_probe.ts <model.ldr>` prints each track mould with
-whether an LDD→LDraw alignment exists for it, the components that formed, and
-whether open endpoints are TOUCHING (a profile fault) or APART (nothing to
-stitch). On 42703 built from its own LXFML, the only component that forms is
-`25061 + 25061 + 26559` — all three moulds that HAVE an alignment entry — while
-every unaligned piece (`25059` x2, `26560`, `80566` x4) joins nothing.
-
-Five coaster moulds have no entry in either `ldd-part-map.json` (Studio's
-`ldraw.xml`, which does not name them) or `ldd-measured-align.json` (clego's
-learner, which had no set carrying both an LXFML and an authentic `.io` for
-them), so they are placed from their raw LDD origin and land studs away:
-
-| mould | part | corpus sets |
+| set | before | after |
 |---|---|---|
-| `25059` | Train Track Roller Coaster Straight 4 x 16 | 51 |
-| `26560` | Ramp 4 x 16 x 6 S-Shape Upper | 42 |
-| `80562` | Train Track Roller Coaster 4 x 4 | 40 |
-| `26561` | Ramp 4 x 8 x 6 Straight | 13 |
-| `80566` | (used by 42703) | — |
+| 42703 Mermaid Roller Coaster Ride | 0 routes, 10 components | **1 CLOSED route, 220.3 studs, all 12 pieces** |
+| 31142 Space Roller Coaster | 0 routes | **1 CLOSED route, 202.6 studs, all 12** |
+| 76417 Gringotts vault rail | 0 routes | **1 run, 154.8 studs, all 9** (open by design) |
+| 60421 / 60501 | 95.5 open | 239.9 closed |
+| 60228 | 51.9 open | 118.7 |
 
-The PROFILES are not the problem: 10261's closed 649.5-stud circuit is built
-from 42 fragments that include 4 x `26560` and 2 x `25059`, so every profile is
-proven. `bun scripts/_coaster_mould_audit.ts` sweeps the library for moulds
-described as coaster track and reports which lack a profile — today only cars
-and wheels (`24869`, `26021`), correctly.
+42703's 24 endpoint gaps go from median 180 LDU / max 336 to **min 0.00,
+median 0.01, max 0.74 LDU, 24 of 24 within tolerance**.
 
-**The missing alignments are NOT why 42703's track is broken — measured, and
-it overturns the reading above.** That the aligned pieces joined and the
-unaligned ones did not is a correlation; `bun scripts/_solve_track_align.ts`
-tests it directly by searching every axis-aligned rotation and every endpoint
-hypothesis for a correction that joins a mould to the anchors, scoring each on
-the WHOLE model. On 42703 the best candidates need 244-335 LDU offsets on parts
-of about 80 LDU and tie at half the endpoints — the signature of coincidence,
-not of an origin convention.
+**76417 Gringotts DOES have a vault-cart ride** — the box art shows the rail
+spiralling the rock — and an earlier note here calling it "not a coaster set"
+was wrong. Its rail is seven `bl_80566` quarters (1.75 turns, exact 72 LDU
+steps on a 230 LDU circle) plus a `25059` entry straight and an `80562`
+landing.
 
-The solver is trusted because it passes a positive control: on 10261, whose
-track routes closed, it returns `e = (0,0,0)` with `D` identity as the top
-answer for `25059` (5/6 joins) and `e = (-0.7,0,0)` identity for `26560` (6/8).
-It finds identity where identity is right.
+**The `bl_` naming is a second, separate fault.** Studio's library ships
+`bl_80566.dat` beside `80566.dat` — same design, its header says `BL_Item_No` —
+and 76417 places the BrickLink name. `partStem` gives `bl_80566`, so no profile
+matched and seven of nine pieces were invisible to routing. The two meshes also
+sit in different frames (both bound 274.0 x 98.0 x 274.0 LDU; `bl_80566` runs
+x -137..137, y -98.1..0, z -420.6..-146.9 where `80566` runs 0..274, -18..80,
+0..274), so matching the id alone samples the wrong line. `FRAME_ALIASES` in
+`coaster-track.ts` carries that measured translation. It stays needed for the
+24 corpus sets whose `.ldr` names `bl_80566`; the LXFML path no longer needs it
+because the part-map row names the upstream file.
 
-**The Mecabricks ground-truth route is dead too, and not just for this.** Two
-independent and both-good sources of one set — `DbixConvV3/60372.ldr` and
-`MecabricksLDR/60372.ldr` — agree on **6.2 %** of placements (53 of 857) under
-the best of the 24 axis-aligned frames. A Mecabricks model is rebuilt, not
-transcribed, so it cannot be used as positional ground truth for an LDD
-correction. `scripts/_derive_ldd_align.ts` implements that method and reports
-its own refusal; keep it for a corpus where the pairing IS exact.
+Two independent derivations agreed exactly, which is why this is trusted: a
+solver working only from track connectivity produced `e = (-230, -80, -10)` for
+80566, and Studio's own row re-expressed on the upstream part is
+`(9.2, -3.2, -0.4)` LDD — and `-25 · F · (9.2, -3.2, -0.4)` with
+`F = diag(1,-1,-1)` is exactly `(-230, -80, -10)`.
 
-- [ ] **Five coaster moulds still have no alignment row** — `25059` (51 corpus
-  sets), `26560` (42), `80562` (40), `26561` (13), `80566`. That remains a real
-  gap worth closing for placement accuracy; it is simply not the cause of a
-  broken track. Deriving it needs a source pairing that is exact, which neither
-  Mecabricks nor the LXFML/LDR pairs provide today.
-- [ ] **42703's track is not contiguous in ANY source.** Shipped DbixConvV3: 8
-  pieces, 0 routes. Ours from the LXFML: 12 pieces, 1 open route of 55.5 studs.
-  Mecabricks 31142 Space Roller Coaster, an independent build with no LDD
-  conversion anywhere, also routes 0 with 5-23 stud gaps. Before more work on
-  the reader, establish whether these sets' captures contain the ride at all.
+#### What is proven and what is not
 
-**Our own LXFML reader beats the shipped source for 42703.** Built with
-`bun scripts/_lxfml_to_ldr.ts <in.lxfml> <out.ldr>` (the DOM-free core of
-`lxf-parser.ts` with both shipped tables):
+The five coaster rows are proven by route closure. The OTHER 258 rows the fill
+adds are not, and the GEO gate cannot see them: its 54 ground-truth sets
+contain zero placements of any added id (65.73 % weighted before and after,
+0 per-set differences). They touch **20,213 placements across 3,457 LXFML
+files**, so this was A/B'd on connectivity instead — a wrong row moves a part
+away from what it should touch:
 
-| | DbixConvV3 (index first pick) | lxfml-direct |
-|---|---|---|
-| placements | 861 | **904** |
-| connected pieces | 33 | **21** |
-| largest piece | 90.5 % | **92.9 %** |
-| track moulds found | 8 | **12** (recovers 4 x `80566`) |
-| routes | 0 | **1** (55.5 studs, open) |
+    the 25 files using added ids most: better 3, worse 2, unchanged 20,
+    mean change -0.10 points
 
-Not published yet. It is a strict improvement on every measured axis and the
-standing approval covers it, but the track is open either way, so publishing
-buys completeness and connectivity, not a working ride. A candidate source is
-staged at `C:/git/clego/lego_sets/LxfmlDirect/42703.ldr` (56,190 bytes).
+Neutral, not positive. Shipped anyway because a row Studio authored beats no
+row on priors, the rows are conservative in shape (the worst offender in the
+sample is 48 x `7096` at zero translation and a 180 degree turn), and the fill
+only touches ids NEITHER shipped table names. But it is unvalidated.
 
-**`applyMeasuredBound` is not optional in a script.** The learned table carries
-325 rows whose correction is longer than the part it corrects (`50665` Minifig
-Helmet moves 4,360 LDU on a 52 LDU part). The app drops them on load; a script
-that calls `validateTable` alone ships them and flings parts across the model,
-which then reads as a bad SOURCE. Cost the first time: a false "DbixConvV3
-inflates the model" conclusion.
+- [ ] **Explain the two regressions** — `11512_pothos (b model)` -1.9 points
+  and `11512_step ##a` -1.1. Both are botanicals where leaves barely touch, so
+  connectivity is a weak signal, but neither has been looked at.
+- [ ] **478 lxfv56 rows for ids already on the MEASURED table** (~133k corpus
+  placements) were deliberately left alone. Deciding between them needs a GEO
+  comparison on sets that actually use them.
+- [ ] **233 other `bl_*` rows** (156 have an upstream same-number part) need
+  the same per-part frame measurement 80566 got before they can be used.
+- [ ] **The shipped corpus file is still wrong.** This fixes the app's
+  `.lxf`/LXFML path and `_lxfml_to_ldr.ts`; `DbixConvV3/42703.ldr` and
+  `DbixConvV3/76417.ldr` are clego's conversions and need regenerating with the
+  same rows before a user sees the difference.
+- [ ] Four untracked `scripts/_gringotts_rail_*.ts` scratch files are in the
+  tree from the investigation; keep or remove, but do not leave them forever.
 
-**1 LDD unit is 25 LDU, not 20** (`t_world = 25 (F t_bone) + …`, see
-`scripts/gen-ldd-measured-align.py`). Comparing an LXFML extent against an
-`.ldr` extent at 20 makes every converted model look 25 % inflated.
-
-#### Regression gate for this round
+#### Regression gate for this round#### Regression gate for this round
 
 `bun scripts/_favorites_export_sweep.ts --out output/bedrock-entity-qa/post-directive-sweep`
 **40/40 exported, 0 problems**, coarsening unchanged against the recorded

@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { coasterTrackProfile, extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
 import {
-  applyDerivedAlign, applyMeasuredBound, buildLxfPlacements, withinMeasuredBound,
-  validatePartAlign, validateMeasuredAlign, validateTable, DERIVED_ALIGN,
+  applyMeasuredBound, buildLxfPlacements,
+  validatePartAlign, validateMeasuredAlign, validateTable,
   type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable,
 } from '../web/src/engine/lxf-parser.js';
 import { parseLDraw } from '../web/src/engine/ldraw-parser.js';
@@ -55,35 +55,28 @@ describe('BrickLink frame aliases', () => {
   });
 });
 
-describe('derived alignment rows', () => {
-  it('stay inside the bound that protects against a runaway correction', () => {
-    for (const [id, row] of Object.entries(DERIVED_ALIGN)) {
-      expect(withinMeasuredBound(row), `${id} must satisfy withinMeasuredBound`).toBe(true);
+describe.skipIf(!existsSync('web/public/ldd-part-map.json'))('the shipped part map', () => {
+  it('carries the coaster moulds Studio names only in ldraw_lxfv56.xml', () => {
+    // `ldraw.xml` names none of these; `ldraw_lxfv56.xml` names all five, and
+    // gen-ldd-part-map.py fills from it. Without them a coaster built from an
+    // LXFML places each piece at its raw LDD origin, and since the pieces of a
+    // spiral all carry different rotations the run stops being a run.
+    const map = JSON.parse(readFileSync('web/public/ldd-part-map.json', 'utf8')) as Record<string, unknown[]>;
+    const entries = (map['entries'] ?? map) as Record<string, unknown[]>;
+    const meas = JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')) as Record<string, unknown>;
+    const measEntries = (meas['entries'] ?? meas) as Record<string, unknown>;
+    // Either table may carry it — the generator deliberately leaves a design
+    // the learner already measured (80562) alone rather than overriding a vote
+    // over real sets with an authored row.
+    for (const design of ['25059', '26560', '26561', '80562', '80566']) {
+      expect(
+        entries[design] ?? measEntries[design],
+        `${design} must be covered by the part map or the measured table`,
+      ).toBeDefined();
     }
-  });
-
-  it('carry each part\'s real diagonal, so the bound means something', () => {
-    // Measured from the DATs: 80566 is 274.0 x 98.0 x 274.0, 25059 is
-    // 320.0 x 26.0 x 68.0. A made-up diagonal would make the bound vacuous.
-    expect(DERIVED_ALIGN['80566']![14]).toBeCloseTo(399.7, 1);
-    expect(DERIVED_ALIGN['25059']![14]).toBeCloseTo(328.2, 1);
-  });
-
-  it('are added only where the learned table is silent', () => {
-    const base = {
-      state: 'ok' as const,
-      entries: { 80566: ['learned.dat', 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 2, 3, 5, 99] },
-    } as unknown as LxfMeasuredTable;
-    const merged = applyDerivedAlign(base);
-    // A learned row wins: it is a vote over real sets.
-    expect(merged.entries['80566']![0]).toBe('learned.dat');
-    // ...and a design it does not cover still gets the derived row.
-    expect(merged.entries['25059']![0]).toBe('25059.dat');
-  });
-
-  it('does not touch a table that failed to load', () => {
-    const broken = { state: 'error', entries: {} } as unknown as LxfMeasuredTable;
-    expect(applyDerivedAlign(broken)).toBe(broken);
+    // 80566's Studio row names bl_80566.dat, which the viewer cannot draw; the
+    // generator re-expresses it on the upstream part.
+    expect(entries['80566']![0]).toBe('80566.dat');
   });
 });
 
@@ -98,10 +91,10 @@ describe.skipIf(!existsSync(LXFML) || !existsSync(PART_MAP))('76417 Gringotts va
     const table = validateTable(
       JSON.parse(readFileSync(PART_MAP, 'utf8')), PART_MAP, validatePartAlign,
     ) as LxfAlignmentTable;
-    const measured = applyDerivedAlign(applyMeasuredBound(validateTable(
+    const measured = applyMeasuredBound(validateTable(
       JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')),
       'web/public/ldd-measured-align.json', validateMeasuredAlign,
-    ) as LxfMeasuredTable));
+    ) as LxfMeasuredTable);
 
     const xml = readFileSync(LXFML, 'latin1');
     const attr = (h: string, n: string): string | undefined => new RegExp(`\\b${n}="([^"]*)"`).exec(h)?.[1];
