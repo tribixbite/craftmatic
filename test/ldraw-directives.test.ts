@@ -87,6 +87,26 @@ describe('0 BUFEXCHG', () => {
     expect(parseLDraw(doc).map(b => b.part)).toEqual(['3001.dat', '3004.dat']);
   });
 
+  it('RESTORES a saved state that is longer than the current one', () => {
+    // The nested pattern OMR/358-1.mpd uses: store B, build a sub-assembly,
+    // store A, retrieve B to set it aside, build something else, retrieve A to
+    // bring it back. A rollback implemented as a truncation loses the
+    // sub-assembly and keeps the temporary parts — exactly backwards.
+    const doc = [
+      t1(4, 0, 0, 0, 'base.dat'),
+      '0 BUFEXCHG B STORE',
+      t1(4, 20, 0, 0, 'sub1.dat'),
+      t1(4, 40, 0, 0, 'sub2.dat'),
+      '0 BUFEXCHG A STORE',
+      '0 BUFEXCHG B RETRIEVE',
+      t1(4, 60, 0, 0, 'temp.dat'),
+      '0 BUFEXCHG A RETRIEVE',
+      t1(4, 80, 0, 0, 'after.dat'),
+    ].join('\n');
+    expect(parseLDraw(doc).map(b => b.part))
+      .toEqual(['base.dat', 'sub1.dat', 'sub2.dat', 'after.dat']);
+  });
+
   it('a RETRIEVE with no STORE changes nothing', () => {
     const doc = [t1(4, 0, 0, 0, '3001.dat'), '0 BUFEXCHG A RETRIEVE'].join('\n');
     expect(parseLDraw(doc)).toHaveLength(1);

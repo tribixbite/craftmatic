@@ -335,8 +335,16 @@ function splitIntoSections(content: string): Section[] {
  */
 interface DocumentState {
   step: { step: number };
-  /** `0 BUFEXCHG <name> STORE` → the output length to roll back to. */
-  buffers: Map<string, number>;
+  /**
+   * `0 BUFEXCHG <name> STORE` → a SNAPSHOT of the output at that point.
+   *
+   * Not a length. RETRIEVE restores the saved state, which can be LONGER than
+   * the current one: 358-1 stores B, places 30 parts, stores A, retrieves B to
+   * set them aside, places 5 more, then retrieves A to bring the 30 back and
+   * drop the 5. A rollback implemented as a truncation does the exact opposite
+   * — it loses the 30 and keeps the 5.
+   */
+  buffers: Map<string, ParsedBrick[]>;
   /** Colour code → LDraw direct colour, for codes this document redefines. */
   overrides: Map<number, number>;
 }
@@ -423,16 +431,22 @@ function expandSection(
     if (/^0\s+MLCAD\s+SKIP_END\b/i.test(line)) { skipDepth = Math.max(0, skipDepth - 1); return; }
     if (skipDepth > 0) return;
 
-    // `0 BUFEXCHG <buffer> STORE` marks a rollback point and `RETRIEVE`
-    // discards everything placed since — an instruction-time undo that leaves
-    // duplicate parts in the model if it is ignored.
+    // `0 BUFEXCHG <buffer> STORE` saves the model so far and `RETRIEVE` puts
+    // it back — an instruction-time "set this aside and pick it up later".
+    // Ignoring it leaves parts in the model that the file took out again.
     const buf = /^0\s+BUFEXCHG\s+(\S+)\s+(STORE|RETRIEVE)\b/i.exec(line);
     if (buf) {
       const name = buf[1]!.toUpperCase();
-      if (buf[2]!.toUpperCase() === 'STORE') doc.buffers.set(name, output.length);
-      else {
-        const mark = doc.buffers.get(name);
-        if (mark !== undefined && mark <= output.length) output.length = mark;
+      if (buf[2]!.toUpperCase() === 'STORE') {
+        doc.buffers.set(name, output.slice());
+      } else {
+        const saved = doc.buffers.get(name);
+        // A RETRIEVE with no STORE names a buffer this file never filled;
+        // emptying the model on it would be worse than ignoring it.
+        if (saved) {
+          output.length = 0;
+          for (const brick of saved) output.push(brick);
+        }
       }
       return;
     }
