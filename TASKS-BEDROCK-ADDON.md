@@ -176,6 +176,76 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
 249. It restores a snapshot.
 
+### Coaster track: 76417 has none, 42703 is blocked on 5 missing alignments
+
+**76417 Gringotts is not a coaster set.** It carries exactly two track
+placements (one `25059`, one `80562`) plus one `26021` cart base — a vault-cart
+detail — and its built pack reports `Track 0`. There is no circuit to make
+contiguous; the work that set needed was ASSEMBLY, and that is done (largest
+connected piece 60.3 % -> 92.9 %).
+
+**42703 Mermaid Roller Coaster Ride routes nothing, and the cause is measured.**
+`bun scripts/_coaster_route_probe.ts <model.ldr>` prints each track mould with
+whether an LDD→LDraw alignment exists for it, the components that formed, and
+whether open endpoints are TOUCHING (a profile fault) or APART (nothing to
+stitch). On 42703 built from its own LXFML, the only component that forms is
+`25061 + 25061 + 26559` — all three moulds that HAVE an alignment entry — while
+every unaligned piece (`25059` x2, `26560`, `80566` x4) joins nothing.
+
+Five coaster moulds have no entry in either `ldd-part-map.json` (Studio's
+`ldraw.xml`, which does not name them) or `ldd-measured-align.json` (clego's
+learner, which had no set carrying both an LXFML and an authentic `.io` for
+them), so they are placed from their raw LDD origin and land studs away:
+
+| mould | part | corpus sets |
+|---|---|---|
+| `25059` | Train Track Roller Coaster Straight 4 x 16 | 51 |
+| `26560` | Ramp 4 x 16 x 6 S-Shape Upper | 42 |
+| `80562` | Train Track Roller Coaster 4 x 4 | 40 |
+| `26561` | Ramp 4 x 8 x 6 Straight | 13 |
+| `80566` | (used by 42703) | — |
+
+The PROFILES are not the problem: 10261's closed 649.5-stud circuit is built
+from 42 fragments that include 4 x `26560` and 2 x `25059`, so every profile is
+proven. `bun scripts/_coaster_mould_audit.ts` sweeps the library for moulds
+described as coaster track and reports which lack a profile — today only cars
+and wheels (`24869`, `26021`), correctly.
+
+- [ ] **Derive the five missing alignments.** Each is a rigid correction from
+  the LDD origin to the LDraw origin for the SAME mould, so it is bounded by
+  the part's own diagonal (`MEASURED_BOUND_RATIO`). The constraint is available
+  without new data: in a model whose track is a physical chain, the ALIGNED
+  pieces anchor the frame and the unknown mould's correction is what makes its
+  endpoints meet its neighbours'. 42703 gives 7 unaligned pieces against 3
+  anchors; verify a candidate on the other 40-51 sets that use the mould.
+  Expected payoff: a routable circuit for 42703 and 100+ other sets.
+
+**Our own LXFML reader beats the shipped source for 42703.** Built with
+`bun scripts/_lxfml_to_ldr.ts <in.lxfml> <out.ldr>` (the DOM-free core of
+`lxf-parser.ts` with both shipped tables):
+
+| | DbixConvV3 (index first pick) | lxfml-direct |
+|---|---|---|
+| placements | 861 | **904** |
+| connected pieces | 33 | **21** |
+| largest piece | 90.5 % | **92.9 %** |
+| track moulds found | 8 | **12** (recovers 4 x `80566`) |
+| routes | 0 | **1** (55.5 studs, open) |
+
+Not published: the track is still open, so it would trade one defect for a
+smaller one. Do the alignment work first, then re-measure and decide.
+
+**`applyMeasuredBound` is not optional in a script.** The learned table carries
+325 rows whose correction is longer than the part it corrects (`50665` Minifig
+Helmet moves 4,360 LDU on a 52 LDU part). The app drops them on load; a script
+that calls `validateTable` alone ships them and flings parts across the model,
+which then reads as a bad SOURCE. Cost the first time: a false "DbixConvV3
+inflates the model" conclusion.
+
+**1 LDD unit is 25 LDU, not 20** (`t_world = 25 (F t_bone) + …`, see
+`scripts/gen-ldd-measured-align.py`). Comparing an LXFML extent against an
+`.ldr` extent at 20 makes every converted model look 25 % inflated.
+
 #### Regression gate for this round
 
 `bun scripts/_favorites_export_sweep.ts --out output/bedrock-entity-qa/post-directive-sweep`
