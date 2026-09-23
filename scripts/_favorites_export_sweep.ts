@@ -71,8 +71,11 @@ for (const set of (targets.length ? targets : FAVOURITES)) {
   if (KEEP && existsSync(pack)) { row.ok = true; row.bytes = statSync(pack).size; rows.push(row); console.log(`${set}: kept`); continue; }
 
   const started = Date.now();
+  // NOT `shell: true`: on Windows that joins argv into one command line, so a
+  // first-pick path containing spaces (`LDR/10261 Roller Coaster.mpd`) is split
+  // and the export dies with ENOENT on a truncated name.
   const run = spawnSync('bun', ['scripts/_playable_ref.ts', file, pack, `--label=${set}`], {
-    encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, shell: true,
+    encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
   });
   row.seconds = Math.round((Date.now() - started) / 100) / 10;
 
@@ -117,7 +120,7 @@ for (const set of (targets.length ? targets : FAVOURITES)) {
     row.error = `report parse: ${e instanceof Error ? e.message : String(e)}`;
   }
 
-  const check = spawnSync('python', ['scripts/_mcaddon_check.py', pack], { encoding: 'utf8', shell: true });
+  const check = spawnSync('python', ['scripts/_mcaddon_check.py', pack], { encoding: 'utf8' });
   const text = `${check.stdout}\n${check.stderr}`;
   row.valid = /^OK\s/m.test(text) && !/^FAIL\s/m.test(text);
   if (!row.valid) row.validation = text.split('\n').filter(l => /FAIL|!!/.test(l)).join(' | ').slice(0, 400);
