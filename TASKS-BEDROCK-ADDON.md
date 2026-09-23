@@ -176,6 +176,21 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
 249. It restores a snapshot.
 
+#### Regression gate for this round
+
+`bun scripts/_favorites_export_sweep.ts --out output/bedrock-entity-qa/post-directive-sweep`
+**40/40 exported, 0 problems**, coarsening unchanged against the recorded
+baseline (42172 69 %, 77092 42 %, 10261 38 %, 10303 36 %). That is expected
+rather than lucky: NO favourite source carries any of the changed directives,
+so the sweep proves nothing broke rather than proving the fixes landed. The
+fixes reach 14 other index first picks, 42097 and 10131 worst.
+
+Walked `post-directive-sweep/76417.mcaddon` in the browser
+(`node scripts/_shoot_addon_walk.mjs`): 54,700 cuboids / 17 entities, 12
+minifigs, 8 doors with 4 vanilla at size, 3,388 collider cells. The legend's
+"75 the preview could not read" is the two entities that do not spawn at that
+size, not a pack defect.
+
 #### Open gaps, largest first (from the audit's `--json`)
 
 None is a bug in what we DO read; each is a feature of the source we do not
