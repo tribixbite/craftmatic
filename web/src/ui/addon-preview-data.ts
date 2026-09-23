@@ -37,6 +37,7 @@ import {
 } from '@engine/bedrock-collider-scale.js';
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
+import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, type AddonAppearance } from './addon-appearance.js';
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,8 @@ export interface AddonPreviewModel {
   provenance: { display?: string; source?: { file?: string; hash?: string; setNum?: string } } | null;
   /** Cuboid budget as the pack reports it. */
   pack: { cuboids?: number; entities?: number; shareOfDeviceBudget?: number } | null;
+  /** What the pack DRAWS, read back from its geometry: null when it ships none. */
+  appearance: AddonAppearance | null;
   /** Anything about the pack the preview could not read, said rather than dropped. */
   notes: string[];
 }
@@ -156,25 +159,31 @@ export interface AddonPreviewFiles {
   coasterScript?: string;
   diagnosticsJson?: string;
   treadsJson?: string;
+  /** Resource-pack geometry, entity and controller files, keyed by archive path. */
+  appearanceSources?: Map<string, string>;
 }
 
 const utf8 = new TextDecoder();
 
 /** Pull the four files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
 export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<AddonPreviewFiles> {
-  const wanted = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
-  const names = listZipEntries(mcaddon).filter(wanted);
+  const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
+  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name);
+  const names = listZipEntries(mcaddon).filter(behaviour);
   if (!names.length) throw new Error('Not a Craftmatic add-on: no scripts/placement.js in the archive.');
   const found = await extractMatching(mcaddon, wanted);
   const text = (suffix: RegExp): string | undefined => {
     for (const [name, data] of found) if (suffix.test(name)) return utf8.decode(data);
     return undefined;
   };
+  const appearanceSources = new Map<string, string>();
+  for (const [name, data] of found) if (APPEARANCE_FILE_PATTERN.test(name)) appearanceSources.set(name, utf8.decode(data));
   return {
     placementScript: text(/scripts\/placement\.js$/),
     coasterScript: text(/scripts\/coaster\.js$/),
     diagnosticsJson: text(/craftmatic-diagnostics\.json$/),
     treadsJson: text(/craftmatic-treads\.json$/),
+    appearanceSources,
   };
 }
 
@@ -309,10 +318,21 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     : null;
   const sizes = Array.isArray(config['sizes']) && (config['sizes'] as unknown[]).every(s => typeof s === 'number') ? config['sizes'] as number[] : [...SIZE_STEPS];
 
+  // What the pack DRAWS. A pack read from an older export may carry no
+  // resource-pack files here; the preview then simply has no model layer, and
+  // says so rather than showing an empty world as if that were the model.
+  let appearance: AddonAppearance | null = null;
+  if (files.appearanceSources?.size) {
+    appearance = buildAddonAppearance(files.appearanceSources);
+    notes.push(...appearance.notes);
+    if (!appearance.cubeCount) { notes.push('The pack ships geometry the preview could not read: no model layer.'); appearance = null; }
+  }
+
   return {
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
-    entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack, notes,
+    entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
+    appearance, notes,
   };
 }
 
@@ -334,11 +354,11 @@ export async function loadAddonPreviewModel(mcaddon: ArrayBuffer): Promise<Addon
 // ─── Legend ──────────────────────────────────────────────────────────────────
 
 /** The legend's rows, in display order. */
-export const LEGEND_KINDS = ['figure', 'seat', 'door', 'track', 'vehicle', 'collider', 'tread'] as const;
+export const LEGEND_KINDS = ['model', 'figure', 'seat', 'door', 'track', 'vehicle', 'collider', 'tread'] as const;
 export type LegendKind = typeof LEGEND_KINDS[number];
 
 export const LEGEND_LABELS: Record<LegendKind, string> = {
-  figure: 'Minifigs', seat: 'Chairs / seats', door: 'Doors', track: 'Track', vehicle: 'Vehicles', collider: 'Colliders', tread: 'Treads',
+  model: 'Model (in game)', figure: 'Minifigs', seat: 'Chairs / seats', door: 'Doors', track: 'Track', vehicle: 'Vehicles', collider: 'Colliders', tread: 'Treads',
 };
 
 /** Which legend row an entity belongs to (null: the shell and other non-legend actors). */
@@ -364,7 +384,7 @@ export interface LegendCounts extends Record<LegendKind, number> {
  * shipped for the chosen size and turn.
  */
 export function legendCounts(model: AddonPreviewModel, sizePct: number, rotation: QuarterTurn): LegendCounts {
-  const counts: LegendCounts = { figure: 0, seat: 0, door: 0, track: 0, vehicle: 0, collider: 0, tread: 0, detail: {} };
+  const counts: LegendCounts = { model: 0, figure: 0, seat: 0, door: 0, track: 0, vehicle: 0, collider: 0, tread: 0, detail: {} };
   let cars = 0, lifts = 0, counterweights = 0, vehicles = 0, riders = 0;
   for (const e of model.entities) {
     const k = legendKindOf(e.kind);
@@ -378,6 +398,23 @@ export function legendCounts(model: AddonPreviewModel, sizePct: number, rotation
   counts.door += model.doorCandidates.length;
   counts.track = model.routes.length;
   counts.collider = model.cells.length;
+  // The drawn model: cuboids over the entities that actually spawn at this size.
+  if (model.appearance) {
+    let cubes = 0, drawn = 0;
+    for (const e of model.entities) {
+      if (!entitySpawnsAt(e, sizePct)) continue;
+      const entry = model.appearance.byType.get(e.typeId);
+      if (!entry) continue;
+      cubes += entry.cubeCount; drawn++;
+    }
+    counts.model = cubes;
+    // Say so when the preview draws fewer cuboids than the pack reports: a
+    // geometry it could not read is a gap in the answer, not a smaller model.
+    const shipped = model.pack?.cuboids;
+    const short = typeof shipped === 'number' && shipped > cubes ? shipped - cubes : 0;
+    counts.detail.model = `${drawn} entit${drawn === 1 ? 'y' : 'ies'} drawn`
+      + (short ? `, ${short.toLocaleString()} the preview could not read` : '');
+  }
   counts.tread = treadBlocksAt(model, sizePct, rotation).length;
   if (riders) counts.detail.figure = `${riders} seated`;
   if (model.doorCandidates.length) counts.detail.door = `${model.doorCandidates.length} vanilla at size`;

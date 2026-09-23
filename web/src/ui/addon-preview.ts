@@ -65,7 +65,7 @@ const KIND_COLOR: Record<AddonEntityKind, number> = {
   shell: 0x64748b, figure: 0xf472b6, seat: 0xa78bfa, door: 0x38bdf8, car: 0xfb923c, lift: 0xfacc15, counterweight: 0x94a3b8, vehicle: 0x34d399, screen: 0x67e8f9, other: 0xcbd5e1,
 };
 const LEGEND_COLOR: Record<LegendKind, number> = {
-  figure: KIND_COLOR.figure, seat: KIND_COLOR.seat, door: KIND_COLOR.door, track: 0x22d3ee, vehicle: KIND_COLOR.car, collider: 0x7c8aa5, tread: 0xf5a623,
+  model: 0xe2e8f0, figure: KIND_COLOR.figure, seat: KIND_COLOR.seat, door: KIND_COLOR.door, track: 0x22d3ee, vehicle: KIND_COLOR.car, collider: 0x7c8aa5, tread: 0xf5a623,
 };
 const COLOR_REACHED = 0x22c55e, COLOR_UNREACHED = 0xef4444, COLOR_STATION = 0xfde047, COLOR_CHAIN = 0xf97316;
 const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
@@ -287,6 +287,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.clearGroup(this.worldGroup);
     this.buildGround(laid.dims);
     this.buildColliders(columnBoxes(laid.blocks));
+    this.buildModel(f);
 
     this.clearGroup(this.reachGroup);
     if (this.world) {
@@ -357,6 +358,103 @@ class AddonWalk implements AddonPreviewHandle {
     };
     make(solids, null, 'colliders');
     make(treads, new THREE.Color(LEGEND_COLOR.tread), 'treads');
+  }
+
+  /**
+   * What the pack DRAWS, from its own geometry — the layer that answers "does
+   * the model look right" without a phone.
+   *
+   * Bedrock model units are 1/16 block, so a cube's extent divides by 16 and
+   * then scales with the wand size exactly as the colliders do. Cubes are
+   * instanced per COLOUR CHUNK (the compiler emits one chunk per material), so
+   * a 46,000-cuboid shell is ~80 draw calls rather than 46,000 meshes.
+   *
+   * Bone transforms are composed up the parent chain, and a cube's own
+   * rotation (what a stud facet carries) is applied about its pivot first, so
+   * a posed rider and a fanned stud both land where the game puts them.
+   */
+  private buildModel(f: number): void {
+    const appearance = this.model.appearance;
+    if (!appearance) return;
+    const group = new THREE.Group();
+    group.name = 'model';
+
+    const deg = Math.PI / 180;
+    const boneWorld = (entry: NonNullable<ReturnType<typeof appearance.byType.get>>): Map<string, THREE.Matrix4> => {
+      const byName = new Map(entry.bones.map(b => [b.name, b]));
+      const done = new Map<string, THREE.Matrix4>();
+      const resolve = (name: string, seen: Set<string>): THREE.Matrix4 => {
+        const hit = done.get(name);
+        if (hit) return hit;
+        const bone = byName.get(name);
+        const m = new THREE.Matrix4();
+        if (!bone || seen.has(name)) { done.set(name, m); return m; }
+        seen.add(name);
+        const parent = bone.parent ? resolve(bone.parent, seen) : new THREE.Matrix4();
+        // Bedrock turns a bone about its pivot; its rotation is degrees XYZ and
+        // Y/Z are negated against three.js' handedness, as the geometry writer
+        // emits them (see eulerZYX in ldraw-entity-compiler).
+        const [px, py, pz] = bone.pivot;
+        const local = new THREE.Matrix4();
+        if (bone.rotation) {
+          const [rx, ry, rz] = bone.rotation;
+          local.makeTranslation(px, py, pz)
+            .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx * deg, -ry * deg, -rz * deg, 'ZYX')))
+            .multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
+        }
+        const world = parent.clone().multiply(local);
+        done.set(name, world);
+        return world;
+      };
+      for (const b of entry.bones) resolve(b.name, new Set());
+      return done;
+    };
+
+    const m = new THREE.Matrix4(), cube = new THREE.Matrix4(), spin = new THREE.Matrix4();
+    for (const entity of this.model.entities) {
+      if (!entitySpawnsAt(entity, this.sizePct)) continue;
+      const entry = appearance.byType.get(entity.typeId);
+      if (!entry) continue;
+      const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
+      // The actor's own yaw, plus the quarter turn the whole placement took.
+      const yaw = (entity.yaw + this.rotation * 90) * deg;
+      const bones = boneWorld(entry);
+
+      const holder = new THREE.Group();
+      holder.position.set(at.x, at.y, at.z);
+      holder.rotation.y = yaw;
+      holder.scale.setScalar(f / 16);
+
+      for (const chunk of entry.groups) {
+        if (!chunk.cubes.length) continue;
+        const material = new THREE.MeshStandardMaterial({
+          color: chunk.colorHex, roughness: 0.62, metalness: 0.04, flatShading: true,
+          ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0.25, chunk.alpha) } : {}),
+        });
+        this.disposables.push(material);
+        const mesh = new THREE.InstancedMesh(this.unitBox, material, chunk.cubes.length);
+        chunk.cubes.forEach((c, i) => {
+          const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
+          // A zero-thickness cube would vanish; give it a hair so it still reads.
+          cube.makeScale(sx || 0.01, sy || 0.01, sz || 0.01);
+          cube.setPosition(ox + sx / 2, oy + sy / 2, oz + sz / 2);
+          if (c.rotation && c.pivot) {
+            const [rx, ry, rz] = c.rotation, [px, py, pz] = c.pivot;
+            spin.makeTranslation(px, py, pz)
+              .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx * deg, -ry * deg, -rz * deg, 'ZYX')))
+              .multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
+            cube.premultiply(spin);
+          }
+          m.copy(bones.get(c.bone) ?? new THREE.Matrix4()).multiply(cube);
+          mesh.setMatrixAt(i, m);
+        });
+        mesh.instanceMatrix.needsUpdate = true;
+        mesh.frustumCulled = false;
+        holder.add(mesh);
+      }
+      group.add(holder);
+    }
+    this.worldGroup.add(group);
   }
 
   private buildReach(surfaces: ReachSurface[]): void {
@@ -614,6 +712,7 @@ class AddonWalk implements AddonPreviewHandle {
 
   private applyLegendVisibility(): void {
     const { legend } = this;
+    const drawn = this.worldGroup.getObjectByName('model'); if (drawn) drawn.visible = legend.model.show;
     const colliders = this.worldGroup.getObjectByName('colliders'); if (colliders) colliders.visible = legend.collider.show;
     const treads = this.worldGroup.getObjectByName('treads'); if (treads) treads.visible = legend.tread.show;
     this.routeGroup.visible = legend.track.show;
@@ -947,7 +1046,7 @@ class AddonWalk implements AddonPreviewHandle {
       if (t.reach.bfs) return `<span style="color:${hex(COLOR_REACHED)}">reachable</span>`;
       return `<span style="color:${hex(COLOR_UNREACHED)}">NOT reachable</span>${t.reach.refusal ? ` <span class="ap-dim">— ${esc(t.reach.refusal.detail)}</span>` : ''}`;
     };
-    const order = { station: 0, lift: 1, seat: 2, door: 3, figure: 4, vehicle: 5, track: 6, collider: 7, tread: 8 } as const;
+    const order = { station: 0, lift: 1, seat: 2, door: 3, figure: 4, vehicle: 5, track: 6, model: 7, collider: 8, tread: 9 } as const;
     const sorted = this.targets.map((t, i) => ({ t, i })).sort((a, b) => order[a.t.kind] - order[b.t.kind]);
     this.targetsEl.innerHTML = `<div class="ap-title">Can a player get there on foot?</div>
       ${sorted.length ? sorted.map(({ t, i }) => `<div class="ap-target"><button type="button" class="ap-tog" data-act="goto" data-i="${i}" title="Fly to it">go</button> ${esc(t.label)}: ${verdict(t)}</div>`).join('') : `<div class="ap-dim">${this.world ? 'Nothing to test at this size.' : 'No walk at this size, so no verdicts.'}</div>`}
