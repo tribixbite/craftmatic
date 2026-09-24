@@ -13,14 +13,16 @@
  * two shipped alignment tables, so what comes out is exactly what the app
  * would draw from the same file.
  *
- * Usage: bun scripts/_lxfml_to_ldr.ts <in.lxfml|in.lxf> [out.ldr] [--quiet]
+ * Usage: bun scripts/_lxfml_to_ldr.ts <in.lxfml|in.lxf> [out.ldr] [--quiet] [--no-print-heads]
+ *   --no-print-heads: draw every head as its plain mould (the A/B baseline for
+ *   the printed-head substitution, `ldd-print-map.json`).
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import {
-  applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics, parseLxfMaterials,
-  validatePartAlign, validateMeasuredAlign, validateTable,
-  type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable,
+  applyMeasuredBound, buildLxfPlacements, decorationIdOf, describeLxfDiagnostics, parseLxfMaterials,
+  validatePartAlign, validateMeasuredAlign, validatePrintRow, validateTable,
+  type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable, type LxfPrintTable,
 } from '../web/src/engine/lxf-parser.js';
 
 const argv = process.argv.slice(2);
@@ -53,6 +55,13 @@ const measured = applyMeasuredBound(validateTable(
   JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')),
   'web/public/ldd-measured-align.json', validateMeasuredAlign,
 ) as LxfMeasuredTable);
+
+// Decorated heads become their printed LDraw part (`printedHeadFor`) unless
+// `--no-print-heads` asks for the plain-mould baseline an A/B needs.
+const printMap: LxfPrintTable | undefined = argv.includes('--no-print-heads') ? undefined : validateTable(
+  JSON.parse(readFileSync('web/public/ldd-print-map.json', 'utf8')),
+  'web/public/ldd-print-map.json', validatePrintRow,
+) as LxfPrintTable;
 
 /** The single LXFML entry of a `.lxf` ZIP (stored or deflated), or the file itself. */
 function lxfmlBytes(path: string): Buffer {
@@ -94,6 +103,8 @@ function readRecords(path: string): LxfPartRecord[] {
   const out: LxfPartRecord[] = [];
   for (const brick of xml.matchAll(BRICK_RE)) {
     const brickDesign = attr(brick[1] ?? '', 'designID');
+    const elementIds = (attr(brick[1] ?? '', 'itemNos') ?? '').split(',').map(s => s.trim()).filter(Boolean);
+    const briefId = attr(brick[1] ?? '', 'decorationBriefId');
     for (const part of (brick[2] ?? '').matchAll(PART_RE)) {
       const head = part[1] ?? part[3] ?? '';
       if (attr(head, 'partType') === 'sticker') {
@@ -108,6 +119,8 @@ function readRecords(path: string): LxfPartRecord[] {
         materialIds: parseLxfMaterials(attr(head, 'materials')),
         transformation: attr(bones[0]?.[1] ?? '', 'transformation') ?? '',
         boneCount: bones.length,
+        elementIds,
+        decorationId: decorationIdOf(briefId, attr(head, 'decoration')),
       });
     }
   }
@@ -115,7 +128,7 @@ function readRecords(path: string): LxfPartRecord[] {
 }
 
 const records = readRecords(IN);
-const { bricks, diagnostics } = buildLxfPlacements(records, table, measured);
+const { bricks, diagnostics } = buildLxfPlacements(records, table, measured, { printMap });
 
 const stem = IN.replace(/.*[/\\]/, '').replace(/\.[^.]+$/, '');
 const lines = [

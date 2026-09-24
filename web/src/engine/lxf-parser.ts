@@ -152,6 +152,8 @@ export function withinMeasuredBound(m: MeasuredAlign): boolean {
 export const PART_MAP_URL = '/ldd-part-map.json';
 /** Where the measured table lives (scripts/gen-ldd-measured-align.py). */
 export const MEASURED_ALIGN_URL = '/ldd-measured-align.json';
+/** Element / decoration id → printed LDraw head (`scripts/gen-ldd-print-map.py`). */
+export const PRINT_MAP_URL = '/ldd-print-map.json';
 /** A transient failure gets this many tries in total before we give up on it. */
 const TABLE_FETCH_ATTEMPTS = 3;
 const TABLE_RETRY_BACKOFF_MS = [250, 750];
@@ -186,6 +188,13 @@ export interface AlignmentTable<T> {
 
 export type LxfAlignmentTable = AlignmentTable<PartAlign>;
 export type LxfMeasuredTable = AlignmentTable<MeasuredAlign>;
+/**
+ * `e:<elementId>` / `d:<decorationId>` → the printed LDraw head that element
+ * or decoration IS (`3626cp1t.dat`). Generated offline from Studio's element
+ * table, Rebrickable's elements and the libraries' own BrickLink / Rebrickable
+ * keywords; every file is framed like its base mould (`gen-ldd-print-map.py`).
+ */
+export type LxfPrintTable = AlignmentTable<string>;
 
 /** The reported shape of one loaded table. */
 export interface LxfTableReport {
@@ -242,6 +251,18 @@ export interface LxfDiagnostics {
   dualMaterialPatterned?: number;
   /** Placements split into their two shells' subparts (`DUAL_MATERIAL_SUBPARTS`). */
   dualMaterialSplit?: number;
+  /**
+   * Heads drawn as their PRINTED LDraw part: the brick's element or decoration
+   * id resolved through the print table (`ldd-print-map.json`). An overlay: the
+   * placement is the plain head's, only the file changes.
+   */
+  printedHeads?: number;
+  /**
+   * Heads the source says are decorated (it names a decoration) that no
+   * printed LDraw part is known for. They draw as the plain mould, and the
+   * Bedrock compiler gives them its default face.
+   */
+  unresolvedHeadPrints?: number;
   /** placements with NEITHER: identity alignment + bare `designID.dat`. */
   unmappedPlacements: number;
   /** distinct unmapped design ids, most-used first (capped for readability). */
@@ -269,6 +290,70 @@ export interface LxfPartRecord {
   materialIds?: number[];
   transformation: string;
   boneCount: number;
+  /** `Brick@itemNos`: the LEGO element id(s) — design + colour + decoration. */
+  elementIds?: string[];
+  /**
+   * The decoration id, from `Brick@decorationBriefId` (`1029859;A` -> 1029859)
+   * or the first `Part@decoration` token (`1029859_0_VME_…`). Empty when the
+   * part carries no print.
+   */
+  decorationId?: string;
+}
+
+/**
+ * LDD head designs and the figure system each belongs to: a minifig head
+ * (`3626`, and the 2019 `28621` mould) or a mini-doll head (`28650`, LDraw
+ * `92198`). Only these are ever swapped for a printed part.
+ */
+export const HEAD_DESIGNS: Readonly<Record<string, 'minifig' | 'minidoll'>> = {
+  '3626': 'minifig', '28621': 'minifig', '28650': 'minidoll', '92198': 'minidoll',
+};
+
+/** `1029859;A` -> 1029859; else the first `Part@decoration` token's id; else ''. */
+export function decorationIdOf(briefId: string | null | undefined, partDecoration: string | null | undefined): string {
+  const brief = (briefId ?? '').split(';')[0]!.trim();
+  if (brief) return brief;
+  return (partDecoration ?? '').split(',')[0]!.split('_')[0]!.trim();
+}
+
+/** True when `v` is a print-table row: a `.dat` file name. */
+export function validatePrintRow(v: unknown): v is string {
+  return typeof v === 'string' && /^[0-9a-z]+\.dat$/i.test(v);
+}
+
+/** What `printedHeadFor` found: a real printed part, or only the print's name. */
+export interface PrintedHead {
+  file: string;
+  /**
+   * `print`: an LDraw file draws this exact print. `identity`: no library has
+   * it; `file` is the head's BrickLink print id in Studio's BL-copy form
+   * (`3626cpb3484.dat`), which every reader draws as plain `3626c` through
+   * the alias ladder while the source keeps saying which head it is.
+   */
+  kind: 'print' | 'identity';
+}
+
+/**
+ * The printed LDraw head a head record really is, or null. The element id is
+ * exact (it names the colour and the print); the decoration id is the
+ * fallback for an element no table knows; an identity name is the last
+ * resort. A file of the other figure system is refused, so a doll print can
+ * never land on a minifig head.
+ */
+export function printedHeadFor(rec: LxfPartRecord, printMap: LxfPrintTable | undefined): PrintedHead | null {
+  const kind = HEAD_DESIGNS[rec.designID];
+  if (!kind || !printMap || printMap.state !== 'ok') return null;
+  const system = (file: string): 'minifig' | 'minidoll' => (file.startsWith('92198') ? 'minidoll' : 'minifig');
+  const prints = [
+    ...(rec.elementIds ?? []).map(e => printMap.entries[`e:${e}`]),
+    rec.decorationId ? printMap.entries[`d:${rec.decorationId}`] : undefined,
+  ];
+  for (const file of prints) if (file && system(file) === kind) return { file, kind: 'print' };
+  for (const e of rec.elementIds ?? []) {
+    const file = printMap.entries[`n:${e}`];
+    if (file && system(file) === kind) return { file, kind: 'identity' };
+  }
+  return null;
 }
 
 /**
@@ -472,6 +557,11 @@ export function applyMeasuredBound(t: LxfMeasuredTable): LxfMeasuredTable {
 /** clego's MEASURED per-design correction (~163 KB) — the fallback alignment. */
 export function loadMeasuredAlign(): Promise<LxfMeasuredTable> {
   return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign).then(applyMeasuredBound);
+}
+
+/** The element/decoration → printed-head table (~25 KB). Optional: without it every head draws plain. */
+export function loadPrintMap(): Promise<LxfPrintTable> {
+  return loadTable(PRINT_MAP_URL, validatePrintRow);
 }
 
 /** Axis-angle (radians) → 3×3 row-major rotation matrix. */
@@ -748,6 +838,12 @@ export interface LxfPlacementOptions {
    * — the same A/B switch as clego's `DBIX_FIGURE_ALIGN=0`.
    */
   miniDoll?: boolean;
+  /**
+   * Draw a decorated head as its printed LDraw part (`printedHeadFor`). Absent
+   * (or unavailable) = every head is the plain mould, the pre-2026-09-24
+   * behaviour and the A/B baseline.
+   */
+  printMap?: LxfPrintTable;
 }
 
 /**
@@ -775,6 +871,8 @@ export function buildLxfPlacements(
   let classBReframed = 0;
   let dualMaterialPatterned = 0;
   let dualMaterialSplit = 0;
+  let printedHeads = 0;
+  let unresolvedHeadPrints = 0;
 
   for (const rec of records) {
     if (rec.boneCount > 1) multiBoneParts++;
@@ -803,6 +901,19 @@ export function buildLxfPlacements(
       unmapped.set(rec.designID, (unmapped.get(rec.designID) ?? 0) + 1);
       part = `${rec.designID}.dat`;
       placement = composeLxfPlacement(boneT.rBone, boneT.tBone, undefined);
+    }
+
+    // A decorated head becomes its printed LDraw part. Only the FILE changes:
+    // every accepted print is framed exactly like its base mould (checked by
+    // the generator), so the placement the design's own row produced stands,
+    // and the mini-doll correction below still finds `92198` behind `92198p18`.
+    // A head with no LDraw print keeps its identity as a BrickLink-style name
+    // that still draws as the plain mould.
+    if (HEAD_DESIGNS[rec.designID] && rec.decorationId) {
+      const printed = printedHeadFor(rec, options.printMap);
+      if (printed) part = printed.file;
+      if (printed?.kind === 'print') printedHeads++;
+      else if (options.printMap?.state === 'ok') unresolvedHeadPrints++;
     }
 
     // THE THIRD CASE: a mini-doll mould, which neither table corrects. The
@@ -875,6 +986,8 @@ export function buildLxfPlacements(
       classBReframed,
       dualMaterialPatterned,
       dualMaterialSplit,
+      printedHeads,
+      unresolvedHeadPrints,
       unmappedPlacements,
       unmappedDesignIds: [...unmapped.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -940,6 +1053,13 @@ export function describeLxfDiagnostics(d: LxfDiagnostics): string | null {
       "the upstream copy the viewer draws (same part, different origin/turn)",
     );
   }
+  if ((d.unresolvedHeadPrints ?? 0) > 0) {
+    parts.push(
+      `${d.unresolvedHeadPrints} decorated head${d.unresolvedHeadPrints === 1 ? '' : 's'} ` +
+      `ha${d.unresolvedHeadPrints === 1 ? 's' : 've'} no printed LDraw part and draw plain` +
+      ((d.printedHeads ?? 0) > 0 ? ` (${d.printedHeads} drawn with their own print)` : ''),
+    );
+  }
   if (d.skippedBadTransform > 0) parts.push(`${d.skippedBadTransform} malformed bone transforms skipped`);
   if (d.skippedNoBone > 0) parts.push(`${d.skippedNoBone} parts with no bone skipped`);
   return parts.length ? `LDD .lxf: ${parts.join('; ')}` : null;
@@ -972,9 +1092,12 @@ function readLxfParts(doc: Document): LxfPartRecord[] {
   // or assembly halves silently vanish.
   for (const brick of doc.querySelectorAll('Brick')) {
     const brickDesign = brick.getAttribute('designID');
+    const elementIds = (brick.getAttribute('itemNos') ?? '').split(',').map(s => s.trim()).filter(Boolean);
     for (const partEl of brick.querySelectorAll('Part')) {
       const bones = partEl.querySelectorAll('Bone');
       out.push({
+        elementIds,
+        decorationId: decorationIdOf(brick.getAttribute('decorationBriefId'), partEl.getAttribute('decoration')),
         designID: normalizeDesignId(partEl.getAttribute('designID')?.trim() || brickDesign),
         materialId: parseInt((partEl.getAttribute('materials') ?? '').split(',')[0], 10) || 194,
         materialIds: parseLxfMaterials(partEl.getAttribute('materials')),
@@ -1023,8 +1146,11 @@ export async function parseLxfWithDiagnostics(
 
   // Both tables in parallel — Studio's ldraw.xml columns are primary (and the
   // LDraw filename source), the measured correction is the fallback.
-  const [table, measured] = await Promise.all([loadPartMap(), loadMeasuredAlign()]);
-  const result = buildLxfPlacements(readLxfParts(doc), table, measured);
+  // The print table is optional: when it is missing every head draws plain.
+  const [table, measured, printMap] = await Promise.all([
+    loadPartMap(), loadMeasuredAlign(), loadPrintMap().catch(() => undefined),
+  ]);
+  const result = buildLxfPlacements(readLxfParts(doc), table, measured, { printMap });
   if (result.bricks.length === 0) throw new Error('No brick placements found in LXFML');
   return result;
 }
