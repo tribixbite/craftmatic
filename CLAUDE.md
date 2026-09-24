@@ -151,6 +151,18 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (the first as the player's hidden variant, the rest in the body). When a
   figure is missing from a pack, count where every source placement WENT —
   shell, NPC, car, rider — before reading the classifier.
+- **A head named `3626cpb<N>.dat` that no library ships is INTENTIONAL.** It is
+  the head's BrickLink print id in Studio's BL-copy form, written by the
+  converters (`ldd-print-map.json` `n:` rows) for a decorated LXFML head with
+  no LDraw print. Every reader strips `pb<N>` and draws plain `3626c`; face art
+  keys on the name (`gen-face-art.py`, `_playable_ref.ts --faces`). Do not
+  "fix" it back to `3626c`. A real print (`3626cp1t`, `92198p18`) comes from
+  the same table's `e:`/`d:` rows. Guide: bedrock-addon-guide "Accurate faces".
+- **A CLI build must ask the mirror for the EXACT part before a local alias.**
+  The local library is the 2020 Studio snapshot; its alias ladder turned
+  upstream-only prints (`3626cp1t`, every `92198p*`) into their plain mould
+  and the pack shipped blank heads. Fixed in `ldraw-geometry.ts` (`e09a0fa9`);
+  keep that order.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them

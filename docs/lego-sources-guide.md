@@ -355,6 +355,18 @@ ghost tires). Pipeline defenses (classifier extracted to
 - **LDCad shadow library** (SNAP metadata, 4255 `.dat`): `ldcad/unpacked/offLib/offLibShadow.csl` (a zip). Acquired from melkert.net LDCad 1.7 `shadow.sf` (zip → `offLibShadow.csl` zip). Snap format: `0 !LDCAD SNAP_CYL [gender=M|F] [secs=R <radius> <len>] [pos=...] [ori=...] [grid=...]`. Studs y=0 (M), anti-studs y=24 (F) in part space.
 - **Mecabricks parts**: `mecabricks_parts/geometries` (810 high-fidelity meshes) + `configs` (857; `geometry.extras.knobs`=studs, `tubes`=anti-studs, 456 populated). NOT used — LDraw already covers all parts; Mecabricks is a higher-fidelity SUBSET in ~2.5×-LDU Y-up coords. Only worth it for Mecabricks-grade fidelity (big lift, partial coverage).
 - `.io` AES decrypt (for offline model loading): WinZip AES-256, pw `soho0909`, PBKDF2-HMAC-SHA1 1000 iters, little-endian CTR (see `scripts/ldcad_connectivity.py` `read_io`).
+- **Element and print tables** (what a LEGO ELEMENT id is): Studio's
+  `extracted/studio_*/app/data/elementInfoList.json` (75,608 elements →
+  BrickLink item + BL colour; element 6454427 → `3626pb3484`), clego's
+  `elements.csv` (Rebrickable element → part), Studio's
+  `StudioPartDefinition2.txt` (BL item → LDraw file), a Studio BL copy's
+  `0 BL_Item_No` header, and the official library's `0 !KEYWORDS BrickLink … /
+  Rebrickable …` lines. `scripts/gen-ldd-print-map.py` joins them into
+  `web/public/ldd-print-map.json` (element / decoration → printed head, with a
+  frame check); clego's `dbix_print_heads.py` and `lxf-parser.ts` both read it.
+  BrickLink catalogue photos (`img.bricklink.com/ItemImage/PN/<colour>/<item>.png`)
+  and LEGO's element renders (`lego.com/cdn/product-assets/element.img.photoreal.192x192/<element>.jpg`)
+  answer plain fetches. See bedrock-addon-guide "Accurate faces".
 ## Model index schema 2 — MEASURED assembly metadata (2026-09-09)
 
 `lego-models-index.json` (built by clego `build_model_index.py`) stamps every
