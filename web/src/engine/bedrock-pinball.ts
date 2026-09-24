@@ -225,7 +225,10 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
       description: { identifier: typeId, is_spawnable: false, is_summonable: true },
       components: {
         'minecraft:type_family': { family: [PINBALL_FAMILY] },
-        'minecraft:persistent': {}, 'minecraft:nameable': {},
+        // The label ("... - Play pinball") floats above the pad at all times:
+        // an unmarked seat in front of a 20-block machine is not findable
+        // (device report 2026-09-24: "couldn't activate pinball controls").
+        'minecraft:persistent': {}, 'minecraft:nameable': { always_show: true, allow_name_tag_renaming: false },
         'minecraft:health': { value: 20, max: 20 },
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
         'minecraft:fire_immune': {},
@@ -233,7 +236,7 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
         'minecraft:physics': { has_gravity: false, has_collision: false },
         'minecraft:rideable': rideable,
       },
-    } }, collision, rideable),
+    } }, collision, rideable, { playerSized: true }),
     client: { format_version: '1.10.0', 'minecraft:client_entity': { description: {
       identifier: typeId, materials: { default: 'entity_alphatest' },
       textures: { default: 'textures/entity/craftmatic_pinball_console' }, geometry: { default: geometryId },
@@ -241,7 +244,12 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
     } } },
     geometry: { format_version: '1.12.0', 'minecraft:geometry': [{
       description: { identifier: geometryId, texture_width: 2, texture_height: 2, visible_bounds_width: 2, visible_bounds_height: 2, visible_bounds_offset: [0, 0.5, 0] },
-      bones: [{ name: 'root', pivot: [0, 0, 0], cubes: [] }],
+      // A visible pad (a flat yellow slab with a raised rim) marks the seat.
+      bones: [{ name: 'root', pivot: [0, 0, 0], cubes: [
+        { origin: [-8, 0, -8], size: [16, 1, 16], uv: [0, 0] },
+        { origin: [-8, 1, -8], size: [16, 2, 1], uv: [0, 0] },
+        { origin: [-8, 1, 7], size: [16, 2, 1], uv: [0, 0] },
+      ] }],
     }] },
   };
 }
@@ -303,7 +311,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     if (!console_) return;
     let game = games.get(key);
     if (!game) {
-      game = { sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN), best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0 };
+      game = { sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN), best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0, hint: 0 };
       games.set(key, game);
     }
     let rider: any;
@@ -325,7 +333,10 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         // x > 0 is a left strafe in Minecraft's convention; forward works both.
         left = x > 0.3 || y > 0.3;
         right = x < -0.3 || y > 0.3;
-        launch = !!(rider.isJumping || rider.inputInfo?.getButtonState?.('Jump') === 'Pressed');
+        // The plunger: pull the stick BACK and release, like the real one. A
+        // phone shows no Jump button while riding a seat that is not a
+        // vehicle, so Jump alone could not launch on touch; it still works.
+        launch = y < -0.4 || !!(rider.isJumping || rider.inputInfo?.getButtonState?.('Jump') === 'Pressed');
       } catch {}
     }
     const events = game.sim.step({ left, right, launch }, 0.05);
@@ -360,10 +371,23 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         if (st.score > game.best) { game.best = st.score; try { console_.setDynamicProperty(KEY + 'best', game.best); } catch {} sound(dim, 'random.levelup', at, 1); }
       }
     }
+    // A player standing near the pad but not seated gets told how to start.
+    if (!rider && ++game.hint % 20 === 0) {
+      try {
+        const c = console_.location;
+        for (const pl of world.getPlayers()) {
+          const l = pl.location;
+          if (pl.dimension?.id && dim.id && pl.dimension.id !== dim.id) continue;
+          if (Math.hypot(l.x - c.x, l.z - c.z) < 5 * Math.max(1, g.scale) && Math.abs(l.y - c.y) < 4) {
+            pl.onScreenDisplay.setActionBar(`§e${config.label}§r - tap the yellow pad to play pinball`);
+          }
+        }
+      } catch {}
+    }
     if (rider && (++game.hud % 4 === 0 || events.length)) {
       let line: string;
-      if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - Jump for a new game`;
-      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - hold Jump to charge, release to launch ${'|'.repeat(Math.round(st.charge * 10))}`;
+      if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - pull back for a new game`;
+      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - pull back (or hold Jump) to charge, release to launch ${'|'.repeat(Math.round(st.charge * 10))}`;
       else line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - left/right flippers, forward both, sneak to leave`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }

@@ -69,6 +69,13 @@ OUT = Path(r'C:\git\craftmatic\web\public\ldd-part-map.json')
 #          library.ldraw.org files as the 93230 family (`93230p03.dat`);
 #          Studio maps LDD 93230 -> 93230.dat at identity. The ear colour
 #          picks the pattern file in lxf-parser.ts `DUAL_MATERIAL_PATTERNS`.
+# Studio rows that substitute a DIFFERENT-SHAPED part, refused (same list as
+# clego reconvert_dbix.py SUBSTITUTE_DENYLIST). 77083 is a "Grille Bar
+# 1 x 4 x 1 2/3 Bull Bar, Squared" (a coaster lap bar); Studio draws it as
+# 20309, a solid half-round window, which showed on 42703's cars as black "D"
+# shapes on the device (2026-09-24). TODO: author an LDraw part for 77083.
+SUBSTITUTE_DENYLIST = {'77083'}
+
 CURATED_ROWS: dict[str, list] = {
     '68498': ['93230.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
 }
@@ -206,6 +213,8 @@ def main():
 
     from_ldraw_xml = len(part_map)
     filled, skipped_measured, skipped_bl, skipped_missing = fill_from_lxfv56(part_map)
+    for lego in SUBSTITUTE_DENYLIST:
+        part_map.pop(lego, None)
     curated = 0
     for lego, row in CURATED_ROWS.items():
         if lego not in part_map:

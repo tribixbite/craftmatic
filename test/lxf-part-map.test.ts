@@ -435,9 +435,12 @@ describe('shipped part map includes the lxfv56-only rows', () => {
   const table = JSON.parse(readFileSync(join(__dirname, '..', 'web', 'public', 'ldd-part-map.json'), 'utf8')) as Record<string, [string, ...number[]]>;
   it.each([
     ['25059', '25059.dat'], ['80566', '80566.dat'],
-    ['80133', '2430.dat'], ['80134', '2429.dat'], ['77083', '20309.dat'],
+    ['80133', '2430.dat'], ['80134', '2429.dat'],
   ])('%s -> %s', (id, file) => {
     expect(table[id]?.[0]).toBe(file);
+  });
+  it('refuses the 77083 bull bar -> 20309 half-round window substitute', () => {
+    expect(table['77083']).toBeUndefined();
   });
 });
 

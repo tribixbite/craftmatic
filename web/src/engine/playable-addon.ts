@@ -2181,7 +2181,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${bp}entities/${cid}.json`, data: json(ca.behavior) },
                 { name: `${rp}entity/${cid}.entity.json`, data: json(ca.client) },
                 { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(ca.geometry) },
-                { name: `${rp}textures/entity/craftmatic_pinball_console.png`, data: transparentPng() },
+                // Solid LEGO yellow, so the pad reads as the thing to tap.
+                { name: `${rp}textures/entity/craftmatic_pinball_console.png`, data: generateLegoMaterialSwatch(resolveLdrawEntityMaterial(14), { pbr: false, textureName: 'craftmatic_pinball_console' }).colorPng },
             );
             addEntityName(consoleType, `${label} - Play pinball`, false);
             actors.push({ typeId: consoleType, label: `${label} - Play pinball`, x: plan.consoleModel[0], y: plan.consoleModel[1], z: plan.consoleModel[2], yaw: plan.consoleYaw, pinball: true });

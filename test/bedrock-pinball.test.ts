@@ -99,6 +99,16 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.player.camera.clear).toHaveBeenCalledTimes(1);
   });
 
+  it('pulling the stick back charges the plunger and releasing launches (no Jump button on a phone seat)', () => {
+    const h = harness();
+    h.sit();
+    h.input.y = -1; h.run(10);
+    h.input.y = 0; h.run(1);
+    const z0 = h.ball.teleport.mock.calls.at(-1)![0].z;
+    h.run(4);
+    expect(h.ball.teleport.mock.calls.at(-1)![0].z).toBeLessThan(z0);
+  });
+
   it('a left strafe raises only the left flipper; forward raises both', () => {
     const h = harness();
     h.sit();
