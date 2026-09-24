@@ -56,6 +56,18 @@ const fetchPartText = async (id: string): Promise<string | null> => {
   return LIBRARY[key] ?? null;
 };
 
+describe('descriptionOf', () => {
+  it('reads the description behind a `0 FILE` header, as Studio writes a quarter of its unofficial parts', async () => {
+    const { descriptionOf } = await import('../web/src/engine/ldraw-part-geometry.js');
+    expect(descriptionOf('0 Minifig Head\n0 Name: 3626c.dat')).toBe('Minifig Head');
+    expect(descriptionOf('0 FILE 37777.dat\n0 Torso Large, Long Coat\n0 Name:  37777.dat')).toBe('Torso Large, Long Coat');
+    expect(descriptionOf('0 FILE 93230p04.dat\r\n0 Minifigure, Hair Swept Back with Pointed Light Nougat Ears Pattern\r\n')).toBe('Minifigure, Hair Swept Back with Pointed Light Nougat Ears Pattern');
+    expect(descriptionOf('0 FILE lonely.dat')).toBe('');
+    // An alias mark survives (it means moved/alias to the callers).
+    expect(descriptionOf('0 ~Moved to 3820')).toBe('~Moved to 3820');
+  });
+});
+
 describe('createPartGeometryProvider', () => {
   it('normalizes Studio inherited colours through triangles, quads and child references', async () => {
     const provider = createPartGeometryProvider({ fetchPartText: async (id) => id === 'studio'

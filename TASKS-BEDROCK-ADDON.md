@@ -141,7 +141,27 @@ at a render against the box art before shipping; "ragged" is a defect.
 - [ ] 76417's dragon: `<Explode>` refID 295 lifts 454 parts 47.8 units but
   would leave a -22 unit gap, so it is refused; the dragon stands beside the
   bank. Find the move that seats it (a second frame, or bags 11-12).
-- [ ] Mini-dolls (42703's) are not rigged, so they stay in the shell.
+
+### Figures round 2026-09-24b (faces, hair, Hagrid, mermaids) — device check open
+
+Fixed offline (guide: "Figures on the device (2026-09-24)"), packs rebuilt
+under `output/device-round-2026-09-24b/after/`, before/after renders
+`output/device-round-2026-09-24b/figures-*.png`:
+- [ ] **Device check** on 76417 + 42703: faces drawn (0.9 LDU decals),
+  goblin hair without stripes, Hagrid whole (coat, short legs, hands, umbrella)
+  and walking with arms only, the five dolls as NPCs with tails below the
+  hips, the fifth doll with a synthesised `92241` torso.
+- [ ] Mini-doll walk: its one-piece legs ride `hips` and never swing; a
+  per-system animation set (legs as one at the hip) is the fix.
+- [ ] Hulk-class big-figs (`10128` body, `10124`/`10154` arms, `10126`/`10127`
+  hands) are unmeasured; `BIGFIG_CANON` is Hagrid's (`37777`) geometry.
+- [ ] Olive-green goblins: the DBIX LXFML gives 76417's heads AND ear-hair
+  material 283 (Light Nougat), the `.io` agrees; the pipeline never sees
+  330. Decide against the real set (BrickLink 403s plain fetches) and, if
+  olive, fix it in clego's `reconvert_dbix.py` material table — a SOURCE
+  change, then republish.
+- [ ] Real faces: map LDD `decoration` ids to LDraw printed heads in the
+  converter so figures get their own faces, not the default one.
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 

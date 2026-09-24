@@ -156,11 +156,31 @@ interface RawMesh {
 
 const MAX_DEPTH = 12;
 
-/** The LDraw description: the file's first line with the `0 ` stripped (a `~`/`=` alias mark is kept - it means moved/alias). */
+/**
+ * The LDraw description: the file's first line with the `0 ` stripped (a
+ * `~`/`=` alias mark is kept - it means moved/alias).
+ *
+ * Studio's `UnOfficial/parts` library writes 5,605 of its 22,692 files as
+ * one-section MPDs whose FIRST line is `0 FILE <name>.dat` and whose
+ * description is the SECOND (`37777.dat`: `0 FILE 37777.dat` / `0 Torso
+ * Large, Long Coat …`). Read literally, the description of every one of them
+ * was `FILE 37777.dat`, which no figure classifier matches: Hagrid's big-fig
+ * torso, arms and hair, the goblins' `93230p04` ear-hair and every mini-doll
+ * hair in 42703 were nameless, so they fell out of their figures into the
+ * building shell (Pixel 8 Pro, 2026-09-24). The header names the file, not
+ * the part: skip it, as `scripts/gen-minidoll-slots.ts` already did.
+ */
 export function descriptionOf(text: string): string {
-  const nl = text.indexOf('\n');
-  const first = (nl < 0 ? text : text.slice(0, nl)).replace(/\r$/, '').trim();
-  return first.replace(/^0\s*/, '').trim();
+  let rest = text;
+  for (let hops = 0; hops < 2; hops++) {
+    const nl = rest.indexOf('\n');
+    const first = (nl < 0 ? rest : rest.slice(0, nl)).replace(/\r$/, '').trim();
+    const stripped = first.replace(/^0\s*/, '').trim();
+    if (!/^FILE\s/i.test(stripped)) return stripped;
+    if (nl < 0) return '';
+    rest = rest.slice(nl + 1);
+  }
+  return '';
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────

@@ -137,6 +137,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   translations; `bun scripts/_coaster_frame_measure.ts` derives a new one and
   `_coaster_mould_audit.ts` exits 1 on any placed id whose design IS profiled
   under a sibling name.
+- **A quarter of Studio's `UnOfficial/parts` files start with `0 FILE
+  <name>.dat`; the description is the SECOND line.** 5,605 of 22,692. Read
+  the first line and Hagrid's `Torso Large`, the `Arm Large with Pin` arms,
+  the goblins' `93230p04` ear-hair and every mini-doll hair are `FILE …` to
+  every classifier — which is why they fell out of their figures into the
+  building shell (2026-09-24). `descriptionOf` skips the header; anything
+  else that reads a part's first line must too.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them

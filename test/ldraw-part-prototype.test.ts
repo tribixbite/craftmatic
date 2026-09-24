@@ -169,6 +169,37 @@ describe('compilePartPrototype', () => {
     expect(shell.metrics.fill).toBeLessThan(0.6);
   });
 
+  it('keeps a thin tilted shell whole with preserveSurface, where the majority rule leaves holes', () => {
+    // A hair-like cap: a 1 LDU thick slab, 40 wide, leaning 45° so it crosses
+    // the 2 LDU lattice diagonally (the majority rule keeps half its cells).
+    // Every surface triangle should land inside a cuboid.
+    const c = Math.cos(Math.PI / 4), s = Math.sin(Math.PI / 4);
+    const P = (x: number, u: number, v: number): Vec3 => [x, u * c - v * s, u * s + v * c];
+    const t: LdrawTriangle[] = [];
+    for (let i = -20; i < 20; i += 4) {
+      t.push(...quad(P(i, -20, 0), P(i + 4, -20, 0), P(i + 4, 20, 0), P(i, 20, 0)));
+      t.push(...quad(P(i, -20, 1), P(i + 4, -20, 1), P(i + 4, 20, 1), P(i, 20, 1)));
+    }
+    const m = mesh('cap', t);
+    const inside = (p: { cuboids: Array<{ min: Vec3; max: Vec3 }> }): number => {
+      let hit = 0;
+      for (const tri of t) {
+        const cx = (tri.a[0] + tri.b[0] + tri.c[0]) / 3, cy = (tri.a[1] + tri.b[1] + tri.c[1]) / 3, cz = (tri.a[2] + tri.b[2] + tri.c[2]) / 3;
+        if (p.cuboids.some(b => cx >= b.min[0] - 1e-6 && cx <= b.max[0] + 1e-6 && cy >= b.min[1] - 1e-6 && cy <= b.max[1] + 1e-6 && cz >= b.min[2] - 1e-6 && cz <= b.max[2] + 1e-6)) hit++;
+      }
+      return hit / t.length;
+    };
+    const majority = compilePartPrototype(m, Q2, { hollow: true });
+    const preserved = compilePartPrototype(m, Q2, { hollow: true, preserveSurface: true });
+    expect(inside(majority)).toBeLessThan(1);
+    expect(inside(preserved)).toBe(1);
+    // Cached separately from the majority build.
+    const cache = createPrototypeCache();
+    cache.get(m, Q2, { hollow: true });
+    cache.get(m, Q2, { hollow: true, preserveSurface: true });
+    expect(cache.size).toBe(2);
+  });
+
   it('gives a printed face its own cuboids in the explicit colour', () => {
     const t = [...box(-10, 10, -24, 0, -10, 10), ...quad([-8, -20, -10], [8, -20, -10], [8, -4, -10], [-8, -4, -10], 4)];
     const p = compilePartPrototype(mesh('printed', t), Q);

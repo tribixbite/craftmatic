@@ -41,6 +41,16 @@
  *     recommendation, or 100 without one). Every position sampled off
  *     `window.__addonWalk` (console, ball, flippers) is read AFTER this, so
  *     it is correct at any size.
+ *   --url=<base>: the dev server to drive (default http://localhost:4000).
+ *     A worktree's own `bun dev:web -- --port N --strictPort` renders ITS
+ *     code; the main checkout's server on 4000 renders the main checkout's.
+ *   --figure=<n|text>: "figures" mode only — the n-th figure marker
+ *     (0-based) or the first whose label contains the text, instead of the
+ *     first figure.
+ *   --view=front|back: "figures" mode only — put the camera on the side the
+ *     figure faces (front, the default: faces and prints) or behind it.
+ *   --distance=<blocks>: "figures" mode only — how far from the figure the
+ *     camera stands (default 2.4; a big-fig or a 150 % pack wants 3.5-4).
  */
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
@@ -72,7 +82,8 @@ const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
 page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 160)}`); });
 
-await page.goto('http://localhost:4000/?tab=lego', { waitUntil: 'domcontentloaded' });
+const baseUrl = (flags.get('url') ?? 'http://localhost:4000').replace(/\/$/, '');
+await page.goto(`${baseUrl}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-addon-walk-file', { state: 'attached', timeout: 30000 });
 await page.setInputFiles('#lego-addon-walk-file', resolve(packPath));
 
@@ -149,21 +160,31 @@ if (mode === 'flyout') {
   await page.evaluate(() => { const btn = document.querySelector('[data-act="reach"]'); if (btn instanceof HTMLElement && btn.getAttribute('aria-pressed') === 'true') btn.click(); });
   await page.waitForTimeout(100);
 
-  const placed = await page.evaluate(() => {
+  const which = flags.get('figure') ?? '0';
+  const view = flags.get('view') === 'back' ? 'back' : 'front';
+  const distance = Number(flags.get('distance') ?? 2.4);
+  const placed = await page.evaluate(({ which, view, distance }) => {
     const w = window.__addonWalk;
     if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
-    const marker = w.markers.find(m => m.entity.kind === 'figure');
-    if (!marker) return { ok: false, reason: 'no figure marker in this pack' };
+    const figures = w.markers.filter(m => m.entity.kind === 'figure');
+    const marker = /^\d+$/.test(which) ? figures[Number(which)] : figures.find(m => (m.entity.label ?? '').includes(which));
+    if (!marker) return { ok: false, reason: `no figure marker "${which}" in this pack (${figures.length} figures)` };
     const at = marker.at;
-    // Camera due +Z of the figure at eye height, facing yaw 0 (this codebase's
-    // convention: yaw 0 looks down -Z, so a camera at larger z than its target
-    // faces it with no trigonometry needed).
-    w.state = { ...w.state, x: at.x, y: at.y + 0.9, z: at.z + 2.4, vx: 0, vy: 0, vz: 0 };
+    // The entity's forward is -Z turned by its yaw (plus the placement's
+    // quarter turns, as the walk applies to its holder); "front" puts the
+    // camera 2.4 blocks along that forward and looks back at the figure, so
+    // the face and the prints are in view. This codebase's camera yaw 0 looks
+    // down -Z, so looking back along the forward is the entity yaw plus a
+    // half turn.
+    const yaw = ((marker.entity.yaw ?? 0) + (w.rotation ?? 0) * 90) * Math.PI / 180;
+    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
+    const sign = view === 'front' ? 1 : -1;
+    w.state = { ...w.state, x: at.x + fx * distance * sign, y: at.y + 0.9 * (distance / 2.4), z: at.z + fz * distance * sign, vx: 0, vy: 0, vz: 0 };
     w.prevState = w.state;
-    w.yaw = 0;
+    w.yaw = view === 'front' ? yaw + Math.PI : yaw;
     w.pitch = -0.15;
-    return { ok: true, label: marker.entity.label, hasRealGeometry: marker.hasRealGeometry, at: { x: at.x, y: at.y, z: at.z } };
-  });
+    return { ok: true, label: marker.entity.label, view, hasRealGeometry: marker.hasRealGeometry, at: { x: at.x, y: at.y, z: at.z }, figures: figures.length };
+  }, { which, view, distance });
   await page.waitForTimeout(400);
   await page.screenshot({ path: outPath });
   await browser.close();

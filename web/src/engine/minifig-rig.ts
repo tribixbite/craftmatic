@@ -40,8 +40,25 @@ import { partStem } from './part-id.js';
 export type MinifigSlot =
   | 'torso' | 'head' | 'headwear' | 'back'
   | 'arm_right' | 'arm_left' | 'hand_right' | 'hand_left'
-  | 'hips' | 'hips_legs' | 'leg_right' | 'leg_left'
+  | 'hips' | 'hips_legs' | 'legs' | 'leg_right' | 'leg_left'
   | 'held' ;
+
+/**
+ * The three LEGO figure skeletons the rig knows. Each has its own joint
+ * offsets, and a part of one system never belongs on another's rig:
+ *  - `minifig`: the classic 96 LDU figure (head 24 above the torso, arms at
+ *    ±15.552, hips 32, legs 44);
+ *  - `minidoll`: LEGO Friends (head 33.2, arms ±11, hips 29.4, one-piece legs
+ *    47.4 below the hips) — measured on the library's own composites
+ *    (`92456` = torso + arms at ±11) and the parts' `!HELP` origin notes
+ *    (`92248` "Torso position: Y=-29.4, Z=1.2", `92251`/`16529` "Hips
+ *    Rotation point: Y=-47.4, Z=2.7");
+ *  - `bigfig`: Hagrid / Hulk class — one body mould with the legs, two
+ *    "Arm Large with Pin" arms on the torso's shoulder pins (`37777` places
+ *    its `peghole` primitives at ±20, 9.5, 0) and a hair-with-beard piece
+ *    that IS the head, on the neck stud 24 above the torso origin.
+ */
+export type FigureSystem = 'minifig' | 'minidoll' | 'bigfig';
 
 /** A bone of the figure rig: name, parent and pivot in the figure frame (LDU). */
 export interface RigBone {
@@ -82,8 +99,29 @@ export interface AssembledMinifig {
   slots: MinifigSlot[];
   /** Torso's −Z through the source placement, horizontal unit (x, z) in the SOURCE frame. */
   facingLdu: [number, number];
-  /** The source torso's transform: what maps the figure frame back into the source. */
+  /**
+   * The figure frame's transform into the source: the torso's rotation, and
+   * its position AFTER any re-anchoring (`reanchoredLdu`), so it is where the
+   * assembled figure actually stands, not where a mis-converted torso sat.
+   */
   torso: { position: Vec3; rotation: number[] };
+  /** Which skeleton the figure was assembled on. */
+  system: FigureSystem;
+  /**
+   * Set when the torso disagreed with the rest of the body: the offset (torso
+   * frame, LDU) by which the frame was moved to the limbs' consensus. 76417's
+   * `37777` big-fig torso has no LDD→LDraw alignment row, so the converter
+   * left it at its raw LDD origin, 10 / −70.5 LDU from where its own arms and
+   * hair say the shoulders are; anchoring on that torso put Hagrid's body in
+   * the ground and his hair and arms in the air (Pixel 8 Pro, 2026-09-24).
+   */
+  reanchoredLdu?: Vec3;
+  /**
+   * Feet level of the ASSEMBLED figure, figure-frame LDU (the lowest point of
+   * its body moulds): `MINIFIG_FEET_Y` for a standard minifig, the short-leg
+   * mould's own bottom for a child, the body mould's for a big-fig.
+   */
+  feetY: number;
 }
 
 type Mat3 = readonly number[];
@@ -97,6 +135,11 @@ const apply = (m: Mat3, v: Vec3): Vec3 => [
 ];
 const add = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 const sub = (a: Vec3, b: Vec3): Vec3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+/** The eight corners of an axis-aligned box. */
+const cornersOf = (lo: Vec3, hi: Vec3): Vec3[] => [
+  [lo[0], lo[1], lo[2]], [hi[0], lo[1], lo[2]], [lo[0], hi[1], lo[2]], [hi[0], hi[1], lo[2]],
+  [lo[0], lo[1], hi[2]], [hi[0], lo[1], hi[2]], [lo[0], hi[1], hi[2]], [hi[0], hi[1], hi[2]],
+];
 const r3 = (v: number): number => { const r = Math.round(v * 1000) / 1000; return r === 0 ? 0 : r; };
 
 const C10 = Math.cos(10 * Math.PI / 180), S10 = Math.sin(10 * Math.PI / 180);
@@ -125,6 +168,65 @@ export const MINIFIG_CANON = {
 /** Feet of a standing minifig, torso-local (the legs' 28 LDU below their 44 origin). */
 export const MINIFIG_FEET_Y = 72;
 
+/** A slot's canonical placement in a figure system's torso frame. */
+interface CanonPose { position: Vec3; rotation: Mat3 }
+type SystemCanon = Partial<Record<MinifigSlot, CanonPose>>;
+
+/**
+ * The mini-doll skeleton, torso-local LDU. Head 33.2 above the torso; arms
+ * on the shoulder pins at ±11 (`92456` = `92241` + `92244` at +11 + `92245`
+ * at −11); hips 29.4 below and 1.2 forward (`92248`'s `!HELP`); the one-piece
+ * legs 47.4 below the hips and 2.7 further forward (`92251`, `16529`); a
+ * held item sits at ∓25.9, 29.7, −4 — where 42703's two dolls hold their
+ * microphones (both at exactly that offset). Dolls have no hand mould: the
+ * hand slots exist so a held item has a bone, on the arm.
+ */
+export const MINIDOLL_CANON: SystemCanon = {
+  torso: { position: [0, 0, 0], rotation: IDENTITY },
+  head: { position: [0, -33.2, 0], rotation: IDENTITY },
+  arm_right: { position: [-11, 0, 0], rotation: IDENTITY },
+  arm_left: { position: [11, 0, 0], rotation: IDENTITY },
+  hand_right: { position: [-25.9, 29.7, -4], rotation: IDENTITY },
+  hand_left: { position: [25.9, 29.7, -4], rotation: IDENTITY },
+  hips: { position: [0, 29.4, -1.2], rotation: IDENTITY },
+  hips_legs: { position: [0, 29.4, -1.2], rotation: IDENTITY },
+  legs: { position: [0, 76.8, -3.9], rotation: IDENTITY },
+};
+
+/**
+ * The big-fig skeleton, torso-local LDU: the body mould carries the legs, the
+ * arms pin to the shoulders at ±20, 9.5, 0 (`37777`'s `peghole` primitives),
+ * and the hair-with-beard piece sits on the neck stud at −24 exactly like a
+ * minifig head — 76417's Hagrid places `37784` 24.0 LDU above the shoulder
+ * line its arms define. A held item hangs off the arm's end.
+ * # TODO: measure the older Hulk-class body (`10128`, arms `10124`/`10154`,
+ * separate hands `10126`/`10127`); no corpus set with one has been checked.
+ */
+export const BIGFIG_CANON: SystemCanon = {
+  torso: { position: [0, 0, 0], rotation: IDENTITY },
+  head: { position: [0, -24, 0], rotation: IDENTITY },
+  arm_right: { position: [-20, 9.5, 0], rotation: IDENTITY },
+  arm_left: { position: [20, 9.5, 0], rotation: IDENTITY },
+  // The arms end in ordinary minifig hands: 76417's Hagrid holds his at
+  // ∓36.5, 33.9, 3.3 from the shoulder line.
+  hand_right: { position: [-36.5, 33.9, 3.3], rotation: IDENTITY },
+  hand_left: { position: [36.5, 33.9, 3.3], rotation: IDENTITY },
+  // Under the coat: ordinary minifig legs (Hagrid wears short legs 41879 in
+  // dark brown, 64 LDU below the torso origin - 88 to the feet; the coat's
+  // own bottom is at 71). Hips-and-legs at 64; separate hips/legs keep the
+  // minifig's 12 LDU hips-to-legs step.
+  hips_legs: { position: [0, 64, 0], rotation: IDENTITY },
+  hips: { position: [0, 64, 0], rotation: IDENTITY },
+  leg_right: { position: [0, 76, 0], rotation: IDENTITY },
+  leg_left: { position: [0, 76, 0], rotation: IDENTITY },
+};
+
+const SYSTEM_CANON: Record<FigureSystem, SystemCanon> = {
+  minifig: MINIFIG_CANON as SystemCanon,
+  minidoll: MINIDOLL_CANON,
+  bigfig: BIGFIG_CANON,
+};
+
 /** The default moulds the rig supplies when a source lacks them. */
 export const MINIFIG_DEFAULT_PARTS = {
   head: '3626c', torso: '973', hips: '3815', leg_right: '3816', leg_left: '3817',
@@ -146,12 +248,57 @@ export const MINIFIG_BONES: readonly RigBone[] = [
   { name: 'leg_left', parent: 'hips', pivotLdu: [0, 44, 0] },
 ];
 
+/**
+ * The mini-doll's bones: the same names as the minifig's (so one animation
+ * file drives every figure — walk swings `arm_*`, look turns `head`), with
+ * pivots at the doll's joints. The one-piece legs ride `hips`, so a doll
+ * walks stiff-legged and does not bend to sit.
+ * # TODO: a per-system animation set (the doll's legs swing as one at the hip).
+ */
+export const MINIDOLL_BONES: readonly RigBone[] = [
+  { name: 'body', pivotLdu: [0, 0, 0] },
+  { name: 'head', parent: 'body', pivotLdu: [0, -33.2, 0] },
+  { name: 'arm_right', parent: 'body', pivotLdu: [-11, 0, 0] },
+  { name: 'arm_left', parent: 'body', pivotLdu: [11, 0, 0] },
+  { name: 'hand_right', parent: 'arm_right', pivotLdu: [-25.9, 29.7, -4] },
+  { name: 'hand_left', parent: 'arm_left', pivotLdu: [25.9, 29.7, -4] },
+  { name: 'hips', parent: 'body', pivotLdu: [0, 29.4, -1.2] },
+];
+
+/** The big-fig's bones: body, the head on the neck, two pinned arms with hands, the legs under the coat. */
+export const BIGFIG_BONES: readonly RigBone[] = [
+  { name: 'body', pivotLdu: [0, 0, 0] },
+  { name: 'head', parent: 'body', pivotLdu: [0, -24, 0] },
+  { name: 'arm_right', parent: 'body', pivotLdu: [-20, 9.5, 0] },
+  { name: 'arm_left', parent: 'body', pivotLdu: [20, 9.5, 0] },
+  { name: 'hand_right', parent: 'arm_right', pivotLdu: [-36.5, 33.9, 3.3] },
+  { name: 'hand_left', parent: 'arm_left', pivotLdu: [36.5, 33.9, 3.3] },
+  { name: 'hips', parent: 'body', pivotLdu: [0, 64, 0] },
+  { name: 'leg_right', parent: 'hips', pivotLdu: [0, 76, 0] },
+  { name: 'leg_left', parent: 'hips', pivotLdu: [0, 76, 0] },
+];
+
+const SYSTEM_BONES: Record<FigureSystem, readonly RigBone[]> = { minifig: MINIFIG_BONES, minidoll: MINIDOLL_BONES, bigfig: BIGFIG_BONES };
+
 const SLOT_BONE: Record<MinifigSlot, string> = {
   torso: 'body', head: 'head', headwear: 'head', back: 'body',
   arm_right: 'arm_right', arm_left: 'arm_left', hand_right: 'hand_right', hand_left: 'hand_left',
-  hips: 'hips', hips_legs: 'hips', leg_right: 'leg_right', leg_left: 'leg_left',
+  hips: 'hips', hips_legs: 'hips', legs: 'hips', leg_right: 'leg_right', leg_left: 'leg_left',
   held: 'body',
 };
+
+/** The slots that stand on the floor: their lowest point is where the figure's feet are. */
+const FLOOR_SLOTS: ReadonlySet<MinifigSlot> = new Set<MinifigSlot>(['torso', 'hips', 'hips_legs', 'legs', 'leg_right', 'leg_left']);
+
+/**
+ * Slots whose canonical placement is EXACT for the system, so a source part in
+ * that slot votes on where the figure frame is (see the re-anchoring in
+ * `assembleMinifig`). Hands, held items and headwear are posed or offset by
+ * design and do not vote.
+ */
+const ANCHOR_SLOTS: ReadonlySet<MinifigSlot> = new Set<MinifigSlot>(['torso', 'head', 'arm_right', 'arm_left', 'hips', 'hips_legs', 'legs', 'leg_right', 'leg_left']);
+/** Two parts agree on the frame origin when their implied origins are this close (LDU). */
+const ANCHOR_AGREE_LDU = 4;
 
 const cleanId = (part: string): string => partStem(part);
 /** `bl_973pb5574c01_torso` → `973pb5574c01`; a print suffix stays (it still names the mould family). */
@@ -197,6 +344,11 @@ export const mouldFamilyId = (part: string, description: string): string =>
 export function classifyMinifigPart(part: string, description: string): MinifigSlot | null {
   const d = stripAlias(description);
   const id = mouldFamilyId(part, description);
+  // Big-fig moulds fill minifig slots (they are re-placed on the BIGFIG canon).
+  if (isBigFigTorsoDescription(d)) return 'torso';
+  if (/^(Arm Large\b.*\bRight\b|Bigfig Arm Right\b)/i.test(d)) return 'arm_right';
+  if (/^(Arm Large\b.*\bLeft\b|Bigfig Arm Left\b)/i.test(d)) return 'arm_left';
+  if (/^Bigfig Hand\b/i.test(d)) return 'hand_right'; // side decided by position
   if (/^Minifig Torso\b/i.test(d) || /^(973|3814|76382)(?![0-9])/.test(id) || /_torso$/.test(cleanId(part))) return 'torso';
   if (/^Minifig Hips and Legs\b/i.test(d) || /^Minifig Legs\b/i.test(d) || /^(970c|3815c|41879|16968)/.test(id) || /_legs$/.test(cleanId(part))) return 'hips_legs';
   if (/^Minifig Hips\b/i.test(d) || /^(970|3815)(?![0-9])/.test(id) || /_hips$/.test(cleanId(part))) return 'hips';
@@ -287,6 +439,63 @@ export function classifyMiniDollPart(part: string, description: string): MiniDol
   return null;
 }
 
+/**
+ * A big-fig body: LDraw's `Bigfig … Body` (Hulk class) or Studio's `Torso
+ * Large, …` (Hagrid class). Both carry the legs; neither has a separate head.
+ */
+const isBigFigTorsoDescription = (stripped: string): boolean =>
+  /^(Torso Large\b|Bigfig\b.*\bBody\b|Bigfig Figure\b)/i.test(stripped);
+
+/**
+ * Which figure system a TORSO belongs to, or null when the part is not a
+ * torso of any system. The anchor of every figure group: `groupFigures` looks
+ * for these, and the answer picks the canon the group is assembled on.
+ */
+export function figureSystemOfTorso(part: string, description: string): FigureSystem | null {
+  const d = stripAlias(description);
+  if (isBigFigTorsoDescription(d)) return 'bigfig';
+  const doll = classifyMiniDollPart(part, description);
+  if (doll === 'doll_torso' || doll === 'doll_torso_arms' || doll === 'doll_body') return 'minidoll';
+  if (doll !== null) return null;
+  return classifyMinifigPart(part, description) === 'torso' ? 'minifig' : null;
+}
+
+/**
+ * The rig slot a mini-doll part fills. The doll's one-piece legs take the
+ * `legs` slot (a single mould on the hips bone); a torso that carries its arms
+ * or a baby body is a torso with nothing to hang arms on.
+ */
+function dollRigSlot(doll: MiniDollSlot): MinifigSlot {
+  switch (doll) {
+    case 'doll_head': return 'head';
+    case 'doll_torso': case 'doll_torso_arms': case 'doll_body': return 'torso';
+    case 'doll_hips_legs': return 'hips_legs';
+    case 'doll_hips': return 'hips';
+    case 'doll_leg': return 'legs';
+    case 'doll_arm': return 'arm_right'; // side decided by position
+    case 'doll_hair': return 'headwear';
+  }
+}
+
+/**
+ * The slot a part fills on a figure of `system`, or null when the part
+ * belongs to a different system (kept where the source put it). A minifig
+ * part in a doll's group is as foreign as a doll part in a minifig's.
+ */
+export function classifyFigurePart(system: FigureSystem, part: string, description: string): MinifigSlot | null {
+  const doll = classifyMiniDollPart(part, description);
+  if (system === 'minidoll') {
+    if (doll !== null) return dollRigSlot(doll);
+    const slot = classifyMinifigPart(part, description);
+    // Minifig body moulds are foreign; accessories (hair the library files as
+    // `Minifig Hair`, a held microphone, a cape) are shared vocabulary.
+    if (slot === null) return null;
+    return slot === 'headwear' || slot === 'held' || slot === 'back' ? slot : null;
+  }
+  if (doll !== null) return null;
+  return classifyMinifigPart(part, description);
+}
+
 interface SourcePart { brick: ParsedBrick; slot: MinifigSlot; local: Vec3; rot: number[]; desc: string }
 
 const placeAt = (part: string, color: number, position: Vec3, rotation: Mat3): ParsedBrick => ({
@@ -294,15 +503,99 @@ const placeAt = (part: string, color: number, position: Vec3, rotation: Mat3): P
 });
 
 /**
- * Assemble the figure a torso group describes. `parts` are the group's
- * placements in the SOURCE frame (world LDraw); the torso must be among them.
+ * Where a source part says the figure frame's origin is, in the torso frame:
+ * its own position minus its slot's canonical one. Parts of every slot in
+ * `ANCHOR_SLOTS` vote; the torso votes 0 for itself.
  */
-export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): AssembledMinifig {
+function impliedOrigin(canon: SystemCanon, s: SourcePart): Vec3 | null {
+  if (!ANCHOR_SLOTS.has(s.slot)) return null;
+  const c = canon[s.slot];
+  return c ? sub(s.local, c.position) : null;
+}
+
+/**
+ * The largest set of body parts that agree on where the figure frame is, and
+ * the mean of their votes. The torso itself always votes (at 0), so a figure
+ * whose parts all agree with the torso returns the zero offset, and a source
+ * whose one mis-converted torso disagrees with two or more limbs returns the
+ * limbs' consensus. Ties go to the torso.
+ */
+function consensusOrigin(canon: SystemCanon, source: SourcePart[]): { offset: Vec3; voters: number; total: number } {
+  const votes = source.map(s => ({ s, at: impliedOrigin(canon, s) })).filter((v): v is { s: SourcePart; at: Vec3 } => v.at !== null);
+  const torsoVote = votes.find(v => v.s.slot === 'torso');
+  let best = torsoVote ? votes.filter(v => Math.hypot(...sub(v.at, torsoVote.at)) <= ANCHOR_AGREE_LDU) : [];
+  for (const seed of votes) {
+    const cluster = votes.filter(v => Math.hypot(...sub(v.at, seed.at)) <= ANCHOR_AGREE_LDU);
+    if (cluster.length > best.length) best = cluster;
+  }
+  if (!best.length || (torsoVote && best.includes(torsoVote))) return { offset: [0, 0, 0], voters: best.length, total: votes.length };
+  const mean: Vec3 = [0, 0, 0];
+  for (const v of best) for (let i = 0; i < 3; i++) mean[i] += v.at[i]! / best.length;
+  return { offset: mean, voters: best.length, total: votes.length };
+}
+
+/** The torso mould synthesised for a figure whose source has none (official library parts). */
+const DEFAULT_TORSO: Record<FigureSystem, string> = { minifig: MINIFIG_DEFAULT_PARTS.torso, minidoll: '92241', bigfig: MINIFIG_DEFAULT_PARTS.torso };
+
+/**
+ * The part a figure group is assembled around: its torso, or — when the
+ * source lost the torso — a head that has hips or legs of the same system
+ * below it (42703's fifth doll arrived as head, hair, arm stump, hips and
+ * legs with no torso; as loose parts its hand floated in the shell where the
+ * shoulder should be, Pixel 8 Pro 2026-09-24). `headless` says which.
+ */
+export function figureAnchor(parts: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): { index: number; system: FigureSystem; headless: boolean } | null {
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
-  const classified = parts.map(b => ({ brick: b, slot: classifyMinifigPart(b.part, desc(b)) }));
-  const torsoEntry = classified.find(c => c.slot === 'torso');
-  if (!torsoEntry) throw new Error('assembleMinifig: no torso in the group');
-  const torso = torsoEntry.brick;
+  const torsoIndex = parts.findIndex(b => figureSystemOfTorso(b.part, desc(b)) !== null);
+  if (torsoIndex >= 0) return { index: torsoIndex, system: figureSystemOfTorso(parts[torsoIndex]!.part, desc(parts[torsoIndex]!))!, headless: false };
+  const headIndex = parts.findIndex(b => classifyMiniDollPart(b.part, desc(b)) === 'doll_head' || classifyMinifigPart(b.part, desc(b)) === 'head');
+  if (headIndex < 0) return null;
+  const head = parts[headIndex]!;
+  const system: FigureSystem = classifyMiniDollPart(head.part, desc(head)) === 'doll_head' ? 'minidoll' : 'minifig';
+  const hasLower = parts.some(b => {
+    const slot = classifyFigurePart(system, b.part, desc(b));
+    return slot === 'hips' || slot === 'hips_legs' || slot === 'legs' || slot === 'leg_right' || slot === 'leg_left';
+  });
+  return hasLower ? { index: headIndex, system, headless: true } : null;
+}
+
+/**
+ * Assemble the figure a torso group describes. `sourceParts` are the group's
+ * placements in the SOURCE frame (world LDraw); the torso must be among them,
+ * or a head with legs (`figureAnchor`). The torso names the figure system
+ * (minifig, mini-doll or big-fig) and the group is rebuilt on that system's
+ * canon.
+ */
+export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): AssembledMinifig {
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  const root = figureAnchor(sourceParts, meshes);
+  if (!root) throw new Error('assembleMinifig: no torso in the group');
+  const synthesized: string[] = [];
+  let parts = sourceParts;
+  let torsoIndex = root.index;
+  if (root.headless) {
+    // No torso in the source: make one under the head, in the colour the
+    // figure gives away (an arm's sleeve, else the hips), so the figure is
+    // whole rather than a head and legs with a gap.
+    const head = sourceParts[root.index]!;
+    const Rh: Mat3 = head.rot ?? IDENTITY;
+    const headCanon = SYSTEM_CANON[root.system].head!.position;
+    const at = add([head.x, head.y, head.z], apply(Rh, [-headCanon[0], -headCanon[1], -headCanon[2]]));
+    const by = (pick: (slot: MinifigSlot | null, doll: MiniDollSlot | null) => boolean): ParsedBrick | undefined =>
+      sourceParts.find(b => pick(classifyMinifigPart(b.part, desc(b)), classifyMiniDollPart(b.part, desc(b))));
+    const sleeve = by((s, d) => s === 'arm_right' || s === 'arm_left' || d === 'doll_arm');
+    const lower = by((s, d) => s === 'hips' || s === 'hips_legs' || d === 'doll_hips' || d === 'doll_hips_legs' || d === 'doll_leg');
+    const color = sleeve?.color ?? lower?.color ?? DEFAULT_SKIN;
+    parts = [...sourceParts, placeAt(DEFAULT_TORSO[root.system], color, at, Rh)];
+    torsoIndex = parts.length - 1;
+    synthesized.push('torso');
+  }
+  const torso = parts[torsoIndex]!;
+  const system = root.system;
+  const canon = SYSTEM_CANON[system];
+  const classified = parts.map((b, i) => ({ brick: b, slot: i === torsoIndex ? 'torso' as MinifigSlot : classifyFigurePart(system, b.part, desc(b)) }));
+  // A second torso in the group (a doll's torso caught beside a minifig's) is foreign, not a second body.
+  for (const c of classified) if (c.slot === 'torso' && c.brick !== torso) c.slot = null;
   const Rt: Mat3 = torso.rot ?? IDENTITY;
   const RtT = transpose(Rt);
   const toLocal = (b: ParsedBrick): Vec3 => apply(RtT, sub([b.x, b.y, b.z], [torso.x, torso.y, torso.z]));
@@ -311,78 +604,114 @@ export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawP
     .filter(c => c.slot !== null)
     .map(c => ({ brick: c.brick, slot: c.slot!, local: toLocal(c.brick), rot: localRot(c.brick), desc: desc(c.brick) }));
 
-  // Hands: the side is where the source put them (right = −X).
-  for (const s of source) if (s.slot === 'hand_right' || s.slot === 'hand_left') s.slot = s.local[0] < 0 ? 'hand_right' : 'hand_left';
+  // Hands and doll/big-fig arms: the side is where the source put them (right = −X).
+  for (const s of source) {
+    if (s.slot === 'hand_right' || s.slot === 'hand_left') s.slot = s.local[0] < 0 ? 'hand_right' : 'hand_left';
+    if (system !== 'minifig' && (s.slot === 'arm_right' || s.slot === 'arm_left')) s.slot = s.local[0] < 0 ? 'arm_right' : 'arm_left';
+  }
+
+  // The frame is the body's consensus, not the torso's word alone: a converted
+  // source can carry ONE part at a raw, unaligned origin (76417's big-fig
+  // torso, 70 LDU below its own shoulders) and anchoring on it would rebuild
+  // the whole figure around the one wrong part.
+  const anchor = consensusOrigin(canon, source);
+  const moved = Math.hypot(...anchor.offset) > 1e-6;
+  if (moved) for (const s of source) s.local = sub(s.local, anchor.offset);
+  const torsoPosition: Vec3 = moved ? add([torso.x, torso.y, torso.z], apply(Rt, anchor.offset)) : [torso.x, torso.y, torso.z];
+
   // A second head is headwear on top of the first (a helmet described as a head, a mask).
   const heads = source.filter(s => s.slot === 'head');
   for (const extra of heads.slice(1)) extra.slot = 'headwear';
   // A part no vocabulary could name that sits AT the head's origin is worn on
   // the head: every hair, hat and helmet mould is placed exactly there. Left
   // as `held`, the nearest-hand rule below (60 LDU reach) put it in a fist.
-  const headOrigin: Vec3 = heads[0]?.local ?? MINIFIG_CANON.head.position;
+  const headCanon = canon.head ?? MINIFIG_CANON.head;
+  const headOrigin: Vec3 = heads[0]?.local ?? headCanon.position;
   for (const s of source) if (s.slot === 'held' && Math.hypot(...sub(s.local, headOrigin)) <= 6) s.slot = 'headwear';
 
   const out: ParsedBrick[] = [];
   const slots: MinifigSlot[] = [];
   const boneOf: string[] = [];
-  const synthesized: string[] = [];
   const dropped: string[] = [];
   const bystanders: string[] = [];
   const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
   const first = (slot: MinifigSlot): SourcePart | undefined => source.find(s => s.slot === slot);
+  /** Place a source part at its slot's canon when the system has one, else keep its (re-anchored) source pose. */
+  const placeCanon = (s: SourcePart, slot: MinifigSlot, bone?: string): void => {
+    const c = canon[slot];
+    if (c) push(placeAt(s.brick.part, s.brick.color, c.position, c.rotation), slot, bone);
+    else push(placeAt(s.brick.part, s.brick.color, s.local, s.rot), slot, bone);
+  };
 
   // 1. Core body at the canonical offsets. Colours the figure gives away:
   //    limbs match the torso, hips and legs each other, hands and head each other.
   const torsoColor = torso.color;
-  const hipsSrc = first('hips'), compositeSrc = first('hips_legs'), legR = first('leg_right'), legL = first('leg_left');
-  const legColor = legR?.brick.color ?? legL?.brick.color ?? hipsSrc?.brick.color ?? compositeSrc?.brick.color ?? torsoColor;
+  const hipsSrc = first('hips'), compositeSrc = first('hips_legs'), legsSrc = first('legs'), legR = first('leg_right'), legL = first('leg_left');
+  const legColor = legR?.brick.color ?? legL?.brick.color ?? legsSrc?.brick.color ?? hipsSrc?.brick.color ?? compositeSrc?.brick.color ?? torsoColor;
   const hipsColor = hipsSrc?.brick.color ?? compositeSrc?.brick.color ?? legColor;
   const handSrc = first('hand_right') ?? first('hand_left');
   const headSrc = first('head');
   const skin = handSrc?.brick.color ?? headSrc?.brick.color ?? DEFAULT_SKIN;
 
-  push(placeAt(torso.part, torsoColor, MINIFIG_CANON.torso.position, MINIFIG_CANON.torso.rotation), 'torso');
-  if (headSrc) push(placeAt(headSrc.brick.part, headSrc.brick.color, MINIFIG_CANON.head.position, MINIFIG_CANON.head.rotation), 'head');
-  else { synthesized.push('head'); push(placeAt(MINIFIG_DEFAULT_PARTS.head, skin, MINIFIG_CANON.head.position, MINIFIG_CANON.head.rotation), 'head'); }
+  push(placeAt(torso.part, torsoColor, canon.torso!.position, canon.torso!.rotation), 'torso');
+  if (headSrc) placeCanon(headSrc, 'head');
+  else if (system === 'minifig') { synthesized.push('head'); push(placeAt(MINIFIG_DEFAULT_PARTS.head, skin, MINIFIG_CANON.head.position, MINIFIG_CANON.head.rotation), 'head'); }
 
-  // Short legs and other one-piece leg moulds keep their mould (they cannot
-  // swing); a hips-and-legs composite becomes three moulds so the legs can.
-  if (compositeSrc && /^(41879|16968)(?![0-9])/.test(familyId(compositeSrc.brick.part)) || (compositeSrc && /^Minifig Legs\b/i.test(stripAlias(compositeSrc.desc)) && !/Hips and Legs/i.test(compositeSrc.desc))) {
-    push(placeAt(compositeSrc!.brick.part, compositeSrc!.brick.color, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips_legs');
+  if (system === 'minifig') {
+    // Short legs and other one-piece leg moulds keep their mould (they cannot
+    // swing); a hips-and-legs composite becomes three moulds so the legs can.
+    if (compositeSrc && /^(41879|16968)(?![0-9])/.test(familyId(compositeSrc.brick.part)) || (compositeSrc && /^Minifig Legs\b/i.test(stripAlias(compositeSrc.desc)) && !/Hips and Legs/i.test(compositeSrc.desc))) {
+      push(placeAt(compositeSrc!.brick.part, compositeSrc!.brick.color, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips_legs');
+    } else {
+      if (hipsSrc) push(placeAt(hipsSrc.brick.part, hipsSrc.brick.color, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips');
+      else { if (!compositeSrc) synthesized.push('hips'); push(placeAt(MINIFIG_DEFAULT_PARTS.hips, hipsColor, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips'); }
+      if (legR) push(placeAt(legR.brick.part, legR.brick.color, MINIFIG_CANON.leg_right.position, MINIFIG_CANON.leg_right.rotation), 'leg_right');
+      else { if (!compositeSrc) synthesized.push('right leg'); push(placeAt(MINIFIG_DEFAULT_PARTS.leg_right, legColor, MINIFIG_CANON.leg_right.position, MINIFIG_CANON.leg_right.rotation), 'leg_right'); }
+      if (legL) push(placeAt(legL.brick.part, legL.brick.color, MINIFIG_CANON.leg_left.position, MINIFIG_CANON.leg_left.rotation), 'leg_left');
+      else { if (!compositeSrc) synthesized.push('left leg'); push(placeAt(MINIFIG_DEFAULT_PARTS.leg_left, legColor, MINIFIG_CANON.leg_left.position, MINIFIG_CANON.leg_left.rotation), 'leg_left'); }
+    }
   } else {
-    if (hipsSrc) push(placeAt(hipsSrc.brick.part, hipsSrc.brick.color, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips');
-    else { if (!compositeSrc) synthesized.push('hips'); push(placeAt(MINIFIG_DEFAULT_PARTS.hips, hipsColor, MINIFIG_CANON.hips.position, MINIFIG_CANON.hips.rotation), 'hips'); }
-    if (legR) push(placeAt(legR.brick.part, legR.brick.color, MINIFIG_CANON.leg_right.position, MINIFIG_CANON.leg_right.rotation), 'leg_right');
-    else { if (!compositeSrc) synthesized.push('right leg'); push(placeAt(MINIFIG_DEFAULT_PARTS.leg_right, legColor, MINIFIG_CANON.leg_right.position, MINIFIG_CANON.leg_right.rotation), 'leg_right'); }
-    if (legL) push(placeAt(legL.brick.part, legL.brick.color, MINIFIG_CANON.leg_left.position, MINIFIG_CANON.leg_left.rotation), 'leg_left');
-    else { if (!compositeSrc) synthesized.push('left leg'); push(placeAt(MINIFIG_DEFAULT_PARTS.leg_left, legColor, MINIFIG_CANON.leg_left.position, MINIFIG_CANON.leg_left.rotation), 'leg_left'); }
+    // A doll's hips and one-piece legs, or a hips-and-skirt composite, at the
+    // doll canon; a big-fig body carries its legs. Nothing is synthesised: the
+    // rig has no default doll or big-fig moulds.
+    if (hipsSrc) placeCanon(hipsSrc, 'hips');
+    if (compositeSrc) placeCanon(compositeSrc, 'hips_legs');
+    if (legsSrc) placeCanon(legsSrc, 'legs');
+    for (const leg of [legR, legL]) if (leg) placeCanon(leg, leg.slot);
   }
   // A torso "with Integral Arms" or wing arms has no arm sockets: no arms, no hands.
-  const integralArms = /Integral Arms|Bird Wing Arms|Wing Arms/i.test(stripAlias(desc(torso)));
+  const torsoDesc = stripAlias(desc(torso));
+  const integralArms = /Integral Arms|Bird Wing Arms|Wing Arms|Torso with Arms|Baby Body|Micro Doll Body/i.test(torsoDesc);
   for (const side of ['right', 'left'] as const) {
     const armSlot = `arm_${side}` as const, handSlot = `hand_${side}` as const;
     const arm = first(armSlot), hand = first(handSlot);
     if (integralArms && !arm) continue;
-    if (arm) push(placeAt(arm.brick.part, arm.brick.color, MINIFIG_CANON[armSlot].position, MINIFIG_CANON[armSlot].rotation), armSlot);
-    else { synthesized.push(`${side} arm`); push(placeAt(MINIFIG_DEFAULT_PARTS[armSlot], torsoColor, MINIFIG_CANON[armSlot].position, MINIFIG_CANON[armSlot].rotation), armSlot); }
-    if (hand) push(placeAt(hand.brick.part, hand.brick.color, MINIFIG_CANON[handSlot].position, MINIFIG_CANON[handSlot].rotation), handSlot);
-    else { synthesized.push(`${side} hand`); push(placeAt(MINIFIG_DEFAULT_PARTS[handSlot], skin, MINIFIG_CANON[handSlot].position, MINIFIG_CANON[handSlot].rotation), handSlot); }
+    if (arm) placeCanon(arm, armSlot);
+    else if (system === 'minifig') { synthesized.push(`${side} arm`); push(placeAt(MINIFIG_DEFAULT_PARTS[armSlot], torsoColor, MINIFIG_CANON[armSlot].position, MINIFIG_CANON[armSlot].rotation), armSlot); }
+    if (hand) {
+      if (system === 'bigfig' && arm) {
+        // A separate big-fig hand keeps its source offset from its arm, in the arm's frame.
+        const rel = apply(transpose(arm.rot), sub(hand.local, arm.local));
+        const c = canon[armSlot]!;
+        push(placeAt(hand.brick.part, hand.brick.color, add(c.position, apply(c.rotation, rel)), mul(c.rotation, mul(transpose(arm.rot), hand.rot))), handSlot, armSlot);
+      } else placeCanon(hand, handSlot);
+    } else if (system === 'minifig') { synthesized.push(`${side} hand`); push(placeAt(MINIFIG_DEFAULT_PARTS[handSlot], skin, MINIFIG_CANON[handSlot].position, MINIFIG_CANON[handSlot].rotation), handSlot); }
   }
 
   // 2. Dressing keeps its source offset relative to the part it belongs to:
   //    headwear to the head, a cape or backpack to the torso, a held item to
   //    the hand nearest it (re-expressed in the canonical hand's frame, so a
   //    posed arm's item lands in the standing hand).
-  const headLocal = headSrc ? headSrc.local : MINIFIG_CANON.head.position;
+  const headLocal = headSrc ? headSrc.local : headCanon.position;
   const headRot: Mat3 = headSrc ? headSrc.rot : IDENTITY;
-  const canonHand = (side: 'right' | 'left') => MINIFIG_CANON[`hand_${side}`];
+  const canonHand = (side: 'right' | 'left'): CanonPose => canon[`hand_${side}`] ?? MINIFIG_CANON[`hand_${side}`];
   const sourceHand = (side: 'right' | 'left'): SourcePart | undefined => first(`hand_${side}`);
   for (const s of source) {
     if (s.slot === 'headwear') {
       // Relative to the source head (its own frame), then onto the canonical head.
       const rel = apply(transpose(headRot), sub(s.local, headLocal));
       const relRot = mul(transpose(headRot), s.rot);
-      push(placeAt(s.brick.part, s.brick.color, add(MINIFIG_CANON.head.position, rel), relRot), 'headwear');
+      push(placeAt(s.brick.part, s.brick.color, add(headCanon.position, rel), relRot), 'headwear');
     } else if (s.slot === 'back') {
       push(placeAt(s.brick.part, s.brick.color, s.local, s.rot), 'back');
     } else if (s.slot === 'held') {
@@ -399,8 +728,8 @@ export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawP
         const handRot: Mat3 = src ? src.rot : canonHand(best.side).rotation;
         const rel = apply(transpose(handRot), sub(s.local, handPos));
         const relRot = mul(transpose(handRot), s.rot);
-        const canon = canonHand(best.side);
-        push(placeAt(s.brick.part, s.brick.color, add(canon.position, apply(canon.rotation, rel)), mul(canon.rotation, relRot)), 'held', `hand_${best.side}`);
+        const c = canonHand(best.side);
+        push(placeAt(s.brick.part, s.brick.color, add(c.position, apply(c.rotation, rel)), mul(c.rotation, relRot)), 'held', `hand_${best.side}`);
       } else if (Math.hypot(s.local[0], s.local[2]) <= 30 && s.local[1] < -12) {
         // Over the head and not in a hand: a hat the description did not name.
         push(placeAt(s.brick.part, s.brick.color, s.local, s.rot), 'headwear');
@@ -410,27 +739,41 @@ export function assembleMinifig(parts: ParsedBrick[], meshes: Map<string, LdrawP
       }
     }
   }
-  const torsoDesc = stripAlias(desc(torso));
-  void torsoDesc;
-  // A part this rig has no slot for (today: a mini-doll part caught in the same
-  // group) is KEPT, at exactly the transform the source gave it expressed in
-  // the torso frame, and reported. Dropping it would delete geometry the model
-  // has; dressing it onto a slot would move it somewhere it never was. It rides
-  // the body bone, which is what the whole group already did.
+  // A part this rig has no slot for (a mini-doll part caught in a minifig's
+  // group, or the reverse) is KEPT, at exactly the transform the source gave
+  // it expressed in the (re-anchored) torso frame, and reported. Dropping it
+  // would delete geometry the model has; dressing it onto a slot would move it
+  // somewhere it never was. It rides the body bone, which is what the whole
+  // group already did.
   for (const c of classified) {
     if (c.slot !== null) continue;
     bystanders.push(c.brick.part);
-    push(placeAt(c.brick.part, c.brick.color, toLocal(c.brick), localRot(c.brick)),
-      'held', 'body');
+    push(placeAt(c.brick.part, c.brick.color, sub(toLocal(c.brick), anchor.offset), localRot(c.brick)), 'held', 'body');
   }
+
+  // 3. Where the feet are: the lowest point of the body moulds as assembled.
+  //    A standard minifig's legs give 72; a short-leg child, a doll or a
+  //    big-fig body answers for itself. A synthesised mould the map lacks
+  //    (the library was not asked for it) falls back to the canon.
+  let feetY = -Infinity;
+  out.forEach((b, i) => {
+    if (!FLOOR_SLOTS.has(slots[i]!)) return;
+    const m = meshes.get(b.part);
+    if (m && m.triangles.length) {
+      const R: Mat3 = b.rot ?? IDENTITY;
+      for (const corner of cornersOf(m.bounds.min, m.bounds.max)) feetY = Math.max(feetY, apply(R, corner)[1] + b.y);
+    } else if (slots[i] === 'leg_right' || slots[i] === 'leg_left') feetY = Math.max(feetY, MINIFIG_FEET_Y);
+  });
+  if (!Number.isFinite(feetY)) feetY = system === 'minifig' ? MINIFIG_FEET_Y : 0;
 
   const f = apply(Rt, [0, 0, -1]);
   const h = Math.hypot(f[0], f[2]);
   const facingLdu: [number, number] = h > 0.5 ? [f[0] / h, f[2] / h] : [0, -1];
   return {
-    bricks: out, slots, synthesized, dropped, bystanders, facingLdu,
-    rig: { bones: [...MINIFIG_BONES], boneOf },
-    torso: { position: [torso.x, torso.y, torso.z], rotation: [...Rt] },
+    bricks: out, slots, synthesized, dropped, bystanders, facingLdu, system, feetY,
+    rig: { bones: [...SYSTEM_BONES[system]], boneOf },
+    torso: { position: torsoPosition, rotation: [...Rt] },
+    ...(moved ? { reanchoredLdu: anchor.offset } : {}),
   };
 }
 
@@ -486,6 +829,7 @@ export function minifigFromSpec(spec: MinifigSpec): AssembledMinifig {
   for (const b of spec.back ?? []) push(placeAt(b.part, b.color, b.offset ?? [0, 0, 0], b.rotation ?? IDENTITY), 'back');
   return {
     bricks: out, slots, synthesized: [], dropped: [], bystanders: [], facingLdu: [0, -1],
+    system: 'minifig', feetY: MINIFIG_FEET_Y,
     rig: { bones: [...MINIFIG_BONES], boneOf },
     torso: { position: [0, 0, 0], rotation: [...IDENTITY] },
   };
