@@ -26,7 +26,7 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
-## Next round — 2026-09-24 evening (user's 7 questions), in progress
+## Round — 2026-09-24 evening (user's 7 questions)
 
 - [x] **Generalization audit** (2026-09-24): explode M.R^T bug exists nowhere
   else (every other bone reader is column-major). Finished-model-page
@@ -53,14 +53,23 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   `probe/callout-partid-feasibility` were NOT pushed: their remote copies hold
   35,111 data files the local rewrite stripped, so a push would lose data.
   The remote's default branch is `learned-reader-gate-b` (user's call to change).
-- [ ] **Doors + interactivity system** (agent, worktree): LEGO-geometry door /
-  window / hatch leaves with hinge animation and collider toggling (open =
-  passable, proven by a passability test), furniture seats, turnables; design
-  doc `docs/bedrock-interactivity.md`; device test after.
-- [ ] **Accurate faces** (agent, worktree): LXFML heads carry LEGO decoration
-  ids + element numbers; Studio's library has 382 `3626cp*` + 118 `3626*pb*`
-  printed heads; measure coverage per route, substitute printed heads, keep the
-  default decal as fallback.
+- [x] **Doors + interactivity** merged (`1628e9ee`); design + per-set table in
+  `docs/bedrock-interactivity.md`, section "Interactivity round" below.
+  Favourites: 72 doors / 67 windows / 12 cupboard doors / 11 levers / 86
+  turnables / 40 seats; passability 35 OK, 1 too small at 100 %, 36 SEALED
+  (the collider grid fills minifig rooms solid - finer colliders are the fix).
+- [x] **Accurate faces** merged (`744c7968`) and PUBLISHED: 1,190 DbixConvV3
+  files carry printed heads (route 1, real LDraw prints) or a
+  `0 !CRAFTMATIC HEAD_PRINT 3626pb<N>` meta line (route 2 id), prod
+  byte-identical; grades unchanged (the 9 severity rises were stale window
+  grades - old and new files grade identically). Photo face art
+  (`gen-face-art.py`, BrickLink images) ships ONLY in packs built here with
+  `--faces=<dir>` - redistributing it is the user's licence call. Coverage:
+  corpus 35 % print-exact, 80 % with photos; 986 head placements have no
+  source (mostly mini-doll heads and elements newer than Studio's table).
+- [ ] **Device round `8346fb29`** (7 packs, faces art `output/faces-art-0924b`):
+  `output/device-round-2026-09-24d/packs-8346fb29/`, deployed to world 924 by
+  `scripts/_pixel_dev_deploy.py`; doors first, then faces, pinball, 10303 loops.
 - Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
 - Pack updates: importing a new .mcaddon does NOT repoint a world's active
   pack (device runs: world 922 kept 83614b39 active after 980f54fd was
