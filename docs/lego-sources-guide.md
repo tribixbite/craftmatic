@@ -223,6 +223,18 @@ ghost tires). Pipeline defenses (classifier extracted to
   stood tens of studs from its shoulder. **An arm sits 17–18 LDU from its torso
   in authentic OMR files** — that constant is the cheapest check that a minifig
   is assembled, and it is what both fixes are measured against.
+  **`ldraw.xml` is not the only mapping table, and it is not the current
+  one.** Studio ships `ldraw_lxfv56.xml` beside it: 5,406 design ids
+  (Feb 2026) against 4,390 (Sep 2025), 1,007 of them named ONLY there, and
+  it is the table Studio itself uses to import an LXF.
+  `scripts/gen-ldd-part-map.py` now fills from both — `ldraw.xml` first,
+  then lxfv56 for ids NEITHER `ldraw.xml` nor the measured table names, and
+  only where the upstream library ships the file. Every statement about
+  "the ldraw.xml fallback" elsewhere in this guide predates that fill and
+  describes the smaller table. 263 rows were added this way (0 changed,
+  0 removed); the five coaster moulds among them are proven by route
+  closure and the other 258 are unvalidated — see `TASKS-BEDROCK-ADDON.md`.
+
   **Do not replace the two-row list with an `agree` threshold.** It was built and
   measured twice and it is wrong: a low `agree` does not mean the measurement is
   noisy, it means the correct correction is CONTEXT-DEPENDENT, so the disputed

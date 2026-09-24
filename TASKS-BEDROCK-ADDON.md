@@ -4,6 +4,28 @@ This file holds open work and the evidence needed to resume. Completed history
 belongs in `git log`, `docs/lego-sources-guide.md`, and
 `docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
 
+## Start here — the two local surfaces
+
+Both answer questions offline, before the phone. Start them and leave them up:
+
+| surface | command | URL |
+|---|---|---|
+| Web app (LEGO tab, viewer, **Walk add-on**) | `bun dev:web --host` | http://localhost:4000 · LAN http://192.168.0.17:4000 |
+| Operator console (every runnable operation, one model or a filtered batch) | `bun run console` | http://localhost:4600 |
+
+Verify rather than assume: `curl -s localhost:4600/api/status` returns CPU and
+running-job counts, `curl -s localhost:4600/api/inventory` lists the operations
+(`tools/console/inventory.ts` is the cheat sheet and the one place to add one).
+
+**A killed background task does NOT free the port** — its children re-parent and
+keep serving, so a restart silently lands on 4001 and you test a second, stale
+instance. Check with
+`netstat -ano | grep LISTENING | grep -E ':(4000|4600)'` and kill the owning
+PID before restarting. This has already cost one confused round.
+
+Neither surface proves Bedrock's rendering, culling, form text or ride physics
+— those stay on the device.
+
 ## Active round — 2026-09-22, the set's own cars and a working elevator
 
 **Current pack, device acceptance NOT yet run:**
@@ -176,68 +198,45 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
 249. It restores a snapshot.
 
-### Coaster track: SOLVED — Studio ships a second mapping table we never read
+### Coaster track: the engine is FIXED, the shipped corpus files are NOT
 
-Both sets' track now routes. The cause was never the sources: it was that
-`scripts/gen-ldd-part-map.py` read only `ldraw.xml` (4,390 design ids,
-Sep 2025) and ignored `ldraw_lxfv56.xml` beside it (5,406 ids, Feb 2026, 1,007
-of them found ONLY there) — which is the table Studio itself uses to import an
-LXF, and the only one naming the coaster moulds `25059`, `26560`, `26561`,
-`80562` and `80566`. Without a row those placed at their raw LDD origin, and
-because the pieces of a spiral each carry a different rotation the missing
-`R·e` displaced every one of them differently.
+Landed in `e2d65180` / `021b2bbd`; the cause and the two agreeing derivations
+are in those commit messages and in CLAUDE.md's "Studio ships TWO LDraw mapping
+tables" gotcha. What remains open is below.
 
-| set | before | after |
-|---|---|---|
-| 42703 Mermaid Roller Coaster Ride | 0 routes, 10 components | **1 CLOSED route, 220.3 studs, all 12 pieces** |
-| 31142 Space Roller Coaster | 0 routes | **1 CLOSED route, 202.6 studs, all 12** |
-| 76417 Gringotts vault rail | 0 routes | **1 run, 154.8 studs, all 9** (open by design) |
-| 60421 / 60501 | 95.5 open | 239.9 closed |
-| 60228 | 51.9 open | 118.7 |
+Engine-path results, for regression comparison: 42703 **1 closed route,
+220.3 studs, all 12 pieces** (24 endpoint gaps min 0.00 / median 0.01 / max
+0.74 LDU); 31142 **closed, 202.6**; 76417 **one 154.8-stud run, all 9**, open
+at both ends by design; 60421/60501 95.5 open → 239.9 closed; 60228 51.9 →
+118.7.
 
-42703's 24 endpoint gaps go from median 180 LDU / max 336 to **min 0.00,
-median 0.01, max 0.74 LDU, 24 of 24 within tolerance**.
+- [ ] **The shipped corpus files are still wrong — this is the item that
+  decides whether a user sees any of it.** The fix reaches the app's
+  `.lxf`/LXFML path and `_lxfml_to_ldr.ts` only. `DbixConvV3/42703.ldr` and
+  `DbixConvV3/76417.ldr` are clego's conversions and are unchanged. Measured
+  2026-09-23 with `bun scripts/_coaster_track_gaps.ts <model.ldr>`:
 
-**76417 Gringotts DOES have a vault-cart ride** — the box art shows the rail
-spiralling the rock — and an earlier note here calling it "not a coaster set"
-was wrong. Its rail is seven `bl_80566` quarters (1.75 turns, exact 72 LDU
-steps on a 230 LDU circle) plus a `25059` entry straight and an `80562`
-landing.
+  | 76417 source | internal joins |
+  |---|---|
+  | `C:/git/clego/lego_sets/DbixConvV3/76417.ldr` (what prod serves) | 160.4 – 510.1 LDU apart |
+  | regenerated from `DBIX/76417/VX1035766_sm01.lxfml` | **0.00 LDU, every join** |
 
-**The `bl_` naming is a second, separate fault.** Studio's library ships
-`bl_80566.dat` beside `80566.dat` — same design, its header says `BL_Item_No` —
-and 76417 places the BrickLink name. `partStem` gives `bl_80566`, so no profile
-matched and seven of nine pieces were invisible to routing. The two meshes also
-sit in different frames (both bound 274.0 x 98.0 x 274.0 LDU; `bl_80566` runs
-x -137..137, y -98.1..0, z -420.6..-146.9 where `80566` runs 0..274, -18..80,
-0..274), so matching the id alone samples the wrong line. `FRAME_ALIASES` in
-`coaster-track.ts` carries that measured translation. It stays needed for the
-24 corpus sets whose `.ldr` names `bl_80566`; the LXFML path no longer needs it
-because the part-map row names the upstream file.
-
-Two independent derivations agreed exactly, which is why this is trusted: a
-solver working only from track connectivity produced `e = (-230, -80, -10)` for
-80566, and Studio's own row re-expressed on the upstream part is
-`(9.2, -3.2, -0.4)` LDD — and `-25 · F · (9.2, -3.2, -0.4)` with
-`F = diag(1,-1,-1)` is exactly `(-230, -80, -10)`.
-
-#### What is proven and what is not
-
-The five coaster rows are proven by route closure. The OTHER 258 rows the fill
-adds are not, and the GEO gate cannot see them: its 54 ground-truth sets
-contain zero placements of any added id (65.73 % weighted before and after,
-0 per-set differences). They touch **20,213 placements across 3,457 LXFML
-files**, so this was A/B'd on connectivity instead — a wrong row moves a part
-away from what it should touch:
-
-    the 25 files using added ids most: better 3, worse 2, unchanged 20,
-    mean change -0.10 points
-
-Neutral, not positive. Shipped anyway because a row Studio authored beats no
-row on priors, the rows are conservative in shape (the worst offender in the
-sample is 48 x `7096` at zero translation and a 180 degree turn), and the fill
-only touches ids NEITHER shipped table names. But it is unvalidated.
-
+  Regenerate with
+  `bun scripts/_lxfml_to_ldr.ts <lxfml> <out.ldr>`, then republish per the
+  publication rules below. Doing this touches the SHARED `C:/git/clego`
+  checkout — read "Repository and publication boundaries" first.
+- [ ] **98 placements (40 design ids) in 76417 still have no alignment row at
+  all** and use their raw LDD origin; `_lxfml_to_ldr.ts` prints this per file
+  (4,581 of 4,932 exact, 253 measured fallback). None is track. Unexamined.
+- [ ] **258 of the 263 added rows are unvalidated.** Only the five coaster
+  moulds are proven (by route closure). The GEO gate is blind to the rest — its
+  54 ground-truth sets contain zero placements of any added id (65.73 %
+  weighted before and after, 0 per-set differences) — so they were A/B'd on
+  connectivity over the 20,213 placements / 3,457 LXFML files they touch:
+  **better 3, worse 2, unchanged 20, mean -0.10 points**. Neutral, not
+  positive. Shipped because a Studio-authored row beats no row on priors and
+  the shapes are conservative, but do not quote them as verified.
+  Harness: `scratchpad/ab_partmap.ts` (takes HEAD's part map as argv[1]).
 - [ ] **Explain the two regressions** — `11512_pothos (b model)` -1.9 points
   and `11512_step ##a` -1.1. Both are botanicals where leaves barely touch, so
   connectivity is a weak signal, but neither has been looked at.
@@ -245,15 +244,18 @@ only touches ids NEITHER shipped table names. But it is unvalidated.
   placements) were deliberately left alone. Deciding between them needs a GEO
   comparison on sets that actually use them.
 - [ ] **233 other `bl_*` rows** (156 have an upstream same-number part) need
-  the same per-part frame measurement 80566 got before they can be used.
-- [ ] **The shipped corpus file is still wrong.** This fixes the app's
-  `.lxf`/LXFML path and `_lxfml_to_ldr.ts`; `DbixConvV3/42703.ldr` and
-  `DbixConvV3/76417.ldr` are clego's conversions and need regenerating with the
-  same rows before a user sees the difference.
-- [ ] Four untracked `scripts/_gringotts_rail_*.ts` scratch files are in the
-  tree from the investigation; keep or remove, but do not leave them forever.
+  the same per-part frame measurement 80566 got before they can be used. Run
+  `bun scripts/_coaster_frame_measure.ts` — it is the derivation behind
+  `FRAME_ALIASES`.
 
-#### Regression gate for this round#### Regression gate for this round
+The investigation's probes are now tracked tools, not scratch:
+`_coaster_track_gaps.ts` (per-join gap of any source's track),
+`_coaster_mould_chain.ts` (mould census + which moulds form a 1-wide run),
+`_coaster_frame_measure.ts` (measure a `bl_*` part's frame offset), alongside
+the existing `_coaster_route_probe.ts` and `_coaster_mould_audit.ts` (the
+latter gates alias gaps and exits 1 on one).
+
+#### Regression gate for this round
 
 `bun scripts/_favorites_export_sweep.ts --out output/bedrock-entity-qa/post-directive-sweep`
 **40/40 exported, 0 problems**, coarsening unchanged against the recorded

@@ -97,6 +97,26 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   directive to the table in the same change that meets it. `viaExpansion: true`
   means "described by a meta we ignore, but written out as ordinary geometry we
   read" — LSynth, LDCad flex, MLCad hoses — and is NOT a gap.
+- **Studio ships TWO LDraw mapping tables and the newer one is the real one.**
+  `ldraw.xml` (4,390 design ids, Sep 2025) sits beside `ldraw_lxfv56.xml`
+  (5,406 ids, Feb 2026, 1,007 found ONLY there), and the second is what Studio
+  itself uses to import an LXF. `gen-ldd-part-map.py` read only the first for
+  months, so every design named only in the second placed at its raw LDD
+  origin. That is invisible on a part whose rotation is identity and fatal on a
+  spiral, where each piece carries a different rotation and the missing `R·e`
+  displaces every one differently — it is why no coaster's track routed. When a
+  placement is wrong for a whole class of part, check BOTH tables name it
+  before assuming the source is bad.
+- **`bl_<id>.dat` is the same LEGO design in a DIFFERENT origin frame.** Studio
+  ships BrickLink copies beside the upstream part (header `BL_Item_No`) and
+  sources place either name, so `partStem` gives `bl_80566` and every match
+  against `80566` fails open — seven of 76417's nine rail pieces were simply
+  invisible to routing. Matching the id alone is not enough either: the two
+  meshes bound identically (274.0 x 98.0 x 274.0 LDU) but sit 137/80/420.6 LDU
+  apart. `FRAME_ALIASES` in `engine/coaster-track.ts` carries measured
+  translations; `bun scripts/_coaster_frame_measure.ts` derives a new one and
+  `_coaster_mould_audit.ts` exits 1 on any placed id whose design IS profiled
+  under a sibling name.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
