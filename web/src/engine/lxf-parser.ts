@@ -152,6 +152,8 @@ export function withinMeasuredBound(m: MeasuredAlign): boolean {
 export const PART_MAP_URL = '/ldd-part-map.json';
 /** Where the measured table lives (scripts/gen-ldd-measured-align.py). */
 export const MEASURED_ALIGN_URL = '/ldd-measured-align.json';
+/** Where the element table lives (scripts/gen-ldd-element-map.py). */
+export const ELEMENT_MAP_URL = '/ldd-element-map.json';
 /** A transient failure gets this many tries in total before we give up on it. */
 const TABLE_FETCH_ATTEMPTS = 3;
 const TABLE_RETRY_BACKOFF_MS = [250, 750];
@@ -186,6 +188,11 @@ export interface AlignmentTable<T> {
 
 export type LxfAlignmentTable = AlignmentTable<PartAlign>;
 export type LxfMeasuredTable = AlignmentTable<MeasuredAlign>;
+/**
+ * LEGO element id → LDraw part stem (`ldd-element-map.json`), the ELEMENT
+ * fallback for a design neither alignment table names — see `buildLxfPlacements`.
+ */
+export type LxfElementTable = AlignmentTable<string>;
 
 /** The reported shape of one loaded table. */
 export interface LxfTableReport {
@@ -242,6 +249,13 @@ export interface LxfDiagnostics {
   dualMaterialPatterned?: number;
   /** Placements split into their two shells' subparts (`DUAL_MATERIAL_SUBPARTS`). */
   dualMaterialSplit?: number;
+  /**
+   * placements whose design NEITHER table names, resolved through the brick's
+   * LEGO ELEMENT id (`ldd-element-map.json`) to an LDraw mould at identity
+   * (LDD 28650 mini-doll head → `92198.dat`). Counted inside `unmappedPlacements`
+   * — the alignment is still identity; only the FILE is found.
+   */
+  elementPlacements?: number;
   /** placements with NEITHER: identity alignment + bare `designID.dat`. */
   unmappedPlacements: number;
   /** distinct unmapped design ids, most-used first (capped for readability). */
@@ -269,6 +283,14 @@ export interface LxfPartRecord {
   materialIds?: number[];
   transformation: string;
   boneCount: number;
+  /**
+   * `Brick@itemNos`: the LEGO ELEMENT ids of the brick this part belongs to
+   * (comma-separated). Only meaningful when `brickParts` is 1 — the elements
+   * of a multi-part brick name the assembly, not this part.
+   */
+  itemNos?: string;
+  /** How many `<Part>`s the enclosing `<Brick>` holds. */
+  brickParts?: number;
 }
 
 /**
@@ -309,6 +331,11 @@ export function validatePartAlign(v: unknown): v is PartAlign {
     if (typeof v[i] !== 'number' || !Number.isFinite(v[i])) return false;
   }
   return true;
+}
+
+/** True when `v` is a structurally valid element-table row (an LDraw stem). */
+export function validateElementRow(v: unknown): v is string {
+  return typeof v === 'string' && /^[0-9a-z][0-9a-z_-]*$/i.test(v);
 }
 
 /** True when `v` is a structurally valid `MeasuredAlign` row. */
@@ -472,6 +499,38 @@ export function applyMeasuredBound(t: LxfMeasuredTable): LxfMeasuredTable {
 /** clego's MEASURED per-design correction (~163 KB) — the fallback alignment. */
 export function loadMeasuredAlign(): Promise<LxfMeasuredTable> {
   return loadTable(MEASURED_ALIGN_URL, validateMeasuredAlign).then(applyMeasuredBound);
+}
+
+/**
+ * The element table (~670 KB, ~170 KB gzipped). Fetched only by a parse that
+ * has a part it can rescue (`needsElementTable`), so a model every table
+ * already covers never pays for it.
+ */
+export function loadElementMap(): Promise<LxfElementTable> {
+  return loadTable(ELEMENT_MAP_URL, validateElementRow);
+}
+
+/** Does any record reach the element fallback? (no table row, one-part brick, element ids) */
+export function needsElementTable(
+  records: readonly LxfPartRecord[], table: LxfAlignmentTable, measured: LxfMeasuredTable,
+): boolean {
+  return records.some(r => r.brickParts === 1 && !!r.itemNos
+    && !table.entries[r.designID] && !measured.entries[r.designID]);
+}
+
+/**
+ * The LDraw file a brick's ELEMENT ids resolve to, or null. clego's converter
+ * rule (`reconvert_dbix.Resolver.resolve_element`): the first element id the
+ * table knows, used only for a ONE-part brick, and never to "resolve" a design
+ * to itself.
+ */
+export function elementPartFor(rec: LxfPartRecord, elements: LxfElementTable | undefined): string | null {
+  if (!elements || elements.state !== 'ok' || rec.brickParts !== 1 || !rec.itemNos) return null;
+  for (const raw of rec.itemNos.split(',')) {
+    const stem = elements.entries[raw.trim()];
+    if (stem && stem !== rec.designID.toLowerCase()) return `${stem}.dat`;
+  }
+  return null;
 }
 
 /** Axis-angle (radians) → 3×3 row-major rotation matrix. */
@@ -748,6 +807,12 @@ export interface LxfPlacementOptions {
    * — the same A/B switch as clego's `DBIX_FIGURE_ALIGN=0`.
    */
   miniDoll?: boolean;
+  /**
+   * The element table (`loadElementMap`). Without it an unnamed design is
+   * drawn as `<designID>.dat`, which for a design whose LDD number is not an
+   * LDraw file is a missing part.
+   */
+  elements?: LxfElementTable;
 }
 
 /**
@@ -775,6 +840,7 @@ export function buildLxfPlacements(
   let classBReframed = 0;
   let dualMaterialPatterned = 0;
   let dualMaterialSplit = 0;
+  let elementPlacements = 0;
 
   for (const rec of records) {
     if (rec.boneCount > 1) multiBoneParts++;
@@ -800,8 +866,15 @@ export function buildLxfPlacements(
       placement = composeLxfMeasured(boneT.rBone, boneT.tBone, meas);
     } else {
       unmappedPlacements++;
-      unmapped.set(rec.designID, (unmapped.get(rec.designID) ?? 0) + 1);
-      part = `${rec.designID}.dat`;
+      // The ELEMENT fallback (clego reconvert_dbix.py `resolve_element`): the
+      // brick's LEGO element ids name the LDraw mould when its LDD design
+      // number is not an LDraw file — 28650 (mini-doll head) is 92198. The
+      // alignment stays identity, as clego's does; a mini-doll mould still gets
+      // its slot correction below, keyed by the file this finds.
+      const byElement = elementPartFor(rec, options.elements);
+      if (byElement) elementPlacements++;
+      else unmapped.set(rec.designID, (unmapped.get(rec.designID) ?? 0) + 1);
+      part = byElement ?? `${rec.designID}.dat`;
       placement = composeLxfPlacement(boneT.rBone, boneT.tBone, undefined);
     }
 
@@ -875,6 +948,7 @@ export function buildLxfPlacements(
       classBReframed,
       dualMaterialPatterned,
       dualMaterialSplit,
+      elementPlacements,
       unmappedPlacements,
       unmappedDesignIds: [...unmapped.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -925,6 +999,11 @@ export function describeLxfDiagnostics(d: LxfDiagnostics): string | null {
       'entry at all and use their raw LDD origin',
     );
   }
+  if ((d.elementPlacements ?? 0) > 0) {
+    parts.push(
+      `${d.elementPlacements} of those found their LDraw part through the brick's LEGO element id`,
+    );
+  }
   if (d.miniDollDeferredToTable > 0) {
     // The rule is written to lose to an authored row; say so when it does,
     // because that means the doll correction below is now dead code for those
@@ -972,9 +1051,13 @@ function readLxfParts(doc: Document): LxfPartRecord[] {
   // or assembly halves silently vanish.
   for (const brick of doc.querySelectorAll('Brick')) {
     const brickDesign = brick.getAttribute('designID');
-    for (const partEl of brick.querySelectorAll('Part')) {
+    const itemNos = brick.getAttribute('itemNos') ?? undefined;
+    const partEls = brick.querySelectorAll('Part');
+    for (const partEl of partEls) {
       const bones = partEl.querySelectorAll('Bone');
       out.push({
+        itemNos,
+        brickParts: partEls.length,
         designID: normalizeDesignId(partEl.getAttribute('designID')?.trim() || brickDesign),
         materialId: parseInt((partEl.getAttribute('materials') ?? '').split(',')[0], 10) || 194,
         materialIds: parseLxfMaterials(partEl.getAttribute('materials')),
@@ -1024,7 +1107,11 @@ export async function parseLxfWithDiagnostics(
   // Both tables in parallel — Studio's ldraw.xml columns are primary (and the
   // LDraw filename source), the measured correction is the fallback.
   const [table, measured] = await Promise.all([loadPartMap(), loadMeasuredAlign()]);
-  const result = buildLxfPlacements(readLxfParts(doc), table, measured);
+  const records = readLxfParts(doc);
+  // The element table only when some part can use it; a failed fetch leaves
+  // those parts as `<designID>.dat`, exactly as before the fallback existed.
+  const elements = needsElementTable(records, table, measured) ? await loadElementMap() : undefined;
+  const result = buildLxfPlacements(records, table, measured, { elements });
   if (result.bricks.length === 0) throw new Error('No brick placements found in LXFML');
   return result;
 }

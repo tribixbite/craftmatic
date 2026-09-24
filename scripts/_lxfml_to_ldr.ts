@@ -19,8 +19,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import {
   applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics, parseLxfMaterials,
-  validatePartAlign, validateMeasuredAlign, validateTable,
-  type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable,
+  validatePartAlign, validateMeasuredAlign, validateElementRow, validateTable,
+  type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable, type LxfElementTable,
 } from '../web/src/engine/lxf-parser.js';
 
 const argv = process.argv.slice(2);
@@ -53,6 +53,12 @@ const measured = applyMeasuredBound(validateTable(
   JSON.parse(readFileSync('web/public/ldd-measured-align.json', 'utf8')),
   'web/public/ldd-measured-align.json', validateMeasuredAlign,
 ) as LxfMeasuredTable);
+// The element fallback (a design neither table names, resolved by the brick's
+// LEGO element id), the same table the app fetches.
+const elements = validateTable(
+  JSON.parse(readFileSync('web/public/ldd-element-map.json', 'utf8')),
+  'web/public/ldd-element-map.json', validateElementRow,
+) as LxfElementTable;
 
 /** The single LXFML entry of a `.lxf` ZIP (stored or deflated), or the file itself. */
 function lxfmlBytes(path: string): Buffer {
@@ -94,7 +100,9 @@ function readRecords(path: string): LxfPartRecord[] {
   const out: LxfPartRecord[] = [];
   for (const brick of xml.matchAll(BRICK_RE)) {
     const brickDesign = attr(brick[1] ?? '', 'designID');
-    for (const part of (brick[2] ?? '').matchAll(PART_RE)) {
+    const itemNos = attr(brick[1] ?? '', 'itemNos');
+    const partMatches = [...(brick[2] ?? '').matchAll(PART_RE)];
+    for (const part of partMatches) {
       const head = part[1] ?? part[3] ?? '';
       if (attr(head, 'partType') === 'sticker') {
         const id = (attr(head, 'designID') ?? brickDesign ?? '?').split(';')[0]!.trim();
@@ -108,6 +116,8 @@ function readRecords(path: string): LxfPartRecord[] {
         materialIds: parseLxfMaterials(attr(head, 'materials')),
         transformation: attr(bones[0]?.[1] ?? '', 'transformation') ?? '',
         boneCount: bones.length,
+        itemNos,
+        brickParts: partMatches.length,
       });
     }
   }
@@ -115,7 +125,7 @@ function readRecords(path: string): LxfPartRecord[] {
 }
 
 const records = readRecords(IN);
-const { bricks, diagnostics } = buildLxfPlacements(records, table, measured);
+const { bricks, diagnostics } = buildLxfPlacements(records, table, measured, { elements });
 
 const stem = IN.replace(/.*[/\\]/, '').replace(/\.[^.]+$/, '');
 const lines = [
