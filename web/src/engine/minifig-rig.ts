@@ -639,8 +639,10 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   /** Place a source part at its slot's canon when the system has one, else keep its (re-anchored) source pose. */
   const placeCanon = (s: SourcePart, slot: MinifigSlot, bone?: string): void => {
     const c = canon[slot];
-    if (c) push(placeAt(s.brick.part, s.brick.color, c.position, c.rotation), slot, bone);
-    else push(placeAt(s.brick.part, s.brick.color, s.local, s.rot), slot, bone);
+    // A head's print id (`0 !CRAFTMATIC HEAD_PRINT`) rides along with it.
+    const keep = s.brick.headPrint ? { headPrint: s.brick.headPrint } : {};
+    if (c) push({ ...placeAt(s.brick.part, s.brick.color, c.position, c.rotation), ...keep }, slot, bone);
+    else push({ ...placeAt(s.brick.part, s.brick.color, s.local, s.rot), ...keep }, slot, bone);
   };
 
   // 1. Core body at the canonical offsets. Colours the figure gives away:

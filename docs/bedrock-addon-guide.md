@@ -2536,8 +2536,9 @@ beside 42703's dolls. Five causes, none of them a rendering problem:
   `3626c`/`92198`. A plain head (every triangle colour 16) now gets a default
   face (`faceDecals`: two eyes at 40 % of the height, a mouth at 66 %, as thin
   cuboids proud of the front-most compiled cell, black on light skin and
-  white on dark). A printed head keeps its print and gets none.
-  TODO: map LDD decoration ids to LDraw printed parts in the converter.
+  white on dark). Since the same day it is only the FALLBACK - see
+  "Accurate faces" below: the converters now draw a decorated head as its
+  printed LDraw part and the compiler draws a print as a texture.
 - **Hair stripes.** Two mechanisms, both fixed in the figure compile: the 2×2×2
   majority downsample punctures a thin shell where it crosses the lattice
   diagonally (`preserveSurface` keeps any cell the surface touches; headwear
@@ -2558,3 +2559,116 @@ figures --url=http://localhost:<port> --figure=<n|label> --view=front
 `output/device-round-2026-09-24b/figures-*.png` holds the before/after set.
 Tests: `test/figure-systems.test.ts`. Not verified on the device: the doll
 and big-fig animations, and Bedrock's rendering of the 0.9 LDU face decals.
+
+### Accurate faces: three routes, measured (2026-09-24)
+
+The LXFML knows every face exactly: each head `<Brick>` carries its LEGO
+ELEMENT id (`itemNos`, design + colour + print) and a DECORATION id
+(`decorationBriefId` / `Part@decoration`, e.g. `1029859` for 76417's goblin,
+element 6454427 = BrickLink `3626pb3484` = hp448's head). What was missing
+was a join from those ids to something drawable. Three routes, measured over
+the DBIX LXFML corpus (5,641 head placements, 604 undecorated; 5,037
+decorated = 1,611 distinct decoration ids in 1,329 set files):
+
+| population | decorated heads (distinct) | route 1: LDraw print | + route 2: BL photo art | no source |
+|---|---|---|---|---|
+| 76417 | 15 (14) | 2 (2) | 15 (14), 100 % | 0 |
+| 42703 | 6 (6) | 3 (3) | 3 (3) | 3 new doll heads |
+| 40 favourites (27 with decorated heads) | 232 (171) | 96 (62), 41 % | 202 (141), 87 % | 30 |
+| whole corpus | 5,037 (1,611) | 1,755 (218), 35 % | 4,051 (1,009), 80 % | 986 (604) |
+
+(Counted from the corpus extract with the shipped table; `n:` identity rows =
+route 2. Sets fully faced: favourites 7 → 19 of 27, corpus 225 → 881 of 1,329.)
+
+**Route 1 — the printed LDraw part (shipped, every surface).**
+`scripts/gen-ldd-print-map.py` → `web/public/ldd-print-map.json`: element →
+BrickLink item (Studio's `elementInfoList.json`, both editions), element →
+Rebrickable part (clego `elements.csv`), then BL/RB id → LDraw file through
+Studio's `StudioPartDefinition2.txt` BL column, a Studio BL copy's
+`0 BL_Item_No` header and the official library's `0 !KEYWORDS BrickLink` /
+`Rebrickable` lines. BrickLink numbers a head print ONCE across moulds
+(`3626pb3484` = `3626cpb3484` = `3626bpb3484`), so ids are compared on that key.
+A file is accepted only if the served library has it (Studio seed + upstream
+official/unofficial; all 484 verified on prod's `/ldraw-parts/_batch`) AND it
+bounds exactly like `3626c`/`92198` - the check rejected the 52 `92198pXXcYY`
+whole-doll composites and three Studio `3626*pb*` copies 24 LDU off. The
+converters swap only the FILE after the plain mould's alignment has placed
+the head (`printedHeadFor` in `lxf-parser.ts`, clego `dbix_print_heads.py`).
+Decoration-id rows are the fallback for an element no table knows (8
+placements corpus-wide). The web viewer draws these prints natively.
+
+**Route 2 — face art from the BrickLink catalogue photo (offline builds).**
+For a head with no LDraw print the table gives its BrickLink print id
+(3,197 `n:` rows, `3626pb<N>`). The head STAYS the plain mould and the id is
+written on the line before it: `0 !CRAFTMATIC HEAD_PRINT 3626pb3484`
+(`ldraw-directives.ts`; the parser attaches it to the next type-1 line as
+`ParsedBrick.headPrint`, and `assembleMinifig` carries it onto the rigged
+head). A first version wrote the id AS the part name (`3626cpb3484.dat`):
+our renderer drew it through the alias ladder, but no library ships that
+file, so clego's geograde counted it missing (76417: unknown part placements
+18 -> 31) and so would any stock LDraw tool. Never put an invented name in a
+source. `scripts/gen-face-art.py <dir> <model>...`
+fetches `img.bricklink.com/ItemImage/PN/<colour>/3626pb<N>.png` (BL colour
+from `elementInfoList`), takes the leftmost (front) head, crops to the body
+(rows >= 80 % of the widest), keys the median skin out, drops the silhouette
+rim, and keeps ink lighter than the skin only beside dark ink (the studio
+highlight on the forehead goes, a goblin's teeth stay; on a dark head all
+ink is kept). Photos existed for 12/12 of 76417's and 75/76 of the
+favourites' identity heads; by eye about 68 of those 75 are clean and ~7 show
+artefacts (a tiny or offset photo, a yellow head keyed into its own shading,
+a cropped head). `bun scripts/_playable_ref.ts <model> <pack> --faces=<dir>`
+seeds it. Nothing in the web app fetches photos and this repo does not
+redistribute them - shipping route 2 to users is a licence decision.
+LEGO's own CDN (`lego.com/cdn/product-assets/element.img.photoreal.192x192/
+<element>.jpg`) had every one of 76417's and 42703's 21 elements, but as a 3/4
+render - usable only with re-projection, not implemented.
+
+**Route 3 — sources that already place printed heads.** LDraw-native sources
+(10261's `.mpd`, IOModel2V2's 10303, ...) place `3626cp*`/`3626cpb*` directly.
+Their colour triangles DID survive voxelisation (10261's sunglasses head
+showed lenses and lips) but only as 2 LDU blocks - a smudge, not a face
+(`output/faces-0924/shots/route3-10261-fig2-face.png`). They now go through the
+same texture path as route 1.
+
+**The face as a TEXTURE (`engine/head-face.ts`).** A head whose part carries
+explicit-colour triangles is rasterised face-on from −Z at 4 texels per LDU
+(z-buffered, 2x2 supersampled, so a dual-sided head's back print never shows;
+colour 16 = transparent). The compiler re-colours the print's FRONT-half
+cuboids to the head colour (a back print keeps its cuboids) and adds ONE
+decal cube 0.6 LDU proud of the front-most cuboid, with PER-FACE UV naming
+only the face it looks out of, into one alpha-tested atlas per entity
+(`<entity>_faces.png`, material `entity_alphatest`). Box UV stays on every
+other cube. Orientation: the Pixel-proven frame is `world = (−x, y, −z)` of
+the render frame, a proper rotation, so a texture must read unmirrored from
+outside in the render frame - image right = `(−n) × up`; through the JSON's
+X mirror that is north u → +X, south u → −X, east u → +Z, west u → −Z,
+v → −Y (a player skin's face on its head's `north` face agrees). A face
+that looks up/down keeps its cuboid print. The Walk add-on reads the atlas
+and per-face UVs back and draws them; 42703's `92198p27` lopsided smile has
+the same handedness there as in the web viewer. The minifig creator opts
+out (`faceTextures: false`; its slots carry print layers). Diagnostics:
+`faceTextures: {printed, art, atlas}` per entity.
+
+**Found on the way:** a CLI build asked the local (2020) library's alias
+ladder BEFORE the prod mirror for the exact name, so `3626cp1t` - upstream
+unofficial only - silently became plain `3626c` offline. `ldraw-geometry.ts`
+now asks the mirror for the exact name first (`e09a0fa9`).
+
+**Publication:** clego `dbix_print_heads.py` (patch mode) went over 1,196
+published DbixConvV3 files: 1,736 heads renamed to their printed part and
+2,269 HEAD_PRINT lines inserted before unchanged plain heads (1,196 heads
+paired by order where an older run wrote other numbers, 0 missed); 76417 was
+regenerated by its recipe (`_lxfml_assemble.ts --root-step` +
+`_lxfml_to_ldr.ts`). Checked against the shipped bytes: across all 1,197
+files the only differences are 1,738 renames to a printed part that exists in
+the served library and 2,282 inserted HEAD_PRINT lines. Geograde A/B with the
+upstream library: see `output/faces-0924/PUBLISH2.md`. Files and sha256/12 in
+the same file (`publish2/`; the first `publish/` set used identity part
+names and is superseded).
+
+**Open:** device check of the decal (orientation, alpha cut-out); 986
+decorated placements with no source (505 mini-doll heads - BrickLink numbers
+them bare, e.g. `101267`, and no identity row is written for them -
+and 536 elements newer than Studio's Jul 2025 element table); UNdecorated
+heads (statues) still get the default face because a converted `.ldr` cannot
+tell them from an unresolved print.

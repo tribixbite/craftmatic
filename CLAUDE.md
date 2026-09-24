@@ -151,6 +151,19 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (the first as the player's hidden variant, the rest in the body). When a
   figure is missing from a pack, count where every source placement WENT —
   shell, NPC, car, rider — before reading the classifier.
+- **A head's print id rides on a META line, never in its part name.** A
+  decorated LXFML head with no LDraw print is written as the plain mould
+  preceded by `0 !CRAFTMATIC HEAD_PRINT 3626pb<N>` (`ldd-print-map.json` `n:`
+  rows); the parser attaches it to the next type-1 line
+  (`ParsedBrick.headPrint`) and face art keys on it. An invented part name
+  (`3626cpb3484.dat`, tried first) exists in no library: clego's geograde and
+  any stock LDraw tool count it missing (76417: unknown placements 18 -> 31).
+  A real print (`3626cp1t`, `92198p18`) is placed by name from `e:`/`d:` rows.
+- **A CLI build must ask the mirror for the EXACT part before a local alias.**
+  The local library is the 2020 Studio snapshot; its alias ladder turned
+  upstream-only prints (`3626cp1t`, every `92198p*`) into their plain mould
+  and the pack shipped blank heads. Fixed in `ldraw-geometry.ts` (`e09a0fa9`);
+  keep that order.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them

@@ -278,6 +278,43 @@ describe('figure systems: faces and hair through the compiler', () => {
     expect(printed.diagnostics.defaultFaces).toBe(0);
   });
 
+  it('draws a printed head\'s face as ONE textured decal, and seeded art on a head no library prints', async () => {
+    type Cube = { origin: number[]; size: number[]; uv: unknown };
+    const body = [at('973', 4, 0, 0, 0), at('3815', 4, 0, 32, 0), at('3816', 4, 0, 44, 0), at('3817', 4, 0, 44, 0)];
+    const cubesOf = (geo: Awaited<ReturnType<typeof compileLdrawEntityGeometry>>, pick: (i: number) => boolean): Cube[] =>
+      (geo.value as { 'minecraft:geometry': Array<{ bones: Array<{ cubes: Cube[] }> }> })['minecraft:geometry'].flatMap((m, i) => (pick(i) ? m.bones.flatMap(b => b.cubes) : []));
+    const printed = await compileLdrawEntityGeometry('fig', 'figure', [...body, at('3626cp01', 14, 0, -24, 0)], { partGeometry: provider(), quality: { studFacets: 1 } });
+    const faceMesh = printed.meshes.findIndex(m => m.faceAtlas);
+    expect(faceMesh).toBeGreaterThanOrEqual(0);
+    expect(printed.diagnostics.faceTextures).toMatchObject({ printed: 1, art: 0 });
+    expect(printed.diagnostics.defaultFaces).toBe(0);
+    const decals = cubesOf(printed, i => i === faceMesh);
+    expect(decals).toHaveLength(1);
+    // Per-face UV naming ONE face: the head looks out of the figure's front.
+    expect(Object.keys(decals[0]!.uv as object)).toEqual(['north']);
+    // The print's black cuboid is gone from the head; the decal carries it.
+    expect(printed.meshes.some(m => !m.faceAtlas && m.material.colorId === 0)).toBe(false);
+    const png = printed.meshes[faceMesh]!.faceAtlas!.png;
+    expect([...png.subarray(1, 4)].map(c => String.fromCharCode(c)).join('')).toBe('PNG');
+    // The minifig creator keeps prints as colour layers.
+    const layered = await compileLdrawEntityGeometry('fig', 'figure', [...body, at('3626cp01', 14, 0, -24, 0)], { partGeometry: provider(), quality: { studFacets: 1 }, faceTextures: false });
+    expect(layered.meshes.some(m => m.faceAtlas)).toBe(false);
+    expect(layered.meshes.some(m => m.material.colorId === 0)).toBe(true);
+
+    // A head named by its BrickLink print (no library ships it) draws the plain
+    // mould; with art seeded under that name it gets the art, not the default face.
+    const { seedFaceArt, clearFaceArt } = await import('../web/src/engine/head-face.js');
+    const named = [...body, { ...at('3626c', 78, 0, -24, 0), headPrint: '3626pb3484' }];
+    const before = await compileLdrawEntityGeometry('fig', 'figure', named, { partGeometry: provider(), quality: { studFacets: 1 } });
+    expect(before.diagnostics.defaultFaces).toBe(1);
+    seedFaceArt([['3626cpb3484', { width: 1, height: 1, rgba: new Uint8Array([10, 20, 30, 255]) }]]);
+    try {
+      const after = await compileLdrawEntityGeometry('fig', 'figure', named, { partGeometry: provider(), quality: { studFacets: 1 } });
+      expect(after.diagnostics.faceTextures).toMatchObject({ printed: 0, art: 1 });
+      expect(after.diagnostics.defaultFaces).toBe(0);
+    } finally { clearFaceArt(); }
+  });
+
   it('compiles a big-fig and a mini-doll as jointed entities with faces', async () => {
     const big = await compileLdrawEntityGeometry('hagrid', 'figure', hagrid(), { partGeometry: provider(), quality: { studFacets: 1 } });
     expect(big.figure).toBeDefined();

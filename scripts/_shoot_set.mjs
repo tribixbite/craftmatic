@@ -9,22 +9,24 @@
  * `/lego-models/*` and a search-loaded set fails with net::ERR_FAILED while
  * curl answers 200, leaving the UI on "No 3D model found".
  *
- * Usage: node scripts/_shoot_set.mjs <set> <out.png> [waitMs]
- *        node scripts/_shoot_set.mjs --file <model.ldr|.mpd|.io|.lxf> <out.png> [waitMs]
- *
- * `--file` loads a local model through the LEGO tab's upload input instead of
- * the index, so a regenerated candidate is drawn by the same viewer as the
- * shipped file without touching the corpus (A/B shots, 2026-09-24).
+ * Usage: node scripts/_shoot_set.mjs <set|model-file> <out.png> [waitMs] [--view=iso|F|B|L|R|T]
+ *   <model-file>: a local .ldr/.mpd/.io/.lxf/.lxfml is UPLOADED through the
+ *   LEGO tab's file input instead of searched for — how an unpublished,
+ *   regenerated source is looked at before it goes to R2.
+ *   (`--file <model>` is accepted too: the flag is ignored, the path uploads.)
+ *   --view: press that camera button in the viewer's toolbar before the shot.
  */
 import { chromium } from 'playwright-core';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-const fileMode = process.argv[2] === '--file';
-const [setNumber, outPath, waitMsArg] = process.argv.slice(fileMode ? 3 : 2);
+const viewArg = process.argv.find(a => a.startsWith('--view='))?.slice('--view='.length);
+const [, , setNumber, outPath, waitMsArg] = process.argv.filter(a => !a.startsWith('--'));
 if (!setNumber || !outPath) {
-  console.error('usage: node scripts/_shoot_set.mjs <set> | --file <model> <out.png> [waitMs]');
+  console.error('usage: node scripts/_shoot_set.mjs <set|model-file> <out.png> [waitMs] [--view=iso|F|B|L|R|T]');
   process.exit(64);
 }
+const localFile = /\.(ldr|mpd|io|lxf|lxfml)$/i.test(setNumber) && existsSync(setNumber) ? resolve(setNumber) : null;
 const WAIT = Number(waitMsArg ?? 90000);
 mkdirSync(outPath.replace(/[/\\][^/\\]+$/, ''), { recursive: true });
 
@@ -42,9 +44,8 @@ page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.te
 // CRAFTMATIC_URL points the shot at another dev server (a worktree's own port).
 await page.goto(`${process.env.CRAFTMATIC_URL ?? 'http://localhost:4000'}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-search', { timeout: 30000 });
-if (fileMode) {
-  // `setNumber` is the model path here; the input is hidden, which setInputFiles allows.
-  await page.setInputFiles('#lego-mpd-input', setNumber);
+if (localFile) {
+  await page.setInputFiles('#lego-mpd-input', localFile);
 } else {
   await page.fill('#lego-search', setNumber);
   await page.click('#lego-search-btn');
@@ -57,9 +58,9 @@ if (fileMode) {
     const label = (await card.getAttribute('title')) ?? '';
     const text = await card.innerText().catch(() => '');
     if (text.includes(setNumber) || label.includes(setNumber)) { await card.click(); clicked = true; break; }
-}
-if (!clicked && cards[0]) { await cards[0].click(); clicked = true; }
-if (!clicked) { console.log(`NO RESULT CARD for ${setNumber}`); await browser.close(); process.exit(2); }
+  }
+  if (!clicked && cards[0]) { await cards[0].click(); clicked = true; }
+  if (!clicked) { console.log(`NO RESULT CARD for ${setNumber}`); await browser.close(); process.exit(2); }
 }
 
 /**
@@ -91,6 +92,16 @@ while (Date.now() < deadline) {
   await page.waitForTimeout(750);
 }
 
+if (viewArg) {
+  // The toolbar's camera buttons carry their label as text (iso, F, L, R, B, T).
+  const pressed = await page.evaluate(label => {
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent?.trim() === label && b.offsetParent !== null);
+    if (button) button.click();
+    return Boolean(button);
+  }, viewArg);
+  if (!pressed) console.error(`no visible "${viewArg}" view button`);
+  await page.waitForTimeout(1500);
+}
 const viewer = await page.$('#lego-viewer');
 await (viewer ?? page).screenshot({ path: outPath });
 

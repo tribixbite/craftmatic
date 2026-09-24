@@ -328,6 +328,8 @@ export function buildLodHull(entityId: string, input: LodHullInput, options: Bui
   /** Draw order and appearance per colour, taken from the source geometries (translucent colours come last there). */
   const byColour = new Map<number, { material: LdrawEntityMaterial; translucent: boolean; order: number }>();
   input.meshes.forEach((m, i) => {
+    // A face decal is ink on a head, not silhouette: the hull leaves it out.
+    if (m.faceAtlas) return;
     colourOf.set(m.id, m.material.colorId);
     if (!byColour.has(m.material.colorId)) byColour.set(m.material.colorId, { material: m.material, translucent: m.translucent, order: i });
   });
