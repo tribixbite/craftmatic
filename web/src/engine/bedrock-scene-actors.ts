@@ -185,6 +185,17 @@ function worldBounds(b: ParsedBrick, mesh: LdrawPartMesh): { min: Vec3; max: Vec
   return { min, max };
 }
 
+/**
+ * A piece of furniture a figure sits on that is not a minifig seat mould: the
+ * library's own chairs, benches, stools, thrones and sofas (Fabuland's among
+ * them). LEGO's modern chairs are brick-built and have no such mould; the
+ * Brick Wand's "Add seat here" marks those by hand.
+ */
+export function isFurnitureSeat(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  return /^(Minifig |Fabuland |Duplo )?(Chair|Bench|Stool|Toilet|Throne|Sofa|Couch|Armchair)\b/i.test(d) && !/\b(Holder|Sticker|Pattern)\b/i.test(d);
+}
+
 /** A door LEAF (not a frame, not the glass insert, not a sticker). */
 export function isDoorLeafDescription(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
@@ -244,11 +255,17 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
   }
 
   // Seats: the sitting surface is one plate above the mould's origin (4079: the
-  // origin is under the seat pan). A seat with a figure's torso over it is taken.
+  // origin is under the seat pan). Other furniture moulds (a Fabuland chair or
+  // bench, a stool, a throne) sit on the top of their own box. A seat with a
+  // figure's torso over it is taken.
   const seats: SceneSeat[] = [];
   for (const b of bricks) {
-    if (!isSeat(b.part, desc(b))) continue;
-    const surface = local(b, [0, -8, 0]);
+    const isMouldSeat = isSeat(b.part, desc(b));
+    if (!isMouldSeat && !isFurnitureSeat(desc(b))) continue;
+    const bm = meshes.get(b.part);
+    const surface = isMouldSeat || !bm || !bm.triangles.length
+      ? local(b, [0, -8, 0])
+      : local(b, [(bm.bounds.min[0] + bm.bounds.max[0]) / 2, bm.bounds.min[1], (bm.bounds.min[2] + bm.bounds.max[2]) / 2]);
     const facing = horizontal(b, [0, 0, -1]) ?? [0, -1];
     // The figure's torso, or the head standing in for a lost one (`figureAnchor`), at the head's offset.
     const sitter = figures.find(f => f.seatIndex === undefined && (() => {

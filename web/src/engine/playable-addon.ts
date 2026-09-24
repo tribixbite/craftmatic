@@ -28,6 +28,7 @@ import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { PINBALL_ZONE_TEXTURE, buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
+import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -108,6 +109,14 @@ export interface PlayableAddonOptions {
      * origin the scenery grid was built with.
      */
     shell?: { bricks: ParsedBrick[]; frame: SceneGridFrame };
+    /**
+     * The model's moving parts (bedrock-interactives.ts): doors, gates and
+     * hatches that open and let the player through, windows and cupboards
+     * that open, levers and turnables. Each ships as its own hinged entity on
+     * the shell's frame; doorways are cut into the shell's colliders and their
+     * closed cells are laid by `scripts/interactives.js`. Needs `shell`.
+     */
+    interactives?: { items: SceneInteractive[]; frame: SceneGridFrame };
     /** Exact source door leaves rendered only below their vanilla-door size threshold. */
     leafActors?: Array<{ bricks: ParsedBrick[]; frame: SceneGridFrame; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean }>;
     /**
@@ -854,7 +863,13 @@ function gridMeshBindings(id: string, meshIds: string[]): MeshBinding[] {
  * glass blocks with solids.
  */
 /** Animations a client entity plays: the `animations` map and the `scripts.animate` list (a minifig's walk / look / sit). */
-export interface ClientAnimations { animations: Record<string, string>; animate: Array<string | Record<string, string>> }
+export interface ClientAnimations {
+    animations: Record<string, string>;
+    animate: Array<string | Record<string, string>>;
+    /** Molang run once when the client creates the entity, and before every animation frame (an interactive's eased angle). */
+    initialize?: string[];
+    preAnimation?: string[];
+}
 
 /**
  * One geometry of a client entity: the texture it samples and whether it draws
@@ -943,7 +958,11 @@ function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'ent
                 textures,
                 geometry: geometryMap,
                 render_controllers: bindings.map((_, i) => `controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`),
-                ...(animations ? { animations: animations.animations, scripts: { animate: animations.animate } } : {}),
+                ...(animations ? { animations: animations.animations, scripts: {
+                    ...(animations.initialize ? { initialize: animations.initialize } : {}),
+                    ...(animations.preAnimation ? { pre_animation: animations.preAnimation } : {}),
+                    animate: animations.animate,
+                } } : {}),
                 spawn_egg: { base_color: '#151515', overlay_color: '#f5c542' },
             },
         },
@@ -1698,6 +1717,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let plan = planStructureTiles(scenery, id, options.maxTile ?? BEDROCK_MAX_TILE);
     /** The collider grid, run-length coded, so the wand can re-lay it at another size (bedrock-placement-pack.ts). */
     let placementColliders: PlacementColliders | undefined;
+    /** The moving parts' runtime (`scripts/interactives.js`) and their diagnostics; set with the shell. */
+    let interactiveConfig: InteractiveRuntimeConfig | undefined;
+    let interactiveReport: unknown[] | undefined;
     const actors: PlacementActor[] = [];
     const extraComponents: PlayableAddonResult['components'] = [];
     /**
@@ -1917,7 +1939,70 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
             actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
             extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
-            const colliders = buildColliderGrid(scenery, sgeo.partBoxesLdu ?? [], options.shell.frame, options.colliderKeepClear);
+            // The model's moving parts, each its own hinged entity on the
+            // shell's frame (bedrock-interactives.ts). A part that is not a
+            // doorway keeps its closed geometry in the colliders (a cupboard,
+            // a window pane, a turntable's load); a doorway's closed cells are
+            // laid by the runtime, so its boxes stay out of the static grid.
+            const staticIxBoxes: Array<{ min: Vec3; max: Vec3 }> = [];
+            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string }> = [];
+            const ixCounts = new Map<string, number>();
+            for (const it of options.interactives?.items ?? []) {
+                const n = (ixCounts.get(it.kind) ?? 0) + 1;
+                ixCounts.set(it.kind, n);
+                const ixId = entityId(`${id}_${it.kind}_${n}`, 'x');
+                const typeId = `${PACK_NAMESPACE}:${ixId}`;
+                const ixLabel = `${it.kind[0]!.toUpperCase()}${it.kind.slice(1)} ${n}`;
+                options.onProgress?.(`compiling ${label} ${ixLabel.toLowerCase()}`, 73);
+                try {
+                    const igeo = await compileLdrawEntityGeometry(ixId, 'prop', it.bricks, {
+                        scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+                        quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
+                        rig: interactiveRig(it.bricks.length, it.pivotLdu, it.axisLdu), originLdu: it.anchorLdu,
+                    });
+                    diagnostics[ixId] = igeo.diagnostics;
+                    const rate = Math.max(Math.abs(it.angleDeg), OPEN_DEG[it.kind]) / SWING_SECONDS;
+                    const anim = interactiveAnimation(typeId, rate);
+                    emitCompiledEntity(ixId, igeo, interactiveBehavior(typeId, it), { animations: { turn: anim.id }, animate: ['turn'], initialize: anim.initialize, preAnimation: anim.preAnimation });
+                    files.push({ name: `${rp}animations/${ixId}.animation.json`, data: json(anim.file) });
+                    addEntityName(typeId, `${label} ${ixLabel.toLowerCase()}`, false);
+                    const at = sceneGridPoint(options.interactives!.frame, igeo.originLdu);
+                    actors.push({ typeId, label: `${label} ${ixLabel.toLowerCase()}`, x: at[0], y: at[1] + igeo.originLiftBlocks, z: at[2], yaw: 0, interactive: compiledIx.length });
+                    extraComponents.push({ id: ixId, label: `${label} ${ixLabel.toLowerCase()}`, kind: 'shell', provenance: `${it.bricks.length} source placement${it.bricks.length === 1 ? '' : 's'} (${it.part}) hinged at the measured ${it.kind === 'turnable' ? 'spin axis' : 'hinge'}` });
+                    if (!PASSAGE_KINDS.has(it.kind)) staticIxBoxes.push(...(igeo.partBoxesLdu ?? []));
+                    compiledIx.push({ it, typeId, label: ixLabel });
+                } catch (e) {
+                    warnings.push(`${label}: ${ixLabel.toLowerCase()} (${it.part}) could not be compiled (${e instanceof Error ? e.message : String(e)}); it is missing from the build.`);
+                }
+            }
+            const colliders = buildColliderGrid(scenery, [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], options.shell.frame, options.colliderKeepClear);
+            if (compiledIx.length) {
+                const ixPlans = planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame);
+                const items: InteractiveRuntimeItem[] = compiledIx.map((c, k) => interactiveRuntimeItem(c.it, c.typeId, c.label, ixPlans[k] ?? null));
+                linkSharedDoorways(items);
+                // The hinge in the model's block frame (the walk preview swings the leaf about it; the runtime ignores it).
+                items.forEach((item, k) => {
+                    const it = compiledIx[k]!.it, f = options.shell!.frame;
+                    const p = sceneGridPoint(f, it.pivotLdu), q = sceneGridPoint(f, [it.pivotLdu[0] + it.axisLdu[0] * LDU_PER_BLOCK, it.pivotLdu[1] + it.axisLdu[1] * LDU_PER_BLOCK, it.pivotLdu[2] + it.axisLdu[2] * LDU_PER_BLOCK]);
+                    const d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]], l = Math.hypot(d[0]!, d[1]!, d[2]!) || 1;
+                    item.pivot = [p[0], p[1], p[2]].map(v => Math.round(v * 1e4) / 1e4) as [number, number, number];
+                    item.axis = d.map(v => Math.round(v / l * 1e4) / 1e4) as [number, number, number];
+                    if (it.leaf) {
+                        const nq = sceneGridPoint(f, [it.pivotLdu[0] + it.leaf.normal[0] * LDU_PER_BLOCK, it.pivotLdu[1] + it.leaf.normal[1] * LDU_PER_BLOCK, it.pivotLdu[2] + it.leaf.normal[2] * LDU_PER_BLOCK]);
+                        const nd = [nq[0] - p[0], nq[1] - p[1], nq[2] - p[2]], nl = Math.hypot(nd[0]!, nd[1]!, nd[2]!) || 1;
+                        item.normal = nd.map(v => Math.round(v / nl * 1e4) / 1e4) as [number, number, number];
+                    }
+                });
+                interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items };
+                interactiveReport = compiledIx.map((c, k) => ({
+                    type: c.typeId, kind: c.it.kind, part: c.it.part, label: c.label, parts: c.it.bricks.length, angleDeg: items[k]!.angle,
+                    offGridDeg: c.it.offGridDeg, ...(items[k]!.opening ? { openingBlocks: items[k]!.opening } : {}),
+                    ...(items[k]!.passSize !== undefined ? { passSize: items[k]!.passSize } : {}),
+                    blockingCells: items[k]!.blocking.length, cleared: ixPlans[k]?.cleared ?? 0, passageCleared: ixPlans[k]?.passageCleared ?? 0,
+                    ...(c.it.sweep ? { sweepHits: c.it.sweep } : {}),
+                }));
+                warnings.push(interactiveSummary(label, items));
+            }
             structureGrid = colliders.grid;
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
             const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
@@ -2325,6 +2410,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(options.access ? { access: options.access } : {}),
         entities: diagnostics,
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
+        // The moving parts: class, hinge angle, the opening a player passes and
+        // the smallest wand size at which it can (0 = none), the collider cells
+        // the closed leaf lays and what the doorway cut opened.
+        ...(interactiveReport ? { interactives: interactiveReport } : {}),
     }) });
     // A Bedrock entity identifier may not begin with a digit: the engine drops
     // the WHOLE definition, so the entity simply never exists in game and
@@ -2391,6 +2480,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
+    if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     // texts/en_US.lang: one name per entity this pack declares (localisedEntities,
     // built up throughout the function above), plus the creator wand item name
     // when a minifig creator is present. Unconditional — a plain model pack
@@ -2402,6 +2492,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         langLines.push(`entity.${e.identifier}.name=${e.label}`);
         if (e.spawnable) langLines.push(`item.spawn_egg.entity.${e.identifier}.name=${e.label} Spawn Egg`);
     }
+    if (interactiveConfig) langLines.push(...interactiveLangLines());
     files.push(
         { name: `${rp}texts/languages.json`, data: json(['en_US']) },
         { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },
@@ -2418,11 +2509,25 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(creatorConfig ? ["import './minifig-wand.js';"] : []),
         ...(coasterConfig ? ["import './coaster.js';"] : []),
         ...(pinballConfig ? ["import './pinball.js';"] : []),
+        ...(interactiveConfig ? ["import './interactives.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when it is at least 1 x 2 blocks at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance };
+}
+
+/** One warning line for the moving parts: counts by class and, for doorways, at which wand size each can be walked through. */
+export function interactiveSummary(label: string, items: readonly InteractiveRuntimeItem[]): string {
+    const counts = new Map<string, number>();
+    for (const it of items) counts.set(it.kind, (counts.get(it.kind) ?? 0) + 1);
+    const plural = (k: string, n: number): string => `${n} ${k === 'hatch' ? (n === 1 ? 'hatch' : 'hatches') : `${k}${n === 1 ? '' : 's'}`}`;
+    const parts = [...counts].map(([k, n]) => plural(k, n)).join(', ');
+    const doorways = items.filter(it => it.passSize !== undefined);
+    const bySize = new Map<number, number>();
+    for (const d of doorways) bySize.set(d.passSize!, (bySize.get(d.passSize!) ?? 0) + 1);
+    const pass = [...bySize].sort((a, b) => (a[0] || 1e9) - (b[0] || 1e9)).map(([size, n]) => size ? `${n} from ${size} %` : `${n} at no wand size (too small; they open but stay blocked)`).join(', ');
+    return `${label}: moving parts - ${parts}; tap to open, close or turn. ${doorways.length ? `Doorways passable (a player needs 1 x 2 blocks): ${pass}.` : 'No doorway to walk through.'}`;
 }
 
 // ── Measured coaster train ───────────────────────────────────────────────────

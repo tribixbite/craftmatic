@@ -341,6 +341,9 @@ export async function runSchemPipeline(
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
+    /** The moving parts (bedrock-interactives.ts): their own hinged entities on the shell's frame. Brick-accurate buildings only. */
+    let interactives: { items: import('./bedrock-interactives.js').SceneInteractive[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
+    const entityDoors = (input.buildingFidelity ?? 'bricks') === 'bricks';
     // Cells the door pass opens; the shell's colliders keep them open (bedrock-building-shell.ts `keepClear`).
     const doorClearedCells = new Set<number>();
     const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
@@ -464,10 +467,25 @@ export async function runSchemPipeline(
             const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
           }
+          if (entityDoors) {
+            // Every door, gate, hatch, opening window, cupboard, lever and
+            // turnable becomes its own hinged entity of the exact LEGO parts,
+            // at any angle to the grid (the bank's 45-degree doors included);
+            // the vanilla-door path below is the coloured-block export's.
+            const { discoverInteractives } = await import('./bedrock-interactives.js');
+            const found = discoverInteractives(sceneBricks, scene.meshes, { exclude: movable });
+            if (found.items.length) {
+              interactives = { items: found.items, frame };
+              for (const it of found.items) for (const b of it.bricks) doorLeaves.add(b);
+            }
+            warnings.push(...found.warnings);
+            const skippedDoors = found.skipped.filter(s => s.kind === 'door' || s.kind === 'gate' || s.kind === 'hatch');
+            if (skippedDoors.length) warnings.push(`${skippedDoors.length} door-like part${skippedDoors.length === 1 ? '' : 's'} left static: ${skippedDoors.map(s => `${s.part} (${s.reason})`).join('; ')}.`);
+          }
           // A leaf turned well off the grid cannot become a square vanilla door;
           // it stays the shell's exact LEGO geometry (DOOR_MAX_OFF_GRID_DEG).
-          sceneDoors = scene.doors.filter(d => (d.offGridDeg ?? 0) <= DOOR_MAX_OFF_GRID_DEG);
-          const skewed = scene.doors.filter(d => (d.offGridDeg ?? 0) > DOOR_MAX_OFF_GRID_DEG);
+          sceneDoors = entityDoors ? [] : scene.doors.filter(d => (d.offGridDeg ?? 0) <= DOOR_MAX_OFF_GRID_DEG);
+          const skewed = entityDoors ? [] : scene.doors.filter(d => (d.offGridDeg ?? 0) > DOOR_MAX_OFF_GRID_DEG);
           if (skewed.length) warnings.push(`${skewed.length} door lea${skewed.length === 1 ? 'f' : 'ves'} stand${skewed.length === 1 ? 's' : ''} ${[...new Set(skewed.map(d => Math.round(d.offGridDeg ?? 0)))].join('/')} degrees off the block grid (${skewed.map(d => d.part).join(', ')}); a vanilla door can only stand square, so ${skewed.length === 1 ? 'it stays' : 'they stay'} exact LEGO geometry, closed.`);
           runtimeDoors = runtimeDoorCandidates(sceneDoors, frame);
           if (sceneDoors.length && !runtimeDoors.length) {
@@ -537,7 +555,7 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(interactives && shell ? { interactives } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
   }
 

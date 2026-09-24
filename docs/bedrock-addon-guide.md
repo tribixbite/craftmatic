@@ -2672,3 +2672,14 @@ them bare, e.g. `101267`, and no identity row is written for them -
 and 536 elements newer than Studio's Jul 2025 element table); UNdecorated
 heads (statues) still get the default face because a converted `.ldr` cannot
 tell them from an unresolved print.
+
+## Moving parts: doors, windows, hatches, levers, turnables (2026-09-24)
+
+Every door leaf (at any angle to the grid), gate, trap door, opening window,
+cupboard door, lever and turnable of a brick-accurate building is now its own
+entity of the exact LEGO parts, hinged at the measured pivot and eased by one
+float actor property; doorways are cut into the collider grid and their closed
+cells are laid by `scripts/interactives.js`, which also persists the state.
+The vanilla-door path (`applySceneDoors`, `runtimeDoorCandidates`, leaf actors)
+now serves only the coloured-block export. Design, rules, the scale rule and
+the offline proofs: [bedrock-interactivity.md](bedrock-interactivity.md).

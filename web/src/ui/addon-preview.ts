@@ -34,6 +34,7 @@ import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedro
 import { COASTER_PHYSICS, RIDE_INTERACT_TEXT } from '@engine/bedrock-coaster.js';
 import { PINBALL_INTERACT_TEXT } from '@engine/bedrock-pinball.js';
 import { createPinballSim, type PinballSim } from '@engine/pinball-physics.js';
+import { SWING_SECONDS, ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeItem } from '@engine/bedrock-interactives.js';
 import {
   coasterCarEyePoint, initCoasterPreviewState, stepCoasterPreviewTick,
   type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
@@ -183,6 +184,20 @@ class AddonWalk implements AddonPreviewHandle {
   private carWorld = new Map<number, { x: number; y: number; z: number; yawDeg: number; frame: CoasterPreviewCarFrame }>();
   /** Door LEAF entities toggled open (their holder rotated), by entity index. */
   private openDoorLeaves = new Set<number>();
+  /**
+   * The moving parts (`model.interactives`, the pack's own
+   * `scripts/interactives.js` config), by ITEM index: open or closed (a
+   * turnable's accumulated angle), and the angle each is drawn at while it
+   * eases toward its target over `SWING_SECONDS`, as the client's Molang does.
+   */
+  private readonly ixOpen = new Map<number, boolean>();
+  private readonly ixTarget = new Map<number, number>();
+  private readonly ixShown = new Map<number, number>();
+  /** Item index -> entity index, and each interactive holder's un-swung pose. */
+  private readonly ixEntity = new Map<number, number>();
+  private readonly ixBase = new Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
+  /** The closed leaves' collider blocks, drawn over the static ones (legend: colliders). */
+  private ixColliderMesh: THREE.InstancedMesh | null = null;
   /** The nearest thing an Interact key/button would act on right now. */
   private nearestInteract: { label: string; act: () => void } | null = null;
   /** Riding a car: which route/slot, and the player state to restore on dismount. */
@@ -366,6 +381,10 @@ class AddonWalk implements AddonPreviewHandle {
     this.coasterStates.clear();
     this.carWorld.clear();
     this.openDoorLeaves.clear();
+    // A size or turn change re-places the build: every moving part starts closed, as a fresh placement does.
+    this.ixOpen.clear(); this.ixTarget.clear(); this.ixShown.clear(); this.ixEntity.clear(); this.ixBase.clear();
+    this.ixColliderMesh = null;
+    model.entities.forEach((e, i) => { if (e.interactive !== undefined) this.ixEntity.set(e.interactive, i); });
     this.nearestInteract = null;
     this.carEntityIndex.clear();
     model.entities.forEach((e, i) => {
@@ -384,6 +403,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.buildGround(laid.dims);
     this.buildColliders(columnBoxes(laid.blocks));
     this.buildModel(f);
+    this.applyInteractiveColliders();
     model.routes.forEach((_route, routeIndex) => this.initCoasterRoute(routeIndex));
 
     this.clearGroup(this.reachGroup);
@@ -585,6 +605,7 @@ class AddonWalk implements AddonPreviewHandle {
       // spin is applied on top of (see `applyPinballFlipperSpin`): capture it
       // here, right after `buildModel` has set it, before any spin runs.
       if (this.pinballIndices?.flippers.includes(index)) this.pinballFlipperBase.set(index, { pos: holder.position.clone(), quat: holder.quaternion.clone() });
+      if (entity.interactive !== undefined) this.ixBase.set(entity.interactive, { pos: holder.position.clone(), quat: holder.quaternion.clone() });
     });
     this.worldGroup.add(group);
   }
@@ -817,7 +838,12 @@ class AddonWalk implements AddonPreviewHandle {
       const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
       const d = Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z);
       if (entity.kind === 'seat') consider(d, 'Sit', () => this.sit(index));
-      else consider(d, this.openDoorLeaves.has(index) ? 'Close door' : 'Open door', () => this.toggleDoorLeaf(index));
+      else if (entity.interactive !== undefined && this.model.interactives?.items[entity.interactive]) {
+        const item = this.model.interactives.items[entity.interactive]!;
+        // A leaf's reach is measured from its middle, not its foot: a tall door is reached at head height.
+        const mid = Math.hypot(at.x - cam.x, at.y + 1 - cam.y, at.z - cam.z);
+        consider(Math.min(d, mid), this.ixPrompt(item, entity.interactive), () => this.toggleInteractive(entity.interactive!));
+      } else consider(d, this.openDoorLeaves.has(index) ? 'Close door' : 'Open door', () => this.toggleDoorLeaf(index));
     });
 
     this.model.doorCandidates.forEach((cand, index) => {
@@ -1030,6 +1056,111 @@ class AddonWalk implements AddonPreviewHandle {
     if (holder) holder.rotation.y = open ? base + Math.PI / 2 : base;
     const marker = this.markerByIndex.get(entityIndex);
     if (marker) marker.mesh.rotation.y = open ? -base - Math.PI / 2 : -base;
+  }
+
+  /** The Interact prompt for a moving part in its current state. */
+  private ixPrompt(item: InteractiveRuntimeItem, index: number): string {
+    const noun = item.kind === 'turnable' ? 'Turn' : item.kind === 'lever' ? 'Flip lever' : `${this.ixOpen.get(index) ? 'Close' : 'Open'} ${item.kind === 'cabinet' ? 'cupboard' : item.kind}`;
+    return noun;
+  }
+
+  /**
+   * Toggle a moving part exactly as `scripts/interactives.js` does: a
+   * turnable turns a step; anything else opens or closes, a double door's
+   * leaves together (`shares`). A doorway lays its closed cells over the
+   * static colliders while closed (`ixClosedBlocks`, the runtime's own
+   * `layDoorway` state) and stays blocked when opened at a size where the
+   * opening is under the player's 1 x 2-block passage - said in the status.
+   * It will not close on the player.
+   */
+  toggleInteractive(index: number): void {
+    const cfg = this.model.interactives, item = cfg?.items[index];
+    if (!cfg || !item) return;
+    if (item.kind === 'turnable') {
+      this.ixTarget.set(index, (this.ixTarget.get(index) ?? 0) + item.angle);
+      this.onStatus(`${item.label} turned ${Math.abs(item.angle)} degrees.`, 'info');
+      return;
+    }
+    const open = !this.ixOpen.get(index);
+    const group = [index, ...item.shares];
+    if (!open && this.world && item.blocking.length) {
+      // Never close a door on the player: the runtime refuses the same way.
+      const f = this.sizePct / 100;
+      const blocks = ixWorldBlocks(group.flatMap(i => cfg.items[i]?.blocking ?? []), this.model.dims, f, this.rotation);
+      const p = this.state, w = 0.3;
+      for (const [key, [lo, hi]] of blocks) {
+        const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+        if (p.x + w > x && p.x - w < x + 1 && p.z + w > z && p.z - w < z + 1 && p.y + PLAYER_HEIGHT > y + lo / 16 && p.y < y + hi / 16) {
+          this.onStatus(`You are standing in the ${item.label.toLowerCase()} - step out to close it.`, 'error');
+          return;
+        }
+      }
+    }
+    for (const i of group) {
+      if (!cfg.items[i]) continue;
+      this.ixOpen.set(i, open);
+      this.ixTarget.set(i, open ? cfg.items[i]!.angle : 0);
+    }
+    this.applyInteractiveColliders();
+    const tooSmall = open && item.passSize !== undefined && !(item.passSize > 0 && this.sizePct >= item.passSize);
+    if (tooSmall) {
+      const size = item.opening ? `${item.opening.width} x ${item.opening.height} blocks at 100 %` : 'too small';
+      this.onStatus(item.passSize ? `${item.label} is open, but its opening is ${size}: too small to walk through at ${this.sizePct} %. Pick ${item.passSize} % or larger to pass.` : `${item.label} is open, but its opening is ${size}: too small to walk through at any wand size.`, 'error');
+    } else this.onStatus(`${item.label} ${item.kind === 'lever' ? (open ? 'flipped' : 'flipped back') : open ? 'opened' : 'closed'}${open && item.passSize ? ' - walk through' : ''}.`, 'info');
+  }
+
+  /** Lay the closed doorways over the walk world and redraw them (the static collider boxes are drawn once per rebuild). */
+  private applyInteractiveColliders(): void {
+    const cfg = this.model.interactives;
+    if (!cfg) return;
+    const f = this.sizePct / 100;
+    const closed = ixClosedBlocks(cfg.items, this.model.dims, f, this.rotation, i => this.ixOpen.get(i) === true);
+    this.world?.setOverlayBlocks(closed);
+    if (this.ixColliderMesh) { this.worldGroup.remove(this.ixColliderMesh); (this.ixColliderMesh.material as THREE.Material).dispose(); this.ixColliderMesh = null; }
+    if (!closed.size) return;
+    const mat = new THREE.MeshStandardMaterial({ color: LEGEND_COLOR.door, roughness: 0.8, transparent: true, opacity: 0.55, emissive: new THREE.Color(LEGEND_COLOR.door), emissiveIntensity: 0.2 });
+    const mesh = new THREE.InstancedMesh(this.unitBox, mat, closed.size);
+    const m = new THREE.Matrix4();
+    let i = 0;
+    for (const [key, [lo, hi]] of closed) {
+      const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+      m.makeScale(1, (hi - lo) / 16, 1);
+      m.setPosition(x + 0.5, y + (lo + hi) / 32, z + 0.5);
+      mesh.setMatrixAt(i++, m);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    mesh.name = 'colliders-doors';
+    mesh.visible = this.legend.collider.show;
+    this.ixColliderMesh = mesh;
+    this.worldGroup.add(mesh);
+  }
+
+  /** Ease every moving part toward its target angle (the client's Molang rate) and swing its holder about the hinge. */
+  private updateInteractives(dtSeconds: number): void {
+    const cfg = this.model.interactives;
+    if (!cfg) return;
+    const { sizePct, rotation } = this, dims = this.model.dims;
+    for (const [index, target] of this.ixTarget) {
+      const item = cfg.items[index];
+      const shown = this.ixShown.get(index) ?? 0;
+      if (!item || Math.abs(shown - target) < 1e-3) continue;
+      const rate = Math.max(Math.abs(item.angle), 1) / SWING_SECONDS;
+      const next = shown + Math.max(-rate * dtSeconds, Math.min(rate * dtSeconds, target - shown));
+      this.ixShown.set(index, next);
+      const entityIndex = this.ixEntity.get(index), base = this.ixBase.get(index);
+      const holder = entityIndex !== undefined ? this.entityHolders.get(entityIndex) : undefined;
+      if (!holder || !base || !item.pivot || !item.axis) continue;
+      const pivot = placedPoint({ x: item.pivot[0], y: item.pivot[1], z: item.pivot[2] }, dims, sizePct, rotation);
+      const a = placedDirection({ x: item.axis[0], y: item.axis[1], z: item.axis[2] }, dims, sizePct, rotation);
+      const axis = new THREE.Vector3(a.x, a.y, a.z);
+      if (axis.lengthSq() < 1e-12) continue;
+      axis.normalize();
+      // A positive angle is a right-handed turn about the axis (bedrock-interactives.ts `interactiveRig`).
+      const q = new THREE.Quaternion().setFromAxisAngle(axis, next * Math.PI / 180);
+      const p = new THREE.Vector3(pivot.x, pivot.y, pivot.z);
+      holder.position.copy(base.pos.clone().sub(p).applyQuaternion(q).add(p));
+      holder.quaternion.copy(q.clone().multiply(base.quat));
+    }
   }
 
   /**
@@ -1344,6 +1475,7 @@ class AddonWalk implements AddonPreviewHandle {
     const { legend } = this;
     const drawn = this.worldGroup.getObjectByName('model'); if (drawn) drawn.visible = legend.model.show;
     const colliders = this.worldGroup.getObjectByName('colliders'); if (colliders) colliders.visible = legend.collider.show;
+    const doorColliders = this.worldGroup.getObjectByName('colliders-doors'); if (doorColliders) doorColliders.visible = legend.collider.show;
     const treads = this.worldGroup.getObjectByName('treads'); if (treads) treads.visible = legend.tread.show;
     this.routeGroup.visible = legend.track.show;
     this.reachGroup.visible = this.showReach;
@@ -1451,6 +1583,7 @@ class AddonWalk implements AddonPreviewHandle {
       this.camera.rotation.y = this.yaw;
       this.camera.rotation.x = this.pitch;
     }
+    this.updateInteractives(dt);
     this.updateInteract();
     const { renderer } = this.viewer;
     renderer.setRenderTarget(null);

@@ -193,6 +193,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   every model vanish at 64 blocks; the box is now sized from the model extent in
   `bedrock-building-shell.ts`. The LOD hull is the SAME actor, so its switch must
   sit under that cull or it can never be seen.
+- **Doors, windows, hatches, levers and turnables are hinged ENTITIES of the
+  exact parts** (`engine/bedrock-interactives.ts`, design in
+  `docs/bedrock-interactivity.md`); vanilla doors survive only in the
+  coloured-block export. A leaf mould's ORIGIN marks its hinge — a centred
+  origin (40066's arch, 92099, 38320's fixed pane) is not a leaf and stays
+  static. A doorway is cut into the COLLIDER grid to the leaf's own span only:
+  clearing the lintel's share of the top row, or leaving a gap under a leaf hung
+  above its floor, is a hole the wand's size multiplies — at 300-400 % players
+  walked over and under closed doors. Judge any change with
+  `bun scripts/_ix_passability.ts` / `_ix_sweep_report.ts`, never by eye.
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`

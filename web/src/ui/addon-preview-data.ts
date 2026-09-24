@@ -38,6 +38,7 @@ import {
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
 import type { PinballMap, PinballRuntimeConfig } from '@engine/bedrock-pinball.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
+import type { InteractiveRuntimeConfig } from '@engine/bedrock-interactives.js';
 import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, type AddonAppearance } from './addon-appearance.js';
 
 // ─── Model ───────────────────────────────────────────────────────────────────
@@ -62,6 +63,8 @@ export interface AddonEntity {
   hideAt100?: boolean;
   /** The console, ball or a flipper of a playable pinball table (`PlacementActor.pinball`). */
   pinball?: boolean;
+  /** An interactive part's index in `scripts/interactives.js`'s items (`PlacementActor.interactive`). */
+  interactive?: number;
 }
 
 export interface AddonRouteLift {
@@ -138,6 +141,13 @@ export interface AddonPreviewModel {
    * pack, or one whose script the preview could not parse.
    */
   pinball: PinballRuntimeConfig | null;
+  /**
+   * `scripts/interactives.js`'s `CONFIG`, whole (`InteractiveRuntimeConfig`,
+   * bedrock-interactives.ts): each moving part's class, angle, hinge (pivot +
+   * axis in model blocks), doorway cells and passable size. Null when the pack
+   * ships no moving parts.
+   */
+  interactives: InteractiveRuntimeConfig | null;
   /** Per-entity-type collision the pack's BEHAVIOUR file declares, when
    * `minecraft:physics.has_collision` is true (a standing figure blocks a
    * player in game; a ride car's is `false` — see CLAUDE.md/bedrock-coaster.ts —
@@ -186,6 +196,7 @@ export interface AddonPreviewFiles {
   placementScript?: string;
   coasterScript?: string;
   pinballScript?: string;
+  interactivesScript?: string;
   diagnosticsJson?: string;
   treadsJson?: string;
   /** Resource-pack geometry, entity and controller files, keyed by archive path. */
@@ -206,7 +217,7 @@ const FACE_TEXTURE_PATTERN = /(^|\/)(textures\/entity\/[^/]+_faces)\.png$/;
 
 /** Pull the files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
 export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<AddonPreviewFiles> {
-  const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster|pinball)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
+  const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster|pinball|interactives)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
   const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name) || FACE_TEXTURE_PATTERN.test(name);
   const names = listZipEntries(mcaddon).filter(behaviour);
   if (!names.length) throw new Error('Not a Craftmatic add-on: no scripts/placement.js in the archive.');
@@ -225,6 +236,7 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
     placementScript: text(/scripts\/placement\.js$/),
     coasterScript: text(/scripts\/coaster\.js$/),
     pinballScript: text(/scripts\/pinball\.js$/),
+    interactivesScript: text(/scripts\/interactives\.js$/),
     diagnosticsJson: text(/craftmatic-diagnostics\.json$/),
     treadsJson: text(/craftmatic-treads\.json$/),
     appearanceSources,
@@ -285,7 +297,8 @@ export function classifyAddonEntity(typeId: string, actor: Partial<PlacementActo
   if (role === 'car' || actor.coasterRouteIndex !== undefined || /_coaster_(vehicle|cart)(_\d+)?$/.test(id)) return 'car';
   if (/_shell$/.test(id)) return 'shell';
   if (/_fig\d+$/.test(id) || /^f_/.test(id)) return 'figure';
-  if (/_door_leaf_\d+$/.test(id) || actor.doorCandidateIndex !== undefined) return 'door';
+  // Every moving part (door, window, hatch, lever, turnable) is on the legend's door row; its class is in `interactives`.
+  if (actor.interactive !== undefined || /_door_leaf_\d+$/.test(id) || actor.doorCandidateIndex !== undefined) return 'door';
   if (/_seat(_\d+)?$/.test(id) || /_manual_seat$/.test(id)) return 'seat';
   if (/_screen(_\d+)?$/.test(id)) return 'screen';
   if (/^v_/.test(id)) return 'vehicle';
@@ -370,6 +383,13 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     else notes.push('scripts/pinball.js carries no usable CONFIG literal; the pinball table is shown as a static model, not played.');
   }
 
+  let interactives: InteractiveRuntimeConfig | null = null;
+  if (files.interactivesScript) {
+    const cfg = extractJsonAfter(files.interactivesScript, 'const CONFIG') as InteractiveRuntimeConfig | undefined;
+    if (cfg && Array.isArray(cfg.items) && cfg.dims) interactives = cfg;
+    else notes.push('scripts/interactives.js carries no usable CONFIG literal; the moving parts are drawn but do not open.');
+  }
+
   const entities: AddonEntity[] = [];
   for (const a of (config['actors'] as PlacementActor[] | undefined) ?? []) {
     if (typeof a?.typeId !== 'string') continue;
@@ -383,6 +403,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
       ...(a.maxSizeExclusive !== undefined ? { maxSizeExclusive: a.maxSizeExclusive } : {}),
       ...(a.hideAt100 ? { hideAt100: true } : {}),
       ...(a.pinball ? { pinball: true } : {}),
+      ...(typeof a.interactive === 'number' ? { interactive: a.interactive } : {}),
     });
   }
   if (pinball) {
@@ -440,7 +461,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
     entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
-    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, pinball, entityCollision, notes,
+    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, pinball, interactives, entityCollision, notes,
   };
 }
 
@@ -466,7 +487,7 @@ export const LEGEND_KINDS = ['model', 'figure', 'seat', 'door', 'track', 'vehicl
 export type LegendKind = typeof LEGEND_KINDS[number];
 
 export const LEGEND_LABELS: Record<LegendKind, string> = {
-  model: 'Model (in game)', figure: 'Minifigs', seat: 'Chairs / seats', door: 'Doors', track: 'Track', vehicle: 'Vehicles', collider: 'Colliders', tread: 'Treads',
+  model: 'Model (in game)', figure: 'Minifigs', seat: 'Chairs / seats', door: 'Doors / moving parts', track: 'Track', vehicle: 'Vehicles', collider: 'Colliders', tread: 'Treads',
 };
 
 /** Which legend row an entity belongs to (null: the shell and other non-legend actors). */
@@ -525,7 +546,13 @@ export function legendCounts(model: AddonPreviewModel, sizePct: number, rotation
   }
   counts.tread = treadBlocksAt(model, sizePct, rotation).length;
   if (riders) counts.detail.figure = `${riders} seated`;
-  if (model.doorCandidates.length) counts.detail.door = `${model.doorCandidates.length} vanilla at size`;
+  if (model.interactives?.items.length) {
+    const byKind = new Map<string, number>();
+    for (const it of model.interactives.items) byKind.set(it.kind, (byKind.get(it.kind) ?? 0) + 1);
+    const passNow = model.interactives.items.filter(it => it.passSize !== undefined && it.passSize > 0 && sizePct >= it.passSize).length;
+    const doorways = model.interactives.items.filter(it => it.passSize !== undefined).length;
+    counts.detail.door = `${[...byKind].map(([k, n]) => `${n} ${k}${n === 1 ? '' : k === 'hatch' ? 'es' : 's'}`).join(', ')}${doorways ? `; ${passNow}/${doorways} passable at ${sizePct} %` : ''}`;
+  } else if (model.doorCandidates.length) counts.detail.door = `${model.doorCandidates.length} vanilla at size`;
   if (model.routes.length) {
     const length = model.routes.reduce((s, r) => s + r.length, 0);
     const stations = model.routes.filter(r => r.station).length, routeLifts = model.routes.filter(r => r.lift).length, chains = model.routes.filter(r => r.chain).length;

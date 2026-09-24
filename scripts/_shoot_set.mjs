@@ -15,6 +15,7 @@
  *   regenerated source is looked at before it goes to R2.
  *   (`--file <model>` is accepted too: the flag is ignored, the path uploads.)
  *   --view: press that camera button in the viewer's toolbar before the shot.
+ *   SHOOT_FILE=<source.ldr> (env) uploads that file too, same as a model-file argument.
  */
 import { chromium } from 'playwright-core';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -44,8 +45,9 @@ page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.te
 // CRAFTMATIC_URL points the shot at another dev server (a worktree's own port).
 await page.goto(`${process.env.CRAFTMATIC_URL ?? 'http://localhost:4000'}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-search', { timeout: 30000 });
-if (localFile) {
-  await page.setInputFiles('#lego-mpd-input', localFile);
+const uploadFile = localFile ?? (process.env.SHOOT_FILE ? resolve(process.env.SHOOT_FILE) : null);
+if (uploadFile) {
+  await page.setInputFiles('#lego-mpd-input', uploadFile);
 } else {
   await page.fill('#lego-search', setNumber);
   await page.click('#lego-search-btn');
