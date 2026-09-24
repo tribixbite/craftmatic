@@ -28,10 +28,23 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 
 ## Next round — 2026-09-24 evening (user's 7 questions), in progress
 
-- [ ] **Generalization audit** (agent, both repos): column-major LXFML
-  transforms in every reader, finished-model-page (root-step) assembly across
-  the LXFML-derived corpus with strict A/B + publish, identity-row overrides
-  and element fallback ported to whichever converter lacks them.
+- [x] **Generalization audit** (2026-09-24): explode M.R^T bug exists nowhere
+  else (every other bone reader is column-major). Finished-model-page
+  assembly ported to clego (`lxfml_root_step.py`, applied per
+  `dbix_root_step_accepted.json`): census 397/2,322 DBIX LXFMLs (359 sets)
+  move parts; 395 regenerated, 73 passed the strict A/B and a severity check,
+  **71 indexed files / 69 sets PUBLISHED** (prod 71/71 by hash, no pick changed;
+  list + sha `output/generalize-0924/accepted-sha256.txt`, backups
+  `backup-shipped/`). Element fallback ported to craftmatic's LXF reader
+  (`web/public/ldd-element-map.json`, `gen-ldd-element-map.py`). clego
+  `_part_family.description()` skipped the `0 FILE` header fix. Identity-row
+  override not needed in clego (learned table wins).
+  Open: uuid-schema top-level explodes (663 sets) undecided; partial-apply
+  (figures only) for rejects like 76269; the 424 `convert_lxf.py` app picks
+  (Studio rows in the wrong direction, no learned table) deserve their own
+  regen + A/B; DbixConvV2 / DbixLDR not regenerated; corpus-wide element
+  fallback count unmeasured; element rows lacking a design id can beat an
+  existing `<design>.dat`.
 - [x] **clego de-sync**: local master was a signature-only rewrite (trailers ->
   em dash) of the remote's 249 commits (same trees; remote tip tree ==
   local `9743994e`) plus 309 newer. Remote master backed up as
