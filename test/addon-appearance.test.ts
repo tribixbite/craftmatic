@@ -163,3 +163,36 @@ describe('buildAddonAppearance', () => {
     expect(app.notes.some(n => n.includes('not valid JSON'))).toBe(true);
   });
 });
+
+describe('face decals (head-face.ts): a real texture, one face per cube', () => {
+  it('keeps the atlas path and size and each decal cube\'s one textured face', () => {
+    const faceEntity = JSON.stringify({ 'minecraft:client_entity': { description: {
+      identifier: 'craftmatic:f_fig1',
+      geometry: { mesh_0: 'geometry.craftmatic.fig1_mesh_0' },
+      textures: { default: 'textures/entity/f_fig1_faces' },
+      render_controllers: ['controller.render.craftmatic.fig1_mesh_0'],
+    } } });
+    const faceControllers = JSON.stringify({ render_controllers: { 'controller.render.craftmatic.fig1_mesh_0': {
+      geometry: 'Geometry.mesh_0', materials: [{ '*': 'Material.cutout' }], textures: ['Texture.default'],
+    } } });
+    const faceGeo = JSON.stringify({ format_version: '1.12.0', 'minecraft:geometry': [{
+      description: { identifier: 'geometry.craftmatic.fig1_mesh_0', texture_width: 112, texture_height: 96 },
+      bones: [{ name: 'head', pivot: [0, 24, 0], cubes: [
+        { origin: [-2, 24, -2.2], size: [4.2, 3.8, 0.1], uv: { north: { uv: [0, 0], uv_size: [104, 96] } } },
+      ] }],
+    }] });
+    const a = buildAddonAppearance(new Map([
+      ['RP/entity/f.entity.json', faceEntity],
+      ['RP/render_controllers/f.render_controllers.json', faceControllers],
+      ['RP/models/entity/f.geo.json', faceGeo],
+    ]));
+    const group = a.byType.get('craftmatic:f_fig1')!.groups[0]!;
+    expect(group.texture).toEqual({ path: 'textures/entity/f_fig1_faces', width: 112, height: 96 });
+    expect(group.cubes[0]!.faceUv).toEqual({ face: 'north', uv: [0, 0], size: [104, 96] });
+  });
+
+  it('leaves an ordinary swatch group untextured', () => {
+    const a = buildAddonAppearance(sources());
+    expect(a.byType.get('craftmatic:b_shell')!.groups.every(g => g.texture === undefined && g.cubes.every(c => c.faceUv === undefined))).toBe(true);
+  });
+});

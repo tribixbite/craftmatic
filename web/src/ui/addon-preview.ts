@@ -39,6 +39,7 @@ import {
   type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
 } from '@engine/coaster-preview.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_ANIMATION_IDS } from '@engine/minifig-rig.js';
+import type { AppearanceCube } from './addon-appearance.js';
 import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
 import {
   columnBoxes, defaultLegendState, entitySpawnsAt, laidColliderBlocks, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
@@ -547,6 +548,12 @@ class AddonWalk implements AddonPreviewHandle {
           return !rider || Number(rider[1]) === activeRider;
         });
         if (!cubes.length) continue;
+        if (chunk.texture) {
+          // A face atlas: each decal cube draws ONE textured face, nothing else.
+          const faces = this.faceDecalMesh(chunk.texture, cubes, bones);
+          if (faces) holder.add(faces);
+          continue;
+        }
         const material = new THREE.MeshStandardMaterial({
           color: chunk.colorHex, roughness: 0.62, metalness: 0.04, flatShading: true,
           ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0.25, chunk.alpha) } : {}),
@@ -580,6 +587,76 @@ class AddonWalk implements AddonPreviewHandle {
       if (this.pinballIndices?.flippers.includes(index)) this.pinballFlipperBase.set(index, { pos: holder.position.clone(), quat: holder.quaternion.clone() });
     });
     this.worldGroup.add(group);
+  }
+
+  /** Face atlases decoded once per pack, by resource path. */
+  private readonly faceTextureCache = new Map<string, THREE.Texture>();
+
+  /** The face atlas at `path` as a nearest-sampled texture, or null when the pack does not ship it. */
+  private faceTexture(path: string): THREE.Texture | null {
+    const hit = this.faceTextureCache.get(path);
+    if (hit) return hit;
+    const bytes = this.model.faceTextures?.get(path);
+    if (!bytes) return null;
+    const url = URL.createObjectURL(new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'image/png' }));
+    const image = new Image();
+    const texture = new THREE.Texture(image);
+    // Texel-exact, as the game samples an entity texture; row 0 of the PNG is v = 0.
+    texture.magFilter = THREE.NearestFilter;
+    texture.minFilter = THREE.NearestFilter;
+    texture.generateMipmaps = false;
+    texture.flipY = false;
+    texture.colorSpace = THREE.SRGBColorSpace;
+    image.onload = () => { texture.needsUpdate = true; URL.revokeObjectURL(url); };
+    image.src = url;
+    this.faceTextureCache.set(path, texture);
+    this.disposables.push(texture);
+    return texture;
+  }
+
+  /**
+   * Face decals (`head-face.ts`): one quad per cube on the face its per-face
+   * UV names, textured from the atlas, alpha-tested. The corner a texel
+   * rectangle's top-left lands on follows the rule the compiler lays the
+   * atlas out by, in geometry-JSON terms: north u → +X, south u → −X,
+   * east u → +Z, west u → −Z, v → −Y (see `orientFace`).
+   */
+  private faceDecalMesh(tex: { path: string; width: number; height: number }, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
+    const texture = this.faceTexture(tex.path);
+    if (!texture) return null;
+    const positions: number[] = [], uvs: number[] = [];
+    const v = new THREE.Vector3();
+    for (const c of cubes) {
+      const f = c.faceUv;
+      if (!f || f.face === 'up' || f.face === 'down') continue;
+      const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
+      const x0 = ox, x1 = ox + sx, y0 = oy, y1 = oy + sy, z0 = oz, z1 = oz + sz;
+      // Top-left, top-right, bottom-left, bottom-right of the texel rectangle.
+      const corners: Array<[number, number, number]> =
+        f.face === 'north' ? [[x0, y1, z0], [x1, y1, z0], [x0, y0, z0], [x1, y0, z0]]
+          : f.face === 'south' ? [[x1, y1, z1], [x0, y1, z1], [x1, y0, z1], [x0, y0, z1]]
+            : f.face === 'east' ? [[x1, y1, z0], [x1, y1, z1], [x1, y0, z0], [x1, y0, z1]]
+              : [[x0, y1, z1], [x0, y1, z0], [x0, y0, z1], [x0, y0, z0]];
+      const u0 = f.uv[0] / tex.width, u1 = (f.uv[0] + f.size[0]) / tex.width;
+      const w0 = f.uv[1] / tex.height, w1 = (f.uv[1] + f.size[1]) / tex.height;
+      const cornerUv: Array<[number, number]> = [[u0, w0], [u1, w0], [u0, w1], [u1, w1]];
+      const bone = bones.get(c.bone) ?? new THREE.Matrix4();
+      for (const k of [0, 2, 1, 1, 2, 3]) {
+        v.set(...corners[k]!).applyMatrix4(bone);
+        positions.push(v.x, v.y, v.z);
+        uvs.push(...cornerUv[k]!);
+      }
+    }
+    if (!positions.length) return null;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({ map: texture, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.62, metalness: 0.04 });
+    this.disposables.push(material);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.frustumCulled = false;
+    return mesh;
   }
 
   /** The rider variant a coaster car currently shows (see `buildModel`), or

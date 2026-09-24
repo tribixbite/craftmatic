@@ -121,6 +121,8 @@ export interface AddonPreviewModel {
   pack: { cuboids?: number; entities?: number; shareOfDeviceBudget?: number } | null;
   /** What the pack DRAWS, read back from its geometry: null when it ships none. */
   appearance: AddonAppearance | null;
+  /** Face atlas PNG bytes by resource path (no extension), for groups with a `texture`. */
+  faceTextures?: Map<string, Uint8Array>;
   /**
    * `scripts/coaster.js`'s `CONFIG.types`, whole: role plus the measured
    * `wheelbase` (blocks, the chord a car pitches on) and `seat` (the rideable
@@ -191,14 +193,21 @@ export interface AddonPreviewFiles {
   /** Behaviour-pack `entities/<id>.json` files, keyed by archive path — read for
    * `minecraft:collision_box` / `minecraft:physics.has_collision` (`entityCollisionFromSources`). */
   behaviorEntitySources?: Map<string, string>;
+  /**
+   * Face atlases (`textures/entity/<id>_faces.png`), keyed by resource path
+   * WITHOUT the extension - the form a client entity's `textures` map uses.
+   */
+  faceTextures?: Map<string, Uint8Array>;
 }
 
 const utf8 = new TextDecoder();
+/** A face atlas the compiler writes beside an entity (`head-face.ts`). */
+const FACE_TEXTURE_PATTERN = /(^|\/)(textures\/entity\/[^/]+_faces)\.png$/;
 
 /** Pull the files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
 export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<AddonPreviewFiles> {
   const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster|pinball)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
-  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name);
+  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name) || FACE_TEXTURE_PATTERN.test(name);
   const names = listZipEntries(mcaddon).filter(behaviour);
   if (!names.length) throw new Error('Not a Craftmatic add-on: no scripts/placement.js in the archive.');
   const found = await extractMatching(mcaddon, wanted);
@@ -210,6 +219,8 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
   for (const [name, data] of found) if (APPEARANCE_FILE_PATTERN.test(name)) appearanceSources.set(name, utf8.decode(data));
   const behaviorEntitySources = new Map<string, string>();
   for (const [name, data] of found) if (BEHAVIOR_ENTITY_FILE_PATTERN.test(name)) behaviorEntitySources.set(name, utf8.decode(data));
+  const faceTextures = new Map<string, Uint8Array>();
+  for (const [name, data] of found) { const m = FACE_TEXTURE_PATTERN.exec(name); if (m) faceTextures.set(m[2]!, new Uint8Array(data)); }
   return {
     placementScript: text(/scripts\/placement\.js$/),
     coasterScript: text(/scripts\/coaster\.js$/),
@@ -218,6 +229,7 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
     treadsJson: text(/craftmatic-treads\.json$/),
     appearanceSources,
     behaviorEntitySources,
+    faceTextures,
   };
 }
 
@@ -428,7 +440,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
     entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
-    appearance, coasterTypes, pinball, entityCollision, notes,
+    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, pinball, entityCollision, notes,
   };
 }
 

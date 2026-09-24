@@ -867,6 +867,8 @@ interface MeshBinding {
     /** Resource-pack path, without the extension. */
     texture: string;
     translucent: boolean;
+    /** Cut-out texture (a face atlas): drawn with `entity_alphatest`, so only the ink shows. */
+    alphaTest?: boolean;
 }
 
 /** The `textures` map plus the key each binding resolves to; identical paths share a key. */
@@ -925,6 +927,7 @@ interface LodBinding {
 function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'entity_alphablend', animations?: ClientAnimations, lod?: LodBinding): unknown {
     const materials: Record<string, string> = { default: opaqueMaterial };
     if (bindings.some(b => b.translucent)) materials.blend = 'entity_alphablend';
+    if (bindings.some(b => b.alphaTest)) materials.cutout = 'entity_alphatest';
     const { textures } = textureKeys(bindings);
     const geometryMap: Record<string, string> = {};
     bindings.forEach((b, i) => { geometryMap[`mesh_${i}`] = b.geometryId; });
@@ -978,7 +981,7 @@ function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding):
             : { geometry: `Geometry.mesh_${i}` };
         controllers[`controller.render.${PACK_NAMESPACE}.${id}_mesh_${i}`] = {
             ...lodPair,
-            materials: [{ '*': b.translucent ? 'Material.blend' : 'Material.default' }],
+            materials: [{ '*': b.translucent ? 'Material.blend' : b.alphaTest ? 'Material.cutout' : 'Material.default' }],
             textures: [`Texture.${keyOf[i]}`],
         };
     });
@@ -1742,11 +1745,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (animations === MINIFIG_CLIENT_ANIMATIONS) minifigsEmitted++;
         // Each geometry holds one LDraw colour and is textured with that
         // colour's flat swatch (box UV: `ldraw-entity-compiler.ts`).
+        // A face geometry (`faceAtlas`) samples the entity's own face atlas,
+        // alpha-tested (head-face.ts).
         const bindings: MeshBinding[] = geo.meshes.map(m => ({
             geometryId: m.id,
-            texture: `textures/entity/${legoMaterialSwatchName(m.material)}`,
+            texture: m.faceAtlas ? `textures/entity/${ecid}_faces` : `textures/entity/${legoMaterialSwatchName(m.material)}`,
             translucent: m.translucent,
+            ...(m.faceAtlas ? { alphaTest: true } : {}),
         }));
+        for (const m of geo.meshes) if (m.faceAtlas) files.push({ name: `${rp}textures/entity/${ecid}_faces.png`, data: m.faceAtlas.png });
         // Distance LOD (opt-in): a per-colour surface hull of the cubes that were
         // just emitted, bound after the full-detail geometries and selected by
         // camera distance in the render controllers. A figure is never hulled -
@@ -1799,6 +1806,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // One swatch per LDraw colour: exact LDraw RGBA, plus the PBR maps.
         // Shared by every entity in the pack that uses the colour.
         for (const mesh of geo.meshes) {
+            if (mesh.faceAtlas) continue; // textured by its own atlas, above
             const name = legoMaterialSwatchName(mesh.material);
             if (emittedSwatches.has(name)) continue;
             emittedSwatches.add(name);
@@ -1847,7 +1855,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const geo = await compileLdrawEntityGeometry(cid, 'figure', bricks, { scale: figureUnitsPerLdu, partGeometry: options.partGeometry, quality: options.minifigCreator.quality ?? options.entityQuality, rig: { bones: assembled.rig.bones, boneOf: assembled.rig.boneOf.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_'))) }, wholeModel: true, pbr,
                     // Canonical minifig feet are y=72 LDU. Every library slot
                     // shares that origin; never recenter a head at its own floor.
-                    originLdu: [0, 72, 0], inheritMaterialId: true });
+                    originLdu: [0, 72, 0], inheritMaterialId: true, faceTextures: false });
                 diagnostics[cid] = geo.diagnostics; cuboids += geo.diagnostics.cubeCount;
                 const printMeshes = geo.meshes.filter(candidate => candidate.material.colorId !== 16);
                 if (printMeshes.length > MAX_PRINT_LAYERS) {

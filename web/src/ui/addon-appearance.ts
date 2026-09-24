@@ -43,6 +43,12 @@ export interface AppearanceCube {
   size: [number, number, number];
   rotation?: [number, number, number];
   pivot?: [number, number, number];
+  /**
+   * Per-face UV (a face decal, `head-face.ts`): the ONE face the cube draws and
+   * its texel rectangle in the geometry's texture. Every other face is not
+   * drawn. Absent for an ordinary box-UV cube.
+   */
+  faceUv?: { face: 'north' | 'south' | 'east' | 'west' | 'up' | 'down'; uv: [number, number]; size: [number, number] };
 }
 
 /** Every cube that shares one colour — one mesh chunk, one swatch. */
@@ -54,6 +60,11 @@ export interface AppearanceGroup {
   /** The LDraw colour id the swatch was named for, or null when unreadable. */
   ldrawColor: number | null;
   cubes: AppearanceCube[];
+  /**
+   * A REAL texture rather than a swatch (an entity's face atlas): its resource
+   * path without extension and its size in texels, for cubes with `faceUv`.
+   */
+  texture?: { path: string; width: number; height: number };
 }
 
 export interface AddonAppearanceEntry {
@@ -154,7 +165,21 @@ function textureKeyOf(controller: Record<string, unknown>): string | null {
   return null;
 }
 
-interface GeometryDef { bones: AppearanceBone[]; cubes: AppearanceCube[] }
+interface GeometryDef { bones: AppearanceBone[]; cubes: AppearanceCube[]; textureSize: [number, number] }
+
+const FACE_NAMES = ['north', 'south', 'east', 'west', 'up', 'down'] as const;
+
+/** The one face a per-face-UV cube draws, or undefined for box UV (`uv: [u, v]`). */
+function faceUvOf(uv: unknown): AppearanceCube['faceUv'] {
+  if (!uv || typeof uv !== 'object' || Array.isArray(uv)) return undefined;
+  for (const face of FACE_NAMES) {
+    const f = (uv as Record<string, { uv?: unknown; uv_size?: unknown }>)[face];
+    if (f && Array.isArray(f.uv) && Array.isArray(f.uv_size)) {
+      return { face, uv: [Number(f.uv[0]), Number(f.uv[1])], size: [Number(f.uv_size[0]), Number(f.uv_size[1])] };
+    }
+  }
+  return undefined;
+}
 
 /** Index every geometry in every `.geo.json`, by its identifier. */
 function indexGeometries(sources: AppearanceSources, notes: string[]): Map<string, GeometryDef> {
@@ -166,7 +191,7 @@ function indexGeometries(sources: AppearanceSources, notes: string[]): Map<strin
     const list = (parsed as { 'minecraft:geometry'?: unknown })['minecraft:geometry'];
     if (!Array.isArray(list)) continue;
     for (const geo of list) {
-      const g = geo as { description?: { identifier?: string }; bones?: unknown };
+      const g = geo as { description?: { identifier?: string; texture_width?: number; texture_height?: number }; bones?: unknown };
       const identifier = g.description?.identifier;
       if (typeof identifier !== 'string' || !Array.isArray(g.bones)) continue;
       const bones: AppearanceBone[] = [];
@@ -184,17 +209,18 @@ function indexGeometries(sources: AppearanceSources, notes: string[]): Map<strin
         });
         if (!Array.isArray(b.cubes)) continue;
         for (const rawCube of b.cubes) {
-          const c = rawCube as { origin?: unknown; size?: unknown; rotation?: unknown; pivot?: unknown };
+          const c = rawCube as { origin?: unknown; size?: unknown; rotation?: unknown; pivot?: unknown; uv?: unknown };
           const origin = optVec3(c.origin), size = optVec3(c.size);
           if (!origin || !size) continue;
           cubes.push({
             bone: name, origin, size,
             ...(optVec3(c.rotation) ? { rotation: optVec3(c.rotation)! } : {}),
             ...(optVec3(c.pivot) ? { pivot: optVec3(c.pivot)! } : {}),
+            ...(faceUvOf(c.uv) ? { faceUv: faceUvOf(c.uv)! } : {}),
           });
         }
       }
-      out.set(identifier, { bones, cubes });
+      out.set(identifier, { bones, cubes, textureSize: [Number(g.description?.texture_width ?? 16), Number(g.description?.texture_height ?? 16)] });
     }
   }
   return out;
@@ -274,8 +300,13 @@ export function buildAddonAppearance(sources: AppearanceSources): AddonAppearanc
       const { colorHex, alpha } = hexOf(ldrawColor);
 
       for (const bone of geo.bones) if (!bones.has(bone.name)) bones.set(bone.name, bone);
+      // A face atlas is a real texture: the group keeps its path for the
+      // preview to draw the decal cubes' one textured face each.
+      const texture = texPath && ldrawColor === null && geo.cubes.some(c => c.faceUv)
+        ? { path: texPath, width: geo.textureSize[0], height: geo.textureSize[1] }
+        : undefined;
       if (geo.cubes.length) {
-        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes });
+        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}) });
         cubeCount += geo.cubes.length;
       }
     }

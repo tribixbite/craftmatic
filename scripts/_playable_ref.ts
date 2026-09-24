@@ -10,12 +10,15 @@
  *          [--buildings=bricks|blocks]   (bricks: the building as a brick-accurate shell entity over colliders)
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
  *          [--lod=none|hull] [--lod-distance=N]   (default hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
+ *          [--faces=<dir>]   (face art for heads no LDraw library prints: <part>.png per head, scripts/gen-face-art.py)
  *          [--figure-collision-height=N]   (experimental override for a figure NPC's minecraft:collision_box.height, default computed/clamped 1.0-1.8; device-919 roaming experiment)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join } from 'node:path';
+import { inflateSync } from 'node:zlib';
+import { seedFaceArt } from '../web/src/engine/head-face.ts';
 import { createHash } from 'node:crypto';
 import { extractIoModel } from '../web/src/engine/io-extractor.ts';
 import { embeddedPartTexts, parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
@@ -32,6 +35,54 @@ import { computePipelineStamp } from './pipeline-stamp.ts';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 setLDrawRoot(LDRAW_ROOT);
+
+/**
+ * Decode an 8-bit, non-interlaced RGB/RGBA PNG (what `gen-face-art.py` writes)
+ * to RGBA. Anything else is refused by name rather than misread.
+ */
+function decodePngRgba(bytes: Buffer): { width: number; height: number; rgba: Uint8Array } {
+  if (bytes.readUInt32BE(0) !== 0x89504e47) throw new Error('not a PNG');
+  let at = 8, width = 0, height = 0, colourType = 0;
+  const idat: Buffer[] = [];
+  while (at < bytes.length) {
+    const len = bytes.readUInt32BE(at), type = bytes.toString('latin1', at + 4, at + 8);
+    const data = bytes.subarray(at + 8, at + 8 + len);
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0); height = data.readUInt32BE(4); colourType = data[9]!;
+      if (data[8] !== 8 || data[12] !== 0 || (colourType !== 6 && colourType !== 2)) throw new Error(`unsupported PNG (depth ${data[8]}, colour ${colourType}, interlace ${data[12]})`);
+    } else if (type === 'IDAT') idat.push(data);
+    else if (type === 'IEND') break;
+    at += 12 + len;
+  }
+  const bpp = colourType === 6 ? 4 : 3, stride = width * bpp;
+  const raw = inflateSync(Buffer.concat(idat));
+  const px = new Uint8Array(height * stride);
+  for (let y = 0; y < height; y++) {
+    const filter = raw[y * (stride + 1)]!;
+    for (let x = 0; x < stride; x++) {
+      const v = raw[y * (stride + 1) + 1 + x]!;
+      const a = x >= bpp ? px[y * stride + x - bpp]! : 0, b = y ? px[(y - 1) * stride + x]! : 0;
+      const c = x >= bpp && y ? px[(y - 1) * stride + x - bpp]! : 0;
+      const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      const pred = filter === 0 ? 0 : filter === 1 ? a : filter === 2 ? b : filter === 3 ? (a + b) >> 1 : (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
+      px[y * stride + x] = (v + pred) & 0xff;
+    }
+  }
+  if (bpp === 4) return { width, height, rgba: px };
+  const rgba = new Uint8Array(width * height * 4);
+  for (let i = 0; i < width * height; i++) { rgba.set(px.subarray(i * 3, i * 3 + 3), i * 4); rgba[i * 4 + 3] = 255; }
+  return { width, height, rgba };
+}
+
+// `--faces=<dir>`: face ART (route 2, `scripts/gen-face-art.py`) for heads no
+// LDraw library prints, one `<part>.png` per head name (`3626cpb3484.png`).
+// The compiler draws it on the head as a texture (engine/head-face.ts).
+const facesDir = process.argv.find(a => a.startsWith('--faces='))?.slice('--faces='.length);
+if (facesDir) {
+  const art = readdirSync(facesDir).filter(n => /^[0-9a-z]+\.png$/i.test(n))
+    .map(n => [n.replace(/\.png$/i, ''), decodePngRgba(readFileSync(join(facesDir, n)))] as [string, { width: number; height: number; rgba: Uint8Array }]);
+  console.error(`[faces] seeded ${seedFaceArt(art)} face art from ${facesDir}`);
+}
 
 const positional = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
