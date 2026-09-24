@@ -178,6 +178,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`
   is refused and the entity never exists). Most set stems are numeric, so build
   ids with `entityId(raw, prefix)`; `scripts/_mcaddon_check.py` gates it.
+- **Format 1.26.30 dropped `minecraft:pushable`; an entity that declares it
+  does not exist.** The whole definition fails to parse and every spawn says
+  "not a valid entity type" — pinball's flippers, ball and tap zones shipped
+  twice like that and "nothing moved" (2026-09-24). Use
+  `minecraft:pushable_by_block`; `scripts/_mcaddon_check.py` gates
+  `DROPPED_COMPONENTS`.
 - **Bedrock rejects a `float` actor property written as an integer literal.**
   `"default": 0` fails with "'default' value does not match the specified type
   'float'" and drops the entity's WHOLE property component, so `query.property`
