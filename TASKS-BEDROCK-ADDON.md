@@ -202,6 +202,12 @@ Fixed offline (guide: "Figures on the device (2026-09-24)"), commit
 `76417.mcaddon` 705,253 bytes SHA256 `d5b676f6770e015f1f93b803db0c343c3a268df786f6801708dd5ac50e697fc2`
 (13 figures, Hagrid = figure 11), `42703.mcaddon` 532,027 bytes SHA256
 `e481b82feeb9cb18019ae6d7b9502ab1193d90774a415fd3d40f28f8d5ea275b` (5 dolls).
+On the REGENERATED source (`d3a02437401c`), built at `8b164e73`:
+`output/device-round-2026-09-24b/after2/76417.mcaddon` 704,697 bytes SHA256
+`696f0fa904dc218ea913663366b3117043ef47a350e0dd095dd8d9454d5e80a0` — 11 NPCs,
+the vault cart with Harry (seat) and Hagrid (passenger);
+`figures-after2-76417-cart-riders.png` shows both in the cart (walker
+`--kind=car --isolate`).
 Before/after renders `output/device-round-2026-09-24b/figures-*.png`:
 - [ ] **Device check** on 76417 + 42703: faces drawn (0.9 LDU decals),
   goblin hair without stripes, the five dolls as NPCs with tails below the
