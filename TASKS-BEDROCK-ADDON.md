@@ -26,198 +26,85 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
-## Active round — 2026-09-23 night: coasters closed, both mapping tables everywhere, pinball
+## Active round — 2026-09-24: device report 2 (pinball, coasters, figures, Gringotts)
 
-### Packs to test on the device (built from a CLEAN worktree at a commit)
+The user's second device report (`output/device-round-2026-09-24b/screenshots/1-5.jpg`)
+listed 12 items. Status per item, then what is still open. Work was split
+across worktree agents (coaster, figures, Gringotts) and merged into main;
+pinball was done in main and tested on the Pixel through a subagent.
 
-Built with `bun scripts/_playable_ref.ts <source> <out> --label=...` from a
-`git worktree` of the commit named, so the pack name carries a clean stamp.
-Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
-(second build at `a73f5b4f`, after the user's device report; sent). Expect:
-- **42703 Mermaid Roller Coaster Ride** — 3 own cars on a closed 82.6-block
-  circuit (220.3 studs), second train in the bay, no lift. The four
-  mini-dolls stay in the shell (mini-dolls are not rigged).
-- **76417 Gringotts** — the bank now stands ON the rock (assembled from the
-  LXFML's own `<Explode>` frames); one cart shuttles the 58-block vault rail
-  (open at both ends by design), 12 figures, 4 doors. The dragon (215 parts)
-  stands beside the bank, not on it: its move does not seat and is refused.
-  The five goblins wear their hair: `68498` is curated onto LDraw `93230`
-  (the user found the base mould), and the second material picks the ears
-  (`93230p04`, or hair + ears subparts for an unlisted colour, as 40893's
-  olive ears). Both files republished 2026-09-24.
-- **11374 Arcade Pinball Machine** — playable. Sit at the invisible console in
-  front ("Play pinball"). Left/right strafe = flippers, forward = both, hold
-  Jump to charge the plunger, release to launch, sneak to leave. **Device
-  checks, none verified:** (1) the strafe sign (`getMovementVector().x > 0`
-  assumed = left; if the flippers are swapped, flip it in
-  `bedrock-pinball.ts` `pinballRuntime`); (2) the flipper SPIN sign
-  (`flipperAnimation` negates Y like the geometry writer; if a flipper swings
-  DOWN, negate `spinSign`); (3) the free camera's framing; (4) ball smoothness
-  at 20 Hz teleports.
+**Minecraft now keeps packs, worlds AND the content log in PRIVATE storage**
+(1.26.51, "Application" storage): adb cannot read the log or edit world pack
+lists. Import still works (VIEW intent, Minecraft foreground); activation goes
+through the world's Edit -> Behavior/Resource Packs UI. QA world: **922** (flat,
+creative, cheats). Its Available lists hold several stale pinball versions;
+`/sdcard/Download` holds `pinball-rec1..4.mp4` and `000-pinball-*.mcaddon`
+(deletes are off-limits to agents; the user can clear them).
 
-### What changed this round (all committed; craftmatic + clego)
+| # | report item | status |
+|---|---|---|
+| 1 | pinball: nothing moves, touch awkward, camera closer | flippers/ball/zones never LOADED (`minecraft:pushable`, dropped in format 1.26.30) — fixed `980f54fd`, gated in `_mcaddon_check.py`. Device-proven: ball launches and rolls smoothly, flippers swing UP on the correct side, seat lift frames the table. Tap-to-flip: see pinball below. Camera closer (0.1 L out, 0.8 L up). |
+| 2 | second-loop swivel | fixed `d98d2b23` (yaw from the axle, up follows the loop); host-proved only |
+| 3 | coasters ~50 % slow | `COASTER_RIDE_PACE` 1.6, `MAX_SPEED` 32, inversion speed floor; host-proved only |
+| 4 | faces missing | default eyes+mouth on plain heads (`faceDecals`); real LDD decoration mapping open |
+| 5 | partial hair | `preserveSurface` for headwear + head carving; `descriptionOf` skipped `0 FILE` headers |
+| 6 | mermaid legs | mini-doll rig (`FigureSystem`), tail re-placed at the legs joint |
+| 7 | invisible walls | colliders from part boxes (voxel grid was half a block off) |
+| 8 | doors | 45-degree leaves stay LEGO geometry; a frame-filling door ENTITY is open |
+| 9 | Hagrid missing body | big-fig rig + consensus re-anchor — **regressed on the new 76417 source**: 11 figures + 1 rider, no 37777 figure (figures agent re-investigating) |
+| 10 | floating railing | 21229 fences take their Studio sibling's (30056) row |
+| 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
+| 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
 
-- **Coasters closed.** `DbixConvV3/42703.ldr` and `76417.ldr` are rebuilt
-  from their LXFML by `scripts/_lxfml_to_ldr.ts` (76417 first through
-  `scripts/_lxfml_assemble.ts`), windows/figures seated with clego's
-  assemblers (`--preserve-pose`), graded, index-patched and PUBLISHED; prod
-  serves `7fb06cdf3ded` / `5cc046493222`, index byte-identical to local.
-  42703 route 0 -> 1 closed 220.3 studs; 76417 largest piece 59.4 % -> 91.3 %,
-  severity 1.17 -> 0.38. Shipped bytes backed up under
-  `output/coaster-close-2026-09-23/backup-shipped/` with SHA256SUMS.
-- **Second mapping table everywhere.** craftmatic `gen-ldd-part-map.py` reads
-  lxfv56 MATERIAL-typed rows (`type` = LDD material id; +31 ids, 0 changed);
-  `_lxfml_to_ldr.ts` records sticker parts as comments. clego
-  `reconvert_dbix.py`, `convert_lxf.py`, `download_dbix_lxfml.py` all read
-  lxfv56 (`fill_from_lxfv56`); rows from it, and rails 25061/26559/34738/26022,
-  apply INVERSE in `dbix_align.py` — clego's converter now routes every coaster
-  exactly as craftmatic does. The audit that found the clego gap is in this
-  session's notes; clego's `geograde/lxf_read.py` inherits the fix.
-- **Corpus regeneration** of the 2,016 DbixConvV3 files that place an
-  affected id: `python dbix_lxfv56_regen.py --out <dir>` (8 shards), A/B with
-  `geograde/_ab_dirs.py`, decided by `python dbix_lxfv56_accept.py --trial <dir>`
-  (strictly better, never worse, side-model parts gated too). Raw-origin
-  placements 18,625 -> 12,002 over those files. **990 applied and PUBLISHED**
-  (970 index entries re-graded and patched, prod index byte-identical,
-  13-file readback all match; no app pick changed). Over the applied files:
-  floating 15,175 -> 13,571, big floating 8,060 -> 7,091, figure defects
-  1,295 -> 1,240, sunk 1,032 -> 936, placements +6,469. The other 1,026 stay
-  as shipped: 738 regress on a gated metric (mostly floating/side models when a
-  part leaves an accidental raw-origin burial), 288 show no gain. Shipped
-  bytes + manifest: `output/dbix-lxfv56-regen/backup-shipped/`.
-- **Regression gate**: `bun scripts/_favorites_export_sweep.ts --out
-  output/bedrock-entity-qa/post-pinball-sweep` 40/40 exported, 0 problems;
-  only 11374 gains `scripts/pinball.js` (no false-positive pinball).
-- **60 HuntArchiveLDR files the live index pointed at were 404 on prod** —
-  uploaded; `sync_models_r2.py --verify-legacy` certified the other 20,699
-  (0 failures), so the publisher's receipt gate is clear for future index
-  publishes.
-- **Walk add-on** (Sonnet, reviewed): real minifig geometry instead of
-  markers, coaster cars move riderless (`coaster-preview.ts` shares
-  `COASTER_PHYSICS` with the runtime), E / touch "Interact" boards cars and
-  seats, doors toggle their collider, figures with a pack collision box block
-  the player. Pinball mode in the walk: see open items.
-- **Pinball** — `pinball-table.ts` (reads the table), `pinball-physics.ts`
-  (self-contained sim), `bedrock-pinball.ts` (entities + runtime), rig bones
-  with a static rotation in the compiler. Probe:
-  `bun scripts/_pinball_probe.ts <model.ldr> <out.png>` draws the field.
+### Pinball input — where it stands (device runs 1-5, `output/device-round-2026-09-24b/pinball-device*/`)
 
-### Device report 2026-09-24b (76417 Gringotts) — fixed in the worktree branch, source NOT yet published
+- `83614b39`: nothing spawned (pushable). `980f54fd`: taps counted but split
+  250-380 px right of centre. `1fb959ae` (zones from the MEASURED head): 0 hits.
+  `bcd1e3c9` live tuning (`/scriptevent craftmatic:pinball {...}`): **with a
+  FREE camera a tap never ray-tests a zone in front of the head** at any
+  offset/anchor/depth; it only reaches a zone that ENCLOSES the head.
+- `6ba8b924` (under test): seated view is FIRST PERSON (setRotation + camera
+  input locked, free camera only as fallback / `{"view":"free"}`), and
+  **hotbar slots** 1-4 / 6-9 are the left / right flipper under any camera
+  (parked on slot 5; wands skip players tagged `craftmatic_pinball`).
+- Stick works in play (left/right flippers, pull back = plunger); Jump
+  DISMOUNTS, so it is no input. The ~1.5 s ball stop near the top-left is the
+  designed stall kickout (`STALL_S`).
+- [ ] Settle the default input from run 5; fold the working zone placement
+  into the defaults and remove the tuning hook (`# TODO` in `pinballRuntime`).
 
-Screenshots: `output/device-round-2026-09-24b/screenshots/1.jpg`, `4.jpg`.
-Regenerated source: `output/gringotts-fix-0924/76417.ldr` (built by
-`bun scripts/_lxfml_assemble.ts <DBIX_LXFML/76417.lxfml> <out.lxfml> --root-step`
-then `bun scripts/_lxfml_to_ldr.ts <out.lxfml> <out.ldr>`; the published file
-had no post-conversion polish, so these two steps ARE the recipe). Needs
-publishing to `DbixConvV3/76417.ldr` + index hash patch (Will publishes).
-- **Figures, dragon, "keys", cart were never placed (SOURCE).** The seating
-  heuristic cannot place a figure indoors (the roof is "what it lands over")
-  and refused 10 of 13 figures, the dragon and the cart; the dragon's gold
-  horn+ring spines stayed in their build layout in the air ("keys"). The
-  instruction's top-level step `sm01` IS the finished-model page: its 20
-  direct `<Explode>`s place all of it (`composeRootStep`, nested frames
-  composed). geograde published -> new: float 19 -> 4, BIG 7 -> 0, side 111 -> 51.
-- **Goblins**: LEGO's own page puts 1 goblin at the bank door, 3 at the foot of
-  the rock, 1 driving the cart, 1 in the rock. The four teller desks are EMPTY
-  in the file (no explode anywhere places a figure there). Seating goblins at
-  the desks would be an invented placement: open decision for Will.
-- **Floating railings (the black "D" shapes in 4.jpg)** were 21229 spindled
-  fences: Studio's row is identity, true correction (-10,-48,70) LDU = 30056's
-  row. `gen-ldd-part-map.py` now lets the measured table override a bare
-  identity Studio row (4 ids: 21229, 37352, 18838, 40066; the last two rest on
-  votes only).
-- **Invisible walls**: colliders were the centred voxel grid, half a block off
-  the shell in every axis; 1,070 of 3,535 collider blocks held no geometry
-  (138 of them a plane one block over the bank floor) and 614 geometry blocks
-  had none. Colliders are now laid from the shell's own part boxes: 0 empty,
-  27 uncovered (door passages kept open on purpose).
-- **Doors**: 2 leaves at 45 degrees (the bank sits turned 44.8 degrees on the
-  rock) no longer get a square vanilla door; they stay LEGO geometry, closed.
-- **Cart**: on its slope the 47457 beside the chassis claimed a wheel (world
-  AABB); wheel mounting now tests the neighbour's own bounds.
+### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
 
-Open from this report:
-- [ ] Publish `output/gringotts-fix-0924/76417.ldr` (376,566 bytes, sha256
-  `d3a02437401c32dd3cfbcd1a1e247756aa5039be6396f11eff4f9e3183d97f34`, index
-  hash `d3a02437401c`; copied to the main checkout's `output/gringotts-fix-0924/`)
-  and patch the index. Pack built from it at `cf8ff5a0` (clean):
-  `output/gringotts-fix-0924/76417-gringotts.mcaddon`, 696,572 bytes, sha256
-  `cc933d0a0b8145588398ad846faf5ef51bdbdbdf9c86eecb3bf0814e7c0ba640`; not device-tested.
-- [ ] Goblins at the teller desks: only by an explicit rule (LEGO's page leaves the desks empty).
-- [ ] Bank front doors: vanilla doors are 1 x 2 blocks in a 1.1 x 2.7-block
-  frame, so the top 0.7 block of each opening shows through. A door that fills
-  its frame needs an openable leaf ENTITY (interact -> hinge animation +
-  collider toggle) in the runtime; not built.
-- [ ] 16 goblets (`2343`, bag treasure) stay beside the rock: their move is a
-  sub-build step explode (369) that neither rule takes. The loose-bricks bag
-  (separator, 67095 x3, 1011115 x2) also lies on the ground in front.
-- [ ] 18838 / 40066 identity-row overrides are vote-backed only; check a set that places them.
+`bun scripts/_playable_ref.ts <source> <out> --label=...`; sources = index first
+picks (`76417` `DbixConvV3/76417.ldr` d3a02437401c, `42703` `DbixConvV3/42703.ldr`
+a92737f37b9c, `10303` `IOModel2V2/10303.ldr` df3b47c3c9f2, `10261`
+`LDR/10261 Roller Coaster.mpd` c2c7b07ad35d, `11374` `DbixConvV3/11374.ldr`).
+Built at `6ba8b924` in `output/device-round-2026-09-24b/packs-6ba8b924/`, all
+`_mcaddon_check` OK, all four coasters ride the set's own cars. Rebuild all at
+the final commit before sending; write `PACKS.md` beside them.
 
-### Device report 2026-09-24 and what it fixed
+### Published 2026-09-24
 
-The user's screenshots showed: Gringotts' bank as scattered planks, black
-"D" shapes on 42703's cars, 42703's display dolls headless and grey, and the
-pinball controls not starting. Causes, all fixed and republished:
-- `lxfml-assembly.ts` turned moved parts by M.R^T (column-major storage read
-  as row-major); the unmoved vault was fine. Test pins it on 76417.
-- Studio draws 77083 (bull bar = lap bar) as 20309 (solid half-round window):
-  refused in both repos (`SUBSTITUTE_DENYLIST`).
-- 42703 is now clego-converted: its element fallback resolves the mini-doll
-  heads (92198) and tails (16529, riding the 92248 hips bone); craftmatic's
-  LXFML path has no element fallback (open item below).
-- 51 LEGO colour ids / 144 LDraw codes were missing from the colour tables
-  (2026 colours grey, rails grey): now generated from LDraw.org's LDConfig
-  (`bun scripts/gen-ldconfig-colors.ts`, `scripts/ldconfig/LDConfig.ldr`).
-- 26021 (coaster car chassis) now applies inverse in clego; forward it sat
-  off its wheels and the pack fell back to the grey cart.
-- Pinball: no phone was connected, so no log; fixed the two offline-visible
-  faults (invisible console; no Jump button while seated on a phone).
+- `DbixConvV3/76417.ldr` -> `d3a02437401c` (finished-model page; sev 0.29 ->
+  0.23), index patched in clego (`f6944a2a`) and craftmatic (`83fc9ded`), prod
+  readback matches. Previous bytes: `output/gringotts-fix-0924/backup-shipped/`.
+  Recipe: `_lxfml_assemble.ts <lxfml> <out> --root-step` then `_lxfml_to_ldr.ts`.
+- clego `main` is NOT pushed: the remote is ahead (non-fast-forward); merging it is the user's call.
 
-LESSON: I viewed the broken Gringotts render and called it resolution. Look
-at a render against the box art before shipping; "ragged" is a defect.
+### Open
 
-### Open from this round
-
-- [ ] Pinball: if the game still does not start on the phone, connect it and
-  read the newest content log (pinball.js errors never reach logcat).
-- [ ] Author an LDraw part for 77083 (Grille Bar 1 x 4 x 1 2/3 Bull Bar,
-  Squared) so 42703's cars get their lap bars back.
-- [ ] craftmatic `lxf-parser.ts` / `_lxfml_to_ldr.ts` lack clego's element
-  (itemNos -> Rebrickable part) fallback; an LXFML the app reads directly
-  loses parts such as mini-doll heads (28650 -> 92198).
-- [ ] 42703's two mermaid display dolls hover ~80 LDU (their stand parts
-  35678/35680/6330 have no LDraw part).
-
-- [ ] Device round for the three packs above (pinball checks listed there).
-- [ ] Coaster second-loop swivel + ride pace (2026-09-24,
-  `docs/bedrock-addon-guide.md` "The second-loop swivel and the crawl over the
-  top"): host-proved only. Rebuild 10303/10261/42703/76417 packs at the
-  merged commit and ride them: no yaw swivel entering/leaving either 10303
-  loop, no crawl over a loop top, 32 blocks/s drops smooth, hoist at 4 b/s.
-
-### Figures round 2026-09-24b (faces, hair, Hagrid, mermaids) — device check open
-
-Fixed offline (guide: "Figures on the device (2026-09-24)"), commit
-`76b8edc5`. Packs built from that clean commit, `output/device-round-2026-09-24b/after/`:
-`76417.mcaddon` 705,253 bytes SHA256 `d5b676f6770e015f1f93b803db0c343c3a268df786f6801708dd5ac50e697fc2`
-(13 figures, Hagrid = figure 11), `42703.mcaddon` 532,027 bytes SHA256
-`e481b82feeb9cb18019ae6d7b9502ab1193d90774a415fd3d40f28f8d5ea275b` (5 dolls).
-Before/after renders `output/device-round-2026-09-24b/figures-*.png`:
-- [ ] **Device check** on 76417 + 42703: faces drawn (0.9 LDU decals),
-  goblin hair without stripes, Hagrid whole (coat, short legs, hands, umbrella)
-  and walking with arms only, the five dolls as NPCs with tails below the
-  hips, the fifth doll with a synthesised `92241` torso.
-- [ ] Mini-doll walk: its one-piece legs ride `hips` and never swing; a
-  per-system animation set (legs as one at the hip) is the fix.
-- [ ] Hulk-class big-figs (`10128` body, `10124`/`10154` arms, `10126`/`10127`
-  hands) are unmeasured; `BIGFIG_CANON` is Hagrid's (`37777`) geometry.
-- [ ] Olive-green goblins: the DBIX LXFML gives 76417's heads AND ear-hair
-  material 283 (Light Nougat), the `.io` agrees; the pipeline never sees
-  330. Decide against the real set (BrickLink 403s plain fetches) and, if
-  olive, fix it in clego's `reconvert_dbix.py` material table — a SOURCE
-  change, then republish.
-- [ ] Real faces: map LDD `decoration` ids to LDraw printed heads in the
-  converter so figures get their own faces, not the default one.
+- [ ] Hagrid (and any other figure) on the new 76417 source — figures agent.
+- [ ] Device round: all five packs (coaster swivel/pace, figures, Gringotts colliders/doors, pinball input).
+- [ ] Bank front doors: a frame-filling openable door ENTITY (vanilla door is 1x2 in a 1.1x2.7 frame).
+- [ ] Goblins at the teller desks: only by an explicit rule.
+- [ ] 16 goblets + loose-parts bag in front of 76417 (sub-build explode 369).
+- [ ] 18838 / 40066 identity-row overrides are vote-backed only.
+- [ ] Real faces: map LDD `decoration` ids to LDraw printed heads.
+- [ ] Mini-doll walk (legs never swing); Hulk-class big-figs unmeasured.
+- [ ] Author an LDraw part for 77083 (bull bar) so 42703's cars get lap bars.
+- [ ] craftmatic LXF path lacks clego's element (itemNos) fallback.
+- [ ] 42703's mermaid display dolls hover (stand parts 35678/35680/6330 have no LDraw part).
+- [ ] Coaster loop-1 apex: a one-tick 5-degree twitch from a sideways step in the extracted track.
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 
