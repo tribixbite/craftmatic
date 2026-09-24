@@ -33,7 +33,7 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 Built with `bun scripts/_playable_ref.ts <source> <out> --label=...` from a
 `git worktree` of the commit named, so the pack name carries a clean stamp.
 Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
-(written with the final build). Expect:
+(built at `85de0f40`; sent to the user). Expect:
 - **42703 Mermaid Roller Coaster Ride** — 3 own cars on a closed 82.6-block
   circuit (220.3 studs), second train in the bay, no lift. The four
   mini-dolls stay in the shell (mini-dolls are not rigged).
@@ -74,9 +74,18 @@ Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
 - **Corpus regeneration** of the 2,016 DbixConvV3 files that place an
   affected id: `python dbix_lxfv56_regen.py --out <dir>` (8 shards), A/B with
   `geograde/_ab_dirs.py`, decided by `python dbix_lxfv56_accept.py --trial <dir>`
-  (strictly better, never worse). Raw-origin placements 18,625 -> 12,002 over
-  those files. Trial root `output/dbix-lxfv56-regen/`. See the open item below
-  for the apply/publish state.
+  (strictly better, never worse, side-model parts gated too). Raw-origin
+  placements 18,625 -> 12,002 over those files. **990 applied and PUBLISHED**
+  (970 index entries re-graded and patched, prod index byte-identical,
+  13-file readback all match; no app pick changed). Over the applied files:
+  floating 15,175 -> 13,571, big floating 8,060 -> 7,091, figure defects
+  1,295 -> 1,240, sunk 1,032 -> 936, placements +6,469. The other 1,026 stay
+  as shipped: 738 regress on a gated metric (mostly floating/side models when a
+  part leaves an accidental raw-origin burial), 288 show no gain. Shipped
+  bytes + manifest: `output/dbix-lxfv56-regen/backup-shipped/`.
+- **Regression gate**: `bun scripts/_favorites_export_sweep.ts --out
+  output/bedrock-entity-qa/post-pinball-sweep` 40/40 exported, 0 problems;
+  only 11374 gains `scripts/pinball.js` (no false-positive pinball).
 - **60 HuntArchiveLDR files the live index pointed at were 404 on prod** —
   uploaded; `sync_models_r2.py --verify-legacy` certified the other 20,699
   (0 failures), so the publisher's receipt gate is clear for future index
