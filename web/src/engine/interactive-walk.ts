@@ -146,9 +146,17 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   const f = sizePct / 100, k = Math.max(1, f);
   // A double door's leaves open together (`shares`, the runtime's group).
   const group = new Set([index, ...item.shares]);
-  const worldFor = (groupOpen: boolean): WalkWorld => {
+  /**
+   * The walk world with the doorway's group in `groupOpen` (the runtime's
+   * state: an opening too small at this size stays laid) - or, with
+   * `lifted`, with the group's leaves gone whatever their size: where a
+   * player would stand to use the doorway is a property of the model, not of
+   * whether it is big enough yet, so the approach is found in that world.
+   */
+  const worldFor = (groupOpen: boolean, lifted = false): WalkWorld => {
     const w = new WalkWorld({ cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) });
-    w.setOverlayBlocks(ixClosedBlocks(cfg.items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : openOthers));
+    const items = lifted ? cfg.items.map((it, i) => group.has(i) ? { ...it, blocking: [] } : it) : cfg.items;
+    w.setOverlayBlocks(ixClosedBlocks(items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : openOthers));
     return w;
   };
   const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
@@ -176,7 +184,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   // ── The approach, found with the doorway OPEN: a breadth-first walk out of
   // the doorway's own columns; the nearest surface at least `SIDE_CLEARANCE`
   // past the leaf plane on each side is where a player stands to go through.
-  const openWorld = worldFor(true);
+  const openWorld = worldFor(true, true);
   const og = surfaceGraph(openWorld, window, k);
   const starts: GraphNode[] = [];
   for (const key of doorColumns) {
@@ -215,8 +223,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   }
 
   // ── The walk, in the world of the state asked for.
-  const world = open ? openWorld : worldFor(false);
-  const g = open ? og : surfaceGraph(world, window, k);
+  const world = open && passableAtSize ? openWorld : worldFor(open);
+  const g = world === openWorld ? og : surfaceGraph(world, window, k);
   /** A route from `a` to `b` through a doorway column, over `g`. */
   const route = (a: GraphNode, b: GraphNode): Array<{ x: number; y: number; z: number }> | null => {
     type N = GraphNode & { door: boolean };

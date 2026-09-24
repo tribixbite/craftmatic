@@ -284,6 +284,9 @@ function leafHinge(kind: InteractiveKind, description: string, mesh: LdrawPartMe
   return hingeOn(swing, 1, swing === 0 ? 2 : 0);
 }
 
+/** How far off a leaf's face (LDU) a part may stand and still ride with it: a handle or knocker, not the wall. */
+const LEAF_ATTACH_LDU = 16;
+
 /** The origin must sit at least this far off-centre along the swing axis for its end to name the hinge (0.5 = at an end). */
 const MIN_HINGE_OFF_CENTRE = 0.25;
 
@@ -382,16 +385,20 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], meshes: Rea
     const leaf: LeafPlane = { corner, along, up, normal, thicknessLdu: lmax[h.thinAxis]! - lmin[h.thinAxis]! };
     const pivotLdu = toWorld(brick, localPoint(h.hingeAt, (lmin[h.lineAxis]! + lmax[h.lineAxis]!) / 2, thinMid));
     const axisLdu = lineWorld;
-    // What rides on the leaf: placements entirely inside its own box (glass inserts, handles, stickers).
+    // What rides on the leaf: placements inside its own outline (glass inserts,
+    // stickers) or standing off its face within LEAF_ATTACH_LDU (a handle, a
+    // knocker, a letterbox) - within the leaf's width and height either way,
+    // so the wall around the doorway never swings with it.
     const assembly = [brick];
     for (const [b, bb] of boxes) {
       if (b === brick || primaries.has(b) || taken.has(b)) continue;
-      if (bb.max[0] < box.min[0] - 8 || bb.min[0] > box.max[0] + 8 || bb.max[1] < box.min[1] - 8 || bb.min[1] > box.max[1] + 8 || bb.max[2] < box.min[2] - 8 || bb.min[2] > box.max[2] + 8) continue;
+      const pad = LEAF_ATTACH_LDU + 4;
+      if (bb.max[0] < box.min[0] - pad || bb.min[0] > box.max[0] + pad || bb.max[1] < box.min[1] - pad || bb.min[1] > box.max[1] + pad || bb.max[2] < box.min[2] - pad || bb.min[2] > box.max[2] + pad) continue;
       const m = meshOf(b);
       if (!m || /\bFrame\b/i.test(m.description)) continue;
       const inside = cornersOf(m.bounds.min, m.bounds.max).every(c => {
         const l = toLocal(brick, toWorld(b, c));
-        return [0, 1, 2].every(i => l[i]! >= lmin[i]! - (i === h.thinAxis ? 6 : 3) && l[i]! <= lmax[i]! + (i === h.thinAxis ? 6 : 3));
+        return [0, 1, 2].every(i => l[i]! >= lmin[i]! - (i === h.thinAxis ? LEAF_ATTACH_LDU : 3) && l[i]! <= lmax[i]! + (i === h.thinAxis ? LEAF_ATTACH_LDU : 3));
       });
       if (inside) assembly.push(b);
     }

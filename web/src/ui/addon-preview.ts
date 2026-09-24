@@ -1029,7 +1029,7 @@ class AddonWalk implements AddonPreviewHandle {
     if (tooSmall) {
       const size = item.opening ? `${item.opening.width} x ${item.opening.height} blocks at 100 %` : 'too small';
       this.onStatus(item.passSize ? `${item.label} is open, but its opening is ${size}: too small to walk through at ${this.sizePct} %. Pick ${item.passSize} % or larger to pass.` : `${item.label} is open, but its opening is ${size}: too small to walk through at any wand size.`, 'error');
-    } else this.onStatus(`${item.label} ${open ? 'opened' : 'closed'}${open && item.passSize ? ' - walk through' : ''}.`, 'info');
+    } else this.onStatus(`${item.label} ${item.kind === 'lever' ? (open ? 'flipped' : 'flipped back') : open ? 'opened' : 'closed'}${open && item.passSize ? ' - walk through' : ''}.`, 'info');
   }
 
   /** Lay the closed doorways over the walk world and redraw them (the static collider boxes are drawn once per rebuild). */

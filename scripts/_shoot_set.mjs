@@ -10,6 +10,7 @@
  * curl answers 200, leaving the UI on "No 3D model found".
  *
  * Usage: node scripts/_shoot_set.mjs <set> <out.png> [waitMs]
+ *   SHOOT_FILE=<source.ldr> uploads that file instead of searching the index.
  */
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
@@ -36,20 +37,27 @@ page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.te
 // CRAFTMATIC_URL points the shot at another dev server (a worktree's own port).
 await page.goto(`${process.env.CRAFTMATIC_URL ?? 'http://localhost:4000'}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-search', { timeout: 30000 });
-await page.fill('#lego-search', setNumber);
-await page.click('#lego-search-btn');
-await page.waitForSelector('.lego-result-card', { timeout: 30000 });
+// SHOOT_FILE=<path> uploads that source file (the "Upload LDraw file" input)
+// instead of searching the index - a worktree's dev server may not serve the
+// model index, and a specific source (not the index's pick) is what is judged.
+if (process.env.SHOOT_FILE) {
+  await page.setInputFiles('#lego-mpd-input', process.env.SHOOT_FILE);
+} else {
+  await page.fill('#lego-search', setNumber);
+  await page.click('#lego-search-btn');
+  await page.waitForSelector('.lego-result-card', { timeout: 30000 });
 
-// Only `.lego-result-card` elements are click targets; a wrapper silently no-ops.
-const cards = await page.$$('.lego-result-card');
-let clicked = false;
-for (const card of cards) {
-  const label = (await card.getAttribute('title')) ?? '';
-  const text = await card.innerText().catch(() => '');
-  if (text.includes(setNumber) || label.includes(setNumber)) { await card.click(); clicked = true; break; }
+  // Only `.lego-result-card` elements are click targets; a wrapper silently no-ops.
+  const cards = await page.$$('.lego-result-card');
+  let clicked = false;
+  for (const card of cards) {
+    const label = (await card.getAttribute('title')) ?? '';
+    const text = await card.innerText().catch(() => '');
+    if (text.includes(setNumber) || label.includes(setNumber)) { await card.click(); clicked = true; break; }
+  }
+  if (!clicked && cards[0]) { await cards[0].click(); clicked = true; }
+  if (!clicked) { console.log(`NO RESULT CARD for ${setNumber}`); await browser.close(); process.exit(2); }
 }
-if (!clicked && cards[0]) { await cards[0].click(); clicked = true; }
-if (!clicked) { console.log(`NO RESULT CARD for ${setNumber}`); await browser.close(); process.exit(2); }
 
 /**
  * Wait for the load to FINISH, not merely to stop changing: a big set sits on

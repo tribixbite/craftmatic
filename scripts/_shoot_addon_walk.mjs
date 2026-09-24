@@ -250,18 +250,25 @@ if (mode === 'flyout') {
     const nn = turn(n[0], n[2]), nl = Math.hypot(nn.x, nn.z) || 1;
     const nx = nn.x / nl * side, nz = nn.z / nl * side;
     const f = w.sizePct / 100;
-    const eye = { x: at.x + nx * distance * Math.max(1, f), y: at.y + elev * Math.max(1, f), z: at.z + nz * distance * Math.max(1, f) };
+    // Stand the camera where the walk world has AIR at eye height (a point
+    // inside a wall shows the inside of a brick): step out along the normal
+    // from `distance` until the column is clear, up to twice as far.
+    const clearAt = (x, y, z) => !w.world || w.world.boxesInColumn(Math.floor(x), Math.floor(z)).every(b => b.y1 <= y - 0.3 || b.y0 >= y + 0.3);
+    let d = distance;
+    for (; d <= distance * 2 + 1e-9; d += 0.25) if (clearAt(at.x + nx * d * Math.max(1, f), at.y + elev * Math.max(1, f), at.z + nz * d * Math.max(1, f))) break;
+    if (d > distance * 2) d = distance;
+    const eye = { x: at.x + nx * d * Math.max(1, f), y: at.y + elev * Math.max(1, f), z: at.z + nz * d * Math.max(1, f) };
     w.noclip = true;
     w.state = { ...w.state, x: eye.x, y: eye.y - 1.62, z: eye.z, vx: 0, vy: 0, vz: 0, onGround: false };
     w.prevState = w.state;
     w.yaw = Math.atan2(nx, nz);
     // Look at the middle of the leaf (about 1.2 blocks up at 100 %).
-    w.pitch = -Math.atan2(eye.y - (at.y + 1.2 * Math.max(1, f)), distance * Math.max(1, f));
+    w.pitch = -Math.atan2(eye.y - (at.y + 1.2 * Math.max(1, f)), d * Math.max(1, f));
     if (isolate) {
       const shells = new Set(w.model.entities.map((e, i) => e.kind === 'shell' ? i : -1).filter(i => i >= 0));
       for (const [i, holder] of w.entityHolders) holder.visible = i === entityIndex || (isolate === 'shell' && shells.has(i));
     }
-    return { ok: true, index, label: item.label, kind: item.kind, opening: item.opening, passSize: item.passSize, at: { x: at.x, y: at.y, z: at.z }, normal: { x: nx, z: nz } };
+    return { ok: true, index, label: item.label, kind: item.kind, opening: item.opening, passSize: item.passSize, at: { x: at.x, y: at.y, z: at.z }, normal: { x: nx, z: nz }, cameraDistance: d };
   }, { which, distance, side, elev, isolate });
   if (!frame.ok) {
     console.log(JSON.stringify({ pack: packPath, mode, placed: frame, errors: errors.slice(0, 5) }, null, 1));

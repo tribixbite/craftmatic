@@ -469,6 +469,41 @@ describe('interactives runtime (scripts/interactives.js)', () => {
   });
 });
 
+describe('the passability walk (engine/interactive-walk.ts)', () => {
+  /** A pack over `wallGrid` with one door cut in it; `passSize` as the pack would ship it. */
+  async function wallPack(passSize: number, width = 1.5) {
+    const g = wallGrid();
+    const leaf = leafAt(3.25, width, 5.5);
+    const [plan] = planInteractiveColliders(g, [leaf], frame);
+    const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize, normal: [0, 0, 1] as [number, number, number] };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < g.width; x++) for (let y = 0; y < g.height; y++) for (let z = 0; z < g.length; z++) {
+      const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(g.get(x, y, z));
+      if (m) cells.push({ x, y, z, lo: Number(m[1]), hi: Number(m[2]) });
+    }
+    const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Wall', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item] };
+    return { cells, dims: cfg.dims, interactives: cfg };
+  }
+  it('walks a player through the open doorway, never through the closed one, at every quarter turn', async () => {
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const pack = await wallPack(100);
+    for (const r of QUARTER_TURNS) for (const size of [100, 200]) {
+      const open = walkThroughDoorway(pack, 0, size, r, true), closed = walkThroughDoorway(pack, 0, size, r, false);
+      expect(open.outcome, `open at ${size} % turn ${r}`).toBe('passed');
+      expect(closed.outcome, `closed at ${size} % turn ${r}`).not.toBe('passed');
+      expect(verdictOf(open, closed)).toBe('OK');
+    }
+  });
+  it('keeps a doorway too small at this size blocked when open (SMALL), and lets it pass from its passable size', async () => {
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const pack = await wallPack(200);
+    const small = verdictOf(walkThroughDoorway(pack, 0, 100, 0, true), walkThroughDoorway(pack, 0, 100, 0, false));
+    expect(small).toBe('SMALL');
+    const big = verdictOf(walkThroughDoorway(pack, 0, 200, 0, true), walkThroughDoorway(pack, 0, 200, 0, false));
+    expect(big).toBe('OK');
+  });
+});
+
 describe('furniture seats', () => {
   it('sits on a library chair, bench or stool mould at the top of its own box, not only on the minifig seat', async () => {
     const { isFurnitureSeat, discoverSceneActors } = await import('../web/src/engine/bedrock-scene-actors.js');
