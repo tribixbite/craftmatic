@@ -425,3 +425,18 @@ describe('the MEASURED alignment table (audit P0 item 2)', () => {
     expect(msg).toMatch(/Reload to retry/);
   });
 });
+
+// ── The shipped table carries the SECOND Studio mapping ─────────────────────
+// `ldraw_lxfv56.xml` names ids that `ldraw.xml` does not, some of them only
+// through material-typed rows (`type="21"` = LDD material, not a subtype).
+// Losing either source regresses coaster track (25059, 80566) or places the
+// hinge halves of 42703/76417 at their raw LDD origin (80133, 80134, 77083).
+describe('shipped part map includes the lxfv56-only rows', () => {
+  const table = JSON.parse(readFileSync(join(__dirname, '..', 'web', 'public', 'ldd-part-map.json'), 'utf8')) as Record<string, [string, ...number[]]>;
+  it.each([
+    ['25059', '25059.dat'], ['80566', '80566.dat'],
+    ['80133', '2430.dat'], ['80134', '2429.dat'], ['77083', '20309.dat'],
+  ])('%s -> %s', (id, file) => {
+    expect(table[id]?.[0]).toBe(file);
+  });
+});

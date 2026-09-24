@@ -80,6 +80,50 @@ def upstream_part_names() -> set[str]:
     return names
 
 
+def _row_key(child: ET.Element) -> tuple:
+    """What a row places: the LDraw file and its alignment, colour aside."""
+    return tuple(child.get(k, '') for k in ('ldraw', 'tx', 'ty', 'tz', 'angle', 'ax', 'ay', 'az'))
+
+
+def lxfv56_rows() -> list[ET.Element]:
+    """One usable `Transformation` row per design id from `ldraw_lxfv56.xml`.
+
+    A row's `type` is either empty (the colour-independent row) or a numeric
+    LDD MATERIAL id: `80133` has three identical rows for materials 21, 24 and
+    5 (red, yellow, tan), all naming `2430.dat` at the same alignment. Reading
+    only untyped rows dropped 95 design ids that Studio names solely through
+    material rows (measured 2026-09-23; `77083` -> `20309`, `80133` -> `2430`
+    in 42703 and 76417 among them). An untyped row wins; otherwise the
+    material rows are used only when every one places the same file at the
+    same alignment, since a colour-dependent mould cannot be one map entry.
+    `to_lego` rows are the reverse direction and are skipped.
+    """
+    # Every untyped row is kept in file order: the caller's first-usable-wins
+    # rule may skip an early row (a `bl_*` name, a file upstream lacks) and
+    # take a later one for the same id.
+    untyped: list[ET.Element] = []
+    untyped_ids: set[str] = set()
+    typed: dict[str, list[ET.Element]] = {}
+    for child in ET.parse(XML_LXFV56).getroot():
+        if child.tag != 'Transformation':
+            continue
+        lego = (child.get('lego') or '').strip()
+        kind = child.get('type', '')
+        if not kind:
+            untyped.append(child)
+            untyped_ids.add(lego)
+        elif kind.isdigit():
+            typed.setdefault(lego, []).append(child)
+    material_only = [group[0] for lego, group in typed.items()
+                     if lego not in untyped_ids and len({_row_key(c) for c in group}) == 1]
+    return untyped + material_only
+
+
+# TODO: `ldraw_lxfv56.xml` also names two ids only through `Assembly` rows that
+# are not reverse (`to_lego`): 76138 -> 41838.dat and 1927 -> 2429c01.dat (the
+# hinge whose halves 80133/80134 ARE mapped above as parts). Assembly rows
+# carry no alignment, so copying them at identity is a guess; measure one
+# against a model that places the id as a Part before adding them.
 def fill_from_lxfv56(part_map: dict[str, list]) -> tuple[int, int, int, int]:
     """Add `ldraw_lxfv56.xml` rows for design ids no shipped table names.
 
@@ -91,9 +135,7 @@ def fill_from_lxfv56(part_map: dict[str, list]) -> tuple[int, int, int, int]:
     measured_ids = set(measured.get('entries', measured))
     upstream = upstream_part_names()
     filled = skipped_measured = skipped_bl = skipped_missing = 0
-    for child in ET.parse(XML_LXFV56).getroot():
-        if child.tag != 'Transformation' or child.get('type', ''):
-            continue
+    for child in lxfv56_rows():
         lego = (child.get('lego') or '').strip()
         ldraw = child.get('ldraw', '')
         if not (lego and ldraw) or lego in part_map:

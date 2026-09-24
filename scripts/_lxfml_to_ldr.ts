@@ -80,6 +80,15 @@ const BONE_RE = /<Bone\b([^>]*?)\/?>/g;
 const attr = (head: string, name: string): string | undefined =>
   new RegExp(`\\b${name}="([^"]*)"`).exec(head)?.[1];
 
+/**
+ * Sticker parts, by element id. `partType="sticker"` carries a 7-digit ELEMENT
+ * id (1003554), not a mould: LDraw has no sticker layer, so the part can only
+ * resolve to nothing. It is recorded as a comment rather than written as a
+ * `1` line, which would name a file no library ships and read as a missing
+ * part to the viewer and the grader alike.
+ */
+const stickers = new Map<string, number>();
+
 function readRecords(path: string): LxfPartRecord[] {
   const xml = lxfmlBytes(path).toString('utf8');
   const out: LxfPartRecord[] = [];
@@ -87,6 +96,11 @@ function readRecords(path: string): LxfPartRecord[] {
     const brickDesign = attr(brick[1] ?? '', 'designID');
     for (const part of (brick[2] ?? '').matchAll(PART_RE)) {
       const head = part[1] ?? part[3] ?? '';
+      if (attr(head, 'partType') === 'sticker') {
+        const id = (attr(head, 'designID') ?? brickDesign ?? '?').split(';')[0]!.trim();
+        stickers.set(id, (stickers.get(id) ?? 0) + 1);
+        continue;
+      }
       const bones = [...(part[2] ?? '').matchAll(BONE_RE)];
       out.push({
         designID: (attr(head, 'designID') ?? brickDesign ?? '3001').split(';')[0]!.trim(),
@@ -109,6 +123,9 @@ const lines = [
   '0 Author: craftmatic scripts/_lxfml_to_ldr.ts',
   '0 !LINEAGE lxfml-direct: built from the LXFML by this repo’s own placement code',
 ];
+for (const [id, count] of [...stickers].sort((a, b) => a[0].localeCompare(b[0]))) {
+  lines.push(`0 // sticker element ${id} x${count}: no LDraw mould, not placed`);
+}
 for (const b of bricks) {
   const r = b.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const n = (v: number): string => (Math.abs(v) < 1e-9 ? '0' : String(Number(v.toFixed(4))));
@@ -123,7 +140,9 @@ if (!QUIET) {
     return c.length ? Math.max(...c) - Math.min(...c) : 0;
   };
   console.log(`${IN.replace(/.*lego_sets[/\\]/, '')}`);
-  console.log(`  ${records.length} LXFML part records -> ${bricks.length} placements`);
+  const stickerCount = [...stickers.values()].reduce((a, b) => a + b, 0);
+  console.log(`  ${records.length} LXFML part records -> ${bricks.length} placements` +
+    (stickerCount ? ` (${stickerCount} sticker parts recorded as comments)` : ''));
   console.log(`  extent ${[0, 1, 2].map(i => (ext(i) / 20).toFixed(1)).join(' x ')} studs`);
   const d = describeLxfDiagnostics(diagnostics);
   if (d) console.log(`  ${d}`);
