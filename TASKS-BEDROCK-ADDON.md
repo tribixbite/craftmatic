@@ -46,7 +46,7 @@ creative, cheats). Its Available lists hold several stale pinball versions;
 | 1 | pinball: nothing moves, touch awkward, camera closer | flippers/ball/zones never LOADED (`minecraft:pushable`, dropped in format 1.26.30) — fixed `980f54fd`, gated in `_mcaddon_check.py`. Device-proven: ball launches and rolls smoothly, flippers swing UP on the correct side, seat lift frames the table. Tap-to-flip: see pinball below. Camera closer (0.1 L out, 0.8 L up). |
 | 2 | second-loop swivel | fixed `d98d2b23` (yaw from the axle, up follows the loop); host-proved only |
 | 3 | coasters ~50 % slow | `COASTER_RIDE_PACE` 1.6, `MAX_SPEED` 32, inversion speed floor; host-proved only |
-| 4 | faces missing | default eyes+mouth on plain heads (`faceDecals`); real LDD decoration mapping open |
+| 4 | faces missing | REAL faces 2026-09-24 (`2a7bf784`, `c203b22c`): decorated heads become their printed LDraw part (`ldd-print-map.json`) and a print is a TEXTURE on a decal cube; heads no library prints can carry BrickLink-photo face art (`--faces`). 76417 15/15 faced with art (2/15 without), 42703 3/6. Default face is the fallback. See the guide's "Accurate faces". |
 | 5 | partial hair | `preserveSurface` for headwear + head carving; `descriptionOf` skipped `0 FILE` headers |
 | 6 | mermaid legs | mini-doll rig (`FigureSystem`), tail re-placed at the legs joint |
 | 7 | invisible walls | colliders from part boxes (voxel grid was half a block off) |
@@ -98,10 +98,23 @@ with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
 - [ ] Goblins at the teller desks: only by an explicit rule.
 - [ ] 16 goblets + loose-parts bag in front of 76417 (sub-build explode 369).
 - [ ] 18838 / 40066 identity-row overrides are vote-backed only.
-- [ ] Real faces: map LDD `decoration` ids to LDraw printed heads.
+- [ ] Faces, publication: 1,197 regenerated DbixConvV3 files (1,196 head-patched + 76417) in
+  `output/faces-0924/publish/DbixConvV3/`, listed with sha256/12 in
+  `output/faces-0924/PUBLISH.md` - the user publishes them.
+- [ ] Faces, device: the decal (per-face UV, `entity_alphatest`, 4 texels/LDU) is
+  unverified on Bedrock - check orientation (goblin wrinkles, 92198p27's lopsided
+  smile) and that the alpha test cuts the skin out. Packs:
+  `output/faces-0924/packs/{76417-faces,76417-prints,42703-prints}.mcaddon`.
+- [ ] Faces, route 2 in the product: face art only reaches offline builds
+  (`_playable_ref.ts --faces`). Shipping it means publishing BrickLink-derived
+  art (a licence question for the user) and teaching the web export to fetch it.
+- [ ] Faces, gaps: 986 decorated head placements (604 prints) have no source at
+  all - 505 mini-doll (no BL id form), 536 with no BL item in Studio's tables
+  (newer than its Jul 2025 data; LEGO's CDN has every element render, 3/4 view).
+  Undecorated heads (statues: 76417's gold/grey busts) still get the default face.
 - [ ] Mini-doll walk (legs never swing); Hulk-class big-figs unmeasured.
 - [ ] Author an LDraw part for 77083 (bull bar) so 42703's cars get lap bars.
-- [ ] craftmatic LXF path lacks clego's element (itemNos) fallback.
+- [ ] craftmatic LXF path lacks clego's element (itemNos) fallback (it now reads itemNos for HEADS only).
 - [ ] 42703's mermaid display dolls hover (stand parts 35678/35680/6330 have no LDraw part).
 - [ ] Coaster loop-1 apex: a one-tick 5-degree twitch from a sideways step in the extracted track.
 
