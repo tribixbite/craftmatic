@@ -94,7 +94,8 @@ with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
 ### Open
 
 - [ ] Device round: all five packs (coaster swivel/pace, figures, Gringotts colliders/doors, pinball input).
-- [ ] Bank front doors: a frame-filling openable door ENTITY (vanilla door is 1x2 in a 1.1x2.7 frame).
+- [ ] Device round for the moving parts (see "Interactivity round" below): the
+  bank front doors are now LEGO door entities that fill their frame.
 - [ ] Goblins at the teller desks: only by an explicit rule.
 - [ ] 16 goblets + loose-parts bag in front of 76417 (sub-build explode 369).
 - [ ] 18838 / 40066 identity-row overrides are vote-backed only.
@@ -104,6 +105,33 @@ with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
 - [ ] craftmatic LXF path lacks clego's element (itemNos) fallback.
 - [ ] 42703's mermaid display dolls hover (stand parts 35678/35680/6330 have no LDraw part).
 - [ ] Coaster loop-1 apex: a one-tick 5-degree twitch from a sideways step in the extracted track.
+
+## Interactivity round — 2026-09-24 (doors, windows, hatches, levers, turnables, seats)
+
+Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
+- Every door leaf (any angle), gate, trap door, opening window/shutter/pane,
+  cupboard door, lever and turnable of a brick-accurate building is its own
+  hinged entity of the exact parts; `scripts/interactives.js` toggles on tap or
+  interact, lays/clears the doorway's collider cells, plays door sounds, keeps
+  state in dynamic properties; double doors move together.
+- Favourites at `bce8bacc`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %,
+  1 SMALL (OK at 150 %), 36 SEALED (table in the design doc). Output:
+  `output/interactivity-0924/favorites-sweep-final/`, `favorites-ix.{md,json}`.
+- Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
+
+Open:
+- [ ] Device round: Molang easing (`q.delta_time` in `pre_animation`), tap
+  picking of a swung-open leaf through its collision box, the interact
+  button text, sounds, `playerInteractWithEntity` firing, state after reload.
+- [ ] 36 SEALED doorways: rooms the 1-block collider grid fills (any geometry
+  in a cell makes it solid). Needs finer colliders (half-block or per-cell
+  occupancy fraction), not a deeper doorway cut.
+- [ ] STEP at big sizes: a doorstep that grows past the 1.25-block jump (31141
+  at 200 %, 76417's front doors at 300 %); the tread planner does not reach it.
+- [ ] Symmetric-origin moulds stay static (40066 arch door, 92099 trap door,
+  30059 container door, 38320 pane); sliding/roller doors unmodelled; gears
+  excluded; doors on DRIVEN vehicles are part of the vehicle entity.
+- [ ] Brick-built chairs still need the wand's "Add seat here".
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 

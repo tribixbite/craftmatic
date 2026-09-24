@@ -190,5 +190,64 @@ The swing SIGN follows the pinball flipper's device-proven convention.
 
 ## Measured on the favourites (2026-09-24)
 
-See the report at the end of `TASKS-BEDROCK-ADDON.md`'s interactivity section
-for the per-set counts and passability.
+`bun scripts/_favorites_export_sweep.ts` at `bce8bacc`: **40/40 exported, 0
+problems**; then `bun scripts/_ix_sweep_report.ts <sweep dir> --md=...` walked every
+doorway at 100 % (turn 0) and at its passable size. **72 doorways, 0 FAIL**: 35
+walked through open and blocked closed at 100 %, 1 too small at 100 % (SMALL,
+kept blocked) and walked through at its 150 %, **36 SEALED**. Totals: 72 doors,
+12 cabinets, 67 windows, 11 levers, 86 turnables, 40 seats (0 gates and 0 hatches:
+the favourites have no fence gate, and their two trap doors are 92099, whose
+centred origin names no hinge).
+
+SEALED is the one number to read carefully. It means the doorway opens (leaf
+swings, its cells clear) but one side has no floor a player can stand on along
+the straight corridor through it: 76417's 4-pane shop door stands at the edge of
+the bank platform over a drop; 42663's van door opens onto furniture; most of the
+rest (21318's tree house, 11371, 41395) open onto rooms the shipped COLLIDER grid
+has filled, because a collider cell is a whole block whenever any geometry
+reaches it and a minifig room is 2-3 blocks wide with furniture in it. Carving
+those rooms would let the player walk through LEGO walls and furniture; the fix
+is finer colliders, not a bigger doorway cut (open in `TASKS-BEDROCK-ADDON.md`).
+
+| set | door | gate | hatch | cabinet | window | lever | turnable | seats | doorways | OK @100 % | SMALL | SEALED | STEP | NO-APPROACH | FAIL | passable from |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 10261 | 0 | 0 | 0 | 4 | 0 | 1 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 10303 | 0 | 0 | 0 | 0 | 0 | 0 | 7 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 10326 | 6 | 0 | 0 | 0 | 1 | 2 | 1 | 1 | 6 | 3 | 0 | 3 | 0 | 0 | 0 | 100 % |
+| 10337 | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 10341 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 10354 | 0 | 0 | 0 | 2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 10365 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 11371 | 8 | 0 | 0 | 0 | 2 | 1 | 2 | 1 | 8 | 1 | 0 | 7 | 0 | 0 | 0 | 100 % |
+| 11374 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 21061 | 0 | 0 | 0 | 0 | 0 | 0 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 21063 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 21318 | 3 | 0 | 0 | 0 | 0 | 0 | 4 | 0 | 3 | 0 | 0 | 3 | 0 | 0 | 0 | 100 % |
+| 21360 | 0 | 0 | 0 | 0 | 0 | 0 | 2 | 4 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 31141 | 5 | 0 | 0 | 0 | 2 | 3 | 1 | 2 | 5 | 4 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 41395 | 2 | 0 | 0 | 1 | 1 | 1 | 1 | 0 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 100 % |
+| 41703 | 1 | 0 | 0 | 0 | 8 | 1 | 1 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 100 % |
+| 41732 | 6 | 0 | 0 | 0 | 2 | 0 | 0 | 0 | 6 | 5 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 42172 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 42639 | 2 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 2 | 1 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 42652 | 1 | 0 | 0 | 0 | 4 | 1 | 8 | 0 | 1 | 1 | 0 | 0 | 0 | 0 | 0 | 100 % |
+| 42663 | 1 | 0 | 0 | 1 | 1 | 0 | 0 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 42670 | 6 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 6 | 2 | 1 | 3 | 0 | 0 | 0 | 100 %, 150 % |
+| 43267 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 60380 | 3 | 0 | 0 | 2 | 13 | 0 | 1 | 2 | 3 | 1 | 0 | 2 | 0 | 0 | 0 | 100 % |
+| 60446 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 71040 | 2 | 0 | 0 | 0 | 0 | 0 | 5 | 0 | 2 | 0 | 0 | 2 | 0 | 0 | 0 | 100 % |
+| 71043 | 0 | 0 | 0 | 0 | 0 | 0 | 17 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 75397 | 1 | 0 | 0 | 1 | 0 | 0 | 5 | 1 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 76269 | 3 | 0 | 0 | 1 | 12 | 0 | 0 | 4 | 3 | 2 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 76286 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 76417 | 4 | 0 | 0 | 0 | 4 | 0 | 0 | 0 | 4 | 3 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 76419 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 76435 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 2 | 1 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 76457 | 6 | 0 | 0 | 0 | 3 | 0 | 2 | 4 | 6 | 6 | 0 | 0 | 0 | 0 | 0 | 100 % |
+| 77092 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 80049 | 1 | 0 | 0 | 0 | 4 | 0 | 0 | 2 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 100 % |
+| 910004 | 3 | 0 | 0 | 0 | 8 | 0 | 0 | 9 | 3 | 1 | 0 | 2 | 0 | 0 | 0 | 100 % |
+| 910032 | 5 | 0 | 0 | 0 | 0 | 0 | 10 | 4 | 5 | 3 | 0 | 2 | 0 | 0 | 0 | 100 % |
+| 910047 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 | - |
+| 910049 | 1 | 0 | 0 | 0 | 0 | 0 | 3 | 0 | 1 | 0 | 0 | 1 | 0 | 0 | 0 | 100 % |
