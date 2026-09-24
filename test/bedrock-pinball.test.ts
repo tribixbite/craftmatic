@@ -169,7 +169,9 @@ describe('pinball runtime (host simulation)', () => {
     expect(opts.facingLocation.x).toBeCloseTo(h.origin.x + 2, 6);
     expect(opts.facingLocation.y).toBeCloseTo(h.origin.y, 6);
     expect(opts.facingLocation.z).toBeCloseTo(h.origin.z + 3, 6);
-    expect(h.player.inputPermissions.setPermissionCategory).not.toHaveBeenCalledWith(1, false);
+    // The rider faces up the table with head turning locked (the pick ray's heading).
+    expect(Math.abs(Math.abs(h.player.setRotation.mock.calls.at(-1)![0].y) - 180)).toBeLessThan(1e-6);
+    expect(h.player.inputPermissions.setPermissionCategory).toHaveBeenCalledWith(1, false);
     // Hotbar parked on the middle slot; the seated tag set.
     expect(h.player.selectedSlotIndex).toBe(4);
     expect(h.player.tags.has('craftmatic_pinball')).toBe(true);
@@ -200,7 +202,7 @@ describe('pinball runtime (host simulation)', () => {
     expect(flipOf(h.fr)).toBeGreaterThan(30);
   });
 
-  it('turns the seat until the rider FACES up the table, and hangs zones and camera from the measured head', () => {
+  it('turns the RIDER (not the seat) to face up the table, and hangs zones and camera from the measured head', () => {
     // An engine that seats the head 0.05 to the side of the pad (always) and
     // turns the rider 12 degrees from the seat's yaw.
     const h = harness({ headSide: 0.05, yawOffset: 12 });
@@ -209,6 +211,9 @@ describe('pinball runtime (host simulation)', () => {
     // Facing up the table (-z) is yaw 180: the rider ends within 1.5 degrees of it.
     const yaw = ((h.player.getRotation().y % 360) + 360) % 360;
     expect(Math.abs(yaw - 180)).toBeLessThan(1.5 + 1e-9);
+    // The seat is SET to face up the table, never chased (device run 6: chasing
+    // the rider's trailing yaw orbited the seat and camera without end).
+    for (const c of h.con.tryTeleport.mock.calls) expect(Math.abs(Math.abs(c[1].rotation.y) - 180)).toBeLessThan(1e-6);
     // The camera hangs from the measured head.
     expect(h.player.camera.setCamera.mock.calls.at(-1)![1].location.x).toBeCloseTo(head.x, 1);
     // The split between the zones lies on the head's own centre line.

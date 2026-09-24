@@ -396,8 +396,6 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   const LAUNCH_TICKS = 16;
   /** Head-to-eye tolerance when lifting the seat, blocks, and the most corrections tried. */
   const SEAT_TOLERANCE = 0.08, SEAT_TRIES = 8;
-  /** Rider-yaw tolerance when turning the seat, degrees. */
-  const YAW_TOLERANCE = 1.5;
   const games = new Map<string, any>();
   /** Tap-zone entity id -> the game it belongs to and its side. */
   const zones = new Map<string, { key: string; side: 'left' | 'right' }>();
@@ -516,7 +514,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN),
         best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0, hint: 0,
         tapUntil: { left: -1, right: -1 }, taps: { left: 0, right: 0 }, autoLaunch: 0,
-        seatTries: 0, seatAt: -99, seated: false, seatYaw: 0, aim: undefined as any, aimError: NaN, zones: undefined as any,
+        seatTries: 0, seatAt: -99, seated: false, aim: undefined as any, aimError: NaN, zones: undefined as any,
       };
       games.set(key, game);
     }
@@ -540,7 +538,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
 
     // Boarding: lift the seat toward the eye, camera in front of it.
     if (rider && game.rider?.id !== rider.id) {
-      game.seatTries = 0; game.seatAt = -99; game.seated = false; game.seatYaw = view.yaw; game.aim = undefined;
+      game.seatTries = 0; game.seatAt = -99; game.seated = false; game.aim = undefined;
       game.tapUntil = { left: -1, right: -1 }; game.taps = { left: 0, right: 0 }; game.autoLaunch = 0;
       game.view = tune.view; game.firstPerson = false;
       if (game.view === 'free') {
@@ -573,43 +571,42 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     if (rider) {
       // Close the loop on the rider's HEAD, not a guessed seat height: the
       // seat offset and the sitting pose are the engine's, not ours.
-      // The yaw closes the same way: the seat turns until the rider FACES up the table.
+      // The seat's yaw is SET, never chased: chasing the rider's reported yaw
+      // (which trails the seat by a tick) overshot every correction and the
+      // seat - and a camera hung from the rider's yaw - orbited the machine
+      // without end (device run 6, 1c6af4b2). The rider is turned instead.
       if (!game.seated && now - game.seatAt >= 2) {
-        let head: any, ry = NaN;
+        let head: any;
         try { head = rider.getHeadLocation(); } catch {}
-        try { ry = Number(rider.getRotation().y); } catch {}
         const err = head ? { x: view.eye.x - head.x, y: view.eye.y - head.y, z: view.eye.z - head.z } : undefined;
-        const dyaw = Number.isFinite(ry) ? wrapDeg(view.yaw - ry) : 0;
-        if (err && Math.hypot(err.x, err.y, err.z) <= SEAT_TOLERANCE && Math.abs(dyaw) <= YAW_TOLERANCE) game.seated = true;
+        if (err && Math.hypot(err.x, err.y, err.z) <= SEAT_TOLERANCE) game.seated = true;
         else if (game.seatTries >= SEAT_TRIES) game.seated = true; // as close as it gets; the aim below uses what it got
         else {
           const at = console_.location;
-          game.seatYaw += dyaw;
           // First try without a head reading: the pad plus a seated eye height.
           const to = err ? { x: at.x + err.x, y: at.y + err.y, z: at.z + err.z } : { x: view.eye.x, y: view.eye.y - 1.8, z: view.eye.z };
-          try { console_.tryTeleport(to, { rotation: { x: 0, y: game.seatYaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
+          try { console_.tryTeleport(to, { rotation: { x: 0, y: view.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
           game.seatTries++; game.seatAt = now;
         }
         if (game.seated) {
-          // Hang the camera from where the head really is and the way it really faces.
-          game.aim = aimOf(head ?? view.eye, Number.isFinite(ry) ? ry : view.yaw, view);
-          game.aimError = Number.isFinite(ry) ? Math.abs(wrapDeg(view.yaw - ry)) : NaN;
+          // The zones and the camera hang from where the head really is, along
+          // the PLANNED heading (fixed: nothing the rider does moves them).
+          game.aim = aimOf(head ?? view.eye, view.yaw, view);
           const a = game.aim, reach = Math.hypot(view.look.x - a.eye.x, view.look.z - a.eye.z);
           game.pitch = Math.atan2(a.eye.y - view.look.y, reach) * 180 / Math.PI; // Minecraft pitch: + is down
-          // FIRST PERSON (default): the player's own eyes, turned down the
-          // table, with head turning locked. A tap then picks what is under
-          // the finger, as it does a mob. Under a free camera it does not: a
-          // device run (2026-09-24, bcd1e3c9) found taps only ever reached a
-          // zone that ENCLOSED the head, whatever was under the finger.
+          // The rider faces the same way with head turning locked, so a tap's
+          // pick ray (which starts at the head) has a fixed heading. The phone
+          // applies setRotation's yaw (device run 5); its pitch did not take.
+          try { rider.setRotation({ x: game.pitch, y: a.yaw }); } catch {}
+          try { rider.inputPermissions.setPermissionCategory(1, false); } catch {} // InputPermissionCategory.Camera
+          // FIRST PERSON is a tuning option only ({"view":"first"}): with the
+          // pitch ignored the player looked at the horizon (device run 5).
           if (game.view === 'first') {
             try { rider.camera.clear(); } catch {}
-            try { rider.setRotation({ x: game.pitch, y: a.yaw }); } catch {}
             let r: any;
             try { r = rider.getRotation(); } catch {}
             game.firstPerson = !!r && Math.abs(Number(r.x) - game.pitch) <= 3 && Math.abs(wrapDeg(Number(r.y) - a.yaw)) <= 3;
-            if (game.firstPerson) { try { rider.inputPermissions.setPermissionCategory(1, false); } catch {} } // InputPermissionCategory.Camera
           }
-          // A free camera when asked for, or when the player's head could not be turned.
           if (!game.firstPerson) {
             const cam = { x: a.eye.x + a.fwd.x * 0.3, y: a.eye.y, z: a.eye.z + a.fwd.z * 0.3 };
             const facing = { x: a.eye.x + a.fwd.x * reach, y: view.look.y, z: a.eye.z + a.fwd.z * reach };
@@ -618,14 +615,13 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         }
       }
       if (game.seated) {
-        // A seat that lost its turn (4 of ~20 device seatings sat 90-130
-        // degrees off, looking at the grass) seats again; a first-person head
-        // that drifted is turned back.
+        // A rider whose heading drifted (4 of ~20 device seatings sat 90-130
+        // degrees off) is turned back; the seat and camera stay put.
         let ry = NaN;
         try { ry = Number(rider.getRotation().y); } catch {}
-        if (Number.isFinite(ry) && game.aim && Math.abs(wrapDeg(game.aim.yaw - ry)) > 5) {
-          if (game.firstPerson) { try { rider.setRotation({ x: game.pitch, y: game.aim.yaw }); } catch {} }
-          else if (Math.abs(wrapDeg(view.yaw - ry)) > 5) { game.seated = false; game.seatTries = 0; game.seatYaw = view.yaw; }
+        game.aimError = Number.isFinite(ry) ? Math.abs(wrapDeg(view.yaw - ry)) : NaN;
+        if (game.aim && Number.isFinite(ry) && game.aimError > 5 && now % 5 === 0) {
+          try { rider.setRotation({ x: game.pitch, y: game.aim.yaw }); } catch {}
         }
         // Hotbar taps: a slot left of the parked one is the left flipper, right of it the right.
         let slot = PARK_SLOT;
