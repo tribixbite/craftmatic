@@ -261,6 +261,13 @@ class AddonWalk implements AddonPreviewHandle {
     container.scrollIntoView({ block: 'nearest' });
     this.lastFrame = performance.now();
     this.animId = requestAnimationFrame(this.frame);
+    // Dev-only debugging hook, same convention as viewer.ts's __ldrawViewer:
+    // expose ride state and interactivity for the console / E2E screenshots,
+    // since a moving car's exact position is otherwise only provable by
+    // pixel-diffing two screenshots.
+    if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+      (globalThis as Record<string, unknown>)['__addonWalk'] = this;
+    }
     this.onStatus(`Add-on walk: ${this.model.label} at ${this.sizePct} % — click the view to look around, WASD to walk, Space to jump, Shift to sneak, F for free-fly, Esc to release the mouse.`, 'info');
   }
 
