@@ -430,10 +430,31 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     return { eye: head, look: v.look, fwd, left: { x: fwd.z, z: -fwd.x }, yaw: yawDeg };
   };
   const wrapDeg = (d: number): number => ((d + 540) % 360) - 180;
+  /**
+   * Device tuning, live: `/scriptevent craftmatic:pinball {"anchor":"eye","fwd":0,"side":0,"up":0,"near":0.45}`
+   * moves the zones (relative to the measured `head` or the planned `eye`)
+   * without a rebuild; `{}` restores the defaults. Where a phone's tap ray
+   * starts is not documented, so the working placement is found on a device.
+   * TODO: fold the measured placement into the defaults and drop the hook.
+   */
+  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number } = { anchor: 'head', fwd: 0, side: 0, up: 0, near: config.zone.near };
+  try {
+    system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.id !== 'craftmatic:pinball') return;
+      let t: any = {};
+      try { t = JSON.parse(ev.message || '{}'); } catch { return; }
+      tune.anchor = t.anchor === 'eye' ? 'eye' : 'head';
+      for (const k of ['fwd', 'side', 'up'] as const) tune[k] = Number.isFinite(Number(t[k])) ? Number(t[k]) : 0;
+      tune.near = Number.isFinite(Number(t.near)) ? Number(t.near) : config.zone.near;
+      for (const game of games.values()) game.retune = true;
+    });
+  } catch {}
   const zoneAt = (v: any, side: 'left' | 'right') => {
-    const z = config.zone, s = side === 'left' ? 1 : -1, ahead = z.near + z.width / 2, across = z.width / 2 * s;
-    return { x: v.eye.x + v.fwd.x * ahead + v.left.x * across, y: v.eye.y - z.below, z: v.eye.z + v.fwd.z * ahead + v.left.z * across };
+    const z = config.zone, s = side === 'left' ? 1 : -1, ahead = tune.near + z.width / 2 + tune.fwd, across = z.width / 2 * s + tune.side;
+    return { x: v.eye.x + v.fwd.x * ahead + v.left.x * across, y: v.eye.y - z.below + tune.up, z: v.eye.z + v.fwd.z * ahead + v.left.z * across };
   };
+  /** The frame the zones hang from under the current tuning. */
+  const zoneFrame = (game: any, view: any) => (tune.anchor === 'eye' || !game.aim ? view : game.aim);
 
   // A hit (tap / click) or a long press on a tap zone. `beforeEvents` runs
   // read-only: this only records script state.
@@ -559,16 +580,17 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           game.zones = {};
           for (const side of ['left', 'right'] as const) {
             try {
-              const e = dim.spawnEntity(config.buttonType, zoneAt(game.aim ?? view, side));
+              const e = dim.spawnEntity(config.buttonType, zoneAt(zoneFrame(game, view), side));
               game.zones[side] = e;
               zones.set(e.id, { key, side });
             } catch {}
           }
-        } else if (now % 10 === 0) {
+        } else if (now % 10 === 0 || game.retune) {
+          game.retune = false;
           for (const side of ['left', 'right'] as const) {
             const e = game.zones[side];
             if (!e) continue;
-            const want = zoneAt(game.aim ?? view, side);
+            const want = zoneAt(zoneFrame(game, view), side);
             try { if (dist(e.location, want) > 0.05) e.teleport(want, { keepVelocity: false, checkForBlocks: false }); } catch {}
           }
         }
@@ -646,7 +668,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const held = `${left ? '§a<<§r' : '  '} ${right ? '§a>>§r' : '  '}`;
       let line: string;
       if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - tap the screen for a new game`;
-      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the screen to launch ${'|'.repeat(Math.round(st.charge * 10))}  (taps ${game.taps.left}/${game.taps.right}${Number.isFinite(game.aimError) ? `, aim ${game.aimError.toFixed(1)}` : ''})`;
+      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the screen to launch ${'|'.repeat(Math.round(st.charge * 10))}  (taps ${game.taps.left}/${game.taps.right}${Number.isFinite(game.aimError) ? `, aim ${game.aimError.toFixed(1)}` : ''}${game.aim ? `, head ${(['x', 'y', 'z'] as const).map(k => (game.aim.eye[k] - view.eye[k]).toFixed(2)).join(' ')}` : ''})`;
       else line = `${held} §bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - tap left / right half for the flippers, sneak to leave`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }

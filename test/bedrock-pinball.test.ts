@@ -101,7 +101,8 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     afterEvents: { entityHitEntity: { subscribe: (cb: any) => { hit = cb; } } },
     beforeEvents: { playerInteractWithEntity: { subscribe: (cb: any) => { interact = cb; } } },
   };
-  const system = { runInterval: (cb: () => void) => { tick = cb; } };
+  let scriptEvent: (ev: any) => void = () => {};
+  const system = { runInterval: (cb: () => void) => { tick = cb; }, afterEvents: { scriptEventReceive: { subscribe: (cb: any) => { scriptEvent = cb; } } } };
   const script = pinballScript(cfg).replace(/^import .*;\n/, '');
   new Function('world', 'system', script)(world, system);
   const eyeX = origin.x + 2;
@@ -111,6 +112,7 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     cfg, origin, home, con, ball, fl, fr, player, input, dim, spawned, zone,
     hit: (side: 'left' | 'right', by: any = player) => hit({ damagingEntity: by, hitEntity: zone(side) }),
     press: (side: 'left' | 'right') => { const ev: any = { player, target: zone(side), cancel: false }; interact(ev); return ev; },
+    tune: (message: string) => scriptEvent({ id: 'craftmatic:pinball', message }),
     sit: () => { riders = [player]; }, stand: () => { riders = []; },
     run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
   };
@@ -239,6 +241,19 @@ describe('pinball runtime (host simulation)', () => {
     expect(neverRaised(h.fr)).toBe(true);
     h.input.x = 0; h.input.y = 1; h.run(4);
     expect(flipOf(h.fr)).toBeGreaterThan(30);
+  });
+
+  it('a /scriptevent retunes the zones live: anchor and offsets, {} restores the defaults', () => {
+    const h = harness({ headSide: 0.05 });
+    h.run(1); h.sit(); h.run(16);
+    const before = h.zone('left')!.location;
+    h.tune('{"anchor":"eye","fwd":-1,"up":0.5}'); h.run(1);
+    const eye = { x: h.origin.x + 2, y: h.origin.y + 5, z: h.origin.z + 10 };
+    const moved = h.spawned[0]!.location;
+    expect(moved.z).toBeCloseTo(eye.z - (0.45 + 0.95 - 1), 6); // 1 block nearer (+z) than the default
+    expect(moved.y).toBeCloseTo(eye.y - 3.8 + 0.5, 6);
+    h.tune('{}'); h.run(1);
+    expect(h.spawned[0]!.location.z).toBeCloseTo(before.z, 6);
   });
 
   it('removes zones no game owns (left over from a script reload)', () => {
