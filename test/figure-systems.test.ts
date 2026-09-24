@@ -6,6 +6,7 @@
  * goblins) and 42703 (the mermaid dolls) on 2026-09-24.
  */
 import { describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
 import {
   BIGFIG_BONES, MINIDOLL_BONES, assembleMinifig, classifyFigurePart, classifyMinifigPart, figureAnchor, figureSystemOfTorso,
 } from '../web/src/engine/minifig-rig.js';
@@ -290,4 +291,102 @@ describe('figure systems: faces and hair through the compiler', () => {
     expect(doll.diagnostics.defaultFaces).toBe(1);
     expect(doll.warnings.some(w => /rebuilt around/.test(w))).toBe(false);
   });
+});
+
+// ─── Two riders in one car, and the torso repair at the source ──────────────
+
+describe('figure systems: a car with two posed riders, and the torso repair', () => {
+  it('keeps every rider of a car: the first seat is the player\'s variant, the others ride in the body', async () => {
+    const { canonicalCoasterCar } = await import('../web/src/engine/bedrock-coaster.js');
+    const I9 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const v3 = (x: number, y: number, z: number): [number, number, number] => [x, y, z];
+    const bricks: ParsedBrick[] = [
+      at('26021', 322, 0, 0, 0, I9), at('24869', 72, 25, 17.4, 0, I9),
+      at('973', 4, -18, -45, 0, I9), at('3626c', 14, -18, -69, 0, I9),
+      at('37777', 86, 30, -30, 0, I9), at('37784', 308, 30, -54, 0, I9),
+    ];
+    const car = {
+      id: 'car:0', chassis: { index: 0, part: '26021.dat', description: 'Train Base  4 x  5 Roller Coaster' }, bricks: [0, 1], wheels: [1],
+      frame: { originLdu: v3(0, 0, 0), rot: I9, travelWorld: v3(1, 0, 0), upWorld: v3(0, -1, 0) },
+      extentLocalLdu: { min: v3(-70, -41, -40), max: v3(71, 46, 40) }, lengthLdu: 141, widthLdu: 80, heightLdu: 87,
+      seats: [
+        { localLdu: v3(-18, -1, 0), worldLdu: v3(0, 0, 0), source: 'rider' as const, riderBricks: [2, 3] },
+        { localLdu: v3(30, -1, 0), worldLdu: v3(0, 0, 0), source: 'rider' as const, riderBricks: [4, 5] },
+      ],
+    };
+    const canonical = canonicalCoasterCar(car, bricks, 14);
+    expect(canonical.rider.map(b => b.part)).toEqual(['973', '3626c']);
+    // The passenger is in the BODY, so the car carries it whoever sits in the first seat.
+    expect(canonical.bricks.map(b => b.part)).toEqual(['26021', '24869', '37777', '37784']);
+    expect(canonical.seatLdu!.map(v => Math.round(v * 10) / 10)).toEqual([-18, -15, 0]);
+  });
+
+  it('moves a mis-converted torso to its limbs in the source placements and leaves every other object alone', async () => {
+    const { repairFigureTorsos } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const bricks = [...hagrid(), ...mermaid(), at('3001', 1, 0, 0, 0)];
+    const m = await meshesFor(bricks);
+    const out = repairFigureTorsos(bricks, m);
+    expect(out.repairs).toHaveLength(1);
+    expect(out.repairs[0]!.part).toBe('37777');
+    expect(out.repairs[0]!.system).toBe('bigfig');
+    expect(out.repairs[0]!.offsetLdu.map(v => Math.round(v * 10) / 10)).toEqual([10, -70.5, 0]);
+    const torso = out.bricks.find(b => b.part === '37777')!;
+    expect([torso.x, torso.y, torso.z].map(v => Math.round(v * 10) / 10)).toEqual([794.3, -89.6, -771.4]);
+    // Same objects everywhere else (identity-keyed sets downstream stay valid), and idempotent.
+    const others = bricks.filter(x => x.part !== '37777');
+    expect(out.bricks.filter(b => b.part !== '37777').every((b, i) => b === others[i])).toBe(true);
+    const again = repairFigureTorsos(out.bricks, m);
+    expect(again.repairs).toEqual([]);
+    expect(again.bricks).toBe(out.bricks);
+  });
+});
+
+// ─── The published 76417 (skipped where the corpus is absent, e.g. CI) ─────
+
+const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
+const PUBLISHED_76417 = 'C:/git/clego/lego_sets/DbixConvV3/76417.ldr';
+const HAVE_76417 = existsSync(LDRAW_ROOT) && existsSync(PUBLISHED_76417);
+
+describe.skipIf(!HAVE_76417)('76417 Gringotts as published (d3a02437401c): Hagrid rides the vault cart with Harry', () => {
+  it('finds 13 figures, repairs one torso (the big-fig), and seats both riders in the one car', async () => {
+    const { parseLDrawDocument } = await import('../web/src/engine/ldraw-parser.js');
+    const { setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
+    const { repairFigureTorsos } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const { detectCoasterAssemblies } = await import('../web/src/engine/coaster-assemblies.js');
+    const { extractCoasterTrackRoutes } = await import('../web/src/engine/coaster-track.js');
+    const { canonicalCoasterCar } = await import('../web/src/engine/bedrock-coaster.js');
+    setLDrawRoot(LDRAW_ROOT);
+    const doc = parseLDrawDocument(readFileSync(PUBLISHED_76417, 'utf8'));
+    const p = createPartGeometryProvider({ document: doc });
+    const m = new Map<string, LdrawPartMesh | null>();
+    await Promise.all([...new Set(doc.bricks.map(b => b.part))].map(async part => { m.set(part, await p.getPartMesh(part)); }));
+    // The finished-model page: 12 minifigs and the big-fig; 17 heads, of which
+    // 4 are decoration (a gold finial with a bar, a grey bust in the vault, a
+    // white and a lavender ornament) and belong to no figure.
+    const groups = groupFigures(doc.bricks, m);
+    expect(groups).toHaveLength(13);
+    const big = groups.find(g => doc.bricks[g.torso]!.part === '37777.dat')!;
+    expect(big.parts).toHaveLength(10);
+    const repaired = repairFigureTorsos(doc.bricks, m);
+    expect(repaired.repairs.map(r => r.part)).toEqual(['37777.dat']);
+    // The finished-model page pitches the cart 8.5 degrees, so the 10 / −70.5
+    // torso-frame move is (8.5, −70.1, −8.9) in the world: 71 LDU either way.
+    expect(Math.round(Math.hypot(...repaired.repairs[0]!.offsetLdu))).toBe(71);
+    expect(repaired.repairs[0]!.offsetLdu[1]).toBeLessThan(-69);
+    // The cart on the vault rail carries Harry (the first seat) and Hagrid (a passenger in the body).
+    const tracks = extractCoasterTrackRoutes(repaired.bricks, { isGeometryAvailable: (_id, b) => (m.get(b.part)?.triangles.length ?? 0) > 0 });
+    const assemblies = detectCoasterAssemblies(repaired.bricks, m, tracks);
+    expect(assemblies.cars).toHaveLength(1);
+    const car = assemblies.cars[0]!;
+    // Hagrid is 9 parts once his torso is where his limbs are: the cart-floor
+    // saucer (38799) the raw torso had pulled into his group goes back to the cart.
+    expect(car.seats.map(s => s.riderBricks.length).sort()).toEqual([8, 9]);
+    const canonical = canonicalCoasterCar(car, repaired.bricks, 14);
+    const parts = [...canonical.bricks, ...canonical.rider].map(b => b.part);
+    for (const id of ['37777.dat', '37779.dat', '37783.dat', '37784.dat', '973.dat', '36762.dat']) expect(parts).toContain(id);
+    // Nothing is posed off upright: every figure is either an NPC or a rider.
+    const scene = await discoverSceneActors(repaired.bricks, p);
+    expect(scene.figures).toHaveLength(13);
+    expect(scene.posedFigures).toHaveLength(0);
+  }, 120_000);
 });

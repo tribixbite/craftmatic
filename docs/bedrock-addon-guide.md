@@ -2511,6 +2511,21 @@ beside 42703's dolls. Five causes, none of them a rendering problem:
   it, Hagrid's body sat in the ground and his hair and arms in the air.
   `reanchoredLdu` reports the move; the scene floor (`bedrock-scene-actors.ts`)
   now stands a figure on the rig's `feetY`, not on the source body's bounds.
+- **The repair is applied to the SOURCE, once, before anything reads it**
+  (`repairFigureTorsos`, called at the top of the `.mcaddon` pipeline and in
+  both compiler preparation paths). The regenerated 76417 (`d3a02437401c`,
+  the finished-model page) seats Harry and Hagrid IN the vault cart, and the
+  coaster detector takes a figure as a rider by where its TORSO is: Hagrid's
+  raw torso was inside the chassis and the repaired one is 98 LDU above it —
+  either way a rider, but only the repaired one is drawn whole. The
+  cart-floor saucer `38799` the raw torso had pulled into his group goes back
+  to the cart (9 parts, not 10).
+- **A car keeps every posed rider.** `canonicalCoasterCar` took `seats[0]`
+  alone: the second rider's bricks had left the shell as car members and were
+  emitted nowhere — Hagrid vanished from the whole pack while the diagnostics
+  said "1 posed rider aboard" (a count of CARS with riders). The first seat's
+  rider is the player's variant (hidden while ridden); every other seat's
+  rider is a passenger in the car body.
 - **A head with legs but no torso is still a figure** (`figureAnchor`,
   `groupFigures`): the rig synthesises the torso (`92241` for a doll, `973`
   for a minifig) in the sleeve's colour, else the hips'. 42703's fifth doll

@@ -51,7 +51,7 @@ creative, cheats). Its Available lists hold several stale pinball versions;
 | 6 | mermaid legs | mini-doll rig (`FigureSystem`), tail re-placed at the legs joint |
 | 7 | invisible walls | colliders from part boxes (voxel grid was half a block off) |
 | 8 | doors | 45-degree leaves stay LEGO geometry; a frame-filling door ENTITY is open |
-| 9 | Hagrid missing body | big-fig rig + consensus re-anchor — **regressed on the new 76417 source**: 11 figures + 1 rider, no 37777 figure (figures agent re-investigating) |
+| 9 | Hagrid missing body | big-fig rig; torso re-anchor moved to the SOURCE step (`repairFigureTorsos`). On the regenerated 76417 Harry AND Hagrid ride the vault cart (LEGO's final page); the car kept only `seats[0]` and dropped Hagrid - now every seated rider stays (`8b164e73`). Evidence `figures-after2-76417-cart-riders.png` in the figures worktree's output. |
 | 10 | floating railing | 21229 fences take their Studio sibling's (30056) row |
 | 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
 | 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
@@ -93,7 +93,6 @@ the final commit before sending; write `PACKS.md` beside them.
 
 ### Open
 
-- [ ] Hagrid (and any other figure) on the new 76417 source — figures agent.
 - [ ] Device round: all five packs (coaster swivel/pace, figures, Gringotts colliders/doors, pinball input).
 - [ ] Bank front doors: a frame-filling openable door ENTITY (vanilla door is 1x2 in a 1.1x2.7 frame).
 - [ ] Goblins at the teller desks: only by an explicit rule.

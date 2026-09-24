@@ -51,6 +51,10 @@
  *     figure faces (front, the default: faces and prints) or behind it.
  *   --distance=<blocks>: "figures" mode only — how far from the figure the
  *     camera stands (default 2.4; a big-fig or a 150 % pack wants 3.5-4).
+ *   --kind=<marker kind>: "figures" mode only — frame a marker of another
+ *     kind the same way (`car` for a coaster car and its posed riders).
+ *   --isolate: "figures" mode only — hide every other entity's geometry so
+ *     the framed one is seen through the building it stands in.
  */
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
@@ -61,7 +65,9 @@ const flags = new Map();
 const positional = [];
 for (const a of argv) {
   const m = /^--([^=]+)=(.*)$/.exec(a);
-  if (m) flags.set(m[1], m[2]); else positional.push(a);
+  if (m) flags.set(m[1], m[2]);
+  else if (a.startsWith('--')) flags.set(a.slice(2), '');   // a bare switch such as --isolate
+  else positional.push(a);
 }
 const [packPath, outPath, layersArg, modeArg] = positional;
 if (!packPath || !outPath) {
@@ -166,12 +172,23 @@ if (mode === 'flyout') {
   const which = flags.get('figure') ?? '0';
   const view = flags.get('view') === 'back' ? 'back' : 'front';
   const distance = Number(flags.get('distance') ?? 2.4);
-  const placed = await page.evaluate(({ which, view, distance }) => {
+  // `--kind=car` (or any marker kind) frames that entity the same way: a
+  // coaster car's posed riders are part of the car, not figure markers.
+  const kind = flags.get('kind') ?? 'figure';
+  // `--isolate` hides every other entity's geometry (the walk keeps one
+  // THREE.Group per drawn entity), so a car parked inside a building can be
+  // photographed through its walls. The collider blocks stay.
+  const isolate = flags.has('isolate');
+  const placed = await page.evaluate(({ which, view, distance, kind, isolate }) => {
     const w = window.__addonWalk;
     if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
-    const figures = w.markers.filter(m => m.entity.kind === 'figure');
+    const figures = w.markers.filter(m => m.entity.kind === kind);
     const marker = /^\d+$/.test(which) ? figures[Number(which)] : figures.find(m => (m.entity.label ?? '').includes(which));
-    if (!marker) return { ok: false, reason: `no figure marker "${which}" in this pack (${figures.length} figures)` };
+    if (!marker) return { ok: false, reason: `no ${kind} marker "${which}" in this pack (${figures.length} of that kind)` };
+    if (isolate) {
+      const index = w.model.entities.indexOf(marker.entity);
+      for (const [i, holder] of w.entityHolders) holder.visible = i === index;
+    }
     const at = marker.at;
     // The entity's forward is -Z turned by its yaw (plus the placement's
     // quarter turns, as the walk applies to its holder); "front" puts the
@@ -187,7 +204,7 @@ if (mode === 'flyout') {
     w.yaw = view === 'front' ? yaw + Math.PI : yaw;
     w.pitch = -0.15;
     return { ok: true, label: marker.entity.label, view, hasRealGeometry: marker.hasRealGeometry, at: { x: at.x, y: at.y, z: at.z }, figures: figures.length };
-  }, { which, view, distance });
+  }, { which, view, distance, kind, isolate });
   await page.waitForTimeout(400);
   await page.screenshot({ path: outPath });
   await browser.close();

@@ -144,6 +144,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   every classifier — which is why they fell out of their figures into the
   building shell (2026-09-24). `descriptionOf` skips the header; anything
   else that reads a part's first line must too.
+- **A "posed rider aboard" count is CARS with riders, and a car used to keep
+  only `seats[0]`.** The regenerated 76417 seats Harry and Hagrid in one
+  cart; Hagrid's bricks left the shell as car members and were emitted
+  nowhere, silently. `canonicalCoasterCar` now carries every seat's rider
+  (the first as the player's hidden variant, the rest in the body). When a
+  figure is missing from a pack, count where every source placement WENT —
+  shell, NPC, car, rider — before reading the classifier.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them

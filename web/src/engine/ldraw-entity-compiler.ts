@@ -1207,6 +1207,41 @@ export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPar
   return groups;
 }
 
+/** What `repairFigureTorsos` moved: the torso part and its move in world LDU. */
+export interface TorsoRepair { part: string; system: FigureSystem; offsetLdu: Vec3 }
+
+/**
+ * Move every figure torso a converter left at a raw origin to where its own
+ * limbs and head put it — the rig's consensus re-anchor (`assembleMinifig`),
+ * applied to the SOURCE placements so every consumer of a figure agrees:
+ * the NPC path, the coaster's rider seats (a torso 70 LDU low sat inside
+ * the chassis), the building shell a posed figure stays in, and the voxel
+ * grid. 76417's big-fig `37777` has no LDD→LDraw alignment row and arrived
+ * 10 / −70.5 LDU from its shoulders; a figure that agrees with itself is
+ * returned untouched (the same objects, so identity-keyed sets stay valid).
+ * A torso-less group has no torso to move.
+ */
+export function repairFigureTorsos(bricks: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>): { bricks: ParsedBrick[]; repairs: TorsoRepair[] } {
+  const repairs: TorsoRepair[] = [];
+  const replaced = new Map<number, ParsedBrick>();
+  for (const g of groupFigures(bricks, meshes)) {
+    const parts = g.parts.map(i => bricks[i]!);
+    const root = figureAnchor(parts, meshes);
+    if (!root || root.headless) continue;
+    const a = assembleMinifig(parts, meshes);
+    if (!a.reanchoredLdu) continue;
+    const torso = bricks[g.torso]!;
+    replaced.set(g.torso, { ...torso, x: a.torso.position[0], y: a.torso.position[1], z: a.torso.position[2] });
+    repairs.push({ part: torso.part, system: a.system, offsetLdu: [a.torso.position[0] - torso.x, a.torso.position[1] - torso.y, a.torso.position[2] - torso.z] });
+  }
+  if (!replaced.size) return { bricks, repairs };
+  return { bricks: bricks.map((b, i) => replaced.get(i) ?? b), repairs };
+}
+
+/** One line per repair, for the export warnings. */
+export const describeTorsoRepairs = (repairs: readonly TorsoRepair[]): string =>
+  repairs.map(r => `${r.part.replace(/\.dat$/i, '')} (${r.system}) moved ${Math.round(Math.hypot(...r.offsetLdu))} LDU to its limbs`).join('; ');
+
 /**
  * Whether a torso group is a minifig that should LIVE (walk as an NPC) or a
  * display piece that stays in the block scenery: a group in ONE colour is a
@@ -1283,6 +1318,9 @@ function summariseExtras(extras: EntityExtra[]): string {
 export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeometryProvider): Promise<PreparedEntityPlacements> {
   const meshes = new Map<string, LdrawPartMesh | null>();
   await Promise.all([...new Set(bricks.map(b => b.part))].map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
+  // A figure kept in a shell or riding a car at its source pose still gets
+  // its torso where its limbs are (idempotent: a rigged figure arrives repaired).
+  bricks = repairFigureTorsos(bricks, meshes).bricks;
   const placed: ParsedBrick[] = [], placedIdx: number[] = [];
   let skippedInternalCount = 0;
   bricks.forEach((b, i) => {
@@ -1322,6 +1360,8 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
   const uniqueAll = [...new Set(bricks.map(b => b.part))];
   const meshes = new Map<string, LdrawPartMesh | null>();
   await Promise.all(uniqueAll.map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
+  // A seated figure inside a vehicle stays in its geometry at the source pose: its torso where its limbs are.
+  bricks = repairFigureTorsos(bricks, meshes).bricks;
   const worldBoundsOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } => {
     const mesh = meshes.get(b.part);
     let lo: Vec3, hi: Vec3;

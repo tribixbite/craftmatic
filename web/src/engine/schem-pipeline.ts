@@ -20,6 +20,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
+import type { LdrawPartMesh } from './ldraw-part-geometry.js';
 import { voxelizeLDrawGeometry, seedDatTexts } from './ldraw-geometry.js';
 import { voxelizeLDraw, fillSingleVoxelGaps, type VoxelizeOptions, type VoxelizeResult } from './ldraw-voxelizer.js';
 import { encodeSchemBytes, encodeLitematicBytes } from './schem-encode.js';
@@ -324,7 +325,8 @@ export async function runSchemPipeline(
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
     const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
-    const { isTorso } = await import('./ldraw-entity-compiler.js');
+    const { isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
+    const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
@@ -343,7 +345,17 @@ export async function runSchemPipeline(
     const doorClearedCells = new Set<number>();
     const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
     if (input.source.kind === 'bricks') {
-      const source = input.source;
+      // A figure torso a converter left at a raw origin is moved to its
+      // limbs BEFORE anything reads the placements, so the vehicle finder,
+      // the scene (NPCs, seats), the coaster's rider seats and the shell all
+      // see the same figure (`repairFigureTorsos`). 76417's Hagrid sat 70 LDU
+      // inside the vault cart's chassis until this ran.
+      const partProvider = createPartGeometryProvider();
+      const sourceMeshes = new Map<string, LdrawPartMesh | null>();
+      await Promise.all([...new Set(input.source.bricks.map(b => b.part))].map(async part => { sourceMeshes.set(part, await partProvider.getPartMesh(part)); }));
+      const repaired = repairFigureTorsos(input.source.bricks, sourceMeshes);
+      if (repaired.repairs.length) warnings.push(`${repaired.repairs.length} figure torso${repaired.repairs.length === 1 ? '' : 's'} the source placed away from the figure's own limbs and head ${repaired.repairs.length === 1 ? 'was' : 'were'} moved to them: ${describeTorsoRepairs(repaired.repairs)} (a converted torso with no alignment row sits at its raw origin).`);
+      const source = { ...input.source, bricks: repaired.bricks };
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
       warnings.push(...found.warnings);
       const movable = new Set<ParsedBrick>();
@@ -353,7 +365,7 @@ export async function runSchemPipeline(
       const doorLeaves = new Set<ParsedBrick>();
       if (input.format === 'mcaddon' && !input.mainVehicleOnly) {
         onProgress('finding figures, seats and doors');
-        const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)));
+        const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)), partProvider);
         // Figures posed off upright stay in the geometry; say so rather than dropping them silently.
         warnings.push(...scene.warnings);
         // The size at which a player can actually walk through this model, over
