@@ -191,6 +191,15 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   twice like that and "nothing moved" (2026-09-24). Use
   `minecraft:pushable_by_block`; `scripts/_mcaddon_check.py` gates
   `DROPPED_COMPONENTS`.
+- **Update a phone's packs with `python -u scripts/_pixel_dev_deploy.py <world>
+  <pack.mcaddon>...`** — Minecraft storage is external, but `games/com.mojang/**`
+  is `drwxr-s---`: adb can OVERWRITE existing files (the world's
+  `world_*_packs.json`) yet cannot create or move anything, so development-pack
+  installs need root. The script imports each pack through the VIEW intent,
+  then force-stops Minecraft and rebinds the world to the new versions in
+  place (verified with `exec-out cat`; an `adb pull` right after the rewrite
+  can return 0 bytes). A listing of a folder the running game writes can be
+  stale: an early "no log, no packs" reading cost a day of guessing.
 - **Bedrock rejects a `float` actor property written as an integer literal.**
   `"default": 0` fails with "'default' value does not match the specified type
   'float'" and drops the entity's WHOLE property component, so `query.property`
