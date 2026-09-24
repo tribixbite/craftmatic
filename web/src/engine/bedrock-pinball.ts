@@ -388,6 +388,8 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   const LAUNCH_TICKS = 16;
   /** Head-to-eye tolerance when lifting the seat, blocks, and the most corrections tried. */
   const SEAT_TOLERANCE = 0.08, SEAT_TRIES = 8;
+  /** Rider-yaw tolerance when turning the seat, degrees. */
+  const YAW_TOLERANCE = 1.5;
   const games = new Map<string, any>();
   /** Tap-zone entity id -> the game it belongs to and its side. */
   const zones = new Map<string, { key: string; side: 'left' | 'right' }>();
@@ -414,6 +416,20 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     return { eye, look, fwd, left, yaw: Math.atan2(-fwd.x, fwd.z) * 180 / Math.PI };
   };
   /** Where a tap zone stands (its entity position: bottom centre), from the seated eye. */
+  /**
+   * The frame the tap zones and the camera hang from once seated: the rider's
+   * MEASURED head and actual yaw, not the planned eye. A device run
+   * (2026-09-24, 980f54fd) found the left/right split 20-28 degrees right of
+   * the screen centre with the zones hung from the planned eye: the zones'
+   * near faces are 0.15 blocks from the camera, so a head a few centimetres
+   * off the plan, or a yaw a few degrees off, moves the split a long way.
+   */
+  const aimOf = (head: any, yawDeg: number, v: any) => {
+    const a = yawDeg * Math.PI / 180;
+    const fwd = { x: -Math.sin(a), z: Math.cos(a) };
+    return { eye: head, look: v.look, fwd, left: { x: fwd.z, z: -fwd.x }, yaw: yawDeg };
+  };
+  const wrapDeg = (d: number): number => ((d + 540) % 360) - 180;
   const zoneAt = (v: any, side: 'left' | 'right') => {
     const z = config.zone, s = side === 'left' ? 1 : -1, ahead = z.near + z.width / 2, across = z.width / 2 * s;
     return { x: v.eye.x + v.fwd.x * ahead + v.left.x * across, y: v.eye.y - z.below, z: v.eye.z + v.fwd.z * ahead + v.left.z * across };
@@ -462,7 +478,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN),
         best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0, hint: 0,
         tapUntil: { left: -1, right: -1 }, taps: { left: 0, right: 0 }, autoLaunch: 0,
-        seatTries: 0, seatAt: -99, seated: false, zones: undefined as any,
+        seatTries: 0, seatAt: -99, seated: false, seatYaw: 0, aim: undefined as any, aimError: NaN, zones: undefined as any,
       };
       games.set(key, game);
     }
@@ -486,7 +502,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
 
     // Boarding: lift the seat toward the eye, camera in front of it.
     if (rider && game.rider?.id !== rider.id) {
-      game.seatTries = 0; game.seatAt = -99; game.seated = false;
+      game.seatTries = 0; game.seatAt = -99; game.seated = false; game.seatYaw = view.yaw; game.aim = undefined;
       game.tapUntil = { left: -1, right: -1 }; game.taps = { left: 0, right: 0 }; game.autoLaunch = 0;
       const cam = { x: view.eye.x + view.fwd.x * 0.3, y: view.eye.y, z: view.eye.z + view.fwd.z * 0.3 };
       try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: view.look, easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
@@ -510,18 +526,31 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     if (rider) {
       // Close the loop on the rider's HEAD, not a guessed seat height: the
       // seat offset and the sitting pose are the engine's, not ours.
+      // The yaw closes the same way: the seat turns until the rider FACES up the table.
       if (!game.seated && now - game.seatAt >= 2) {
-        let head: any;
+        let head: any, ry = NaN;
         try { head = rider.getHeadLocation(); } catch {}
+        try { ry = Number(rider.getRotation().y); } catch {}
         const err = head ? { x: view.eye.x - head.x, y: view.eye.y - head.y, z: view.eye.z - head.z } : undefined;
-        if (err && Math.hypot(err.x, err.y, err.z) <= SEAT_TOLERANCE) game.seated = true;
-        else if (game.seatTries >= SEAT_TRIES) game.seated = true; // close enough; the zones are large
+        const dyaw = Number.isFinite(ry) ? wrapDeg(view.yaw - ry) : 0;
+        if (err && Math.hypot(err.x, err.y, err.z) <= SEAT_TOLERANCE && Math.abs(dyaw) <= YAW_TOLERANCE) game.seated = true;
+        else if (game.seatTries >= SEAT_TRIES) game.seated = true; // as close as it gets; the aim below uses what it got
         else {
           const at = console_.location;
+          game.seatYaw += dyaw;
           // First try without a head reading: the pad plus a seated eye height.
           const to = err ? { x: at.x + err.x, y: at.y + err.y, z: at.z + err.z } : { x: view.eye.x, y: view.eye.y - 1.8, z: view.eye.z };
-          try { console_.tryTeleport(to, { rotation: { x: 0, y: view.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
+          try { console_.tryTeleport(to, { rotation: { x: 0, y: game.seatYaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
           game.seatTries++; game.seatAt = now;
+        }
+        if (game.seated) {
+          // Hang the camera from where the head really is and the way it really faces.
+          game.aim = aimOf(head ?? view.eye, Number.isFinite(ry) ? ry : view.yaw, view);
+          game.aimError = Number.isFinite(ry) ? Math.abs(wrapDeg(view.yaw - ry)) : NaN;
+          const a = game.aim, reach = Math.hypot(view.look.x - a.eye.x, view.look.z - a.eye.z);
+          const cam = { x: a.eye.x + a.fwd.x * 0.3, y: a.eye.y, z: a.eye.z + a.fwd.z * 0.3 };
+          const facing = { x: a.eye.x + a.fwd.x * reach, y: view.look.y, z: a.eye.z + a.fwd.z * reach };
+          try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: facing }); } catch {}
         }
       }
       // The two zones, spawned once the seat is up and kept in front of the eye.
@@ -530,7 +559,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           game.zones = {};
           for (const side of ['left', 'right'] as const) {
             try {
-              const e = dim.spawnEntity(config.buttonType, zoneAt(view, side));
+              const e = dim.spawnEntity(config.buttonType, zoneAt(game.aim ?? view, side));
               game.zones[side] = e;
               zones.set(e.id, { key, side });
             } catch {}
@@ -539,7 +568,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           for (const side of ['left', 'right'] as const) {
             const e = game.zones[side];
             if (!e) continue;
-            const want = zoneAt(view, side);
+            const want = zoneAt(game.aim ?? view, side);
             try { if (dist(e.location, want) > 0.05) e.teleport(want, { keepVelocity: false, checkForBlocks: false }); } catch {}
           }
         }
@@ -617,7 +646,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const held = `${left ? '§a<<§r' : '  '} ${right ? '§a>>§r' : '  '}`;
       let line: string;
       if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - tap the screen for a new game`;
-      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the screen to launch ${'|'.repeat(Math.round(st.charge * 10))}  (taps ${game.taps.left}/${game.taps.right})`;
+      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the screen to launch ${'|'.repeat(Math.round(st.charge * 10))}  (taps ${game.taps.left}/${game.taps.right}${Number.isFinite(game.aimError) ? `, aim ${game.aimError.toFixed(1)}` : ''})`;
       else line = `${held} §bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - tap left / right half for the flippers, sneak to leave`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }

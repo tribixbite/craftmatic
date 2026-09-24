@@ -42,7 +42,7 @@ function config(): PinballRuntimeConfig {
 /** The seated head sits this far above the pad's position (the engine's seat offset + sitting eye). */
 const HEAD_ABOVE_SEAT = 1.35;
 
-function harness() {
+function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
   const cfg = config();
   const origin = { x: 100, y: 64, z: 200 };
   const props: Record<string, unknown> = { 'craftmatic:pinball_origin': origin, 'craftmatic:pinball_rotation': 0, 'craftmatic:pinball_scale': 1 };
@@ -70,7 +70,11 @@ function harness() {
     inputInfo: { getMovementVector: () => ({ x: input.x, y: input.y }), getButtonState: () => (input.jump ? 'Pressed' : 'Released') },
     isJumping: false,
     // The rider rides the pad: its head follows the pad's position.
-    getHeadLocation: () => ({ x: con.location.x, y: con.location.y + HEAD_ABOVE_SEAT, z: con.location.z }),
+    // `headSide` shifts the head along +x whatever the seat does, and
+    // `yawOffset` turns the rider from the seat's yaw: the engine's pose, which
+    // the runtime must measure rather than assume.
+    getHeadLocation: () => ({ x: con.location.x + (engine.headSide ?? 0), y: con.location.y + HEAD_ABOVE_SEAT, z: con.location.z }),
+    getRotation: () => ({ x: 0, y: (con.tryTeleport.mock.calls.at(-1)?.[1]?.rotation?.y ?? 180) + (engine.yawOffset ?? 0) }),
     camera: { setCamera: vi.fn(), clear: vi.fn() },
     onScreenDisplay: { setActionBar: vi.fn() },
     addEffect: vi.fn(),
@@ -143,11 +147,30 @@ describe('pinball runtime (host simulation)', () => {
     // Facing -z (up the table) is yaw 180.
     const rot = h.con.tryTeleport.mock.calls.at(-1)![1].rotation;
     expect(Math.abs(Math.abs(rot.y) - 180)).toBeLessThan(1e-6);
-    expect(h.player.camera.setCamera).toHaveBeenCalledTimes(1);
-    const [preset, opts] = h.player.camera.setCamera.mock.calls[0]!;
+    // Set on boarding, then once more from the measured head when seated.
+    expect(h.player.camera.setCamera).toHaveBeenCalledTimes(2);
+    const [preset, opts] = h.player.camera.setCamera.mock.calls.at(-1)!;
     expect(preset).toBe('minecraft:free');
     expect(opts.location.z).toBeCloseTo(eye.z - 0.3, 6);
-    expect(opts.facingLocation).toEqual({ x: h.origin.x + 2, y: h.origin.y, z: h.origin.z + 3 });
+    expect(opts.facingLocation.x).toBeCloseTo(h.origin.x + 2, 6);
+    expect(opts.facingLocation.y).toBeCloseTo(h.origin.y, 6);
+    expect(opts.facingLocation.z).toBeCloseTo(h.origin.z + 3, 6);
+  });
+
+  it('turns the seat until the rider FACES up the table, and hangs zones and camera from the measured head', () => {
+    // An engine that seats the head 0.05 to the side of the pad (always) and
+    // turns the rider 12 degrees from the seat's yaw.
+    const h = harness({ headSide: 0.05, yawOffset: 12 });
+    h.run(1); h.sit(); h.run(16);
+    const head = h.player.getHeadLocation();
+    // Facing up the table (-z) is yaw 180: the rider ends within 1.5 degrees of it.
+    const yaw = ((h.player.getRotation().y % 360) + 360) % 360;
+    expect(Math.abs(yaw - 180)).toBeLessThan(1.5 + 1e-9);
+    const cam = h.player.camera.setCamera.mock.calls.at(-1)![1];
+    expect(cam.location.x).toBeCloseTo(head.x, 1);
+    // The split between the zones lies on the head's own centre line.
+    const l = h.spawned[0]!.location, r = h.spawned[1]!.location;
+    expect((l.x + r.x) / 2).toBeCloseTo(head.x, 1);
   });
 
   it("spawns one zone each side in front of the head, the left one on the player's left", () => {
