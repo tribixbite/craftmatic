@@ -33,7 +33,7 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 Built with `bun scripts/_playable_ref.ts <source> <out> --label=...` from a
 `git worktree` of the commit named, so the pack name carries a clean stamp.
 Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
-(built at `5b2effab`; sent to the user). Expect:
+(second build at `a73f5b4f`, after the user's device report; sent). Expect:
 - **42703 Mermaid Roller Coaster Ride** — 3 own cars on a closed 82.6-block
   circuit (220.3 studs), second train in the bay, no lift. The four
   mini-dolls stay in the shell (mini-dolls are not rigged).
@@ -102,17 +102,46 @@ Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
   with a static rotation in the compiler. Probe:
   `bun scripts/_pinball_probe.ts <model.ldr> <out.png>` draws the field.
 
+### Device report 2026-09-24 and what it fixed
+
+The user's screenshots showed: Gringotts' bank as scattered planks, black
+"D" shapes on 42703's cars, 42703's display dolls headless and grey, and the
+pinball controls not starting. Causes, all fixed and republished:
+- `lxfml-assembly.ts` turned moved parts by M.R^T (column-major storage read
+  as row-major); the unmoved vault was fine. Test pins it on 76417.
+- Studio draws 77083 (bull bar = lap bar) as 20309 (solid half-round window):
+  refused in both repos (`SUBSTITUTE_DENYLIST`).
+- 42703 is now clego-converted: its element fallback resolves the mini-doll
+  heads (92198) and tails (16529, riding the 92248 hips bone); craftmatic's
+  LXFML path has no element fallback (open item below).
+- 51 LEGO colour ids / 144 LDraw codes were missing from the colour tables
+  (2026 colours grey, rails grey): now generated from LDraw.org's LDConfig
+  (`bun scripts/gen-ldconfig-colors.ts`, `scripts/ldconfig/LDConfig.ldr`).
+- 26021 (coaster car chassis) now applies inverse in clego; forward it sat
+  off its wheels and the pack fell back to the grey cart.
+- Pinball: no phone was connected, so no log; fixed the two offline-visible
+  faults (invisible console; no Jump button while seated on a phone).
+
+LESSON: I viewed the broken Gringotts render and called it resolution. Look
+at a render against the box art before shipping; "ragged" is a defect.
+
 ### Open from this round
+
+- [ ] Pinball: if the game still does not start on the phone, connect it and
+  read the newest content log (pinball.js errors never reach logcat).
+- [ ] Author an LDraw part for 77083 (Grille Bar 1 x 4 x 1 2/3 Bull Bar,
+  Squared) so 42703's cars get their lap bars back.
+- [ ] craftmatic `lxf-parser.ts` / `_lxfml_to_ldr.ts` lack clego's element
+  (itemNos -> Rebrickable part) fallback; an LXFML the app reads directly
+  loses parts such as mini-doll heads (28650 -> 92198).
+- [ ] 42703's two mermaid display dolls hover ~80 LDU (their stand parts
+  35678/35680/6330 have no LDraw part).
 
 - [ ] Device round for the three packs above (pinball checks listed there).
 - [ ] 76417's dragon: `<Explode>` refID 295 lifts 454 parts 47.8 units but
   would leave a -22 unit gap, so it is refused; the dragon stands beside the
   bank. Find the move that seats it (a second frame, or bags 11-12).
-- [ ] 42703 has 23 unknown placements (4.5 %): `28650` is a Friends mini-doll
-  head only Studio ships (`bl_110402.dat`), and `39294`, `35678`, `35680`,
-  `6330` are 2026 moulds with no LDraw part yet. `4724` maps to `30089b`
-  through a material row but sits on the measured table.
-- [ ] Mini-dolls (42703's four) are not rigged, so they stay in the shell.
+- [ ] Mini-dolls (42703's) are not rigged, so they stay in the shell.
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 
