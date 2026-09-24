@@ -102,6 +102,57 @@ Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
   with a static rotation in the compiler. Probe:
   `bun scripts/_pinball_probe.ts <model.ldr> <out.png>` draws the field.
 
+### Device report 2026-09-24b (76417 Gringotts) — fixed in the worktree branch, source NOT yet published
+
+Screenshots: `output/device-round-2026-09-24b/screenshots/1.jpg`, `4.jpg`.
+Regenerated source: `output/gringotts-fix-0924/76417.ldr` (built by
+`bun scripts/_lxfml_assemble.ts <DBIX_LXFML/76417.lxfml> <out.lxfml> --root-step`
+then `bun scripts/_lxfml_to_ldr.ts <out.lxfml> <out.ldr>`; the published file
+had no post-conversion polish, so these two steps ARE the recipe). Needs
+publishing to `DbixConvV3/76417.ldr` + index hash patch (Will publishes).
+- **Figures, dragon, "keys", cart were never placed (SOURCE).** The seating
+  heuristic cannot place a figure indoors (the roof is "what it lands over")
+  and refused 10 of 13 figures, the dragon and the cart; the dragon's gold
+  horn+ring spines stayed in their build layout in the air ("keys"). The
+  instruction's top-level step `sm01` IS the finished-model page: its 20
+  direct `<Explode>`s place all of it (`composeRootStep`, nested frames
+  composed). geograde published -> new: float 19 -> 4, BIG 7 -> 0, side 111 -> 51.
+- **Goblins**: LEGO's own page puts 1 goblin at the bank door, 3 at the foot of
+  the rock, 1 driving the cart, 1 in the rock. The four teller desks are EMPTY
+  in the file (no explode anywhere places a figure there). Seating goblins at
+  the desks would be an invented placement: open decision for Will.
+- **Floating railings (the black "D" shapes in 4.jpg)** were 21229 spindled
+  fences: Studio's row is identity, true correction (-10,-48,70) LDU = 30056's
+  row. `gen-ldd-part-map.py` now lets the measured table override a bare
+  identity Studio row (4 ids: 21229, 37352, 18838, 40066; the last two rest on
+  votes only).
+- **Invisible walls**: colliders were the centred voxel grid, half a block off
+  the shell in every axis; 1,070 of 3,535 collider blocks held no geometry
+  (138 of them a plane one block over the bank floor) and 614 geometry blocks
+  had none. Colliders are now laid from the shell's own part boxes: 0 empty,
+  27 uncovered (door passages kept open on purpose).
+- **Doors**: 2 leaves at 45 degrees (the bank sits turned 44.8 degrees on the
+  rock) no longer get a square vanilla door; they stay LEGO geometry, closed.
+- **Cart**: on its slope the 47457 beside the chassis claimed a wheel (world
+  AABB); wheel mounting now tests the neighbour's own bounds.
+
+Open from this report:
+- [ ] Publish `output/gringotts-fix-0924/76417.ldr` (376,566 bytes, sha256
+  `d3a02437401c32dd3cfbcd1a1e247756aa5039be6396f11eff4f9e3183d97f34`, index
+  hash `d3a02437401c`; copied to the main checkout's `output/gringotts-fix-0924/`)
+  and patch the index. Pack built from it at `cf8ff5a0` (clean):
+  `output/gringotts-fix-0924/76417-gringotts.mcaddon`, 696,572 bytes, sha256
+  `cc933d0a0b8145588398ad846faf5ef51bdbdbdf9c86eecb3bf0814e7c0ba640`; not device-tested.
+- [ ] Goblins at the teller desks: only by an explicit rule (LEGO's page leaves the desks empty).
+- [ ] Bank front doors: vanilla doors are 1 x 2 blocks in a 1.1 x 2.7-block
+  frame, so the top 0.7 block of each opening shows through. A door that fills
+  its frame needs an openable leaf ENTITY (interact -> hinge animation +
+  collider toggle) in the runtime; not built.
+- [ ] 16 goblets (`2343`, bag treasure) stay beside the rock: their move is a
+  sub-build step explode (369) that neither rule takes. The loose-bricks bag
+  (separator, 67095 x3, 1011115 x2) also lies on the ground in front.
+- [ ] 18838 / 40066 identity-row overrides are vote-backed only; check a set that places them.
+
 ### Device report 2026-09-24 and what it fixed
 
 The user's screenshots showed: Gringotts' bank as scattered planks, black
@@ -143,9 +194,6 @@ at a render against the box art before shipping; "ragged" is a defect.
   top"): host-proved only. Rebuild 10303/10261/42703/76417 packs at the
   merged commit and ride them: no yaw swivel entering/leaving either 10303
   loop, no crawl over a loop top, 32 blocks/s drops smooth, hoist at 4 b/s.
-- [ ] 76417's dragon: `<Explode>` refID 295 lifts 454 parts 47.8 units but
-  would leave a -22 unit gap, so it is refused; the dragon stands beside the
-  bank. Find the move that seats it (a second frame, or bags 11-12).
 - [ ] Mini-dolls (42703's) are not rigged, so they stay in the shell.
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator

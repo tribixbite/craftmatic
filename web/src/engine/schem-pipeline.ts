@@ -323,7 +323,7 @@ export async function runSchemPipeline(
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
-    const { discoverSceneActors, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
+    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
     const { isTorso } = await import('./ldraw-entity-compiler.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
@@ -339,6 +339,8 @@ export async function runSchemPipeline(
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
+    // Cells the door pass opens; the shell's colliders keep them open (bedrock-building-shell.ts `keepClear`).
+    const doorClearedCells = new Set<number>();
     const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
     if (input.source.kind === 'bricks') {
       const source = input.source;
@@ -450,7 +452,11 @@ export async function runSchemPipeline(
             const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
           }
-          sceneDoors = scene.doors;
+          // A leaf turned well off the grid cannot become a square vanilla door;
+          // it stays the shell's exact LEGO geometry (DOOR_MAX_OFF_GRID_DEG).
+          sceneDoors = scene.doors.filter(d => (d.offGridDeg ?? 0) <= DOOR_MAX_OFF_GRID_DEG);
+          const skewed = scene.doors.filter(d => (d.offGridDeg ?? 0) > DOOR_MAX_OFF_GRID_DEG);
+          if (skewed.length) warnings.push(`${skewed.length} door lea${skewed.length === 1 ? 'f' : 'ves'} stand${skewed.length === 1 ? 's' : ''} ${[...new Set(skewed.map(d => Math.round(d.offGridDeg ?? 0)))].join('/')} degrees off the block grid (${skewed.map(d => d.part).join(', ')}); a vanilla door can only stand square, so ${skewed.length === 1 ? 'it stays' : 'they stay'} exact LEGO geometry, closed.`);
           runtimeDoors = runtimeDoorCandidates(sceneDoors, frame);
           if (sceneDoors.length && !runtimeDoors.length) {
             interactionNote = 'A measured source door leaf remains under the two-block vanilla clearance even at 400%, so the wand will not claim a usable door.';
@@ -460,7 +466,7 @@ export async function runSchemPipeline(
           // structure. A smaller but runtime-usable leaf must be partitioned
           // out of the monolithic shell so its exact geometry can disappear
           // at the same size where the vanilla permutation takes over.
-          for (const d of scene.doors) {
+          for (const d of sceneDoors) {
             const candidate = runtimeDoorCandidates([d], frame)[0];
             if (!candidate || !d.brick) continue;
             const doorCandidateIndex = runtimeDoors.findIndex(runtime => runtime.requiredSize === candidate.requiredSize && Math.abs(runtime.x - candidate.x) < 1e-6 && runtime.y === candidate.y && Math.abs(runtime.z - candidate.z) < 1e-6);
@@ -508,18 +514,18 @@ export async function runSchemPipeline(
       if (sceneDoors.length && sourceOrigin) {
         onProgress('cutting doorways and hanging doors');
         const hungDoors = new Set<import('./bedrock-scene-actors.js').SceneDoor>();
-        const d = applySceneDoors(grid, sceneDoors, sourceOrigin, hungDoors);
+        const d = applySceneDoors(grid, sceneDoors, sourceOrigin, hungDoors, doorClearedCells);
         for (const leaf of leafActors) leaf.hideAt100 = hungDoors.has(leaf.door);
         if (d.doors) warnings.push(`${d.doors} door${d.doors === 1 ? '' : 's'} hung in ${sceneDoors.length - d.skippedSmall - d.skippedOutside} doorway${sceneDoors.length - d.skippedSmall - d.skippedOutside === 1 ? '' : 's'} (leaf cells opened: ${d.leavesCleared}, passage cells opened: ${d.passageCleared}${d.unreachable ? `, ${d.unreachable} with no room within three blocks` : ''}).`);
-        if (d.skippedSmall) warnings.push(`${d.skippedSmall} door leaf${d.skippedSmall === 1 ? '' : 'ves'} under two blocks tall left as blocks.`);
-        if (d.skippedOutside) warnings.push(`${d.skippedOutside} door leaf${d.skippedOutside === 1 ? '' : 'ves'} fell outside the export bounds.`);
+        if (d.skippedSmall) warnings.push(`${d.skippedSmall} door lea${d.skippedSmall === 1 ? 'f' : 'ves'} under two blocks tall left as blocks.`);
+        if (d.skippedOutside) warnings.push(`${d.skippedOutside} door lea${d.skippedOutside === 1 ? 'f' : 'ves'} fell outside the export bounds.`);
       }
       if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
         const [x, y, z] = sceneGridPoint(sourceOrigin, [anchor.ldraw[0], anchor.ldraw[1], anchor.ldraw[2]]);
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
   }
 

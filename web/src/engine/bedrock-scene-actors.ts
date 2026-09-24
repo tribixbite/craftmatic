@@ -106,7 +106,25 @@ export interface SceneDoor {
    * museum door on the Pixel, 2026-09-16). Absent when no frame encloses it.
    */
   frameAcrossLdu?: [number, number];
+  /**
+   * How far the leaf's own width axis is turned off the nearest grid axis,
+   * degrees (0 = square to the grid, 45 = diagonal). A vanilla door can only
+   * stand square, so a leaf past `DOOR_MAX_OFF_GRID_DEG` is not hung (see there).
+   */
+  offGridDeg?: number;
 }
+
+/**
+ * The most a door leaf may be turned off the grid and still be replaced by a
+ * vanilla door. 76417 Gringotts' bank sits on its rock at a 44.8 degree turn
+ * (the set's own final page), so two of its leaves stand at 45 degrees: a
+ * square vanilla door cut into a diagonal wall faced along neither, sat half
+ * out of the wall and read as a door "turned wrong" (device report
+ * 2026-09-24). Such a leaf now stays the exact LEGO geometry of the shell. The
+ * bank's front doors, 8.1 degrees off, still hang: 20 degrees is where a
+ * block-wide door stops overlapping its own leaf by most of its width.
+ */
+export const DOOR_MAX_OFF_GRID_DEG = 20;
 
 export interface SceneActors {
   figures: SceneFigure[];
@@ -242,15 +260,23 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     if (!m || !m.triangles.length || !isDoorLeafDescription(m.description)) continue;
     doorBricks.add(b);
     const box = worldBounds(b, m);
-    const dx = box.max[0] - box.min[0], dz = box.max[2] - box.min[2];
-    const alongAxis: 'x' | 'z' = dx >= dz ? 'x' : 'z';
+    // The leaf's WIDTH axis is its longer local horizontal axis, turned by the
+    // placement: judged from the part's own frame, not from its world AABB,
+    // which is square for a leaf at 45 degrees and says nothing about it.
+    const R = b.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const localX = m.bounds.max[0] - m.bounds.min[0], localZ = m.bounds.max[2] - m.bounds.min[2];
+    const col = localX >= localZ ? 0 : 2;
+    const wx = R[col]!, wz = R[6 + col]!;
+    const fromX = Math.atan2(Math.abs(wz), Math.abs(wx)) * 180 / Math.PI;
+    const offGridDeg = Math.round(Math.min(fromX, 90 - fromX) * 10) / 10;
+    const alongAxis: 'x' | 'z' = Math.hypot(wx, wz) > 1e-6 ? (fromX <= 45 ? 'x' : 'z') : (box.max[0] - box.min[0] >= box.max[2] - box.min[2] ? 'x' : 'z');
     // The hinge is the end of the leaf nearest the mould's origin (every LDraw door leaf: measured 2026-09-16).
     const o = alongAxis === 'x' ? b.x : b.z;
     const lo = alongAxis === 'x' ? box.min[0] : box.min[2], hi = alongAxis === 'x' ? box.max[0] : box.max[2];
     const centre: Vec3 = [(box.min[0] + box.max[0]) / 2, (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2];
     const frame = frames.find(f => centre[0] >= f.min[0] - 4 && centre[0] <= f.max[0] + 4 && centre[1] >= f.min[1] - 4 && centre[1] <= f.max[1] + 4 && centre[2] >= f.min[2] - 4 && centre[2] <= f.max[2] + 4);
     const across: [number, number] | undefined = frame ? (alongAxis === 'x' ? [frame.min[2], frame.max[2]] : [frame.min[0], frame.max[0]]) : undefined;
-    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, brick: b, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}) });
+    doors.push({ part: cleanPartId(b.part), description: m.description, color: b.color, brick: b, minLdu: box.min, maxLdu: box.max, alongAxis, hingeAtMin: Math.abs(o - lo) <= Math.abs(o - hi), ...(across ? { frameAcrossLdu: across } : {}), offGridDeg });
   }
   let groundLdu = -Infinity;
   for (const b of bricks) {
@@ -435,7 +461,11 @@ export function recommendDoorExportScale(doors: readonly SceneDoor[]): DoorScale
  * A leaf two or more cells wide gets one door per cell, outer hinges, so the
  * pair opens like double doors.
  */
-export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: SceneGridFrame, hungDoors?: Set<SceneDoor>): DoorPlacementStats {
+export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: SceneGridFrame, hungDoors?: Set<SceneDoor>, clearedCells?: Set<number>): DoorPlacementStats {
+  // Every cell this pass opens (leaf and passage), so the collider builder
+  // (bedrock-building-shell.ts `keepClear`) does not wall it up again from
+  // the frame's or the facade's geometry.
+  const clear = (x: number, y: number, z: number): void => { grid.set(x, y, z, 'minecraft:air'); clearedCells?.add((x * grid.height + y) * grid.length + z); };
   const stats: DoorPlacementStats = { doors: 0, leavesCleared: 0, skippedSmall: 0, skippedOutside: 0, passageCleared: 0, unreachable: 0 };
   // Converted sources sometimes retain an overlapping leaf placement beside
   // the visible one. A Bedrock door occupies one lower-cell coordinate, so
@@ -515,7 +545,7 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
     else for (let z = z1; z >= z0; z--) cells.push({ x: x0, z });
     // Do not let an overlapping duplicate leaf erase the already-hung vanilla door.
     if (cells.every(c => hungCells.has(`${c.x},${y0},${c.z}`))) continue;
-    for (let y = y0; y <= y1; y++) for (let z = pz0; z <= pz1; z++) for (let x = px0; x <= px1; x++) { grid.set(x, y, z, 'minecraft:air'); stats.leavesCleared++; }
+    for (let y = y0; y <= y1; y++) for (let z = pz0; z <= pz1; z++) for (let x = px0; x <= px1; x++) { clear(x, y, z); stats.leavesCleared++; }
     const block = doorBlockForColor(d.color);
     // Thin axis = the one the leaf does NOT run along; the door faces its positive side.
     const facing = d.alongAxis === 'x' ? 'south' : 'east';
@@ -537,7 +567,15 @@ export function applySceneDoors(grid: BlockGrid, doors: SceneDoor[], frame: Scen
       for (let k = 1; k <= 3; k++) { const [x, z] = at(k); if (cellAt(x, y0, z) === 'minecraft:air' && cellAt(x, y0 + 1, z) === 'minecraft:air') { airAt = k; break; } }
       if (airAt < 0) continue;
       reachable = true;
-      for (let k = 1; k < airAt; k++) { const [x, z] = at(k); for (const y of [y0, y0 + 1]) if (cellAt(x, y, z) !== 'minecraft:air') { grid.set(x, y, z, 'minecraft:air'); stats.passageCleared++; } }
+      for (let k = 1; k < airAt; k++) { const [x, z] = at(k); for (const y of [y0, y0 + 1]) if (cellAt(x, y, z) !== 'minecraft:air') { clear(x, y, z); stats.passageCleared++; } }
+      // The whole passage, the air it reaches included, stays open in the
+      // colliders too (they are laid from geometry, which may reach a cell
+      // the voxel grid left air).
+      if (clearedCells) for (let k = 1; k <= airAt; k++) {
+        const [x, z] = at(k);
+        if (x < 0 || z < 0 || x >= grid.width || z >= grid.length) continue;
+        for (const y of [y0, y0 + 1]) if (y < grid.height) clearedCells.add((x * grid.height + y) * grid.length + z);
+      }
     }
     if (!reachable) stats.unreachable++;
     const doorsBefore = stats.doors;

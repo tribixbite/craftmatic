@@ -489,20 +489,29 @@ export function detectCoasterAssemblies(
     if (isSprocketPart(d)) sprocketIndices.push(i);
     if (isChainPart(d)) chainIndices.push(i);
   });
-  // Each wheel mounts on the nearest non-wheel brick whose world bounds contain its origin.
+  // Each wheel mounts on the nearest non-wheel brick whose OWN bounds contain
+  // its origin — tested in that brick's local frame, not as a world AABB. A
+  // car parked on a slope turns every part with it, and a turned part's world
+  // AABB swells to swallow its neighbours: 76417's cart, placed on its spiral
+  // at an 8.5 degree pitch (the set's own final page, 2026-09-24), had one
+  // wheel claimed by the 47457 slope beside the chassis, so neither brick got
+  // two wheels and the set lost its own car. Local containment is what the
+  // world test meant, and it is identical for an axis-aligned car.
   const wheelWorld = new Map<number, Box>();
-  const candidateBoxes = new Map<number, Box>();
+  const candidates: number[] = [];
   bricks.forEach((b, i) => {
     if (isFigureBrick(i) || isTrackMould(i) || isWheelPart(desc(b))) return;
-    candidateBoxes.set(i, worldBounds(b, mesh(b)));
+    candidates.push(i);
   });
   const wheelsByChassis = new Map<number, number[]>();
   for (const w of wheelIndices) {
     const origin = originOf(bricks[w]!);
     let best = -1, bestDistance = Infinity;
-    for (const [i, box] of candidateBoxes) {
-      if (!inBox(box, origin, WHEEL_MOUNT_TOLERANCE_LDU)) continue;
-      const d = norm(sub(origin, originOf(bricks[i]!)));
+    for (const i of candidates) {
+      const b = bricks[i]!;
+      const local = apply(transpose(rotOf(b)), sub(origin, originOf(b)));
+      if (!inBox(localBounds(mesh(b)), local, WHEEL_MOUNT_TOLERANCE_LDU)) continue;
+      const d = norm(sub(origin, originOf(b)));
       if (d < bestDistance) { bestDistance = d; best = i; }
     }
     if (best < 0) continue;

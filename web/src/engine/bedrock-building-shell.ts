@@ -94,15 +94,42 @@ export interface ColliderGridStats {
   partial: number;
   /** Visible scene blocks left as they are (doors, lights). */
   kept: number;
+  /**
+   * Solid voxel cells with NO visible geometry in their world block, which are
+   * therefore NOT colliders (see `buildColliderGrid`). 0 when no boxes were given.
+   */
+  emptyVoxelsDropped: number;
+  /** Blocks the visible geometry occupies that the voxel grid had left air, made colliders. */
+  geometryBlocksAdded: number;
 }
 
 /**
- * Replace the solid scenery with colliders whose height matches the part
- * geometry in each cell. `boxes` are LDraw AABBs (source frame) of every body
- * cuboid the shell was compiled from (`CompiledLdrawGeometry.partBoxesLdu`).
- * A solid cell no box reaches (gap fill, a bridged hole) collides fully.
+ * The shell's invisible walkable blocks: a collider wherever the shell's own
+ * part geometry is, at the height that geometry spans in the block. `boxes`
+ * are LDraw AABBs (source frame) of every body cuboid the shell was compiled
+ * from (`CompiledLdrawGeometry.partBoxesLdu`) — what the player SEES.
+ *
+ * Occupancy comes from those boxes, not from the voxel grid, because the two
+ * are half a block apart. The voxelizer centres its cells on multiples of the
+ * cell size (`parityFill`: a surface on a lattice line must not collapse), so
+ * voxel `i` holds the geometry of grid coordinates [i − ½, i + ½); the
+ * structure lays voxel `i` at world block [i, i + 1), and the shell entity is
+ * drawn at `sceneGridPoint` — the same world the doors, figures and seats use.
+ * Read as colliders, the voxel grid sat half a block off the model in every
+ * axis. On 76417 Gringotts (2026-09-24, measured over the shipped cells) 1,070
+ * of 3,535 collider blocks held no geometry at all — 138 of them one layer
+ * over the bank floor, an invisible plane a player walked on a block above
+ * the floor — and 614 blocks holding geometry had no collider. The old rule
+ * "a solid cell no box reaches collides fully" is what turned the half-block
+ * offset into full invisible blocks.
+ *
+ * The voxel grid still decides two things: the blocks the scene made live
+ * (doors, lights), which stay as they are, and `keepClear` — cells the door
+ * pass opened (the leaf and the passage to it, `applySceneDoors`), which stay
+ * air even where a wall's geometry reaches them. With no boxes at all (the
+ * shell did not report them) the voxel grid is used as before.
  */
-export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, frame: SceneGridFrame): { grid: BlockGrid; stats: ColliderGridStats } {
+export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, frame: SceneGridFrame, keepClear?: ReadonlySet<number>): { grid: BlockGrid; stats: ColliderGridStats } {
   const out = new BlockGrid(grid.width, grid.height, grid.length);
   const lo = new Float32Array(grid.width * grid.height * grid.length).fill(1);
   const hi = new Float32Array(grid.width * grid.height * grid.length).fill(0);
@@ -123,14 +150,21 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
       if (cellHi > hi[i]!) hi[i] = cellHi;
     }
   }
-  const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0 };
+  const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0 };
+  const fromGeometry = boxes.length > 0;
   for (let x = 0; x < grid.width; x++) for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) {
     const state = grid.get(x, y, z);
-    if (state === 'minecraft:air') continue;
-    if (isSceneBlock(state)) { out.set(x, y, z, state); stats.kept++; continue; }
+    if (state !== 'minecraft:air' && isSceneBlock(state)) { out.set(x, y, z, state); stats.kept++; continue; }
     const i = idx(x, y, z);
+    const seen = hi[i]! > lo[i]!;
+    if (fromGeometry) {
+      // Geometry decides; a cell the door pass opened stays open.
+      if (!seen) { if (state !== 'minecraft:air') stats.emptyVoxelsDropped++; continue; }
+      if (keepClear?.has(i)) continue;
+      if (state === 'minecraft:air') stats.geometryBlocksAdded++;
+    } else if (state === 'minecraft:air') continue;
     let l = 0, h = 16;
-    if (hi[i]! > lo[i]!) {
+    if (seen) {
       l = Math.max(0, Math.min(15, Math.floor(lo[i]! * 16)));
       h = Math.max(l + 1, Math.min(16, Math.ceil(hi[i]! * 16)));
     }
@@ -140,6 +174,9 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
   }
   return { grid: out, stats };
 }
+
+/** The cell index `buildColliderGrid`'s `keepClear` uses: `(x·height + y)·length + z`. */
+export const colliderCellIndex = (grid: { height: number; length: number }, x: number, y: number, z: number): number => (x * grid.height + y) * grid.length + z;
 
 /** Every (lo, hi) pair with lo < hi: 136 permutations. */
 const COLLIDER_PERMUTATIONS = (): unknown[] => {

@@ -33,7 +33,8 @@ const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
 page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 200)}`); });
 
-await page.goto('http://localhost:4000/?tab=lego', { waitUntil: 'domcontentloaded' });
+// CRAFTMATIC_URL points the shot at another dev server (a worktree's own port).
+await page.goto(`${process.env.CRAFTMATIC_URL ?? 'http://localhost:4000'}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-search', { timeout: 30000 });
 await page.fill('#lego-search', setNumber);
 await page.click('#lego-search-btn');

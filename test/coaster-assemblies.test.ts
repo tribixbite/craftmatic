@@ -183,6 +183,26 @@ describe('coaster assemblies: ride cars', () => {
     expect(result.warnings.some(w => w.includes('none within'))).toBe(true);
   });
 
+  it('mounts a wheel by a neighbour\'s OWN bounds, not by the AABB its turn swells to (76417\'s cart on its slope)', () => {
+    // A plate turned 45 degrees about Z, 18 LDU above the second wheel and so
+    // nearer to it than the chassis origin (30.5): its world AABB contains the
+    // wheel's origin, its own box does not. Mounted by the AABB, each brick
+    // got one wheel and the set lost its car (2026-09-24).
+    const car = carAt(40, 0, false);
+    const wheel = car.filter(b => b.part === '24869.dat')[1]!;
+    const s = Math.SQRT1_2;
+    const turned = brick('3023.dat', wheel.x, wheel.y - 18, wheel.z, [s, -s, 0, s, s, 0, 0, 0, 1], 0);
+    // Preconditions, so the test proves what it claims.
+    const local = [s * 0 + s * 18, -s * 0 + s * 18, 0]; // R^T (wheel - plate), (0, 18, 0) turned
+    expect(local[1]!).toBeGreaterThan(8 + 4); // outside the plate's own 0..8 height plus the 4 LDU mount tolerance
+    const worldYs = [[-20, 0], [20, 0], [-20, 8], [20, 8]].map(([lx, ly]) => s * lx! + s * ly!);
+    expect(Math.max(...worldYs)).toBeGreaterThan(18); // ...but inside its turned AABB
+    const result = run([...STRAIGHT_ROUTE, ...car, turned]);
+    expect(result.cars).toHaveLength(1);
+    expect(result.cars[0]!.wheels).toHaveLength(2);
+    expect(result.cars[0]!.wheelbaseLdu).toBe(50);
+  });
+
   it('finds nothing and says so when no brick carries wheels', () => {
     const result = run([...STRAIGHT_ROUTE, brick('3001.dat', 40, -60, 0)]);
     expect(result.cars).toEqual([]);

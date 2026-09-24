@@ -180,6 +180,8 @@ export interface PlayableAddonOptions {
     /** Existing invisible seat type exposed to the brick-wand manual chair placer. */
     manualSeatTypeId?: string;
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
+    /** Grid cells the door pass opened (`applySceneDoors`), kept open by the shell's colliders. */
+    colliderKeepClear?: ReadonlySet<number>;
     runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
     /**
      * The export pipeline's identity (pipeline-version.ts): shown in both pack
@@ -1907,7 +1909,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
             actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
             extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
-            const colliders = buildColliderGrid(scenery, sgeo.partBoxesLdu ?? [], options.shell.frame);
+            const colliders = buildColliderGrid(scenery, sgeo.partBoxesLdu ?? [], options.shell.frame, options.colliderKeepClear);
             structureGrid = colliders.grid;
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
             const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
@@ -1924,7 +1926,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${rp}textures/blocks/craftmatic_collider.png`, data: transparentPng() },
             );
             Object.assign(terrainTextures, COLLIDER_TERRAIN_TEXTURE);
-            warnings.push(`${label}: brick-accurate building - ${sgeo.diagnostics.cubeCount} cuboids at ${sgeo.diagnostics.quality.microcellLdu} LDU over ${colliders.stats.colliders} invisible collider blocks (${colliders.stats.partial} part-height, ${colliders.stats.kept} doors/lights kept).`);
+            warnings.push(`${label}: brick-accurate building - ${sgeo.diagnostics.cubeCount} cuboids at ${sgeo.diagnostics.quality.microcellLdu} LDU over ${colliders.stats.colliders} invisible collider blocks (${colliders.stats.partial} part-height, ${colliders.stats.kept} doors/lights kept; laid from the shell's own geometry: ${colliders.stats.emptyVoxelsDropped} voxel cells with nothing to see dropped, ${colliders.stats.geometryBlocksAdded} geometry blocks the voxels missed added).`);
         } catch (e) {
             warnings.push(`${label}: the brick-accurate building could not be compiled (${e instanceof Error ? e.message : String(e)}); exported as blocks.`);
         }

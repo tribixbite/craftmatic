@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -150,6 +150,20 @@ describe('discoverSceneActors', () => {
     expect(isDoorLeafDescription('Door Sliding Type 2')).toBe(false);
     expect(isDoorLeafDescription('~Door  1 x  3 x  4 Right (Obsolete)')).toBe(true);
     expect(isDoorLeafDescription('GLASS DOOR FOR FRAME 1X4X6 (Needs Work)')).toBe(true);
+  });
+
+  it('reads a leaf\'s turn off the grid from its own frame, not its world AABB (76417\'s bank sits at 45 degrees)', async () => {
+    const turn = (deg: number): number[] => { const c = Math.cos(deg * Math.PI / 180), s = Math.sin(deg * Math.PI / 180); return [c, 0, s, 0, 1, 0, -s, 0, c]; };
+    const scene = await discoverSceneActors([
+      { part: '60623.dat', color: 6, x: 0, y: 0, z: 0, rot: I },
+      { part: '60623.dat', color: 6, x: 400, y: 0, z: 0, rot: turn(8.13) },
+      { part: '60623.dat', color: 6, x: 800, y: 0, z: 0, rot: turn(45) },
+      { part: '60623.dat', color: 6, x: 1200, y: 0, z: 0, rot: turn(90) },
+    ], provider());
+    expect(scene.doors.map(d => d.offGridDeg)).toEqual([0, 8.1, 45, 0]);
+    expect(scene.doors.map(d => d.alongAxis)).toEqual(['x', 'x', 'x', 'z']);
+    // Past the limit a square vanilla door cannot stand in the leaf's wall; the bank's 8-degree front doors still hang.
+    expect(scene.doors.filter(d => d.offGridDeg! <= DOOR_MAX_OFF_GRID_DEG)).toHaveLength(3);
   });
 });
 

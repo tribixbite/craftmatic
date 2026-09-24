@@ -43,12 +43,38 @@ from pathlib import Path
 
 XML = Path(r'C:\git\clego\extracted\studio_release\app\data\ldraw.xml')
 XML_LXFV56 = Path(r'C:\git\clego\extracted\studio_release\app\data\ldraw_lxfv56.xml')
-MEASURED = Path(r'C:\git\craftmatic\web\public\ldd-measured-align.json')
+# Repo-relative, so a run from a git worktree writes that worktree's table and
+# not the main checkout's.
+REPO = Path(__file__).resolve().parent.parent
+MEASURED = REPO / 'web' / 'public' / 'ldd-measured-align.json'
 UPSTREAM_PART_DIRS = (
     Path(r'C:\git\clego\ldraw_ref\official\parts'),
     Path(r'C:\git\clego\ldraw_ref\unofficial\parts'),
 )
-OUT = Path(r'C:\git\craftmatic\web\public\ldd-part-map.json')
+OUT = REPO / 'web' / 'public' / 'ldd-part-map.json'
+
+# A Studio row that is the BARE IDENTITY is overridden by the measured table
+# when the measured row is a pure translation of at least MIN_LDU, backed by at
+# least MIN_VOTES placements. Studio writes identity for a handful of moulds
+# whose LDD origin plainly is not the LDraw one. The case that found it,
+# 21229 "Fence Spindled 4 x 4 x 2 Quarter Round with 3 Studs": Studio says
+# identity, so 76417's two black tower-balcony railings hung 48 LDU low and
+# 70 LDU out from the round tower and read on the device as two black shapes
+# floating in the air beside it (2026-09-24). Two independent sources agree on
+# the real correction: the measured table's (-10, -48, 70) LDU from 16 votes,
+# and Studio's OWN row for 30056 (the same fence without studs, which 21229.dat
+# includes at identity as `s\30056s01.dat`): (0.4, -1.92, 2.8) LDD units =
+# (-10, -48, 70) LDU. 37352 (Brick 1 x 2 curved top) is the same shape of
+# fault: identity in Studio, (10, -24, 0) LDU from 488 votes = Studio's own
+# 3004 (Brick 1 x 2) row. The rule found exactly four ids on 2026-09-24
+# (21229, 37352, 18838 Arch 1 x 12 x 3, 40066 Door 1 x 6 x 7 Arch); the first
+# two are cross-checked as above, the last two rest on the vote alone.
+IDENTITY_OVERRIDE_MIN_VOTES = 5
+IDENTITY_OVERRIDE_MIN_LDU = 20.0
+# measured rows are [file, r00..r22, tx, ty, tz (LDU, LDraw basis), votes, rms];
+# a Studio row's translation is in LDD units with X reversed: (-x, y, z) / 25
+# (3001: measured (30, -24, 10) LDU == Studio (-1.2, -0.96, 0.4)).
+LDU_PER_LDD = 25.0
 
 # `ldraw_lxfv56.xml` rows that name a Studio-only `bl_<n>.dat`, re-expressed on
 # upstream `<n>.dat`. A bl mesh is the upstream mesh in another frame,
@@ -183,6 +209,29 @@ def fill_from_lxfv56(part_map: dict[str, list]) -> tuple[int, int, int, int]:
     return filled, skipped_measured, skipped_bl, skipped_missing
 
 
+def override_identity_rows(part_map: dict[str, list]) -> list[str]:
+    """Replace bare-identity Studio rows the measured table contradicts (see
+    IDENTITY_OVERRIDE_MIN_VOTES). Returns the design ids changed."""
+    measured = json.loads(MEASURED.read_text(encoding='utf-8'))
+    measured = measured.get('entries', measured)
+    identity_rot = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+    changed: list[str] = []
+    for lego, row in part_map.items():
+        if any(abs(float(v)) > 1e-9 for v in row[1:5]):
+            continue  # a real Studio correction: left to Studio
+        m = measured.get(lego)
+        if not m or str(m[0]).lower() != str(row[0]).lower():
+            continue  # measured against a different LDraw file
+        rot, t, votes = [float(v) for v in m[1:10]], [float(v) for v in m[10:13]], int(m[13])
+        if any(abs(a - b) > 1e-6 for a, b in zip(rot, identity_rot)):
+            continue
+        if votes < IDENTITY_OVERRIDE_MIN_VOTES or (t[0] ** 2 + t[1] ** 2 + t[2] ** 2) ** 0.5 < IDENTITY_OVERRIDE_MIN_LDU:
+            continue
+        part_map[lego] = [row[0], r(-t[0] / LDU_PER_LDD), r(t[1] / LDU_PER_LDD), r(t[2] / LDU_PER_LDD), 0.0, 1.0, 0.0, 0.0]
+        changed.append(lego)
+    return changed
+
+
 def main():
     root = ET.parse(XML).getroot()
     part_map: dict[str, list] = {}
@@ -221,6 +270,8 @@ def main():
             part_map[lego] = list(row)
             curated += 1
     print(f'curated rows added: {curated}')
+    overridden = override_identity_rows(part_map)
+    print(f'identity Studio rows overridden by the measured table: {len(overridden)} {sorted(overridden)}')
     print(f'ldraw.xml: {from_ldraw_xml} rows; ldraw_lxfv56.xml filled {filled} more '
           f'(skipped {skipped_measured} on the measured table, {skipped_bl} bl_* names, '
           f'{skipped_missing} files upstream lacks)')
