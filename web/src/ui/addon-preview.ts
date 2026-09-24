@@ -810,7 +810,9 @@ class AddonWalk implements AddonPreviewHandle {
     this.updatePinballEntities();
     this.setPinballTouchVisible(true);
     this.renderHud();
-    this.onStatus(`Playing pinball — ${cfg.label}. A/D or Left/Right flippers, W both, hold Space to charge and launch, Shift or Esc to leave.`, 'success');
+    // A locked pointer has no screen position: release it so a click picks a half.
+    if (document.pointerLockElement) document.exitPointerLock?.();
+    this.onStatus(`Playing pinball — ${cfg.label}. Click / tap the left or right half for that flipper (a press while the ball waits launches it), or A/D, Left/Right, W both, hold Space to charge; Shift or Esc to leave.`, 'success');
   }
 
   /** Leave the table, restoring exactly the player state and the reach/collider/tread/model view from before boarding. The ball/flippers stay where the game left them. */
@@ -1485,17 +1487,39 @@ class AddonWalk implements AddonPreviewHandle {
   private wireInput(): void {
     const look = this.lookLayer;
     // Mouse look: pointer lock on click (fine pointers); a plain drag looks around when the lock is refused or on touch.
-    this.on(look, 'click', () => { if (!this.isTouch && document.pointerLockElement !== look) look.requestPointerLock?.(); });
+    this.on(look, 'click', () => { if (!this.isTouch && !this.pinball && document.pointerLockElement !== look) look.requestPointerLock?.(); });
     this.on(document, 'mousemove', (e: MouseEvent) => {
       if (document.pointerLockElement !== look) return;
       this.turn(e.movementX, e.movementY);
     });
     let drag: { id: number; x: number; y: number } | null = null;
+    // Pinball: a press on the left / right half of the view holds that
+    // flipper, and a press while a ball waits charges the plunger (released on
+    // lift) — the same screen halves the pack's tap zones give on the device.
+    let pinballPress: { id: number; side: 'left' | 'right'; launch: boolean } | null = null;
     this.on(look, 'pointerdown', (e: PointerEvent) => {
+      if (this.pinball) {
+        const r = look.getBoundingClientRect();
+        const side = e.clientX < r.left + r.width / 2 ? 'left' : 'right';
+        const launch = this.pinball.sim.state.phase !== 'play';
+        pinballPress = { id: e.pointerId, side, launch };
+        this.touchPinball[side] = true;
+        if (launch) this.touchPinball.launch = true;
+        look.setPointerCapture(e.pointerId);
+        return;
+      }
       if (document.pointerLockElement === look) return;
       drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
       look.setPointerCapture(e.pointerId);
     });
+    const endPinballPress = (e: PointerEvent): void => {
+      if (!pinballPress || e.pointerId !== pinballPress.id) return;
+      this.touchPinball[pinballPress.side] = false;
+      if (pinballPress.launch) this.touchPinball.launch = false;
+      pinballPress = null;
+    };
+    this.on(look, 'pointerup', endPinballPress);
+    this.on(look, 'pointercancel', endPinballPress);
     this.on(look, 'pointermove', (e: PointerEvent) => {
       if (!drag || e.pointerId !== drag.id) return;
       this.turn((e.clientX - drag.x) * 1.6, (e.clientY - drag.y) * 1.6);

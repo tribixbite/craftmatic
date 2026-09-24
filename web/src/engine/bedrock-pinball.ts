@@ -11,18 +11,25 @@
  *     float property swings it about the tilted playfield's normal;
  *   - the BALL as an entity compiled from the set's own ball part, teleported
  *     every tick to where the simulation puts it;
- *   - a CONSOLE: an invisible seat in front of the machine ("Play pinball").
- *     The seated player's movement input works the flippers (left / right,
- *     forward = both), Jump charges and fires the plunger, sneak leaves. A free
- *     camera looks down the table while seated.
+ *   - a CONSOLE: a yellow pad in front of the machine ("Play pinball"). Sitting
+ *     on it lifts the player's head to a viewpoint just behind the table's
+ *     front edge, with a free camera there looking down the table;
+ *   - two TAP ZONES the runtime spawns left and right in front of the seated
+ *     head: tapping the left / right half of the screen works that flipper,
+ *     and a tap while a ball waits fires the plunger. The stick (left / right,
+ *     forward = both, pull back = plunger) and Jump work too where a device
+ *     reports them; sneak leaves.
  *
  * The runtime is serialised with `.toString()` like the coaster's, so it and
  * the simulation it is handed may not reference anything outside themselves.
  *
- * NOT device-verified (2026-09-23): the sign of `getMovementVector().x`
- * (assumed positive = left, Minecraft's strafe convention; forward fires both
- * flippers so the game stays playable either way), the flipper spin sign in
- * Bedrock's bone convention, and the free camera's framing.
+ * Device report 2026-09-24 (first playable build): the game started (the
+ * action bar showed "Ball 1/3") but nothing moved. The stick and Jump were
+ * the only inputs and no charge ever showed, so the seated phone reported
+ * neither; hence the tap zones. NOT device-verified: that a tap on a touch
+ * screen hits the zone under the finger while a free camera is set (the
+ * camera is placed at the rider's head so either pick origin agrees), the
+ * flipper spin sign in Bedrock's bone convention, and the framing.
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -163,11 +170,17 @@ export function planPinball(
   const consoleLdu = ldu(front + 60, centreW, table.floorH);
   const consoleModel = toModel(consoleLdu);
   consoleModel[1] = 0; // on the pin plane, beside the machine
-  // Steep enough to look down into the cabinet over its front wall: the walk
-  // preview measured the first framing (0.35 L out, 0.75 L up) grazing
-  // geometry near the look point. 0.15 L out and 1.1 L up clears it.
+  // The seated player's EYE: the runtime lifts the seat so the rider's head is
+  // here and puts the camera just in front of it, so the view and the
+  // player's own tap ray agree (taps pick the flipper zones). A player
+  // standing at a real machine looks down the table from just behind its
+  // front edge. The walk preview measured 0.35 L out / 0.75 L up grazing
+  // geometry near the look point; the first device build used 0.15 L out and
+  // 1.1 L up, which the user found too far ("slightly closer", 2026-09-24):
+  // 0.1 L out and 0.8 L up keeps the whole playfield in a 60 degree vertical
+  // view (front edge 83 degrees down, back edge ~36) with the table filling it.
   // TODO: device-check the framing on the phone; tune these two factors.
-  const cameraEyeModel = toModel(add(ldu(front + length * 0.15, centreW, table.floorH), scale([0, -1, 0], length * 1.1)));
+  const cameraEyeModel = toModel(add(ldu(front + length * 0.1, centreW, table.floorH), scale([0, -1, 0], length * 0.8)));
   const cameraLookModel = toModel(ldu(grid.u0 + length * 0.5, centreW, table.floorH));
   // The seat faces up the table (-U) in the world.
   const upTable = sub(toModel(ldu(front - 100, centreW, table.floorH)), toModel(ldu(front, centreW, table.floorH)));
@@ -217,8 +230,11 @@ export function flipperAnimation(typeId: string): { id: string; file: unknown } 
 /** The console seat: a rideable with no visible geometry. */
 export function consoleAssets(typeId: string): { behavior: unknown; client: unknown; geometry: unknown } {
   const collision = { width: 1.2, height: 1.0 };
+  // The rider's yaw is locked to the seat (0 degrees of freedom): the runtime
+  // turns the seat to face up the table, and the tap zones left and right of
+  // the rider's head only mean "left" and "right" while the head faces it.
   const rideable = { seat_count: 1, family_types: ['player'], interact_text: PINBALL_INTERACT_TEXT,
-    crouching_skip_interact: true, seats: { position: [0, 0.2, 0], lock_rider_rotation: 181 } };
+    crouching_skip_interact: true, seats: { position: [0, 0.2, 0], lock_rider_rotation: 0 } };
   const geometryId = `geometry.${typeId.replace(':', '.')}`;
   return {
     behavior: withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
@@ -254,6 +270,53 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
   };
 }
 
+/**
+ * A TAP ZONE: an invisible, hittable box the runtime spawns left and right in
+ * front of a seated player's head. Bedrock gives a script no touch position,
+ * but a tap on a touch screen hits the entity under the finger, so a tap on
+ * the left half of the screen hits the left zone (`entityHitEntity`, or
+ * `playerInteractWithEntity` for a long press) and works the left flipper
+ * (device report 2026-09-24: "right side of screen touch = right flipper and
+ * left side = left"). A mouse click or a controller trigger works the same way
+ * through the crosshair.
+ *
+ * The box is big and close: 1.9 blocks wide and deep, 6 tall, starting 0.45
+ * blocks in front of the eye, so every ray inside a 115 x 60 degree phone view
+ * enters one zone within reach whatever the rider's pitch. No size groups:
+ * it is sized to the player, not the model, and the runtime places it.
+ */
+export const PINBALL_ZONE = { width: 1.9, height: 6, near: 0.45, below: 3.8 } as const;
+export const PINBALL_BUTTON_FAMILY = 'craftmatic_pinball_button';
+
+export function buttonAssets(typeId: string): { behavior: unknown; client: unknown; geometry: unknown } {
+  const geometryId = `geometry.${typeId.replace(':', '.')}`;
+  return {
+    behavior: { format_version: '1.26.30', 'minecraft:entity': {
+      description: { identifier: typeId, is_spawnable: false, is_summonable: true },
+      components: {
+        'minecraft:type_family': { family: [PINBALL_BUTTON_FAMILY] },
+        'minecraft:health': { value: 20, max: 20 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:knockback_resistance': { value: 1 },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': { width: PINBALL_ZONE.width, height: PINBALL_ZONE.height },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+        'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: false },
+      },
+    } },
+    client: { format_version: '1.10.0', 'minecraft:client_entity': { description: {
+      identifier: typeId, materials: { default: 'entity_alphatest' },
+      textures: { default: 'textures/entity/craftmatic_pinball_console' }, geometry: { default: geometryId },
+      render_controllers: ['controller.render.default'],
+    } } },
+    // No cubes: nothing to see, only the collision box to hit.
+    geometry: { format_version: '1.12.0', 'minecraft:geometry': [{
+      description: { identifier: geometryId, texture_width: 2, texture_height: 2, visible_bounds_width: 1, visible_bounds_height: 1, visible_bounds_offset: [0, 0.5, 0] },
+      bones: [{ name: 'root', pivot: [0, 0, 0] }],
+    }] },
+  };
+}
+
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export interface PinballRuntimeConfig {
@@ -262,6 +325,10 @@ export interface PinballRuntimeConfig {
   ballType: string;
   /** Flipper entity types, in `sim.flippers` order. */
   flipperTypes: string[];
+  /** The tap-zone entity the runtime spawns beside a seated player's head, and its family. */
+  buttonType: string;
+  buttonFamily: string;
+  zone: { width: number; height: number; near: number; below: number };
   sim: PinballSimTable;
   map: PinballMap;
   ballH: number;
@@ -270,18 +337,24 @@ export interface PinballRuntimeConfig {
   /** Rest angle per flipper and the sign that turns a plane swing into the property (render handedness). */
   restAngles: number[];
   spinSign: number;
+  /** The seated player's eye and the point it looks at, model blocks. */
   cameraEye: Vec3;
   cameraLook: Vec3;
+  /** Where the console pad was planned, model blocks, and its yaw: the fallback home when none was recorded. */
+  consoleHome: Vec3;
+  consoleYaw: number;
   label: string;
 }
 
-export function pinballRuntimeConfig(plan: PinballPlan, types: { console: string; ball: string; flippers: string[] }, ballEntityModel: Vec3, spinSign: number, label: string): PinballRuntimeConfig {
+export function pinballRuntimeConfig(plan: PinballPlan, types: { console: string; ball: string; flippers: string[]; button: string }, ballEntityModel: Vec3, spinSign: number, label: string): PinballRuntimeConfig {
   return {
     family: PINBALL_FAMILY, consoleType: types.console, ballType: types.ball, flipperTypes: types.flippers,
+    buttonType: types.button, buttonFamily: PINBALL_BUTTON_FAMILY, zone: { ...PINBALL_ZONE },
     sim: plan.sim, map: plan.map, ballH: plan.ballH,
     ballOffset: sub(ballEntityModel, plan.ballCentreModel),
     restAngles: plan.flippers.map(f => f.restAngle), spinSign,
-    cameraEye: plan.cameraEyeModel, cameraLook: plan.cameraLookModel, label,
+    cameraEye: plan.cameraEyeModel, cameraLook: plan.cameraLookModel,
+    consoleHome: plan.consoleModel, consoleYaw: plan.consoleYaw, label,
   };
 }
 
@@ -291,10 +364,31 @@ export const PINBALL_KEY = 'craftmatic:pinball_';
 /**
  * The per-tick game. Serialised with `.toString()`; `createSim` is
  * `createPinballSim`, passed in the same way.
+ *
+ * Seating: the pad lifts its rider (a teleported vehicle keeps its rider, as
+ * every coaster car does) until the rider's HEAD is at `cameraEye`, turned to
+ * face up the table, and a free camera sits just in front of that head. The
+ * picture and the player's own pick ray then start from the same place, so
+ * the two tap zones spawned left and right in front of the head split the
+ * screen into a left and a right half. Standing up puts the player back on
+ * the ground behind the pad (with a moment of slow falling) and the pad home.
+ *
+ * Input, all at once: a tap (or long press) on a half of the screen raises
+ * that flipper for 0.3 s and, while a ball waits on the launcher, charges and
+ * fires the plunger; the stick and Jump still work where a device reports them.
  */
 function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPinballSim): void {
   const KEY = 'craftmatic:pinball_';
+  /** A tap holds its flipper up this many ticks (0.3 s); repeated taps extend it. */
+  const TAP_TICKS = 6;
+  /** A tap on a waiting ball charges the plunger this long (0.8 s of a 1 s full charge), then fires. */
+  const LAUNCH_TICKS = 16;
+  /** Head-to-eye tolerance when lifting the seat, blocks, and the most corrections tried. */
+  const SEAT_TOLERANCE = 0.08, SEAT_TRIES = 8;
   const games = new Map<string, any>();
+  /** Tap-zone entity id -> the game it belongs to and its side. */
+  const zones = new Map<string, { key: string; side: 'left' | 'right' }>();
+  let now = 0;
   const fmt = (n: number): string => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   const toWorld = (g: any, p: number[]): { x: number; y: number; z: number } => {
     const a = g.rotation * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
@@ -305,38 +399,168 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     return [0, 1, 2].map(k => m.p0[k]! + u * m.u[k]! + w * m.w[k]! + h * m.n[k]!);
   };
   const sound = (dim: any, id: string, at: any, pitch = 1): void => { try { dim.playSound(id, at, { volume: 0.8, pitch }); } catch {} };
+  const dist = (a: any, b: any): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+
+  /** The seated view in world space: eye, look point, horizontal forward/left and the facing yaw. */
+  const viewOf = (g: any) => {
+    const eye = toWorld(g, config.cameraEye), look = toWorld(g, config.cameraLook);
+    const dx = look.x - eye.x, dz = look.z - eye.z, h = Math.hypot(dx, dz) || 1;
+    const fwd = { x: dx / h, z: dz / h };
+    // Facing +z (yaw 0), a player's left is +x.
+    const left = { x: fwd.z, z: -fwd.x };
+    return { eye, look, fwd, left, yaw: Math.atan2(-fwd.x, fwd.z) * 180 / Math.PI };
+  };
+  /** Where a tap zone stands (its entity position: bottom centre), from the seated eye. */
+  const zoneAt = (v: any, side: 'left' | 'right') => {
+    const z = config.zone, s = side === 'left' ? 1 : -1, ahead = z.near + z.width / 2, across = z.width / 2 * s;
+    return { x: v.eye.x + v.fwd.x * ahead + v.left.x * across, y: v.eye.y - z.below, z: v.eye.z + v.fwd.z * ahead + v.left.z * across };
+  };
+
+  // A hit (tap / click) or a long press on a tap zone. `beforeEvents` runs
+  // read-only: this only records script state.
+  const tap = (zone: any, player: any): void => {
+    const z = zones.get(zone.id);
+    if (!z) return;
+    const game = games.get(z.key);
+    if (!game || !game.rider || !player || game.rider.id !== player.id) return;
+    game.tapUntil[z.side] = now + TAP_TICKS;
+    game.taps[z.side]++;
+    if (game.sim.state.phase !== 'play' && game.autoLaunch <= 0) game.autoLaunch = LAUNCH_TICKS;
+  };
+  try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { try { if (ev.hitEntity?.typeId === config.buttonType) tap(ev.hitEntity, ev.damagingEntity); } catch {} }); } catch {}
+  try {
+    world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
+      try { if (ev.target?.typeId === config.buttonType) { ev.cancel = true; tap(ev.target, ev.player); } } catch {}
+    });
+  } catch {}
+
+  const removeZones = (game: any): void => {
+    for (const side of ['left', 'right']) {
+      const e = game.zones?.[side];
+      if (e) { zones.delete(e.id); try { e.remove(); } catch {} }
+    }
+    game.zones = undefined;
+  };
+  const homeOf = (g: any, console_: any): { at: any; yaw: number } => {
+    let at: any, yaw = NaN;
+    try { at = console_.getDynamicProperty(KEY + 'home'); yaw = Number(console_.getDynamicProperty(KEY + 'home_yaw')); } catch {}
+    if (at && [at.x, at.y, at.z, yaw].every(Number.isFinite)) return { at, yaw };
+    // Never recorded (first sight already seated): the planned pad position.
+    const p = toWorld(g, config.consoleHome);
+    return { at: { x: p.x, y: g.origin.y + config.consoleHome[1]! * g.scale, z: p.z }, yaw: config.consoleYaw + g.rotation };
+  };
 
   const tickGame = (key: string, g: any, dim: any): void => {
     const console_ = g.parts[config.consoleType];
     if (!console_) return;
     let game = games.get(key);
     if (!game) {
-      game = { sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN), best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0, hint: 0 };
+      game = {
+        sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN),
+        best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0, hint: 0,
+        tapUntil: { left: -1, right: -1 }, taps: { left: 0, right: 0 }, autoLaunch: 0,
+        seatTries: 0, seatAt: -99, seated: false, zones: undefined as any,
+      };
       games.set(key, game);
     }
     let rider: any;
     try { rider = console_.getComponent('minecraft:rideable')?.getRiders?.()?.[0]; } catch {}
     if (rider && rider.typeId !== 'minecraft:player') rider = undefined;
-    // Boarding and leaving: the camera looks down the table while seated.
+    const view = viewOf(g);
+
+    // The pad's home: recorded the first time it is seen empty (where the
+    // placement put it, on the ground), so a lifted seat can always go back.
+    if (!rider) {
+      let recorded: any;
+      try { recorded = console_.getDynamicProperty(KEY + 'home'); } catch {}
+      if (!recorded && !game.rider) {
+        try {
+          console_.setDynamicProperty(KEY + 'home', console_.location);
+          console_.setDynamicProperty(KEY + 'home_yaw', console_.getRotation?.().y ?? config.consoleYaw + g.rotation);
+        } catch {}
+      }
+    }
+
+    // Boarding: lift the seat toward the eye, camera in front of it.
     if (rider && game.rider?.id !== rider.id) {
-      try { rider.camera.setCamera('minecraft:free', { location: toWorld(g, config.cameraEye), facingLocation: toWorld(g, config.cameraLook), easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
+      game.seatTries = 0; game.seatAt = -99; game.seated = false;
+      game.tapUntil = { left: -1, right: -1 }; game.taps = { left: 0, right: 0 }; game.autoLaunch = 0;
+      const cam = { x: view.eye.x + view.fwd.x * 0.3, y: view.eye.y, z: view.eye.z + view.fwd.z * 0.3 };
+      try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: view.look, easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
       if (game.sim.state.phase === 'over') game.sim.reset();
     }
-    if (!rider && game.rider) { try { game.rider.camera.clear(); } catch {} try { game.rider.onScreenDisplay.setActionBar(''); } catch {} }
+    // Standing up: camera back, the player down on the ground behind the pad
+    // (the seat was up at eye height), the zones gone, the pad home.
+    if (!rider && game.rider) {
+      const p = game.rider;
+      const home = homeOf(g, console_);
+      try { p.camera.clear(); } catch {}
+      try { p.onScreenDisplay.setActionBar(''); } catch {}
+      try { p.addEffect('slow_falling', 60, { showParticles: false }); } catch {}
+      try { p.teleport({ x: home.at.x - view.fwd.x * 1.6, y: home.at.y + 0.05, z: home.at.z - view.fwd.z * 1.6 }, { rotation: { x: 20, y: view.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
+      removeZones(game);
+      try { console_.tryTeleport(home.at, { rotation: { x: 0, y: home.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
+      game.seated = false;
+    }
     game.rider = rider;
+
+    if (rider) {
+      // Close the loop on the rider's HEAD, not a guessed seat height: the
+      // seat offset and the sitting pose are the engine's, not ours.
+      if (!game.seated && now - game.seatAt >= 2) {
+        let head: any;
+        try { head = rider.getHeadLocation(); } catch {}
+        const err = head ? { x: view.eye.x - head.x, y: view.eye.y - head.y, z: view.eye.z - head.z } : undefined;
+        if (err && Math.hypot(err.x, err.y, err.z) <= SEAT_TOLERANCE) game.seated = true;
+        else if (game.seatTries >= SEAT_TRIES) game.seated = true; // close enough; the zones are large
+        else {
+          const at = console_.location;
+          // First try without a head reading: the pad plus a seated eye height.
+          const to = err ? { x: at.x + err.x, y: at.y + err.y, z: at.z + err.z } : { x: view.eye.x, y: view.eye.y - 1.8, z: view.eye.z };
+          try { console_.tryTeleport(to, { rotation: { x: 0, y: view.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
+          game.seatTries++; game.seatAt = now;
+        }
+      }
+      // The two zones, spawned once the seat is up and kept in front of the eye.
+      if (game.seated) {
+        if (!game.zones) {
+          game.zones = {};
+          for (const side of ['left', 'right'] as const) {
+            try {
+              const e = dim.spawnEntity(config.buttonType, zoneAt(view, side));
+              game.zones[side] = e;
+              zones.set(e.id, { key, side });
+            } catch {}
+          }
+        } else if (now % 10 === 0) {
+          for (const side of ['left', 'right'] as const) {
+            const e = game.zones[side];
+            if (!e) continue;
+            const want = zoneAt(view, side);
+            try { if (dist(e.location, want) > 0.05) e.teleport(want, { keepVelocity: false, checkForBlocks: false }); } catch {}
+          }
+        }
+      }
+    } else if (now % 20 === 0) {
+      // An empty pad away from home (the world closed with a player seated) goes back.
+      const home = homeOf(g, console_);
+      try { if (dist(console_.location, home.at) > 0.3) console_.tryTeleport(home.at, { rotation: { x: 0, y: home.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
+      if (game.zones) removeZones(game);
+    }
 
     let left = false, right = false, launch = false;
     if (rider) {
+      left = game.tapUntil.left > now;
+      right = game.tapUntil.right > now;
+      if (game.autoLaunch > 0) { launch = true; game.autoLaunch--; }
       try {
         const m = rider.inputInfo?.getMovementVector?.();
         const x = m?.x ?? 0, y = m?.y ?? 0;
         // x > 0 is a left strafe in Minecraft's convention; forward works both.
-        left = x > 0.3 || y > 0.3;
-        right = x < -0.3 || y > 0.3;
-        // The plunger: pull the stick BACK and release, like the real one. A
-        // phone shows no Jump button while riding a seat that is not a
-        // vehicle, so Jump alone could not launch on touch; it still works.
-        launch = y < -0.4 || !!(rider.isJumping || rider.inputInfo?.getButtonState?.('Jump') === 'Pressed');
+        if (x > 0.3 || y > 0.3) left = true;
+        if (x < -0.3 || y > 0.3) right = true;
+        // The plunger by stick: pull BACK and release, like the real one.
+        if (y < -0.4 || rider.isJumping || rider.inputInfo?.getButtonState?.('Jump') === 'Pressed') launch = true;
       } catch {}
     }
     const events = game.sim.step({ left, right, launch }, 0.05);
@@ -385,15 +609,19 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       } catch {}
     }
     if (rider && (++game.hud % 4 === 0 || events.length)) {
+      // The held flippers show as << >> so a player (and a device check) can
+      // see which input arrived; the tap counts say whether taps reach the zones.
+      const held = `${left ? '§a<<§r' : '  '} ${right ? '§a>>§r' : '  '}`;
       let line: string;
-      if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - pull back for a new game`;
-      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - pull back (or hold Jump) to charge, release to launch ${'|'.repeat(Math.round(st.charge * 10))}`;
-      else line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - left/right flippers, forward both, sneak to leave`;
+      if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - tap the screen for a new game`;
+      else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the screen to launch ${'|'.repeat(Math.round(st.charge * 10))}  (taps ${game.taps.left}/${game.taps.right})`;
+      else line = `${held} §bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - tap left / right half for the flippers, sneak to leave`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }
   };
 
   system.runInterval(() => {
+    now++;
     for (const dimId of ['overworld', 'nether', 'the_end']) {
       let dim: any, list: any[] = [];
       try { dim = world.getDimension(dimId); list = dim.getEntities({ families: [config.family] }); } catch { continue; }
@@ -410,8 +638,12 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       for (const [key, g] of groups) {
         try { tickGame(key, g, dim); } catch (err: any) { console.warn(`[pinball] ${config.label}: ${err && err.message ? err.message : err}`); }
       }
-      // A placement that was removed takes its game with it.
-      for (const key of [...games.keys()]) if (key.startsWith(`${dimId}@`) && !groups.has(key)) games.delete(key);
+      // A placement that was removed takes its game (and its zones) with it.
+      for (const key of [...games.keys()]) if (key.startsWith(`${dimId}@`) && !groups.has(key)) { removeZones(games.get(key)); games.delete(key); }
+      // Zones no game owns (a reload drops the script's map) are removed.
+      if (now % 40 === 0) {
+        try { for (const e of dim.getEntities({ families: [config.buttonFamily] })) if (!zones.has(e.id)) e.remove(); } catch {}
+      }
     }
   }, 1);
 }

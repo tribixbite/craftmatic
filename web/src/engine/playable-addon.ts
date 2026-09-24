@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
@@ -2186,13 +2186,23 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             );
             addEntityName(consoleType, `${label} - Play pinball`, false);
             actors.push({ typeId: consoleType, label: `${label} - Play pinball`, x: plan.consoleModel[0], y: plan.consoleModel[1], z: plan.consoleModel[2], yaw: plan.consoleYaw, pinball: true });
+            // The tap zones: spawned by the runtime beside a seated player's head, never placed.
+            const zid = entityId(`${id}_pinball_button`, 'p');
+            const buttonType = `${PACK_NAMESPACE}:${zid}`;
+            const za = buttonAssets(buttonType);
+            files.push(
+                { name: `${bp}entities/${zid}.json`, data: json(za.behavior) },
+                { name: `${rp}entity/${zid}.entity.json`, data: json(za.client) },
+                { name: `${rp}models/entity/${zid}.geo.json`, data: geoJson(za.geometry) },
+            );
+            addEntityName(buttonType, `${label} flipper button`, false);
             // The flipper spin is authored in the render frame; a mirrored frame reverses it.
             const f = SHELL_FRAME;
             const det = f[0]! * (f[4]! * f[8]! - f[5]! * f[7]!) - f[1]! * (f[3]! * f[8]! - f[5]! * f[6]!) + f[2]! * (f[3]! * f[7]! - f[4]! * f[6]!);
-            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes }, ballEntityModel, Math.sign(det) || 1, label);
+            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType }, ballEntityModel, Math.sign(det) || 1, label);
             files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
             warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
-            warnings.push(`Pinball: ${label} is playable - sit at the console in front of the machine ("${PINBALL_INTERACT_TEXT}"). Left/right work the flippers (forward works both), hold Jump to charge the plunger and release to launch, sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
+            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the left or right half of the screen for that flipper (click or trigger on desktop / controller), tap to launch a waiting ball; the stick and Jump work too. Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
         } catch (e) {
             pinballConfig = undefined;
             warnings.push(`${label}: the pinball game could not be built (${e instanceof Error ? e.message : String(e)}); the machine ships as a static model.`);

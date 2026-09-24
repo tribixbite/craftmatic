@@ -28,48 +28,101 @@ function config(): PinballRuntimeConfig {
   const sim = boxSim();
   return {
     family: 'craftmatic_pinball', consoleType: 'craftmatic:con', ballType: 'craftmatic:ball', flipperTypes: ['craftmatic:fl', 'craftmatic:fr'],
+    buttonType: 'craftmatic:zone', buttonFamily: 'craftmatic_pinball_button', zone: { width: 1.9, height: 6, near: 0.45, below: 3.8 },
     sim,
     // 1 LDU = 0.01 model blocks, u along +z, w along +x, h up.
     map: { p0: [0, 0, 0], u: [0, 0, 0.01], w: [0.01, 0, 0], n: [0, 0.01, 0] },
     ballH: 24, ballOffset: [0, -0.1, 0],
     restAngles: sim.flippers.map(f => f.restAngle), spinSign: 1,
-    cameraEye: [2, 5, 10], cameraLook: [2, 0, 3], label: 'Test table',
+    // The eye stands off the table's +z end, looking up it (-z).
+    cameraEye: [2, 5, 10], cameraLook: [2, 0, 3], consoleHome: [2, 0, 9], consoleYaw: 180, label: 'Test table',
   };
 }
+
+/** The seated head sits this far above the pad's position (the engine's seat offset + sitting eye). */
+const HEAD_ABOVE_SEAT = 1.35;
 
 function harness() {
   const cfg = config();
   const origin = { x: 100, y: 64, z: 200 };
   const props: Record<string, unknown> = { 'craftmatic:pinball_origin': origin, 'craftmatic:pinball_rotation': 0, 'craftmatic:pinball_scale': 1 };
-  const mk = (typeId: string) => {
+  const mk = (typeId: string, at = { x: 0, y: 0, z: 0 }) => {
     const dyn: Record<string, unknown> = { ...props };
-    return {
-      typeId, id: typeId, location: { x: 0, y: 0, z: 0 },
+    const e: any = {
+      typeId, id: typeId, location: { ...at }, removed: false,
       getDynamicProperty: (k: string) => dyn[k], setDynamicProperty: vi.fn((k: string, v: unknown) => { dyn[k] = v; }),
-      teleport: vi.fn(function (this: any, p: any) { this.location = p; }),
+      teleport: vi.fn((p: any) => { e.location = p; }),
+      tryTeleport: vi.fn((p: any) => { e.location = p; return true; }),
+      getRotation: () => ({ x: 0, y: 180 }),
       setProperty: vi.fn(),
       getComponent: vi.fn(),
+      remove: vi.fn(() => { e.removed = true; }),
     };
+    return e;
   };
-  const con = mk(cfg.consoleType), ball = mk(cfg.ballType), fl = mk(cfg.flipperTypes[0]!), fr = mk(cfg.flipperTypes[1]!);
+  const home = { x: 102, y: 64, z: 209 };
+  const con = mk(cfg.consoleType, home), ball = mk(cfg.ballType), fl = mk(cfg.flipperTypes[0]!), fr = mk(cfg.flipperTypes[1]!);
   let riders: any[] = [];
   con.getComponent.mockImplementation((name: string) => name === 'minecraft:rideable' ? { getRiders: () => riders } : undefined);
   const input = { x: 0, y: 0, jump: false };
-  const player = {
+  const player: any = {
     typeId: 'minecraft:player', id: 'p1',
     inputInfo: { getMovementVector: () => ({ x: input.x, y: input.y }), getButtonState: () => (input.jump ? 'Pressed' : 'Released') },
     isJumping: false,
+    // The rider rides the pad: its head follows the pad's position.
+    getHeadLocation: () => ({ x: con.location.x, y: con.location.y + HEAD_ABOVE_SEAT, z: con.location.z }),
     camera: { setCamera: vi.fn(), clear: vi.fn() },
     onScreenDisplay: { setActionBar: vi.fn() },
+    addEffect: vi.fn(),
+    teleport: vi.fn(),
   };
   let tick: () => void = () => {};
-  const dim = { getEntities: () => [con, ball, fl, fr], playSound: vi.fn() };
-  const world = { getDimension: (name: string) => (name === 'overworld' ? dim : { getEntities: () => [] }) };
+  const spawned: any[] = [];
+  let hit: (ev: any) => void = () => {};
+  let interact: (ev: any) => void = () => {};
+  const dim = {
+    id: 'minecraft:overworld',
+    getEntities: (q: any) => (q?.families?.[0] === cfg.buttonFamily ? spawned.filter(e => !e.removed) : [con, ball, fl, fr]),
+    spawnEntity: vi.fn((typeId: string, at: any) => {
+      const e = mk(typeId, at);
+      e.id = `zone${spawned.length}`;
+      spawned.push(e);
+      return e;
+    }),
+    playSound: vi.fn(),
+  };
+  const world = {
+    getDimension: (name: string) => (name === 'overworld' ? dim : { getEntities: () => [] }),
+    getPlayers: () => [],
+    afterEvents: { entityHitEntity: { subscribe: (cb: any) => { hit = cb; } } },
+    beforeEvents: { playerInteractWithEntity: { subscribe: (cb: any) => { interact = cb; } } },
+  };
   const system = { runInterval: (cb: () => void) => { tick = cb; } };
   const script = pinballScript(cfg).replace(/^import .*;\n/, '');
   new Function('world', 'system', script)(world, system);
-  return { cfg, con, ball, fl, fr, player, input, dim, sit: () => { riders = [player]; }, stand: () => { riders = []; }, run: (n: number) => { for (let i = 0; i < n; i++) tick(); } };
+  const eyeX = origin.x + 2;
+  // Facing -z, a player's left is -x.
+  const zone = (side: 'left' | 'right') => spawned.find(e => !e.removed && Math.sign(e.location.x - eyeX) === (side === 'left' ? -1 : 1));
+  return {
+    cfg, origin, home, con, ball, fl, fr, player, input, dim, spawned, zone,
+    hit: (side: 'left' | 'right', by: any = player) => hit({ damagingEntity: by, hitEntity: zone(side) }),
+    press: (side: 'left' | 'right') => { const ev: any = { player, target: zone(side), cancel: false }; interact(ev); return ev; },
+    sit: () => { riders = [player]; }, stand: () => { riders = []; },
+    run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
+  };
 }
+
+/** Seat a player and let the pad lift them. */
+function seated() {
+  const h = harness();
+  h.run(1); // empty: the pad records its home
+  h.sit();
+  h.run(12);
+  return h;
+}
+
+const flipOf = (e: any): number => Math.abs((e.setProperty.mock.calls.at(-1)?.[1] as number | undefined) ?? 0);
+const neverRaised = (e: any): boolean => e.setProperty.mock.calls.every((c: unknown[]) => Math.abs(c[1] as number) < 1e-9);
 
 describe('pinball runtime (host simulation)', () => {
   it('parks the ball on the plunger in world space, from the placement frame', () => {
@@ -82,26 +135,72 @@ describe('pinball runtime (host simulation)', () => {
     expect(p.z).toBeCloseTo(206.0, 5);
   });
 
-  it('seating sets the table camera once, Jump charges and launches, standing up clears the camera', () => {
-    const h = harness();
-    h.sit();
-    h.run(2);
+  it("seating lifts the rider's HEAD to the eye, facing up the table, with the camera just ahead of it", () => {
+    const h = seated();
+    const eye = { x: h.origin.x + 2, y: h.origin.y + 5, z: h.origin.z + 10 };
+    const head = h.player.getHeadLocation();
+    expect(Math.hypot(head.x - eye.x, head.y - eye.y, head.z - eye.z)).toBeLessThan(0.08);
+    // Facing -z (up the table) is yaw 180.
+    const rot = h.con.tryTeleport.mock.calls.at(-1)![1].rotation;
+    expect(Math.abs(Math.abs(rot.y) - 180)).toBeLessThan(1e-6);
     expect(h.player.camera.setCamera).toHaveBeenCalledTimes(1);
-    expect(h.player.camera.setCamera.mock.calls[0]![0]).toBe('minecraft:free');
-    h.input.jump = true; h.run(10);
-    h.input.jump = false; h.run(1);
-    const z0 = h.ball.teleport.mock.calls.at(-1)![0].z;
-    h.run(4);
-    const z1 = h.ball.teleport.mock.calls.at(-1)![0].z;
-    expect(z1).toBeLessThan(z0); // fired up the table (-u = -z here)
-    expect(h.player.onScreenDisplay.setActionBar).toHaveBeenCalled();
-    h.stand(); h.run(1);
-    expect(h.player.camera.clear).toHaveBeenCalledTimes(1);
+    const [preset, opts] = h.player.camera.setCamera.mock.calls[0]!;
+    expect(preset).toBe('minecraft:free');
+    expect(opts.location.z).toBeCloseTo(eye.z - 0.3, 6);
+    expect(opts.facingLocation).toEqual({ x: h.origin.x + 2, y: h.origin.y, z: h.origin.z + 3 });
   });
 
-  it('pulling the stick back charges the plunger and releasing launches (no Jump button on a phone seat)', () => {
-    const h = harness();
-    h.sit();
+  it("spawns one zone each side in front of the head, the left one on the player's left", () => {
+    const h = seated();
+    expect(h.spawned.length).toBe(2);
+    const eye = { x: h.origin.x + 2, y: h.origin.y + 5, z: h.origin.z + 10 };
+    for (const side of ['left', 'right'] as const) {
+      const z = h.zone(side)!.location;
+      expect(z.z).toBeCloseTo(eye.z - (0.45 + 0.95), 6); // ahead by near + width / 2
+      expect(Math.abs(z.x - eye.x)).toBeCloseTo(0.95, 6); // beside by width / 2
+      expect(z.y).toBeCloseTo(eye.y - 3.8, 6);
+    }
+  });
+
+  it('a tap on the left zone raises only the left flipper, for a moment; a long press on the right is cancelled and flips the right', () => {
+    const h = seated();
+    h.hit('left'); h.run(4);
+    expect(flipOf(h.fl)).toBeGreaterThan(30);
+    expect(neverRaised(h.fr)).toBe(true);
+    h.run(20);
+    expect(flipOf(h.fl)).toBeLessThan(1);
+    const ev = h.press('right'); h.run(4);
+    expect(ev.cancel).toBe(true);
+    expect(flipOf(h.fr)).toBeGreaterThan(30);
+  });
+
+  it('a tap from another player does nothing', () => {
+    const h = seated();
+    h.hit('left', { id: 'p2', typeId: 'minecraft:player' }); h.run(4);
+    expect(neverRaised(h.fl)).toBe(true);
+  });
+
+  it('a tap while the ball waits charges and fires the plunger', () => {
+    const h = seated();
+    const z0 = h.ball.teleport.mock.calls.at(-1)![0].z;
+    h.hit('right'); h.run(24);
+    expect(h.ball.teleport.mock.calls.at(-1)![0].z).toBeLessThan(z0 - 0.5); // up the table (-z)
+    expect(h.dim.playSound.mock.calls.some((c: unknown[]) => c[0] === 'random.bow')).toBe(true);
+  });
+
+  it('standing up clears the camera, sets the player down behind the pad, removes the zones and brings the pad home', () => {
+    const h = seated();
+    h.stand(); h.run(1);
+    expect(h.player.camera.clear).toHaveBeenCalledTimes(1);
+    expect(h.player.addEffect.mock.calls[0]![0]).toBe('slow_falling');
+    const to = h.player.teleport.mock.calls[0]![0];
+    expect(to.z).toBeCloseTo(h.home.z + 1.6, 6); // away from the table (+z)
+    expect(h.spawned.every(e => e.removed)).toBe(true);
+    expect(h.con.location).toEqual(h.home);
+  });
+
+  it('pulling the stick back charges the plunger and releasing launches', () => {
+    const h = seated();
     h.input.y = -1; h.run(10);
     h.input.y = 0; h.run(1);
     const z0 = h.ball.teleport.mock.calls.at(-1)![0].z;
@@ -110,16 +209,21 @@ describe('pinball runtime (host simulation)', () => {
   });
 
   it('a left strafe raises only the left flipper; forward raises both', () => {
-    const h = harness();
-    h.sit();
+    const h = seated();
     h.input.x = 1; h.run(4);
-    const lastL = h.fl.setProperty.mock.calls.at(-1);
-    expect(lastL?.[0]).toBe('craftmatic:flip');
-    expect(Math.abs(lastL![1] as number)).toBeGreaterThan(30);
-    // The right flipper only ever received its initial rest value.
-    expect(h.fr.setProperty.mock.calls.every(c => Math.abs(c[1] as number) < 1e-9)).toBe(true);
+    expect(h.fl.setProperty.mock.calls.at(-1)?.[0]).toBe('craftmatic:flip');
+    expect(flipOf(h.fl)).toBeGreaterThan(30);
+    expect(neverRaised(h.fr)).toBe(true);
     h.input.x = 0; h.input.y = 1; h.run(4);
-    expect(Math.abs(h.fr.setProperty.mock.calls.at(-1)![1] as number)).toBeGreaterThan(30);
+    expect(flipOf(h.fr)).toBeGreaterThan(30);
+  });
+
+  it('removes zones no game owns (left over from a script reload)', () => {
+    const h = harness();
+    const stray: any = { id: 'stray', typeId: 'craftmatic:zone', location: { x: 0, y: 0, z: 0 }, removed: false, remove: vi.fn() };
+    h.spawned.push(stray);
+    h.run(40);
+    expect(stray.remove).toHaveBeenCalled();
   });
 });
 
