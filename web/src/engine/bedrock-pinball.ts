@@ -437,7 +437,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
    * starts is not documented, so the working placement is found on a device.
    * TODO: fold the measured placement into the defaults and drop the hook.
    */
-  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number } = { anchor: 'head', fwd: 0, side: 0, up: 0, near: config.zone.near };
+  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number; view: 'first' | 'free' } = { anchor: 'head', fwd: 0, side: 0, up: 0, near: config.zone.near, view: 'first' };
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
       if (ev.id !== 'craftmatic:pinball') return;
@@ -446,6 +446,8 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       tune.anchor = t.anchor === 'eye' ? 'eye' : 'head';
       for (const k of ['fwd', 'side', 'up'] as const) tune[k] = Number.isFinite(Number(t[k])) ? Number(t[k]) : 0;
       tune.near = Number.isFinite(Number(t.near)) ? Number(t.near) : config.zone.near;
+      // A new view mode ("first" / "free") takes effect at the next seating.
+      tune.view = t.view === 'free' ? 'free' : 'first';
       for (const game of games.values()) game.retune = true;
     });
   } catch {}
@@ -458,15 +460,22 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
 
   // A hit (tap / click) or a long press on a tap zone. `beforeEvents` runs
   // read-only: this only records script state.
+  const press = (game: any, side: 'left' | 'right'): void => {
+    game.tapUntil[side] = now + TAP_TICKS;
+    game.taps[side]++;
+    if (game.sim.state.phase !== 'play' && game.autoLaunch <= 0) game.autoLaunch = LAUNCH_TICKS;
+  };
   const tap = (zone: any, player: any): void => {
     const z = zones.get(zone.id);
     if (!z) return;
     const game = games.get(z.key);
     if (!game || !game.rider || !player || game.rider.id !== player.id) return;
-    game.tapUntil[z.side] = now + TAP_TICKS;
-    game.taps[z.side]++;
-    if (game.sim.state.phase !== 'play' && game.autoLaunch <= 0) game.autoLaunch = LAUNCH_TICKS;
+    press(game, z.side);
   };
+  /** The hotbar slot a seated player is parked on; a tap on a slot left / right of it is that flipper. */
+  const PARK_SLOT = 4;
+  /** Seated players carry this tag, so the Brick Wands do not open when a hotbar tap lands on theirs. */
+  const SEATED_TAG = 'craftmatic_pinball';
   try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { try { if (ev.hitEntity?.typeId === config.buttonType) tap(ev.hitEntity, ev.damagingEntity); } catch {} }); } catch {}
   try {
     world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
@@ -525,8 +534,14 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     if (rider && game.rider?.id !== rider.id) {
       game.seatTries = 0; game.seatAt = -99; game.seated = false; game.seatYaw = view.yaw; game.aim = undefined;
       game.tapUntil = { left: -1, right: -1 }; game.taps = { left: 0, right: 0 }; game.autoLaunch = 0;
-      const cam = { x: view.eye.x + view.fwd.x * 0.3, y: view.eye.y, z: view.eye.z + view.fwd.z * 0.3 };
-      try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: view.look, easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
+      game.view = tune.view; game.firstPerson = false;
+      if (game.view === 'free') {
+        const cam = { x: view.eye.x + view.fwd.x * 0.3, y: view.eye.y, z: view.eye.z + view.fwd.z * 0.3 };
+        try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: view.look, easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
+      }
+      // Park the hotbar on the middle slot (the old one comes back on leaving).
+      try { game.slot0 = rider.selectedSlotIndex; rider.selectedSlotIndex = PARK_SLOT; } catch {}
+      try { rider.addTag(SEATED_TAG); } catch {}
       if (game.sim.state.phase === 'over') game.sim.reset();
     }
     // Standing up: camera back, the player down on the ground behind the pad
@@ -535,6 +550,9 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const p = game.rider;
       const home = homeOf(g, console_);
       try { p.camera.clear(); } catch {}
+      try { p.inputPermissions.setPermissionCategory(1, true); } catch {} // InputPermissionCategory.Camera
+      try { if (Number.isInteger(game.slot0)) p.selectedSlotIndex = game.slot0; } catch {}
+      try { p.removeTag(SEATED_TAG); } catch {}
       try { p.onScreenDisplay.setActionBar(''); } catch {}
       try { p.addEffect('slow_falling', 60, { showParticles: false }); } catch {}
       try { p.teleport({ x: home.at.x - view.fwd.x * 1.6, y: home.at.y + 0.05, z: home.at.z - view.fwd.z * 1.6 }, { rotation: { x: 20, y: view.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
@@ -569,9 +587,44 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           game.aim = aimOf(head ?? view.eye, Number.isFinite(ry) ? ry : view.yaw, view);
           game.aimError = Number.isFinite(ry) ? Math.abs(wrapDeg(view.yaw - ry)) : NaN;
           const a = game.aim, reach = Math.hypot(view.look.x - a.eye.x, view.look.z - a.eye.z);
-          const cam = { x: a.eye.x + a.fwd.x * 0.3, y: a.eye.y, z: a.eye.z + a.fwd.z * 0.3 };
-          const facing = { x: a.eye.x + a.fwd.x * reach, y: view.look.y, z: a.eye.z + a.fwd.z * reach };
-          try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: facing }); } catch {}
+          game.pitch = Math.atan2(a.eye.y - view.look.y, reach) * 180 / Math.PI; // Minecraft pitch: + is down
+          // FIRST PERSON (default): the player's own eyes, turned down the
+          // table, with head turning locked. A tap then picks what is under
+          // the finger, as it does a mob. Under a free camera it does not: a
+          // device run (2026-09-24, bcd1e3c9) found taps only ever reached a
+          // zone that ENCLOSED the head, whatever was under the finger.
+          if (game.view === 'first') {
+            try { rider.camera.clear(); } catch {}
+            try { rider.setRotation({ x: game.pitch, y: a.yaw }); } catch {}
+            let r: any;
+            try { r = rider.getRotation(); } catch {}
+            game.firstPerson = !!r && Math.abs(Number(r.x) - game.pitch) <= 3 && Math.abs(wrapDeg(Number(r.y) - a.yaw)) <= 3;
+            if (game.firstPerson) { try { rider.inputPermissions.setPermissionCategory(1, false); } catch {} } // InputPermissionCategory.Camera
+          }
+          // A free camera when asked for, or when the player's head could not be turned.
+          if (!game.firstPerson) {
+            const cam = { x: a.eye.x + a.fwd.x * 0.3, y: a.eye.y, z: a.eye.z + a.fwd.z * 0.3 };
+            const facing = { x: a.eye.x + a.fwd.x * reach, y: view.look.y, z: a.eye.z + a.fwd.z * reach };
+            try { rider.camera.setCamera('minecraft:free', { location: cam, facingLocation: facing }); } catch {}
+          }
+        }
+      }
+      if (game.seated) {
+        // A seat that lost its turn (4 of ~20 device seatings sat 90-130
+        // degrees off, looking at the grass) seats again; a first-person head
+        // that drifted is turned back.
+        let ry = NaN;
+        try { ry = Number(rider.getRotation().y); } catch {}
+        if (Number.isFinite(ry) && game.aim && Math.abs(wrapDeg(game.aim.yaw - ry)) > 5) {
+          if (game.firstPerson) { try { rider.setRotation({ x: game.pitch, y: game.aim.yaw }); } catch {} }
+          else if (Math.abs(wrapDeg(view.yaw - ry)) > 5) { game.seated = false; game.seatTries = 0; game.seatYaw = view.yaw; }
+        }
+        // Hotbar taps: a slot left of the parked one is the left flipper, right of it the right.
+        let slot = PARK_SLOT;
+        try { slot = rider.selectedSlotIndex; } catch {}
+        if (Number.isInteger(slot) && slot !== PARK_SLOT) {
+          press(game, slot < PARK_SLOT ? 'left' : 'right');
+          try { rider.selectedSlotIndex = PARK_SLOT; } catch {}
         }
       }
       // The two zones, spawned once the seat is up and kept in front of the eye.
@@ -600,6 +653,18 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const home = homeOf(g, console_);
       try { if (dist(console_.location, home.at) > 0.3) console_.tryTeleport(home.at, { rotation: { x: 0, y: home.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
       if (game.zones) removeZones(game);
+    }
+    // A player tagged seated who rides no pad (the world closed mid-game)
+    // gets the tag, head turning and camera back.
+    if (now % 40 === 0) {
+      try {
+        for (const pl of world.getPlayers({ tags: [SEATED_TAG] })) {
+          if ([...games.values()].some(gm => gm.rider?.id === pl.id)) continue;
+          try { pl.removeTag(SEATED_TAG); } catch {}
+          try { pl.inputPermissions.setPermissionCategory(1, true); } catch {}
+          try { pl.camera.clear(); } catch {}
+        }
+      } catch {}
     }
 
     let left = false, right = false, launch = false;
@@ -669,7 +734,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       let line: string;
       if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - tap the screen for a new game`;
       else if (st.phase === 'ready') line = `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the screen to launch ${'|'.repeat(Math.round(st.charge * 10))}  (taps ${game.taps.left}/${game.taps.right}${Number.isFinite(game.aimError) ? `, aim ${game.aimError.toFixed(1)}` : ''}${game.aim ? `, head ${(['x', 'y', 'z'] as const).map(k => (game.aim.eye[k] - view.eye[k]).toFixed(2)).join(' ')}` : ''})`;
-      else line = `${held} §bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - tap left / right half for the flippers, sneak to leave`;
+      else line = `${held} §bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - tap the left / right half, or a hotbar slot left / right of the middle, for the flippers; sneak to leave`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }
   };

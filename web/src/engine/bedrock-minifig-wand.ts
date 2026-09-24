@@ -373,7 +373,8 @@ function minifigWandRuntime(
       online.add(p.id);
       let item: any;
       try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}
-      if (item?.typeId === C.itemId) {
+      // A seated pinball player taps hotbar slots as flippers (bedrock-pinball.ts): not a wand.
+      if (item?.typeId === C.itemId && !p.hasTag?.('craftmatic_pinball')) {
         if (!held.has(p.id)) { held.add(p.id); system.run(() => open(p)); }
       } else held.delete(p.id);
     }

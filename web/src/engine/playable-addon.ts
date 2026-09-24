@@ -2204,7 +2204,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType }, ballEntityModel, Math.sign(det) || 1, label);
             files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
             warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
-            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the left or right half of the screen for that flipper (click or trigger on desktop / controller), tap to launch a waiting ball; the stick and Jump work too. Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
+            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the left or right half of the screen, or a hotbar slot left or right of the middle, for that flipper (click or trigger on desktop / controller); a tap launches a waiting ball; the stick works too (pull back to charge the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
         } catch (e) {
             pinballConfig = undefined;
             warnings.push(`${label}: the pinball game could not be built (${e instanceof Error ? e.message : String(e)}); the machine ships as a static model.`);

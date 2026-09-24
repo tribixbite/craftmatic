@@ -776,7 +776,8 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       online.add(p.id);
       let item: any;
       try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}
-      if (item?.typeId === config.itemId) {
+      // A seated pinball player taps hotbar slots as flippers (bedrock-pinball.ts): not a wand.
+      if (item?.typeId === config.itemId && !p.hasTag?.('craftmatic_pinball')) {
         if (!held.has(p.id)) { held.add(p.id); system.run(() => menu(p).catch((e: any) => tell(p, e.message || String(e)))); }
       } else held.delete(p.id);
     }
