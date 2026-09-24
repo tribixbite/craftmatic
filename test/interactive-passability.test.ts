@@ -33,6 +33,9 @@ const SETS: Array<{ set: string; file: string; minDoorways: number; minOkAt100: 
   { set: '31141', file: `${CORPUS}/IOModel2V2/31141.ldr`, minDoorways: 5, minOkAt100: 4 },
   { set: '10022', file: `${CORPUS}/IOModel2V2/10022.ldr`, minDoorways: 4, minOkAt100: 1 },
   { set: '76417', file: `${CORPUS}/DbixConvV3/76417.ldr`, minDoorways: 4, minOkAt100: 3 },
+  // The device round's other two door packs (2026-09-24d): 76457's six doors, 41732's raised shop threshold.
+  { set: '76457', file: `${CORPUS}/DbixConvV3/76457.ldr`, minDoorways: 6, minOkAt100: 6 },
+  { set: '41732', file: `${CORPUS}/DbixConvV3/41732.ldr`, minDoorways: 6, minOkAt100: 5 },
 ];
 const HAVE = existsSync(LDRAW_ROOT) && SETS.every(s => existsSync(s.file));
 
@@ -65,7 +68,12 @@ describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked clos
     it(`${set}: every doorway, at 100 and 200 percent, turned 0 and 90`, async () => {
       const { loadAddonPreviewModel, treadBlocksAt } = await import('../web/src/ui/addon-preview-data.js');
       const { verdictOf, walkThroughDoorway } = await import('../web/src/engine/interactive-walk.js');
-      const model = await loadAddonPreviewModel(await buildPack(file, set));
+      const bytes = await buildPack(file, set);
+      const model = await loadAddonPreviewModel(bytes);
+      // The tap boxes the pack ships keep to their own parts and off the seats.
+      const { auditPackHitboxes } = await import('../web/src/engine/interactive-hitbox-audit.js');
+      const audit = await auditPackHitboxes(bytes);
+      expect([...audit.partOverlaps, ...audit.seatOverlaps, ...audit.missing], `${set} tap boxes`).toEqual([]);
       const cfg = model.interactives;
       expect(cfg, `${set} ships no scripts/interactives.js`).toBeTruthy();
       const doorways = cfg!.items.map((it, i) => ({ it, i })).filter(({ it }) => it.passSize !== undefined && it.blocking.length);
@@ -79,7 +87,11 @@ describe.skipIf(!HAVE)('doorways of real sets are passable open and blocked clos
         const passed100 = size > 100 && walkThroughDoorway(pack, i, 100, rot, true).outcome === 'passed';
         const verdict = verdictOf(open, closed, passed100);
         if (verdict === 'FAIL') failures.push(`${set} ${it.label} (${it.kind}, opening ${JSON.stringify(it.opening)}, passable from ${it.passSize} %) at ${size} % turn ${rot}: open ${open.outcome}, closed ${closed.outcome} ${JSON.stringify(open.directions)}`);
-        if (verdict === 'OK' && size === 100 && rot === 0) okAt100++;
+        if (verdict === 'OK' && size === 100 && rot === 0) {
+          okAt100++;
+          // Walked, not jumped: a raised threshold gets a tread (device 2026-09-24d stopped short of 41732's).
+          if (!open.directions.some(d => d.outcome === 'passed' && d.jumps === 0)) failures.push(`${where}: passes only with a jump`);
+        }
       }
       expect(failures, failures.join('\n')).toEqual([]);
       expect(okAt100, `${set}: doorways walked through at 100 %`).toBeGreaterThanOrEqual(minOkAt100);

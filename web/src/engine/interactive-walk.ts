@@ -53,7 +53,7 @@ export interface DoorwayWalkResult {
    */
   outcome: 'passed' | 'blocked' | 'no-approach' | 'sealed';
   /** Both directions tried; `passed` when either direction got through. */
-  directions: Array<{ from: -1 | 1; outcome: 'passed' | 'blocked' | 'no-approach'; reason?: 'no-path' | 'no-spot' | 'physics'; ticks: number; crossed: number; start?: { x: number; y: number; z: number }; end?: { x: number; y: number; z: number } }>;
+  directions: Array<{ from: -1 | 1; outcome: 'passed' | 'blocked' | 'no-approach'; reason?: 'no-path' | 'no-spot' | 'physics'; ticks: number; crossed: number; jumps?: number; start?: { x: number; y: number; z: number }; end?: { x: number; y: number; z: number } }>;
   /** The doorway's centre in world blocks from the pin, and the walk's normal. */
   centre: { x: number; y: number; z: number };
   normal: { x: number; z: number };
@@ -260,7 +260,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     const waypoints = [...way.slice(1, -1), { x: goal.x, y: goal.y, z: goal.z }];
     if (trace) { trace.routes.push({ from, way }); trace.tracks.push({ from, points: [] }); }
     let s: PlayerState = { ...start, tick: 0 };
-    let jump = false, best = -Infinity, ticks = 0, w = 0, stall = 0, lastDist = Infinity, throughSpan = false;
+    let jump = false, best = -Infinity, ticks = 0, w = 0, stall = 0, lastDist = Infinity, throughSpan = false, jumps = 0;
     for (; ticks < MAX_TICKS && w < waypoints.length; ticks++) {
       const target = waypoints[w]!;
       const dx = target.x - s.x, dz = target.z - s.z, l = Math.hypot(dx, dz);
@@ -268,7 +268,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       const before = along(s);
       const r = tickPlayer(world, s, { move: { x: dx / l, z: dz / l }, jump, sneak: false });
       s = r.state;
-      jump = (r.collided.x || r.collided.z) && s.onGround;
+      jump = (r.collided.x || r.collided.z) && s.onGround; if (jump) jumps++;
       // The feet crossed the leaf plane this tick: was it inside the doorway?
       if (before < 0 && along(s) >= 0 && Math.abs(lateral(s)) <= halfSpan && s.y <= centre.y + DOOR_FLOOR_SLACK * k) throughSpan = true;
       trace?.tracks.at(-1)!.points.push({ x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100, z: Math.round(s.z * 100) / 100 });
@@ -277,7 +277,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       if (l < lastDist - 1e-3) { lastDist = l; stall = 0; } else if (++stall > STALL_TICKS) break;
     }
     const passed = best >= CROSS_MARGIN && throughSpan;
-    directions.push({ from, outcome: passed ? 'passed' : 'blocked', ...(passed ? {} : { reason: 'physics' as const }), ticks, crossed: r2(best), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) }, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) } });
+    directions.push({ from, outcome: passed ? 'passed' : 'blocked', ...(passed ? {} : { reason: 'physics' as const }), ticks, jumps, crossed: r2(best), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) }, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) } });
   }
   const outcome = directions.some(d => d.outcome === 'passed') ? 'passed' : directions.some(d => d.outcome === 'blocked') ? 'blocked' : 'no-approach';
   return { ...base, outcome, directions };
@@ -297,4 +297,32 @@ export function verdictOf(open: DoorwayWalkResult, closed: DoorwayWalkResult, ok
   if (open.outcome === 'no-approach' || closed.outcome === 'no-approach') return 'NO-APPROACH';
   if (open.passableAtSize) return open.outcome === 'passed' ? 'OK' : 'FAIL';
   return open.outcome === 'passed' ? 'FAIL' : 'SMALL';
+}
+
+/**
+ * Walk every doorway of a pack at 100 %, turn 0, open and closed, and say in
+ * one sentence how many a player can walk through - the number the wand
+ * shows, so it is the walk's and not the leaf measurement's (the access
+ * recommendation's "6/6 clear the passage" counts openings big enough, not
+ * doorways a player can reach; 41732 read 6/6 there and 5 here).
+ */
+export function doorwayWalkSummary(pack: DoorwayWalkPack): { verdicts: Array<Verdict | undefined>; note?: string } {
+  const items = pack.interactives.items;
+  const verdicts: Array<Verdict | undefined> = items.map(() => undefined);
+  items.forEach((it, i) => {
+    if (it.passSize === undefined || !it.blocking.length) return;
+    verdicts[i] = verdictOf(walkThroughDoorway(pack, i, 100, 0, true), walkThroughDoorway(pack, i, 100, 0, false));
+  });
+  const doorways = verdicts.filter(v => v !== undefined).length;
+  if (!doorways) return { verdicts };
+  const ok = verdicts.filter(v => v === 'OK').length;
+  const labels = (v: Verdict): string[] => items.filter((_, i) => verdicts[i] === v).map(it => it.label);
+  const parts = [`Doorways a player walks through at 100 percent over this pack's own blocks: ${ok} of ${doorways}.`];
+  const sealed = labels('SEALED');
+  if (sealed.length) parts.push(`${sealed.join(', ')} open${sealed.length === 1 ? 's' : ''} onto the model's own solid geometry or a drop: it swings, but there is nowhere to walk.`);
+  const small = items.filter((_, i) => verdicts[i] === 'SMALL');
+  if (small.length) parts.push(`Too small at 100 percent: ${small.map(it => `${it.label} (passable from ${it.passSize ? `${it.passSize} percent` : 'no size'})`).join(', ')}.`);
+  if (labels('NO-APPROACH').length) parts.push(`${labels('NO-APPROACH').join(', ')}: nowhere to stand on one side.`);
+  if (labels('FAIL').length) parts.push(`${labels('FAIL').join(', ')}: failed the walk.`);
+  return { verdicts, note: parts.join(' ') };
 }

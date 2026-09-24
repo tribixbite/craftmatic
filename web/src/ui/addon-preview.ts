@@ -1060,7 +1060,7 @@ class AddonWalk implements AddonPreviewHandle {
 
   /** The Interact prompt for a moving part in its current state. */
   private ixPrompt(item: InteractiveRuntimeItem, index: number): string {
-    const noun = item.kind === 'turnable' ? 'Turn' : item.kind === 'lever' ? 'Flip lever' : `${this.ixOpen.get(index) ? 'Close' : 'Open'} ${item.kind === 'cabinet' ? 'cupboard' : item.kind}`;
+    const noun = item.kind === 'turnable' ? 'Turn' : item.kind === 'lever' ? 'Flip lever' : `${this.ixOpen.get(index) ? 'Close' : 'Open'} ${item.label.replace(/ \d+$/, '').toLowerCase()}`;
     return noun;
   }
 

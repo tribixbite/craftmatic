@@ -1116,7 +1116,10 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
             if (feet - q.y <= budget + 1e-9) spawnY = feet;
           }
           const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
-          entity.nameTag = actor.label; entity.setRotation({ x: 0, y: (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
+          entity.nameTag = actor.label;
+          // A moving part keeps yaw 0: its rig's root turns it (the interactives
+          // runtime sets the turn), so its world-aligned tap boxes stay true.
+          entity.setRotation({ x: 0, y: actor.interactive !== undefined ? 0 : (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
           if (actor.coasterRouteIndex !== undefined) {
             // Store the transformed model origin, not the cart's start point.
             // Route samples use the same rotation/scale as every shell actor.

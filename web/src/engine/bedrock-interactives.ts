@@ -41,7 +41,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import { isDoorLeafDescription, sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { cleanPartId } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
-import { withSizeGroups } from './bedrock-placement-pack.js';
+import { SIZE_EVENT_PREFIX, SIZE_STEPS } from './bedrock-placement-pack.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import { PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
@@ -83,8 +83,12 @@ export const INTERACTIVE_PROPERTY = 'craftmatic:angle';
 export const INTERACTIVE_FAMILY = 'craftmatic_interactive';
 /** Range of the angle property: a turnable accumulates steps and wraps well inside it. */
 const ANGLE_RANGE: [number, number] = [-40000, 40000];
-/** Bone the animation spins (`interactiveRig`). */
+/** Bone the animation spins (`interactiveRig`), and the root that carries the placement's turn and size. */
 const SPIN_BONE = 'ix_spin';
+const ROOT_BONE = 'ix_root';
+/** The placement's quarter turn (degrees) and wand size factor, as actor properties the root bone follows. */
+export const INTERACTIVE_TURN_PROPERTY = 'craftmatic:turn';
+export const INTERACTIVE_SIZE_PROPERTY = 'craftmatic:size';
 
 /**
  * The class of a part from its LDraw description, or null. Glass inserts that
@@ -187,11 +191,13 @@ const transpose = (m: number[]): number[] => [m[0]!, m[3]!, m[6]!, m[1]!, m[4]!,
  * proven on the Pixel (2026-09-24): a positive property is a right-handed turn
  * about the axis in the LDraw frame (the grid frame is a proper rotation of it).
  */
-export function interactiveRig(count: number, pivotLdu: Vec3, axisLdu: Vec3): EntityRig {
+export function interactiveRig(count: number, pivotLdu: Vec3, axisLdu: Vec3, rootLdu: Vec3 = pivotLdu): EntityRig {
   const tilt = rotationBetween([0, -1, 0], norm(axisLdu)); // LDraw up is -Y
   return {
     bones: [
-      { name: 'ix_tilt', pivotLdu, rotation: tilt },
+      // The placement's turn and size, about the entity origin (`interactiveAnimation`).
+      { name: ROOT_BONE, pivotLdu: rootLdu },
+      { name: 'ix_tilt', parent: ROOT_BONE, pivotLdu, rotation: tilt },
       { name: SPIN_BONE, parent: 'ix_tilt', pivotLdu },
       { name: 'ix_untilt', parent: SPIN_BONE, pivotLdu, rotation: transpose(tilt) },
     ],
@@ -527,6 +533,8 @@ export interface InteractiveColliderPlan {
   /** Static cells the cut turned to air: the leaf's own cells and the passage to the rooms either side. */
   cleared: number;
   passageCleared: number;
+  /** Half-way treads laid beside a raised threshold (a rise past the auto-step), both sides. */
+  treads: number;
 }
 
 /** Cells either side (and above / below) of a leaf whose static state the runtime must know: a block at 25 % holds four cells. */
@@ -577,7 +585,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       columns.set(`${cx},${cz}`, [cx, cz]);
     }
     const blocking: IxCell[] = [];
-    let cleared = 0, passageCleared = 0;
+    let cleared = 0, passageCleared = 0, treads = 0;
     /** A static collider cell's span, or null. */
     const staticSpan = (x: number, y: number, z: number): [number, number] | null => {
       if (!isCollider(x, y, z)) return null;
@@ -680,9 +688,33 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
         if (!open) continue;
         for (const [x, z] of cells) openUp(x, z);
       }
+      // A raised threshold (a leaf standing on a plate or two over the floor
+      // either side) is a rise past the 9/16 auto-step: walking at it, the
+      // player stops short (41732's shop door, 0.69 block, device 2026-09-24d).
+      // Lay a half-way tread on the floor beside it, both ways, so it is two
+      // steps a player walks up without jumping.
+      for (const [cx, cz] of columns.values()) for (const dir of [1, -1]) {
+        const door = floorUnder(cx, cz);
+        const x = Math.floor(cx + 0.5 + gn[0] * dir), z = Math.floor(cz + 0.5 + gn[2] * dir);
+        if (!inGrid(x, 0, z) || columns.has(`${x},${z}`)) continue;
+        let top = -Infinity;
+        for (let y = Math.min(grid.height - 1, Math.floor(door + 1e-6)); y >= Math.max(0, Math.floor(door) - 2); y--) {
+          const s = staticSpan(x, y, z);
+          if (s && y + s[1] / 16 <= door + 1e-6) { top = y + s[1] / 16; break; }
+        }
+        if (!Number.isFinite(top)) top = 0;
+        const rise = door - top;
+        if (rise <= PASSAGE_STEP16 / 16 + 1e-6 || rise > 2 * PASSAGE_STEP16 / 16 + 1e-6) continue;
+        const tread = top + rise / 2, row = Math.floor(tread - 1e-6);
+        if (!inGrid(x, row, z)) continue;
+        const s = staticSpan(x, row, z);
+        const hi = Math.min(16, Math.ceil((tread - row) * 16 - 1e-6)), lo = Math.max(0, Math.floor((top - row) * 16 + 1e-6));
+        grid.set(x, row, z, colliderState(Math.min(s ? s[0] : lo, lo, hi - 1), Math.max(s ? s[1] : hi, hi)));
+        treads++;
+      }
     }
     blockingAll.push(blocking);
-    plans.push({ blocking, neighbours: [], cleared, passageCleared });
+    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads });
   }
   // Neighbours from the FINAL grid (after every cut), so a double door's two
   // leaves see each other's cells as air, never as a wall.
@@ -716,9 +748,20 @@ export function passSizeFor(kind: InteractiveKind, opening: { width: number; hei
 
 // ─── Entities ────────────────────────────────────────────────────────────────
 
-/** The actor property (float: Bedrock drops an integer-literal default). */
+/**
+ * The actor properties (float: Bedrock drops an integer-literal default):
+ * the part's own angle, and the placement's quarter turn and wand size. The
+ * last two turn and scale the whole rig from its root bone (`ix_root`) instead
+ * of the entity's yaw and `minecraft:scale`, so the entity itself always faces
+ * yaw 0 at scale 1 and its world-aligned tap boxes (`minecraft:custom_hit_test`,
+ * which Bedrock never rotates) mean exactly what the pack wrote.
+ */
 export function interactiveProperties(): Record<string, unknown> {
-  return { [INTERACTIVE_PROPERTY]: floatActorProperty(ANGLE_RANGE, 0) };
+  return {
+    [INTERACTIVE_PROPERTY]: floatActorProperty(ANGLE_RANGE, 0),
+    [INTERACTIVE_TURN_PROPERTY]: floatActorProperty([0, 360], 0),
+    [INTERACTIVE_SIZE_PROPERTY]: floatActorProperty([0.1, 8], 1),
+  };
 }
 
 /**
@@ -728,16 +771,36 @@ export function interactiveProperties(): Record<string, unknown> {
  * write per toggle gives a smooth per-frame swing. The geometry writer negates
  * X and Y rotations into Bedrock's convention (`jsonBone`), so the animation
  * does too: a positive property is a right-handed turn about the axis.
+ *
+ * The root bone carries the placement: a Bedrock body yaw of θ is a
+ * right-handed turn of −θ about world up, which under the same convention is a
+ * channel value of +θ; and the wand size as a uniform scale about the entity
+ * origin (the root's pivot).
  */
 export function interactiveAnimation(typeId: string, rateDegPerSecond: number): { id: string; file: unknown; initialize: string[]; preAnimation: string[] } {
   const id = `animation.${typeId.replace(':', '.')}.turn`;
   const rate = Math.round(rateDegPerSecond * 10) / 10;
+  const size = `q.property('${INTERACTIVE_SIZE_PROPERTY}')`;
   return {
     id,
-    file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones: { [SPIN_BONE]: { rotation: [0, '-v.ix_angle', 0] } } } } },
+    file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones: {
+      [ROOT_BONE]: { rotation: [0, `q.property('${INTERACTIVE_TURN_PROPERTY}')`, 0], scale: [size, size, size] },
+      [SPIN_BONE]: { rotation: [0, '-v.ix_angle', 0] },
+    } } } },
     initialize: [`v.ix_angle = q.property('${INTERACTIVE_PROPERTY}');`],
     preAnimation: [`v.ix_angle = v.ix_angle + math.clamp(q.property('${INTERACTIVE_PROPERTY}') - v.ix_angle, -q.delta_time * ${rate}, q.delta_time * ${rate});`],
   };
+}
+
+/**
+ * What a part is called in game (its label, the Walk add-on, the pack
+ * warnings): a barred door or a portcullis is a GATE (76457's "Door 1 x 4 x 6
+ * Barred" read as "door 1" on the device), a short leaf a cupboard.
+ */
+export function interactiveNoun(it: Pick<SceneInteractive, 'kind' | 'description'>): string {
+  if (it.kind === 'gate' || (it.kind === 'door' && /\b(Barred|Bars|Gate|Portcullis)\b/i.test(it.description))) return 'Gate';
+  if (it.kind === 'cabinet') return 'Cupboard';
+  return `${it.kind[0]!.toUpperCase()}${it.kind.slice(1)}`;
 }
 
 /** The interact prompt a touch screen shows for each class (lang keys; `interactiveLangLines`). */
@@ -751,26 +814,152 @@ export const interactiveLangLines = (): string[] => [
   'action.interact.craftmatic_turn=Turn',
 ];
 
-/**
- * The tap box: centred on the entity (the closed part's bottom centre), wide
- * enough that a leaf swung open about its edge is still under a finger, as
- * tall as the part (a hatch: as tall as it stands when open). Bedrock picks a
- * tap by this box AND only on an entity that renders cubes (device 2026-09-24);
- * the part's own cubes are that.
- */
-export function interactiveCollision(it: SceneInteractive): { width: number; height: number } {
-  const ext = sub(it.boundsLdu.max, it.boundsLdu.min).map(v => v / LDU_PER_BLOCK);
-  const horizontal = Math.max(ext[0]!, ext[2]!);
-  const leafLike = it.kind !== 'turnable' && it.kind !== 'lever';
-  const width = Math.max(0.4, leafLike ? 1.5 * horizontal : horizontal);
-  const height = Math.max(0.4, it.kind === 'hatch' ? horizontal : ext[1]!);
-  return { width: Math.round(width * 1000) / 1000, height: Math.round(height * 1000) / 1000 };
+/** One `minecraft:custom_hit_test` box: a square footprint `width` wide, `height` tall, centred on `pivot` (blocks from the entity origin, world axes). */
+export interface HitBox { width: number; height: number; pivot: [number, number, number] }
+
+/** The tap boxes of a part, closed and open, relative to its entity origin (model blocks at 100 %, placement turn 0). */
+export interface InteractiveHitboxes { closed: HitBox[]; open: HitBox[] }
+
+/** Longest side of one tap box along a leaf, blocks: a long leaf is several small boxes, so no box reaches past its own stretch of leaf. */
+export const HITBOX_SEGMENT_BLOCKS = 0.45;
+const HITBOX_MIN_BLOCKS = 0.2;
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+
+/** The AABB of model points as a square-footprint tap box relative to `origin`. */
+function boxOf(points: Vec3[], origin: Vec3): HitBox {
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const p of points) for (let i = 0; i < 3; i++) { if (p[i]! < min[i]!) min[i] = p[i]!; if (p[i]! > max[i]!) max[i] = p[i]!; }
+  return {
+    width: r3(Math.max(HITBOX_MIN_BLOCKS, max[0] - min[0], max[2] - min[2])),
+    height: r3(Math.max(HITBOX_MIN_BLOCKS, max[1] - min[1])),
+    pivot: [r3((min[0] + max[0]) / 2 - origin[0]), r3((min[1] + max[1]) / 2 - origin[1]), r3((min[2] + max[2]) / 2 - origin[2])],
+  };
 }
 
-/** The behaviour: static, unhurt, not pushed, tap- and interact-able, keeps its state across reloads. */
-export function interactiveBehavior(typeId: string, it: SceneInteractive): unknown {
-  const collision = interactiveCollision(it);
-  return withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
+/**
+ * The part's tap boxes, following its actual shape: a leaf is cut into
+ * stretches of at most `HITBOX_SEGMENT_BLOCKS` along its width (full height
+ * each; a hatch or a top-hung casement into a grid), each boxed by its own
+ * extent, so a tall narrow door is a row of narrow boxes and a box never
+ * reaches a chair or a window a hand's width beside it. `open` is the same
+ * leaf swung to its open angle - the runtime swaps the boxes with the state,
+ * so a finger on the swung leaf closes it. Turnables and levers are one box
+ * each (their swing stays inside it). `toModel` maps LDraw to model blocks.
+ */
+export function interactiveHitboxes(it: SceneInteractive, toModel: (p: Vec3) => Vec3): InteractiveHitboxes {
+  const origin = toModel(it.anchorLdu);
+  if (!it.leaf) {
+    const pts = cornersOf(it.boundsLdu.min, it.boundsLdu.max).map(toModel);
+    const box = boxOf(pts, origin);
+    return { closed: [box], open: [box] };
+  }
+  const leaf = it.leaf;
+  const shape = (deg: number): HitBox[] => {
+    const P = (s: number, t: number, n: number): Vec3 => toModel(rotateAbout(add(add(add(leaf.corner, scale(leaf.along, s)), scale(leaf.up, t)), scale(leaf.normal, n * leaf.thicknessLdu / 2)), it.pivotLdu, it.axisLdu, deg));
+    const A = sub(P(1, 0, 0), P(0, 0, 0)), U = sub(P(0, 1, 0), P(0, 0, 0));
+    const vertical = Math.abs(U[1]) >= 0.7 * Math.hypot(...U);
+    const nS = Math.max(1, Math.ceil(Math.hypot(A[0], A[2]) / HITBOX_SEGMENT_BLOCKS - 1e-9));
+    const nT = vertical ? 1 : Math.max(1, Math.ceil(Math.hypot(U[0], U[2]) / HITBOX_SEGMENT_BLOCKS - 1e-9));
+    const out: HitBox[] = [];
+    for (let i = 0; i < nS; i++) for (let j = 0; j < nT; j++) {
+      const pts: Vec3[] = [];
+      for (const s of [i / nS, (i + 1) / nS]) for (const t of [j / nT, (j + 1) / nT]) for (const n of [-1, 1]) pts.push(P(s, t, n));
+      out.push(boxOf(pts, origin));
+    }
+    return out;
+  };
+  return { closed: shape(0), open: shape(it.angleDeg) };
+}
+
+/** A tap box in the model frame: its footprint and vertical span, blocks at 100 %. */
+export interface WorldHitBox { x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }
+export const worldHitBox = (origin: Vec3 | readonly number[], b: HitBox): WorldHitBox => ({
+  x0: origin[0]! + b.pivot[0] - b.width / 2, x1: origin[0]! + b.pivot[0] + b.width / 2,
+  y0: origin[1]! + b.pivot[1] - b.height / 2, y1: origin[1]! + b.pivot[1] + b.height / 2,
+  z0: origin[2]! + b.pivot[2] - b.width / 2, z1: origin[2]! + b.pivot[2] + b.width / 2,
+});
+/** Whether two boxes overlap by more than `eps` on every axis (touching is not overlapping). */
+export const hitBoxesOverlap = (a: WorldHitBox, b: WorldHitBox, eps = 0.01): boolean =>
+  Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0) > eps && Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0) > eps && Math.min(a.z1, b.z1) - Math.max(a.z0, b.z0) > eps;
+/** A seat entity's own tap box (`seatBehavior`: a 0.5 x 0.5 collision box standing on the seat point). */
+export const seatHitBox = (p: readonly number[]): WorldHitBox => ({ x0: p[0]! - 0.25, x1: p[0]! + 0.25, y0: p[1]!, y1: p[1]! + 0.5, z0: p[2]! - 0.25, z1: p[2]! + 0.25 });
+const SHRINK = 0.8, SHRINK_MIN = 0.08;
+
+/**
+ * Keep every part's tap boxes to itself (device 2026-09-24d: a window's box
+ * took three taps meant for the chair beside it, a tap at a window opened the
+ * door next to it). Boxes are in the model frame at 100 % (`origin` + pivot).
+ * A box that overlaps a seat's box, or another part's box in either of their
+ * states, is shrunk about its own centre (x 0.8 per round, footprint and
+ * height) until it does not; one that still does at `SHRINK_MIN` is dropped,
+ * unless it is the part's last box. Returns how many boxes changed.
+ */
+export function separateHitboxes(parts: Array<{ origin: Vec3; hit: InteractiveHitboxes }>, seats: ReadonlyArray<readonly number[]> = []): { shrunk: number; dropped: number } {
+  let shrunk = 0, dropped = 0;
+  const seatBoxes = seats.map(seatHitBox);
+  const others = (i: number): WorldHitBox[] => parts.flatMap((p, j) => j === i ? [] : [...p.hit.closed, ...p.hit.open].map(b => worldHitBox(p.origin, b)));
+  for (let round = 0; round < 40; round++) {
+    let changed = false;
+    parts.forEach((p, i) => {
+      const blockers = [...seatBoxes, ...others(i)];
+      for (const list of [p.hit.closed, p.hit.open]) for (let k = list.length - 1; k >= 0; k--) {
+        const b = list[k]!;
+        if (!blockers.some(o => hitBoxesOverlap(worldHitBox(p.origin, b), o))) continue;
+        if (Math.min(b.width, b.height) * SHRINK >= SHRINK_MIN) {
+          list[k] = { ...b, width: r3(b.width * SHRINK), height: r3(b.height * SHRINK) };
+          shrunk++;
+        } else if (list.length > 1) { list.splice(k, 1); dropped++; }
+        else return;
+        changed = true;
+      }
+    });
+    if (!changed) break;
+  }
+  return { shrunk, dropped };
+}
+
+/** A tap box turned by the placement's quarter turn (the `pointAt` turn, as a direction) and scaled by the wand size. */
+export function placeHitBox(b: HitBox, rotation: number, f: number): HitBox {
+  const [x, y, z] = b.pivot;
+  const [tx, tz] = rotation === 90 ? [-z, x] : rotation === 180 ? [-x, -z] : rotation === 270 ? [z, -x] : [x, z];
+  return { width: r3(b.width * f), height: r3(b.height * f), pivot: [r3(tx * f), r3(y * f), r3(tz * f)] };
+}
+
+/** The component group / event that sets a part's tap boxes for a turn, a size and a state. */
+export const hitGroupName = (rotation: number, pct: number, open: boolean): string => `craftmatic:ixh_${rotation}_${pct}_${open ? 'o' : 'c'}`;
+
+/**
+ * The collision box: a thin needle at the entity origin, as tall as the
+ * highest tap box. It no longer takes taps (the hit boxes do) and a wide one
+ * picked a chair beside a window (device 2026-09-24d); it still sets the
+ * render cull (64 x its diagonal, at least 64 blocks - far enough for a door).
+ */
+export function interactiveCollision(hit: InteractiveHitboxes, f = 1): { width: number; height: number } {
+  const top = Math.max(HITBOX_MIN_BLOCKS, ...[...hit.closed, ...hit.open].map(b => b.pivot[1] + b.height / 2));
+  return { width: r3(0.25 * f), height: r3(top * f) };
+}
+
+/**
+ * The behaviour: static, unhurt, not pushed, tap- and interact-able, keeps its
+ * state across reloads. Its tap boxes are a component group per placement
+ * turn x wand size x state (`hitGroupName`), which the runtime selects; the
+ * wand's own `craftmatic:size_<pct>` events (fired by the placement on every
+ * actor) select the turn-0 closed boxes until the runtime's first sync.
+ */
+export function interactiveBehavior(typeId: string, it: SceneInteractive, hit: InteractiveHitboxes): unknown {
+  const groups: Record<string, unknown> = {}, events: Record<string, unknown> = {};
+  const all: string[] = [];
+  for (const r of [0, 90, 180, 270]) for (const pct of SIZE_STEPS) for (const open of [false, true]) all.push(hitGroupName(r, pct, open));
+  for (const r of [0, 90, 180, 270]) for (const pct of SIZE_STEPS) for (const open of [false, true]) {
+    const name = hitGroupName(r, pct, open), f = pct / 100;
+    groups[name] = {
+      'minecraft:custom_hit_test': { hitboxes: (open ? hit.open : hit.closed).map(b => placeHitBox(b, r, f)) },
+      'minecraft:collision_box': interactiveCollision(hit, f),
+    };
+    events[name] = { remove: { component_groups: all.filter(n => n !== name) }, add: { component_groups: [name] } };
+  }
+  for (const pct of SIZE_STEPS) events[`${SIZE_EVENT_PREFIX}${pct}`] = { remove: { component_groups: all.filter(n => n !== hitGroupName(0, pct, false)) }, add: { component_groups: [hitGroupName(0, pct, false)] } };
+  return { format_version: '1.26.30', 'minecraft:entity': {
     description: { identifier: typeId, is_spawnable: false, is_summonable: true, properties: interactiveProperties() },
     components: {
       'minecraft:type_family': { family: [INTERACTIVE_FAMILY, `craftmatic_ix_${it.kind}`] },
@@ -779,13 +968,15 @@ export function interactiveBehavior(typeId: string, it: SceneInteractive): unkno
       'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
       'minecraft:fire_immune': {},
       'minecraft:knockback_resistance': { value: 1 },
-      'minecraft:collision_box': collision,
+      'minecraft:collision_box': interactiveCollision(hit),
+      'minecraft:custom_hit_test': { hitboxes: hit.closed },
       'minecraft:physics': { has_gravity: false, has_collision: false },
       // NOT `minecraft:pushable`: format 1.26.30 dropped it and the whole entity then fails to load.
       'minecraft:pushable_by_block': {},
       'minecraft:interact': { interactions: [{ interact_text: INTERACT_TEXT[it.kind], swing: true }] },
     },
-  } }, collision);
+    component_groups: groups, events,
+  } };
 }
 
 // ─── Runtime ─────────────────────────────────────────────────────────────────
@@ -811,6 +1002,8 @@ export interface InteractiveRuntimeItem {
   axis?: [number, number, number];
   /** A leaf's unit normal (across its thickness) in model blocks: the way a player walks through its doorway. */
   normal?: [number, number, number];
+  /** A leaf's closed mid-plane in model blocks at 100 % (corner, along, up, normal, thickness): what the runtime checks occupants against. */
+  leaf?: { c: number[]; a: number[]; u: number[]; n: number[]; t: number };
 }
 
 export interface InteractiveRuntimeConfig {
@@ -821,6 +1014,9 @@ export interface InteractiveRuntimeConfig {
   dims: { width: number; height: number; length: number };
   colliders: { block: string; loState: string; hiState: string };
   items: InteractiveRuntimeItem[];
+  /** The actor properties the rig's root follows: the placement's quarter turn and wand size. */
+  turnProperty: string;
+  sizeProperty: string;
 }
 
 /** The dynamic properties the placement writes on a spawned interactive and the runtime keeps its state in. */
@@ -944,23 +1140,73 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     return ok;
   };
   /** A player or a figure standing where the closed leaf would go (never close a door on someone). */
+  /** A model point (blocks at 100 %, the placement's frame) in the world, for this placement's anchor, turn and size (the wand's `worldPoint`). */
+  const toWorld = (pl: any, v: number[]): { x: number; y: number; z: number } => {
+    const W = config.dims.width, L = config.dims.length, x = v[0]!, z = v[2]!;
+    const q = pl.r === 90 ? [L - z, x] : pl.r === 180 ? [W - x, L - z] : pl.r === 270 ? [z, W - x] : [x, z];
+    return { x: pl.anchor.x + q[0]! * pl.f, y: pl.anchor.y + v[1]! * pl.f, z: pl.anchor.z + q[1]! * pl.f };
+  };
+  /** A model direction turned by the placement (no translation). */
+  const turnDir = (pl: any, d: number[]): { x: number; z: number } => pl.r === 90 ? { x: -d[2]!, z: d[0]! } : pl.r === 180 ? { x: -d[0]!, z: -d[2]! } : pl.r === 270 ? { x: d[2]!, z: -d[0]! } : { x: d[0]!, z: d[2]! };
+  /** Players and figures near a point (anything else - the shell, the seats, the parts - is not an occupant). */
+  const occupants = (e: any, at: any, reach: number): any[] => {
+    let near: any[] = [];
+    try { near = e.dimension.getEntities({ location: at, maxDistance: reach }); } catch { return []; }
+    return near.filter(o => {
+      const t = String(o.typeId || '');
+      return t === 'minecraft:player' || !t.startsWith('craftmatic:') || !!(o.getComponent && o.getComponent('minecraft:type_family')?.hasTypeFamily?.('craftmatic_figure'));
+    });
+  };
+  /**
+   * Someone standing where the CLOSED LEAF itself goes (its slab: the leaf's
+   * rectangle, sampled every ~0.15 block, against the 0.6 x 1.8 body). Not
+   * the doorway's whole blocks: a player just outside the leaf was told
+   * "something is standing in the door" at 76417's entrance (device
+   * 2026-09-24d) and the doors stayed open. A player inside the doorway's
+   * blocks but clear of the leaf is stepped out of them instead (`stepOut`).
+   */
   const obstructed = (e: any, i: number, pl: any): boolean => {
     const it = config.items[i]!;
-    if (!it.blocking.length) return false;
-    const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
-    if (!own.length) return false;
-    // Search around the doorway's own blocks (the entity stands at the leaf's foot, but a wide double door reaches further).
-    const cx = own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, cy = own.reduce((a, b) => a + b.y, 0) / own.length, cz = own.reduce((a, b) => a + b.z + 0.5, 0) / own.length;
-    const reach = Math.max(...own.map(b => Math.hypot(b.x + 0.5 - cx, b.y - cy, b.z + 0.5 - cz))) + 3;
-    let near: any[] = [];
-    try { near = e.dimension.getEntities({ location: { x: cx, y: cy, z: cz }, maxDistance: reach }); } catch { return false; }
-    for (const o of near) {
-      const t = String(o.typeId || '');
-      if (t !== 'minecraft:player' && t.startsWith('craftmatic:') && !(o.getComponent && o.getComponent('minecraft:type_family')?.hasTypeFamily?.('craftmatic_figure'))) continue;
-      const w = t === 'minecraft:player' ? 0.3 : 0.3, h = 1.8, l = o.location;
-      if (own.some(bk => l.x + w > bk.x && l.x - w < bk.x + 1 && l.z + w > bk.z && l.z - w < bk.z + 1 && l.y + h > bk.y && l.y < bk.top)) return true;
+    const lf = it.leaf;
+    if (!lf) return false;
+    const c = toWorld(pl, lf.c), a = toWorld(pl, [lf.c[0]! + lf.a[0]!, lf.c[1]! + lf.a[1]!, lf.c[2]! + lf.a[2]!]), u = toWorld(pl, [lf.c[0]! + lf.u[0]!, lf.c[1]! + lf.u[1]!, lf.c[2]! + lf.u[2]!]);
+    const A = { x: a.x - c.x, y: a.y - c.y, z: a.z - c.z }, U = { x: u.x - c.x, y: u.y - c.y, z: u.z - c.z };
+    const nA = Math.max(2, Math.ceil(Math.hypot(A.x, A.y, A.z) / 0.15) + 1), nU = Math.max(2, Math.ceil(Math.hypot(U.x, U.y, U.z) / 0.15) + 1);
+    const half = lf.t * pl.f / 2 + 0.02;
+    const mid = { x: c.x + A.x / 2 + U.x / 2, y: c.y + A.y / 2 + U.y / 2, z: c.z + A.z / 2 + U.z / 2 };
+    for (const o of occupants(e, mid, Math.hypot(A.x, A.y, A.z) + Math.hypot(U.x, U.y, U.z) + 2)) {
+      const l = o.location, w = 0.3 + half;
+      for (let s = 0; s < nA; s++) for (let t = 0; t < nU; t++) {
+        const px = c.x + A.x * s / (nA - 1) + U.x * t / (nU - 1), py = c.y + A.y * s / (nA - 1) + U.y * t / (nU - 1), pz = c.z + A.z * s / (nA - 1) + U.z * t / (nU - 1);
+        if (px > l.x - w && px < l.x + w && pz > l.z - w && pz < l.z + w && py > l.y - half && py < l.y + 1.8 + half) return true;
+      }
     }
     return false;
+  };
+  /** After closing: a player or figure standing in the doorway's laid blocks (not on the leaf) is stepped out along the leaf's normal to the side it stands on. */
+  const stepOut = (e: any, i: number, pl: any): void => {
+    const it = config.items[i]!;
+    if (!it.blocking.length || !it.leaf) return;
+    const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
+    const inside = (l: any): boolean => own.some(bk => l.x + 0.3 > bk.x && l.x - 0.3 < bk.x + 1 && l.z + 0.3 > bk.z && l.z - 0.3 < bk.z + 1 && l.y + 1.8 > bk.y && l.y < bk.top);
+    const n = turnDir(pl, it.leaf.n), centre = toWorld(pl, [it.leaf.c[0]! + it.leaf.a[0]! / 2, it.leaf.c[1]!, it.leaf.c[2]! + it.leaf.a[2]! / 2]);
+    for (const o of occupants(e, centre, 4 * Math.max(1, pl.f))) {
+      const l = o.location;
+      if (!inside(l)) continue;
+      const side = (l.x - centre.x) * n.x + (l.z - centre.z) * n.z >= 0 ? 1 : -1;
+      for (let d = 0.1; d <= 3 * Math.max(1, pl.f); d += 0.1) {
+        const q = { x: l.x + n.x * side * d, y: l.y, z: l.z + n.z * side * d };
+        if (inside(q)) continue;
+        try { o.teleport(q); } catch { /* not movable */ }
+        break;
+      }
+    }
+  };
+  /** Select the tap boxes for this placement's turn and size and the part's state (`hitGroupName`), and turn/scale the rig's root to match. */
+  const place = (e: any, pl: any, open: boolean): void => {
+    const pct = [25, 50, 75, 100, 150, 200, 300, 400].includes(Math.round(pl.f * 100)) ? Math.round(pl.f * 100) : 100;
+    try { e.setProperty(config.turnProperty, pl.r); e.setProperty(config.sizeProperty, pl.f); } catch { /* property component missing */ }
+    try { e.triggerEvent(`craftmatic:ixh_${pl.r}_${pct}_${open ? 'o' : 'c'}`); } catch { /* event missing: an older pack */ }
   };
   const setAngle = (e: any, deg: number): void => { try { e.setProperty(config.property, deg); } catch { /* property component missing: the content log says why */ } };
   const sound = (e: any, id: string): void => { try { e.dimension.playSound(id, e.location, { volume: 1, pitch: 1 }); } catch { /* sound unknown */ } };
@@ -987,7 +1233,8 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       say(player, `The ${it.label.toLowerCase()} is not loaded - come closer.`);
       return;
     }
-    for (const g of group) setAngle(g.e, open ? config.items[g.i]!.angle : 0);
+    for (const g of group) { setAngle(g.e, open ? config.items[g.i]!.angle : 0); place(g.e, pl, open); }
+    if (!open) for (const g of group) stepOut(g.e, g.i, pl);
     sound(e, open ? it.sounds.open : it.sounds.close);
     if (open && it.passSize !== undefined && !passable(it, pl)) {
       const size = it.opening ? `${it.opening.width} x ${it.opening.height} blocks at 100 percent` : 'too small';
@@ -996,8 +1243,49 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
         : `This opening is ${size}: too small to walk through at any wand size.`);
     }
   };
+  /**
+   * Whether a wall of this pack's colliders stands between the player's eyes
+   * and the part. Collider blocks have no selection box (a tap passes through
+   * them), so without this a tap on a wall reached a door in the next room
+   * (76417's shop door through the bank-hall wall, device 2026-09-24d). The
+   * last `WALL_MARGIN` of the ray is not checked: a window or a cupboard sits
+   * in its own collider cell.
+   */
+  const behindWall = (player: any, target: any): boolean => {
+    let head: any, dir: any;
+    try { head = player.getHeadLocation(); dir = player.getViewDirection(); } catch { return false; }
+    if (!head || !dir) return false;
+    const l = target.location;
+    const reach = (l.x - head.x) * dir.x + (l.y + 1 - head.y) * dir.y + (l.z - head.z) * dir.z;
+    const WALL_MARGIN = 0.75;
+    // The doorway's own closed cells (and a double door partner's) are not a wall in front of it.
+    const own = new Set<string>();
+    const i = itemOf(target), pl = placementOf(target);
+    if (i !== undefined && pl) for (const j of [i, ...(config.items[i]!.shares || [])]) {
+      for (const key of worldBlocks(config.items[j]!.blocking, config.dims, pl.f, pl.r).keys()) {
+        const [x, y, z] = key.split(',').map(Number);
+        own.add(`${pl.anchor.x + x!},${pl.anchor.y + y!},${pl.anchor.z + z!}`);
+      }
+    }
+    let last = '';
+    for (let d = 0.3; d < reach - WALL_MARGIN; d += 0.1) {
+      const p = { x: Math.floor(head.x + dir.x * d), y: Math.floor(head.y + dir.y * d), z: Math.floor(head.z + dir.z * d) };
+      const key = `${p.x},${p.y},${p.z}`;
+      if (key === last || own.has(key)) continue;
+      last = key;
+      let b: any;
+      try { b = target.dimension.getBlock(p); } catch { b = undefined; }
+      if (!b || b.typeId !== C.block) continue;
+      // Only a wall-height collider stops the ray (a floor plate under the line of sight does not).
+      const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
+      const y = head.y + dir.y * d - p.y;
+      if (!Number.isFinite(lo) || !Number.isFinite(hi) || (y * 16 >= lo && y * 16 <= hi)) return true;
+    }
+    return false;
+  };
   const use = (player: any, target: any): void => {
     if (!target || !target.typeId || itemOf(target) === undefined) return;
+    if (behindWall(player, target)) return;
     const now = system.currentTick;
     if (now - (lastUse.get(target.id) ?? -100) < 6) return;
     lastUse.set(target.id, now);
@@ -1023,6 +1311,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
         let a = 0;
         try { a = it.kind === 'turnable' ? Number(e.getDynamicProperty(K.angle)) || 0 : isOpen(e) ? it.angle : 0; } catch { /* default */ }
         setAngle(e, a);
+        place(e, pl, it.kind !== 'turnable' && isOpen(e));
         synced.add(e.id);
       }
     }

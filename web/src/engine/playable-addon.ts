@@ -6,7 +6,7 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, encodeColliderRuns, placementAlias, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -28,7 +28,8 @@ import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { PINBALL_ZONE_TEXTURE, buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
-import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
+import { doorwayWalkSummary } from './interactive-walk.js';
+import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -1720,6 +1721,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     /** The moving parts' runtime (`scripts/interactives.js`) and their diagnostics; set with the shell. */
     let interactiveConfig: InteractiveRuntimeConfig | undefined;
     let interactiveReport: unknown[] | undefined;
+    /** What the doorway walk found at 100 % (`doorwayWalkSummary`), for the wand. */
+    let ixWalkNote: string | undefined;
     const actors: PlacementActor[] = [];
     const extraComponents: PlayableAddonResult['components'] = [];
     /**
@@ -1945,32 +1948,40 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // a window pane, a turntable's load); a doorway's closed cells are
             // laid by the runtime, so its boxes stay out of the static grid.
             const staticIxBoxes: Array<{ min: Vec3; max: Vec3 }> = [];
-            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string }> = [];
+            const compiledIx: Array<{ it: SceneInteractive; typeId: string; label: string; hit: InteractiveHitboxes }> = [];
             const ixCounts = new Map<string, number>();
-            for (const it of options.interactives?.items ?? []) {
-                const n = (ixCounts.get(it.kind) ?? 0) + 1;
-                ixCounts.set(it.kind, n);
-                const ixId = entityId(`${id}_${it.kind}_${n}`, 'x');
+            // Tap boxes that follow each part's own shape, kept off each other
+            // and off the seats before anything is compiled (bedrock-interactives.ts).
+            const ixFrame = options.interactives?.frame;
+            const ixHits = (options.interactives?.items ?? []).map(it => ({ origin: sceneGridPoint(ixFrame!, it.anchorLdu), hit: interactiveHitboxes(it, p => sceneGridPoint(ixFrame!, p)) }));
+            const separated = separateHitboxes(ixHits, (options.seats ?? []).map(s => [s.x, s.y, s.z]));
+            if (separated.shrunk || separated.dropped) warnings.push(`${label}: ${separated.shrunk} tap box shrink step${separated.shrunk === 1 ? '' : 's'} and ${separated.dropped} dropped box${separated.dropped === 1 ? '' : 'es'} keep the moving parts' tap boxes off each other and off the seats.`);
+            for (const [ixIndex, it] of (options.interactives?.items ?? []).entries()) {
+                const hit = ixHits[ixIndex]!.hit;
+                const noun = interactiveNoun(it);
+                const n = (ixCounts.get(noun) ?? 0) + 1;
+                ixCounts.set(noun, n);
+                const ixId = entityId(`${id}_${noun.toLowerCase().replace(/[^a-z]+/g, '_')}_${n}`, 'x');
                 const typeId = `${PACK_NAMESPACE}:${ixId}`;
-                const ixLabel = `${it.kind[0]!.toUpperCase()}${it.kind.slice(1)} ${n}`;
+                const ixLabel = `${noun} ${n}`;
                 options.onProgress?.(`compiling ${label} ${ixLabel.toLowerCase()}`, 73);
                 try {
                     const igeo = await compileLdrawEntityGeometry(ixId, 'prop', it.bricks, {
                         scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
                         quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr,
-                        rig: interactiveRig(it.bricks.length, it.pivotLdu, it.axisLdu), originLdu: it.anchorLdu,
+                        rig: interactiveRig(it.bricks.length, it.pivotLdu, it.axisLdu, it.anchorLdu), originLdu: it.anchorLdu,
                     });
                     diagnostics[ixId] = igeo.diagnostics;
                     const rate = Math.max(Math.abs(it.angleDeg), OPEN_DEG[it.kind]) / SWING_SECONDS;
                     const anim = interactiveAnimation(typeId, rate);
-                    emitCompiledEntity(ixId, igeo, interactiveBehavior(typeId, it), { animations: { turn: anim.id }, animate: ['turn'], initialize: anim.initialize, preAnimation: anim.preAnimation });
+                    emitCompiledEntity(ixId, igeo, interactiveBehavior(typeId, it, hit), { animations: { turn: anim.id }, animate: ['turn'], initialize: anim.initialize, preAnimation: anim.preAnimation });
                     files.push({ name: `${rp}animations/${ixId}.animation.json`, data: json(anim.file) });
                     addEntityName(typeId, `${label} ${ixLabel.toLowerCase()}`, false);
                     const at = sceneGridPoint(options.interactives!.frame, igeo.originLdu);
                     actors.push({ typeId, label: `${label} ${ixLabel.toLowerCase()}`, x: at[0], y: at[1] + igeo.originLiftBlocks, z: at[2], yaw: 0, interactive: compiledIx.length });
                     extraComponents.push({ id: ixId, label: `${label} ${ixLabel.toLowerCase()}`, kind: 'shell', provenance: `${it.bricks.length} source placement${it.bricks.length === 1 ? '' : 's'} (${it.part}) hinged at the measured ${it.kind === 'turnable' ? 'spin axis' : 'hinge'}` });
                     if (!PASSAGE_KINDS.has(it.kind)) staticIxBoxes.push(...(igeo.partBoxesLdu ?? []));
-                    compiledIx.push({ it, typeId, label: ixLabel });
+                    compiledIx.push({ it, typeId, label: ixLabel, hit });
                 } catch (e) {
                     warnings.push(`${label}: ${ixLabel.toLowerCase()} (${it.part}) could not be compiled (${e instanceof Error ? e.message : String(e)}); it is missing from the build.`);
                 }
@@ -1991,14 +2002,18 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                         const nq = sceneGridPoint(f, [it.pivotLdu[0] + it.leaf.normal[0] * LDU_PER_BLOCK, it.pivotLdu[1] + it.leaf.normal[1] * LDU_PER_BLOCK, it.pivotLdu[2] + it.leaf.normal[2] * LDU_PER_BLOCK]);
                         const nd = [nq[0] - p[0], nq[1] - p[1], nq[2] - p[2]], nl = Math.hypot(nd[0]!, nd[1]!, nd[2]!) || 1;
                         item.normal = nd.map(v => Math.round(v / nl * 1e4) / 1e4) as [number, number, number];
+                        // The closed leaf in model blocks: the runtime's occupancy test (`obstructed`).
+                        const q4 = (v: number[]): number[] => v.map(x => Math.round(x * 1e4) / 1e4);
+                        const c0 = sceneGridPoint(f, it.leaf.corner), ca = sceneGridPoint(f, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(f, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
+                        item.leaf = { c: q4(c0), a: q4([ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]]), u: q4([cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]]), n: q4(item.normal), t: Math.round(it.leaf.thicknessLdu * f.scale / f.cellXZ * 1e4) / 1e4 };
                     }
                 });
-                interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items };
+                interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
                 interactiveReport = compiledIx.map((c, k) => ({
                     type: c.typeId, kind: c.it.kind, part: c.it.part, label: c.label, parts: c.it.bricks.length, angleDeg: items[k]!.angle,
                     offGridDeg: c.it.offGridDeg, ...(items[k]!.opening ? { openingBlocks: items[k]!.opening } : {}),
                     ...(items[k]!.passSize !== undefined ? { passSize: items[k]!.passSize } : {}),
-                    blockingCells: items[k]!.blocking.length, cleared: ixPlans[k]?.cleared ?? 0, passageCleared: ixPlans[k]?.passageCleared ?? 0,
+                    blockingCells: items[k]!.blocking.length, cleared: ixPlans[k]?.cleared ?? 0, passageCleared: ixPlans[k]?.passageCleared ?? 0, thresholdTreads: ixPlans[k]?.treads ?? 0, hitboxes: { closed: c.hit.closed.length, open: c.hit.open.length },
                     ...(c.it.sweep ? { sweepHits: c.it.sweep } : {}),
                 }));
                 warnings.push(interactiveSummary(label, items));
@@ -2007,6 +2022,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             plan = planStructureTiles(structureGrid, id, options.maxTile ?? BEDROCK_MAX_TILE);
             const runs = encodeColliderRuns(structureGrid, COLLIDER_BLOCK_ID);
             placementColliders = { width: structureGrid.width, height: structureGrid.height, length: structureGrid.length, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs: runs.runs, keptCells: runs.keptCells };
+            if (interactiveConfig) {
+                // Walk every doorway at 100 % over the blocks this pack ships, so
+                // the wand's door count is the walk's, not the leaf measurement's
+                // (device 2026-09-24d: "6/6 clear" against 5 walkable, 41732).
+                const walks = doorwayWalkSummary({ cells: colliderSourceCells(placementColliders), dims: interactiveConfig.dims, interactives: interactiveConfig });
+                if (walks.note) { ixWalkNote = walks.note; warnings.push(`${label}: ${walks.note}`); }
+                if (interactiveReport) interactiveReport = interactiveReport.map((r, k) => ({ ...(r as object), ...(walks.verdicts[k] ? { walk100: walks.verdicts[k] } : {}) }));
+            }
             files.push(
                 { name: `${bp}blocks/collider.json`, data: json(colliderBlockDefinition()) },
                 // Only `sound` belongs here: the BP block already declares
@@ -2465,7 +2488,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         preview: { typeId: ghost.typeId },
         ...(placementColliders ? { colliders: placementColliders } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
-        ...(options.interactionNote ? { interactionNote: bedrockInGameText(options.interactionNote) } : {}),
+        ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
         // whole - spelt for Bedrock's text formatter, which deletes a bare `%`.
         ...(options.access ? { access: { ...(options.access.sizePct !== undefined ? { sizePct: options.access.sizePct } : {}), reason: bedrockInGameText(options.access.reason) } } : {}),

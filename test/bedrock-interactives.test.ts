@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  DOORWAY_MIN_HEIGHT_LDU, INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, discoverInteractives, interactiveAnimation, interactiveBehavior, interactiveKindOf,
+  DOORWAY_MIN_HEIGHT_LDU, INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, hitGroupName, interactiveHitboxes, interactiveNoun, placeHitBox, separateHitboxes, worldHitBox, hitBoxesOverlap, seatHitBox, type HitBox, OPEN_DEG, discoverInteractives, interactiveAnimation, interactiveBehavior, interactiveKindOf,
   interactiveRig, interactiveRuntimeItem, interactivesScript, ixClosedBlocks, ixWorldBlocks, linkSharedDoorways, passSizeFor, planInteractiveColliders,
   rotateAbout, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type IxCell, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
@@ -20,7 +20,7 @@ import { bedrockJsonText } from '../web/src/engine/bedrock-json.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { LdrawPartMesh, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
-import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
+import { sceneGridPoint, type SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
 
 const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const C = LDU_PER_BLOCK;
@@ -160,9 +160,10 @@ describe('discoverInteractives', () => {
 describe('interactiveRig', () => {
   it('cancels to identity at zero spin: tilt then un-tilt', () => {
     const rig = interactiveRig(3, [1, 2, 3], [0, 0, 1]);
-    expect(rig.bones.map(b => b.name)).toEqual(['ix_tilt', 'ix_spin', 'ix_untilt']);
+    expect(rig.bones.map(b => b.name)).toEqual(['ix_root', 'ix_tilt', 'ix_spin', 'ix_untilt']);
+    expect(rig.bones[1]!.parent).toBe('ix_root');
     expect(rig.boneOf).toEqual(['ix_untilt', 'ix_untilt', 'ix_untilt']);
-    const t = rig.bones[0]!.rotation!, u = rig.bones[2]!.rotation!;
+    const t = rig.bones[1]!.rotation!, u = rig.bones[3]!.rotation!;
     const m = (a: number[], b: number[]) => [0, 1, 2].flatMap(r => [0, 1, 2].map(c => a[r * 3]! * b[c]! + a[r * 3 + 1]! * b[3 + c]! + a[r * 3 + 2]! * b[6 + c]!));
     m(t, u).forEach((v, i) => expect(v).toBeCloseTo(I[i]!, 9));
     // The tilt takes LDraw up (-Y) onto the axis.
@@ -254,18 +255,27 @@ describe('planInteractiveColliders', () => {
   });
 });
 
+/** A leaf's closed mid-plane in model blocks (what playable-addon.ts ships as `item.leaf`). */
+function leafModel(it: SceneInteractive): InteractiveRuntimeItem['leaf'] {
+  const l = it.leaf!, g = (p: Vec3) => sceneGridPoint(frame, p);
+  const c = g(l.corner), a = g(add3(l.corner, l.along)), u = g(add3(l.corner, l.up)), n = g(add3(l.corner, l.normal.map(v => v * C) as Vec3));
+  const d = (p: Vec3) => [p[0] - c[0], p[1] - c[1], p[2] - c[2]];
+  return { c: [...c], a: d(a), u: d(u), n: d(n), t: l.thicknessLdu / C };
+}
+const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+
 /** Runtime items for two leaves of a double door in a 1-thick wall, plus a turnable, as the pack ships them. */
 function doubleDoorConfig(passSize = 100): InteractiveRuntimeConfig {
   const g = wallGrid();
   const left = leafAt(2.25, 1.5, 5.5), right = leafAt(3.75, 1.5, 5.5);
   const plans = planInteractiveColliders(g, [left, right], frame);
   const items: InteractiveRuntimeItem[] = [
-    { ...interactiveRuntimeItem(left, 'craftmatic:x_door_1', 'Door 1', plans[0]!), passSize },
-    { ...interactiveRuntimeItem(right, 'craftmatic:x_door_2', 'Door 2', plans[1]!), angle: -90, passSize },
+    { ...interactiveRuntimeItem(left, 'craftmatic:x_door_1', 'Door 1', plans[0]!), passSize, leaf: leafModel(left) },
+    { ...interactiveRuntimeItem(right, 'craftmatic:x_door_2', 'Door 2', plans[1]!), angle: -90, passSize, leaf: leafModel(right) },
     interactiveRuntimeItem({ ...left, kind: 'turnable', angleDeg: 90, leaf: undefined, openingLdu: undefined }, 'craftmatic:x_turnable_1', 'Turnable 1', null),
   ];
   linkSharedDoorways(items);
-  return { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Test', dims: { width: 12, height: 6, length: 10 }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items };
+  return { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Test', dims: { width: 12, height: 6, length: 10 }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
 }
 
 describe('linkSharedDoorways and ixClosedBlocks', () => {
@@ -288,14 +298,24 @@ describe('linkSharedDoorways and ixClosedBlocks', () => {
 describe('interactive entity assets', () => {
   const it0: SceneInteractive = leafAt(2, 1.5, 5.5);
   it('declares a float angle property (a float literal), a tap box, an interact button and no dropped component', () => {
-    const behavior = interactiveBehavior('craftmatic:x_door_1', it0) as { 'minecraft:entity': { description: { properties: Record<string, unknown> }; components: Record<string, unknown> } };
+    const hit = interactiveHitboxes(it0, p => sceneGridPoint(frame, p));
+    const behavior = interactiveBehavior('craftmatic:x_door_1', it0, hit) as { 'minecraft:entity': { description: { properties: Record<string, unknown> }; components: Record<string, unknown>; component_groups: Record<string, any>; events: Record<string, any> } };
     const text = bedrockJsonText(behavior);
     expect(text).toContain('"default":0.0');
     expect(text).not.toContain('minecraft:pushable"');
     const c = behavior['minecraft:entity'].components;
     expect(c['minecraft:type_family']).toEqual({ family: [INTERACTIVE_FAMILY, 'craftmatic_ix_door'] });
     expect(c['minecraft:interact']).toEqual({ interactions: [{ interact_text: 'action.interact.craftmatic_open', swing: true }] });
-    expect((c['minecraft:collision_box'] as { width: number }).width).toBeCloseTo(2.25, 3);
+    // The collision box is a thin needle (it only sets the render cull); taps land on the shaped hit boxes.
+    expect((c['minecraft:collision_box'] as { width: number }).width).toBe(0.25);
+    expect((c['minecraft:custom_hit_test'] as { hitboxes: HitBox[] }).hitboxes).toEqual(hit.closed);
+    expect(c['minecraft:scale']).toBeUndefined();
+    const groups = behavior['minecraft:entity'].component_groups;
+    expect(Object.keys(groups)).toHaveLength(4 * SIZE_STEPS.length * 2);
+    expect(groups[hitGroupName(90, 200, true)]['minecraft:custom_hit_test'].hitboxes).toEqual(hit.open.map(b => placeHitBox(b, 90, 2)));
+    // The wand's size event selects the turn-0 closed boxes until the runtime syncs.
+    expect(behavior['minecraft:entity'].events['craftmatic:size_200'].add.component_groups).toEqual([hitGroupName(0, 200, false)]);
+    for (const name of ['craftmatic:turn', 'craftmatic:size']) expect(behavior['minecraft:entity'].description.properties[name]).toBeTruthy();
   });
   it('eases the spin bone in the client toward the property over the swing time', () => {
     const anim = interactiveAnimation('craftmatic:x_door_1', 225);
@@ -334,8 +354,10 @@ function runtimeHost(cfg: InteractiveRuntimeConfig) {
     const e = {
       id: `e${entities.length}`, typeId: cfg.items[item]!.type, families: [cfg.family], dimension: dim, location: at ?? { ...anchor },
       angle: undefined as number | undefined,
+      actorProps: new Map<string, number>(), events: [] as string[],
       getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => { props.set(k, v); },
-      setProperty: vi.fn(function (this: any, _k: string, v: number) { e.angle = v; }),
+      setProperty: vi.fn(function (this: any, k: string, v: number) { e.actorProps.set(k, v); if (k === INTERACTIVE_PROPERTY) e.angle = v; }),
+      triggerEvent: (ev: string) => { e.events.push(ev); },
       props,
     };
     entities.push(e);
@@ -356,7 +378,7 @@ function runtimeHost(cfg: InteractiveRuntimeConfig) {
     new Function('world', 'system', 'BlockPermutation', 'console', script)(world, system, BlockPermutation, console);
   };
   load();
-  const player = { typeId: 'minecraft:player', id: 'p1', location: { x: 0, y: 0, z: 0 }, onScreenDisplay: { setActionBar: vi.fn() } };
+  const player = { typeId: 'minecraft:player', id: 'p1', location: { x: 0, y: 0, z: 0 }, onScreenDisplay: { setActionBar: vi.fn() }, teleport: vi.fn(function (to: any) { player.location = { ...to }; }) };
   return {
     blocks, setCollider, spawn, sounds, player, players, load,
     sync: () => tickFn(),
@@ -391,6 +413,21 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(h.sounds.at(-1)).toBe('random.door_close');
   });
 
+  it('ignores a tap that reaches the part through a wall of the pack\'s colliders (they have no selection box)', () => {
+    const cfg = doubleDoorConfig();
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
+    h.sync();
+    Object.assign(h.player, { getHeadLocation: () => ({ x: 103.5, y: 66.6, z: 199.5 }), getViewDirection: () => ({ x: 0, y: 0, z: 1 }) });
+    h.setCollider(103, 66, 202, 0, 16);
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBeUndefined();
+    // A floor plate under the line of sight is not a wall.
+    h.setCollider(103, 66, 202, 0, 3);
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+  });
+
   it('counts a tap reported twice (hit and interact in one tick) once', () => {
     const cfg = doubleDoorConfig();
     const h = runtimeHost(cfg);
@@ -400,7 +437,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
   });
 
-  it('will not close on a player standing in the doorway, and never overwrites a block the player built there', () => {
+  it('will not close on a player standing IN the leaf, closes past one beside it and steps them out, and never overwrites a block the player built there', () => {
     const cfg = doubleDoorConfig();
     const h = runtimeHost(cfg);
     const a = h.spawn(0, anchor);
@@ -408,11 +445,19 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.tap(a);
     const [k0] = keysOf(cfg, 0);
     const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
-    h.player.location = { x: x + 0.5, y, z: z + 0.5 };
+    // The leaf's mid-plane is at grid z 5.5 (world z 205.5): standing on it refuses the close.
+    h.player.location = { x: x + 0.5, y, z: 205.5 };
     h.players.push(h.player);
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     expect(h.lastBar()).toMatch(/standing in the door 1/);
+    // Inside the doorway's block but clear of the leaf (device 2026-09-24d: "outside the leaves"): it closes, and the player is stepped out of the block.
+    h.player.location = { x: x + 0.5, y, z: z + 0.12 };
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    expect(h.player.teleport).toHaveBeenCalled();
+    expect(h.player.location.z).toBeLessThanOrEqual(z - 0.3 + 1e-9);
+    h.tap(a);
     h.players.length = 0;
     h.blocks.set(k0!, { typeId: 'minecraft:stone', states: {} });
     h.tap(a);
@@ -438,8 +483,13 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     const closed = keysOf(cfg, 0, 2, 90);
     expect(closed.length).toBeGreaterThan(keysOf(cfg, 0).length);
     for (const k of closed) expect(h.blocks.get(k)?.typeId, k).toBe(COLLIDER_BLOCK_ID);
+    // The rig's root carries the turn and the size; the tap boxes follow them.
+    expect(a.actorProps.get(INTERACTIVE_TURN_PROPERTY)).toBe(90);
+    expect(a.actorProps.get(INTERACTIVE_SIZE_PROPERTY)).toBe(2);
+    expect(a.events.at(-1)).toBe(hitGroupName(90, 200, false));
     h.tap(a);
     for (const k of closed) expect(h.blocks.has(k), k).toBe(false);
+    expect(a.events.at(-1)).toBe(hitGroupName(90, 200, true));
   });
 
   it('turns a turnable a step per tap and keeps the angle', () => {
@@ -481,7 +531,7 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
       const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(g.get(x, y, z));
       if (m) cells.push({ x, y, z, lo: Number(m[1]), hi: Number(m[2]) });
     }
-    const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Wall', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item] };
+    const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Wall', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item], turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
     return { cells, dims: cfg.dims, interactives: cfg };
   }
   it('walks a player through the open doorway, never through the closed one, at every quarter turn', async () => {
@@ -501,6 +551,49 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
     expect(small).toBe('SMALL');
     const big = verdictOf(walkThroughDoorway(pack, 0, 200, 0, true), walkThroughDoorway(pack, 0, 200, 0, false));
     expect(big).toBe('OK');
+  });
+});
+
+describe('tap boxes (minecraft:custom_hit_test)', () => {
+  const toModel = (p: Vec3): Vec3 => sceneGridPoint(frame, p);
+  it('follow a leaf in narrow stretches, closed and swung open, and never reach past it', () => {
+    const leaf = leafAt(3.25, 1.5, 5.5);
+    const hit = interactiveHitboxes(leaf, toModel);
+    const origin = toModel(leaf.anchorLdu);
+    expect(hit.closed).toHaveLength(4);
+    for (const b of hit.closed) {
+      expect(b.width).toBeLessThanOrEqual(0.4);
+      const w = worldHitBox(origin, b);
+      // Inside the leaf's own span: x 3.25..4.75, height 1..3.6, and on its plane (z 5.5).
+      expect(w.x0).toBeGreaterThanOrEqual(3.25 - 1e-3); expect(w.x1).toBeLessThanOrEqual(4.75 + 1e-3);
+      expect(w.z0).toBeLessThan(5.5); expect(w.z1).toBeGreaterThan(5.5);
+      expect(w.y0).toBeCloseTo(1, 3); expect(w.y1).toBeCloseTo(3.6, 3);
+    }
+    // Open (+90 about the up axis at x 3.25): the boxes lie along the normal from the hinge.
+    const open = hit.open.map(b => worldHitBox(origin, b));
+    expect(Math.min(...open.map(w => w.x0))).toBeGreaterThan(3.25 - 0.3);
+    expect(Math.max(...open.map(w => w.x1))).toBeLessThan(3.25 + 0.3);
+  });
+  it('turn and scale with the placement', () => {
+    const b: HitBox = { width: 0.4, height: 2, pivot: [1, 1, 0.5] };
+    expect(placeHitBox(b, 90, 2)).toEqual({ width: 0.8, height: 4, pivot: [-1, 2, 2] });
+    expect(placeHitBox(b, 180, 1).pivot).toEqual([-1, 1, -0.5]);
+    expect(placeHitBox(b, 270, 1).pivot).toEqual([0.5, 1, -1]);
+  });
+  it('are shrunk off a seat and off a neighbouring part until nothing overlaps', () => {
+    const a = leafAt(3.25, 1.5, 5.5), b = leafAt(4.9, 1.2, 5.6);
+    const parts = [a, b].map(it => ({ origin: toModel(it.anchorLdu), hit: interactiveHitboxes(it, toModel) }));
+    const seat = [3.6, 1.2, 5.4];
+    const res = separateHitboxes(parts, [seat]);
+    expect(res.shrunk + res.dropped).toBeGreaterThan(0);
+    const boxes = parts.map(p => [...p.hit.closed, ...p.hit.open].map(x => worldHitBox(p.origin, x)));
+    for (const x of boxes[0]!) for (const y of boxes[1]!) expect(hitBoxesOverlap(x, y)).toBe(false);
+    for (const list of boxes) for (const x of list) expect(hitBoxesOverlap(x, seatHitBox(seat))).toBe(false);
+  });
+  it('names a barred door a gate and a short leaf a cupboard', () => {
+    expect(interactiveNoun({ kind: 'door', description: 'Door 1 x 4 x 6 Barred' })).toBe('Gate');
+    expect(interactiveNoun({ kind: 'door', description: 'Door  1 x  4 x  6 with 4 Panes and Stud Handle' })).toBe('Door');
+    expect(interactiveNoun({ kind: 'cabinet', description: 'Door  1 x  3 x  1 Right' })).toBe('Cupboard');
   });
 });
 

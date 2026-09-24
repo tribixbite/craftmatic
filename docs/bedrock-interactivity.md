@@ -84,11 +84,28 @@ quality) with:
 - **a behaviour** with `minecraft:interact` (a touch screen shows "Open /
   close", "Turn" or "Use"), no gravity, no collision, no damage, no
   `minecraft:pushable` (format 1.26.30 dropped it and the entity would not
-  exist), size groups for the wand, and a collision box that is the TAP box:
-  centred on the closed part's bottom, 1.5 x its widest horizontal extent (so a
-  leaf swung open about its edge is still under a finger), as tall as the part.
-  Bedrock picks a tap by that box and only on an entity that renders cubes
-  (pinball device rounds, 2026-09-24); the part's own cubes are those.
+  exist), and **tap boxes that follow the part's own shape**
+  (`minecraft:custom_hit_test`, `interactiveHitboxes`): a leaf is cut into
+  stretches of at most 0.45 block along its width, each boxed by its own extent
+  (full height; a hatch or casement into a grid), closed AND swung open - the
+  runtime swaps the set with the state, so a finger on the open leaf closes it.
+  Turnables and levers are one box. Before compiling, `separateHitboxes` shrinks
+  any box that overlaps a seat's box or another part's box in either state.
+  The first build used the collision box as the tap box (square, 1.5 x the
+  leaf's width): on the device (2026-09-24d) 76457's window box took three
+  taps meant for the chair beside it and a tap at a window opened the door
+  next to it. The collision box is now a 0.25-wide needle as tall as the tap
+  boxes: it only sets the render cull (64 x its diagonal, at least 64 blocks).
+  Bedrock picks only an entity that renders cubes (pinball device rounds); the
+  part's own cubes are those.
+- **yaw 0, turned and scaled by its root bone.** Bedrock never rotates
+  `custom_hit_test` boxes (they are world-aligned), so a part is spawned at
+  yaw 0 and the placement's quarter turn and wand size ride on actor
+  properties (`craftmatic:turn`, `craftmatic:size`) that the rig's `ix_root`
+  bone follows; the tap boxes for each turn x size x state are component
+  groups (`craftmatic:ixh_<turn>_<size>_<c|o>`) the runtime selects. The
+  root's sign follows the flipper convention: body yaw θ is a right-handed
+  turn of −θ about up, a channel value of +θ.
 - **the entity origin** at the closed assembly's bottom centre (`originLdu`), so
   it stands in the cleared doorway, lit like the air around it.
 
@@ -104,6 +121,12 @@ quality) with:
   `linkSharedDoorways` → `shares`). Levers flip; turnables turn a step.
 - Sounds: `random.door_open` / `random.door_close`, `random.click` for levers
   and turnables.
+- **Taps through walls are ignored**: collider blocks have no selection box,
+  so a tap aimed at a wall used to reach a door in the next room (76417's shop
+  door through the bank-hall wall, device 2026-09-24d). The runtime walks the
+  ray from the player's eyes and drops a tap that crosses a wall-height
+  collider more than 0.75 block before the part (its own and a double-door
+  partner's closed cells excepted).
 - **State persists**: the placement writes `craftmatic:ix` (item),
   `craftmatic:ix_anchor`, `craftmatic:ix_rotation`, `craftmatic:ix_scale` on
   each spawned part; the runtime keeps `craftmatic:ix_open` / `craftmatic:ix_angle`
@@ -134,8 +157,18 @@ and a 20 LDU frame straddling a cell boundary fills whole cells. So:
    lo / max hi) — so it is right at every wand size and quarter turn.
 3. **Open**: the blocks go back to the static state (usually air). The swung
    leaf lays nothing: it stands against the wall, and the passage must be clear.
-4. It never overwrites a block that is not a collider (the player built there),
-   and refuses to close on a player or a figure standing in the doorway.
+4. It never overwrites a block that is not a collider (the player built there).
+   It refuses to close only on a player or figure standing IN THE CLOSED LEAF
+   (its slab, sampled every 0.15 block) - the first build refused anyone in
+   the doorway's whole blocks, and 76417's front doors stayed open for a player
+   standing just outside them (device 2026-09-24d). Anyone else inside the
+   doorway's blocks is stepped out along the leaf's normal to their own side.
+5. **A raised threshold gets a tread.** A leaf standing on a plate or two over
+   the floors either side is a rise past the 9/16 auto-step: walking at
+   41732's shop door the device player stopped short. A half-way tread is laid
+   on the floor beside it, both ways (`thresholdTreads` in the diagnostics), and
+   the passability test now requires every OK doorway at 100 % to be walked
+   through without a jump.
 
 Windows, cabinets, levers and turnables are not passages: their closed part
 boxes stay in the static colliders, so a closed-up window is still a wall.
@@ -165,15 +198,22 @@ Walk add-on's legend says how many are passable at the chosen size.
   restored, a doubled tap counted once, no closing on a player, a player's
   block never overwritten, a too-small doorway kept blocked with the message,
   mapping at 200 % turned 90°, a turnable's steps, and a script reload.
-- `test/interactive-passability.test.ts`: builds 31141, 42663 and 76417 as the
-  CLI does and walks a 0.6 x 1.8 player (the walk module's per-tick Minecraft
+- `test/interactive-passability.test.ts`: builds 31141, 10022, 76417, 76457
+  and 41732 as the CLI does, audits their shipped tap boxes (no two parts'
+  boxes overlap in any state, none covers a seat) and and walks a 0.6 x 1.8 player (the walk module's per-tick Minecraft
   physics) through every doorway at 100 and 200 %, turned 0 and 90: open passes
   where `passSize` allows, closed never does.
 - `bun scripts/_ix_passability.ts <pack…> [--sizes=] [--rotations=] [--json=]`:
   the same walk over any built pack, one verdict per doorway (OK, SMALL, SEALED,
   NO-APPROACH, FAIL; exit 1 on FAIL). `bun scripts/_ix_report.ts <pack>` lists
   the parts; `bun scripts/_ix_doorway_map.ts <pack> <i>` draws one doorway's
-  collider plan.
+  collider plan; `bun scripts/_ix_hitbox_audit.ts <pack | dir>` audits the
+  shipped tap boxes (exit 1 on any overlap).
+- The wand's door count is the walk's: the pack walks every doorway at 100 %
+  at export and says *"Doorways a player walks through at 100 percent over this
+  pack's own blocks: 5 of 6. Door 3 opens onto the model's own solid geometry
+  or a drop"* in the wand menu. The access recommendation's "6/6 clear the 1x2
+  passage" (41732) counts openings big enough, not doorways reachable.
 - The Walk add-on: E (or the touch Interact button) toggles the nearest part
   with the runtime's rules, the leaf swings about its real hinge over 0.4 s, the
   closed leaves' colliders are drawn (door-blue) and collided with.
@@ -182,11 +222,13 @@ Walk add-on's legend says how many are passable at the chosen size.
 
 ## Not verified on a device
 
-Everything above is offline. Unproven in Minecraft: the Molang easing
-(`q.delta_time` in `pre_animation`), that a tap picks the part through the tap
-box while it is swung open, the interact button text, the sounds, and that
-`playerInteractWithEntity` fires for an entity with only `minecraft:interact`.
-The swing SIGN follows the pinball flipper's device-proven convention.
+Device round 2026-09-24d (packs at 8346fb29): doors render as LEGO, open and
+close on tap, walk-through confirmed (76457 doors, 76417's front double doors
+and 45-degree barred door). Its defects are fixed above; unproven on the device
+since: `custom_hit_test` picking (and that `pivot` is the box centre, read from
+vanilla ravager/hoglin), the root-bone turn at a non-zero wand turn (sign
+derived, not seen), the root-bone scale at a non-100 % size, the through-wall
+tap filter, the occupant step-out and the threshold treads.
 
 ## Measured on the favourites (2026-09-24)
 
