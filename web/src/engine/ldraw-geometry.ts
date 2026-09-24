@@ -239,6 +239,15 @@ async function fetchDatText(id: string): Promise<string | null> {
   const promise = (async (): Promise<string | null> => {
     const direct = await probeLibrary(key);
     if (direct !== null) { datTextCache.set(key, direct); return direct; }
+    // CLI only: the EXACT name at the mirror before any local alias. The local
+    // snapshot is five years stale, so a part added since (every upstream-only
+    // printed head: `3626cp1t`, the `92198p*` doll faces) is missing locally
+    // while its plain mould is not - and the alias ladder would silently draw
+    // the plain `3626c` in its place.
+    if (useFilesystem) {
+      const exact = await probeMirror(key);
+      if (exact !== null) { datTextCache.set(key, exact); return exact; }
+    }
     // The alias ladder applies to bare part names only (a `s/` or `48/` ref is
     // a primitive path, which the ladder must never shred).
     const aliases = key.includes('/') ? [] : partAliasCandidates(key);
@@ -246,9 +255,9 @@ async function fetchDatText(id: string): Promise<string | null> {
       const text = await probeLibrary(alias);
       if (text !== null) { datSubstitutions.set(key, alias); datTextCache.set(key, text); return text; }
     }
-    // CLI only: the local snapshot is five years stale; the mirror is current.
+    // CLI only: the aliases at the mirror (the exact name was asked above).
     if (useFilesystem) {
-      for (const name of [key, ...aliases]) {
+      for (const name of aliases) {
         const text = await probeMirror(name);
         if (text !== null) {
           if (name !== key) datSubstitutions.set(key, name);
