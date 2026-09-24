@@ -304,7 +304,7 @@ describe('figure systems: faces and hair through the compiler', () => {
     // A head named by its BrickLink print (no library ships it) draws the plain
     // mould; with art seeded under that name it gets the art, not the default face.
     const { seedFaceArt, clearFaceArt } = await import('../web/src/engine/head-face.js');
-    const named = [...body, at('3626cpb3484', 78, 0, -24, 0)];
+    const named = [...body, { ...at('3626c', 78, 0, -24, 0), headPrint: '3626pb3484' }];
     const before = await compileLdrawEntityGeometry('fig', 'figure', named, { partGeometry: provider(), quality: { studFacets: 1 } });
     expect(before.diagnostics.defaultFaces).toBe(1);
     seedFaceArt([['3626cpb3484', { width: 1, height: 1, rgba: new Uint8Array([10, 20, 30, 255]) }]]);

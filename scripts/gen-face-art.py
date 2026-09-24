@@ -3,10 +3,9 @@
 Face ART for heads no LDraw library prints: a decal PNG per head, cut from the
 BrickLink catalogue photo of that exact print.
 
-A converted source names such a head by its BrickLink print id in Studio's
-BL-copy form (`3626cpb3484.dat`, written by the converters from
-`ldd-print-map.json`'s `n:` rows). Every renderer draws that name as the plain
-`3626c`; with this art seeded (`bun scripts/_playable_ref.ts … --faces=<dir>`)
+A converted source keeps such a head as the plain mould and names its print on
+the line before it, `0 !CRAFTMATIC HEAD_PRINT 3626pb3484` (written by the
+converters from `ldd-print-map.json`'s `n:` rows). With this art seeded (`bun scripts/_playable_ref.ts … --faces=<dir>`)
 the Bedrock compiler puts the real face on the head as a texture
 (`web/src/engine/head-face.ts`).
 
@@ -30,7 +29,8 @@ BrickLink's catalogue images, so the art is for local builds and is not
 redistributed by this repo. Nothing in the web app fetches it.
 
 Usage: python scripts/gen-face-art.py <out-dir> <model.ldr|.mpd>... [--sleep 1.0]
-       (reads every `3626cpb<N>.dat` head the models place)
+       (reads every HEAD_PRINT id, and the older `3626cpb<N>.dat` names)
+Writes `<dir>/3626pb<N>.png` (face art is keyed by print id).
 """
 import json
 import re
@@ -44,7 +44,8 @@ from PIL import Image
 
 CLEGO = Path('C:/') / 'git' / 'clego'
 STUDIO_DATA = [CLEGO / 'extracted' / e / 'app' / 'data' for e in ('studio_earlyaccess', 'studio_release')]
-HEAD_NAME = re.compile(r'\b(3626cpb(\d+))\.dat\b', re.I)
+# The HEAD_PRINT meta line, and the older identity part name (still accepted).
+HEAD_NAME = re.compile(r'^0\s+!CRAFTMATIC\s+HEAD_PRINT\s+3626[bc]?pb(\d+)\b|\b3626cpb(\d+)\.dat\b', re.I | re.M)
 ART_WIDTH = 128
 
 
@@ -170,7 +171,7 @@ def main(argv: list[str]) -> int:
     heads: set[str] = set()
     for model in args[1:]:
         for m in HEAD_NAME.finditer(Path(model).read_text(encoding='latin-1')):
-            heads.add(m.group(2))
+            heads.add(m.group(1) or m.group(2))
     colours = bl_colours()
     made = missing = 0
     for n in sorted(heads, key=int):
@@ -186,7 +187,7 @@ def main(argv: list[str]) -> int:
             print(f'{bl}: no head found in the photo')
             missing += 1
             continue
-        art.save(out / f'3626cpb{n}.png')
+        art.save(out / f'3626pb{n}.png')
         made += 1
         print(f'{bl}: {art.size[0]}x{art.size[1]}')
     print(f'{made} face art written to {out}, {missing} without')

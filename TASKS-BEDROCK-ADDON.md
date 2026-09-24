@@ -99,8 +99,11 @@ with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
 - [ ] 16 goblets + loose-parts bag in front of 76417 (sub-build explode 369).
 - [ ] 18838 / 40066 identity-row overrides are vote-backed only.
 - [ ] Faces, publication: 1,197 regenerated DbixConvV3 files (1,196 head-patched + 76417) in
-  `output/faces-0924/publish/DbixConvV3/`, listed with sha256/12 in
-  `output/faces-0924/PUBLISH.md` - the user publishes them.
+  `output/faces-0924/publish2/DbixConvV3/`, listed with sha256/12 and the
+  geograde A/B in `output/faces-0924/PUBLISH2.md` - the user publishes them.
+  (`publish/` is SUPERSEDED: it named identity heads `3626cpb<N>.dat`, which
+  geograde counts as missing; publish2 keeps the plain mould + a
+  `0 !CRAFTMATIC HEAD_PRINT` line.)
 - [ ] Faces, device: the decal (per-face UV, `entity_alphatest`, 4 texels/LDU) is
   unverified on Bedrock - check orientation (goblin wrinkles, 92198p27's lopsided
   smile) and that the alpha test cuts the skin out. Packs:

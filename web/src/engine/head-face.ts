@@ -13,9 +13,10 @@
  *
  * Two sources fill the same slot:
  *   - a printed LDraw head (`rasterizeHeadFace`): exact artwork, offline, CC BY;
- *   - face ART seeded by the caller (`seedFaceArt`), keyed by the head's part
- *     name (`3626cpb3484`, the BrickLink print id `ldd-print-map.json` names a
- *     head with no LDraw print by). Nothing seeds it in the browser; an offline
+ *   - face ART seeded by the caller (`seedFaceArt`), keyed by the head's
+ *     BrickLink print id (`3626pb3484`), which a converted source carries as
+ *     `0 !CRAFTMATIC HEAD_PRINT <id>` before the plain head
+ *     (`ParsedBrick.headPrint`). Nothing seeds it in the browser; an offline
  *     build can (`scripts/_playable_ref.ts --faces=<dir>`), which is how a head
  *     no library draws still gets its own face. See docs/bedrock-addon-guide.md.
  *
@@ -160,7 +161,7 @@ export function rasterizeHeadFace(mesh: LdrawPartMesh): FaceImage | null {
 
 const faceArt = new Map<string, FaceArt>();
 
-/** Register face art by head part name (`3626cpb3484`; case and `.dat` ignored). */
+/** Register face art by print id (`3626pb3484`; `3626cpb3484`, `.dat` and case are the same key). */
 export function seedFaceArt(entries: Iterable<[string, FaceArt]>): number {
   let n = 0;
   for (const [part, art] of entries) {
@@ -174,14 +175,23 @@ export function seedFaceArt(entries: Iterable<[string, FaceArt]>): number {
 /** Drop every seeded face (tests). */
 export function clearFaceArt(): void { faceArt.clear(); }
 
-const faceKey = (part: string): string => part.toLowerCase().replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.dat$/, '');
+/**
+ * One key per print: BrickLink numbers a head print once across moulds, so
+ * `3626pb3484`, `3626cpb3484(.dat)` and `3626bpb3484` are the same face.
+ */
+export const faceKey = (part: string): string => {
+  const stem = part.toLowerCase().replace(/\\/g, '/').replace(/^.*\//, '').replace(/\.dat$/, '');
+  const m = /^(?:3626[bc]?|28621)(pb?)([0-9a-z]+)$/.exec(stem);
+  return m ? `3626${m[1]}${m[2]}` : stem;
+};
 
 /**
- * Face art for this head part, resampled onto the head's body rectangle at
- * `FACE_PX_PER_LDU`; null when none was seeded.
+ * Face art for this head, by its print id (`headPrint`) and else by its part
+ * name (the 2026-09-24 identity names, `3626cpb3484.dat`), resampled onto the
+ * head's body rectangle at `FACE_PX_PER_LDU`; null when none was seeded.
  */
-export function faceArtImage(part: string, mesh: LdrawPartMesh): FaceImage | null {
-  const art = faceArt.get(faceKey(part));
+export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: string): FaceImage | null {
+  const art = (headPrint ? faceArt.get(faceKey(headPrint)) : undefined) ?? faceArt.get(faceKey(part));
   if (!art) return null;
   const rect = headBodyRect(mesh);
   const width = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));

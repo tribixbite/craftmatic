@@ -73,7 +73,7 @@ export const UNPREFIXED_METAS: ReadonlySet<string> = new Set([
  */
 export const NAMESPACED: ReadonlySet<string> = new Set([
   'MLCAD', '!LDCAD', '!LPUB', 'LPUB', 'SYNTH', '!TEXMAP', 'BFC', 'BUFEXCHG',
-  '!DATA', 'PLIST', '!LEOCAD', '!BRICKSTORE',
+  '!DATA', 'PLIST', '!LEOCAD', '!BRICKSTORE', '!CRAFTMATIC',
 ]);
 
 /** Shorthand for the table below. */
@@ -230,6 +230,7 @@ export const LDRAW_DIRECTIVES: Readonly<Record<string, DirectiveSpec>> = {
   '!WINDOW_ASSEMBLE': d('metadata', false, 'craftmatic/clego: window assembly stamp'),
   '!ORIGIN_FIX': d('metadata', false, 'craftmatic/clego: origin correction stamp'),
   '!EMBEDDED_PRESERVED': d('metadata', false, 'craftmatic/clego: embedded geometry preserved verbatim'),
+  '!CRAFTMATIC HEAD_PRINT': d('colour', true, 'craftmatic/clego: the BrickLink print id (`3626pb3484`) of the PLAIN head on the next type-1 line - a decorated LXFML head no LDraw library prints. The part stays drawable by any reader; the parser attaches the id (`ParsedBrick.headPrint`) and the Bedrock compiler keys face art on it (2026-09-24)'),
 };
 
 /**

@@ -143,6 +143,8 @@ for (const [id, count] of [...stickers].sort((a, b) => a[0].localeCompare(b[0]))
 for (const b of bricks) {
   const r = b.rot ?? [1, 0, 0, 0, 1, 0, 0, 0, 1];
   const n = (v: number): string => (Math.abs(v) < 1e-9 ? '0' : String(Number(v.toFixed(4))));
+  // A plain head with a known print: the id rides on a meta line right before it.
+  if (b.headPrint) lines.push(`0 !CRAFTMATIC HEAD_PRINT ${b.headPrint}`);
   lines.push(`1 ${b.color} ${n(b.x)} ${n(b.y)} ${n(b.z)} ${r.map(n).join(' ')} ${b.part}`);
 }
 const text = lines.join('\n') + '\n';

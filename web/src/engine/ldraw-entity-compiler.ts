@@ -778,10 +778,10 @@ interface TexturedHeadFace {
  * decal draws that print sharper - while a back print (a dual-sided head's
  * second face) keeps its cuboids.
  */
-function texturedHeadFace(part: string, mesh: LdrawPartMesh, proto: CompiledPartPrototype, frame: Mat3): TexturedHeadFace | null {
+function texturedHeadFace(part: string, mesh: LdrawPartMesh, proto: CompiledPartPrototype, frame: Mat3, headPrint?: string): TexturedHeadFace | null {
   if (!proto.cuboids.length) return null;
   const printed = rasterizeHeadFace(mesh);
-  const image: FaceImage | null = printed ?? faceArtImage(part, mesh);
+  const image: FaceImage | null = printed ?? faceArtImage(part, mesh, headPrint);
   if (!image) return null;
   const dir = (v: Vec3): Vec3 => apply(frame, v);
   const oriented = orientFace(image, dir([0, 0, -1]), dir([1, 0, 0]), dir([0, 1, 0]));
@@ -1973,7 +1973,7 @@ export async function compileLdrawEntityGeometry(
         const face = faceTexturesOn && isHeadPart(b.part, mesh.description)
           // A rotated part's cuboids are authored unrotated in its own bone,
           // so its face looks out along A·(−Z); an aligned one along A·R·(−Z).
-          ? texturedHeadFace(b.part, mesh, proto, aligned ? mul(A, R) : A)
+          ? texturedHeadFace(b.part, mesh, proto, aligned ? mul(A, R) : A, b.headPrint)
           : null;
         if (face) {
           proto = face.proto;

@@ -77,7 +77,10 @@ describe('head-face: face art', () => {
   afterEach(() => clearFaceArt());
   it('maps seeded art onto the head body by part name, ink opaque and the rest transparent', () => {
     const art = { width: 2, height: 1, rgba: new Uint8Array([200, 0, 0, 255, 0, 0, 0, 0]) };
-    expect(seedFaceArt([['3626cpb3484.dat', art]])).toBe(1);
+    expect(seedFaceArt([['3626pb3484', art]])).toBe(1);
+    // By the HEAD_PRINT id on a plain head, and by the older identity part name.
+    expect(faceArtImage('3626c.dat', headMesh(), '3626pb3484')).not.toBeNull();
+    expect(faceArtImage('3626c.dat', headMesh())).toBeNull();
     const img = faceArtImage('3626CPB3484', headMesh())!;
     expect(img.width).toBe(104);
     expect(texel(img, 10, 10)).toEqual([200, 0, 0, 255]);
@@ -134,7 +137,7 @@ const PRINTS: LxfPrintTable = validateTable({
   'e:6405179': '3626cp1t.dat',
   'd:1022396': '3626cp1t.dat',
   'e:6416668': '92198p18.dat',
-  'n:6454427': '3626cpb3484.dat',
+  'n:6454427': '3626pb3484',
   'e:9999999': '92198p18.dat',
   bogus: 12,
 }, 'test', validatePrintRow) as LxfPrintTable;
@@ -159,7 +162,7 @@ describe('printed heads from the LXFML element and decoration ids', () => {
   it('resolves by element, then decoration, then identity, and never across figure systems', () => {
     expect(printedHeadFor(rec('3626', ['6405179'], '1022396'), PRINTS)).toEqual({ file: '3626cp1t.dat', kind: 'print' });
     expect(printedHeadFor(rec('3626', ['0000000'], '1022396'), PRINTS)).toEqual({ file: '3626cp1t.dat', kind: 'print' });
-    expect(printedHeadFor(rec('3626', ['6454427'], '1029859'), PRINTS)).toEqual({ file: '3626cpb3484.dat', kind: 'identity' });
+    expect(printedHeadFor(rec('3626', ['6454427'], '1029859'), PRINTS)).toEqual({ kind: 'identity', printId: '3626pb3484' });
     expect(printedHeadFor(rec('28650', ['6416668'], '1023541'), PRINTS)).toEqual({ file: '92198p18.dat', kind: 'print' });
     // A doll print on a minifig head is refused.
     expect(printedHeadFor(rec('3626', ['9999999'], '1'), PRINTS)).toBeNull();
@@ -171,7 +174,9 @@ describe('printed heads from the LXFML element and decoration ids', () => {
     const recs = [rec('3626', ['6405179'], '1022396'), rec('3626', ['6454427'], '1029859'), rec('3626', ['1234567'], '42'), rec('3626', ['6405179'])];
     const plain = buildLxfPlacements(recs, HEAD_ROW, NO_MEASURED).bricks;
     const { bricks, diagnostics: d } = buildLxfPlacements(recs, HEAD_ROW, NO_MEASURED, { printMap: PRINTS });
-    expect(bricks.map(b => b.part)).toEqual(['3626cp1t.dat', '3626cpb3484.dat', '3626c.dat', '3626c.dat']);
+    // The identity head stays the PLAIN mould; its print id rides beside it.
+    expect(bricks.map(b => b.part)).toEqual(['3626cp1t.dat', '3626c.dat', '3626c.dat', '3626c.dat']);
+    expect(bricks.map(b => b.headPrint)).toEqual([undefined, '3626pb3484', undefined, undefined]);
     bricks.forEach((b, i) => { expect([b.x, b.y, b.z]).toEqual([plain[i]!.x, plain[i]!.y, plain[i]!.z]); });
     expect(d.printedHeads).toBe(1);
     expect(d.unresolvedHeadPrints).toBe(2); // the identity-only head and the unknown one; an UNdecorated head is plain, not unresolved

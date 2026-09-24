@@ -37,6 +37,14 @@ export interface ParsedBrick {
   /** Part filename, e.g. "3001.dat" */
   part: string;
   /**
+   * The print a PLAIN head carries, from a `0 !CRAFTMATIC HEAD_PRINT <id>`
+   * line immediately before it (the head's BrickLink print id, `3626pb3484`).
+   * The converters write it for a decorated head no LDraw library prints: the
+   * part stays the plain mould every reader can draw, and face art keys on
+   * this id (`head-face.ts`).
+   */
+  headPrint?: string;
+  /**
    * Assembly step number (1-based) from LDraw STEP meta-commands.
    * Step 1 = bricks before the first STEP marker.
    * Undefined for parsers that don't emit step info.
@@ -390,6 +398,8 @@ function expandSection(
   // that only a nested function assigns, so the flush below would be typed
   // against the initial `null`.
   const texmap: { pending: string[] | null; hasFallback: boolean } = { pending: null, hasFallback: false };
+  /** A `0 !CRAFTMATIC HEAD_PRINT` id waiting for the next type-1 line. */
+  let pendingHeadPrint: string | null = null;
 
   for (const line of lines) {
     if (!line) continue;
@@ -455,6 +465,10 @@ function expandSection(
       return;
     }
 
+    // `0 !CRAFTMATIC HEAD_PRINT <id>`: the print of the NEXT type-1 line (a plain head).
+    const headPrint = /^0\s+!CRAFTMATIC\s+HEAD_PRINT\s+(\S+)/i.exec(line);
+    if (headPrint) { pendingHeadPrint = headPrint[1]!.toLowerCase(); return; }
+
     // `0 GHOST <type-1 line>` is a part MLCad draws faded. It is in the model.
     const ghost = /^0\s+GHOST\s+(1\s+.*)$/i.exec(line);
     if (ghost) { place(ghost[1]!); return; }
@@ -475,6 +489,9 @@ function expandSection(
   /** Place one type-1 sub-file reference. */
   function place(line: string): void {
     const tokens = line.split(/\s+/);
+    // A HEAD_PRINT belongs to the very next reference, whatever it turns out to be.
+    const headPrint = pendingHeadPrint;
+    pendingHeadPrint = null;
     if (tokens.length < 15 || tokens[0] !== '1') return;
 
     const rawColor = parseLDrawColor(tokens[1]);
@@ -543,6 +560,7 @@ function expandSection(
       output.push({
         color, x: wx, y: wy, z: wz, rot: childRot, part: basename,
         step: stepRef.step, sourcePath: [...sourcePath],
+        ...(headPrint ? { headPrint } : {}),
       });
     }
   }

@@ -41,11 +41,11 @@ cannot move the head.
 Output (flat, one row per key, so `validateTable` in lxf-parser.ts reads it
 like the other LDD tables):
   { "e:<elementId>": "<printed>.dat", "d:<decorationId>": "<printed>.dat",
-    "n:<elementId>": "3626cpb<N>.dat" }
-`n:` rows name a minifig head that has NO LDraw print by its BrickLink print
-id, in Studio's BL-copy form. Nothing ships that file, so it draws as plain
-`3626c` (the alias ladder strips `pb<N>`); the name carries the head's identity
-into the `.ldr` for a face-image source to key on.
+    "n:<elementId>": "3626pb<N>" }
+`n:` rows give a minifig head that has NO LDraw print its BrickLink print id.
+The converters keep the PLAIN mould (drawable by every reader and by clego's
+grader) and write the id on a `0 !CRAFTMATIC HEAD_PRINT <id>` line before it;
+face art keys on it (`head-face.ts`, `gen-face-art.py`).
 
 Usage: python scripts/gen-ldd-print-map.py [--corpus-cache bricks.json]
   --corpus-cache: the per-brick extract of the DBIX LXFML corpus
@@ -245,20 +245,14 @@ def main() -> int:
         if hit:
             rows[f'e:{el}'] = f'{hit}.dat'
             continue
-        # No LDraw print: keep the head's IDENTITY as Studio's BrickLink-copy
-        # name (`3626cpb3484.dat`). No library ships it today, so every reader
-        # strips the print suffix and draws plain `3626c` exactly as before
-        # (`partAliasCandidates`), but the source now says which print the head
-        # is, which a face-image source (route 2) keys on. Refused when a file of
-        # that name exists but is framed differently (Studio's `3626cpb2305` sits
-        # 24 LDU off): a reader would then load it, misplaced.
+        # No LDraw print: record the head's BrickLink print id. The converters
+        # keep the PLAIN mould and carry this id on a `0 !CRAFTMATIC HEAD_PRINT`
+        # line, so the file stays drawable by every reader (and clego's grader)
+        # while saying which face it has.
         for bl in sorted(el_bl.get(el, ())):
             m = re.match(r'^3626[bc]?pb(\d+)$', bl.lower())
             if m:
-                name = f'3626cpb{m.group(1)}'
-                if name in _lib_of and name not in framed:
-                    continue
-                rows[f'n:{el}'] = f'{name}.dat'
+                rows[f'n:{el}'] = f'3626pb{m.group(1)}'
                 via['name'] += 1
                 break
     print(f'element rows: {sum(1 for k in rows if k.startswith("e:"))} printed, '

@@ -316,22 +316,22 @@ export function decorationIdOf(briefId: string | null | undefined, partDecoratio
   return (partDecoration ?? '').split(',')[0]!.split('_')[0]!.trim();
 }
 
-/** True when `v` is a print-table row: a `.dat` file name. */
+/** True when `v` is a print-table row: a `.dat` file name (`e:`/`d:`) or a bare print id (`n:`). */
 export function validatePrintRow(v: unknown): v is string {
-  return typeof v === 'string' && /^[0-9a-z]+\.dat$/i.test(v);
+  return typeof v === 'string' && /^[0-9a-z]+(\.dat)?$/i.test(v);
 }
 
-/** What `printedHeadFor` found: a real printed part, or only the print's name. */
-export interface PrintedHead {
-  file: string;
+/** What `printedHeadFor` found: a real printed part, or only the print's id. */
+export type PrintedHead =
+  /** An LDraw file draws this exact print: place it instead of the plain mould. */
+  | { kind: 'print'; file: string }
   /**
-   * `print`: an LDraw file draws this exact print. `identity`: no library has
-   * it; `file` is the head's BrickLink print id in Studio's BL-copy form
-   * (`3626cpb3484.dat`), which every reader draws as plain `3626c` through
-   * the alias ladder while the source keeps saying which head it is.
+   * No library prints it. The head STAYS the plain mould (every reader, and
+   * clego's grader, can draw it); `printId` is its BrickLink print id
+   * (`3626pb3484`), carried as `ParsedBrick.headPrint` and written to an
+   * `.ldr` as `0 !CRAFTMATIC HEAD_PRINT <id>` before the head.
    */
-  kind: 'print' | 'identity';
-}
+  | { kind: 'identity'; printId: string };
 
 /**
  * The printed LDraw head a head record really is, or null. The element id is
@@ -348,10 +348,12 @@ export function printedHeadFor(rec: LxfPartRecord, printMap: LxfPrintTable | und
     ...(rec.elementIds ?? []).map(e => printMap.entries[`e:${e}`]),
     rec.decorationId ? printMap.entries[`d:${rec.decorationId}`] : undefined,
   ];
-  for (const file of prints) if (file && system(file) === kind) return { file, kind: 'print' };
+  for (const file of prints) if (file && /\.dat$/i.test(file) && system(file) === kind) return { file, kind: 'print' };
+  // Identity rows name minifig prints only (BrickLink gives a doll head no mould prefix).
+  if (kind !== 'minifig') return null;
   for (const e of rec.elementIds ?? []) {
-    const file = printMap.entries[`n:${e}`];
-    if (file && system(file) === kind) return { file, kind: 'identity' };
+    const id = printMap.entries[`n:${e}`];
+    if (id) return { kind: 'identity', printId: id.toLowerCase().replace(/\.dat$/, '').replace(/^(?:3626[bc]?|28621)(pb?)/, '3626$1') };
   }
   return null;
 }
@@ -907,13 +909,16 @@ export function buildLxfPlacements(
     // every accepted print is framed exactly like its base mould (checked by
     // the generator), so the placement the design's own row produced stands,
     // and the mini-doll correction below still finds `92198` behind `92198p18`.
-    // A head with no LDraw print keeps its identity as a BrickLink-style name
-    // that still draws as the plain mould.
+    // A head with no LDraw print stays the plain mould and carries its print
+    // id beside it (`headPrint`), never in the part name.
+    let headPrint: string | undefined;
     if (HEAD_DESIGNS[rec.designID] && rec.decorationId) {
       const printed = printedHeadFor(rec, options.printMap);
-      if (printed) part = printed.file;
-      if (printed?.kind === 'print') printedHeads++;
-      else if (options.printMap?.state === 'ok') unresolvedHeadPrints++;
+      if (printed?.kind === 'print') { part = printed.file; printedHeads++; }
+      else {
+        if (printed?.kind === 'identity') headPrint = printed.printId;
+        if (options.printMap?.state === 'ok') unresolvedHeadPrints++;
+      }
     }
 
     // THE THIRD CASE: a mini-doll mould, which neither table corrects. The
@@ -961,6 +966,7 @@ export function buildLxfPlacements(
     bricks.push({
       color: firstColour, rot: placement.rot,
       x: placement.x, y: placement.y, z: placement.z, part: patterned ?? part,
+      ...(headPrint ? { headPrint } : {}),
     });
   }
 
