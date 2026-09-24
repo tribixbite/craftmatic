@@ -33,7 +33,7 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 Built with `bun scripts/_playable_ref.ts <source> <out> --label=...` from a
 `git worktree` of the commit named, so the pack name carries a clean stamp.
 Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
-(built at `85de0f40`; sent to the user). Expect:
+(built at `5b2effab`; sent to the user). Expect:
 - **42703 Mermaid Roller Coaster Ride** — 3 own cars on a closed 82.6-block
   circuit (220.3 studs), second train in the bay, no lift. The four
   mini-dolls stay in the shell (mini-dolls are not rigged).
@@ -41,8 +41,10 @@ Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
   LXFML's own `<Explode>` frames); one cart shuttles the 58-block vault rail
   (open at both ends by design), 12 figures, 4 doors. The dragon (215 parts)
   stands beside the bank, not on it: its move does not seat and is refused.
-  Five goblins show a box for their hair — mould `68498` exists in no LDraw
-  library.
+  The five goblins wear their hair: `68498` is curated onto LDraw `93230`
+  (the user found the base mould), and the second material picks the ears
+  (`93230p04`, or hair + ears subparts for an unlisted colour, as 40893's
+  olive ears). Both files republished 2026-09-24.
 - **11374 Arcade Pinball Machine** — playable. Sit at the invisible console in
   front ("Play pinball"). Left/right strafe = flippers, forward = both, hold
   Jump to charge the plunger, release to launch, sneak to leave. **Device
