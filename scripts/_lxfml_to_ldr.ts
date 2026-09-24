@@ -18,7 +18,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { inflateRawSync } from 'node:zlib';
 import {
-  applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics,
+  applyMeasuredBound, buildLxfPlacements, describeLxfDiagnostics, parseLxfMaterials,
   validatePartAlign, validateMeasuredAlign, validateTable,
   type LxfPartRecord, type LxfAlignmentTable, type LxfMeasuredTable,
 } from '../web/src/engine/lxf-parser.js';
@@ -105,6 +105,7 @@ function readRecords(path: string): LxfPartRecord[] {
       out.push({
         designID: (attr(head, 'designID') ?? brickDesign ?? '3001').split(';')[0]!.trim(),
         materialId: parseInt((attr(head, 'materials') ?? '').split(',')[0]!, 10) || 194,
+        materialIds: parseLxfMaterials(attr(head, 'materials')),
         transformation: attr(bones[0]?.[1] ?? '', 'transformation') ?? '',
         boneCount: bones.length,
       });
@@ -121,7 +122,7 @@ const lines = [
   `0 ${stem}`,
   `0 Name: ${stem}.ldr`,
   '0 Author: craftmatic scripts/_lxfml_to_ldr.ts',
-  '0 !LINEAGE lxfml-direct: built from the LXFML by this repo's own placement code',
+  "0 !LINEAGE lxfml-direct: built from the LXFML by this repo's own placement code",
 ];
 for (const [id, count] of [...stickers].sort((a, b) => a[0].localeCompare(b[0]))) {
   lines.push(`0 // sticker element ${id} x${count}: no LDraw mould, not placed`);

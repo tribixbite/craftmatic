@@ -440,3 +440,33 @@ describe('shipped part map includes the lxfv56-only rows', () => {
     expect(table[id]?.[0]).toBe(file);
   });
 });
+
+// ── Dual-moulded parts: the second material picks a pattern or splits shells ──
+// 68498 (goblin/elf hair with moulded ears) is curated onto LDraw 93230, whose
+// ears are a subpart. 76417's goblins (LDD 283 light nougat ears) get
+// 93230p04; 40893's goblin has olive green ears (LDD 330), which no pattern
+// carries, so the hair and ears are placed as subparts in their own colours.
+describe('dual-material parts', () => {
+  const shipped = validateTable(
+    JSON.parse(readFileSync(join(__dirname, '..', 'web', 'public', 'ldd-part-map.json'), 'utf8')),
+    'ldd-part-map.json', validatePartAlign,
+  ) as LxfAlignmentTable;
+  const identity = '1,0,0,0,1,0,0,0,1,0,0,0';
+  const place = (materialIds: number[]) => buildLxfPlacements(
+    [{ designID: '68498', materialId: materialIds[0]!, materialIds, transformation: identity, boneCount: 1 }],
+    shipped, NO_MEASURED,
+  );
+  it('light nougat ears -> the 93230p04 pattern in the hair colour', () => {
+    const { bricks, diagnostics } = place([199, 283]);
+    expect(bricks.map(b => b.part)).toEqual(['93230p04.dat']);
+    expect(diagnostics.dualMaterialPatterned).toBe(1);
+  });
+  it('olive green ears -> hair and ears subparts, each in its own colour', () => {
+    const { bricks, diagnostics } = place([308, 330]);
+    expect(bricks.map(b => [b.part, b.color])).toEqual([['s/93230s01.dat', 308], ['s/93230s02.dat', 330]]);
+    expect(diagnostics.dualMaterialSplit).toBe(1);
+  });
+  it('one material -> the base mould', () => {
+    expect(place([199]).bricks.map(b => b.part)).toEqual(['93230.dat']);
+  });
+});

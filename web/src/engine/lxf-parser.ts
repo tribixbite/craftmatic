@@ -238,6 +238,10 @@ export interface LxfDiagnostics {
    * two exactly. An overlay on the counts above, like the mini-doll one.
    */
   classBReframed: number;
+  /** Placements drawn as a pattern file because of their second material (`DUAL_MATERIAL_PATTERNS`). */
+  dualMaterialPatterned?: number;
+  /** Placements split into their two shells' subparts (`DUAL_MATERIAL_SUBPARTS`). */
+  dualMaterialSplit?: number;
   /** placements with NEITHER: identity alignment + bare `designID.dat`. */
   unmappedPlacements: number;
   /** distinct unmapped design ids, most-used first (capped for readability). */
@@ -257,8 +261,44 @@ export interface LxfDiagnostics {
 export interface LxfPartRecord {
   designID: string;
   materialId: number;
+  /**
+   * Every material of `Part@materials`, in order (`"199:0,283:0"` -> 199, 283).
+   * A dual-moulded part lists one per shell; `DUAL_MATERIAL_PATTERNS` turns
+   * the second into the LDraw pattern file that carries that colour.
+   */
+  materialIds?: number[];
   transformation: string;
   boneCount: number;
+}
+
+/**
+ * LDraw moulds whose second shell LDraw draws as a PATTERN file, keyed by the
+ * LDraw colour of the part's SECOND material. LDraw has no two-colour part:
+ * `93230.dat` (Minifig Hair Swept Back with Pointed Ears) is the hair plus an
+ * ears subpart, both in the placement colour, and `93230p01`-`p05` bake the
+ * ears in yellow, reddish brown, green, light nougat and medium nougat. 76417's
+ * five goblins list hair + LDD 283 (light nougat, LDraw 78): `93230p04`.
+ * A second colour with no pattern keeps the base mould in the first colour.
+ */
+export const DUAL_MATERIAL_PATTERNS: Readonly<Record<string, Readonly<Record<number, string>>>> = {
+  '93230.dat': { 14: '93230p01.dat', 70: '93230p02.dat', 2: '93230p03.dat', 78: '93230p04.dat', 84: '93230p05.dat' },
+};
+
+/**
+ * The same moulds' two shells as LDraw SUBPARTS, first-material shell first.
+ * Used when the second colour has no pattern file: 40893's goblin wears dark
+ * brown hair with OLIVE GREEN ears (LDD 308 + 330), a colour no 93230 pattern
+ * carries, so the hair and ears are placed as their own subparts, each in its
+ * own colour, at the part's transform. Written `s/<file>`: the parser keeps
+ * the base name and the part library resolves it from the `s` folder.
+ */
+export const DUAL_MATERIAL_SUBPARTS: Readonly<Record<string, readonly [string, string]>> = {
+  '93230.dat': ['s/93230s01.dat', 's/93230s02.dat'],
+};
+
+/** Parse `Part@materials` into material ids (`"21:0,283:0"` -> [21, 283]). */
+export function parseLxfMaterials(attr: string | null | undefined): number[] {
+  return (attr ?? '').split(',').map(t => parseInt(t, 10)).filter(n => Number.isFinite(n));
 }
 
 /** True when `v` is a structurally valid `PartAlign` row. */
@@ -733,6 +773,8 @@ export function buildLxfPlacements(
   let miniDollPlacements = 0;
   let miniDollDeferredToTable = 0;
   let classBReframed = 0;
+  let dualMaterialPatterned = 0;
+  let dualMaterialSplit = 0;
 
   for (const rec of records) {
     if (rec.boneCount > 1) multiBoneParts++;
@@ -790,9 +832,24 @@ export function buildLxfPlacements(
     // differently, move to where the upstream mesh belongs (exact, §7a).
     const reframed = reframeClassB(part, placement.rot, placement.x, placement.y, placement.z);
     if (reframed) { placement = reframed; classBReframed++; }
+    // A dual-moulded part: its second shell is a pattern file when LDraw has
+    // one in that colour, else the two shells are placed as subparts.
+    const firstColour = lddToLDraw(rec.materialId);
+    const second = rec.materialIds?.[1];
+    const secondColour = second !== undefined ? lddToLDraw(second) : undefined;
+    const patterned = secondColour !== undefined ? DUAL_MATERIAL_PATTERNS[part]?.[secondColour] : undefined;
+    const shells = !patterned && secondColour !== undefined && secondColour !== firstColour ? DUAL_MATERIAL_SUBPARTS[part] : undefined;
+    if (patterned) dualMaterialPatterned++;
+    if (shells) {
+      dualMaterialSplit++;
+      for (const [k, shell] of shells.entries()) {
+        bricks.push({ color: k === 0 ? firstColour : secondColour!, rot: placement.rot, x: placement.x, y: placement.y, z: placement.z, part: shell });
+      }
+      continue;
+    }
     bricks.push({
-      color: lddToLDraw(rec.materialId), rot: placement.rot,
-      x: placement.x, y: placement.y, z: placement.z, part,
+      color: firstColour, rot: placement.rot,
+      x: placement.x, y: placement.y, z: placement.z, part: patterned ?? part,
     });
   }
 
@@ -816,6 +873,8 @@ export function buildLxfPlacements(
       miniDollPlacements,
       miniDollDeferredToTable,
       classBReframed,
+      dualMaterialPatterned,
+      dualMaterialSplit,
       unmappedPlacements,
       unmappedDesignIds: [...unmapped.entries()]
         .sort((a, b) => b[1] - a[1])
@@ -918,6 +977,7 @@ function readLxfParts(doc: Document): LxfPartRecord[] {
       out.push({
         designID: normalizeDesignId(partEl.getAttribute('designID')?.trim() || brickDesign),
         materialId: parseInt((partEl.getAttribute('materials') ?? '').split(',')[0], 10) || 194,
+        materialIds: parseLxfMaterials(partEl.getAttribute('materials')),
         // Each Part carries its own Bone(s); the first bone is its placement.
         // (Multiple bones = a flex part's segments — out of scope; first wins,
         // matching prior behaviour, and counted in the diagnostics.)

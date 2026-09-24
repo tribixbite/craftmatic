@@ -61,6 +61,18 @@ OUT = Path(r'C:\git\craftmatic\web\public\ldd-part-map.json')
 #          corners agree to 0.3 LDU, identity rotation, no other candidate
 #          under 96 LDU rms) and refined to the stud grid by the ten 80566
 #          joins of 42703, which land within 0.01 LDU on this row.
+# Design ids NEITHER Studio table names, mapped by hand onto the LDraw mould
+# they share, each with its evidence. Added only when neither table has a row.
+#
+#   68498  Minifig hair swept back with moulded goblin/elf ears (76417's five
+#          goblins). Brickset `design-68498` names base mould 26563, which
+#          library.ldraw.org files as the 93230 family (`93230p03.dat`);
+#          Studio maps LDD 93230 -> 93230.dat at identity. The ear colour
+#          picks the pattern file in lxf-parser.ts `DUAL_MATERIAL_PATTERNS`.
+CURATED_ROWS: dict[str, list] = {
+    '68498': ['93230.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+}
+
 BL_UPSTREAM_ROWS: dict[str, list] = {
     '80566': ['80566.dat', 9.2, -3.2, -0.4, 0.0, 1.0, 0.0, 0.0],
 }
@@ -194,6 +206,12 @@ def main():
 
     from_ldraw_xml = len(part_map)
     filled, skipped_measured, skipped_bl, skipped_missing = fill_from_lxfv56(part_map)
+    curated = 0
+    for lego, row in CURATED_ROWS.items():
+        if lego not in part_map:
+            part_map[lego] = list(row)
+            curated += 1
+    print(f'curated rows added: {curated}')
     print(f'ldraw.xml: {from_ldraw_xml} rows; ldraw_lxfv56.xml filled {filled} more '
           f'(skipped {skipped_measured} on the measured table, {skipped_bl} bl_* names, '
           f'{skipped_missing} files upstream lacks)')

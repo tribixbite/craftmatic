@@ -163,8 +163,12 @@ export function planPinball(
   const consoleLdu = ldu(front + 60, centreW, table.floorH);
   const consoleModel = toModel(consoleLdu);
   consoleModel[1] = 0; // on the pin plane, beside the machine
-  const cameraEyeModel = toModel(add(ldu(front + length * 0.35, centreW, table.floorH), scale([0, -1, 0], length * 0.75)));
-  const cameraLookModel = toModel(ldu(grid.u0 + length * 0.45, centreW, table.floorH));
+  // Steep enough to look down into the cabinet over its front wall: the walk
+  // preview measured the first framing (0.35 L out, 0.75 L up) grazing
+  // geometry near the look point. 0.15 L out and 1.1 L up clears it.
+  // TODO: device-check the framing on the phone; tune these two factors.
+  const cameraEyeModel = toModel(add(ldu(front + length * 0.15, centreW, table.floorH), scale([0, -1, 0], length * 1.1)));
+  const cameraLookModel = toModel(ldu(grid.u0 + length * 0.5, centreW, table.floorH));
   // The seat faces up the table (-U) in the world.
   const upTable = sub(toModel(ldu(front - 100, centreW, table.floorH)), toModel(ldu(front, centreW, table.floorH)));
   const consoleYaw = Math.round(Math.atan2(-upTable[0], upTable[2]) * 180 / Math.PI);
