@@ -456,7 +456,7 @@ export async function runSchemPipeline(
           // it stays the shell's exact LEGO geometry (DOOR_MAX_OFF_GRID_DEG).
           sceneDoors = scene.doors.filter(d => (d.offGridDeg ?? 0) <= DOOR_MAX_OFF_GRID_DEG);
           const skewed = scene.doors.filter(d => (d.offGridDeg ?? 0) > DOOR_MAX_OFF_GRID_DEG);
-          if (skewed.length) warnings.push(`${skewed.length} door leaf${skewed.length === 1 ? '' : 'ves'} stand${skewed.length === 1 ? 's' : ''} ${[...new Set(skewed.map(d => Math.round(d.offGridDeg ?? 0)))].join('/')} degrees off the block grid (${skewed.map(d => d.part).join(', ')}); a vanilla door can only stand square, so ${skewed.length === 1 ? 'it stays' : 'they stay'} exact LEGO geometry, closed.`);
+          if (skewed.length) warnings.push(`${skewed.length} door lea${skewed.length === 1 ? 'f' : 'ves'} stand${skewed.length === 1 ? 's' : ''} ${[...new Set(skewed.map(d => Math.round(d.offGridDeg ?? 0)))].join('/')} degrees off the block grid (${skewed.map(d => d.part).join(', ')}); a vanilla door can only stand square, so ${skewed.length === 1 ? 'it stays' : 'they stay'} exact LEGO geometry, closed.`);
           runtimeDoors = runtimeDoorCandidates(sceneDoors, frame);
           if (sceneDoors.length && !runtimeDoors.length) {
             interactionNote = 'A measured source door leaf remains under the two-block vanilla clearance even at 400%, so the wand will not claim a usable door.';
@@ -517,8 +517,8 @@ export async function runSchemPipeline(
         const d = applySceneDoors(grid, sceneDoors, sourceOrigin, hungDoors, doorClearedCells);
         for (const leaf of leafActors) leaf.hideAt100 = hungDoors.has(leaf.door);
         if (d.doors) warnings.push(`${d.doors} door${d.doors === 1 ? '' : 's'} hung in ${sceneDoors.length - d.skippedSmall - d.skippedOutside} doorway${sceneDoors.length - d.skippedSmall - d.skippedOutside === 1 ? '' : 's'} (leaf cells opened: ${d.leavesCleared}, passage cells opened: ${d.passageCleared}${d.unreachable ? `, ${d.unreachable} with no room within three blocks` : ''}).`);
-        if (d.skippedSmall) warnings.push(`${d.skippedSmall} door leaf${d.skippedSmall === 1 ? '' : 'ves'} under two blocks tall left as blocks.`);
-        if (d.skippedOutside) warnings.push(`${d.skippedOutside} door leaf${d.skippedOutside === 1 ? '' : 'ves'} fell outside the export bounds.`);
+        if (d.skippedSmall) warnings.push(`${d.skippedSmall} door lea${d.skippedSmall === 1 ? 'f' : 'ves'} under two blocks tall left as blocks.`);
+        if (d.skippedOutside) warnings.push(`${d.skippedOutside} door lea${d.skippedOutside === 1 ? 'f' : 'ves'} fell outside the export bounds.`);
       }
       if (sourceOrigin) for (const anchor of knownScreenAnchors(label)) {
         const [x, y, z] = sceneGridPoint(sourceOrigin, [anchor.ldraw[0], anchor.ldraw[1], anchor.ldraw[2]]);
