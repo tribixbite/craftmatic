@@ -288,7 +288,7 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
  * enters one zone within reach whatever the rider's pitch. No size groups:
  * it is sized to the player, not the model, and the runtime places it.
  */
-export const PINBALL_ZONE = { width: 1.9, height: 6, near: 0.45, below: 3.8 } as const;
+export const PINBALL_ZONE = { width: 3, height: 6, near: 0.45, below: 3.8, side: 0.1 } as const;
 export const PINBALL_BUTTON_FAMILY = 'craftmatic_pinball_button';
 /** The zone's texture: 2 x 2, every texel alpha 0 (playable-addon.ts writes it). */
 export const PINBALL_ZONE_TEXTURE = 'craftmatic_pinball_zone';
@@ -339,7 +339,8 @@ export interface PinballRuntimeConfig {
   /** The tap-zone entity the runtime spawns beside a seated player's head, and its family. */
   buttonType: string;
   buttonFamily: string;
-  zone: { width: number; height: number; near: number; below: number };
+  /** Zone box (blocks) and its placement; `side` shifts both zones to the rider's left (device run 7: +0.1 centred the split). */
+  zone: { width: number; height: number; near: number; below: number; side?: number };
   sim: PinballSimTable;
   map: PinballMap;
   ballH: number;
@@ -443,14 +444,15 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
    * starts is not documented, so the working placement is found on a device.
    * TODO: fold the measured placement into the defaults and drop the hook.
    */
-  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number; view: 'first' | 'free' } = { anchor: 'head', fwd: 0, side: 0, up: 0, near: config.zone.near, view: 'free' };
+  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number; view: 'first' | 'free' } = { anchor: 'head', fwd: 0, side: config.zone.side ?? 0, up: 0, near: config.zone.near, view: 'free' };
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
       if (ev.id !== 'craftmatic:pinball') return;
       let t: any = {};
       try { t = JSON.parse(ev.message || '{}'); } catch { return; }
       tune.anchor = t.anchor === 'eye' ? 'eye' : 'head';
-      for (const k of ['fwd', 'side', 'up'] as const) tune[k] = Number.isFinite(Number(t[k])) ? Number(t[k]) : 0;
+      for (const k of ['fwd', 'up'] as const) tune[k] = Number.isFinite(Number(t[k])) ? Number(t[k]) : 0;
+      tune.side = Number.isFinite(Number(t.side)) ? Number(t.side) : config.zone.side ?? 0;
       tune.near = Number.isFinite(Number(t.near)) ? Number(t.near) : config.zone.near;
       // A new view mode ("first" / "free") takes effect at the next seating.
       tune.view = t.view === 'first' ? 'first' : 'free';
@@ -548,6 +550,9 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       // Park the hotbar on the middle slot (the old one comes back on leaving).
       try { game.slot0 = rider.selectedSlotIndex; rider.selectedSlotIndex = PARK_SLOT; } catch {}
       try { rider.addTag(SEATED_TAG); } catch {}
+      // The seated player is drawn by the free camera, and every tap swung
+      // their arm across the lower right of the table (device run 7).
+      try { rider.addEffect('invisibility', 20 * 60 * 60, { showParticles: false }); } catch {}
       if (game.sim.state.phase === 'over') game.sim.reset();
     }
     // Standing up: camera back, the player down on the ground behind the pad
@@ -559,6 +564,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       try { p.inputPermissions.setPermissionCategory(1, true); } catch {} // InputPermissionCategory.Camera
       try { if (Number.isInteger(game.slot0)) p.selectedSlotIndex = game.slot0; } catch {}
       try { p.removeTag(SEATED_TAG); } catch {}
+      try { p.removeEffect('invisibility'); } catch {}
       try { p.onScreenDisplay.setActionBar(''); } catch {}
       try { p.addEffect('slow_falling', 60, { showParticles: false }); } catch {}
       try { p.teleport({ x: home.at.x - view.fwd.x * 1.6, y: home.at.y + 0.05, z: home.at.z - view.fwd.z * 1.6 }, { rotation: { x: 20, y: view.yaw }, keepVelocity: false, checkForBlocks: false }); } catch {}
@@ -665,6 +671,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         for (const pl of world.getPlayers({ tags: [SEATED_TAG] })) {
           if ([...games.values()].some(gm => gm.rider?.id === pl.id)) continue;
           try { pl.removeTag(SEATED_TAG); } catch {}
+          try { pl.removeEffect('invisibility'); } catch {}
           try { pl.inputPermissions.setPermissionCategory(1, true); } catch {}
           try { pl.camera.clear(); } catch {}
         }

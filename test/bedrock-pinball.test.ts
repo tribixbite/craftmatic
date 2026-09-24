@@ -89,6 +89,7 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     camera: { setCamera: vi.fn(), clear: vi.fn() },
     onScreenDisplay: { setActionBar: vi.fn() },
     addEffect: vi.fn(),
+    removeEffect: vi.fn(),
     teleport: vi.fn(),
   };
   let tick: () => void = () => {};
@@ -266,7 +267,10 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.player.inputPermissions.setPermissionCategory).toHaveBeenLastCalledWith(1, true);
     expect(h.player.selectedSlotIndex).toBe(0); // the slot the player had
     expect(h.player.tags.has('craftmatic_pinball')).toBe(false);
-    expect(h.player.addEffect.mock.calls[0]![0]).toBe('slow_falling');
+    expect(h.player.addEffect.mock.calls.some((c: unknown[]) => c[0] === 'slow_falling')).toBe(true);
+    // Invisible while seated (the free camera draws the player), visible again after.
+    expect(h.player.addEffect.mock.calls.some((c: unknown[]) => c[0] === 'invisibility')).toBe(true);
+    expect(h.player.removeEffect).toHaveBeenCalledWith('invisibility');
     const to = h.player.teleport.mock.calls[0]![0];
     expect(to.z).toBeCloseTo(h.home.z + 1.6, 6); // away from the table (+z)
     expect(h.spawned.every(e => e.removed)).toBe(true);
