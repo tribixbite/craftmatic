@@ -3,7 +3,7 @@
  * the serialised script evaluated with mocked `world` and `system`.
  */
 import { describe, it, expect, vi } from 'vitest';
-import { pinballScript, rotationBetween, flipperRig, type PinballRuntimeConfig } from '../web/src/engine/bedrock-pinball.js';
+import { buttonAssets, consoleAssets, pinballPropBehavior, pinballScript, rotationBetween, flipperRig, type PinballRuntimeConfig } from '../web/src/engine/bedrock-pinball.js';
 import type { PinballSimTable } from '../web/src/engine/pinball-physics.js';
 
 function boxSim(): PinballSimTable {
@@ -224,6 +224,18 @@ describe('pinball runtime (host simulation)', () => {
     h.spawned.push(stray);
     h.run(40);
     expect(stray.remove).toHaveBeenCalled();
+  });
+});
+
+describe('pinball entity definitions', () => {
+  it('declare no component format 1.26.30 dropped (the whole entity would fail to load)', () => {
+    // Device 2026-09-24: `minecraft:pushable` made the flippers, ball and tap
+    // zones "not a valid entity type"; the table never moved.
+    const defs = [pinballPropBehavior('craftmatic:p', { width: 0.5, height: 0.3 }), buttonAssets('craftmatic:z').behavior, consoleAssets('craftmatic:c').behavior];
+    for (const d of defs) {
+      const e = (d as any)['minecraft:entity'];
+      for (const comps of [e.components, ...Object.values(e.component_groups ?? {})]) expect(comps).not.toHaveProperty(['minecraft:pushable']);
+    }
   });
 });
 

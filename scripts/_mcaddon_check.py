@@ -25,6 +25,8 @@ import sys
 import zipfile
 from pathlib import Path
 
+# Entity components Bedrock's current format rejects (see check()).
+DROPPED_COMPONENTS = ('minecraft:pushable',)
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
 
 def check(path):
@@ -76,6 +78,15 @@ def check(path):
         n_server += 1
         if not ident_ok.match(ident):
             problems.append(f'{n}: Bedrock rejects the identifier {ident!r}')
+        # Components format 1.26.30 no longer has: the WHOLE entity then fails
+        # to parse and every spawn reports "not a valid entity type". Pinball's
+        # flippers, ball and tap zones shipped twice with `minecraft:pushable`
+        # and nothing on the table moved (device 2026-09-24).
+        ent = d.get('minecraft:entity') or {}
+        for where, comps in [('components', ent.get('components') or {})] + [(f'group {g}', c) for g, c in (ent.get('component_groups') or {}).items()]:
+            for dropped in DROPPED_COMPONENTS:
+                if dropped in comps:
+                    problems.append(f'{n}: {where} uses {dropped!r}, which format 1.26.30 dropped (the entity fails to load)')
     notes.append(f'{n_server} server entities')
     # geometries the pack defines
     geo_ids = set()

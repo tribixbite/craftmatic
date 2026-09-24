@@ -206,7 +206,10 @@ export function pinballPropBehavior(typeId: string, collision: { width: number; 
       'minecraft:fire_immune': {},
       'minecraft:collision_box': collision,
       'minecraft:physics': { has_gravity: false, has_collision: false },
-      'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: false },
+      // NOT `minecraft:pushable`: format 1.26.30 dropped it and the WHOLE entity
+      // then fails to load (device 2026-09-24: flippers, ball and tap zones were
+      // "not a valid entity type", so nothing on the table ever moved).
+      'minecraft:pushable_by_block': {},
     },
   } }, collision);
 }
@@ -301,7 +304,7 @@ export function buttonAssets(typeId: string): { behavior: unknown; client: unkno
         'minecraft:fire_immune': {},
         'minecraft:collision_box': { width: PINBALL_ZONE.width, height: PINBALL_ZONE.height },
         'minecraft:physics': { has_gravity: false, has_collision: false },
-        'minecraft:pushable': { is_pushable: false, is_pushable_by_piston: false },
+        'minecraft:pushable_by_block': {},
       },
     } },
     client: { format_version: '1.10.0', 'minecraft:client_entity': { description: {
