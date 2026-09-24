@@ -97,6 +97,15 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   directive to the table in the same change that meets it. `viaExpansion: true`
   means "described by a meta we ignore, but written out as ordinary geometry we
   read" — LSynth, LDCad flex, MLCad hoses — and is NOT a gap.
+- **Line endings are LF, enforced by `.gitattributes`, and the mixed-file trap
+  is CLOSED here.** The repo carried 252 CRLF and 14 mixed files until
+  2026-09-23; a mixed file turned any ordinary edit into a whole-file diff,
+  because the Edit tool, `sed -i` under MSYS and Python's `write_text` all
+  rewrite every line of one. `* text=auto eol=lf` normalises on add, so it
+  cannot recur whatever a machine's `core.autocrlf` says, and the Edit/Write
+  tools are now safe on every file in this repo. The renormalisation is
+  verifiable: `git diff --ignore-cr-at-eol` across it shows only
+  `.gitattributes` itself. Keep new files LF; do not reintroduce a CRLF file.
 - **Studio ships TWO LDraw mapping tables and the newer one is the real one.**
   `ldraw.xml` (4,390 design ids, Sep 2025) sits beside `ldraw_lxfv56.xml`
   (5,406 ids, Feb 2026, 1,007 found ONLY there), and the second is what Studio
