@@ -1,0 +1,293 @@
+/**
+ * The three figure systems on one rig (minifig, mini-doll, big-fig), the
+ * consensus re-anchor for a torso a converter left at a raw origin, the
+ * default face on a plain head, and headwear that carves the head instead of
+ * fighting it. The numbers are the ones measured on 76417 (Hagrid, the
+ * goblins) and 42703 (the mermaid dolls) on 2026-09-24.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  BIGFIG_BONES, MINIDOLL_BONES, assembleMinifig, classifyFigurePart, classifyMinifigPart, figureAnchor, figureSystemOfTorso,
+} from '../web/src/engine/minifig-rig.js';
+import { compileLdrawEntityGeometry, faceDecals, figureRole, groupFigures, isFigurePart, isTorso } from '../web/src/engine/ldraw-entity-compiler.js';
+import { discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.js';
+import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.js';
+import { compilePartPrototype, resolveEntityQuality } from '../web/src/engine/ldraw-part-prototype.js';
+import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
+import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
+
+// ─── A synthetic library: every mould a box at its real bounds, described as the library describes it ───
+
+const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, color = 16): string[] => {
+  const q = (a: number[], b: number[], c: number[], d: number[]): string => `4 ${color} ${[...a, ...b, ...c, ...d].join(' ')}`;
+  return [
+    q([x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]), q([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]),
+    q([x0, y0, z0], [x1, y0, z0], [x1, y1, z0], [x0, y1, z0]), q([x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]),
+    q([x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]), q([x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]),
+  ];
+};
+type B = [number, number, number, number, number, number];
+const part = (description: string, bounds: B, header = ''): string => [...(header ? [header] : []), `0 ${description}`, ...box6(...bounds)].join('\n');
+const LIBRARY: Record<string, string> = {
+  // Minifig.
+  '973': part('Minifig Torso', [-19, 19, -12, 32, -10, 10]),
+  '3626c': part('Minifig Head with Closed Hollow Stud', [-13, 13, 0, 24, -13, 13]),
+  // A printed head: the same box plus one explicit-colour quad on the front.
+  '3626cp01': [part('Minifig Head with Standard Grin Pattern', [-13, 13, 0, 24, -13, 13]), `4 0 -4 8 -13.01 4 8 -13.01 4 10 -13.01 -4 10 -13.01`].join('\n'),
+  '3815': part('Minifig Hips', [-18, 18, -11, 21, -10, 10]),
+  '3816': part('Minifig Leg Right', [-19.5, -1.5, -9, 28, -11, 9]),
+  '3817': part('Minifig Leg Left', [1.5, 19.5, -9, 28, -11, 9]),
+  '3818': part('Minifig Arm Right', [-10, 7, -6.5, 22.44, -13.44, 6.51]),
+  '3819': part('Minifig Arm Left', [-7, 10, -6.5, 22.44, -13.44, 6.51]),
+  '3820': part('Minifig Hand', [-6, 6, -7.65, 4.61, -15.52, 13]),
+  '3901': part('Minifig Hair Male', [-17, 17, -10, 8, -17, 17]),
+  '41879b': part('Minifig Hips and Legs Short with Hole', [-19, 19, -11, 24, -10, 10]),
+  // Mini-doll (LEGO Friends), Studio's private torso and the official rest.
+  '1006030': part('Figure Friends Girl Torso Dual Mould without Pattern', [-11, 11, -19.3, 17, -8.9, 6.4]),
+  '92241': part('Figure Friends Girl Torso without Pattern', [-11, 11, -19.3, 17, -8.9, 6.4]),
+  '92198': part('Figure Friends Head without Pattern', [-13, 13, 0, 26.5, -16, 10.2]),
+  '92244': part('Figure Friends Female Left Arm', [-10, 21, -4, 32.1, -4, 7.3]),
+  '92245': part('Figure Friends Female Right Arm', [-21, 10, -4, 32.1, -4, 7.3]),
+  '2758': part('Figure Friends Left Arm Stump', [-10, 12, -4, 20, -4, 7]),
+  '92248': part('Figure Friends Hips', [-10.4, 10.5, -20.4, 9.7, -7.6, 8.6]),
+  '16529': part('Figure Friends Legs Mermaid Tail', [-13.2, 34.2, -55.5, 0, -10.1, 11.1]),
+  '1015152': part('Figure Friends Hips with Thin Hinge', [-10.7, 10.7, -20.4, 9.3, -8.1, 8.6]),
+  '1022657': part('Figure Friends Legs with Shorts (Thin Hinge)', [-18.8, 18.8, -54.8, 0, -9.7, 13.7]),
+  '5828': part('Mini Doll, Hair, Long Full Curly, Parted on Left - 3 Internal Supports', [-22.3, 22.4, -12, 44.3, -29, 18.6]),
+  '90370': part('Minifig Microphone', [-7, 7, -12.8, 18, -7, 7]),
+  // Big-fig (Studio's files carry a `0 FILE` header before the description).
+  '37777': part('Torso Large, Long Coat with Molded Pockets with Broad Lapels', [-29, 29, -14, 71, -18, 22], '0 FILE 37777.dat'),
+  '37779': part('Arm Large with Pin, Left', [-20, 22, -9, 27, -9, 14], '0 FILE 37779.dat'),
+  '37783': part('Arm Large with Pin, Right', [-22, 20, -9, 27, -9, 14], '0 FILE 37783.dat'),
+  '37784': part('Minifigure, Hair Shaggy and Long with Beard', [-27, 27, -12, 39, -23, 23], '0 FILE 37784.dat'),
+  '27150': part('Minifig Umbrella Folded', [-4, 4, -44, 4, -4, 4]),
+  // The goblins' hair with its ears, Studio-private too.
+  '93230p04': part('Minifigure, Hair Swept Back with Pointed Light Nougat Ears Pattern', [-16.7, 16.6, -10, 22.5, -13.9, 21.2], '0 FILE 93230p04.dat'),
+  // A building brick, so a scene has a floor.
+  '3001': part('Brick  2 x  4', [-40, 40, -24, 0, -20, 20]),
+};
+const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '').replace(/\.dat$/i, '')] ?? null });
+const meshesFor = async (bricks: ParsedBrick[]): Promise<Map<string, LdrawPartMesh | null>> => {
+  const p = provider();
+  const m = new Map<string, LdrawPartMesh | null>();
+  for (const id of new Set(bricks.map(b => b.part))) m.set(id, await p.getPartMesh(id));
+  return m;
+};
+const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const at = (partId: string, color: number, x: number, y: number, z: number, rot = I): ParsedBrick => ({ part: partId, color, x, y, z, rot });
+const bySlot = (a: ReturnType<typeof assembleMinifig>, slot: string) => a.bricks.filter((_, i) => a.slots[i] === slot);
+const pos = (b: ParsedBrick): number[] => [b.x, b.y, b.z];
+
+/** 42703's first mermaid doll exactly as the converted source places it: the tail rides the hips. */
+const mermaid = (): ParsedBrick[] => [
+  at('1006030', 78, 550, -77, -26.1),
+  at('92244', 78, 561, -77, -26.1), at('92245', 78, 539, -77, -26.1),
+  at('92198', 78, 550, -110.2, -26.1),
+  at('92248', 10031, 550, -47.6, -25), at('16529', 10031, 550, -47.6, -25),
+  at('5828', 365, 550, -110.3, -29.1),
+  at('90370', 0, 524.1, -47.3, -30.1),
+];
+/** 76417's Hagrid as converted: the big torso 10 / −70.5 LDU from where its own arms, head and legs put it. */
+const hagrid = (): ParsedBrick[] => [
+  at('3626c', 78, 794.3, -113.6, -771.4), at('37784', 308, 794.3, -113.6, -771.4),
+  at('37779', 86, 813.9, -80.1, -771.4, [1, 0, 0, 0, 0.959, 0.2835, 0, -0.2835, 0.959]),
+  at('37783', 86, 774.7, -80.1, -771.4, [1, 0, 0, 0, 0.4651, 0.8853, 0, -0.8853, 0.4651]),
+  at('3820', 78, 758.3, -65.8, -791.4), at('3820', 78, 830.4, -55.8, -775.3),
+  at('41879b', 308, 794.3, -25.6, -771.4),
+  at('37777', 86, 784.3, -19.1, -771.4),
+  at('27150', 29, 752.2, -75.2, -809.6),
+];
+/** 42703's fifth doll: head, hair, an arm stump, hips and legs — the torso is not in the source. */
+const headlessDoll = (): ParsedBrick[] => [
+  at('92198', 78, 820, -110, -26.1), at('5828', 484, 820, -107.8, -29.4),
+  at('2758', 78, 831.1, -76.9, -26), at('1015152', 30, 820, -47.4, -27.3), at('1022657', 30, 820, 0, -30),
+];
+
+describe('figure systems: classification', () => {
+  it('names the system by the torso and reads a description behind a `0 FILE` header', async () => {
+    const m = await meshesFor([at('37777', 86, 0, 0, 0), at('1006030', 78, 0, 0, 0), at('973', 4, 0, 0, 0), at('93230p04', 72, 0, 0, 0)]);
+    expect(m.get('37777')!.description).toBe('Torso Large, Long Coat with Molded Pockets with Broad Lapels');
+    expect(figureSystemOfTorso('37777', m.get('37777')!.description)).toBe('bigfig');
+    expect(figureSystemOfTorso('1006030', m.get('1006030')!.description)).toBe('minidoll');
+    expect(figureSystemOfTorso('973', 'Minifig Torso')).toBe('minifig');
+    expect(figureSystemOfTorso('92198', 'Figure Friends Head without Pattern')).toBeNull();
+    expect(isTorso('37777', m.get('37777')!.description)).toBe(true);
+    expect(isTorso('1006334', 'Figure Friends Boy Torso Dual Mould without Pattern')).toBe(true);
+    // The goblins' ear-hair was `FILE 93230p04.dat` to every classifier before the header was skipped.
+    expect(classifyMinifigPart('93230p04', m.get('93230p04')!.description)).toBe('headwear');
+    expect(isFigurePart('37783', 'Arm Large with Pin, Right')).toBe(true);
+    expect(classifyMinifigPart('37783', 'Arm Large with Pin, Right')).toBe('arm_right');
+    expect(classifyMinifigPart('10154', 'Bigfig Arm Left')).toBe('arm_left');
+  });
+
+  it('keeps each system\'s body moulds off the other\'s rig but shares accessories', () => {
+    expect(classifyFigurePart('minidoll', '92198', 'Figure Friends Head without Pattern')).toBe('head');
+    expect(classifyFigurePart('minidoll', '16529', 'Figure Friends Legs Mermaid Tail')).toBe('legs');
+    expect(classifyFigurePart('minidoll', '3815', 'Minifig Hips')).toBeNull();
+    expect(classifyFigurePart('minidoll', '90370', 'Minifig Microphone')).toBe('held');
+    expect(classifyFigurePart('minidoll', '2633', 'Minifig Hair Long with Parted Bangs')).toBe('headwear');
+    expect(classifyFigurePart('minifig', '92198', 'Figure Friends Head without Pattern')).toBeNull();
+    expect(classifyFigurePart('bigfig', '3820', 'Minifig Hand')).toBe('hand_right');
+  });
+});
+
+describe('figure systems: the mini-doll rig', () => {
+  it('rebuilds a mermaid on the doll canon and moves the tail from the hips to the legs joint', async () => {
+    const src = mermaid();
+    const a = assembleMinifig(src, await meshesFor(src));
+    expect(a.system).toBe('minidoll');
+    expect(a.reanchoredLdu).toBeUndefined();
+    expect(a.synthesized).toEqual([]);
+    const one = (slot: string) => { const p = bySlot(a, slot); expect(p, slot).toHaveLength(1); return p[0]!; };
+    expect(pos(one('head'))).toEqual([0, -33.2, 0]);
+    expect(pos(one('arm_right'))).toEqual([-11, 0, 0]);
+    expect(pos(one('arm_left'))).toEqual([11, 0, 0]);
+    expect(pos(one('hips'))).toEqual([0, 29.4, -1.2]);
+    // The source put the tail AT the hips (no LDD→LDraw row for 16529); the
+    // rig puts it 47.4 below them, where `16529`'s own `!HELP` says its hips pivot is.
+    expect(one('legs').part).toBe('16529');
+    expect(pos(one('legs'))).toEqual([0, 76.8, -3.9]);
+    expect(a.rig.boneOf[a.bricks.indexOf(one('legs'))]).toBe('hips');
+    // Hair keeps its offset from the head; the microphone sits in the canonical right hand.
+    const hair = one('headwear');
+    expect(hair.x).toBeCloseTo(0, 1); expect(hair.y).toBeCloseTo(-33.3, 1); expect(hair.z).toBeCloseTo(-3, 1);
+    const mic = one('held');
+    expect(pos(mic).map(v => Math.round(v * 10) / 10)).toEqual([-25.9, 29.7, -4]);
+    expect(a.rig.boneOf[a.bricks.indexOf(mic)]).toBe('hand_right');
+    expect(a.rig.bones).toEqual([...MINIDOLL_BONES]);
+    // Feet: the tail's bottom (its box reaches y 0 in its own frame) at the legs joint.
+    expect(a.feetY).toBeCloseTo(76.8, 3);
+  });
+
+  it('completes a doll whose torso the source lost: a head with legs anchors the figure', async () => {
+    const src = headlessDoll();
+    const m = await meshesFor(src);
+    expect(figureAnchor(src, m)).toEqual({ index: 0, system: 'minidoll', headless: true });
+    const a = assembleMinifig(src, m);
+    expect(a.synthesized).toEqual(['torso']);
+    const torso = bySlot(a, 'torso')[0]!;
+    expect(torso.part).toBe('92241');
+    expect(torso.color).toBe(78); // the arm's colour
+    expect(a.torso.position.map(v => Math.round(v * 10) / 10)).toEqual([820, -76.8, -26.1]);
+    expect(pos(bySlot(a, 'legs')[0]!)).toEqual([0, 76.8, -3.9]);
+    expect(bySlot(a, 'arm_left')[0]!.part).toBe('2758');
+    // No orphan: nothing in the group was left as a bystander.
+    expect(a.bystanders).toEqual([]);
+  });
+});
+
+describe('figure systems: the big-fig rig', () => {
+  it('re-anchors the frame on the limbs when the torso alone disagrees, and dresses hair, hands and short legs', async () => {
+    const src = hagrid();
+    const a = assembleMinifig(src, await meshesFor(src));
+    expect(a.system).toBe('bigfig');
+    expect(a.synthesized).toEqual([]);
+    expect(a.bystanders).toEqual([]);
+    // The torso's own placement was (784.3, −19.1): the head, both arms and
+    // the legs agree the torso origin is (794.3, −89.6), so the frame moves there.
+    expect(a.reanchoredLdu!.map(v => Math.round(v * 10) / 10)).toEqual([10, -70.5, 0]);
+    expect(a.torso.position.map(v => Math.round(v * 10) / 10)).toEqual([794.3, -89.6, -771.4]);
+    const one = (slot: string) => { const p = bySlot(a, slot); expect(p, slot).toHaveLength(1); return p[0]!; };
+    expect(pos(one('torso'))).toEqual([0, 0, 0]);
+    expect(pos(one('head'))).toEqual([0, -24, 0]);
+    expect(pos(one('headwear'))).toEqual([0, -24, 0]);
+    expect(pos(one('arm_right'))).toEqual([-20, 9.5, 0]);
+    expect(one('arm_right').rot).toEqual(I);
+    expect(pos(one('arm_left'))).toEqual([20, 9.5, 0]);
+    expect(pos(one('hips_legs'))).toEqual([0, 64, 0]);
+    // The hands stay at their source offset from their (now straightened) arm.
+    const hr = one('hand_right');
+    expect(hr.x).toBeCloseTo(-36.5, 0); expect(hr.y).toBeCloseTo(33.9, 0);
+    expect(a.rig.boneOf[a.bricks.indexOf(hr)]).toBe('arm_right');
+    expect(a.rig.bones).toEqual([...BIGFIG_BONES]);
+    // Feet: the short legs' bottom, 64 + 24.
+    expect(a.feetY).toBeCloseTo(88, 3);
+  });
+});
+
+describe('figure systems: grouping, role, scene floor', () => {
+  it('groups a big-fig\'s parts around a torso 70 LDU below them and does not steal a neighbour\'s', async () => {
+    const goblin = [at('973', 0, 890, -56, -770), at('3626c', 78, 890, -80, -770), at('93230p04', 72, 890, -80, -770), at('41879b', 0, 890, -24, -770)];
+    const bricks = [...hagrid(), ...goblin];
+    const m = await meshesFor(bricks);
+    const groups = groupFigures(bricks, m);
+    expect(groups).toHaveLength(2);
+    const big = groups.find(g => bricks[g.torso]!.part === '37777')!;
+    expect(big.parts.map(i => bricks[i]!.part).sort()).toEqual(['27150', '3626c', '37777', '37779', '37783', '37784', '3820', '3820', '41879b'].sort());
+    expect(figureRole(big.parts.map(i => bricks[i]!), m)).toBe('npc');
+    const small = groups.find(g => bricks[g.torso]!.part === '973')!;
+    expect(small.parts).toHaveLength(4);
+  });
+
+  it('groups a torso-less doll around its head', async () => {
+    const bricks = [...headlessDoll(), ...mermaid()];
+    const m = await meshesFor(bricks);
+    const groups = groupFigures(bricks, m);
+    expect(groups).toHaveLength(2);
+    const headless = groups.find(g => bricks[g.torso]!.part === '92198' && bricks[g.torso]!.x === 820)!;
+    expect(headless.parts).toHaveLength(5);
+    expect(figureRole(headless.parts.map(i => bricks[i]!), m)).toBe('npc');
+  });
+
+  it('stands a scene figure on the rig\'s feet, not on a mis-converted torso\'s bounds', async () => {
+    // Hagrid over a brick floor: his torso's own box would put the floor 36 LDU under the ground.
+    const floor = Array.from({ length: 6 }, (_, i) => at('3001', 1, 700 + i * 80, 16, -770));
+    const scene = await discoverSceneActors([...hagrid(), ...floor], provider());
+    expect(scene.figures).toHaveLength(1);
+    // Head at −113.6 → torso −89.6 → feet 88 below: −1.6 (the source floats him 17.6 LDU; that is the source's).
+    expect(scene.figures[0]!.floorLdu).toBeCloseTo(-1.6, 1);
+    expect(scene.figures[0]!.centreLdu[0]).toBeCloseTo(794.3 + (scene.figures[0]!.centreLdu[0] - 794.3), 5);
+  });
+});
+
+describe('figure systems: faces and hair through the compiler', () => {
+  it('draws a default face on a plain head, in black on light skin and white on dark, and none on a printed head', () => {
+    const q = resolveEntityQuality('balanced');
+    const p = provider();
+    const build = async (id: string) => compilePartPrototype((await p.getPartMesh(id))!, q);
+    return (async () => {
+      const plain = await build('3626c');
+      const dark = faceDecals(plain, resolveLdrawEntityMaterial(0));
+      const light = faceDecals(plain, resolveLdrawEntityMaterial(78));
+      expect(light).toHaveLength(3);
+      expect(light.every(c => c.color === 0)).toBe(true);
+      expect(dark.every(c => c.color === 15)).toBe(true);
+      // Proud of the front (−Z is the face), within the head's width, eyes above the mouth.
+      for (const c of light) { expect(c.min[2]).toBeLessThan(-13); expect(c.min[0]).toBeGreaterThan(-13); expect(c.max[0]).toBeLessThan(13); }
+      expect(light[0]!.max[1]).toBeLessThan(light[2]!.min[1]);
+      expect(light[0]!.max[0]).toBeLessThan(0); expect(light[1]!.min[0]).toBeGreaterThan(0);
+    })();
+  });
+
+  it('gives every plain head in an entity a face and carves the head under its hair', async () => {
+    const hairy: ParsedBrick[] = [at('973', 4, 0, 0, 0), at('3626c', 14, 0, -24, 0), at('3901', 72, 0, -24, 0), at('3815', 4, 0, 32, 0), at('3816', 4, 0, 44, 0), at('3817', 4, 0, 44, 0)];
+    const geo = await compileLdrawEntityGeometry('fig', 'figure', hairy, { partGeometry: provider(), quality: { studFacets: 1 } });
+    expect(geo.diagnostics.defaultFaces).toBe(1);
+    expect(geo.diagnostics.headCubesCarved).toBeGreaterThan(0);
+    // No skin cube shares volume with a hair cube in what ships.
+    const meshes = (geo.value as { 'minecraft:geometry': Array<{ bones: Array<{ cubes: Array<{ origin: number[]; size: number[] }> }> }> })['minecraft:geometry'];
+    const cubesOf = (colorId: number) => meshes.flatMap((m, i) => geo.meshes[i]!.material.colorId === colorId ? m.bones.flatMap(b => b.cubes) : []);
+    const skin = cubesOf(14), hair = cubesOf(72);
+    expect(skin.length).toBeGreaterThan(0); expect(hair.length).toBeGreaterThan(0);
+    const overlap = (a: { origin: number[]; size: number[] }, b: { origin: number[]; size: number[] }): boolean =>
+      [0, 1, 2].every(i => Math.min(a.origin[i]! + a.size[i]!, b.origin[i]! + b.size[i]!) - Math.max(a.origin[i]!, b.origin[i]!) > 0.02);
+    expect(skin.some(s => hair.some(h => overlap(s, h)))).toBe(false);
+    // A printed head keeps its print and gets no default face.
+    const printed = await compileLdrawEntityGeometry('fig2', 'figure', [...hairy.slice(0, 1), at('3626cp01', 14, 0, -24, 0), ...hairy.slice(3)], { partGeometry: provider(), quality: { studFacets: 1 } });
+    expect(printed.diagnostics.defaultFaces).toBe(0);
+  });
+
+  it('compiles a big-fig and a mini-doll as jointed entities with faces', async () => {
+    const big = await compileLdrawEntityGeometry('hagrid', 'figure', hagrid(), { partGeometry: provider(), quality: { studFacets: 1 } });
+    expect(big.figure).toBeDefined();
+    expect(big.diagnostics.minifig?.system).toBe('bigfig');
+    expect(big.diagnostics.defaultFaces).toBe(1);
+    expect(big.warnings.some(w => /rebuilt around the limbs/.test(w))).toBe(true);
+    // A big-fig is taller than a minifig: head top (−24 − 24 stud ... its box) to feet at 88.
+    expect(big.sizeBlocks.height).toBeGreaterThan(2.0);
+    const doll = await compileLdrawEntityGeometry('doll', 'figure', mermaid(), { partGeometry: provider(), quality: { studFacets: 1 } });
+    expect(doll.diagnostics.minifig?.system).toBe('minidoll');
+    expect(doll.diagnostics.defaultFaces).toBe(1);
+    expect(doll.warnings.some(w => /rebuilt around/.test(w))).toBe(false);
+  });
+});

@@ -194,7 +194,30 @@ at a render against the box art before shipping; "ragged" is a defect.
   top"): host-proved only. Rebuild 10303/10261/42703/76417 packs at the
   merged commit and ride them: no yaw swivel entering/leaving either 10303
   loop, no crawl over a loop top, 32 blocks/s drops smooth, hoist at 4 b/s.
-- [ ] Mini-dolls (42703's) are not rigged, so they stay in the shell.
+
+### Figures round 2026-09-24b (faces, hair, Hagrid, mermaids) — device check open
+
+Fixed offline (guide: "Figures on the device (2026-09-24)"), commit
+`76b8edc5`. Packs built from that clean commit, `output/device-round-2026-09-24b/after/`:
+`76417.mcaddon` 705,253 bytes SHA256 `d5b676f6770e015f1f93b803db0c343c3a268df786f6801708dd5ac50e697fc2`
+(13 figures, Hagrid = figure 11), `42703.mcaddon` 532,027 bytes SHA256
+`e481b82feeb9cb18019ae6d7b9502ab1193d90774a415fd3d40f28f8d5ea275b` (5 dolls).
+Before/after renders `output/device-round-2026-09-24b/figures-*.png`:
+- [ ] **Device check** on 76417 + 42703: faces drawn (0.9 LDU decals),
+  goblin hair without stripes, Hagrid whole (coat, short legs, hands, umbrella)
+  and walking with arms only, the five dolls as NPCs with tails below the
+  hips, the fifth doll with a synthesised `92241` torso.
+- [ ] Mini-doll walk: its one-piece legs ride `hips` and never swing; a
+  per-system animation set (legs as one at the hip) is the fix.
+- [ ] Hulk-class big-figs (`10128` body, `10124`/`10154` arms, `10126`/`10127`
+  hands) are unmeasured; `BIGFIG_CANON` is Hagrid's (`37777`) geometry.
+- [ ] Olive-green goblins: the DBIX LXFML gives 76417's heads AND ear-hair
+  material 283 (Light Nougat), the `.io` agrees; the pipeline never sees
+  330. Decide against the real set (BrickLink 403s plain fetches) and, if
+  olive, fix it in clego's `reconvert_dbix.py` material table — a SOURCE
+  change, then republish.
+- [ ] Real faces: map LDD `decoration` ids to LDraw printed heads in the
+  converter so figures get their own faces, not the default one.
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 

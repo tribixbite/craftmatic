@@ -35,8 +35,8 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import { createPartGeometryProvider, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
-import { figureRole, groupFigures, isSeat, isTorso, cleanPartId } from './ldraw-entity-compiler.js';
-import { classifyMinifigPart } from './minifig-rig.js';
+import { figureRole, groupFigures, isSeat, cleanPartId } from './ldraw-entity-compiler.js';
+import { assembleMinifig, figureAnchor } from './minifig-rig.js';
 import type { BlockGrid } from '@craft/schem/types.js';
 import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { toBedrockBlock } from './bedrock-blocks.js';
@@ -174,8 +174,6 @@ export function tiltDegOf(rot: readonly number[] | undefined): number {
   const cos = Math.max(-1, Math.min(1, m[4]! / len));
   return Math.round(Math.acos(cos) * 180 / Math.PI * 10) / 10;
 }
-/** Torso, head, hips and legs: the parts whose lowest point is the floor a figure stands on. */
-const BODY_SLOTS = new Set(['torso', 'head', 'hips', 'hips_legs', 'leg_right', 'leg_left']);
 function worldBounds(b: ParsedBrick, mesh: LdrawPartMesh): { min: Vec3; max: Vec3 } {
   const { min: lo, max: hi } = mesh.bounds;
   const corners: Vec3[] = [
@@ -213,21 +211,32 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const torso = bricks[g.torso]!;
     const facing = horizontal(torso, [0, 0, -1]) ?? [0, -1];
     let min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
-    let bodyFloor = -Infinity;
     for (const b of parts) {
       const m = meshes.get(b.part);
       const box = m && m.triangles.length ? worldBounds(b, m) : { min: [b.x - 10, b.y - 24, b.z - 10] as Vec3, max: [b.x + 10, b.y, b.z + 10] as Vec3 };
       min = [Math.min(min[0], box.min[0]), Math.min(min[1], box.min[1]), Math.min(min[2], box.min[2])];
       max = [Math.max(max[0], box.max[0]), Math.max(max[1], box.max[1]), Math.max(max[2], box.max[2])];
-      if (BODY_SLOTS.has(classifyMinifigPart(b.part, desc(b)) ?? '')) bodyFloor = Math.max(bodyFloor, box.max[1]);
     }
-    const centreLdu: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
+    let centreLdu: Vec3 = [(min[0] + max[0]) / 2, (min[1] + max[1]) / 2, (min[2] + max[2]) / 2];
     const tiltDeg = tiltDegOf(torso.rot);
     // An actor stands upright whatever the source did: a figure posed past the
     // limit keeps its whole cluster (legs, hair, held items) in the geometry.
     if (tiltDeg > FIGURE_UPRIGHT_MAX_TILT_DEG) { posedFigures.push({ bricks: parts, tiltDeg, centreLdu }); continue; }
     for (const b of parts) figureBricks.add(b);
-    figures.push({ bricks: parts, centreLdu, floorLdu: Number.isFinite(bodyFloor) ? bodyFloor : max[1], facingLdu: facing, tiltDeg, seated: false });
+    // The floor is where the ASSEMBLED figure's feet are — the rig's own feet
+    // level under the frame it settled on — not the lowest source body part:
+    // a converted source can put the torso itself at a raw origin (76417's
+    // big-fig, 70 LDU low), and its bounds would have sunk Hagrid to his
+    // shoulders. The rig re-anchors the frame on the limbs' consensus, so the
+    // centre follows the same move.
+    const assembled = assembleMinifig(parts, meshes);
+    const feet = local(torso, [0, assembled.feetY, 0]);
+    const floorLdu = assembled.torso.position[1] + (feet[1] - torso.y);
+    if (assembled.reanchoredLdu) {
+      const shift = local(torso, assembled.reanchoredLdu);
+      centreLdu = [centreLdu[0] + shift[0] - torso.x, centreLdu[1] + shift[1] - torso.y, centreLdu[2] + shift[2] - torso.z];
+    }
+    figures.push({ bricks: parts, centreLdu, floorLdu, facingLdu: facing, tiltDeg, seated: false });
   }
   if (posedFigures.length) {
     const tilts = posedFigures.map(p => `${p.tiltDeg}°`).join(', ');
@@ -241,7 +250,14 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     if (!isSeat(b.part, desc(b))) continue;
     const surface = local(b, [0, -8, 0]);
     const facing = horizontal(b, [0, 0, -1]) ?? [0, -1];
-    const sitter = figures.find(f => f.seatIndex === undefined && (() => { const t = f.bricks.find(p => isTorso(p.part, desc(p)))!; return Math.hypot(t.x - surface[0], t.z - surface[2]) <= 30 && t.y <= surface[1] && t.y >= surface[1] - 60; })());
+    // The figure's torso, or the head standing in for a lost one (`figureAnchor`), at the head's offset.
+    const sitter = figures.find(f => f.seatIndex === undefined && (() => {
+      const root = figureAnchor(f.bricks, meshes);
+      if (!root) return false;
+      const t = f.bricks[root.index]!;
+      const y = root.headless ? t.y + (root.system === 'minidoll' ? 33.2 : 24) : t.y;
+      return Math.hypot(t.x - surface[0], t.z - surface[2]) <= 30 && y <= surface[1] && y >= surface[1] - 60;
+    })());
     seats.push({ part: cleanPartId(b.part), surfaceLdu: surface, facingLdu: facing });
     // A figure the source sat here rides this seat's entity (the seat stays, occupied).
     if (sitter) { sitter.seated = true; sitter.seatIndex = seats.length - 1; }

@@ -168,6 +168,16 @@ export interface CompilePrototypeOptions {
   hollow?: boolean;
   /** Merge strategy; defaults to the scan-order `greedy`. */
   decomposition?: PartDecomposition;
+  /**
+   * Keep every surface cell when coarsening: a coarse cell is solid when ANY
+   * of its fine cells is, not when most are. The majority rule that keeps a
+   * brick's edges crisp eats a THIN SHELL — a hair mould's 1-2 LDU cap loses
+   * whole rows of cells wherever it crosses the 2 LDU lattice at an angle, and
+   * the head underneath shows through the holes as stripes (Pixel 8 Pro,
+   * 2026-09-24, 76417's goblins and 42703's dolls). The cost is a shell up to
+   * one fine cell fatter than the mould, on the outside.
+   */
+  preserveSurface?: boolean;
 }
 
 /** Upper bound on the fine lattice; above it the microcell is doubled first. */
@@ -314,8 +324,12 @@ export function fillInterior(lat: Lattice, sixSided: boolean): void {
   for (let n = 0; n < total; n++) if (!reached[n]) solid[n] = 1;
 }
 
-/** 2×2×2 majority downsample; a coarse cell takes its most frequent explicit colour. */
-export function downsample(fine: Lattice): Lattice {
+/**
+ * 2×2×2 majority downsample; a coarse cell takes its most frequent explicit
+ * colour. With `preserveSurface`, ANY solid fine cell makes the coarse cell
+ * solid (see `CompilePrototypeOptions.preserveSurface`).
+ */
+export function downsample(fine: Lattice, preserveSurface = false): Lattice {
   const cell = fine.cell * 2;
   const nx = Math.ceil(fine.nx / 2), ny = Math.ceil(fine.ny / 2), nz = Math.ceil(fine.nz / 2);
   const solid = new Uint8Array(nx * ny * nz);
@@ -336,7 +350,7 @@ export function downsample(fine: Lattice): Lattice {
       }
     }
     // Majority of the fine cells that exist (a truncated edge cell has fewer than 8).
-    if (filled * 2 < present) continue;
+    if (preserveSurface ? filled === 0 : filled * 2 < present) continue;
     const n = (y * nz + z) * nx + x;
     solid[n] = 1;
     let best = 0, bestCount = 0;
@@ -552,7 +566,7 @@ export function compilePartPrototype(
   for (;;) {
     const fine = rasterizeSurface(mesh.triangles, min, max, cell / 2);
     fillInterior(fine, hollow);
-    const coarse = downsample(fine);
+    const coarse = downsample(fine, options.preserveSurface ?? false);
     const cuboids = decomposeLattice(coarse, max, options.decomposition ?? 'greedy');
     if (cuboids.length <= quality.maxPartCubes || coarsened >= MAX_COARSENING) {
       if (cuboids.length > quality.maxPartCubes) return aabbFallback(mesh, cell, coarsened, hollow);
@@ -592,7 +606,7 @@ export function createPrototypeCache(): PrototypeCache {
   let hits = 0;
   return {
     get(mesh, quality, options = {}) {
-      const key = `${mesh.partId}|${mesh.resolvedAs}|${quality.microcellLdu}|${quality.maxPartCubes}|${options.hollow ? 'h' : 's'}|${options.decomposition ?? 'greedy'}`;
+      const key = `${mesh.partId}|${mesh.resolvedAs}|${quality.microcellLdu}|${quality.maxPartCubes}|${options.hollow ? 'h' : 's'}|${options.decomposition ?? 'greedy'}|${options.preserveSurface ? 'p' : 'm'}`;
       const cached = map.get(key);
       if (cached) { hits++; return cached; }
       const built = compilePartPrototype(mesh, quality, options);
@@ -769,6 +783,8 @@ export interface GrainPlanPart {
   mesh: LdrawPartMesh;
   placements: number;
   hollow: boolean;
+  /** Compile with `preserveSurface` (a thin shell such as hair); the plan must count what will ship. */
+  preserveSurface?: boolean;
 }
 
 export interface GrainPlanOptions {
@@ -868,7 +884,7 @@ export function planPartGrains(parts: readonly GrainPlanPart[], quality: LegoEnt
   const measure = (s: State, level: number): { cuboids: number; iou: number } => {
     const memo = s.at[level];
     if (memo) return memo;
-    const proto = cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[level]! }, { hollow: s.part.hollow, decomposition: options.decomposition });
+    const proto = cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[level]! }, { hollow: s.part.hollow, decomposition: options.decomposition, preserveSurface: s.part.preserveSurface ?? false });
     // Is this part genuinely a box, or did a COARSE grain merely collapse it to
     // one? `compilePartPrototype` reports `exact-box` for ANY single
     // bbox-filling cuboid, and its "reached only by coarsening" guard counts
@@ -883,7 +899,7 @@ export function planPartGrains(parts: readonly GrainPlanPart[], quality: LegoEnt
     if (s.boxAtFinest === null) {
       const finest = level === 0
         ? proto
-        : cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[0]! }, { hollow: s.part.hollow, decomposition: options.decomposition });
+        : cache.get(s.part.mesh, { ...quality, microcellLdu: ladder[0]! }, { hollow: s.part.hollow, decomposition: options.decomposition, preserveSurface: s.part.preserveSurface ?? false });
       s.boxAtFinest = finest.source === 'exact-box';
     }
     // A box part's silhouette is its own box: exact at every grain, no raster needed.

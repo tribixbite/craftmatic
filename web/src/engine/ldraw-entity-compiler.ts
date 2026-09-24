@@ -45,7 +45,7 @@ import {
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { mouldFamilyId, assembleMinifig, normaliseFigureDescription, type EntityRig } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, classifyMiniDollPart, figureAnchor, figureSystemOfTorso, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -93,12 +93,20 @@ export function isFigurePart(part: string, description: string): boolean {
   const d = normaliseFigureDescription(description);
   if (/^Minifig\b/i.test(d)) return !/^Minifig (Seat|Chair|Steering|Stand|Display|Bench)\b/i.test(d);
   if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
+  // Big-fig moulds: Studio's `Torso Large, …` / `Arm Large with Pin, …` and LDraw's `Bigfig …`.
+  if (/^(Torso Large|Arm Large|Bigfig)\b/i.test(d)) return true;
   // `mouldFamilyId` follows LDraw's `~Moved to <id>` retirement stubs, whose
   // description names no part at all. Without it `981`/`982` (the arms the
   // `.io`-derived museum places) match nothing and every figure loses both arms.
   return FIGURE_PART_IDS.test(mouldFamilyId(part, description)) || /_(torso|head|legs|hips)$/.test(cleanPartId(part));
 }
-export const isTorso = (part: string, description: string): boolean => TORSO_PARTS.test(figureId(part)) || /_torso$/.test(cleanPartId(part)) || /^Minifig Torso\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+/**
+ * The anchor of a figure group: a minifig torso, a mini-doll torso or a
+ * big-fig body (`figureSystemOfTorso`, minifig-rig.ts). The id families
+ * cover a custom torso the library cannot describe.
+ */
+export const isTorso = (part: string, description: string): boolean =>
+  figureSystemOfTorso(part, description) !== null || TORSO_PARTS.test(figureId(part)) || /_torso$/.test(cleanPartId(part));
 export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 const isSteering = (part: string, description: string): boolean => STEERING_PARTS.has(baseMould(part)) || /^(Minifig )?Steering\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
@@ -337,8 +345,8 @@ export function ldrawToRenderRotation(nose: '+x' | '-x' | '+z' | '-z'): number[]
 // ─── Public types ─────────────────────────────────────────────────────────────
 
 export interface LegoGeometryDiagnostics {
-  /** Figures only: what the minifig rig rebuilt (minifig-rig.ts). */
-  minifig?: { parts: number; synthesized: string[]; dropped: string[] };
+  /** Figures only: what the figure rig rebuilt (minifig-rig.ts), on which skeleton, and whether the frame moved off the torso. */
+  minifig?: { parts: number; synthesized: string[]; dropped: string[]; system?: FigureSystem; reanchoredLdu?: Vec3 };
   /**
    * Figures only, and only when the pack asked for a finer grain than the
    * figure was given: every figure is clamped to `balanced` detail
@@ -440,6 +448,18 @@ export interface LegoGeometryDiagnostics {
   };
   /** Body cuboids removed because every face was buried behind opaque cuboids (never visible from any viewpoint). */
   hiddenCubesCulled: number;
+  /**
+   * Plain (unprinted) minifig / mini-doll heads given the default face
+   * (`faceDecals`). A converted source carries no head print — the LXFML
+   * decoration is dropped — so without this every face is blank skin.
+   */
+  defaultFaces: number;
+  /**
+   * Head cuboid fragments removed under a figure's headwear (`carveHeads`):
+   * a head cell that shares space with its hair would otherwise show through
+   * the hair's coplanar faces as skin-coloured stripes.
+   */
+  headCubesCarved: number;
   /**
    * The occupancy grid that cull ran on: the cell it sampled at, the cell the
    * quality asked for, and whether the 40 M-cell budget forced a coarser cell
@@ -587,6 +607,12 @@ export interface CompileLdrawEntityOptions {
   originLdu?: Vec3;
   /** Keep LDraw inherited colour 16 symbolic instead of resolving it to the placement colour. */
   inheritMaterialId?: boolean;
+  /**
+   * The rig slot of each placement in `bricks` (parallel; from
+   * `assembleMinifig`). Headwear compiles surface-preserving (a thin hair
+   * shell keeps every cell) and carves the head cells it covers.
+   */
+  figureSlots?: readonly MinifigSlot[];
 }
 
 // ─── Internal geometry records ────────────────────────────────────────────────
@@ -639,6 +665,80 @@ interface WorldBox { min: Vec3; max: Vec3; brick: number }
 
 /** Two-decimal rounding that never yields −0 (a mirrored zero would otherwise print as `-0`). */
 const round = (v: number): number => { const r = Math.round(v * 100) / 100; return r === 0 ? 0 : r; };
+
+// ─── Default faces and hair-over-head carving ────────────────────────────────
+
+/** How far a face decal stands proud of the head's front (LDU) and how deep it sits into it. */
+const DECAL_PROUD_LDU = 0.6, DECAL_EMBED_LDU = 0.3;
+/** Below this relative luminance the skin is dark and the face is drawn white. */
+const DARK_SKIN_LUMINANCE = 0.3;
+/** A carved fragment thinner than this (LDU) is a rounding sliver, not geometry. */
+const CARVE_SLIVER_LDU = 0.05;
+
+/** A head mould with no print of its own: every triangle inherits the placement colour. */
+const isPlainHead = (part: string, mesh: LdrawPartMesh): boolean =>
+  isHeadPart(part, mesh.description) && mesh.triangles.length > 0 && mesh.triangles.every(t => t.color === 16);
+
+/**
+ * The default face for a plain head: two eyes and a mouth as thin cuboids on
+ * the head's front (LDraw −Z), placed proud of the front-most compiled cell
+ * under each feature so they sit on the head whatever grain it compiled at.
+ * Proportions follow the classic print (eyes at 40 % of the height, 17 % of
+ * the width off centre; a mouth at 66 %); the ink is black on any skin that
+ * is not itself dark, white otherwise.
+ *
+ * Converted sources have no head prints — the DBIX LXFML carries the face as
+ * an LDD `decoration` that the LDraw conversion drops, so every one of
+ * 76417's twelve heads and 42703's five arrived as `3626c`/`92198` plain and
+ * shipped as blank skin (Pixel 8 Pro, 2026-09-24). A printed head keeps its
+ * print: its explicit colours reach the cuboids and this never runs.
+ * # TODO: map LDD decoration ids to LDraw printed parts (`3626cpXX`) in the
+ * converter so a figure gets its own face rather than the default one.
+ */
+export function faceDecals(proto: CompiledPartPrototype, skin: LdrawEntityMaterial): PartCuboid[] {
+  const cubes = proto.cuboids;
+  if (!cubes.length) return [];
+  const lo = proto.boundsLdu.min, hi = proto.boundsLdu.max;
+  const W = hi[0] - lo[0], H = hi[1] - lo[1];
+  if (W < 8 || H < 8) return [];
+  const cx = (lo[0] + hi[0]) / 2;
+  const [r, g, b] = skin.rgb;
+  const ink = (0.299 * r + 0.587 * g + 0.114 * b) / 255 < DARK_SKIN_LUMINANCE ? 15 : 0;
+  const eyeW = W * 0.10, eyeH = H * 0.11, eyeDx = W * 0.17, eyeY = lo[1] + H * 0.40;
+  const mouthW = W * 0.32, mouthH = H * 0.06, mouthY = lo[1] + H * 0.66;
+  const rects: Array<[number, number, number, number]> = [
+    [cx - eyeDx - eyeW / 2, cx - eyeDx + eyeW / 2, eyeY - eyeH / 2, eyeY + eyeH / 2],
+    [cx + eyeDx - eyeW / 2, cx + eyeDx + eyeW / 2, eyeY - eyeH / 2, eyeY + eyeH / 2],
+    [cx - mouthW / 2, cx + mouthW / 2, mouthY - mouthH / 2, mouthY + mouthH / 2],
+  ];
+  const out: PartCuboid[] = [];
+  for (const [x0, x1, y0, y1] of rects) {
+    let front = Infinity;
+    for (const c of cubes) if (c.max[0] > x0 && c.min[0] < x1 && c.max[1] > y0 && c.min[1] < y1) front = Math.min(front, c.min[2]);
+    if (!Number.isFinite(front)) continue;
+    out.push({ min: [x0, y0, front - DECAL_PROUD_LDU], max: [x1, y1, front + DECAL_EMBED_LDU], color: ink });
+  }
+  return out;
+}
+
+/** Axis-aligned box difference `box − cut`: up to six boxes, slivers dropped. */
+function subtractBox(box: { min: Vec3; max: Vec3 }, cut: { min: Vec3; max: Vec3 }): Array<{ min: Vec3; max: Vec3 }> {
+  const lo: Vec3 = [Math.max(box.min[0], cut.min[0]), Math.max(box.min[1], cut.min[1]), Math.max(box.min[2], cut.min[2])];
+  const hi: Vec3 = [Math.min(box.max[0], cut.max[0]), Math.min(box.max[1], cut.max[1]), Math.min(box.max[2], cut.max[2])];
+  if (hi[0] - lo[0] <= CARVE_SLIVER_LDU || hi[1] - lo[1] <= CARVE_SLIVER_LDU || hi[2] - lo[2] <= CARVE_SLIVER_LDU) return [box];
+  const out: Array<{ min: Vec3; max: Vec3 }> = [];
+  const keep = (min: Vec3, max: Vec3): void => {
+    if (max[0] - min[0] > CARVE_SLIVER_LDU && max[1] - min[1] > CARVE_SLIVER_LDU && max[2] - min[2] > CARVE_SLIVER_LDU) out.push({ min, max });
+  };
+  // Slabs beside the intersection along X, then Y within the X band, then Z within both.
+  keep([box.min[0], box.min[1], box.min[2]], [lo[0], box.max[1], box.max[2]]);
+  keep([hi[0], box.min[1], box.min[2]], [box.max[0], box.max[1], box.max[2]]);
+  keep([lo[0], box.min[1], box.min[2]], [hi[0], lo[1], box.max[2]]);
+  keep([lo[0], hi[1], box.min[2]], [hi[0], box.max[1], box.max[2]]);
+  keep([lo[0], lo[1], box.min[2]], [hi[0], hi[1], lo[2]]);
+  keep([lo[0], lo[1], hi[2]], [hi[0], hi[1], box.max[2]]);
+  return out;
+}
 
 const aabbOfCorners = (corners: Vec3[]): { min: Vec3; max: Vec3 } => {
   const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
@@ -1019,9 +1119,23 @@ export function connectedClusters(boxes: Array<{ min: Vec3; max: Vec3 }>, tol = 
   return [...members.values()].sort((a, b) => b.length - a.length);
 }
 
-/** A minifig head mould, by description, id family or a custom part's `_head` suffix. */
-const isHeadPart = (part: string, description: string): boolean =>
-  /^Minifig Head\b/i.test(normaliseFigureDescription(description)) || /^(3626|3625|3624)(?![0-9])/.test(mouldFamilyId(part, description)) || /_head$/.test(cleanPartId(part));
+/** A minifig or mini-doll head mould, by description, id family or a custom part's `_head` suffix. */
+export const isHeadPart = (part: string, description: string): boolean =>
+  /^Minifig Head\b/i.test(normaliseFigureDescription(description)) || /^(3626|3625|3624)(?![0-9])/.test(mouldFamilyId(part, description)) || /_head$/.test(cleanPartId(part))
+  || classifyMiniDollPart(part, description) === 'doll_head';
+
+/**
+ * How far from its torso a figure's parts may sit and still be its own, in
+ * the torso frame: horizontal radius, and the vertical range (Y down: negative
+ * is above the torso). A big-fig is bigger in every direction, and its torso
+ * is the part a converter most often leaves at a raw origin (76417's `37777`
+ * sits 70 LDU below its own shoulders), so its reach is wider still.
+ */
+const GROUP_REACH: Record<FigureSystem, { radius: number; above: number; below: number }> = {
+  minifig: { radius: 40, above: 48, below: 80 },
+  minidoll: { radius: 40, above: 48, below: 100 },
+  bigfig: { radius: 60, above: 130, below: 110 },
+};
 
 /**
  * Minifig parts grouped into figures around each torso: a part joins the
@@ -1041,23 +1155,48 @@ export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPar
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const torsos: number[] = [];
   bricks.forEach((b, i) => { if (isTorso(b.part, desc(b))) torsos.push(i); });
-  if (!torsos.length) return [];
   const torsoSet = new Set(torsos);
   const groups = torsos.map(t => ({ torso: t, parts: [t] }));
   const grouped = new Set<number>();
   /** A placement's offset from the torso in the torso's frame (Y down, −Z forward). */
   const inTorsoFrame = (T: ParsedBrick, b: ParsedBrick): Vec3 => apply(transpose(T.rot ?? IDENTITY), [b.x - T.x, b.y - T.y, b.z - T.z]);
+  const reachOf = torsos.map(t => GROUP_REACH[figureSystemOfTorso(bricks[t]!.part, desc(bricks[t]!)) ?? 'minifig']);
   bricks.forEach((b, i) => {
     if (torsoSet.has(i) || !isFigurePart(b.part, desc(b))) return;
     let best = -1, bestD = Infinity;
     torsos.forEach((t, k) => {
       const [dx, dy, dz] = inTorsoFrame(bricks[t]!, b);
-      if (Math.hypot(dx, dz) > 40 || dy < -48 || dy > 80) return;
+      const reach = reachOf[k]!;
+      if (Math.hypot(dx, dz) > reach.radius || dy < -reach.above || dy > reach.below) return;
       const d = Math.hypot(dx, dz) + Math.abs(dy) * 0.25;
       if (d < bestD) { bestD = d; best = k; }
     });
     if (best >= 0) { groups[best]!.parts.push(i); grouped.add(i); }
   });
+  // A head no torso claimed, with hips or legs of its own system under it, is
+  // a figure whose torso the source lost (42703's fifth doll): it anchors a
+  // group the rig completes with a synthesised torso (`figureAnchor`). The
+  // head stands in for the torso at the system's head offset.
+  bricks.forEach((b, i) => {
+    if (torsoSet.has(i) || grouped.has(i) || !isHeadPart(b.part, desc(b))) return;
+    const doll = classifyMiniDollPart(b.part, desc(b)) === 'doll_head';
+    const reach = GROUP_REACH[doll ? 'minidoll' : 'minifig'];
+    const headAbove = doll ? 33.2 : 24;
+    const members: number[] = [];
+    bricks.forEach((c, j) => {
+      if (j === i || torsoSet.has(j) || grouped.has(j) || !isFigurePart(c.part, desc(c))) return;
+      const [dx, dy, dz] = inTorsoFrame(b, c);
+      const dyTorso = dy - headAbove;
+      if (Math.hypot(dx, dz) > reach.radius || dyTorso < -reach.above || dyTorso > reach.below) return;
+      members.push(j);
+    });
+    if (!members.length) return;
+    const group = { torso: i, parts: [i, ...members] };
+    if (!figureAnchor(group.parts.map(k => bricks[k]!), meshes)?.headless) return;
+    groups.push(group);
+    for (const k of group.parts) grouped.add(k);
+  });
+  if (!groups.length) return [];
   // Headwear the library cannot name: an ungrouped placement within 4 LDU of a grouped head's origin.
   const heads = groups.flatMap((g, k) => g.parts.filter(i => isHeadPart(bricks[i]!.part, desc(bricks[i]!))).map(i => ({ k, head: bricks[i]! })));
   if (heads.length) bricks.forEach((b, i) => {
@@ -1084,7 +1223,10 @@ export function figureRole(parts: ParsedBrick[], meshes: Map<string, LdrawPartMe
   // they are `981`/`982`, resolved through the `~Moved to` redirect). A
   // lone torso with a hand beside it is not a figure.
   const bodyParts = parts.filter(b => /^(970|3815|3816|3817|41879|16968|3626|3625|3624|3818|3819)(?![0-9])/.test(mouldFamilyId(b.part, meshes.get(b.part)?.description ?? ''))
-    || /^Minifig (Hips|Leg|Head|Arm|Hair|Hat|Helmet|Cap|Hood)\b/i.test(d(b)) || /_(head|legs|hips)$/.test(cleanPartId(b.part)));
+    || /^Minifig (Hips|Leg|Head|Arm|Hair|Hat|Helmet|Cap|Hood)\b/i.test(d(b)) || /_(head|legs|hips)$/.test(cleanPartId(b.part))
+    // A mini-doll's head, hips, legs, arms or hair; a big-fig's arms, hands or hair-head.
+    || (classifyMiniDollPart(b.part, meshes.get(b.part)?.description ?? '') ?? 'doll_torso') !== 'doll_torso'
+    || /^(Arm Large|Bigfig (Arm|Hand))\b/i.test(d(b)));
   if (!bodyParts.length) return 'partial';
   if (colours.size === 1 && parts.length >= 3) return 'statue';
   return 'npc';
@@ -1532,13 +1674,17 @@ export async function compileLdrawEntityGeometry(
   if (kind === 'figure' && !options.rig) {
     const meshes = new Map<string, LdrawPartMesh | null>();
     await Promise.all([...new Set(bricks.map(b => b.part))].map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
-    if (bricks.some(b => isTorso(b.part, meshes.get(b.part)?.description ?? ''))) {
+    if (figureAnchor(bricks, meshes)) {
       const figure = assembleMinifig(bricks, meshes);
       const inner = await compileLdrawEntityGeometry(cid, 'figure', figure.bricks, {
-        ...options, partGeometry: provider, rig: figure.rig, frame: ldrawToRenderRotation('-z'), wholeModel: true,
+        ...options, partGeometry: provider, rig: figure.rig, frame: ldrawToRenderRotation('-z'), wholeModel: true, figureSlots: figure.slots,
       });
       inner.figure = { facingLdu: figure.facingLdu, synthesized: figure.synthesized, dropped: figure.dropped };
-      inner.diagnostics.minifig = { parts: figure.bricks.length, synthesized: figure.synthesized, dropped: figure.dropped };
+      inner.diagnostics.minifig = { parts: figure.bricks.length, synthesized: figure.synthesized, dropped: figure.dropped, system: figure.system, ...(figure.reanchoredLdu ? { reanchoredLdu: figure.reanchoredLdu } : {}) };
+      if (figure.reanchoredLdu) {
+        const o = figure.reanchoredLdu.map(v => Math.round(v * 10) / 10);
+        inner.warnings.push(`${cid}: the source placed the ${figure.system} torso ${Math.round(Math.hypot(...figure.reanchoredLdu))} LDU (${o.join(', ')}) away from where its own limbs and head put the shoulders; the figure was rebuilt around the limbs (a converted torso with no alignment row sits at its raw origin).`);
+      }
       if (figure.synthesized.length) inner.warnings.push(`${cid}: the source lacked the figure's ${figure.synthesized.join(', ')}; standard moulds were supplied.`);
       if (figure.dropped.length) inner.warnings.push(`${cid}: ${figure.dropped.length} part${figure.dropped.length === 1 ? '' : 's'} of the figure could not be placed on the rig (${figure.dropped.slice(0, 4).join(', ')}).`);
       // Not a failure: a part the minifig rig has no slot for (a mini-doll's
@@ -1629,7 +1775,11 @@ export async function compileLdrawEntityGeometry(
   //    the planning pass and the final pass through this one cache.
   const cache = createPrototypeCache();
   const quality: LegoEntityQuality = { ...baseQuality };
-  const protoKey = (mesh: LdrawPartMesh, hollow: boolean): string => `${mesh.partId}|${mesh.resolvedAs}|${hollow ? 'h' : 's'}`;
+  const protoKey = (mesh: LdrawPartMesh, hollow: boolean, preserveSurface = false): string => `${mesh.partId}|${mesh.resolvedAs}|${hollow ? 'h' : 's'}${preserveSurface ? '|p' : ''}`;
+  /** The rig slot of a PLACED index (the caller's slots are parallel to the input bricks). */
+  const slotOf = (i: number): MinifigSlot | undefined => options.figureSlots?.[placedIdx[i]!];
+  /** Headwear is a thin shell: compile it surface-preserving (see `CompilePrototypeOptions.preserveSurface`). */
+  const surfaceOf = (i: number): boolean => slotOf(i) === 'headwear';
   const instantiate = (grainOf: (key: string) => number, cullAndMerge: boolean) => {
     const renderCuboids: RenderCuboid[] = [];
     const worldBoxes: WorldBox[] = [];
@@ -1646,6 +1796,9 @@ export async function compileLdrawEntityGeometry(
     const perPart = new Map<string, { placements: number; cubesEach: number; microcellLdu: number }>();
     let rotatedBoneCount = 0;
     let unresolvedCount = 0;
+    let defaultFaces = 0;
+    /** `renderCuboids` index range each placement's body cuboids occupy (for the head carve). */
+    const cuboidRange: Array<[number, number]> = [];
 
     placed.forEach((b, brickIndex) => {
       const mesh = meshes.get(b.part) ?? null;
@@ -1686,17 +1839,24 @@ export async function compileLdrawEntityGeometry(
         aabbFallback.set(proto.partId, entry);
       } else {
         const hollow = material.alpha < 1;
-        proto = cache.get(mesh, { ...quality, microcellLdu: grainOf(protoKey(mesh, hollow)) }, { hollow, decomposition });
+        const preserveSurface = surfaceOf(brickIndex);
+        proto = cache.get(mesh, { ...quality, microcellLdu: grainOf(protoKey(mesh, hollow, preserveSurface)) }, { hollow, decomposition, preserveSurface });
         if (proto.source === 'aabb-fallback') {
           const entry = aabbFallback.get(proto.partId) ?? { count: 0, reason: `over ${quality.maxPartCubes} cuboids after coarsening` };
           entry.count++;
           aabbFallback.set(proto.partId, entry);
+        }
+        // A plain head gets the default face, in an ink that reads on ITS skin.
+        if (isPlainHead(b.part, mesh)) {
+          const decals = faceDecals(proto, material);
+          if (decals.length) { proto = { ...proto, cuboids: [...proto.cuboids, ...decals] }; defaultFaces++; }
         }
       }
 
       const pp = perPart.get(proto.partId) ?? { placements: 0, cubesEach: proto.cuboids.length, microcellLdu: proto.microcellLdu };
       pp.placements++;
       perPart.set(proto.partId, pp);
+      cuboidRange[brickIndex] = [renderCuboids.length, renderCuboids.length + proto.cuboids.length];
       for (const c of proto.cuboids as PartCuboid[]) {
         const cubeMaterial = c.color === 16 && options.inheritMaterialId ? resolveLdrawEntityMaterial(16)
           : c.color === 16 ? material : resolveLdrawEntityMaterial(c.color);
@@ -1720,13 +1880,41 @@ export async function compileLdrawEntityGeometry(
       for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material, bone });
     });
 
+    // Headwear carves the head: a head cell that shares space with its hair
+    // is never visible, and where the two surfaces coincide the game draws
+    // both and the skin shows through the hair as stripes. Aligned cuboids
+    // only (a rotated hair rides its own child bone, whose cuboids are stored
+    // unrotated); `worldBoxes` is rebuilt in step so the indices stay paired.
+    let headCubesCarved = 0;
+    const headIdx = placed.map((_, i) => i).filter(i => slotOf(i) === 'head' && cuboidRange[i]);
+    const wearIdx = placed.map((_, i) => i).filter(i => slotOf(i) === 'headwear' && cuboidRange[i]);
+    if (headIdx.length && wearIdx.length) {
+      const cutters = wearIdx.flatMap(i => { const [s, e] = cuboidRange[i]!; return renderCuboids.slice(s, e).filter(c => c.aligned); });
+      const carved: RenderCuboid[] = [], carvedWorld: WorldBox[] = [];
+      const headRanges = headIdx.map(i => cuboidRange[i]!);
+      renderCuboids.forEach((c, k) => {
+        const range = headRanges.find(([s, e]) => k >= s && k < e);
+        if (!range || !c.aligned) { carved.push(c); carvedWorld.push(worldBoxes[k]!); return; }
+        let pieces: Array<{ min: Vec3; max: Vec3 }> = [{ min: c.min, max: c.max }];
+        for (const cut of cutters) pieces = pieces.flatMap(p => subtractBox(p, cut));
+        if (pieces.length === 1 && pieces[0] && pieces[0].min === c.min) { carved.push(c); carvedWorld.push(worldBoxes[k]!); return; }
+        headCubesCarved++;
+        for (const p of pieces) {
+          carved.push({ ...c, min: p.min, max: p.max });
+          carvedWorld.push({ ...aabbOfCorners(cornersOf(p.min, p.max).map(v => apply(At, v))), brick: worldBoxes[k]!.brick });
+        }
+      });
+      renderCuboids.length = 0; renderCuboids.push(...carved);
+      worldBoxes.length = 0; worldBoxes.push(...carvedWorld);
+    }
+
     const heaviestParts = [...perPart].map(([part, v]) => ({ part, placements: v.placements, cubesEach: v.cubesEach, microcellLdu: v.microcellLdu, cubes: v.placements * v.cubesEach }))
       .sort((a, b) => b.cubes - a.cubes || a.part.localeCompare(b.part)).slice(0, 12);
     if (!cullAndMerge) {
       // The planning pass: only the world boxes and stud candidates are needed
       // (for the stud reserve), so the cull and the merge are skipped.
       const cullPlan: HiddenCullPlan = { hidden: new Set(), cellLdu: 0, requestedCellLdu: 0, gridCells: 0, coarsened: false, skipped: false };
-      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts };
+      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts, defaultFaces, headCubesCarved };
     }
 
     // Buried cuboids cost budget and draw calls for nothing: cull them. The
@@ -1744,7 +1932,7 @@ export async function compileLdrawEntityGeometry(
     // Lossless: same-colour face-adjacent body boxes become one (see mergeAlignedCuboids).
     const mergedResult = mergeAlignedCuboids(visibleCuboids);
 
-    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts };
+    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts, defaultFaces, headCubesCarved };
   };
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
@@ -1807,14 +1995,15 @@ export async function compileLdrawEntityGeometry(
   // times. Every pass reuses the prototype cache; only the instancing repeats.
   const requestedFacets = Math.max(1, Math.round(quality.studFacets));
   const planParts = new Map<string, GrainPlanPart>();
-  for (const b of placed) {
+  placed.forEach((b, i) => {
     const mesh = meshes.get(b.part);
-    if (!mesh) continue;
+    if (!mesh) return;
     const hollow = resolveLdrawEntityMaterial(b.color).alpha < 1;
-    const key = protoKey(mesh, hollow);
+    const preserveSurface = surfaceOf(i);
+    const key = protoKey(mesh, hollow, preserveSurface);
     const entry = planParts.get(key);
-    if (entry) entry.placements++; else planParts.set(key, { key, mesh, placements: 1, hollow });
-  }
+    if (entry) entry.placements++; else planParts.set(key, { key, mesh, placements: 1, hollow, preserveSurface });
+  });
   const studReserveOf = (r: ReturnType<typeof instantiate>): number => Math.min(quality.maxStudCubes, findExposedStuds(r.worldBoxes, r.studCandidates).length * requestedFacets);
   const draft = instantiate(() => quality.microcellLdu, false);
   let studReserve = studReserveOf(draft);
@@ -1833,7 +2022,7 @@ export async function compileLdrawEntityGeometry(
   } else if (grainPlan.partsCoarsened) {
     warnings.push(`${cid}: ${grainPlan.placementsCoarsened} placement${grainPlan.placementsCoarsened === 1 ? '' : 's'} of ${grainPlan.partsCoarsened} part${grainPlan.partsCoarsened === 1 ? '' : 's'} compiled coarser than ${grainPlan.requestedMicrocellLdu} LDU to fit the ${quality.maxModelCubes}-cuboid budget (silhouette fidelity ${grainPlan.fidelity} against ${grainPlan.fidelityAtRequested} at full grain); the other ${grainPlan.placementsAtGrain[grainPlan.requestedMicrocellLdu] ?? 0} keep ${grainPlan.requestedMicrocellLdu} LDU.`);
   }
-  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts } = built;
+  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts, defaultFaces, headCubesCarved } = built;
   if (cullPlan.skipped) {
     warnings.push(`${cid}: buried-cuboid culling was skipped - the model spans ${Math.round(Math.cbrt(cullPlan.gridCells))} cells a side even at ${cullPlan.cellLdu} LDU, over the ${CULL_GRID_CELL_BUDGET / 1_000_000} M-cell occupancy budget; a few hundred never-visible cuboids ship with it.`);
   }
@@ -2090,6 +2279,8 @@ export async function compileLdrawEntityGeometry(
     standContinued,
     orphans,
     hiddenCubesCulled,
+    defaultFaces,
+    headCubesCarved,
     hiddenCull: { cellLdu: cullPlan.cellLdu, requestedCellLdu: cullPlan.requestedCellLdu, gridCells: cullPlan.gridCells, coarsened: cullPlan.coarsened, skipped: cullPlan.skipped },
     mergedCubes,
     heaviestParts,

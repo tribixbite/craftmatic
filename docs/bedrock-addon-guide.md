@@ -2475,3 +2475,71 @@ wand's re-lay sets after the collider runs of each box (`placeColliders`).
   the roof. `playable-addon.ts` must pass `sgeo.sizeBlocks` to `shellBehavior`
   (until then a 44-block extent is assumed) and re-derive its LOD switch from
   `actorCullDistance` instead of 64.
+
+## Figures on the device (2026-09-24): faces, hair, big-figs, mini-dolls
+
+The user's Pixel screenshots of 76417 and 42703 (`output/device-round-2026-09-24b/screenshots/`)
+showed blank faces on every head, striped hair, mermaid tails as pink blobs
+on the torso, Hagrid as floating hair and arms, and a stray skin-coloured hand
+beside 42703's dolls. Five causes, none of them a rendering problem:
+
+- **A quarter of Studio's unofficial parts were nameless.** 5,605 of the
+  22,692 files in `UnOfficial/parts` start with `0 FILE <name>.dat` and carry
+  the description on the SECOND line; `descriptionOf` read the first, so
+  `37777` (Hagrid's `Torso Large`), `37779`/`37783` (`Arm Large with Pin`),
+  `37784` (his hair-and-beard), `93230p04` (the goblins' ear-hair) and every
+  mini-doll hair were `FILE …` to every classifier. The header is skipped now
+  (`ldraw-part-geometry.ts`), as `gen-minidoll-slots.ts` always did.
+- **Mini-dolls are rigged** (`minifig-rig.ts`, `FigureSystem = 'minidoll'`):
+  head 33.2 above the torso, arms ±11, hips 29.4 below and 1.2 forward, the
+  one-piece legs 47.4 below the hips and 2.7 further forward — the library's
+  own numbers (`92456` places its arms at ±11; `92248` and `92251`/`16529`
+  carry `!HELP` origin notes). The converted 42703 places the mermaid tail
+  `16529` AT the hips (no LDD→LDraw row); the rig moves it to the legs joint.
+  A doll walks stiff-legged (its legs ride the `hips` bone; the shared
+  animation's `leg_*` bones do not exist on it) and holds items at ∓25.9,
+  29.7, −4 (where both of 42703's microphones sit).
+- **Big-figs are rigged** (`'bigfig'`): the body mould at the origin, arms on
+  the shoulder pins at ±20, 9.5 (`37777`'s `peghole` primitives), the head or
+  hair-with-beard on the neck at −24, minifig hands at the arms' ends, and
+  short legs under the coat at 64 (feet at 88).
+- **The frame is the body's consensus, not the torso's word.** Each part with
+  an exact canonical offset votes for where the torso origin is; the largest
+  cluster within 4 LDU wins, ties to the torso. 76417's `37777` has no
+  alignment row, so the converter left it at its raw LDD origin, 10 / −70.5
+  LDU from where its own head, arms and legs put the shoulders — anchored on
+  it, Hagrid's body sat in the ground and his hair and arms in the air.
+  `reanchoredLdu` reports the move; the scene floor (`bedrock-scene-actors.ts`)
+  now stands a figure on the rig's `feetY`, not on the source body's bounds.
+- **A head with legs but no torso is still a figure** (`figureAnchor`,
+  `groupFigures`): the rig synthesises the torso (`92241` for a doll, `973`
+  for a minifig) in the sleeve's colour, else the hips'. 42703's fifth doll
+  arrived as head, hair, arm stump, hips and legs; its stump floated in the
+  shell where the shoulder should be.
+- **Faces.** Converted sources carry no head print — the LXFML holds the face
+  as an LDD `decoration` the conversion drops — so every head is a plain
+  `3626c`/`92198`. A plain head (every triangle colour 16) now gets a default
+  face (`faceDecals`: two eyes at 40 % of the height, a mouth at 66 %, as thin
+  cuboids proud of the front-most compiled cell, black on light skin and
+  white on dark). A printed head keeps its print and gets none.
+  TODO: map LDD decoration ids to LDraw printed parts in the converter.
+- **Hair stripes.** Two mechanisms, both fixed in the figure compile: the 2×2×2
+  majority downsample punctures a thin shell where it crosses the lattice
+  diagonally (`preserveSurface` keeps any cell the surface touches; headwear
+  compiles with it), and a head cell that shares space with its hair draws
+  its coplanar face through the hair (the head carve: aligned head cuboids
+  are clipped by the headwear's, `headCubesCarved` in the diagnostics).
+- **Olive-green goblins are not in the source.** Every `3626` head and every
+  `68498` ear-hair in the DBIX LXFML of 76417 carries material 283 (Light
+  Nougat) — the ears as `materials="1:0,283:0"` etc. — and the `.io` agrees
+  (all `3626c` at 78). Nothing in the pipeline drops 330; the LXFML never has
+  it on a figure. If the set's goblins are olive, that is a correction to
+  the SOURCE (clego's `reconvert_dbix.py` material→pattern table), not to
+  the pipeline.
+
+Offline evidence: `node scripts/_shoot_addon_walk.mjs <pack> <out.png> model
+figures --url=http://localhost:<port> --figure=<n|label> --view=front
+--distance=4.5` renders any figure face-on from any worktree's dev server;
+`output/device-round-2026-09-24b/figures-*.png` holds the before/after set.
+Tests: `test/figure-systems.test.ts`. Not verified on the device: the doll
+and big-fig animations, and Bedrock's rendering of the 0.9 LDU face decals.
