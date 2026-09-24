@@ -232,6 +232,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   cart, 13 figures); explodes inside nested sub-builds are diagrams. Nested
   explodes are in their PARENT's frame. `_lxfml_assemble.ts --root-step`
   (`composeRootStep`); the seating heuristic cannot place a figure indoors.
+  **It is NOT safe to apply globally**: the page moves parts in 397 of 2,322
+  DBIX LXFMLs, and over those it is mixed (floating and side-model down,
+  overlap and sunk up); pages also scatter loose display accessories. clego
+  applies its port (`lxfml_root_step.py`) only to the 73 stems in
+  `dbix_root_step_accepted.json` that passed the strict A/B (2026-09-24,
+  `output/generalize-0924/`). Only the refID schema has frame pairs; the uuid
+  schema's root explodes (663 sets) are offsets of unknown sense, untouched.
 - **A load path may never abandon itself silently.** Every staleness guard in
   `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the
