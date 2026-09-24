@@ -51,8 +51,8 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 - Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
 - Pack updates: importing a new .mcaddon does NOT repoint a world's active
   pack (device runs: world 922 kept 83614b39 active after 980f54fd was
-  imported). Remove + add in the world's pack settings, or (External storage
-  only) deploy into `development_*_packs` over adb.
+  imported). Remove + add in the world's pack settings, or deploy into
+  `development_*_packs` over adb (`scripts/_pixel_dev_deploy.py`).
 
 ## Active round — 2026-09-24: device report 2 (pinball, coasters, figures, Gringotts)
 
@@ -61,13 +61,16 @@ listed 12 items. Status per item, then what is still open. Work was split
 across worktree agents (coaster, figures, Gringotts) and merged into main;
 pinball was done in main and tested on the Pixel through a subagent.
 
-**Minecraft now keeps packs, worlds AND the content log in PRIVATE storage**
-(1.26.51, "Application" storage): adb cannot read the log or edit world pack
-lists. Import still works (VIEW intent, Minecraft foreground); activation goes
-through the world's Edit -> Behavior/Resource Packs UI. QA world: **922** (flat,
-creative, cheats). Its Available lists hold several stale pinball versions;
-`/sdcard/Download` holds `pinball-rec1..4.mp4` and `000-pinball-*.mcaddon`
-(deletes are off-limits to agents; the user can clear them).
+**Storage is EXTERNAL and always was** (user, 2026-09-24). An early agent
+listed `…/com.mojang/{logs,behavior_packs}` while Minecraft was running, saw
+no file for today and no pack folders, and concluded "private storage" — WRONG;
+the same listing an hour later showed today's ContentLog (20 KB) and every
+pack. Treat an empty listing of a folder the running game writes as stale, not
+absent: re-list (or force-stop first) before concluding anything. QA world is
+now **924** (blank, created by the user); packs are deployed into
+`development_*_packs` and bound over adb by `scripts/_pixel_dev_deploy.py`.
+`/sdcard/Download` holds `pinball-rec1..5.mp4` and `000-pinball-*.mcaddon`
+(agents may not delete; the user can clear them).
 
 | # | report item | status |
 |---|---|---|
