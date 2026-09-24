@@ -56,22 +56,22 @@ creative, cheats). Its Available lists hold several stale pinball versions;
 | 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
 | 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
 
-### Pinball input — where it stands (device runs 1-5, `output/device-round-2026-09-24b/pinball-device*/`)
+### Pinball input — device-proven at `d735121b` (runs 1-8, `output/device-round-2026-09-24b/pinball-device*/`)
 
-- `83614b39`: nothing spawned (pushable). `980f54fd`: taps counted but split
-  250-380 px right of centre. `1fb959ae` (zones from the MEASURED head): 0 hits.
-  `bcd1e3c9` live tuning (`/scriptevent craftmatic:pinball {...}`): **with a
-  FREE camera a tap never ray-tests a zone in front of the head** at any
-  offset/anchor/depth; it only reaches a zone that ENCLOSES the head.
-- `6ba8b924` (under test): seated view is FIRST PERSON (setRotation + camera
-  input locked, free camera only as fallback / `{"view":"free"}`), and
-  **hotbar slots** 1-4 / 6-9 are the left / right flipper under any camera
-  (parked on slot 5; wands skip players tagged `craftmatic_pinball`).
-- Stick works in play (left/right flippers, pull back = plunger); Jump
-  DISMOUNTS, so it is no input. The ~1.5 s ball stop near the top-left is the
-  designed stall kickout (`STALL_S`).
-- [ ] Settle the default input from run 5; fold the working zone placement
-  into the defaults and remove the tuning hook (`# TODO` in `pinballRuntime`).
+- Screen taps: free camera hung from the measured head along the planned
+  heading; the rider turned by setRotation (yaw applies, pitch does NOT) with
+  head turning locked; zones 3 blocks wide, side +0.1, drawn as a CUBE with a
+  fully transparent texture (no-cube zones are never picked). Run 8: every
+  tap L/R correct top and bottom, split at centre; x < ~600 at mid-height misses.
+- Hotbar slots 1-4 / 6-9 = left / right flipper (exact, any camera; wands
+  skip players tagged `craftmatic_pinball`). Stick works in play. Jump dismounts.
+- Seated player invisible (the free camera drew their arm over the table).
+- Findings that must not be re-tested: with a free camera, a zone WITHOUT
+  cubes is only "hit" when it encloses the head; chasing the rider's yaw
+  with the seat orbits it; first person looks level (pitch ignored).
+- [ ] Far-left mid-height taps (x < ~600 of 2244): widen/lower the left zone
+  or accept. `/scriptevent craftmatic:pinball {...}` tuning hook still ships
+  (`# TODO` to remove once the defaults are final).
 
 ### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
 
@@ -79,9 +79,9 @@ creative, cheats). Its Available lists hold several stale pinball versions;
 picks (`76417` `DbixConvV3/76417.ldr` d3a02437401c, `42703` `DbixConvV3/42703.ldr`
 a92737f37b9c, `10303` `IOModel2V2/10303.ldr` df3b47c3c9f2, `10261`
 `LDR/10261 Roller Coaster.mpd` c2c7b07ad35d, `11374` `DbixConvV3/11374.ldr`).
-Built at `6ba8b924` in `output/device-round-2026-09-24b/packs-6ba8b924/`, all
-`_mcaddon_check` OK, all four coasters ride the set's own cars. Rebuild all at
-the final commit before sending; write `PACKS.md` beside them.
+**Sent: `output/device-round-2026-09-24b/packs-d735121b/`** (5 packs + `PACKS.md`
+with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
+40/40 favourites export clean at the merged code (`favorites-sweep-0924c`).
 
 ### Published 2026-09-24
 
