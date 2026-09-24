@@ -115,7 +115,7 @@ export const LXFML_ELEMENTS: Readonly<Record<string, LxfmlSpec>> = {
   ExternalReferences: e('metadata', false, 'references to other documents'),
 
   // ── explode / instruction motion ────────────────────────────────────────
-  Explode: e('geometry', true, 'a rigid frame pair (`position`/`rotation` → `explosionPosition`/`explosionRotation`) carrying the parts listed under it. Read by `lxfml-assembly.ts`, which applies one when the group it carries comes to rest ON the model.'),
+  Explode: e('geometry', true, 'a rigid frame pair (`position`/`rotation` → `explosionPosition`/`explosionRotation`) carrying the parts listed under it. Read by `lxfml-assembly.ts`: `assembleLxfml` applies one when the group it carries comes to rest ON the model; `composeRootStep` (`_lxfml_assemble.ts --root-step`) applies every DIRECT child of the top-level `<Step>` — the finished-model page, figures and all — with nested explodes composed in their parent\'s frame.'),
   Parts: e('geometry', true, 'the `partRefs` an Explode carries'),
   ExplodeRanges: e('view', false, 'container'),
   ExplodeRange: e('view', false, 'a range of explode steps with its own transformation (1,474 sets)'),

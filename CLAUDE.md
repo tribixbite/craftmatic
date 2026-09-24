@@ -198,6 +198,20 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `--only-file <listing> --no-index` for corpus-only publication. Failed or
   concurrently rewritten models block index publication. Older checkouts
   lacked argument parsing and could start a full upload on `--help`.
+- **The voxel grid is HALF A BLOCK off the entity world.** The voxelizer
+  centres cell `i` on `i` (it holds grid coordinates [i − ½, i + ½), kept on
+  purpose, see `parityFill`), while the structure lays voxel `i` at world block
+  [i, i + 1) and every entity (shell, figures, doors) is placed by
+  `sceneGridPoint`. Anything that reads the voxel grid as "what is at world
+  block i" is half a block wrong in all three axes: the shell's colliders were
+  (76417: 1,070 of 3,535 collider blocks held nothing, an invisible plane over
+  the bank floor), and are now laid from the shell's own part boxes
+  (`buildColliderGrid`). Derive world-block facts from geometry, not voxels.
+- **An LXFML's top-level `<Step>` is the finished-model page.** Its DIRECT
+  `<Explode>` children place every sub-build and figure (76417: bank, dragon,
+  cart, 13 figures); explodes inside nested sub-builds are diagrams. Nested
+  explodes are in their PARENT's frame. `_lxfml_assemble.ts --root-step`
+  (`composeRootStep`); the seating heuristic cannot place a figure indoors.
 - **A load path may never abandon itself silently.** Every staleness guard in
   `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the

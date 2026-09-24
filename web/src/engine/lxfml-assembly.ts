@@ -288,3 +288,168 @@ export function assembleLxfml(xml: string, options: AssemblyOptions = {}): Assem
 
   return { xml: out, applied, notes };
 }
+
+// ── The root step's own composition ───────────────────────────────────────────
+//
+// The seating test above decides one move at a time from geometry, and it is
+// structurally unable to place a FIGURE: a goblin standing at a counter inside
+// the bank has the bank's whole roof above its footprint, so "the top of what
+// it lands over" is the roof and every figure reads as a -30-unit gap. On
+// 76417 it placed three of the thirteen figures (by the luck of their columns)
+// and refused the rest, the dragon and the mine cart, so the set shipped with
+// ten figures in a lineup on the grass, the dragon lying beside the rock and
+// three plates floating 50 units off the model (device report 2026-09-24).
+//
+// The file says where they go, and says it in one place. The instruction's
+// TOP-LEVEL step (76417: `sm01`, the first child of `<Steps>`) is the finished
+// model's page: its DIRECT `<Explode>` children are LEGO's own placement of
+// every sub-build and figure into the final scene — the bank onto the rock,
+// each figure to its post, the dragon onto the rock face, the cart onto its
+// track. Explodes inside nested `<SubBuild>`s are the per-step diagrams (an
+// exploded lift of the rock's spine, parts hovering over their studs) and are
+// NOT taken; neither are `<ExtraView>`/`<EndOnHighView>` copies.
+//
+// Nested `<Explode>`s inside a placement are expressed in their PARENT's frame
+// (a minifig's arms at (1.03, 1.86, 0) from its hips; the dragon's wings, legs
+// and neck from its body), so a part's move composes the chain:
+//   M = (F1_to ∘ F2_to ∘ … ∘ Fk_to) ∘ (F1_from ∘ … ∘ Fk_from)^-1
+// which carries the group AND takes the display pose the set is shown in. A
+// flat reading (the regex in `findAssemblyMoves`) moves children rigidly with
+// their parent and keeps their build pose.
+
+/** A rigid frame: row-major rotation and a translation. */
+interface Frame { r: number[]; t: Vec3 }
+
+const IDENTITY_FRAME: Frame = { r: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [0, 0, 0] };
+
+/** a ∘ b: first b, then a. */
+const composeFrames = (a: Frame, b: Frame): Frame => {
+  const bt = applyM(a.r, b.t);
+  return { r: mulM(a.r, b.r), t: [bt[0] + a.t[0], bt[1] + a.t[1], bt[2] + a.t[2]] };
+};
+const invertFrame = (f: Frame): Frame => {
+  const rt = transposeM(f.r);
+  const t = applyM(rt, f.t);
+  return { r: rt, t: [-t[0], -t[1], -t[2]] };
+};
+
+/** One placement of the root step: its frame pair, its own parts, its nested placements. */
+export interface CompositionNode {
+  refId: string;
+  fromPos: Vec3; fromRot: Quat; toPos: Vec3; toRot: Quat;
+  parts: string[];
+  children: CompositionNode[];
+}
+
+/**
+ * The direct `<Explode>` children of every top-level `<Step>` (a child of
+ * `<Steps>`), each with its nested explodes as a tree. Text in, no DOM: the
+ * tags are walked with a depth counter, which is exact for LDD's
+ * machine-written XML (no CDATA, no comments inside `<BuildingInstruction>`).
+ */
+export function findRootComposition(xml: string): CompositionNode[] {
+  const start = xml.indexOf('<Steps');
+  if (start < 0) return [];
+  const TAG = /<(\/?)(Steps|Step|SubBuild|ExtraView|EndOnHighView|Explode|Parts)\b([^>]*?)(\/?)>/g;
+  TAG.lastIndex = start;
+  // Element stack of the structural tags; an explode is "root" when the
+  // stack above it is exactly Steps > Step (plus the explode chain itself).
+  const stack: string[] = [];
+  const explodeStack: CompositionNode[] = [];
+  const roots: CompositionNode[] = [];
+  let rootExplodeDepth = -1;
+  for (let m = TAG.exec(xml); m; m = TAG.exec(xml)) {
+    const [, closing, tag, attrs, selfClose] = m;
+    if (closing) {
+      if (tag === 'Explode' && explodeStack.length) explodeStack.pop();
+      if (stack.length && stack[stack.length - 1] === tag) stack.pop();
+      if (tag === 'Steps') break;
+      if (rootExplodeDepth >= 0 && stack.length < rootExplodeDepth) rootExplodeDepth = -1;
+      continue;
+    }
+    if (tag === 'Parts') {
+      const top = explodeStack[explodeStack.length - 1];
+      if (top) for (const ref of (/partRefs="([^"]*)"/.exec(attrs!)?.[1] ?? '').split(',')) if (ref) top.parts.push(ref);
+      continue;
+    }
+    if (tag === 'Explode') {
+      // Root: directly inside a top-level Step, or nested in a root explode.
+      const underRootStep = stack.length === 2 && stack[0] === 'Steps' && stack[1] === 'Step';
+      const nested = explodeStack.length > 0 && rootExplodeDepth >= 0;
+      if (underRootStep || nested) {
+        const fromPos = num3(/\bposition="([^"]*)"/.exec(attrs!)?.[1] ?? '') ?? [0, 0, 0];
+        const toPos = num3(/\bexplosionPosition="([^"]*)"/.exec(attrs!)?.[1] ?? '') ?? fromPos;
+        const node: CompositionNode = {
+          refId: /refID="(\d+)"/.exec(attrs!)?.[1] ?? '?',
+          fromPos, toPos,
+          fromRot: num4(/\brotation="([^"]*)"/.exec(attrs!)?.[1] ?? '') ?? [0, 0, 0, 1],
+          toRot: num4(/\bexplosionRotation="([^"]*)"/.exec(attrs!)?.[1] ?? '') ?? [0, 0, 0, 1],
+          parts: [], children: [],
+        };
+        if (nested) explodeStack[explodeStack.length - 1]!.children.push(node);
+        else { roots.push(node); rootExplodeDepth = stack.length + 1; }
+        if (!selfClose) { explodeStack.push(node); stack.push('Explode'); }
+      } else if (!selfClose) {
+        // An explode we do not take still nests; keep the stacks balanced.
+        explodeStack.length = 0;
+        stack.push('Explode');
+      }
+      continue;
+    }
+    if (!selfClose) stack.push(tag!);
+  }
+  return roots;
+}
+
+/** Every part a composition moves, with the rigid move that takes it to the finished scene. */
+export function compositionMoves(roots: readonly CompositionNode[]): Map<string, Frame> {
+  const out = new Map<string, Frame>();
+  const frameOf = (pos: Vec3, rot: Quat): Frame => ({ r: quatToMatrix(rot), t: pos });
+  const visit = (node: CompositionNode, from: Frame, to: Frame): void => {
+    const f = composeFrames(from, frameOf(node.fromPos, node.fromRot));
+    const t = composeFrames(to, frameOf(node.toPos, node.toRot));
+    const move = composeFrames(t, invertFrame(f));
+    // First placement wins: the file repeats a move per view.
+    for (const ref of node.parts) if (!out.has(ref)) out.set(ref, move);
+    for (const child of node.children) visit(child, f, t);
+  };
+  for (const root of roots) visit(root, IDENTITY_FRAME, IDENTITY_FRAME);
+  return out;
+}
+
+/** Summary of one root placement, for the report. */
+export interface CompositionApplied { refId: string; parts: number; distance: number }
+
+/**
+ * Apply the top-level step's composition (see the section header): every
+ * part it names is moved to where the finished-model page shows it. Parts the
+ * composition does not name keep their stored position.
+ */
+export function composeRootStep(xml: string): { xml: string; applied: CompositionApplied[]; notes: string[] } {
+  const roots = findRootComposition(xml);
+  if (!roots.length) return { xml, applied: [], notes: ['no top-level step placements in this file'] };
+  const moves = compositionMoves(roots);
+  const count = (n: CompositionNode): number => n.parts.length + n.children.reduce((s, c) => s + count(c), 0);
+  const applied = roots.map(n => ({
+    refId: n.refId, parts: count(n),
+    distance: Math.hypot(n.toPos[0] - n.fromPos[0], n.toPos[1] - n.fromPos[1], n.toPos[2] - n.fromPos[2]),
+  }));
+  const out = xml.replace(/<Part\b([^>]*)\brefID="(\d+)"([^>]*)>([\s\S]*?)<\/Part>/g,
+    (whole, pre: string, ref: string, post: string, body: string) => {
+      const move = moves.get(ref);
+      if (!move) return whole;
+      const moved = body.replace(/transformation="([^"]*)"/g, (attr, value: string) => {
+        const v = value.split(',').map(Number);
+        if (v.length < 12 || !v.every(Number.isFinite)) return attr;
+        // Stored column-major (R^T in row-major terms): R' = M.R is stored as R^T.M^T.
+        const rot = mulM(v.slice(0, 9), transposeM(move.r));
+        const p = applyM(move.r, [v[9]!, v[10]!, v[11]!]);
+        const pos = [p[0] + move.t[0], p[1] + move.t[1], p[2] + move.t[2]];
+        return `transformation="${[...rot, ...pos].map(n => (Math.abs(n) < 1e-12 ? 0 : n)).join(',')}"`;
+      });
+      return `<Part${pre}refID="${ref}"${post}>${moved}</Part>`;
+    });
+  const notes = applied.filter(a => a.distance > 1e-9 || a.parts > 0)
+    .map(a => `placed ${a.refId}: ${a.parts} parts, ${a.distance.toFixed(2)} units`);
+  return { xml: out, applied, notes };
+}

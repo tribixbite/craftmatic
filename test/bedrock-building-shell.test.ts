@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, buildColliderGrid, colliderBlockDefinition, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, buildColliderGrid, colliderBlockDefinition, colliderCellIndex, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
@@ -18,12 +18,12 @@ const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: LDU_PER_BLOC
 const C = LDU_PER_BLOCK;
 
 describe('buildColliderGrid', () => {
-  it('collides a baseplate cell only as high as the plate, a wall fully, keeps doors, fills gap cells', () => {
+  it('collides a baseplate cell only as high as the plate, a wall fully, keeps doors, and lays nothing where nothing is seen', () => {
     const grid = new BlockGrid(3, 3, 3);
     grid.set(0, 0, 0, 'minecraft:white_concrete'); // a plate 8 LDU thick at the cell floor
     grid.set(1, 0, 0, 'minecraft:white_concrete'); // a full-height wall
     grid.set(2, 0, 0, 'minecraft:oak_door[facing=south,half=lower,hinge=left,open=false,powered=false]');
-    grid.set(0, 1, 0, 'minecraft:white_concrete'); // gap fill: no part reaches it
+    grid.set(0, 1, 0, 'minecraft:white_concrete'); // a voxel no part's geometry reaches: an invisible wall until 2026-09-24
     grid.set(1, 2, 0, 'minecraft:white_concrete'); // a ceiling slab at the TOP of its cell
     // LDraw Y down: the plate spans y −8..0 (top at −8), the wall −C..0, the slab sits at the top of cell y=2: y −3C..−3C+8.
     // Grid z 0 is LDraw z −C..0: the grid is a half turn about X, so grid +Z is LDraw −Z.
@@ -36,10 +36,39 @@ describe('buildColliderGrid', () => {
     expect(out.get(0, 0, 0)).toBe(colliderState(0, 3));
     expect(out.get(1, 0, 0)).toBe(colliderState(0, 16));
     expect(out.get(2, 0, 0)).toBe('minecraft:oak_door[facing=south,half=lower,hinge=left,open=false,powered=false]');
-    expect(out.get(0, 1, 0)).toBe(colliderState(0, 16));
+    expect(out.get(0, 1, 0)).toBe('minecraft:air');
     expect(out.get(1, 2, 0)).toBe(colliderState(13, 16));
     expect(out.get(2, 2, 2)).toBe('minecraft:air');
-    expect(stats).toEqual({ colliders: 4, partial: 2, kept: 1 });
+    expect(stats).toEqual({ colliders: 3, partial: 2, kept: 1, emptyVoxelsDropped: 1, geometryBlocksAdded: 0 });
+  });
+
+  it('lays a collider wherever the shell draws geometry, even where the centred voxel grid left the block air', () => {
+    // The voxelizer centres cell i on i (it holds [i − ½, i + ½)); the world
+    // block the structure lays it in is [i, i + 1). A plate whose top sits in
+    // the upper half of block 0 is voxel 1's content - here the grid has
+    // nothing in block 0 at all - and was walked through, while voxel 1 stood
+    // as a full invisible block over it (76417's bank floor, 2026-09-24).
+    const grid = new BlockGrid(2, 3, 2);
+    grid.set(0, 1, 0, 'minecraft:white_concrete');
+    const plate = [{ min: [0, -0.75 * C, -C] as [number, number, number], max: [C, -0.6 * C, 0] as [number, number, number] }];
+    const { grid: out, stats } = buildColliderGrid(grid, plate, frame);
+    expect(out.get(0, 0, 0)).toBe(colliderState(9, 12));
+    expect(out.get(0, 1, 0)).toBe('minecraft:air');
+    expect(stats).toMatchObject({ colliders: 1, emptyVoxelsDropped: 1, geometryBlocksAdded: 1 });
+  });
+
+  it('keeps a cell the door pass opened clear, whatever geometry reaches it', () => {
+    const grid = new BlockGrid(2, 2, 2);
+    const wall = [{ min: [0, -C, -C] as [number, number, number], max: [C, 0, 0] as [number, number, number] }];
+    const keepClear = new Set([colliderCellIndex(grid, 0, 0, 0)]);
+    expect(buildColliderGrid(grid, wall, frame, keepClear).grid.get(0, 0, 0)).toBe('minecraft:air');
+    expect(buildColliderGrid(grid, wall, frame).grid.get(0, 0, 0)).toBe(colliderState(0, 16));
+  });
+
+  it('falls back to the voxel grid when the shell reported no boxes', () => {
+    const grid = new BlockGrid(1, 1, 1);
+    grid.set(0, 0, 0, 'minecraft:white_concrete');
+    expect(buildColliderGrid(grid, [], frame).grid.get(0, 0, 0)).toBe(colliderState(0, 16));
   });
 
   it('keeps the blocks the scene made live and light sources', () => {
@@ -162,7 +191,8 @@ describe('the building shell', () => {
     for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) grid.set(x, 0, z, 'minecraft:red_concrete');
     grid.set(1, 1, 1, 'minecraft:oak_door[facing=south,half=lower,hinge=left,open=false,powered=false]');
     grid.set(1, 2, 1, 'minecraft:oak_door[facing=south,half=upper,hinge=left,open=false,powered=false]');
-    const bricks: ParsedBrick[] = [{ part: '3001.dat', color: 4, x: 2 * C, y: 0, z: 2 * C, rot: I }];
+    // On the grid: grid +Z is LDraw −Z, so cell z 2 is LDraw z −2C (colliders are laid from this brick's geometry).
+    const bricks: ParsedBrick[] = [{ part: '3001.dat', color: 4, x: 2 * C, y: 0, z: -2 * C, rot: I }];
     const pack = await buildPlayableAddon(grid, { stem: 'shed', label: 'Shed', partGeometry: provider(), shell: { bricks, frame }, pbr: false });
     const buffer = pack.bytes.buffer.slice(pack.bytes.byteOffset, pack.bytes.byteOffset + pack.bytes.byteLength) as ArrayBuffer;
     const entries = listZipEntries(buffer);

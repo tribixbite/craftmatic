@@ -213,6 +213,16 @@ describe('case 3: coverage against the REAL shipped table', () => {
     expect(Object.keys(table.entries).length).toBeGreaterThan(4000);
   });
 
+  it('a bare-identity Studio row the measured table contradicts is overridden (gen-ldd-part-map.py)', () => {
+    // 21229 (spindled quarter-round fence WITH studs) is 30056 plus three studs:
+    // 21229.dat includes s\30056s01.dat at identity, so the two share a frame and
+    // must share Studio's correction. Studio wrote identity for 21229; 76417's
+    // tower railings hung 48 LDU low and 70 out (device, 2026-09-24).
+    expect(real['21229']).toEqual(['21229.dat', ...(real['30056'] as unknown[]).slice(1)]);
+    // 37352 (Brick 1 x 2 curved top) takes the 1 x 2 brick's correction (488 measured votes).
+    expect((real['37352'] as unknown[]).slice(1)).toEqual((real['3004'] as unknown[]).slice(1));
+  });
+
   it('reports mapped vs unmapped placements for a PARTIALLY covered model', () => {
     const covered = Object.keys(table.entries)[0]!;
     // A 12-float column-major bone at the origin, identity rotation.

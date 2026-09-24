@@ -72,7 +72,9 @@ const errors = [];
 page.on('pageerror', e => errors.push(`pageerror: ${e.message}`));
 page.on('console', m => { if (m.type() === 'error') errors.push(`console: ${m.text().slice(0, 160)}`); });
 
-await page.goto('http://localhost:4000/?tab=lego', { waitUntil: 'domcontentloaded' });
+// CRAFTMATIC_URL points the shot at another dev server (a worktree's own, on
+// another port), so a change is looked at through the code that made it.
+await page.goto(`${process.env.CRAFTMATIC_URL ?? 'http://localhost:4000'}/?tab=lego`, { waitUntil: 'domcontentloaded' });
 await page.waitForSelector('#lego-addon-walk-file', { state: 'attached', timeout: 30000 });
 await page.setInputFiles('#lego-addon-walk-file', resolve(packPath));
 

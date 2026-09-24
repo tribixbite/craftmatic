@@ -189,3 +189,74 @@ describe('assembled parts keep their orientation relative to their group', () =>
     expect(worst).toBeLessThan(1e-6);
   });
 });
+
+// ── The root step's composition (76417's figures, dragon, cart) ──────────────
+// The top-level step of LEGO's instruction file is the finished-model page:
+// its DIRECT <Explode> children place every sub-build and figure. Explodes in
+// a nested sub-build's steps are diagrams and are not taken; neither are
+// <ExtraView> copies. Nested explodes are expressed in their parent's frame.
+import { composeRootStep, compositionMoves, findRootComposition } from '../web/src/engine/lxfml-assembly.js';
+
+/** An LXFML with the given parts and a raw `<Steps>` body. */
+function withSteps(parts: Array<{ ref: string; at: [number, number, number] }>, steps: string): string {
+  const bricks = parts.map(p => `<Brick refID="${p.ref}" designID="3001"><Part refID="${p.ref}" designID="3001" materials="1"><Bone refID="${p.ref}" transformation="1,0,0,0,1,0,0,0,1,${p.at.join(',')}"/></Part></Brick>`).join('');
+  return `<?xml version="1.0"?><LXFML><Bricks>${bricks}</Bricks><BuildingInstruction><Steps>${steps}</Steps></BuildingInstruction></LXFML>`;
+}
+const ex = (ref: string, from: number[], to: number[], refs: string[], inner = '', rot = '0,0,0,1', erot = '0,0,0,1'): string =>
+  `<Explode refID="${ref}" position="${from.join(',')}" rotation="${rot}" explosionPosition="${to.join(',')}" explosionRotation="${erot}"><Parts partRefs="${refs.join(',')}"/>${inner}</Explode>`;
+
+describe('composeRootStep', () => {
+  const parts = [
+    { ref: '1', at: [30, 0, 30] as [number, number, number] }, // a figure in the lineup
+    { ref: '2', at: [0, 0, 0] as [number, number, number] }, // a part a sub-build diagram lifts
+    { ref: '3', at: [5, 0, 5] as [number, number, number] }, // a part only an extra view moves
+  ];
+  const doc = withSteps(parts,
+    '<Step name="sm01">'
+      + `<SubBuild name="Path"><Step name="inner">${ex('10', [0, 0, 0], [0, 50, 0], ['2'])}</Step></SubBuild>`
+      + `<ExtraView>${ex('11', [5, 0, 5], [5, 90, 5], ['3'])}</ExtraView>`
+      + ex('12', [30, 0, 30], [2, 36, 3], ['1'])
+      + '</Step>');
+
+  it('takes only the top-level step\'s own placements', () => {
+    expect(findRootComposition(doc).map(r => r.refId)).toEqual(['12']);
+    const out = readPartOrigins(composeRootStep(doc).xml);
+    expect(out.get('1')).toEqual([2, 36, 3]); // placed where the finished page shows it
+    expect(out.get('2')).toEqual([0, 0, 0]); // a diagram lift is not an assembly
+    expect(out.get('3')).toEqual([5, 0, 5]); // nor is an extra view
+  });
+
+  it('composes a nested explode in its parent\'s frame (an arm on its figure, a wing on the dragon)', () => {
+    const q = Math.SQRT1_2;
+    // Parent: the body moves +100 X and turns a quarter about Y. Child: an arm
+    // 2 units along the body's X, whose own frame does not change.
+    const nested = withSteps([{ ref: '20', at: [0, 0, 0] }, { ref: '21', at: [2, 0, 0] }],
+      `<Step name="sm01">${ex('1', [0, 0, 0], [100, 0, 0], ['20'], ex('2', [2, 0, 0], [2, 0, 0], ['21']), '0,0,0,1', `0,${q},0,${q}`)}</Step>`);
+    expect(compositionMoves(findRootComposition(nested)).size).toBe(2);
+    const out = readPartOrigins(composeRootStep(nested).xml);
+    expect(out.get('20')![0]).toBeCloseTo(100, 6);
+    // The arm turns with the body: its +X offset becomes -Z.
+    expect(out.get('21')![0]).toBeCloseTo(100, 6);
+    expect(out.get('21')![2]).toBeCloseTo(-2, 6);
+  });
+
+  it('leaves a file without a top-level placement untouched', () => {
+    const plain = withSteps(parts, `<Step name="sm01"><SubBuild name="x"><Step>${ex('1', [0, 0, 0], [0, 9, 0], ['2'])}</Step></SubBuild></Step>`);
+    const result = composeRootStep(plain);
+    expect(result.applied).toEqual([]);
+    expect(result.xml).toBe(plain);
+  });
+
+  it.skipIf(!existsSync(GRINGOTTS))('76417: the finished page places the bank, dragon, cart and all 13 figures into one compact model', () => {
+    const xml = readFileSync(GRINGOTTS, 'utf8');
+    const result = composeRootStep(xml);
+    expect(result.applied).toHaveLength(20);
+    const o = [...readPartOrigins(result.xml).values()];
+    const extent = [0, 1, 2].map(a => Math.max(...o.map(p => p[a]!)) - Math.min(...o.map(p => p[a]!)));
+    // Laid out: 126.8 x 36.0 x 59.3 units. Seating-only assembly: 119.5 x 69.9 x 59.3 (the dragon,
+    // ten figures and the cart left where they were built). The finished page: one footprint.
+    expect(extent[0]).toBeLessThan(55);
+    expect(extent[1]).toBeCloseTo(69.9, 0);
+    expect(extent[2]).toBeLessThan(55);
+  });
+});
