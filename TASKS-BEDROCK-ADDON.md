@@ -144,9 +144,12 @@ at a render against the box art before shipping; "ragged" is a defect.
 
 ### Figures round 2026-09-24b (faces, hair, Hagrid, mermaids) — device check open
 
-Fixed offline (guide: "Figures on the device (2026-09-24)"), packs rebuilt
-under `output/device-round-2026-09-24b/after/`, before/after renders
-`output/device-round-2026-09-24b/figures-*.png`:
+Fixed offline (guide: "Figures on the device (2026-09-24)"), commit
+`76b8edc5`. Packs built from that clean commit, `output/device-round-2026-09-24b/after/`:
+`76417.mcaddon` 705,253 bytes SHA256 `d5b676f6770e015f1f93b803db0c343c3a268df786f6801708dd5ac50e697fc2`
+(13 figures, Hagrid = figure 11), `42703.mcaddon` 532,027 bytes SHA256
+`e481b82feeb9cb18019ae6d7b9502ab1193d90774a415fd3d40f28f8d5ea275b` (5 dolls).
+Before/after renders `output/device-round-2026-09-24b/figures-*.png`:
 - [ ] **Device check** on 76417 + 42703: faces drawn (0.9 LDU decals),
   goblin hair without stripes, Hagrid whole (coat, short legs, hands, umbrella)
   and walking with arms only, the five dolls as NPCs with tails below the
