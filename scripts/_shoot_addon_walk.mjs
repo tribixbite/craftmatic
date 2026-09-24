@@ -47,12 +47,17 @@
  *   --figure=<n|text>: "figures" mode only — the n-th figure marker
  *     (0-based) or the first whose label contains the text, instead of the
  *     first figure.
- *   --view=front|back: "figures" mode only — put the camera on the side the
- *     figure faces (front, the default: faces and prints) or behind it.
+ *   --view=front|back|left|right: "figures" mode only — put the camera on the
+ *     side the figure faces (front, the default: faces and prints), behind
+ *     it, or a quarter turn round either way.
  *   --distance=<blocks>: "figures" mode only — how far from the figure the
  *     camera stands (default 2.4; a big-fig or a 150 % pack wants 3.5-4).
  *   --kind=<marker kind>: "figures" mode only — frame a marker of another
  *     kind the same way (`car` for a coaster car and its posed riders).
+ *   --lift=<blocks>: "figures" mode only — raise the camera by that much
+ *     (a coaster car's riders sit above the car's origin).
+ *   --hide-panels: "figures" mode only — hide the walk's side panels so a
+ *     subject on the left of the canvas is not covered.
  *   --isolate: "figures" mode only — hide every other entity's geometry so
  *     the framed one is seen through the building it stands in.
  */
@@ -170,7 +175,7 @@ if (mode === 'flyout') {
   await page.waitForTimeout(100);
 
   const which = flags.get('figure') ?? '0';
-  const view = flags.get('view') === 'back' ? 'back' : 'front';
+  const view = ['back', 'left', 'right'].includes(flags.get('view')) ? flags.get('view') : 'front';
   const distance = Number(flags.get('distance') ?? 2.4);
   // `--kind=car` (or any marker kind) frames that entity the same way: a
   // coaster car's posed riders are part of the car, not figure markers.
@@ -179,7 +184,11 @@ if (mode === 'flyout') {
   // THREE.Group per drawn entity), so a car parked inside a building can be
   // photographed through its walls. The collider blocks stay.
   const isolate = flags.has('isolate');
-  const placed = await page.evaluate(({ which, view, distance, kind, isolate }) => {
+  // `--lift=<blocks>` raises the camera (a cart's riders sit above its origin);
+  // `--hide-panels` hides the walk's side panels so they cover nothing.
+  const lift = Number(flags.get('lift') ?? 0);
+  if (flags.has('hide-panels')) await page.evaluate(() => { const hud = document.querySelector('.ap-hud'); if (hud instanceof HTMLElement) hud.style.display = 'none'; });
+  const placed = await page.evaluate(({ which, view, distance, kind, isolate, lift }) => {
     const w = window.__addonWalk;
     if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
     const figures = w.markers.filter(m => m.entity.kind === kind);
@@ -197,14 +206,16 @@ if (mode === 'flyout') {
     // down -Z, so looking back along the forward is the entity yaw plus a
     // half turn.
     const yaw = ((marker.entity.yaw ?? 0) + (w.rotation ?? 0) * 90) * Math.PI / 180;
-    const fx = -Math.sin(yaw), fz = -Math.cos(yaw);
-    const sign = view === 'front' ? 1 : -1;
-    w.state = { ...w.state, x: at.x + fx * distance * sign, y: at.y + 0.9 * (distance / 2.4), z: at.z + fz * distance * sign, vx: 0, vy: 0, vz: 0 };
+    // "left"/"right" stand the camera a quarter turn round from "front" (a
+    // coaster car's riders face along the track, not along the car's marker).
+    const around = view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : -Math.PI / 2;
+    const fx = -Math.sin(yaw + around), fz = -Math.cos(yaw + around);
+    w.state = { ...w.state, x: at.x + fx * distance, y: at.y + 0.9 * (distance / 2.4) + lift, z: at.z + fz * distance, vx: 0, vy: 0, vz: 0 };
     w.prevState = w.state;
-    w.yaw = view === 'front' ? yaw + Math.PI : yaw;
+    w.yaw = yaw + around + Math.PI;
     w.pitch = -0.15;
     return { ok: true, label: marker.entity.label, view, hasRealGeometry: marker.hasRealGeometry, at: { x: at.x, y: at.y, z: at.z }, figures: figures.length };
-  }, { which, view, distance, kind, isolate });
+  }, { which, view, distance, kind, isolate, lift });
   await page.waitForTimeout(400);
   await page.screenshot({ path: outPath });
   await browser.close();

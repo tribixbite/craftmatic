@@ -103,6 +103,15 @@ def face_art(photo: Path) -> Image.Image | None:
     if not blobs:
         return None
     x0, x1 = blobs[0]
+    # Front and back photographed touching read as ONE blob about twice as wide
+    # as it is tall: split it at the emptiest column of its middle and keep the
+    # left (front) head.
+    blob_rows = np.where((~bg[:, x0:x1]).any(axis=1))[0]
+    blob_h = int(blob_rows.max() - blob_rows.min() + 1) if blob_rows.size else 1
+    if x1 - x0 > 1.4 * blob_h:
+        occ = (~bg[:, x0:x1]).sum(axis=0)
+        lo, hi = int((x1 - x0) * 0.35), int((x1 - x0) * 0.65)
+        x1 = x0 + lo + int(np.argmin(occ[lo:hi]))
     sub = ~bg[:, x0:x1]
     widths = sub.sum(axis=1)
     rows = np.where(widths >= 0.8 * widths.max())[0]
@@ -134,7 +143,13 @@ def face_art(photo: Path) -> Image.Image | None:
         xs = np.where(raw_body[r])[0]
         if xs.size:
             body[r, xs.min():xs.max() + 1] = True
-    inner = ~dilate(~body, max(2, (bx1 - bx0) // 25))
+    # 6 % of the width: the photo's side shading on a light head (76417's tan
+    # Hagrid) runs that deep; a face's own ink (goblin wrinkles) stays inside.
+    # The crop IS the body's columns, so the outside must be padded in, or the
+    # erosion never reaches the left and right rims.
+    r = max(2, (bx1 - bx0) // 16)
+    padded = np.pad(body, r, constant_values=False)
+    inner = ~dilate(~padded, r)[r:-r, r:-r]
     keep &= inner
     rgba = np.dstack([face.astype(np.uint8), np.where(keep, 255, 0).astype(np.uint8)])
     art = Image.fromarray(rgba, 'RGBA')
