@@ -852,9 +852,15 @@ export function canonicalCoasterCar(car: CoasterCar, bricks: readonly ParsedBric
     const r = mulM(toLocal, b.rot && b.rot.length === 9 ? b.rot : IDENTITY);
     return { ...b, x: p[0], y: p[1], z: p[2], rot: r };
   };
-  const seat = car.seats[0];
+  // The FIRST seat is the player's: its posed rider is the `rider` variant
+  // the runtime hides while a player sits there. Every other seat's rider is
+  // a PASSENGER, part of the car body, riding whoever drives. 76417's vault
+  // cart carries Harry and Hagrid; taking only `seats[0]` shipped Harry and
+  // dropped Hagrid's ten parts out of the whole pack (they had left the
+  // shell as car members and were emitted nowhere, 2026-09-24).
+  const [seat, ...passengers] = car.seats;
   return {
-    bricks: car.bricks.map(convert),
+    bricks: [...car.bricks.map(convert), ...passengers.flatMap(s => s.riderBricks.map(convert))],
     rider: seat ? seat.riderBricks.map(convert) : [],
     ...(seat ? { seatLdu: sub3([seat.localLdu[0], seat.localLdu[1], seat.localLdu[2] * mirror], datum) } : {}),
   };

@@ -204,9 +204,14 @@ Fixed offline (guide: "Figures on the device (2026-09-24)"), commit
 `e481b82feeb9cb18019ae6d7b9502ab1193d90774a415fd3d40f28f8d5ea275b` (5 dolls).
 Before/after renders `output/device-round-2026-09-24b/figures-*.png`:
 - [ ] **Device check** on 76417 + 42703: faces drawn (0.9 LDU decals),
-  goblin hair without stripes, Hagrid whole (coat, short legs, hands, umbrella)
-  and walking with arms only, the five dolls as NPCs with tails below the
-  hips, the fifth doll with a synthesised `92241` torso.
+  goblin hair without stripes, the five dolls as NPCs with tails below the
+  hips, the fifth doll with a synthesised `92241` torso. On the REGENERATED
+  76417 (`d3a02437401c`) Hagrid is not an NPC: the finished-model page seats
+  him and Harry in the vault cart, so he rides as a passenger in the car body
+  (Harry is the first seat, hidden while a player rides). 11 NPCs on foot;
+  the 4 loose `3626c` heads are decoration (gold finial with a bar on the
+  dome, a dark-grey bust in the vault, a white and a lavender ornament), not
+  lost figures.
 - [ ] Mini-doll walk: its one-piece legs ride `hips` and never swing; a
   per-system animation set (legs as one at the hip) is the fix.
 - [ ] Hulk-class big-figs (`10128` body, `10124`/`10154` arms, `10126`/`10127`
