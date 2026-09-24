@@ -179,11 +179,43 @@ export class WalkWorld {
   /** Whether a world block is a tread the plan added. */
   isTread(x: number, row: number, z: number): boolean { return this.treadKeys.has(`${x},${row},${z}`); }
 
+  /**
+   * World blocks laid OVER the shipped grid: a closed door's leaf (the
+   * interactives runtime lays those as colliders while it is closed,
+   * bedrock-interactives.ts `ixClosedBlocks`), keyed by column then row. A
+   * block here replaces the grid's block in that row (the state already
+   * merges the static cells there, as the runtime writes it).
+   */
+  private readonly overlay = new Map<string, Map<number, { lo: number; hi: number }>>();
+
+  /** Replace the laid-over blocks (keys `"x,row,z"` from the pin, the `ixWorldBlocks` convention). An empty map clears them. */
+  setOverlayBlocks(blocks: ReadonlyMap<string, readonly [number, number]>): void {
+    this.overlay.clear();
+    for (const [key, [lo, hi]] of blocks) {
+      const [x, row, z] = key.split(',').map(Number) as [number, number, number];
+      if (!this.grid.inside(x, z)) continue;
+      const col = `${x},${z}`;
+      let rows = this.overlay.get(col);
+      if (!rows) this.overlay.set(col, rows = new Map());
+      rows.set(row, { lo, hi });
+    }
+  }
+
+  /** A column's blocks with the overlay applied. */
+  private columnBlocks(x: number, z: number): ReadonlyArray<{ row: number; lo: number; hi: number }> {
+    const base = this.grid.column(x, z).blocks;
+    const rows = this.overlay.get(`${x},${z}`);
+    if (!rows) return base;
+    const out = base.filter(b => !rows.has(b.row)).map(b => ({ row: b.row, lo: b.lo, hi: b.hi }));
+    for (const [row, b] of rows) out.push({ row, lo: b.lo, hi: b.hi });
+    return out.sort((p, q) => p.row - q.row);
+  }
+
   /** The solid boxes of one column (none outside the footprint; the ground plane is separate). Skips a block an open door has dropped. */
   boxesInColumn(x: number, z: number): SolidBox[] {
     if (!this.grid.inside(x, z)) return [];
     const open = this.openDoorAt(x, z);
-    return this.grid.column(x, z).blocks
+    return this.columnBlocks(x, z)
       .filter(b => !(open && b.row + b.lo / 16 >= open.y0 - EPS && b.row + b.hi / 16 <= open.y1 + EPS))
       .map(b => ({
         x0: x, y0: b.row + b.lo / 16, z0: z, x1: x + 1, y1: b.row + b.hi / 16, z1: z + 1,
@@ -208,7 +240,7 @@ export class WalkWorld {
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
       if (!this.grid.inside(x, z)) continue;
       const open = this.openDoorAt(x, z);
-      for (const b of this.grid.column(x, z).blocks) {
+      for (const b of this.columnBlocks(x, z)) {
         const by0 = b.row + b.lo / 16, by1 = b.row + b.hi / 16;
         if (by1 <= y0 || by0 >= y1) continue;
         // An open door drops any block of this column whose span the opening covers.

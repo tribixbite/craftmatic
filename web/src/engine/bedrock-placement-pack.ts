@@ -29,6 +29,12 @@ export interface PlacementActor {
   coasterCarIndex?: number;
   /** A pinball part (console, ball, flipper); the pinball runtime groups them by the placement frame written here. */
   pinball?: boolean;
+  /**
+   * An interactive part's index in `scripts/interactives.js`'s items
+   * (bedrock-interactives.ts): the placement writes it with the anchor, turn
+   * and size, and the interactives runtime lays the doorway from them.
+   */
+  interactive?: number;
 }
 
 /**
@@ -1128,6 +1134,15 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
             entity.setDynamicProperty('craftmatic:pinball_origin', worldPoint(st, { x: 0, y: 0, z: 0 }));
             entity.setDynamicProperty('craftmatic:pinball_rotation', st.rotation);
             entity.setDynamicProperty('craftmatic:pinball_scale', factor(st));
+          }
+          if (actor.interactive !== undefined) {
+            // A door, window or turnable (bedrock-interactives.ts): its runtime
+            // maps the doorway's collider cells with the placement's own anchor,
+            // turn and size, and lays the closed state on its next sync pass.
+            entity.setDynamicProperty('craftmatic:ix', actor.interactive);
+            entity.setDynamicProperty('craftmatic:ix_anchor', { x: st.anchor.x, y: st.anchor.y, z: st.anchor.z });
+            entity.setDynamicProperty('craftmatic:ix_rotation', st.rotation);
+            entity.setDynamicProperty('craftmatic:ix_scale', factor(st));
           }
           if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);
