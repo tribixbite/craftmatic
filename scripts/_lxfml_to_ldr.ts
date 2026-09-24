@@ -121,7 +121,7 @@ const lines = [
   `0 ${stem}`,
   `0 Name: ${stem}.ldr`,
   '0 Author: craftmatic scripts/_lxfml_to_ldr.ts',
-  '0 !LINEAGE lxfml-direct: built from the LXFML by this repo’s own placement code',
+  '0 !LINEAGE lxfml-direct: built from the LXFML by this repo's own placement code',
 ];
 for (const [id, count] of [...stickers].sort((a, b) => a[0].localeCompare(b[0]))) {
   lines.push(`0 // sticker element ${id} x${count}: no LDraw mould, not placed`);
