@@ -44,7 +44,18 @@ export type MinifigSlot =
   | 'held' ;
 
 /** A bone of the figure rig: name, parent and pivot in the figure frame (LDU). */
-export interface RigBone { name: string; parent?: string; pivotLdu: Vec3 }
+export interface RigBone {
+  name: string;
+  parent?: string;
+  pivotLdu: Vec3;
+  /**
+   * A static rotation of the bone about its pivot, row-major 3x3 in the LDraw
+   * frame (the frame `pivotLdu` is in). The compiler converts it to the render
+   * frame exactly as it does a rotated part's bone. A pinball flipper uses two
+   * of these to turn its spin axis onto the tilted playfield's normal.
+   */
+  rotation?: number[];
+}
 
 /** What the entity compiler needs to build a jointed entity from `bricks`. */
 export interface EntityRig {

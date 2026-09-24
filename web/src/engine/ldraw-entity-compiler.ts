@@ -1636,7 +1636,12 @@ export async function compileLdrawEntityGeometry(
     const studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string }> = [];
     const bones = new Map<string, { pivot: Vec3; rotation?: [number, number, number]; parent?: string }>();
     bones.set('body', { pivot: [0, 0, 0] });
-    for (const b of options.rig?.bones ?? []) bones.set(b.name, { pivot: apply(A, b.pivotLdu), ...(b.parent ? { parent: b.parent } : {}) });
+    for (const b of options.rig?.bones ?? []) {
+      // A static bone rotation is given in the LDraw frame and goes to the
+      // render frame the same way a rotated part's does (M = A R A^T).
+      const rotation = b.rotation ? eulerZYX(mul(mul(A, b.rotation as Mat3), At)) : undefined;
+      bones.set(b.name, { pivot: apply(A, b.pivotLdu), ...(rotation ? { rotation } : {}), ...(b.parent ? { parent: b.parent } : {}) });
+    }
     const aabbFallback = new Map<string, { count: number; reason: string }>();
     const perPart = new Map<string, { placements: number; cubesEach: number; microcellLdu: number }>();
     let rotatedBoneCount = 0;

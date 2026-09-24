@@ -26,6 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
+import { consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
@@ -98,6 +99,8 @@ export interface PlayableAddonOptions {
     seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
     /** Continuous measured 3D track routes; open routes safely reverse at their ends. */
     coasterRoutes?: CoasterRoute[];
+    /** A LEGO pinball machine read from the model (bedrock-pinball.ts): flippers, ball and console become a playable game. */
+    pinball?: { plan: PinballPlan; frame: SceneGridFrame };
     /**
      * Brick-accurate building: the scenery's placements (figures and door
      * leaves already taken out) compiled as one static entity over invisible
@@ -2138,6 +2141,62 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         warnings.push(...coasterRide.warnings);
         coasterCuboids = coasterRide.cartCuboids;
     }
+    // Pinball: flippers and the ball as their own entities, a console seat in
+    // front, and the game runtime (bedrock-pinball.ts).
+    let pinballConfig: PinballRuntimeConfig | undefined;
+    if (options.pinball) {
+        const { plan, frame } = options.pinball;
+        const compileOpts = { scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+            quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, originAboveModel: true };
+        try {
+            options.onProgress?.(`compiling ${label} pinball`, 77);
+            const flipperTypes: string[] = [];
+            for (const [i, f] of plan.flippers.entries()) {
+                const fid = entityId(`${id}_pinball_flipper_${f.side}`, 'p');
+                const typeId = `${PACK_NAMESPACE}:${fid}`;
+                const geo = await compileLdrawEntityGeometry(fid, 'prop', f.bricks, { ...compileOpts, rig: f.rig });
+                diagnostics[fid] = geo.diagnostics;
+                const anim = flipperAnimation(typeId);
+                emitCompiledEntity(fid, geo, pinballPropBehavior(typeId, { width: 0.5, height: 0.3 }, flipperProperties()), { animations: { flip: anim.id }, animate: ['flip'] });
+                files.push({ name: `${rp}animations/${fid}.animation.json`, data: json(anim.file) });
+                addEntityName(typeId, `${label} ${f.side} flipper`, false);
+                const at = sceneGridPoint(frame, geo.originLdu);
+                actors.push({ typeId, label: `${label} ${f.side} flipper`, x: at[0], y: at[1] + geo.originLiftBlocks, z: at[2], yaw: 0, pinball: true });
+                flipperTypes[i] = typeId;
+                extraComponents.push({ id: fid, label: `${label} ${f.side} flipper`, kind: 'shell', provenance: `${f.bricks.length} source placements swung about the playfield normal` });
+            }
+            const bid = entityId(`${id}_pinball_ball`, 'p');
+            const ballType = `${PACK_NAMESPACE}:${bid}`;
+            const bgeo = await compileLdrawEntityGeometry(bid, 'prop', [plan.ballBrick], compileOpts);
+            diagnostics[bid] = bgeo.diagnostics;
+            emitCompiledEntity(bid, bgeo, pinballPropBehavior(ballType, { width: 0.3, height: 0.3 }));
+            addEntityName(ballType, `${label} ball`, false);
+            const bat = sceneGridPoint(frame, bgeo.originLdu);
+            const ballEntityModel: [number, number, number] = [bat[0], bat[1] + bgeo.originLiftBlocks, bat[2]];
+            actors.push({ typeId: ballType, label: `${label} ball`, x: ballEntityModel[0], y: ballEntityModel[1], z: ballEntityModel[2], yaw: 0, pinball: true });
+            const cid = entityId(`${id}_pinball_console`, 'p');
+            const consoleType = `${PACK_NAMESPACE}:${cid}`;
+            const ca = consoleAssets(consoleType);
+            files.push(
+                { name: `${bp}entities/${cid}.json`, data: json(ca.behavior) },
+                { name: `${rp}entity/${cid}.entity.json`, data: json(ca.client) },
+                { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(ca.geometry) },
+                { name: `${rp}textures/entity/craftmatic_pinball_console.png`, data: transparentPng() },
+            );
+            addEntityName(consoleType, `${label} - Play pinball`, false);
+            actors.push({ typeId: consoleType, label: `${label} - Play pinball`, x: plan.consoleModel[0], y: plan.consoleModel[1], z: plan.consoleModel[2], yaw: plan.consoleYaw, pinball: true });
+            // The flipper spin is authored in the render frame; a mirrored frame reverses it.
+            const f = SHELL_FRAME;
+            const det = f[0]! * (f[4]! * f[8]! - f[5]! * f[7]!) - f[1]! * (f[3]! * f[8]! - f[5]! * f[6]!) + f[2]! * (f[3]! * f[7]! - f[4]! * f[6]!);
+            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes }, ballEntityModel, Math.sign(det) || 1, label);
+            files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
+            warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
+            warnings.push(`Pinball: ${label} is playable - sit at the console in front of the machine ("${PINBALL_INTERACT_TEXT}"). Left/right work the flippers (forward works both), hold Jump to charge the plunger and release to launch, sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
+        } catch (e) {
+            pinballConfig = undefined;
+            warnings.push(`${label}: the pinball game could not be built (${e instanceof Error ? e.message : String(e)}); the machine ships as a static model.`);
+        }
+    }
     const manualSeatId = options.shell ? entityId(`${id}_manual_seat`, 's') : undefined;
     if (manualSeatId) {
         files.push(
@@ -2335,6 +2394,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
         ...(creatorConfig ? ["import './minifig-wand.js';"] : []),
         ...(coasterConfig ? ["import './coaster.js';"] : []),
+        ...(pinballConfig ? ["import './pinball.js';"] : []),
     ].join('\n');
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own, its doors open (tap them), and its chairs and benches can be sat on (interact, sneak to get up). A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);

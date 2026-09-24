@@ -27,6 +27,8 @@ export interface PlacementActor {
   coasterRouteIndex?: number;
   /** This car's place in its route's train (0 = lead); written so the order is deterministic, not first-seen. */
   coasterCarIndex?: number;
+  /** A pinball part (console, ball, flipper); the pinball runtime groups them by the placement frame written here. */
+  pinball?: boolean;
 }
 
 /**
@@ -1118,6 +1120,13 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
             // A train's car order: the runtime honours a written index and only
             // assigns one itself when this is absent (bedrock-coaster.ts).
             if (actor.coasterCarIndex !== undefined) entity.setDynamicProperty('craftmatic:coaster_car', actor.coasterCarIndex);
+          }
+          if (actor.pinball) {
+            // The same transformed model origin the coaster stores; the pinball
+            // runtime maps the table's plane into the world with it (bedrock-pinball.ts).
+            entity.setDynamicProperty('craftmatic:pinball_origin', worldPoint(st, { x: 0, y: 0, z: 0 }));
+            entity.setDynamicProperty('craftmatic:pinball_rotation', st.rotation);
+            entity.setDynamicProperty('craftmatic:pinball_scale', factor(st));
           }
           if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);

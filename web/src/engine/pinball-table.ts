@@ -150,6 +150,23 @@ export function detectPinballTable(
   const meshOf = (b: ParsedBrick): LdrawPartMesh | null => meshes.get(partStem(b.part)) ?? meshes.get(b.part) ?? null;
   const descOf = (b: ParsedBrick): string => meshOf(b)?.description ?? '';
 
+  // 2. Bricks by role: balls out, then flipper clusters.
+  const ballBricks: number[] = [];
+  let ballRadius = 23.75; // 19 mm / 0.4 mm per LDU / 2
+  bricks.forEach((b, i) => {
+    const m = meshOf(b);
+    if (!m || !BALL_RE.test(m.description)) return;
+    const size = sub(m.bounds.max, m.bounds.min);
+    const spread = Math.max(...size) - Math.min(...size);
+    if (Math.min(...size) < 20 || spread > 4) return; // a sphere is as deep as it is wide
+    ballBricks.push(i);
+    ballRadius = Math.max(...size) / 2;
+  });
+  // A machine without a ball is not one this reader plays, and the check is
+  // cheap: it runs before any triangle is touched, which keeps the detector
+  // out of the way of every other model the add-on exporter sees.
+  if (!ballBricks.length) { debug('no ball part: not a pinball table'); return null; }
+
   // 1. Playfield normal: the most common up among flat parts that is not
   //    model-up; model-up itself when nothing is tilted.
   const ups = new Map<string, { up: Vec3; n: number }>();
@@ -170,20 +187,6 @@ export function detectPinballTable(
   if (tilted && tilted.n >= 20) axisN = tilted.up;
   else { axisN = MODEL_UP; nominalTilt = true; }
   if (tilted && tilted.n >= 20 && flatCount > tilted.n * 3) warnings.push(`more flat than tilted plates (${flatCount} vs ${tilted.n}); the tilted set was taken as the playfield`);
-
-  // 2. Bricks by role: balls out, then flipper clusters.
-  const ballBricks: number[] = [];
-  let ballRadius = 23.75; // 19 mm / 0.4 mm per LDU / 2
-  bricks.forEach((b, i) => {
-    const m = meshOf(b);
-    if (!m || !BALL_RE.test(m.description)) return;
-    const size = sub(m.bounds.max, m.bounds.min);
-    const spread = Math.max(...size) - Math.min(...size);
-    if (Math.min(...size) < 20 || spread > 4) return; // a sphere is as deep as it is wide
-    ballBricks.push(i);
-    ballRadius = Math.max(...size) / 2;
-  });
-  if (!ballBricks.length) warnings.push('no ball part found; a 19 mm ball is assumed');
 
   // Provisional U/W from the tilt (flat tables fixed up after flippers).
   let axisU: Vec3 = norm(sub(MODEL_DOWN, scale(axisN, dot(MODEL_DOWN, axisN))));

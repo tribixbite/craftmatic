@@ -338,6 +338,7 @@ export async function runSchemPipeline(
     let access: AccessScaleRecommendation | undefined;
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
+    let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
     const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
     if (input.source.kind === 'bricks') {
       const source = input.source;
@@ -419,6 +420,16 @@ export async function runSchemPipeline(
             const train = measureCoasterTrain({ points: route.points, closed: route.closed }, riderAnchors, riderMaxOffset);
             if (train) warnings.push(`Coaster: ${route.label} carries a measured train of ${train.count} cars at a ${train.spacing}-block pitch (${train.riders} posed rider${train.riders === 1 ? '' : 's'} on the track; pitches ${train.pitches.join(', ')}).`);
             coasterRoutes.push({ ...route, ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}) });
+          }
+          // A LEGO pinball machine (engine/pinball-table.ts): its flippers and
+          // spare balls leave the shell and the machine becomes a playable game.
+          const { detectPinballTable } = await import('./pinball-table.js');
+          const pinTable = detectPinballTable(sceneBricks, scene.meshes);
+          if (pinTable) {
+            const { planPinball } = await import('./bedrock-pinball.js');
+            const plan = planPinball(sceneBricks, pinTable, scene.meshes, p => sceneGridPoint(frame, p));
+            for (const b of plan.moved) movable.add(b);
+            pinball = { plan, frame };
           }
           // A figure's feet and a seat's surface are grounded on the model's
           // UNDERSIDE (`scene.groundLdu`, the pin plane the shell and the
@@ -508,7 +519,7 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
   }
 
