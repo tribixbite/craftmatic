@@ -35,7 +35,7 @@
  *    default" — nothing here ever occupies a seat on its own.
  */
 import { buildCoasterPath, sampleCoasterPath, type CoasterPath, type CoasterVec3 } from './coaster-path.js';
-import { coasterTrackUps, COASTER_PHYSICS, type CoasterPhysics } from './bedrock-coaster.js';
+import { coasterCarAttitude, coasterLoopRadius, coasterTrackUps, COASTER_PHYSICS, type CoasterPhysics } from './bedrock-coaster.js';
 
 /** The route fields this module needs — a structural subset of `AddonRoute`
  * (web/src/ui/addon-preview-data.ts); no import from ui/ on purpose (engine/
@@ -92,7 +92,7 @@ export interface CoasterPreviewState {
   /** 0 (parked) to 1 (delivered). */
   liftProgress: number;
   liftDwell: number;
-  /** Per-slot held yaw for the inverted-track hold (`coasterRuntime`'s `heldYaw`), degrees. */
+  /** Per-slot last yaw, the fallback `coasterCarAttitude` holds for a car on its side (`coasterRuntime`'s `heldYaw`), degrees. */
   lastYaw: number[];
 }
 
@@ -106,15 +106,36 @@ const len3 = (v: readonly number[]): number => Math.hypot(v[0]!, v[1]!, v[2]!);
 const sub3 = (a: readonly number[], b: readonly number[]): CoasterVec3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
 const add3 = (a: readonly number[], b: readonly number[]): CoasterVec3 => [a[0]! + b[0]!, a[1]! + b[1]!, a[2]! + b[2]!];
 
+interface PreparedRoute { path: CoasterPath; maxSpacing: number; up: CoasterVec3[]; loopRadius: number }
+/** Per route input, the path and the config-time quantities the pack computes once (`coasterRuntimeConfig`). */
+const prepared = new WeakMap<CoasterPreviewRouteInput, PreparedRoute>();
+
 /** Build the `CoasterPath` this module integrates over, with a spacing guard
  * measured from the samples themselves (mirrors `coasterMaxSpacing`) so the
- * validator in `buildCoasterPath` can never reject the pack's own polyline. */
-function toPath(route: CoasterPreviewRouteInput): { path: CoasterPath; maxSpacing: number } {
+ * validator in `buildCoasterPath` can never reject the pack's own polyline,
+ * and the up vectors and inversion radius exactly as the pack's config
+ * compiler derives them. Cached per route object: none of it changes per tick. */
+function toPath(route: CoasterPreviewRouteInput): PreparedRoute {
+  const cached = prepared.get(route);
+  if (cached) return cached;
   let maxSpacing = 0;
   for (let i = 1; i < route.cumulative.length; i++) maxSpacing = Math.max(maxSpacing, route.cumulative[i]! - route.cumulative[i - 1]!);
   if (!(maxSpacing > 0)) throw new Error('Coaster preview route has no positive sample spacing.');
   const guard = maxSpacing * (1 + 1e-6) + 1e-9;
-  return { path: buildCoasterPath(route.points as CoasterVec3[], route.closed, guard), maxSpacing };
+  const path = buildCoasterPath(route.points as CoasterVec3[], route.closed, guard);
+  const up = coasterTrackUps(path);
+  const result = { path, maxSpacing, up, loopRadius: coasterLoopRadius(path, up) };
+  prepared.set(route, result);
+  return result;
+}
+
+/** The track up at `arc`, interpolated between samples — mirrors `coasterRuntime`'s `upAt`. */
+function upAt(path: CoasterPath, up: readonly CoasterVec3[], arc: number): CoasterVec3 {
+  const at = sampleCoasterPath(path, arc);
+  const i = at.segmentIndex;
+  const ratio = (at.distance - path.cumulative[i]!) / (path.cumulative[i + 1]! - path.cumulative[i]!);
+  const a = up[i]!, b = up[i + 1]!;
+  return [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio, a[2] + (b[2] - a[2]) * ratio];
 }
 
 /** Position at `arc` without a validated sampler's per-call checks — mirrors `coasterRuntime`'s `locate`. */
@@ -156,7 +177,7 @@ export function stepCoasterPreviewTick(
   wheelbaseOfSlot?: (slot: number) => number | undefined,
 ): StepCoasterPreviewResult {
   if (!(scale > 0)) throw new Error('Coaster preview scale must be positive.');
-  const { path, maxSpacing } = toPath(route);
+  const { path, maxSpacing, up, loopRadius } = toPath(route);
   const total = path.length;
   const count = Math.max(1, route.cars.count);
   const extent = route.cars.extent || 0;
@@ -190,7 +211,8 @@ export function stepCoasterPreviewTick(
     } else {
       // Substep the integrator so the polyline's own resolution bounds the
       // per-tick step, never the speed — mirrors `coasterRuntime`'s substep loop.
-      const bound = (speed + (physics.GRAVITY + physics.LIFT_ACCEL) / 20) / (20 * scale);
+      const inversionFloor = loopRadius > 0 ? physics.INVERSION_MARGIN * Math.sqrt(physics.GRAVITY * loopRadius * scale) : 0;
+      const bound = (Math.max(speed, inversionFloor) + (physics.GRAVITY + physics.LIFT_ACCEL) / 20) / (20 * scale);
       const substeps = Math.max(1, Math.ceil(bound / maxSpacing));
       const dt = 1 / 20 / substeps;
       let advanced = 0;
@@ -203,6 +225,12 @@ export function stepCoasterPreviewTick(
         const chainHere = !route.chain || (here >= route.chain.start - extent / 2 && here <= route.chain.end + extent / 2);
         if (chainHere && grade > physics.LIFT_GRADE && speed < physics.LIFT_SPEED) speed = Math.min(physics.LIFT_SPEED, speed + physics.LIFT_ACCEL * dt);
         speed = Math.max(speed, physics.MIN_SPEED);
+        // The inversion floor — mirrors `coasterRuntime`'s.
+        if (loopRadius > 0) {
+          let lowest = 1;
+          for (let slot = 0; slot < count; slot++) lowest = Math.min(lowest, upAt(path, up, carArc(here, slot, extent, route.cars.spacing, route.closed, total))[1]);
+          if (lowest < 0) speed = Math.max(speed, physics.INVERSION_MARGIN * Math.sqrt(physics.GRAVITY * loopRadius * scale * -lowest));
+        }
         advanced += (speed * dt) / scale;
       }
       // Gated on `armed`, exactly like `coasterRuntime`: a train that has just
@@ -246,30 +274,17 @@ export function stepCoasterPreviewTick(
     }
   }
 
-  const up = coasterTrackUps(path);
   const frames: CoasterPreviewCarFrame[] = [];
   for (let slot = 0; slot < count; slot++) {
     const arc = carArc(next, slot, extent, route.cars.spacing, route.closed, total);
     const at = sampleCoasterPath(path, arc);
     const lifted: CoasterVec3 = lift && carLift > 0 ? add3(at.position, [lift.travel[0] * carLift, lift.travel[1] * carLift, lift.travel[2] * carLift]) : at.position;
     const tangent = chordAt(path, arc, wheelbaseOfSlot?.(slot));
-    const horizontal = Math.hypot(tangent[0], tangent[2]);
-    const i = at.segmentIndex;
-    const ratio = (at.distance - path.cumulative[i]!) / (path.cumulative[i + 1]! - path.cumulative[i]!);
-    const up0 = up[i]!, up1 = up[i + 1]!;
-    const sampledUp: CoasterVec3 = [up0[0] + (up1[0] - up0[0]) * ratio, up0[1] + (up1[1] - up0[1]) * ratio, up0[2] + (up1[2] - up0[2]) * ratio];
-    const heldYaw = lastYaw[slot] ?? 0;
-    const upright = sampledUp[1] >= 0 && horizontal > physics.YAW_HOLD_HORIZONTAL;
-    const yaw = upright ? Math.atan2(-tangent[0], tangent[2]) * 180 / Math.PI : heldYaw;
+    const sampledUp = upAt(path, up, arc);
+    // The same decomposition the pack runs (`coasterCarAttitude`): yaw from the
+    // axle's heading, continuous through every inversion.
+    const { yaw, pitch, roll } = coasterCarAttitude(tangent, sampledUp, lastYaw[slot] ?? 0, physics.YAW_HOLD_HORIZONTAL);
     lastYaw[slot] = yaw;
-    const yawRad = yaw * Math.PI / 180;
-    const alongHeading = -tangent[0] * Math.sin(yawRad) + tangent[2] * Math.cos(yawRad);
-    const pitch = -Math.atan2(tangent[1], alongHeading) * 180 / Math.PI;
-    const pitchRad = pitch * Math.PI / 180;
-    const localX = sampledUp[0] * Math.cos(yawRad) + sampledUp[2] * Math.sin(yawRad);
-    const yawZ = -sampledUp[0] * Math.sin(yawRad) + sampledUp[2] * Math.cos(yawRad);
-    const localY = sampledUp[1] * Math.cos(pitchRad) + yawZ * Math.sin(pitchRad);
-    const roll = Math.atan2(-localX, localY) * 180 / Math.PI;
     frames.push({ slot, position: lifted, yaw, pitch, roll, up: sampledUp, moving: phase === 'track' && dwell === 0 });
   }
   return { state: { centre: next, direction: nextDirection, speed, dwell, armed, phase, liftProgress, liftDwell, lastYaw }, frames };

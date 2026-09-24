@@ -2008,6 +2008,79 @@ float properties, all clamped). Pre-existing and untouched: the roll bone
 snaps where the track passes vertical (the yaw/pitch/roll decomposition has no
 yaw there; 256°/block at 10303 arc 95 in both the old and new packs).
 
+### The second-loop swivel and the crawl over the top (2026-09-24)
+
+Device report: "first upside-down swivel fixed but still occurs during second
+upside-down loop" (10303) and "all coasters are about 50 % too slow — you
+creep to nearly stopped during upside-down loops". Both measured on the host
+first, by running each pack's own `coaster.js` (and the new runtime over the
+same CONFIG) tick by tick.
+
+**Swivel — two causes, one per stage.** The runtime took the car's yaw from
+its NOSE azimuth while "upright" (`up.y >= 0` and horizontal > 0.2) and held
+it once inverted. A LEGO loop is a helix, and 10303's second loop enters with
+the track also turning sideways, so as the nose steepened its azimuth swung
+toward the lateral component: the yaw went 0 → 28 → 69 degrees in the last
+ticks before the hold (up to 53 in one tick), was held at 69 through the
+loop, and came back on the exit — a **101-degree** swivel of the rider, whose
+camera turns with the entity's yaw. The first loop enters square, which is
+why the 2026-09-23 hold fixed it and not this one.
+- `coasterCarAttitude` (shared by the pack, serialized like
+  `sampleCoasterPath`, and the add-on preview) now takes the yaw from the
+  heading of the car's AXLE (`nose × up`), which is horizontal through any
+  loop and turns only as the track really turns. No hold, no threshold on
+  the nose, no memory of which loop it is. Fallback (a car on its side) is
+  the script's own last yaw, not `getRotation()`.
+- That exposed the second cause: `coasterTrackUps` aimed the up at gravity's
+  up until 60 degrees of bank, and gravity projected off a steep, sideways-
+  leaning tangent leans with it — 48 degrees off the loop's plane at pitches
+  60-77 on the second loop, which still swung the axle yaw 43 degrees. Inside
+  a loop-tight vertical curve the up now follows the loop normal from 37
+  degrees of pitch (`LOOP_STEEP_LEVEL` 0.8; 0.5 left a 19-degree swing).
+
+Yaw range over each inversion ±3 blocks (host, riderless, three cars):
+
+| 10303 | before | after |
+|---|---|---|
+| loop 1 (arc 110 → 98) | 0 | 11.9-12.5 (the helix's own lean) |
+| loop 2 (arc 74 → 63) | **89-105**, up to 53 in one tick | 8.7-10.0, ≤ 7.6 per tick |
+
+Pinned by `bedrock-coaster.test.ts` ("turns over through BOTH loops…" on the
+corpus 10303, a synthetic two-helix course, and the attitude unit test) and
+`coaster-preview.test.ts`. The one residual blip is a 5-degree, one-tick jog
+at loop 1's apex where the extracted polyline steps sideways at a fragment
+join — track data, not the runtime.
+
+**Speed — a ceiling, not gravity.** 10303's drop hit the old 16 blocks/s
+ceiling, which discards energy for good, so the train reached its first loop
+at 4.6 blocks/s and was carried over the top by the chain assist at 2.5
+blocks/s (sqrt(g r) there is 6.2). Everything else was simply real-gravity
+slow for toy radii (3.7-block loops). Three changes, `COASTER_PHYSICS`:
+- `COASTER_RIDE_PACE` 1.6: every speed × 1.6, every acceleration × 2.56
+  (gravity, rolling loss, chain accel, station brake), drag unchanged — the
+  same ride, the same energy, played back faster. Dwell ticks unchanged.
+- `MAX_SPEED` 16 → 32.
+- An inversion floor: through an inversion the train keeps
+  `INVERSION_MARGIN` (1.3) × sqrt(g r) × sqrt(−up.y), zero at vertical so it
+  never kicks. r is `coasterLoopRadius` (median radius over the inverted
+  samples, 3.93 blocks on 10303), carried as `route.loopRadius`. On the four
+  sets it never binds; it is the guarantee.
+
+Host numbers (mean moving speed, laps include the 5 s station dwell):
+
+| set | max b/s | mean moving b/s | lap s | min speed over a loop top |
+|---|---|---|---|---|
+| 10303 | 16.0 → 32.0 | 5.78 → 11.75 | 45.2 → 28.9 | 2.51 / 8.26 → 14.6 / 17.0 (sqrt(g r) 9.9) |
+| 10261 | 13.1 → 20.9 | 4.39 → 7.08 | 80.3 → 50.4 | no inversion |
+| 42703 | 9.6 → 15.3 | 2.98 → 4.84 | 33.5 → 22.1 | no inversion |
+| 76417 | 10.1 → 16.2 | 3.40 → 5.56 | 43.6 → 30.9 (shuttle cycle) | no inversion |
+
+**Not device-verified:** that the rider feels no swivel (the camera follows
+entity yaw — the premise of the fix), that 32 blocks/s teleports read
+smoothly on the Pixel, and that the faster hoist (4 blocks/s) carries a rider
+visibly. Old packs keep their old physics: CONFIG carries it, so the change
+needs a rebuilt pack.
+
 ### The ramps' running line was on two datums (2026-09-22, `coaster-track.ts`)
 
 The residue the chord fix left — 10261 arc 79-81 climbing a block in half a
