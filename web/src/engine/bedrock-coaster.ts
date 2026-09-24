@@ -329,6 +329,10 @@ export interface CoasterRuntimeConfig {
   typeId: string;
   routes: CoasterRuntimeRoute[];
   types: Record<string, CoasterRuntimeType>;
+  /** The physics constants `coasterRuntime` integrates with (see `COASTER_PHYSICS`).
+   * Optional only so a hand-built config in an older test compiles; every real
+   * pack gets one from `coasterRuntimeConfig`. */
+  physics?: CoasterPhysics;
 }
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
@@ -351,6 +355,56 @@ const PROP_BODY = ['craftmatic:body_x', 'craftmatic:body_y', 'craftmatic:body_z'
 const BODY_OFFSET_RANGE = 320;
 /** The type family every coaster entity carries; the runtime discovers them by it. */
 export const COASTER_FAMILY = 'craftmatic_coaster';
+/** The `minecraft:rideable.interact_text` every ride car declares (the fabricated
+ * cart and the set's own cars alike): the exact device-proved prompt string
+ * (`docs/bedrock-addon-guide.md`, world 921). Anything that shows a boarding
+ * prompt offline (the add-on preview) reads this constant rather than a copy,
+ * so the two can never drift. */
+export const RIDE_INTERACT_TEXT = 'Ride the coaster';
+
+/**
+ * The ride's physics constants (see the module header for the model), read by
+ * `coasterRuntime` from `config.physics` instead of local literals. A bare
+ * function-local `const` here would vanish at the source-text boundary the
+ * SAME way `YAW_HOLD_HORIZONTAL` and `BODY_RANGE` document above: `coasterScript`
+ * only serializes `coasterRuntime`'s TEXT, so any value the device needs must
+ * ride inside `CONFIG` (already JSON-serialized) rather than a module-scope
+ * `const` the runtime's body could not see. `coasterRuntimeConfig` always sets
+ * `physics: COASTER_PHYSICS`, so the device and anything off-device that wants
+ * the same numbers (the add-on walk preview) share exactly one definition.
+ */
+export const COASTER_PHYSICS = {
+  /** Earth gravity along the track tangent, blocks/s². */
+  GRAVITY: 9.8,
+  /** Constant wheel and bearing loss, blocks/s². */
+  ROLLING: 0.12,
+  /** Quadratic drag coefficient, 1/block: the loss term is DRAG * v². */
+  DRAG: 0.008,
+  /** Speed floor, blocks/s. The ride may never deadlock on a grade. */
+  MIN_SPEED: 0.8,
+  /** Absolute speed ceiling, blocks/s, independent of wand size. */
+  MAX_SPEED: 16,
+  /** Chain lift: engages only above this grade and holds exactly LIFT_SPEED. */
+  LIFT_GRADE: 0.08, LIFT_SPEED: 2.5, LIFT_ACCEL: 12,
+  /** Station brake, blocks/s²; the limit curve reaches zero at the platform. */
+  STATION_BRAKE: 3.5,
+  /** Station drive tyres pushing the cart out of the platform, blocks/s. */
+  DEPART_SPEED: 3,
+  /** Platform dwell in ticks: longer with nobody aboard, loaded is shorter, a
+   * boarding player always gets BOARD_TICKS before departure. */
+  DWELL_EMPTY: 100, DWELL_LOADED: 60, BOARD_TICKS: 40,
+  /** Platform lift: hoist speed (world blocks/s), the pause before it rises
+   * and after it arrives (ticks), and the clearance (model blocks) the train
+   * must keep past the deck before it goes back down. */
+  PLATFORM_SPEED: 2.5, PLATFORM_DWELL: 30, PLATFORM_CLEARANCE: 1,
+  /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
+  RIDER_EYE: 1.25,
+  /** How much horizontal a tangent needs before its azimuth may set the car's yaw. */
+  YAW_HOLD_HORIZONTAL: 0.20,
+  /** Declared range of the body-offset properties, model units. */
+  BODY_RANGE: 320,
+} as const;
+export type CoasterPhysics = typeof COASTER_PHYSICS;
 /** A seated minifig's eye sits this far above its hips joint along the figure's up: torso origin 44 LDU up (hips 32 + leg pivot 12), eye 11 above that (`findCockpit`). */
 const RIDER_EYE_ABOVE_HIPS_LDU = 55;
 
@@ -882,7 +936,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(runtimeLift ? { lift: runtimeLift } : {}),
     };
   });
-  return { typeId, routes: runtimeRoutes, types };
+  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS };
 }
 
 // ─── Pack assets ─────────────────────────────────────────────────────────────
@@ -895,7 +949,7 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
   // outside the interact target, which is what a player has to aim at to board;
   // 0.9 covers the whole body. Hit target only: `has_collision` is false.
   const collision = { width: 1.375 * modelScale, height: 0.9 * modelScale };
-  const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'Ride the coaster',
+  const rideable = { seat_count: 1, family_types: ['player'], interact_text: RIDE_INTERACT_TEXT,
     crouching_skip_interact: true, seats: { position: [0, 0.35 * modelScale, 0], lock_rider_rotation: 181 } };
   const geometryId = `geometry.${typeId.replace(':', '.')}`;
   const animationId = `animation.${typeId.replace(':', '.')}.track_pitch`;
@@ -1046,7 +1100,7 @@ function countCuboids(geo: CompiledLdrawGeometry, riderPrefix = 'rider_'): { tot
 
 /** The rideable ride-car behaviour: the fabricated cart's, with the compiled body's hit box and the measured seat. */
 function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number]): unknown {
-  const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'Ride the coaster',
+  const rideable = { seat_count: 1, family_types: ['player'], interact_text: RIDE_INTERACT_TEXT,
     crouching_skip_interact: true, seats: { position: seat, lock_rider_rotation: 181 } };
   return withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
     description: { identifier: typeId, is_spawnable: false, is_summonable: true,
@@ -1485,45 +1539,31 @@ function platformRouteLift(found: CoasterPlatformLift, assemblies: CoasterAssemb
 // so every tuning constant is declared inside this function body.
 function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath) {
   // ── Ride physics (see the module header for the model and its units) ──
-  /** Earth gravity along the track tangent, blocks/s². */
-  const GRAVITY = 9.8;
-  /** Constant wheel and bearing loss, blocks/s². A real coaster loses one to
-   * two per cent of g to rolling resistance; a larger value eats the momentum
-   * that is supposed to carry the cart over the next crest. */
-  const ROLLING = 0.12;
-  /** Quadratic drag coefficient, 1/block: the loss term is DRAG * v², blocks/s².
-   * Terminal speed on a vertical drop is sqrt(g / DRAG) = 35 blocks/s, so the
-   * ceiling, not the air, is what bounds the big drops. */
-  const DRAG = 0.008;
-  /** Speed floor, blocks/s. The ride may never deadlock on a grade. */
-  const MIN_SPEED = 0.8;
-  /** Absolute speed ceiling, blocks/s, independent of wand size: 0.8 blocks per tick. */
-  const MAX_SPEED = 16;
-  /** Chain lift: engages only above this grade and holds exactly LIFT_SPEED.
-   * The chain is a kinematic constraint rather than a force, so LIFT_ACCEL only
-   * smooths the catch — it must exceed GRAVITY or the chain would "slip" on a
-   * steep climb and the cart would sink to the floor speed instead. */
-  const LIFT_GRADE = 0.08, LIFT_SPEED = 2.5, LIFT_ACCEL = 12;
-  /** Station brake, blocks/s²; the limit curve reaches zero at the platform. */
-  const STATION_BRAKE = 3.5;
-  /** Station drive tyres pushing the cart out of the platform, blocks/s. */
-  const DEPART_SPEED = 3;
-  /** Platform dwell in ticks: longer with nobody aboard, so a player can walk
-   * up and board; a boarding player always gets BOARD_TICKS before departure. */
-  const DWELL_EMPTY = 100, DWELL_LOADED = 60, BOARD_TICKS = 40;
-  /** Platform lift: hoist speed in world blocks/s, the pause before it rises
-   * and after it arrives (ticks), and how far past the delivered deck (model
-   * blocks) the train must be before the platform goes back down. */
-  const PLATFORM_SPEED = 2.5, PLATFORM_DWELL = 30, PLATFORM_CLEARANCE = 1;
+  // Every value below comes from `config.physics` (== `COASTER_PHYSICS`,
+  // JSON-serialized into CONFIG by `coasterRuntimeConfig`) rather than a
+  // module-level `const`: this function is serialized with `.toString()` and
+  // re-evaluated with no imports but `world`/`system`, so an identifier this
+  // body did not receive as an argument or read off `config` is a
+  // ReferenceError on the device. The literal fallback after `||` only serves
+  // a hand-built `CoasterRuntimeConfig` in a test that skips
+  // `coasterRuntimeConfig`; every real pack always carries `physics`.
+  const PHYSICS: Partial<CoasterPhysics> = config.physics || {};
+  const GRAVITY = PHYSICS.GRAVITY ?? 9.8;
+  const ROLLING = PHYSICS.ROLLING ?? 0.12;
+  const DRAG = PHYSICS.DRAG ?? 0.008;
+  const MIN_SPEED = PHYSICS.MIN_SPEED ?? 0.8;
+  const MAX_SPEED = PHYSICS.MAX_SPEED ?? 16;
+  const LIFT_GRADE = PHYSICS.LIFT_GRADE ?? 0.08, LIFT_SPEED = PHYSICS.LIFT_SPEED ?? 2.5, LIFT_ACCEL = PHYSICS.LIFT_ACCEL ?? 12;
+  const STATION_BRAKE = PHYSICS.STATION_BRAKE ?? 3.5;
+  const DEPART_SPEED = PHYSICS.DEPART_SPEED ?? 3;
+  const DWELL_EMPTY = PHYSICS.DWELL_EMPTY ?? 100, DWELL_LOADED = PHYSICS.DWELL_LOADED ?? 60, BOARD_TICKS = PHYSICS.BOARD_TICKS ?? 40;
+  const PLATFORM_SPEED = PHYSICS.PLATFORM_SPEED ?? 2.5, PLATFORM_DWELL = PHYSICS.PLATFORM_DWELL ?? 30, PLATFORM_CLEARANCE = PHYSICS.PLATFORM_CLEARANCE ?? 1;
   /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
-  const RIDER_EYE = 1.25;
-  // How much horizontal a tangent needs before its azimuth may set the car's
-  // yaw: 0.20 is a pitch of about 78 degrees. Declared HERE, inside the
-  // runtime, because this function is serialized with `toString()` and a
-  // module-level constant would be a ReferenceError on the device.
-  const YAW_HOLD_HORIZONTAL = 0.20;
+  const RIDER_EYE = PHYSICS.RIDER_EYE ?? 1.25;
+  // How much horizontal a tangent needs before its azimuth may set the car's yaw.
+  const YAW_HOLD_HORIZONTAL = PHYSICS.YAW_HOLD_HORIZONTAL ?? 0.20;
   /** Declared range of the body-offset properties, model units. */
-  const BODY_RANGE = 320;
+  const BODY_RANGE = PHYSICS.BODY_RANGE ?? 320;
   /** A route emitted before trains existed, or a partially overwritten pack. */
   const SINGLE = { count: 1, spacing: 0, extent: 0, heading: 0, trains: 1 };
   const types = config.types || {};

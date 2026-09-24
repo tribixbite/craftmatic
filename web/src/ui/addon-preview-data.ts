@@ -118,6 +118,18 @@ export interface AddonPreviewModel {
   pack: { cuboids?: number; entities?: number; shareOfDeviceBudget?: number } | null;
   /** What the pack DRAWS, read back from its geometry: null when it ships none. */
   appearance: AddonAppearance | null;
+  /**
+   * `scripts/coaster.js`'s `CONFIG.types`, whole: role plus the measured
+   * `wheelbase` (blocks, the chord a car pitches on) and `seat` (the rideable
+   * seat offset, entity frame) `buildCoasterRideAssets` fills in. Keyed by the
+   * full type id, same as `AddonEntity.typeId` and `AddonRoute.cars.slots[].type`.
+   */
+  coasterTypes: Record<string, { role: string; riders: number; wheelbase?: number; seat?: [number, number, number] }>;
+  /** Per-entity-type collision the pack's BEHAVIOUR file declares, when
+   * `minecraft:physics.has_collision` is true (a standing figure blocks a
+   * player in game; a ride car's is `false` — see CLAUDE.md/bedrock-coaster.ts —
+   * so it is simply absent here and the preview adds no box for it). */
+  entityCollision: Map<string, { width: number; height: number }>;
   /** Anything about the pack the preview could not read, said rather than dropped. */
   notes: string[];
 }
@@ -153,6 +165,9 @@ export function extractJsonAfter(source: string, marker: string): unknown {
   return undefined;
 }
 
+/** Behaviour-pack `entities/<id>.json`: the BP's own per-type definition (plural "entities", vs the RP's singular "entity"). */
+const BEHAVIOR_ENTITY_FILE_PATTERN = /(^|\/)entities\/[^/]+\.json$/;
+
 /** The raw files the preview reads; `readAddonPreviewFiles` fills it from a `.mcaddon`. */
 export interface AddonPreviewFiles {
   placementScript?: string;
@@ -161,14 +176,17 @@ export interface AddonPreviewFiles {
   treadsJson?: string;
   /** Resource-pack geometry, entity and controller files, keyed by archive path. */
   appearanceSources?: Map<string, string>;
+  /** Behaviour-pack `entities/<id>.json` files, keyed by archive path — read for
+   * `minecraft:collision_box` / `minecraft:physics.has_collision` (`entityCollisionFromSources`). */
+  behaviorEntitySources?: Map<string, string>;
 }
 
 const utf8 = new TextDecoder();
 
-/** Pull the four files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
+/** Pull the files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
 export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<AddonPreviewFiles> {
   const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
-  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name);
+  const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name);
   const names = listZipEntries(mcaddon).filter(behaviour);
   if (!names.length) throw new Error('Not a Craftmatic add-on: no scripts/placement.js in the archive.');
   const found = await extractMatching(mcaddon, wanted);
@@ -178,13 +196,44 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
   };
   const appearanceSources = new Map<string, string>();
   for (const [name, data] of found) if (APPEARANCE_FILE_PATTERN.test(name)) appearanceSources.set(name, utf8.decode(data));
+  const behaviorEntitySources = new Map<string, string>();
+  for (const [name, data] of found) if (BEHAVIOR_ENTITY_FILE_PATTERN.test(name)) behaviorEntitySources.set(name, utf8.decode(data));
   return {
     placementScript: text(/scripts\/placement\.js$/),
     coasterScript: text(/scripts\/coaster\.js$/),
     diagnosticsJson: text(/craftmatic-diagnostics\.json$/),
     treadsJson: text(/craftmatic-treads\.json$/),
     appearanceSources,
+    behaviorEntitySources,
   };
+}
+
+/**
+ * Every entity type's `minecraft:collision_box`, but only where
+ * `minecraft:physics.has_collision` is true — a ride car, the shell and the
+ * screen all declare `has_collision: false` (the player walks through them;
+ * the LEGO collider grid or, for a car, nothing at all is what actually
+ * blocks a player there — see CLAUDE.md), so they are correctly ABSENT here
+ * rather than zeroed. A standing figure is `true` at 0.6 x 1.8, same as the
+ * player's own box, and that is genuinely a box a player bumps into in game.
+ */
+export function entityCollisionFromSources(sources: ReadonlyMap<string, string>): Map<string, { width: number; height: number }> {
+  const out = new Map<string, { width: number; height: number }>();
+  for (const [, text] of sources) {
+    let parsed: unknown;
+    try { parsed = JSON.parse(text); } catch { continue; }
+    const entity = (parsed as { 'minecraft:entity'?: Record<string, unknown> })['minecraft:entity'];
+    const identifier = (entity?.['description'] as { identifier?: string } | undefined)?.identifier;
+    const components = entity?.['components'] as Record<string, unknown> | undefined;
+    if (!identifier || !components) continue;
+    const physics = components['minecraft:physics'] as { has_collision?: boolean } | undefined;
+    if (physics?.has_collision !== true) continue;
+    const box = components['minecraft:collision_box'] as { width?: unknown; height?: unknown } | undefined;
+    const width = typeof box?.width === 'number' ? box.width : undefined;
+    const height = typeof box?.height === 'number' ? box.height : undefined;
+    if (width !== undefined && height !== undefined) out.set(identifier, { width, height });
+  }
+  return out;
 }
 
 const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
@@ -232,10 +281,19 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
   // Coaster: routes and the role of each coaster entity type.
   const routes: AddonRoute[] = [];
   const coasterRoles: Record<string, string> = {};
+  const coasterTypes: AddonPreviewModel['coasterTypes'] = {};
   if (files.coasterScript) {
     const coaster = extractJsonAfter(files.coasterScript, 'const CONFIG') as Record<string, unknown> | undefined;
     if (coaster) {
-      for (const [type, t] of Object.entries((coaster['types'] as Record<string, { role?: string }> | undefined) ?? {})) if (t?.role) coasterRoles[type] = t.role;
+      for (const [type, t] of Object.entries((coaster['types'] as Record<string, { role?: string; riders?: number; wheelbase?: number; seat?: unknown }> | undefined) ?? {})) {
+        if (!t?.role) continue;
+        coasterRoles[type] = t.role;
+        coasterTypes[type] = {
+          role: t.role, riders: num(t.riders),
+          ...(typeof t.wheelbase === 'number' ? { wheelbase: t.wheelbase } : {}),
+          ...(vec3(t.seat) ? { seat: vec3(t.seat)! } : {}),
+        };
+      }
       for (const r of (coaster['routes'] as Array<Record<string, unknown>> | undefined) ?? []) {
         const path = r['path'] as { points?: unknown[]; cumulative?: unknown[]; length?: number; closed?: boolean } | undefined;
         const points = (path?.points ?? []).map(vec3).filter((p): p is [number, number, number] => !!p);
@@ -328,11 +386,13 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     if (!appearance.cubeCount) { notes.push('The pack ships geometry the preview could not read: no model layer.'); appearance = null; }
   }
 
+  const entityCollision = files.behaviorEntitySources?.size ? entityCollisionFromSources(files.behaviorEntitySources) : new Map<string, { width: number; height: number }>();
+
   return {
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
     entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
-    appearance, notes,
+    appearance, coasterTypes, entityCollision, notes,
   };
 }
 
