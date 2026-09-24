@@ -121,6 +121,9 @@ export interface WalkWorldOptions {
   shippedTreads?: (sizePct: number, rotation: QuarterTurn) => readonly TreadBlock[] | undefined;
   /** Model points a planned tread plan should report on (only used with `treads: 'planned'`). */
   targets?: readonly ReachTarget[];
+  /** Static entity collision boxes (standing figures) the LIVE player bumps
+   * into; never consulted by the reach BFS. See `EntitySolid`. */
+  entitySolids?: readonly EntitySolid[];
 }
 
 /**
@@ -139,6 +142,9 @@ export class WalkWorld {
   readonly treadPlan: TreadPlan | undefined;
   private readonly treadKeys = new Set<string>();
   private bfs: ReachResult | undefined;
+  private readonly entitySolids: readonly EntitySolid[];
+  /** Doors currently toggled open, by an id the caller chooses (a door candidate index, say). */
+  private readonly openDoors = new Map<string, OpenDoor>();
 
   constructor(readonly options: WalkWorldOptions) {
     const { cells, dims, sizePct, rotation } = options;
@@ -163,6 +169,7 @@ export class WalkWorld {
       this.treadKeys.add(`${b.x},${b.y},${b.z}`);
     }
     this.treadBlocks = blocks; this.treadSource = source; this.treadPlan = plan;
+    this.entitySolids = options.entitySolids ?? [];
   }
 
   get sizePct(): number { return this.options.sizePct; }
@@ -172,13 +179,16 @@ export class WalkWorld {
   /** Whether a world block is a tread the plan added. */
   isTread(x: number, row: number, z: number): boolean { return this.treadKeys.has(`${x},${row},${z}`); }
 
-  /** The solid boxes of one column (none outside the footprint; the ground plane is separate). */
+  /** The solid boxes of one column (none outside the footprint; the ground plane is separate). Skips a block an open door has dropped. */
   boxesInColumn(x: number, z: number): SolidBox[] {
     if (!this.grid.inside(x, z)) return [];
-    return this.grid.column(x, z).blocks.map(b => ({
-      x0: x, y0: b.row + b.lo / 16, z0: z, x1: x + 1, y1: b.row + b.hi / 16, z1: z + 1,
-      block: { x, row: b.row, z, lo: b.lo, hi: b.hi }, tread: this.isTread(x, b.row, z), ground: false,
-    }));
+    const open = this.openDoorAt(x, z);
+    return this.grid.column(x, z).blocks
+      .filter(b => !(open && b.row + b.lo / 16 >= open.y0 - EPS && b.row + b.hi / 16 <= open.y1 + EPS))
+      .map(b => ({
+        x0: x, y0: b.row + b.lo / 16, z0: z, x1: x + 1, y1: b.row + b.hi / 16, z1: z + 1,
+        block: { x, row: b.row, z, lo: b.lo, hi: b.hi }, tread: this.isTread(x, b.row, z), ground: false,
+      }));
   }
 
   /** Every solid box of the laid footprint (for drawing); a 400 % grid of a large set is tens of thousands. */
@@ -197,14 +207,48 @@ export class WalkWorld {
     if (y0 <= 0) out.push({ x0: x0 - 1, y0: -1, z0: z0 - 1, x1: x1 + 2, y1: 0, z1: z1 + 2, tread: false, ground: true });
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
       if (!this.grid.inside(x, z)) continue;
+      const open = this.openDoorAt(x, z);
       for (const b of this.grid.column(x, z).blocks) {
         const by0 = b.row + b.lo / 16, by1 = b.row + b.hi / 16;
         if (by1 <= y0 || by0 >= y1) continue;
+        // An open door drops any block of this column whose span the opening covers.
+        if (open && by0 >= open.y0 - EPS && by1 <= open.y1 + EPS) continue;
         out.push({ x0: x, y0: by0, z0: z, x1: x + 1, y1: by1, z1: z + 1, block: { x, row: b.row, z, lo: b.lo, hi: b.hi }, tread: this.isTread(x, b.row, z), ground: false });
       }
     }
+    for (const s of this.entitySolids) {
+      if (s.x1 <= x0 || s.x0 > x1 + 1 || s.z1 <= z0 || s.z0 > z1 + 1 || s.y1 <= y0 || s.y0 >= y1) continue;
+      out.push({ x0: s.x0, y0: s.y0, z0: s.z0, x1: s.x1, y1: s.y1, z1: s.z1, tread: false, ground: false });
+    }
     return out;
   }
+
+  /** The open door (if any) whose column is `(x, z)`. */
+  private openDoorAt(x: number, z: number): OpenDoor | undefined {
+    for (const d of this.openDoors.values()) if (d.x === x && d.z === z) return d;
+    return undefined;
+  }
+
+  /**
+   * Toggle a runtime door candidate's collision: while open, LEGO-brick
+   * colliders in the column at `(x, z)` between `y` and `y + heightBlocks`
+   * (a vanilla door's own opening, `PlacementActor`'s frame) stop blocking
+   * the player, matching the wand swapping that brick-built opening for a
+   * real door block once the size reaches the candidate's `requiredSize`.
+   * Approximate, stated rather than hidden: it drops every collider block in
+   * that COLUMN inside the height band, not only the ones a specific door
+   * leaf occupies — sound at 100 % (a door candidate marks a full-column
+   * cell-sized opening), and a caller can pass a taller `heightBlocks` if a
+   * scaled opening needs it. Never touches `reach()`/`simulated()`, which
+   * grade the model by its SHIPPED colliders, door state aside.
+   */
+  setDoorOpen(id: string, x: number, z: number, y: number, open: boolean, heightBlocks = 2): void {
+    if (!open) { this.openDoors.delete(id); return; }
+    this.openDoors.set(id, { x: Math.floor(x), z: Math.floor(z), y0: y - EPS, y1: y + heightBlocks + EPS });
+  }
+
+  /** Whether a door id is currently toggled open. */
+  isDoorOpen(id: string): boolean { return this.openDoors.has(id); }
 
   /** The reach walk over this world (treads included), memoised. */
   reach(): ReachResult { return this.bfs ??= walkScaledColliders(this.grid); }
@@ -221,6 +265,24 @@ export class WalkWorld {
 
 /** Build a world from a pack's shipped colliders (already decoded) and tread plans. */
 export function buildWalkWorld(options: WalkWorldOptions): WalkWorld { return new WalkWorld(options); }
+
+// ─── Entities the player collides with, and doors that stop blocking ────────
+
+/** A static, non-block solid the player collides with: an entity's own
+ * `minecraft:collision_box` (only where the pack's behaviour file declares
+ * `has_collision: true` — a standing figure, never a ride car; see
+ * `addon-preview-data.ts`'s `entityCollisionFromSources`). World blocks, axis
+ * aligned about the entity's placed point; it never affects the reach BFS
+ * (`WalkWorld.reach()`/`simulated()` only ever consult the LEGO collider
+ * grid), only live player movement, matching what these are: a mob the
+ * player bumps into right now, not a structural obstruction the walk-through
+ * measurement is judging the model by. */
+export interface EntitySolid { key: string; x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }
+
+/** A door opening the player can toggle: a column at `(x, z)` between `y0`
+ * and `y1` (world blocks) whose LEGO-brick colliders stop blocking while
+ * open. Approximate rather than exact — see `WalkWorld.setDoorOpen`. */
+interface OpenDoor { x: number; z: number; y0: number; y1: number }
 
 // ─── Frames ──────────────────────────────────────────────────────────────────
 

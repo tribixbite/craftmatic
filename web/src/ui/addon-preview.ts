@@ -28,9 +28,15 @@ import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
 import {
   buildWalkWorld, PLAYER_HEIGHT, spawnState, tickPlayer, TICKS_PER_SECOND,
-  type PlayerState, type PointReach, type WalkInput, type WalkWorld,
+  type EntitySolid, type PlayerState, type PointReach, type WalkInput, type WalkWorld,
 } from '@engine/addon-walk.js';
 import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedrock-collider-scale.js';
+import { COASTER_PHYSICS, RIDE_INTERACT_TEXT } from '@engine/bedrock-coaster.js';
+import {
+  coasterCarEyePoint, initCoasterPreviewState, stepCoasterPreviewTick,
+  type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
+} from '@engine/coaster-preview.js';
+import { MINIFIG_ANIMATIONS, MINIFIG_ANIMATION_IDS } from '@engine/minifig-rig.js';
 import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
 import {
   columnBoxes, defaultLegendState, entitySpawnsAt, laidColliderBlocks, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
@@ -70,6 +76,14 @@ const LEGEND_COLOR: Record<LegendKind, number> = {
 const COLOR_REACHED = 0x22c55e, COLOR_UNREACHED = 0xef4444, COLOR_STATION = 0xfde047, COLOR_CHAIN = 0xf97316;
 const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
 
+/** The pack's own sit pose (`MINIFIG_ANIMATIONS`'s `sit` animation, legs -90°),
+ * read out as a bone-name -> rotation-degrees overlay for `buildModel`'s
+ * `boneWorld` rather than re-typing the numbers here. */
+const SIT_POSE_OVERLAY: ReadonlyMap<string, readonly [number, number, number]> = new Map(
+  Object.entries(MINIFIG_ANIMATIONS.animations[MINIFIG_ANIMATION_IDS.sit].bones)
+    .map(([name, b]) => [name, b.rotation as readonly [number, number, number]] as const),
+);
+
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 /** Open the walk over the viewer. Returns a handle; the HUD's Exit button and Escape (when the pointer is not locked) close it too. */
@@ -96,6 +110,8 @@ interface Marker {
   at: THREE.Vector3;
   height: number;
   reach: PointReach | null;
+  /** `buildModel` already draws this entity's real geometry: keep the beam/label, hide the placeholder box/capsule. */
+  hasRealGeometry: boolean;
 }
 
 interface Target {
@@ -148,6 +164,30 @@ class AddonWalk implements AddonPreviewHandle {
   /** What the HUD says about the verdicts: pending, or how long they took. */
   private verdictNote = '';
 
+  // Ride animation and interactivity. `entityHolders` is every drawn entity's
+  // Group, by its index in `model.entities` (built once in `buildModel`); the
+  // coaster loop repositions the ones that are cars/lifts/counterweights each
+  // tick, and the door toggle rotates a door leaf's holder in place.
+  private entityHolders = new Map<number, THREE.Group>();
+  /** `entity.label` marker, by `model.entities` index — for repositioning a moving car that ships no RP appearance data. */
+  private markerByIndex = new Map<number, Marker>();
+  /** `${coasterRouteIndex}:${coasterCarIndex}` -> entity index, train 0 only (its slot indices ARE `coasterCarIndex`). */
+  private carEntityIndex = new Map<string, number>();
+  /** One `stepCoasterPreviewTick` state per route index, riderless by default. */
+  private coasterStates = new Map<number, CoasterPreviewState>();
+  /** Every route's train-0 car slots' CURRENT world pose this tick, for the
+   * "board" reach test and the ride camera; keyed by `entity` index. */
+  private carWorld = new Map<number, { x: number; y: number; z: number; yawDeg: number; frame: CoasterPreviewCarFrame }>();
+  /** Door LEAF entities toggled open (their holder rotated), by entity index. */
+  private openDoorLeaves = new Set<number>();
+  /** The nearest thing an Interact key/button would act on right now. */
+  private nearestInteract: { label: string; act: () => void } | null = null;
+  /** Riding a car: which route/slot, and the player state to restore on dismount. */
+  private riding: { routeIndex: number; slot: number; entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number } | null = null;
+  /** Sitting at a static (non-coaster) seat: just parks the camera there. */
+  private sitting: { entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number } | null = null;
+  private interactQueued = false;
+
   // Player
   private state: PlayerState;
   private prevState: PlayerState;
@@ -173,6 +213,7 @@ class AddonWalk implements AddonPreviewHandle {
   private reachEl!: HTMLDivElement;
   private targetsEl!: HTMLDivElement;
   private hintEl!: HTMLDivElement;
+  private interactEl!: HTMLDivElement;
   private resizeObs: ResizeObserver | null = null;
   private readonly listeners: Array<() => void> = [];
   private savedHover: LDrawViewer['onBrickHover'] = null;
@@ -276,10 +317,22 @@ class AddonWalk implements AddonPreviewHandle {
     const laid = laidColliderBlocks(model.cells, model.dims, sizePct, rotation, treads);
     this.laidDims = laid.dims;
 
+    // Dismount/leave a seat across a size or turn change: the world under the
+    // ride is about to be torn down and rebuilt.
+    if (this.riding || this.sitting) this.dismount();
+    this.coasterStates.clear();
+    this.carWorld.clear();
+    this.openDoorLeaves.clear();
+    this.nearestInteract = null;
+    this.carEntityIndex.clear();
+    model.entities.forEach((e, i) => {
+      if (e.coasterRouteIndex !== undefined && e.coasterCarIndex !== undefined) this.carEntityIndex.set(`${e.coasterRouteIndex}:${e.coasterCarIndex}`, i);
+    });
+
     // The walk world (motion + reach) exists from 100 % up; below it the wand merges cells and the walk module declines.
     this.world = null;
     if (sizePct >= 100 && model.cells.length) {
-      try { this.world = buildWalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads }); }
+      try { this.world = buildWalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads, entitySolids: this.computeEntitySolids() }); }
       catch (err) { this.onStatus(`Walk physics unavailable: ${err instanceof Error ? err.message : String(err)}`, 'error'); }
     }
     if (!this.world) this.noclip = true;
@@ -288,6 +341,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.buildGround(laid.dims);
     this.buildColliders(columnBoxes(laid.blocks));
     this.buildModel(f);
+    model.routes.forEach((_route, routeIndex) => this.initCoasterRoute(routeIndex));
 
     this.clearGroup(this.reachGroup);
     if (this.world) {
@@ -375,12 +429,17 @@ class AddonWalk implements AddonPreviewHandle {
    */
   private buildModel(f: number): void {
     const appearance = this.model.appearance;
+    this.entityHolders.clear();
     if (!appearance) return;
     const group = new THREE.Group();
     group.name = 'model';
 
     const deg = Math.PI / 180;
-    const boneWorld = (entry: NonNullable<ReturnType<typeof appearance.byType.get>>): Map<string, THREE.Matrix4> => {
+    // Bedrock adds a playing animation's bone rotation to the geometry's own
+    // bind-pose rotation (component-wise, in degrees) rather than composing a
+    // second matrix; `overlay` is exactly that addition, used for the sit pose
+    // below (`MINIFIG_ANIMATIONS`'s own numbers, not re-derived).
+    const boneWorld = (entry: NonNullable<ReturnType<typeof appearance.byType.get>>, overlay?: ReadonlyMap<string, readonly [number, number, number]>): Map<string, THREE.Matrix4> => {
       const byName = new Map(entry.bones.map(b => [b.name, b]));
       const done = new Map<string, THREE.Matrix4>();
       const resolve = (name: string, seen: Set<string>): THREE.Matrix4 => {
@@ -395,9 +454,11 @@ class AddonWalk implements AddonPreviewHandle {
         // Y/Z are negated against three.js' handedness, as the geometry writer
         // emits them (see eulerZYX in ldraw-entity-compiler).
         const [px, py, pz] = bone.pivot;
+        const add = overlay?.get(name);
+        const [brx, bry, brz] = bone.rotation ?? [0, 0, 0];
+        const rx = brx + (add?.[0] ?? 0), ry = bry + (add?.[1] ?? 0), rz = brz + (add?.[2] ?? 0);
         const local = new THREE.Matrix4();
-        if (bone.rotation) {
-          const [rx, ry, rz] = bone.rotation;
+        if (rx || ry || rz) {
           local.makeTranslation(px, py, pz)
             .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx * deg, -ry * deg, -rz * deg, 'ZYX')))
             .multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
@@ -411,14 +472,26 @@ class AddonWalk implements AddonPreviewHandle {
     };
 
     const m = new THREE.Matrix4(), cube = new THREE.Matrix4(), spin = new THREE.Matrix4();
-    for (const entity of this.model.entities) {
-      if (!entitySpawnsAt(entity, this.sizePct)) continue;
+    this.model.entities.forEach((entity, index) => {
+      if (!entitySpawnsAt(entity, this.sizePct)) return;
       const entry = appearance.byType.get(entity.typeId);
-      if (!entry) continue;
+      if (!entry) return;
       const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
       // The actor's own yaw, plus the quarter turn the whole placement took.
       const yaw = (entity.yaw + this.rotation * 90) * deg;
-      const bones = boneWorld(entry);
+      // A figure seated on a MANUAL seat (`rideOf`) is startRiding()'d at spawn,
+      // so `query.is_riding` is true from the first tick and the pack's own
+      // sit animation (legs -90°) is its default pose, not the standing bind
+      // pose. A coaster car's own posed rider is baked geometry already; this
+      // never applies there. Riders inside a coaster car use a DIFFERENT
+      // mechanism (rider_N bone visibility), below.
+      const overlay = entity.kind === 'figure' && entity.rideOf !== undefined ? SIT_POSE_OVERLAY : undefined;
+      const bones = boneWorld(entry, overlay);
+      // Which rider variant a coaster car shows by default (occupied: false):
+      // `route.cars.slots[coasterCarIndex].rider`, exactly what the pack's own
+      // `rider_N` bone-visibility animation keys off. null = don't filter
+      // (the fabricated cart has no rider bones at all).
+      const activeRider = this.activeRiderOf(entity);
 
       const holder = new THREE.Group();
       holder.position.set(at.x, at.y, at.z);
@@ -426,14 +499,18 @@ class AddonWalk implements AddonPreviewHandle {
       holder.scale.setScalar(f / 16);
 
       for (const chunk of entry.groups) {
-        if (!chunk.cubes.length) continue;
+        const cubes = activeRider === null ? chunk.cubes : chunk.cubes.filter(c => {
+          const rider = /^rider_(\d+)$/.exec(c.bone);
+          return !rider || Number(rider[1]) === activeRider;
+        });
+        if (!cubes.length) continue;
         const material = new THREE.MeshStandardMaterial({
           color: chunk.colorHex, roughness: 0.62, metalness: 0.04, flatShading: true,
           ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0.25, chunk.alpha) } : {}),
         });
         this.disposables.push(material);
-        const mesh = new THREE.InstancedMesh(this.unitBox, material, chunk.cubes.length);
-        chunk.cubes.forEach((c, i) => {
+        const mesh = new THREE.InstancedMesh(this.unitBox, material, cubes.length);
+        cubes.forEach((c, i) => {
           const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
           // A zero-thickness cube would vanish; give it a hair so it still reads.
           cube.makeScale(sx || 0.01, sy || 0.01, sz || 0.01);
@@ -453,8 +530,263 @@ class AddonWalk implements AddonPreviewHandle {
         holder.add(mesh);
       }
       group.add(holder);
-    }
+      this.entityHolders.set(index, holder);
+    });
     this.worldGroup.add(group);
+  }
+
+  /** The rider variant a coaster car currently shows (see `buildModel`), or
+   * null when this entity is not a coaster car slot (nothing to filter). */
+  private activeRiderOf(entity: AddonEntity): number | null {
+    if (entity.coasterRouteIndex === undefined || entity.coasterCarIndex === undefined) return null;
+    const route = this.model.routes[entity.coasterRouteIndex];
+    const slot = route?.cars.slots?.[entity.coasterCarIndex];
+    return slot ? slot.rider : null;
+  }
+
+  /**
+   * Static entity collision the player bumps into RIGHT NOW: only where the
+   * pack's own behaviour file declares `has_collision: true`
+   * (`model.entityCollision`, read by `entityCollisionFromSources`) — a
+   * standing figure (0.6 x 1.8, same box as the player), never a ride car
+   * (the pack gives those `has_collision: false`; see CLAUDE.md and
+   * bedrock-coaster.ts's `coasterCartAssets`/`carBehavior`). Baked once per
+   * `rebuild()`, not per tick: nothing here moves (a coaster car's own box is
+   * `false`, so a moving entity never needs one).
+   */
+  private computeEntitySolids(): EntitySolid[] {
+    const { model, sizePct, rotation } = this;
+    const out: EntitySolid[] = [];
+    model.entities.forEach((entity, index) => {
+      const box = model.entityCollision.get(entity.typeId);
+      if (!box || !entitySpawnsAt(entity, sizePct)) return;
+      const at = placedPoint(entity, model.dims, sizePct, rotation);
+      out.push({ key: `entity${index}`, x0: at.x - box.width / 2, y0: at.y, z0: at.z - box.width / 2, x1: at.x + box.width / 2, y1: at.y + box.height, z1: at.z + box.width / 2 });
+    });
+    return out;
+  }
+
+  /** The route fields `coaster-preview.ts` needs, off `AddonRoute`. */
+  private routeInput(route: AddonRoute): CoasterPreviewRouteInput {
+    return {
+      points: route.points, cumulative: route.cumulative, length: route.length, closed: route.closed,
+      ...(route.station ? { station: { start: route.station.start, end: route.station.end, stop: route.station.stop } } : {}),
+      ...(route.chain ? { chain: route.chain } : {}),
+      ...(route.lift ? { lift: { deckLength: route.lift.deckLength, travel: route.lift.travel, parkedPoint: route.lift.parkedPoint } } : {}),
+      cars: { count: route.cars.count, spacing: route.cars.spacing, extent: route.cars.extent },
+    };
+  }
+
+  /** The measured wheel-contact spacing of train 0's car at `slot`, when its type measured one. */
+  private wheelbaseFor(route: AddonRoute, slot: number): number | undefined {
+    const type = route.cars.slots?.[slot]?.type;
+    return type ? this.model.coasterTypes[type]?.wheelbase : undefined;
+  }
+
+  /** A fresh, riderless ride state for one route (a route too short/degenerate to build a path leaves its cars parked). */
+  private initCoasterRoute(routeIndex: number): void {
+    const route = this.model.routes[routeIndex];
+    if (!route || route.points.length < 2) return;
+    try { this.coasterStates.set(routeIndex, initCoasterPreviewState(this.routeInput(route))); }
+    catch (err) { this.onStatus(`Route "${route.label}" cannot be animated: ${err instanceof Error ? err.message : String(err)}`, 'error'); }
+  }
+
+  /**
+   * One physics tick (1/20 s) of every route's train 0, riderless by default
+   * — see coaster-preview.ts. Moves the car/platform/counterweight holders
+   * (real geometry) or their fallback markers (a pack with no RP appearance
+   * data still shows its cars moving), and records each car's current world
+   * pose in `carWorld` for the "board" reach test and the ride camera.
+   *
+   * # TODO: the entity's own transform (position + yaw) is exactly what the
+   * real runtime teleports to; the geometry's `track_pitch`/`track_roll` bone
+   * animation (the visual bank through a climb or a loop) is NOT applied here
+   * — reproducing it needs the per-tick InstancedMesh rebuild `buildModel`
+   * does once at rebuild time, which is more than this preview's motion-proof
+   * bar needs today.
+   */
+  private updateCoasterAnimation(): void {
+    const { model, sizePct, rotation } = this;
+    const f = sizePct / 100;
+    for (const [routeIndex, state] of this.coasterStates) {
+      const route = model.routes[routeIndex];
+      if (!route) continue;
+      let result: ReturnType<typeof stepCoasterPreviewTick>;
+      try { result = stepCoasterPreviewTick(this.routeInput(route), state, f, COASTER_PHYSICS, (slot: number) => this.wheelbaseFor(route, slot)); }
+      catch { continue; }
+      this.coasterStates.set(routeIndex, result.state);
+      for (const frameResult of result.frames) {
+        const entityIndex = this.carEntityIndex.get(`${routeIndex}:${frameResult.slot}`);
+        if (entityIndex === undefined) continue;
+        const [mx, my, mz] = frameResult.position;
+        const w = placedPoint({ x: mx, y: my, z: mz }, model.dims, sizePct, rotation);
+        const yawDeg = frameResult.yaw + rotation * 90;
+        this.moveEntityHolder(entityIndex, w, yawDeg);
+        this.carWorld.set(entityIndex, { x: w.x, y: w.y, z: w.z, yawDeg, frame: frameResult });
+      }
+      if (route.lift) {
+        const [px, py, pz] = route.lift.parkedPoint, [tx, ty, tz] = route.lift.travel, progress = result.state.liftProgress;
+        const liftIndex = model.entities.findIndex(e => e.kind === 'lift' && e.coasterRouteIndex === routeIndex);
+        if (liftIndex >= 0) {
+          const w = placedPoint({ x: px + tx * progress, y: py + ty * progress, z: pz + tz * progress }, model.dims, sizePct, rotation);
+          this.moveEntityHolder(liftIndex, w, (model.entities[liftIndex]!.yaw + rotation * 90));
+        }
+        if (route.lift.counterweightPoint) {
+          const [cx, cy, cz] = route.lift.counterweightPoint;
+          const cwIndex = model.entities.findIndex(e => e.kind === 'counterweight' && e.coasterRouteIndex === routeIndex);
+          if (cwIndex >= 0) {
+            const w = placedPoint({ x: cx - tx * progress, y: cy - ty * progress, z: cz - tz * progress }, model.dims, sizePct, rotation);
+            this.moveEntityHolder(cwIndex, w, (model.entities[cwIndex]!.yaw + rotation * 90));
+          }
+        }
+      }
+    }
+  }
+
+  /** Reposition an entity's real-geometry holder and/or its fallback marker (whichever exists) to a fresh world pose. */
+  private moveEntityHolder(entityIndex: number, world: { x: number; y: number; z: number }, yawDeg: number): void {
+    const yawRad = yawDeg * Math.PI / 180;
+    const holder = this.entityHolders.get(entityIndex);
+    if (holder) { holder.position.set(world.x, world.y, world.z); holder.rotation.y = yawRad; }
+    const marker = this.markerByIndex.get(entityIndex);
+    if (marker) {
+      marker.mesh.position.set(world.x, world.y + marker.height / 2, world.z);
+      marker.mesh.rotation.y = -yawRad;
+      const beamTop = marker.beam.scale.y;
+      marker.beam.position.set(world.x, beamTop / 2, world.z);
+      marker.at.set(world.x, world.y, world.z);
+    }
+  }
+
+  // ── Interactivity: board a seat/car, dismount, toggle a door ────────────
+
+  /** What an Interact key/button would do right now, and how the HUD prompt reads it. */
+  private updateInteract(): void {
+    if (this.riding || this.sitting) {
+      this.nearestInteract = { label: 'Sneak to dismount', act: (): void => this.dismount() };
+      this.renderInteractHud();
+      return;
+    }
+    const REACH = 2.5;
+    const cam = this.camera.position;
+    let best: { d: number; label: string; act: () => void } | null = null;
+    const consider = (d: number, label: string, act: () => void): void => { if (d <= REACH && (!best || d < best.d)) best = { d, label, act }; };
+
+    for (const [entityIndex, car] of this.carWorld) consider(Math.hypot(car.x - cam.x, car.y - cam.y, car.z - cam.z), RIDE_INTERACT_TEXT, () => this.board(entityIndex));
+
+    this.model.entities.forEach((entity, index) => {
+      if (!entitySpawnsAt(entity, this.sizePct)) return;
+      if (entity.kind !== 'seat' && entity.kind !== 'door') return;
+      const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
+      const d = Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z);
+      if (entity.kind === 'seat') consider(d, 'Sit', () => this.sit(index));
+      else consider(d, this.openDoorLeaves.has(index) ? 'Close door' : 'Open door', () => this.toggleDoorLeaf(index));
+    });
+
+    this.model.doorCandidates.forEach((cand, index) => {
+      if (this.sizePct < cand.requiredSize || !this.world) return;
+      const at = placedPoint({ x: cand.x + 0.5, y: cand.y, z: cand.z + 0.5 }, this.model.dims, this.sizePct, this.rotation);
+      const d = Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z);
+      const id = `cand${index}`;
+      consider(d, this.world.isDoorOpen(id) ? 'Close door' : 'Open door', () => this.toggleDoorCandidate(index, at));
+    });
+
+    this.nearestInteract = best;
+    this.renderInteractHud();
+  }
+
+  private renderInteractHud(): void {
+    if (!this.interactEl) return;
+    this.interactEl.textContent = this.nearestInteract ? `[E] ${this.nearestInteract.label}` : '';
+    this.interactEl.style.display = this.nearestInteract ? '' : 'none';
+  }
+
+  /** Board the nearest ride car within reach: the camera follows it (`applyRidingCamera`) until dismounted. */
+  private board(entityIndex: number): void {
+    const entity = this.model.entities[entityIndex];
+    if (!entity || entity.coasterRouteIndex === undefined || entity.coasterCarIndex === undefined) return;
+    this.riding = { routeIndex: entity.coasterRouteIndex, slot: entity.coasterCarIndex, entityIndex, restore: this.state, restoreYaw: this.yaw, restorePitch: this.pitch };
+    this.onStatus(`Boarded ${entity.label} — ${RIDE_INTERACT_TEXT.toLowerCase()}. Sneak (Shift) to dismount.`, 'success');
+  }
+
+  /** Sit at a static (non-coaster) seat: parks the camera there, no ride motion. */
+  private sit(entityIndex: number): void {
+    this.sitting = { entityIndex, restore: this.state, restoreYaw: this.yaw, restorePitch: this.pitch };
+    this.onStatus('Seated. Sneak (Shift) to get up.', 'success');
+  }
+
+  /** Leave a car or seat, restoring exactly the player state from before boarding. */
+  private dismount(): void {
+    const saved = this.riding ?? this.sitting;
+    if (!saved) return;
+    this.state = saved.restore; this.prevState = saved.restore;
+    this.yaw = saved.restoreYaw; this.pitch = saved.restorePitch;
+    this.riding = null; this.sitting = null;
+  }
+
+  /**
+   * Rotate a door LEAF entity's own holder ±90° about its placed origin. A
+   * cosmetic swing, not a hinge-accurate one: the compiler does not hand the
+   * preview a hinge-edge pivot, so this turns the leaf about whatever point
+   * its geometry origin sits at. # TODO: read the leaf's actual hinge offset
+   * once bedrock-placement-pack.ts exposes one.
+   */
+  private toggleDoorLeaf(entityIndex: number): void {
+    const entity = this.model.entities[entityIndex];
+    if (!entity) return;
+    const open = !this.openDoorLeaves.has(entityIndex);
+    if (open) this.openDoorLeaves.add(entityIndex); else this.openDoorLeaves.delete(entityIndex);
+    const holder = this.entityHolders.get(entityIndex);
+    const base = (entity.yaw + this.rotation * 90) * Math.PI / 180;
+    if (holder) holder.rotation.y = open ? base + Math.PI / 2 : base;
+    const marker = this.markerByIndex.get(entityIndex);
+    if (marker) marker.mesh.rotation.y = open ? -base - Math.PI / 2 : -base;
+  }
+
+  /**
+   * Toggle a vanilla door candidate's collision (`WalkWorld.setDoorOpen`): an
+   * approximation stated in that method's own doc, not hidden — it drops the
+   * whole column's colliders in the opening's height band, which is sound at
+   * a door candidate (the wand only proposes one where the opening is
+   * exactly door sized). The rendered grey collider boxes do not yet redraw
+   * when a door opens; only collision does. # TODO: repaint them too.
+   */
+  private toggleDoorCandidate(index: number, at: { x: number; y: number; z: number }): void {
+    if (!this.world) return;
+    const id = `cand${index}`;
+    const open = !this.world.isDoorOpen(id);
+    this.world.setDoorOpen(id, at.x, at.z, at.y, open);
+    this.onStatus(open ? 'Door opened — walk through.' : 'Door closed.', 'info');
+  }
+
+  /** The camera while riding a car: the rider's eye through the car's own frame (`coasterCarEyePoint`), the pack's own seat offset when it measured one. */
+  private applyRidingCamera(): void {
+    if (!this.riding) return;
+    const car = this.carWorld.get(this.riding.entityIndex);
+    if (!car) return;
+    const route = this.model.routes[this.riding.routeIndex];
+    const type = route?.cars.slots?.[this.riding.slot]?.type;
+    const seat = type ? this.model.coasterTypes[type]?.seat : undefined;
+    const [ex, ey, ez] = coasterCarEyePoint(car.frame, seat);
+    const eye = placedPoint({ x: ex, y: ey, z: ez }, this.model.dims, this.sizePct, this.rotation);
+    this.camera.position.set(eye.x, eye.y, eye.z);
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.y = car.yawDeg * Math.PI / 180;
+    this.camera.rotation.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, -car.frame.pitch * Math.PI / 180));
+  }
+
+  /** The camera while sitting at a static seat: parked at the seat's own placed point, facing its yaw. */
+  private applySittingCamera(): void {
+    if (!this.sitting) return;
+    const entity = this.model.entities[this.sitting.entityIndex];
+    if (!entity) return;
+    const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
+    this.camera.position.set(at.x, at.y + PLAYER_HEIGHT - 0.53, at.z);
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.rotation.order = 'YXZ';
+    this.camera.rotation.y = (entity.yaw + this.rotation * 90) * Math.PI / 180;
+    this.camera.rotation.x = 0;
   }
 
   private buildReach(surfaces: ReachSurface[]): void {
@@ -478,6 +810,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.labelLayer.replaceChildren();
     this.markers = [];
     this.targets = [];
+    this.markerByIndex.clear();
     const { model } = this;
     const laidHeight = this.laidDims.height;
     const beamGeom = new THREE.CylinderGeometry(0.06, 0.06, 1, 6, 1, true);
@@ -495,6 +828,12 @@ class AddonWalk implements AddonPreviewHandle {
       mesh.position.set(at.x, at.y + height / 2, at.z);
       mesh.rotation.y = -entity.yaw * Math.PI / 180;
       mesh.userData['index'] = index;
+      // Real geometry (buildModel) already draws this entity: the solid
+      // marker would just be a translucent box floating over it, which is the
+      // "capsule markers instead of the pack's own model" complaint. Keep the
+      // beam and label (still useful for finding it, and clicking "go" on a
+      // NOT-reachable verdict) but hide the placeholder shape.
+      const hasRealGeometry = !!model.appearance?.byType.has(entity.typeId);
       // A translucent beam from the ground through the marker: the location, visible through walls when highlighted.
       const beam = new THREE.Mesh(beamGeom, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, depthTest: false }));
       const beamTop = Math.max(at.y + height + 4, laidHeight + 2);
@@ -508,7 +847,9 @@ class AddonWalk implements AddonPreviewHandle {
       label.style.borderColor = hex(color);
       label.textContent = entity.label;
       this.labelLayer.appendChild(label);
-      this.markers.push({ entity, legend, mesh, beam, label, at: new THREE.Vector3(at.x, at.y, at.z), height, reach: null });
+      const marker: Marker = { entity, legend, mesh, beam, label, at: new THREE.Vector3(at.x, at.y, at.z), height, reach: null, hasRealGeometry };
+      this.markers.push(marker);
+      if (index >= 0) this.markerByIndex.set(index, marker);
       // Reach verdict per entity (asked of the worker): can a player on foot stand within a block of where this actor's feet are?
       if (legend && (kind === 'figure' || kind === 'seat' || kind === 'door' || kind === 'vehicle')) {
         this.targets.push({ label: entity.label, kind: legend, point: { x: entity.x, y: entity.y, z: entity.z }, reach: null, world: new THREE.Vector3(at.x, at.y, at.z), labelEl: label, labelText: entity.label });
@@ -636,7 +977,7 @@ class AddonWalk implements AddonPreviewHandle {
     label.style.color = hex(color);
     this.labelLayer.appendChild(label);
     // A label with no entity: a pseudo-marker so the projection loop places it.
-    this.markers.push({ entity: { typeId: '', label: text, kind: 'other', x: 0, y: 0, z: 0, yaw: 0 }, legend: 'track', mesh: new THREE.Mesh(), beam: new THREE.Mesh(), label, at: at.clone(), height: 0.5, reach: null });
+    this.markers.push({ entity: { typeId: '', label: text, kind: 'other', x: 0, y: 0, z: 0, yaw: 0 }, legend: 'track', mesh: new THREE.Mesh(), beam: new THREE.Mesh(), label, at: at.clone(), height: 0.5, reach: null, hasRealGeometry: false });
     return label;
   }
 
@@ -720,7 +1061,11 @@ class AddonWalk implements AddonPreviewHandle {
     for (const mk of this.markers) {
       const row = mk.legend;
       const show = row ? legend[row].show : true;
-      mk.mesh.visible = show;
+      // A row's "show" toggle still hides everything about that kind, real
+      // geometry included (it is how a user isolates one legend row); the
+      // placeholder shape ALSO stays hidden the rest of the time, since
+      // buildModel already drew the real thing.
+      mk.mesh.visible = show && !mk.hasRealGeometry;
       mk.beam.visible = show && !!row && legend[row].highlight;
       mk.label.style.display = show ? '' : 'none';
     }
@@ -766,7 +1111,16 @@ class AddonWalk implements AddonPreviewHandle {
   }
 
   private tick(): void {
+    // Ride motion advances every tick regardless of the player: "riderless by default".
+    this.updateCoasterAnimation();
+    if (this.interactQueued) { this.interactQueued = false; this.nearestInteract?.act(); }
     const input = this.inputForTick();
+    if (this.riding || this.sitting) {
+      // Sneak dismounts instead of its usual meaning while boarded/seated.
+      if (input.sneak) this.dismount();
+      this.prevState = this.state;
+      return;
+    }
     this.prevState = this.state;
     if (this.world && !this.noclip) {
       this.state = tickPlayer(this.world, this.state, input).state;
@@ -790,14 +1144,19 @@ class AddonWalk implements AddonPreviewHandle {
     const step = 1 / TICKS_PER_SECOND;
     let ticks = 0;
     while (this.accumulator >= step && ticks < 5) { this.tick(); this.accumulator -= step; ticks++; }
-    const alpha = Math.min(1, this.accumulator / step);
-    const a = this.prevState, b = this.state;
-    const eye = (b.sneaking && !this.noclip ? PLAYER_HEIGHT - 0.53 : PLAYER_HEIGHT - 0.18);
-    this.camera.position.set(a.x + (b.x - a.x) * alpha, a.y + (b.y - a.y) * alpha + eye, a.z + (b.z - a.z) * alpha);
-    this.camera.rotation.set(0, 0, 0);
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
+    if (this.riding) this.applyRidingCamera();
+    else if (this.sitting) this.applySittingCamera();
+    else {
+      const alpha = Math.min(1, this.accumulator / step);
+      const a = this.prevState, b = this.state;
+      const eye = (b.sneaking && !this.noclip ? PLAYER_HEIGHT - 0.53 : PLAYER_HEIGHT - 0.18);
+      this.camera.position.set(a.x + (b.x - a.x) * alpha, a.y + (b.y - a.y) * alpha + eye, a.z + (b.z - a.z) * alpha);
+      this.camera.rotation.set(0, 0, 0);
+      this.camera.rotation.order = 'YXZ';
+      this.camera.rotation.y = this.yaw;
+      this.camera.rotation.x = this.pitch;
+    }
+    this.updateInteract();
     const { renderer } = this.viewer;
     renderer.setRenderTarget(null);
     renderer.render(this.scene, this.camera);
@@ -828,6 +1187,8 @@ class AddonWalk implements AddonPreviewHandle {
 
   private updatePositionReadout(): void {
     const el = this.hintEl;
+    if (this.riding) { const c = this.camera.position; el.textContent = `riding · ${(this.carWorld.get(this.riding.entityIndex)?.frame.moving ? 'under way' : 'stopped')} · x ${c.x.toFixed(1)} y ${c.y.toFixed(2)} z ${c.z.toFixed(1)}`; return; }
+    if (this.sitting) { el.textContent = 'seated'; return; }
     const s = this.state;
     const f = this.sizePct / 100;
     el.textContent = `${this.noclip ? 'free-fly' : s.onGround ? 'on ground' : 'airborne'} · x ${s.x.toFixed(1)} y ${s.y.toFixed(2)} z ${s.z.toFixed(1)} (blocks from the pin at ${this.sizePct} %; ${(s.y / f).toFixed(2)} up at 100 %)`;
@@ -844,6 +1205,7 @@ class AddonWalk implements AddonPreviewHandle {
       <div class="ap-labels"></div>
       <div class="ap-crosshair"></div>
       <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn: unreachable here is unreachable in game. It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
+      <div class="ap-interact"></div>
       <div class="ap-hud">
         <div class="ap-panel ap-legend"></div>
         <div class="ap-panel ap-size"></div>
@@ -857,10 +1219,11 @@ class AddonWalk implements AddonPreviewHandle {
         <button type="button" class="ap-btn ap-exit" data-act="exit" title="Leave the walk and return to the model">Exit walk</button>
       </div>
       <div class="ap-hint"></div>
-      <div class="ap-keys">${this.isTouch ? 'Left pad: move · drag right side: look · buttons: jump / sneak / sprint' : 'Click to look · WASD move · Space jump · Shift sneak · Ctrl sprint · F fly · R respawn · [ ] size · H panels · Esc release'}</div>
+      <div class="ap-keys">${this.isTouch ? 'Left pad: move · drag right side: look · buttons: jump / sneak / interact / sprint' : 'Click to look · WASD move · Space jump · E interact · Shift sneak/dismount · Ctrl sprint · F fly · R respawn · [ ] size · H panels · Esc release'}</div>
       <div class="ap-touch" ${this.isTouch ? '' : 'hidden'}>
         <div class="ap-stick"><div class="ap-knob"></div></div>
         <div class="ap-touch-btns">
+          <button type="button" class="ap-tbtn ap-tbtn-interact" data-t="interact">Interact</button>
           <button type="button" class="ap-tbtn" data-t="jump">Jump</button>
           <button type="button" class="ap-tbtn" data-t="sneak">Sneak</button>
           <button type="button" class="ap-tbtn" data-t="sprint">Sprint</button>
@@ -870,6 +1233,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.root = root;
     this.lookLayer = root.querySelector('.ap-look')!;
     this.labelLayer = root.querySelector('.ap-labels')!;
+    this.interactEl = root.querySelector('.ap-interact')!;
     this.hud = root.querySelector('.ap-hud')!;
     this.legendEl = root.querySelector('.ap-legend')!;
     this.sizeEl = root.querySelector('.ap-size')!;
@@ -924,6 +1288,7 @@ class AddonWalk implements AddonPreviewHandle {
       if (e.code === 'KeyF') { this.toggleFly(); e.preventDefault(); return; }
       if (e.code === 'KeyR') { this.respawn(); e.preventDefault(); return; }
       if (e.code === 'KeyH') { this.toggleHud(); e.preventDefault(); return; }
+      if (e.code === 'KeyE' && !e.repeat) { this.interactQueued = true; e.preventDefault(); return; }
       if (e.code === 'BracketLeft' || e.code === 'BracketRight') {
         const i = this.model.sizes.indexOf(this.sizePct) + (e.code === 'BracketRight' ? 1 : -1);
         const next = this.model.sizes[i];
@@ -980,6 +1345,7 @@ class AddonWalk implements AddonPreviewHandle {
         if (which === 'jump') { this.touchJump = on; if (on) this.jumpQueued = true; }
         else if (which === 'sneak') this.touchSneak = on;
         else if (which === 'sprint') this.touchSprint = on;
+        else if (which === 'interact') { if (on) this.interactQueued = true; }
         b.classList.toggle('on', on);
       };
       this.on(b, 'pointerdown', (e: PointerEvent) => { set(true); b.setPointerCapture(e.pointerId); e.preventDefault(); });
@@ -1069,6 +1435,7 @@ function ensureStyles(): void {
 .ap-crosshair{position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px 0 0 -7px;pointer-events:none;border:1px solid rgba(255,255,255,.55);border-radius:50%}
 .ap-crosshair::after{content:"";position:absolute;left:6px;top:6px;width:2px;height:2px;background:#fff}
 .ap-banner{position:absolute;left:8px;right:8px;top:8px;padding:6px 10px;border-radius:6px;background:rgba(124,58,237,.18);border:1px solid rgba(167,139,250,.45);font-size:11px;pointer-events:none}
+.ap-interact{position:absolute;left:50%;bottom:34%;transform:translateX(-50%);padding:6px 14px;border-radius:20px;background:rgba(10,12,22,.85);border:1px solid rgba(250,204,21,.6);color:#fde68a;font-weight:600;font-size:13px;pointer-events:none;display:none;text-shadow:0 1px 2px #000}
 .ap-hud{position:absolute;left:8px;top:58px;bottom:48px;width:min(360px,calc(100% - 16px));display:flex;flex-direction:column;gap:6px;overflow:auto;pointer-events:none}
 .ap-panel{pointer-events:auto;padding:8px 10px;border-radius:8px;background:rgba(10,12,22,.82);border:1px solid rgba(255,255,255,.1);backdrop-filter:blur(4px)}
 .ap-title{font-weight:600;margin-bottom:4px}
@@ -1098,6 +1465,8 @@ function ensureStyles(): void {
 .ap-touch-btns{position:absolute;right:14px;bottom:56px;display:flex;flex-direction:column;gap:10px;pointer-events:auto}
 .ap-tbtn{width:70px;height:48px;border-radius:24px;border:1px solid rgba(255,255,255,.3);background:rgba(10,12,22,.75);color:#fff;font:inherit;touch-action:none}
 .ap-tbtn.on{background:#7c3aed}
+.ap-tbtn-interact{border-color:rgba(250,204,21,.6);color:#fde68a}
+.ap-tbtn-interact.on{background:#a16207}
 @media (max-width:700px){.ap-banner{font-size:10px;padding:4px 8px}.ap-top{top:auto;bottom:auto;left:8px;right:8px;top:calc(8px + 5.5em);justify-content:space-between;gap:4px;z-index:3}.ap-btn{padding:3px 7px;font-size:11px;min-height:28px}.ap-hud{width:calc(100% - 16px);top:calc(8px + 5.5em + 36px);bottom:190px;z-index:2}.ap-keys{display:none}.ap-hint{bottom:8px;font-size:10px}}
 `;
   document.head.appendChild(style);

@@ -273,3 +273,76 @@ describe.skipIf(PACKS.length === 0)('parity with the reach walk on real packs', 
     }, 120_000);
   }
 });
+
+// ─── Entity collision and door toggling (the add-on walk's interactivity) ────
+
+describe('entitySolids: a static entity collision box the live player bumps into', () => {
+  it('blocks a walk through it, but never the reach BFS (which only ever consults the LEGO grid)', () => {
+    const dims: GridDims = { width: 8, height: 4, length: 8 };
+    // An open floor (a thin slab so the player has something to stand on) with
+    // one entity box (a "standing figure", 0.6 x 1.8) parked at (4, 4).
+    const cells: SourceCell[] = [];
+    solidTo(cells, 4, 0, 16);
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) if (x !== 4 || z !== 4) solidTo(cells, x, 0, 16);
+    const figureBox = { key: 'fig', x0: 3.7, y0: 1, z0: 3.7, x1: 4.3, y1: 2.8, z1: 4.3 };
+    const world = buildWalkWorld({ cells, dims, sizePct: 100, rotation: 0, treads: 'none', entitySolids: [figureBox] });
+    // The reach BFS is unaffected: it still walks the plain floor as if the entity were not there.
+    const reach = world.reach();
+    expect(reach.surfaces).toBeGreaterThan(0);
+    // A player standing right at the entity's column, trying to walk through it, is blocked.
+    let s = spawnState(world, { x: 4, y: 1, z: 2 });
+    const input: WalkInput = { move: { x: 0, z: 1 }, jump: false, sneak: false };
+    for (let i = 0; i < 60; i++) s = tickPlayer(world, s, input).state;
+    expect(s.z).toBeLessThan(3.7);
+  });
+
+  it('does not appear at all with no entitySolids option (the default, unaffected preview)', () => {
+    const dims: GridDims = { width: 8, height: 4, length: 8 };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) solidTo(cells, x, 0, 16);
+    const world = buildWalkWorld({ cells, dims, sizePct: 100, rotation: 0, treads: 'none' });
+    let s = spawnState(world, { x: 4, y: 1, z: 2 });
+    const input: WalkInput = { move: { x: 0, z: 1 }, jump: false, sneak: false };
+    for (let i = 0; i < 60; i++) s = tickPlayer(world, s, input).state;
+    expect(s.z).toBeGreaterThan(5);
+  });
+});
+
+describe('WalkWorld.setDoorOpen: a vanilla door candidate toggling its collision', () => {
+  it('drops the column\'s colliders in the opening while open, and restores them when closed', () => {
+    const dims: GridDims = { width: 8, height: 4, length: 8 };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) solidTo(cells, x, 0, 16);
+    // A 1x2 "door" opening at (4, 4), y in [1, 3): a wall column across the corridor.
+    solidTo(cells, 4, 4, 48, 16);
+    const world = buildWalkWorld({ cells, dims, sizePct: 100, rotation: 0, treads: 'none' });
+    expect(world.isDoorOpen('door0')).toBe(false);
+
+    const walkThrough = (): number => {
+      let s = spawnState(world, { x: 4, y: 1, z: 2 });
+      const input: WalkInput = { move: { x: 0, z: 1 }, jump: false, sneak: false };
+      for (let i = 0; i < 80; i++) s = tickPlayer(world, s, input).state;
+      return s.z;
+    };
+    expect(walkThrough()).toBeLessThan(4);
+
+    world.setDoorOpen('door0', 4, 4, 1, true, 2);
+    expect(world.isDoorOpen('door0')).toBe(true);
+    expect(walkThrough()).toBeGreaterThan(5);
+
+    world.setDoorOpen('door0', 4, 4, 1, false);
+    expect(world.isDoorOpen('door0')).toBe(false);
+    expect(walkThrough()).toBeLessThan(4);
+  });
+
+  it('never affects the reach BFS, which grades the model by its shipped colliders alone', () => {
+    const dims: GridDims = { width: 8, height: 4, length: 8 };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) solidTo(cells, x, 0, 16);
+    solidTo(cells, 4, 4, 48, 16);
+    const world = buildWalkWorld({ cells, dims, sizePct: 100, rotation: 0, treads: 'none' });
+    const before = world.reach().surfaces;
+    world.setDoorOpen('door0', 4, 4, 1, true, 2);
+    expect(world.reach().surfaces).toBe(before);
+  });
+});

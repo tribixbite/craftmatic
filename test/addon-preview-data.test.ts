@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
-  buildAddonPreviewModel, classifyAddonEntity, columnBoxes, defaultLegendState, entitySpawnsAt, extractJsonAfter,
+  buildAddonPreviewModel, classifyAddonEntity, columnBoxes, defaultLegendState, entityCollisionFromSources, entitySpawnsAt, extractJsonAfter,
   laidColliderBlocks, legendCounts, loadAddonPreviewModel, placedPoint, reachOverlay, recommendedSize, toggleLegend, treadBlocksAt,
   type AddonPreviewModel,
 } from '../web/src/ui/addon-preview-data.js';
@@ -30,6 +30,31 @@ describe('extractJsonAfter', () => {
     expect(extractJsonAfter(src, 'const CONFIG')).toEqual({ a: '}{][', b: [1, { c: '"}' }], d: { e: 1 } });
     expect(extractJsonAfter(src, 'const other')).toEqual({ z: 1 });
     expect(extractJsonAfter(src, 'const missing')).toBeUndefined();
+  });
+});
+
+describe('entityCollisionFromSources', () => {
+  const entityFile = (identifier: string, components: Record<string, unknown>): string =>
+    JSON.stringify({ format_version: '1.26.30', 'minecraft:entity': { description: { identifier }, components } });
+
+  it('keeps only entities the pack marks has_collision: true, with their collision_box', () => {
+    const sources = new Map<string, string>([
+      ['BP/entities/figure.json', entityFile('craftmatic:f_x_fig1', { 'minecraft:physics': { has_collision: true }, 'minecraft:collision_box': { width: 0.6, height: 1.8 } })],
+      // A ride car: has_collision false, exactly bedrock-coaster.ts's carBehavior — must not appear.
+      ['BP/entities/car.json', entityFile('craftmatic:c_x_coaster_vehicle_1', { 'minecraft:physics': { has_collision: false }, 'minecraft:collision_box': { width: 1.375, height: 0.9 } })],
+      // No physics component at all: absent, not defaulted to blocking.
+      ['BP/entities/screen.json', entityFile('craftmatic:s_x_screen', { 'minecraft:collision_box': { width: 1, height: 1 } })],
+    ]);
+    const out = entityCollisionFromSources(sources);
+    expect(out.size).toBe(1);
+    expect(out.get('craftmatic:f_x_fig1')).toEqual({ width: 0.6, height: 1.8 });
+    expect(out.has('craftmatic:c_x_coaster_vehicle_1')).toBe(false);
+    expect(out.has('craftmatic:s_x_screen')).toBe(false);
+  });
+
+  it('is not confused by unrelated or malformed JSON', () => {
+    const out = entityCollisionFromSources(new Map([['x.json', '{not json'], ['y.json', '{}'], ['z.json', '[]']]));
+    expect(out.size).toBe(0);
   });
 });
 
@@ -83,7 +108,7 @@ function syntheticModel(): AddonPreviewModel {
   const coaster = `const CONFIG = ${JSON.stringify({
     typeId: 'craftmatic:c_synthetic_coaster_cart',
     routes: [{ label: 'Track 1', path: { points: [[0, 1, 0], [3, 1, 0], [3, 1, 3]], closed: false, length: 6 }, station: { start: 0, end: 2, stop: 1, point: [1, 1, 0] } }],
-    types: { 'craftmatic:c_synthetic_coaster_cart': { role: 'car', riders: 0 } },
+    types: { 'craftmatic:c_synthetic_coaster_cart': { role: 'car', riders: 0, wheelbase: 1.5, seat: [0, 0.3, 0] } },
   })};\n`;
   return buildAddonPreviewModel({ placementScript: placement, coasterScript: coaster });
 }
@@ -100,6 +125,9 @@ describe('buildAddonPreviewModel (synthetic pack)', () => {
     expect(model.routes[0]!.station?.stop).toBe(1);
     expect(recommendedSize(model)).toEqual({ sizePct: 150, reason: 'measured on the synthetic set.' });
     expect(model.notes.some(n => /diagnostics/.test(n))).toBe(true); // said, not dropped
+    // The coaster preview's wheelbase/seat, read back from coaster.js's own types (not re-derived).
+    expect(model.coasterTypes['craftmatic:c_synthetic_coaster_cart']).toEqual({ role: 'car', riders: 0, wheelbase: 1.5, seat: [0, 0.3, 0] });
+    expect(model.entityCollision.size).toBe(0); // no BP entities/*.json in this fixture
   });
   it('counts the legend per row', () => {
     const c = legendCounts(model, 100, 0);
