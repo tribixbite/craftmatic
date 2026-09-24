@@ -55,6 +55,15 @@
  *     kind the same way (`car` for a coaster car and its posed riders).
  *   --isolate: "figures" mode only — hide every other entity's geometry so
  *     the framed one is seen through the building it stands in.
+ *     "doors" — a moving part (bedrock-interactives.ts) closed, opened and
+ *     walked through: the camera stands `--distance` blocks out along the
+ *     leaf's normal (`--side=front|back`) looking at it, shoots it CLOSED
+ *     (`<out>`), toggles it the way E does (`toggleInteractive`, the pack's
+ *     own runtime rules: double doors together, a too-small opening stays
+ *     blocked) and shoots it OPEN (`<out>.open.png`), then drops a walking
+ *     player 1.6 blocks out, holds W for 3 s and shoots where it got to
+ *     (`<out>.through.png`); the JSON says whether the feet crossed the leaf
+ *     plane. `--door=<n|text>` picks the item (default 0).
  */
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
@@ -74,7 +83,7 @@ if (!packPath || !outPath) {
   console.error('usage: node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers] [mode] [--ride-wait=ms]');
   process.exit(64);
 }
-const mode = modeArg === 'ride' ? 'ride' : modeArg === 'figures' ? 'figures' : modeArg === 'pinball' ? 'pinball' : 'flyout';
+const mode = modeArg === 'ride' ? 'ride' : modeArg === 'figures' ? 'figures' : modeArg === 'pinball' ? 'pinball' : modeArg === 'doors' ? 'doors' : 'flyout';
 const rideWaitMs = Number(flags.get('ride-wait') ?? 2500);
 const wanted = layersArg ? layersArg.split(',').map(s => s.trim()).filter(Boolean) : null;
 mkdirSync(outPath.replace(/[/\\][^/\\]+$/, ''), { recursive: true });
@@ -209,6 +218,91 @@ if (mode === 'flyout') {
   await page.screenshot({ path: outPath });
   await browser.close();
   console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
+} else if (mode === 'doors') {
+  await page.mouse.click(900, 430);
+  await page.keyboard.press('KeyF');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+  await page.evaluate(() => { const btn = document.querySelector('[data-act="reach"]'); if (btn instanceof HTMLElement && btn.getAttribute('aria-pressed') === 'true') btn.click(); });
+  await page.evaluate(() => { const hud = document.querySelector('.ap-hud'); if (hud) hud.style.display = 'none'; });
+  const which = flags.get('door') ?? '0';
+  const distance = Number(flags.get('distance') ?? 3.2);
+  const side = flags.get('side') === 'back' ? -1 : 1;
+  // --elev=<blocks>: camera height above the door's foot (default 1.2, eye level); --isolate: draw only this part (and the shell with --isolate=shell).
+  const elev = Number(flags.get('elev') ?? 1.2);
+  const isolate = flags.has('isolate') ? (flags.get('isolate') || 'part') : null;
+  const frame = await page.evaluate(({ which, distance, side, elev, isolate }) => {
+    const w = window.__addonWalk;
+    if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
+    const cfg = w.model.interactives;
+    if (!cfg) return { ok: false, reason: 'this pack ships no moving parts (no scripts/interactives.js)' };
+    const index = /^\d+$/.test(which) ? Number(which) : cfg.items.findIndex(it => it.label.includes(which));
+    const item = cfg.items[index];
+    if (!item) return { ok: false, reason: `no moving part "${which}" (${cfg.items.length} in the pack)` };
+    const entityIndex = w.model.entities.findIndex(e => e.interactive === index);
+    const marker = w.markerByIndex.get(entityIndex);
+    if (!marker) return { ok: false, reason: 'no marker for that entity' };
+    const at = marker.at;
+    // The leaf's normal through the placement's own turn (the walk's placedDirection convention).
+    const r = w.rotation, n = item.normal ?? [0, 0, 1];
+    const turn = (x, z) => r === 90 ? { x: -z, z: x } : r === 180 ? { x: -x, z: -z } : r === 270 ? { x: z, z: -x } : { x, z };
+    const nn = turn(n[0], n[2]), nl = Math.hypot(nn.x, nn.z) || 1;
+    const nx = nn.x / nl * side, nz = nn.z / nl * side;
+    const f = w.sizePct / 100;
+    const eye = { x: at.x + nx * distance * Math.max(1, f), y: at.y + elev * Math.max(1, f), z: at.z + nz * distance * Math.max(1, f) };
+    w.noclip = true;
+    w.state = { ...w.state, x: eye.x, y: eye.y - 1.62, z: eye.z, vx: 0, vy: 0, vz: 0, onGround: false };
+    w.prevState = w.state;
+    w.yaw = Math.atan2(nx, nz);
+    // Look at the middle of the leaf (about 1.2 blocks up at 100 %).
+    w.pitch = -Math.atan2(eye.y - (at.y + 1.2 * Math.max(1, f)), distance * Math.max(1, f));
+    if (isolate) {
+      const shells = new Set(w.model.entities.map((e, i) => e.kind === 'shell' ? i : -1).filter(i => i >= 0));
+      for (const [i, holder] of w.entityHolders) holder.visible = i === entityIndex || (isolate === 'shell' && shells.has(i));
+    }
+    return { ok: true, index, label: item.label, kind: item.kind, opening: item.opening, passSize: item.passSize, at: { x: at.x, y: at.y, z: at.z }, normal: { x: nx, z: nz } };
+  }, { which, distance, side, elev, isolate });
+  if (!frame.ok) {
+    console.log(JSON.stringify({ pack: packPath, mode, placed: frame, errors: errors.slice(0, 5) }, null, 1));
+    await browser.close();
+    process.exit(1);
+  }
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: outPath });
+  await page.evaluate((index) => window.__addonWalk.toggleInteractive(index), frame.index);
+  await page.waitForTimeout(900);
+  const openPath = withSuffix(outPath, 'open');
+  await page.screenshot({ path: openPath });
+  const status = await page.evaluate(() => document.querySelector('#lego-status, .lego-status, .status')?.textContent?.trim()?.slice(0, 200) ?? '');
+  // Walk it: a real (colliding) player 1.6 blocks out on the camera's side, holding W toward the doorway.
+  const start = await page.evaluate(({ frame }) => {
+    const w = window.__addonWalk;
+    const f = w.sizePct / 100;
+    w.noclip = false;
+    const p = { x: frame.at.x + frame.normal.x * 1.6 * Math.max(1, f), z: frame.at.z + frame.normal.z * 1.6 * Math.max(1, f) };
+    w.state = { ...w.state, x: p.x, y: frame.at.y + 0.3, z: p.z, vx: 0, vy: 0, vz: 0, onGround: false };
+    w.prevState = w.state;
+    w.yaw = Math.atan2(frame.normal.x, frame.normal.z);
+    w.pitch = 0;
+    return { x: w.state.x, y: w.state.y, z: w.state.z };
+  }, { frame });
+  await page.waitForTimeout(300);
+  await page.keyboard.down('KeyW');
+  await page.waitForTimeout(3000);
+  await page.keyboard.up('KeyW');
+  await page.waitForTimeout(300);
+  const end = await page.evaluate(({ frame }) => {
+    const w = window.__addonWalk;
+    const s = w.state;
+    // Signed distance past the leaf plane, measured from the start side (positive = through).
+    const crossed = -((s.x - frame.at.x) * frame.normal.x + (s.z - frame.at.z) * frame.normal.z);
+    return { x: s.x, y: s.y, z: s.z, crossedBlocks: Math.round(crossed * 100) / 100 };
+  }, { frame });
+  const throughPath = withSuffix(outPath, 'through');
+  await page.screenshot({ path: throughPath });
+  await browser.close();
+  console.log(JSON.stringify({ pack: packPath, mode, out: outPath, openPath, throughPath, placed: frame, status, walk: { start, end, through: end.crossedBlocks > 0.5 }, errors: errors.slice(0, 5) }, null, 1));
 } else if (mode === 'pinball') {
   // Free-fly next to the pinball console, found via `window.__addonWalk`'s
   // `pinballIndices`/`model.pinball` (the console has no reach-target "go"

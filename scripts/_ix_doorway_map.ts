@@ -27,7 +27,7 @@ const xs = item.blocking.map(c => c[0]), ys = item.blocking.map(c => c[1]), zs =
 const y0 = Math.min(...ys);
 console.log(`${item.label} ${item.kind} opening ${JSON.stringify(item.opening)} passSize ${item.passSize} blocking ${item.blocking.length} neighbours ${item.neighbours.length} normal ${JSON.stringify(item.normal)} pivot ${JSON.stringify(item.pivot)}`);
 console.log(`blocking cells: ${JSON.stringify(item.blocking)}`);
-console.log(`rows y${y0 - 1}..y${y0 + 2}; x ${Math.min(...xs) - radius}..${Math.max(...xs) + radius} across, z down`);
+console.log(`rows y${y0 - 2}..y${y0 + 2}; x ${Math.min(...xs) - radius}..${Math.max(...xs) + radius} across, z down`);
 const ch = (x: number, y: number, z: number): string => {
   if (x < 0 || z < 0 || x >= model.dims.width || z >= model.dims.length) return '-';
   const k = `${x},${y},${z}`;
@@ -37,11 +37,11 @@ const ch = (x: number, y: number, z: number): string => {
   return s[1] - s[0] >= 12 ? '#' : s[1] <= 6 ? '_' : '+';
 };
 const header = [];
-for (let x = Math.min(...xs) - radius; x <= Math.max(...xs) + radius; x++) header.push(String(((x % 100) + 100) % 100).padStart(5));
+for (let x = Math.min(...xs) - radius; x <= Math.max(...xs) + radius; x++) header.push(String(((x % 100) + 100) % 100).padStart(6));
 console.log('    z ' + header.join(''));
 for (let z = Math.min(...zs) - radius; z <= Math.max(...zs) + radius; z++) {
   const row = [];
-  for (let x = Math.min(...xs) - radius; x <= Math.max(...xs) + radius; x++) row.push(' ' + [y0 - 1, y0, y0 + 1, y0 + 2].map(y => ch(x, y, z)).join(''));
+  for (let x = Math.min(...xs) - radius; x <= Math.max(...xs) + radius; x++) row.push(' ' + [y0 - 2, y0 - 1, y0, y0 + 1, y0 + 2].map(y => ch(x, y, z)).join(''));
   console.log(String(z).padStart(6) + row.join(''));
 }
 void ixWorldBlocks;

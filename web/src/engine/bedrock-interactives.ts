@@ -44,7 +44,7 @@ import { floatActorProperty } from './bedrock-json.js';
 import { withSizeGroups } from './bedrock-placement-pack.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import { PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
-import { COLLIDER_BLOCK_ID } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 
 declare const world: any;
 declare const system: any;
@@ -94,7 +94,9 @@ const SPIN_BONE = 'ix_spin';
 export function interactiveKindOf(description: string): InteractiveKind | null {
   const d = description.replace(/^[~=_]+\s*/, '');
   if (/^Glass for Window\b.*\bOpening\b/i.test(d)) return 'window';
-  if (/\bGlass\b/i.test(d) && !/^GLASS DOOR\b/i.test(d)) return null;
+  // 60616's unofficial file is described "GLASS DOOR FOR FRAME 1X4X6": a leaf, not a frame or an insert.
+  if (/^GLASS DOOR\b/i.test(d)) return 'door';
+  if (/\bGlass\b/i.test(d)) return null;
   if (/\bFrame\b/i.test(d)) return null;
   if (/^(Fabuland )?Window\b.*\bShutter\b/i.test(d) && !/\bwithout Shutter\b/i.test(d)) return 'window';
   if (/^Window\b.*\bPane\b/i.test(d)) return 'window';
@@ -569,12 +571,51 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     }
     const blocking: IxCell[] = [];
     let cleared = 0, passageCleared = 0;
-    for (const [cx, cz] of columns.values()) for (let y = rowFrom; y <= rowTo; y++) {
+    /** A static collider cell's span, or null. */
+    const staticSpan = (x: number, y: number, z: number): [number, number] | null => {
+      if (!isCollider(x, y, z)) return null;
+      const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(grid.get(x, y, z));
+      return m ? [Number(m[1]), Number(m[2])] : [0, 16];
+    };
+    /**
+     * A closed door must reach the floor it stands over: a leaf hung a plate
+     * or two above it (a threshold, a frame's sill, a raised step) leaves a
+     * gap that the wand's size multiplies - 0.7 block under 31141's corner
+     * door at 100 % is 2.1 at 300 %, taller than the player, who walked
+     * under the closed door. So the closed cells run down to the top of the
+     * static floor below the leaf, within two rows.
+     */
+    const floorUnder = (x: number, z: number): number => {
+      for (let y = rowFrom; y >= Math.max(0, rowFrom - 2); y--) {
+        const span = staticSpan(x, y, z);
+        if (span && y + span[0] / 16 < yLo - 1e-6) return Math.min(yLo, y + span[1] / 16);
+      }
+      return yLo;
+    };
+    for (const [cx, cz] of columns.values()) {
+      const bottom = it.kind === 'hatch' ? yLo : floorUnder(cx, cz);
+      for (let y = Math.max(0, Math.floor(bottom + 0.02)); y <= rowTo; y++) {
       if (!inGrid(cx, y, cz)) continue;
-      const lo = Math.max(0, Math.min(15, Math.floor((yLo - y) * 16 + 1e-6)));
+      const lo = Math.max(0, Math.min(15, Math.floor((bottom - y) * 16 + 1e-6)));
       const hi = Math.max(lo + 1, Math.min(16, Math.ceil((yHi - y) * 16 - 1e-6)));
       blocking.push([cx, y, cz, lo, hi]);
-      if (isCollider(cx, y, cz)) { grid.set(cx, y, cz, 'minecraft:air'); cleared++; }
+      if (!isCollider(cx, y, cz)) continue;
+      // Only the leaf's own span is opened. What the cell holds ABOVE the
+      // leaf (the lintel over a door, the part of a floor slab above a hatch)
+      // or BELOW it (a threshold, the floor under a leaf that starts a plate
+      // up) stays static: cleared whole, a lintel's share of the top row
+      // becomes a gap over the closed leaf, and at 400 % that gap is taller
+      // than the player - the door is walked over.
+      const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(grid.get(cx, y, cz));
+      const [slo, shi] = m ? [Number(m[1]), Number(m[2])] : [0, 16];
+      const above = shi > hi ? [Math.max(slo, hi), shi] as const : null;
+      const below = slo < lo ? [slo, Math.min(shi, lo)] as const : null;
+      // One span per cell: keep the larger of the two when a leaf sits inside a single row.
+      const keep = above && below ? (above[1] - above[0] >= below[1] - below[0] ? above : below) : above ?? below;
+      if (keep && keep[1] > keep[0]) grid.set(cx, y, cz, colliderState(keep[0], keep[1]));
+      else grid.set(cx, y, cz, 'minecraft:air');
+      cleared++;
+      }
     }
     if (it.kind !== 'hatch') {
       // The passage, along the leaf's horizontal normal, both ways: a
@@ -599,16 +640,35 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
         if (spanAt(x, y0 + 1, z)) { grid.set(x, y0 + 1, z, 'minecraft:air'); passageCleared++; }
         if (c && c[0] < PASSAGE_HEAD16) { grid.set(x, y0 + 2, z, 'minecraft:air'); passageCleared++; }
       };
+      // A player moves between columns that share a FACE: a step along a
+      // diagonal normal (a 45-degree leaf) that changes both x and z also
+      // opens the connector column between them (the less solid of the two),
+      // or the passage is a chain of corners no 0.6-wide box fits through.
+      const solidity = (x: number, z: number): number => [y0, y0 + 1, y0 + 2].reduce((n, y) => n + (spanAt(x, y, z) ? 1 : 0), 0);
       for (const [cx, cz] of columns.values()) for (const dir of [1, -1]) {
         const cells: Array<[number, number]> = [];
-        let open = false;
-        for (let k = 0.5; k <= PASSAGE_REACH_CELLS + 0.01; k += 0.5) {
+        let open = false, px = cx, pz = cz;
+        const visit = (x: number, z: number): 'open' | 'go' => {
+          if (x < 0 || z < 0 || x >= grid.width || z >= grid.length) return 'open';
+          // The leaf's own columns are the doorway, already cut to its span: the
+          // passage never widens them (it would clear the floor or the lintel
+          // the closed leaf merges with).
+          if (columns.has(`${x},${z}`)) return 'go';
+          if (!cells.some(([a, b]) => a === x && b === z)) {
+            if (standable(x, z)) return 'open';
+            cells.push([x, z]);
+          }
+          return 'go';
+        };
+        for (let k = 0.25; k <= PASSAGE_REACH_CELLS + 0.01; k += 0.25) {
           const x = Math.floor(cx + 0.5 + gn[0] * dir * k), z = Math.floor(cz + 0.5 + gn[2] * dir * k);
-          if (x === cx && z === cz) continue;
-          if (x < 0 || z < 0 || x >= grid.width || z >= grid.length) { open = true; break; }
-          if (cells.some(([a, b]) => a === x && b === z)) continue;
-          if (standable(x, z)) { open = true; break; }
-          cells.push([x, z]);
+          if ((x === px && z === pz) || (x === cx && z === cz)) continue;
+          if (x !== px && z !== pz) {
+            const [ax, az] = solidity(x, pz) <= solidity(px, z) ? [x, pz] : [px, z];
+            if (visit(ax, az) === 'open') { open = true; break; }
+          }
+          px = x; pz = z;
+          if (visit(x, z) === 'open') { open = true; break; }
         }
         if (!open) continue;
         for (const [x, z] of cells) openUp(x, z);
@@ -881,8 +941,12 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const it = config.items[i]!;
     if (!it.blocking.length) return false;
     const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
+    if (!own.length) return false;
+    // Search around the doorway's own blocks (the entity stands at the leaf's foot, but a wide double door reaches further).
+    const cx = own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, cy = own.reduce((a, b) => a + b.y, 0) / own.length, cz = own.reduce((a, b) => a + b.z + 0.5, 0) / own.length;
+    const reach = Math.max(...own.map(b => Math.hypot(b.x + 0.5 - cx, b.y - cy, b.z + 0.5 - cz))) + 3;
     let near: any[] = [];
-    try { near = e.dimension.getEntities({ location: e.location, maxDistance: 6 * Math.max(1, pl.f) }); } catch { return false; }
+    try { near = e.dimension.getEntities({ location: { x: cx, y: cy, z: cz }, maxDistance: reach }); } catch { return false; }
     for (const o of near) {
       const t = String(o.typeId || '');
       if (t !== 'minecraft:player' && t.startsWith('craftmatic:') && !(o.getComponent && o.getComponent('minecraft:type_family')?.hasTypeFamily?.('craftmatic_figure'))) continue;

@@ -34,6 +34,9 @@ const PLAYER_NEED = 1.8;
 /** How close to a waypoint's column centre counts as there, and ticks without progress before the walk gives up. */
 const WAYPOINT_REACH = 0.3;
 const STALL_TICKS = 30;
+/** How far (blocks at 100 %) a doorway column's floor may sit from the leaf's foot, and how far past the leaf plane an approach spot must be. */
+const DOOR_FLOOR_SLACK = 1.0;
+const SIDE_CLEARANCE = 0.9;
 
 export interface DoorwayWalkResult {
   index: number;
@@ -50,10 +53,16 @@ export interface DoorwayWalkResult {
    */
   outcome: 'passed' | 'blocked' | 'no-approach' | 'sealed';
   /** Both directions tried; `passed` when either direction got through. */
-  directions: Array<{ from: -1 | 1; outcome: 'passed' | 'blocked' | 'no-approach'; reason?: 'no-path' | 'physics'; ticks: number; crossed: number; start?: { x: number; y: number; z: number }; end?: { x: number; y: number; z: number } }>;
+  directions: Array<{ from: -1 | 1; outcome: 'passed' | 'blocked' | 'no-approach'; reason?: 'no-path' | 'no-spot' | 'physics'; ticks: number; crossed: number; start?: { x: number; y: number; z: number }; end?: { x: number; y: number; z: number } }>;
   /** The doorway's centre in world blocks from the pin, and the walk's normal. */
   centre: { x: number; y: number; z: number };
   normal: { x: number; z: number };
+}
+
+/** Optional debugging record: each direction's route (column centres) and the player's feet per tick. */
+export interface DoorwayWalkTrace {
+  routes: Array<{ from: -1 | 1; way: Array<{ x: number; y: number; z: number }> }>;
+  tracks: Array<{ from: -1 | 1; points: Array<{ x: number; y: number; z: number }> }>;
 }
 
 /** Everything the walk needs from a pack (a subset of `AddonPreviewModel`). */
@@ -72,7 +81,7 @@ function turnDirection(d: { x: number; z: number }, dims: { width: number; heigh
 }
 
 /** Whether a player box with feet at (x, y, z) overlaps any solid. */
-function boxFree(world: WalkWorld, x: number, y: number, z: number): boolean {
+export function boxFree(world: WalkWorld, x: number, y: number, z: number): boolean {
   const box = playerBox({ x, y, z });
   for (const s of world.solidsNear(box, 0, 0, 0)) {
     if (s.ground) { if (y < -1e-6) return false; continue; }
@@ -92,28 +101,8 @@ function settle(world: WalkWorld, x: number, y: number, z: number, maxDrop: numb
   return s;
 }
 
-/** Walk one doorway (by its index in `pack.interactives.items`) at a size and turn, open or closed. */
-export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn, open: boolean, openOthers = false): DoorwayWalkResult {
-  const cfg = pack.interactives, item = cfg.items[index]!;
-  const f = sizePct / 100, k = Math.max(1, f);
-  const world = new WalkWorld({ cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) });
-  // A double door's leaves open together (`shares`, the runtime's group).
-  const group = new Set([index, ...item.shares]);
-  world.setOverlayBlocks(ixClosedBlocks(cfg.items, pack.dims, f, rotation, i => group.has(i) ? open : openOthers));
-  const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
-  // The doorway: the leaf's closed blocks at this size and turn.
-  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
-  const centre = own.length
-    ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }
-    : { x: 0, y: 0, z: 0 };
-  const n = turnDirection({ x: item.normal?.[0] ?? 0, z: item.normal?.[2] ?? 1 }, pack.dims, rotation);
-  const base = { index, label: item.label, sizePct, rotation, open, passableAtSize, centre, normal: n };
-  if (!own.length) return { ...base, outcome: 'no-approach', directions: [] };
-  const doorColumns = new Set(own.map(b => `${b.x},${b.z}`));
-
-  // ── The local surface graph: columns within the window, the tops a player can stand on.
-  const R = Math.ceil(WINDOW_BLOCKS * k);
-  const cx0 = Math.floor(centre.x) - R, cx1 = Math.floor(centre.x) + R, cz0 = Math.floor(centre.z) - R, cz1 = Math.floor(centre.z) + R;
+/** The local surface graph over one world: columns within a window, the tops a player can stand on, and 4-connected moves between them. */
+function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: number; z1: number }, k: number) {
   const clear = (x: number, z: number, y0: number, y1: number): boolean => world.boxesInColumn(x, z).every(b => b.y1 <= y0 + 1e-6 || b.y0 >= y1 - 1e-6);
   const topsCache = new Map<string, number[]>();
   const tops = (x: number, z: number): number[] => {
@@ -125,100 +114,179 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     topsCache.set(key, t);
     return t;
   };
-  const surf = (x: number, z: number, y: number): string => `${x},${z},${Math.round(y * 16)}`;
-  const nearestTop = (x: number, z: number, y: number): number | undefined => {
-    let best: number | undefined, d = Infinity;
-    for (const t of tops(x, z)) if (Math.abs(t - y) < d && t <= y + 0.1) { d = Math.abs(t - y); best = t; }
-    return best;
-  };
   /**
-   * Breadth-first path of column centres from `a` to `b` that crosses a
-   * doorway column; with no `b`, to the first doorway column (does this side
-   * reach the doorway at all?).
+   * Neighbour surfaces a player can move to from (x, z, t): a jump up, any
+   * drop within reach (`twoWay`: only moves the player could also make BACK,
+   * a rise or a drop within the jump), both columns clear at the higher floor.
    */
-  const path = (a: PlayerState, b?: PlayerState): Array<{ x: number; y: number; z: number }> | null => {
-    const ax = Math.floor(a.x), az = Math.floor(a.z), bx = b ? Math.floor(b.x) : NaN, bz = b ? Math.floor(b.z) : NaN;
-    const at = nearestTop(ax, az, a.y), bt = b ? nearestTop(bx, bz, b.y) : 0;
-    if (at === undefined || bt === undefined) return null;
-    type Node = { x: number; z: number; t: number; door: boolean; prev: Node | null };
-    const seen = new Set<string>();
-    const queue: Node[] = [{ x: ax, z: az, t: at, door: doorColumns.has(`${ax},${az}`), prev: null }];
-    seen.add(`${surf(ax, az, at)}:${queue[0]!.door}`);
-    for (let h = 0; h < queue.length; h++) {
-      const node = queue[h]!;
-      if (node.door && (!b || (node.x === bx && node.z === bz && Math.abs(node.t - bt) < 1e-6))) {
+  const moves = (x0: number, z0: number, t0: number, twoWay = false): Array<{ x: number; z: number; t: number }> => {
+    const out: Array<{ x: number; z: number; t: number }> = [];
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const x = x0 + dx, z = z0 + dz;
+      if (x < window.x0 || x > window.x1 || z < window.z0 || z > window.z1) continue;
+      for (const t of tops(x, z)) {
+        const rise = t - t0;
+        if (rise > JUMP_RISE + 1e-6 || -rise > (twoWay ? JUMP_RISE + 1e-6 : MAX_DROP * k)) continue;
+        const hi = Math.max(t, t0);
+        if (!clear(x, z, hi, hi + PLAYER_NEED) || !clear(x0, z0, hi, hi + PLAYER_NEED)) continue;
+        out.push({ x, z, t });
+      }
+    }
+    return out;
+  };
+  return { tops, moves };
+}
+
+type GraphNode = { x: number; z: number; t: number; prev: GraphNode | null };
+const nodeKey = (n: { x: number; z: number; t: number }): string => `${n.x},${n.z},${Math.round(n.t * 16)}`;
+
+/** Walk one doorway (by its index in `pack.interactives.items`) at a size and turn, open or closed. */
+export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn, open: boolean, openOthers = false, trace?: DoorwayWalkTrace): DoorwayWalkResult {
+  const cfg = pack.interactives, item = cfg.items[index]!;
+  const f = sizePct / 100, k = Math.max(1, f);
+  // A double door's leaves open together (`shares`, the runtime's group).
+  const group = new Set([index, ...item.shares]);
+  const worldFor = (groupOpen: boolean): WalkWorld => {
+    const w = new WalkWorld({ cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) });
+    w.setOverlayBlocks(ixClosedBlocks(cfg.items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : openOthers));
+    return w;
+  };
+  const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
+  // The doorway: the leaf's closed blocks at this size and turn.
+  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
+  const centre = own.length
+    ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }
+    : { x: 0, y: 0, z: 0 };
+  const n = turnDirection({ x: item.normal?.[0] ?? 0, z: item.normal?.[2] ?? 1 }, pack.dims, rotation);
+  const base = { index, label: item.label, sizePct, rotation, open, passableAtSize, centre, normal: n };
+  if (!own.length) return { ...base, outcome: 'no-approach', directions: [] };
+  const doorColumns = new Set(own.map(b => `${b.x},${b.z}`));
+  const R = Math.ceil(WINDOW_BLOCKS * k);
+  const window = { x0: Math.floor(centre.x) - R, x1: Math.floor(centre.x) + R, z0: Math.floor(centre.z) - R, z1: Math.floor(centre.z) + R };
+  const side = (node: { x: number; z: number }): number => (node.x + 0.5 - centre.x) * n.x + (node.z + 0.5 - centre.z) * n.z;
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+
+  // Through the DOORWAY, not round the end of a free-standing leaf: the
+  // crossing must be within the doorway's span (its closed blocks along the
+  // leaf, plus half a player).
+  const u = { x: -n.z, z: n.x };
+  const lateral = (p: { x: number; z: number }): number => (p.x - centre.x) * u.x + (p.z - centre.z) * u.z;
+  const halfSpan = Math.max(...own.map(b => Math.abs(lateral({ x: b.x + 0.5, z: b.z + 0.5 })))) + 0.5 + 0.3;
+
+  // ── The approach, found with the doorway OPEN: a breadth-first walk out of
+  // the doorway's own columns; the nearest surface at least `SIDE_CLEARANCE`
+  // past the leaf plane on each side is where a player stands to go through.
+  const openWorld = worldFor(true);
+  const og = surfaceGraph(openWorld, window, k);
+  const starts: GraphNode[] = [];
+  for (const key of doorColumns) {
+    const [x, z] = key.split(',').map(Number) as [number, number];
+    for (const t of og.tops(x, z)) if (Math.abs(t - centre.y) <= DOOR_FLOOR_SLACK * k) starts.push({ x, z, t, prev: null });
+  }
+  const seenOpen = new Set(starts.map(nodeKey));
+  const queue = [...starts];
+  const near: Record<'-1' | '1', GraphNode | undefined> = { '-1': undefined, '1': undefined };
+  for (let h = 0; h < queue.length && !(near['-1'] && near['1']); h++) {
+    const node = queue[h]!;
+    const s = side(node);
+    if (s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
+    if (s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
+    // Two-way moves only (an approach spot must be one a player can walk INTO
+    // the doorway from), and only along the CORRIDOR straight through the
+    // doorway: a spot reached by leaving the doorway sideways and going round
+    // its jamb is not a way through this door.
+    for (const m of og.moves(node.x, node.z, node.t, true)) {
+      if (Math.abs(lateral({ x: m.x + 0.5, z: m.z + 0.5 })) > halfSpan) continue;
+      const key = nodeKey(m);
+      if (seenOpen.has(key)) continue;
+      seenOpen.add(key);
+      queue.push({ ...m, prev: node });
+    }
+  }
+  const spotOf = (node: GraphNode | undefined): PlayerState | undefined => node ? settle(openWorld, node.x + 0.5, node.t + 0.01, node.z + 0.5, 0.25) : undefined;
+  const spots = { '-1': spotOf(near['-1']), '1': spotOf(near['1']) };
+  if (!spots['-1'] || !spots['1']) {
+    // One side cannot reach the doorway at all, open: the model put solid
+    // geometry or a drop there (a door set into rock, a false door).
+    return {
+      ...base, outcome: starts.length ? 'sealed' : 'no-approach',
+      directions: (['-1', '1'] as const).map(sd => ({ from: Number(sd) as -1 | 1, outcome: spots[sd] ? 'passed' as const : 'no-approach' as const, ...(spots[sd] ? {} : { reason: 'no-spot' as const }), ticks: 0, crossed: 0, ...(spots[sd] ? { start: { x: r2(spots[sd]!.x), y: r2(spots[sd]!.y), z: r2(spots[sd]!.z) } } : {}) })),
+    };
+  }
+
+  // ── The walk, in the world of the state asked for.
+  const world = open ? openWorld : worldFor(false);
+  const g = open ? og : surfaceGraph(world, window, k);
+  /** A route from `a` to `b` through a doorway column, over `g`. */
+  const route = (a: GraphNode, b: GraphNode): Array<{ x: number; y: number; z: number }> | null => {
+    type N = GraphNode & { door: boolean };
+    const atDoor = (m: { x: number; z: number; t: number }): boolean => doorColumns.has(`${m.x},${m.z}`) && Math.abs(m.t - centre.y) <= DOOR_FLOOR_SLACK * k;
+    const first: N = { x: a.x, z: a.z, t: a.t, prev: null, door: atDoor(a) };
+    const seen = new Set([`${nodeKey(first)}:${first.door}`]);
+    const q: N[] = [first];
+    for (let h = 0; h < q.length; h++) {
+      const node = q[h]!;
+      if (node.door && node.x === b.x && node.z === b.z && Math.abs(node.t - b.t) < 1e-6) {
         const out: Array<{ x: number; y: number; z: number }> = [];
-        for (let p: Node | null = node; p; p = p.prev) out.unshift({ x: p.x + 0.5, y: p.t, z: p.z + 0.5 });
+        for (let p: GraphNode | null = node; p; p = p.prev) out.unshift({ x: p.x + 0.5, y: p.t, z: p.z + 0.5 });
         return out;
       }
-      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-        const x = node.x + dx, z = node.z + dz;
-        if (x < cx0 || x > cx1 || z < cz0 || z > cz1) continue;
-        for (const t of tops(x, z)) {
-          const rise = t - node.t;
-          if (rise > JUMP_RISE + 1e-6 || -rise > MAX_DROP * k) continue;
-          const hi = Math.max(t, node.t);
-          // The move: both columns clear at the higher of the two floors (a jump also needs its own column clear up there).
-          if (!clear(x, z, hi, hi + PLAYER_NEED) || !clear(node.x, node.z, hi, hi + PLAYER_NEED)) continue;
-          const door = node.door || doorColumns.has(`${x},${z}`);
-          const key = `${surf(x, z, t)}:${door}`;
-          if (seen.has(key)) continue;
-          seen.add(key);
-          queue.push({ x, z, t, door, prev: node });
-        }
+      for (const m of g.moves(node.x, node.z, node.t)) {
+        const door = node.door || atDoor(m);
+        const key = `${nodeKey(m)}:${door}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        q.push({ ...m, prev: node, door });
       }
     }
     return null;
   };
-
-  /** A standable spot on side `side` (+1 along the normal, -1 against it), nearest the doorway first. */
-  const spot = (side: 1 | -1): PlayerState | undefined => {
-    for (let d = 1.0 * k; d <= 4.0 * k + 1e-9; d += 0.25) {
-      const x = centre.x + n.x * d * side, z = centre.z + n.z * d * side;
-      for (let lift = 0; lift <= 1.5 * k; lift += 1 / 16) {
-        const y = centre.y + lift + 0.01;
-        if (!boxFree(world, x, y, z)) continue;
-        const s = settle(world, x, y, z, 1.6 * k);
-        if (s) return s;
-        break;
-      }
-    }
-    return undefined;
-  };
-  const sides: Array<-1 | 1> = [-1, 1];
-  const spots = new Map<number, PlayerState | undefined>(sides.map(side => [side, spot(side)]));
   const directions: DoorwayWalkResult['directions'] = [];
-  const r2 = (v: number): number => Math.round(v * 100) / 100;
-  // A doorway that one side cannot reach even OPEN opens onto solid model
-  // geometry there (a door set into rock, a false door): sealed by the model,
-  // not by the door. Judged with the door open.
-  if (open && sides.some(side => { const p = spots.get(side); return !p || !path(p); })) {
-    return { ...base, outcome: 'sealed', directions: sides.map(side => ({ from: side, outcome: 'no-approach' as const, ticks: 0, crossed: 0 })) };
-  }
-  for (const from of sides) {
-    const start = spots.get(from), goal = spots.get(-from as -1 | 1);
-    if (!start || !goal) { directions.push({ from, outcome: 'no-approach', ticks: 0, crossed: 0 }); continue; }
+  for (const from of [-1, 1] as const) {
+    const start = spots[String(from) as '-1' | '1']!, goal = spots[String(-from) as '-1' | '1']!;
+    const a = near[String(from) as '-1' | '1']!, b = near[String(-from) as '-1' | '1']!;
     const along = (p: { x: number; z: number }): number => ((p.x - centre.x) * n.x + (p.z - centre.z) * n.z) * -from;
-    const route = path(start, goal);
-    if (!route) { directions.push({ from, outcome: 'blocked', reason: 'no-path', ticks: 0, crossed: r2(along(start)), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) } }); continue; }
+    const way = route(a, b);
+    if (!way) { directions.push({ from, outcome: 'blocked', reason: 'no-path', ticks: 0, crossed: r2(along(start)), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) } }); continue; }
     // Follow the route's column centres with the per-tick player, then the goal itself.
-    const waypoints = [...route.slice(1, -1), { x: goal.x, y: goal.y, z: goal.z }];
+    const waypoints = [...way.slice(1, -1), { x: goal.x, y: goal.y, z: goal.z }];
+    if (trace) { trace.routes.push({ from, way }); trace.tracks.push({ from, points: [] }); }
     let s: PlayerState = { ...start, tick: 0 };
-    let jump = false, best = -Infinity, ticks = 0, w = 0, stall = 0, lastDist = Infinity;
+    let jump = false, best = -Infinity, ticks = 0, w = 0, stall = 0, lastDist = Infinity, throughSpan = false;
     for (; ticks < MAX_TICKS && w < waypoints.length; ticks++) {
       const target = waypoints[w]!;
       const dx = target.x - s.x, dz = target.z - s.z, l = Math.hypot(dx, dz);
       if (l < WAYPOINT_REACH) { w++; stall = 0; lastDist = Infinity; continue; }
+      const before = along(s);
       const r = tickPlayer(world, s, { move: { x: dx / l, z: dz / l }, jump, sneak: false });
       s = r.state;
       jump = (r.collided.x || r.collided.z) && s.onGround;
+      // The feet crossed the leaf plane this tick: was it inside the doorway?
+      if (before < 0 && along(s) >= 0 && Math.abs(lateral(s)) <= halfSpan && s.y <= centre.y + DOOR_FLOOR_SLACK * k) throughSpan = true;
+      trace?.tracks.at(-1)!.points.push({ x: Math.round(s.x * 100) / 100, y: Math.round(s.y * 100) / 100, z: Math.round(s.z * 100) / 100 });
       best = Math.max(best, along(s));
       if (best >= CROSS_MARGIN && w >= waypoints.length - 1) break;
       if (l < lastDist - 1e-3) { lastDist = l; stall = 0; } else if (++stall > STALL_TICKS) break;
     }
-    const passed = best >= CROSS_MARGIN;
+    const passed = best >= CROSS_MARGIN && throughSpan;
     directions.push({ from, outcome: passed ? 'passed' : 'blocked', ...(passed ? {} : { reason: 'physics' as const }), ticks, crossed: r2(best), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) }, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) } });
   }
   const outcome = directions.some(d => d.outcome === 'passed') ? 'passed' : directions.some(d => d.outcome === 'blocked') ? 'blocked' : 'no-approach';
   return { ...base, outcome, directions };
+}
+
+export type Verdict = 'OK' | 'SMALL' | 'FAIL' | 'NO-APPROACH' | 'SEALED' | 'STEP';
+/**
+ * The verdict for one doorway at one size and turn, from its open and closed
+ * walks; `okAt100` says whether the same doorway passed at 100 % (a doorway
+ * that passes there but has no approach at a bigger size lost it to a riser
+ * that grew past the jump: STEP, the access recommendation's "doors versus
+ * stairs" tension, not a door fault).
+ */
+export function verdictOf(open: DoorwayWalkResult, closed: DoorwayWalkResult, okAt100 = false): Verdict {
+  if (closed.outcome === 'passed') return 'FAIL';
+  if (open.outcome === 'sealed') return okAt100 && open.sizePct > 100 ? 'STEP' : 'SEALED';
+  if (open.outcome === 'no-approach' || closed.outcome === 'no-approach') return 'NO-APPROACH';
+  if (open.passableAtSize) return open.outcome === 'passed' ? 'OK' : 'FAIL';
+  return open.outcome === 'passed' ? 'FAIL' : 'SMALL';
 }
