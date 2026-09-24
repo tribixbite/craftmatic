@@ -9,15 +9,19 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import {
   buildAddonPreviewModel, classifyAddonEntity, columnBoxes, defaultLegendState, entityCollisionFromSources, entitySpawnsAt, extractJsonAfter,
-  laidColliderBlocks, legendCounts, loadAddonPreviewModel, placedPoint, reachOverlay, recommendedSize, toggleLegend, treadBlocksAt,
+  laidColliderBlocks, legendCounts, loadAddonPreviewModel, pinballPlanePoint, pinballRuntimeWorldPoint, placedDirection, placedPoint,
+  reachOverlay, recommendedSize, toggleLegend, treadBlocksAt,
   type AddonPreviewModel,
 } from '../web/src/ui/addon-preview-data.js';
 import { ScaledColliderGrid, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { encodeColliderRuns, encodeTreadPlan } from '../web/src/engine/bedrock-placement-pack.js';
+import type { PinballMap } from '../web/src/engine/bedrock-pinball.js';
 
 const PACK_10303 = 'output/bedrock-entity-qa/10303-owncars.mcaddon';
 const PACK_10261 = 'output/bedrock-entity-qa/10261-owncars.mcaddon';
 const havePacks = existsSync(PACK_10303) && existsSync(PACK_10261);
+const PACK_PINBALL = 'output/pinball-11374/packs/11374-wip.mcaddon';
+const havePinballPack = existsSync(PACK_PINBALL);
 
 const readPack = (path: string): ArrayBuffer => {
   const b = readFileSync(path);
@@ -307,4 +311,85 @@ describe.skipIf(!havePacks)('real QA packs', () => {
     const rider = m.entities.find(e => e.kind === 'figure' && e.rideOf !== undefined)!;
     expect(m.entities[rider.rideOf!]).toBe(seat);
   }, 60000);
+});
+
+describe('pinball world mapping', () => {
+  // The same table `test/bedrock-pinball.test.ts` uses: 1 LDU = 0.01 model
+  // blocks, u along +z, w along +x, h up.
+  const map: PinballMap = { p0: [0, 0, 0], u: [0, 0, 0.01], w: [0.01, 0, 0], n: [0, 0.01, 0] };
+
+  it('pinballPlanePoint: plane (u, w, h) -> model point, p0 + u*U + w*W + h*N', () => {
+    expect(pinballPlanePoint(map, 600, 370, 24)).toEqual({ x: 3.7, y: 0.24, z: 6 });
+    expect(pinballPlanePoint({ p0: [1, 2, 3], u: [0, 0, 1], w: [1, 0, 0], n: [0, 1, 0] }, 5, 7, 9)).toEqual({ x: 1 + 7, y: 2 + 9, z: 3 + 5 });
+  });
+
+  it('pinballRuntimeWorldPoint reproduces the runtime\'s own toWorld(planePoint(...) + offset), byte for byte', () => {
+    // bedrock-pinball.test.ts: serve (u 600, w 370, h 24) -> model (3.70, 0.24
+    // - 0.1, 6.00) + origin (100, 64, 200), rotation 0, scale 1 -> (103.7, 64.14, 206.0).
+    const p = pinballRuntimeWorldPoint(map, 600, 370, 24, [0, -0.1, 0], { x: 100, y: 64, z: 200 }, 0, 1);
+    expect(p.x).toBeCloseTo(103.7, 5);
+    expect(p.y).toBeCloseTo(64.14, 5);
+    expect(p.z).toBeCloseTo(206.0, 5);
+  });
+
+  it('pinballRuntimeWorldPoint applies an arbitrary placement rotation and scale the same way the runtime does', () => {
+    // A 90-degree placement turn sends +x to +z and +z to -x (toWorld's own
+    // cos/sin form), then scales, then translates by the origin.
+    const p = pinballRuntimeWorldPoint(map, 0, 100, 0, [0, 0, 0], { x: 10, y: 0, z: 20 }, 90, 2);
+    // plane point at (u=0, w=100, h=0) is (x=1, y=0, z=0); rotated 90 -> (x=0, z=1); scaled x2 -> (0, 0, 2); + origin.
+    expect(p.x).toBeCloseTo(10, 9);
+    expect(p.y).toBeCloseTo(0, 9);
+    expect(p.z).toBeCloseTo(22, 9);
+  });
+});
+
+describe('placedDirection', () => {
+  it('rotates a direction the way rotatePlacementPoint rotates a point, without the corner-preserving translation a turn adds for points', () => {
+    const dims = { width: 20, height: 5, length: 30 };
+    const cases: Array<[0 | 90 | 180 | 270, { x: number; y: number; z: number }]> = [
+      [0, { x: 1, y: 0, z: 0 }], [90, { x: 0, y: 0, z: 1 }], [180, { x: -1, y: 0, z: 0 }], [270, { x: 0, y: 0, z: -1 }],
+    ];
+    for (const [rotation, expected] of cases) {
+      const d = placedDirection({ x: 1, y: 0, z: 0 }, dims, 100, rotation);
+      expect(d.x).toBeCloseTo(expected.x, 9);
+      expect(d.y).toBeCloseTo(expected.y, 9);
+      expect(d.z).toBeCloseTo(expected.z, 9);
+    }
+  });
+
+  it('scales with size, same as placedPoint', () => {
+    const dims = { width: 20, height: 5, length: 30 };
+    expect(placedDirection({ x: 2, y: 0, z: 0 }, dims, 150, 0)).toEqual({ x: 3, y: 0, z: 0 });
+  });
+});
+
+describe.skipIf(!havePinballPack)('pinball CONFIG (real pack)', () => {
+  it('parses scripts/pinball.js and classifies the console (seat-like), ball and flippers', async () => {
+    const m = await loadAddonPreviewModel(readPack(PACK_PINBALL));
+    expect(m.pinball).not.toBeNull();
+    const pb = m.pinball!;
+    expect(pb.flipperTypes.length).toBe(2);
+    expect(pb.sim.flippers.length).toBe(2);
+    expect(typeof pb.ballH).toBe('number');
+    expect(pb.map.p0.length).toBe(3);
+
+    const consoleEntity = m.entities.find(e => e.typeId === pb.consoleType);
+    const ball = m.entities.find(e => e.typeId === pb.ballType);
+    const flippers = pb.flipperTypes.map(t => m.entities.find(e => e.typeId === t));
+
+    expect(consoleEntity).toBeTruthy();
+    expect(consoleEntity!.kind).toBe('seat');
+    expect(consoleEntity!.pinball).toBe(true);
+    expect(consoleEntity!.label).toMatch(/play pinball/i);
+
+    expect(ball).toBeTruthy();
+    expect(ball!.pinball).toBe(true);
+
+    expect(flippers.every(f => !!f)).toBe(true);
+    expect(flippers.every(f => f!.pinball)).toBe(true);
+    // Never classified as a seat/door/figure/etc — they render as real
+    // geometry regardless of `kind` and need no legend row of their own.
+    expect(flippers.every(f => f!.kind === 'other')).toBe(true);
+    expect(ball!.kind).toBe('other');
+  });
 });

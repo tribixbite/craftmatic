@@ -23,6 +23,14 @@
  *     "figures" — close up on the first figure marker (also via
  *     `window.__addonWalk`): proves a minifig draws real geometry, not a
  *     placeholder capsule (the printed JSON's `hasRealGeometry`).
+ *     "pinball" — free-fly next to the pinball console (via `window.__addonWalk`'s
+ *     `pinballIndices`/`model.pinball`), press E to board it (enters pinball
+ *     mode: the walk's own `createPinballSim` running live), hold Space ~1 s
+ *     to charge the plunger and release to launch, wait ~1.5 s, then hold the
+ *     left flipper key. Writes `<out>` (just boarded), `<out>.moved.png`
+ *     (after the launch and wait — the printed JSON gives the ball's plane
+ *     (u, w) before/after and the LDU distance moved) and `<out>.flipper.png`
+ *     (left flipper held up, its angle against rest in the printed JSON).
  *   --ride-wait=<ms>: real time between the two static-camera shots in "ride"
  *     mode (default 2500). The walk's frame loop is a continuous
  *     requestAnimationFrame while open (not the viewer's on-demand one), so a
@@ -45,7 +53,7 @@ if (!packPath || !outPath) {
   console.error('usage: node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers] [mode] [--ride-wait=ms]');
   process.exit(64);
 }
-const mode = modeArg === 'ride' ? 'ride' : modeArg === 'figures' ? 'figures' : 'flyout';
+const mode = modeArg === 'ride' ? 'ride' : modeArg === 'figures' ? 'figures' : modeArg === 'pinball' ? 'pinball' : 'flyout';
 const rideWaitMs = Number(flags.get('ride-wait') ?? 2500);
 const wanted = layersArg ? layersArg.split(',').map(s => s.trim()).filter(Boolean) : null;
 mkdirSync(outPath.replace(/[/\\][^/\\]+$/, ''), { recursive: true });
@@ -142,6 +150,128 @@ if (mode === 'flyout') {
   await page.screenshot({ path: outPath });
   await browser.close();
   console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
+} else if (mode === 'pinball') {
+  // Free-fly next to the pinball console, found via `window.__addonWalk`'s
+  // `pinballIndices`/`model.pinball` (the console has no reach-target "go"
+  // button either — same documented gap as a coaster car). Board it with E,
+  // then drive the plunger and a flipper directly with the keyboard, exactly
+  // as a person would: `pinballInputForTick` reads the same key codes.
+  await page.mouse.click(900, 430);
+  await page.keyboard.press('KeyF');
+  await page.waitForTimeout(300);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(200);
+
+  const placed = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
+    if (!w.model.pinball || !w.pinballIndices) return { ok: false, reason: 'this pack has no playable pinball table (no scripts/pinball.js, or its actors are missing)' };
+    const marker = w.markerByIndex.get(w.pinballIndices.console);
+    if (!marker) return { ok: false, reason: 'no marker for the console entity' };
+    const p = marker.at;
+    w.state = { ...w.state, x: p.x - 1.5, y: p.y, z: p.z, vx: 0, vy: 0, vz: 0 };
+    w.prevState = w.state;
+    w.yaw = Math.atan2(-(p.x - w.state.x), -(p.z - w.state.z));
+    w.pitch = -0.1;
+    return { ok: true, console: w.model.entities[w.pinballIndices.console].label, at: { x: p.x, y: p.y, z: p.z } };
+  });
+  if (!placed.ok) {
+    await page.screenshot({ path: outPath });
+    console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
+    await browser.close();
+    process.exit(1);
+  }
+  await page.waitForTimeout(200);
+  await page.keyboard.press('KeyE');
+  await page.waitForTimeout(400);
+
+  const readBall = () => page.evaluate(() => {
+    const w = window.__addonWalk;
+    const st = w.pinball ? w.pinball.sim.state : null;
+    return st ? { u: st.u, w: st.w, phase: st.phase, score: st.score, ball: st.ball, charge: st.charge } : null;
+  });
+  const afterBoard = await page.evaluate(() => ({
+    boarded: !!window.__addonWalk?.pinball,
+    interact: document.querySelector('.ap-interact')?.textContent ?? '',
+    hint: document.querySelector('.ap-hint')?.textContent ?? '',
+  }));
+  const ballBefore = await readBall();
+  await page.screenshot({ path: outPath });
+
+  // Hold the plunger ~1 s (charges it; the sim's default full-charge time is
+  // 1 s), release (fires the ball up the table), then let it run ~1.5 s.
+  await page.keyboard.down('Space');
+  await page.waitForTimeout(1000);
+  await page.keyboard.up('Space');
+  await page.waitForTimeout(1500);
+  const ballAfter = await readBall();
+  const movedPath = withSuffix(outPath, 'moved');
+  await page.screenshot({ path: movedPath });
+  const movedDistanceLdu = ballBefore && ballAfter ? Math.hypot(ballAfter.u - ballBefore.u, ballAfter.w - ballBefore.w) : null;
+
+  // Hold the left flipper. The table's own fixed spectator camera (the real
+  // runtime's `cameraEye`/`cameraLook`, applied every frame by
+  // `applyPinballCamera`) frames the whole table from behind and above, too
+  // far out for a few degrees of swing to read clearly in a screenshot — so,
+  // for this ONE shot only, shadow that method with an own-property override
+  // (the walk calls `this.applyPinballCamera()`, an ordinary prototype
+  // method, so an instance property of the same name wins) that instead
+  // frames the left flipper's own placed point up close; `delete` restores
+  // the table camera for anything after. The sim and the flipper's actual
+  // pose are untouched — only where we are looking from.
+  await page.keyboard.down('KeyA');
+  await page.waitForTimeout(250);
+  const closeUp = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    if (!w?.pinball || !w.pinballIndices) return { ok: false, reason: 'not boarded' };
+    const holder = w.entityHolders.get(w.pinballIndices.flippers[0]);
+    if (!holder) return { ok: false, reason: 'no holder for the left flipper' };
+    // The CENTROID of the flipper's own rendered cube instances, in world
+    // space — not the entity's placement origin (`AddonEntity.x/y/z`) or its
+    // pivot: the compiled geometry's bind-pose bones can sit many blocks from
+    // either (bone pivots are raw 1/16-block units that ran to -47 on this
+    // pack's flipper, ~9 world blocks off at this size), so sampling the
+    // actual instance matrices is the only reliable "where is it" here.
+    // `Vector3`/`Matrix4` are read off already-live THREE objects (the
+    // camera's own), since THREE itself is not on `window`.
+    const Vector3 = w.camera.position.constructor;
+    const Matrix4 = w.camera.matrixWorld.constructor;
+    holder.updateWorldMatrix(true, false);
+    const m = new Matrix4();
+    let sx = 0, sy = 0, sz = 0, n = 0;
+    for (const mesh of holder.children) {
+      if (!mesh.isInstancedMesh) continue;
+      for (let i = 0; i < mesh.count; i++) {
+        mesh.getMatrixAt(i, m);
+        const p = new Vector3().setFromMatrixPosition(m).applyMatrix4(holder.matrixWorld);
+        sx += p.x; sy += p.y; sz += p.z; n++;
+      }
+    }
+    if (!n) return { ok: false, reason: 'no cube instances found on the flipper holder' };
+    const at = { x: sx / n, y: sy / n, z: sz / n };
+    w.applyPinballCamera = () => {
+      w.camera.up.set(0, 1, 0);
+      w.camera.position.set(at.x - 2, at.y + 1.6, at.z + 2);
+      w.camera.lookAt(at.x, at.y, at.z);
+    };
+    return { ok: true, at, sampled: n };
+  });
+  await page.waitForTimeout(150);
+  const flipperState = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    if (!w?.pinball) return null;
+    return { angles: w.pinball.sim.state.flipperAngles.slice(), rest: w.model.pinball.restAngles, spinSign: w.model.pinball.spinSign };
+  });
+  const flipperPath = withSuffix(outPath, 'flipper');
+  await page.screenshot({ path: flipperPath });
+  await page.keyboard.up('KeyA');
+  await page.evaluate(() => { const w = window.__addonWalk; if (w) delete w.applyPinballCamera; });
+
+  await browser.close();
+  console.log(JSON.stringify({
+    pack: packPath, mode, out: outPath, movedPath, flipperPath,
+    placed, afterBoard, ballBefore, ballAfter, movedDistanceLdu, closeUp, flipperState, errors: errors.slice(0, 5),
+  }, null, 1));
 } else {
   // "ride": free-fly, then place the camera off the DEV-only `window.__addonWalk`
   // hook (same convention as viewer.ts's `__ldrawViewer`) instead of guessing

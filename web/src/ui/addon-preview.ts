@@ -32,6 +32,8 @@ import {
 } from '@engine/addon-walk.js';
 import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedrock-collider-scale.js';
 import { COASTER_PHYSICS, RIDE_INTERACT_TEXT } from '@engine/bedrock-coaster.js';
+import { PINBALL_INTERACT_TEXT } from '@engine/bedrock-pinball.js';
+import { createPinballSim, type PinballSim } from '@engine/pinball-physics.js';
 import {
   coasterCarEyePoint, initCoasterPreviewState, stepCoasterPreviewTick,
   type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
@@ -40,7 +42,7 @@ import { MINIFIG_ANIMATIONS, MINIFIG_ANIMATION_IDS } from '@engine/minifig-rig.j
 import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
 import {
   columnBoxes, defaultLegendState, entitySpawnsAt, laidColliderBlocks, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
-  placedPoint, reachSurfacesFromGrid, recommendedSize, spawnPoint, toggleLegend, treadBlocksAt,
+  pinballPlanePoint, placedDirection, placedPoint, reachSurfacesFromGrid, recommendedSize, spawnPoint, toggleLegend, treadBlocksAt,
   type AddonEntity, type AddonEntityKind, type AddonPreviewModel, type AddonRoute, type LegendKind, type LegendState, type ReachSurface,
 } from './addon-preview-data.js';
 
@@ -188,6 +190,24 @@ class AddonWalk implements AddonPreviewHandle {
   private sitting: { entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number } | null = null;
   private interactQueued = false;
 
+  // Pinball: the console/ball/flipper indices into `model.entities` (found
+  // once, by matching `model.pinball`'s own type ids — stable across rebuilds
+  // since `model.entities` never changes shape, only its placed positions
+  // do), the running game while boarded, and each flipper's UN-SPUN base pose
+  // (`buildModel`'s own placement) the spin is applied on top of every tick.
+  private pinballIndices: { console: number; ball: number; flippers: number[] } | null = null;
+  private pinball: { sim: PinballSim; restore: { state: PlayerState; yaw: number; pitch: number } } | null = null;
+  private pinballBest = 0;
+  /** Each flipper's pivot in WORLD coordinates, this tick's — exposed for the
+   * dev hook (`_shoot_addon_walk.mjs`'s close-up shot): a flipper's compiled
+   * geometry can sit many blocks from its entity's own placement origin (the
+   * bind pose's bone pivots, in 1/16-block units, run well outside the
+   * origin), so the pivot the physics itself rotates about is a far more
+   * reliable "near the flipper" point than `AddonEntity.x/y/z`. */
+  private readonly pinballFlipperPivots = new Map<number, { x: number; y: number; z: number }>();
+  private readonly pinballFlipperBase = new Map<number, { pos: THREE.Vector3; quat: THREE.Quaternion }>();
+  private readonly touchPinball = { left: false, right: false, launch: false };
+
   // Player
   private state: PlayerState;
   private prevState: PlayerState;
@@ -214,6 +234,8 @@ class AddonWalk implements AddonPreviewHandle {
   private targetsEl!: HTMLDivElement;
   private hintEl!: HTMLDivElement;
   private interactEl!: HTMLDivElement;
+  private touchMoveEl!: HTMLDivElement;
+  private pinballTouchEl!: HTMLDivElement;
   private resizeObs: ResizeObserver | null = null;
   private readonly listeners: Array<() => void> = [];
   private savedHover: LDrawViewer['onBrickHover'] = null;
@@ -231,6 +253,13 @@ class AddonWalk implements AddonPreviewHandle {
     this.camera = new THREE.PerspectiveCamera(75, 1, 0.05, 800);
     this.state = spawnState(null as unknown as WalkWorld);
     this.prevState = this.state;
+    const pb = this.model.pinball;
+    if (pb) {
+      const flippers = pb.flipperTypes.map(t => this.model.entities.findIndex(e => e.typeId === t));
+      const consoleIndex = this.model.entities.findIndex(e => e.typeId === pb.consoleType);
+      const ballIndex = this.model.entities.findIndex(e => e.typeId === pb.ballType);
+      if (consoleIndex >= 0 && ballIndex >= 0 && flippers.every(i => i >= 0)) this.pinballIndices = { console: consoleIndex, ball: ballIndex, flippers };
+    }
   }
 
   // ── Mount / unmount ─────────────────────────────────────────────────────
@@ -327,6 +356,7 @@ class AddonWalk implements AddonPreviewHandle {
     // Dismount/leave a seat across a size or turn change: the world under the
     // ride is about to be torn down and rebuilt.
     if (this.riding || this.sitting) this.dismount();
+    if (this.pinball) this.leavePinball();
     this.coasterStates.clear();
     this.carWorld.clear();
     this.openDoorLeaves.clear();
@@ -437,6 +467,7 @@ class AddonWalk implements AddonPreviewHandle {
   private buildModel(f: number): void {
     const appearance = this.model.appearance;
     this.entityHolders.clear();
+    this.pinballFlipperBase.clear();
     if (!appearance) return;
     const group = new THREE.Group();
     group.name = 'model';
@@ -538,6 +569,10 @@ class AddonWalk implements AddonPreviewHandle {
       }
       group.add(holder);
       this.entityHolders.set(index, holder);
+      // A pinball flipper's placed pose is the UN-SPUN reference every tick's
+      // spin is applied on top of (see `applyPinballFlipperSpin`): capture it
+      // here, right after `buildModel` has set it, before any spin runs.
+      if (this.pinballIndices?.flippers.includes(index)) this.pinballFlipperBase.set(index, { pos: holder.position.clone(), quat: holder.quaternion.clone() });
     });
     this.worldGroup.add(group);
   }
@@ -669,8 +704,9 @@ class AddonWalk implements AddonPreviewHandle {
 
   /** What an Interact key/button would do right now, and how the HUD prompt reads it. */
   private updateInteract(): void {
-    if (this.riding || this.sitting) {
-      this.nearestInteract = { label: 'Sneak to dismount', act: (): void => this.dismount() };
+    if (this.riding || this.sitting || this.pinball) {
+      const label = this.pinball ? 'Shift or Esc to leave pinball' : 'Sneak to dismount';
+      this.nearestInteract = { label, act: (): void => { if (this.pinball) this.leavePinball(); else this.dismount(); } };
       this.renderInteractHud();
       return;
     }
@@ -681,9 +717,21 @@ class AddonWalk implements AddonPreviewHandle {
 
     for (const [entityIndex, car] of this.carWorld) consider(Math.hypot(car.x - cam.x, car.y - cam.y, car.z - cam.z), RIDE_INTERACT_TEXT, () => this.board(entityIndex));
 
+    if (this.pinballIndices) {
+      const consoleEntity = this.model.entities[this.pinballIndices.console];
+      if (consoleEntity && entitySpawnsAt(consoleEntity, this.sizePct)) {
+        const at = placedPoint(consoleEntity, this.model.dims, this.sizePct, this.rotation);
+        consider(Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z), PINBALL_INTERACT_TEXT, () => this.enterPinball());
+      }
+    }
+
     this.model.entities.forEach((entity, index) => {
       if (!entitySpawnsAt(entity, this.sizePct)) return;
       if (entity.kind !== 'seat' && entity.kind !== 'door') return;
+      // The pinball console classifies as a seat (a fitting fallback marker
+      // for an intentionally invisible entity) but its own interact — "Play
+      // pinball", handled above — replaces the plain "Sit".
+      if (this.pinballIndices && index === this.pinballIndices.console) return;
       const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
       const d = Math.hypot(at.x - cam.x, at.y - cam.y, at.z - cam.z);
       if (entity.kind === 'seat') consider(d, 'Sit', () => this.sit(index));
@@ -729,6 +777,140 @@ class AddonWalk implements AddonPreviewHandle {
     this.state = saved.restore; this.prevState = saved.restore;
     this.yaw = saved.restoreYaw; this.pitch = saved.restorePitch;
     this.riding = null; this.sitting = null;
+  }
+
+  // ── Pinball: play the table a pack ships ────────────────────────────────
+
+  /**
+   * Board the console: run the SAME `createPinballSim` the device does (never
+   * copied — imported straight off `pinball-physics.ts`) over the pack's own
+   * `CONFIG.sim`, and take over the camera and flipper/plunger controls until
+   * `leavePinball`. The player's own position is frozen (not teleported into
+   * the table) so a walk back out lands exactly where boarding happened.
+   */
+  private enterPinball(): void {
+    const cfg = this.model.pinball, idx = this.pinballIndices;
+    if (!cfg || !idx) return;
+    this.pinball = { sim: createPinballSim(cfg.sim), restore: { state: this.state, yaw: this.yaw, pitch: this.pitch } };
+    this.updatePinballEntities();
+    this.setPinballTouchVisible(true);
+    this.onStatus(`Playing pinball — ${cfg.label}. A/D or Left/Right flippers, W both, hold Space to charge and launch, Shift or Esc to leave.`, 'success');
+  }
+
+  /** Leave the table, restoring exactly the player state from before boarding. The ball/flippers stay where the game left them. */
+  private leavePinball(): void {
+    if (!this.pinball) return;
+    this.state = this.pinball.restore.state; this.prevState = this.state;
+    this.yaw = this.pinball.restore.yaw; this.pitch = this.pinball.restore.pitch;
+    this.pinball = null;
+    this.setPinballTouchVisible(false);
+  }
+
+  /** A/D or Left/Right work one flipper each, W (or the touch "Interact"-style hold buttons) works both; Space holds to charge the plunger and fires on release; Shift or Escape leaves (Escape is also wired directly in the key handler). */
+  private pinballInputForTick(): { left: boolean; right: boolean; launch: boolean; leave: boolean } {
+    const k = this.keys;
+    const both = k.has('KeyW') || k.has('ArrowUp');
+    return {
+      left: both || k.has('KeyA') || k.has('ArrowLeft') || this.touchPinball.left,
+      right: both || k.has('KeyD') || k.has('ArrowRight') || this.touchPinball.right,
+      launch: k.has('Space') || this.touchPinball.launch,
+      leave: k.has('ShiftLeft') || k.has('ShiftRight'),
+    };
+  }
+
+  /** One 0.05 s tick of the table's own simulation, called from the walk's existing 20 Hz accumulator (`tick()`) — no separate accumulator needed. */
+  private tickPinball(): void {
+    const pb = this.pinball;
+    if (!pb) return;
+    const input = this.pinballInputForTick();
+    if (input.leave) { this.leavePinball(); return; }
+    const events = pb.sim.step({ left: input.left, right: input.right, launch: input.launch }, 1 / TICKS_PER_SECOND);
+    for (const ev of events) if (ev.kind === 'over' && typeof ev.score === 'number' && ev.score > this.pinballBest) this.pinballBest = ev.score;
+    this.updatePinballEntities();
+  }
+
+  /**
+   * Move the ball and swing the flippers to match the sim's current state,
+   * mapping the sim's plane exactly as `pinballRuntime` does (`pinballPlanePoint`
+   * + `ballOffset`) but through the WALK's own quarter-turn placement
+   * (`placedPoint`/`placedDirection`) rather than the runtime's raw
+   * continuous-rotation `toWorld` — the walk's world is laid out with the same
+   * corner-preserving turn as every other entity here, and using the runtime's
+   * own origin/rotation convention would put the table adrift from its shell
+   * at any turn but 0.
+   */
+  private updatePinballEntities(): void {
+    const cfg = this.model.pinball, idx = this.pinballIndices, pb = this.pinball;
+    if (!cfg || !idx || !pb) return;
+    const { dims } = this.model, { sizePct, rotation } = this;
+    const st = pb.sim.state;
+
+    const ballModel = pinballPlanePoint(cfg.map, st.u, st.w, cfg.ballH);
+    const ballWorld = placedPoint({ x: ballModel.x + cfg.ballOffset[0], y: ballModel.y + cfg.ballOffset[1], z: ballModel.z + cfg.ballOffset[2] }, dims, sizePct, rotation);
+    this.moveEntityHolder(idx.ball, ballWorld, 0);
+
+    const floorH = cfg.ballH - cfg.sim.ballRadius;
+    const axis = placedDirection({ x: cfg.map.n[0], y: cfg.map.n[1], z: cfg.map.n[2] }, dims, sizePct, rotation);
+    const axisVec = new THREE.Vector3(axis.x, axis.y, axis.z);
+    if (axisVec.lengthSq() > 1e-12) axisVec.normalize();
+    cfg.sim.flippers.forEach((f, i) => {
+      const entityIndex = idx.flippers[i];
+      if (entityIndex === undefined) return;
+      const pivotWorld = placedPoint(pinballPlanePoint(cfg.map, f.pivot[0], f.pivot[1], floorH), dims, sizePct, rotation);
+      this.pinballFlipperPivots.set(entityIndex, pivotWorld);
+      const angleRad = (cfg.restAngles[i]! - st.flipperAngles[i]!) * cfg.spinSign;
+      this.applyPinballFlipperSpin(entityIndex, pivotWorld, axisVec, angleRad);
+    });
+  }
+
+  /**
+   * Swing a flipper's WHOLE holder (every cube in the compiled entity hangs
+   * off the same `pb_untilt` bone, per `flipperRig`'s tilt -> spin -> untilt
+   * chain) by `angleRad` about `axis` through `pivot`, relative to its
+   * UN-SPUN placed pose: this is exactly what the bone chain computes (tilt
+   * and untilt cancel at zero spin and conjugate the spin's local-Y rotation
+   * into a rotation about the world playfield normal through the shared
+   * pivot — see the derivation in the task's own working notes / this
+   * module's tests), without rebuilding the entity's per-cube instance
+   * matrices every tick.
+   */
+  private applyPinballFlipperSpin(entityIndex: number, pivot: { x: number; y: number; z: number }, axis: THREE.Vector3, angleRad: number): void {
+    const holder = this.entityHolders.get(entityIndex);
+    const base = this.pinballFlipperBase.get(entityIndex);
+    if (!holder || !base || axis.lengthSq() < 1e-12) return;
+    const q = new THREE.Quaternion().setFromAxisAngle(axis, angleRad);
+    const pivotVec = new THREE.Vector3(pivot.x, pivot.y, pivot.z);
+    holder.position.copy(base.pos.clone().sub(pivotVec).applyQuaternion(q).add(pivotVec));
+    holder.quaternion.copy(q.clone().multiply(base.quat));
+  }
+
+  /** The fixed spectator camera the real runtime uses while a player is seated: `toWorld(cameraEye)` looking at `toWorld(cameraLook)`. */
+  private applyPinballCamera(): void {
+    const cfg = this.model.pinball;
+    if (!cfg) return;
+    const { dims } = this.model, { sizePct, rotation } = this;
+    const eye = placedPoint({ x: cfg.cameraEye[0], y: cfg.cameraEye[1], z: cfg.cameraEye[2] }, dims, sizePct, rotation);
+    const look = placedPoint({ x: cfg.cameraLook[0], y: cfg.cameraLook[1], z: cfg.cameraLook[2] }, dims, sizePct, rotation);
+    this.camera.up.set(0, 1, 0);
+    this.camera.position.set(eye.x, eye.y, eye.z);
+    this.camera.lookAt(look.x, look.y, look.z);
+  }
+
+  /** The HUD's bottom-line status while playing: ball/score/best, and the phase (charge bar or game over). */
+  private pinballHudLine(): string {
+    if (!this.pinball) return '';
+    const st = this.pinball.sim.state;
+    const base = `Ball ${st.ball}/${st.balls} · ${Math.round(st.score)} · best ${Math.round(this.pinballBest)}`;
+    if (st.phase === 'over') return `${base} — GAME OVER, Space for a new game`;
+    if (st.phase === 'ready') return `${base} — hold Space to charge ${'|'.repeat(Math.round(st.charge * 10))}`;
+    return `${base} — A/D flippers, W both, Shift/Esc leave`;
+  }
+
+  /** Swap the touch overlay: the movement stick while walking, big flipper/plunger/leave buttons while playing. No-op off-touch. */
+  private setPinballTouchVisible(on: boolean): void {
+    if (!this.isTouch) return;
+    this.pinballTouchEl.style.display = on ? '' : 'none';
+    this.touchMoveEl.style.display = on ? 'none' : '';
   }
 
   /**
@@ -1122,6 +1304,11 @@ class AddonWalk implements AddonPreviewHandle {
     this.updateCoasterAnimation();
     if (this.interactQueued) { this.interactQueued = false; this.nearestInteract?.act(); }
     const input = this.inputForTick();
+    if (this.pinball) {
+      this.tickPinball();
+      this.prevState = this.state;
+      return;
+    }
     if (this.riding || this.sitting) {
       // Sneak dismounts instead of its usual meaning while boarded/seated.
       if (input.sneak) this.dismount();
@@ -1153,6 +1340,7 @@ class AddonWalk implements AddonPreviewHandle {
     while (this.accumulator >= step && ticks < 5) { this.tick(); this.accumulator -= step; ticks++; }
     if (this.riding) this.applyRidingCamera();
     else if (this.sitting) this.applySittingCamera();
+    else if (this.pinball) this.applyPinballCamera();
     else {
       const alpha = Math.min(1, this.accumulator / step);
       const a = this.prevState, b = this.state;
@@ -1196,6 +1384,7 @@ class AddonWalk implements AddonPreviewHandle {
     const el = this.hintEl;
     if (this.riding) { const c = this.camera.position; el.textContent = `riding · ${(this.carWorld.get(this.riding.entityIndex)?.frame.moving ? 'under way' : 'stopped')} · x ${c.x.toFixed(1)} y ${c.y.toFixed(2)} z ${c.z.toFixed(1)}`; return; }
     if (this.sitting) { el.textContent = 'seated'; return; }
+    if (this.pinball) { el.textContent = this.pinballHudLine(); return; }
     const s = this.state;
     const f = this.sizePct / 100;
     el.textContent = `${this.noclip ? 'free-fly' : s.onGround ? 'on ground' : 'airborne'} · x ${s.x.toFixed(1)} y ${s.y.toFixed(2)} z ${s.z.toFixed(1)} (blocks from the pin at ${this.sizePct} %; ${(s.y / f).toFixed(2)} up at 100 %)`;
@@ -1235,6 +1424,12 @@ class AddonWalk implements AddonPreviewHandle {
           <button type="button" class="ap-tbtn" data-t="sneak">Sneak</button>
           <button type="button" class="ap-tbtn" data-t="sprint">Sprint</button>
         </div>
+      </div>
+      <div class="ap-pinball-touch" style="display:none">
+        <button type="button" class="ap-tbtn ap-pb-left" data-pb="left">Left</button>
+        <button type="button" class="ap-tbtn ap-pb-right" data-pb="right">Right</button>
+        <button type="button" class="ap-tbtn ap-tbtn-interact ap-pb-launch" data-pb="launch">Launch</button>
+        <button type="button" class="ap-tbtn ap-exit ap-pb-leave" data-pb="leave">Leave</button>
       </div>`;
     container.appendChild(root);
     this.root = root;
@@ -1247,6 +1442,8 @@ class AddonWalk implements AddonPreviewHandle {
     this.reachEl = root.querySelector('.ap-reach')!;
     this.targetsEl = root.querySelector('.ap-targets')!;
     this.hintEl = root.querySelector('.ap-hint')!;
+    this.touchMoveEl = root.querySelector('.ap-touch')!;
+    this.pinballTouchEl = root.querySelector('.ap-pinball-touch')!;
     this.wireInput();
     this.resizeObs = new ResizeObserver(() => this.onResize());
     this.resizeObs.observe(container);
@@ -1291,7 +1488,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.on(window, 'keydown', (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
-      if (e.code === 'Escape') { if (!document.pointerLockElement) { this.close(); e.preventDefault(); } return; }
+      if (e.code === 'Escape') { if (this.pinball) { this.leavePinball(); e.preventDefault(); return; } if (!document.pointerLockElement) { this.close(); e.preventDefault(); } return; }
       if (e.code === 'KeyF') { this.toggleFly(); e.preventDefault(); return; }
       if (e.code === 'KeyR') { this.respawn(); e.preventDefault(); return; }
       if (e.code === 'KeyH') { this.toggleHud(); e.preventDefault(); return; }
@@ -1353,6 +1550,24 @@ class AddonWalk implements AddonPreviewHandle {
         else if (which === 'sneak') this.touchSneak = on;
         else if (which === 'sprint') this.touchSprint = on;
         else if (which === 'interact') { if (on) this.interactQueued = true; }
+        b.classList.toggle('on', on);
+      };
+      this.on(b, 'pointerdown', (e: PointerEvent) => { set(true); b.setPointerCapture(e.pointerId); e.preventDefault(); });
+      this.on(b, 'pointerup', () => set(false));
+      this.on(b, 'pointercancel', () => set(false));
+    }
+
+    // Pinball touch controls: hold buttons for the flippers and the plunger, a tap to leave.
+    for (const b of this.root.querySelectorAll<HTMLButtonElement>('.ap-pinball-touch [data-pb]')) {
+      const which = b.dataset['pb'];
+      if (which === 'leave') {
+        this.on(b, 'pointerdown', (e: PointerEvent) => { this.leavePinball(); b.setPointerCapture(e.pointerId); e.preventDefault(); });
+        continue;
+      }
+      const set = (on: boolean): void => {
+        if (which === 'left') this.touchPinball.left = on;
+        else if (which === 'right') this.touchPinball.right = on;
+        else if (which === 'launch') this.touchPinball.launch = on;
         b.classList.toggle('on', on);
       };
       this.on(b, 'pointerdown', (e: PointerEvent) => { set(true); b.setPointerCapture(e.pointerId); e.preventDefault(); });
@@ -1474,6 +1689,12 @@ function ensureStyles(): void {
 .ap-tbtn.on{background:#7c3aed}
 .ap-tbtn-interact{border-color:rgba(250,204,21,.6);color:#fde68a}
 .ap-tbtn-interact.on{background:#a16207}
+.ap-pinball-touch{position:absolute;inset:0;pointer-events:none}
+.ap-pinball-touch .ap-tbtn{position:absolute;pointer-events:auto}
+.ap-pb-left{left:18px;bottom:56px}
+.ap-pb-right{left:98px;bottom:56px}
+.ap-pb-launch{right:98px;bottom:56px;width:80px}
+.ap-pb-leave{right:14px;bottom:130px}
 @media (max-width:700px){.ap-banner{font-size:10px;padding:4px 8px}.ap-top{top:auto;bottom:auto;left:8px;right:8px;top:calc(8px + 5.5em);justify-content:space-between;gap:4px;z-index:3}.ap-btn{padding:3px 7px;font-size:11px;min-height:28px}.ap-hud{width:calc(100% - 16px);top:calc(8px + 5.5em + 36px);bottom:190px;z-index:2}.ap-keys{display:none}.ap-hint{bottom:8px;font-size:10px}}
 `;
   document.head.appendChild(style);

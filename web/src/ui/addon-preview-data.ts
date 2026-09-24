@@ -36,6 +36,7 @@ import {
   type GridDims, type QuarterTurn, type ReachResult, type SourceCell, type TreadBlock,
 } from '@engine/bedrock-collider-scale.js';
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
+import type { PinballMap, PinballRuntimeConfig } from '@engine/bedrock-pinball.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
 import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, type AddonAppearance } from './addon-appearance.js';
 
@@ -59,6 +60,8 @@ export interface AddonEntity {
   /** Spawns only below this wand size (a door leaf the vanilla door replaces). */
   maxSizeExclusive?: number;
   hideAt100?: boolean;
+  /** The console, ball or a flipper of a playable pinball table (`PlacementActor.pinball`). */
+  pinball?: boolean;
 }
 
 export interface AddonRouteLift {
@@ -125,6 +128,14 @@ export interface AddonPreviewModel {
    * full type id, same as `AddonEntity.typeId` and `AddonRoute.cars.slots[].type`.
    */
   coasterTypes: Record<string, { role: string; riders: number; wheelbase?: number; seat?: [number, number, number] }>;
+  /**
+   * `scripts/pinball.js`'s `CONFIG`, whole (`PinballRuntimeConfig`), when the
+   * pack ships a playable pinball table: the console/ball/flipper type ids,
+   * the simulation table and the plane-to-world map the walk needs to run the
+   * same `createPinballSim` and place its ball/flippers. Null for any other
+   * pack, or one whose script the preview could not parse.
+   */
+  pinball: PinballRuntimeConfig | null;
   /** Per-entity-type collision the pack's BEHAVIOUR file declares, when
    * `minecraft:physics.has_collision` is true (a standing figure blocks a
    * player in game; a ride car's is `false` — see CLAUDE.md/bedrock-coaster.ts —
@@ -172,6 +183,7 @@ const BEHAVIOR_ENTITY_FILE_PATTERN = /(^|\/)entities\/[^/]+\.json$/;
 export interface AddonPreviewFiles {
   placementScript?: string;
   coasterScript?: string;
+  pinballScript?: string;
   diagnosticsJson?: string;
   treadsJson?: string;
   /** Resource-pack geometry, entity and controller files, keyed by archive path. */
@@ -185,7 +197,7 @@ const utf8 = new TextDecoder();
 
 /** Pull the files the preview reads out of a built `.mcaddon` (a zip of the BP and RP folders). */
 export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<AddonPreviewFiles> {
-  const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
+  const behaviour = (name: string): boolean => /(^|\/)(scripts\/(placement|coaster|pinball)\.js|craftmatic-diagnostics\.json|craftmatic-treads\.json)$/.test(name);
   const wanted = (name: string): boolean => behaviour(name) || APPEARANCE_FILE_PATTERN.test(name) || BEHAVIOR_ENTITY_FILE_PATTERN.test(name);
   const names = listZipEntries(mcaddon).filter(behaviour);
   if (!names.length) throw new Error('Not a Craftmatic add-on: no scripts/placement.js in the archive.');
@@ -201,6 +213,7 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
   return {
     placementScript: text(/scripts\/placement\.js$/),
     coasterScript: text(/scripts\/coaster\.js$/),
+    pinballScript: text(/scripts\/pinball\.js$/),
     diagnosticsJson: text(/craftmatic-diagnostics\.json$/),
     treadsJson: text(/craftmatic-treads\.json$/),
     appearanceSources,
@@ -245,9 +258,15 @@ const vec3 = (v: unknown): [number, number, number] | undefined =>
  * numeric stem with a letter (`b_` shell, `f_` figure, `s_` seat/screen,
  * `c_` coaster, `v_` vehicle) but leaves an alphabetic stem bare, so the
  * suffix is what is classified; the coaster role table settles car vs lift.
+ * A pinball table's actors carry `pinball: true` (bedrock-placement-pack.ts)
+ * rather than a matching suffix — the console is classified `seat`-like (the
+ * walk gives it its own "Play pinball" interact instead of a plain "Sit");
+ * the ball and flippers fall through to `other` (they render as real
+ * geometry regardless, and need no legend row of their own).
  */
-export function classifyAddonEntity(typeId: string, actor: Partial<PlacementActor>, coasterRoles: Record<string, string>): AddonEntityKind {
+export function classifyAddonEntity(typeId: string, actor: Partial<PlacementActor>, coasterRoles: Record<string, string>, pinballConsoleType?: string): AddonEntityKind {
   const id = typeId.replace(/^[^:]*:/, '');
+  if (actor.pinball && pinballConsoleType && typeId === pinballConsoleType) return 'seat';
   const role = coasterRoles[typeId] ?? coasterRoles[id];
   if (role === 'platform') return 'lift';
   if (role === 'counterweight') return 'counterweight';
@@ -327,19 +346,36 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     } else notes.push('scripts/coaster.js carries no CONFIG literal; the track is not drawn.');
   }
 
+  // Pinball: the console/ball/flipper type ids and the simulation the walk
+  // needs to play the table itself. `PinballRuntimeConfig` is exactly the
+  // `CONFIG` literal `pinballScript` (bedrock-pinball.ts) serialises, so a
+  // successful parse is already shaped right — no per-field reconstruction
+  // the way the coaster/access blocks above need for a plain JSON blob.
+  let pinball: PinballRuntimeConfig | null = null;
+  if (files.pinballScript) {
+    const cfg = extractJsonAfter(files.pinballScript, 'const CONFIG') as PinballRuntimeConfig | undefined;
+    if (cfg && cfg.sim && cfg.map && typeof cfg.consoleType === 'string' && typeof cfg.ballType === 'string' && Array.isArray(cfg.flipperTypes)) pinball = cfg;
+    else notes.push('scripts/pinball.js carries no usable CONFIG literal; the pinball table is shown as a static model, not played.');
+  }
+
   const entities: AddonEntity[] = [];
   for (const a of (config['actors'] as PlacementActor[] | undefined) ?? []) {
     if (typeof a?.typeId !== 'string') continue;
     entities.push({
       typeId: a.typeId, label: String(a.label ?? a.typeId),
-      kind: classifyAddonEntity(a.typeId, a, coasterRoles),
+      kind: classifyAddonEntity(a.typeId, a, coasterRoles, pinball?.consoleType),
       x: num(a.x), y: num(a.y), z: num(a.z), yaw: num(a.yaw),
       ...(a.rideOf !== undefined ? { rideOf: a.rideOf } : {}),
       ...(a.coasterRouteIndex !== undefined ? { coasterRouteIndex: a.coasterRouteIndex } : {}),
       ...(a.coasterCarIndex !== undefined ? { coasterCarIndex: a.coasterCarIndex } : {}),
       ...(a.maxSizeExclusive !== undefined ? { maxSizeExclusive: a.maxSizeExclusive } : {}),
       ...(a.hideAt100 ? { hideAt100: true } : {}),
+      ...(a.pinball ? { pinball: true } : {}),
     });
+  }
+  if (pinball) {
+    const missing = [pinball.consoleType, pinball.ballType, ...pinball.flipperTypes].filter(t => !entities.some(e => e.typeId === t));
+    if (missing.length) notes.push(`The pinball table's own actors are missing from the placement (${missing.join(', ')}); it cannot be played in the walk.`);
   }
 
   const doorCandidates: AddonDoorCandidate[] = [];
@@ -392,7 +428,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
     entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
-    appearance, coasterTypes, entityCollision, notes,
+    appearance, coasterTypes, pinball, entityCollision, notes,
   };
 }
 
@@ -638,6 +674,57 @@ export function placedPoint(p: { x: number; y: number; z: number }, dims: GridDi
   const q = rotatePlacementPoint(p, dims.width, dims.length, rotation as PlacementRotation);
   const f = sizePct / 100;
   return { x: q.x * f, y: q.y * f, z: q.z * f };
+}
+
+/**
+ * A model-frame DIRECTION (not a point — the pinball table's plane normal, an
+ * axis to spin a flipper about) as the wand's quarter-turn placement carries
+ * it: the SAME rotation `placedPoint`/`rotatePlacementPoint` applies to a
+ * point, but without the corner-preserving translation a turn adds to keep
+ * the footprint's minimum corner at the pin (that translation is a constant
+ * per rotation, so subtracting the rotated origin from the rotated point
+ * cancels it — a direction has no position for it to apply to anyway).
+ */
+export function placedDirection(d: { x: number; y: number; z: number }, dims: GridDims, sizePct: number, rotation: QuarterTurn): { x: number; y: number; z: number } {
+  const r = rotation as PlacementRotation;
+  const zero = rotatePlacementPoint({ x: 0, y: 0, z: 0 }, dims.width, dims.length, r);
+  const one = rotatePlacementPoint(d, dims.width, dims.length, r);
+  const f = sizePct / 100;
+  return { x: (one.x - zero.x) * f, y: (one.y - zero.y) * f, z: (one.z - zero.z) * f };
+}
+
+// ─── Pinball: the sim's plane onto the model, and the runtime's own world map ─
+
+/**
+ * Plane `(u, w, h)` -> a model point (model blocks at 100 % from the model's
+ * corner — the same frame `PlacementActor.x/y/z` and `placedPoint` use):
+ * `map.p0 + u*map.u + w*map.w + h*map.n`. Exactly `pinballRuntime`'s own
+ * `planePoint` (bedrock-pinball.ts), reproduced here because that function is
+ * serialised into the pack's script by `.toString()` and may not be imported.
+ */
+export function pinballPlanePoint(map: PinballMap, u: number, w: number, h: number): { x: number; y: number; z: number } {
+  const [px, py, pz] = map.p0, [ux, uy, uz] = map.u, [wx, wy, wz] = map.w, [nx, ny, nz] = map.n;
+  return { x: px + u * ux + w * wx + h * nx, y: py + u * uy + w * wy + h * ny, z: pz + u * uz + w * wz + h * nz };
+}
+
+/**
+ * The pinball runtime's OWN world transform — `toWorld(planePoint(u, w, h) +
+ * offset)` in bedrock-pinball.ts's `pinballRuntime` — reproduced byte-for-byte
+ * so it can be unit-tested without evaluating the serialised script: rotate
+ * the plane point (plus a fixed model-frame offset, e.g. the ball's own
+ * `ballOffset`) about Y by the placement's rotation (an arbitrary degree, the
+ * actor's real Bedrock yaw — NOT the walk's own quarter-turn `placedPoint`,
+ * which additionally keeps the footprint's corner at the pin; see
+ * `placedDirection`), scale, then translate by its origin.
+ */
+export function pinballRuntimeWorldPoint(
+  map: PinballMap, u: number, w: number, h: number, offset: readonly [number, number, number],
+  origin: { x: number; y: number; z: number }, rotationDeg: number, scale: number,
+): { x: number; y: number; z: number } {
+  const c = pinballPlanePoint(map, u, w, h);
+  const px = c.x + offset[0], py = c.y + offset[1], pz = c.z + offset[2];
+  const a = rotationDeg * Math.PI / 180, cs = Math.cos(a), sn = Math.sin(a);
+  return { x: origin.x + (px * cs - pz * sn) * scale, y: origin.y + py * scale, z: origin.z + (px * sn + pz * cs) * scale };
 }
 
 /** Whether an actor is spawned at all at this size (door leaves retire once the vanilla door fits). */
