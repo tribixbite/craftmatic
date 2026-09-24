@@ -148,3 +148,44 @@ describe('seatingOf and assembleLxfml', () => {
     expect(seat.gapUnits).toBeGreaterThan(2);
   });
 });
+
+// ── Part orientations follow their group (76417, where the corpus exists) ────
+// The bone's nine rotation values are stored COLUMN-major. A move must turn
+// each part as R' = M.R; applying M to the stored values scattered 76417's
+// bank on the device (2026-09-24). Relative orientation between any two parts
+// of a rigid group is preserved only by the right convention.
+import { existsSync, readFileSync } from 'node:fs';
+const GRINGOTTS = 'C:/git/clego/lego_sets/DBIX/76417/VX1035766_sm01.lxfml';
+describe('assembled parts keep their orientation relative to their group', () => {
+  it.skipIf(!existsSync(GRINGOTTS))('76417: every moved pair keeps its relative rotation', () => {
+    const xml = readFileSync(GRINGOTTS, 'utf8');
+    const out = assembleLxfml(xml).xml;
+    const rots = (text: string): Map<string, number[]> => {
+      const m = new Map<string, number[]>();
+      for (const p of text.matchAll(/<Part\b[^>]*\brefID="(\d+)"[^>]*>[\s\S]*?transformation="([^"]*)"/g)) {
+        const v = p[2]!.split(',').map(Number);
+        // column-major storage -> row-major R
+        m.set(p[1]!, [v[0]!, v[3]!, v[6]!, v[1]!, v[4]!, v[7]!, v[2]!, v[5]!, v[8]!]);
+      }
+      return m;
+    };
+    const before = rots(xml), after = rots(out);
+    // One rigid group: the 2,946-part bank move.
+    const bank = findAssemblyMoves(xml).filter(m => m.parts.length > 2000).sort((a, b) => b.parts.length - a.parts.length)[0]!;
+    const moved = bank.parts.filter(k => before.has(k) && after.has(k));
+    expect(moved.length).toBeGreaterThan(2000);
+    const rel = (a: number[], b: number[]): number[] => {
+      // a^T . b
+      const out: number[] = [];
+      for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) out.push(a[i]! * b[j]! + a[3 + i]! * b[3 + j]! + a[6 + i]! * b[6 + j]!);
+      return out;
+    };
+    const anchor = moved[0]!;
+    let worst = 0;
+    for (const k of moved.slice(1, 400)) {
+      const r0 = rel(before.get(anchor)!, before.get(k)!), r1 = rel(after.get(anchor)!, after.get(k)!);
+      for (let i = 0; i < 9; i++) worst = Math.max(worst, Math.abs(r0[i]! - r1[i]!));
+    }
+    expect(worst).toBeLessThan(1e-6);
+  });
+});

@@ -267,11 +267,18 @@ export function assembleLxfml(xml: string, options: AssemblyOptions = {}): Assem
       const moved = body.replace(/transformation="([^"]*)"/g, (attr, value: string) => {
         const v = value.split(',').map(Number);
         if (v.length < 12 || !v.every(Number.isFinite)) return attr;
+        // The nine rotation values are stored COLUMN-major (clego's reader:
+        // R[i][j] = v[j*3+i]), i.e. as R^T in row-major terms. The part turns
+        // with its group, R' = M.R, which is stored as (M.R)^T = R^T.M^T.
+        // Multiplying M onto the stored values instead (M.R^T) turned every
+        // moved part by the wrong amount about its own axes: 76417's bank,
+        // moved with a 44.8 degree turn, came out as scattered planks on the
+        // device (2026-09-24), while the unmoved vault was intact.
         let rot = v.slice(0, 9);
         let pos: Vec3 = [v[9]!, v[10]!, v[11]!];
         for (const move of chain) {
           const m = moveMatrix(move);
-          rot = mulM(m.rotation, rot);
+          rot = mulM(rot, transposeM(m.rotation));
           pos = applyMove(move, pos);
         }
         return `transformation="${[...rot, ...pos].map(n => (Math.abs(n) < 1e-12 ? 0 : n)).join(',')}"`;
