@@ -2558,3 +2558,14 @@ figures --url=http://localhost:<port> --figure=<n|label> --view=front
 `output/device-round-2026-09-24b/figures-*.png` holds the before/after set.
 Tests: `test/figure-systems.test.ts`. Not verified on the device: the doll
 and big-fig animations, and Bedrock's rendering of the 0.9 LDU face decals.
+
+## Moving parts: doors, windows, hatches, levers, turnables (2026-09-24)
+
+Every door leaf (at any angle to the grid), gate, trap door, opening window,
+cupboard door, lever and turnable of a brick-accurate building is now its own
+entity of the exact LEGO parts, hinged at the measured pivot and eased by one
+float actor property; doorways are cut into the collider grid and their closed
+cells are laid by `scripts/interactives.js`, which also persists the state.
+The vanilla-door path (`applySceneDoors`, `runtimeDoorCandidates`, leaf actors)
+now serves only the coloured-block export. Design, rules, the scale rule and
+the offline proofs: [bedrock-interactivity.md](bedrock-interactivity.md).

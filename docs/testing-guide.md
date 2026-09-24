@@ -74,6 +74,23 @@ beneath. That walk decides what the walk-through recommendation reports and
 where treads are laid, so it had been claiming reachability no player had.
 Fixed; the two now agree on 12,112 surfaces at 400 %.
 
+**Moving parts (2026-09-24, `docs/bedrock-interactivity.md`).** E (or the touch
+Interact button) toggles the nearest door, window, hatch, lever or turnable with
+the pack runtime's own rules (double doors together, a too-small opening opened
+but still blocked, no closing on the player); the leaf eases about its real
+hinge and closed leaves collide and draw door-blue. Whether a DOORWAY works is
+not judged by eye: `bun scripts/_ix_passability.ts <pack…>` walks the 0.6 x 1.8
+player through every doorway open and closed at each size and turn over the
+shipped blocks (verdicts OK / SMALL / SEALED / STEP / NO-APPROACH / FAIL, exit 1
+on FAIL), `bun scripts/_ix_sweep_report.ts <sweep dir> --md=…` does it for a
+whole favourites sweep, `bun scripts/_ix_doorway_map.ts <pack> <i>` prints one
+doorway's collider plan, and `node scripts/_shoot_addon_walk.mjs <pack> <out.png>
+model doors --door=<i> [--isolate[=shell]] [--side=back] [--elev=]` shoots a
+part closed, open and after a player tried to walk through. SEALED means the
+MODEL closes the approach (solid behind the leaf, a drop, a false door) - look
+at it before calling it a door fault; STEP means it passed at 100 % and a riser
+grew past the jump at the bigger size.
+
 ## Manual gates (Chrome + the local corpus — deliberately NOT in CI)
 
 Run these after touching the renderer, the part resolver, the LXF/alignment
