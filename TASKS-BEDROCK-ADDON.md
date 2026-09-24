@@ -26,6 +26,34 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## Next round — 2026-09-24 evening (user's 7 questions), in progress
+
+- [ ] **Generalization audit** (agent, both repos): column-major LXFML
+  transforms in every reader, finished-model-page (root-step) assembly across
+  the LXFML-derived corpus with strict A/B + publish, identity-row overrides
+  and element fallback ported to whichever converter lacks them.
+- [x] **clego de-sync**: local master was a signature-only rewrite (trailers ->
+  em dash) of the remote's 249 commits (same trees; remote tip tree ==
+  local `9743994e`) plus 309 newer. Remote master backed up as
+  `backup/master-pre-signature-rewrite` (7f951c67), then force-pushed with a
+  lease -> `f6944a2a`. Side branches `learned-reader-gate-b` and
+  `probe/callout-partid-feasibility` were NOT pushed: their remote copies hold
+  35,111 data files the local rewrite stripped, so a push would lose data.
+  The remote's default branch is `learned-reader-gate-b` (user's call to change).
+- [ ] **Doors + interactivity system** (agent, worktree): LEGO-geometry door /
+  window / hatch leaves with hinge animation and collider toggling (open =
+  passable, proven by a passability test), furniture seats, turnables; design
+  doc `docs/bedrock-interactivity.md`; device test after.
+- [ ] **Accurate faces** (agent, worktree): LXFML heads carry LEGO decoration
+  ids + element numbers; Studio's library has 382 `3626cp*` + 118 `3626*pb*`
+  printed heads; measure coverage per route, substitute printed heads, keep the
+  default decal as fallback.
+- Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
+- Pack updates: importing a new .mcaddon does NOT repoint a world's active
+  pack (device runs: world 922 kept 83614b39 active after 980f54fd was
+  imported). Remove + add in the world's pack settings, or (External storage
+  only) deploy into `development_*_packs` over adb.
+
 ## Active round — 2026-09-24: device report 2 (pinball, coasters, figures, Gringotts)
 
 The user's second device report (`output/device-round-2026-09-24b/screenshots/1-5.jpg`)
