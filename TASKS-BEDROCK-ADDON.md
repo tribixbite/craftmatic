@@ -247,9 +247,9 @@ door-row, moving-car and figure-marker items):
 - [ ] Walk: `world.simulated()`/`compareReach` (BFS-vs-player divergence) is
   still not on the HUD. Left as `// TODO:` in code by the walk upgrade: the
   second train renders parked, the platform lift is an analogue of the
-  runtime's path splice, car pitch/roll bank is not animated, a door leaf
-  swings about its origin rather than its hinge, an opened door's collider
-  box still draws.
+  runtime's path splice, car pitch/roll bank is not animated. (Moving parts
+  now swing about their real hinge and redraw their colliders; only the old
+  vanilla-door leaves of a coloured-block pack still swing about their origin.)
 - [ ] Walk cost: the `three` chunk grew 532.6 -> 554.1 kB when the walk
   landed (`CapsuleGeometry`/`Box3Helper`/`GridHelper`); re-measure after the
   2026-09-23 upgrade.
