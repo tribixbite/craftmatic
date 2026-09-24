@@ -40,6 +40,11 @@ and conventions there; keep this file as the short project entry point.
   "dirty", which makes the pack on the phone unidentifiable. This has already
   cost a device round (a stale pack folder resolved while a new one sat beside
   it). Commit, then export.
+  **The stamp is computed when the dev server STARTS**, so a server left running
+  across a commit keeps reporting the tree as it was — after the 2026-09-23
+  renormalisation it read `a54a6068+dirty, 21 files` against a clean tree. Check
+  the `[pipeline-stamp]` line in the server's own log and restart it before
+  exporting; `bun scripts/pipeline-stamp.ts` prints the true current stamp.
 - **Answer it offline before the phone.** `bun run console` (port 4600) is the
   operator console — every runnable operation with its real arguments, over one
   model or a filtered batch; `tools/console/inventory.ts` is the cheat sheet and
