@@ -160,25 +160,8 @@ describe('pinball runtime (host simulation)', () => {
     // Facing -z (up the table) is yaw 180.
     const rot = h.con.tryTeleport.mock.calls.at(-1)![1].rotation;
     expect(Math.abs(Math.abs(rot.y) - 180)).toBeLessThan(1e-6);
-    // First person: no camera, the head turned down the table (eye 5 up and
-    // 7 back from the look point) and head turning locked.
-    expect(h.player.camera.setCamera).not.toHaveBeenCalled();
-    const r = h.player.setRotation.mock.calls.at(-1)![0];
-    expect(r.x).toBeCloseTo(Math.atan2(5, 7) * 180 / Math.PI, 6);
-    expect(Math.abs(Math.abs(r.y) - 180)).toBeLessThan(1e-6);
-    expect(h.player.inputPermissions.setPermissionCategory).toHaveBeenCalledWith(1, false);
-    // Hotbar parked on the middle slot; the seated tag set.
-    expect(h.player.selectedSlotIndex).toBe(4);
-    expect(h.player.tags.has('craftmatic_pinball')).toBe(true);
-  });
-
-  it('view "free" (or a head that cannot be turned) uses a free camera just ahead of the measured head', () => {
-    const h = harness();
-    h.run(1);
-    h.tune('{"view":"free"}');
-    h.sit(); h.run(12);
-    const eye = { x: h.origin.x + 2, y: h.origin.y + 5, z: h.origin.z + 10 };
-    // Set on boarding, then once more from the measured head when seated.
+    // Free camera (the default): set on boarding, then once more from the
+    // measured head when seated, just ahead of it and looking down the table.
     expect(h.player.camera.setCamera).toHaveBeenCalledTimes(2);
     const [preset, opts] = h.player.camera.setCamera.mock.calls.at(-1)!;
     expect(preset).toBe('minecraft:free');
@@ -187,6 +170,23 @@ describe('pinball runtime (host simulation)', () => {
     expect(opts.facingLocation.y).toBeCloseTo(h.origin.y, 6);
     expect(opts.facingLocation.z).toBeCloseTo(h.origin.z + 3, 6);
     expect(h.player.inputPermissions.setPermissionCategory).not.toHaveBeenCalledWith(1, false);
+    // Hotbar parked on the middle slot; the seated tag set.
+    expect(h.player.selectedSlotIndex).toBe(4);
+    expect(h.player.tags.has('craftmatic_pinball')).toBe(true);
+  });
+
+  it('view "first" turns the head down the table and locks head turning, with no camera', () => {
+    // Device run 5 (6ba8b924): the phone applied the yaw but NOT the pitch, so
+    // first person looked at the horizon; kept only as a tuning option.
+    const h = harness();
+    h.run(1);
+    h.tune('{"view":"first"}');
+    h.sit(); h.run(12);
+    expect(h.player.camera.setCamera).not.toHaveBeenCalled();
+    const r = h.player.setRotation.mock.calls.at(-1)![0];
+    expect(r.x).toBeCloseTo(Math.atan2(5, 7) * 180 / Math.PI, 6);
+    expect(Math.abs(Math.abs(r.y) - 180)).toBeLessThan(1e-6);
+    expect(h.player.inputPermissions.setPermissionCategory).toHaveBeenCalledWith(1, false);
   });
 
   it('a tap on a hotbar slot left / right of the middle works that flipper, and the hotbar is parked again', () => {
@@ -209,8 +209,8 @@ describe('pinball runtime (host simulation)', () => {
     // Facing up the table (-z) is yaw 180: the rider ends within 1.5 degrees of it.
     const yaw = ((h.player.getRotation().y % 360) + 360) % 360;
     expect(Math.abs(yaw - 180)).toBeLessThan(1.5 + 1e-9);
-    // First person: the head itself is turned to face up the table.
-    expect(Math.abs(Math.abs(h.player.setRotation.mock.calls.at(-1)![0].y) - 180)).toBeLessThan(1.5 + 1e-9);
+    // The camera hangs from the measured head.
+    expect(h.player.camera.setCamera.mock.calls.at(-1)![1].location.x).toBeCloseTo(head.x, 1);
     // The split between the zones lies on the head's own centre line.
     const l = h.spawned[0]!.location, r = h.spawned[1]!.location;
     expect((l.x + r.x) / 2).toBeCloseTo(head.x, 1);

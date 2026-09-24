@@ -290,6 +290,8 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
  */
 export const PINBALL_ZONE = { width: 1.9, height: 6, near: 0.45, below: 3.8 } as const;
 export const PINBALL_BUTTON_FAMILY = 'craftmatic_pinball_button';
+/** The zone's texture: 2 x 2, every texel alpha 0 (playable-addon.ts writes it). */
+export const PINBALL_ZONE_TEXTURE = 'craftmatic_pinball_zone';
 
 export function buttonAssets(typeId: string): { behavior: unknown; client: unknown; geometry: unknown } {
   const geometryId = `geometry.${typeId.replace(':', '.')}`;
@@ -307,15 +309,21 @@ export function buttonAssets(typeId: string): { behavior: unknown; client: unkno
         'minecraft:pushable_by_block': {},
       },
     } },
+    // A real cube filling the box, drawn with a fully transparent texture
+    // under alphatest (every texel discarded). The first build had NO cubes
+    // and the phone never picked it at any placement (device runs 3-5,
+    // 2026-09-24): a client apparently picks only an entity it renders.
     client: { format_version: '1.10.0', 'minecraft:client_entity': { description: {
       identifier: typeId, materials: { default: 'entity_alphatest' },
-      textures: { default: 'textures/entity/craftmatic_pinball_console' }, geometry: { default: geometryId },
+      textures: { default: `textures/entity/${PINBALL_ZONE_TEXTURE}` }, geometry: { default: geometryId },
       render_controllers: ['controller.render.default'],
     } } },
-    // No cubes: nothing to see, only the collision box to hit.
     geometry: { format_version: '1.12.0', 'minecraft:geometry': [{
-      description: { identifier: geometryId, texture_width: 2, texture_height: 2, visible_bounds_width: 1, visible_bounds_height: 1, visible_bounds_offset: [0, 0.5, 0] },
-      bones: [{ name: 'root', pivot: [0, 0, 0] }],
+      description: { identifier: geometryId, texture_width: 2, texture_height: 2, visible_bounds_width: PINBALL_ZONE.width * 2, visible_bounds_height: PINBALL_ZONE.height * 2, visible_bounds_offset: [0, PINBALL_ZONE.height / 2, 0] },
+      bones: [{ name: 'root', pivot: [0, 0, 0], cubes: [{
+        origin: [-PINBALL_ZONE.width * 8, 0, -PINBALL_ZONE.width * 8],
+        size: [PINBALL_ZONE.width * 16, PINBALL_ZONE.height * 16, PINBALL_ZONE.width * 16], uv: [0, 0],
+      }] }],
     }] },
   };
 }
@@ -437,7 +445,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
    * starts is not documented, so the working placement is found on a device.
    * TODO: fold the measured placement into the defaults and drop the hook.
    */
-  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number; view: 'first' | 'free' } = { anchor: 'head', fwd: 0, side: 0, up: 0, near: config.zone.near, view: 'first' };
+  const tune: { anchor: 'head' | 'eye'; fwd: number; side: number; up: number; near: number; view: 'first' | 'free' } = { anchor: 'head', fwd: 0, side: 0, up: 0, near: config.zone.near, view: 'free' };
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
       if (ev.id !== 'craftmatic:pinball') return;
@@ -447,7 +455,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       for (const k of ['fwd', 'side', 'up'] as const) tune[k] = Number.isFinite(Number(t[k])) ? Number(t[k]) : 0;
       tune.near = Number.isFinite(Number(t.near)) ? Number(t.near) : config.zone.near;
       // A new view mode ("first" / "free") takes effect at the next seating.
-      tune.view = t.view === 'free' ? 'free' : 'first';
+      tune.view = t.view === 'first' ? 'first' : 'free';
       for (const game of games.values()) game.retune = true;
     });
   } catch {}

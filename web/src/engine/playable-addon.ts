@@ -8,7 +8,7 @@ import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-compon
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
 import { buildPlacementPackAssets, encodeColliderRuns, placementAlias, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
-import { CONCRETE_COLORS, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
+import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { PINBALL_ZONE_TEXTURE, buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
@@ -2196,6 +2196,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${bp}entities/${zid}.json`, data: json(za.behavior) },
                 { name: `${rp}entity/${zid}.entity.json`, data: json(za.client) },
                 { name: `${rp}models/entity/${zid}.geo.json`, data: geoJson(za.geometry) },
+                // Fully transparent: the zone is a cube the client picks but never shows.
+                { name: `${rp}textures/entity/${PINBALL_ZONE_TEXTURE}.png`, data: encodePngRgba(2, 2, new Uint8Array(16)) },
             );
             addEntityName(buttonType, `${label} flipper button`, false);
             // The flipper spin is authored in the render frame; a mirrored frame reverses it.
