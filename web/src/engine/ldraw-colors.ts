@@ -8,6 +8,7 @@
  * metallic/chrome colors map to ore/metal blocks.
  */
 
+import { LDCONFIG_RGB } from './ldconfig-colors.generated.js';
 import { closestBlock } from './color-utils.js';
 
 /** Direct mapping from LDraw color ID → Minecraft block state */
@@ -332,3 +333,10 @@ export const LDRAW_COLOR_RGB: Record<number, string> = {
   10378: '#708E7C', 10484: '#91501C',
   10036: '#C91A09', 10043: '#AEE9EF',
 };
+
+// Every colour LDraw.org's LDConfig defines that the hand-kept table above
+// lacks (144 codes when this landed, 2026-09-24: Bright Blue Violet, the opal
+// transparents, Warm Tan ...). Fill only: an entry above always wins.
+for (const [code, hex] of Object.entries(LDCONFIG_RGB)) {
+  if (!(Number(code) in LDRAW_COLOR_RGB)) LDRAW_COLOR_RGB[Number(code)] = hex;
+}

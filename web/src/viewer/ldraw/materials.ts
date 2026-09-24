@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { LDRAW_COLOR_RGB } from '@engine/ldraw-colors.js';
+import { LDCONFIG_ALPHA } from '@engine/ldconfig-colors.generated.js';
 import { inlineTransparentColors } from './parts.js';
 
 /** LDraw transparent color IDs (33-47 range plus known extras + rubber trans) */
@@ -22,6 +23,8 @@ export function isTransparentColor(colorId: number): boolean {
   if (colorId === 142 || colorId === 143 || colorId === 150) return true;
   if (colorId === 62 || colorId === 39) return true;
   if (colorId === 66 || colorId === 67) return true;
+  // Any colour LDConfig itself makes translucent (the opals, Trans_Neon_Red ...).
+  if ((LDCONFIG_ALPHA[colorId] ?? 255) < 255) return true;
   if (colorId === 10035 || colorId === 10036) return true;
   if (colorId === 10043) return true;
   if (colorId === 10351 || colorId === 10366) return true;

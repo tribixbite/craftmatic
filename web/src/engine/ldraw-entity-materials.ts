@@ -19,6 +19,7 @@
  * classic fallback and any future tuning read the same numbers.
  */
 
+import { LDCONFIG_ALPHA } from './ldconfig-colors.generated.js';
 import { LDRAW_COLOR_RGB } from './ldraw-colors.js';
 import colorClasses from './ldraw-color-classes.json' with { type: 'json' };
 
@@ -101,7 +102,8 @@ function build(colorId: number): LdrawEntityMaterial {
   const hex = viewerHex ?? entry?.rgb;
   if (!hex) return finish('abs', [127, 127, 127], 1, false);
   const rgb = hexToRgb(hex);
-  const alpha = entry?.alpha !== undefined ? entry.alpha / 255 : 1;
+  // A colour the class table does not carry takes LDConfig's own ALPHA.
+  const alpha = entry?.alpha !== undefined ? entry.alpha / 255 : (LDCONFIG_ALPHA[colorId] ?? 255) / 255;
 
   let cls: LegoMaterialClass;
   if (entry?.finish === 'chrome') cls = 'chrome';

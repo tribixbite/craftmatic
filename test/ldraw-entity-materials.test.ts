@@ -34,12 +34,18 @@ describe('resolveLdrawEntityMaterial', () => {
   });
 
   it('falls back to the generated table for ids the viewer table lacks, and to grey for unknown ids', () => {
+    // Since 2026-09-24 the viewer table is filled from LDConfig
+    // (ldconfig-colors.generated.ts), so every class-table id is usually
+    // covered; the fallback is checked on whichever id still is not.
     const onlyInTable = Object.keys((classes as { colours: Record<string, { rgb: string }> }).colours)
       .map(Number).find(id => LDRAW_COLOR_RGB[id] === undefined);
-    expect(onlyInTable).toBeDefined();
-    const m = resolveLdrawEntityMaterial(onlyInTable!);
-    expect(m.known).toBe(true);
-    expect(hex(m.rgb)).toBe((classes as { colours: Record<string, { rgb: string }> }).colours[String(onlyInTable)]!.rgb);
+    if (onlyInTable !== undefined) {
+      const m = resolveLdrawEntityMaterial(onlyInTable);
+      expect(m.known).toBe(true);
+      expect(hex(m.rgb)).toBe((classes as { colours: Record<string, { rgb: string }> }).colours[String(onlyInTable)]!.rgb);
+    }
+    // The 2026 colours that came out grey on 42703 are known now.
+    for (const id of [362, 364, 368, 371, 422, 430, 431]) expect(resolveLdrawEntityMaterial(id).known).toBe(true);
     const unknown = resolveLdrawEntityMaterial(9_999_999);
     expect(unknown).toMatchObject({ known: false, rgb: [127, 127, 127], materialClass: 'abs' });
   });
