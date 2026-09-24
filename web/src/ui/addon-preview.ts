@@ -196,7 +196,12 @@ class AddonWalk implements AddonPreviewHandle {
   // do), the running game while boarded, and each flipper's UN-SPUN base pose
   // (`buildModel`'s own placement) the spin is applied on top of every tick.
   private pinballIndices: { console: number; ball: number; flippers: number[] } | null = null;
-  private pinball: { sim: PinballSim; restore: { state: PlayerState; yaw: number; pitch: number } } | null = null;
+  private pinball: {
+    sim: PinballSim;
+    restore: { state: PlayerState; yaw: number; pitch: number };
+    /** The reach overlay / collider / tread / model legend rows, as the user had them before boarding — restored on `leavePinball`. */
+    restoreView: { showReach: boolean; collider: boolean; tread: boolean; model: boolean };
+  } | null = null;
   private pinballBest = 0;
   /** Each flipper's pivot in WORLD coordinates, this tick's — exposed for the
    * dev hook (`_shoot_addon_walk.mjs`'s close-up shot): a flipper's compiled
@@ -791,19 +796,35 @@ class AddonWalk implements AddonPreviewHandle {
   private enterPinball(): void {
     const cfg = this.model.pinball, idx = this.pinballIndices;
     if (!cfg || !idx) return;
-    this.pinball = { sim: createPinballSim(cfg.sim), restore: { state: this.state, yaw: this.yaw, pitch: this.pitch } };
+    const restoreView = { showReach: this.showReach, collider: this.legend.collider.show, tread: this.legend.tread.show, model: this.legend.model.show };
+    this.pinball = { sim: createPinballSim(cfg.sim), restore: { state: this.state, yaw: this.yaw, pitch: this.pitch }, restoreView };
+    // The reach overlay and the raw collider/tread debug boxes answer the
+    // wrong question for a table nobody walks on: a pinball playfield's own
+    // surfaces read almost entirely "not reached" (nothing here is meant to
+    // be stood on), which paints the whole shell red and hides it. Force
+    // them off and the full-detail model ON for the duration of the game,
+    // whatever the user had toggled; `leavePinball` restores it exactly.
+    this.showReach = false;
+    this.legend = { ...this.legend, collider: { ...this.legend.collider, show: false }, tread: { ...this.legend.tread, show: false }, model: { ...this.legend.model, show: true } };
+    this.applyLegendVisibility();
     this.updatePinballEntities();
     this.setPinballTouchVisible(true);
+    this.renderHud();
     this.onStatus(`Playing pinball — ${cfg.label}. A/D or Left/Right flippers, W both, hold Space to charge and launch, Shift or Esc to leave.`, 'success');
   }
 
-  /** Leave the table, restoring exactly the player state from before boarding. The ball/flippers stay where the game left them. */
+  /** Leave the table, restoring exactly the player state and the reach/collider/tread/model view from before boarding. The ball/flippers stay where the game left them. */
   private leavePinball(): void {
     if (!this.pinball) return;
     this.state = this.pinball.restore.state; this.prevState = this.state;
     this.yaw = this.pinball.restore.yaw; this.pitch = this.pinball.restore.pitch;
+    const rv = this.pinball.restoreView;
+    this.showReach = rv.showReach;
+    this.legend = { ...this.legend, collider: { ...this.legend.collider, show: rv.collider }, tread: { ...this.legend.tread, show: rv.tread }, model: { ...this.legend.model, show: rv.model } };
+    this.applyLegendVisibility();
     this.pinball = null;
     this.setPinballTouchVisible(false);
+    this.renderHud();
   }
 
   /** A/D or Left/Right work one flipper each, W (or the touch "Interact"-style hold buttons) works both; Space holds to charge the plunger and fires on release; Shift or Escape leaves (Escape is also wired directly in the key handler). */

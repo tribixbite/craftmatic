@@ -36,6 +36,11 @@
  *     requestAnimationFrame while open (not the viewer's on-demand one), so a
  *     real wait does advance ride ticks — verify with the two PNGs, not by
  *     assumption.
+ *   --size=<pct>: click that wand size step before the mode's own sequence
+ *     runs (default: whatever the walk opens at — its measured walk-through
+ *     recommendation, or 100 without one). Every position sampled off
+ *     `window.__addonWalk` (console, ball, flippers) is read AFTER this, so
+ *     it is correct at any size.
  */
 import { chromium } from 'playwright-core';
 import { mkdirSync } from 'node:fs';
@@ -86,6 +91,19 @@ if (wanted) {
       await page.waitForTimeout(120);
     }
   }
+  await page.waitForTimeout(1200);
+}
+
+const sizeArg = flags.get('size') ? Number(flags.get('size')) : null;
+if (sizeArg) {
+  const clicked = await page.evaluate((pct) => {
+    const btn = document.querySelector(`.ap-tog[data-act="size"][data-size="${pct}"]`);
+    if (btn instanceof HTMLElement) { btn.click(); return true; }
+    return false;
+  }, sizeArg);
+  if (!clicked) { console.error(`--size=${sizeArg}: no such size step on this pack`); process.exit(64); }
+  // A size change rebuilds the whole world (colliders, model, reach); give it
+  // a real beat before anything reads positions off it.
   await page.waitForTimeout(1200);
 }
 
@@ -185,6 +203,137 @@ if (mode === 'flyout') {
   await page.keyboard.press('KeyE');
   await page.waitForTimeout(400);
 
+  // Hide the side panels directly (a click toggles from whatever state the
+  // walk opened in, which is unreliable to predict) — cleaner evidence, and
+  // it also stops them covering the lower-left of the canvas, which the
+  // overview camera below can otherwise frame right behind.
+  await page.evaluate(() => { const hud = document.querySelector('.ap-hud'); if (hud) hud.style.display = 'none'; });
+
+  // Confirm the board actually SWITCHED the view: entering pinball mode
+  // forces the reach overlay and the collider/tread debug boxes off and the
+  // full-detail model on (a pinball playfield's own surfaces read almost
+  // entirely "not reached" — nothing there is meant to be walked on — so
+  // left on, the reach overlay paints the whole shell red and the grey
+  // collider boxes bury the real geometry under it).
+  const view = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    return w ? { boarded: !!w.pinball, showReach: w.showReach, modelShown: w.legend.model.show, colliderShown: w.legend.collider.show, treadShown: w.legend.tread.show, sizePct: w.sizePct } : null;
+  });
+
+  // In-page helpers, attached to `window` (each `page.evaluate` call runs its
+  // own isolated function, sharing nothing but the page's global object):
+  //   __centroid(holder): the CENTROID of an entity's own rendered cube
+  //     instances, in world space — not its placement origin or bone pivot.
+  //     A flipper's compiled bind-pose bones can sit many blocks from either
+  //     (this pack's ran to -47 in raw 1/16-block units, ~9 world blocks off
+  //     at 300 %), so sampling the actual instance matrices is the only
+  //     reliable "where is it" here.
+  //   __shellTopY(): the shell's own highest rendered cube, cached — a
+  //     suitcase-style machine's side walls run most of its height, so an
+  //     overview camera framed only on the LOW console/ball/flipper points
+  //     (all near the playfield floor) sits barely above those walls and
+  //     ends up grazing one at close range instead of looking down past it.
+  //   __overviewCamera(points, elevation): an INDEPENDENT camera framing —
+  //     not the table's own `cameraEye`/`cameraLook` (`applyPinballCamera`).
+  //     That fixed spectator view is a first-person "what the seated player
+  //     sees" shot: correct on its own terms, but on this pack it frames a
+  //     recessed patch of the cabinet interior from low behind the console,
+  //     with the open playfield largely out of frame — not a rendering bug
+  //     (the maths matches the runtime's own `toWorld` exactly, verified
+  //     against bedrock-pinball.test.ts's numbers), just a poor angle for
+  //     PROVING the game plays, which is this shot's only job. The overview
+  //     instead frames a 3/4, elevated view sized to the given points'
+  //     bounding box, guaranteed to fit them all, by shadowing
+  //     `applyPinballCamera` — an ordinary prototype method, so this
+  //     instance property wins every frame until deleted.
+  await page.evaluate(`
+    window.__centroid = (holder) => {
+      if (!holder) return null;
+      const Vector3 = window.__addonWalk.camera.position.constructor;
+      const Matrix4 = window.__addonWalk.camera.matrixWorld.constructor;
+      holder.updateWorldMatrix(true, false);
+      const m = new Matrix4();
+      let sx = 0, sy = 0, sz = 0, n = 0;
+      for (const mesh of holder.children) {
+        if (!mesh.isInstancedMesh) continue;
+        for (let i = 0; i < mesh.count; i++) {
+          mesh.getMatrixAt(i, m);
+          const p = new Vector3().setFromMatrixPosition(m).applyMatrix4(holder.matrixWorld);
+          sx += p.x; sy += p.y; sz += p.z; n++;
+        }
+      }
+      return n ? { x: sx / n, y: sy / n, z: sz / n } : null;
+    };
+    window.__shellTopY = () => {
+      const w = window.__addonWalk;
+      if (window.__shellTopYCache !== undefined) return window.__shellTopYCache;
+      const shellIdx = w.model.entities.findIndex(e => e.kind === 'shell');
+      const holder = w.entityHolders.get(shellIdx);
+      let top = 0;
+      if (holder) {
+        const Vector3 = w.camera.position.constructor;
+        const Matrix4 = w.camera.matrixWorld.constructor;
+        holder.updateWorldMatrix(true, false);
+        const m = new Matrix4();
+        for (const mesh of holder.children) {
+          if (!mesh.isInstancedMesh) continue;
+          for (let i = 0; i < mesh.count; i++) {
+            mesh.getMatrixAt(i, m);
+            top = Math.max(top, new Vector3().setFromMatrixPosition(m).applyMatrix4(holder.matrixWorld).y);
+          }
+        }
+      }
+      window.__shellTopYCache = top;
+      return top;
+    };
+    window.__overviewCamera = (points, marginBlocks) => {
+      const w = window.__addonWalk;
+      let minX = Infinity, minY = Infinity, minZ = Infinity, maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      for (const p of points) {
+        minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
+        minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
+        minZ = Math.min(minZ, p.z); maxZ = Math.max(maxZ, p.z);
+      }
+      if (!isFinite(minX)) return null;
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2, cz = (minZ + maxZ) / 2;
+      const span = Math.max(maxX - minX, maxZ - minZ, maxY - minY, 2) + marginBlocks * 2;
+      // A suitcase-style cabinet's side walls run most of its own height, so
+      // clear ALL of them (the shell top), not just the low playfield points
+      // being framed, then look down at a steep-but-not-vertical angle -- a
+      // gentle horizontal pull-back keeps it a recognisable 3/4 view rather
+      // than a flat blueprint-style top-down.
+      // Near-vertical on purpose: a bigger horizontal pull-back reads as a
+      // nicer 3/4 angle when it works, but on a suitcase-style cabinet with a
+      // hinged lid propped open, the pulled-back sight line from the
+      // player's own side runs along the BACK of that raised lid instead of
+      // over it (its flat outer face is what filled the frame before this).
+      // Almost-overhead has nothing left to graze except the model itself.
+      const camY = Math.max(cy + span * 2, __shellTopY() + span * 0.8);
+      const pullBack = span * 0.18;
+      const at = { x: cx, y: cy, z: cz };
+      window.__addonWalk.applyPinballCamera = () => {
+        w.camera.up.set(0, 1, 0);
+        w.camera.position.set(cx, camY, cz + pullBack);
+        w.camera.lookAt(cx, cy, cz);
+      };
+      return { at, span, camY, pullBack };
+    };
+    // A single flipper is small enough that the whole-cabinet lid problem
+    // above does not apply — a lower, more oblique angle shows a raised
+    // paddle's silhouette far better than looking straight down its own
+    // rotation axis (a top-down view of an in-plane swing barely changes).
+    window.__flipperCloseup = (at, span) => {
+      const w = window.__addonWalk;
+      const dist = Math.max(span * 2.2, 3);
+      window.__addonWalk.applyPinballCamera = () => {
+        w.camera.up.set(0, 1, 0);
+        w.camera.position.set(at.x - dist * 0.5, at.y + dist * 0.6, at.z + dist * 0.7);
+        w.camera.lookAt(at.x, at.y, at.z);
+      };
+      return { at, span, dist };
+    };
+  `);
+
   const readBall = () => page.evaluate(() => {
     const w = window.__addonWalk;
     const st = w.pinball ? w.pinball.sim.state : null;
@@ -195,7 +344,23 @@ if (mode === 'flyout') {
     interact: document.querySelector('.ap-interact')?.textContent ?? '',
     hint: document.querySelector('.ap-hint')?.textContent ?? '',
   }));
+
+  // Shot 1: boarded, ready to launch — framed on the console, the ball at
+  // its serve point and both flippers, so the whole play area is in view.
+  const overview1 = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    const idx = w.pinballIndices;
+    // The console itself sits well OUTSIDE the shell (in front of the
+    // machine, on the ground where a player would stand) — including it
+    // would force a much wider zoom-out for no benefit, since its own
+    // direction is already implied by the flippers it faces.
+    const points = [__centroid(w.entityHolders.get(idx.ball)),
+      __centroid(w.entityHolders.get(idx.flippers[0])), __centroid(w.entityHolders.get(idx.flippers[1]))]
+      .filter(Boolean).map(p => ({ x: p.x, y: p.y, z: p.z }));
+    return { points, cam: __overviewCamera(points, 3) };
+  });
   const ballBefore = await readBall();
+  await page.waitForTimeout(100);
   await page.screenshot({ path: outPath });
 
   // Hold the plunger ~1 s (charges it; the sim's default full-charge time is
@@ -205,64 +370,41 @@ if (mode === 'flyout') {
   await page.keyboard.up('Space');
   await page.waitForTimeout(1500);
   const ballAfter = await readBall();
+
+  // Shot 2: after the launch — re-framed on the ball's CURRENT position and
+  // both flippers, so a ball that travelled well up the table stays in view
+  // (the numeric plane (u, w) before/after is the rigorous proof either way).
+  const overview2 = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    const idx = w.pinballIndices;
+    const points = [__centroid(w.entityHolders.get(idx.ball)),
+      __centroid(w.entityHolders.get(idx.flippers[0])), __centroid(w.entityHolders.get(idx.flippers[1]))]
+      .filter(Boolean).map(p => ({ x: p.x, y: p.y, z: p.z }));
+    return { points, cam: __overviewCamera(points, 4) };
+  });
   const movedPath = withSuffix(outPath, 'moved');
+  await page.waitForTimeout(100);
   await page.screenshot({ path: movedPath });
   const movedDistanceLdu = ballBefore && ballAfter ? Math.hypot(ballAfter.u - ballBefore.u, ballAfter.w - ballBefore.w) : null;
 
-  // Hold the left flipper. The table's own fixed spectator camera (the real
-  // runtime's `cameraEye`/`cameraLook`, applied every frame by
-  // `applyPinballCamera`) frames the whole table from behind and above, too
-  // far out for a few degrees of swing to read clearly in a screenshot — so,
-  // for this ONE shot only, shadow that method with an own-property override
-  // (the walk calls `this.applyPinballCamera()`, an ordinary prototype
-  // method, so an instance property of the same name wins) that instead
-  // frames the left flipper's own placed point up close; `delete` restores
-  // the table camera for anything after. The sim and the flipper's actual
-  // pose are untouched — only where we are looking from.
+  // Shot 3: hold the left flipper and re-frame TIGHT on it alone (re-sampled
+  // now that it has actually swung) — a few degrees of swing reads as noise
+  // in the whole-playfield framing above.
   await page.keyboard.down('KeyA');
   await page.waitForTimeout(250);
-  const closeUp = await page.evaluate(() => {
+  const overview3 = await page.evaluate(() => {
     const w = window.__addonWalk;
-    if (!w?.pinball || !w.pinballIndices) return { ok: false, reason: 'not boarded' };
-    const holder = w.entityHolders.get(w.pinballIndices.flippers[0]);
-    if (!holder) return { ok: false, reason: 'no holder for the left flipper' };
-    // The CENTROID of the flipper's own rendered cube instances, in world
-    // space — not the entity's placement origin (`AddonEntity.x/y/z`) or its
-    // pivot: the compiled geometry's bind-pose bones can sit many blocks from
-    // either (bone pivots are raw 1/16-block units that ran to -47 on this
-    // pack's flipper, ~9 world blocks off at this size), so sampling the
-    // actual instance matrices is the only reliable "where is it" here.
-    // `Vector3`/`Matrix4` are read off already-live THREE objects (the
-    // camera's own), since THREE itself is not on `window`.
-    const Vector3 = w.camera.position.constructor;
-    const Matrix4 = w.camera.matrixWorld.constructor;
-    holder.updateWorldMatrix(true, false);
-    const m = new Matrix4();
-    let sx = 0, sy = 0, sz = 0, n = 0;
-    for (const mesh of holder.children) {
-      if (!mesh.isInstancedMesh) continue;
-      for (let i = 0; i < mesh.count; i++) {
-        mesh.getMatrixAt(i, m);
-        const p = new Vector3().setFromMatrixPosition(m).applyMatrix4(holder.matrixWorld);
-        sx += p.x; sy += p.y; sz += p.z; n++;
-      }
-    }
-    if (!n) return { ok: false, reason: 'no cube instances found on the flipper holder' };
-    const at = { x: sx / n, y: sy / n, z: sz / n };
-    w.applyPinballCamera = () => {
-      w.camera.up.set(0, 1, 0);
-      w.camera.position.set(at.x - 2, at.y + 1.6, at.z + 2);
-      w.camera.lookAt(at.x, at.y, at.z);
-    };
-    return { ok: true, at, sampled: n };
+    const at = __centroid(w.entityHolders.get(w.pinballIndices.flippers[0]));
+    if (!at) return { ok: false };
+    return { ok: true, cam: __flipperCloseup(at, 3.2) };
   });
-  await page.waitForTimeout(150);
   const flipperState = await page.evaluate(() => {
     const w = window.__addonWalk;
     if (!w?.pinball) return null;
     return { angles: w.pinball.sim.state.flipperAngles.slice(), rest: w.model.pinball.restAngles, spinSign: w.model.pinball.spinSign };
   });
   const flipperPath = withSuffix(outPath, 'flipper');
+  await page.waitForTimeout(100);
   await page.screenshot({ path: flipperPath });
   await page.keyboard.up('KeyA');
   await page.evaluate(() => { const w = window.__addonWalk; if (w) delete w.applyPinballCamera; });
@@ -270,7 +412,7 @@ if (mode === 'flyout') {
   await browser.close();
   console.log(JSON.stringify({
     pack: packPath, mode, out: outPath, movedPath, flipperPath,
-    placed, afterBoard, ballBefore, ballAfter, movedDistanceLdu, closeUp, flipperState, errors: errors.slice(0, 5),
+    view, placed, afterBoard, overview1, ballBefore, ballAfter, movedDistanceLdu, overview2, overview3, flipperState, errors: errors.slice(0, 5),
   }, null, 1));
 } else {
   // "ride": free-fly, then place the camera off the DEV-only `window.__addonWalk`
