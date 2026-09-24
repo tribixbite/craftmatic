@@ -137,7 +137,12 @@ publishing to `DbixConvV3/76417.ldr` + index hash patch (Will publishes).
   AABB); wheel mounting now tests the neighbour's own bounds.
 
 Open from this report:
-- [ ] Publish `output/gringotts-fix-0924/76417.ldr` (sha in the commit message) and patch the index hash.
+- [ ] Publish `output/gringotts-fix-0924/76417.ldr` (376,566 bytes, sha256
+  `d3a02437401c32dd3cfbcd1a1e247756aa5039be6396f11eff4f9e3183d97f34`, index
+  hash `d3a02437401c`; copied to the main checkout's `output/gringotts-fix-0924/`)
+  and patch the index. Pack built from it at `cf8ff5a0` (clean):
+  `output/gringotts-fix-0924/76417-gringotts.mcaddon`, 696,572 bytes, sha256
+  `cc933d0a0b8145588398ad846faf5ef51bdbdbdf9c86eecb3bf0814e7c0ba640`; not device-tested.
 - [ ] Goblins at the teller desks: only by an explicit rule (LEGO's page leaves the desks empty).
 - [ ] Bank front doors: vanilla doors are 1 x 2 blocks in a 1.1 x 2.7-block
   frame, so the top 0.7 block of each opening shows through. A door that fills
