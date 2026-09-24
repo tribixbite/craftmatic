@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
+  COASTER_PHYSICS, COASTER_RIDE_PACE, coasterCarAttitude, coasterLoopRadius,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -251,21 +252,22 @@ describe('serialized coaster runtime', () => {
       if (grade > 0.2) climbing.push(step * 20); else if (grade < -0.2) falling.push(step * 20);
     }
     const mean = (values: number[]) => values.reduce((total, value) => total + value, 0) / values.length;
-    expect(climbing.length).toBeGreaterThan(100);
-    expect(falling.length).toBeGreaterThan(100);
+    const { LIFT_SPEED, STATION_BRAKE, MAX_SPEED } = COASTER_PHYSICS;
+    expect(climbing.length).toBeGreaterThan(50);
+    expect(falling.length).toBeGreaterThan(50);
     // The chain lift holds the climb at its own speed; the 19-block drop is
-    // bounded by the physics (sqrt(2 g h) = 19 blocks/s) and the 16 blocks/s
-    // ceiling — no longer by the sample spacing (7.5 blocks/s on this route).
-    expect(mean(climbing)).toBeGreaterThan(2.2);
-    expect(mean(climbing)).toBeLessThan(2.6);
+    // bounded by the physics (sqrt(2 g h)) and the ceiling — never by the
+    // sample spacing (7.5 blocks/s on this route).
+    expect(mean(climbing)).toBeGreaterThan(0.88 * LIFT_SPEED);
+    expect(mean(climbing)).toBeLessThan(1.04 * LIFT_SPEED);
     expect(mean(falling) / mean(climbing)).toBeGreaterThan(3);
     // The chain never overdrives the climb; the drop runs well past the old
     // 7.5 blocks/s spacing ceiling and is bounded here by the station brake
-    // curve (sqrt(2 · 3.5 · 24) = 13 blocks/s at the top of the drop, which
-    // ends 6 blocks from the platform), never by the 16 blocks/s ceiling.
-    expect(Math.max(...climbing)).toBeLessThanOrEqual(2.6);
-    expect(Math.max(...falling)).toBeGreaterThan(12);
-    expect(Math.max(...falling)).toBeLessThanOrEqual(16 + 1e-6);
+    // curve (sqrt(2 · brake · 24) at the top of the drop, which ends 6 blocks
+    // from the platform), never by the ceiling.
+    expect(Math.max(...climbing)).toBeLessThanOrEqual(1.04 * LIFT_SPEED);
+    expect(Math.max(...falling)).toBeGreaterThan(0.9 * Math.sqrt(2 * STATION_BRAKE * 24));
+    expect(Math.max(...falling)).toBeLessThanOrEqual(MAX_SPEED + 1e-6);
   });
   it('integrates each tick in substeps no longer than a sample spacing, so speed is bounded by physics, not resolution', () => {
     for (const scale of [1, 4]) {
@@ -278,11 +280,10 @@ describe('serialized coaster runtime', () => {
         if (step > largest) largest = step;
       }
       // The arc step per tick exceeds one sample spacing on the drop at 1x (the
-      // old ceiling; at 4x the same 16 blocks/s is 0.2 model blocks) and never
-      // the ride ceiling of 16 blocks/s.
+      // old ceiling) and never the ride ceiling.
       if (scale === 1) expect(largest).toBeGreaterThan(spacing);
-      expect(largest).toBeLessThanOrEqual(16 / (20 * scale) + 1e-9);
-      expect(Math.max(...h.arcSpeeds())).toBeLessThanOrEqual(16 + 1e-6);
+      expect(largest).toBeLessThanOrEqual(COASTER_PHYSICS.MAX_SPEED / (20 * scale) + 1e-9);
+      expect(Math.max(...h.arcSpeeds())).toBeLessThanOrEqual(COASTER_PHYSICS.MAX_SPEED + 1e-6);
     }
     // A ceiling-limited drop still follows every sample: the datums lie on the polyline.
     const h = rideHost(towerRoute());
@@ -395,9 +396,10 @@ describe('serialized coaster runtime', () => {
     const datums = h.datums();
     expect(datums[0]!.x).toBeCloseTo(100, 6); expect(datums[0]!.y).toBeCloseTo(64, 6); expect(datums[0]!.z).toBeCloseTo(200, 6);
     expect(datums[98]!.y).toBeCloseTo(64, 6);
-    expect(datums[99]!.y).toBeCloseTo(64.15, 9);
+    const { DEPART_SPEED, LIFT_SPEED } = COASTER_PHYSICS;
+    expect(datums[99]!.y).toBeCloseTo(64 + DEPART_SPEED / 20, 9);
     // The push decays under gravity to the chain's speed within the next tick.
-    expect(datums[100]!.y).toBeCloseTo(64.275, 3);
+    expect(datums[100]!.y).toBeCloseTo(64 + DEPART_SPEED / 20 + LIFT_SPEED / 20, 3);
     for (let k = 0; k < datums.length; k++) {
       expect(datums[k]!.x).toBeCloseTo(100, 6);
       expect(Math.hypot(h.positions[k]!.x - datums[k]!.x, h.positions[k]!.z - datums[k]!.z)).toBeCloseTo(1.25, 6);
@@ -405,7 +407,7 @@ describe('serialized coaster runtime', () => {
     }
     h.run(20);
     const speeds = h.arcSpeeds().slice(-10);
-    for (const speed of speeds) expect(speed).toBeCloseTo(2.5, 6);
+    for (const speed of speeds) expect(speed).toBeCloseTo(LIFT_SPEED, 6);
     expect(h.entity.setProperty).toHaveBeenCalledWith('craftmatic:track_pitch', -90);
   });
   it('turns the cart over through a loop without ever spinning its yaw', () => {
@@ -469,7 +471,7 @@ describe('serialized coaster runtime', () => {
     expect(h.properties.get('craftmatic:coaster_direction')).toBe(-1);
     h.run(1);
     // It leaves the dead end on the bounded station-drive push, heading back.
-    expect(h.positions[1]!.x).toBeCloseTo(109.85);
+    expect(h.positions[1]!.x).toBeCloseTo(110 - COASTER_PHYSICS.DEPART_SPEED / 20);
   });
   it('persists progress and speed across a script reload and retires removed carts', () => {
     const h = rideHost(towerRoute());
@@ -673,9 +675,9 @@ describe('measured train', () => {
     for (let index = 0; index < first.length; index++) {
       expect(first[index]!.x).toBeGreaterThan(last[index]!.x);
     }
-    // The train never steps further than the 16 blocks/s ceiling allows,
+    // The train never steps further than the ride ceiling allows,
     // including on the tick it reverses at the end of the open route.
-    for (const speed of h.arcSpeeds()) expect(speed).toBeLessThanOrEqual(16 + 1e-6);
+    for (const speed of h.arcSpeeds()) expect(speed).toBeLessThanOrEqual(COASTER_PHYSICS.MAX_SPEED + 1e-6);
   });
   it('keeps the whole train inside an open route at both ends', () => {
     const h = rideHost(towerTrain());
@@ -1226,10 +1228,10 @@ describe('the lift completes the circuit', () => {
     h.run(40);
     // The hoist never advanced: the saved progress is unchanged, the platform
     // itself never moved, and the cars are re-placed from that same saved state
-    // every tick - at most one hoist step (0.125 blocks) ahead of where they
-    // were, exactly as a train car ahead of a refused car already behaves.
+    // every tick - at most one hoist step (PLATFORM_SPEED / 20 blocks) ahead of
+    // where they were, exactly as a train car ahead of a refused car already behaves.
     expect(h.progress()).toBe(before.progress);
-    expect(Math.abs(h.lead.positions.at(-1)!.x - before.car.x)).toBeLessThanOrEqual(0.125 + 1e-9);
+    expect(Math.abs(h.lead.positions.at(-1)!.x - before.car.x)).toBeLessThanOrEqual(COASTER_PHYSICS.PLATFORM_SPEED / 20 + 1e-9);
     expect(h.lead.positions.at(-1)).toEqual(h.lead.positions.at(-2));
     expect(h.platform!.positions).toHaveLength(before.platform);
     h.setRefuse(undefined);
@@ -1300,9 +1302,9 @@ describe('the lift completes the circuit', () => {
     const offChain = speeds.filter(([d]) => d > 5 && d < 9).map(([, v]) => v);
     expect(onChain.length).toBeGreaterThan(0);
     expect(offChain.length).toBeGreaterThan(0);
-    expect(Math.min(...onChain)).toBeGreaterThanOrEqual(2.5 - 1e-6);
+    expect(Math.min(...onChain)).toBeGreaterThanOrEqual(COASTER_PHYSICS.LIFT_SPEED - 1e-6);
     // …and past the sprockets the climb is on momentum alone, down to the floor.
-    expect(Math.min(...offChain)).toBeCloseTo(0.8, 6);
+    expect(Math.min(...offChain)).toBeCloseTo(COASTER_PHYSICS.MIN_SPEED, 6);
     // An open shuttle with the set's own cars: yaw is the same before and after the dead end.
     const shuttle = liftHost({ ...towerRoute(), vehicles: [routeCar([3, 1, 0], 1)] });
     shuttle.run(120);
@@ -1520,22 +1522,103 @@ describe('car orientation', () => {
     expect(worstGap(tangent)).toBeGreaterThan(35);
     expect(worstGap(chord)).toBeLessThan(17);
   });
+  it('takes the yaw from the axle, so it is exact on level track and holds still through a helical loop', () => {
+    // Level track: yaw is the nose azimuth, no pitch, no roll.
+    const level = coasterCarAttitude([1, 0, 0], [0, 1, 0], 0);
+    expect(level.yaw).toBeCloseTo(-90, 9); expect(level.pitch).toBeCloseTo(0, 9); expect(level.roll).toBeCloseTo(0, 9);
+    // A helix of radius 4 drifting 1.5 blocks sideways per turn: the nose
+    // azimuth swings toward the drift as the track steepens, the axle does not.
+    const r = 4, drift = 1.5 / (2 * Math.PI);
+    let worstAxle = 0, worstNose = 0;
+    for (let k = 1; k < 200; k++) {
+      const phi = k / 200 * 2 * Math.PI;
+      const nose = [drift, r * Math.sin(phi), r * Math.cos(phi)];
+      const inward = [0, Math.cos(phi), -Math.sin(phi)];
+      const { yaw, pitch, roll } = coasterCarAttitude(nose, inward, 0);
+      worstAxle = Math.max(worstAxle, Math.abs(yaw));
+      const horizontal = Math.hypot(nose[0]!, nose[2]!);
+      if (horizontal / Math.hypot(...nose) > COASTER_PHYSICS.YAW_HOLD_HORIZONTAL) worstNose = Math.max(worstNose, Math.abs(Math.atan2(-nose[0]!, nose[2]!) * 180 / Math.PI) % 180);
+      // Pitch and roll reconstruct the car's up; only the helix's own lean is lost.
+      const p = pitch * Math.PI / 180, q = roll * Math.PI / 180;
+      expect(Math.cos(p) * Math.cos(q)).toBeCloseTo(inward[1]!, 1);
+    }
+    expect(worstAxle).toBeLessThan(4);
+    expect(worstNose).toBeGreaterThan(10);
+  });
+  it('keeps the yaw still and the speed up through every inversion of a two-loop helical course', () => {
+    // Level run, a helix drifting +1.2 blocks, level, a helix drifting -1.6,
+    // level. The course starts level so the train leaves slowly: the chain
+    // assist carries each climb and the inversion floor carries each top.
+    const r = 4, step = 0.2, points: Vec3[] = [];
+    let z = 0, x = 0;
+    const straightRun = (length: number) => { const n = Math.round(length / step); for (let k = 0; k < n; k++) points.push([x, 0, z + k * step]); z += length; };
+    const helix = (drift: number) => {
+      const n = Math.ceil(2 * Math.PI * r / step);
+      for (let k = 0; k < n; k++) { const phi = k / n * 2 * Math.PI; points.push([x + drift * k / n, r - r * Math.cos(phi), z + r * Math.sin(phi)]); }
+      x += drift;
+    };
+    straightRun(14); helix(1.2); straightRun(6); helix(-1.6); straightRun(14); points.push([x, 0, z]);
+    const route: CoasterRoute = { label: 'Two loops', points, closed: false, maxSegmentLength: 0.3 };
+    const h = rideHost(route);
+    const runtime = h.config.routes[0]!;
+    expect(runtime.loopRadius).toBeCloseTo(r, 0);
+    const floorTop = COASTER_PHYSICS.INVERSION_MARGIN * Math.sqrt(COASTER_PHYSICS.GRAVITY * r);
+    const upYAt = (arc: number) => {
+      const path = runtime.path;
+      let i = 0; while (i < path.points.length - 2 && path.cumulative[i + 1]! <= arc) i++;
+      return runtime.up[i]![1];
+    };
+    const yaws = h.cars[0]!.yaws, rows: Array<{ yaw: number; upY: number; speed: number }> = [];
+    for (let t = 0; t < 1400; t++) {
+      h.run(1);
+      const arc = Number(h.properties.get('craftmatic:coaster_distance'));
+      rows.push({ yaw: yaws.at(-1)!, upY: upYAt(arc), speed: Number(h.properties.get('craftmatic:coaster_speed')) });
+    }
+    const inversions: number[][] = [];
+    rows.forEach((row, k) => { if (row.upY < 0 && (k === 0 || rows[k - 1]!.upY >= 0)) inversions.push([k]); if (row.upY < 0) inversions.at(-1)!.push(k); });
+    // Both loops, out and back: the shuttle reverses at the far end.
+    expect(inversions.length).toBeGreaterThanOrEqual(3);
+    const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
+    for (const run of inversions) {
+      const from = Math.max(0, run[0]! - 10), to = Math.min(rows.length - 1, run.at(-1)! + 10);
+      const reference = rows[from]!.yaw;
+      let range = 0, worstStep = 0;
+      for (let k = from; k <= to; k++) {
+        range = Math.max(range, turn(reference, rows[k]!.yaw));
+        if (k > from) worstStep = Math.max(worstStep, turn(rows[k - 1]!.yaw, rows[k]!.yaw));
+      }
+      // The helix's own lean (atan(drift / circumference), under 4 degrees,
+      // taken as a kink where it meets the level run) is all the yaw may do:
+      // a reversal is 180, the reported swivel was 49 in one tick.
+      expect(range).toBeLessThan(6);
+      expect(worstStep).toBeLessThan(5);
+      // Over the top (up within 25 degrees of straight down) the train holds
+      // the loop with margin: v^2 > g r, from the floor if not from energy.
+      for (const k of run) if (rows[k]!.upY < -0.9) expect(rows[k]!.speed).toBeGreaterThan(Math.sqrt(COASTER_PHYSICS.GRAVITY * r * 0.9));
+      expect(Math.max(...run.map(k => rows[k]!.speed))).toBeGreaterThan(0.9 * floorTop);
+    }
+  });
   it('keeps the rider inside a loop: the entity sinks so the eye follows the car, the bricks stay on the rails', () => {
     const route = loopRoute();
     const h = rideHost(route, { seat: [0, 0.35, 0] });
     const total = coasterRuntimeConfig('craftmatic:ride', [route]).routes[0]!.path.length;
     h.properties.set('craftmatic:coaster_distance', total / 2);
     h.run(1);
-    // The apex of a 10-radius loop: the datum is the track point (y 64 + 20,
-    // one floor-speed tick past the apex on the 64-gon).
+    // The apex of a 10-radius loop: the datum is the track point (y 64 + 20),
+    // one tick past the apex at the inversion floor, about a block of arc on
+    // the 64-gon (a 0.06-block drop).
     const datum = h.datums()[0]!;
-    expect(datum.y).toBeCloseTo(84, 2);
+    expect(datum.y).toBeGreaterThan(83.9);
+    expect(datum.y).toBeLessThanOrEqual(84 + 1e-9);
     // Inverted, the seat and the eye (0.35 + 1.25) hang BELOW the rails; the
     // upright seat then puts the entity 1.6 lower still, so the eye lands 1.6
     // under the rails instead of 1.6 above them.
+    // A tick past the apex the car has turned ~6 degrees on, so the eye's
+    // 1.6 blocks lean that far off vertical: 3.2 x cos 6° below, 0.17 across.
     const entity = h.positions[0]!;
-    expect(entity.y).toBeCloseTo(datum.y - 2 * 1.6, 2);
-    expect(Math.hypot(entity.x - datum.x, entity.z - datum.z)).toBeLessThan(0.1);
+    expect(entity.y).toBeCloseTo(datum.y - 2 * 1.6, 1);
+    expect(entity.y).toBeLessThan(datum.y - 3.15);
+    expect(Math.hypot(entity.x - datum.x, entity.z - datum.z)).toBeLessThan(0.25);
     expect(cartUpY(h)).toBeLessThan(-0.9);
     // Player rotation stays upright, as before.
     expect(h.entity.teleport.mock.calls[0][1].rotation.x).toBe(0);
@@ -1740,8 +1823,10 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
     // Upright at the top of the lift: the up vector on the delivered deck is gravity's.
     expect(runtime!.up.at(-1)![1]).toBeGreaterThan(0.99);
     // Through the two helical loops the transported frame would leave the cars
-    // 61-84 degrees on their side; the physical up is within 20 degrees of
-    // gravity's wherever the track is upright.
+    // 61-84 degrees on their side; the physical up is within 21 degrees of
+    // gravity's wherever the track is upright. The most is at the steep entry
+    // of the second loop (20.2 at arc 76.5), where the up follows the loop's
+    // own normal rather than gravity's (`LOOP_STEEP_LEVEL`).
     const path = runtime!.path;
     let worstTwist = 0;
     for (let i = 1; i < path.points.length - 1; i++) {
@@ -1756,6 +1841,68 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
       worstTwist = Math.max(worstTwist, twist);
     }
     expect(worstTwist).toBeLessThan(21);
+  }, 240_000);
+  it('turns over through BOTH loops without swivelling, and keeps its speed over every top', async () => {
+    // Device report 2026-09-24: "first upside-down swivel fixed but still
+    // occurs during second upside-down loop", and the train "creeps to nearly
+    // stopped" upside down. The serialized runtime, riderless, over two laps.
+    const { scene } = await corpusRoutes(PUBLISHED_10303);
+    const h = liftHost(scene.routes[0]!);
+    const route = h.route, path = route.path, cars = route.cars;
+    const radius = route.loopRadius!;
+    expect(radius).toBeGreaterThan(3); expect(radius).toBeLessThan(5);
+    const upYAt = (arc: number) => {
+      let i = 0; while (i < path.points.length - 2 && path.cumulative[i + 1]! <= arc) i++;
+      const ratio = (arc - path.cumulative[i]!) / (path.cumulative[i + 1]! - path.cumulative[i]!);
+      return route.up[i]![1] + (route.up[i + 1]![1] - route.up[i]![1]) * ratio;
+    };
+    const rows: Array<Array<{ arc: number; yaw: number; upY: number; speed: number }>> = [[], [], []];
+    for (let t = 0; t < 2600; t++) {
+      h.run(1);
+      if (h.phase() !== 'track') continue;
+      const centre = h.distance(), speed = h.speed();
+      for (let slot = 0; slot < 3; slot++) {
+        const calls = h.cars[slot]!.entity.tryTeleport.mock.calls as any[][];
+        if (!calls.length) continue;
+        const arc = centre + cars.extent / 2 - slot * cars.spacing;
+        rows[slot]!.push({ arc, yaw: calls.at(-1)![1].rotation.y, upY: upYAt(arc), speed });
+      }
+    }
+    const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
+    const loops = new Set<number>();
+    let tops = 0;
+    for (const log of rows) {
+      for (let k = 1; k < log.length; k++) {
+        if (!(log[k]!.upY < 0 && log[k - 1]!.upY >= 0)) continue;
+        let end = k; while (end < log.length - 1 && log[end + 1]!.upY < 0) end++;
+        if (end - k < 3) continue; // the vertical drop grazes up.y 0; a loop spends many ticks inverted
+        loops.add(Math.round(log[k]!.arc / 10));
+        // The run inverted plus 3 blocks of track either side of it.
+        let from = k, to = end;
+        while (from > 0 && Math.abs(log[from - 1]!.arc - log[k]!.arc) < 3) from--;
+        while (to < log.length - 1 && Math.abs(log[to + 1]!.arc - log[end]!.arc) < 3) to++;
+        let range = 0, worstStep = 0;
+        for (let j = from; j <= to; j++) {
+          range = Math.max(range, turn(log[from]!.yaw, log[j]!.yaw));
+          if (j > from) worstStep = Math.max(worstStep, turn(log[j - 1]!.yaw, log[j]!.yaw));
+        }
+        // Before: 101 degrees and up to 53 in one tick on the second loop.
+        // Now the most is the first loop's own helix lean (12 degrees) plus a
+        // one-tick 5-degree blip at its apex, where the extracted polyline
+        // jogs sideways at a fragment join (track data, not the runtime).
+        expect(range).toBeLessThan(20);
+        expect(worstStep).toBeLessThan(10);
+        for (let j = k; j <= end; j++) {
+          if (log[j]!.upY > -0.9) continue;
+          tops++;
+          // Before: 2.5 blocks/s on the chain over the first loop's top, where
+          // sqrt(g r) is the least that holds the car on the rails.
+          expect(log[j]!.speed).toBeGreaterThan(1.2 * Math.sqrt(COASTER_PHYSICS.GRAVITY * radius));
+        }
+      }
+    }
+    expect(loops.size).toBeGreaterThanOrEqual(2);
+    expect(tops).toBeGreaterThan(0);
   }, 240_000);
 });
 

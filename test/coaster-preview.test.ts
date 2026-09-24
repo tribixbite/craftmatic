@@ -203,3 +203,34 @@ describe('coasterCarEyePoint', () => {
     expect(eye[1]).toBeCloseTo(COASTER_PHYSICS.RIDER_EYE);
   });
 });
+
+describe('stepCoasterPreviewTick — an inverting helical loop', () => {
+  /** Level station, then one helical loop of radius 4 drifting 1.5 blocks sideways, then level again. Open. */
+  function helixLoop(): CoasterPreviewRouteInput {
+    const r = 4, step = 0.2, points: Array<[number, number, number]> = [];
+    for (let k = 0; k < 60; k++) points.push([0, 0, k * step]);
+    const n = Math.ceil(2 * Math.PI * r / step);
+    for (let k = 0; k < n; k++) { const phi = k / n * 2 * Math.PI; points.push([1.5 * k / n, r - r * Math.cos(phi), 12 + r * Math.sin(phi)]); }
+    for (let k = 0; k <= 60; k++) points.push([1.5, 0, 12 + k * step]);
+    const cumulative = [0];
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!, b = points[i]!;
+      cumulative.push(cumulative[i - 1]! + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]));
+    }
+    return { points, cumulative, length: cumulative.at(-1)!, closed: false, station: { start: 0, end: 10, stop: 5 }, cars: { count: 1, spacing: 0, extent: 0 } };
+  }
+
+  it('mirrors the pack: the yaw never swivels and the top is taken at the inversion floor or faster', () => {
+    const { frames, history } = run(helixLoop(), 600);
+    const yaws = frames.map(f => f[0]!.yaw), ups = frames.map(f => f[0]!.up[1]);
+    const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
+    let inverted = 0;
+    for (let k = 1; k < yaws.length; k++) {
+      expect(turn(yaws[k - 1]!, yaws[k]!)).toBeLessThan(5);
+      // The yaw stays near the entry heading (0) through the loop, both ways.
+      if (ups[k]! < 0) { inverted++; expect(turn(0, yaws[k]!)).toBeLessThan(8); }
+      if (ups[k]! < -0.9) expect(history[k + 1]!.speed).toBeGreaterThan(Math.sqrt(COASTER_PHYSICS.GRAVITY * 4));
+    }
+    expect(inverted).toBeGreaterThan(5);
+  });
+});

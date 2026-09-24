@@ -138,6 +138,11 @@ at a render against the box art before shipping; "ragged" is a defect.
   35678/35680/6330 have no LDraw part).
 
 - [ ] Device round for the three packs above (pinball checks listed there).
+- [ ] Coaster second-loop swivel + ride pace (2026-09-24,
+  `docs/bedrock-addon-guide.md` "The second-loop swivel and the crawl over the
+  top"): host-proved only. Rebuild 10303/10261/42703/76417 packs at the
+  merged commit and ride them: no yaw swivel entering/leaving either 10303
+  loop, no crawl over a loop top, 32 blocks/s drops smooth, hoist at 4 b/s.
 - [ ] 76417's dragon: `<Explode>` refID 295 lifts 454 parts 47.8 units but
   would leave a -22 unit gap, so it is refused; the dragon stands beside the
   bank. Find the move that seats it (a second frame, or bags 11-12).

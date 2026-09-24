@@ -27,7 +27,10 @@
  *   limited to `sqrt(2 * brake * remaining)`, which reaches zero exactly at the
  *   platform; departure is a bounded push from the station drive tyres.
  * - **Floor and ceiling** — a floor so the ride can never deadlock on a grade,
- *   and an absolute speed ceiling (`MAX_SPEED`). A tick is integrated in
+ *   an inversion floor so a train is never slower over a loop's top than
+ *   `INVERSION_MARGIN` × sqrt(g r) (rising from zero where the track is
+ *   vertical, so it never kicks), and an absolute speed ceiling (`MAX_SPEED`).
+ *   All of it runs at `COASTER_RIDE_PACE`, real gravity time-scaled. A tick is integrated in
  *   SUBSTEPS no longer than one authored sample spacing, each sampling the
  *   grade where the train actually is, so the polyline's resolution bounds the
  *   integration step and never the speed: a 35-block drop reaches the ceiling
@@ -39,7 +42,9 @@
  * CHORD between its front and rear wheels on the path (`wheelbase`, measured
  * from the set's wheel parts), so a car no longer see-saws over every sample
  * join, and coupled cars differ only by the track's real curvature over one
- * car pitch. Its roll comes from the per-sample up vectors (`coasterTrackUps`):
+ * car pitch. Its yaw is the heading of its AXLE, not of its nose, so it holds
+ * still through every loop, planar or helical (`coasterCarAttitude`). Its
+ * roll comes from the per-sample up vectors (`coasterTrackUps`):
  * gravity's up wherever the track is upright — LEGO track moulds are never
  * banked — and the loop's own normal through a loop, with a bounded twist rate
  * between the two. A pure parallel transport carried the helical loops'
@@ -312,6 +317,8 @@ export interface CoasterRuntimeRoute {
   /** A measured chain drive: the chain assist engages only on this arc span. Absent keeps it on every climb. */
   chain?: { start: number; end: number };
   lift?: CoasterRuntimeLift;
+  /** Radius of the route's inversions, model blocks (`coasterLoopRadius`); absent on a route that never inverts. */
+  loopRadius?: number;
 }
 
 /**
@@ -373,33 +380,59 @@ export const RIDE_INTERACT_TEXT = 'Ride the coaster';
  * `physics: COASTER_PHYSICS`, so the device and anything off-device that wants
  * the same numbers (the add-on walk preview) share exactly one definition.
  */
+/**
+ * How much faster than real time the ride runs: every speed is multiplied by
+ * it and every acceleration by its square, which is the SAME ride — the same
+ * track, the same energy, the same loops made or missed — played back faster.
+ *
+ * At 1 (true 9.8 blocks/s² gravity) the device report of 2026-09-24 was "all
+ * coasters are about 50 % too slow", and it is easy to see why: a set at
+ * minifig scale is a real-sized ride built with toy radii — 10303's loops are
+ * 3.7 blocks across the middle, a real family coaster's are 7-10 m — so the
+ * speeds that real gravity gives are right for the height and read as a
+ * crawl for the curvature. Time-scaling keeps every ratio the rest of this
+ * file was tuned on (drag v² scales with gravity, so it is left alone) and is
+ * the one knob that answers "faster" without re-tuning the brake, the chain
+ * or the dwell. Measured per set in `docs/bedrock-addon-guide.md`.
+ */
+export const COASTER_RIDE_PACE = 1.6;
+
 export const COASTER_PHYSICS = {
-  /** Earth gravity along the track tangent, blocks/s². */
-  GRAVITY: 9.8,
+  /** Gravity along the track tangent, blocks/s²: Earth's, time-scaled by the pace. */
+  GRAVITY: 9.8 * COASTER_RIDE_PACE ** 2,
   /** Constant wheel and bearing loss, blocks/s². */
-  ROLLING: 0.12,
-  /** Quadratic drag coefficient, 1/block: the loss term is DRAG * v². */
+  ROLLING: 0.12 * COASTER_RIDE_PACE ** 2,
+  /** Quadratic drag coefficient, 1/block: the loss term is DRAG * v². Pace-invariant. */
   DRAG: 0.008,
   /** Speed floor, blocks/s. The ride may never deadlock on a grade. */
-  MIN_SPEED: 0.8,
-  /** Absolute speed ceiling, blocks/s, independent of wand size. */
-  MAX_SPEED: 16,
+  MIN_SPEED: 0.8 * COASTER_RIDE_PACE,
+  /** Absolute speed ceiling, blocks/s, independent of wand size. Every drop
+   * the ceiling clips loses energy for good, and 16 (the old, unpaced value)
+   * cost 10303 the speed its first loop needed: the train crawled over the
+   * top on the chain. */
+  MAX_SPEED: 32,
+  /** A train through an inversion keeps at least this multiple of the
+   * minimum speed that holds it on a loop of the route's radius at the apex,
+   * sqrt(g r), scaled by how far it is over (`coasterRuntime`). */
+  INVERSION_MARGIN: 1.3,
   /** Chain lift: engages only above this grade and holds exactly LIFT_SPEED. */
-  LIFT_GRADE: 0.08, LIFT_SPEED: 2.5, LIFT_ACCEL: 12,
+  LIFT_GRADE: 0.08, LIFT_SPEED: 2.5 * COASTER_RIDE_PACE, LIFT_ACCEL: 12 * COASTER_RIDE_PACE ** 2,
   /** Station brake, blocks/s²; the limit curve reaches zero at the platform. */
-  STATION_BRAKE: 3.5,
+  STATION_BRAKE: 3.5 * COASTER_RIDE_PACE ** 2,
   /** Station drive tyres pushing the cart out of the platform, blocks/s. */
-  DEPART_SPEED: 3,
+  DEPART_SPEED: 3 * COASTER_RIDE_PACE,
   /** Platform dwell in ticks: longer with nobody aboard, loaded is shorter, a
    * boarding player always gets BOARD_TICKS before departure. */
   DWELL_EMPTY: 100, DWELL_LOADED: 60, BOARD_TICKS: 40,
   /** Platform lift: hoist speed (world blocks/s), the pause before it rises
    * and after it arrives (ticks), and the clearance (model blocks) the train
    * must keep past the deck before it goes back down. */
-  PLATFORM_SPEED: 2.5, PLATFORM_DWELL: 30, PLATFORM_CLEARANCE: 1,
+  PLATFORM_SPEED: 2.5 * COASTER_RIDE_PACE, PLATFORM_DWELL: 30, PLATFORM_CLEARANCE: 1,
   /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
   RIDER_EYE: 1.25,
-  /** How much horizontal a tangent needs before its azimuth may set the car's yaw. */
+  /** How horizontal a car's AXLE must be (its horizontal fraction) before the
+   * heading at right angles to it may set the yaw; below it (a car on its
+   * side) the last yaw is held. See `coasterCarAttitude`. */
   YAW_HOLD_HORIZONTAL: 0.20,
   /** Declared range of the body-offset properties, model units. */
   BODY_RANGE: 320,
@@ -557,6 +590,24 @@ const LOOP_RADIUS_MAX = 8;
 const TRACK_LEVEL_MIN = 0.05;
 /** Curvature is measured between tangents this far either side of a sample, so one kinked join is not a loop. */
 const CURVATURE_HALF_WINDOW = 0.75;
+/**
+ * Steeper than this (the tangent's horizontal fraction; 0.8 is a pitch of 37
+ * degrees) a sample inside a loop-tight vertical curve follows the curve's
+ * normal even while it is still near upright, instead of gravity's up.
+ *
+ * Gravity's up, projected off a steep tangent, leans toward whatever sideways
+ * component that tangent has, and a LEGO loop's entry and exit carry one (the
+ * loop is a helix, its exit a track width off its entry): on 10303 the
+ * gravity target rolled the up 48 degrees off the loop's own plane at pitches
+ * of 60-77 degrees going into and out of its second loop, and the car's yaw,
+ * taken from that up's axle (`coasterCarAttitude`), still swung 43 degrees
+ * there. With the normal taking over from 37 degrees the up stays within 10
+ * degrees of the loop's plane and the yaw within 13 degrees (the first loop's
+ * own lean) through both loops. 0.5 (60 degrees) was measured
+ * too: it leaves 20 degrees of the lean and a 19-degree yaw swing. Level track
+ * (and so every dip a level car rides) never reaches this branch.
+ */
+const LOOP_STEEP_LEVEL = 0.8;
 
 /**
  * The physical up vector at every authored sample. Parallel transport
@@ -570,7 +621,8 @@ const CURVATURE_HALF_WINDOW = 0.75;
  * target — gravity's up projected off the tangent where the track is upright
  * (weighted by how upright and how level it is), the smoothed curve normal
  * where the track bends in a vertical plane tighter than `LOOP_RADIUS_MAX`
- * with its centre on the car's up side (a loop or a dip, never a crest) — at
+ * with its centre on the car's up side (a loop or a dip, never a crest) and is
+ * either steeper than `LOOP_STEEP_LEVEL` or already banked past 60 degrees — at
  * no more than `TRACK_TWIST_RATE_DEG_PER_BLOCK`, and a correction applied at
  * one sample is carried by the transport into every later one. Vertical and
  * inverted track outside a loop keeps the transport. A closed route's seam
@@ -614,13 +666,18 @@ export function coasterTrackUps(path: CoasterPath): CoasterVec3[] {
     const level = Math.hypot(t[0], t[2]);
     const gravity = level > TRACK_LEVEL_MIN ? perpendicular([0, 1, 0], t) : undefined;
     const upright = gravity ? dot(up, gravity) : -1;
-    if (upright > 0.5 && gravity) {
+    const loop = curvature > 1 / LOOP_RADIUS_MAX && Math.abs(binormal[1]) < 0.5 && dot(normal, up) > 0.5;
+    if (loop && level < LOOP_STEEP_LEVEL) {
+      // Steep inside a loop-tight vertical curve: the loop's normal, which
+      // gravity's up only approximates here (`LOOP_STEEP_LEVEL`).
+      target = normal; weight = 1;
+    } else if (upright > 0.5 && gravity) {
       // Within 60 degrees of upright: gravity's up, weighted by how upright and how level.
       target = gravity; weight = upright * level;
-    } else if (curvature > 1 / LOOP_RADIUS_MAX && Math.abs(binormal[1]) < 0.5 && dot(normal, up) > 0.5) {
+    } else if (loop) {
       // Banked past that inside a vertical curve with its centre on the car's
-      // up side: the loop's normal. A dip is upright and never reaches here, so
-      // the sample-join noise in a polyline's normal cannot roll a level car.
+      // up side: the loop's normal. A level dip is upright and never reaches
+      // here, so the sample-join noise in a polyline's normal cannot roll a level car.
       target = normal; weight = 1;
     } else if (upright > 0 && gravity) {
       target = gravity; weight = upright * level;
@@ -636,6 +693,99 @@ export function coasterTrackUps(path: CoasterPath): CoasterVec3[] {
   }
   if (path.closed) ups[last] = ups[0]!;
   return ups;
+}
+
+/** Half-width, model blocks, of the tangent window a loop's radius is measured over: wide enough to span a sample-join jog, narrow against a 3.7-block loop. */
+const LOOP_RADIUS_HALF_WINDOW = 1.5;
+
+/**
+ * The radius (model blocks) of the route's inversions: the median, over every
+ * sample whose up points below the horizon, of the curve radius measured
+ * between tangents `LOOP_RADIUS_HALF_WINDOW` either side. 0 for a route that
+ * never inverts. The median, because a single sample-join jog can read as a
+ * straight (infinite radius) or a kink (zero) and one loop's samples outvote it.
+ * The runtime keeps a train through an inversion at `INVERSION_MARGIN` ×
+ * sqrt(g r); the add-on preview calls this same function.
+ */
+export function coasterLoopRadius(path: CoasterPath, ups: readonly CoasterVec3[]): number {
+  const points = path.points, cumulative = path.cumulative, last = points.length - 1;
+  const tangent = (i: number): Vec3 => {
+    const a = points[Math.max(0, i - 1)]!, b = points[Math.min(last, i + 1)]!;
+    const d = sub3(b, a), l = len3(d);
+    return l > 1e-12 ? [d[0] / l, d[1] / l, d[2] / l] : [0, 0, 0];
+  };
+  const radii: number[] = [];
+  for (let i = 0; i <= last; i++) {
+    if (!(ups[i]![1] < 0)) continue;
+    let before = i, after = i;
+    while (before > 0 && cumulative[i]! - cumulative[before]! < LOOP_RADIUS_HALF_WINDOW) before--;
+    while (after < last && cumulative[after]! - cumulative[i]! < LOOP_RADIUS_HALF_WINDOW) after++;
+    const span = cumulative[after]! - cumulative[before]!;
+    const turn = len3(sub3(tangent(after), tangent(before)));
+    if (span > 0 && turn > 1e-6) radii.push(span / turn);
+  }
+  if (!radii.length) return 0;
+  radii.sort((a, b) => a - b);
+  return radii[Math.floor(radii.length / 2)]!;
+}
+
+// ─── Car attitude ────────────────────────────────────────────────────────────
+
+/** A car's pose as Bedrock draws it: entity yaw, then the `track_pitch` bone, then `track_roll`, all degrees. */
+export interface CoasterCarAttitude { yaw: number; pitch: number; roll: number }
+
+/**
+ * Split a car's nose and up (unit-ish vectors in ONE frame, world or model)
+ * into the entity yaw and the two bone angles the pack animates, choosing the
+ * yaw so it never swivels.
+ *
+ * The yaw is the azimuth of the car's HEADING — the horizontal direction at
+ * right angles to its axle (`nose × up`) — not the azimuth of its nose. The two
+ * agree exactly on upright unbanked track, which is every LEGO track outside a
+ * loop. Through a loop they do not: the nose passes vertical twice, and near
+ * vertical its horizontal part is whatever small sideways component the track
+ * has. A LEGO loop is a HELIX (its exit is offset one track width from its
+ * entry), so on 10303's second loop the nose azimuth swung 69 degrees in the
+ * ticks before the car counted as inverted (up to 53 in one tick), the yaw was
+ * then HELD there through the loop and swung back on the way out — a
+ * 101-degree swivel of the rider, whose camera turns with the entity's yaw.
+ * The first loop happens to enter square, which is why the earlier hold fixed
+ * it and not the second.
+ * The axle is horizontal through any loop, planar or helical, and turns only
+ * as fast as the track really turns, so a yaw taken from it is continuous with
+ * no hold, no threshold on the nose and no memory of which loop it is in.
+ *
+ * `fallbackYaw` serves only a car rolled onto its side (the axle within
+ * `1 - headingMin` of vertical), where the axle's azimuth is undefined. The
+ * pitch then runs continuously through ±180 in the heading's own vertical
+ * plane and the roll is what is left of the up about the nose. This function
+ * is serialized into the pack (passed to `coasterRuntime` like
+ * `sampleCoasterPath`), so it may reference nothing outside its own body.
+ */
+export function coasterCarAttitude(nose: readonly number[], up: readonly number[], fallbackYaw: number, headingMin = 0.2): CoasterCarAttitude {
+  const nLength = Math.hypot(nose[0]!, nose[1]!, nose[2]!) || 1;
+  const n = [nose[0]! / nLength, nose[1]! / nLength, nose[2]! / nLength];
+  const along = up[0]! * n[0]! + up[1]! * n[1]! + up[2]! * n[2]!;
+  let u = [up[0]! - along * n[0]!, up[1]! - along * n[1]!, up[2]! - along * n[2]!];
+  const uLength = Math.hypot(u[0]!, u[1]!, u[2]!);
+  u = uLength > 1e-9 ? [u[0]! / uLength, u[1]! / uLength, u[2]! / uLength] : [0, 1, 0];
+  // The axle (nose × up) and the heading at right angles to it in the
+  // horizontal plane (world up × axle); for a level car the heading IS the nose.
+  const axleX = n[1]! * u[2]! - n[2]! * u[1]!, axleZ = n[0]! * u[1]! - n[1]! * u[0]!;
+  const headingX = axleZ, headingZ = -axleX;
+  const toDeg = 180 / Math.PI;
+  const yaw = Math.hypot(headingX, headingZ) > headingMin ? Math.atan2(-headingX, headingZ) * toDeg : fallbackYaw;
+  const yawRad = yaw / toDeg, sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
+  // Pitch: the nose in the yawed heading's vertical plane; it runs past ±90 through a loop.
+  const alongHeading = -n[0]! * sinYaw + n[2]! * cosYaw;
+  const pitch = -Math.atan2(n[1]!, alongHeading) * toDeg;
+  // Roll: remove the entity yaw, then the bone pitch, from the up.
+  const pitchRad = pitch / toDeg;
+  const localX = u[0]! * cosYaw + u[2]! * sinYaw;
+  const yawZ = -u[0]! * sinYaw + u[2]! * cosYaw;
+  const localY = u[1]! * Math.cos(pitchRad) + yawZ * Math.sin(pitchRad);
+  const roll = Math.atan2(-localX, localY) * toDeg;
+  return { yaw, pitch, roll };
 }
 
 // ─── Small geometry helpers (config time; the runtime carries its own) ───────
@@ -929,8 +1079,11 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       }
       dispatch = { hold: round3(hold), lap: round3(lap), ahead: round3(lap * COASTER_DISPATCH_FRACTION) };
     }
+    const up = coasterTrackUps(path);
+    const loopRadius = coasterLoopRadius(path, up);
     return {
-      label: route.label, path, up: coasterTrackUps(path), maxSpacing: coasterMaxSpacing(path), station, cars, direction,
+      label: route.label, path, up, maxSpacing: coasterMaxSpacing(path), station, cars, direction,
+      ...(loopRadius > 0 ? { loopRadius: round3(loopRadius) } : {}),
       ...(dispatch ? { dispatch } : {}),
       ...(lift?.kind === 'chain' ? { chain: { start: round3(Math.min(lift.arcStart, lift.arcEnd) + deckLength), end: round3(Math.max(lift.arcStart, lift.arcEnd) + deckLength) } } : {}),
       ...(runtimeLift ? { lift: runtimeLift } : {}),
@@ -1537,7 +1690,7 @@ function platformRouteLift(found: CoasterPlatformLift, assemblies: CoasterAssemb
 
 // Serialized with the pure sampler into the pack. No imports may be captured,
 // so every tuning constant is declared inside this function body.
-function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath) {
+function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath, attitude: typeof coasterCarAttitude) {
   // ── Ride physics (see the module header for the model and its units) ──
   // Every value below comes from `config.physics` (== `COASTER_PHYSICS`,
   // JSON-serialized into CONFIG by `coasterRuntimeConfig`) rather than a
@@ -1553,6 +1706,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const DRAG = PHYSICS.DRAG ?? 0.008;
   const MIN_SPEED = PHYSICS.MIN_SPEED ?? 0.8;
   const MAX_SPEED = PHYSICS.MAX_SPEED ?? 16;
+  const INVERSION_MARGIN = PHYSICS.INVERSION_MARGIN ?? 1.3;
   const LIFT_GRADE = PHYSICS.LIFT_GRADE ?? 0.08, LIFT_SPEED = PHYSICS.LIFT_SPEED ?? 2.5, LIFT_ACCEL = PHYSICS.LIFT_ACCEL ?? 12;
   const STATION_BRAKE = PHYSICS.STATION_BRAKE ?? 3.5;
   const DEPART_SPEED = PHYSICS.DEPART_SPEED ?? 3;
@@ -1560,7 +1714,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const PLATFORM_SPEED = PHYSICS.PLATFORM_SPEED ?? 2.5, PLATFORM_DWELL = PHYSICS.PLATFORM_DWELL ?? 30, PLATFORM_CLEARANCE = PHYSICS.PLATFORM_CLEARANCE ?? 1;
   /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
   const RIDER_EYE = PHYSICS.RIDER_EYE ?? 1.25;
-  // How much horizontal a tangent needs before its azimuth may set the car's yaw.
+  // How horizontal a car's axle must be before its heading may set the yaw (`coasterCarAttitude`).
   const YAW_HOLD_HORIZONTAL = PHYSICS.YAW_HOLD_HORIZONTAL ?? 0.20;
   /** Declared range of the body-offset properties, model units. */
   const BODY_RANGE = PHYSICS.BODY_RANGE ?? 320;
@@ -1607,6 +1761,17 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const chord = [front[0] - rear[0], front[1] - rear[1], front[2] - rear[2]];
     const length = Math.hypot(chord[0], chord[1], chord[2]);
     return length > 1e-6 ? [chord[0] / length, chord[1] / length, chord[2] / length] : locate(path, arc).tangent;
+  };
+  /** The track's up vector at an arc, interpolated between authored samples. */
+  const upAt = (route: any, arc: number): number[] => {
+    const path = route.path, total = path.length;
+    const distance = path.closed ? ((arc % total) + total) % total : Math.max(0, Math.min(total, arc));
+    let low = 0, high = path.points.length - 2;
+    while (low < high) { const middle = (low + high + 1) >> 1; if (path.cumulative[middle] <= distance) low = middle; else high = middle - 1; }
+    const length = path.cumulative[low + 1] - path.cumulative[low];
+    const ratio = length > 0 ? (distance - path.cumulative[low]) / length : 0;
+    const a = route.up[low], b = route.up[low + 1];
+    return [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio, a[2] + (b[2] - a[2]) * ratio];
   };
   const tick = () => {
     ticks++;
@@ -1846,7 +2011,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             // Integrate in substeps no longer than one authored sample spacing,
             // each sampling the grade where the train actually is: the polyline
             // bounds the integration step, never the speed.
-            const bound = (speed + (GRAVITY + LIFT_ACCEL) / 20) / (20 * scale);
+            // The inversion floor can lift the speed mid-tick, so it bounds the substep too.
+            const inversionFloor = route.loopRadius > 0 ? INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale) : 0;
+            const bound = (Math.max(speed, inversionFloor) + (GRAVITY + LIFT_ACCEL) / 20) / (20 * scale);
             const substeps = Math.max(1, Math.ceil(bound / route.maxSpacing));
             const dt = 1 / 20 / substeps;
             let advanced = 0;
@@ -1864,6 +2031,17 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
               const chainHere = !route.chain || (here >= route.chain.start - extent / 2 && here <= route.chain.end + extent / 2);
               if (chainHere && grade > LIFT_GRADE && speed < LIFT_SPEED) speed = Math.min(LIFT_SPEED, speed + LIFT_ACCEL * dt);
               speed = Math.max(speed, MIN_SPEED);
+              // Through an inversion the train keeps INVERSION_MARGIN x the
+              // speed that holds it on the loop at the apex, sqrt(g r), scaled
+              // by sqrt(how far over it is): zero where the track is vertical,
+              // so the floor rises from nothing instead of kicking the train at
+              // the side of the loop. It only ever lifts a train that has lost
+              // the energy real track would have given it.
+              if (route.loopRadius > 0) {
+                let lowest = 1;
+                for (const car of list) lowest = Math.min(lowest, upAt(route, carArc(here, car.slot))[1]);
+                if (lowest < 0) speed = Math.max(speed, INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale * -lowest));
+              }
               advanced += speed * dt / scale;
             }
             train.advanced = advanced;
@@ -1959,7 +2137,6 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // The car points along the chord between its wheel contacts, which is
           // the local tangent for a car that measured no wheelbase.
           const tangent = chordAt(path, arc, wheelbaseOf(car)).map((value: number) => value * facing);
-          const horizontal = Math.hypot(tangent[0], tangent[2]);
           const worldTx = tangent[0] * c - tangent[2] * s;
           const worldTz = tangent[0] * s + tangent[2] * c;
           const i = at.segmentIndex;
@@ -1967,36 +2144,16 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const up0 = route.up[i], up1 = route.up[i + 1];
           const up = up0.map((value: number, axis: number) => value + (up1[axis] - value) * ratio);
           const ux = up[0] * c - up[2] * s, uy = up[1], uz = up[0] * s + up[2] * c;
-          // A vertical loop MUST pass through two vertical tangents, and past
-          // the top the heading's horizontal component REVERSES. Taking the yaw
-          // from that horizontal every frame therefore spun the car 180 degrees
-          // about the vertical axis at each loop — the reported "physically
-          // impossible around-track swivel" — and at the vertical itself
-          // `atan2` was reading the azimuth of an almost-zero vector, the blip
-          // just before it (measured on 10303 at arc 370.8: horizontal 0.002).
-          //
-          // The car is on rails, so it turns OVER, it does not spin. While it
-          // is upright and the heading is well conditioned the yaw follows the
-          // track; once the track up has gone under the horizon — the car is in
-          // a loop — the yaw is HELD and the pitch carries the rotation in that
-          // held heading's own vertical plane, running continuously past 90
-          // degrees. Reversing on level track keeps the up above the horizon,
-          // so a shuttle still turns around properly instead of being drawn
-          // upside down.
-          const heldYaw = car.entity.getRotation().y;
-          const upright = uy >= 0 && horizontal > YAW_HOLD_HORIZONTAL;
-          const yaw = upright ? Math.atan2(-worldTx, worldTz) * 180 / Math.PI : heldYaw;
-          const yawHeading = yaw * Math.PI / 180;
-          const alongHeading = -worldTx * Math.sin(yawHeading) + worldTz * Math.cos(yawHeading);
-          const pitch = -Math.atan2(tangent[1], alongHeading) * 180 / Math.PI;
-          // Remove entity yaw then bone pitch from the track up. The remaining
-          // angle is local roll; at a loop apex this turns the cart upside down
-          // without attempting unsupported player-camera roll.
-          const yawRad = yaw * Math.PI / 180, pitchRad = pitch * Math.PI / 180;
-          const localX = ux * Math.cos(yawRad) + uz * Math.sin(yawRad);
-          const yawZ = -ux * Math.sin(yawRad) + uz * Math.cos(yawRad);
-          const localY = uy * Math.cos(pitchRad) + yawZ * Math.sin(pitchRad);
-          const roll = Math.atan2(-localX, localY) * 180 / Math.PI;
+          // The car is on rails, so it turns OVER through a loop, it does not
+          // spin: the yaw is the azimuth of its axle's heading, continuous
+          // through every inversion (`coasterCarAttitude`), and the pitch runs
+          // past 90 degrees in that heading's vertical plane. The fallback is
+          // only for a car on its side; it is the script's own last yaw, never
+          // read back off the entity, whose rotation a rider can disturb.
+          const heldYaw = Number.isFinite(car.state.yaw) ? car.state.yaw : car.entity.getRotation().y;
+          const { yaw, pitch, roll } = attitude([worldTx, tangent[1], worldTz], [ux, uy, uz], heldYaw, YAW_HOLD_HORIZONTAL);
+          car.state.yaw = yaw;
+          const yawRad = yaw * Math.PI / 180;
           // ── Where the rider's head belongs ──
           // The seat is a fixed offset in the entity's yaw-only frame (model
           // +X right, +Y up, +Z back; the entity faces model -Z), so on inverted
@@ -2136,5 +2293,5 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
 /** Emit the same runtime exercised by the host tests. Riders remain upright;
  * pitch animates the cart only, not an unsupported upside-down player pose. */
 export function coasterScript(config: CoasterRuntimeConfig): string {
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${coasterRuntime.toString()})(CONFIG, ${sampleCoasterPath.toString()});\n`;
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${coasterRuntime.toString()})(CONFIG, ${sampleCoasterPath.toString()}, ${coasterCarAttitude.toString()});\n`;
 }
