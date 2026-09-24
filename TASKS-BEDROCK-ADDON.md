@@ -26,7 +26,84 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
-## Active round — 2026-09-22, the set's own cars and a working elevator
+## Active round — 2026-09-23 night: coasters closed, both mapping tables everywhere, pinball
+
+### Packs to test on the device (built from a CLEAN worktree at a commit)
+
+Built with `bun scripts/_playable_ref.ts <source> <out> --label=...` from a
+`git worktree` of the commit named, so the pack name carries a clean stamp.
+Paths, sizes and SHA-256 are in `output/device-round-2026-09-24/PACKS.md`
+(written with the final build). Expect:
+- **42703 Mermaid Roller Coaster Ride** — 3 own cars on a closed 82.6-block
+  circuit (220.3 studs), second train in the bay, no lift. The four
+  mini-dolls stay in the shell (mini-dolls are not rigged).
+- **76417 Gringotts** — the bank now stands ON the rock (assembled from the
+  LXFML's own `<Explode>` frames); one cart shuttles the 58-block vault rail
+  (open at both ends by design), 12 figures, 4 doors. The dragon (215 parts)
+  stands beside the bank, not on it: its move does not seat and is refused.
+  Five goblins show a box for their hair — mould `68498` exists in no LDraw
+  library.
+- **11374 Arcade Pinball Machine** — playable. Sit at the invisible console in
+  front ("Play pinball"). Left/right strafe = flippers, forward = both, hold
+  Jump to charge the plunger, release to launch, sneak to leave. **Device
+  checks, none verified:** (1) the strafe sign (`getMovementVector().x > 0`
+  assumed = left; if the flippers are swapped, flip it in
+  `bedrock-pinball.ts` `pinballRuntime`); (2) the flipper SPIN sign
+  (`flipperAnimation` negates Y like the geometry writer; if a flipper swings
+  DOWN, negate `spinSign`); (3) the free camera's framing; (4) ball smoothness
+  at 20 Hz teleports.
+
+### What changed this round (all committed; craftmatic + clego)
+
+- **Coasters closed.** `DbixConvV3/42703.ldr` and `76417.ldr` are rebuilt
+  from their LXFML by `scripts/_lxfml_to_ldr.ts` (76417 first through
+  `scripts/_lxfml_assemble.ts`), windows/figures seated with clego's
+  assemblers (`--preserve-pose`), graded, index-patched and PUBLISHED; prod
+  serves `7fb06cdf3ded` / `5cc046493222`, index byte-identical to local.
+  42703 route 0 -> 1 closed 220.3 studs; 76417 largest piece 59.4 % -> 91.3 %,
+  severity 1.17 -> 0.38. Shipped bytes backed up under
+  `output/coaster-close-2026-09-23/backup-shipped/` with SHA256SUMS.
+- **Second mapping table everywhere.** craftmatic `gen-ldd-part-map.py` reads
+  lxfv56 MATERIAL-typed rows (`type` = LDD material id; +31 ids, 0 changed);
+  `_lxfml_to_ldr.ts` records sticker parts as comments. clego
+  `reconvert_dbix.py`, `convert_lxf.py`, `download_dbix_lxfml.py` all read
+  lxfv56 (`fill_from_lxfv56`); rows from it, and rails 25061/26559/34738/26022,
+  apply INVERSE in `dbix_align.py` — clego's converter now routes every coaster
+  exactly as craftmatic does. The audit that found the clego gap is in this
+  session's notes; clego's `geograde/lxf_read.py` inherits the fix.
+- **Corpus regeneration** of the 2,016 DbixConvV3 files that place an
+  affected id: `python dbix_lxfv56_regen.py --out <dir>` (8 shards), A/B with
+  `geograde/_ab_dirs.py`, decided by `python dbix_lxfv56_accept.py --trial <dir>`
+  (strictly better, never worse). Raw-origin placements 18,625 -> 12,002 over
+  those files. Trial root `output/dbix-lxfv56-regen/`. See the open item below
+  for the apply/publish state.
+- **60 HuntArchiveLDR files the live index pointed at were 404 on prod** —
+  uploaded; `sync_models_r2.py --verify-legacy` certified the other 20,699
+  (0 failures), so the publisher's receipt gate is clear for future index
+  publishes.
+- **Walk add-on** (Sonnet, reviewed): real minifig geometry instead of
+  markers, coaster cars move riderless (`coaster-preview.ts` shares
+  `COASTER_PHYSICS` with the runtime), E / touch "Interact" boards cars and
+  seats, doors toggle their collider, figures with a pack collision box block
+  the player. Pinball mode in the walk: see open items.
+- **Pinball** — `pinball-table.ts` (reads the table), `pinball-physics.ts`
+  (self-contained sim), `bedrock-pinball.ts` (entities + runtime), rig bones
+  with a static rotation in the compiler. Probe:
+  `bun scripts/_pinball_probe.ts <model.ldr> <out.png>` draws the field.
+
+### Open from this round
+
+- [ ] Device round for the three packs above (pinball checks listed there).
+- [ ] 76417's dragon: `<Explode>` refID 295 lifts 454 parts 47.8 units but
+  would leave a -22 unit gap, so it is refused; the dragon stands beside the
+  bank. Find the move that seats it (a second frame, or bags 11-12).
+- [ ] 42703 has 23 unknown placements (4.5 %): `28650` is a Friends mini-doll
+  head only Studio ships (`bl_110402.dat`), and `39294`, `35678`, `35680`,
+  `6330` are 2026 moulds with no LDraw part yet. `4724` maps to `30089b`
+  through a material row but sits on the measured table.
+- [ ] Mini-dolls (42703's four) are not rigged, so they stay in the shell.
+
+## Previous round — 2026-09-22, the set's own cars and a working elevator
 
 **Current pack, device acceptance NOT yet run:**
 `output/bedrock-entity-qa/10261-mpd-fixed.mcaddon`, 731,388 bytes, SHA256
@@ -132,18 +209,20 @@ Documented in `docs/testing-guide.md`; `tools/console/README.md` for the first.
   reachable/unreachable overlay.
 Neither proves Bedrock's rendering, cull, form text, ride physics or memory.
 
-Next steps for them, none urgent:
+Next steps for them, none urgent (the 2026-09-23 walk upgrade closed the
+door-row, moving-car and figure-marker items):
 - [ ] Console: window filtering must go through the census op (the index's
   `defects` strings never carry "window"); browser and device operations are
   wired but never exercised; `_pixel_perf.sh ref` takes no label.
-- [ ] Preview: `addon-walk.ts` exposes `world.simulated()`/`compareReach`
-  (BFS-vs-player divergence) that the HUD does not surface yet — the natural
-  next step, since that comparison is what found the BFS drop bug.
-- [ ] Preview: no door candidates exist in either coaster pack, so the door row
-  is only exercised by a synthetic test; cars on a route get no reach verdict.
-- [ ] Preview cost: the `three` chunk grew 532.6 -> 554.1 kB because the walk
-  pulls `CapsuleGeometry`/`Box3Helper`/`GridHelper` that were tree-shaken
-  before. That chunk loads with the viewer, so ~21 kB is paid by everyone.
+- [ ] Walk: `world.simulated()`/`compareReach` (BFS-vs-player divergence) is
+  still not on the HUD. Left as `// TODO:` in code by the walk upgrade: the
+  second train renders parked, the platform lift is an analogue of the
+  runtime's path splice, car pitch/roll bank is not animated, a door leaf
+  swings about its origin rather than its hinge, an opened door's collider
+  box still draws.
+- [ ] Walk cost: the `three` chunk grew 532.6 -> 554.1 kB when the walk
+  landed (`CapsuleGeometry`/`Box3Helper`/`GridHelper`); re-measure after the
+  2026-09-23 upgrade.
 
 ### Fixed 2026-09-22 evening: the grey cart was a SOURCE-SHAPE bug (`ce50c838`)
 
@@ -198,7 +277,7 @@ sets / 3,492 lines, same shape). Still skipped, on purpose.
 can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
 249. It restores a snapshot.
 
-### Coaster track: the engine is FIXED, the shipped corpus files are NOT
+### Coaster track: engine and shipped files both fixed (2026-09-23)
 
 Landed in `e2d65180` / `021b2bbd`; the cause and the two agreeing derivations
 are in those commit messages and in CLAUDE.md's "Studio ships TWO LDraw mapping
@@ -210,24 +289,9 @@ Engine-path results, for regression comparison: 42703 **1 closed route,
 at both ends by design; 60421/60501 95.5 open → 239.9 closed; 60228 51.9 →
 118.7.
 
-- [ ] **The shipped corpus files are still wrong — this is the item that
-  decides whether a user sees any of it.** The fix reaches the app's
-  `.lxf`/LXFML path and `_lxfml_to_ldr.ts` only. `DbixConvV3/42703.ldr` and
-  `DbixConvV3/76417.ldr` are clego's conversions and are unchanged. Measured
-  2026-09-23 with `bun scripts/_coaster_track_gaps.ts <model.ldr>`:
-
-  | 76417 source | internal joins |
-  |---|---|
-  | `C:/git/clego/lego_sets/DbixConvV3/76417.ldr` (what prod serves) | 160.4 – 510.1 LDU apart |
-  | regenerated from `DBIX/76417/VX1035766_sm01.lxfml` | **0.00 LDU, every join** |
-
-  Regenerate with
-  `bun scripts/_lxfml_to_ldr.ts <lxfml> <out.ldr>`, then republish per the
-  publication rules below. Doing this touches the SHARED `C:/git/clego`
-  checkout — read "Repository and publication boundaries" first.
-- [ ] **98 placements (40 design ids) in 76417 still have no alignment row at
-  all** and use their raw LDD origin; `_lxfml_to_ldr.ts` prints this per file
-  (4,581 of 4,932 exact, 253 measured fallback). None is track. Unexamined.
+- [ ] **30 placements (16 design ids) in the rebuilt 76417 still have no
+  alignment row** (down from 98 once the material rows and stickers were
+  handled); `_lxfml_to_ldr.ts` prints this per file. None is track. Unexamined.
 - [ ] **258 of the 263 added rows are unvalidated.** Only the five coaster
   moulds are proven (by route closure). The GEO gate is blind to the rest — its
   54 ground-truth sets contain zero placements of any added id (65.73 %
@@ -387,7 +451,8 @@ checkout, so the same gaps there need fixing in THAT repo.
 - [ ] **8 of 38 favourites ship as SEVERAL sub-builds laid out side by side,
   not assembled** — measured with `bun scripts/_source_connectivity.ts`,
   counting a piece holding 5 %+ of the model as a sub-build:
-  60446 51.4 % largest / 3 sub-builds, 76417 59.4 % / 2, 10354 72.5 % / 2,
+  60446 51.4 % largest / 3 sub-builds, 76417 59.4 % / 2 (FIXED 2026-09-23:
+  91.3 %, assembled from its own `<Explode>` frames), 10354 72.5 % / 2,
   77092 73.6 % / 2, 42652 86.7 % / 2, 76269 89.6 % / 2, 42639 90.5 % / 2,
   42663 90.7 % / 2. (71043 is an `.lxf`; the LDraw reader returns nothing for
   it, so it is UNMEASURED rather than 0 %.) 76417 is the case the device

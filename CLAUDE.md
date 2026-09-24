@@ -120,7 +120,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   spiral, where each piece carries a different rotation and the missing `R·e`
   displaces every one differently — it is why no coaster's track routed. When a
   placement is wrong for a whole class of part, check BOTH tables name it
-  before assuming the source is bad.
+  before assuming the source is bad. **A row's `type` is an LDD MATERIAL id**
+  (`80133` has identical rows for materials 21, 24 and 5), not a direction;
+  only `to_lego` is reverse — 95 ids exist only as material rows. Since
+  2026-09-23 every converter reads both tables: this repo's generator, and
+  clego's `reconvert_dbix.py` / `convert_lxf.py` / `download_dbix_lxfml.py`
+  through `fill_from_lxfv56`, applied INVERSE as `lxf-parser.ts` applies every
+  Studio row.
 - **`bl_<id>.dat` is the same LEGO design in a DIFFERENT origin frame.** Studio
   ships BrickLink copies beside the upstream part (header `BL_Item_No`) and
   sources place either name, so `partStem` gives `bl_80566` and every match
