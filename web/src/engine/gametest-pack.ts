@@ -726,12 +726,13 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const heldOk = row.heldBefore === 'minecraft:stick' && row.heldSeated === 'none';
     row.restAngles = flipAngles();
 
-    const pulse = async (label: string, act: () => unknown): Promise<any> => {
+    const pulse = async (label: string, act: () => unknown, extra?: () => unknown): Promise<any> => {
       const rest = flipAngles();
       const out: any = { label, rest, returned: act(), samples: [] as unknown[] };
       // The same tick as the tap: the runtime raises the flipper inside the event.
       out.sameTick = flipAngles();
-      for (let i = 0; i < 16; i++) { await test.idle(1); out.samples.push(flipAngles()); }
+      out.extra = [] as unknown[];
+      for (let i = 0; i < 16; i++) { await test.idle(1); out.samples.push(flipAngles()); if (extra) out.extra.push(extra()); }
       out.slotAfter = sim.selectedSlotIndex;
       // Largest move of each flipper from rest over the 16 ticks.
       out.maxMove = flippers.map((_, k) => Math.round(Math.max(0, ...out.samples.map((sm: any) => Math.abs(Number(sm[k]) - Number(rest[k])) || 0))));
@@ -750,7 +751,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     row.targetPress = [];
     row.targetSameTick = [];
     for (const t of targets) {
-      const r = await pulse('target hit', () => { const v = sim.attackEntity(t); row.targetPress.push(pressOf()); return v; });
+      const r = await pulse('target hit', () => sim.attackEntity(t), pressOf);
+      // The most each cabinet button was pressed in over the pulse.
+      row.targetPress.push([0, 1].map(k => Math.max(0, ...r.extra.map((pr: number[]) => Number(pr[k]) || 0))));
       row.targetHits.push(r.maxMove);
       row.targetSameTick.push(r.sameTick);
     }
