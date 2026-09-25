@@ -152,7 +152,9 @@ for (const typeId of [...new Set(placement.actors.map(a => a.typeId))]) {
   }
   const size = Number.isFinite(min[0]) ? { width: (max[0]! - min[0]!) / 16, height: (max[1]! - min[1]!) / 16, length: (max[2]! - min[2]!) / 16 } : { width: 2, height: 2, length: 4 };
   const label = placement.actors.find(a => a.typeId === typeId)?.label ?? cid;
-  vehicles.push({ label, typeId, kind, seats: ent.components['minecraft:rideable']?.seat_count ?? 1, size });
+  // A scripted vehicle (bedrock-vehicle.ts) declares the attitude properties its runtime writes.
+  const scripted = 'craftmatic:fl_pitch' in (ent.description?.properties ?? {});
+  vehicles.push({ label, typeId, kind, seats: ent.components['minecraft:rideable']?.seat_count ?? 1, size, ...(scripted ? { scripted } : {}) });
 }
 
 const plan: GametestPlan = {
@@ -207,6 +209,6 @@ const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
 console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats, ${plan.figures!.length} figures, ${vehicles.length} vehicles${plan.vehiclesOnly ? ' (vehicle tests only)' : ''}${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
-for (const v of vehicles) console.log(`  vehicle ${v.kind.padEnd(5)} ${v.typeId} seats ${v.seats} size ${v.size.width.toFixed(1)}x${v.size.height.toFixed(1)}x${v.size.length.toFixed(1)}`);
+for (const v of vehicles) console.log(`  vehicle ${v.kind.padEnd(5)}${v.scripted ? ' (scripted)' : ''} ${v.typeId} seats ${v.seats} size ${v.size.width.toFixed(1)}x${v.size.height.toFixed(1)}x${v.size.length.toFixed(1)}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);

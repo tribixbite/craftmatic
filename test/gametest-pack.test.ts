@@ -333,12 +333,14 @@ describe('vehicle phases', () => {
 });
 
 /** A fake harness for the vehicle test: the vehicle moves along its heading while the simulated player pushes the stick. */
-function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' }) {
+function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane'; scripted?: boolean }) {
   const origin: Vec3 = { x: 100, y: -60, z: 200 };
   const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
   const logs: string[] = [];
   const registered = new Map<string, (t: any) => Promise<void>>();
-  const plan: GametestPlan = { ...PLAN, doorways: [], vehiclesOnly: true, vehicles: [{ label: 'Demo car', typeId: 'craftmatic:v_demo_1_car', kind: opts.kind, seats: 2, size: { width: 2, height: 1.5, length: 4 } }] };
+  const plan: GametestPlan = { ...PLAN, doorways: [], vehiclesOnly: true, vehicles: [{ label: 'Demo car', typeId: 'craftmatic:v_demo_1_car', kind: opts.kind, seats: 2, size: { width: 2, height: 1.5, length: 4 }, ...(opts.scripted ? { scripted: true } : {}) }] };
+  const sent: any[] = [];
+  let hookTicks = 0;
   const riders: any[] = [];
   let input = { x: 0, y: 0 }, jumping = false;
   const veh: any = {
@@ -350,6 +352,8 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' 
   };
   const step = (): void => {
     if (!opts.drives || !riders.length) return;
+    // A scripted vehicle turns right on x = -1 while its hook input lasts.
+    if (opts.scripted) { if (hookTicks > 0) { hookTicks--; veh.rot.y += -input.x * 3; } else input = { x: 0, y: 0 }; }
     const rad = veh.rot.y * Math.PI / 180;
     veh.location = { x: veh.location.x - Math.sin(rad) * input.y * 0.4, y: veh.location.y + (jumping && opts.kind === 'plane' ? 0.3 : 0), z: veh.location.z + Math.cos(rad) * input.y * 0.4 };
     jumping = false;
@@ -373,17 +377,17 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' 
   const mc = {
     GameMode: { Survival: 'Survival' },
     world: { afterEvents: { playerSpawn: { subscribe() {} }, playerInteractWithEntity: { subscribe() {} }, entityHitEntity: { subscribe() {} } }, getDimension: () => dim, getPlayers: () => [] },
-    system: { afterEvents: { scriptEventReceive: { subscribe() {} } }, runTimeout: (fn: () => void) => fn(), sendScriptEvent() {} },
+    system: { afterEvents: { scriptEventReceive: { subscribe() {} } }, runTimeout: (fn: () => void) => fn(), sendScriptEvent: (id: string, msg: string) => { const m = JSON.parse(msg); sent.push({ id, ...m }); input = { x: m.x, y: m.y }; jumping = m.jump; hookTicks = m.ticks; } },
   };
   const gt = { registerAsync: (_c: string, name: string, fn: (t: any) => Promise<void>) => { registered.set(name, fn); return builder; } };
   const warn = console.warn;
   console.warn = (s2: string) => { if (!s2.startsWith('CMGT_PAD')) logs.push(s2); };
-  try { gametestRuntime({ mc, gt }, plan, arenaSize(plan.dims), GT_MARGIN, judgeWalk, outcomeMatches, judgeFigureTrack, { summarise: summariseVehiclePhase, layout: GT_VEHICLE_LAYOUT }); } finally { console.warn = warn; }
+  try { gametestRuntime({ mc, gt }, plan, arenaSize(plan.dims), GT_MARGIN, judgeWalk, outcomeMatches, judgeFigureTrack, { summarise: summariseVehiclePhase, layout: GT_VEHICLE_LAYOUT, inputEvent: 'craftmatic:flight_input' }); } finally { console.warn = warn; }
   const run = async (name: string) => {
     console.warn = (s2: string) => { if (!s2.startsWith('CMGT_PAD')) logs.push(s2); };
     try { await registered.get(name)!(test); } finally { console.warn = warn; }
   };
-  return { registered, logs, run, outcome };
+  return { registered, logs, run, outcome, sent };
 }
 
 describe('the vehicle test', () => {
@@ -401,9 +405,18 @@ describe('the vehicle test', () => {
     expect(verdict.checks).toMatchObject({ mounted: true, forwardMoves: true, reverseMoves: true, turns: true });
     expect(verdict.ridersWithPassenger).toHaveLength(2);
   });
+  it('drives a scripted boat through its runtime input hook, not the simulated player', async () => {
+    const h = vehicleHarness({ drives: true, kind: 'boat', scripted: true });
+    await h.run('vehicle_demo_1_1');
+    const phases = h.logs.filter(l => l.startsWith('CMGT VEHICLE_PHASE ')).map(l => JSON.parse(l.slice('CMGT VEHICLE_PHASE '.length)));
+    expect(phases.map(p => p.phase)).toEqual(['settle', 'ahead', 'coast', 'rudder_right', 'astern', 'boost', 'shore', 'back_off']);
+    expect(h.sent.every((m: any) => m.id === 'craftmatic:flight_input')).toBe(true);
+    expect(h.sent.map((m: any) => [m.x, m.y, m.jump, m.ticks])).toEqual([[0, 1, false, 80], [-1, 1, false, 60], [0, -1, false, 40], [0, 1, true, 60], [0, 1, false, 120], [0, -1, false, 40]]);
+    expect(phases.find(p => p.phase === 'rudder_right').yawChange).toBeGreaterThan(30);
+  });
   it('fails naming what did not happen when the vehicle does not move', async () => {
     const h = vehicleHarness({ drives: false, kind: 'plane' });
     await h.run('vehicle_demo_1_1');
-    expect(h.outcome.failure).toMatch(/forwardMoves.*reverseMoves.*turns.*climbs/);
+    expect(h.outcome.failure).toMatch(/forwardMoves.*reverseMoves.*turns/);
   });
 });
