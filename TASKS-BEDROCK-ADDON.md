@@ -26,6 +26,23 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## URGENT — device report 2026-09-25 night (user, zip `243f54b1`; screenshots `output/device-report-0925c/`)
+
+Three worktree agents launched (merge per the IN FLIGHT recipe below):
+- [ ] REGRESSION rendering fidelity, all models: horizontal tearing / edge
+  distortion, overlapping layers strobing (z-fight), missing legs + arms,
+  floating hair, mangled faces, no detail on the white owl, floating
+  minifigs, Gringotts upper level translucent. Agent bisects against
+  `1e33902c`, builds offline detectors over the 40 favourites, fixes, checks on
+  the Pixel (924). User asked: is there a newer texture pack to install / old
+  one to remove? (packs ship one 16x16 swatch per colour; no separate pack).
+- [ ] REGRESSION coaster camera: violent stutter on steep inclines/declines
+  + server lag (time slows). Keep the loop look-lock; ONE integrator.
+- [ ] Collider CLEARANCE: rooms/halls/ceilings too tight for a 0.6 x 1.8
+  player. Trim colliders only where provably safe (never reduce free space,
+  never open to outside or through a closed leaf); ceilings too; sub-block
+  collision boxes if Bedrock allows; per-set calculator; 36 SEALED baseline.
+
 ## IN FLIGHT — 2026-09-25 evening "work on open items" (five agents; main at `9e0f60fe`)
 
 Resume recipe for a fresh session: each agent works in its own worktree
