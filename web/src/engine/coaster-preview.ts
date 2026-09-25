@@ -48,7 +48,10 @@ export interface CoasterPreviewRouteInput {
   station?: { start: number; end: number; stop: number };
   chain?: { start: number; end: number };
   lift?: { deckLength: number; travel: readonly [number, number, number]; parkedPoint: readonly [number, number, number] };
-  cars: { count: number; spacing: number; extent: number };
+  /** `heading` ±1: the cars' noses keep their authored way along the route (the set's own cars); absent/0: they face their motion (the fabricated cart). */
+  cars: { count: number; spacing: number; extent: number; heading?: number };
+  /** A fixed ride direction (a circuit, or a lift route), as `coasterRuntime` enforces it; absent/0: a shuttle, which reverses at its ends. */
+  direction?: number;
 }
 
 /** Per-type data this module needs from `AddonPreviewModel.coasterTypes`. */
@@ -65,6 +68,8 @@ export interface CoasterPreviewCarFrame {
   roll: number;
   /** The physical up vector at this frame, model frame (for the "board" camera). */
   up: CoasterVec3;
+  /** The car's nose (unit, model frame): the wheel chord facing its authored heading — the rider camera's forward. */
+  nose: CoasterVec3;
   /** Whether the car is presently under power/gravity (false while dwelling or lifting). */
   moving: boolean;
 }
@@ -99,7 +104,7 @@ export interface CoasterPreviewState {
 /** A fresh train parked at the station (or arc 0 for a route with none), dwelling as a newly-placed empty train does. */
 export function initCoasterPreviewState(route: CoasterPreviewRouteInput, physics: CoasterPhysics = COASTER_PHYSICS): CoasterPreviewState {
   const stop = route.station?.stop ?? 0;
-  return { centre: stop, direction: 1, speed: 0, dwell: physics.DWELL_EMPTY, armed: false, phase: 'track', liftProgress: 0, liftDwell: 0, lastYaw: new Array(Math.max(1, route.cars.count)).fill(0) };
+  return { centre: stop, direction: route.direction === -1 ? -1 : 1, speed: 0, dwell: physics.DWELL_EMPTY, armed: false, phase: 'track', liftProgress: 0, liftDwell: 0, lastYaw: new Array(Math.max(1, route.cars.count)).fill(0) };
 }
 
 const len3 = (v: readonly number[]): number => Math.hypot(v[0]!, v[1]!, v[2]!);
@@ -184,6 +189,10 @@ export function stepCoasterPreviewTick(
   const station = route.station ?? { start: 0, end: 0, stop: 0 };
   const lift = route.lift;
   let { centre, direction, speed, dwell, armed, phase, liftProgress, liftDwell } = state;
+  // A fixed ride direction always wins over the stored one (`coasterRuntime`).
+  if (route.direction === 1 || route.direction === -1) direction = route.direction;
+  // The noses: the authored heading for the set's own cars, else the motion.
+  const facing = route.cars.heading === 1 || route.cars.heading === -1 ? route.cars.heading : direction;
   const lastYaw = [...state.lastYaw];
   const low = route.closed ? 0 : extent / 2, high = route.closed ? total : total - extent / 2;
   const target = route.closed ? station.stop : Math.max(low, Math.min(high, station.stop));
@@ -279,13 +288,14 @@ export function stepCoasterPreviewTick(
     const arc = carArc(next, slot, extent, route.cars.spacing, route.closed, total);
     const at = sampleCoasterPath(path, arc);
     const lifted: CoasterVec3 = lift && carLift > 0 ? add3(at.position, [lift.travel[0] * carLift, lift.travel[1] * carLift, lift.travel[2] * carLift]) : at.position;
-    const tangent = chordAt(path, arc, wheelbaseOfSlot?.(slot));
+    const chord = chordAt(path, arc, wheelbaseOfSlot?.(slot));
+    const tangent: CoasterVec3 = [chord[0] * facing, chord[1] * facing, chord[2] * facing];
     const sampledUp = upAt(path, up, arc);
     // The same decomposition the pack runs (`coasterCarAttitude`): yaw from the
     // axle's heading, continuous through every inversion.
     const { yaw, pitch, roll } = coasterCarAttitude(tangent, sampledUp, lastYaw[slot] ?? 0, physics.YAW_HOLD_HORIZONTAL);
     lastYaw[slot] = yaw;
-    frames.push({ slot, position: lifted, yaw, pitch, roll, up: sampledUp, moving: phase === 'track' && dwell === 0 });
+    frames.push({ slot, position: lifted, yaw, pitch, roll, up: sampledUp, nose: tangent, moving: phase === 'track' && dwell === 0 });
   }
   return { state: { centre: next, direction: nextDirection, speed, dwell, armed, phase, liftProgress, liftDwell, lastYaw }, frames };
 }
@@ -307,12 +317,16 @@ function carArc(centre: number, slot: number, extent: number, spacing: number, c
  * preview ever needs to prove inversion seating rather than just ride motion.
  */
 export function coasterCarEyePoint(frame: CoasterPreviewCarFrame, seat: readonly [number, number, number] | undefined, physics: CoasterPhysics = COASTER_PHYSICS): CoasterVec3 {
-  if (!seat) return add3(frame.position, [frame.up[0] * physics.RIDER_EYE, frame.up[1] * physics.RIDER_EYE, frame.up[2] * physics.RIDER_EYE]);
-  const yawRad = frame.yaw * Math.PI / 180;
-  const nose: CoasterVec3 = [-Math.sin(yawRad), 0, Math.cos(yawRad)];
-  const cu = frame.up;
+  // The car's own frame exactly as `coasterRuntime` builds it for the eye: the
+  // nose, the up made square to it, and right = nose x up.
+  const nose = frame.nose;
+  const along = frame.up[0] * nose[0] + frame.up[1] * nose[1] + frame.up[2] * nose[2];
+  const raw: CoasterVec3 = [frame.up[0] - along * nose[0], frame.up[1] - along * nose[1], frame.up[2] - along * nose[2]];
+  const rawLength = len3(raw) || 1;
+  const cu: CoasterVec3 = [raw[0] / rawLength, raw[1] / rawLength, raw[2] / rawLength];
+  const s = seat ?? [0, 0, 0];
   const right: CoasterVec3 = [nose[1] * cu[2] - nose[2] * cu[1], nose[2] * cu[0] - nose[0] * cu[2], nose[0] * cu[1] - nose[1] * cu[0]];
   const out: [number, number, number] = [0, 0, 0];
-  for (let axis = 0; axis < 3; axis++) out[axis] = frame.position[axis]! + seat[0] * right[axis]! + seat[1] * cu[axis]! - seat[2] * nose[axis]! + physics.RIDER_EYE * cu[axis]!;
+  for (let axis = 0; axis < 3; axis++) out[axis] = frame.position[axis]! + s[0] * right[axis]! + s[1] * cu[axis]! - s[2] * nose[axis]! + physics.RIDER_EYE * cu[axis]!;
   return out;
 }
