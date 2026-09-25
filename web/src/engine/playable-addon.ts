@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
@@ -915,6 +915,8 @@ export interface ClientAnimations {
     /** Molang run once when the client creates the entity, and before every animation frame (an interactive's eased angle). */
     initialize?: string[];
     preAnimation?: string[];
+    /** A render-controller `overlay_color` (Molang r/g/b/a) applied to every geometry: a tint the entity's own properties can drive (the pinball press flash). */
+    overlayColor?: Record<string, string>;
 }
 
 /**
@@ -1034,7 +1036,7 @@ function clientEntity(id: string, bindings: MeshBinding[], opaqueMaterial = 'ent
  * (`LodBinding.distance`), never the bare option: a bare 32 flipped 10303 to
  * its hull for a camera standing at the tracks (2026-09-21).
  */
-function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding): unknown {
+function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding, overlayColor?: Record<string, string>): unknown {
     const controllers: Record<string, unknown> = {};
     const { keyOf } = textureKeys(bindings);
     bindings.forEach((b, i) => {
@@ -1048,6 +1050,7 @@ function meshControllers(id: string, bindings: MeshBinding[], lod?: LodBinding):
             ...lodPair,
             materials: [{ '*': b.translucent ? 'Material.blend' : b.alphaTest ? 'Material.cutout' : 'Material.default' }],
             textures: [`Texture.${keyOf[i]}`],
+            ...(overlayColor ? { overlay_color: overlayColor } : {}),
         };
     });
     return {
@@ -1932,7 +1935,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             { name: `${bp}entities/${ecid}.json`, data: json(behavior) },
             { name: `${rp}entity/${ecid}.entity.json`, data: json(clientEntity(ecid, bindings, 'entity', animations, lod)) },
             { name: `${rp}models/entity/${ecid}.geo.json`, data: geoJson(geo.value) },
-            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, bindings, lod)) },
+            { name: `${rp}render_controllers/${ecid}.render_controllers.json`, data: json(meshControllers(ecid, bindings, lod, animations?.overlayColor)) },
         );
         // One swatch per LDraw colour: exact LDraw RGBA, plus the PBR maps.
         // Shared by every entity in the pack that uses the colour.
@@ -2447,7 +2450,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const cbgeo = await compileLdrawEntityGeometry(cbid, 'prop', b.bricks, { ...compileOpts, rig: b.rig });
                 diagnostics[cbid] = cbgeo.diagnostics;
                 const cbanim = buttonPressAnimation(cbType, plan.map, b.strokeLdu, b.inward);
-                emitCompiledEntity(cbid, cbgeo, pinballPropBehavior(cbType, { width: 0.3, height: 0.3 }, pressProperties()), { animations: { press: cbanim.id }, animate: ['press'] });
+                emitCompiledEntity(cbid, cbgeo, pinballPropBehavior(cbType, { width: 0.3, height: 0.3 }, pressProperties()), { animations: { press: cbanim.id }, animate: ['press'], overlayColor: pressFlashOverlay() });
                 files.push({ name: `${rp}animations/${cbid}.animation.json`, data: json(cbanim.file) });
                 addEntityName(cbType, `${label} ${b.side} flipper button`, false);
                 const cbat = sceneGridPoint(frame, cbgeo.originLdu);
@@ -2498,6 +2501,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${rp}entity/${zid}.entity.json`, data: json(za.client) },
                 { name: `${rp}models/entity/${zid}.geo.json`, data: geoJson(za.geometry) },
             );
+            // The outline's press flash (its own render controller; bedrock-pinball.ts `zoneAssets`).
+            if (za.renderControllers) files.push({ name: `${rp}render_controllers/${zid}.render_controllers.json`, data: json(za.renderControllers) });
             addEntityName(buttonType, `${label} flipper button`, false);
             // The invisible pick boxes taps actually hit (see bedrock-pinball.ts `zoneAt`).
             const emitZone = (zoneId: string, typeId: string, box: { width: number; height: number }, role: 'flipper' | 'plunger' | 'pick', name: string): void => {

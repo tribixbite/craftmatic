@@ -224,7 +224,8 @@ describe('wand runtime: size, aim and turning', () => {
     await h.open({ selection: 11 });
     expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('already marked'));
     await h.open({ selection: 12 }, { selection: 0 }, { canceled: true });
-    expect([...h.playerProperties.values()].join('')).not.toContain('"x"');
+    // (Only the marked-seat store: the Undo record, also on the player, holds coordinates by design.)
+    expect([...h.playerProperties.entries()].filter(([k]) => k.endsWith(':manual_seats')).map(([, v]) => v).join('')).not.toContain('"x"');
   });
 
   it('lifts a figure spawned inside a full collider cell to the first clear cell, and says so when the aim finds no block', async () => {

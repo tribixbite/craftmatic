@@ -83,7 +83,7 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   const system = { run: (fn: any) => fn(), runTimeout: (fn: any) => queueMicrotask(fn), runInterval: (fn: any, ticks: number) => { intervals.set(ticks, fn); } };
   const BlockPermutation = { resolve: (id: string, states: any) => ({ id, states }) };
   const source = assets.script.replace(/^import .*;\s*$/gm, '');
-  new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'BlockVolume', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory' }, BlockPermutation, BlockVolume, Form, Form);
+  new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'BlockVolume', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory', World: 'world' }, BlockPermutation, BlockVolume, Form, Form);
   const flush = async (turns = 400) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const open = async (...r: any[]) => { responses.push(...r); use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
   return { assets, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, playerProperties, setHit: (h: any) => { hit = h; }, blocks, fills };

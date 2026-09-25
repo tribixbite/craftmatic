@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   consoleAssets, fitPinballZone, pinballPropBehavior, pinballScript, pinballZoneTexture, rotationBetween, flipperRig, moveRig,
-  ballAnimation, plungerAnimation, zoneAssets, BALL_INITIALIZE, BALL_PRE_ANIMATION, type PinballRuntimeConfig,
+  ballAnimation, plungerAnimation, buttonPressAnimation, zoneAssets, BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_BUTTON_TRAVEL, type PinballRuntimeConfig,
 } from '../web/src/engine/bedrock-pinball.js';
 import type { PinballSimTable } from '../web/src/engine/pinball-physics.js';
 
@@ -29,7 +29,7 @@ function boxSim(): PinballSimTable {
 
 const BOX = { width: 0.3, height: 0.15 };
 
-function config(): PinballRuntimeConfig {
+function config(ballMode: PinballRuntimeConfig['ballMode'] = 'animate'): PinballRuntimeConfig {
   const sim = boxSim();
   return {
     family: 'craftmatic_pinball', consoleType: 'craftmatic:con', ballType: 'craftmatic:ball', flipperTypes: ['craftmatic:fl', 'craftmatic:fr'],
@@ -49,7 +49,7 @@ function config(): PinballRuntimeConfig {
     map: { p0: [0, 0, 0], u: [0, 0, 0.01], w: [0.01, 0, 0], n: [0, 0.01, 0] },
     ballH: 24, ballOffset: [0, -0.1, 0],
     restAngles: sim.flippers.map(f => f.restAngle), spinSign: 1,
-    plungerStroke: 40, ballMode: 'animate', axisSigns: [1, -1],
+    plungerStroke: 40, ballMode, axisSigns: [1, -1],
     // The eye stands off the table's +z end, looking up it (-z).
     cameraEye: [2, 5, 10], cameraLook: [2, 0, 3], consoleHome: [2, 0, 9], consoleYaw: 180, label: 'Test table',
   };
@@ -72,8 +72,9 @@ function inventory(items: Array<string | undefined>) {
   };
 }
 
-function harness(engine: { headSide?: number; yawOffset?: number; inventory?: ReturnType<typeof inventory> } = {}) {
-  const cfg = config();
+function harness(engine: { headSide?: number; yawOffset?: number; inventory?: ReturnType<typeof inventory>; ballMode?: PinballRuntimeConfig['ballMode']; tweak?: (cfg: PinballRuntimeConfig) => void } = {}) {
+  const cfg = config(engine.ballMode);
+  engine.tweak?.(cfg);
   const origin = { x: 100, y: 64, z: 200 };
   const props: Record<string, unknown> = { 'craftmatic:pinball_origin': origin, 'craftmatic:pinball_rotation': 0, 'craftmatic:pinball_scale': 1 };
   const mk = (typeId: string, at = { x: 0, y: 0, z: 0 }) => {
@@ -118,7 +119,7 @@ function harness(engine: { headSide?: number; yawOffset?: number; inventory?: Re
     addTag(t: string) { this.tags.add(t); return true; },
     removeTag(t: string) { return this.tags.delete(t); },
     camera: { setCamera: vi.fn(), clear: vi.fn() },
-    onScreenDisplay: { setActionBar: vi.fn() },
+    onScreenDisplay: { setActionBar: vi.fn(), setTitle: vi.fn() },
     addEffect: vi.fn(),
     removeEffect: vi.fn(),
     teleport: vi.fn(),
@@ -149,13 +150,13 @@ function harness(engine: { headSide?: number; yawOffset?: number; inventory?: Re
     afterEvents: { entityHitEntity: { subscribe: (cb: any) => { hit = cb; } } },
     beforeEvents: { playerInteractWithEntity: { subscribe: (cb: any) => { interact = cb; } } },
   };
-  let scriptEvent: (ev: any) => void = () => {};
-  const system = { run: (cb: () => void) => cb(), runInterval: (cb: () => void) => { tick = cb; }, afterEvents: { scriptEventReceive: { subscribe: (cb: any) => { scriptEvent = cb; } } } };
+  const scriptEventSubscribe = vi.fn();
+  const system = { run: (cb: () => void) => cb(), runInterval: (cb: () => void) => { tick = cb; }, afterEvents: { scriptEventReceive: { subscribe: scriptEventSubscribe } } };
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const script = pinballScript(cfg).replace(/^import .*;\n/, '');
   new Function('world', 'system', script)(world, system);
   const live = () => spawned.filter(e => !e.removed);
-  /** The tap targets in spawn order: left, right, plunger (probes follow). */
+  /** The tap targets (outlines) by role. */
   const zone = (role: 'left' | 'right' | 'plunger') => {
     const z = live().filter(e => e.typeId === cfg.buttonType);
     return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerButtonType) : z[role === 'left' ? 0 : 1];
@@ -166,20 +167,19 @@ function harness(engine: { headSide?: number; yawOffset?: number; inventory?: Re
     return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerPickType) : z[role === 'left' ? 0 : 1];
   };
   return {
-    cfg, origin, home, con, ball, fl, fr, plunger, cbl, cbr, player, input, dim, spawned, zone, pick, warn, getEntities,
+    cfg, origin, home, con, ball, fl, fr, plunger, cbl, cbr, player, input, dim, spawned, zone, pick, warn, getEntities, scriptEventSubscribe,
     hit: (role: 'left' | 'right' | 'plunger', by: any = player) => hit({ damagingEntity: by, hitEntity: zone(role) }),
     hitEntity: (e: any) => hit({ damagingEntity: player, hitEntity: e }),
     hitPick: (role: 'left' | 'right' | 'plunger') => hit({ damagingEntity: player, hitEntity: pick(role) }),
     press: (role: 'left' | 'right' | 'plunger') => { const ev: any = { player, target: zone(role), cancel: false }; interact(ev); return ev; },
-    tune: (message: string) => scriptEvent({ id: 'craftmatic:pinball', message }),
     sit: () => { riders = [player]; }, stand: () => { riders = []; },
     run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
   };
 }
 
 /** Seat a player and let the pad lift them. */
-function seated() {
-  const h = harness();
+function seated(engine: Parameters<typeof harness>[0] = {}) {
+  const h = harness(engine);
   h.run(1); // empty: the pad records its home
   h.sit();
   h.run(12);
@@ -225,9 +225,8 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.ball.teleport.mock.calls.length - teleports).toBeLessThanOrEqual(1);
   });
 
-  it('{"ball":"teleport"} moves the entity every tick instead, with the properties at zero', () => {
-    const h = seated();
-    h.tune('{"ball":"teleport"}');
+  it('ballMode "teleport" moves the entity every tick instead, with the properties at zero', () => {
+    const h = seated({ ballMode: 'teleport' });
     h.input.y = -1; h.run(10); h.input.y = 0; h.run(1);
     const z0 = h.ball.teleport.mock.calls.at(-1)![0].z;
     h.run(4);
@@ -258,15 +257,16 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.player.tags.has('craftmatic_pinball')).toBe(true);
   });
 
-  it('view "first" turns the head down the table and locks head turning, with no camera', () => {
-    const h = harness();
-    h.run(1);
-    h.tune('{"view":"first"}');
-    h.sit(); h.run(12);
-    expect(h.player.camera.setCamera).not.toHaveBeenCalled();
-    const r = h.player.setRotation.mock.calls.at(-1)![0];
-    expect(r.x).toBeCloseTo(Math.atan2(5, 7) * 180 / Math.PI, 6);
-    expect(Math.abs(Math.abs(r.y) - 180)).toBeLessThan(1e-6);
+  it('ships no live tuning hook: the runtime subscribes to no script event and the script names no /scriptevent id', () => {
+    const h = seated();
+    h.run(5);
+    expect(h.scriptEventSubscribe).not.toHaveBeenCalled();
+    const script = pinballScript(h.cfg);
+    expect(script).not.toContain('scriptEventReceive');
+    expect(script).not.toContain("'craftmatic:pinball'");
+    expect(script).not.toMatch(/probe/i);
+    // The turned head the pitch is set from: the planned seated pitch (5 up over 7 along).
+    expect(h.player.setRotation.mock.calls.at(-1)![0].x).toBeCloseTo(Math.atan2(5, 7) * 180 / Math.PI, 6);
   });
 
   it('puts a target ON each flipper and on the plunger: the line of sight to each part crosses its own box, within reach', () => {
@@ -378,8 +378,7 @@ describe('pinball runtime (host simulation)', () => {
 
   it('a drag down the screen pulls the plunger (head turning unlocked while a ball waits), and it fires when the drag stops', () => {
     const shot = (degrees: number): { pull: number; vu: number; locked: unknown[] } => {
-      const h = seated();
-      h.tune('{"ball":"teleport"}');
+      const h = seated({ ballMode: 'teleport' });
       h.run(1);
       // Unlocked for the ready phase.
       const perm = h.player.inputPermissions.setPermissionCategory;
@@ -467,18 +466,6 @@ describe('pinball runtime (host simulation)', () => {
     expect(flipOf(h.fr)).toBeGreaterThan(30);
   });
 
-  it('a /scriptevent moves the pick boxes live (never the outlines), and {} restores them', () => {
-    const h = seated();
-    const before = { ...h.pick('left')!.location }, outline = { ...h.zone('left')!.location };
-    h.tune('{"fwd":-1,"up":0.5}'); h.run(1);
-    const moved = h.pick('left')!.location;
-    expect(moved.z).toBeCloseTo(before.z + 1, 6); // 1 block nearer (+z)
-    expect(moved.y).toBeCloseTo(before.y + 0.5, 6);
-    expect(h.zone('left')!.location).toEqual(outline);
-    h.tune('{}'); h.run(1);
-    expect(h.pick('left')!.location.z).toBeCloseTo(before.z, 6);
-  });
-
   it("puts each PICK box on the player's own (level) view ray through the part's screen position, following the rider's pitch", () => {
     const h = seated();
     // The rider reports pitch atan2(5, 7) (setRotation's); a level view at that
@@ -502,31 +489,80 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.zone('left')!.location).toEqual(outline);
   });
 
-  it('a probe spawns targets along given directions and logs which one a tap hits', () => {
-    const h = seated();
-    h.tune('{"probe":[[0,60],[0,75]],"d":1.5}'); h.run(1);
-    const probes = h.spawned.filter(e => !e.removed).slice(6);
-    expect(probes.length).toBe(2);
-    const head = h.player.getHeadLocation();
-    // 75 degrees down, 1.5 blocks out along the seated heading (-z).
-    const c = probes[1]!.location;
-    expect(c.y + BOX.height / 2).toBeCloseTo(head.y - Math.sin(75 * Math.PI / 180) * 1.5, 6);
-    expect(c.z).toBeCloseTo(head.z - Math.cos(75 * Math.PI / 180) * 1.5, 6);
-    h.warn.mockClear();
-    h.hitEntity(probes[1]); h.run(1);
-    expect(h.warn.mock.calls.some(w => /probe 1 \(yaw 0, pitch 75\)/.test(String(w[0])))).toBe(true);
-    h.tune('{}'); h.run(1);
-    expect(probes.every(e => e.removed)).toBe(true);
-  });
-
-  it('logs script time every 100 ticks when {"perf":1} is on, and scans the world only every 20 ticks', () => {
+  it('scans the world for pinball actors only every 20 ticks, and logs nothing while it plays', () => {
     const h = seated();
     h.getEntities.mockClear();
-    h.tune('{"perf":1}');
+    h.warn.mockClear();
     h.run(200);
-    expect(h.warn.mock.calls.some(c => String(c[0]).startsWith('[pinball-perf]'))).toBe(true);
+    expect(h.warn).not.toHaveBeenCalled();
     const actorScans = h.getEntities.mock.calls.filter(c => c[0]?.families?.[0] === 'craftmatic_pinball').length;
     expect(actorScans).toBeLessThanOrEqual(11);
+  });
+
+  it('on the launch tick the drawn ball starts on the pulled-back plunger tip and reaches the next update in one tick (no jump)', () => {
+    const h = seated();
+    const sent: Array<{ bu: number; bvu: number; seq: number }> = [];
+    const record = () => sent.push({ bu: h.ball.actorProps['craftmatic:bu']!, bvu: h.ball.actorProps['craftmatic:bvu']!, seq: h.ball.actorProps['craftmatic:seq']! });
+    // A full stick pull, held, then let go.
+    h.input.y = -1;
+    for (let k = 0; k < 12; k++) { h.run(1); record(); }
+    const pulledBack = h.ball.actorProps['craftmatic:bu']!;
+    expect(pulledBack).toBeCloseTo(40, 6); // the full 40 LDU stroke toward the player (+u)
+    h.input.y = 0;
+    let launchTick = -1;
+    for (let k = 0; k < 6; k++) { h.run(1); record(); if (launchTick < 0 && launched(h)) launchTick = sent.length - 1; }
+    expect(launchTick).toBeGreaterThan(0);
+    const at = sent[launchTick]!, next = sent[launchTick + 1]!;
+    // The update on the launch tick keeps the ball where it was last drawn...
+    expect(at.bu).toBeCloseTo(pulledBack, 6);
+    // ...and its velocity carries it, after one tick, to where the next update puts it.
+    // (to within the sim's own first-tick gravity and damping: under 5 % of the stroke).
+    expect(Math.abs(at.bu + at.bvu * 0.05 - next.bu)).toBeLessThan(0.05 * 40);
+    expect(next.seq).not.toBe(at.seq);
+    // Without the fix the drawn ball jumped the whole stroke in one frame: the
+    // offset between the two updates spans the stroke plus one tick of travel.
+    expect(at.bvu).toBeLessThan(next.bvu); // faster up the table (-u) than the sim's own launch speed
+  });
+
+  it('a press is readable: the cabinet button goes in AND the tap target outline over it lights, only for its own side', () => {
+    const h = seated();
+    const outline = h.zone('left')!;
+    expect(outline.actorProps['craftmatic:press'] ?? 0).toBe(0);
+    h.hit('left');
+    expect(h.cbl.actorProps['craftmatic:press']).toBe(1);
+    expect(outline.actorProps['craftmatic:press']).toBe(1);
+    expect(h.zone('right')!.actorProps['craftmatic:press'] ?? 0).toBe(0);
+    // The pick boxes (no property, no controller) are never written.
+    expect(h.pick('left')!.actorProps['craftmatic:press']).toBeUndefined();
+    h.run(20);
+    expect(h.cbl.actorProps['craftmatic:press']).toBe(0);
+    expect(outline.actorProps['craftmatic:press']).toBe(0);
+    // The stick lights it too.
+    h.input.x = -1; h.run(2);
+    expect(h.zone('right')!.actorProps['craftmatic:press']).toBe(1);
+  });
+
+  it('keeps the action bar short in every phase (it must not reach the cabinet buttons) and puts the final score in the title', () => {
+    // Short flippers leave a gap the ball drains through, so the game ends.
+    const h = seated({ tweak: c => { for (const f of c.sim.flippers) f.length = 30; } });
+    const visible = (s: string): number => s.replace(/§./g, '').length;
+    h.run(8); // ready
+    h.input.y = -0.6; h.run(8); // pulling
+    h.input.y = 0; h.run(4); // launched
+    h.input.x = 1; h.run(4); h.input.x = 0; // a held flipper in play
+    // Play the game out: drain every ball with nothing pressed.
+    for (let k = 0; k < 4000 && !h.player.onScreenDisplay.setTitle.mock.calls.length; k++) {
+      h.run(1);
+      if (k % 200 === 199) { h.input.y = -0.6; h.run(8); h.input.y = 0; }
+    }
+    const lines = h.player.onScreenDisplay.setActionBar.mock.calls.map((c: unknown[]) => String(c[0])).filter((s: string) => s);
+    expect(lines.some((s: string) => s.includes('drag to launch'))).toBe(true);
+    expect(lines.some((s: string) => /Ball 1\/3.*\|/.test(s))).toBe(true);
+    expect(lines.some((s: string) => s.includes('<<'))).toBe(true);
+    for (const s of lines) expect(visible(s), s).toBeLessThanOrEqual(26);
+    const [title, opts] = h.player.onScreenDisplay.setTitle.mock.calls[0]!;
+    expect(String(title)).toContain('GAME OVER');
+    expect(String(opts.subtitle)).toMatch(/best/);
   });
 
   it('removes targets no game owns (left over from a script reload)', () => {
@@ -576,6 +612,29 @@ describe('pinball entity definitions', () => {
     expect(alpha(20, 5)).toBe(0); // the transparent tile
     expect(alpha(0, 0)).toBeGreaterThan(150); // a frame corner
     expect(alpha(8, 8)).toBeLessThan(40); // faint fill
+  });
+
+  it('a flipper outline flashes through its own render controller from a declared float property; the pick box and plunger outline do not', () => {
+    const z = zoneAssets('craftmatic:z', BOX, 'flipper') as any;
+    const prop = z.behavior['minecraft:entity'].description.properties['craftmatic:press'];
+    expect(prop.type).toBe('float');
+    expect(String(prop.default)).toContain('.'); // never an integer literal (Bedrock drops the component)
+    const [id, controller] = Object.entries(z.renderControllers.render_controllers)[0] as [string, any];
+    expect(z.client['minecraft:client_entity'].description.render_controllers).toEqual([id]);
+    expect(controller.overlay_color.a).toContain("q.property('craftmatic:press')");
+    for (const role of ['pick', 'plunger'] as const) {
+      const o = zoneAssets('craftmatic:o', BOX, role) as any;
+      expect(o.renderControllers).toBeUndefined();
+      expect(o.behavior['minecraft:entity'].description.properties).toBeUndefined();
+      expect(o.client['minecraft:client_entity'].description.render_controllers).toEqual(['controller.render.default']);
+    }
+  });
+
+  it('a cabinet button is drawn pressed PINBALL_BUTTON_TRAVEL times its measured stroke', () => {
+    const map = { p0: [0, 0, 0] as [number, number, number], u: [0, 0, 0.01] as [number, number, number], w: [0.01, 0, 0] as [number, number, number], n: [0, 0.01, 0] as [number, number, number] };
+    const a = Object.values((buttonPressAnimation('craftmatic:b', map, 8, -1).file as any).animations)[0] as any;
+    expect(PINBALL_BUTTON_TRAVEL).toBeGreaterThan(1);
+    expect(a.bones.pb_move.position[0]).toContain(`q.property('craftmatic:press') * ${-8 * PINBALL_BUTTON_TRAVEL}`);
   });
 
   it('declares every Molang variable the ball reads before it is read (the device logs each unknown one every frame)', () => {

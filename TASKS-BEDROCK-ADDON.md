@@ -89,12 +89,23 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   and the trains' `rideStep` are ONE integrator now (`coasterRuntime`).
 - [x] Pinball round 3: tap targets on the cabinet's flipper buttons, held item
   hidden (empty-slot park / safe swap), drag or stick-pull plunger, ~100 ms
-  tap-to-flipper (round-trip floor). Open: button press barely visible from
-  the seat; tuning hooks still ship.
+  tap-to-flipper (round-trip floor).
 - [x] Coaster camera round 2 ridden on the Pixel (`60565096`): drop faces
   ahead, loops roll via one camera animation (120-150 degrees seen in the
   ride; full 180 proven by a probe), hand-back clean, `animLag` 3 ticks.
-  Open: move `animLag` into `COASTER_RIDER_VIEW` + spec; remove tuning hooks.
+- [x] Polish `708e6e67` (worktree agent-afca97ce): pinball + coaster tuning
+  hooks removed, `COASTER_RIDER_VIEW.animLag` 3 (spec row), pinball press
+  readable (button 2.5x travel + yellow flash on button and outline; action
+  bar <= 26 chars; game-over score in the title), no ball jump on launch
+  (host-proved only), wand Undo persists across reload. Device (world 924,
+  2026-09-25, `output/polish-0925/device/` in that worktree): outline flash
+  and short bar seen (`s14-leftheld.jpg`, `s13-s14-leftbutton.jpg`); placed
+  11374, force-stop + relaunch, Undo -> "Undo complete.", 0 pinball/shell/
+  zone entities left (`s20`-`s22`); content log 0 errors in both sessions.
+  Open: the pressed button now slides mostly INTO the cabinet wall (reads as
+  a yellow sliver) - maybe 1.5x is enough; launch smoothness not watched on
+  the device; reseating after a reload launched ball 1 by itself (drag pull
+  read the reload's pitch change as a pull - pre-existing, not investigated).
 - [x] **Sent**: `output/device-round-2026-09-25b/craftmatic-packs-243f54b1.zip`
   (14 packs + PACKS.md, sha256 79bd1f70...). World 924 binds EXACTLY these 14
   (`_pixel_dev_deploy.py --exclusive`; 24 -> 14 bindings), 0 content-log
@@ -153,16 +164,13 @@ Open, largest first:
 - Pinball: rider camera at the head, plunger entity (pull amount = strength),
   flipper outlines + hit boxes on the player's own ray (the phone picks along
   the PLAYER view, not the camera), script time 3.39 -> 1.71 ms/tick. Open:
-  rerun its GameTest alone in `cmgametest`; held-finger repeat; ball jumps
-  ~0.75 block on launch; tuning hooks still ship (TODO).
+  rerun its GameTest alone in `cmgametest`; held-finger repeat.
 - Coaster rider camera: `loop` mode (reflect per tick, one rolling animation
   per inversion) built and host-proved; the device ride of the final pack is open.
 - Minifig AI (`scripts/figures.js`): 0 left/fell/in-wall on 910004/41732/76457;
   open: 16 figures stand on non-walkable parts (fall on placement), seat use
   unproven on device, 71040/31141/910049 figure stalls, Minifig Creator
   figures still vanilla.
-- Wand Undo does not survive a world reload (agents had to clean by hand) —
-  worth fixing.
 
 ## Round — 2026-09-24 evening (user's 7 questions)
 
@@ -233,9 +241,6 @@ Open, largest first:
     loops. Found and fixed: the animation must trail the server by the
     client's entity lag (`animLag`, 3 ticks; 0-1 put the camera inside the
     car ahead's rider, 6 behind its own train). World 924 restored.
-  - [ ] Promote `animLag` 3 into `COASTER_RIDER_VIEW` (and the physics spec).
-  - [ ] Then remove the `/scriptevent craftmatic:coaster_cam` tuning hook and
-    probes (`# TODO` in `coasterRuntime`).
   - `cmgametest` now has `experimental_creator_cameras` on (permanent) and a
     10303 probe pack bound; level.dat backup
     `output/coaster-camera-0924/leveldat/cmgametest-level.dat.orig` (worktree).
@@ -286,12 +291,10 @@ Design and measurements: the add-on guide's pinball section, "Round 3".
   player's view ray); buttons press in. Hotbar parks on an empty slot (held
   item hidden). Plunger = drag (either direction) or stick pull, fires on
   release. GameTest PASS with only its pack bound.
-- [ ] The press-in is hard to see from the seat (small, under the action
-  bar). Consider a larger stroke or a brief highlight on the outline.
 - [ ] Drag release is inferred (5 still ticks): a finger held still mid-pull
   fires. No release event exists on touch; the stick release is exact.
 - [ ] Tap-to-flipper ~100 ms is the server round trip; no client-side path
-  found. `/scriptevent craftmatic:pinball` tuning and probe still ship (TODO).
+  found.
 
 ### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
 
