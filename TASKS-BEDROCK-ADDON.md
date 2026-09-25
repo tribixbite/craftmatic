@@ -75,8 +75,14 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   IOModel2V2 turned parts; backups + SHA256SUMS in
   `output/sources-0925/backup-shipped/`). Prod readback blocked by HTTP 429:
   `python -u output/sources-0925/prod_verify.py
-  output/sources-0925/backup-shipped/sync-list.txt <out.json>`. 10337 rims:
-  approved and being published (plus DbixConvV3/V2 siblings). uuid-schema
+  output/sources-0925/backup-shipped/sync-list.txt <out.json>`. 10337 rims
+  PUBLISHED (IOModel2V2 `1274199a`, DbixConvV3 `9ad2d8f8`; V2 was never off).
+  Learned-row audit: 11 learned `dbix_part_align` rows encoded a `.io`'s private
+  embedded frame and were dropped (`_DROP_DEFAULT`, clego `bee8e945`; evidence
+  `output/sources-0925/learned-audit/`); 33 files published (craftmatic
+  `268b2ea3`). Open: RELEARN `dbix_part_align.json` with the embedded-origin
+  correction applied (drops only cover rows measured wrong); clego commits
+  `80c14ba8` `bee8e945` `14e00945` also unpushed. uuid-schema
   explodes: measured NOT assembly (44-set trial floating 1,034 -> 2,674) —
   do not apply. Open: gate-rejected but visibly better files (Mecabricks 71044,
   7938, 2126, 79111, 3677; 8 Eurobricks track sets; ~250 Eurobricks regens)
