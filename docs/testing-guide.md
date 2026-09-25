@@ -273,6 +273,29 @@ doors/passability, seats, flippers and other state changes. It does not
 replace the phone for touch picking, rendering, culling, form text or the
 camera.
 
+### What each set's pack is tested for
+
+`bun scripts/_gametest_pack.ts <pack>` builds the plan from the pack itself:
+
+- `doors_<id>`: every doorway the offline walk (`interactive-walk.ts`) can
+  approach, walked closed and open; the device outcome must match the
+  offline prediction (OK: blocked closed, walkable open; SEALED: never
+  walkable).
+- `parts_<id>`: every other moving part (window, cupboard, lid, drawer,
+  hatch, lever, turnable) is hit twice with `attackEntity` from a standing
+  spot the offline tap audit accepted (`test/_ix-tap-audit.ts`: the runtime's
+  line-of-sight test lets the tap through there): its angle property must read
+  the open value then 0 (a turnable: two steps). Every seat (moulded, stool,
+  bench, chair, bed) is mounted with `interactWithEntity` and must list the
+  simulated player as its rider. A part no standing spot reaches is listed by
+  the builder and not tested.
+- `pinball_<id>` for a pinball machine.
+
+Each result is a `CMGT DOOR` / `PART` / `SEAT` line, and each test ends with a
+`CMGT SUMMARY` / `PARTS_SUMMARY` line. `bun scripts/_ix_audit_table.ts <sweep
+dir> --gametest=<dir of <set>.log>` folds them into the 40-set table
+(docs/bedrock-interactivity.md).
+
 ### Commands
 
 ```bash
@@ -349,8 +372,10 @@ What it can do:
 - Run them: `/gametest runset <tag>`, `run`, `clearall`. `player.runCommand`
   works from a script.
 - Each test needs a structure; we generate the arena with
-  `mcstructure-encode.ts`. One structure caps a model at 58 x 58 blocks
-  (TODO: tile it).
+  `mcstructure-encode.ts`. One structure is at most 64 blocks wide, so a
+  model wider than 58 blocks (76457, 77092) is tested in x-windows over one
+  arena (`arenaWindows`): each window's tests place the model shifted so
+  that window lies over the arena floor. TODO: a model deeper than 58 in z.
 - Drive simulated players: move with real collision, `interactWithEntity`
   (mounts rideables), `attackEntity`, `selectedSlotIndex`, `jump`, `useItem*`
   and `teleport`.
