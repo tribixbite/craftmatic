@@ -175,11 +175,14 @@ Open, largest first:
   experiment, which adds nothing needed). Host: both 10303 loops animated,
   every plan played to its end.
   Open:
-  - [ ] Ride pack `output/coaster-camera-0924/10303-loop-coaster-2b7e11bd.mcaddon`
-    on the Pixel with a screen recording (it is deployed/bound in world 924;
-    the ride was not done — the phone lock was taken by the pinball agent).
-    Check: the drop stays facing ahead, each loop goes upside down and hands
-    back without a jump, look-around still shifts the view outside loops.
+  - [x] RIDDEN on the Pixel 2026-09-25 (world 924, pack `60565096`, three laps
+    recorded, `output/coaster-camera-0924/device/final-lap-lag3.jpg`,
+    `loopride2.mp4`): the drop faces straight ahead (readout cam y-90 p90 =
+    car y-90 p90), both loops roll the view, drag-look ±70 works outside
+    loops. Found and fixed: the animation must trail the server by the
+    client's entity lag (`animLag`, 3 ticks; 0-1 put the camera inside the
+    car ahead's rider, 6 behind its own train). World 924 restored.
+  - [ ] Promote `animLag` 3 into `COASTER_RIDER_VIEW` (and the physics spec).
   - [ ] Then remove the `/scriptevent craftmatic:coaster_cam` tuning hook and
     probes (`# TODO` in `coasterRuntime`).
   - `cmgametest` now has `experimental_creator_cameras` on (permanent) and a

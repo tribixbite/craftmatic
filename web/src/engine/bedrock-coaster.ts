@@ -2109,6 +2109,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
   let cameraDebug = false, traceTicks = 0, lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet;
+  // How many ticks the inversion animation's camera trails the server's train
+  // (`animLag`): the client draws entities interpolated behind the server, so
+  // an animation on the server's own schedule runs AHEAD of the drawn car
+  // (Pixel, 2026-09-25: at 24 blocks/s the camera sat inside the next car's
+  // rider). # TODO: set the default from the device measurement, then fold into COASTER_RIDER_VIEW.
+  let animLag = 3;
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
@@ -2133,7 +2139,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * with the car right side up. Returns nothing unless an inversion starts
    * within 10 ticks and ends inside the prediction.
    */
-  const planInversion = (frame: any, planner: any, look: any) => {
+  const planInversion = (frame: any, planner: any, look: any, history: any[]) => {
     const plan = planner.plan(frame.car, 80);
     if (!plan || plan.poses.length < 4) return null;
     const upY = (pose: any) => pose.up[1];
@@ -2151,7 +2157,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     let length = end + 1;
     if (length % 2) length++;
     if (length > plan.poses.length) return null;
-    const poses = [{ eye: frame.eye, nose: frame.nose, up: frame.up }, ...plan.poses.slice(0, length)];
+    // Keyframe k shows the pose of tick k - animLag: this tick's pose and the
+    // `animLag` before it (from the rider's history), then the plan.
+    const past = history.slice(-(animLag + 1));
+    while (past.length < animLag + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up });
+    const poses = [...past, ...plan.poses].slice(0, length + 1);
+    if (poses.length < length + 1) return null;
     const views: any[] = [];
     let previous: any = null;
     for (const pose of poses) { previous = riderView(pose.nose, pose.up, look, previous, 'roll', 40); views.push(previous); }
@@ -2191,6 +2202,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
     viewer.player = rider;
     viewer.seen = ticks;
+    viewer.history = viewer.history || [];
+    viewer.history.push({ eye: frame.eye, nose: frame.nose, up: frame.up });
+    if (viewer.history.length > 12) viewer.history.shift();
     // Sampled with the car's rotation at the start of the tick (see the
     // grouping stage); a rider seen only now falls back to the car's last yaw.
     const sampled = headings.get(rider.id);
@@ -2233,7 +2247,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // The animation ends upright, at this pose; the per-tick camera takes over from it without an ease.
         viewer.view = riderView(frame.nose, frame.up, viewer.look, null, tickMode, camera.maxTurn);
       } else if (!(viewer.cooldown > ticks) && Math.abs(frame.pitch) > 20) {
-        const planned = planInversion(frame, planner, viewer.look);
+        const planned = planInversion(frame, planner, viewer.look, viewer.history);
         if (planned) {
           try {
             rider.camera.playAnimation(planned.spline, planned.options);
@@ -2279,6 +2293,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       else if (verb === 'look') { camera.lookYaw = Math.max(0, number(1, camera.lookYaw)); camera.lookPitch = Math.max(0, number(2, camera.lookPitch)); }
       else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
       else if (verb === 'debug') cameraDebug = words[1] === '1';
+      else if (verb === 'alag') animLag = Math.max(0, Math.min(10, Math.round(number(1, 3))));
       else if (verb === 'lag') lookLag = Math.max(0, Math.min(19, Math.round(number(1, 0))));
       else if (verb === 'ratchet') lookRatchet = words[1] !== '0';
       else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
