@@ -234,6 +234,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   twice like that and "nothing moved" (2026-09-24). Use
   `minecraft:pushable_by_block`; `scripts/_mcaddon_check.py` gates
   `DROPPED_COMPONENTS`.
+- **A pack's uuid follows its LABEL** (`packIdentity(stem, label)`), so a CLI
+  build must use the LEGO tab's label (`Name (set-1)`) or it becomes a second
+  pack beside the old one; both define the same entity/item ids and the
+  older can override the newer ("overridden by a pack higher in the pack
+  stack"). Deploy a round with `--exclusive` so the world binds only it.
 - **Update a phone's packs with `python -u scripts/_pixel_dev_deploy.py <world>
   <pack.mcaddon>...`** — Minecraft storage is external, but `games/com.mojang/**`
   is `drwxr-s---`: adb can OVERWRITE existing files (the world's

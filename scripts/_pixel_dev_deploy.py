@@ -338,8 +338,18 @@ def load_bindings(path: Path) -> list[dict[str, Any]]:
     return data
 
 
-def rebind(entries: list[dict[str, Any]], packs: list[PackInfo]) -> list[dict[str, Any]]:
-    """Bind each pack at its exact version; same-uuid entries are replaced in place."""
+def rebind(entries: list[dict[str, Any]], packs: list[PackInfo], exclusive: bool = False) -> list[dict[str, Any]]:
+    """Bind each pack at its exact version; same-uuid entries are replaced in place.
+
+    `exclusive` drops every other binding, so the world runs exactly these packs.
+    An older build of the same set under a DIFFERENT uuid (the uuid follows the
+    pack label, and CLI builds relabelled 76417 etc. on 2026-09-25) otherwise
+    stays bound, defines the same entity and item identifiers, and can override
+    the new build ("has already been overridden by a pack higher in the pack
+    stack" in the content log).
+    """
+    if exclusive:
+        return [{"pack_id": pack.uuid, "version": list(pack.version)} for pack in packs]
     result = [dict(e) for e in entries]
     for pack in packs:
         new_entry = {"pack_id": pack.uuid, "version": list(pack.version)}
@@ -486,7 +496,7 @@ def deploy_import(
     return installed_where
 
 
-def bind_world(adb: Adb, world_dir: str, packs: list[PackInfo], backup_dir: Path, work: Path) -> dict[str, list[dict[str, Any]]]:
+def bind_world(adb: Adb, world_dir: str, packs: list[PackInfo], backup_dir: Path, work: Path, exclusive: bool = False) -> dict[str, list[dict[str, Any]]]:
     """Rewrite the world's pack JSON in place and return the verified bindings per kind."""
     final: dict[str, list[dict[str, Any]]] = {}
     for kind in ("behavior", "resource"):
@@ -497,7 +507,7 @@ def bind_world(adb: Adb, world_dir: str, packs: list[PackInfo], backup_dir: Path
         if existed:
             adb.pull(device_json, local_before)
         before = load_bindings(local_before)
-        after = rebind(before, [p for p in packs if p.kind == kind])
+        after = rebind(before, [p for p in packs if p.kind == kind], exclusive)
         print(f"{name} before:\n{fmt_bindings(before)}")
         if after == before:
             print("  unchanged")
@@ -537,6 +547,7 @@ def main() -> int:
     parser.add_argument("--shots-dir", type=Path, help="save an import-toast screenshot per pack here")
     parser.add_argument("--no-launch", action="store_true", help="leave Minecraft stopped after binding")
     parser.add_argument("--dry-run", action="store_true", help="read the device and plan, write nothing")
+    parser.add_argument("--exclusive", action="store_true", help="bind ONLY these packs (drop every other binding; they stay installed)")
     args = parser.parse_args()
 
     adb = Adb(args.serial, args.dry_run)
@@ -600,7 +611,7 @@ def main() -> int:
     # World JSON may only be edited while Minecraft is stopped.
     print("force-stopping Minecraft before binding")
     adb.shell(f"am force-stop {MC_PACKAGE}", mutating=True)
-    final = bind_world(adb, world_dir, packs, backup_dir, work)
+    final = bind_world(adb, world_dir, packs, backup_dir, work, args.exclusive)
 
     record = {
         "timestamp": stamp,
