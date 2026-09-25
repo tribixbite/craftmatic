@@ -497,7 +497,9 @@ export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed'
   const dx = end.x - start.x, dz = end.z - start.z, len2 = dx * dx + dz * dz;
   const progress = len2 > 0 ? ((at.x - start.x) * dx + (at.z - start.z) * dz) / len2 : 0;
   const rounded = Math.round(progress * 100) / 100;
-  if (at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
+  // Through the doorway and on (three quarters of the way to the far spot) is through, even if
+  // the walker then stepped off a drop beyond it (10326 Door 2, a ONE-WAY doorway, Pixel 2026-09-25b).
+  if (progress < 0.75 && at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
   return { outcome: progress >= 0.75 ? 'passed' : progress < 0.5 ? 'blocked' : 'partial', progress: rounded };
 }
 

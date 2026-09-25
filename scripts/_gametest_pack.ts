@@ -73,7 +73,12 @@ if (cfg) {
     const closedDir = closed.directions.find(d => d.from === dir.from);
     // The route the offline walk followed from this side (column centres between the two spots).
     const way = route.routes.find(r => r.from === dir.from)?.way ?? [];
-    const via = way.slice(1, -1).map(p => ({ x: p.x, y: p.y, z: p.z }));
+    // Only a route that climbs or drops past the auto-step needs walking leg by leg (42670 Door 4:
+    // down to the street and 1.25 up); a level route is walked straight, as every earlier round
+    // did - legs at column centres pulled 10326 Door 4's walker off its stoop (Pixel 2026-09-25b).
+    const pts = [start, ...way.slice(1, -1), end];
+    const steps = pts.slice(1).some((p, k) => Math.abs(p.y - pts[k]!.y) > 0.6);
+    const via = steps ? way.slice(1, -1).map(p => ({ x: p.x, y: p.y, z: p.z })) : [];
     doorways.push({
       label: it.label, typeId: it.type, actor: { x: actor.x, y: actor.y, z: actor.z },
       start, end, ...(via.length ? { via } : {}),
