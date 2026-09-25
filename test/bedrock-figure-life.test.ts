@@ -158,6 +158,17 @@ describe('the serialised runtime', () => {
     expect(Math.hypot(last.x - 5.5, last.z - 5.5)).toBeLessThan(9);
   });
 
+  it('re-homes a figure whose spawn point had nothing under it where it landed, and lets it roam there', () => {
+    // Spawned 2 blocks up over open ground (a display stand the collider grid does not carry).
+    const w: SimWorld = { cells: [], area: [0, 0, 10, 10], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 5.5, y: 2.1, z: 5.5 } }] };
+    const [t] = simulateFigureLife(w, config, 2400, 6);
+    const after = t!.slice(40);
+    expect(Math.max(...after.map(p => p.y))).toBeLessThan(0.01); // never put back up in the air
+    let path = 0;
+    for (let i = 1; i < after.length; i++) path += Math.hypot(after[i]!.x - after[i - 1]!.x, after[i]!.z - after[i - 1]!.z);
+    expect(path).toBeGreaterThan(4);
+  });
+
   it('never stops next to a door leaf', () => {
     const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0, leaves: [{ x: 4.5, y: 0.2, z: 6 }], figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 4.5, y: 3 / 16, z: 3.5 } }] };
     const [t] = simulateFigureLife(w, config, 4000, 5);

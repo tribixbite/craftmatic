@@ -309,6 +309,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
      * `unwedged` once it was walked (or set) out.
      */
     wedged?: boolean; walled?: boolean; unwedged?: boolean; unwedging?: boolean;
+    /** Its spawn point had nothing under it; it was re-homed where it landed. */
+    rehomed?: boolean;
   }
   const lives = new Map<string, Life>();
   let tick = 0;
@@ -508,6 +510,21 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     const loc = l.e.location, h = l.home;
     const x = Math.floor(loc.x), z = Math.floor(loc.z);
     if (insideArea(h, x, z, loc.y, 0.5) && loc.y > h.ground - 0.5) { l.outsideSince = 0; return false; }
+    // A home nothing supports (the source stood the figure on a part the
+    // collider grid does not carry - 21360's and 42639's display rows, the
+    // census found 7 and 4): it fell at spawn. Putting it back there would
+    // only drop it again, so the floor it landed on becomes its home.
+    if (!l.rehomed && loc.y >= h.ground - 0.5 && insideArea({ ...h, home: [h.home[0], loc.y, h.home[2]] }, x, z, loc.y, 0.5)) {
+      const span = spans(l.e.dimension);
+      const homeFeet = planner.standFeetAt(span, Math.floor(h.home[0]), Math.floor(h.home[2]), h.home[1], bodyOf(l), 0.3, 0.3);
+      if (homeFeet === null) {
+        l.rehomed = true;
+        l.home = { ...h, home: [loc.x, loc.y, loc.z] };
+        try { l.e.setDynamicProperty(homeProperty, JSON.stringify(l.home)); } catch { /* keeps the in-memory home */ }
+        l.outsideSince = 0;
+        return false;
+      }
+    }
     if (!l.outsideSince) l.outsideSince = tick;
     if (tick - l.outsideSince > T.returnTimeout || loc.y < h.ground - 2) {
       try { l.e.teleport({ x: h.home[0], y: h.home[1], z: h.home[2] }); } catch { /* gone */ }
