@@ -52,9 +52,8 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   the PLAYER view, not the camera), script time 3.39 -> 1.71 ms/tick. Open:
   rerun its GameTest alone in `cmgametest`; held-finger repeat; ball jumps
   ~0.75 block on launch; tuning hooks still ship (TODO).
-- Coaster rider camera follows the track frame with +-70/+-50 look offset;
-  no apex roll (only camera ANIMATIONS roll; per-loop pre-computed animation
-  untried). Final pack defaults ridden only as live settings.
+- Coaster rider camera: `loop` mode (reflect per tick, one rolling animation
+  per inversion) built and host-proved; the device ride of the final pack is open.
 - Minifig AI (`scripts/figures.js`): 0 left/fell/in-wall on 910004/41732/76457;
   open: 16 figures stand on non-walkable parts (fall on placement), seat use
   unproven on device, 71040/31141/910049 figure stalls, Minifig Creator
@@ -115,20 +114,25 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   are unavailable on the phone. Found the right-flipper half-turn (`71c98317`).
   Next: fold every door/seat/coaster check into GameTest instead of tap runs.
 - Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
-- [x] **Coaster rider camera follows the track** (guide: "The rider's camera
-  follows the track"). Ships `clamp`: free camera at the seated eye along the
-  car's nose, pitch within ±90, image turned over in ~4 ticks at each loop
-  side; look-around ±70/±50 with the rider's client yaw compared 6 ticks back,
-  no ratchet. Ridden on the Pixel in world 924 (10303, two laps, recordings in
-  `output/coaster-camera-0924/device/`); world 924 restored by hand (undo does
-  not survive an app restart: `/kill @e[family=…]` in the box + `/fill … air`).
+- [x] **Coaster rider camera, round 2 (2026-09-25)** (guide: "The rider's camera
+  follows the track" → "Round 2"). Default `loop`: per tick `reflect` (yaw from
+  the car's axle, pitch folded into ±90 — no turn on 10303's overhanging drop,
+  no sideways swing), and each inversion as ONE predicted camera animation that
+  rolls upside down (device-proved as a `loopsim` probe; per-tick animations
+  draw no rotation, with or without the Experimental Creator Camera Features
+  experiment, which adds nothing needed). Host: both 10303 loops animated,
+  every plan played to its end.
   Open:
-  - [ ] Real roll (upside-down at the apex): only a single camera ANIMATION
-    rolls (`RotationKeyFrame.rotation.z`), and chained/overlapping ones are not
-    drawn. Untested route: one pre-computed animation per inversion.
-  - [ ] Ride the final defaults once from a built pack (they were ridden as
-    live `/scriptevent craftmatic:coaster_cam` tuning: `ratchet 0`, `lag 6`),
-    then remove the tuning hook (`# TODO` in `coasterRuntime`).
+  - [ ] Ride pack `output/coaster-camera-0924/10303-loop-coaster-2b7e11bd.mcaddon`
+    on the Pixel with a screen recording (it is deployed/bound in world 924;
+    the ride was not done — the phone lock was taken by the pinball agent).
+    Check: the drop stays facing ahead, each loop goes upside down and hands
+    back without a jump, look-around still shifts the view outside loops.
+  - [ ] Then remove the `/scriptevent craftmatic:coaster_cam` tuning hook and
+    probes (`# TODO` in `coasterRuntime`).
+  - `cmgametest` now has `experimental_creator_cameras` on (permanent) and a
+    10303 probe pack bound; level.dat backup
+    `output/coaster-camera-0924/leveldat/cmgametest-level.dat.orig` (worktree).
 - Pack updates: importing a new .mcaddon does NOT repoint a world's active
   pack (device runs: world 922 kept 83614b39 active after 980f54fd was
   imported). Remove + add in the world's pack settings, or deploy into
