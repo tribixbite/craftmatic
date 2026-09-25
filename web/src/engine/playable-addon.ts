@@ -118,6 +118,8 @@ export interface PlayableAddonOptions {
      * closed cells are laid by `scripts/interactives.js`. Needs `shell`.
      */
     interactives?: { items: SceneInteractive[]; frame: SceneGridFrame };
+    /** The interactivity stage's per-set report (engine/interactivity-stage.ts), written whole into `craftmatic-diagnostics.json`. */
+    interactivityReport?: import('./interactivity-stage.js').InteractivityReport;
     /** Exact source door leaves rendered only below their vanilla-door size threshold. */
     leafActors?: Array<{ bricks: ParsedBrick[]; frame: SceneGridFrame; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean }>;
     /**
@@ -2445,6 +2447,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // the smallest wand size at which it can (0 = none), the collider cells
         // the closed leaf lays and what the doorway cut opened.
         ...(interactiveReport ? { interactives: interactiveReport } : {}),
+        ...(options.interactivityReport ? { interactivity: options.interactivityReport } : {}),
     }) });
     // A Bedrock entity identifier may not begin with a digit: the engine drops
     // the WHOLE definition, so the entity simply never exists in game and

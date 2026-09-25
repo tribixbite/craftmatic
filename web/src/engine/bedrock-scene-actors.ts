@@ -82,6 +82,8 @@ export interface ScenePosedFigure {
 export interface SceneSeat {
   /** The seat mould's id, or `stool` for a brick-built one (`brickBuiltStools`). */
   part: string;
+  /** The placement it was read from (the mould, or a stool's top tile): the interactivity report's key. */
+  brick?: ParsedBrick;
   /** The sitting surface's centre, LDraw. */
   surfaceLdu: Vec3;
   /** Which way a sitter faces: the seat's local −Z (the backrest is at +Z), horizontal unit (x, z). */
@@ -313,7 +315,7 @@ export function brickBuiltStools(bricks: readonly ParsedBrick[], meshes: Readonl
       if (dist > 1 && dist < best) { best = dist; facing = [ox / dist, oz / dist]; }
     }
     trace?.(b, 'stool');
-    out.push({ part: 'stool', surfaceLdu: [cx, pan, cz], facingLdu: facing });
+    out.push({ part: 'stool', brick: b, surfaceLdu: [cx, pan, cz], facingLdu: facing });
   });
   return out;
 }
@@ -399,7 +401,7 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
       const y = root.headless ? t.y + (root.system === 'minidoll' ? 33.2 : 24) : t.y;
       return Math.hypot(t.x - surface[0], t.z - surface[2]) <= 30 && y <= surface[1] && y >= surface[1] - 60;
     })());
-    seats.push({ part: cleanPartId(b.part), surfaceLdu: surface, facingLdu: facing });
+    seats.push({ part: cleanPartId(b.part), brick: b, surfaceLdu: surface, facingLdu: facing });
     // A figure the source sat here rides this seat's entity (the seat stays, occupied).
     if (sitter) { sitter.seated = true; sitter.seatIndex = seats.length - 1; }
   }
