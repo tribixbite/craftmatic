@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   arenaSize, arenaWindows, windowOf, buildArenaStructure, gametestRuntime, gametestVariantFiles, withGametestImport, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
   judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, judgeFigureTrack, arenaExceeds, type GametestPlan, type Vec3,
-  summariseVehiclePhase, buildVehicleArena, GT_VEHICLE_LAYOUT,
+  summariseVehiclePhase, buildVehicleArena, GT_VEHICLE_LAYOUT, gaitProbeController, withGaitProbe, GAIT_PROBE_CONTROLLER_ID, GAIT_PROBE_SPEED_CONTROLLER_ID, GAIT_SPEED_BUCKETS,
 } from '../web/src/engine/gametest-pack.js';
 
 const PLACEMENT_FIXTURE = [
@@ -31,6 +31,24 @@ const PLAN: GametestPlan = {
     { label: 'Door 2', typeId: 'craftmatic:demo_1_door_2', actor: { x: 7, y: 0, z: 4 }, start: { x: 7.5, y: 0, z: 5.5 }, end: { x: 7.5, y: 0, z: 3.5 }, expectClosed: 'sealed', expectOpen: 'sealed', offlineVerdict: 'SEALED' },
   ],
 };
+
+describe('gait probe', () => {
+  it('adds both server controllers to one entity and reports every distance unit and speed bucket', () => {
+    const ent = { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:x_fig1' }, components: {} } };
+    const patched = withGaitProbe(ent);
+    expect(patched['minecraft:entity'].description.animations).toEqual({ cm_gait: GAIT_PROBE_CONTROLLER_ID, cm_gait_speed: GAIT_PROBE_SPEED_CONTROLLER_ID });
+    expect(patched['minecraft:entity'].description.scripts.animate).toEqual(['cm_gait', 'cm_gait_speed']);
+    expect(ent['minecraft:entity'].description).toEqual({ identifier: 'craftmatic:x_fig1' }); // a copy
+    const c = (gaitProbeController() as any).animation_controllers;
+    expect(Object.keys(c[GAIT_PROBE_CONTROLLER_ID].states)).toEqual(['even', 'odd']);
+    expect(c[GAIT_PROBE_CONTROLLER_ID].states.even.on_entry).toEqual(['/scriptevent craftmatic_gt:gait u']);
+    const speed = c[GAIT_PROBE_SPEED_CONTROLLER_ID].states;
+    expect(Object.keys(speed)).toHaveLength(GAIT_SPEED_BUCKETS + 1);
+    expect(speed.s0.transitions).toEqual([{ s1: 'query.modified_move_speed >= 0.025' }]);
+    expect(speed.s1.transitions).toEqual([{ s2: 'query.modified_move_speed >= 0.05' }, { s0: 'query.modified_move_speed < 0.025' }]);
+    expect(speed.s3.on_entry).toEqual(['/scriptevent craftmatic_gt:gaitspeed 3']);
+  });
+});
 
 describe('placement hook', () => {
   it('is inserted inside the runtime, before the itemUse handler', () => {

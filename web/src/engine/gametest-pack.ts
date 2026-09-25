@@ -271,15 +271,37 @@ export function gaitProbeController(): unknown {
     transitions: [{ [other]: `math.mod(math.floor(query.modified_distance_moved), 2) != ${parity}` }],
     on_entry: [`/scriptevent ${GAIT_PROBE_EVENT} u`],
   });
-  return { format_version: '1.10.0', animation_controllers: { [GAIT_PROBE_CONTROLLER_ID]: { initial_state: 'even', states: { even: state(0, 'odd'), odd: state(1, 'even') } } } };
+  // `query.modified_move_speed` in steps of 1/GAIT_SPEED_STEPS: a chain of
+  // states, each stepping to its neighbour while the value is past its edge
+  // (one step a tick, so a steady value is reached within a few ticks), and
+  // each entry reports its bucket.
+  const speedStates: Record<string, unknown> = {};
+  for (let k = 0; k <= GAIT_SPEED_BUCKETS; k++) {
+    const transitions: unknown[] = [];
+    if (k < GAIT_SPEED_BUCKETS) transitions.push({ [`s${k + 1}`]: `query.modified_move_speed >= ${(k + 1) / GAIT_SPEED_STEPS}` });
+    if (k > 0) transitions.push({ [`s${k - 1}`]: `query.modified_move_speed < ${k / GAIT_SPEED_STEPS}` });
+    speedStates[`s${k}`] = { transitions, on_entry: [`/scriptevent ${GAIT_PROBE_SPEED_EVENT} ${k}`] };
+  }
+  return { format_version: '1.10.0', animation_controllers: {
+    [GAIT_PROBE_CONTROLLER_ID]: { initial_state: 'even', states: { even: state(0, 'odd'), odd: state(1, 'even') } },
+    [GAIT_PROBE_SPEED_CONTROLLER_ID]: { initial_state: 's0', states: speedStates },
+  } };
 }
+
+/** The probe's second controller: `query.modified_move_speed` in buckets of 1/GAIT_SPEED_STEPS. */
+export const GAIT_PROBE_SPEED_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe_speed';
+/** Its script event; the message is the bucket index. */
+export const GAIT_PROBE_SPEED_EVENT = 'craftmatic_gt:gaitspeed';
+/** Buckets per unit of `query.modified_move_speed`, and the highest bucket (values up to 1.5). */
+export const GAIT_SPEED_STEPS = 40;
+export const GAIT_SPEED_BUCKETS = 60;
 
 /** A copy of a BP entity definition that also runs the gait probe controller. */
 export function withGaitProbe(entity: any): any {
   const e = JSON.parse(JSON.stringify(entity));
   const d = e['minecraft:entity'].description;
-  d.animations = { ...(d.animations ?? {}), cm_gait: GAIT_PROBE_CONTROLLER_ID };
-  d.scripts = { ...(d.scripts ?? {}), animate: [...(d.scripts?.animate ?? []), 'cm_gait'] };
+  d.animations = { ...(d.animations ?? {}), cm_gait: GAIT_PROBE_CONTROLLER_ID, cm_gait_speed: GAIT_PROBE_SPEED_CONTROLLER_ID };
+  d.scripts = { ...(d.scripts ?? {}), animate: [...(d.scripts?.animate ?? []), 'cm_gait', 'cm_gait_speed'] };
   return e;
 }
 
@@ -1128,9 +1150,12 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const e = dim.spawnEntity(gaitPlan.typeId, start);
     try { e.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [start.x, start.y, start.z], area: [start.x - 1, start.z - 1, start.x + lane + 1, start.z + 1], ground: start.y, f: 1, mode: 'seated' })); } catch { /* the runtime then adopts it as a roamer */ }
     const units: Array<{ t: number }> = [];
+    /** The last `query.modified_move_speed` bucket the speed controller entered. */
+    let speedBucket = 0;
     const sub = system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
-      if (ev.id !== gaitEvent || ev.sourceEntity?.id !== e.id) return;
-      units.push({ t: system.currentTick });
+      if (ev.sourceEntity?.id !== e.id) return;
+      if (ev.id === gaitEvent) units.push({ t: system.currentTick });
+      else if (ev.id === `${NS}:gaitspeed`) speedBucket = Number(ev.message);
     }, { namespaces: [NS] });
     await test.idle(20);
     const rows: any[] = [];
@@ -1140,12 +1165,15 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const GAIT_BLOCKS = 24;
     for (const speed of gaitPlan.speeds) {
       let blocks = 0, seen = 0, ticksPushed = 0;
+      /** Buckets read in the second half of every pass (the steady walk), as a histogram. */
+      const moveSpeed: Record<number, number> = {};
       for (let pass = 0; pass < 16 && blocks < GAIT_BLOCKS; pass++) {
         const ticks = Math.round(lane / speed);
         const from = { ...e.location }, t0 = system.currentTick, n0 = units.length;
         for (let t = 0; t < ticks; t++) {
           try { const v = e.getVelocity(); e.applyImpulse({ x: dir * speed - v.x, y: 0, z: -v.z }); } catch { break; }
           await test.idle(1);
+          if (t >= ticks / 2) moveSpeed[speedBucket] = (moveSpeed[speedBucket] ?? 0) + 1;
         }
         const to = { ...e.location }, t1 = system.currentTick;
         try { const v = e.getVelocity(); e.applyImpulse({ x: -v.x, y: 0, z: -v.z }); } catch { /* gone */ }
@@ -1156,7 +1184,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         ticksPushed += t1 - t0;
         dir = -dir;
       }
-      rows.push({ speed, ticks: ticksPushed, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, ticksPushed) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 1000) / 1000 : null });
+      // modified_move_speed while walking steadily: bucket k is [k/40, (k+1)/40).
+      const modifiedMoveSpeed = Object.fromEntries(Object.entries(moveSpeed).map(([k, n]) => [(Number(k) / 40).toFixed(3), n]));
+      rows.push({ speed, ticks: ticksPushed, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, ticksPushed) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 1000) / 1000 : null, modifiedMoveSpeed });
     }
     try { system.afterEvents.scriptEventReceive.unsubscribe(sub); } catch { /* older API */ }
     try { e.remove(); } catch { /* gone */ }
