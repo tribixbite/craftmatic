@@ -282,6 +282,8 @@ interface HostOptions {
   fills?: Array<{ from: [number, number, number]; to: [number, number, number]; id: string }>;
   time?: number;
   colliders?: ScriptedVehicleConfig['colliders'];
+  /** Blocks at x beyond this are not loaded (getBlock returns undefined). */
+  unloadedBeyondX?: number;
 }
 
 /**
@@ -300,6 +302,7 @@ function vehicleHost(o: HostOptions) {
     return y < 64 ? 'minecraft:stone' : 'minecraft:air';
   };
   const block = (p: { x: number; y: number; z: number }): any => {
+    if (o.unloadedBeyondX !== undefined && p.x > o.unloadedBeyondX) return undefined;
     const id = blockId(p.x, p.y, p.z);
     const m = /^(.*)\[lo=(\d+),hi=(\d+)\]$/.exec(id);
     return {
@@ -457,6 +460,26 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on a fake worl
     host.run(2);
     expect([...host.placed].filter(([, id]) => id.startsWith('minecraft:light_block')).length).toBe(0);
     expect(host.dynamic.has(VEHICLE_DYNAMIC.headlight)).toBe(false);
+  });
+  it('brakes an empty car to a stop instead of letting it coast off (an empty time machine coasted 200 blocks)', () => {
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 } });
+    host.set(0, 1);
+    host.run(80);
+    const at = host.entity.location.x;
+    host.dismount();
+    host.run(100);
+    // From 19 blocks/s at BRAKE 14: about 13 blocks (a coast at 2.5 would roll 72).
+    expect(host.entity.location.x - at).toBeLessThan(20);
+    expect(host.entity.location.x - at).toBeGreaterThan(5);
+  });
+  it('holds still where the terrain ahead or under it is not loaded, instead of falling through it', () => {
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, unloadedBeyondX: 30 });
+    host.set(0, 1);
+    host.run(200);
+    // The nose probe (x + 2.5) meets the unloaded column first: it stops short of it, on the ground.
+    expect(host.entity.location.x).toBeLessThan(30);
+    expect(host.entity.location.x).toBeGreaterThan(20);
+    expect(host.entity.location.y).toBe(64);
   });
   it('places no light by day', () => {
     const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, time: 6000 });

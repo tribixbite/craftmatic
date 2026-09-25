@@ -333,7 +333,7 @@ describe('vehicle phases', () => {
 });
 
 /** A fake harness for the vehicle test: the vehicle moves along its heading while the simulated player pushes the stick. */
-function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' | 'hover'; scripted?: boolean; passesPosts?: boolean }) {
+function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' | 'hover'; scripted?: boolean; passesPosts?: boolean; vanishAfter?: number }) {
   const origin: Vec3 = { x: 100, y: -60, z: 200 };
   const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
   const logs: string[] = [];
@@ -350,7 +350,15 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' 
     getComponent: () => ({ getRiders: () => riders, addRider: (p: any) => { riders.push(p); return true; }, ejectRiders: () => { riders.length = 0; } }),
     remove() {}, isOnGround: true, isInWater: opts.kind === 'boat',
   };
+  let stepped = 0;
+  if (opts.vanishAfter !== undefined) {
+    // Out of the simulated area: reading the entity throws, as Bedrock's InvalidEntityError.
+    let at = { x: 0, y: 0, z: 0 };
+    Object.defineProperty(veh, 'location', { get: () => { if (stepped > opts.vanishAfter!) throw new Error('InvalidEntityError: Entity being invalid'); return at; }, set: (v: Vec3) => { at = v; } });
+  }
   const step = (): void => {
+    stepped++;
+    if (opts.vanishAfter !== undefined && stepped > opts.vanishAfter) return; // gone: nothing moves it
     if (!opts.drives || !riders.length) return;
     // A scripted vehicle turns right on x = -1 while its hook input lasts.
     if (opts.scripted) { if (hookTicks > 0) { hookTicks--; veh.rot.y += -input.x * 3; } else { input = { x: 0, y: 0 }; hookJump = false; } }
@@ -447,6 +455,22 @@ describe('the vehicle test', () => {
     const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT VEHICLE '))!.slice('CMGT VEHICLE '.length));
     expect(verdict.checks.floatsOverWater).toBe(true);
     expect(phases.find(p => p.phase === 'over_water').minDy).toBeLessThan(-0.5);
+  });
+  it('ends cleanly with staysInReach false when the vehicle stops being readable mid-course (the Milano flew out of reach)', async () => {
+    const h = vehicleHarness({ drives: true, kind: 'plane', scripted: true, vanishAfter: 200 });
+    await h.run('vehicle_demo_1_1');
+    const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT VEHICLE '))!.slice('CMGT VEHICLE '.length));
+    expect(verdict.lost.phase).toBeDefined();
+    expect(verdict.checks.staysInReach).toBe(false);
+    expect(h.outcome.failure).toMatch(/staysInReach/);
+    expect(h.logs.some(l => /"skipped":"vehicle lost in/.test(l))).toBe(true);
+  });
+  it('flies the plane course in a circle: the roll ends once airborne, then climb, turn, cruise and approach all hold right stick', async () => {
+    const h = vehicleHarness({ drives: true, kind: 'plane', scripted: true });
+    await h.run('vehicle_demo_1_1');
+    const inputs = h.sent.map((m: any) => [m.x, m.y, m.jump, m.ticks]);
+    expect(inputs.slice(0, 4)).toEqual([[0, 0, true, 120], [0, -1, true, 30], [-1, 0, false, 60], [-0.5, 0, false, 40]]);
+    expect(inputs.filter(i => i[0] === -0.5 && i[1] === 0.35)).toHaveLength(15);
   });
   it('fails naming what did not happen when the vehicle does not move', async () => {
     const h = vehicleHarness({ drives: false, kind: 'plane' });

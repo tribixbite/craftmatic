@@ -1105,9 +1105,17 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       else if (x || y) sim.moveRelative(x, y);
     };
     const yawNow = (e: any): number => { try { return Math.round(e.getRotation().y * 10) / 10; } catch { return NaN; } };
-    /** Run one phase: `act(tick)` every tick, a sample every 2; summarised in the heading the phase started with. */
-    const phase = async (name: string, ticks: number, act: (t: number) => void): Promise<any> => {
-      const origin = { ...veh.location };
+    /**
+     * Run one phase: `act(tick)` every tick, a sample every 2; summarised in
+     * the heading the phase started with. `until(sample)` ends it early. A
+     * vehicle that stops being readable (it flew out of the simulated area:
+     * the Milano on the Pixel, 2026-09-25, "Entity being invalid") ends the
+     * phase and every later one, and the verdict fails `staysInReach`.
+     */
+    const phase = async (name: string, ticks: number, act: (t: number) => void, until?: (s: VehicleSample) => boolean): Promise<any> => {
+      let origin: any;
+      try { origin = { ...veh.location }; } catch (err) { row.lost = row.lost ?? { phase: name, error: String(err) }; }
+      if (row.lost) { log('VEHICLE_PHASE', { vehicle: v.label, phase: name, skipped: `vehicle lost in ${row.lost.phase}` }); return {}; }
       const yaw = yawNow(veh) || 0;
       const riderYaw = yawNow(sim);
       const rad = yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
@@ -1117,10 +1125,12 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         if (t < ticks) { try { act(t); } catch (err) { extra.actError = String(err); } }
         if (t % 2 === 0) {
           let loc: any, ground: boolean | undefined, water: boolean | undefined;
-          try { loc = veh.location; } catch { break; }
+          try { loc = veh.location; } catch (err) { row.lost = { phase: name, tick: t, error: String(err) }; break; }
           try { ground = veh.isOnGround; water = veh.isInWater; } catch { /* older API */ }
           const dx = loc.x - origin.x, dz = loc.z - origin.z;
-          samples.push({ t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: yawNow(veh), ground, water });
+          const sample: VehicleSample = { t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: yawNow(veh), ground, water };
+          samples.push(sample);
+          if (until && until(sample)) { extra.endedAt = t; break; }
         }
         if (t < ticks) await test.idle(1);
       }
@@ -1171,12 +1181,16 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
 
     await phase('settle', 40, () => {});
     if (v.kind === 'plane' && v.scripted) {
-      // Take-off on Jump alone, then climb, turn right, and land on a little forward stick.
-      await phase('takeoff_roll', 120, (t) => { if (t === 0) drive(0, 0, true, 120); });
-      await phase('climb', 60, (t) => { if (t === 0) drive(0, -1, true, 60); });
+      // Take-off on Jump alone (the roll ends once it is 1.5 blocks up), a short
+      // climb, then circling right - the turn, a half-stick cruise and a
+      // descending approach - so it lands within reach of the arena. Flown
+      // straight, the Milano was 110 blocks out by the climb and stopped being
+      // readable (Pixel GameTest, 2026-09-25).
+      await phase('takeoff_roll', 120, (t) => { if (t === 0) drive(0, 0, true, 120); }, s => s.dy > 1.5);
+      await phase('climb', 30, (t) => { if (t === 0) drive(0, -1, true, 30); });
       await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 0, false, 60); });
-      await phase('cruise', 40, () => {});
-      await phase('approach', 300, (t) => { if (t % 20 === 0) drive(0, 0.35, false, 20); });
+      await phase('cruise', 40, (t) => { if (t === 0) drive(-0.5, 0, false, 40); });
+      await phase('approach', 300, (t) => { if (t % 20 === 0) drive(-0.5, 0.35, false, 20); });
       await phase('rollout', 120, () => {});
       const ph = row.phases;
       checks.takesOff = (ph.takeoff_roll?.maxDy ?? 0) > 1;
@@ -1288,7 +1302,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       checks.turns = Math.abs(ph.turn_left?.yawChange ?? 0) > 30;
     }
     // A second rider, where the vehicle has a second seat.
-    if (v.seats > 1) {
+    if (v.seats > 1 && !row.lost) {
       const sim2 = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_pas${n}`, gameMode);
       await test.idle(4);
       sim2.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
@@ -1302,6 +1316,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     await test.idle(4);
     row.ridersAfterEject = riders();
     try { veh.remove(); } catch { /* gone */ }
+    // A vehicle that stopped being readable (out of the simulated area) fails here, naming the phase.
+    checks.staysInReach = !row.lost;
     row.checks = checks;
     row.pass = Object.values(checks).every(Boolean);
     log('VEHICLE', row);

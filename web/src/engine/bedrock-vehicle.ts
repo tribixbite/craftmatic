@@ -367,7 +367,7 @@ export function boatStep(s: BoatState, input: FlightInput, water: BoatWater, P: 
  * stopped dead the moment the stick was released. So a car is scripted:
  *
  *   - the stick's forward/back is throttle and brake, then reverse from a
- *     stop; hands off it coasts down (`COAST`);
+ *     stop; hands off it coasts down (`COAST`); with nobody aboard it brakes (`BRAKE`);
  *   - left/right steers, with full lock by `STEER_FULL_SPEED` and less of it
  *     at speed (`STEER_FADE`), reversed when backing up;
  *   - Jump is a short boost (`BOOST_SPEED` for `BOOST_SECONDS`, then
@@ -413,7 +413,9 @@ export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P:
     const target = throttle > 0 ? throttle * top : throttle < 0 ? Math.max(throttle * P.REVERSE_SPEED, -top) : 0;
     // Against the motion the stick brakes first; hands off it coasts down.
     const braking = throttle !== 0 && Math.abs(speed) > 0.1 && Math.sign(throttle) !== Math.sign(speed);
-    const rate = throttle === 0 ? P.COAST : braking ? P.BRAKE : P.ACCEL * (boost > 0 ? 2 : 1);
+    // Nobody aboard (the rider got out at speed): the brakes, not a coast. An empty time machine
+    // coasted 200 blocks from 91 mph on the Pixel (2026-09-25) and left the loaded terrain.
+    const rate = throttle === 0 ? (input.rider ? P.COAST : P.BRAKE) : braking ? P.BRAKE : P.ACCEL * (boost > 0 ? 2 : 1);
     speed = toward(speed, target, rate * dt);
     // Steering bites with speed (full lock by STEER_FULL_SPEED), fades at speed, and reverses backing up.
     const bite = clamp(Math.abs(speed) / P.STEER_FULL_SPEED, 0, 1) / (1 + Math.abs(speed) / P.STEER_FADE);
@@ -852,6 +854,15 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         } else if (st.light || (tick % 40 === 0 && !input.rider)) clearLight(e, st);
         const rad = st.yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
         const reach = noseReach + 0.5;
+        // Terrain that is not loaded (no block to read under the vehicle or at its nose) is not
+        // "no ground": hold still until it loads. An empty car ran off the loaded area on the
+        // Pixel and fell 250 blocks through the unread ground (2026-09-25).
+        if (!blockOf(dim, st.x, st.y - 0.5, st.z) || !blockOf(dim, st.x + fx * reach, st.y, st.z + fz * reach)) {
+          st.speed = 0;
+          if (st.vy !== undefined) st.vy = 0;
+          states.set(e.id, st);
+          continue;
+        }
         let r: any, ground: number | null = null;
         let fp: { halfLength: number; halfWidth: number; lo: number; hi: number } | undefined;
         if (kind.mode === 'plane') {

@@ -324,6 +324,11 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   by default), put the circuit on the HUD (`VEHICLE_DYNAMIC.hud`) and jump
   when the measured speed reaches the armed speed. The camel's tuning hooks
   (`craftmatic:vehicle_scheme`, `vehicle_camera`) went with it.
+- A car with nobody aboard BRAKES (`CAR.BRAKE`) instead of coasting: an
+  empty time machine got out of at 91 mph coasted 200 blocks on the Pixel.
+  And no scripted vehicle moves where the block under it or at its nose is
+  not loaded: it holds still (that empty car ran into unloaded terrain and
+  fell 250 blocks through the ground it could not read).
 - **Hover craft — SCRIPTED on `carStep`** with `HOVER`: the ground it rides
   is the top of whatever is under it, solid OR water, plus `RIDE_HEIGHT`; it
   glides, floats over `STEP_UP` 1.6 and sinks slowly off an edge. A title in
