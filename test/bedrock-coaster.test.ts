@@ -22,7 +22,9 @@ import { BlockGrid } from '../src/schem/types.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { host } from './_placement-host.js';
 
-interface RideHostOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig> }
+interface RideHostOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig>;
+  /** The `Math` the runtime sees: a test counts the ride's work through it (`Math.ceil` runs once per ride prediction step, `rideWork`). */
+  math?: Math }
 
 /** One host per placement. A route that declares a train gets that many car
  * entities, all spawned at the same station point the placement uses. The
@@ -70,7 +72,7 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
   let tick = () => {};
   const system = { runInterval: (callback: () => void) => { tick = callback; } };
   const script = coasterScript(config);
-  const start = () => new Function('world', 'system', script.replace(/^import .*;\n/, ''))(world, system);
+  const start = () => new Function('world', 'system', 'Math', script.replace(/^import .*;\n/, ''))(world, system, options.math ?? Math);
   start();
   const lead = cars[0]!;
   /** Saved ride distance after each tick (the train's centre), whether or not it moved. */
@@ -2326,6 +2328,93 @@ describe('the rider camera follows the track', () => {
     const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
     expect(views.length).toBeGreaterThan(300);
     expect(views.every(v => Math.abs(v.x) <= 90 + 1e-9)).toBe(true);
+  });
+
+  /**
+   * The ride's work, counted through the `Math` the runtime sees: `integrate`
+   * (one tick of ride physics, the ride's own or a camera prediction's) is the
+   * only caller of `Math.ceil`, once per call, and its result is that call's
+   * substep count. Measured 2026-09-25 on the shipped 10261 pack: 117
+   * substeps a tick on the drops against 2.4 on the flat, because the loop
+   * camera predicted 80 ticks every steep tick on a coaster with no loop; the
+   * device's script tick overran and the ride slowed and stuttered.
+   */
+  function rideWork() {
+    let predictions = 0, substeps = 0;
+    const math = Object.create(Math) as Math;
+    math.ceil = (x: number) => { const n = Math.ceil(x); predictions++; substeps += Math.max(1, n); return n; };
+    return { math, take: () => { const out = { predictions, substeps }; predictions = 0; substeps = 0; return out; } };
+  }
+  /** Station, then a straight climb of sin(theta) `grade`: an open shuttle whose run back down is a steep drop. */
+  function steepTower(grade: number): CoasterRoute {
+    const points: Array<[number, number, number]> = [];
+    for (let along = 0; along <= STATION_RUN + 1e-9; along += SPACING) points.push([along, 1, 0]);
+    const dx = Math.sqrt(1 - grade * grade);
+    for (let along = SPACING; along <= CLIMB_RUN + 1e-9; along += SPACING) points.push([STATION_RUN + along * dx, 1 + along * grade, 0]);
+    return { label: `Steep ${grade}`, points, closed: false, maxSegmentLength: SPACING + 1e-6 };
+  }
+
+  for (const grade of [CLIMB_GRADE, 0.95]) {
+    it(`loop mode on steep track with no inversion (sin ${grade}) predicts nothing: one ride step a tick, no animation`, () => {
+      class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
+      (globalThis as any).LinearSpline = Spline;
+      try {
+        const work = rideWork();
+        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], math: work.math });
+        const { player } = cameraRider(h.entity);
+        (player.camera as any).playAnimation = vi.fn();
+        h.run(1); h.riders.push(player); h.run(1); work.take();
+        const pitchCalls = () => (h.entity.setProperty.mock.calls as any[][]).filter(call => call[0] === 'craftmatic:track_pitch');
+        let steepTicks = 0, worstPredictions = 0, worstSubsteps = 0;
+        for (let t = 0; t < 1500; t++) {
+          const sets = player.camera.setCamera.mock.calls.length;
+          h.run(1);
+          const { predictions, substeps } = work.take();
+          worstPredictions = Math.max(worstPredictions, predictions);
+          worstSubsteps = Math.max(worstSubsteps, substeps);
+          if (Math.abs(Number(pitchCalls().at(-1)?.[1] ?? 0)) > 20) steepTicks++;
+          // The per-tick camera: exactly one setCamera a tick, never more.
+          expect(player.camera.setCamera.mock.calls.length - sets).toBe(1);
+        }
+        // The ride really climbed and dropped (the camera's gate is |pitch| > 20).
+        expect(steepTicks).toBeGreaterThan(40);
+        // Only the ride's own step each tick: before the fix a steep tick ran up to 81.
+        expect(worstPredictions).toBe(1);
+        // The substep bound itself stays small on the steep grade (sample spacing 0.375 blocks).
+        const P = COASTER_PHYSICS;
+        expect(worstSubsteps).toBeLessThanOrEqual(Math.ceil((P.MAX_SPEED + (P.GRAVITY + P.LIFT_ACCEL) / 20) / 20 / SPACING));
+        expect((player.camera as any).playAnimation).not.toHaveBeenCalled();
+      } finally { delete (globalThis as any).LinearSpline; }
+    });
+  }
+
+  it('loop mode predicts only near an inversion, and the prediction ends with it', () => {
+    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
+    (globalThis as any).LinearSpline = Spline;
+    try {
+      const work = rideWork();
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], math: work.math });
+      const { player } = cameraRider(h.entity);
+      const plays: number[] = [];
+      let tick = 0;
+      (player.camera as any).playAnimation = vi.fn((_spline: unknown, options: any) => { plays.push(Math.round(options.totalTimeSeconds / 0.05)); });
+      h.run(1); h.riders.push(player); h.run(1); work.take();
+      let predictingTicks = 0, predicted = 0, worst = 0;
+      for (tick = 0; tick < 1200; tick++) {
+        h.run(1);
+        const extra = work.take().predictions - 1;
+        if (extra > 0) { predictingTicks++; predicted += extra; worst = Math.max(worst, extra); }
+      }
+      expect(plays.length).toBeGreaterThanOrEqual(2);
+      // A tick that predicts stops at tick 21 with nothing found, or two ticks
+      // after the inversion it found ends: never the old 80-tick horizon.
+      expect(worst).toBeLessThanOrEqual(Math.max(21, ...plays.map(length => length + 3)));
+      expect(worst).toBeLessThan(80);
+      // Predicting happens on a few ticks at each loop entry (measured: 3), not
+      // every steep tick (before the fix: 20 a loop here, every tick of 10261's drops).
+      expect(predictingTicks).toBeLessThanOrEqual(plays.length * 3);
+      expect(predicted).toBeLessThanOrEqual(plays.reduce((sum, length) => sum + length + 3, 0) + plays.length * 2 * 21);
+    } finally { delete (globalThis as any).LinearSpline; }
   });
 
   it('gives the player their own camera back, and their visibility, on dismount', () => {

@@ -2206,6 +2206,26 @@ the loading bay, the deck, the end of an open route): there the loop is
 drawn by `reflect` alone. 10303: both loops, 30 and 24 ticks (1.5 s and
 1.2 s), every animation played to its planned end on the host.
 
+**The prediction is gated by cost (regression fixed 2026-09-25).** As first
+shipped (`2b7e11bd`), every tick with the car pitched past 20 degrees ran an
+80-tick prediction whether or not a loop existed. On 10261 (no inversions,
+long steep drops) that was 117 ride substeps a tick on the drops against
+2.4 on the flat (host, shipped pack `243f54b1`: 4.9 ms against 0.35 ms a
+tick); on the phone the script tick overran, the ride slowed ("time slows")
+and the per-tick camera stuttered. Now: `planner.near` predicts nothing
+unless inverted track (a sample with up.y < 0) lies within reach of the
+rider's car in 11 ticks at the fastest the train could go; a prediction
+stops at tick 21 with no inversion begun, as soon as one is seen beyond tick
+10, or 2 ticks after the found one ends; and a prediction that finds
+nothing for `c` ticks skips the next `c − 10` ticks, which provably fail
+the same way (the ride follows its own prediction or falls behind it). The
+replay digests of 10261, 10303 and 42703 are bit-identical to the shipped
+runtime (`bun scripts/_coaster_replay.ts <pack> --rebuild`): same camera
+calls, same animations on the same ticks. Steep-tick substeps: 10261
+117 → 2.4, 10303 77.5 → 7.8. Tests: "loop mode on steep track with no
+inversion … predicts nothing" and "loop mode predicts only near an
+inversion" count the ride's work through the `Math` the runtime sees.
+
 **The "Experimental Creator Camera Features" experiment
 (`experiments.experimental_creator_cameras`, set in `cmgametest` with
 `scripts/_leveldat_experiments.py --creator-cameras`) changes none of this**:
