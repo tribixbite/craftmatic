@@ -158,7 +158,11 @@ export function seedDatTexts(entries: Iterable<readonly [string, string | null]>
  * (10300: `6538c`, `4085d`, `6628a`, `x346` …). In the browser this step is
  * skipped: `/ldraw-parts` already IS the mirror (dev middleware → R2 → upstream).
  */
-let LDRAW_MIRROR: string | null = 'https://craftmatic.click/ldraw-parts';
+// `CRAFTMATIC_LDRAW_MIRROR` (Node only) overrides it for a whole process tree - a
+// test run or a sweep - when prod throttles: it answered HTTP 429 for over an hour
+// on 2026-09-25 under parallel exports, and every corpus test that needs a part
+// the local library lacks then failed for a reason that was not the code.
+let LDRAW_MIRROR: string | null = (typeof process !== 'undefined' && process.env?.CRAFTMATIC_LDRAW_MIRROR?.replace(/\/$/, '')) || 'https://craftmatic.click/ldraw-parts';
 
 /** Point the CLI fallback at another mirror, or `null` to stay offline (tests). */
 export function setLDrawMirror(base: string | null): void {
