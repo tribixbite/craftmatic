@@ -5,7 +5,7 @@
  *                                       hook, scripts/gametest.js and the arena; its RP unchanged
  *   <out>/<stem>-gametest-plan.json     the doorways and their offline predictions
  *
- * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port]
+ * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port] [--figure-ticks=1200]
  *
  * Deploy it to a world that has Beta APIs + cheats on (never a normal play
  * world), e.g. `python -u scripts/_pixel_dev_deploy.py cmgametest
@@ -18,7 +18,7 @@ import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-previe
 import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
-  gametestVariantFiles, patchPlacementForGametest, variantManifest, withGametestImport,
+  arenaExceeds, gametestVariantFiles, patchPlacementForGametest, variantManifest, withGametestImport,
   type GametestDoorway, type GametestPlan, type WalkOutcome,
 } from '../web/src/engine/gametest-pack.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
@@ -45,7 +45,8 @@ const configMatch = /^const CONFIG = (\{.*\});$/m.exec(placementJs);
 if (!configMatch) throw new Error('placement.js: no `const CONFIG = {...};` line');
 const placement = JSON.parse(configMatch[1]!) as {
   id: string; label: string; width: number; height: number; length: number;
-  actors: Array<{ typeId: string; x: number; y: number; z: number; interactive?: number }>;
+  actors: Array<{ typeId: string; label: string; x: number; y: number; z: number; interactive?: number; rideOf?: number }>;
+  colliders?: { block: string; loState: string; hiState: string };
 };
 
 // Offline predictions: the same walk `_ix_passability.ts` runs, at 100 %, turn 0.
@@ -103,6 +104,12 @@ const plan: GametestPlan = {
   doorways,
   debuggerTarget: flag('debugger'),
   pinball,
+  // Every minifig NPC the placement spawns (`_fig<n>` types; a seated one rides a seat).
+  figures: placement.actors.filter(a => /_fig\d+$/.test(a.typeId)).map(a => ({ label: a.label, typeId: a.typeId, actor: { x: a.x, y: a.y, z: a.z }, seated: a.rideOf !== undefined })),
+  colliders: placement.colliders ? { block: placement.colliders.block, loState: placement.colliders.loState, hiState: placement.colliders.hiState } : undefined,
+  figureTicks: flag('figure-ticks') ? Number(flag('figure-ticks')) : undefined,
+  // Wider than one structure: only the figures test runs, laying the floor past the structure itself.
+  oversized: arenaExceeds({ width: placement.width, height: placement.height, length: placement.length }) || undefined,
 };
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
@@ -133,6 +140,6 @@ writeFileSync(variantPath, await createZip(variantFiles));
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
+console.log(`${placement.label}: ${doorways.length} doorways, ${plan.figures!.length} figures${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);

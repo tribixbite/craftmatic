@@ -41,9 +41,20 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 - [ ] **Coaster rider camera**: baseline view follows the track frame (curves,
   climbs, loops) with the player's look as a clamped offset; research camera
   pitch/roll limits (free camera clamps pitch to +-90).
-- [ ] **Minifig AI**: home area, path over the pack's colliders, idle/stroll,
-  look at the player, occasional seats, posed/seated figures stay; GameTest
-  figure-position sampling on 910004 / 76457 / 41732.
+- [x] **Minifig AI** (figures worktree, `fa31d941`..`0711e753`): `scripts/figures.js`
+  plans over the collider spans; Pixel GameTest 910004 / 41732 / 76457: left
+  the model 2/6/3 -> 0/0/0, fell 2/4/0 -> 0, in a wall 1 -> 0 (guide:
+  "Figure life"). Open: seat borrowing seen only in the host sim (run
+  `--figure-ticks=3600` on a set with free seats); gait rate's ~4 units/block
+  reading unmeasured; mini-doll legs stiff; figures at 200-400 % untested on
+  the device.
+  The re-home fix (`2deb13e9`) is not device-run: the 21360 run collided with
+  another agent's pinball session and was abandoned. cmgametest's BP binding
+  is left on the 21360 variant. Restore the pinball variant with the figures
+  worktree's `python output/figure-ai/bind.py nRnt66NBH0Y=
+  94baeb94-f1f1-4712-a221-e34addce9808@2609.2501.5013`, which force-stops
+  Minecraft. 16 figures in 5 favourites spawn on parts the collider grid does
+  not carry, and they fall at spawn (census).
 
 ## Round — 2026-09-24 evening (user's 7 questions)
 
@@ -936,13 +947,6 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
   Existing `--lod=hull --lod-distance=1024` versus `--lod-distance=1` isolates
   the representation at one near camera while keeping resident geometry equal;
   pack invariant test and version-selection recipe are in the add-on guide.
-- [ ] Chalet roaming: old h1.8 control 0/7 versus h0.95 1/7. New dwell trial
-  aborted before world load due repeated ADB chat-input drops. Keep seated
-  figures 4/5/6 out of the walker denominator; census walkers 1/2/3/7 for ≥10 min.
-  Test local clearance before changing global height. Walkers have floor
-  support but ceilings/head-cell colliders; an actor moved to open grass walks.
-  Alternative: nearest navigable porch/garden cell. Blank still intentionally
-  has its restored h0.95 pack; deactivate it explicitly for a future clean test.
 - [ ] 76435 detached roofline objects at 400%: distinguish source extras from
   polished/parked parts. Source is exploded (42 clusters); IO/76435.io has
   70 clusters and no IOModel2V2 replacement exists.
