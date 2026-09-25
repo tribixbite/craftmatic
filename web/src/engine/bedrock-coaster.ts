@@ -437,8 +437,20 @@ export const RIDE_INTERACT_TEXT = 'Ride the coaster';
  * file was tuned on (drag v² scales with gravity, so it is left alone) and is
  * the one knob that answers "faster" without re-tuning the brake, the chain
  * or the dwell. Measured per set in `docs/bedrock-addon-guide.md`.
+ *
+ * WHY sqrt(2) (2026-09-25). 1.6 rode on the Pixel and was "just a touch TOO
+ * fast"; 1.0 was "about 50 % too slow". sqrt(2) makes the effective gravity
+ * exactly 2 g = 19.6 blocks/s², which is (a) inside the band Minecraft's own
+ * world falls in — items, minecarts and boats at 0.04 blocks/tick² = 16
+ * blocks/s² (pace 1.28), players and mobs at 0.08 = 32 blocks/s² (pace
+ * 1.81) — and (b) Froude-exact for a toy track at HALF its real ride's size:
+ * speeds on a loop scale as sqrt(g r), so doubling g on a half-radius loop
+ * gives the full-size ride's speeds (10303's loops are r = 3.93 blocks).
+ * Speeds are 0.884 of the 1.6 ride's; 10303's cycle is 1.11× as long (dwell
+ * ticks do not scale). The derivation and
+ * the audit of every other physics model: `docs/physics-architecture.md`.
  */
-export const COASTER_RIDE_PACE = 1.6;
+export const COASTER_RIDE_PACE = Math.SQRT2;
 
 export const COASTER_PHYSICS = {
   /** Gravity along the track tangent, blocks/s²: Earth's, time-scaled by the pace. */
@@ -452,8 +464,11 @@ export const COASTER_PHYSICS = {
   /** Absolute speed ceiling, blocks/s, independent of wand size. Every drop
    * the ceiling clips loses energy for good, and 16 (the old, unpaced value)
    * cost 10303 the speed its first loop needed: the train crawled over the
-   * top on the chain. */
-  MAX_SPEED: 32,
+   * top on the chain. 20 real-time blocks/s, paced like every other speed
+   * (it was a literal 32 = 20 × 1.6), so a pace change is a pure time-scale.
+   * # TODO: it does not scale with the wand size, so above 100 % the ride is
+   * not Froude-similar (docs/physics-architecture.md, "Known limits"). */
+  MAX_SPEED: 20 * COASTER_RIDE_PACE,
   /** A train through an inversion keeps at least this multiple of the
    * minimum speed that holds it on a loop of the route's radius at the apex,
    * sqrt(g r), scaled by how far it is over (`coasterRuntime`). */
