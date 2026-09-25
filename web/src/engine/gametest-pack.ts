@@ -10,22 +10,26 @@
  * content log, which adb can pull. See docs/testing-guide.md, "In-game
  * automated tests (GameTest)".
  *
- * Output is TWO packs, both bound to a dedicated world that has Beta APIs on:
+ * Output is ONE test variant of the model's add-on, bound to a dedicated
+ * world that has Beta APIs on: the model's behaviour pack with new uuids and a
+ * build-time version, `@minecraft/server-gametest` 1.0.0-beta declared (the
+ * only version 1.26.5x ships; Mojang's creator-tools pack pairs it with a
+ * stable server the same way), a `craftmatic_gt:place` scriptevent hook
+ * injected into `scripts/placement.js` (a test drives the pack's OWN
+ * `place()`; a simulated player cannot answer the Brick Wand's forms), and
+ * the tests themselves in `scripts/gametest.js` with their arena
+ * `.mcstructure`. The resource pack ships unchanged.
  *
- * 1. A **test variant** of the model's behaviour pack: the same files with new
- *    uuids and one scriptevent hook injected into `scripts/placement.js`
- *    (`craftmatic_gt:place`), so a test can drive the pack's OWN `place()` for a
- *    named player without the Brick Wand's forms (a simulated player cannot
- *    answer a form). The model's resource pack ships unchanged.
- *    TODO: move the hook into the placement runtime itself (playable-addon.ts)
- *    so the shipped pack and the tested pack are byte-identical but for uuids.
- * 2. The **GameTest pack**: a tiny arena `.mcstructure` (a floor under the
- *    model's footprint plus a margin) and `scripts/main.js`, which registers
- *    `craftmatic_gt:smoke` and `craftmatic_gt:doors_<id>` and runs them on world
- *    load (`gametest runset craftmatic_gt`). Its dependencies are stable
- *    `@minecraft/server` + `@minecraft/server-gametest` `1.0.0-beta` (the only
- *    version 1.26.5x ships; Mojang's own creator-tools pack pairs a stable
- *    server with the beta gametest module the same way).
+ * The tests MUST live in the model's own pack. Measured on the Pixel
+ * (1.26.51, runs 2-3): a simulated player is `undefined` in
+ * `world.getAllPlayers()` of every OTHER pack - even one that declares
+ * server-gametest - and that pack's `playerInteractWithEntity` /
+ * `entityHitEntity` handlers never toggled a door the simulated player
+ * interacted with. A player handle belongs to the script context that
+ * spawned it.
+ *
+ * TODO: move the hook into the placement runtime itself (playable-addon.ts)
+ * so the shipped pack and the tested pack differ only in the added files.
  *
  * Expectations come from the offline passability walk
  * (`engine/interactive-walk.ts`): a doorway it calls OK must be blocked closed
@@ -47,8 +51,6 @@ export const GT_PLACE_EVENT = `${GT_NAMESPACE}:place`;
 export const GT_PLACED_EVENT = `${GT_NAMESPACE}:placed`;
 /** Blocks of arena floor around the model's footprint. */
 export const GT_MARGIN = 3;
-/** Stable server module the test pack binds; matches the model packs. */
-export const GT_SERVER_VERSION = '2.9.0';
 /** The only `@minecraft/server-gametest` module version Minecraft 1.26.5x ships. */
 export const GT_GAMETEST_VERSION = '1.0.0-beta';
 /** Largest arena one `.mcstructure` may carry (a structure block's save limit). */
@@ -57,7 +59,7 @@ export const GT_MAX_ARENA = { x: 64, y: 384, z: 64 } as const;
 export interface Vec3 { x: number; y: number; z: number }
 
 /** Walk outcome the offline harness predicts, per direction. */
-export type WalkOutcome = 'passed' | 'blocked' | 'sealed' | 'partial' | 'no-approach';
+export type WalkOutcome = 'passed' | 'blocked' | 'sealed' | 'partial' | 'fell' | 'no-approach';
 
 /** One doorway the device should walk, in model-local block coordinates (turn 0, 100 %). */
 export interface GametestDoorway {
@@ -105,13 +107,19 @@ const PLACEMENT_HOOK = `  system.afterEvents.scriptEventReceive.subscribe((ev) =
     if (ev.id !== "${GT_PLACE_EVENT}") return;
     let a;
     try { a = JSON.parse(ev.message); } catch (e) { console.warn("CMGT_HOOK bad message " + ev.message); return; }
-    const p = world.getPlayers({ name: a.player })[0];
-    if (!p) { console.warn("CMGT_HOOK no player " + a.player); return; }
+    // Measured on the Pixel (run 2): even with server-gametest declared, a simulated player
+    // is not found by name from this pack. place() only needs a player for its dimension,
+    // messages and undo history, so fall back to a real player and say which was used.
+    const all = world.getAllPlayers(), real = all.filter(Boolean);
+    const src = ev.sourceEntity && ev.sourceEntity.typeId === "minecraft:player" ? ev.sourceEntity : undefined;
+    const p = src || real.find((x) => x.name === a.player) || real[0];
+    console.warn("CMGT_HOOK " + JSON.stringify({ requested: a.player, players: all.length, undefinedPlayers: all.length - real.length, names: real.map((x) => x.name), using: p ? p.name : null }));
+    if (!p) return;
     const st = state(p);
     st.anchor = { x: a.x, y: a.y, z: a.z }; st.dimension = p.dimension.id; st.rotation = a.rotation || 0; st.size = a.size || 100; st.aim = false;
     system.run(() => place(p).then(() => {
       const h = histories.get(p.id);
-      system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, entities: h ? h.entities.length : -1 }));
+      system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, placedFor: p.name, entities: h ? h.entities.length : -1 }));
     }, (e) => system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, error: String(e && e.message || e) }))));
   }, { namespaces: ["${GT_NAMESPACE}"] });
   console.warn("CMGT_HOOK_READY " + config.id);
@@ -163,29 +171,6 @@ export function variantManifest(manifest: Manifest, version: number[] = manifest
   };
 }
 
-/** Manifest of the GameTest pack. Version follows the model pack's so a rebuild is recognisable. */
-export function gametestManifest(plan: GametestPlan, version: number[]): Manifest {
-  const id = `${GT_NAMESPACE}.pack:${plan.modelId}`;
-  return {
-    format_version: 2,
-    header: {
-      name: `Craftmatic GameTests — ${plan.label}`,
-      description: `Automated in-game tests for ${plan.label}. Needs the Beta APIs experiment and cheats; runs on world load (gametest runset ${GT_TAG}).`,
-      uuid: deterministicUuid(`${id}:header`),
-      version,
-      min_engine_version: [1, 26, 40],
-    },
-    modules: [
-      { type: 'data', uuid: deterministicUuid(`${id}:data`), version },
-      { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`${id}:script`), version },
-    ],
-    dependencies: [
-      { module_name: '@minecraft/server', version: GT_SERVER_VERSION },
-      { module_name: '@minecraft/server-gametest', version: GT_GAMETEST_VERSION },
-    ],
-  };
-}
-
 // ─── Arena structure ────────────────────────────────────────────────────────
 
 /** Arena size: the model's box plus `GT_MARGIN` each side, one floor layer and headroom. */
@@ -215,13 +200,17 @@ export function buildArenaStructure(dims: GametestPlan['dims']): Uint8Array {
 // ─── Walk judgement (shared by the runtime and the unit tests) ──────────────
 
 /**
- * Where a walker ended relative to its start→end line: `passed` at 75 % or
- * more of the way, `blocked` under 50 %, otherwise `partial`.
+ * Where a walker ended relative to its start->end line: `passed` at 75 % or
+ * more of the way, `blocked` under 50 %, otherwise `partial`; `fell` when it
+ * ended more than a block below both ends (run 4: 41732's Door 3 "walked
+ * through" by dropping 3.25 blocks off the far side - the drop that makes the
+ * offline walk call it SEALED).
  */
-export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed' | 'blocked' | 'partial'; progress: number } {
+export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed' | 'blocked' | 'partial' | 'fell'; progress: number } {
   const dx = end.x - start.x, dz = end.z - start.z, len2 = dx * dx + dz * dz;
   const progress = len2 > 0 ? ((at.x - start.x) * dx + (at.z - start.z) * dz) / len2 : 0;
   const rounded = Math.round(progress * 100) / 100;
+  if (at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
   return { outcome: progress >= 0.75 ? 'passed' : progress < 0.5 ? 'blocked' : 'partial', progress: rounded };
 }
 
@@ -255,6 +244,12 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (ev.id === `${NS}:probe`) void probe(ev.message);
   }, { namespaces: [NS] });
 
+  /** Entity-interaction events a simulated player caused, as this pack's own handlers see them. */
+  const events = { interact: 0, hit: 0 };
+  const isSim = (p: any): boolean => !!p && String(p.name).startsWith('cmgt_');
+  world.afterEvents.playerInteractWithEntity.subscribe((ev: any) => { if (isSim(ev.player)) events.interact++; });
+  world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (isSim(ev.damagingEntity)) events.hit++; });
+
   const round = (v: any): Vec3 => ({ x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100, z: Math.round(v.z * 100) / 100 });
   const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
   const dist2 = (a: Vec3, b: Vec3): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
@@ -283,8 +278,11 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
     const from = { ...sim.location };
-    const target = test.worldLocation({ x: 6.5, y: f.y + 1, z: 2.5 });
-    sim.moveToLocation(target);
+    // SimulatedPlayer movement takes TEST-RELATIVE coordinates (run 2: a world
+    // target sent the walker to origin + target).
+    const targetRel = { x: 6.5, y: f.y + 1, z: 2.5 };
+    const target = test.worldLocation(targetRel);
+    sim.moveToLocation(targetRel);
     const track: Vec3[] = [];
     for (let i = 0; i < 6; i++) { await test.idle(10); track.push(round(sim.location)); }
     const to = { ...sim.location };
@@ -314,7 +312,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const walk = async (startW: Vec3, endW: Vec3): Promise<{ outcome: string; progress: number; at: Vec3 }> => {
       sim.teleport(startW, { facingLocation: endW });
       await test.idle(4);
-      sim.moveToLocation(endW);
+      sim.moveToLocation(test.relativeLocation(endW)); // relative, like every SimulatedPlayer move
       await test.idle(60);
       sim.stopMoving();
       const at = { ...sim.location };
@@ -332,22 +330,30 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       const row: any = { label: d.label, offline: d.offlineVerdict, expectClosed: d.expectClosed, expectOpen: d.expectOpen };
       if (!leaf) { row.error = 'leaf entity not found'; results.push(row); log('DOOR', row); continue; }
       try {
+        const face = async (): Promise<void> => { sim.teleport(startW, { facingLocation: leaf.location }); await test.idle(4); sim.lookAtEntity(leaf); };
+        // A double door's leaves share cells and move together (run 4: opening Door 2
+        // opened Door 4). Close a leaf that starts open, so every doorway starts closed.
+        const initial = angleOf(leaf);
+        if (initial !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); row.resetFrom = initial; }
         row.angleClosed = angleOf(leaf);
         row.closed = await walk(startW, endW);
-        sim.teleport(startW, { facingLocation: leaf.location });
-        await test.idle(4);
-        sim.lookAtEntity(leaf);
+        await face();
+        const before = { ...events };
         row.interactReturned = sim.interactWithEntity(leaf);
         await test.idle(20);
         row.angleAfterInteract = angleOf(leaf);
+        row.interactEvents = events.interact - before.interact;
         if (row.angleAfterInteract === row.angleClosed) {
-          // playerInteractWithEntity did not toggle it: try the other route the runtime listens to.
+          // The interact did not toggle it: try the other route the runtime listens to (a hit).
           row.attackReturned = sim.attackEntity(leaf);
           await test.idle(20);
           row.angleAfterAttack = angleOf(leaf);
+          row.hitEvents = events.hit - before.hit;
         }
         row.open = await walk(startW, endW);
         row.pass = matches(d.expectClosed, row.closed.outcome) && matches(d.expectOpen, row.open.outcome);
+        // Leave it closed for the next doorway (its partner may be next).
+        if (angleOf(leaf) !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); }
       } catch (err) {
         row.error = String(err && (err as Error).message || err);
         row.pass = false;
@@ -408,12 +414,17 @@ export function gametestScript(plan: GametestPlan): string {
     + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()});\n`;
 }
 
-/** Every file of the GameTest pack, relative to its folder. */
-export function gametestPackFiles(plan: GametestPlan, version: number[]): Array<{ name: string; data: Uint8Array }> {
+/** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */
+export function withGametestImport(mainJs: string): string {
+  if (mainJs.includes('./gametest.js')) return mainJs;
+  return `${mainJs.replace(/\s*$/, '')}\nimport "./gametest.js";\n`;
+}
+
+/** Files the test variant ADDS to the model's behaviour pack, relative to its folder. */
+export function gametestVariantFiles(plan: GametestPlan): Array<{ name: string; data: Uint8Array }> {
   const enc = new TextEncoder();
   return [
-    { name: 'manifest.json', data: enc.encode(JSON.stringify(gametestManifest(plan, version), null, 2) + '\n') },
-    { name: 'scripts/main.js', data: enc.encode(gametestScript(plan)) },
+    { name: 'scripts/gametest.js', data: enc.encode(gametestScript(plan)) },
     { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims) },
   ];
 }

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  arenaSize, buildArenaStructure, gametestManifest, gametestRuntime, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
+  arenaSize, buildArenaStructure, gametestRuntime, gametestVariantFiles, withGametestImport, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
   judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, type GametestPlan, type Vec3,
 } from '../web/src/engine/gametest-pack.js';
 
@@ -57,9 +57,11 @@ describe('manifests', () => {
     expect(v.dependencies).toEqual([...manifest.dependencies, { module_name: '@minecraft/server-gametest', version: '1.0.0-beta' }]);
     expect(variantManifest(manifest).header.uuid).toBe(v.header.uuid);
   });
-  it('the test pack binds stable server + the beta gametest module', () => {
-    const m = gametestManifest(PLAN, [1, 2, 3]);
-    expect(m.dependencies).toEqual([{ module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-gametest', version: '1.0.0-beta' }]);
+  it('the variant imports the tests from its own entry, once', () => {
+    const main = 'import "./placement.js";\nconsole.warn(1);\n';
+    expect(withGametestImport(main)).toBe('import "./placement.js";\nconsole.warn(1);\nimport "./gametest.js";\n');
+    expect(withGametestImport(withGametestImport(main))).toBe(withGametestImport(main));
+    expect(gametestVariantFiles(PLAN).map(f => f.name)).toEqual(['scripts/gametest.js', 'structures/craftmatic_gt/arena_demo_1.mcstructure']);
   });
 });
 
@@ -82,6 +84,9 @@ describe('walk verdicts', () => {
     expect(judgeWalk(s, e, { x: 0.3, y: 0, z: 1.9 }).outcome).toBe('passed');
     expect(judgeWalk(s, e, { x: 0, y: 0, z: 0.4 }).outcome).toBe('blocked');
     expect(judgeWalk(s, e, { x: 0, y: 0, z: 1.2 }).outcome).toBe('partial');
+    expect(judgeWalk(s, e, { x: 0, y: -3.2, z: 1.9 }).outcome).toBe('fell');
+    expect(outcomeMatches('sealed', 'fell')).toBe(true);
+    expect(outcomeMatches('passed', 'fell')).toBe(false);
   });
   it('sealed and blocked both mean "not walkable"', () => {
     expect(outcomeMatches('sealed', 'blocked')).toBe(true);
@@ -108,7 +113,8 @@ function fakeHarness(opts: { doorOpens: boolean; closedLeaks: boolean }) {
   const sim: any = {
     location: { x: 0, y: 0, z: 0 },
     teleport(at: Vec3) { this.location = { ...at }; current = { ...at }; },
-    moveToLocation(to: Vec3) {
+    moveToLocation(rel: Vec3) {
+      const to = add(origin, rel); // SimulatedPlayer moves take test-relative coordinates
       const door = PLAN.doorways.find(d => Math.abs(add(anchor, d.start).x - current.x) < 1e-6)!;
       const walkable = door.offlineVerdict === 'OK' && (leafOpen || opts.closedLeaks);
       this.location = walkable ? { ...to } : { x: current.x, y: current.y, z: current.z + (to.z - current.z) * 0.2 };
@@ -120,6 +126,7 @@ function fakeHarness(opts: { doorOpens: boolean; closedLeaks: boolean }) {
   const outcome: { succeeded?: boolean; failure?: string } = {};
   const test = {
     worldBlockLocation: (r: Vec3) => add(origin, r), worldLocation: (r: Vec3) => add(origin, r),
+    relativeLocation: (w: Vec3) => ({ x: w.x - origin.x, y: w.y - origin.y, z: w.z - origin.z }),
     getBlock: (r: Vec3) => ({ typeId: r.y === 0 ? 'minecraft:smooth_stone' : 'minecraft:air' }), getTestDirection: () => 'South',
     getDimension: () => dim,
     idle: async () => { /* ticks pass instantly */ },
@@ -129,7 +136,7 @@ function fakeHarness(opts: { doorOpens: boolean; closedLeaks: boolean }) {
   const builder: any = new Proxy({}, { get: () => () => builder });
   const mc = {
     GameMode: { Survival: 'Survival' },
-    world: { afterEvents: { playerSpawn: { subscribe() {} } }, getDimension: () => dim, getPlayers: () => [] },
+    world: { afterEvents: { playerSpawn: { subscribe() {} }, playerInteractWithEntity: { subscribe() {} }, entityHitEntity: { subscribe() {} } }, getDimension: () => dim, getPlayers: () => [] },
     system: {
       afterEvents: { scriptEventReceive: { subscribe: (fn: (ev: any) => void) => scriptSubs.push(fn) } },
       runTimeout: (fn: () => void) => fn(),
