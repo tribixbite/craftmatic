@@ -36,8 +36,13 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
   `1e33902c`, builds offline detectors over the 40 favourites, fixes, checks on
   the Pixel (924). User asked: is there a newer texture pack to install / old
   one to remove? (packs ship one 16x16 swatch per colour; no separate pack).
-- [ ] REGRESSION coaster camera: violent stutter on steep inclines/declines
-  + server lag (time slows). Keep the loop look-lock; ONE integrator.
+- [x] REGRESSION coaster camera FIXED (`37cdf61c`, merged): the loop camera
+  predicted 80 ticks on every tick the car pitched > 20 degrees (10261: 117
+  substeps/tick vs 2.4) — from `2b7e11bd`. Now predicts only near an
+  inversion. Saga ride: 10261 chain lift 47 s -> 9 s, 10303 cycle 55 s (host 54),
+  42703 23-25 s (host 23); no frozen frames. Not re-ridden on the Pixel.
+  World 925 lost 11 bindings to that test's `--exclusive` 3-pack deploy
+  (packs still installed): redeploy the full round with `--exclusive`.
 - [ ] Collider CLEARANCE: rooms/halls/ceilings too tight for a 0.6 x 1.8
   player. Trim colliders only where provably safe (never reduce free space,
   never open to outside or through a closed leaf); ceilings too; sub-block
