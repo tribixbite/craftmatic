@@ -15,7 +15,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
-import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
+import { verdictOf, walkThroughDoorway, type DoorwayWalkTrace } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
   arenaExceeds, arenaWindows, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGametestImport,
@@ -58,7 +58,8 @@ if (cfg) {
   const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
   cfg.items.forEach((it, i) => {
     if (it.passSize === undefined || !it.blocking.length) return;
-    const open = walkThroughDoorway(pack, i, 100, 0, true);
+    const route: DoorwayWalkTrace = { routes: [], tracks: [] };
+    const open = walkThroughDoorway(pack, i, 100, 0, true, false, route);
     const closed = walkThroughDoorway(pack, i, 100, 0, false);
     const actor = placement.actors.find(a => a.interactive === i);
     // Walk the first direction that has a start; an END exists only for a walk that got
@@ -70,9 +71,12 @@ if (cfg) {
     const end = dir.end ?? { x: 2 * open.centre.x - start.x, y: start.y, z: 2 * open.centre.z - start.z };
     const openDir = open.directions.find(d => d.from === dir.from);
     const closedDir = closed.directions.find(d => d.from === dir.from);
+    // The route the offline walk followed from this side (column centres between the two spots).
+    const way = route.routes.find(r => r.from === dir.from)?.way ?? [];
+    const via = way.slice(1, -1).map(p => ({ x: p.x, y: p.y, z: p.z }));
     doorways.push({
       label: it.label, typeId: it.type, actor: { x: actor.x, y: actor.y, z: actor.z },
-      start, end,
+      start, end, ...(via.length ? { via } : {}),
       // SEALED: the walk never reaches the leaf, and its per-direction rows read a zero-tick
       // "passed" on the reachable side; the prediction is "not walkable" both ways.
       expectClosed: (open.outcome === 'sealed' ? 'sealed' : closedDir?.outcome ?? closed.outcome) as WalkOutcome,
@@ -87,6 +91,8 @@ if (cfg) {
 // accepted (the runtime's line of sight lets the tap through there), and every
 // seat is mounted. A part no spot reaches is reported, not tested.
 const parts: GametestPart[] = [];
+/** How far past touching (blocks) a test player stands from a closed leaf: the device lands it a little off its target. */
+const LEAF_MARGIN_BLOCKS = 0.35;
 const seats: GametestSeat[] = [];
 const windows = arenaWindows({ width: placement.width, height: placement.height, length: placement.length });
 if (cfg) {
@@ -95,14 +101,32 @@ if (cfg) {
     if (it.passSize !== undefined && it.blocking.length && doorways.some(d => d.typeId === it.type)) return;
     const actor = placement.actors.find(a => a.interactive === i);
     const audit = taps.parts.find(p => p.label === actor?.label);
-    const spots = (audit?.spots ?? []).filter(sp => sp.ok);
+    // A spot from which the part both OPENS and CLOSES again (the audit's second tap, aimed at
+    // the open part's boxes): from a spot that sees only the closed leaf, 71040's Door 1 swung
+    // behind a wall and the line-of-sight filter refused the closing hit (Pixel 2026-09-25).
+    // Only when no spot does both is an opening-only spot used (the test then reports the close).
+    const opens = (audit?.spots ?? []).filter(sp => sp.ok);
+    const both = opens.filter(sp => sp.closes);
+    const spots = both.length ? both : opens;
     if (!actor || !spots.length) { console.log(`  ${it.label}: ${actor ? 'no standing spot the tap audit accepted' : 'no actor'}; not tested`); return; }
+    if (!both.length) console.log(`  ${it.label}: no spot closes it again after opening; testing from an opening-only spot`);
     const d2 = (sp: { at: number[] }): number => (sp.at[0]! - actor.x) ** 2 + (sp.at[2]! - actor.z) ** 2 + (sp.at[1]! - actor.y) ** 2;
-    // TODO: pick a spot the tap audit also accepts for the OPEN tap boxes: from the closed-state
-    // spot, 71040's Door 1 swings behind a wall and the line-of-sight filter refuses the closing hit.
-    // Not standing IN the part: a doorway will not close on a player in its leaf (the runtime's
-    // occupancy test), and the nearest accepted spot was often right on the leaf (Pixel 2026-09-25).
-    const clear = spots.filter(sp => Math.hypot(sp.at[0]! - actor.x, sp.at[2]! - actor.z) >= 1.2);
+    // Not standing IN or AGAINST the closed leaf: a doorway will not close on a player whose body
+    // overlaps its slab (the runtime's occupancy test, `obstructed`), and a simulated player lands
+    // a few hundredths off its teleport target. 71040's Door 1 spot stood 1.2 blocks from the
+    // actor but 0.46 from the hinge end, and the closing hit was refused (Pixel 2026-09-25).
+    const lf = (it as { leaf?: { c: number[]; a: number[]; u: number[]; t: number } }).leaf;
+    const clearOfLeaf = (sp: { at: number[] }): boolean => {
+      if (!lf) return Math.hypot(sp.at[0]! - actor.x, sp.at[2]! - actor.z) >= 1.2;
+      const need = 0.3 + lf.t / 2 + LEAF_MARGIN_BLOCKS;
+      for (let s = 0; s <= 1.0001; s += 0.05) for (let t = 0; t <= 1.0001; t += 0.05) {
+        const p = [0, 1, 2].map(k => lf.c[k]! + lf.a[k]! * s + lf.u[k]! * t);
+        if (p[1]! < sp.at[1]! - 0.2 || p[1]! > sp.at[1]! + 2) continue;
+        if (Math.hypot(p[0]! - sp.at[0]!, p[2]! - sp.at[2]!) < need) return false;
+      }
+      return true;
+    };
+    const clear = spots.filter(clearOfLeaf);
     const pool = clear.length ? clear : spots;
     const best = pool.reduce((a, b) => (d2(b) < d2(a) ? b : a));
     parts.push({ label: it.label, typeId: it.type, kind: it.kind, actor: { x: actor.x, y: actor.y, z: actor.z }, from: { x: best.at[0]!, y: best.at[1]!, z: best.at[2]! }, openAngle: it.angle, window: windowOf(windows, actor.x) });

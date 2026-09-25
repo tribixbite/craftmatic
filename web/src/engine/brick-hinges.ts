@@ -558,7 +558,8 @@ export function discoverBrickHinges(input: BrickHingeInput): BrickHingeResult {
   bricks.forEach((b, i) => { if (input.taken.has(b)) blocked.add(i); });
   const index = new Map<ParsedBrick, number>();
   bricks.forEach((b, i) => index.set(b, i));
-  const maxParts = Math.max(MIN_HINGED_PARTS, Math.min(MAX_HINGED_PARTS, Math.floor(bricks.length * MAX_SHARE)));
+  // The share binds only a big model: a small one may still hang a 24-part door.
+  const maxParts = Math.min(MAX_HINGED_PARTS, Math.max(24, Math.floor(bricks.length * MAX_SHARE)));
   const items: SceneInteractive[] = [];
   const lines: HingeLineReport[] = [];
   const claimed = new Set<number>();

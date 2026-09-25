@@ -276,14 +276,14 @@ function wallGrid(wallZ = 5, depth = 1): BlockGrid {
 }
 /** The grid frame at minifig scale, origin at LDraw 0: grid (x, y, z) = LDraw (x, -y, -z) / C. */
 const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
-/** A door leaf standing on the floor (grid y 1) at grid x `x0`..`x0 + width`, mid-plane at grid z `zc`. */
-function leafAt(x0: number, width: number, zc: number, height = 2.6): SceneInteractive {
-  const corner: Vec3 = [x0 * C, -C, -zc * C];
+/** A door leaf standing on the floor (grid y `floor`, 1 by default) at grid x `x0`..`x0 + width`, mid-plane at grid z `zc`. */
+function leafAt(x0: number, width: number, zc: number, height = 2.6, floor = 1): SceneInteractive {
+  const corner: Vec3 = [x0 * C, -floor * C, -zc * C];
   return {
     kind: 'door', part: 'test', description: 'Door', bricks: [], pivotLdu: corner, axisLdu: [0, 1, 0], angleDeg: 90,
     leaf: { corner, along: [width * C, 0, 0], up: [0, -height * C, 0], normal: [0, 0, 1], thicknessLdu: 6 },
-    anchorLdu: [(x0 + width / 2) * C, -C, -zc * C],
-    boundsLdu: { min: [x0 * C, -(1 + height) * C, -zc * C - 3], max: [(x0 + width) * C, -C, -zc * C + 3] },
+    anchorLdu: [(x0 + width / 2) * C, -floor * C, -zc * C],
+    boundsLdu: { min: [x0 * C, -(floor + height) * C, -zc * C - 3], max: [(x0 + width) * C, -floor * C, -zc * C + 3] },
     openingLdu: { width: width * C, height: height * C }, offGridDeg: 0,
   };
 }
@@ -661,6 +661,32 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
     expect(small).toBe('SMALL');
     const big = verdictOf(walkThroughDoorway(pack, 0, 200, 0, true), walkThroughDoorway(pack, 0, 200, 0, false));
     expect(big).toBe('OK');
+  });
+  it('walks out of a doorway two blocks over the ground (ONE-WAY), never back in, and never through it closed', async () => {
+    // A bus door: the floor inside (z < 5) and under the doorway is two rows deep, the
+    // wall stands on it, and outside (z > 5) there is only the ground two blocks down.
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const g = new BlockGrid(12, 7, 10);
+    for (let x = 0; x < 12; x++) for (let z = 0; z <= 5; z++) for (const y of [0, 1]) g.set(x, y, z, colliderState(0, 16));
+    for (let x = 0; x < 12; x++) for (let y = 2; y <= 5; y++) g.set(x, y, 5, colliderState(0, 16));
+    const leaf = leafAt(3.25, 1.5, 5.5, 2.6, 2);
+    const [plan] = planInteractiveColliders(g, [leaf], frame);
+    const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize: 100, normal: [0, 0, 1] as [number, number, number] };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < g.width; x++) for (let y = 0; y < g.height; y++) for (let z = 0; z < g.length; z++) {
+      const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(g.get(x, y, z));
+      if (m) cells.push({ x, y, z, lo: Number(m[1]), hi: Number(m[2]) });
+    }
+    const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Bus', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item], turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
+    const pack = { cells, dims: cfg.dims, interactives: cfg };
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    expect(open.outcome).toBe('passed');
+    expect(open.oneWay).toBeDefined();
+    // Walked from the floor side only; from the ground side the step back in is over the jump.
+    expect(open.directions.find(d => d.from === open.oneWay)).toMatchObject({ outcome: 'blocked', reason: 'one-way' });
+    expect(open.directions.find(d => d.from !== open.oneWay)?.outcome).toBe('passed');
+    expect(closed.outcome).not.toBe('passed');
+    expect(verdictOf(open, closed)).toBe('ONE-WAY');
   });
 });
 
