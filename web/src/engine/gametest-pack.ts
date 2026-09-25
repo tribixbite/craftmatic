@@ -1055,17 +1055,29 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       return out;
     };
     const stop = (): void => { try { sim.stopMoving(); } catch { /* idle */ } };
+    /** Back to the spawn point, heading +x, rider re-aimed: every group of phases starts on the same course. */
+    const reset = async (): Promise<void> => {
+      stop();
+      try { veh.teleport(toW(spawnRel), { rotation: { x: 0, y: yaw0 } }); } catch (err) { row.resetError = String(err); }
+      await test.idle(6);
+      try { sim.lookAtLocation({ x: spawnRel.x + 20, y: spawnRel.y + 1.5, z: spawnRel.z }); } catch { /* not required */ }
+      await test.idle(14);
+    };
 
     await phase('settle', 40, () => {});
     await phase('forward', 60, () => sim.moveRelative(0, 1));
     stop();
     await phase('coast', 40, () => {});
+    await reset();
+    row.ridersAfterReset = riders();
     await phase('reverse', 40, () => sim.moveRelative(0, -1));
     stop();
     await phase('stop_after_reverse', 20, () => {});
+    await reset();
     await phase('turn_left', 60, (t) => { sim.moveRelative(0, 1); if (t % 2 === 0) sim.rotateBody(-6); });
     stop();
     await phase('turn_stop', 20, () => {});
+    await reset();
     if (v.kind === 'plane') {
       row.jumpReturned = [] as unknown[];
       await phase('climb', 40, (t) => { const r = sim.jump(); if (t % 10 === 0) row.jumpReturned.push(r); });
