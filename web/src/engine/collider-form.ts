@@ -62,6 +62,14 @@ export interface ColliderFormKit {
    * (several cells share a block there).
    */
   cellPieces(x: number, y: number, z: number, v: number, lo: number, hi: number, dims: { width: number; length: number }, f: number, r: number, emit: (wx: number, wy: number, wz: number, box: Box16) => void): void;
+  /**
+   * Set a world block to a form. When the form's block cannot be resolved (a
+   * world where an older pack's definitions win and the form ids do not
+   * exist) it lays the FULL collider over the form's vertical extent instead:
+   * a wall that is too thick, never a missing one. `resolve` is
+   * `BlockPermutation.resolve`. Returns false when it fell back.
+   */
+  lay(block: { setPermutation(p: unknown): void }, form: ColliderForm, loState: string, hiState: string, resolve: (id: string, states: Record<string, number>) => unknown): boolean;
 }
 
 export function colliderFormKit(): ColliderFormKit {
@@ -184,7 +192,18 @@ export function colliderFormKit(): ColliderFormKit {
       }
     }
   };
-  return { SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, turnForm, cellPieces };
+  const lay: ColliderFormKit['lay'] = (block, form, loState, hiState, resolve) => {
+    try {
+      block.setPermutation(resolve(VARIANTS[form.v]!.id, { [loState]: form.lo, [hiState]: form.hi }));
+      return true;
+    } catch (e) {
+      if (!form.v) throw e;
+      const boxes = formBoxes(form.v, form.lo, form.hi);
+      block.setPermutation(resolve(VARIANTS[0]!.id, { [loState]: Math.min(...boxes.map(b => b[2])), [hiState]: Math.max(...boxes.map(b => b[3])) }));
+      return false;
+    }
+  };
+  return { SHAPES, VARIANTS, variantOf: (id: string): number => (id in byId ? byId[id]! : -1), formBoxes, cover, turnForm, cellPieces, lay };
 }
 
 /** The kit, built once for the engine (the runtimes build their own from the serialised source). */

@@ -23,7 +23,7 @@ import {
 } from '../web/src/engine/collider-clearance.js';
 import { colliderState } from '../web/src/engine/bedrock-building-shell.js';
 import { ixWorldBlocks } from '../web/src/engine/bedrock-interactives.js';
-import { colliderSourceCells, encodeColliderRuns, SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { colliderSourceCells, encodeColliderRuns, withColliderTreads, SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { WalkWorld, tickPlayer, type PlayerState } from '../web/src/engine/addon-walk.js';
 import { QUARTER_TURNS } from '../web/src/engine/bedrock-collider-scale.js';
 
@@ -118,6 +118,35 @@ describe('collider forms (collider-form.ts)', () => {
       }
       if (pct === 100) expect([...form.values()][0]).toEqual((({ v: tv, lo, hi }) => (tv ? [lo, hi, tv] : [lo, hi]))(K.turnForm({ v, lo: 2, hi: 12 }, r)));
     }
+  });
+
+  it('lays the full collider over the extent of a form whose block the world does not know', () => {
+    const laid: Array<{ id: string; states: Record<string, number> }> = [];
+    const block = { setPermutation: (p: unknown): void => { laid.push(p as { id: string; states: Record<string, number> }); } };
+    const known = (id: string, states: Record<string, number>): unknown => { if (id !== 'craftmatic:collider') throw new Error(`unknown block ${id}`); return { id, states }; };
+    // A floor band 2..6 with a wall shape above it: its extent is 2..16.
+    const v = K.VARIANTS.findIndex(d => d.kind === 1 && d.shape === 3);
+    expect(K.lay(block, { v, lo: 2, hi: 6 }, 'lo', 'hi', known)).toBe(false);
+    expect(laid).toEqual([{ id: 'craftmatic:collider', states: { lo: 2, hi: 16 } }]);
+    expect(K.lay(block, { v: 0, lo: 3, hi: 9 }, 'lo', 'hi', known)).toBe(true);
+  });
+
+  it('plans treads over the grid as it was before clearance (a form read as its full cell)', () => {
+    // A two-storey block with its walls as forms: the plan must equal the plan over the same cells full.
+    const grid = new BlockGrid(6, 5, 6), full = new BlockGrid(6, 5, 6);
+    // Ground plates, a platform one block up from x = 3 (a jump at 100 %, two blocks at 200 %: a tread
+    // restores it), and a wall on the platform laid as a form.
+    for (let x = 0; x < 6; x++) for (let z = 0; z < 6; z++) {
+      const floor = x >= 3 ? colliderState(0, 16) : colliderState(0, 3);
+      grid.set(x, 0, z, floor); full.set(x, 0, z, floor);
+      if (x === 5 && z > 0) { grid.set(x, 1, z, formState({ v: 1, lo: 0, hi: 12 })); full.set(x, 1, z, colliderState(0, 12)); }
+    }
+    const runs = (g: BlockGrid): string => encodeColliderRuns(g, 'craftmatic:collider').runs;
+    const a = withColliderTreads({ width: 6, height: 5, length: 6, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs(grid), keptCells: 0 });
+    const b = withColliderTreads({ width: 6, height: 5, length: 6, block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi', runs: runs(full), keptCells: 0 });
+    expect(a.colliders.treads).toEqual(b.colliders.treads);
+    expect(a.report.plans.map(p => p.blocks)).toEqual(b.report.plans.map(p => p.blocks));
+    expect(a.report.plans.some(p => p.blocks > 0)).toBe(true);
   });
 
   it('runs carry a form and decode back to it', () => {

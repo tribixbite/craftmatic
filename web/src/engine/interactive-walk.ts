@@ -18,6 +18,7 @@
 
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
 import { COLLIDER_KIT } from './collider-form.js';
+import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
 import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState, type SolidBox } from './addon-walk.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
@@ -40,13 +41,15 @@ const DOOR_FLOOR_SLACK = 1.0;
 const SIDE_CLEARANCE = 0.9;
 /**
  * How much of a column a clearance form must leave free along its thin axis
- * for the route to treat the column as open (blocks): the player's 0.6 and a
- * margin, so the player fits in the free part without leaning on the
- * neighbouring column (the route stands it at the free part's centre). A
- * narrower free part may still be walked by a real player; the route does not
- * count on it.
+ * for the route to treat the column as open (blocks). With half a column free
+ * the player (0.6) stands at the free part's centre leaning 0.05 into the next
+ * column; the route also refuses a move across a face a form closes
+ * (`acrossFace`), and the per-tick player is the judge. Measured over the 40
+ * favourites (2026-09-25): 0.5 with the face test, 0 FAIL; without the face
+ * test and aiming at column centres, a route ran through a door frame's thin
+ * wall and read FAIL (42639 Door 1, 76417 Door 3 at 200 %).
  */
-const ROOMY_FREE = 0.7;
+const ROOMY_FREE = 0.5;
 
 export interface DoorwayWalkResult {
   index: number;
@@ -151,16 +154,19 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
         if (rise > JUMP_RISE + 1e-6 || -rise > (twoWay ? JUMP_RISE + 1e-6 : MAX_DROP * k)) continue;
         const hi = Math.max(t, t0);
         if (!clear(x, z, hi, hi + PLAYER_NEED) || !clear(x0, z0, hi, hi + PLAYER_NEED)) continue;
+        if (!acrossFace(x0, z0, x, z, hi)) continue;
         out.push({ x, z, t });
       }
     }
     return out;
   };
   /**
-   * Where a player stands in a column at floor `t`: its centre, or the centre
-   * of the part a clearance form leaves free (a wall pulled back to one side).
+   * The part of a column a clearance form leaves free over the player's body
+   * at floor `t`: `[ax, bx]` along x and `[az, bz]` along z, column-relative
+   * (the whole column when no form stands there). The route only counts
+   * columns whose free part is at least `ROOMY_FREE` wide (`filling`).
    */
-  const standAt = (x: number, z: number, t: number): { x: number; z: number } => {
+  const freePart = (x: number, z: number, t: number): { ax: number; bx: number; az: number; bz: number } => {
     let ax = 0, bx = 1, az = 0, bz = 1;
     for (const b of world.boxesInColumn(x, z)) {
       if (b.y1 <= t + 1e-6 || b.y0 >= t + PLAYER_NEED - 1e-6) continue;
@@ -172,7 +178,27 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
         if (l >= 1 - r) bz = Math.min(bz, l); else az = Math.max(az, r);
       }
     }
-    return { x: x + (bx > ax ? (ax + bx) / 2 : 0.5), z: z + (bz > az ? (az + bz) / 2 : 0.5) };
+    return { ax, bx, az, bz };
+  };
+  /** Where a player stands in a column at floor `t`: the centre of its free part. */
+  const standAt = (x: number, z: number, t: number): { x: number; z: number } => {
+    const f = freePart(x, z, t);
+    return { x: x + (f.bx > f.ax ? (f.ax + f.bx) / 2 : 0.5), z: z + (f.bz > f.az ? (f.az + f.bz) / 2 : 0.5) };
+  };
+  /**
+   * Whether a player can cross the face between two neighbouring columns at
+   * height `t`: a wall pulled back to the shared face (a thin wall right on
+   * the boundary) closes it however roomy each column is, and side by side
+   * the two free parts must overlap by a player's width. Without this a
+   * route ran straight through a door frame's thin wall (42639's Door 1).
+   */
+  const acrossFace = (x0: number, z0: number, x1: number, z1: number, t: number): boolean => {
+    const a = freePart(x0, z0, t), b = freePart(x1, z1, t);
+    const W = PLAYER_WIDTH_BLOCKS;
+    if (x1 > x0) return a.bx >= 1 - 1e-6 && b.ax <= 1e-6 && Math.min(a.bz, b.bz) - Math.max(a.az, b.az) >= W - 1e-6;
+    if (x1 < x0) return a.ax <= 1e-6 && b.bx >= 1 - 1e-6 && Math.min(a.bz, b.bz) - Math.max(a.az, b.az) >= W - 1e-6;
+    if (z1 > z0) return a.bz >= 1 - 1e-6 && b.az <= 1e-6 && Math.min(a.bx, b.bx) - Math.max(a.ax, b.ax) >= W - 1e-6;
+    return a.az <= 1e-6 && b.bz >= 1 - 1e-6 && Math.min(a.bx, b.bx) - Math.max(a.ax, b.ax) >= W - 1e-6;
   };
   return { tops, moves, standAt };
 }

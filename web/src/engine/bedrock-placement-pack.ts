@@ -487,7 +487,18 @@ export const TREAD_RULE = 'An invisible step is laid only where a rise between t
  * construction (asserted in test/bedrock-collider-treads.test.ts).
  */
 export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = []): { colliders: PlacementColliders; report: PlacementTreadReport } {
-  const cells = colliderSourceCells(colliders);
+  // Planned over the grid as it was BEFORE clearance: every clearance form
+  // (collider-form.ts) read as the full cell over its vertical extent. A tread
+  // only ever fills a column the planner found standable and clear, and its
+  // never-block check then holds in a world at least as blocked as the one the
+  // pack lays - a form only adds room. Planning on the forms themselves opens
+  // columns at 300-400 % that the planner's fast path then fails to verify, and
+  // its slow path took 10261 from 70 s to 190 s to export (2026-09-25).
+  const cells = colliderSourceCells(colliders).map(c => {
+    if (!c.v) return c;
+    const boxes = COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi);
+    return { x: c.x, y: c.y, z: c.z, lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])) };
+  });
   const dims = { width: colliders.width, height: colliders.height, length: colliders.length };
   const plans: Record<string, string> = {}, counts: Record<string, number> = {};
   const report: PlacementTreadReport = { rule: TREAD_RULE, plans: [] };
@@ -1027,6 +1038,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       // a block takes the form covering every piece it received (`cover`).
       const written = new Set();
       const pieces = new Map<string, any[]>();
+      let fellBack = 0;
       let cell = 0, budget = 0;
       for (let k = 0; k + 1 < runs.length; k += 2) {
         const value = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
@@ -1059,12 +1071,13 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         let block: any;
         try { block = dim.getBlock(pos); } catch {}
         if (!block) continue;
-        try { block.setPermutation(BlockPermutation.resolve(kit.VARIANTS[form.v].id, { [c.loState]: form.lo, [c.hiState]: form.hi })); written.add(`${pos.x},${pos.y},${pos.z}`); placed++; } catch {}
+        try { if (!kit.lay(block, form, c.loState, c.hiState, (id: string, st: any) => BlockPermutation.resolve(id, st))) fellBack++; written.add(`${pos.x},${pos.y},${pos.z}`); placed++; } catch {}
         if (++budget % 400 === 0) {
           if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
           await wait(1);
         }
       }
+      if (fellBack) console.warn(`BRICK_WAND_FORM_FALLBACK ${fellBack} clearance forms laid as full colliders (their blocks are not defined in this world: is an older pack higher in the stack?)`);
       for (let k = 0; k + 6 < treadPlan.length; k += 7) {
         const digits = (o: number) => (treadPlan.charCodeAt(k + o) - 40) * 200 + treadPlan.charCodeAt(k + o + 1) - 40;
         const tx = digits(0), ty = digits(2), tz = digits(4);
@@ -1139,15 +1152,24 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         // form block of this piece is re-set, while the piece's area is loaded,
         // to the form the turn gives it - `cellPieces`, the arithmetic of every
         // other size. Only this pack's collider blocks are touched.
-        if (st.rotation && config.colliders) {
+        // Unturned it is the same pass, as a check: a form block the world does
+        // not know (an older pack's definitions winning) arrives as air or an
+        // unknown block, and is laid as the full collider instead - never a hole.
+        if (config.colliders) {
+          let fellBack = 0;
           for (const [wx, wy, wz, form] of turnedForms(st.rotation)) {
             const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
             if (pos.x < from.x || pos.x > to.x || pos.y < from.y || pos.y > to.y || pos.z < from.z || pos.z > to.z) continue;
             try {
               const block = dim.getBlock(pos);
-              if (block && kit.variantOf(block.typeId) >= 0) block.setPermutation(BlockPermutation.resolve(kit.VARIANTS[form.v].id, { [config.colliders.loState]: form.lo, [config.colliders.hiState]: form.hi }));
+              if (!block) continue;
+              const ours = kit.variantOf(block.typeId) >= 0;
+              if (!ours && !(block.isAir === true || block.typeId === 'minecraft:air' || block.typeId === 'minecraft:unknown')) continue;
+              if (ours && block.typeId === kit.VARIANTS[form.v].id && Number(block.permutation.getState(config.colliders.loState)) === form.lo && Number(block.permutation.getState(config.colliders.hiState)) === form.hi) continue;
+              if (!kit.lay(block, form, config.colliders.loState, config.colliders.hiState, (id: string, st2: any) => BlockPermutation.resolve(id, st2))) fellBack++;
             } catch {}
           }
+          if (fellBack) console.warn(`BRICK_WAND_FORM_FALLBACK ${fellBack} clearance forms laid as full colliders (their blocks are not defined in this world: is an older pack higher in the stack?)`);
         }
         progress(i + 1, `piece ${i + 1}/${config.tiles.length} placed`);
         // Let the chunks tick with the area still alive so the block updates

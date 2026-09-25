@@ -1380,7 +1380,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
           if (!ours && !air) continue;
           const id = kit.VARIANTS[st[2] || 0]!.id;
           if (ours && b.typeId === id && Number(b.permutation.getState(C.loState)) === st[0] && Number(b.permutation.getState(C.hiState)) === st[1]) continue;
-          b.setPermutation(BlockPermutation.resolve(id, { [C.loState]: st[0], [C.hiState]: st[1] }));
+          kit.lay(b, { v: st[2] || 0, lo: st[0], hi: st[1] }, C.loState, C.hiState, (rid: string, rst: any) => BlockPermutation.resolve(rid, rst));
         } else if (ours) b.setPermutation(BlockPermutation.resolve('minecraft:air'));
       } catch { ok = false; }
     }
