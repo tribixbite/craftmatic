@@ -1,5 +1,11 @@
 import { defineConfig, configDefaults } from 'vitest/config';
 import path from 'path';
+import { existsSync } from 'fs';
+
+// The local copy of the prod part mirror (clego's `ldraw_ref/`), when this
+// machine has it: tests needing post-2020 parts then read the disk instead of
+// the network (ldraw-geometry.ts `probeMirror`, `CRAFTMATIC_LDRAW_REF`).
+const LDRAW_REF = process.env.CRAFTMATIC_LDRAW_REF ?? 'C:/git/clego/ldraw_ref';
 
 // Live-network integration tests hit real external APIs (OSM Overpass,
 // Nominatim, Parcl, the LDraw OMR). They're valuable but FLAKY — an upstream
@@ -26,6 +32,7 @@ export default defineConfig({
     },
   },
   test: {
+    env: existsSync(LDRAW_REF) ? { CRAFTMATIC_LDRAW_REF: LDRAW_REF } : {},
     include: ['test/**/*.test.ts'],
     exclude: [
       ...configDefaults.exclude,
