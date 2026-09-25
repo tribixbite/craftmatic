@@ -23,7 +23,8 @@ if (!dir) { console.error('usage: bun scripts/_ix_audit_table.ts <sweep dir> [--
 const opt = (k: string): string | undefined => args.find(a => a.startsWith(`--${k}=`))?.slice(k.length + 3);
 const visualDir = opt('visual') ?? 'output/interactivity-0924/audit-visual';
 const walk = opt('walk') ? JSON.parse(readFileSync(opt('walk')!, 'utf8')) as Array<{ set: string; at100: Record<string, number>; atPassSize?: Record<string, number>; doorways: number }> : [];
-const gtDir = opt('gametest');
+// `--gametest=<dir>[,<dir>...]`: CMGT logs per set; a later directory's log replaces an earlier one's (a re-run).
+const gtDirs = (opt('gametest') ?? '').split(',').filter(Boolean);
 
 /** The visual audit's classes, folded onto the stage's. */
 const CLASS_OF: Record<string, string> = {
@@ -65,14 +66,23 @@ for (const f of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) {
   const w = walk.find(x => x.set === set);
   const walkText = w ? (w.doorways ? `${w.at100.OK ?? 0}/${w.doorways} at 100 %${w.atPassSize && (w.atPassSize.OK ?? 0) > (w.at100.OK ?? 0) ? `, ${w.atPassSize.OK} at its size` : ''}` : 'no doorways') : '';
   let gametest = '';
-  if (gtDir && existsSync(join(gtDir, `${set}.log`))) {
-    const log = readFileSync(join(gtDir, `${set}.log`), 'utf8');
+  const gtFile = [...gtDirs].reverse().map(d => join(d, `${set}.log`)).find(f => existsSync(f));
+  if (gtFile) {
+    const log = readFileSync(gtFile, 'utf8');
     const doors = [...log.matchAll(/CMGT SUMMARY (\{.*\})/g)].map(m => JSON.parse(m[1]!));
     const parts = [...log.matchAll(/CMGT PARTS_SUMMARY (\{.*\})/g)].map(m => JSON.parse(m[1]!));
     const dOk = doors.reduce((n, d) => n + d.asPredicted, 0), dAll = doors.reduce((n, d) => n + d.doorways, 0);
     const pOk = parts.reduce((n, p) => n + p.passed, 0), pAll = parts.reduce((n, p) => n + p.parts + p.seats, 0);
     const failed = [...doors.flatMap(d => d.differ), ...parts.flatMap(p => p.failed)];
-    gametest = `${dAll ? `doors ${dOk}/${dAll}` : ''}${dAll && pAll ? ', ' : ''}${pAll ? `parts+seats ${pOk}/${pAll}` : ''}${failed.length ? ` (failed: ${failed.join(', ')})` : ''}` || 'ran, nothing to test';
+    const bits: string[] = [];
+    if (dAll) bits.push(`doors ${dOk}/${dAll}`);
+    if (pAll) bits.push(`parts+seats ${pOk}/${pAll}`);
+    // The figures test (minifig AI, another stage's): moved / roaming, and anything it flagged.
+    const fig = [...log.matchAll(/CMGT FIGURE_SUMMARY (\{.*\})/g)].map(m => JSON.parse(m[1]!))[0];
+    if (fig) bits.push(`figures ${fig.moved}/${fig.roamers} moved${fig.endInsideWall?.length ? `, ${fig.endInsideWall.length} in a wall` : ''}`);
+    const pb = [...log.matchAll(/CMGT PINBALL (\{.*\})/g)].map(m => JSON.parse(m[1]!))[0];
+    if (pb) bits.push(`pinball ${pb.pass ? 'pass' : 'fail'}`);
+    gametest = `${bits.join(', ')}${failed.length ? ` (failed: ${failed.join(', ')})` : ''}` || 'ran, nothing to test';
   }
   rows.push({ set, found, seen, seenBrick, missed, more, statics, walk: walkText, gametest });
 }
