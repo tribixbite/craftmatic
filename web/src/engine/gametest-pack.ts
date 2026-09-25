@@ -1135,21 +1135,28 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     await test.idle(20);
     const rows: any[] = [];
     let dir = 1;
+    // Back and forth along the lane until GAIT_BLOCKS are covered at each speed:
+    // a count of whole units is +-1 per pass, so the error shrinks with the distance.
+    const GAIT_BLOCKS = 24;
     for (const speed of gaitPlan.speeds) {
-      const ticks = Math.round(lane / speed);
-      const from = { ...e.location }, t0 = system.currentTick, n0 = units.length;
-      for (let t = 0; t < ticks; t++) {
-        try { const v = e.getVelocity(); e.applyImpulse({ x: dir * speed - v.x, y: 0, z: -v.z }); } catch { break; }
-        await test.idle(1);
+      let blocks = 0, seen = 0, ticksPushed = 0;
+      for (let pass = 0; pass < 16 && blocks < GAIT_BLOCKS; pass++) {
+        const ticks = Math.round(lane / speed);
+        const from = { ...e.location }, t0 = system.currentTick, n0 = units.length;
+        for (let t = 0; t < ticks; t++) {
+          try { const v = e.getVelocity(); e.applyImpulse({ x: dir * speed - v.x, y: 0, z: -v.z }); } catch { break; }
+          await test.idle(1);
+        }
+        const to = { ...e.location }, t1 = system.currentTick;
+        try { const v = e.getVelocity(); e.applyImpulse({ x: -v.x, y: 0, z: -v.z }); } catch { /* gone */ }
+        await test.idle(20);
+        // Units reached while it was pushed (the stop's slide after t1 is left out).
+        seen += units.slice(n0).filter(u => u.t <= t1).length;
+        blocks += Math.hypot(to.x - from.x, to.z - from.z);
+        ticksPushed += t1 - t0;
+        dir = -dir;
       }
-      const to = { ...e.location }, t1 = system.currentTick;
-      try { const v = e.getVelocity(); e.applyImpulse({ x: -v.x, y: 0, z: -v.z }); } catch { /* gone */ }
-      await test.idle(20);
-      // Units reached while it was pushed; the partial first and last units make the count +-1.
-      const seen = units.slice(n0).filter(u => u.t <= t1).length;
-      const blocks = Math.hypot(to.x - from.x, to.z - from.z);
-      rows.push({ speed, ticks: t1 - t0, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, t1 - t0) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 100) / 100 : null });
-      dir = -dir;
+      rows.push({ speed, ticks: ticksPushed, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, ticksPushed) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 1000) / 1000 : null });
     }
     try { system.afterEvents.scriptEventReceive.unsubscribe(sub); } catch { /* older API */ }
     try { e.remove(); } catch { /* gone */ }
@@ -1157,7 +1164,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     flush();
     if (rows.every(r => !r.units)) test.fail('the gait controller reported no distance units (query.modified_distance_moved not evaluated on the server?)');
     else test.succeed();
-  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(4000).tag(NS);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(12000).tag(NS);
 
   /**
    * Vehicles: spawn each rideable type in the vehicle arena, seat a simulated
