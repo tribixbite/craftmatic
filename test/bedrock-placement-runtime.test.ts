@@ -39,7 +39,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   const system = { run: (fn: any) => fn(), runTimeout: (fn: any) => queueMicrotask(fn), runInterval: (fn: any, ticks: number) => { intervals.set(ticks, fn); } };
   const source = assets.script.replace(/^import .*;\s*$/gm, '');
   const showTimeMachineControls = vi.fn(async () => {});
-  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', 'showTimeMachineControls', source)(world, system, { Memory: 'memory' }, Form, Form, showTimeMachineControls);
+  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', 'showTimeMachineControls', source)(world, system, { Memory: 'memory', World: 'world' }, Form, Form, showTimeMachineControls);
   const flush = async (turns = 60) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const pollHeldItem = intervals.get(5), drawPreview = intervals.get(12);
 

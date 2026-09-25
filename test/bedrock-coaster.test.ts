@@ -2233,8 +2233,18 @@ describe('the rider camera follows the track', () => {
     expect(apex.pitch).toBeCloseTo(0, 6);
   });
 
+  it('the pack carries the camera constants (animLag included) and ships no live tuning hook', () => {
+    const config = coasterRuntimeConfig('craftmatic:tune_check', [loopCourse()]);
+    expect(config.camera?.animLag).toBe(COASTER_RIDER_VIEW.animLag);
+    const script = coasterScript(config);
+    expect(script).not.toContain('scriptEventReceive');
+    expect(script).not.toContain('coaster_cam');
+    expect(script).not.toContain('CAMTRACE');
+  });
+
   it('loop mode (the default) sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
-    const ANIM_LAG = 3;
+    const ANIM_LAG = COASTER_RIDER_VIEW.animLag;
+    expect(ANIM_LAG).toBe(3); // ridden on the Pixel at 1, 3 and 6; 3 matched the per-tick view
     expect(COASTER_RIDER_VIEW.mode).toBe('loop');
     class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
     (globalThis as any).LinearSpline = Spline;

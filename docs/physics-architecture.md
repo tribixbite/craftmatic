@@ -186,6 +186,8 @@ from a near-vertical nose; the pitch folded back into ±90 past vertical),
 and each inversion sent as ONE camera animation that rolls, planned by
 running the ride's own `integrate` / `carPose` ahead of the train
 (`planInversion`); it hands back the instant the ride leaves the plan.
+The animation trails the server's train by `animLag` ticks (3, ridden on the
+Pixel), because the client draws the train interpolated behind the server.
 `clamp` (the first shipped mode) turned the yaw over at `maxTurn` a tick past
 every vertical, which is what the user saw as a 90° turn on 10303's
 overhanging drop and a sideways swing in the loops. Device facts and the
@@ -499,6 +501,7 @@ literal inside a function body (`§` marks the number).
 | `COASTER_RIDER_VIEW.lookYaw` | `web/src/engine/bedrock-coaster.ts` | 70 | degrees | Most a rider may look away sideways. |
 | `COASTER_RIDER_VIEW.lookPitch` | `web/src/engine/bedrock-coaster.ts` | 50 | degrees | Most up or down. |
 | `COASTER_RIDER_VIEW.lookLag` | `web/src/engine/bedrock-coaster.ts` | 6 | ticks | The client's rider yaw trails the car ~0.3 s on the Pixel; 6 held the look within 5°. |
+| `COASTER_RIDER_VIEW.animLag` | `web/src/engine/bedrock-coaster.ts` | 3 | ticks | An inversion's camera animation shows the pose of tick k − 3: the client draws the train interpolated behind the server. Ridden on the Pixel at 1 (camera inside the car ahead's rider), 3 (matches the per-tick view) and 6 (behind its own train), 2026-09-25. |
 | `COASTER_RIDER_VIEW.ease` | `web/src/engine/bedrock-coaster.ts` | 0.1 | s | Camera ease per update. |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | `web/src/engine/bedrock-coaster.ts` | 20 | degrees/block | Largest roll change of the track up between gravity's up and a loop's normal. |
 | `COASTER_CAR_LENGTH` | `web/src/engine/bedrock-coaster.ts` | 1.25 | model blocks | The fabricated cart's drawn length. |
@@ -797,9 +800,10 @@ one of these files fails the check until its row is written.
 | `PINBALL_TAP_REACH`, `PLUNGER_DEPTH`, `PICK_PITCHES` | const | Zone reach (blocks), the plunger target's depth (fraction of the reach; farther than the buttons', so a button wins where the two meet on screen) and pick pitches (degrees). |
 | `rotationBetween`, `flipperRig`, `moveRig` | function | Bone rigs that swing flippers about the tilted normal and move the ball/plunger. |
 | `PINBALL_AXIS_SIGNS` | const | Model X/Z signs in a bone translation. |
+| `PINBALL_BUTTON_TRAVEL` | const | How far a cabinet button is DRAWN pressed, × its measured stroke (a picture scale, not physics). |
 | `PROP_FLIP`, `PROP_PULL`, `PROP_PRESS`, `PROP_BALL_U`, `PROP_BALL_W`, `PROP_BALL_VU`, `PROP_BALL_VW`, `PROP_BALL_SEQ`, `PROP_SX`, `PROP_SZ` | const | Actor properties the client animates from (ball position/velocity for extrapolation). |
 | `BALL_INITIALIZE`, `BALL_PRE_ANIMATION` | const | The ball's client-side extrapolation clock (Molang). |
-| `pinballPropBehavior`, `flipperProperties`, `flipperAnimation`, `ballProperties`, `plungerProperties`, `pressProperties`, `ballAnimation`, `plungerAnimation`, `buttonPressAnimation`, `consoleHideAnimationId`, `consoleHideAnimation`, `consoleAssets`, `pinballZoneTexture`, `zoneAssets` | function | Entity and animation assets (not physics). |
+| `pinballPropBehavior`, `flipperProperties`, `flipperAnimation`, `ballProperties`, `plungerProperties`, `pressProperties`, `ballAnimation`, `plungerAnimation`, `buttonPressAnimation`, `pressFlashOverlay`, `consoleHideAnimationId`, `consoleHideAnimation`, `consoleAssets`, `pinballZoneTexture`, `zoneAssets` | function | Entity and animation assets (not physics). |
 | `PINBALL_FAMILY`, `PINBALL_INTERACT_TEXT`, `PINBALL_BUTTON_FAMILY`, `PINBALL_ZONE_TEXTURE`, `PINBALL_KEY` | const | Names (not physics). |
 <!-- /physics-spec:exports -->
 

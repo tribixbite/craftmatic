@@ -2156,12 +2156,14 @@ is made invisible while the camera is theirs (as the pinball seat); camera and
 invisibility are released on dismount and kept through a paused tick. A car
 standing still uses the plain eased camera in every mode.
 
-`/scriptevent craftmatic:coaster_cam <words>` retunes a live pack: `mode
-clamp|roll|rollover|over|off`, `ease`, `look <yaw> <pitch>`, `turn`, `lag`,
-`ratchet 0|1`, `debug 1` (per-tick readout on the action bar), `trace <ticks>`
-(content log; that log stops growing early in a session, so prefer `debug`),
-and the probes `rot`, `roll`, `seq`, `attach`, `clear`. `# TODO` remove the
-hook once the defaults are final. The walk preview rides with the same
+The measurements in this section came from a `/scriptevent
+craftmatic:coaster_cam` tuning hook (`mode`, `ease`, `look`, `turn`, `lag`,
+`alag`, `ratchet`, a `debug` action-bar readout, a `trace` log, and the probes
+`rot`, `roll`, `seq`, `loopsim`, `attach`, `clear`). It was REMOVED on
+2026-09-25 once the defaults had been ridden; every value, `animLag`
+included, is now a field of `COASTER_RIDER_VIEW`. To measure again, restore
+the hook from history (search the log of `bedrock-coaster.ts` for
+`coaster_cam`). The walk preview rides with the same
 functions (drag = head turn) and now honours a route's fixed direction and the
 cars' authored heading, which it ignored before (it ran 10303 the wrong way).
 
@@ -3055,6 +3057,32 @@ Evidence: `output/pb0924f/device/r3-*` in the pinball worktree.
   the drag pull (pull 0.13 → 1.0 over 8 ticks, ball −665 LDU up the lane).
   An `attackEntity` hit is delivered after the call returns, so the same
   tick reads the old angle (`sameTick` [0,0]); the next tick has it.
+
+### Round 4 (2026-09-25): tuning hooks out, a readable press, no launch jump
+
+- **Tuning hooks removed.** `/scriptevent craftmatic:pinball` (offsets,
+  reach, pick model, camera, view, ball mode, axes, perf/log, cache/fixed,
+  camlock/predict/dragpull) and its probe targets are gone; the runtime
+  hard-codes the measured defaults (level-view pick boxes at the rider's
+  pitch, camera on the head, free camera, cached scan, adaptive substeps,
+  in-event flip, head turning unlocked only while a ball waits). The ball's
+  `teleport` mode survives only as `PinballRuntimeConfig.ballMode` (tests).
+- **The press is readable.** A cabinet button is drawn pressed
+  `PINBALL_BUTTON_TRAVEL` (2.5) times its measured 8 LDU stroke, and it and
+  its tap target's outline flash warm yellow while the flipper is up: the
+  render controller's `overlay_color` reads `craftmatic:press`
+  (`pressFlashOverlay`; the outline zone now declares that property and ships
+  its own controller). The action bar is at most 26 visible characters in
+  every phase (`<< Ball 2/3 12,340 >>`, `Ball 1/3 - drag to launch`, the pull
+  bar), so the centred line no longer reaches the buttons; the final score
+  moved to the title. Whether the overlay draws on the phone's
+  `entity_alphablend` outline is a device check (see the tracker).
+- **No launch jump.** The sim fires from the serve point while the client
+  last drew the ball on the pulled-back plunger tip (a full stroke, ~0.75
+  block, behind it). The launch tick's update now starts the drawn ball where
+  it was drawn, with the velocity that reaches the next update's position in
+  one tick (host test: the drawn path meets the next update within 1.5 LDU;
+  before, the ball jumped the whole 40 LDU stroke in one frame).
 
 ## Rail vehicles on the coaster engine (2026-09-25)
 

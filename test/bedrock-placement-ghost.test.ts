@@ -41,7 +41,7 @@ it('spawns a ghost at the rotated footprint centre, turns it with the rotation, 
     structureManager: { createFromWorld: vi.fn(), get: () => undefined, place: vi.fn(), delete: vi.fn() } };
   const system = { run: (fn: any) => fn(), runTimeout: (fn: any, ticks: number) => { timeouts.push(ticks); queueMicrotask(fn); }, runInterval: (fn: any, ticks: number) => { intervals.set(ticks, fn); } };
   const source = assets.script.replace(/^import .*;\s*$/gm, '');
-  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory' }, Form, Form);
+  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory', World: 'world' }, Form, Form);
   const flush = async (turns = 80) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const drawPreview = intervals.get(12);
   expect(world.afterEvents.playerLeave.subscribe).toHaveBeenCalled();

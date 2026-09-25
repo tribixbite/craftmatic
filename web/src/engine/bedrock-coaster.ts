@@ -384,6 +384,14 @@ export interface CoasterRiderViewConfig {
   maxTurn: number;
   /** Ticks the rider's own yaw trails the car's: the client turns a rider with its interpolated view of the car (Pixel: ~0.3 s; 6 ticks held the look within 5 degrees through the fastest curve, from -37..+55 uncompensated). */
   lookLag: number;
+  /**
+   * Ticks an inversion's camera animation trails the server's train: the
+   * client draws entities interpolated behind the server, so an animation on
+   * the server's own schedule runs AHEAD of the drawn car. Ridden on the Pixel
+   * at 1, 3 and 6 (2026-09-25, 10303 at 24 blocks/s): 1 put the camera inside
+   * the rider of the car ahead, 6 behind its own train, 3 matched the per-tick view.
+   */
+  animLag: number;
   /** Whether pushing the head past a limit drags the look reference along. Off: a lag transient can never shift the view for good. */
   ratchet: boolean;
 }
@@ -397,7 +405,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'loop', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'loop', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 3, ratchet: false };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -2104,17 +2112,14 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // (a free camera at the eye draws the rider's own upright body around it,
   // as the pinball seat measured). `seen` is refreshed while grouping, before
   // any hold can skip a train, so a paused tick never drops the camera.
-  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false }, ...(config.camera || {}) };
+  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 3, ratchet: false }, ...(config.camera || {}) };
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
-  let cameraDebug = false, traceTicks = 0, lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet;
+  const lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet;
   // How many ticks the inversion animation's camera trails the server's train
-  // (`animLag`): the client draws entities interpolated behind the server, so
-  // an animation on the server's own schedule runs AHEAD of the drawn car
-  // (Pixel, 2026-09-25: at 24 blocks/s the camera sat inside the next car's
-  // rider). # TODO: set the default from the device measurement, then fold into COASTER_RIDER_VIEW.
-  let animLag = 3;
+  // (`COASTER_RIDER_VIEW.animLag`; a config without one keeps the measured 3).
+  const animLag = Math.max(0, Math.min(10, Math.round(Number.isFinite(camera.animLag) ? camera.animLag : 3)));
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
@@ -2226,10 +2231,6 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const tickMode = camera.mode === 'loop' ? 'reflect' : camera.mode;
     viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, tickMode, camera.maxTurn);
     const eye = frame.eye, view = viewer.view;
-    if (traceTicks > 0) {
-      traceTicks--;
-      console.warn(`CAMTRACE ${ticks} carNow=${carYaw.toFixed(2)} car=${frame.yaw.toFixed(2)} prior=${Number(frame.priorYaw).toFixed(2)} carP=${frame.pitch.toFixed(2)} headY=${rotation.y.toFixed(2)} headP=${rotation.x.toFixed(2)} live=${JSON.stringify(rider.getRotation())} look=${viewer.look.yaw.toFixed(2)}/${viewer.look.pitch.toFixed(2)} cam=${viewer.view.yaw.toFixed(2)}/${viewer.view.pitch.toFixed(2)} eye=${frame.eye.x.toFixed(2)},${frame.eye.y.toFixed(2)},${frame.eye.z.toFixed(2)}`);
-    }
     let handBack = false;
     if (camera.mode === 'loop' && Spline && planner && !viewer.noAnim) {
       if (viewer.anim) {
@@ -2268,138 +2269,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       if (camera.ease > 0 && !handBack) options.easeOptions = { easeTime: camera.ease, easeType: 'Linear' };
       rider.camera.setCamera('minecraft:free', options);
     }
-    if (cameraDebug && ticks % 5 === 0) {
-      try { rider.onScreenDisplay?.setActionBar(`cam ${camera.mode} y${viewer.view.yaw.toFixed(0)} p${viewer.view.pitch.toFixed(0)} | car y${frame.yaw.toFixed(0)} p${frame.pitch.toFixed(0)} | head y${rotation.y.toFixed(0)} p${rotation.x.toFixed(0)} | look ${viewer.look.yaw.toFixed(0)}/${viewer.look.pitch.toFixed(0)}`); } catch {}
-    }
   };
-  // Device tuning and measurement hook: `/scriptevent craftmatic:coaster_cam <words>`.
-  //   mode loop|reflect|clamp|over|off · ease <s> · look <yaw> <pitch> · turn <deg> · debug 0|1 · trace <ticks>
-  //   rot <pitch> <yaw>       free camera at the sender's eye with that rotation (pitch range probe)
-  //   roll <pitch> <yaw> <z>  a 6 s playAnimation holding rotation {x,y,z} (roll probe)
-  //   attach [locator]        attach the sender's camera to the nearest car (bone-following probe)
-  //   clear                   clear the sender's camera
-  // # TODO: remove once the camera defaults are device-final (see TASKS-BEDROCK-ADDON.md).
-  try {
-    system.afterEvents.scriptEventReceive.subscribe((event: any) => {
-      if (event.id !== 'craftmatic:coaster_cam') return;
-      const words = String(event.message || '').trim().split(/\s+/);
-      const number = (k: number, fallback: number) => { const v = Number(words[k]); return Number.isFinite(v) ? v : fallback; };
-      const source = event.sourceEntity;
-      const verb = words[0];
-      if (verb === 'mode' && ['loop', 'reflect', 'over', 'clamp', 'off'].includes(words[1]!)) {
-        camera.mode = words[1] as CoasterRiderViewMode;
-        for (const id of [...viewers.keys()]) releaseViewer(id);
-      } else if (verb === 'ease') camera.ease = Math.max(0, number(1, camera.ease));
-      else if (verb === 'look') { camera.lookYaw = Math.max(0, number(1, camera.lookYaw)); camera.lookPitch = Math.max(0, number(2, camera.lookPitch)); }
-      else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
-      else if (verb === 'debug') cameraDebug = words[1] === '1';
-      else if (verb === 'alag') animLag = Math.max(0, Math.min(10, Math.round(number(1, 3))));
-      else if (verb === 'lag') lookLag = Math.max(0, Math.min(19, Math.round(number(1, 0))));
-      else if (verb === 'ratchet') lookRatchet = words[1] !== '0';
-      else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
-      else if (source?.camera) {
-        const at = source.getHeadLocation ? source.getHeadLocation() : source.location;
-        if (verb === 'rot') source.camera.setCamera('minecraft:free', { location: at, rotation: { x: number(1, 0), y: number(2, 0) } });
-        else if (verb === 'roll') {
-          // The free camera takes only ±90; the keyframes below carry the asked pitch (does a keyframe take more?).
-          source.camera.setCamera('minecraft:free', { location: at, rotation: { x: Math.max(-90, Math.min(90, number(1, 0))), y: number(2, 0) } });
-          const rotation = { x: number(1, 0), y: number(2, 0), z: number(3, 0) };
-          system.runTimeout(() => {
-            try {
-              // Two points 0.01 apart were refused on the Pixel ("Linear needs at
-              // least 2 control points"); three a block apart drift the eye 1 block in 6 s.
-              const spline = Spline ? new Spline() : {};
-              spline.controlPoints = [at, { x: at.x, y: at.y + 0.5, z: at.z }, { x: at.x, y: at.y + 1, z: at.z }];
-              source.camera.playAnimation(spline, { totalTimeSeconds: 6, animation: {
-                progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: 1, timeSeconds: 6 }],
-                rotationKeyFrames: [{ rotation, timeSeconds: 0 }, { rotation, timeSeconds: 6 }] } });
-            } catch (error) { console.warn(`[Craftmatic coaster] roll probe: ${error instanceof Error ? error.message : String(error)}`); }
-          }, 2);
-        } else if (verb === 'seq') {
-          // Chaining probe: seq <interval ticks> <seconds> <count> <roll step> <move 0|1>.
-          // A free camera at the eye, then `count` animations every `interval`
-          // ticks, each `seconds` long, rolling `step` degrees further; `move`
-          // drifts the eye up 0.05 blocks a tick (else progress holds at 0).
-          const interval = Math.max(1, Math.round(number(1, 1))), seconds = Math.max(0.06, number(2, 0.1));
-          const count = Math.max(1, Math.round(number(3, 60))), rollStep = number(4, 3), move = number(5, 1) !== 0;
-          const yaw = source.getRotation().y;
-          source.camera.setCamera('minecraft:free', { location: at, rotation: { x: 0, y: yaw } });
-          let k = 0;
-          const run = system.runInterval(() => {
-            if (k >= count) { system.clearRun(run); return; }
-            try {
-              const rise = move ? 0.05 * interval : 0;
-              const p0 = { x: at.x, y: at.y + k * rise, z: at.z };
-              const p2 = move ? { x: at.x, y: at.y + (k + 2) * rise, z: at.z } : { x: at.x, y: at.y + 1, z: at.z };
-              const spline = Spline ? new Spline() : {};
-              spline.controlPoints = [p0, { x: p0.x, y: (p0.y + p2.y) / 2, z: p0.z }, p2];
-              source.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: {
-                progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: move ? 1 : 0, timeSeconds: seconds }],
-                rotationKeyFrames: [{ rotation: { x: 0, y: yaw, z: k * rollStep }, timeSeconds: 0 }, { rotation: { x: 0, y: yaw, z: (k + 1) * rollStep }, timeSeconds: seconds }] } });
-            } catch (error) { console.warn(`[Craftmatic coaster] seq probe ${k}: ${error instanceof Error ? error.message : String(error)}`); }
-            k++;
-          }, interval);
-        } else if (verb === 'loopsim') {
-          // One animation for a whole vertical loop in front of the sender:
-          // loopsim <radius> <seconds> <handback ease s> <accel 0|1>.
-          // Positions every tick on the circle (accel 1: slow at the top, like
-          // a real train), rotations from `riderView` in `roll` mode; at the
-          // end, `setCamera` free at the exit pose (the hand-back).
-          const radius = Math.max(1, number(1, 4)), seconds = Math.max(0.3, number(2, 1.2)), handEase = Math.max(0, number(3, 0.1)), accel = number(4, 0) !== 0;
-          const yaw = source.getRotation().y, yr = yaw * Math.PI / 180;
-          const f = [-Math.sin(yr), 0, Math.cos(yr)];
-          const steps = Math.round(seconds * 20);
-          const pose = (k: number) => {
-            const u = k / steps;
-            // accel: angle(t) spends longer near the top (half-way).
-            const a = 2 * Math.PI * (accel ? u - Math.sin(2 * Math.PI * u) / (2 * Math.PI) * 0.6 : u);
-            const location = { x: at.x + f[0]! * radius * Math.sin(a), y: at.y + radius * (1 - Math.cos(a)), z: at.z + f[2]! * radius * Math.sin(a) };
-            const nose = [f[0]! * Math.cos(a), Math.sin(a), f[2]! * Math.cos(a)], up = [-f[0]! * Math.sin(a), Math.cos(a), -f[2]! * Math.sin(a)];
-            return { location, nose, up };
-          };
-          const points: any[] = [], rotations: any[] = [], progress: any[] = [];
-          let previous: any = null, arc = 0;
-          const arcs: number[] = [];
-          for (let k = 0; k <= steps; k++) {
-            const p = pose(k);
-            if (k > 0) { const q = points[k - 1]; arc += Math.hypot(p.location.x - q.x, p.location.y - q.y, p.location.z - q.z); }
-            arcs.push(arc);
-            points.push(p.location);
-            previous = riderView(p.nose, p.up, { yaw: 0, pitch: 0 }, previous, 'roll', 40);
-            // Keyframes must be MORE than 0.05 s apart: every second tick, and the last.
-            if (k % 2 === 0 || k === steps) rotations.push({ rotation: { x: (words[6] === "same" ? 1 : -1) * previous.pitch, y: previous.yaw, z: previous.roll }, timeSeconds: k * seconds / steps });
-          }
-          if (rotations.length > 2 && rotations[rotations.length - 1].timeSeconds - rotations[rotations.length - 2].timeSeconds <= 0.05) rotations.splice(rotations.length - 2, 1);
-          const byIndex = words[5] === 'index';
-          for (let k = 0; k <= steps; k += 2) progress.push({ alpha: byIndex ? k / steps : arcs[k]! / arc, timeSeconds: k * seconds / steps });
-          if (progress[progress.length - 1].timeSeconds < seconds - 1e-9) progress.push({ alpha: 1, timeSeconds: seconds });
-          source.camera.setCamera('minecraft:free', { location: points[0], rotation: { x: 0, y: yaw } });
-          system.runTimeout(() => {
-            try {
-              const spline = Spline ? new Spline() : {};
-              spline.controlPoints = points;
-              source.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: { progressKeyFrames: progress, rotationKeyFrames: rotations } });
-            } catch (error) { console.warn(`[Craftmatic coaster] loopsim: ${error instanceof Error ? error.message : String(error)}`); }
-            system.runTimeout(() => {
-              try { source.camera.setCamera('minecraft:free', { location: points[steps], rotation: { x: 0, y: yaw }, ...(handEase > 0 ? { easeOptions: { easeTime: handEase, easeType: 'Linear' } } : {}) }); } catch {}
-            }, steps);
-          }, 2);
-        } else if (verb === 'attach') {
-          // Does a camera attached to a car inherit its animated pitch/roll? The nearest car within 24 blocks.
-          let best: any, bestDistance = 24;
-          for (const state of tracked.values()) {
-            if (state.role !== 'car') continue;
-            try {
-              const l = state.entity.location, d = Math.hypot(l.x - at.x, l.y - at.y, l.z - at.z);
-              if (d < bestDistance) { best = state.entity; bestDistance = d; }
-            } catch {}
-          }
-          if (best) source.camera.attachToEntity({ entity: best, locator: words[1] || 'Eyes' });
-        } else if (verb === 'clear') source.camera.clear();
-      }
-      console.warn(`[Craftmatic coaster] camera ${words.join(' ')} -> ${JSON.stringify(camera)}`);
-    });
-  } catch { /* A host without script events (the offline tests) has no tuning hook. */ }
   const report = (id: string, stage: string, error: unknown, riders: any[]) => {
     const detail = error instanceof Error ? error.message : String(error);
     const boundedDetail = detail.slice(0, 160);
