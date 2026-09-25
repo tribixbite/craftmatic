@@ -291,7 +291,8 @@ Figures walk by VELOCITY (`applyImpulse` to a target horizontal velocity);
 the engine's own collision, gravity and step-up carry it out. The planner
 (`exploreWalkable`, `standFeetAt`, `pathTo`, ...) plans over the real collider
 spans, never above a 0.6-block rise or below a 0.6-block drop. Speed
-`FIGURE_TUNING.speed` 0.06 blocks/tick (1.2 blocks/s) at 100 %, × the size
+`FIGURE_TUNING.speed` 0.06 blocks/tick asked at 100 % (the Pixel realises
+0.0415, 0.83 blocks/s: ground friction takes the rest between impulses), × the size
 factor below 100 % (figures never grow above player size), slowed ×0.35 into
 a sharp corner. Where each figure SPAWNS is decided at export over the same collider grid
 (`resolveFigureSpawn`, called by `playable-addon.ts`): kept when its own
@@ -555,7 +556,7 @@ literal inside a function body (`§` marks the number).
 | `VEHICLE_TARGET_BLOCKS.car` | `web/src/engine/addon-scale.ts` | 4.6 | blocks (m) | A real car's length. |
 | `VEHICLE_TARGET_BLOCKS.boat` | `web/src/engine/addon-scale.ts` | 9 | blocks (m) | A real boat's length. |
 | `VEHICLE_TARGET_BLOCKS.plane` | `web/src/engine/addon-scale.ts` | 12 | blocks (m) | A real light aircraft's length. |
-| `FIGURE_TUNING.speed` | `web/src/engine/bedrock-figure-life.ts` | 0.06 | blocks/tick | 1.2 blocks/s: a stroll, below the player's 4.3 walk. |
+| `FIGURE_TUNING.speed` | `web/src/engine/bedrock-figure-life.ts` | 0.06 | blocks/tick | The velocity asked for each tick; the Pixel realises 0.0415 blocks/tick (0.83 blocks/s, GameTest gait probe 2026-09-25): a stroll, below the player's 4.3 walk. |
 | `FIGURE_TUNING.turnPerTick` | `web/src/engine/bedrock-figure-life.ts` | 18 | degrees/tick | Body turn while walking. |
 | `FIGURE_TUNING.maxUp` | `web/src/engine/bedrock-figure-life.ts` | 0.6 | blocks | Largest rise planned: a step, never a jump, so a figure keeps its floor. |
 | `FIGURE_TUNING.maxDown` | `web/src/engine/bedrock-figure-life.ts` | 0.6 | blocks | Largest drop planned: no falls. |

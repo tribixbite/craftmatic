@@ -302,6 +302,21 @@ camera.
   simulated player as its rider. A part no standing spot reaches is listed by
   the builder and not tested.
 - `pinball_<id>` for a pinball machine.
+- `figures_<id>`: every minifig NPC sampled every 20 ticks for
+  `--figure-ticks` (default 1200): left the model, fell below the floor,
+  ended in a wall, moved, `spawnDrop` (fell between spawning and the first
+  sample; `fellAtSpawn` in the summary), and `satAndStood` (a roamer that
+  borrowed a seat and got up again). `--only=figures` registers it alone,
+  for a long watch.
+- `creator_<id>`, when the pack has a Minifig Creator: a creator figure
+  spawned as a wand draft must hold still for 100 ticks, then walk at least
+  2 blocks once released and stay within 8 blocks of the release point.
+- `gait_<id>` with `--gait-probe`: the walk-cycle probe. One standing figure's
+  BP entity gets two server-side animation controllers that report every
+  whole unit of `query.modified_distance_moved` and the bucket of
+  `query.modified_move_speed`; the figure is pushed by velocity at 0.03, 0.06
+  and 0.12 blocks/tick for about 25 blocks each. `CMGT GAIT` rows give units
+  per block, the realised speed and the move-speed histogram.
 
 Each result is a `CMGT DOOR` / `PART` / `SEAT` line, and each test ends with a
 `CMGT SUMMARY` / `PARTS_SUMMARY` line. `bun scripts/_ix_audit_table.ts <sweep
@@ -336,6 +351,7 @@ be turned off, and it disables achievements.
 | `41732-run5/` | tests INSIDE the model pack | floor found at relative y 1; placement through the hook: 16/16 actors; **6/6 doorways as the offline walk predicts**. Doors 1, 2, 4, 5 and 6 are blocked closed and walkable open. Door 3 (SEALED): the open walk drops 3.25 blocks off the far side (`fell`) |
 | `11374-run1/` | pinball seat + flippers | `interactWithEntity(seat)` **seats** the player (the engine's rideable, no script). The runtime tags the player and parks the hotbar on slot 4 immediately. Slot 3: left flipper at 35.0° for 6 ticks, then 15°, then 0°. Slot 5: right flipper 180° for 7 ticks. Tap-zone hit: right flipper 180° for 6 ticks. Slot re-parked to 4 each time. In chat: "All required tests passed" |
 | pinball `7234854a` (2026-09-25, `output/pb0924f/device/gt-contentlog-1.txt` in the pinball worktree) | seat, flippers, flipper targets, plunger | Right flipper now reads **−35.04** (the ±180 seam fix, `71c98317`). Each flipper target moves only its own flipper (`targetHits` [[0,35],[35,0]]). The plunger target's pull rises 0.04 a tick to 0.79 over 20 ticks, and after the second hit the ball offset `craftmatic:bu` reaches −665 LDU (up the lane). PASS. The same log held 11,969 "unknown variable" Molang errors: the ball's variables were not declared in `initialize` (fixed in `af917a0f`). |
+| figures worktree `output/fig-close/device/` (2026-09-25 afternoon) | `figures_<id>` (`--only=figures`), `creator_<id>`, `gait_<id>` | 71040 2/2 moved, 0 in a wall (was none, one in a wall); 31141 4/6 (was 2/6); 910049 7/8, 0 in a wall, one sat and stood; 21360 0 fell at spawn (was 7); 76269 (3 min) three figures sat and stood up. Creator: a draft holds still, released it walks 13-14 blocks. Gait: 3.88 units of `modified_distance_moved` per block, `modified_move_speed` = 3.9 x blocks/tick, the walker realises 0.0415 of its asked 0.06 blocks/tick. The first creator run found its properties refused on the device (`[0, 0]` int ranges) |
 | figures worktree `output/figure-ai/device/` (2026-09-25) | `figures_<id>`: place, then sample every figure every 20 ticks for 60 s | vanilla AI vs scripted `figures.js` on 910004 / 41732 / 76457: left the model 2 / 6 / 3 → 0 / 0 / 0; fell below the floor 2 / 4 / 0 → 0; ended in a wall 1 → 0; roamers moved 2/4, 7/7, 12/12 → 2/4, 6/7, 11/12 (the ones that stay have under 4 reachable cells). A doors and a figures test starting together had the second placement refused ("Another placement is running"); the test now retries. 76457 (77 wide) is wider than one structure, so only its figures test runs, and it lays the floor past the structure itself (`oversized`) |
 
 Findings a device round would not have reached:
@@ -433,5 +449,6 @@ What it cannot prove, so keep screenshots for these:
   with only its variant bound (the 2026-09-25 rerun collided with another
   variant).
 - **Wand sizes:** the same doors test at 200 % (`size` in the place message).
-- **Figures:** a longer watch (`--figure-ticks=3600`) on a set with free seats,
-  to see a figure borrow one on the device; the same watch at 200 %.
+- **Figures:** the same watch at 200 % (the size-group re-lay of colliders
+  under figures, and the spawn resolver's decision at a size it was not made
+  at).

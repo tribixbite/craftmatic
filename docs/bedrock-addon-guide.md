@@ -2961,21 +2961,88 @@ measured to work on mobs on the Pixel. The vanilla behaviour that stays is
   is set down once on the standable column within 3 cells whose floor is
   largest. The first version searched 2 cells for the nearest one, and the
   chalet's figure 7 picked a cell behind the house wall.
-- **Unsupported homes.** Some sources stand a figure on a part that the
-  collider grid does not carry, such as a display row or a balcony rail. The
-  figure falls at spawn. If its home column has nothing to stand on, the
-  floor it landed on becomes its home, once, and the home record is
-  rewritten. Before this, it was put back in the air every 10 s and fell
-  again. Across the 40 favourites, the census found 16 figures in 5 sets
-  whose spawn point had no support, with 7 in 21360 and 4 in 42639. The
-  cause is spawn and collider coverage, not the AI, and is still open.
-- **Gait.** The walk phase rate comes from the leg: 0.525 blocks from hip to
-  sole, a ±35° swing, and `modified_distance_moved` at about 4 units per
-  block, which gives 74.72°/unit. The old vanilla 38.17 made the feet cover
-  half the ground the body did. The swing fades with `modified_move_speed`.
-  On the Pixel recording (`cm-figures-76457.mp4`) the legs visibly cycle
-  while walking. The 4 units/block reading is not yet measured. A mini-doll's
-  one-piece legs still ride `hips`, so a doll walks stiff-legged.
+- **Where a figure spawns is decided at export** (`resolveFigureSpawn`,
+  called from `playable-addon.ts` over the collider grid the pack ships; no
+  collider is added for it). The 2026-09-25 census found 16 figures in 5
+  favourites that fell at placement (7 in 21360, 4 in 42639, 3 in 43267,
+  1 in 77092, and 10261's one was a census artefact: a SEATED figure counted
+  at its lifted spawn). `bun scripts/_figure_support_audit.ts <source>` lists
+  the parts under every source figure's feet and whose they are: all 15 real
+  cases stand on NO part. They are LEGO's box-art line-up of figures on the
+  table beside the model, at the level of the model's base, and the model's
+  underside is lower than that table (a few parts hang below the base, so the
+  pin plane is 2-5 blocks under the line-up). No plate, tile, fence or thin
+  floor was missing from the grid. A second class came out of the same data:
+  every figure the placement's spawn lift raised more than a step (71040,
+  31141, 42639, 77092, 43267, 910049; 1.2-2.6 blocks) stood INSIDE a 1-block
+  collider column (a wall, a counter, the base it stood against) and was put
+  on the roof above it, with 2-6 cells to walk; 71040's two figures "never
+  moved" for that reason. The export now keeps a figure its own column
+  carries (a step up, a hair down, snapped to the collider top), sets a figure
+  that stands on nothing down on the surface below it in its own column, and
+  moves one standing inside a column to the roomiest standable column within
+  2 cells (cost = distance + 1.5 x drop + 3 x rise; at least `minRoamCells` of
+  room preferred). The pack's warnings list each figure it grounded or moved.
+  Census over the same packs: dropped 16 -> 0, lifted onto a roof 0, 71040
+  2/2 move, 31141 4/6, 910049 7/8; collider runs byte-identical and
+  `_ix_passability` identical on the 8 affected sets. The runtime's re-home
+  (a home nothing supports becomes the floor it landed on) stays as the
+  backstop for other sizes.
+- **Colliders and figures are in two different frames** (found while pinning
+  the resolver). The shell and its colliders are laid with `sceneGridPoint`
+  (the voxel grid's frame), figures with `sceneFloorPoint` (up from the
+  model's underside). Where the underside is off a cell boundary the two
+  differ by up to half a cell: `test/schem-pipeline.test.ts`'s baseplate is
+  drawn from -0.15 to 0 (under the pin plane, so the collider grid clips it
+  out) while its figure was placed 0.15 up, above the drawn plate. The
+  resolver snaps every supported figure onto the collider top it stands on,
+  which is also the drawn surface; the sunk baseplate itself is untouched.
+  # TODO(shell owner): lay the shell and colliders from the underside too,
+  so a baseplate is not drawn into the terrain and dropped from the colliders.
+- **Seats on another storey.** On the Pixel (76269, 3-minute watch) three
+  figures sat down and got up again, but two took a seat on another floor
+  (6 blocks down, 6.7 up): the "already beside the seat" test measured only
+  horizontal distance. It now also needs the seat within 1.2 blocks of the
+  figure's height (`test/bedrock-figure-life.test.ts`, red before the fix).
+- **Minifig Creator figures walk too.** The creator's figure type is in
+  `scripts/figures.js` (`draftTypes`); its npc group has no `random_stroll`.
+  While the wand holds it as a draft (`craftmatic:draft`) the runtime leaves
+  it alone; the wand clears its home record on release, so it is re-adopted
+  with a home where it now stands. Device (GameTest `creator_<id>`): held
+  still as a draft (0 blocks), walked 13-14 blocks once released, stayed
+  within 4.9-6.2 blocks of the release point, home record written. That run
+  also found the creator figure had NEVER had its properties on the device:
+  Bedrock refused `craftmatic:family` and single-entry slots' `[0, 0]` int
+  ranges ("range max is less than range min") and with them the whole
+  property component, so every `q.property` errored and the wand's
+  `setProperty` threw. Ranges are now at least `[0, 1]` and
+  `scripts/_mcaddon_check.py` fails any range not wider than one value.
+- **Mini-dolls** hinge their one-piece legs (`92251`, `16529`) on their own
+  `legs` bone at the hips joint (29.4, -1.2 below the torso: the moulds'
+  `!HELP` hip rotation point). `MINIDOLL_CLIENT_ANIMATIONS`: the walk rocks
+  the legs 5 degrees side to side per step (one moulded piece cannot scissor)
+  with the arms swinging, and the sit bends the legs 90 degrees at the hinge,
+  as the toy's do. Not yet seen on the device.
+- **Gait, measured.** The walk phase rate comes from the leg: 0.525 blocks
+  from hip to sole and a ±35° swing give a 1.2045-block cycle. The GameTest
+  gait probe (`--gait-probe`: a server-side animation controller on one
+  figure reports every whole unit of `query.modified_distance_moved` and the
+  bucket of `query.modified_move_speed`, while the figure is pushed exactly
+  as the walker pushes it, about 25 blocks per speed) measured on the Pixel:
+  **3.88 units per block** at 0.021 and 0.042 blocks/tick (96 and 97 units),
+  3.76 at 0.083, and `modified_move_speed` = 3.9 x blocks/tick. The rate
+  (`MINIFIG_GAIT.degPerUnit`) is now 77.03 degrees per unit (was 74.72 from
+  a guessed 4). The larger error was the swing AMOUNT: `modified_move_speed
+  x 4` was 0.65 at the walker's real speed, so the legs swung 23 of 35
+  degrees and the feet covered 68 % of the ground (33 % at 50 % size). The
+  swing is now full from 0.01 blocks/tick (`GAIT_FULL_SWING_SPEED` 0.04) and
+  only fades at a start and a stop. The same probe showed the walker's real
+  ground speed: asking 0.06 blocks/tick by impulse gives **0.0415** (0.83
+  blocks/s; 0.03 gives 0.0207, 0.12 gives 0.0833). The feel was left alone;
+  the animation is locked to distance, so the speed does not change the
+  sliding. Not yet checked by eye on a recording after the fix.
+  # TODO: a figure below 100 % has shorter legs in the world, so its phase
+  should turn 1/size faster; the client has no measured size query yet.
 
 **Measured on the Pixel** (GameTest `figures_<id>`, 60 s, 100 %, in the
 `cmgametest` arena; logs in the figures worktree's `output/figure-ai/device/`):
@@ -2999,7 +3066,23 @@ path. For 41732 and 76457 its "moved" counts matched the device: 6/7 and
 favourites (`0711e753` packs plus the re-home fix) it simulates 60 s for 236
 figures. 4 are source-seated and stay seated. Of 232 roamers, 177 moved and
 0 left their area. 83 start with fewer than 4 reachable cells, and 16 fell
-from an unsupported spawn.
+from an unsupported spawn. With the export-time spawn (packs from the
+figures worktree's `output/fig-close/sweep40/`, current runtime): of the same
+232 roamers **216 moved**, **14** start with fewer than 4 cells, **0 fell**,
+0 left their area, and 5 borrowed a seat within the 60 s.
+
+**Round 2 on the Pixel** (2026-09-25 afternoon, `figures`-only GameTest
+variants in `cmgametest`, packs from `1e18ef68`; logs in the figures
+worktree's `output/fig-close/device/`):
+
+| set | before | after |
+|---|---|---|
+| 71040 Disney Castle | none moved, one ended in a wall | 2/2 moved (12.7, 13.9 blocks), 0 in a wall, 0 left |
+| 31141 Main Street | 2/6 moved | 4/6 moved; figures 1 and 5 stay in upper rooms the 1-block collider grid leaves 4 cells of |
+| 910049 Transylvania (3 min) | one figure ended in a wall | 7/8 moved, 0 in a wall; figure 1 sat on its floor's bench for 31 s and got up; figure 7 stays (2 cells) |
+| 21360 Willy Wonka | 7 of the line-up fell at placement | 0 fell (`fellAtSpawn` empty), 9/9 moved, 0 left |
+| 76269 Avengers Tower (3 min) | no figure had sat on the device | first run: 3 sat and stood up (27, 36, 22 samples), two of them on a seat on another storey; after the fix (`1e18ef68`): figure 16 sat 40 samples on its own floor (1.4 against 1.6) and stood up, no seat taken across a floor, 17/20 moved, 0 left, 0 in a wall |
+| creator probe (`_minifig_ref.ts --creator=starter`) | vanilla `random_stroll` | the `creator_<id>` test passed: a draft holds still, a released figure walks |
 
 ### Round 3 (2026-09-25, after the user played): cabinet buttons, pull plunger, held item, latency
 
