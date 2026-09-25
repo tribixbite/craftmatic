@@ -1155,6 +1155,12 @@ class AddonWalk implements AddonPreviewHandle {
       const axis = new THREE.Vector3(a.x, a.y, a.z);
       if (axis.lengthSq() < 1e-12) continue;
       axis.normalize();
+      if (item.slide) {
+        // A drawer, a roller or sliding door: it moves along the axis by the eased distance.
+        holder.position.copy(base.pos.clone().add(axis.clone().multiplyScalar(next * item.slide * sizePct / 100)));
+        holder.quaternion.copy(base.quat);
+        continue;
+      }
       // A positive angle is a right-handed turn about the axis (bedrock-interactives.ts `interactiveRig`).
       const q = new THREE.Quaternion().setFromAxisAngle(axis, next * Math.PI / 180);
       const p = new THREE.Vector3(pivot.x, pivot.y, pivot.z);

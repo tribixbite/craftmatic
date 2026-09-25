@@ -74,9 +74,62 @@ describe('interactiveKindOf', () => {
       ['Technic Steering Wheel Hub with Brake Disc and  3 Pegholes', null],
       ['Technic Rotor  2 Blade with 4 Studs', 'turnable'],
       ['Brick  2 x  4', null],
-      ['Roller Door Normal', null],
+      // A garage's roller-door segments (grouped into one sliding door), a sliding leaf, a chest lid, a cupboard drawer.
+      ['Roller Door Normal', 'door'],
+      ['Door Sliding Type 2', 'door'],
+      ['Container Treasure Chest Lid with Flat Top', 'lid'],
+      ['Container Cupboard  2 x  3 x  2 Drawer', 'drawer'],
+      ['Container Drawers  4 x  4 x  4', null],
+      ['Container Treasure Chest without Slots', null],
+      ['Electric 9V Battery Box  4 x  8 x  2 1/3 Lid', null],
     ];
     for (const [d, k] of cases) expect(interactiveKindOf(d), d).toBe(k);
+  });
+});
+
+describe('sliding parts and lids (drawers, roller and sliding doors, chest lids)', () => {
+  const M = new Map<string, LdrawPartMesh | null>([
+    ['4218b.dat', mesh('4218b', 'Roller Door Normal', [-85, -4, -4], [85, 24, 4])],
+    ['4536.dat', mesh('4536', 'Container Cupboard  2 x  3 x  2 Drawer', [-26, 0, -24], [26, 18, 16])],
+    ['92410.dat', mesh('92410', 'Container Cupboard  2 x  3 x  2 with Hollow Studs', [-30, -2, 0], [30, 48, 40])],
+    ['4738b.dat', mesh('4738b', 'Container Treasure Chest without Slots', [-52, -2, -20], [52, 32, 20])],
+    ['80835.dat', mesh('80835', 'Container Treasure Chest Lid with Flat Top', [-40, 0, -20], [40, 17, 20])],
+  ]);
+  it('groups a stack of roller-door segments into ONE door that slides up by its height (42639\'s garage)', () => {
+    const segs = [0, 28, 56, 84].map(y => brick('4218b.dat', 100, y, 50));
+    // A second garage door beside it: a stack of its own.
+    const other = [0, 28].map(y => brick('4218b.dat', 300, y, 50));
+    const found = discoverInteractives([...segs, ...other], M);
+    expect(found.items).toHaveLength(2);
+    const d = found.items.find(i => i.bricks.length === 4)!;
+    expect(d.kind).toBe('door');
+    expect(d.slide).toBe(true);
+    expect(d.axisLdu).toEqual([0, -1, 0]);
+    expect(d.angleDeg).toBeCloseTo(112, 1);
+    expect(d.openingLdu).toEqual({ width: 170, height: 112 });
+    expect(interactiveNoun(d)).toBe('Garage door');
+    // Its open tap boxes are the closed ones moved up by the stack's height.
+    const hit = interactiveHitboxes(d, p => sceneGridPoint(frame, p));
+    expect(hit.open[0]!.pivot[1] - hit.closed[0]!.pivot[1]).toBeCloseTo(112 / C, 2);
+  });
+  it('slides a drawer out of its cupboard, the way that is free', () => {
+    // The cupboard body stands behind the drawer (+Z): it slides out along -Z.
+    const drawer = brick('4536.dat', 0, 0, 0), body = brick('92410.dat', 0, -20, 20);
+    const found = discoverInteractives([drawer, body], M);
+    const d = found.items.find(i => i.kind === 'drawer')!;
+    expect(d.slide).toBe(true);
+    expect(d.axisLdu[2]).toBeCloseTo(-1, 6);
+    expect(d.angleDeg).toBeCloseTo(24, 1);
+  });
+  it('hinges a treasure chest lid on the chest\'s own hinge pins and lifts its free edge', () => {
+    const body = brick('4738b.dat', 0, 0, 0), lid = brick('80835.dat', 0, -19, 0);
+    const found = discoverInteractives([body, lid], M);
+    const d = found.items.find(i => i.kind === 'lid')!;
+    expect(d.pivotLdu).toEqual([0, 3, 18]);
+    expect(Math.abs(d.axisLdu[0])).toBeCloseTo(1, 6);
+    // The front (free) edge rises when it opens (LDraw Y is down).
+    const front: Vec3 = [0, -19, -20];
+    expect(rotateAbout(front, d.pivotLdu, d.axisLdu, d.angleDeg)[1]).toBeLessThan(front[1]);
   });
 });
 

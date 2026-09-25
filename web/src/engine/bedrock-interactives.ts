@@ -61,7 +61,7 @@ declare const BlockPermutation: any;
  * - `lever`: a control stick that flips between two angles.
  * - `turnable`: a turntable top, a steering / ship's wheel, a rotor - turns a step per tap.
  */
-export type InteractiveKind = 'door' | 'gate' | 'cabinet' | 'window' | 'hatch' | 'lever' | 'turnable';
+export type InteractiveKind = 'door' | 'gate' | 'cabinet' | 'window' | 'hatch' | 'lever' | 'turnable' | 'lid' | 'drawer';
 
 /** Kinds whose closed state is a wall (door, gate) or a floor (hatch) the player collides with, toggled with the state. */
 export const PASSAGE_KINDS: ReadonlySet<InteractiveKind> = new Set(['door', 'gate', 'hatch']);
@@ -69,7 +69,9 @@ export const PASSAGE_KINDS: ReadonlySet<InteractiveKind> = new Set(['door', 'gat
 /** A door leaf this tall (3 bricks) is a doorway; shorter is a cupboard / car door. */
 export const DOORWAY_MIN_HEIGHT_LDU = 72;
 /** Open angles, degrees. A turnable's value is its step per tap. */
-export const OPEN_DEG: Readonly<Record<InteractiveKind, number>> = { door: 90, gate: 90, cabinet: 100, window: 60, hatch: 90, lever: 35, turnable: 90 };
+export const OPEN_DEG: Readonly<Record<InteractiveKind, number>> = { door: 90, gate: 90, cabinet: 100, window: 60, hatch: 90, lever: 35, turnable: 90, lid: 100, drawer: 1 };
+/** How far a drawer slides out, as a share of its depth. */
+export const DRAWER_OUT = 0.6;
 /** Seconds the client takes to swing (or turn) through the full angle. */
 export const SWING_SECONDS = 0.4;
 /**
@@ -106,6 +108,12 @@ export const INTERACTIVE_SIZE_PROPERTY = 'craftmatic:size';
 export function interactiveKindOf(description: string): InteractiveKind | null {
   const d = description.replace(/^[~=_]+\s*/, '');
   if (/^Glass for Window\b.*\bOpening\b/i.test(d)) return 'window';
+  // A container's hinged lid (a treasure chest's, a coffin's, a crate's) and a cupboard's drawer.
+  if (/^(Container|Minifig Coffin|Container Minifig Coffin)\b.*\bLid\b/i.test(d) || /^CHEST LID\b/i.test(d)) return 'lid';
+  if (/^Container\b.*\bDrawer\b/i.test(d) && !/\bDrawers\b/i.test(d)) return 'drawer';
+  // A garage roller door's segments (grouped into one door that slides up) and a sliding door leaf.
+  if (/^Roller Door\b/i.test(d)) return 'door';
+  if (/^Door\b.*\bSliding\b/i.test(d) || /^Door Sliding\b/i.test(d)) return 'door';
   // 60616's unofficial file is described "GLASS DOOR FOR FRAME 1X4X6": a leaf, not a frame or an insert.
   if (/^GLASS DOOR\b/i.test(d)) return 'door';
   if (/\bGlass\b/i.test(d)) return null;
@@ -226,8 +234,14 @@ export interface SceneInteractive {
   /** The hinge (or spin) line: a point on it and its unit direction, LDraw. */
   pivotLdu: Vec3;
   axisLdu: Vec3;
-  /** Open angle, degrees, right-handed about `axisLdu` (signed: the side chosen by the sweep); a turnable's step per tap. */
+  /**
+   * Open angle, degrees, right-handed about `axisLdu` (signed: the side chosen
+   * by the sweep); a turnable's step per tap. For a part that SLIDES (`slide`)
+   * it is the distance in LDU along `axisLdu`.
+   */
   angleDeg: number;
+  /** It slides along `axisLdu` instead of turning about it: a drawer, a roller or sliding door. */
+  slide?: boolean;
   /** A leaf-like part's closed mid-plane (doors, gates, cabinets, windows, hatches). */
   leaf?: LeafPlane;
   /** The entity origin: the closed assembly's bottom centre, LDraw. */
@@ -354,11 +368,52 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], meshes: Rea
   const taken = new Set<ParsedBrick>();
   const found: SceneInteractive[] = [];
 
+  // A roller door is a stack of segments: one door per stack, sliding up by its height.
+  for (const stack of rollerStacks(candidates.filter(c => /^Roller Door\b/i.test(c.mesh.description.replace(/^[~=_]+\s*/, ''))).map(c => c.brick), boxes)) {
+    for (const b of stack) taken.add(b);
+    const bounds = unionBox(stack.map(b => boxes.get(b)!));
+    const first = stack[0]!, m = meshOf(first)!;
+    const R = first.rot ?? IDENTITY;
+    // The segment's long local axis is the door's width; its thin one the normal.
+    const ext = [m.bounds.max[0] - m.bounds.min[0], m.bounds.max[1] - m.bounds.min[1], m.bounds.max[2] - m.bounds.min[2]];
+    const wideAxis = ext[0]! >= ext[2]! ? 0 : 2, thinAxis = wideAxis === 0 ? 2 : 0;
+    const widthDir = norm(apply(R, unit(wideAxis))), normal = norm(apply(R, unit(thinAxis)));
+    const height = bounds.max[1] - bounds.min[1], width = ext[wideAxis]!;
+    const centre: Vec3 = [(bounds.min[0] + bounds.max[0]) / 2, bounds.max[1], (bounds.min[2] + bounds.max[2]) / 2];
+    const corner = sub(centre, scale(widthDir, width / 2));
+    const leaf: LeafPlane = { corner, along: scale(widthDir, width), up: [0, -height, 0], normal, thicknessLdu: ext[thinAxis]! };
+    found.push({
+      kind: 'door', part: cleanPartId(first.part), description: m.description, bricks: stack, pivotLdu: corner, axisLdu: [0, -1, 0], angleDeg: Math.round(height * 10) / 10, slide: true, leaf,
+      anchorLdu: bottomCentre(bounds), boundsLdu: bounds, openingLdu: { width, height }, offGridDeg: offGridOf(leaf.along),
+    });
+  }
   for (const { brick, mesh, kind: rawKind } of candidates) {
+    if (taken.has(brick)) continue;
     const part = cleanPartId(brick.part);
     let kind = rawKind;
     const R = brick.rot ?? IDENTITY;
     const box = boxes.get(brick)!;
+    if (kind === 'drawer') {
+      // Out along its depth (local Z), whichever way is free of the cupboard around it.
+      const { min: lmin, max: lmax } = mesh.bounds;
+      const depth = lmax[2]! - lmin[2]!, dist = Math.round(depth * DRAWER_OUT * 10) / 10;
+      const zDir = norm(apply(R, unit(2)));
+      const others = [...boxes].filter(([b]) => b !== brick && !exclude.has(b)).map(([, bb]) => bb);
+      const blocked = (dir: Vec3): number => { const moved: Box = { min: add(box.min, scale(dir, dist)), max: add(box.max, scale(dir, dist)) }; return others.filter(o => o.min[0] < moved.max[0] - 1 && o.max[0] > moved.min[0] + 1 && o.min[1] < moved.max[1] - 1 && o.max[1] > moved.min[1] + 1 && o.min[2] < moved.max[2] - 1 && o.max[2] > moved.min[2] + 1).length; };
+      const dir = blocked(scale(zDir, -1)) <= blocked(zDir) ? scale(zDir, -1) : zDir;
+      taken.add(brick);
+      found.push({ kind, part, description: mesh.description, bricks: [brick], pivotLdu: toWorld(brick, [0, 0, 0]), axisLdu: dir, angleDeg: dist, slide: true, anchorLdu: bottomCentre(box), boundsLdu: box, offGridDeg: 0 });
+      continue;
+    }
+    if (kind === 'lid') {
+      const lid = lidHinge(brick, mesh, bricks, boxes, exclude, meshOf);
+      taken.add(brick);
+      // The free edge rises.
+      const free = add(lid.leaf.corner, add(lid.leaf.along, scale(lid.leaf.up, 0.5)));
+      const sign = rotateAbout(free, lid.pivot, lid.axis, OPEN_DEG.lid)[1] <= rotateAbout(free, lid.pivot, lid.axis, -OPEN_DEG.lid)[1] ? 1 : -1;
+      found.push({ kind, part, description: mesh.description, bricks: [brick], pivotLdu: lid.pivot, axisLdu: lid.axis, angleDeg: sign * OPEN_DEG.lid, leaf: lid.leaf, anchorLdu: bottomCentre(box), boundsLdu: box, offGridDeg: offGridOf(lid.leaf.up) });
+      continue;
+    }
     if (kind === 'lever' || kind === 'turnable') {
       const axisLocal = kind === 'lever' ? 0 : turnAxisOf(mesh.description, mesh);
       const axisLdu = norm(apply(R, unit(axisLocal)));
@@ -439,6 +494,14 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], meshes: Rea
     const fromX = Math.atan2(Math.abs(along[2]), Math.abs(along[0])) * 180 / Math.PI;
     const offGridDeg = Math.round(Math.min(fromX, 90 - fromX) * 10) / 10;
     const opening = kind === 'door' || kind === 'gate' ? { width: swingLen, height: lineLen } : kind === 'hatch' ? { width: lineLen, height: swingLen } : undefined;
+    if (/\bSliding\b/i.test(mesh.description)) {
+      // A sliding door runs along its own width, the way that is free (the sweep's obstacles).
+      const w = Math.hypot(...along), dirOut = norm(along);
+      const blockedAt = (dir: Vec3): number => samples.reduce((n, pnt) => n + (near.some(bb => inBox(add(pnt, scale(dir, w)), bb, 1)) ? 1 : 0), 0);
+      const dir = blockedAt(scale(dirOut, -1)) < blockedAt(dirOut) ? scale(dirOut, -1) : dirOut;
+      found.push({ kind, part, description: mesh.description, bricks: assembly, pivotLdu: corner, axisLdu: dir, angleDeg: Math.round(w * 10) / 10, slide: true, leaf, anchorLdu: bottomCentre(bounds), boundsLdu: bounds, ...(opening ? { openingLdu: opening } : {}), offGridDeg });
+      continue;
+    }
     found.push({
       kind, part, description: mesh.description, bricks: assembly, pivotLdu, axisLdu, angleDeg: sign * magnitude, leaf,
       anchorLdu: bottomCentre(bounds), boundsLdu: bounds, ...(opening ? { openingLdu: opening } : {}), offGridDeg,
@@ -446,7 +509,7 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], meshes: Rea
     });
   }
   // The cap: doorways first, then mechanisms, then cabinets and windows.
-  const rank: Record<InteractiveKind, number> = { door: 0, gate: 0, hatch: 1, turnable: 2, lever: 2, cabinet: 3, window: 4 };
+  const rank: Record<InteractiveKind, number> = { door: 0, gate: 0, hatch: 1, turnable: 2, lever: 2, cabinet: 3, lid: 3, drawer: 3, window: 4 };
   const cap = options.max ?? MAX_INTERACTIVES;
   const ordered = found.map((it, i) => ({ it, i })).sort((a, b) => rank[a.it.kind] - rank[b.it.kind] || a.i - b.i);
   const items = ordered.slice(0, cap).sort((a, b) => a.i - b.i).map(o => o.it);
@@ -462,6 +525,57 @@ function unionBox(list: Box[]): Box {
 }
 /** LDraw Y is down: the bottom is the largest y. */
 const bottomCentre = (b: Box): Vec3 => [(b.min[0] + b.max[0]) / 2, b.max[1], (b.min[2] + b.max[2]) / 2];
+/** How far a horizontal direction is turned off the nearest grid axis, degrees. */
+const offGridOf = (v: Vec3): number => { const fromX = Math.atan2(Math.abs(v[2]), Math.abs(v[0])) * 180 / Math.PI; return Math.round(Math.min(fromX, 90 - fromX) * 10) / 10; };
+
+/**
+ * Stacks of roller-door segments: same rotation, the same column (centres
+ * within 4 LDU horizontally) and each within 32 LDU of the next vertically.
+ * One stack is one door (42639's garage: twelve segments, two doors).
+ */
+function rollerStacks(segments: readonly ParsedBrick[], boxes: ReadonlyMap<ParsedBrick, Box>): ParsedBrick[][] {
+  const left = [...segments].sort((a, b) => a.y - b.y);
+  const out: ParsedBrick[][] = [];
+  while (left.length) {
+    const stack = [left.shift()!];
+    for (let i = 0; i < left.length; i++) {
+      const b = left[i]!, top = stack[stack.length - 1]!;
+      const same = (b.rot ?? IDENTITY).every((v, k) => Math.abs(v - (top.rot ?? IDENTITY)[k]!) < 1e-3);
+      if (same && Math.hypot(b.x - top.x, b.z - top.z) <= 4 && Math.abs(b.y - top.y) <= 32 && boxes.has(b)) { stack.push(b); left.splice(i, 1); i--; }
+    }
+    if (stack.every(b => boxes.has(b))) out.push(stack);
+  }
+  return out;
+}
+
+/**
+ * A lid's hinge. A treasure chest's body carries its hinge pins at its back
+ * top edge (4738a/b: pins at local (+-40, 3, 18)), so a lid sitting on a chest
+ * body hinges along the body's local X at that edge; a lid with no body under
+ * it hinges along its own long axis at its +Z edge. The leaf is the lid's top
+ * face, from the hinge edge to the free edge.
+ */
+function lidHinge(brick: ParsedBrick, mesh: LdrawPartMesh, bricks: readonly ParsedBrick[], boxes: ReadonlyMap<ParsedBrick, Box>, exclude: ReadonlySet<ParsedBrick>, meshOf: (b: ParsedBrick) => LdrawPartMesh | null): { pivot: Vec3; axis: Vec3; leaf: LeafPlane } {
+  const box = boxes.get(brick)!;
+  const { min, max } = mesh.bounds;
+  const body = bricks.find(b => {
+    if (b === brick || exclude.has(b)) return false;
+    const m = meshOf(b);
+    if (!m || !/\bTreasure Chest\b/i.test(m.description) || /\bLid\b/i.test(m.description)) return false;
+    const bb = boxes.get(b);
+    return !!bb && Math.abs((bb.min[0] + bb.max[0]) / 2 - (box.min[0] + box.max[0]) / 2) < 12 && Math.abs((bb.min[2] + bb.max[2]) / 2 - (box.min[2] + box.max[2]) / 2) < 12 && Math.abs(bb.min[1] - box.max[1]) < 16;
+  });
+  const hinge = body ? toWorld(body, [0, 3, 18]) : toWorld(brick, [0, max[1], max[2]]);
+  const lineDir = norm(apply((body ?? brick).rot ?? IDENTITY, [1, 0, 0]));
+  const backDir = norm(apply((body ?? brick).rot ?? IDENTITY, [0, 0, 1]));
+  const width = max[0] - min[0], depth = max[2] - min[2];
+  // The leaf: from one end of the hinge edge, running forward (-back) to the free edge, and along the hinge.
+  const corner = sub(add(hinge, [0, -(max[1] - min[1]), 0]), scale(lineDir, width / 2));
+  return {
+    pivot: hinge, axis: lineDir,
+    leaf: { corner, along: scale(backDir, -depth), up: scale(lineDir, width), normal: [0, -1, 0], thicknessLdu: max[1] - min[1] },
+  };
+}
 
 /** Parts carried by a turntable top: stacked on it (above its top face along the axis), near the axis, touching the load, at most `TURNTABLE_LOAD_MAX`. */
 const TURNTABLE_LOAD_MAX = 60;
@@ -787,15 +901,21 @@ export function interactiveProperties(): Record<string, unknown> {
  * channel value of +θ; and the wand size as a uniform scale about the entity
  * origin (the root's pivot).
  */
-export function interactiveAnimation(typeId: string, rateDegPerSecond: number): { id: string; file: unknown; initialize: string[]; preAnimation: string[] } {
+export function interactiveAnimation(typeId: string, rateDegPerSecond: number, slideUnitsPerLdu?: number): { id: string; file: unknown; initialize: string[]; preAnimation: string[] } {
   const id = `animation.${typeId.replace(':', '.')}.turn`;
   const rate = Math.round(rateDegPerSecond * 10) / 10;
   const size = `q.property('${INTERACTIVE_SIZE_PROPERTY}')`;
+  // A sliding part moves its spin bone along the rig's axis (the tilt maps the
+  // bone's up onto it): the property is the distance in LDU, the bone moves in
+  // geometry units. TODO: the slide direction is derived, not yet seen on a device.
+  const spin = slideUnitsPerLdu !== undefined
+    ? { position: [0, `v.ix_angle * ${Math.round(slideUnitsPerLdu * 1e5) / 1e5}`, 0] }
+    : { rotation: [0, '-v.ix_angle', 0] };
   return {
     id,
     file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones: {
       [ROOT_BONE]: { rotation: [0, `q.property('${INTERACTIVE_TURN_PROPERTY}')`, 0], scale: [size, size, size] },
-      [SPIN_BONE]: { rotation: [0, '-v.ix_angle', 0] },
+      [SPIN_BONE]: spin,
     } } } },
     initialize: [`v.ix_angle = q.property('${INTERACTIVE_PROPERTY}');`],
     preAnimation: [`v.ix_angle = v.ix_angle + math.clamp(q.property('${INTERACTIVE_PROPERTY}') - v.ix_angle, -q.delta_time * ${rate}, q.delta_time * ${rate});`],
@@ -810,6 +930,7 @@ export function interactiveAnimation(typeId: string, rateDegPerSecond: number): 
 export function interactiveNoun(it: Pick<SceneInteractive, 'kind' | 'description'>): string {
   if (it.kind === 'gate' || (it.kind === 'door' && /\b(Barred|Bars|Gate|Portcullis)\b/i.test(it.description))) return 'Gate';
   if (it.kind === 'cabinet') return 'Cupboard';
+  if (it.kind === 'door' && /^Roller Door\b/i.test(it.description.replace(/^[~=_]+\s*/, ''))) return 'Garage door';
   return `${it.kind[0]!.toUpperCase()}${it.kind.slice(1)}`;
 }
 
@@ -817,6 +938,7 @@ export function interactiveNoun(it: Pick<SceneInteractive, 'kind' | 'description
 export const INTERACT_TEXT: Readonly<Record<InteractiveKind, string>> = {
   door: 'action.interact.craftmatic_open', gate: 'action.interact.craftmatic_open', cabinet: 'action.interact.craftmatic_open',
   window: 'action.interact.craftmatic_open', hatch: 'action.interact.craftmatic_open', lever: 'action.interact.craftmatic_use', turnable: 'action.interact.craftmatic_turn',
+  lid: 'action.interact.craftmatic_open', drawer: 'action.interact.craftmatic_open',
 };
 export const interactiveLangLines = (): string[] => [
   'action.interact.craftmatic_open=Open / close',
@@ -859,13 +981,13 @@ function boxOf(points: Vec3[], origin: Vec3): HitBox {
 export function interactiveHitboxes(it: SceneInteractive, toModel: (p: Vec3) => Vec3): InteractiveHitboxes {
   const origin = toModel(it.anchorLdu);
   if (!it.leaf) {
-    const pts = cornersOf(it.boundsLdu.min, it.boundsLdu.max).map(toModel);
-    const box = boxOf(pts, origin);
-    return { closed: [box], open: [box] };
+    const box = (open: boolean): HitBox => boxOf(cornersOf(it.boundsLdu.min, it.boundsLdu.max).map(p => toModel(open ? movedOpen(it, p, 1) : p)), origin);
+    // A drawer's boxes follow it out; a turnable's or a lever's swing stays inside its one box.
+    return { closed: [box(false)], open: [it.slide ? box(true) : box(false)] };
   }
   const leaf = it.leaf;
   const shape = (deg: number): HitBox[] => {
-    const P = (s: number, t: number, n: number): Vec3 => toModel(rotateAbout(add(add(add(leaf.corner, scale(leaf.along, s)), scale(leaf.up, t)), scale(leaf.normal, n * leaf.thicknessLdu / 2)), it.pivotLdu, it.axisLdu, deg));
+    const P = (s: number, t: number, n: number): Vec3 => toModel(movedOpen(it, add(add(add(leaf.corner, scale(leaf.along, s)), scale(leaf.up, t)), scale(leaf.normal, n * leaf.thicknessLdu / 2)), deg ? 1 : 0));
     const A = sub(P(1, 0, 0), P(0, 0, 0)), U = sub(P(0, 1, 0), P(0, 0, 0));
     const vertical = Math.abs(U[1]) >= 0.7 * Math.hypot(...U);
     const nS = Math.max(1, Math.ceil(Math.hypot(A[0], A[2]) / HITBOX_SEGMENT_BLOCKS - 1e-9));
@@ -879,6 +1001,15 @@ export function interactiveHitboxes(it: SceneInteractive, toModel: (p: Vec3) => 
     return out;
   };
   return { closed: shape(0), open: shape(it.angleDeg) };
+}
+
+/**
+ * Where a point of the part is at `fraction` of the way open: slid along the
+ * axis for a sliding part, turned about the hinge otherwise (LDraw).
+ */
+export function movedOpen(it: Pick<SceneInteractive, 'slide' | 'pivotLdu' | 'axisLdu' | 'angleDeg'>, p: Vec3, fraction: number): Vec3 {
+  if (!fraction) return p;
+  return it.slide ? add(p, scale(it.axisLdu, it.angleDeg * fraction)) : rotateAbout(p, it.pivotLdu, it.axisLdu, it.angleDeg * fraction);
 }
 
 /** A tap box in the model frame: its footprint and vertical span, blocks at 100 %. */
@@ -1016,6 +1147,8 @@ export interface InteractiveRuntimeItem {
   pairs?: number[];
   /** The part's tap boxes at turn 0 and 100 %, closed and open, about the entity's origin (`interactiveHitboxes`): the runtime's line-of-sight test. */
   hit?: { c: HitBox[]; o: HitBox[] };
+  /** A sliding part: model blocks (100 %) it moves per unit of `angle` (which is then a distance in LDU) along `axis`. */
+  slide?: number;
   sounds: { open: string; close: string };
   /** The hinge point and unit axis in model blocks at 100 % (the placement's frame). The walk preview swings the part about it; the runtime does not need it. */
   pivot?: [number, number, number];

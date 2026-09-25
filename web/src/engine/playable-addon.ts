@@ -1976,8 +1976,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                         rig: interactiveRig(it.bricks.length, it.pivotLdu, it.axisLdu, it.anchorLdu), originLdu: it.anchorLdu,
                     });
                     diagnostics[ixId] = igeo.diagnostics;
-                    const rate = Math.max(Math.abs(it.angleDeg), OPEN_DEG[it.kind]) / SWING_SECONDS;
-                    const anim = interactiveAnimation(typeId, rate);
+                    // A sliding part (a drawer, a roller or sliding door) eases its distance; a hinged one its angle.
+                    const rate = (it.slide ? Math.abs(it.angleDeg) : Math.max(Math.abs(it.angleDeg), OPEN_DEG[it.kind])) / SWING_SECONDS;
+                    const anim = interactiveAnimation(typeId, rate, it.slide ? unitsPerLdu : undefined);
                     emitCompiledEntity(ixId, igeo, interactiveBehavior(typeId, it, hit), { animations: { turn: anim.id }, animate: ['turn'], initialize: anim.initialize, preAnimation: anim.preAnimation });
                     files.push({ name: `${rp}animations/${ixId}.animation.json`, data: json(anim.file) });
                     addEntityName(typeId, `${label} ${ixLabel.toLowerCase()}`, false);
@@ -2013,6 +2014,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     }
                     // The tap boxes the entity ships (turn 0, 100 %): the runtime's line-of-sight test.
                     item.hit = { c: compiledIx[k]!.hit.closed, o: compiledIx[k]!.hit.open };
+                    // A sliding part: model blocks per LDU along its axis (the Walk add-on moves it by this).
+                    if (it.slide) item.slide = Math.round(l / LDU_PER_BLOCK * 1e5) / 1e5;
                 });
                 pairDoubleDoors(items);
                 interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };

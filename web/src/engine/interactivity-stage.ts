@@ -55,6 +55,10 @@ export interface InteractivityReport {
 export function movableClassOf(description: string): InteractivityClass | null {
   const d = description.replace(/^[~=_]+\s*/, '');
   if (/\b(Sticker|Holder|Frame|Rail|Track|Hinge Plate|Hinge Brick|Base|Stand|Support|Mount)\b/i.test(d)) return null;
+  // Worn and carried things, wheel hubs and a baby's stroller seat are not the player's to use.
+  if (/^Minifig(ure)?,? (Headgear|Utensil Stroller)|\bHeadgear\b|\bHub\b|\b(Stroller|Baby Carriage|Pram)\b/i.test(d)) return null;
+  // A container's BODY is a fixture: its door, drawer or lid is a part of its own (a one-piece chest has none).
+  if (/^Container\b/i.test(d) && !/\b(Door|Drawer|Lid)\b/i.test(d)) return null;
   // A window FRAME ("Window 1 x 4 x 3 without Shutter Tabs") is a fixture; its panes and shutters are the movable parts.
   if (/^Window\b/i.test(d) && !/\b(Pane|Shutter|Opening)\b/i.test(d.replace(/\bwithout Shutter\b/i, ''))) return null;
   const kind = interactiveKindOf(d);
