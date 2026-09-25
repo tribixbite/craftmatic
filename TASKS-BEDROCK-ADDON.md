@@ -45,9 +45,14 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   hidden (empty-slot park / safe swap), drag or stick-pull plunger, ~100 ms
   tap-to-flipper (round-trip floor). Open: button press barely visible from
   the seat; tuning hooks still ship.
-- [ ] Coaster camera round 2 (`loop` mode: per-loop camera animation rolls
-  upside down; drop fixed) — **device ride pending** (camera agent waits for
-  the phone lock).
+- [x] Coaster camera round 2 ridden on the Pixel (`60565096`): drop faces
+  ahead, loops roll via one camera animation (120-150 degrees seen in the
+  ride; full 180 proven by a probe), hand-back clean, `animLag` 3 ticks.
+  Open: move `animLag` into `COASTER_RIDER_VIEW` + spec; remove tuning hooks.
+- [x] **Sent**: `output/device-round-2026-09-25b/craftmatic-packs-243f54b1.zip`
+  (14 packs + PACKS.md, sha256 79bd1f70...). World 924 binds EXACTLY these 14
+  (`_pixel_dev_deploy.py --exclusive`; 24 -> 14 bindings), 0 content-log
+  errors, 0 "overridden" warnings.
 - [x] Tests/builds read clego's `ldraw_ref/` before prod (`CRAFTMATIC_LDRAW_REF`).
 
 ## Vehicle round — 2026-09-25 (cars, boats, planes; trains on the coaster engine)
