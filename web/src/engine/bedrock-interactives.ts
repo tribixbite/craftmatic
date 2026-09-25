@@ -1081,11 +1081,14 @@ export const DOUBLE_DOOR_GAP_BLOCKS = 0.35;
 /**
  * Fill `pairs`: the two leaves of a double door, which open and close on one
  * tap. Needs `leaf` (the closed mid-plane). Two leaves pair when they are the
- * same kind, their doorways touch (`shares`), their planes are parallel
- * (within 30 degrees), their heights overlap, and their FREE edges meet (within
- * `DOUBLE_DOOR_GAP_BLOCKS`) while their hinges stand apart - a door hinged at
- * each jamb. Two doors hung side by side, each hinged on the same side, touch
- * but do not pair: 76457's Door 1 swung whenever Door 2 was tapped.
+ * same kind, their doorways touch (`shares`), their heights overlap, and
+ * either their planes are parallel (within 30 degrees) with their FREE edges
+ * meeting (within `DOUBLE_DOOR_GAP_BLOCKS`) while their hinges stand apart, or
+ * their hinges stand exactly the two leaves' widths apart (within the same
+ * gap) - a door hinged at each jamb, which the second test still finds when
+ * the source left both leaves open (76269's). Two doors hung side by side,
+ * each hinged on the same side, touch but do not pair: 76457's Door 1 swung
+ * whenever Door 2 was tapped. Nor do two leaves meeting at a corner (10326).
  */
 export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
   const flat = (v: readonly number[]): [number, number] => [v[0]!, v[2]!];
@@ -1098,7 +1101,11 @@ export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
     const cos = Math.abs(na[0] * nb[0] + na[1] * nb[1]) / ((Math.hypot(...na) * Math.hypot(...nb)) || 1);
     const ya: [number, number] = [a.leaf.c[1]!, a.leaf.c[1]! + a.leaf.u[1]!], yb: [number, number] = [b.leaf.c[1]!, b.leaf.c[1]! + b.leaf.u[1]!];
     const overlapY = Math.min(Math.max(...ya), Math.max(...yb)) - Math.max(Math.min(...ya), Math.min(...yb));
-    if (gap > DOUBLE_DOOR_GAP_BLOCKS || span <= gap + 0.5 || cos < Math.cos(Math.PI / 6) || overlapY <= 0) return;
+    if (overlapY <= 0) return;
+    const wa = Math.hypot(a.leaf.a[0]!, a.leaf.a[2]!), wb = Math.hypot(b.leaf.a[0]!, b.leaf.a[2]!);
+    const meeting = gap <= DOUBLE_DOOR_GAP_BLOCKS && span > gap + 0.5 && cos >= Math.cos(Math.PI / 6);
+    const jambs = Math.abs(span - (wa + wb)) <= DOUBLE_DOOR_GAP_BLOCKS;
+    if (!meeting && !jambs) return;
     a.pairs = [...(a.pairs ?? []), j];
     b.pairs = [...(b.pairs ?? []), i];
   }));

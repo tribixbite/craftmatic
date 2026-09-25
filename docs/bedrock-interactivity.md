@@ -117,13 +117,19 @@ quality) with:
   (`playerInteractWithEntity`) toggles the part; a second event for the same
   entity within 6 ticks is the same tap reported twice.
 - Doors, gates, hatches, cabinets, windows open and close; a **double door's
-  leaves move together** (`pairDoubleDoors` → `pairs`: same kind, parallel,
-  hinged at opposite jambs with the free edges within 0.35 block). Doorways
+  leaves move together** (`pairDoubleDoors` → `pairs`: same kind, heights
+  overlapping, and either parallel with the free edges within 0.35 block, or
+  the hinges the two leaves' widths apart - which still finds a double door
+  the source left open, 76269's). Doorways
   whose closed cells merely share or touch a cell (`linkSharedDoorways` →
   `shares`) keep a shared cell laid while either is closed, but move on their
   own: the first build moved every touching pair together, so 76457's Door 1
   swung whenever Door 2, hung beside it on the same side, was tapped (device
-  2026-09-24e). Levers flip; turnables turn a step.
+  2026-09-24e). Over the favourites 20 doorways touch another; 14 are halves of
+  a double door, 6 move on their own (76457's Door 1 and 2, 10326's two leaves
+  meeting at a corner, 42670's two staggered doors);
+  `bun scripts/_ix_pairs_report.ts <dir> [--recompute]` lists them. Levers
+  flip; turnables turn a step.
 - Sounds: `random.door_open` / `random.door_close`, `random.click` for levers
   and turnables.
 - **Taps through walls are ignored, and say so**: collider blocks have no
