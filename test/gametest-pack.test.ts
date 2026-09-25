@@ -333,7 +333,7 @@ describe('vehicle phases', () => {
 });
 
 /** A fake harness for the vehicle test: the vehicle moves along its heading while the simulated player pushes the stick. */
-function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane'; scripted?: boolean }) {
+function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' | 'hover'; scripted?: boolean; passesPosts?: boolean }) {
   const origin: Vec3 = { x: 100, y: -60, z: 200 };
   const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
   const logs: string[] = [];
@@ -353,11 +353,20 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane';
   const step = (): void => {
     if (!opts.drives || !riders.length) return;
     // A scripted vehicle turns right on x = -1 while its hook input lasts.
-    if (opts.scripted) { if (hookTicks > 0) { hookTicks--; veh.rot.y += -input.x * 3; } else input = { x: 0, y: 0 }; }
+    if (opts.scripted) { if (hookTicks > 0) { hookTicks--; veh.rot.y += -input.x * 3; } else { input = { x: 0, y: 0 }; hookJump = false; } }
     const rad = veh.rot.y * Math.PI / 180;
-    veh.location = { x: veh.location.x - Math.sin(rad) * input.y * 0.4, y: veh.location.y + (jumping && opts.kind === 'plane' ? 0.3 : 0), z: veh.location.z + Math.cos(rad) * input.y * 0.4 };
+    // A scripted plane's throttle is Jump alone: it rolls forward on it.
+    const push = opts.scripted && opts.kind === 'plane' && hookJump && !input.y ? 1 : input.y;
+    let next = { x: veh.location.x - Math.sin(rad) * push * 0.4, y: veh.location.y + (jumping && opts.kind === 'plane' ? 0.3 : 0), z: veh.location.z + Math.cos(rad) * push * 0.4 };
+    // A hover craft over the pool floats a block lower, on the water.
+    if (opts.kind === 'hover' && next.z - origin.z >= GT_VEHICLE_LAYOUT.poolZ0) next = { ...next, y: origin.y + GT_VEHICLE_LAYOUT.waterTop };
+    // The runtime's swept footprint: the vehicle (4 long, heading +x) stops with its nose at a post.
+    if (!opts.passesPosts) for (const p of posts) if (Math.abs(next.z - origin.z - p.z - 0.5) < 1.5 && next.x - origin.x + 2 > p.x && veh.location.x - origin.x + 2 <= p.x + 0.01) next = { ...next, x: origin.x + p.x - 2 };
+    veh.location = next;
     jumping = false;
   };
+  let hookJump = false;
+  const posts: Vec3[] = [];
   const mkSim = (name: string): any => ({
     name, location: { x: 0, y: 0, z: 0 }, teleport(at: Vec3) { this.location = { ...at }; }, lookAtEntity() {}, lookAtLocation() {}, setRotation() {},
     interactWithEntity() { riders.push(this); return true; }, moveRelative(_x: number, y: number) { input = { x: 0, y }; },
@@ -370,6 +379,7 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane';
     relativeLocation: (w: Vec3) => ({ x: w.x - origin.x, y: w.y - origin.y, z: w.z - origin.z }),
     getBlock: (r: Vec3) => ({ typeId: r.y === 0 ? 'minecraft:smooth_stone' : 'minecraft:air' }), getTestDirection: () => 'South',
     getDimension: () => dim, idle: async (n = 1) => { for (let i = 0; i < n; i++) step(); },
+    setBlockType: (type: string, at: Vec3) => { if (type === 'minecraft:oak_log') { if (!posts.some(p => p.x === at.x && p.z === at.z)) posts.push({ ...at }); } else posts.length = 0; },
     spawnSimulatedPlayer: (_at: Vec3, name: string) => mkSim(name),
     succeed: () => { outcome.succeeded = true; }, fail: (m: string) => { outcome.failure = m; },
   };
@@ -377,7 +387,7 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane';
   const mc = {
     GameMode: { Survival: 'Survival' },
     world: { afterEvents: { playerSpawn: { subscribe() {} }, playerInteractWithEntity: { subscribe() {} }, entityHitEntity: { subscribe() {} } }, getDimension: () => dim, getPlayers: () => [] },
-    system: { afterEvents: { scriptEventReceive: { subscribe() {} } }, runTimeout: (fn: () => void) => fn(), sendScriptEvent: (id: string, msg: string) => { const m = JSON.parse(msg); sent.push({ id, ...m }); input = { x: m.x, y: m.y }; jumping = m.jump; hookTicks = m.ticks; } },
+    system: { afterEvents: { scriptEventReceive: { subscribe() {} } }, runTimeout: (fn: () => void) => fn(), sendScriptEvent: (id: string, msg: string) => { const m = JSON.parse(msg); sent.push({ id, ...m }); input = { x: m.x, y: m.y }; jumping = m.jump; hookJump = !!m.jump; hookTicks = m.ticks; } },
   };
   const gt = { registerAsync: (_c: string, name: string, fn: (t: any) => Promise<void>) => { registered.set(name, fn); return builder; } };
   const warn = console.warn;
@@ -409,14 +419,145 @@ describe('the vehicle test', () => {
     const h = vehicleHarness({ drives: true, kind: 'boat', scripted: true });
     await h.run('vehicle_demo_1_1');
     const phases = h.logs.filter(l => l.startsWith('CMGT VEHICLE_PHASE ')).map(l => JSON.parse(l.slice('CMGT VEHICLE_PHASE '.length)));
-    expect(phases.map(p => p.phase)).toEqual(['settle', 'ahead', 'coast', 'rudder_right', 'astern', 'boost', 'shore', 'back_off']);
+    expect(phases.map(p => p.phase)).toEqual(['settle', 'ahead', 'coast', 'rudder_right', 'astern', 'boost', 'shore', 'back_off', 'post']);
     expect(h.sent.every((m: any) => m.id === 'craftmatic:flight_input')).toBe(true);
-    expect(h.sent.map((m: any) => [m.x, m.y, m.jump, m.ticks])).toEqual([[0, 1, false, 80], [-1, 1, false, 60], [0, -1, false, 40], [0, 1, true, 60], [0, 1, false, 120], [0, -1, false, 40]]);
+    expect(h.sent.map((m: any) => [m.x, m.y, m.jump, m.ticks])).toEqual([[0, 1, false, 80], [-1, 1, false, 60], [0, -1, false, 40], [0, 1, true, 60], [0, 1, false, 120], [0, -1, false, 40], [0, 0.6, false, 80]]);
     expect(phases.find(p => p.phase === 'rudder_right').yawChange).toBeGreaterThan(30);
+  });
+  it('stands a post off the centre line, inside the footprint, and checks the vehicle stops at it', async () => {
+    for (const kind of ['car', 'boat', 'plane'] as const) {
+      const h = vehicleHarness({ drives: true, kind, scripted: true });
+      await h.run('vehicle_demo_1_1');
+      const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT VEHICLE '))!.slice('CMGT VEHICLE '.length));
+      // Width 2: the post stands 0.65 off the centre line, 5 blocks past the nose; the harness stops the nose there.
+      expect(verdict.post.offset).toBe(0.65);
+      expect(verdict.post.clearAlong).toBeGreaterThanOrEqual(4.5);
+      expect(verdict.phases.post.along).toBeCloseTo(verdict.post.clearAlong, 5);
+      expect(verdict.checks.stopsAtPost).toBe(true);
+      const through = vehicleHarness({ drives: true, kind, scripted: true, passesPosts: true });
+      await through.run('vehicle_demo_1_1');
+      expect(through.outcome.failure).toMatch(/stopsAtPost/);
+    }
+  });
+  it('drives a hover craft over the land lane and then off it onto the pool', async () => {
+    const h = vehicleHarness({ drives: true, kind: 'hover', scripted: true });
+    await h.run('vehicle_demo_1_1');
+    const phases = h.logs.filter(l => l.startsWith('CMGT VEHICLE_PHASE ')).map(l => JSON.parse(l.slice('CMGT VEHICLE_PHASE '.length)));
+    expect(phases.map(p => p.phase)).toEqual(['settle', 'ahead', 'coast', 'reverse', 'turn_right', 'boost', 'post', 'over_water']);
+    const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT VEHICLE '))!.slice('CMGT VEHICLE '.length));
+    expect(verdict.checks.floatsOverWater).toBe(true);
+    expect(phases.find(p => p.phase === 'over_water').minDy).toBeLessThan(-0.5);
   });
   it('fails naming what did not happen when the vehicle does not move', async () => {
     const h = vehicleHarness({ drives: false, kind: 'plane' });
     await h.run('vehicle_demo_1_1');
     expect(h.outcome.failure).toMatch(/forwardMoves.*reverseMoves.*turns/);
+  });
+});
+
+/**
+ * A driven train on the fake harness: the model is placed (the placement hook
+ * answers), a car of the route carries the rail runtime's dynamic properties,
+ * and the stick hook (`craftmatic:flight_input`, `y` along the train) drives it
+ * with the rail step's shape: traction 3 blocks/s², brake 6 against the
+ * motion, reverse only from rest, a stop at an open line's ends.
+ */
+function trainHarness(opts: { responds: boolean; closed: boolean; start?: number }) {
+  const origin: Vec3 = { x: 100, y: -60, z: 200 };
+  const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+  const scriptSubs: Array<(ev: any) => void> = [];
+  const logs: string[] = [];
+  const registered = new Map<string, (t: any) => Promise<void>>();
+  const length = 40;
+  const plan: GametestPlan = { ...PLAN, doorways: [], vehiclesOnly: true,
+    trains: [{ label: 'Line', route: 0, carTypes: ['craftmatic:c_demo_car'], closed: opts.closed, length, at: { x: 5, y: 1, z: 4 } }] };
+  const props = new Map<string, number>([['craftmatic:coaster_route', 0], ['craftmatic:coaster_distance', opts.start ?? 20], ['craftmatic:coaster_speed', 0], ['craftmatic:coaster_direction', 1]]);
+  const riders: any[] = [];
+  const car: any = { id: 'car0', typeId: 'craftmatic:c_demo_car', location: add(origin, { x: 8, y: 2, z: 7 }), getDynamicProperty: (k: string) => props.get(k),
+    getComponent: () => ({ getRiders: () => riders, addRider: (p: any) => { riders.push(p); return true; }, ejectRiders: () => { riders.length = 0; } }) };
+  let stick = 0, stickTicks = 0, v = 0;
+  const step = (): void => {
+    const y = stickTicks > 0 ? (stickTicks--, stick) : 0;
+    if (!opts.responds) return;
+    const dt = 0.05;
+    if (y && (v === 0 || Math.sign(y) === Math.sign(v))) v += y * 3 * dt;
+    else if (y) { const next = v - Math.sign(v) * 6 * dt * Math.abs(y); v = Math.sign(next) !== Math.sign(v) ? 0 : next; }
+    else if (v) { const next = v - Math.sign(v) * 0.3 * dt; v = Math.sign(next) !== Math.sign(v) ? 0 : next; }
+    v = Math.max(-12, Math.min(12, v));
+    let d = props.get('craftmatic:coaster_distance')! + v * dt;
+    if (opts.closed) d = ((d % length) + length) % length;
+    else if (d <= 1 || d >= length - 1) { d = Math.max(1, Math.min(length - 1, d)); v = 0; }
+    props.set('craftmatic:coaster_distance', d);
+    props.set('craftmatic:coaster_speed', Math.abs(v));
+    props.set('craftmatic:coaster_direction', v < 0 ? -1 : 1);
+  };
+  const sim: any = { name: 'cmgt_t', location: { x: 0, y: 0, z: 0 }, teleport(at: Vec3) { this.location = { ...at }; }, lookAtEntity() {}, interactWithEntity() { riders.push(sim); return true; } };
+  const dim = { getEntities: (q: any) => (!q.type || q.type === car.typeId ? [car] : []), runCommand: () => ({ successCount: 1 }) };
+  const outcome: { succeeded?: boolean; failure?: string } = {};
+  const test = {
+    worldBlockLocation: (r: Vec3) => add(origin, r), worldLocation: (r: Vec3) => add(origin, r),
+    relativeLocation: (w: Vec3) => ({ x: w.x - origin.x, y: w.y - origin.y, z: w.z - origin.z }),
+    getBlock: (r: Vec3) => ({ typeId: r.y === 0 ? 'minecraft:smooth_stone' : 'minecraft:air' }), getTestDirection: () => 'South',
+    getDimension: () => dim, idle: async (n = 1) => { for (let i = 0; i < n; i++) step(); }, spawnSimulatedPlayer: () => sim,
+    succeed: () => { outcome.succeeded = true; }, fail: (m: string) => { outcome.failure = m; },
+  };
+  const sent: any[] = [];
+  const builder: any = new Proxy({}, { get: () => () => builder });
+  const mc = {
+    GameMode: { Survival: 'Survival' },
+    world: { afterEvents: { playerSpawn: { subscribe() {} }, playerInteractWithEntity: { subscribe() {} }, entityHitEntity: { subscribe() {} } }, getDimension: () => dim, getPlayers: () => [] },
+    system: {
+      afterEvents: { scriptEventReceive: { subscribe: (fn: (ev: any) => void) => scriptSubs.push(fn) } },
+      runTimeout: (fn: () => void) => fn(),
+      sendScriptEvent: (id: string, message: string) => {
+        const m = JSON.parse(message);
+        if (id === GT_PLACE_EVENT) { for (const fn of scriptSubs) fn({ id: 'craftmatic_gt:placed', message: JSON.stringify({ player: m.player, entities: 3 }) }); return; }
+        sent.push({ ...m, id, car: m.id });
+        if (id === 'craftmatic:flight_input') { stick = m.y; stickTicks = m.ticks; }
+      },
+    },
+  };
+  const gt = { registerAsync: (_c: string, name: string, fn: (t: any) => Promise<void>) => { registered.set(name, fn); return builder; } };
+  const warn = console.warn;
+  console.warn = (s2: string) => { if (!s2.startsWith('CMGT_PAD')) logs.push(s2); };
+  try { gametestRuntime({ mc, gt }, plan, arenaSize(plan.dims), GT_MARGIN, judgeWalk, outcomeMatches, judgeFigureTrack, { summarise: summariseVehiclePhase, layout: GT_VEHICLE_LAYOUT, inputEvent: 'craftmatic:flight_input' }); } finally { console.warn = warn; }
+  const run = async (name: string) => {
+    console.warn = (s2: string) => { if (!s2.startsWith('CMGT_PAD')) logs.push(s2); };
+    try { await registered.get(name)!(test); } finally { console.warn = warn; }
+  };
+  return { registered, logs, run, outcome, sent };
+}
+
+describe('the train test', () => {
+  it('registers one train test per driven route', () => {
+    expect([...trainHarness({ responds: true, closed: false }).registered.keys()]).toEqual(['train_demo_1_1']);
+  });
+  it('drives an open line through the stick hook: parks, goes, brakes, reverses and stops at the buffer', async () => {
+    const h = trainHarness({ responds: true, closed: false });
+    await h.run('train_demo_1_1');
+    expect(h.sent.every((m: any) => m.id === 'craftmatic:flight_input' && m.id !== undefined)).toBe(true);
+    expect(h.sent.map((m: any) => [m.y, m.ticks, m.car])).toEqual([[1, 40, 'car0'], [-1, 60, 'car0'], [-1, 60, 'car0'], [0, 40, 'car0'], [1, 400, 'car0']]);
+    const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT TRAIN '))!.slice('CMGT TRAIN '.length));
+    expect(verdict.checks).toEqual({ mounted: true, parks: true, drives: true, brakesToStop: true, reverses: true, stopsAtBuffer: true });
+    expect(h.outcome.succeeded).toBe(true);
+  });
+  it('drives a circuit across its seam without counting a lap as a jump', async () => {
+    const h = trainHarness({ responds: true, closed: true });
+    await h.run('train_demo_1_1');
+    const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT TRAIN '))!.slice('CMGT TRAIN '.length));
+    expect(verdict.checks.stopsAtBuffer).toBeUndefined();
+    expect(verdict.pass).toBe(true);
+  });
+  it('drives the other way when the train was placed against the buffer ahead', async () => {
+    const h = trainHarness({ responds: true, closed: false, start: 39 });
+    await h.run('train_demo_1_1');
+    expect(h.sent.map((m: any) => m.y)).toEqual([1, -1, 1, 1, 0, -1]);
+    const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT TRAIN '))!.slice('CMGT TRAIN '.length));
+    expect(verdict.pass).toBe(true);
+  });
+  it('fails naming what did not happen when the train ignores the stick', async () => {
+    const h = trainHarness({ responds: false, closed: false });
+    await h.run('train_demo_1_1');
+    expect(h.outcome.failure).toMatch(/drives.*reverses/);
   });
 });

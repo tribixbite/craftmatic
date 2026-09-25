@@ -234,7 +234,12 @@ With `P.DRIVER` (`RAIL_TRAIN_PHYSICS`, carried per route in
 
 `push` is the rider's stick (`inputInfo.getMovementVector().y`) against the
 train's FIXED nose (its cars' authored heading), so the stick never flips at
-a reversal. Losses and brakes stop a train and never reverse it; from rest
+a reversal. A route with a driver makes `coasterRuntimeConfig` set
+`inputEvent` (`FLIGHT_INPUT_EVENT`, the scripted vehicles' hook): `/scriptevent
+craftmatic:flight_input {"id":"<any car>","y":1,"ticks":40}` is that train's
+stick for 40 ticks (no `id`: every train), and counts as a driver aboard. A
+GameTest simulated player's stick never reaches `inputInfo` (Pixel,
+2026-09-25), so the device's train test (`train_<id>_<n>`) drives it this way. Losses and brakes stop a train and never reverse it; from rest
 only a push or a grade steeper than the rolling loss starts it, and the
 runtime reverses only on a tick that begins at rest. `|u| ≤ MAX_SPEED`. No
 chain, inversion floor, minimum speed or station dwell; an open end is a
@@ -305,48 +310,89 @@ the figures roam and stay home", not Bedrock's physics. Device truth: the
 Two kinds of vehicle, chosen by measurement (GameTest and real rides on the
 Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
 
-- **Car — SCRIPTED** (`carStep`, below). The camel controller
-  (`input_ground_controlled`) failed a real rider on the Pixel, 2026-09-25:
-  under `player_relative` the rider's yaw turned by itself ~36 degrees every 4
-  ticks with the stick held straight and the car drove circles in every camera
-  mode; under the default and `player_relative_strafe` schemes it drove
-  straight but the stick's left/right slid it sideways without turning it; and
-  it stopped dead on release (2.3 blocks from 43 blocks/s). Speed was ~41.5
-  blocks/s per movement unit (44.8-65.8 mph at half stick at 1.05). The camel
-  (`CAR_MOVEMENT` 0.45, max × 1.3, `movement.basic` max_turn 18,
-  `variable_max_auto_step` 1.25 / 1.56, `dash_action`) remains only for the
-  10300 time machine and a grid-only car.
+- **Car — SCRIPTED** (`carStep`, below), EVERY car since 2026-09-25: the 10300
+  time machine and a grid-only car included, so no camel is left. The camel
+  controller (`input_ground_controlled`) failed a real rider on the Pixel,
+  2026-09-25: under `player_relative` the rider's yaw turned by itself ~36
+  degrees every 4 ticks with the stick held straight and the car drove circles
+  in every camera mode; under the default and `player_relative_strafe`
+  schemes it drove straight but the stick's left/right slid it sideways
+  without turning it; and it stopped dead on release (2.3 blocks from 43
+  blocks/s). The time machine's circuits (`timeMachineRuntime`) no longer
+  drive it: they set its top speed through the `VEHICLE_DYNAMIC.topSpeed`
+  dynamic property (`TIME_MACHINE.TOP_MARGIN` × the armed jump speed, 88 mph
+  by default), put the circuit on the HUD (`VEHICLE_DYNAMIC.hud`) and jump
+  when the measured speed reaches the armed speed. The camel's tuning hooks
+  (`craftmatic:vehicle_scheme`, `vehicle_camera`) went with it.
+- **Hover craft — SCRIPTED on `carStep`** with `HOVER`: the ground it rides
+  is the top of whatever is under it, solid OR water, plus `RIDE_HEIGHT`; it
+  glides, floats over `STEP_UP` 1.6 and sinks slowly off an edge. A title in
+  `HOVER_WORDS` (75397's "Sail Barge", a speeder) makes a vehicle a hover
+  craft whatever its kind (`vehicleMotionOf`).
 - **Rotorcraft — native.** The vanilla Happy Ghast: `has_gravity: false`,
   hover movement and navigation, `free_camera_controlled`, `flying_speed` 0.3,
   `vertical_movement_action` +0.5 (climb) / −0.5 (descend group).
-- **Car, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
+- **Car, hover craft, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
   `scriptedVehicleRuntime`). Every native speed is `SCRIPTED_NATIVE_SPEED` (0)
   and gravity is off; the Happy Ghast rider components stay only so Jump is an
   input, not a dismount (measured: a real rider held Jump and stayed seated).
   Each tick the runtime reads the controlling rider's `inputInfo` (or the
   `FLIGHT_INPUT_EVENT` hook), probes the blocks it needs, runs the pure
-  `carStep` / `flightStep` / `boatStep`, teleports the entity (the rider rides along, as on
+  `carStep` / `flightStep` / `boatStep`, sweeps the vehicle's footprint over
+  the new pose (`sweepFootprint`, below), teleports the entity (the rider rides along, as on
   the coaster) and writes pitch, bank and wheel roll to the `FLIGHT_PROPS`
-  actor properties. Constants in `FLIGHT` / `BOAT` (§9). Why: the camel boat
+  actor properties. Constants in `FLIGHT` / `BOAT` / `CAR` / `HOVER` (§9). Why: the camel boat
   over `minecraft:buoyant` crawled at 1.6-1.8 blocks/s on water whatever its
   movement, and the hover plane had no take-off, stall or landing.
+- **Blocks are solid SPANS.** A probe reads each block's solid span: a
+  shell collider block's `lo..hi` sixteenths (a car drives ON a plate floor,
+  not a block above it), a bottom slab's lower half, a top slab's upper
+  half, a full block otherwise; plants, torches, snow layers and light
+  blocks are passed. Lookups are cached per tick.
+- **Swept footprint** (`sweepFootprint`, `FOOTPRINT`). Before 2026-09-25 the
+  runtime probed only the centre line (the ground under the vehicle, one block
+  ahead of the nose), so a wingtip, a wide hull or a car's corner went through
+  a tree or a pier. Now the rectangle of the vehicle's half length and half
+  width (`ScriptedVehicleType.noseReach` / `halfWidth`, from the shipped
+  geometry, times the entity's `minecraft:scale`) is probed along its
+  perimeter at ≤ 0.9 blocks spacing and up to four heights of its clear band
+  (a car: above its 1.05 step to its roof; a boat: from just above the
+  waterline; an aircraft: its whole airframe aloft, above its gear on the
+  ground), tilted by its pitch, at every ≤ 0.8-block substep between the old
+  and the new pose. A probe blocks only when it ENTERS a solid (it was clear at
+  the old pose), so a vehicle placed half in a wall drives out. A blocked move
+  keeps the turn if the turn alone is clear, stops the vehicle, and is a
+  `blocked` / `beached` / `crash` event (its sound once per contact).
+- **Headlights** (`HEADLIGHTS`, `isNightTime`, `headlightCell`): at night,
+  with a rider, one `minecraft:light_block_14` stands `AHEAD` blocks past the
+  nose, moved as the vehicle crosses cells, removed when the rider leaves, the
+  vehicle parks for `PARK_TICKS` or day comes; its cell is saved in a dynamic
+  property so a light left by a closed world goes on the next load. Only an
+  air cell takes it. No night vision any more.
 - **Drive animation** (`vehicleClientAnimation`, client Molang): wheel bones
   (`wheel_<n>`, from the compiler's `vehicleRig`) turn by the signed distance
   rolled over their radius; front wheels steer with the yaw rate; a car's body
   leans out of a turn and squats on acceleration from its own motion
   (`VEHICLE_BODY_MOTION`); a scripted vehicle's body takes its attitude from
   the properties.
-- The car/rotor driver script (`vehicleDriverRuntime`, every 2 ticks) only
-  measures speed (position delta, since a client-driven mount reports ~0
-  velocity), plays effects, swaps the rotorcraft's climb/descend group and
-  logs telemetry. mph = blocks/tick × 20 × 2.236936 (1 block = 1 m).
+- The rotorcraft's driver script (`vehicleDriverRuntime`, every 2 ticks, the
+  only native mount left) only measures speed (position delta, since a
+  client-driven mount reports ~0 velocity), plays effects, swaps the
+  climb/descend group and logs telemetry. mph = blocks/tick × 20 × 2.236936
+  (1 block = 1 m).
 - The wand's size changes `minecraft:scale`, the collision box and the seats
-  (`bedrock-placement-pack.ts`); the speeds are the same at every size.
+  (`bedrock-placement-pack.ts`); the speeds are the same at every size, the
+  footprint and probes scale with it.
 
-Tests: `test/bedrock-vehicle.test.ts` (both steppers, the animation),
-`test/playable-addon.test.ts`, `test/playable-golden-models.test.ts`,
-`test/vehicle-facing.test.ts`, and the device course `vehicle_<id>_<n>`
-(`web/src/engine/gametest-pack.ts`, `test/gametest-pack.test.ts`).
+Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint and
+headlight helpers, the animation, and the serialised runtime on a fake world:
+a trunk at a car's corner, a post at a wingtip, a collider plate floor, a
+hover craft over water, headlights by night and day, the time machine's top
+speed), `test/playable-addon.test.ts`, `test/playable-golden-models.test.ts`,
+`test/vehicle-facing.test.ts`, `test/scene-vehicles.test.ts`, and the device
+course `vehicle_<id>_<n>` (with a post off the centre line inside the
+footprint, and a hover craft's run over the pool) and train test
+`train_<id>_<n>` (`web/src/engine/gametest-pack.ts`, `test/gametest-pack.test.ts`).
 
 ## 5. Serialised runtimes: the rules
 
@@ -360,7 +406,7 @@ Each device runtime is a function turned into the pack's script text with
 | pinball script | `pinballScript` | `pinballRuntime`, `createPinballSim`, `fitPinballZone` |
 | `BP/scripts/figures.js` | `figureLifeScript` | `figureLifeRuntime`, `standFeetAt`, `exploreWalkable`, `pathTo`, `blockSpan`, `startCell`, `refugeCell` |
 | vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime`, `timeMachineRuntime` |
-| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep` |
+| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `isNightTime`, `headlightCell` |
 
 1. A serialised function may reference NOTHING outside its own body and its
    parameters: no import, no module-level `const`, no other function of the
@@ -396,7 +442,8 @@ Each device runtime is a function turned into the pack's script text with
 | `createPinballSim` | serialised | `addon-preview.ts` | `test/pinball.test.ts`, `pinball-table.ts` (lane probing) |
 | figure planner functions | serialised | — | `figure-life-sim.ts`, census script |
 | `tickPlayer` | — (Bedrock is the player) | `addon-preview.ts` | `interactive-walk.ts`, `scripts/_addon_walk.ts` |
-| `carStep`, `flightStep`, `boatStep` (`CAR`, `FLIGHT`, `BOAT` via `config.car` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
+| `carStep`, `flightStep`, `boatStep` (`CAR`, `HOVER`, `FLIGHT`, `BOAT` via `config.car` / `config.hover` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
+| `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on a fake world) |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts` |
 
 ## 7. Adding a vehicle class or a physics module
@@ -555,7 +602,6 @@ literal inside a function body (`§` marks the number).
 | `FIGURE_TUNING.doorwayClearance` | `web/src/engine/bedrock-figure-life.ts` | 1.25 | blocks | Never stop this close to a door leaf. |
 | sim ground friction | `web/src/engine/figure-life-sim.ts` `e.v.x *= §;` | 0.546 | per tick | Minecraft ground friction (as the walker). |
 | sim drop per tick | `web/src/engine/figure-life-sim.ts` `e.location.y - §)` | 0.4 | blocks/tick | Stand-in fall to the floor below; not gravity. |
-| `CAR_MOVEMENT` | `web/src/engine/playable-addon.ts` | 0.45 | Bedrock movement | ~41.5 blocks/s per unit measured (real rider and GameTest, Pixel 2026-09-25): about 19 blocks/s (42 mph) at full stick. Max is × 1.3. |
 | `SCRIPTED_NATIVE_SPEED` | `web/src/engine/playable-addon.ts` | 0 | Bedrock movement / flying_speed | A scripted vehicle's native speeds: only the script moves it. |
 | rotorcraft flying speed | `web/src/engine/playable-addon.ts` `'minecraft:flying_speed': { value: § }` | 0.3 | Bedrock flying_speed | Happy Ghast's, scaled: ~5 blocks/s forward measured. |
 | `FLIGHT.ROTATE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 10 | blocks/s | Take-off speed; about 15 blocks of run at full power on the device (Milano GameTest). |
@@ -595,7 +641,24 @@ literal inside a function body (`§` marks the number).
 | `BOAT.RUDDER_AT_REST` | `web/src/engine/bedrock-vehicle.ts` | 0.35 | fraction | Rudder bite at a standstill, so a moored boat can be pointed out. |
 | `BOAT.DRAFT` | `web/src/engine/bedrock-vehicle.ts` | 0.3 | blocks | Default keel depth under the surface; the pack gives each boat 12 % of its height, 0.3-1.2 (a 3-block yacht rode visibly high at 0.3 on the Pixel). |
 | aircraft climb | `web/src/engine/playable-addon.ts` `[AIRCRAFT_CLIMB_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: § } }` | 0.5 | Bedrock vertical velocity | ~17 blocks/s climb measured on the Pixel (1.35 climbed 206 blocks in a second). |
-| dash momentum | `web/src/engine/playable-addon.ts` `horizontal_momentum: §` | 20 | Bedrock dash | The camel's Jump boost. |
+| `HOVER.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 12 | blocks/s | A hover craft's full stick (27 mph): a heavy barge's glide, not a sports car. |
+| `HOVER.ACCEL` | `web/src/engine/bedrock-vehicle.ts` | 4 | blocks/s² | 0 to full in 3 s. |
+| `HOVER.COAST` | `web/src/engine/bedrock-vehicle.ts` | 1.2 | blocks/s² | Hands off it glides (a car coasts down at 2.5). |
+| `HOVER.STEER_RATE` | `web/src/engine/bedrock-vehicle.ts` | 70 | degrees/s | Gentler than a car's 110. |
+| `HOVER.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1.6 | blocks | It floats over a block and a half of rise. |
+| `HOVER.GRAVITY` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s² | It sinks slowly off an edge. |
+| `HOVER.RIDE_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Height above the ground or the water's surface. |
+| `FOOTPRINT.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 0.9 | blocks | Most two perimeter probes are apart: under one block, so a one-block trunk cannot slip between them. |
+| `FOOTPRINT.MAX_POINTS` | `web/src/engine/bedrock-vehicle.ts` | 128 | probes | A 36-block barge's 100-block perimeter still gets 0.9 spacing. |
+| `FOOTPRINT.MAX_LEVELS` | `web/src/engine/bedrock-vehicle.ts` | 4 | heights | Heights tested between the band's `lo` and `hi`. |
+| `FOOTPRINT.SWEEP_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | blocks | Most a probe travels between two tested poses: a 32 blocks/s aircraft moves 1.6 a tick. |
+| `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
+| `HEADLIGHTS.LEVEL` | `web/src/engine/bedrock-vehicle.ts` | 14 | light level | One `minecraft:light_block_14`: bright enough to read the road ahead at night. |
+| `HEADLIGHTS.AHEAD` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks | Past the nose, along the heading. |
+| `HEADLIGHTS.PARK_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 100 | ticks | A light switches off after 5 s parked. |
+| `HEADLIGHTS.DUSK` | `web/src/engine/bedrock-vehicle.ts` | 12500 | time of day | Minecraft sunset; night until `DAWN` 23500. |
+| `TIME_MACHINE.TOP_MARGIN` | `web/src/engine/playable-addon.ts` | 1.03 | × | The time machine's top speed is 3 % past its jump speed (88 mph: 40.5 blocks/s), so a full stick reaches it. |
+| `TIME_MACHINE.TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 10 | blocks per 2 ticks | A longer move is a teleport, not speed: 100 blocks/s, past the 150 mph slider's 67. |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
@@ -654,10 +717,15 @@ blocks/s climb, ~5 forward.
 - **Figures walk at speed × size below 100 %**, not × sqrt(size); the
   host simulator's gravity is a constant 0.4-block/tick drop.
 - **Vehicle speeds are fixed numbers**, not derived from the model; they do
-  not change with the wand size. A native car stops dead when the stick is
-  released (the camel has no inertia); a scripted vehicle's collision is a
-  centre-line probe (ground under it, blocks ahead of the nose), not its full
-  box, so a wingtip passes through a tree.
+  not change with the wand size (the footprint and probes do: the runtime
+  reads the entity's `minecraft:scale`). The swept footprint is a
+  rectangle (length × width) swept at up to `FOOTPRINT.MAX_LEVELS` heights,
+  not the model's silhouette: a car's corner is square, a wing's sweep is
+  its span. Other ENTITIES are not collided with (another car, a figure);
+  only blocks, the shell's collider blocks by their sixteenths included.
+- **Headlights are one light block** ahead of the nose, placed and removed
+  as the vehicle crosses cells: the light is a sphere around that cell, not
+  a beam, and a solid cell ahead keeps the previous one.
 
 ## 12. Module inventory
 
@@ -667,8 +735,9 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/bedrock-vehicle.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `VehicleMotion` | type | `car` / `boat` / `plane` (fixed wing) / `rotor`. |
-| `vehicleMotionOf` | function | A playable kind and its title → its motion class (a rotorcraft by its title). |
+| `VehicleMotion` | type | `car` / `boat` / `plane` (fixed wing) / `rotor` / `hover`. |
+| `HOVER_WORDS` | const | Titles that float: a sail barge, a (land)speeder, a hovercraft, a podracer. |
+| `vehicleMotionOf` | function | A playable kind and its title → its motion class (a hover craft or a rotorcraft by its title). |
 | `VEHICLE_BODY_MOTION` | const | Lean, squat and steer gains of the Molang drive animation, per motion class. |
 | `vehicleClientAnimation` | function | The drive animation (wheel spin, steer, body lean) and its client-entity script lines (§4.6). |
 | `FLIGHT` | const | Every fixed-wing constant (§9); JSON-serialised into `config.flight`. |
@@ -686,12 +755,23 @@ one of these files fails the check until its row is written.
 | `BoatState`, `BoatWater` | interface | The boat's state and the probed water and shore. |
 | `BoatEvent` | type | `beached` / `boost` / `launched`. |
 | `boatStep` | function | SERIALISED. One boat step (throttle, rudder, boost, draft, beaching). |
+| `HOVER` | const | Every hover-craft constant (§9): the car's keys plus `RIDE_HEIGHT`; JSON-serialised into `config.hover`, run by `carStep`. |
+| `HoverParams` | type | `HOVER` as numbers. |
+| `FOOTPRINT` | const | The swept-footprint test's constants (§9); `config.footprint`. |
+| `FootprintParams` | type | `FOOTPRINT` as numbers. |
+| `FootprintPose`, `VehicleFootprint` | interface | A pose (position, yaw, pitch) and a footprint (half length, half width, the clear band). |
+| `sweepFootprint` | function | SERIALISED. Sweeps the footprint from one pose to the next; the first probe that ENTERS a solid blocks. |
+| `HEADLIGHTS` | const | The headlight's constants (§9); `config.headlights`. |
+| `HeadlightParams` | type | `HEADLIGHTS` as numbers. |
+| `isNightTime`, `headlightCell` | function | SERIALISED. Night by the time of day; the cell ahead of the nose the light stands in. |
 | `FLIGHT_PROPS` | const | Actor property names the runtime writes and the animation reads. |
 | `flightProperties` | function | Their float declarations for the entity. |
-| `FLIGHT_INPUT_EVENT`, `VEHICLE_TELEMETRY_EVENT` | const | Scriptevent ids: the test/tuning input hook, telemetry on/off (not physics). |
+| `FLIGHT_INPUT_EVENT`, `VEHICLE_TELEMETRY_EVENT` | const | Scriptevent ids: the test/tuning input hook (scripted vehicles AND driven trains), telemetry on/off (not physics). |
+| `VEHICLE_DYNAMIC` | const | Dynamic property names another runtime sets on a scripted vehicle (top speed, HUD line) and the headlight's saved cell. |
+| `ScriptedVehicleType` | interface | One type as the runtime sees it: mode, half length, half width, height, draft, per-type car overrides. |
 | `ScriptedVehicleConfig` | interface | The JSON the runtime reads. |
-| `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes, step, teleport, properties, HUD. |
-| `scriptedVehicleScript` | function | Serialises the runtime and both steppers into `BP/scripts/vehicles.js` (§5). |
+| `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes (solid spans: collider sixteenths, slabs), step, swept footprint, headlight, teleport, properties, HUD. |
+| `scriptedVehicleScript` | function | Serialises the runtime, the three steppers and the helpers into `BP/scripts/vehicles.js` (§5). |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/lego-scale.ts -->
@@ -865,5 +945,6 @@ Physics-named files that are not physics:
 | `web/src/engine/coaster-track.ts` | Extracts track centrelines from the parts (geometry). |
 | `web/src/engine/coaster-assemblies.ts` | Detects cars, lifts, counterweights and chain drives (geometry). |
 | `web/src/engine/playable-components.ts` | Classifies bricks into vehicle components. |
+| `web/src/engine/scene-vehicles.ts` | Finds the vehicles standing in a scene (geometry: clusters, wheels, oars). |
 | `web/src/engine/vehicle-facing.ts` | Infers which end of a vehicle is its nose. |
 <!-- /physics-spec:not-physics -->

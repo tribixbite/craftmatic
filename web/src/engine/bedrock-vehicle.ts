@@ -28,13 +28,25 @@ import { floatActorProperty } from './bedrock-json.js';
 declare const world: any;
 declare const system: any;
 
-/** How a vehicle moves, for its animation (and its driver runtime): an aircraft is a fixed wing or a rotor. */
-export type VehicleMotion = 'car' | 'boat' | 'plane' | 'rotor';
+/**
+ * How a vehicle moves, for its animation (and its driver runtime): an aircraft
+ * is a fixed wing or a rotor; a HOVER craft (a sail barge, a landspeeder, a
+ * hovercraft) floats a fixed height over land and water alike.
+ */
+export type VehicleMotion = 'car' | 'boat' | 'plane' | 'rotor' | 'hover';
 
 const ROTOR_WORDS = /\b(helicopter|copter|heli|rotorcraft|gyrocopter|autogyro|drone|chopper|quadcopter)\b/i;
+/**
+ * Craft that float on repulsors or an air cushion instead of touching the
+ * ground or displacing water. Jabba's Sail Barge is titled a "barge" but
+ * hovers in the film (vehicle audit 2026-09-25: it shipped as a boat that
+ * could not leave the water); a "speeder" is a hover bike, not a fixed wing.
+ */
+export const HOVER_WORDS = /\b(hover\w*|sail ?barge|land ?speeder|speeder(?: bike)?|pod ?racer|repulsor\w*|air ?cushion)\b/i;
 
-/** The motion class of a playable kind: an aircraft whose title names a rotorcraft hovers, any other flies on its wings. */
+/** The motion class of a playable kind: a hover title floats, an aircraft whose title names a rotorcraft hovers, any other flies on its wings. */
 export function vehicleMotionOf(kind: 'car' | 'boat' | 'plane', label: string): VehicleMotion {
+  if (HOVER_WORDS.test(label)) return 'hover';
   if (kind !== 'plane') return kind;
   return ROTOR_WORDS.test(label) ? 'rotor' : 'plane';
 }
@@ -55,6 +67,8 @@ export const VEHICLE_BODY_MOTION: Readonly<Record<VehicleMotion, {
   boat: { rollPerYawRate: 0, rollMax: 0, pitchPerAccel: 0, pitchMax: 0, flightPath: false, noseDownPerSpeed: 0, steerPerYawRate: 0, steerMax: 0 },
   plane: { rollPerYawRate: -0.55, rollMax: 40, pitchPerAccel: 0, pitchMax: 30, flightPath: true, noseDownPerSpeed: 0, steerPerYawRate: 0.35, steerMax: 25 },
   rotor: { rollPerYawRate: -0.2, rollMax: 15, pitchPerAccel: 0, pitchMax: 14, flightPath: false, noseDownPerSpeed: 1.6, steerPerYawRate: 0, steerMax: 0 },
+  // A hover craft's lean, pitch and bob come from the runtime (`carStep` on `HOVER`, the bob in `scriptedVehicleRuntime`).
+  hover: { rollPerYawRate: 0, rollMax: 0, pitchPerAccel: 0, pitchMax: 0, flightPath: false, noseDownPerSpeed: 0, steerPerYawRate: 0, steerMax: 0 },
 };
 
 /** Round for Molang text, so the pack is stable byte for byte. */
@@ -66,7 +80,7 @@ const n = (v: number): string => String(Math.round(v * 10000) / 10000);
  * into playable-addon's `ClientAnimations`; `file` is the resource pack's
  * `animations/<cid>.animation.json`.
  */
-export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheels: readonly VehicleWheelBone[], scripted = motion === 'plane' || motion === 'boat'): {
+export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheels: readonly VehicleWheelBone[], scripted = motion === 'plane' || motion === 'boat' || motion === 'hover'): {
   id: string; file: unknown;
   client: { animations: Record<string, string>; animate: string[]; initialize: string[]; preAnimation: string[] };
 } {
@@ -432,7 +446,138 @@ export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P:
   return { state: { x, y, z, yaw, speed, vy, onGround, boost, cooldown, pitch, bank }, ...(event ? { event } : {}) };
 }
 
-// ─── The scripted-vehicle runtime (cars, boats and aircraft) ───────────────────
+// ─── Hover craft ───────────────────────────────────────────────────────────────
+
+/**
+ * A hover craft (a sail barge, a landspeeder, a hovercraft) is a car that
+ * floats: the same `carStep`, fed the top of whatever is under it - ground OR
+ * water - plus `RIDE_HEIGHT`, so it crosses a lake and a beach alike. It
+ * glides (a low `COAST`), steers gently, floats over anything up to
+ * `STEP_UP` (a block and a half), and sinks slowly off an edge (`GRAVITY`).
+ * No wheels roll. Chosen to read as the sail barge of the film: a slow, heavy
+ * glide, not a sports car.
+ */
+export const HOVER = {
+  MAX_SPEED: 12, REVERSE_SPEED: 4, ACCEL: 4, BRAKE: 8, COAST: 1.2,
+  BOOST_SPEED: 18, BOOST_SECONDS: 2, BOOST_COOLDOWN: 4,
+  STEER_RATE: 70, STEER_FULL_SPEED: 2, STEER_FADE: 20,
+  STEP_UP: 1.6, CLIMB_RATE: 3, GRAVITY: 6, WATER_SPEED: 12,
+  LEAN_PER_TURN: 0.08, LEAN_MAX: 6, SQUAT_PER_ACCEL: 0.8, SQUAT_MAX: 4,
+  STICK_X_RIGHT: -1, DEADZONE: 0.15, STICK_FULL: 0.8,
+  /** Height the hull floats above the ground or the water, blocks. */
+  RIDE_HEIGHT: 1,
+} as const;
+/** Every hover constant as a number: the car's plus `RIDE_HEIGHT`. */
+export type HoverParams = CarParams & { readonly RIDE_HEIGHT: number };
+
+// ─── Swept footprint (collision) ───────────────────────────────────────────────
+
+/**
+ * The swept-footprint collision test every scripted vehicle runs after its
+ * step. Before 2026-09-25 the runtime probed only the centre line (the ground
+ * under the vehicle and one block ahead of its nose), so a wingtip, a wide
+ * hull or a car's corner passed straight through a tree trunk or a pier.
+ *
+ *   - `SPACING`: the most two probe points on the perimeter are apart, blocks.
+ *     Under one block, so a one-block trunk cannot slip between two probes.
+ *   - `MAX_POINTS`: perimeter probes at most; a bigger vehicle spreads them
+ *     (a 36-block barge's 100-block perimeter still gets 0.9 spacing).
+ *   - `MAX_LEVELS`: heights tested between the footprint's `lo` and `hi`.
+ *   - `SWEEP_STEP`: the most a probe point travels between two tested poses,
+ *     blocks, so a 32 blocks/s aircraft (1.6 blocks a tick) cannot jump a trunk.
+ *   - `MAX_SUBSTEPS`: poses tested per tick at most.
+ */
+export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, MAX_LEVELS: 4, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4 } as const;
+export type FootprintParams = { readonly [K in keyof typeof FOOTPRINT]: number };
+
+/** Where a vehicle is for the footprint test: its reference point (the model's base centre), heading and nose-up pitch, degrees (Bedrock yaw). */
+export interface FootprintPose { x: number; y: number; z: number; yaw: number; pitch: number }
+/**
+ * A vehicle's footprint: half its length (along the nose) and half its width,
+ * blocks, and the band of heights above the reference point that must stay
+ * clear (`lo` above what it may climb or float over, `hi` its roof).
+ */
+export interface VehicleFootprint { halfLength: number; halfWidth: number; lo: number; hi: number }
+
+/**
+ * Sweep a vehicle's footprint from one pose to the next and report the first
+ * probe that ENTERS a solid block: a point is blocked only when it is solid
+ * at the new pose and was not at the old one, so a vehicle spawned half in a
+ * wall can still drive out of it. Pure (the device runs this text; `solid`
+ * is its block lookup), so it is unit-tested off the device.
+ */
+export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: VehicleFootprint, solid: (x: number, y: number, z: number) => boolean, P: FootprintParams): { blocked: boolean; checks: number; at?: [number, number, number] } {
+  const L = Math.max(0.05, fp.halfLength), W = Math.max(0.05, fp.halfWidth);
+  // Perimeter probes as (along, side) offsets: corners first, then each edge at <= SPACING.
+  const perimeter = 4 * (L + W);
+  const spacing = Math.max(P.SPACING, perimeter / P.MAX_POINTS);
+  const offsets: Array<[number, number]> = [];
+  const edge = (a0: number, s0: number, a1: number, s1: number): void => {
+    const n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, s1 - s0) / spacing));
+    for (let k = 0; k < n; k++) offsets.push([a0 + (a1 - a0) * k / n, s0 + (s1 - s0) * k / n]);
+  };
+  edge(L, -W, L, W); edge(L, W, -L, W); edge(-L, W, -L, -W); edge(-L, -W, L, -W);
+  const span = Math.max(0, fp.hi - fp.lo);
+  const levels: number[] = [];
+  const nLevels = Math.min(P.MAX_LEVELS, Math.max(1, Math.ceil(span) + 1));
+  for (let k = 0; k < nLevels; k++) levels.push(fp.lo + (nLevels === 1 ? 0 : span * k / (nLevels - 1)));
+  const rad = (d: number): number => d * Math.PI / 180;
+  const pointAt = (pose: FootprintPose, a: number, s: number, h: number): [number, number, number] => {
+    const r = rad(pose.yaw), fx = -Math.sin(r), fz = Math.cos(r);
+    // The vehicle's right (a right turn raises yaw): (-cos, -sin) in Bedrock's frame.
+    const rx = -Math.cos(r), rz = -Math.sin(r);
+    return [pose.x + fx * a + rx * s, pose.y + a * Math.tan(rad(Math.max(-60, Math.min(60, pose.pitch)))) + h, pose.z + fz * a + rz * s];
+  };
+  let dyaw = to.yaw - from.yaw;
+  while (dyaw > 180) dyaw -= 360;
+  while (dyaw < -180) dyaw += 360;
+  const travel = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) + Math.abs(rad(dyaw)) * Math.hypot(L, W);
+  const steps = Math.min(P.MAX_SUBSTEPS, Math.max(1, Math.ceil(travel / P.SWEEP_STEP)));
+  let checks = 0;
+  for (let k = 1; k <= steps; k++) {
+    const t = k / steps;
+    const pose: FootprintPose = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t, yaw: from.yaw + dyaw * t, pitch: from.pitch + (to.pitch - from.pitch) * t };
+    for (const [a, s] of offsets) for (const h of levels) {
+      const p = pointAt(pose, a, s, h);
+      checks++;
+      if (!solid(p[0], p[1], p[2])) continue;
+      const q = pointAt(from, a, s, h);
+      if (solid(q[0], q[1], q[2])) continue;
+      return { blocked: true, checks, at: p };
+    }
+  }
+  return { blocked: false, checks };
+}
+
+// ─── Headlights ────────────────────────────────────────────────────────────────
+
+/**
+ * Real light ahead of a driven vehicle at night, instead of the night vision
+ * the riders used to get: ONE invisible light block (`minecraft:light_block_<LEVEL>`)
+ * held `AHEAD` blocks in front of the nose at `HEIGHT` above the base, moved
+ * when the vehicle crosses into a new cell (at most every `EVERY_TICKS`), and
+ * removed when the rider leaves, the vehicle parks for `PARK_TICKS`, or day
+ * comes. The cell is written to the vehicle's `craftmatic:headlight` dynamic
+ * property, so a light left by a closed world is removed on the next load.
+ * Only an AIR cell takes the light; a block in the way keeps the old one.
+ * Night is the time of day from `DUSK` to `DAWN` (Minecraft ticks, 0 = sunrise).
+ */
+export const HEADLIGHTS = { LEVEL: 14, AHEAD: 2, HEIGHT: 1, EVERY_TICKS: 2, PARK_TICKS: 100, DUSK: 12500, DAWN: 23500 } as const;
+export type HeadlightParams = { readonly [K in keyof typeof HEADLIGHTS]: number };
+
+/** Whether it is dark enough for headlights at this time of day (0-24000). */
+export function isNightTime(timeOfDay: number, P: HeadlightParams): boolean {
+  const t = ((timeOfDay % 24000) + 24000) % 24000;
+  return t >= P.DUSK && t < P.DAWN;
+}
+
+/** The block cell the headlight stands in: `AHEAD` past the nose along the heading, `HEIGHT` above the base. */
+export function headlightCell(x: number, y: number, z: number, yaw: number, noseReach: number, P: HeadlightParams): [number, number, number] {
+  const r = yaw * Math.PI / 180, d = noseReach + P.AHEAD;
+  return [Math.floor(x - Math.sin(r) * d), Math.floor(y + P.HEIGHT), Math.floor(z + Math.cos(r) * d)];
+}
+
+// ─── The scripted-vehicle runtime (cars, hover craft, boats and aircraft) ──────
 
 /** Actor properties the vehicle runtime writes and a scripted vehicle's drive animation reads. */
 export const FLIGHT_PROPS = { pitch: 'craftmatic:fl_pitch', bank: 'craftmatic:fl_bank', wheel: 'craftmatic:fl_wheel' } as const;
@@ -452,34 +597,70 @@ export function flightProperties(): Record<string, unknown> {
  * its rider held that input. Measured on the Pixel (2026-09-25): a GameTest
  * simulated player's stick never reaches `inputInfo` (every sample read
  * 0, 0 while it drove), so the device test drives a scripted vehicle this way.
+ * The rail runtime (`bedrock-coaster.ts`) listens to the SAME event for a
+ * driven train: `y` is its stick, `id` any of its cars.
  */
 export const FLIGHT_INPUT_EVENT = 'craftmatic:flight_input';
 /** `/scriptevent craftmatic:vehicle_telemetry on|off`: one `CMVT {json}` content-log line per scripted or driven vehicle per second. */
 export const VEHICLE_TELEMETRY_EVENT = 'craftmatic:vehicle_telemetry';
+/**
+ * Dynamic properties another runtime may set on a scripted vehicle: its top
+ * speed in blocks/s (the time machine raises it to its armed speed) and a
+ * line appended to the HUD (the time circuit's state).
+ */
+export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftmatic:vehicle_hud', headlight: 'craftmatic:headlight' } as const;
+
+/** One scripted vehicle type as the runtime sees it. */
+export interface ScriptedVehicleType {
+  mode: 'plane' | 'boat' | 'car' | 'hover';
+  /** Half its length (where its bow or nose is probed), blocks at scale 1. */
+  noseReach: number;
+  /** Half its width, blocks at scale 1 (the footprint's side). */
+  halfWidth: number;
+  /** Its height, blocks at scale 1 (the top of the footprint band). */
+  height: number;
+  /** A boat's keel depth under the surface, blocks. */
+  draft?: number;
+  /** Per-type overrides of the car (or hover) constants, e.g. the time machine's top speed. */
+  car?: Partial<Record<keyof typeof CAR, number>>;
+}
 
 /** What the scripted-vehicle runtime is told about the pack. */
 export interface ScriptedVehicleConfig {
-  /** Every scripted vehicle type: how it moves and half its length (where its bow or nose is probed). */
-  types: Record<string, { mode: 'plane' | 'boat' | 'car'; noseReach: number; draft?: number }>;
+  /** Every scripted vehicle type. */
+  types: Record<string, ScriptedVehicleType>;
   flight: FlightParams;
   boat: BoatParams;
   car: CarParams;
+  hover: HoverParams;
+  footprint: FootprintParams;
+  headlights: HeadlightParams;
   props: typeof FLIGHT_PROPS;
+  dynamic: typeof VEHICLE_DYNAMIC;
+  /** The building shell's collider block: its `lo`/`hi` states are the solid span in sixteenths (bedrock-building-shell.ts). */
+  colliders?: { block: string; loState: string; hiState: string } | undefined;
   inputEvent: string;
   telemetryEvent: string;
 }
 
 /**
  * Runs in the pack: one pure step per tick for every scripted vehicle
- * (`carStep` for a car, `flightStep` for an aircraft, `boatStep` for a boat), then a teleport to
- * the new pose (the rider rides along, as on the coaster: 20 Hz teleports are
- * interpolated by the client) and the attitude written to the actor
- * properties its drive animation reads. Nobody aboard: an aircraft flies its
- * state out (it glides down and lands), a boat drifts to a stop; parked, they
- * stay put. The HUD shows speed and what to do next.
+ * (`carStep` for a car, `carStep` on `HOVER` for a hover craft, `flightStep`
+ * for an aircraft, `boatStep` for a boat), the swept footprint over the new
+ * pose (`sweepFootprint`), then a teleport to it (the rider rides along, as on
+ * the coaster: 20 Hz teleports are interpolated by the client) and the
+ * attitude written to the actor properties its drive animation reads. Nobody
+ * aboard: an aircraft flies its state out (it glides down and lands), a boat
+ * drifts to a stop; parked, they stay put. The HUD shows speed and what to do
+ * next; at night a light block runs ahead of the nose (`HEADLIGHTS`).
+ *
+ * Block probes read a SOLID SPAN per block: a collider block's `lo..hi`
+ * sixteenths, a bottom slab's lower half, a top slab's upper half, a full
+ * block otherwise; plants, torches, snow layers and light blocks are passed.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep): void {
-  const F = config.flight, B = config.boat, C = config.car;
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell): void {
+  const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, HL = config.headlights, DYN = config.dynamic;
+  const COL = config.colliders;
   const typeIds = Object.keys(config.types);
   const states = new Map<string, any>();
   const overrides = new Map<string, { x: number; y: number; jump: boolean; ticks: number }>();
@@ -488,29 +669,98 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   const dims = (): any[] => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   // Plants, torches, snow layers and light blocks are passed through; everything else solid is ground.
   const PASSABLE = /(^|:)(air|cave_air|void_air|light_block.*|short_grass|tall_grass|grass|fern|large_fern|.*_flower|dandelion|poppy|torch|.*_torch|snow_layer|vine|seagrass|kelp|kelp_plant|lily_pad)$/;
-  const blockOf = (dim: any, x: number, y: number, z: number): any => { try { return dim.getBlock({ x: Math.floor(x), y: Math.floor(y), z: Math.floor(z) }); } catch { return undefined; } };
+  /** One tick's block lookups, by cell: a probe band re-reads the same cells many times. */
+  let cells = new Map<string, any>();
+  const blockOf = (dim: any, x: number, y: number, z: number): any => {
+    const bx = Math.floor(x), by = Math.floor(y), bz = Math.floor(z);
+    const key = `${dim.id}|${bx},${by},${bz}`;
+    if (cells.has(key)) return cells.get(key);
+    let b: any;
+    try { b = dim.getBlock({ x: bx, y: by, z: bz }); } catch { b = undefined; }
+    cells.set(key, b);
+    return b;
+  };
   const isWater = (b: any): boolean => !!b && (b.isLiquid === true || /water/.test(String(b.typeId)));
-  const isSolid = (b: any): boolean => !!b && !b.isAir && !isWater(b) && !PASSABLE.test(String(b.typeId));
-  /** Top of the first block below that stops an aircraft (solid or water), within `reach`. */
-  const groundBelow = (dim: any, x: number, y: number, z: number, reach: number): number | null => {
-    const top = Math.floor(y + 0.5);
-    for (let by = top; by >= top - reach; by--) {
+  /** The solid span of a block as fractions of its cell [lo, hi], or null (passable, air or water). */
+  const spanOf = (b: any): [number, number] | null => {
+    if (!b || b.isAir || isWater(b)) return null;
+    const id = String(b.typeId);
+    if (PASSABLE.test(id)) return null;
+    if (COL && id === COL.block) {
+      let lo = 0, hi = 16;
+      try { lo = Number(b.permutation.getState(COL.loState)); hi = Number(b.permutation.getState(COL.hiState)); } catch { /* full */ }
+      return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? [lo / 16, hi / 16] : [0, 1];
+    }
+    if (/_slab$/.test(id)) {
+      let half = '';
+      try { half = String(b.permutation.getState('minecraft:vertical_half')); } catch { /* a double slab */ }
+      if (half === 'bottom') return [0, 0.5];
+      if (half === 'top') return [0.5, 1];
+    }
+    return [0, 1];
+  };
+  /** Whether a point is inside a block's solid span. */
+  const solidAt = (dim: any, x: number, y: number, z: number): boolean => {
+    const s = spanOf(blockOf(dim, x, y, z));
+    if (!s) return false;
+    const f = y - Math.floor(y);
+    return f >= s[0] && f < s[1];
+  };
+  /**
+   * The top of the first solid span scanning down from the cell holding `y`,
+   * within `depth` blocks (null: none, or unloaded). With water counted
+   * (`water`), a water block's surface stops the scan too: an aircraft lands
+   * on either, a hover craft floats over either.
+   */
+  const topBelow = (dim: any, x: number, y: number, z: number, depth: number, water: boolean): number | null => {
+    const top = Math.floor(y);
+    for (let by = top; by >= top - depth; by--) {
       const b = blockOf(dim, x, by, z);
       if (!b) return null;
-      if (isSolid(b) || isWater(b)) return by + 1;
+      if (water && isWater(b)) return by + 0.9;
+      const s = spanOf(b);
+      if (s) return by + s[1];
     }
     return null;
   };
+  const solidTop = (dim: any, x: number, y: number, z: number, depth: number): number | null => topBelow(dim, x, y, z, depth, false);
+  const surfaceTop = (dim: any, x: number, y: number, z: number, depth: number): number | null => topBelow(dim, x, y, z, depth, true);
   /** A boat's water: the surface under it (the top of the highest water block within a block of its keel), the ground under it, land at the waterline ahead / astern. */
   const waterAt = (dim: any, st: any, reach: number, draft: number): any => {
     const rad = st.yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
     let surface: number | null = null;
     for (let by = Math.floor(st.y + 1); by >= Math.floor(st.y - 2); by--) { if (isWater(blockOf(dim, st.x, by, st.z))) { surface = by + 0.9; break; } }
     const line = surface ?? st.y + draft;
-    const landAt = (d: number): boolean => { const px = st.x + fx * d, pz = st.z + fz * d; return isSolid(blockOf(dim, px, line - 0.1, pz)) || isSolid(blockOf(dim, px, line + 0.4, pz)); };
-    return { surface, ground: surface === null ? groundBelow(dim, st.x, st.y + 0.5, st.z, 48) : null, shoreAhead: landAt(reach + 0.3), shoreAstern: landAt(-(reach + 0.3)) };
+    const landAt = (d: number): boolean => { const px = st.x + fx * d, pz = st.z + fz * d; return solidAt(dim, px, line - 0.1, pz) || solidAt(dim, px, line + 0.4, pz); };
+    return { surface, ground: surface === null ? solidTop(dim, st.x, st.y + 0.5, st.z, 48) : null, shoreAhead: landAt(reach + 0.3), shoreAstern: landAt(-(reach + 0.3)) };
   };
-  const blockedAhead = (dim: any, x: number, y: number, z: number): boolean => isSolid(blockOf(dim, x, y + 0.5, z)) && isSolid(blockOf(dim, x, y + 1.5, z));
+  const blockedAhead = (dim: any, x: number, y: number, z: number): boolean => solidAt(dim, x, y + 0.5, z) && solidAt(dim, x, y + 1.5, z);
+  /** Remove the light a vehicle holds (only if it is still a light block: never someone's block placed since). */
+  const clearLight = (e: any, st: any): void => {
+    let at: string | undefined = st?.light;
+    if (!at) { try { const v = e.getDynamicProperty(DYN.headlight); if (typeof v === 'string' && v) at = v; } catch { /* none */ } }
+    if (!at) return;
+    const [x, y, z] = at.split(',').map(Number);
+    try {
+      const b = e.dimension.getBlock({ x, y, z });
+      if (b && /light_block/.test(String(b.typeId))) b.setType('minecraft:air');
+    } catch { /* unloaded: the property keeps it for the next load */ return; }
+    if (st) st.light = undefined;
+    try { e.setDynamicProperty(DYN.headlight, undefined); } catch { /* gone */ }
+  };
+  /** Move the light to `cell` (air only). */
+  const placeLight = (e: any, st: any, cell: [number, number, number]): void => {
+    const key = cell.join(',');
+    if (st.light === key) return;
+    let b: any;
+    try { b = e.dimension.getBlock({ x: cell[0], y: cell[1], z: cell[2] }); } catch { return; }
+    if (!b || !(b.isAir || /light_block/.test(String(b.typeId)))) return;
+    clearLight(e, st);
+    try { b.setType(`minecraft:light_block_${HL.LEVEL}`); }
+    catch { try { e.dimension.runCommand(`setblock ${cell[0]} ${cell[1]} ${cell[2]} light_block ["block_light_level"=${HL.LEVEL}]`); } catch { return; } }
+    st.light = key;
+    try { e.setDynamicProperty(DYN.headlight, key); } catch { /* unsaved */ }
+  };
   system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
     if (ev.id === config.telemetryEvent) { telemetry = String(ev.message || '').trim() !== 'off'; console.warn(`CMVT ${JSON.stringify({ telemetry })}`); return; }
     if (ev.id !== config.inputEvent) return;
@@ -522,9 +772,13 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
       for (const e of list) if (!m.id || e.id === m.id) overrides.set(e.id, { x: Number(m.x) || 0, y: Number(m.y) || 0, jump: !!m.jump, ticks: Math.max(1, Number(m.ticks) || 20) });
     }
   }, { namespaces: ['craftmatic'] });
-  let tick = 0;
+  let tick = 0, busyMs = 0, busyTicks = 0;
   system.runInterval(() => {
     tick++;
+    cells = new Map();
+    const started = Date.now();
+    let isNight = false;
+    try { isNight = night(world.getTimeOfDay(), HL); } catch { /* no clock */ }
     for (const dim of dims()) for (const type of typeIds) {
       const kind = config.types[type]!;
       let list: any[] = [];
@@ -534,17 +788,25 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         try { loc = e.location; rot = e.getRotation(); } catch { continue; }
         let st = states.get(e.id);
         if (!st || Math.hypot(loc.x - st.x, loc.z - st.z) > 3 || Math.abs(loc.y - st.y) > 3) {
-          // First sight, or moved by something else (the wand, a /tp, a test): start from where it stands.
+          // First sight, or moved by something else (the wand, a /tp, a test, a time jump): start from where it stands.
+          const light = st?.light;
           if (kind.mode === 'plane') {
-            const g = groundBelow(dim, loc.x, loc.y + 0.5, loc.z, 4);
+            const g = surfaceTop(dim, loc.x, loc.y + 0.5, loc.z, 4);
             const onGround = g !== null && Math.abs(loc.y - g) < 1;
             st = { x: loc.x, y: onGround ? g : loc.y, z: loc.z, yaw: rot.y, pitch: 0, speed: 0, throttle: 0, onGround, stalled: false, bank: 0, wheel: 0 };
-          } else if (kind.mode === 'car') {
+          } else if (kind.mode === 'car' || kind.mode === 'hover') {
             st = { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y, speed: 0, vy: 0, onGround: true, boost: 0, cooldown: 0, pitch: 0, bank: 0, wheel: 0 };
           } else {
             st = { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y, speed: 0, vy: 0, afloat: false, boost: 0, cooldown: 0, pitch: 0, bank: 0, wheel: 0 };
           }
+          st.light = light;
+          st.parked = 0;
+          // The wand's size (`minecraft:scale`) scales the footprint and the probes.
+          let scale = 1;
+          try { const s = Number(e.getComponent('minecraft:scale')?.value); if (Number.isFinite(s) && s > 0) scale = s; } catch { /* unscaled */ }
+          st.scale = scale;
         }
+        const k = st.scale || 1;
         let riders: any[] = [];
         try { riders = e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { /* none */ }
         const driver = riders.find((r: any) => r && r.typeId === 'minecraft:player');
@@ -555,54 +817,100 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         }
         const o = overrides.get(e.id);
         if (o) { input.x = o.x; input.y = o.y; input.jump = o.jump; input.rider = true; if (--o.ticks <= 0) overrides.delete(e.id); }
+        const noseReach = kind.noseReach * k;
+        // Headlights: a driver at night, moving or lately moved.
+        st.parked = Math.abs(st.speed) > 0.2 || Math.abs(input.y) > 0.15 ? 0 : (st.parked || 0) + 1;
+        if (isNight && input.rider && st.parked < HL.PARK_TICKS && kind.mode !== 'plane') {
+          if (tick % HL.EVERY_TICKS === 0) placeLight(e, st, lightCell(st.x, st.y, st.z, st.yaw, noseReach, HL));
+        } else if (st.light || (tick % 40 === 0 && !input.rider)) clearLight(e, st);
         const rad = st.yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
-        const reach = kind.noseReach + 0.5;
+        const reach = noseReach + 0.5;
         let r: any, ground: number | null = null;
+        let fp: { halfLength: number; halfWidth: number; lo: number; hi: number } | undefined;
         if (kind.mode === 'plane') {
           // Parked, nobody at the controls: nothing to integrate.
           if (!input.rider && st.onGround && st.speed < 0.05) { states.set(e.id, st); continue; }
           const ahead = { x: st.x + fx * reach, z: st.z + fz * reach };
-          ground = groundBelow(dim, st.x, st.y, st.z, st.onGround ? 3 : 48);
-          r = flight(st, input, { ground, groundAhead: st.onGround ? groundBelow(dim, ahead.x, st.y + 1.2, ahead.z, 3) : null, blocked: blockedAhead(dim, ahead.x, st.y, ahead.z) }, F, 0.05);
+          ground = surfaceTop(dim, st.x, st.y, st.z, st.onGround ? 3 : 48);
+          r = flight(st, input, { ground, groundAhead: st.onGround ? surfaceTop(dim, ahead.x, st.y + 1.2, ahead.z, 3) : null, blocked: blockedAhead(dim, ahead.x, st.y, ahead.z) }, F, 0.05);
           r.state.wheel = st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0);
-        } else if (kind.mode === 'car') {
+          // On the ground the gear rolls over a step; aloft the whole airframe must clear.
+          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: r.state.onGround ? F.STEP_UP + 0.05 : 0.1, hi: Math.max(0.2, kind.height * k - 0.1) };
+        } else if (kind.mode === 'car' || kind.mode === 'hover') {
           // Parked, nobody at the wheel, on the ground: nothing to integrate.
           if (!input.rider && st.onGround && Math.abs(st.speed) < 0.02) { states.set(e.id, st); continue; }
+          const hover = kind.mode === 'hover';
+          const base: any = hover ? H : C;
+          // Per-type overrides (the time machine's top speed), then the live top speed another runtime set.
+          let P: any = kind.car ? { ...base, ...kind.car } : base;
+          try { const top = Number(e.getDynamicProperty(DYN.topSpeed)); if (Number.isFinite(top) && top > 0) P = { ...P, MAX_SPEED: top, BOOST_SPEED: Math.max(P.BOOST_SPEED, top) }; } catch { /* none */ }
+          const lift = hover ? H.RIDE_HEIGHT : 0;
           const noseX = st.x + fx * reach, noseZ = st.z + fz * reach, tailX = st.x - fx * reach, tailZ = st.z - fz * reach;
-          // The ground a car stands on is SOLID; water is not a road.
-          const solidBelow = (px: number, py: number, pz: number, depth: number): number | null => {
-            for (let by = Math.floor(py + 0.5); by >= Math.floor(py + 0.5) - depth; by--) { const b = blockOf(dim, px, by, pz); if (!b) return null; if (isSolid(b)) return by + 1; }
-            return null;
+          // What it stands on: SOLID ground for a car (water is not a road); ground or water for a hover craft, plus its ride height.
+          const below = (px: number, py: number, pz: number, depth: number): number | null => {
+            const t = hover ? surfaceTop(dim, px, py, pz, depth) : solidTop(dim, px, py, pz, depth);
+            return t === null ? null : t + lift;
           };
-          const reachUp = st.y + C.STEP_UP + 0.2;
-          ground = solidBelow(st.x, reachUp, st.z, st.onGround ? 4 : 48);
-          const groundFront = solidBelow(noseX, reachUp, noseZ, 4), groundRear = solidBelow(tailX, reachUp, tailZ, 4);
-          const wall = (px: number, pz: number, g: number | null): boolean => (g !== null && g - st.y > C.STEP_UP) || isSolid(blockOf(dim, px, st.y + 1.5, pz));
+          const reachUp = st.y - lift + P.STEP_UP + 0.2;
+          ground = below(st.x, reachUp, st.z, st.onGround ? 4 : 48);
+          const groundFront = below(noseX, reachUp, noseZ, 4), groundRear = below(tailX, reachUp, tailZ, 4);
+          const wall = (px: number, pz: number, g: number | null): boolean => (g !== null && g - st.y > P.STEP_UP) || solidAt(dim, px, st.y - lift + P.STEP_UP + 0.45, pz);
           r = car(st, input, {
-            ground: ground !== null && ground - st.y > C.STEP_UP ? null : ground,
+            ground: ground !== null && ground - st.y > P.STEP_UP ? null : ground,
             groundFront, groundRear, blockedFront: wall(noseX, noseZ, groundFront), blockedRear: wall(tailX, tailZ, groundRear),
-            inWater: isWater(blockOf(dim, st.x, st.y + 0.2, st.z)), wheelbase: 2 * reach,
-          }, C, 0.05);
+            inWater: !hover && isWater(blockOf(dim, st.x, st.y + 0.2, st.z)), wheelbase: 2 * reach,
+          }, P, 0.05);
           // Signed distance rolled, as degrees of a one-block wheel (wrapped into the property's range).
-          r.state.wheel = (((st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0)) % 100000) + 100000) % 100000;
+          r.state.wheel = hover ? 0 : (((st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0)) % 100000) + 100000) % 100000;
+          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: P.STEP_UP - lift + 0.05, hi: Math.max(P.STEP_UP - lift + 0.1, kind.height * k - 0.1) };
         } else {
-          const w = waterAt(dim, st, kind.noseReach, kind.draft ?? B.DRAFT);
-          r = boat(st, input, w, kind.draft !== undefined ? { ...B, DRAFT: kind.draft } : B, 0.05);
+          const draft = (kind.draft ?? B.DRAFT) * k;
+          const w = waterAt(dim, st, noseReach, draft);
+          r = boat(st, input, w, { ...B, DRAFT: draft }, 0.05);
           r.state.wheel = 0;
+          // From just above the waterline: a bank, a pier or a moored hull alongside.
+          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: draft + 0.05, hi: Math.max(draft + 0.5, Math.min(kind.height * k, draft + 3)) };
         }
         const ns = r.state;
+        // The swept footprint: a corner, a wingtip or the hull's side entering a block stops it there.
+        let sweepChecks = 0;
+        if (fp && (Math.hypot(ns.x - st.x, ns.z - st.z) > 1e-4 || Math.abs(ns.yaw - st.yaw) > 1e-3 || Math.abs(ns.y - st.y) > 1e-4)) {
+          const solid = (x: number, y: number, z: number): boolean => solidAt(dim, x, y, z);
+          const from = { x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: st.pitch || 0 };
+          const hit = sweep(from, { x: ns.x, y: ns.y, z: ns.z, yaw: ns.yaw, pitch: ns.pitch || 0 }, fp, solid, FP);
+          sweepChecks = hit.checks;
+          if (hit.blocked) {
+            // Keep the turn if the turn alone is clear; otherwise hold the old heading too.
+            const turnOnly = sweep(from, { x: st.x, y: ns.y, z: st.z, yaw: ns.yaw, pitch: ns.pitch || 0 }, fp, solid, FP);
+            sweepChecks += turnOnly.checks;
+            ns.x = st.x; ns.z = st.z;
+            if (turnOnly.blocked) ns.yaw = st.yaw;
+            if (ns.speed !== undefined) ns.speed = 0;
+            r.event = kind.mode === 'plane' ? 'crash' : kind.mode === 'boat' ? 'beached' : 'blocked';
+            r.hit = hit.at;
+          }
+        }
         states.set(e.id, ns);
-        // A boat rides a gentle swell (drawn only: the state keeps the calm line).
-        const swell = kind.mode === 'boat' && ns.afloat ? { heave: Math.sin(tick * 0.16) * 0.04, roll: Math.sin(tick * 0.11) * 2, pitch: Math.sin(tick * 0.13) * 1.2 } : { heave: 0, roll: 0, pitch: 0 };
+        ns.light = st.light; ns.parked = st.parked; ns.scale = st.scale;
+        // A boat rides a gentle swell and a hover craft bobs on its cushion (drawn only: the state keeps the calm line).
+        const afloat = kind.mode === 'boat' && ns.afloat;
+        const bob = kind.mode === 'hover' && ns.onGround;
+        const swell = afloat ? { heave: Math.sin(tick * 0.16) * 0.04, roll: Math.sin(tick * 0.11) * 2, pitch: Math.sin(tick * 0.13) * 1.2 }
+          : bob ? { heave: Math.sin(tick * 0.12) * 0.08, roll: Math.sin(tick * 0.07) * 1, pitch: Math.sin(tick * 0.09) * 0.6 } : { heave: 0, roll: 0, pitch: 0 };
         try { e.teleport({ x: ns.x, y: ns.y + swell.heave, z: ns.z }, { rotation: { x: 0, y: ns.yaw }, keepVelocity: false }); } catch { /* unloaded */ }
         try { e.setProperty(config.props.pitch, Math.max(-90, Math.min(90, ns.pitch + swell.pitch))); } catch { /* not declared */ }
         try { e.setProperty(config.props.bank, Math.max(-90, Math.min(90, ns.bank + swell.roll))); } catch { /* not declared */ }
         try { e.setProperty(config.props.wheel, ns.wheel % 100000); } catch { /* not declared */ }
         if (r.event) {
           const sound = r.event === 'blocked' ? 'random.anvil_land' : r.event === 'crash' || r.event === 'hard_landing' ? 'random.explode' : r.event === 'stall' ? 'note.bass' : r.event === 'beached' ? 'dig.sand' : r.event === 'boost' || r.event === 'launched' ? 'random.splash' : 'random.orb';
-          try { e.dimension.playSound(sound, { x: ns.x, y: ns.y, z: ns.z }, { volume: r.event === 'crash' ? 0.4 : 0.7 }); } catch { /* no sound */ }
-        }
-        if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, rider: !!driver })}`);
+          // A held stick against a wall would repeat the thud every tick: once per contact.
+          if (r.event !== st.lastEvent || tick - (st.lastEventTick || 0) > 20) {
+            try { e.dimension.playSound(sound, { x: ns.x, y: ns.y, z: ns.z }, { volume: r.event === 'crash' ? 0.4 : 0.7 }); } catch { /* no sound */ }
+            ns.lastEventTick = tick;
+          } else ns.lastEventTick = st.lastEventTick;
+          ns.lastEvent = r.event;
+        } else { ns.lastEvent = undefined; ns.lastEventTick = st.lastEventTick; }
+        if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, hit: r.hit ?? null, rider: !!driver, light: ns.light ?? null, night: isNight, sweepChecks, msPerTick: busyTicks ? Math.round(busyMs / busyTicks * 100) / 100 : 0 })}`);
         if (driver && tick % 4 === 0) {
           let hud: string;
           if (kind.mode === 'plane') {
@@ -611,21 +919,25 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
               ? (ns.speed >= F.ROTATE_SPEED ? '§a[PULL BACK: TAKE OFF]§r' : ns.throttle > 0.05 ? '§e[TAKE-OFF RUN: KEEP JUMP HELD]§r' : '§7[HOLD JUMP: THROTTLE · STICK: STEER]§r')
               : ns.stalled ? '§c[STALL: STICK FORWARD]§r' : '§7[STICK BACK: CLIMB · FORWARD: DIVE · JUMP: FULL POWER]§r';
             hud = `§lPLANE§r §e${(ns.speed * MPH).toFixed(0)} mph§r · §bALT ${alt}§r · THR ${Math.round(ns.throttle * 100)} · ${hint}`;
-          } else if (kind.mode === 'car') {
+          } else if (kind.mode === 'car' || kind.mode === 'hover') {
             const hint = r.event === 'blocked' || (ns.speed === 0 && Math.abs(input.y) > 0.15) ? '§c[BLOCKED: BACK UP]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: DRIVE + STEER · JUMP: BOOST]§r';
-            hud = `§lCAR§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r · ${hint}`;
+            hud = `§l${kind.mode === 'hover' ? 'HOVER' : 'CAR'}§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r · ${hint}`;
           } else {
             const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST]§r';
             hud = `§lBOAT§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r · ${hint}`;
           }
+          if (ns.light) hud += ' · §e[LIGHTS]§r';
+          try { const extra = e.getDynamicProperty(DYN.hud); if (typeof extra === 'string' && extra) hud += ` · ${extra}`; } catch { /* none */ }
           for (const rr of riders) { try { rr.onScreenDisplay?.setActionBar?.(hud); } catch { /* not a player */ } }
         }
       }
     }
+    busyMs += Date.now() - started; busyTicks++;
+    if (busyTicks >= 20) { busyMs = busyMs / busyTicks; busyTicks = 1; }
   }, 1);
 }
 
-/** `scripts/vehicles.js`: the runtime with the three pure models' own text. */
+/** `scripts/vehicles.js`: the runtime with the pure models' and helpers' own text. */
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()});\n`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()});\n`;
 }

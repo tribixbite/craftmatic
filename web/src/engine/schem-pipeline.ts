@@ -323,7 +323,7 @@ export async function runSchemPipeline(
   if (input.format === 'mcaddon') {
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
-    const { discoverPlayableComponents, knownScreenAnchors } = await import('./playable-components.js');
+    const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
     const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
     const { isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
@@ -363,8 +363,19 @@ export async function runSchemPipeline(
       const repaired = repairFigureTorsos(input.source.bricks, sourceMeshes);
       if (repaired.repairs.length) warnings.push(`${repaired.repairs.length} figure torso${repaired.repairs.length === 1 ? '' : 's'} the source placed away from the figure's own limbs and head ${repaired.repairs.length === 1 ? 'was' : 'were'} moved to them: ${describeTorsoRepairs(repaired.repairs)} (a converted torso with no alignment row sits at its raw origin).`);
       const source = { ...input.source, bricks: repaired.bricks };
-      const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
+      const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '');
       warnings.push(...found.warnings);
+      // A scene (a title naming no vehicle): the cars on its street and the
+      // boats at its quay are found from the geometry (scene-vehicles.ts) and
+      // become rideable where they stand; ride cars and trains stay the rail
+      // engine's. Only in auto mode, and never for a title that IS a vehicle.
+      if ((input.vehicleMode ?? 'auto') === 'auto' && !found.components.length && !isWholeVehicleLabel(label)) {
+        const { findSceneVehicles } = await import('./scene-vehicles.js');
+        const inScene = findSceneVehicles(source.bricks, sourceMeshes);
+        for (const component of inScene.components) found.components.push(withPlayableBounds({ ...component, label: `${label} ${component.label.toLowerCase()}` }));
+        const judged = inScene.candidates.filter(c => c.kind || c.wheels || c.oars || c.hull);
+        if (judged.length) warnings.push(`Scene vehicles: ${judged.map(c => `${c.kind ?? 'not a vehicle'} (${c.parts} placements at ${c.centre.join(', ')} LDU: ${c.reason})`).join('; ')}.`);
+      }
       // A train that stands on its own railway track runs ON it (the coaster
       // engine, driven: bedrock-coaster.ts `RAIL_TRAIN_PHYSICS`), not as a free
       // wheeled vehicle that would take the track away with it (10277 is titled
