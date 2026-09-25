@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { vehicleWheelAssemblies, type VehicleWheelBone } from '../web/src/engine/ldraw-entity-compiler.js';
-import { BOAT, boatStep, FLIGHT, FLIGHT_PROPS, flightStep, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState } from '../web/src/engine/bedrock-vehicle.js';
+import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState } from '../web/src/engine/bedrock-vehicle.js';
 
 /** Fly `ticks` ticks over flat ground at y = 0 (nothing in the way), returning every state. */
 function fly(s: FlightState, input: (t: number, s: FlightState) => FlightInput, ticks: number, ground: number | null = 0): { states: FlightState[]; events: string[] } {
@@ -82,9 +82,10 @@ describe('fixed-wing flight model', () => {
     expect(r.state).toMatchObject({ x: 0, z: 0, speed: 0 });
   });
   it('serialises the runtime with the model in it and nothing outside it', () => {
-    const js = scriptedVehicleScript({ types: { 'craftmatic:p': { mode: 'plane', noseReach: 4 } }, flight: FLIGHT, boat: BOAT, props: FLIGHT_PROPS, inputEvent: 'craftmatic:flight_input', telemetryEvent: 'craftmatic:vehicle_telemetry' });
+    const js = scriptedVehicleScript({ types: { 'craftmatic:p': { mode: 'plane', noseReach: 4 } }, flight: FLIGHT, boat: BOAT, car: CAR, props: FLIGHT_PROPS, inputEvent: 'craftmatic:flight_input', telemetryEvent: 'craftmatic:vehicle_telemetry' });
     expect(js).toContain('function flightStep');
     expect(js).toContain('function boatStep');
+    expect(js).toContain('function carStep');
     expect(js).not.toMatch(/__name|import_/);
   });
 });
@@ -200,5 +201,63 @@ describe('boat model', () => {
     const dry = sail({ ...moored, y: 5, afloat: false }, held(0, 1, false), 40, () => ({ surface: null, ground: 0, shoreAhead: false, shoreAstern: false })).states.at(-1)!;
     expect(dry).toMatchObject({ y: 0, afloat: false });
     expect(Math.abs(dry.x)).toBeLessThan(0.01);
+  });
+});
+
+/** Drive `ticks` ticks over ground whose height at world x is `groundAt(x)` (flat 0 by default). */
+function drive(s: CarState, input: (t: number, s: CarState) => FlightInput, ticks: number, groundAt: (x: number) => number = () => 0, wall = (_s: CarState) => false) {
+  const states: CarState[] = [], events: string[] = [];
+  for (let t = 0; t < ticks; t++) {
+    const nose = s.x + 1.5, tail = s.x - 1.5;
+    const terrain: CarTerrain = { ground: groundAt(s.x), groundFront: groundAt(nose), groundRear: groundAt(tail), blockedFront: wall(s) || groundAt(nose) - s.y > CAR.STEP_UP, blockedRear: false, inWater: false, wheelbase: 3 };
+    const r = carStep(s, input(t, s), terrain, CAR, 0.05);
+    s = r.state; states.push(s);
+    if (r.event) events.push(`${t}:${r.event}`);
+  }
+  return { states, events };
+}
+const parkedCar: CarState = { x: 0, y: 0, z: 0, yaw: -90, speed: 0, vy: 0, onGround: true, boost: 0, cooldown: 0, pitch: 0, bank: 0 };
+
+describe('car model', () => {
+  it('drives straight ahead on a straight stick and coasts down when it is released (the camel spun and stopped dead)', () => {
+    const run = drive(parkedCar, held(0, 1, false), 80).states;
+    expect(run.at(-1)!.speed).toBeCloseTo(CAR.MAX_SPEED, 5);
+    expect(Math.abs(run.at(-1)!.z)).toBeLessThan(1e-9);
+    expect(run.every(s => s.yaw === -90)).toBe(true);
+    const coast = drive(run.at(-1)!, held(0, 0, false), 20).states.at(-1)!;
+    expect(coast.speed).toBeGreaterThan(CAR.MAX_SPEED - 3);
+    expect(coast.speed).toBeLessThan(CAR.MAX_SPEED);
+  });
+  it('brakes on the stick back, then reverses, slowly', () => {
+    const moving: CarState = { ...parkedCar, speed: 10 };
+    const braked = drive(moving, held(0, -1, false), 10).states.at(-1)!;
+    expect(braked.speed).toBeCloseTo(3, 5);
+    const back = drive(parkedCar, held(0, -1, false), 40).states.at(-1)!;
+    expect(back.speed).toBeCloseTo(-CAR.REVERSE_SPEED, 5);
+    expect(back.x).toBeLessThan(0);
+  });
+  it('steers right on a right stick while moving (not at rest), reverses the steering backing up, and leans out of the turn', () => {
+    expect(drive(parkedCar, held(CAR.STICK_X_RIGHT, 0, false), 20).states.at(-1)!.yaw).toBe(-90);
+    const turning = drive({ ...parkedCar, speed: 8 }, held(CAR.STICK_X_RIGHT, 1, false), 20).states.at(-1)!;
+    expect(turning.yaw).toBeGreaterThan(-90 + 30);
+    expect(turning.bank).toBeLessThan(0);
+    const backing = drive({ ...parkedCar, speed: -4 }, held(CAR.STICK_X_RIGHT, -1, false), 20).states.at(-1)!;
+    expect(backing.yaw).toBeLessThan(-90);
+  });
+  it('climbs a one-block step, stops at a two-block wall, and falls off an edge', () => {
+    const step = drive(parkedCar, held(0, 1, false), 60, x => (x > 4 ? 1 : 0));
+    expect(step.states.at(-1)!.y).toBe(1);
+    expect(step.states.at(-1)!.x).toBeGreaterThan(8);
+    const wall = drive(parkedCar, held(0, 1, false), 60, x => (x > 4 ? 2 : 0));
+    expect(wall.events.some(e => e.endsWith('blocked'))).toBe(true);
+    expect(wall.states.at(-1)!.x).toBeLessThan(4);
+    const edge = drive({ ...parkedCar, speed: 10, y: 3 }, held(0, 1, false), 30, x => (x < 2 ? 3 : 0));
+    expect(edge.states.at(-1)).toMatchObject({ y: 0, onGround: true });
+    expect(edge.events.some(e => e.endsWith('landed'))).toBe(true);
+  });
+  it('boosts on Jump, then cools down', () => {
+    const { states, events } = drive(parkedCar, held(0, 1, true), 60);
+    expect(events[0]).toBe('0:boost');
+    expect(Math.max(...states.map(s => s.speed))).toBeGreaterThan(CAR.MAX_SPEED);
   });
 });

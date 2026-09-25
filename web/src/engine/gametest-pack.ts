@@ -1120,6 +1120,26 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
       checks.beaches = (ph.shore?.maxDy ?? 9) < 0.5 && (ph.shore?.endSpeed ?? 9) < 0.5;
       checks.backsOff = (ph.back_off?.along ?? 0) < -0.3;
+    } else if (v.kind === 'car' && v.scripted) {
+      // A scripted car, through the input hook: ahead, coast, brake-to-reverse, a right turn, lane B's slab and step, a boost.
+      await phase('ahead', 60, (t) => { if (t === 0) drive(0, 1, false, 60); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('boost', 40, (t) => { if (t === 0) drive(0, 1, true, 40); });
+      const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
+      await reset(laneRel);
+      await phase('steps', 100, (t) => { if (t === 0) drive(0, 0.6, false, 100); });
+      const ph = row.phases;
+      checks.forwardMoves = (ph.ahead?.along ?? 0) > 8 && Math.abs(ph.ahead?.side ?? 9) < 0.5;
+      checks.coasts = (ph.coast?.along ?? 0) > 1;
+      checks.reverseMoves = (ph.reverse?.along ?? 0) < -0.5;
+      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      checks.climbsStep = (ph.steps?.maxDy ?? 0) >= 0.9;
     } else {
       // A native mount (a car, a rotorcraft): the simulated player drives it.
       await phase('forward', 60, () => drive(0, 1, false, 1));

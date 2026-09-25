@@ -28,7 +28,7 @@ import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, consoleHideAnimation, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
-import { BOAT, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type VehicleMotion } from './bedrock-vehicle.js';
+import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
@@ -409,7 +409,7 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, scriptedCar = false): unknown {
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
@@ -527,7 +527,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // (hold to charge, release to dash) instead of a dismount - on touch the
     // rider gets the horse-style Jump + Dismount buttons. A script impulse on a
     // client-authoritative mount was never a reliable boost.
-    if (kind === 'car') {
+    if (kind === 'car' && !scriptedCar) {
         Object.assign(common, {
             'minecraft:physics': { has_gravity: true, has_collision: true },
             'minecraft:input_ground_controlled': {},
@@ -537,7 +537,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:navigation.walk': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.56, jump_prevented_value: .6 },
         });
-    } else if (motion === 'plane' || motion === 'boat') {
+    } else if (motion === 'plane' || motion === 'boat' || scriptedCar) {
         // A FIXED WING or a BOAT is moved by scripts/vehicles.js
         // (bedrock-vehicle.ts `flightStep` / `boatStep`): take-off speed, stick
         // pitch, stall and landing; throttle, rudder, boost and beaching. The
@@ -601,7 +601,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
     return withSizeGroups(
-        { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(motion === 'plane' || motion === 'boat' ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
+        { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(motion === 'plane' || motion === 'boat' || scriptedCar ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
     );
@@ -1953,8 +1953,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
     };
     /** A driven vehicle's wheel spin and body motion (bedrock-vehicle.ts): writes the animation file, returns what the client entity plays. */
-    const emitDriveAnimation = (ecid: string, motion: VehicleMotion, geo: CompiledLdrawGeometry): ClientAnimations => {
-        const anim = vehicleClientAnimation(ecid, motion, geo.wheelBones ?? []);
+    const emitDriveAnimation = (ecid: string, motion: VehicleMotion, geo: CompiledLdrawGeometry, scripted = motion === 'plane' || motion === 'boat'): ClientAnimations => {
+        const anim = vehicleClientAnimation(ecid, motion, geo.wheelBones ?? [], scripted);
         files.push({ name: `${rp}animations/${ecid}.animation.json`, data: json(anim.file) });
         return anim.client;
     };
@@ -2258,11 +2258,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const componentIsTimeMachine = isTimeMachine && c.kind === 'car' && !timeMachineConfig;
         // A fixed wing (brick-compiled) is flown by scripts/aircraft.js; a rotorcraft and a grid-only aircraft keep the hover controller.
         const motion: VehicleMotion = ldrawGeo ? vehicleMotionOf(c.kind, c.label) : c.kind === 'plane' ? 'rotor' : c.kind;
+        // A brick-compiled car is scripted (bedrock-vehicle.ts `carStep`); the time machine and a grid-only car keep the camel.
+        const scriptedCar = !!ldrawGeo && c.kind === 'car' && !componentIsTimeMachine;
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
-        else if (motion === 'plane' || motion === 'boat')
+        else if (motion === 'plane' || motion === 'boat' || scriptedCar)
             scriptedTypes[fullTypeId] = {
-                mode: motion, noseReach: Math.round((ldrawGeo?.sizeBlocks.length ?? layout.length) / 2 * 100) / 100,
+                mode: scriptedCar ? 'car' : motion === 'boat' ? 'boat' : 'plane', noseReach: Math.round((ldrawGeo?.sizeBlocks.length ?? layout.length) / 2 * 100) / 100,
                 // A boat's keel sits deeper the bigger it is: 12 % of its height, 0.3-1.2 blocks (a 3-block yacht rode
                 // visibly high at a flat 0.3 on the Pixel; a 29-block galleon with its masts sits 1.2 deep).
                 ...(motion === 'boat' ? { draft: Math.round(Math.min(1.2, Math.max(0.3, (ldrawGeo?.sizeBlocks.height ?? layout.height) * 0.12)) * 100) / 100 } : {}),
@@ -2272,8 +2274,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats), emitDriveAnimation(cid, motion, ldrawGeo), true);
-            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(motion === 'plane' || motion === 'boat' ? { scripted: true } : {}) });
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, scriptedCar), emitDriveAnimation(cid, motion, ldrawGeo, motion === 'plane' || motion === 'boat' || scriptedCar), true);
+            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(motion === 'plane' || motion === 'boat' || scriptedCar ? { scripted: true } : {}) });
 
             // Secondary objects the compiler found beside the vehicle (see
             // EntityExtra): figures wander as minifig NPCs, a wheeled second
@@ -2305,12 +2307,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats);
-                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo) : undefined, ekind !== 'figure');
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, true);
+                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
-                    driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });
-                    cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
+                    scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = { mode: 'car', noseReach: Math.round(egeo.sizeBlocks.length / 2 * 100) / 100 };
+                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);
@@ -2697,7 +2699,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch })) });
-    if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({ types: scriptedTypes, flight: FLIGHT, boat: BOAT, props: FLIGHT_PROPS, inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
+    if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({ types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, props: FLIGHT_PROPS, inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
     const figureTypes = Object.keys(figureBodies);

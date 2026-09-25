@@ -299,25 +299,27 @@ the figures roam and stay home", not Bedrock's physics. Device truth: the
 Two kinds of vehicle, chosen by measurement (GameTest and real rides on the
 Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
 
-- **Car — native.** `minecraft:physics` with gravity, `input_ground_controlled`
-  (the vanilla camel: client-authoritative for a real rider, so it drives
-  smoothly), `movement` `CAR_MOVEMENT` = 0.45 (max × 1.3), `movement.basic`
-  max_turn 18, `variable_max_auto_step` 1.25 / 1.56, `dash_action`
-  (`DASH_ACTION`) for Jump. Measured: ~41.5 blocks/s per movement unit (a real
-  rider at 1.05 read 44.8-65.8 mph at half stick; GameTest 43.6 blocks/s at
-  full), so 0.45 is about 19 blocks/s. Reverse is native (~10 blocks/s at
-  1.05). The camel stops dead when the stick is released (2.3 blocks from
-  43 blocks/s): no inertia component exists.
+- **Car — SCRIPTED** (`carStep`, below). The camel controller
+  (`input_ground_controlled`) failed a real rider on the Pixel, 2026-09-25:
+  under `player_relative` the rider's yaw turned by itself ~36 degrees every 4
+  ticks with the stick held straight and the car drove circles in every camera
+  mode; under the default and `player_relative_strafe` schemes it drove
+  straight but the stick's left/right slid it sideways without turning it; and
+  it stopped dead on release (2.3 blocks from 43 blocks/s). Speed was ~41.5
+  blocks/s per movement unit (44.8-65.8 mph at half stick at 1.05). The camel
+  (`CAR_MOVEMENT` 0.45, max × 1.3, `movement.basic` max_turn 18,
+  `variable_max_auto_step` 1.25 / 1.56, `dash_action`) remains only for the
+  10300 time machine and a grid-only car.
 - **Rotorcraft — native.** The vanilla Happy Ghast: `has_gravity: false`,
   hover movement and navigation, `free_camera_controlled`, `flying_speed` 0.3,
   `vertical_movement_action` +0.5 (climb) / −0.5 (descend group).
-- **Fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
+- **Car, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
   `scriptedVehicleRuntime`). Every native speed is `SCRIPTED_NATIVE_SPEED` (0)
   and gravity is off; the Happy Ghast rider components stay only so Jump is an
   input, not a dismount (measured: a real rider held Jump and stayed seated).
   Each tick the runtime reads the controlling rider's `inputInfo` (or the
   `FLIGHT_INPUT_EVENT` hook), probes the blocks it needs, runs the pure
-  `flightStep` / `boatStep`, teleports the entity (the rider rides along, as on
+  `carStep` / `flightStep` / `boatStep`, teleports the entity (the rider rides along, as on
   the coaster) and writes pitch, bank and wheel roll to the `FLIGHT_PROPS`
   actor properties. Constants in `FLIGHT` / `BOAT` (§9). Why: the camel boat
   over `minecraft:buoyant` crawled at 1.6-1.8 blocks/s on water whatever its
@@ -352,7 +354,7 @@ Each device runtime is a function turned into the pack's script text with
 | pinball script | `pinballScript` | `pinballRuntime`, `createPinballSim`, `fitPinballZone` |
 | `BP/scripts/figures.js` | `figureLifeScript` | `figureLifeRuntime`, `standFeetAt`, `exploreWalkable`, `pathTo`, `blockSpan`, `startCell`, `refugeCell` |
 | vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime`, `timeMachineRuntime` |
-| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `flightStep`, `boatStep` |
+| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep` |
 
 1. A serialised function may reference NOTHING outside its own body and its
    parameters: no import, no module-level `const`, no other function of the
@@ -388,7 +390,7 @@ Each device runtime is a function turned into the pack's script text with
 | `createPinballSim` | serialised | `addon-preview.ts` | `test/pinball.test.ts`, `pinball-table.ts` (lane probing) |
 | figure planner functions | serialised | — | `figure-life-sim.ts`, census script |
 | `tickPlayer` | — (Bedrock is the player) | `addon-preview.ts` | `interactive-walk.ts`, `scripts/_addon_walk.ts` |
-| `flightStep`, `boatStep` (`FLIGHT`, `BOAT` via `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
+| `carStep`, `flightStep`, `boatStep` (`CAR`, `FLIGHT`, `BOAT` via `config.car` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts` |
 
 ## 7. Adding a vehicle class or a physics module
@@ -565,6 +567,17 @@ literal inside a function body (`§` marks the number).
 | `FLIGHT.AUTO_BRAKE` | `web/src/engine/bedrock-vehicle.ts` | 5 | blocks/s² | Wheel brakes on the ground with the throttle released. |
 | `FLIGHT.HARD_LANDING` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s down | Touch-down sink rate that counts as a hard landing (speed × 0.4). |
 | `FLIGHT.STICK_X_RIGHT` | `web/src/engine/bedrock-vehicle.ts` | -1 | sign | Measured: the stick pushed RIGHT reads `getMovementVector().x` = -0.46 (Pixel, 2026-09-25). |
+| `CAR.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 19 | blocks/s | Full stick (42 mph), what the camel gave at movement 0.45. |
+| `CAR.REVERSE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 5 | blocks/s | Full reverse. |
+| `CAR.ACCEL` | `web/src/engine/bedrock-vehicle.ts` | 7 | blocks/s² | 0 to full in under 3 s. |
+| `CAR.BRAKE` | `web/src/engine/bedrock-vehicle.ts` | 14 | blocks/s² | Stick against the motion. |
+| `CAR.COAST` | `web/src/engine/bedrock-vehicle.ts` | 2.5 | blocks/s² | Hands off: rolls on instead of the camel's dead stop. |
+| `CAR.BOOST_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 26 | blocks/s | Jump boost for `BOOST_SECONDS` 1.5, then `BOOST_COOLDOWN` 3. |
+| `CAR.STEER_RATE` | `web/src/engine/bedrock-vehicle.ts` | 110 | degrees/s | Full lock at `STEER_FULL_SPEED` 5 blocks/s, divided by 1 + speed / `STEER_FADE` 12: about 43 degrees/s at top speed. |
+| `CAR.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1.05 | blocks | Highest step climbed (a full block, as the camel's 1.25 auto-step allowed); higher is a wall. |
+| `CAR.CLIMB_RATE` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s | How fast it eases up a step. |
+| `CAR.WATER_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks/s | Crawl through water. |
+| `CAR.STICK_X_RIGHT` | `web/src/engine/bedrock-vehicle.ts` | -1 | sign | Same measured sign as the aircraft's. |
 | `BOAT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Full ahead; 8.0 measured in GameTest (the buoyant camel crawled at 1.8). |
 | `BOAT.BOOST_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 12 | blocks/s | Jump boost for `BOOST_SECONDS`, then `BOOST_COOLDOWN`. |
 | `BOAT.BOOST_SECONDS` | `web/src/engine/bedrock-vehicle.ts` | 3 | s | Boost length. |
@@ -657,6 +670,11 @@ one of these files fails the check until its row is written.
 | `FlightState`, `FlightInput`, `FlightTerrain` | interface | The fixed wing's state, the rider's input and the probed ground. |
 | `FlightEvent` | type | `takeoff` / `landing` / `hard_landing` / `crash` / `stall`. |
 | `flightStep` | function | SERIALISED. One fixed-wing step (throttle, elevator, turn, stall, landing). |
+| `CAR` | const | Every car constant (§9); JSON-serialised into `config.car`. |
+| `CarParams` | type | `CAR` as numbers. |
+| `CarState`, `CarTerrain` | interface | The car's state and the probed ground (centre, nose, tail, walls, water). |
+| `CarEvent` | type | `blocked` / `boost` / `landed`. |
+| `carStep` | function | SERIALISED. One car step (throttle, brake, reverse, steering, boost, steps, walls, falls). |
 | `BOAT` | const | Every boat constant (§9); JSON-serialised into `config.boat`. |
 | `BoatParams` | type | `BOAT` as numbers (a per-type `draft` in the config overrides `DRAFT`). |
 | `BoatState`, `BoatWater` | interface | The boat's state and the probed water and shore. |

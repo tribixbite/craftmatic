@@ -66,7 +66,7 @@ const n = (v: number): string => String(Math.round(v * 10000) / 10000);
  * into playable-addon's `ClientAnimations`; `file` is the resource pack's
  * `animations/<cid>.animation.json`.
  */
-export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheels: readonly VehicleWheelBone[]): {
+export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheels: readonly VehicleWheelBone[], scripted = motion === 'plane' || motion === 'boat'): {
   id: string; file: unknown;
   client: { animations: Record<string, string>; animate: string[]; initialize: string[]; preAnimation: string[] };
 } {
@@ -99,8 +99,8 @@ export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheel
         : `v.cm_pitch = math.lerp(v.cm_pitch, -math.clamp(v.cm_accel * ${n(g.pitchPerAccel)}, -${n(g.pitchMax)}, ${n(g.pitchMax)}), 0.12);`,
     `v.cm_steer = math.lerp(v.cm_steer, math.clamp(v.cm_yaw_rate * ${n(g.steerPerYawRate)}, -${n(g.steerMax)}, ${n(g.steerMax)}), 0.2);`,
   ];
-  if (motion === 'plane' || motion === 'boat') {
-    // A fixed wing or a boat is moved by the scripted-vehicle runtime
+  if (scripted) {
+    // A car, a boat or a fixed wing is moved by the scripted-vehicle runtime
     // (teleports), which writes its exact attitude - a boat's with its swell -
     // and wheel roll: nose-up pitch is negative X, a bank to the right (a
     // right turn) lowers the right side, i.e. negative Z.
@@ -337,7 +337,100 @@ export function boatStep(s: BoatState, input: FlightInput, water: BoatWater, P: 
   return { state: { x, y, z, yaw, speed, vy, afloat, boost, cooldown, pitch, bank }, ...(event ? { event } : {}) };
 }
 
-// ─── The scripted-vehicle runtime (aircraft and boats) ─────────────────────────
+// ─── Cars ──────────────────────────────────────────────────────────────────────
+
+/**
+ * A car on the ground, run by the same script as the boats and aircraft.
+ * Measured on the Pixel (real rider, 2026-09-25): the camel controller the
+ * cars used (`input_ground_controlled`) cannot be steered by a touch stick.
+ * Under `player_relative` - the scheme that made the stick turn the rider -
+ * the rider's yaw turned by itself about 36 degrees every 4 ticks with the
+ * stick held straight, and the car drove full circles in every camera mode;
+ * under the default and `player_relative_strafe` schemes it drove straight
+ * but the stick's left/right slid it SIDEWAYS without turning it; and it
+ * stopped dead the moment the stick was released. So a car is scripted:
+ *
+ *   - the stick's forward/back is throttle and brake, then reverse from a
+ *     stop; hands off it coasts down (`COAST`);
+ *   - left/right steers, with full lock by `STEER_FULL_SPEED` and less of it
+ *     at speed (`STEER_FADE`), reversed when backing up;
+ *   - Jump is a short boost (`BOOST_SPEED` for `BOOST_SECONDS`, then
+ *     `BOOST_COOLDOWN`);
+ *   - it follows the ground: up a step of at most `STEP_UP` (eased at
+ *     `CLIMB_RATE`), off an edge it falls, a wall (a rise over `STEP_UP` at
+ *     the nose, or a block at head height) stops it, and in water it crawls
+ *     at `WATER_SPEED`; the body pitches with the slope under its wheels.
+ */
+export const CAR = {
+  MAX_SPEED: 19, REVERSE_SPEED: 5, ACCEL: 7, BRAKE: 14, COAST: 2.5,
+  BOOST_SPEED: 26, BOOST_SECONDS: 1.5, BOOST_COOLDOWN: 3,
+  STEER_RATE: 110, STEER_FULL_SPEED: 5, STEER_FADE: 12,
+  STEP_UP: 1.05, CLIMB_RATE: 6, GRAVITY: 20, WATER_SPEED: 2,
+  LEAN_PER_TURN: 0.04, LEAN_MAX: 4, SQUAT_PER_ACCEL: 0.35, SQUAT_MAX: 3,
+  STICK_X_RIGHT: -1, DEADZONE: 0.15,
+} as const;
+/** Every car constant as a number. */
+export type CarParams = { readonly [K in keyof typeof CAR]: number };
+
+/** One car's state: position, heading, speed along the heading (negative = reversing), vertical speed, the boost timers, and the attitude its animation shows. */
+export interface CarState { x: number; y: number; z: number; yaw: number; speed: number; vy: number; onGround: boolean; boost: number; cooldown: number; pitch: number; bank: number }
+/** The ground the car stands on: the top of the solid ground under its centre, nose and tail (null: none within reach), a wall at its nose / tail, and whether its wheels are in water. */
+export interface CarTerrain { ground: number | null; groundFront: number | null; groundRear: number | null; blockedFront: boolean; blockedRear: boolean; inWater: boolean; wheelbase: number }
+export type CarEvent = 'blocked' | 'boost' | 'landed';
+
+/** Advance one car by `dt` seconds (pure; the device runs this text). */
+export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P: CarParams, dt: number): { state: CarState; event?: CarEvent } {
+  const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
+  const toward = (v: number, target: number, rate: number): number => (v < target ? Math.min(target, v + rate) : Math.max(target, v - rate));
+  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : v);
+  const right = dz(input.rider ? input.x : 0) * P.STICK_X_RIGHT;
+  const throttle = dz(input.rider ? input.y : 0);
+  let event: CarEvent | undefined;
+  let { speed, boost, cooldown, vy, onGround, y } = s;
+  cooldown = Math.max(0, cooldown - dt);
+  boost = Math.max(0, boost - dt);
+  if (input.rider && input.jump && onGround && boost <= 0 && cooldown <= 0) { boost = P.BOOST_SECONDS; cooldown = P.BOOST_SECONDS + P.BOOST_COOLDOWN; event = 'boost'; }
+  const before = speed;
+  let turnRate = 0;
+  if (onGround) {
+    const top = terrain.inWater ? P.WATER_SPEED : boost > 0 ? P.BOOST_SPEED : P.MAX_SPEED;
+    const target = throttle > 0 ? throttle * top : throttle < 0 ? Math.max(throttle * P.REVERSE_SPEED, -top) : 0;
+    // Against the motion the stick brakes first; hands off it coasts down.
+    const braking = throttle !== 0 && Math.abs(speed) > 0.1 && Math.sign(throttle) !== Math.sign(speed);
+    const rate = throttle === 0 ? P.COAST : braking ? P.BRAKE : P.ACCEL * (boost > 0 ? 2 : 1);
+    speed = toward(speed, target, rate * dt);
+    // Steering bites with speed (full lock by STEER_FULL_SPEED), fades at speed, and reverses backing up.
+    const bite = clamp(Math.abs(speed) / P.STEER_FULL_SPEED, 0, 1) / (1 + Math.abs(speed) / P.STEER_FADE);
+    turnRate = right * P.STEER_RATE * bite * (speed < 0 ? -1 : 1);
+  }
+  let yaw = s.yaw + turnRate * dt;
+  yaw = ((yaw + 180) % 360 + 360) % 360 - 180;
+  if ((speed > 0 && terrain.blockedFront) || (speed < 0 && terrain.blockedRear)) { speed = 0; event = 'blocked'; }
+  const rad = yaw * Math.PI / 180;
+  let x = s.x - Math.sin(rad) * speed * dt, z = s.z + Math.cos(rad) * speed * dt;
+  const g = terrain.ground;
+  if (onGround && g !== null && g >= y - 0.05) {
+    // On the ground, or a step under the centre: ease up onto it.
+    y = g > y ? Math.min(g, y + P.CLIMB_RATE * dt) : g;
+    vy = 0;
+  } else {
+    // Off an edge (or spawned above the ground): fall until it lands.
+    vy -= P.GRAVITY * dt;
+    y = y + vy * dt;
+    if (g !== null && y <= g) { y = g; vy = 0; if (!onGround) event = 'landed'; onGround = true; } else onGround = false;
+    if (g === null) onGround = false;
+  }
+  const accel = (speed - before) / dt;
+  // Pitch: the slope under the wheels (nose up positive), plus a squat on the throttle.
+  const slope = terrain.groundFront !== null && terrain.groundRear !== null && terrain.wheelbase > 0
+    ? Math.atan2(terrain.groundFront - terrain.groundRear, terrain.wheelbase) * 180 / Math.PI : 0;
+  const pitch = toward(s.pitch, clamp(slope + clamp(accel * P.SQUAT_PER_ACCEL, -P.SQUAT_MAX, P.SQUAT_MAX), -30, 30), 60 * dt);
+  // Body roll leans OUT of a turn: a right turn lowers the left side (negative bank).
+  const bank = toward(s.bank, clamp(-turnRate * P.LEAN_PER_TURN * Math.min(1, Math.abs(speed) / P.STEER_FULL_SPEED), -P.LEAN_MAX, P.LEAN_MAX), 20 * dt);
+  return { state: { x, y, z, yaw, speed, vy, onGround, boost, cooldown, pitch, bank }, ...(event ? { event } : {}) };
+}
+
+// ─── The scripted-vehicle runtime (cars, boats and aircraft) ───────────────────
 
 /** Actor properties the vehicle runtime writes and a scripted vehicle's drive animation reads. */
 export const FLIGHT_PROPS = { pitch: 'craftmatic:fl_pitch', bank: 'craftmatic:fl_bank', wheel: 'craftmatic:fl_wheel' } as const;
@@ -365,9 +458,10 @@ export const VEHICLE_TELEMETRY_EVENT = 'craftmatic:vehicle_telemetry';
 /** What the scripted-vehicle runtime is told about the pack. */
 export interface ScriptedVehicleConfig {
   /** Every scripted vehicle type: how it moves and half its length (where its bow or nose is probed). */
-  types: Record<string, { mode: 'plane' | 'boat'; noseReach: number; draft?: number }>;
+  types: Record<string, { mode: 'plane' | 'boat' | 'car'; noseReach: number; draft?: number }>;
   flight: FlightParams;
   boat: BoatParams;
+  car: CarParams;
   props: typeof FLIGHT_PROPS;
   inputEvent: string;
   telemetryEvent: string;
@@ -375,15 +469,15 @@ export interface ScriptedVehicleConfig {
 
 /**
  * Runs in the pack: one pure step per tick for every scripted vehicle
- * (`flightStep` for an aircraft, `boatStep` for a boat), then a teleport to
+ * (`carStep` for a car, `flightStep` for an aircraft, `boatStep` for a boat), then a teleport to
  * the new pose (the rider rides along, as on the coaster: 20 Hz teleports are
  * interpolated by the client) and the attitude written to the actor
  * properties its drive animation reads. Nobody aboard: an aircraft flies its
  * state out (it glides down and lands), a boat drifts to a stop; parked, they
  * stay put. The HUD shows speed and what to do next.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep): void {
-  const F = config.flight, B = config.boat;
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep): void {
+  const F = config.flight, B = config.boat, C = config.car;
   const typeIds = Object.keys(config.types);
   const states = new Map<string, any>();
   const overrides = new Map<string, { x: number; y: number; jump: boolean; ticks: number }>();
@@ -443,6 +537,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             const g = groundBelow(dim, loc.x, loc.y + 0.5, loc.z, 4);
             const onGround = g !== null && Math.abs(loc.y - g) < 1;
             st = { x: loc.x, y: onGround ? g : loc.y, z: loc.z, yaw: rot.y, pitch: 0, speed: 0, throttle: 0, onGround, stalled: false, bank: 0, wheel: 0 };
+          } else if (kind.mode === 'car') {
+            st = { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y, speed: 0, vy: 0, onGround: true, boost: 0, cooldown: 0, pitch: 0, bank: 0, wheel: 0 };
           } else {
             st = { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y, speed: 0, vy: 0, afloat: false, boost: 0, cooldown: 0, pitch: 0, bank: 0, wheel: 0 };
           }
@@ -467,6 +563,26 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           ground = groundBelow(dim, st.x, st.y, st.z, st.onGround ? 3 : 48);
           r = flight(st, input, { ground, groundAhead: st.onGround ? groundBelow(dim, ahead.x, st.y + 1.2, ahead.z, 3) : null, blocked: blockedAhead(dim, ahead.x, st.y, ahead.z) }, F, 0.05);
           r.state.wheel = st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0);
+        } else if (kind.mode === 'car') {
+          // Parked, nobody at the wheel, on the ground: nothing to integrate.
+          if (!input.rider && st.onGround && Math.abs(st.speed) < 0.02) { states.set(e.id, st); continue; }
+          const noseX = st.x + fx * reach, noseZ = st.z + fz * reach, tailX = st.x - fx * reach, tailZ = st.z - fz * reach;
+          // The ground a car stands on is SOLID; water is not a road.
+          const solidBelow = (px: number, py: number, pz: number, depth: number): number | null => {
+            for (let by = Math.floor(py + 0.5); by >= Math.floor(py + 0.5) - depth; by--) { const b = blockOf(dim, px, by, pz); if (!b) return null; if (isSolid(b)) return by + 1; }
+            return null;
+          };
+          const reachUp = st.y + C.STEP_UP + 0.2;
+          ground = solidBelow(st.x, reachUp, st.z, st.onGround ? 4 : 48);
+          const groundFront = solidBelow(noseX, reachUp, noseZ, 4), groundRear = solidBelow(tailX, reachUp, tailZ, 4);
+          const wall = (px: number, pz: number, g: number | null): boolean => (g !== null && g - st.y > C.STEP_UP) || isSolid(blockOf(dim, px, st.y + 1.5, pz));
+          r = car(st, input, {
+            ground: ground !== null && ground - st.y > C.STEP_UP ? null : ground,
+            groundFront, groundRear, blockedFront: wall(noseX, noseZ, groundFront), blockedRear: wall(tailX, tailZ, groundRear),
+            inWater: isWater(blockOf(dim, st.x, st.y + 0.2, st.z)), wheelbase: 2 * reach,
+          }, C, 0.05);
+          // Signed distance rolled, as degrees of a one-block wheel (wrapped into the property's range).
+          r.state.wheel = (((st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0)) % 100000) + 100000) % 100000;
         } else {
           const w = waterAt(dim, st, kind.noseReach, kind.draft ?? B.DRAFT);
           r = boat(st, input, w, kind.draft !== undefined ? { ...B, DRAFT: kind.draft } : B, 0.05);
@@ -481,7 +597,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         try { e.setProperty(config.props.bank, Math.max(-90, Math.min(90, ns.bank + swell.roll))); } catch { /* not declared */ }
         try { e.setProperty(config.props.wheel, ns.wheel % 100000); } catch { /* not declared */ }
         if (r.event) {
-          const sound = r.event === 'crash' || r.event === 'hard_landing' ? 'random.explode' : r.event === 'stall' ? 'note.bass' : r.event === 'beached' ? 'dig.sand' : r.event === 'boost' || r.event === 'launched' ? 'random.splash' : 'random.orb';
+          const sound = r.event === 'blocked' ? 'random.anvil_land' : r.event === 'crash' || r.event === 'hard_landing' ? 'random.explode' : r.event === 'stall' ? 'note.bass' : r.event === 'beached' ? 'dig.sand' : r.event === 'boost' || r.event === 'launched' ? 'random.splash' : 'random.orb';
           try { e.dimension.playSound(sound, { x: ns.x, y: ns.y, z: ns.z }, { volume: r.event === 'crash' ? 0.4 : 0.7 }); } catch { /* no sound */ }
         }
         if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, rider: !!driver })}`);
@@ -493,6 +609,9 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
               ? (ns.speed >= F.ROTATE_SPEED ? '§a[PULL BACK: TAKE OFF]§r' : ns.throttle > 0.05 ? '§e[TAKE-OFF RUN: KEEP JUMP HELD]§r' : '§7[HOLD JUMP: THROTTLE · STICK: STEER]§r')
               : ns.stalled ? '§c[STALL: STICK FORWARD]§r' : '§7[STICK BACK: CLIMB · FORWARD: DIVE · JUMP: FULL POWER]§r';
             hud = `§lPLANE§r §e${(ns.speed * MPH).toFixed(0)} mph§r · §bALT ${alt}§r · THR ${Math.round(ns.throttle * 100)} · ${hint}`;
+          } else if (kind.mode === 'car') {
+            const hint = r.event === 'blocked' || (ns.speed === 0 && Math.abs(input.y) > 0.15) ? '§c[BLOCKED: BACK UP]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: DRIVE + STEER · JUMP: BOOST]§r';
+            hud = `§lCAR§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r · ${hint}`;
           } else {
             const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST]§r';
             hud = `§lBOAT§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r · ${hint}`;
@@ -504,7 +623,7 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   }, 1);
 }
 
-/** `scripts/vehicles.js`: the runtime with both pure models' own text. */
+/** `scripts/vehicles.js`: the runtime with the three pure models' own text. */
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()});\n`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()});\n`;
 }
