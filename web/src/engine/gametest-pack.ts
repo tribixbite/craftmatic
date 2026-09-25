@@ -764,17 +764,23 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     // The plunger: hit its target (take hold), wait, hit again (let go); the
     // plunger's pull must rise and the ball must leave up the table (-u).
     let plungerOk = true;
-    if (pb.plungerButtonType && pb.plungerType && pb.ballType) {
-      const target = nearest(dim, pb.plungerButtonType, sim.location, 12);
+    if (pb.plungerType && pb.ballType) {
+      // The drag pull: turn the (simulated) player's pitch down a little each
+      // tick, as a finger dragged down the screen does, then hold still.
       const plunger = nearest(dim, pb.plungerType, centre, 40);
       const ball = nearest(dim, pb.ballType, centre, 40);
       const prop = (e: any, k: string | undefined): number => { try { return Number(e?.getProperty(k)); } catch { return NaN; } };
-      row.plunger = { targetFound: !!target, plungerFound: !!plunger, ballFound: !!ball, pull: [] as number[], ballU: [] as number[] };
-      if (target && plunger && ball) {
-        row.plunger.grabReturned = sim.attackEntity(target);
-        for (let i = 0; i < 20; i++) { await test.idle(1); row.plunger.pull.push(Math.round(prop(plunger, pb.pullProperty) * 100) / 100); }
-        row.plunger.releaseReturned = sim.attackEntity(target);
-        for (let i = 0; i < 20; i++) { await test.idle(1); row.plunger.ballU.push(Math.round(prop(ball, pb.ballUProperty))); }
+      row.plunger = { plungerFound: !!plunger, ballFound: !!ball, pull: [] as number[], ballU: [] as number[], pitch: [] as number[] };
+      if (plunger && ball) {
+        let p0 = 0;
+        try { p0 = Number(sim.getRotation().x); } catch {}
+        for (let k = 1; k <= 8; k++) {
+          try { sim.setRotation({ x: p0 + 4 * k, y: sim.getRotation().y }); } catch (err) { row.plunger.rotError = String(err); }
+          await test.idle(1);
+          row.plunger.pull.push(Math.round(prop(plunger, pb.pullProperty) * 100) / 100);
+          try { row.plunger.pitch.push(Math.round(Number(sim.getRotation().x) * 10) / 10); } catch {}
+        }
+        for (let i = 0; i < 25; i++) { await test.idle(1); row.plunger.ballU.push(Math.round(prop(ball, pb.ballUProperty))); }
         const maxPull = Math.max(0, ...row.plunger.pull.filter(Number.isFinite));
         const minU = Math.min(0, ...row.plunger.ballU.filter(Number.isFinite));
         row.plunger.maxPull = maxPull; row.plunger.minBallU = minU;

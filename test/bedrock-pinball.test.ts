@@ -376,32 +376,47 @@ describe('pinball runtime (host simulation)', () => {
     expect(neverRaised(h.fl)).toBe(true);
   });
 
-  it('the plunger: a tap takes hold and draws it back over time, a second tap lets go; the shot is as strong as the pull', () => {
-    const shot = (holdTicks: number): { pull: number; vu: number } => {
+  it('a drag down the screen pulls the plunger (head turning unlocked while a ball waits), and it fires when the drag stops', () => {
+    const shot = (degrees: number): { pull: number; vu: number; locked: unknown[] } => {
       const h = seated();
       h.tune('{"ball":"teleport"}');
-      h.hit('plunger'); h.run(holdTicks);
-      const pull = h.plunger.actorProps['craftmatic:pull']!;
-      expect(launched(h)).toBe(false);
-      h.hit('plunger'); h.run(2);
+      h.run(1);
+      // Unlocked for the ready phase.
+      const perm = h.player.inputPermissions.setPermissionCategory;
+      expect(perm.mock.calls.at(-1)).toEqual([1, true]);
+      // The finger drags down: the reported pitch rises a little every tick.
+      const p0 = h.player.getRotation().x;
+      const steps = 6;
+      let maxPull = 0;
+      for (let k = 1; k <= steps; k++) {
+        h.player.head = { x: p0 + degrees * k / steps, y: 180 };
+        h.run(1);
+        maxPull = Math.max(maxPull, h.plunger.actorProps['craftmatic:pull'] ?? 0);
+        expect(launched(h)).toBe(false);
+      }
+      // Held still (or lifted): after five still ticks it fires.
+      h.run(8);
       expect(launched(h)).toBe(true);
-      expect(h.plunger.actorProps['craftmatic:pull']).toBe(0);
       const a = h.ball.teleport.mock.calls.at(-2)![0].z, b = h.ball.teleport.mock.calls.at(-1)![0].z;
-      return { pull, vu: (b - a) / 0.05 / 0.01 };
+      // In play head turning is locked again and the pitch is put back.
+      h.run(2);
+      return { pull: maxPull, vu: (b - a) / 0.05 / 0.01, locked: perm.mock.calls.at(-1)! };
     };
-    const weak = shot(10), strong = shot(30);
-    expect(weak.pull).toBeCloseTo(10 / 24, 1);
+    const weak = shot(12), strong = shot(40);
+    expect(weak.pull).toBeCloseTo(12 / 30, 2);
     expect(strong.pull).toBe(1);
     expect(strong.vu).toBeLessThan(weak.vu); // faster up the table (-u)
+    expect(strong.locked).toEqual([1, false]);
   });
 
-  it('a held finger that repeats the event pulls while it is down and fires when it lifts', () => {
+  it('dragging UP only moves where the pull starts from; no drag, no shot', () => {
     const h = seated();
-    for (let t = 0; t < 20; t++) { if (t % 4 === 0) h.hit('plunger'); h.run(1); }
+    h.run(1);
+    const p0 = h.player.getRotation().x;
+    for (let k = 1; k <= 5; k++) { h.player.head = { x: p0 - 3 * k, y: 180 }; h.run(1); }
+    h.run(10);
     expect(launched(h)).toBe(false);
-    expect(h.plunger.actorProps['craftmatic:pull']).toBeGreaterThan(0.6);
-    h.run(10); // no more events: the finger is up
-    expect(launched(h)).toBe(true);
+    expect(h.plunger.actorProps['craftmatic:pull'] ?? 0).toBe(0);
   });
 
   it('pulling the stick back draws the plunger as far as it is pulled, and letting go fires', () => {

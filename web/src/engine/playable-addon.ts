@@ -2395,7 +2395,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const pickType = `${PACK_NAMESPACE}:${kid}`;
             emitZone(kid, pickType, plan.zones.pickFlipperBox, 'pick', `${label} flipper pick`);
             let plungerButtonType: string | undefined, plungerPickType: string | undefined;
-            if (plan.plunger) {
+            if (plan.zones.specs.some(z => z.role === 'plunger')) {
                 const qid = entityId(`${id}_pinball_plunger_button`, 'p');
                 plungerButtonType = `${PACK_NAMESPACE}:${qid}`;
                 const qa = zoneAssets(plungerButtonType, plan.zones.plungerBox, 'plunger');
@@ -2415,7 +2415,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType, pick: pickType, plunger: plungerType, plungerButton: plungerButtonType, plungerPick: plungerPickType, cabinetButtons }, ballEntityModel, Math.sign(det) || 1, label);
             files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
             warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
-            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the flipper buttons on the cabinet's sides (or a hotbar slot left or right of the middle) to flip; tap the yellow box over the plunger to draw it back and tap again to let go - the further it is drawn, the harder the shot. The stick works too (pull it back for the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
+            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the flipper buttons on the cabinet's sides (or a hotbar slot left or right of the middle) to flip; drag a finger down the screen (or pull the stick back) to draw the plunger and let go to fire - the further it is drawn, the harder the shot. Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
         } catch (e) {
             pinballConfig = undefined;
             warnings.push(`${label}: the pinball game could not be built (${e instanceof Error ? e.message : String(e)}); the machine ships as a static model.`);

@@ -20,19 +20,17 @@
  *   - a CONSOLE: a yellow pad in front of the machine ("Play pinball"). Sitting
  *     on it lifts the player's head to a viewpoint just behind the table's
  *     front edge, with a free camera there looking down the table;
- *   - three TAP TARGETS the runtime spawns in front of the seated head, each
- *     on the line of sight to what it works: one over each flipper and one
- *     over the plunger. Each is a small box drawn as a faint outline, so the
- *     player sees where to tap; tapping it hits the entity (the phone picks
- *     the entity under the finger). Hotbar slots left / right of the middle
- *     and the stick work the flippers too; pulling the stick back draws the
- *     plunger. Sneak leaves.
+ *   - the cabinet's two FLIPPER BUTTONS as their own entities, pressed in
+ *     while their flipper is up, and a TAP TARGET on each: a faint outline
+ *     over the button (camera ray) plus an enlarged invisible pick box on the
+ *     phone's own pick ray. Hotbar slots left / right of the parked (empty)
+ *     slot and the stick work the flippers too. Sneak leaves.
  *
- * THE PLUNGER works like a real one: tap its target to take hold and draw it
- * back (it pulls further the longer you wait, full in `PULL_TICKS`), tap
- * again to let go; if the phone repeats the event while a finger stays down,
- * lifting the finger lets go. The ball leaves at a speed proportional to the
- * pull (pinball-physics.ts), so a weak pull does not climb the lane.
+ * THE PLUNGER is a pull: while a ball waits, drag a finger down the screen
+ * (head turning is unlocked for it; the camera stays) or pull the stick
+ * back; the further, the stronger; let go and it fires. The ball leaves at a
+ * speed proportional to the pull (pinball-physics.ts), so a weak pull does
+ * not climb the lane.
  *
  * The runtime is serialised with `.toString()` like the coaster's, so it and
  * the functions it is handed may not reference anything outside themselves.
@@ -446,7 +444,8 @@ export function planPinball(
   // The seat faces up the table (-U) in the world.
   const upTable = sub(toModel(ldu(front - 100, centreW, table.floorH)), toModel(ldu(front, centreW, table.floorH)));
   const consoleYaw = Math.round(Math.atan2(-upTable[0], upTable[2]) * 180 / Math.PI);
-  const zones = planPinballZones(table, map, cameraEyeModel, cameraLookModel, !!plunger);
+  // No plunger target: the plunger is pulled by a drag or the stick (see pinballRuntime).
+  const zones = planPinballZones(table, map, cameraEyeModel, cameraLookModel, false);
 
   return {
     table, sim, map, ballH, flippers, plunger, buttons, ballBrick, ballRig: moveRig(1, serveCentre), ballCentreModel: toModel(serveCentre),
@@ -811,10 +810,17 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   const KEY = 'craftmatic:pinball_';
   /** A tap holds its flipper up this many ticks (0.3 s); repeated taps extend it. */
   const TAP_TICKS = 6;
-  /** A plunger held this long is fully drawn (1.2 s). */
-  const PULL_TICKS = 24;
-  /** Plunger events closer than this are one held finger; a later one is a second tap (0.4 s). */
-  const HOLD_GAP = 8;
+  /**
+   * THE DRAG PULL. While a ball waits, head turning is unlocked and a finger
+   * dragged DOWN the screen (anywhere) turns the player's pitch down; the free
+   * camera does not move. Measured on the Pixel (2026-09-25): a 200 px drag
+   * turned the pitch 18 -> 61 degrees, about 0.21 degrees a pixel, reported
+   * every tick while the finger moves. The pull is the pitch gained since the
+   * drag began over `DRAG_FULL_DEG` (about 140 px for a full pull). No event
+   * says a finger lifted, so a pull that stops changing for `DRAG_RELEASE`
+   * ticks has been let go and fires.
+   */
+  const DRAG_FULL_DEG = 30, DRAG_RELEASE = 5, DRAG_MOVE_DEG = 0.3;
   /** Head-to-eye tolerance when lifting the seat, blocks, and the most corrections tried. */
   const SEAT_TOLERANCE = 0.08, SEAT_TRIES = 8;
   /** Ticks between rescans of the world for pinball actors (cached in between). */
@@ -847,7 +853,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   };
   const wrapDeg = (d: number): number => ((d + 540) % 360) - 180;
 
-  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'level' as 'camera' | 'level', pitch: NaN, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false, camlock: true, predict: true };
+  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'level' as 'camera' | 'level', pitch: NaN, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false, camlock: true, predict: true, dragpull: true };
   const tune: typeof DEFAULT_TUNE = { ...DEFAULT_TUNE };
   let ballMode: 'animate' | 'teleport' = config.ballMode;
   let axisSigns: number[] = [...config.axisSigns];
@@ -880,6 +886,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       // flipper to the next tick instead of raising it in the tap's own event.
       if ('camlock' in t) tune.camlock = !!t.camlock;
       if ('predict' in t) tune.predict = !!t.predict;
+      if ('dragpull' in t) tune.dragpull = !!t.dragpull;
       if ('fixed' in t && !!t.fixed !== tune.fixed) { tune.fixed = !!t.fixed; for (const game of games.values()) game.sim = createSim(config.sim, { adaptiveSubsteps: !tune.fixed }); }
       if ('ball' in t) ballMode = t.ball === 'teleport' ? 'teleport' : 'animate';
       if (Array.isArray(t.axes) && t.axes.length === 2) axisSigns = [Math.sign(num(t.axes[0], -1)) || -1, Math.sign(num(t.axes[1], 1)) || 1];
@@ -956,17 +963,6 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     game.taps[side]++;
     if (game.sim.state.phase === 'over') game.sim.reset();
   };
-  /** A tap (or a repeated event from a held finger) on the plunger target. */
-  const plungerTouch = (game: any): void => {
-    const pl = game.plunger, st = game.sim.state;
-    game.taps.plunger++;
-    if (st.phase === 'over') { game.sim.reset(); return; }
-    if (st.phase !== 'ready') return;
-    if (pl.grabbed && now - pl.last < 2) { pl.last = now; return; } // the same tap reported twice
-    if (!pl.grabbed) { pl.grabbed = true; pl.since = now; pl.last = now; pl.repeats = 0; }
-    else if (now - pl.last <= HOLD_GAP) { pl.repeats++; pl.last = now; }
-    else { pl.release = true; pl.last = now; }
-  };
   /** A tap (`hit`) or long press (`interact`) on a target. `live` is false inside a read-only before-event. */
   const tap = (zone: any, player: any, kind: 'hit' | 'interact', live: boolean): void => {
     const z = zones.get(zone.id);
@@ -981,7 +977,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       press(game, z.role);
       if (live) flipNow(game, z.role);
       else { try { system.run(() => flipNow(game, z.role as 'left' | 'right')); } catch {} }
-    } else if (z.role === 'plunger') plungerTouch(game);
+    }
   };
   /** The hotbar slot a seated player is parked on when it is free; a tap on a slot left / right of the parked one is that flipper. */
   const PARK_SLOT = 4;
@@ -1089,6 +1085,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       game.seatTries = 0; game.seatAt = -99; game.seated = false; game.aim = undefined;
       game.tapUntil = { left: -1, right: -1 }; game.taps = { left: 0, right: 0, plunger: 0 };
       game.plunger = { grabbed: false, since: 0, last: -99, repeats: 0, release: false, pull: 0, stick: 0 };
+      game.drag = undefined;
       game.view = tune.view; game.firstPerson = false;
       if (game.view === 'free') {
         try { rider.camera.setCamera('minecraft:free', { location: { ...view.eye }, facingLocation: view.look, easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
@@ -1175,8 +1172,11 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         let ry = NaN;
         try { ry = Number(rider.getRotation().y); } catch {}
         game.aimError = Number.isFinite(ry) ? Math.abs(wrapDeg(view.yaw - ry)) : NaN;
-        if (tune.camlock && game.aim && Number.isFinite(ry) && game.aimError > 5 && now % 5 === 0) {
-          try { rider.setRotation({ x: game.pitch, y: game.aim.yaw }); } catch {}
+        if (game.aim && Number.isFinite(ry) && game.aimError > 5 && now % 5 === 0) {
+          // Yaw only: while the drag pull owns the pitch, keep it.
+          let rx = game.pitch;
+          try { if (!game.camlock) rx = Number(rider.getRotation().x); } catch {}
+          try { rider.setRotation({ x: rx, y: game.aim.yaw }); } catch {}
         }
         // Hotbar taps: a slot left of the parked one is the left flipper, right of it the right.
         const park = Number.isInteger(game.park) ? game.park : PARK_SLOT;
@@ -1188,10 +1188,13 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           flipNow(game, side);
           try { rider.selectedSlotIndex = park; } catch {}
         }
-        // Head turning: locked while seated, unless a measurement unlocked it.
-        if (game.camlock !== tune.camlock) {
-          game.camlock = tune.camlock;
-          try { rider.inputPermissions.setPermissionCategory(1, !tune.camlock); } catch {}
+        // Head turning: locked in play (a drag must not move the pick rays);
+        // unlocked while a ball waits, so a drag down pulls the plunger.
+        const wantLock = tune.camlock && !(tune.dragpull && game.sim.state.phase === 'ready');
+        if (game.camlock !== wantLock) {
+          game.camlock = wantLock;
+          try { rider.inputPermissions.setPermissionCategory(1, !wantLock); } catch {}
+          if (tune.log) { try { console.warn(`[pinball] head turning ${wantLock ? 'locked' : 'unlocked'} at tick ${now}`); } catch {} }
         }
         // What the device reports while a finger is down or dragging ({"log":1}).
         if (tune.log) {
@@ -1291,16 +1294,37 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         // its stroke a tick (half a second from rest to full), so the pull a
         // release fires with is where the plunger actually got to.
         pl.stick = stickPull > pl.stick ? Math.min(stickPull, pl.stick + 0.1) : stickPull > 0 ? stickPull : 0;
-        if (pl.grabbed) {
-          pl.pull = Math.min(1, (now - pl.since) / PULL_TICKS);
-          // A held finger that stopped repeating has been lifted.
-          if (pl.repeats > 0 && now - pl.last > HOLD_GAP) pl.release = true;
+        // The drag pull (see DRAG_FULL_DEG).
+        pl.pull = 0;
+        if (tune.dragpull && game.seated && !game.camlock) {
+          let px = NaN;
+          try { px = Number(rider.getRotation().x); } catch {}
+          if (Number.isFinite(px)) {
+            const d = game.drag ??= { base: px, last: px, still: 0, pull: 0 };
+            const moving = Math.abs(px - d.last) > DRAG_MOVE_DEG;
+            d.still = moving ? 0 : d.still + 1;
+            d.last = px;
+            // Dragging up (pitch below the start) only moves the start.
+            if (px < d.base) d.base = px;
+            d.pull = Math.min(1, Math.max(0, (px - d.base) / DRAG_FULL_DEG));
+            if (d.pull > 0 && d.still >= DRAG_RELEASE) {
+              if (tune.log) { try { console.warn(`[pinball] drag release at pull ${d.pull.toFixed(2)} (pitch ${d.base.toFixed(1)} -> ${px.toFixed(1)}) tick ${now}`); } catch {} }
+              d.fire = true;
+            }
+            pl.pull = d.fire ? 0 : d.pull;
+          }
         }
-        if (pl.release) { pl.grabbed = false; pl.release = false; pl.repeats = 0; pl.pull = 0; }
       } else { pl.grabbed = false; pl.release = false; pl.pull = 0; pl.stick = 0; }
     }
-    const pullNow = Math.max(pl.grabbed ? pl.pull : 0, pl.stick);
+    const pullNow = Math.max(pl.pull, pl.stick);
     const events = game.sim.step({ left, right, launch: false, pull: pullNow }, 0.05);
+    // After a drag fired (or the ball launched any other way), the next drag
+    // starts from wherever the head now points; the pitch is put back to the
+    // seated one so repeated pulls do not tip the view ever further down.
+    if (game.drag?.fire || (game.drag && game.sim.state.phase !== 'ready')) {
+      try { rider?.setRotation({ x: game.pitch, y: game.aim?.yaw ?? 0 }); } catch {}
+      game.drag = undefined;
+    }
     st = game.sim.state;
     const inPlay = st.phase === 'play';
 
@@ -1415,8 +1439,8 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       if (st.phase === 'over') line = `${note}§eGAME OVER§r ${fmt(st.score)} (best ${fmt(game.best)}) - tap a flipper for a new game`;
       else if (st.phase === 'ready') {
         line = pullNow > 0
-          ? `${note}§bBall ${st.ball}/${st.balls}§r plunger ${bar(pullNow)} - ${pl.grabbed ? 'tap again to let go' : 'let the stick go'}`
-          : `${note}§bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} - tap the yellow box to pull the plunger`;
+          ? `${note}§bBall ${st.ball}/${st.balls}§r plunger ${bar(pullNow)} - let go to fire`
+          : `${note}§bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} - drag down to pull the plunger, let go to fire`;
       } else line = `${note}${held} §bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} (best ${fmt(game.best)})`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }
