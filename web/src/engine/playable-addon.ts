@@ -1953,11 +1953,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // Tap boxes that follow each part's own shape, kept off each other
             // and off the seats before anything is compiled (bedrock-interactives.ts).
             const ixFrame = options.interactives?.frame;
-            const ixHits = (options.interactives?.items ?? []).map(it => ({ origin: sceneGridPoint(ixFrame!, it.anchorLdu), hit: interactiveHitboxes(it, p => sceneGridPoint(ixFrame!, p)) }));
-            const separated = separateHitboxes(ixHits, (options.seats ?? []).map(s => [s.x, s.y, s.z]));
+            // The pipeline hands them in already separated (it.hit); a caller that did not gets them shaped and separated here.
+            const ixHits = (options.interactives?.items ?? []).map(it => ({ origin: sceneGridPoint(ixFrame!, it.anchorLdu), hit: it.hit ?? interactiveHitboxes(it, p => sceneGridPoint(ixFrame!, p)) }));
+            const separated = (options.interactives?.items ?? []).every(it => it.hit) ? { shrunk: 0, dropped: 0 } : separateHitboxes(ixHits, (options.seats ?? []).map(s => [s.x, s.y, s.z]));
             if (separated.shrunk || separated.dropped) warnings.push(`${label}: ${separated.shrunk} tap box shrink step${separated.shrunk === 1 ? '' : 's'} and ${separated.dropped} dropped box${separated.dropped === 1 ? '' : 'es'} keep the moving parts' tap boxes off each other and off the seats.`);
             for (const [ixIndex, it] of (options.interactives?.items ?? []).entries()) {
-                const hit = ixHits[ixIndex]!.hit;
+                // A part separation emptied (a caller that did not filter them out, as the pipeline does) keeps its own boxes rather than none.
+                const hit = ixHits[ixIndex]!.hit.closed.length && ixHits[ixIndex]!.hit.open.length ? ixHits[ixIndex]!.hit : interactiveHitboxes(it, p => sceneGridPoint(ixFrame!, p));
                 const noun = interactiveNoun(it);
                 const n = (ixCounts.get(noun) ?? 0) + 1;
                 ixCounts.set(noun, n);

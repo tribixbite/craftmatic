@@ -230,6 +230,8 @@ export interface SceneInteractive {
   openingLdu?: { width: number; height: number };
   /** How far the leaf's width axis is turned off the nearest grid axis, degrees (a 45-degree bank door stays a working door). */
   offGridDeg: number;
+  /** Its tap boxes, when the caller has already shaped and separated them (`interactiveHitboxes` + `separateHitboxes`). */
+  hit?: InteractiveHitboxes;
   /** Degrees each sign of the swing was obstructed in the sweep (samples inside other parts), for diagnostics. */
   sweep?: { chosen: number; other: number };
 }
@@ -892,7 +894,9 @@ const SHRINK = 0.8, SHRINK_MIN = 0.08;
  * A box that overlaps a seat's box, or another part's box in either of their
  * states, is shrunk about its own centre (x 0.8 per round, footprint and
  * height) until it does not; one that still does at `SHRINK_MIN` is dropped,
- * unless it is the part's last box. Returns how many boxes changed.
+ * even the part's last: a part left with no boxes in either state cannot keep
+ * a tap to itself (a turntable under a seat, two coincident rotors) and the
+ * caller leaves it static. Returns how many boxes changed.
  */
 export function separateHitboxes(parts: Array<{ origin: Vec3; hit: InteractiveHitboxes }>, seats: ReadonlyArray<readonly number[]> = []): { shrunk: number; dropped: number } {
   let shrunk = 0, dropped = 0;
@@ -908,8 +912,7 @@ export function separateHitboxes(parts: Array<{ origin: Vec3; hit: InteractiveHi
         if (Math.min(b.width, b.height) * SHRINK >= SHRINK_MIN) {
           list[k] = { ...b, width: r3(b.width * SHRINK), height: r3(b.height * SHRINK) };
           shrunk++;
-        } else if (list.length > 1) { list.splice(k, 1); dropped++; }
-        else return;
+        } else { list.splice(k, 1); dropped++; }
         changed = true;
       }
     });

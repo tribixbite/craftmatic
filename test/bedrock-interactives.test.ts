@@ -590,6 +590,15 @@ describe('tap boxes (minecraft:custom_hit_test)', () => {
     for (const x of boxes[0]!) for (const y of boxes[1]!) expect(hitBoxesOverlap(x, y)).toBe(false);
     for (const list of boxes) for (const x of list) expect(hitBoxesOverlap(x, seatHitBox(seat))).toBe(false);
   });
+  it('empties one of two coincident parts (it stays static) rather than let them share a tap, and a part on a seat', () => {
+    const a = leafAt(3.25, 1.5, 5.5), b = leafAt(3.25, 1.5, 5.5);
+    const parts = [a, b].map(it => ({ origin: toModel(it.anchorLdu), hit: interactiveHitboxes(it, toModel) }));
+    separateHitboxes(parts);
+    expect(parts.filter(p => p.hit.closed.length && p.hit.open.length)).toHaveLength(1);
+    const c = { origin: toModel(a.anchorLdu), hit: interactiveHitboxes(a, toModel) };
+    separateHitboxes([c], [[4, 1, 5.5]]);
+    for (const x of [...c.hit.closed, ...c.hit.open]) expect(hitBoxesOverlap(worldHitBox(c.origin, x), seatHitBox([4, 1, 5.5]))).toBe(false);
+  });
   it('names a barred door a gate and a short leaf a cupboard', () => {
     expect(interactiveNoun({ kind: 'door', description: 'Door 1 x 4 x 6 Barred' })).toBe('Gate');
     expect(interactiveNoun({ kind: 'door', description: 'Door  1 x  4 x  6 with 4 Panes and Stud Handle' })).toBe('Door');

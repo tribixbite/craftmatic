@@ -472,8 +472,20 @@ export async function runSchemPipeline(
             // turnable becomes its own hinged entity of the exact LEGO parts,
             // at any angle to the grid (the bank's 45-degree doors included);
             // the vanilla-door path below is the coloured-block export's.
-            const { discoverInteractives } = await import('./bedrock-interactives.js');
+            const { discoverInteractives, interactiveHitboxes, separateHitboxes } = await import('./bedrock-interactives.js');
             const found = discoverInteractives(sceneBricks, scene.meshes, { exclude: movable });
+            // Each part's tap boxes, kept off the seats and off each other; a
+            // part that cannot keep a box to itself (a turntable under a seat,
+            // two coincident rotors) stays static in the shell.
+            const hits = found.items.map(it => ({ origin: sceneGridPoint(frame, it.anchorLdu), hit: interactiveHitboxes(it, p => sceneGridPoint(frame, p)) }));
+            separateHitboxes(hits, seats.map(s => [s.x, s.y, s.z]));
+            const keep = hits.map(h => h.hit.closed.length > 0 && h.hit.open.length > 0);
+            const tappable = found.items.map((it, k) => ({ ...it, hit: hits[k]!.hit })).filter((_, k) => keep[k]);
+            if (tappable.length < found.items.length) {
+              const left = found.items.filter((_, k) => !keep[k]);
+              warnings.push(`${left.length} moving part${left.length === 1 ? ' stays' : 's stay'} static: ${left.map(it => `${it.kind} ${it.part}`).join(', ')} cannot keep a tap box clear of a seat or another part.`);
+            }
+            found.items = tappable;
             if (found.items.length) {
               interactives = { items: found.items, frame };
               for (const it of found.items) for (const b of it.bricks) doorLeaves.add(b);
