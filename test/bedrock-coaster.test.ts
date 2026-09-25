@@ -2234,6 +2234,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('loop mode (the default) sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
+    const ANIM_LAG = 3;
     expect(COASTER_RIDER_VIEW.mode).toBe('loop');
     class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
     (globalThis as any).LinearSpline = Spline;
@@ -2274,8 +2275,10 @@ describe('the rider camera follows the track', () => {
           const k = Math.round(key.timeSeconds / 0.05);
           const view = rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z });
           expect(Math.abs(key.rotation.x)).toBeLessThanOrEqual(90 + 1e-9);
-          const arc = distances[play.tick + k - 1 + 1] ?? distances[play.tick + k];
-          const before = distances[play.tick + k - 1]!;
+          // Keyframe k shows the ride as it was ANIM_LAG ticks earlier: the
+          // client draws the cars that far behind the server (measured on the Pixel).
+          const arc = distances[play.tick + k - ANIM_LAG];
+          const before = distances[play.tick + k - ANIM_LAG - 1]!;
           let step = arc! - before; if (Math.abs(step) > route.path.length / 2) step -= Math.sign(step) * route.path.length;
           if (k > 0 && Math.abs(step) > 1e-6) expect(angleDeg(view.d, routeChord(route.path, arc!, wheelbase).map(v => v * Math.sign(step)))).toBeLessThan(1);
           if (view.u[1] < -0.9) upsideDown++;
