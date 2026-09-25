@@ -98,6 +98,8 @@ if (cfg) {
     const spots = (audit?.spots ?? []).filter(sp => sp.ok);
     if (!actor || !spots.length) { console.log(`  ${it.label}: ${actor ? 'no standing spot the tap audit accepted' : 'no actor'}; not tested`); return; }
     const d2 = (sp: { at: number[] }): number => (sp.at[0]! - actor.x) ** 2 + (sp.at[2]! - actor.z) ** 2 + (sp.at[1]! - actor.y) ** 2;
+    // TODO: pick a spot the tap audit also accepts for the OPEN tap boxes: from the closed-state
+    // spot, 71040's Door 1 swings behind a wall and the line-of-sight filter refuses the closing hit.
     // Not standing IN the part: a doorway will not close on a player in its leaf (the runtime's
     // occupancy test), and the nearest accepted spot was often right on the leaf (Pixel 2026-09-25).
     const clear = spots.filter(sp => Math.hypot(sp.at[0]! - actor.x, sp.at[2]! - actor.z) >= 1.2);

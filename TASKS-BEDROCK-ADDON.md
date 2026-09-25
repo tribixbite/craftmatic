@@ -266,9 +266,11 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
   a tap within 3 blocks; 0 unhandled candidates. Output:
   `output/interactivity-0924/audit-7867/`, `favorites-ix-7867.{md,json}`,
   `audit-table-final.md`.
-- GameTest (parts toggled by a hit from an audited spot, seats mounted, doors
-  walked, wide models in x-windows) on the Pixel: `output/gametest/ix-7867/`
-  (`device-summary.json`, `logs/<set>.log`).
+- GameTest on the Pixel (cmgametest, 37 testable sets): doorways 61/63 as
+  the offline walk predicts, parts+seats 269/270, pinball pass
+  (`output/gametest/ix-7867/`, re-run of 7 sets on `4ee514b5` in `ix-4ee5/`).
+  Fixed from it: lids/windows/cupboards never closed past a player; the three
+  tests now queue their placements.
 - Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
 
 Open:
@@ -277,6 +279,11 @@ Open:
   `custom_hit_test` pivot as the box centre, root-bone scale at a non-100 %
   size, occupant step-out, threshold treads, the SLIDE direction of drawers
   and roller doors (derived), lids' swing.
+- [ ] GameTest leftovers: 71040 Door 1's closing hit is refused (the test's
+  spot sees only the closed leaf: TODO in `_gametest_pack.ts`); 41395 Door 1
+  offline SEALED but walkable on the device; 42670 Door 4 walker falls off
+  the approach (look at it). Figures (minifig-AI stage): 71040 none move,
+  31141 2/6, 910049 one ends in a wall.
 - [ ] Brick-built doors and gates (80049, 910004, 910047, 10354, 42639,
   910049, 41395): need a hinge-joint detector (clip/hinge pair + the slab on
   its free side). Mechanisms (cranes, winches, lifts, drawbridges): no rule.
