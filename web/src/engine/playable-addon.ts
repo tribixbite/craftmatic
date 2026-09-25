@@ -1580,9 +1580,15 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
     return false;
   };
+  const cameraSource = { yaw: 'rider' as 'rider' | 'vehicle' };
   const chase = (player: any, vehicle: any, cfg: any): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
+    // Tuning hook `/scriptevent craftmatic:vehicle_camera vehicle|rider`: a ground
+    // vehicle's chase camera behind the VEHICLE's heading instead of the rider's
+    // look. TODO: pick the default from the device A/B (a real car's yaw swung
+    // 0 -> 69 -> -125 -> -28 in three seconds of straight stick, 2026-09-25).
+    if (!cfg.scripted && cameraSource.yaw === 'vehicle') { try { yaw = vehicle.getRotation().y; } catch {} }
     if (cfg.scripted) {
       // A scripted aircraft: the view is the AIRCRAFT's heading and nose, not the rider's look.
       try { yaw = vehicle.getRotation().y; } catch {}
@@ -1670,6 +1676,13 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     }
   }, 1);
   try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => tracked.delete(ev.playerId)); } catch {}
+  try {
+    system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.id !== 'craftmatic:vehicle_camera') return;
+      cameraSource.yaw = String(ev.message || '').trim() === 'vehicle' ? 'vehicle' : 'rider';
+      console.warn(`CMVT ${JSON.stringify({ cameraYaw: cameraSource.yaw })}`);
+    }, { namespaces: ['craftmatic'] });
+  } catch {}
 }
 
 const vehicleCameraScript = (config: { vehicles: VehicleCameraConfig[]; pitchProperty?: string }) =>
