@@ -326,7 +326,9 @@ export function verdictOf(open: DoorwayWalkResult, closed: DoorwayWalkResult, ok
   if (closed.outcome === 'passed') return 'FAIL';
   if (open.outcome === 'sealed') return okAt100 && open.sizePct > 100 ? 'STEP' : 'SEALED';
   if (open.outcome === 'no-approach' || closed.outcome === 'no-approach') return 'NO-APPROACH';
-  if (open.passableAtSize) return open.outcome === 'passed' ? (open.oneWay ? 'ONE-WAY' : 'OK') : 'FAIL';
+  // A one-way doorway walked from its only approach and not through is sealed, not failed:
+  // there is no second side to try (71043's microscale landing door at 150 percent).
+  if (open.passableAtSize) return open.outcome === 'passed' ? (open.oneWay ? 'ONE-WAY' : 'OK') : open.oneWay ? 'SEALED' : 'FAIL';
   return open.outcome === 'passed' ? 'FAIL' : 'SMALL';
 }
 
