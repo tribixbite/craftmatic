@@ -197,6 +197,7 @@ export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: stri
   const width = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));
   const height = Math.max(1, Math.round((rect.y1 - rect.y0) * FACE_PX_PER_LDU));
   const rgba = new Uint8Array(width * height * 4);
+  const skin = photoSkinColour(art);
   for (let y = 0; y < height; y++) {
     const sy = Math.min(art.height - 1, Math.floor(((y + 0.5) / height) * art.height));
     for (let x = 0; x < width; x++) {
@@ -204,10 +205,60 @@ export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: stri
       const s = (sy * art.width + sx) * 4, o = (y * width + x) * 4;
       // Alpha-tested: the art's own alpha decides ink, at the half-way mark.
       if (art.rgba[s + 3]! < 128) continue;
+      // The photo's own SKIN is not ink: the head's swatch shows through there.
+      if (skin && Math.hypot(art.rgba[s]! - skin[0], art.rgba[s + 1]! - skin[1], art.rgba[s + 2]! - skin[2]) < PHOTO_SKIN_TOLERANCE) continue;
       rgba[o] = art.rgba[s]!; rgba[o + 1] = art.rgba[s + 1]!; rgba[o + 2] = art.rgba[s + 2]!; rgba[o + 3] = 255;
     }
   }
   return { width, height, rgba, rect };
+}
+
+/**
+ * RGB distance within which a face-art texel counts as the photo's skin and is
+ * dropped. The art is a cut-out of a BrickLink photograph: its skin is lit,
+ * shaded and never the head's swatch colour, and its mask is ragged, so it
+ * used to draw a mottle of photo-skin and swatch-skin across the face (the
+ * user's "horrific facial features", Pixel 2026-09-25). 56 keeps the ink -
+ * eyebrows, pupils, lips, freckles, the white eye highlights - and drops the
+ * cheek shading measured on 76457's seeded art.
+ */
+export const PHOTO_SKIN_TOLERANCE = 56;
+
+/** Fewer opaque texels than this is drawn art (a glyph), not a photo: kept whole. */
+const PHOTO_MIN_TEXELS = 64;
+
+/**
+ * The photo's skin: the most common colour of the opaque texels (quantised to
+ * 16 levels a channel), averaged over that bucket. Null when under a quarter
+ * of the opaque texels share one bucket - art that is not a face on skin (a
+ * sweet, a mask), which is then kept whole.
+ */
+export function photoSkinColour(art: FaceArt): [number, number, number] | null {
+  const buckets = new Map<number, { n: number; r: number; g: number; b: number }>();
+  let opaque = 0;
+  for (let i = 0; i < art.width * art.height; i++) {
+    if (art.rgba[i * 4 + 3]! < 128) continue;
+    opaque++;
+    const r = art.rgba[i * 4]!, g = art.rgba[i * 4 + 1]!, b = art.rgba[i * 4 + 2]!;
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+    const e = buckets.get(key) ?? { n: 0, r: 0, g: 0, b: 0 };
+    e.n++; e.r += r; e.g += g; e.b += b;
+    buckets.set(key, e);
+  }
+  let best: { n: number; r: number; g: number; b: number } | null = null;
+  for (const e of buckets.values()) if (!best || e.n > best.n) best = e;
+  if (!best) return null;
+  // Widen the bucket to its colour neighbourhood: shading spreads skin over several buckets.
+  let n = 0, r = 0, g = 0, b = 0;
+  const c = [best.r / best.n, best.g / best.n, best.b / best.n];
+  for (let i = 0; i < art.width * art.height; i++) {
+    if (art.rgba[i * 4 + 3]! < 128) continue;
+    const pr = art.rgba[i * 4]!, pg = art.rgba[i * 4 + 1]!, pb = art.rgba[i * 4 + 2]!;
+    if (Math.hypot(pr - c[0]!, pg - c[1]!, pb - c[2]!) < PHOTO_SKIN_TOLERANCE) { n++; r += pr; g += pg; b += pb; }
+  }
+  // A photo: enough texels to have shading, skin a real share of it, and some ink besides.
+  if (opaque < PHOTO_MIN_TEXELS || n < opaque * 0.25 || n >= opaque) return null;
+  return [r / n, g / n, b / n];
 }
 
 // ─── Orienting a face onto a Bedrock cube face ───────────────────────────────

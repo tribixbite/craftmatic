@@ -367,6 +367,9 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   if (/^Minifig Head\b/i.test(d) || /^(3626|3625|3624)(?![0-9])/.test(id) || /_head$/.test(cleanId(part))) return 'head';
   // `Headgear` is BrickLink's word (`Minifigure, Headgear Hat …`), folded in by `normaliseFigureDescription`.
   if (/^Minifig (Hair|Hat|Headgear|Helmet|Cap|Hood|Crown|Mask|Bandana|Beard|Visor|Headdress|Turban|Wig|Tiara)\b/i.test(d)) return 'headwear';
+  // BrickLink's generic hair name (`MINI WIG NO. 13`, `MINI WIG, NO. 366`) is a
+  // minifig's hair on a minifig and a doll's on a doll (`classifyMiniDollPart`).
+  if (/^Mini ?Wig\b/i.test(d)) return 'headwear';
   if (/^(3901|3624|3833|2446|30370|4485|4498|2447|3878|30367|30369|59363|85975|93553|62810)(?![0-9])/.test(id)) return 'headwear';
   if (/^Minifig (Cape|Backpack|Airtank|Epaulette|Armou?r|Neckwear|Wings?|Skirt|Tail|Jetpack|Quiver|Scabbard)\b/i.test(d)) return 'back';
   if (/^(3838|2524|4524|50231|2526|30375)(?![0-9])/.test(id)) return 'back';
@@ -425,7 +428,9 @@ const MINIDOLL_PATTERNS: ReadonlyArray<readonly [MiniDollSlot, RegExp]> = [
   ['doll_hips', /^Figure Friends Hips\b/i],
   ['doll_leg', /^Figure Friends Legs?\b/i],
   ['doll_arm', /^Figure Friends ((Female|Male) )?(Left|Right) Arm\b/i],
-  ['doll_hair', /^(Figure Friends Hair\b(?! ?(Brush|Comb|Dryer|Decoration))|Mini ?Doll,? (Hair|Wig)\b)/i],
+  // BrickLink's own copies (`bl_2645.dat`) name a doll's hair `MINI WIG, NO. 366`:
+  // unnamed here it was `held` and rode in the doll's hand (41732, 42703).
+  ['doll_hair', /^(Figure Friends Hair\b(?! ?(Brush|Comb|Dryer|Decoration))|Mini ?(Doll,? )?(Hair|Wig)\b)/i],
 ];
 
 /**
@@ -499,7 +504,8 @@ export function classifyFigurePart(system: FigureSystem, part: string, descripti
     if (slot === null) return null;
     return slot === 'headwear' || slot === 'held' || slot === 'back' ? slot : null;
   }
-  if (doll !== null) return null;
+  // A `MINI WIG` is hair on either system; every other doll mould is foreign to a minifig.
+  if (doll !== null && !(doll === 'doll_hair' && /^Mini ?Wig\b/i.test(stripAlias(description)))) return null;
   return classifyMinifigPart(part, description);
 }
 
@@ -542,6 +548,15 @@ function consensusOrigin(canon: SystemCanon, source: SourcePart[]): { offset: Ve
 }
 
 /** The torso mould synthesised for a figure whose source has none (official library parts). */
+/**
+ * Plain mini-doll moulds for a body part the source lacks (`assembleMinifig`
+ * supplies them the way `MINIFIG_DEFAULT_PARTS` completes a minifig): `92248`
+ * Figure Friends Hips, `92251` Legs with Cropped Trousers, `92245` Female
+ * Right Arm, `92244` Female Left Arm - each authored at its doll joint, so the
+ * `MINIDOLL_CANON` offsets place them.
+ */
+export const MINIDOLL_DEFAULT_PARTS = { hips: '92248', legs: '92251', arm_right: '92245', arm_left: '92244' } as const;
+
 const DEFAULT_TORSO: Record<FigureSystem, string> = { minifig: MINIFIG_DEFAULT_PARTS.torso, minidoll: '92241', bigfig: MINIFIG_DEFAULT_PARTS.torso };
 
 /**
@@ -681,12 +696,19 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
     }
   } else {
     // A doll's hips and one-piece legs, or a hips-and-skirt composite, at the
-    // doll canon; a big-fig body carries its legs. Nothing is synthesised: the
-    // rig has no default doll or big-fig moulds.
+    // doll canon; a big-fig body carries its legs.
     if (hipsSrc) placeCanon(hipsSrc, 'hips');
     if (compositeSrc) placeCanon(compositeSrc, 'hips_legs');
     if (legsSrc) placeCanon(legsSrc, 'legs');
     for (const leg of [legR, legL]) if (leg) placeCanon(leg, leg.slot);
+    // A doll whose source lost its legs (41732: three of seven dolls are hips
+    // only - their leg element has no LDraw mapping) walked as a torso on a
+    // belt. Give it the plain doll moulds in the colours it gives away.
+    if (system === 'minidoll' && !compositeSrc && !legsSrc && !legR && !legL) {
+      if (!hipsSrc) { synthesized.push('hips'); push(placeAt(MINIDOLL_DEFAULT_PARTS.hips, hipsColor, MINIDOLL_CANON.hips!.position, MINIDOLL_CANON.hips!.rotation), 'hips'); }
+      synthesized.push('legs');
+      push(placeAt(MINIDOLL_DEFAULT_PARTS.legs, legColor, MINIDOLL_CANON.legs!.position, MINIDOLL_CANON.legs!.rotation), 'legs');
+    }
   }
   // A torso "with Integral Arms" or wing arms has no arm sockets: no arms, no hands.
   const torsoDesc = stripAlias(desc(torso));
@@ -697,6 +719,8 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
     if (integralArms && !arm) continue;
     if (arm) placeCanon(arm, armSlot);
     else if (system === 'minifig') { synthesized.push(`${side} arm`); push(placeAt(MINIFIG_DEFAULT_PARTS[armSlot], torsoColor, MINIFIG_CANON[armSlot].position, MINIFIG_CANON[armSlot].rotation), armSlot); }
+    // A doll with ONE arm may be built that way (42703's stump); one with none lost both.
+    else if (system === 'minidoll' && !first('arm_right') && !first('arm_left')) { synthesized.push(`${side} arm`); push(placeAt(MINIDOLL_DEFAULT_PARTS[armSlot], torsoColor, MINIDOLL_CANON[armSlot]!.position, MINIDOLL_CANON[armSlot]!.rotation), armSlot); }
     if (hand) {
       if (system === 'bigfig' && arm) {
         // A separate big-fig hand keeps its source offset from its arm, in the arm's frame.

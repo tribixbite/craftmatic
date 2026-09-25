@@ -68,6 +68,7 @@
 
 import type { CompiledMesh } from './ldraw-entity-compiler.js';
 import type { LdrawEntityMaterial } from './ldraw-entity-materials.js';
+import { apply, pivotRotation } from './bedrock-geometry-faces.js';
 
 /** Model units in one block, the unit a geometry cube's origin/size is in. */
 export const UNITS_PER_BLOCK = 16;
@@ -148,16 +149,16 @@ export interface BuildLodHullOptions {
   chunkCubes?: number;
 }
 
-const DEG = Math.PI / 180;
 
-/** Rotate a point by an XYZ Euler triple in degrees, the order a Bedrock geometry applies. */
+/**
+ * Rotate a point (JSON coordinates, relative to the pivot) by a geometry's
+ * rotation triple in degrees, with the ONE convention `pivotRotation` defines
+ * (bedrock-geometry-faces.ts). This used to apply `Rz(rz)·Ry(ry)·Rx(rx)` to the
+ * JSON angles, which ignores the X mirror the compiler writes them under: every
+ * part turned about X or Z landed on the wrong side of its pivot in the hull.
+ */
 function rotate(p: Vec3, r: readonly number[]): Vec3 {
-  const rx = (r[0] ?? 0) * DEG, ry = (r[1] ?? 0) * DEG, rz = (r[2] ?? 0) * DEG;
-  let [x, y, z] = p;
-  let t = y * Math.cos(rx) - z * Math.sin(rx); z = y * Math.sin(rx) + z * Math.cos(rx); y = t;
-  t = x * Math.cos(ry) + z * Math.sin(ry); z = -x * Math.sin(ry) + z * Math.cos(ry); x = t;
-  t = x * Math.cos(rz) - y * Math.sin(rz); y = x * Math.sin(rz) + y * Math.cos(rz); x = t;
-  return [x, y, z];
+  return apply(pivotRotation([r[0] ?? 0, r[1] ?? 0, r[2] ?? 0], [0, 0, 0]), p);
 }
 
 interface Aabb { min: Vec3; max: Vec3 }
