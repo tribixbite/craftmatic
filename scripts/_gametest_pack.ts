@@ -24,7 +24,7 @@ import {
 import { auditPackTaps } from '../test/_ix-tap-audit.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
-import { PROP_BALL_U, PROP_FLIP, PROP_PULL } from '../web/src/engine/bedrock-pinball.ts';
+import { PROP_BALL_U, PROP_FLIP, PROP_PRESS, PROP_PULL } from '../web/src/engine/bedrock-pinball.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
@@ -122,13 +122,14 @@ const pinballName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/pin
 let pinball: GametestPlan['pinball'];
 if (pinballName) {
   const js = text(pinballName);
-  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[]; plungerButtonType?: string; plungerType?: string; ballType?: string } | null;
+  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[]; plungerButtonType?: string; plungerType?: string; ballType?: string; cabinetButtonTypes?: { left?: string; right?: string } } | null;
   const park = /\bPARK_SLOT = (\d+)/.exec(js)?.[1];
   const tag = /\bSEATED_TAG = ["']([^"']+)["']/.exec(js)?.[1];
   if (!cfg || park === undefined || !tag) throw new Error(`${pinballName}: CONFIG, PARK_SLOT or SEATED_TAG not found; the pinball runtime changed shape`);
   pinball = {
     consoleType: cfg.consoleType, buttonType: cfg.buttonType, flipperTypes: cfg.flipperTypes, flipProperty: PROP_FLIP, seatedTag: tag, parkSlot: Number(park),
     plungerButtonType: cfg.plungerButtonType, plungerType: cfg.plungerType, pullProperty: PROP_PULL, ballType: cfg.ballType, ballUProperty: PROP_BALL_U,
+    cabinetButtonTypes: cfg.cabinetButtonTypes, pressProperty: PROP_PRESS,
   };
 }
 

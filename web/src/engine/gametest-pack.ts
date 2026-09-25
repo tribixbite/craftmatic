@@ -260,6 +260,9 @@ export interface GametestPinball {
   pullProperty?: string | undefined;
   ballType?: string | undefined;
   ballUProperty?: string | undefined;
+  /** The cabinet flipper buttons (pressed in while their flipper is up) and their press property. */
+  cabinetButtonTypes?: { left?: string | undefined; right?: string | undefined } | undefined;
+  pressProperty?: string | undefined;
 }
 
 // ─── The placement hook (test variant only) ────────────────────────────────
@@ -694,6 +697,13 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
     const flipAngles = (): unknown[] => flippers.map(f => { try { return f.getProperty(pb.flipProperty); } catch (err) { return `error: ${String(err)}`; } });
 
+    // A held item: something in the selected slot before sitting. The runtime
+    // must park the hotbar on an EMPTY slot (the free camera draws what the
+    // seated player holds; invisibility does not hide it).
+    const inv = (() => { try { return sim.getComponent('minecraft:inventory')?.container; } catch { return undefined; } })();
+    try { inv?.setItem(4, new mc.ItemStack('minecraft:stick', 1)); sim.selectedSlotIndex = 4; } catch (err) { row.giveError = String(err); }
+    const heldType = (): string => { try { return inv?.getItem(sim.selectedSlotIndex)?.typeId ?? 'none'; } catch (err) { return `error: ${String(err)}`; } };
+    row.heldBefore = heldType();
     // Seat: the interaction a phone tap-and-hold makes, then the component call as a fallback.
     sim.teleport(add(seat.location, { x: 0, y: 0, z: 1.2 }), { facingLocation: seat.location });
     await test.idle(4);
@@ -708,14 +718,19 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     }
     // The runtime tags a seated player and parks the hotbar; the seat lifts over several ticks.
     let t = 0;
-    for (; t < 200; t += 5) { if (sim.hasTag(pb.seatedTag) && sim.selectedSlotIndex === pb.parkSlot) break; await test.idle(5); }
+    for (; t < 200; t += 5) { if (sim.hasTag(pb.seatedTag) && sim.selectedSlotIndex !== 4) break; await test.idle(5); }
     row.seated = { tagged: sim.hasTag(pb.seatedTag), slot: sim.selectedSlotIndex, ticks: t };
     await test.idle(40);
+    const park = sim.selectedSlotIndex;
+    row.heldSeated = heldType();
+    const heldOk = row.heldBefore === 'minecraft:stick' && row.heldSeated === 'none';
     row.restAngles = flipAngles();
 
     const pulse = async (label: string, act: () => unknown): Promise<any> => {
       const rest = flipAngles();
       const out: any = { label, rest, returned: act(), samples: [] as unknown[] };
+      // The same tick as the tap: the runtime raises the flipper inside the event.
+      out.sameTick = flipAngles();
       for (let i = 0; i < 16; i++) { await test.idle(1); out.samples.push(flipAngles()); }
       out.slotAfter = sim.selectedSlotIndex;
       // Largest move of each flipper from rest over the 16 ticks.
@@ -723,13 +738,24 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       await test.idle(20);
       return out;
     };
-    row.left = await pulse('slot left', () => { sim.selectedSlotIndex = pb.parkSlot - 1; return sim.selectedSlotIndex; });
-    row.right = await pulse('slot right', () => { sim.selectedSlotIndex = pb.parkSlot + 1; return sim.selectedSlotIndex; });
+    row.left = park > 0 ? await pulse('slot left', () => { sim.selectedSlotIndex = park - 1; return sim.selectedSlotIndex; }) : undefined;
+    row.right = park < 8 ? await pulse('slot right', () => { sim.selectedSlotIndex = park + 1; return sim.selectedSlotIndex; }) : undefined;
     // Each flipper target: a hit must move exactly its own flipper.
     const targets = dim.getEntities({ type: pb.buttonType, location: sim.location, maxDistance: 12 });
     row.targetsFound = targets.length;
     row.targetHits = [];
-    for (const t of targets) row.targetHits.push((await pulse('target hit', () => sim.attackEntity(t))).maxMove);
+    const cabinet = [pb.cabinetButtonTypes?.left, pb.cabinetButtonTypes?.right].map(t => (t ? nearest(dim, t, centre, 40) : undefined));
+    row.cabinetButtonsFound = cabinet.map(b => !!b);
+    const pressOf = (): number[] => cabinet.map(b => { try { return Number(b?.getProperty(pb.pressProperty)); } catch { return NaN; } });
+    row.targetPress = [];
+    row.targetSameTick = [];
+    for (const t of targets) {
+      const r = await pulse('target hit', () => { const v = sim.attackEntity(t); row.targetPress.push(pressOf()); return v; });
+      row.targetHits.push(r.maxMove);
+      row.targetSameTick.push(r.sameTick);
+    }
+    // Each hit pressed exactly one cabinet button in.
+    const pressOk = !pb.cabinetButtonTypes || row.targetPress.filter((pr: number[]) => pr.filter(v => v > 0.5).length === 1).length === targets.length;
     const moved = (r: any, k: number): boolean => !!r && r.maxMove[k] > 5;
     const targetsOk = targets.length === 2 && [0, 1].every(k => row.targetHits.filter((mv: number[]) => mv[k]! > 5 && mv[1 - k]! <= 5).length === 1);
     // The plunger: hit its target (take hold), wait, hit again (let go); the
@@ -752,11 +778,13 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         plungerOk = maxPull > 0.3 && minU < -50;
       } else plungerOk = false;
     }
-    row.targetsOk = targetsOk; row.plungerOk = plungerOk;
-    row.pass = moved(row.left, 0) && moved(row.right, 1) && targetsOk && plungerOk;
+    row.targetsOk = targetsOk; row.plungerOk = plungerOk; row.heldOk = heldOk; row.pressOk = pressOk;
+    const slotsOk = (!row.left || moved(row.left, 0)) && (!row.right || moved(row.right, 1)) && (!!row.left || !!row.right);
+    try { inv?.setItem(4, undefined); } catch {}
+    row.pass = slotsOk && targetsOk && plungerOk && heldOk && pressOk;
     log('PINBALL', row);
     flush();
-    if (row.pass) test.succeed(); else test.fail(`pinball: slots ${moved(row.left, 0) && moved(row.right, 1)}, targets ${targetsOk}, plunger ${plungerOk}`);
+    if (row.pass) test.succeed(); else test.fail(`pinball: slots ${slotsOk}, targets ${targetsOk}, plunger ${plungerOk}, held ${heldOk}, press ${pressOk}`);
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
 
   /**
