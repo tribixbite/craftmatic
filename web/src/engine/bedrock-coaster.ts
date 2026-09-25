@@ -2139,10 +2139,13 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             arcs.push(arc);
             points.push(p.location);
             previous = riderView(p.nose, p.up, { yaw: 0, pitch: 0 }, previous, 'roll', 40);
-            rotations.push({ rotation: { x: previous.pitch, y: previous.yaw, z: previous.roll }, timeSeconds: k * seconds / steps });
+            // Keyframes must be MORE than 0.05 s apart: every second tick, and the last.
+            if (k % 2 === 0 || k === steps) rotations.push({ rotation: { x: previous.pitch, y: previous.yaw, z: previous.roll }, timeSeconds: k * seconds / steps });
           }
+          if (rotations.length > 2 && rotations[rotations.length - 1].timeSeconds - rotations[rotations.length - 2].timeSeconds <= 0.05) rotations.splice(rotations.length - 2, 1);
           const byIndex = words[5] === 'index';
-          for (let k = 0; k <= steps; k++) progress.push({ alpha: byIndex ? k / steps : arcs[k]! / arc, timeSeconds: k * seconds / steps });
+          for (let k = 0; k <= steps; k += 2) progress.push({ alpha: byIndex ? k / steps : arcs[k]! / arc, timeSeconds: k * seconds / steps });
+          if (progress[progress.length - 1].timeSeconds < seconds - 1e-9) progress.push({ alpha: 1, timeSeconds: seconds });
           source.camera.setCamera('minecraft:free', { location: points[0], rotation: { x: 0, y: yaw } });
           system.runTimeout(() => {
             try {
