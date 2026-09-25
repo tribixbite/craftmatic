@@ -2139,6 +2139,65 @@ describe('the rider camera follows the track', () => {
     expect(Math.max(...yaws) - Math.min(...yaws)).toBeGreaterThan(170);
   });
 
+  it('roll mode reproduces the view exactly: pitch within ±90, the rest carried by the roll', () => {
+    // Rebuild the view from (yaw, pitch, roll) with the measured sign (+roll rolls the view left).
+    const rebuild = (v: { yaw: number; pitch: number; roll: number }) => {
+      const y = v.yaw * Math.PI / 180, p = v.pitch * Math.PI / 180, r = v.roll * Math.PI / 180;
+      const d = [-Math.sin(y) * Math.cos(p), -Math.sin(p), Math.cos(y) * Math.cos(p)];
+      const u0 = [-Math.sin(y) * Math.sin(p), Math.cos(p), Math.cos(y) * Math.sin(p)], r0 = [-Math.cos(y), 0, -Math.sin(y)];
+      return { d, u: [0, 1, 2].map(k => Math.cos(r) * u0[k]! - Math.sin(r) * r0[k]!) };
+    };
+    let seed = 7;
+    const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 * 2 - 1; };
+    for (let k = 0; k < 500; k++) {
+      const nose = [random(), random(), random()], up = [random(), random(), random()];
+      const look = { yaw: random() * 70, pitch: random() * 50 };
+      const view = coasterRiderView(nose, up, look, null, 'roll', 40);
+      expect(Math.abs(view.pitch)).toBeLessThanOrEqual(90);
+      const { d, u } = rebuild(view);
+      expect(angleDeg(d, view.direction)).toBeLessThan(1e-4);
+      expect(angleDeg(u, view.up)).toBeLessThan(1e-4);
+    }
+    // Upside down at a loop's apex, looking back along the track: roll ±180.
+    const apex = coasterRiderView([0, 0, -1], [0, -1, 0], { yaw: 0, pitch: 0 }, null, 'roll', 40);
+    expect(Math.abs(Math.abs(apex.roll) - 180)).toBeLessThan(1e-6);
+    expect(apex.pitch).toBeCloseTo(0, 6);
+  });
+
+  it('roll mode drives the camera with one-tick spline animations that chain end to start', () => {
+    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
+    (globalThis as any).LinearSpline = Spline;
+    try {
+      const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'roll' } });
+      const { player } = cameraRider(h.entity);
+      (player.camera as any).playAnimation = vi.fn();
+      h.run(1); h.riders.push(player); h.run(400);
+      // The free camera is set once; everything after is an animation.
+      expect(player.camera.setCamera).toHaveBeenCalledTimes(1);
+      const plays = (player.camera as any).playAnimation.mock.calls as any[][];
+      expect(plays.length).toBe(399);
+      let rolledOver = 0;
+      for (let k = 0; k < plays.length; k++) {
+        const [spline, options] = plays[k]!;
+        expect(spline).toBeInstanceOf(Spline);
+        expect(spline.controlPoints).toHaveLength(2);
+        expect(options.totalTimeSeconds).toBeCloseTo(0.05, 9);
+        const [start, end] = options.animation.rotationKeyFrames;
+        expect(Math.abs(end.rotation.x)).toBeLessThanOrEqual(90);
+        if (Math.abs(Math.abs(((end.rotation.z % 360) + 540) % 360 - 180)) < 30) rolledOver++;
+        if (k > 0) {
+          // Each animation starts exactly where the last one ended, eye and rotation.
+          const previous = plays[k - 1]!;
+          expect(start.rotation).toEqual(previous[1].animation.rotationKeyFrames[1].rotation);
+          const moved = previous[1].animation.progressKeyFrames[1].alpha === 1;
+          if (moved && options.animation.progressKeyFrames[1].alpha === 1) expect(spline.controlPoints[0]).toEqual(previous[0].controlPoints[1]);
+        }
+      }
+      // Over the top the world is drawn upside down (roll near 180), not flipped round.
+      expect(rolledOver).toBeGreaterThan(5);
+    } finally { delete (globalThis as any).LinearSpline; }
+  });
+
   it('gives the player their own camera back, and their visibility, on dismount', () => {
     const h = rideHost(towerRoute());
     const { player } = cameraRider(h.entity);

@@ -335,8 +335,9 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     const coaster = extractJsonAfter(files.coasterScript, 'const CONFIG') as Record<string, unknown> | undefined;
     if (coaster) {
       const camera = coaster['camera'] as Record<string, unknown> | undefined;
-      if (camera && (camera['mode'] === 'over' || camera['mode'] === 'clamp' || camera['mode'] === 'off')) {
-        coasterCamera = { mode: camera['mode'], lookYaw: num(camera['lookYaw'], 70), lookPitch: num(camera['lookPitch'], 50), ease: num(camera['ease'], 0.1), maxTurn: num(camera['maxTurn'], 40) };
+      const mode = camera?.['mode'];
+      if (camera && (mode === 'roll' || mode === 'rollover' || mode === 'clamp' || mode === 'over' || mode === 'off')) {
+        coasterCamera = { mode, lookYaw: num(camera['lookYaw'], 70), lookPitch: num(camera['lookPitch'], 50), ease: num(camera['ease'], 0.1), maxTurn: num(camera['maxTurn'], 40), spline: num(camera['spline'], 0.05) };
       }
       for (const [type, t] of Object.entries((coaster['types'] as Record<string, { role?: string; riders?: number; wheelbase?: number; seat?: unknown }> | undefined) ?? {})) {
         if (!t?.role) continue;

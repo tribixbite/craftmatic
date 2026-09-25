@@ -355,7 +355,7 @@ export interface CoasterRuntimeConfig {
  *    the view axis, spread over a few ticks by `maxTurn`.
  *  - `off`: no camera; the player's own first person, as before.
  */
-export type CoasterRiderViewMode = 'over' | 'clamp' | 'off';
+export type CoasterRiderViewMode = 'roll' | 'rollover' | 'clamp' | 'over' | 'off';
 
 /** The camera constants the runtime reads from `config.camera`. */
 export interface CoasterRiderViewConfig {
@@ -364,8 +364,10 @@ export interface CoasterRiderViewConfig {
   lookYaw: number; lookPitch: number;
   /** Ease of each per-tick camera update, seconds (a tick is 0.05). */
   ease: number;
-  /** Most the camera's yaw may turn in one tick, degrees (only `clamp` ever needs it: the flip over the top). */
+  /** Most the camera's yaw may turn in one tick, degrees (`clamp` needs it for the flip over the top). */
   maxTurn: number;
+  /** Length of each tick's camera animation in the roll modes, seconds (one tick = 0.05). */
+  spline: number;
 }
 
 /**
@@ -377,7 +379,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40 };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.05 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -851,7 +853,7 @@ export interface CoasterRiderView { yaw: number; pitch: number; roll: number; di
  * Serialized into the pack like `coasterCarAttitude`: it may reference nothing
  * outside its own body.
  */
-export function coasterRiderView(nose: readonly number[], up: readonly number[], look: { yaw: number; pitch: number }, previous: { yaw: number; pitch: number } | null,
+export function coasterRiderView(nose: readonly number[], up: readonly number[], look: { yaw: number; pitch: number }, previous: { yaw: number; pitch: number; roll?: number } | null,
   mode: string, maxTurn: number): CoasterRiderView {
   const toRad = Math.PI / 180, toDeg = 180 / Math.PI;
   const nLength = Math.hypot(nose[0]!, nose[1]!, nose[2]!) || 1;
@@ -869,26 +871,39 @@ export function coasterRiderView(nose: readonly number[], up: readonly number[],
   const viewUp = [0, 1, 2].map(k => Math.sin(b) * heading[k]! + Math.cos(b) * u[k]!);
   const wrap = (angle: number) => ((angle % 360) + 540) % 360 - 180;
   const near = (angle: number, reference: number | undefined) => reference === undefined || !Number.isFinite(reference) ? angle : reference + wrap(angle - reference);
-  if (mode === 'clamp') {
+  // The roll that takes a camera at (yaw, pitch) with no roll to the view's
+  // own up, about the view direction. Positive rolls the view to its LEFT
+  // (right side up): measured on the Pixel, a spline keyframe rotation of
+  // {x: 0, y: 0, z: 90} put the ground on the LEFT of the screen.
+  const rollTo = (yawDeg: number, pitchDeg: number): number => {
+    const y = yawDeg * toRad, p = pitchDeg * toRad;
+    const r0 = [-Math.cos(y), 0, -Math.sin(y)];
+    const u0 = [-Math.sin(y) * Math.sin(p), Math.cos(p), Math.cos(y) * Math.sin(p)];
+    return Math.atan2(-(viewUp[0]! * r0[0]! + viewUp[2]! * r0[2]!), viewUp[0]! * u0[0]! + viewUp[1]! * u0[1]! + viewUp[2]! * u0[2]!) * toDeg;
+  };
+  if (mode === 'clamp' || mode === 'roll') {
+    // The direction's own yaw and pitch (within ±90, as `setCamera` demands).
+    // At the zenith the direction has no azimuth; hold the last yaw and let
+    // the roll (in `roll` mode) carry the rest.
     const horizontal = Math.hypot(direction[0]!, direction[2]!);
     const target = horizontal > 1e-4 ? Math.atan2(-direction[0]!, direction[2]!) * toDeg : (previous ? previous.yaw : 0);
     let yaw = near(target, previous?.yaw);
-    if (previous && Number.isFinite(previous.yaw) && maxTurn > 0) yaw = previous.yaw + Math.max(-maxTurn, Math.min(maxTurn, yaw - previous.yaw));
+    // `clamp` cannot roll, so the 180-degree turn over a loop's side is spread
+    // over a few ticks; `roll` is exact and needs no limit.
+    if (mode === 'clamp' && previous && Number.isFinite(previous.yaw) && maxTurn > 0) yaw = previous.yaw + Math.max(-maxTurn, Math.min(maxTurn, yaw - previous.yaw));
     const pitch = -Math.asin(Math.max(-1, Math.min(1, direction[1]!))) * toDeg;
-    return { yaw, pitch, roll: 0, direction, up: viewUp };
+    const roll = mode === 'roll' ? near(rollTo(yaw, pitch), previous?.roll) : 0;
+    return { yaw, pitch, roll, direction, up: viewUp };
   }
-  // A Bedrock camera rotation has no roll, so the rider's view (direction d,
-  // up u) is drawn with the roll-free rotation CLOSEST to it. Its right axis is
-  // horizontal, so the yaw is the heading of the view's own right axis
-  // (d × u, projected level): continuous through any loop, planar or helical,
-  // exactly as the car's yaw is taken from its axle. The pitch then fits BOTH
-  // axes in that heading's vertical plane — maximising d0·d + u0·u for
-  // d0 = cos p h - sin p y, u0 = sin p h + cos p y — so it runs on past ±90
-  // through a loop, and an unrollable lean (10303's helix, ~12 degrees; a big
-  // look offset inside a loop) costs a little of each instead of spinning the
-  // image. Taking the yaw from the direction instead is exact in direction but
-  // must swing the yaw 100+ degrees in a tick wherever a leaning view passes
-  // near the zenith (measured on 10303, 2026-09-24).
+  // `over` / `rollover`: the yaw is the heading of the view's own right axis
+  // (d × u, projected level) — continuous through any loop, planar or helical,
+  // exactly as the car's yaw is taken from its axle — and the pitch fits BOTH
+  // axes in that heading's vertical plane (maximising d0·d + u0·u for
+  // d0 = cos p h - sin p y, u0 = sin p h + cos p y), so it runs on past ±90
+  // through a loop with no representation flip at the zenith. What is left is
+  // a small roll (10303's helix lean, ~12 degrees), which `rollover` draws and
+  // `over` drops. Needs a client that takes a pitch outside ±90: `setCamera`
+  // on the Pixel does NOT ("Pitch (x rot) is outside accepted range").
   const right = [direction[1]! * viewUp[2]! - direction[2]! * viewUp[1]!, direction[2]! * viewUp[0]! - direction[0]! * viewUp[2]!, direction[0]! * viewUp[1]! - direction[1]! * viewUp[0]!];
   const level = Math.hypot(right[0]!, right[2]!);
   // Right axis (-cos y, 0, -sin y). Within ~11 degrees of vertical (a view
@@ -899,13 +914,7 @@ export function coasterRiderView(nose: readonly number[], up: readonly number[],
   const h = [-Math.sin(yr), 0, Math.cos(yr)];
   const hd = h[0]! * direction[0]! + h[2]! * direction[2]!, hu = h[0]! * viewUp[0]! + h[2]! * viewUp[2]!;
   const pitch = near(Math.atan2(hu - direction[1]!, hd + viewUp[1]!) * toDeg, previous?.pitch);
-  // What the rotation cannot carry: the roll from its own up to the view's, about its own direction.
-  const pr = pitch * toRad;
-  const ownDirection = [h[0]! * Math.cos(pr), -Math.sin(pr), h[2]! * Math.cos(pr)];
-  const ownUp = [h[0]! * Math.sin(pr), Math.cos(pr), h[2]! * Math.sin(pr)];
-  const cross = [ownUp[1]! * viewUp[2]! - ownUp[2]! * viewUp[1]!, ownUp[2]! * viewUp[0]! - ownUp[0]! * viewUp[2]!, ownUp[0]! * viewUp[1]! - ownUp[1]! * viewUp[0]!];
-  const roll = Math.atan2(cross[0]! * ownDirection[0]! + cross[1]! * ownDirection[1]! + cross[2]! * ownDirection[2]!, ownUp[0]! * viewUp[0]! + ownUp[1]! * viewUp[1]! + ownUp[2]! * viewUp[2]!) * toDeg;
-  return { yaw, pitch, roll, direction, up: viewUp };
+  return { yaw, pitch, roll: near(rollTo(yaw, pitch), previous?.roll), direction, up: viewUp };
 }
 
 /** The rider's look offset and the reference it is measured from. */
@@ -1894,7 +1903,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // (a free camera at the eye draws the rider's own upright body around it,
   // as the pinball seat measured). `seen` is refreshed while grouping, before
   // any hold can skip a train, so a paused tick never drops the camera.
-  const camera: CoasterRiderViewConfig = { ...(config.camera || { mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40 }) };
+  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.05 }, ...(config.camera || {}) };
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
@@ -1923,9 +1932,36 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const carYaw = sampled && Number.isFinite(sampled.car) ? sampled.car : Number.isFinite(frame.priorYaw) ? frame.priorYaw : frame.yaw;
     viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch);
     viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, camera.mode, camera.maxTurn);
-    const options: any = { location: frame.eye, rotation: { x: viewer.view.pitch, y: viewer.view.yaw } };
-    if (camera.ease > 0) options.easeOptions = { easeTime: camera.ease, easeType: 'Linear' };
-    rider.camera.setCamera('minecraft:free', options);
+    const eye = frame.eye, view = viewer.view;
+    if ((camera.mode === 'roll' || camera.mode === 'rollover') && Spline) {
+      // Roll is only reachable through a camera ANIMATION (`setCamera` takes
+      // yaw and pitch alone): each tick plays a one-tick spline from last
+      // tick's eye to this one, its rotation keyframes carrying yaw, pitch
+      // and roll from last tick's to this tick's. The free camera it needs
+      // is set once, at the first frame.
+      const rotation = { x: view.pitch, y: view.yaw, z: view.roll };
+      if (!viewer.eye) {
+        rider.camera.setCamera('minecraft:free', { location: eye, rotation: { x: Math.max(-90, Math.min(90, view.pitch)), y: view.yaw } });
+      } else {
+        const from = viewer.eye;
+        const moved = Math.hypot(eye.x - from.x, eye.y - from.y, eye.z - from.z) > 0.05;
+        const spline = new Spline();
+        // A spline needs two distinct points (two 0.01 apart were refused on the
+        // Pixel); a car standing still holds the first with its progress at 0.
+        spline.controlPoints = moved ? [from, eye] : [eye, { x: eye.x, y: eye.y + 1, z: eye.z }];
+        const seconds = camera.spline > 0 ? camera.spline : 0.05;
+        rider.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: {
+          progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: moved ? 1 : 0, timeSeconds: seconds }],
+          rotationKeyFrames: [{ rotation: viewer.rotation, timeSeconds: 0 }, { rotation, timeSeconds: seconds }] } });
+      }
+      viewer.eye = eye; viewer.rotation = rotation;
+    } else {
+      // `setCamera` refuses a pitch outside ±90 (Pixel, 26.51): only `over`
+      // ever asks for one, and it is not a device mode.
+      const options: any = { location: eye, rotation: { x: view.pitch, y: view.yaw } };
+      if (camera.ease > 0) options.easeOptions = { easeTime: camera.ease, easeType: 'Linear' };
+      rider.camera.setCamera('minecraft:free', options);
+    }
     if (cameraDebug && ticks % 5 === 0) {
       try { rider.onScreenDisplay?.setActionBar(`cam ${camera.mode} y${viewer.view.yaw.toFixed(0)} p${viewer.view.pitch.toFixed(0)} | car y${frame.yaw.toFixed(0)} p${frame.pitch.toFixed(0)} | head y${rotation.y.toFixed(0)} p${rotation.x.toFixed(0)} | look ${viewer.look.yaw.toFixed(0)}/${viewer.look.pitch.toFixed(0)}`); } catch {}
     }
@@ -1935,7 +1971,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
   };
   // Device tuning and measurement hook: `/scriptevent craftmatic:coaster_cam <words>`.
-  //   mode over|clamp|off · ease <s> · look <yaw> <pitch> · turn <deg> · debug 0|1
+  //   mode clamp|roll|rollover|over|off · ease <s> · spline <s> · look <yaw> <pitch> · turn <deg> · debug 0|1 · trace <ticks>
   //   rot <pitch> <yaw>       free camera at the sender's eye with that rotation (pitch range probe)
   //   roll <pitch> <yaw> <z>  a 6 s playAnimation holding rotation {x,y,z} (roll probe)
   //   attach [locator]        attach the sender's camera to the nearest car (bone-following probe)
@@ -1948,19 +1984,21 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       const number = (k: number, fallback: number) => { const v = Number(words[k]); return Number.isFinite(v) ? v : fallback; };
       const source = event.sourceEntity;
       const verb = words[0];
-      if (verb === 'mode' && (words[1] === 'over' || words[1] === 'clamp' || words[1] === 'off')) {
-        camera.mode = words[1];
+      if (verb === 'mode' && ['over', 'clamp', 'roll', 'rollover', 'off'].includes(words[1]!)) {
+        camera.mode = words[1] as CoasterRiderViewMode;
         for (const id of [...viewers.keys()]) releaseViewer(id);
       } else if (verb === 'ease') camera.ease = Math.max(0, number(1, camera.ease));
       else if (verb === 'look') { camera.lookYaw = Math.max(0, number(1, camera.lookYaw)); camera.lookPitch = Math.max(0, number(2, camera.lookPitch)); }
       else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
+      else if (verb === 'spline') camera.spline = Math.max(0.01, number(1, camera.spline));
       else if (verb === 'debug') cameraDebug = words[1] === '1';
       else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
       else if (source?.camera) {
         const at = source.getHeadLocation ? source.getHeadLocation() : source.location;
         if (verb === 'rot') source.camera.setCamera('minecraft:free', { location: at, rotation: { x: number(1, 0), y: number(2, 0) } });
         else if (verb === 'roll') {
-          source.camera.setCamera('minecraft:free', { location: at, rotation: { x: number(1, 0), y: number(2, 0) } });
+          // The free camera takes only ±90; the keyframes below carry the asked pitch (does a keyframe take more?).
+          source.camera.setCamera('minecraft:free', { location: at, rotation: { x: Math.max(-90, Math.min(90, number(1, 0))), y: number(2, 0) } });
           const rotation = { x: number(1, 0), y: number(2, 0), z: number(3, 0) };
           system.runTimeout(() => {
             try {

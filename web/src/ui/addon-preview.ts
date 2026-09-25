@@ -1188,9 +1188,9 @@ class AddonWalk implements AddonPreviewHandle {
    * looking the way the pack's runtime points the device camera — the SAME
    * `coasterRiderView`/`coasterRiderLook` over the SAME config, with a mouse or
    * touch drag standing in for the player's head turn (clamped, ratcheting).
-   * The device can only draw a roll-free rotation, so neither does this: the
-   * view's (yaw, pitch) is turned back into vectors and the preview draws
-   * exactly that. A pack built before the rider camera rides in plain first
+   * In `clamp` the device draws a roll-free rotation, so this draws the same
+   * (yaw, pitch) turned back into vectors; in the roll modes it draws the view
+   * exactly, as the device's spline keyframes do. A pack built before the rider camera rides in plain first
    * person facing the car, as it did.
    */
   private applyRidingCamera(): void {
@@ -1216,9 +1216,16 @@ class AddonWalk implements AddonPreviewHandle {
     this.riding.look = coasterRiderLook(-(this.yaw - this.riding.restoreYaw) * toDeg, -this.pitch * toDeg, this.riding.look, camera.lookYaw, camera.lookPitch);
     const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode, camera.maxTurn);
     this.riding.view = view;
+    // The roll modes draw the view exactly (the device rolls its camera through
+    // a spline keyframe); `clamp` draws the roll-free (yaw, pitch) it sends.
+    const exact = camera.mode === 'roll' || camera.mode === 'rollover';
     const yaw = view.yaw / toDeg, pitch = view.pitch / toDeg;
-    const direction = placedDirection({ x: -Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) }, this.model.dims, 100, this.rotation);
-    const up = placedDirection({ x: -Math.sin(yaw) * Math.sin(pitch), y: Math.cos(pitch), z: Math.cos(yaw) * Math.sin(pitch) }, this.model.dims, 100, this.rotation);
+    const d = exact ? { x: view.direction[0]!, y: view.direction[1]!, z: view.direction[2]! }
+      : { x: -Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) };
+    const u = exact ? { x: view.up[0]!, y: view.up[1]!, z: view.up[2]! }
+      : { x: -Math.sin(yaw) * Math.sin(pitch), y: Math.cos(pitch), z: Math.cos(yaw) * Math.sin(pitch) };
+    const direction = placedDirection(d, this.model.dims, 100, this.rotation);
+    const up = placedDirection(u, this.model.dims, 100, this.rotation);
     this.camera.up.set(up.x, up.y, up.z);
     this.camera.lookAt(eye.x + direction.x, eye.y + direction.y, eye.z + direction.z);
     this.camera.up.set(0, 1, 0);
