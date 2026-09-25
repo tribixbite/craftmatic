@@ -342,6 +342,94 @@ over its whole surface. The favourites' counts and the misses are in the
 40-set table below; `bun scripts/_seat_scan.ts <ldr> --why` says why each
 surface is or is not furniture.
 
+Round 2026-09-25b (910032's 12 missed seats, 42663's headboard-less beds),
+each rule from a crop render of the miss (`output/ix-seats/shots/`):
+- a part with something resting on half its top (the plate under an armrest)
+  is not a seat surface; a backrest is measured to the top of its STACK
+  (brick, plates, curved brick) for a seat two studs deep; a base under 2.5 x
+  the seat's area is the seat's own body, not its floor; a turned seat is
+  measured in its own frame, with only backrest parts turned with it;
+- a square seat's back may be on either axis (a booth), and armrests at both
+  ends with a wall along a long side make a sofa;
+- stools: a steering-wheel top counts, the column walk allows a few LDU of
+  gap (an open-stud round plate's mesh is 3 LDU), half an LDU of height
+  tolerance; a toilet (`isToiletBowl`: an inverted dome or dish) faces away
+  from its cistern;
+- a MATTRESS without a headboard (`isMattress`): one colour, at least 1.8 x as
+  long as wide, nothing beside it at its height but a pillow at exactly one
+  short end (at most 16 LDU), mostly on parts of another colour; flipped
+  `Tile … Inverted` pairs count as a surface (42663's camper beds). Without
+  the pillow rule it added 7 false beds (roof panels, mats).
+910032 8 -> 26 seats (sofas, armchairs, booths, 3 of 4 bar stools, the
+toilet, stools); 42663 0 -> 3 beds; 42670 0 -> 1 bed. Still missed: 910032's
+4th bar stool (its wheel touches the counter at seat height), 42670's sofa,
+armchair and stools, 11371's armchair (its seat is a bracket; the old find
+was the plate under the armrest). The same rules add about 11 seats that are
+NOT furniture in other favourites (10261 1, 31141 1, 41703 1, 42639 2, 60380
+2, 76457 1, 77092 1, 80049 2; seen in renders): small 2 x 2 "chairs" are the
+open precision problem.
+
+## Brick-built doors, gates and mechanisms
+
+A door built from plates and tiles on two clips, or a bus's side wall on
+hinge bricks, has no description to read; what it has is a JOINT.
+`engine/brick-hinges.ts` (driven by the interactivity stage after the
+moulded rules, the same cap, entity, animation, collider and tap-box path):
+
+1. **Joints from LDCad.** `scripts/gen-hinge-joint-snaps.py` resolves every
+   TURNING connector of the joint families (finger hinges, clips, round pins,
+   bars, holes, axles, turntable rings; from stud primitives only a hollow
+   stud's hole) into `engine/hinge-joint-snaps.ts` (1,272 parts, packed). Two
+   placements whose connectors mate on one line (finger to finger of one
+   group, a clip on a 4 LDU bar, a male cylinder in a female one of its
+   radius) are a joint; an axle in an axle hole is a joint that does not turn.
+   LDCad lays a snap's sections from its position toward its local -Y.
+2. **Rigid connections**: a stud inside another part's box, a stud-group
+   part's top under another's bottom, a small part embedded in another, every
+   non-turning joint - all only between parts SQUARE to each other (a leaf
+   the source left ajar stands on the floor's studs but is not on them).
+3. **Cut a joint line**: every turning joint on one line at once (a door hangs
+   on two hinges). The side that comes away small is what moves; a lone bar
+   held only by the leaf's clips is the pivot (910004).
+4. **Class by shape, checked by a sweep.** Every class was tightened by a
+   visual review of what it found (each assembly rendered red in its grey
+   surroundings, `bun scripts/_ix_hinges.ts --list=<picks> --crops=<dir>`
+   then `_shoot_set.mjs`): 135 candidates became 14.
+   - A PANEL (its parts cover half its outline face on) beside a vertical line,
+     standing on a floor, at most 3.5 x as tall as wide: a **door** (a lintel
+     over it) or **gate** (none) - a doorway like a moulded one. Under a lintel
+     but off the floor, or too tall: a **door leaf** / **hinged panel**
+     (swings, collider kept).
+   - A **wing**: a thick section of 12+ parts on hinge bricks or plates that
+     swings OUT into free air (at most 2 percent of it in the model a quarter
+     turn out, at least 25 percent turned in): 41395's bus sides read 0/27 and
+     0/46; a coaster's lattice deck (0/19, 6/10) and a stair railing (8/44) do
+     not.
+   - Lids and flaps only on a hinge proper; a level hinge set at an angle is an
+     angle joint (a roof, a ramp).
+   - Rejected by rule, each seen in the review: a bar in a bar tube or hollow
+     stud (railings, ladders, lamp posts - 10341's tower read as twenty lids),
+     assemblies mostly of Technic parts (a mechanism's insides), leaves of
+     struts (low cover), a mirror or sign on its clip (in the air, no lintel),
+     small flaps on clips (roof wedges, pipes, signs).
+   - A **mechanism** that turns a step per tap only on a turntable. On a pin or
+     an axle the review found a cart's wheel, a davit and a lift's linkage and
+     no windmill; nothing yet tells them apart, so none moves.
+
+Every joint line is reported with its verdict (`interactivity.hinges` in the
+pack diagnostics: lines, verdicts, what moved and its noun);
+`bun scripts/_ix_hinges.ts <ldr> --all` lists them with the reason.
+
+Over the favourites (first picks, LDraw): 80049 2 doors (the teal double
+door on clips), 910004 2 doors (the patchwork door), 910047 2 doors (the
+plank gate) + 1 upstairs door, 76435 1 gate (the stud-covered slab door),
+41395 2 wings, 11371 2 hinged panels (window columns on a tower's hinges).
+Not found: 10354's round door (its hinge 3830/3831 joins two floor
+modules; the round leaf is not on a joint the table knows), 42639's garage
+gate and 910049's iron gate (no joint line splits them off), cranes, lifts,
+drawbridges and windmills (no turntable joint in the favourites; on axles, see
+above).
+
 ## Not verified on a device
 
 Device round 2026-09-24d (packs at 8346fb29): doors render as LEGO, open and

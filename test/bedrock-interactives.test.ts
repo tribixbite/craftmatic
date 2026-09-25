@@ -801,6 +801,33 @@ describe('furniture seats', () => {
     expect(d.map(s2 => s2.part)).toEqual(['bed']);
   });
 
+  it('reads a backrest built as a stack (910032 sofas) and a headboard-less mattress with a pillow (42663), and not a bare raised tile', async () => {
+    const { brickBuiltFurniture } = await import('../web/src/engine/bedrock-scene-actors.js');
+    const meshes = new Map<string, LdrawPartMesh>([
+      ['floor.dat', mesh('floor', 'Plate 16 x 16', [-160, 0, -160], [160, 8, 160])],
+      ['t24.dat', mesh('t24', 'Tile  2 x  4', [-20, 0, -40], [20, 8, 40])],
+      ['b24.dat', mesh('b24', 'Brick  2 x  4', [-20, 0, -40], [20, 24, 40])],
+      ['b14.dat', mesh('b14', 'Brick  1 x  4', [-10, 0, -40], [10, 24, 40])],
+      ['p14.dat', mesh('p14', 'Plate  1 x  4', [-10, 0, -40], [10, 8, 40])],
+      ['p26.dat', mesh('p26', 'Plate  2 x  6', [-20, 0, -60], [20, 8, 60])],
+      ['pillow.dat', mesh('pillow', 'Slope Brick Curved  2 x  2 Inverted', [-20, 0, -20], [20, 16, 20])],
+    ]);
+    const floor = brick('floor.dat', 0, 0, 0);
+    // A 2 x 4 cushion 32 LDU up on a 2 x 4 brick; beside its +X side a 1 x 4 brick (rising 16) with a plate on it (24).
+    const sofa = [brick('t24.dat', 0, -32, 0), brick('b24.dat', 0, -24, 0), brick('b14.dat', 30, -48, 0)];
+    expect(brickBuiltFurniture([floor, ...sofa], meshes, new Set())).toHaveLength(0);
+    const found = brickBuiltFurniture([floor, ...sofa, brick('p14.dat', 30, -56, 0)], meshes, new Set());
+    expect(found.map(s2 => s2.part)).toEqual(['chair', 'chair']);
+    expect(found[0]!.facingLdu).toEqual([-1, 0]);
+    // A red 2 x 4 mattress on a tan 2 x 6 plate with a white 2 x 2 pillow at one end, nothing else near it.
+    const base = brick('p26.dat', 0, -8, 0, I, 19), mattress = brick('t24.dat', 0, -16, -20, I, 4);
+    const pillow = brick('pillow.dat', 0, -24, 40, I, 15);
+    expect(brickBuiltFurniture([floor, base, mattress, pillow], meshes, new Set()).map(s2 => s2.part)).toEqual(['bed']);
+    // The same tile with no pillow is a mat or a lid, and a tile of its base's own colour is a step.
+    expect(brickBuiltFurniture([floor, base, mattress], meshes, new Set())).toHaveLength(0);
+    expect(brickBuiltFurniture([floor, base, brick('t24.dat', 0, -16, -20, I, 19), pillow], meshes, new Set())).toHaveLength(0);
+  });
+
   it('finds a brick-built stool (a 2 x 2 tile on a narrow column), and not a tile lying on the floor or part of a counter', async () => {
     const { brickBuiltStools, isStoolTop } = await import('../web/src/engine/bedrock-scene-actors.js');
     expect(isStoolTop('Tile  2 x  2 with Studs on Edge')).toBe(true);
@@ -828,6 +855,35 @@ describe('furniture seats', () => {
     expect(brickBuiltStools([floor, stoolFoot, stoolTop, brick('3001.dat', 60, -16, 0)], meshes, new Set())).toHaveLength(0);
     // No head room: something two plates over it.
     expect(brickBuiltStools([floor, stoolFoot, stoolTop, brick('3001.dat', 0, -56, 0)], meshes, new Set())).toHaveLength(0);
+  });
+
+  it('seats a steering-wheel bar stool and a toilet (facing away from its cistern), and not a wheel lying on the floor', async () => {
+    const { brickBuiltStools, isStoolTop, isToiletBowl } = await import('../web/src/engine/bedrock-scene-actors.js');
+    expect(isStoolTop('Car Steering Wheel 2D')).toBe(true);
+    expect(isToiletBowl('Dome  2 x  2 Inverted with Stud and Tube')).toBe(true);
+    expect(isToiletBowl('Brick  2 x  2 Round')).toBe(false);
+    const meshes = new Map<string, LdrawPartMesh>([
+      ['3958.dat', mesh('3958', 'Plate  6 x  6', [-60, 0, -60], [60, 8, 60])],
+      ['wheel.dat', mesh('wheel', 'Car Steering Wheel 2D', [-20, 0, -20], [20, 16, 20])],
+      // 85861's library mesh is 3 LDU tall, not a plate's 8: a column of them has gaps.
+      ['85861.dat', mesh('85861', 'Plate  1 x  1 Round with Open Stud', [-10, 0, -10], [10, 3, 10])],
+      ['seat.dat', mesh('seat', 'Tile  2 x  2 Round with Hole', [-20, 0, -20], [20, 8, 20])],
+      ['dome.dat', mesh('dome', 'Dome  2 x  2 Inverted with Stud and Tube', [-20, 0, -20], [20, 24, 20])],
+      ['3004.dat', mesh('3004', 'Brick  1 x  2', [-10, 0, -20], [10, 32, 20])],
+    ]);
+    // 910032's bar stool: a wheel on two open-stud round plates on a floor plate.
+    const floor = brick('3958.dat', 0, -16, 0);
+    const stool = [brick('wheel.dat', 0, -48, 0), brick('85861.dat', 0, -32, 0), brick('85861.dat', 0, -24, 0)];
+    const s = brickBuiltStools([floor, ...stool], meshes, new Set());
+    expect(s).toHaveLength(1);
+    expect(s[0]!.surfaceLdu[1]).toBe(-48);
+    // A wheel lying on the floor is not a seat (910032's easel foot).
+    expect(brickBuiltStools([floor, brick('wheel.dat', 0, -32, 0)], meshes, new Set())).toHaveLength(0);
+    // A toilet: a round tile set 4 LDU into an inverted dome, a cistern on the wall at +X; it faces -X.
+    const loo = [brick('3958.dat', 0, 0, 0), brick('seat.dat', 0, -32, 0), brick('dome.dat', 0, -28, 0), brick('3004.dat', 30, -72, 0)];
+    const t = brickBuiltStools(loo, meshes, new Set());
+    expect(t).toHaveLength(1);
+    expect(t[0]!.facingLdu[0]).toBeLessThan(-0.9);
   });
 });
 
