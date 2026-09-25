@@ -170,6 +170,11 @@ describe('the serialised runtime', () => {
     const h = fakeHarness({ doorOpens: true, closedLeaks: false });
     expect([...h.registered.keys()]).toEqual(['smoke', 'doors_demo_1']);
   });
+  it('registers the pinball test only for a plan that has a machine', () => {
+    const js = gametestScript({ ...PLAN, pinball: { consoleType: 'c', buttonType: 'b', flipperTypes: ['l', 'r'], flipProperty: 'craftmatic:flip', seatedTag: 'craftmatic_pinball', parkSlot: 4 } });
+    expect(js).toContain('pinball_');
+    expect(js).toContain('"parkSlot":4');
+  });
   it('passes when every doorway behaves as the offline walk predicted', async () => {
     const h = fakeHarness({ doorOpens: true, closedLeaks: false });
     await h.run('doors_demo_1');

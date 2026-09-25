@@ -23,6 +23,7 @@ import {
 } from '../web/src/engine/gametest-pack.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
+import { PROP_FLIP } from '../web/src/engine/bedrock-pinball.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
@@ -80,6 +81,19 @@ if (cfg) {
   });
 }
 
+// A pinball machine: its types from scripts/pinball.js's CONFIG, and the seated
+// tag + parked hotbar slot read out of the same serialised runtime.
+const pinballName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/pinball.js`);
+let pinball: GametestPlan['pinball'];
+if (pinballName) {
+  const js = text(pinballName);
+  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[] } | null;
+  const park = /\bPARK_SLOT = (\d+)/.exec(js)?.[1];
+  const tag = /\bSEATED_TAG = ["']([^"']+)["']/.exec(js)?.[1];
+  if (!cfg || park === undefined || !tag) throw new Error(`${pinballName}: CONFIG, PARK_SLOT or SEATED_TAG not found; the pinball runtime changed shape`);
+  pinball = { consoleType: cfg.consoleType, buttonType: cfg.buttonType, flipperTypes: cfg.flipperTypes, flipProperty: PROP_FLIP, seatedTag: tag, parkSlot: Number(park) };
+}
+
 const plan: GametestPlan = {
   modelId: placement.id,
   label: placement.label,
@@ -88,6 +102,7 @@ const plan: GametestPlan = {
   angleProperty: cfg?.property ?? 'craftmatic:angle',
   doorways,
   debuggerTarget: flag('debugger'),
+  pinball,
 };
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
@@ -118,6 +133,6 @@ writeFileSync(variantPath, await createZip(variantFiles));
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways`);
+console.log(`${placement.label}: ${doorways.length} doorways${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);

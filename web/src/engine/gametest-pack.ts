@@ -90,6 +90,23 @@ export interface GametestPlan {
   doorways: GametestDoorway[];
   /** Optional `host:port` for a `/script debugger connect` probe after the run. */
   debuggerTarget?: string | undefined;
+  /** A pinball machine's runtime types (`scripts/pinball.js` CONFIG), when the pack has one. */
+  pinball?: GametestPinball | undefined;
+}
+
+export interface GametestPinball {
+  /** The rideable seat pad the player sits on to play. */
+  consoleType: string;
+  /** Tap-zone entities spawned in front of a seated player. */
+  buttonType: string;
+  /** Flipper entities, left then right; each carries the flip actor property. */
+  flipperTypes: string[];
+  /** Actor property holding a flipper's angle. */
+  flipProperty: string;
+  /** Tag the runtime gives a seated player. */
+  seatedTag: string;
+  /** Hotbar slot a seated player is parked on; a lower slot is the left flipper, a higher the right. */
+  parkSlot: number;
 }
 
 // ─── The placement hook (test variant only) ────────────────────────────────
@@ -292,21 +309,35 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (moved < 2) test.fail(`simulated player moved only ${moved.toFixed(2)} blocks`); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(300).tag(NS);
 
-  /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
-  gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
+  /**
+   * Place the model at 100 %, turn 0, with the pack's own placement code (the
+   * injected hook), for a simulated player spawned in the arena. Returns
+   * undefined (after failing the test) when the placement did not land.
+   */
+  const placeModel = async (test: any, testName: string): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
     const name = `cmgt_${Math.floor(Math.random() * 1e6)}`;
     const f = floorY(test, margin, margin);
     const anchor = test.worldBlockLocation({ x: margin, y: f.y + 1, z: margin });
     const sim = test.spawnSimulatedPlayer({ x: 1, y: f.y + 1, z: 1 }, name, gameMode);
-    log('ARENA', { model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
+    log('ARENA', { test: testName, model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
     await test.idle(5);
     system.sendScriptEvent(`${NS}:place`, JSON.stringify({ player: name, x: anchor.x, y: anchor.y, z: anchor.z, rotation: 0, size: 100 }));
     let reply: any;
     for (let t = 0; t < 1200 && !reply; t += 10) { await test.idle(10); reply = placedReplies.get(name); }
     const dim = test.getDimension();
     const spawned = dim.getEntities({ location: add(anchor, { x: plan.dims.width / 2, y: plan.dims.height / 2, z: plan.dims.length / 2 }), maxDistance: Math.max(plan.dims.width, plan.dims.length, plan.dims.height) + 4 }).filter((e: any) => plan.actorTypes.includes(e.typeId));
-    log('PLACED', { reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
-    if (!reply || reply.error) { flush(); test.fail(`placement did not complete: ${reply ? reply.error : 'no reply in 1200 ticks'}`); return; }
+    log('PLACED', { test: testName, reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
+    if (!reply || reply.error) { flush(); test.fail(`placement did not complete: ${reply ? reply.error : 'no reply in 1200 ticks'}`); return undefined; }
+    return { sim, anchor, dim };
+  };
+  const nearest = (dim: any, type: string, at: Vec3, maxDistance: number): any =>
+    dim.getEntities({ type, location: at, maxDistance }).sort((a: any, b: any) => dist2(a.location, at) - dist2(b.location, at))[0];
+
+  /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
+  if (plan.doorways.length) gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'doors');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
     await test.idle(40); // two interactives sync passes: closed doorways get their colliders
 
     const walk = async (startW: Vec3, endW: Vec3): Promise<{ outcome: string; progress: number; at: Vec3 }> => {
@@ -324,8 +355,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const results: any[] = [];
     for (const d of plan.doorways) {
       const leafAt = add(anchor, d.actor);
-      const leaf = dim.getEntities({ type: d.typeId, location: leafAt, maxDistance: 4 })
-        .sort((a: any, b: any) => dist2(a.location, leafAt) - dist2(b.location, leafAt))[0];
+      const leaf = nearest(dim, d.typeId, leafAt, 4);
       const startW = add(anchor, d.start), endW = add(anchor, d.end);
       const row: any = { label: d.label, offline: d.offlineVerdict, expectClosed: d.expectClosed, expectOpen: d.expectOpen };
       if (!leaf) { row.error = 'leaf entity not found'; results.push(row); log('DOOR', row); continue; }
@@ -368,12 +398,80 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + plan.doorways.length * 400).tag(NS);
 
+  /**
+   * Pinball: sit on the machine's seat pad, then press each flipper the way the
+   * phone does it (a hotbar slot left / right of the parked one), then by a hit
+   * on a tap zone, sampling both flippers' angle property every tick - the
+   * 0.3 s pulse that screenshots missed.
+   */
+  const pb = plan.pinball;
+  if (pb) gt.registerAsync(NS, `pinball_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'pinball');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    await test.idle(20);
+    const row: any = {};
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const seat = nearest(dim, pb.consoleType, centre, 40);
+    const flippers = pb.flipperTypes.map(t => nearest(dim, t, centre, 40));
+    row.found = { seat: !!seat, flippers: flippers.map(f => !!f) };
+    if (!seat || flippers.some(f => !f)) { log('PINBALL', row); flush(); test.fail('pinball parts missing'); return; }
+    const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+    const flipAngles = (): unknown[] => flippers.map(f => { try { return f.getProperty(pb.flipProperty); } catch (err) { return `error: ${String(err)}`; } });
+
+    // Seat: the interaction a phone tap-and-hold makes, then the component call as a fallback.
+    sim.teleport(add(seat.location, { x: 0, y: 0, z: 1.2 }), { facingLocation: seat.location });
+    await test.idle(4);
+    sim.lookAtEntity(seat);
+    row.interactReturned = sim.interactWithEntity(seat);
+    await test.idle(20);
+    row.ridersAfterInteract = riders();
+    if (!row.ridersAfterInteract.includes(sim.name)) {
+      try { row.addRiderReturned = seat.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; }
+      await test.idle(20);
+      row.ridersAfterAddRider = riders();
+    }
+    // The runtime tags a seated player and parks the hotbar; the seat lifts over several ticks.
+    let t = 0;
+    for (; t < 200; t += 5) { if (sim.hasTag(pb.seatedTag) && sim.selectedSlotIndex === pb.parkSlot) break; await test.idle(5); }
+    row.seated = { tagged: sim.hasTag(pb.seatedTag), slot: sim.selectedSlotIndex, ticks: t };
+    await test.idle(40);
+    row.restAngles = flipAngles();
+
+    const pulse = async (label: string, act: () => unknown): Promise<any> => {
+      const rest = flipAngles();
+      const out: any = { label, rest, returned: act(), samples: [] as unknown[] };
+      for (let i = 0; i < 16; i++) { await test.idle(1); out.samples.push(flipAngles()); }
+      out.slotAfter = sim.selectedSlotIndex;
+      // Largest move of each flipper from rest over the 16 ticks.
+      out.maxMove = flippers.map((_, k) => Math.round(Math.max(0, ...out.samples.map((sm: any) => Math.abs(Number(sm[k]) - Number(rest[k])) || 0))));
+      await test.idle(20);
+      return out;
+    };
+    row.left = await pulse('slot left', () => { sim.selectedSlotIndex = pb.parkSlot - 1; return sim.selectedSlotIndex; });
+    row.right = await pulse('slot right', () => { sim.selectedSlotIndex = pb.parkSlot + 1; return sim.selectedSlotIndex; });
+    const zone = nearest(dim, pb.buttonType, sim.location, 12);
+    row.zoneFound = !!zone;
+    if (zone) row.zoneHit = await pulse('zone hit', () => sim.attackEntity(zone));
+    const moved = (r: any, k: number): boolean => !!r && r.maxMove[k] > 5;
+    row.pass = moved(row.left, 0) && moved(row.right, 1);
+    log('PINBALL', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail('a flipper did not move on its hotbar slot');
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
+
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {
+    // Run 5 measured every /script subcommand at successCount 0 from the dimension;
+    // try each from the dimension AND as the real player.
     const dim = world.getDimension('overworld');
+    const player = world.getPlayers().filter(Boolean).find((p: any) => !String(p.name).startsWith('cmgt_'));
     const tryCmd = (cmd: string): void => {
-      try { const r = dim.runCommand(cmd); log('PROBE', { cmd, successCount: r?.successCount }); }
-      catch (err) { log('PROBE', { cmd, error: String(err && (err as Error).message || err) }); }
+      for (const [source, runner] of [['dimension', dim], ['player', player]] as const) {
+        if (!runner) continue;
+        try { const r = runner.runCommand(cmd); log('PROBE', { cmd, source, successCount: r?.successCount }); }
+        catch (err) { log('PROBE', { cmd, source, error: String(err && (err as Error).message || err) }); }
+      }
     };
     tryCmd('script profiler start');
     await new Promise<void>(res => system.runTimeout(() => res(), 100));
