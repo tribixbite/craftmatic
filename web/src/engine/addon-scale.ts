@@ -31,6 +31,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import { classifyVehicleKind, isWholeVehicleLabel, type PlayableKind } from './playable-components.js';
+import { extractCoasterTrackRoutes } from './coaster-track.js';
 
 /** `auto` or a multiplier of the minifig scale rendered as a string (a `<select>` value). */
 export type AddonScaleChoice = 'auto' | '0.25' | '0.5' | '0.75' | '1' | '1.5' | '2' | '3' | '4';
@@ -138,6 +139,16 @@ export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScal
     return {
       choice: 'auto', scale: MICROFIG_SCALE, lduPerBlock: LDU_PER_BLOCK / MICROFIG_SCALE, cue: 'microfig', sizeBlocks: sizeAt(extent, MICROFIG_SCALE),
       reason: `${MICROFIG_SCALE}× minifig scale: a microscale set (it has a microfigure and no minifig), enlarged so its microfigures stand player height`,
+    };
+  }
+  // A train on its own LEGO railway track is minifig scale by construction: the
+  // 5-stud (100 LDU) gauge is the minifig railway's, and the train runs on that
+  // track in the pack (bedrock-coaster.ts, driven). Shrinking it by its title
+  // ("Crocodile Locomotive") would shrink the railway with it.
+  if (extractCoasterTrackRoutes(bricks).routes.some(route => route.family === 'train')) {
+    return {
+      choice: 'auto', scale: 1, lduPerBlock: LDU_PER_BLOCK, cue: 'none', sizeBlocks: sizeAt(extent, 1),
+      reason: 'minifig scale (1×): the set stands on LEGO railway track, whose gauge is the minifig railway\'s',
     };
   }
   const kind = isWholeVehicleLabel(label) ? classifyVehicleKind(label, 'auto') : null;

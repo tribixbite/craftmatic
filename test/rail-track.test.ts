@@ -73,6 +73,18 @@ describe('railway track profiles (measured on the library meshes)', () => {
   });
 });
 
+describe('a train on its own track keeps minifig scale', () => {
+  it('does not shrink a "Locomotive" by its title when it stands on railway track', async () => {
+    const { planAddonScale } = await import('../web/src/engine/addon-scale.js');
+    // Six straights: 1,920 LDU of line, 36 blocks, far over a car's 4.6-block target.
+    const line = Array.from({ length: 6 }, (_, i) => brick('53401', i * 320, 0, 0));
+    expect(planAddonScale(line, 'auto', 'Crocodile Locomotive (10277-1)').scale).toBe(1);
+    // Without the track the same title is shrunk as a display vehicle.
+    const body = Array.from({ length: 6 }, (_, i) => ({ part: '3001.dat', color: 4, x: i * 320, y: 0, z: 0 } as ParsedBrick));
+    expect(planAddonScale(body, 'auto', 'Crocodile Locomotive (10277-1)').scale).toBeLessThan(1);
+  });
+});
+
 describe('railway cars: the set\'s own trains found on their track (corpus-gated)', () => {
   const corpus = 'C:/git/clego/lego_sets';
   const detect = async (path: string) => {
