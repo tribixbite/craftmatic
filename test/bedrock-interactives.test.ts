@@ -126,6 +126,18 @@ describe('sliding parts and lids (drawers, roller and sliding doors, chest lids)
     expect(d.axisLdu[2]).toBeCloseTo(-1, 6);
     expect(d.angleDeg).toBeCloseTo(24, 1);
   });
+  it('turns a free rotor, and leaves one set into the surrounding bricks static (decoration)', () => {
+    const R = new Map<string, LdrawPartMesh | null>([
+      ['32124.dat', mesh('32124', 'Technic Rotor  2 Blade with 4 Studs', [-40, -4, -40], [40, 4, 40])],
+      ['slab.dat', mesh('slab', 'Plate  8 x  8', [-80, -2, -80], [80, 2, 80])],
+    ]);
+    const free = discoverInteractives([brick('32124.dat', 0, 0, 0)], R);
+    expect(free.items.map(i => i.kind)).toEqual(['turnable']);
+    // A slab in the rotor's own plane: turning it would sweep through the slab.
+    const set = discoverInteractives([brick('32124.dat', 0, 0, 0), brick('slab.dat', 0, 0, 90), brick('slab.dat', 0, 0, -90)], R);
+    expect(set.items).toHaveLength(0);
+    expect(set.skipped[0]?.reason).toMatch(/decoration/);
+  });
   it('hinges a treasure chest lid on the chest\'s own hinge pins and lifts its free edge', () => {
     const body = brick('4738b.dat', 0, 0, 0), lid = brick('80835.dat', 0, -19, 0);
     const found = discoverInteractives([body, lid], M);

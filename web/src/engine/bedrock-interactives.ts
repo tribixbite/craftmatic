@@ -428,6 +428,29 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], sourceMeshe
       const assembly = kind === 'turnable' && /\bTurntable\b/i.test(mesh.description)
         ? turntableLoad(brick, mesh, pivotLdu, axisLdu, bricks, boxes, exclude, primaries, taken)
         : [brick];
+      if (kind === 'turnable' && /\b(Rotor|Propeller)\b/i.test(mesh.description)) {
+        // A rotor or propeller only turns if its rim is free: turned 45 and 90
+        // degrees, the rim may not pass through other parts. Rotors set into a
+        // castle's tracery (71043: 17 of them, 21061: 4) are decoration and
+        // stay static. A steering or ship's wheel is always meant to turn and
+        // is not tested (a wheel used as an ornament still turns - harmless).
+        const { min: lmin, max: lmax } = mesh.bounds;
+        const rim: Vec3[] = [];
+        const [a, b] = [0, 1, 2].filter(k => k !== axisLocal) as [number, number];
+        for (const sa of [0, 0.5, 1]) for (const sb of [0, 0.5, 1]) {
+          if (sa === 0.5 && sb === 0.5) continue;
+          const p: Vec3 = [...localCentre] as Vec3;
+          p[a] = lmin[a]! + (lmax[a]! - lmin[a]!) * sa; p[b] = lmin[b]! + (lmax[b]! - lmin[b]!) * sb;
+          rim.push(toWorld(brick, p));
+        }
+        // What it turns ON (its hub, axle or mount: a box holding the pivot) is not in the way.
+        const others = [...boxes].filter(([o, bb]) => o !== brick && !exclude.has(o) && !inBox(pivotLdu, bb, -1)).map(([, bb]) => bb);
+        const hits = [45, 90].reduce((n, deg) => n + rim.filter(p => { const q = rotateAbout(p, pivotLdu, axisLdu, deg); return others.some(bb => inBox(q, bb, 1)); }).length, 0);
+        if (hits >= 4) {
+          skipped.push({ part, kind, reason: 'turning it would sweep through the parts around it (decoration, not a wheel)' });
+          continue;
+        }
+      }
       for (const b of assembly) taken.add(b);
       const bounds = unionBox(assembly.map(b => boxes.get(b)!));
       found.push({ kind, part, description: mesh.description, bricks: assembly, pivotLdu, axisLdu, angleDeg: OPEN_DEG[kind], anchorLdu: bottomCentre(bounds), boundsLdu: bounds, offGridDeg: 0 });
