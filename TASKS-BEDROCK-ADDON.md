@@ -26,6 +26,25 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## In flight — 2026-09-24 late (agents in worktrees; merge each, rebuild, deploy to 924)
+
+- [ ] **Interactivity pipeline over all 40 favourites**: no set-specific code;
+  per-set audit (found / missed / false positive / static), passability, tap
+  boxes, GameTest checks per set in `cmgametest`; table in
+  `docs/bedrock-interactivity.md`. Also the 3 open 76457 defects (seat height,
+  window 1, the 9.4-degree door).
+- [ ] **Pinball**: orange overlay near the right of the seated view; right
+  flipper animation (device pack predates `71c98317`); lag (measure script
+  time, smooth the ball); plunger strength = pull-back amount, fired on
+  release, animated; tap targets ON the flippers (on the line of sight, within
+  reach, faintly visible).
+- [ ] **Coaster rider camera**: baseline view follows the track frame (curves,
+  climbs, loops) with the player's look as a clamped offset; research camera
+  pitch/roll limits (free camera clamps pitch to +-90).
+- [ ] **Minifig AI**: home area, path over the pack's colliders, idle/stroll,
+  look at the player, occasional seats, posed/seated figures stay; GameTest
+  figure-position sampling on 910004 / 76457 / 41732.
+
 ## Round — 2026-09-24 evening (user's 7 questions)
 
 - [x] **Generalization audit** (2026-09-24): explode M.R^T bug exists nowhere
