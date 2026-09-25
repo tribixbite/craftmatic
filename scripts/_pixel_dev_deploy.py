@@ -5,26 +5,29 @@ bind them to one Minecraft Bedrock world at their exact versions.
 Usage (run with ``python -u`` so progress is not block-buffered):
 
     python -u scripts/_pixel_dev_deploy.py <world name> <pack.mcaddon>... \
-        [--mode auto|dev|import] [--serial SERIAL] [--shots-dir DIR] \
-        [--no-launch] [--dry-run]
+        [--mode auto|dev|import] [--root | --no-root] [--serial SERIAL] \
+        [--shots-dir DIR] [--no-launch] [--dry-run] [--exclusive]
 
 Two install routes:
 
-``dev``    Push each pack folder into ``development_{behavior,resource}_packs``.
-           Needs a writable games/com.mojang tree (root, or a device where the
-           app made those dirs group-writable). Existing dev folders are pulled
-           to the backup dir first and overwritten in place; nothing on the
-           device is deleted, so files a new build no longer ships are LEFT
-           BEHIND and reported as stale.
+``dev``    Put each pack folder into ``development_{behavior,resource}_packs``,
+           which Minecraft re-reads on every world load, so a new build
+           replaces the old one IN PLACE under the same folder name.
+           Needs root (see "Root mode" below) or a device where the adb shell
+           uid can create files under games/com.mojang. Existing dev folders
+           are backed up to the backup dir first and overwritten in place;
+           nothing on the device is deleted, so files a new build no longer
+           ships are LEFT BEHIND and reported as stale.
 ``import`` Push each .mcaddon to ``/sdcard/Download/000-<stem>.mcaddon`` and hand
            it to Minecraft with a content-URI VIEW intent (Minecraft's own
            import, which writes regular ``behavior_packs``/``resource_packs``
            folders such as ``ArcadePinb(7)``). Success is judged ONLY by a
            folder whose manifest carries the pack's uuid AND exact version.
-``auto``   (default) ``dev`` when every dev target is writable, else ``import``.
+``auto``   (default) ``dev`` when every dev target is writable (always true
+           in root mode), else ``import``.
 
 Measured on the Pixel 8 Pro (Android 17, Minecraft 26.51, storage External,
-2026-09-24): ``files/`` is ``drwxrws---`` but Minecraft creates
+2026-09-24, NOT rooted): ``files/`` is ``drwxrws---`` but Minecraft creates
 ``games/com.mojang`` and every dir below it ``drwxr-s---`` (owner u0_a<app>,
 group ext_data_rw). The adb shell uid is in ext_data_rw: it can read
 everything and overwrite existing ``-rw-rw----`` files in place, but cannot
@@ -33,12 +36,39 @@ while the world's ``world_*_packs.json`` can still be rewritten IN PLACE —
 which is why JSON goes through ``adb exec-in 'cat > file'`` (truncate + write
 on the existing inode), never ``adb push`` (which may create a new file).
 
+Root mode (``--root``; auto-detected with ``su -c id`` unless ``--no-root``).
+Measured on the Solana Saga (Android 13, Magisk, Minecraft 26.51,
+2026-09-25): root can write anywhere, but whatever root creates is owned by
+``root`` and labelled ``…:s0`` WITHOUT the app's MLS categories
+(``s0:c15,c257,c512,c768``), which the app cannot use. So every file-system
+command runs under ``su -c`` and every folder root writes is repaired from
+LIVE values read off the device, never hard-coded (the app uid and its
+categories change on every reinstall):
+
+  * owner, group, directory mode and SELinux label come from the
+    ``games/com.mojang`` directory itself (``stat -c '%U %G %a %C'``);
+  * the file mode comes from the world's own ``levelname.txt``.
+
+Pack folders are pushed to a NEW staging dir ``/data/local/tmp/<unique>``
+(the shell uid can write there), then ``su -c 'cp -r <stage>/<pack>/. <dev
+dir>/'`` copies the contents over the existing dev folder (same uuid, same
+folder name = replaced in place), followed by ``chown -R``, ``chmod`` per
+dirs/files and ``chcon -R``. Staging dirs are NOT removed (this tool never
+deletes anything recursively); each is named in the summary and costs
+roughly the size of the packs.
+
+The storage root (games/com.mojang) is the one whose ``minecraftWorlds``
+holds the named world. Root mode searches the internal root
+(``/data/user/0/<pkg>/games/com.mojang``, needs root even to read) and the
+raw external root (``/data/media/0/Android/data/<pkg>/files/games/com.mojang``);
+without root only the external root through ``/sdcard`` is readable.
+
 After installing, in either mode: force-stop Minecraft, back up and rewrite the
 world's ``world_behavior_packs.json`` / ``world_resource_packs.json`` (each
 pack's uuid bound at its exact manifest version, an entry with the same uuid
-replaced, all other entries kept), re-pull to verify, and relaunch Minecraft to
-its main menu (``--no-launch`` leaves it stopped). Opening the world is left
-to the caller: the Play list order changes and a LAN tile can sit first.
+replaced, all other entries kept), re-read to verify, and relaunch Minecraft
+to its main menu (``--no-launch`` leaves it stopped). Opening the world is
+left to the caller: the Play list order changes and a LAN tile can sit first.
 
 adb is always run through ``subprocess`` with forward-slash device paths, so
 Git Bash's MSYS path rewriting never touches a device path. Transient adb
@@ -64,7 +94,13 @@ from typing import Any
 
 MC_PACKAGE = "com.mojang.minecraftpe"
 MC_ACTIVITY = f"{MC_PACKAGE}/.MainActivity"
-MC_ROOT = f"/sdcard/Android/data/{MC_PACKAGE}/files/games/com.mojang"
+# The external root as the (unrooted) adb shell uid sees it, through FUSE.
+MC_ROOT_SHELL = f"/sdcard/Android/data/{MC_PACKAGE}/files/games/com.mojang"
+# Root mode reads the lower file systems directly: chown/chcon through the
+# FUSE view are not what the app's bind mount sees.
+MC_ROOT_EXTERNAL_RAW = f"/data/media/0/Android/data/{MC_PACKAGE}/files/games/com.mojang"
+MC_ROOT_INTERNAL = f"/data/user/0/{MC_PACKAGE}/games/com.mojang"
+STAGING_PARENT = "/data/local/tmp"
 DOWNLOAD_DIR = "/sdcard/Download"
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKUP_ROOT = REPO_ROOT / "output" / "bedrock-entity-qa" / "device-backups"
@@ -107,14 +143,12 @@ class PackInfo:
     version: list[int]
     name: str
 
-    @property
-    def dev_parent(self) -> str:
-        """Device development-pack directory for this pack's kind."""
-        return f"{MC_ROOT}/development_{self.kind}_packs"
+    def dev_parent(self, mc_root: str) -> str:
+        """Device development-pack directory for this pack's kind under ``mc_root``."""
+        return f"{mc_root}/development_{self.kind}_packs"
 
-    @property
-    def device_dir(self) -> str:
-        return f"{self.dev_parent}/{self.folder}"
+    def device_dir(self, mc_root: str) -> str:
+        return f"{self.dev_parent(mc_root)}/{self.folder}"
 
     @property
     def version_str(self) -> str:
@@ -131,12 +165,29 @@ class InstalledPack:
     name: str
 
 
-class Adb:
-    """Thin retrying wrapper around the adb executable."""
+@dataclass(frozen=True)
+class FsAttrs:
+    """Ownership, modes and SELinux label Minecraft's own files carry, read live."""
 
-    def __init__(self, serial: str | None, dry_run: bool) -> None:
+    owner: str
+    group: str
+    dir_mode: str  # octal, e.g. "2750" (external) or "700" (internal)
+    file_mode: str  # octal, e.g. "660" (external) or "600" (internal)
+    label: str  # e.g. u:object_r:media_rw_data_file:s0:c15,c257,c512,c768
+
+
+class Adb:
+    """Thin retrying wrapper around the adb executable.
+
+    ``su`` makes every file-system command (``fs``, ``read_bytes``,
+    ``write_in_place``) run as root; activity-manager commands stay on the
+    plain ``shell`` so they behave exactly as on an unrooted device.
+    """
+
+    def __init__(self, serial: str | None, dry_run: bool, su: bool = False) -> None:
         self.serial = serial
         self.dry_run = dry_run
+        self.su = su
 
     def _cmd(self, args: list[str]) -> list[str]:
         base = ["adb"]
@@ -179,15 +230,23 @@ class Adb:
         raise AdbError(f"adb {' '.join(args)} failed after {ADB_RETRIES} attempts: {last.strip()}")
 
     def shell(self, command: str, *, check: bool = True, mutating: bool = False) -> str:
-        """Run one shell command string on the device."""
+        """Run one shell command string on the device as the adb shell uid."""
         return self.run(["shell", command], check=check, mutating=mutating)
 
+    def as_fs_user(self, command: str) -> str:
+        """``command`` wrapped for the file-system user: ``su -c '…'`` in root mode."""
+        return f"su -c {shlex.quote(command)}" if self.su else command
+
+    def fs(self, command: str, *, check: bool = True, mutating: bool = False) -> str:
+        """Run a file-system command, as root in root mode."""
+        return self.shell(self.as_fs_user(command), check=check, mutating=mutating)
+
     def exists(self, device_path: str) -> bool:
-        out = self.shell(f"[ -e {shlex.quote(device_path)} ] && echo YES || echo NO", check=False)
+        out = self.fs(f"[ -e {shlex.quote(device_path)} ] && echo YES || echo NO", check=False)
         return out.strip().endswith("YES")
 
     def writable(self, device_path: str) -> bool:
-        out = self.shell(f"[ -w {shlex.quote(device_path)} ] && echo W || echo RO", check=False)
+        out = self.fs(f"[ -w {shlex.quote(device_path)} ] && echo W || echo RO", check=False)
         return out.strip().endswith("W")
 
     def pull(self, device_path: str, local_path: Path) -> None:
@@ -201,13 +260,21 @@ class Adb:
         """Overwrite an EXISTING device file's bytes without creating a new inode.
 
         ``cat >`` truncates and writes the open file, which only needs write
-        permission on the file itself — not on its (read-only) directory.
+        permission on the file itself — not on its (read-only) directory — and
+        keeps the file's owner, mode and SELinux label.
         """
-        self.run(["exec-in", f"cat > {shlex.quote(device_path)}"], mutating=True, stdin_bytes=data)
+        self.run(
+            ["exec-in", self.as_fs_user(f"cat > {shlex.quote(device_path)}")],
+            mutating=True,
+            stdin_bytes=data,
+        )
 
     def read_bytes(self, device_path: str) -> bytes:
         """A device file's exact bytes via `exec-out cat` (no stat-size dependence)."""
-        proc = subprocess.run(self._cmd(["exec-out", "cat", device_path]), capture_output=True)
+        proc = subprocess.run(
+            self._cmd(["exec-out", self.as_fs_user(f"cat {shlex.quote(device_path)}")]),
+            capture_output=True,
+        )
         return proc.stdout
 
     def screenshot(self, dest_jpg: Path) -> None:
@@ -226,23 +293,62 @@ class Adb:
             print(f"  screenshot {png} (full size: ImageMagick not found)")
 
 
-def resolve_world(adb: Adb, world_name: str) -> str:
-    """Return the device path of the world folder whose levelname.txt matches."""
-    listing = adb.shell(
-        f"cd {MC_ROOT}/minecraftWorlds && for w in *; do printf '%s\\t' \"$w\"; cat \"$w/levelname.txt\" 2>/dev/null; echo; done"
+def detect_root(adb: Adb) -> bool:
+    """True when ``su -c id`` on the device reports uid 0."""
+    out = adb.shell("su -c id", check=False)
+    return "uid=0(" in out
+
+
+def list_worlds(adb: Adb, mc_root: str) -> list[tuple[str, str]]:
+    """(folder, levelname) of every world under ``mc_root``; empty when the root is absent."""
+    script = (
+        f"cd {shlex.quote(mc_root + '/minecraftWorlds')} 2>/dev/null || exit 0; "
+        "for w in *; do [ -d \"$w\" ] || continue; printf '%s\\t' \"$w\"; "
+        "cat \"$w/levelname.txt\" 2>/dev/null; echo; done"
     )
-    matches: list[str] = []
-    for line in listing.splitlines():
-        if "\t" not in line:
-            continue
-        folder, level = line.split("\t", 1)
-        if level.strip() == world_name:
-            matches.append(folder)
+    worlds: list[tuple[str, str]] = []
+    for line in adb.fs(script, check=False).splitlines():
+        if "\t" in line:
+            folder, level = line.split("\t", 1)
+            worlds.append((folder, level.strip()))
+    return worlds
+
+
+def resolve_world(adb: Adb, world_name: str) -> tuple[str, str]:
+    """Return (games/com.mojang root, world folder path) of the world named ``world_name``.
+
+    Unrooted, only the external root is readable. Rooted, both the internal
+    and the raw external roots are searched and the name must be unique
+    across them, so packs always land beside the world they are bound to.
+    """
+    roots = [MC_ROOT_INTERNAL, MC_ROOT_EXTERNAL_RAW] if adb.su else [MC_ROOT_SHELL]
+    matches: list[tuple[str, str]] = []
+    listing: list[str] = []
+    for root in roots:
+        for folder, level in list_worlds(adb, root):
+            listing.append(f"  {root}/minecraftWorlds/{folder}: {level}")
+            if level == world_name:
+                matches.append((root, f"{root}/minecraftWorlds/{folder}"))
     if not matches:
-        raise SystemExit(f"No world named {world_name!r} on the device. Worlds:\n{listing}")
+        raise SystemExit(f"No world named {world_name!r} on the device. Worlds:\n" + "\n".join(listing))
     if len(matches) > 1:
-        raise SystemExit(f"World name {world_name!r} is ambiguous: folders {matches}")
-    return f"{MC_ROOT}/minecraftWorlds/{matches[0]}"
+        raise SystemExit(f"World name {world_name!r} is ambiguous: {[m[1] for m in matches]}")
+    return matches[0]
+
+
+def read_fs_attrs(adb: Adb, mc_root: str, world_dir: str) -> FsAttrs:
+    """Owner/group/dir mode/label of ``mc_root`` and the file mode of the world's levelname.txt."""
+    fmt = shlex.quote("%U %G %a %C")
+    dir_line = adb.fs(f"stat -c {fmt} {shlex.quote(mc_root)}").strip().splitlines()[-1]
+    file_line = adb.fs(f"stat -c {fmt} {shlex.quote(world_dir + '/levelname.txt')}").strip().splitlines()[-1]
+    owner, group, dir_mode, label = dir_line.split()
+    file_mode = file_line.split()[2]
+    # A root-owned games/com.mojang, or one without the app's MLS categories
+    # (…:s0:cNN,…), would mean an earlier bad write; copying its attributes
+    # onto new folders would spread the damage, so refuse instead.
+    if owner == "root" or ":s0:c" not in label:
+        raise SystemExit(f"{mc_root}: unexpected attributes {dir_line!r}; refusing to copy them")
+    return FsAttrs(owner=owner, group=group, dir_mode=dir_mode, file_mode=file_mode, label=label)
 
 
 def extract_packs(mcaddon: Path, work: Path) -> list[PackInfo]:
@@ -284,7 +390,7 @@ def extract_packs(mcaddon: Path, work: Path) -> list[PackInfo]:
 
 def list_device_files(adb: Adb, device_dir: str) -> set[str]:
     """Relative paths of all regular files under a device directory."""
-    out = adb.shell(f"cd {shlex.quote(device_dir)} && find . -type f", check=False)
+    out = adb.fs(f"cd {shlex.quote(device_dir)} && find . -type f", check=False)
     return {line.strip()[2:] for line in out.splitlines() if line.strip().startswith("./")}
 
 
@@ -292,15 +398,17 @@ def local_files(local_dir: Path) -> set[str]:
     return {p.relative_to(local_dir).as_posix() for p in local_dir.rglob("*") if p.is_file()}
 
 
-def scan_installed(adb: Adb, roots: tuple[str, ...] = ("behavior_packs", "resource_packs")) -> list[InstalledPack]:
+def scan_installed(
+    adb: Adb, mc_root: str, roots: tuple[str, ...] = ("behavior_packs", "resource_packs")
+) -> list[InstalledPack]:
     """Every pack folder under the given com.mojang roots, read from its manifest."""
-    globs = " ".join(f"{MC_ROOT}/{r}/*" for r in roots)
+    globs = " ".join(f"{mc_root}/{r}/*" for r in roots)
     script = (
         f"for d in {globs}; do "
         f"[ -f \"$d/manifest.json\" ] || continue; "
         f"echo \"@@ $d\"; cat \"$d/manifest.json\"; echo; done"
     )
-    out = adb.shell(script, check=False)
+    out = adb.fs(script, check=False)
     found: list[InstalledPack] = []
     for chunk in out.split("@@ ")[1:]:
         path, _, body = chunk.partition("\n")
@@ -375,9 +483,16 @@ def fmt_bindings(entries: list[dict[str, Any]]) -> str:
     )
 
 
-def dev_blocked_paths(adb: Adb, packs: list[PackInfo]) -> list[str]:
-    """Dev-install targets the adb shell uid cannot write (see module docstring)."""
-    needed = [p.device_dir if adb.exists(p.device_dir) else p.dev_parent for p in packs]
+def dev_blocked_paths(adb: Adb, packs: list[PackInfo], mc_root: str) -> list[str]:
+    """Dev-install targets the file-system user cannot write (see module docstring)."""
+    needed: list[str] = []
+    for p in packs:
+        if adb.exists(p.device_dir(mc_root)):
+            needed.append(p.device_dir(mc_root))
+        elif adb.exists(p.dev_parent(mc_root)):
+            needed.append(p.dev_parent(mc_root))
+        else:
+            needed.append(mc_root)
     return [path for path in dict.fromkeys(needed) if not adb.writable(path)]
 
 
@@ -411,32 +526,110 @@ def launch_minecraft(adb: Adb) -> None:
     raise SystemExit("Minecraft did not reach the foreground within the launch timeout")
 
 
-def deploy_dev(adb: Adb, packs: list[PackInfo], backup_dir: Path) -> dict[str, list[str]]:
-    """Push every pack folder into the development pack dirs; returns stale files per dir."""
+def deploy_dev(adb: Adb, packs: list[PackInfo], mc_root: str, backup_dir: Path) -> dict[str, list[str]]:
+    """Unrooted dev install: push every pack folder into the dev pack dirs; returns stale files per dir."""
     stale_report: dict[str, list[str]] = {}
     for pack in packs:
-        adb.shell(f"mkdir -p {shlex.quote(pack.dev_parent)}", mutating=True)
-        if adb.exists(pack.device_dir):
+        adb.shell(f"mkdir -p {shlex.quote(pack.dev_parent(mc_root))}", mutating=True)
+        if adb.exists(pack.device_dir(mc_root)):
             dest = backup_dir / f"development_{pack.kind}_packs"
             dest.mkdir(parents=True, exist_ok=True)
-            print(f"  backing up existing {pack.device_dir} -> {dest / pack.folder}")
-            adb.pull(pack.device_dir, dest)
-            stale = sorted(list_device_files(adb, pack.device_dir) - local_files(pack.local_dir))
+            print(f"  backing up existing {pack.device_dir(mc_root)} -> {dest / pack.folder}")
+            adb.pull(pack.device_dir(mc_root), dest)
+            stale = sorted(list_device_files(adb, pack.device_dir(mc_root)) - local_files(pack.local_dir))
             if stale:
-                stale_report[pack.device_dir] = stale
+                stale_report[pack.device_dir(mc_root)] = stale
         # Pushing a directory onto an EXISTING parent lands it at parent/<basename>,
         # overwriting same-named files and leaving others untouched.
-        print(f"  push {pack.folder} -> {pack.dev_parent}/")
-        adb.push(pack.local_dir, pack.dev_parent + "/")
+        print(f"  push {pack.folder} -> {pack.dev_parent(mc_root)}/")
+        adb.push(pack.local_dir, pack.dev_parent(mc_root) + "/")
+    return stale_report
+
+
+def fix_attrs_commands(path: str, attrs: FsAttrs) -> list[str]:
+    """Root commands that give ``path`` (recursively) Minecraft's own owner, modes and label."""
+    q = shlex.quote(path)
+    return [
+        f"chown -R {attrs.owner}:{attrs.group} {q}",
+        f"find {q} -type d -exec chmod {attrs.dir_mode} {{}} +",
+        f"find {q} -type f -exec chmod {attrs.file_mode} {{}} +",
+        f"chcon -R {shlex.quote(attrs.label)} {q}",
+    ]
+
+
+def ensure_dir_as_app(adb: Adb, path: str, attrs: FsAttrs) -> None:
+    """Create ``path`` (one level) as root and give it the app's attributes, if missing."""
+    if adb.exists(path):
+        return
+    print(f"  creating {path} with the app's attributes")
+    q = shlex.quote(path)
+    adb.fs(
+        " && ".join(
+            [
+                f"mkdir {q}",
+                f"chown {attrs.owner}:{attrs.group} {q}",
+                f"chmod {attrs.dir_mode} {q}",
+                f"chcon {shlex.quote(attrs.label)} {q}",
+            ]
+        ),
+        mutating=True,
+    )
+
+
+def deploy_dev_root(
+    adb: Adb, packs: list[PackInfo], mc_root: str, attrs: FsAttrs, staging: str, backup_dir: Path
+) -> dict[str, list[str]]:
+    """Root dev install through ``staging``; returns stale files per replaced dev folder.
+
+    Order per pack: back up the existing dev folder (root copy into staging,
+    made shell-readable, pulled), push the new folder into staging, then
+    ``cp -r <stage>/<pack>/. <dev folder>/`` (overwrite in place, delete
+    nothing) and repair owner/modes/label on the whole dev folder.
+    """
+    stale_report: dict[str, list[str]] = {}
+    adb.shell(f"mkdir {shlex.quote(staging)}", mutating=True)
+    adb.shell(f"mkdir {shlex.quote(staging + '/new')}", mutating=True)
+    for kind in sorted({p.kind for p in packs}):
+        ensure_dir_as_app(adb, f"{mc_root}/development_{kind}_packs", attrs)
+    for pack in packs:
+        target = pack.device_dir(mc_root)
+        if adb.exists(target):
+            stale = sorted(list_device_files(adb, target) - local_files(pack.local_dir))
+            if stale:
+                stale_report[target] = stale
+            stage_backup = f"{staging}/backup-{pack.kind}"
+            print(f"  backing up existing {target}")
+            adb.fs(
+                f"mkdir -p {shlex.quote(stage_backup)} && cp -r {shlex.quote(target)} {shlex.quote(stage_backup + '/')}"
+                f" && chmod -R a+rX {shlex.quote(stage_backup)}",
+                mutating=True,
+            )
+            if not adb.dry_run:
+                dest = backup_dir / f"development_{pack.kind}_packs"
+                dest.mkdir(parents=True, exist_ok=True)
+                adb.pull(f"{stage_backup}/{pack.folder}", dest)
+        print(f"  push {pack.folder} -> {staging}/new/")
+        adb.push(pack.local_dir, f"{staging}/new/")
+        steps = [
+            f"mkdir -p {shlex.quote(target)}",
+            f"cp -r {shlex.quote(f'{staging}/new/{pack.folder}')}/. {shlex.quote(target)}/",
+            *fix_attrs_commands(target, attrs),
+        ]
+        print(f"  install {pack.folder} -> {target}")
+        adb.fs(" && ".join(steps), mutating=True)
+        if not adb.dry_run:
+            missing = local_files(pack.local_dir) - list_device_files(adb, target)
+            if missing:
+                raise SystemExit(f"{target}: {len(missing)} files missing after copy, e.g. {sorted(missing)[:5]}")
     return stale_report
 
 
 def deploy_import(
-    adb: Adb, mcaddons: list[Path], packs: list[PackInfo], shots_dir: Path | None
+    adb: Adb, mcaddons: list[Path], packs: list[PackInfo], mc_root: str, shots_dir: Path | None
 ) -> dict[str, str]:
     """Import each .mcaddon through Minecraft's VIEW handler; returns uuid -> installed folder."""
     installed_where: dict[str, str] = {}
-    before = scan_installed(adb)
+    before = scan_installed(adb, mc_root)
     if all(find_installed(before, p) for p in packs):
         for p in packs:
             hit = find_installed(before, p)
@@ -483,7 +676,7 @@ def deploy_import(
                 # The import toast shows for a few seconds right after the intent.
                 adb.screenshot(shots_dir / f"import-{mcaddon.stem}.jpg")
                 shot_taken = True
-            now = scan_installed(adb)
+            now = scan_installed(adb, mc_root)
             for p in list(pending):
                 hit = find_installed(now, p)
                 if hit:
@@ -496,8 +689,29 @@ def deploy_import(
     return installed_where
 
 
-def bind_world(adb: Adb, world_dir: str, packs: list[PackInfo], backup_dir: Path, work: Path, exclusive: bool = False) -> dict[str, list[dict[str, Any]]]:
-    """Rewrite the world's pack JSON in place and return the verified bindings per kind."""
+def backup_device_file(adb: Adb, device_path: str, local_path: Path) -> None:
+    """Copy one device file to ``local_path``: root mode reads through su, else adb pull."""
+    if adb.su:
+        local_path.write_bytes(adb.read_bytes(device_path))
+    else:
+        adb.pull(device_path, local_path)
+
+
+def bind_world(
+    adb: Adb,
+    world_dir: str,
+    packs: list[PackInfo],
+    backup_dir: Path,
+    work: Path,
+    exclusive: bool = False,
+    root_create: tuple[FsAttrs, str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Rewrite the world's pack JSON in place and return the verified bindings per kind.
+
+    ``root_create`` (attrs, staging dir) lets root mode create a MISSING JSON
+    file through staging with the app's attributes; without it a missing file
+    is pushed directly (possible only where the shell uid can create files).
+    """
     final: dict[str, list[dict[str, Any]]] = {}
     for kind in ("behavior", "resource"):
         name = f"world_{kind}_packs.json"
@@ -505,7 +719,7 @@ def bind_world(adb: Adb, world_dir: str, packs: list[PackInfo], backup_dir: Path
         local_before = backup_dir / name
         existed = adb.exists(device_json)
         if existed:
-            adb.pull(device_json, local_before)
+            backup_device_file(adb, device_json, local_before)
         before = load_bindings(local_before)
         after = rebind(before, [p for p in packs if p.kind == kind], exclusive)
         print(f"{name} before:\n{fmt_bindings(before)}")
@@ -517,6 +731,16 @@ def bind_world(adb: Adb, world_dir: str, packs: list[PackInfo], backup_dir: Path
         (work / name).write_bytes(payload)
         if existed:
             adb.write_in_place(device_json, payload)
+        elif root_create is not None:
+            attrs, staging = root_create
+            staged = f"{staging}/{name}"
+            adb.push(work / name, staged)
+            q = shlex.quote(device_json)
+            adb.fs(
+                f"cp {shlex.quote(staged)} {q} && chown {attrs.owner}:{attrs.group} {q}"
+                f" && chmod {attrs.file_mode} {q} && chcon {shlex.quote(attrs.label)} {q}",
+                mutating=True,
+            )
         else:
             adb.push(work / name, device_json)
         if adb.dry_run:
@@ -543,6 +767,12 @@ def main() -> int:
     parser.add_argument("world", help="world name as shown in levelname.txt")
     parser.add_argument("packs", nargs="+", type=Path, help=".mcaddon files")
     parser.add_argument("--mode", choices=("auto", "dev", "import"), default="auto")
+    parser.add_argument(
+        "--root",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="run file-system commands through su (default: auto-detect with `su -c id`)",
+    )
     parser.add_argument("--serial", default=os.environ.get("ANDROID_SERIAL"), help="adb serial (default $ANDROID_SERIAL)")
     parser.add_argument("--shots-dir", type=Path, help="save an import-toast screenshot per pack here")
     parser.add_argument("--no-launch", action="store_true", help="leave Minecraft stopped after binding")
@@ -551,15 +781,29 @@ def main() -> int:
     args = parser.parse_args()
 
     adb = Adb(args.serial, args.dry_run)
+    use_root = detect_root(adb) if args.root is None else bool(args.root)
+    if use_root and args.root is True and not detect_root(adb):
+        raise SystemExit("--root given but `su -c id` does not report uid 0 on the device")
+    adb.su = use_root
     stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_dir = BACKUP_ROOT / stamp
     work = Path(tempfile.mkdtemp(prefix=f"pixel-dev-deploy-{stamp}-"))
-    print(f"serial: {args.serial or '(adb default)'}   dry-run: {args.dry_run}")
+    # A NEW staging dir per run (never cleared, never reused): pid + time.
+    staging = f"{STAGING_PARENT}/craftmatic-deploy-{stamp}-{os.getpid()}"
+    print(f"serial: {args.serial or '(adb default)'}   dry-run: {args.dry_run}   root: {use_root}")
     print(f"extract dir: {work}")
     print(f"backup dir:  {backup_dir}")
 
-    world_dir = resolve_world(adb, args.world)
+    mc_root, world_dir = resolve_world(adb, args.world)
     print(f"world {args.world!r} -> {world_dir}")
+    print(f"storage root: {mc_root}")
+    attrs: FsAttrs | None = None
+    if use_root:
+        attrs = read_fs_attrs(adb, mc_root, world_dir)
+        print(
+            f"app attributes: owner {attrs.owner}:{attrs.group}, dirs {attrs.dir_mode}, "
+            f"files {attrs.file_mode}, label {attrs.label}"
+        )
 
     mcaddons: list[Path] = []
     packs: list[PackInfo] = []
@@ -578,7 +822,7 @@ def main() -> int:
     if blocked_json:
         print("BLOCKED: cannot rewrite the world's pack JSON: " + ", ".join(blocked_json))
         return 2
-    blocked_dev = dev_blocked_paths(adb, packs)
+    blocked_dev = dev_blocked_paths(adb, packs, mc_root)
     mode = args.mode
     if mode == "auto":
         mode = "import" if blocked_dev else "dev"
@@ -588,38 +832,53 @@ def main() -> int:
         print("BLOCKED: the adb shell uid cannot write these device paths:")
         for path in blocked_dev:
             print(f"  {path}")
-        print("Nothing was written. Use --mode import (Minecraft's own import) instead.")
+        print("Nothing was written. Use --mode import (Minecraft's own import) or --root instead.")
         return 2
     print(f"mode: {mode}")
 
     backup_dir.mkdir(parents=True, exist_ok=True)
     stale_report: dict[str, list[str]] = {}
     installed_where: dict[str, str] = {}
+    staging_used = False
     if mode == "dev":
         # A regular imported copy with the same uuid can shadow the development one.
-        for item in scan_installed(adb):
+        for item in scan_installed(adb, mc_root):
             for pack in packs:
                 if item.uuid == pack.uuid:
                     print(f"  WARNING: regular pack {item.path} shares uuid {pack.uuid} with {pack.folder}")
         print("force-stopping Minecraft")
         adb.shell(f"am force-stop {MC_PACKAGE}", mutating=True)
-        stale_report = deploy_dev(adb, packs, backup_dir)
-        installed_where = {p.uuid: p.device_dir for p in packs}
+        if attrs is not None:
+            print(f"staging dir: {staging} (kept; nothing is deleted)")
+            stale_report = deploy_dev_root(adb, packs, mc_root, attrs, staging, backup_dir)
+            staging_used = True
+        else:
+            stale_report = deploy_dev(adb, packs, mc_root, backup_dir)
+        installed_where = {p.uuid: p.device_dir(mc_root) for p in packs}
     else:
-        installed_where = deploy_import(adb, mcaddons, packs, args.shots_dir)
+        installed_where = deploy_import(adb, mcaddons, packs, mc_root, args.shots_dir)
 
     # World JSON may only be edited while Minecraft is stopped.
     print("force-stopping Minecraft before binding")
     adb.shell(f"am force-stop {MC_PACKAGE}", mutating=True)
-    final = bind_world(adb, world_dir, packs, backup_dir, work, args.exclusive)
+    root_create: tuple[FsAttrs, str] | None = None
+    if attrs is not None:
+        if not staging_used:
+            adb.shell(f"mkdir {shlex.quote(staging)}", mutating=True)
+            staging_used = True
+        root_create = (attrs, staging)
+    final = bind_world(adb, world_dir, packs, backup_dir, work, args.exclusive, root_create)
 
     record = {
         "timestamp": stamp,
         "dry_run": args.dry_run,
         "mode": mode,
+        "root": use_root,
         "serial": args.serial,
         "world": args.world,
+        "storage_root": mc_root,
         "world_dir": world_dir,
+        "staging_dir": staging if staging_used else None,
         "packs": [
             {"source": str(p.source), "folder": p.folder, "kind": p.kind, "uuid": p.uuid, "version": p.version,
              "installed_at": installed_where.get(p.uuid), "name": p.name}
@@ -641,6 +900,8 @@ def main() -> int:
         print(f"world_{kind}_packs.json now:\n{fmt_bindings(final[kind])}")
     for device_dir, files in stale_report.items():
         print(f"  STALE (left on device, not in new build) {device_dir}: {len(files)} files, e.g. {files[:5]}")
+    if staging_used:
+        print(f"  staging dir kept on device: {staging}")
     print(f"record: {backup_dir / 'deploy-record.json'}")
     if args.dry_run:
         print("dry-run: nothing on the device was written")
