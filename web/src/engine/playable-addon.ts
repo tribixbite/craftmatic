@@ -1606,9 +1606,16 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     const fx = -Math.sin(rad), fz = Math.cos(rad);
     let v: any;
     try { v = vehicle.location; } catch { return false; }
-    const location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
+    let location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
     let facingLocation: any;
-    if (cfg.kind === 'plane') {
+    if (cfg.scripted) {
+      // A scripted vehicle: the boom trails along its NOSE in 3D, so a climbing
+      // or diving aircraft stays in frame (the level boom looked at the sky with
+      // the Milano under the frame's edge in a steep climb, Pixel 2026-09-25).
+      const prad = pitch * Math.PI / 180, cp = Math.cos(prad), sp = -Math.sin(prad);
+      location = { x: v.x - fx * cp * cfg.radius, y: v.y + cfg.pivotY + cfg.height * 0.5 - sp * cfg.radius, z: v.z - fz * cp * cfg.radius };
+      facingLocation = { x: v.x + fx * cp * cfg.radius, y: v.y + cfg.pivotY + sp * cfg.radius, z: v.z + fz * cp * cfg.radius };
+    } else if (cfg.kind === 'plane') {
       // Aircraft: the camera looks along the rider's exact yaw AND pitch, so
       // `free_camera_controlled` (flies where the camera looks) and the
       // rider's own look agree: look down = dive, look up = climb.
