@@ -28,6 +28,7 @@ import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, consoleHideAnimation, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
+import { vehicleClientAnimation, vehicleMotionOf, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
@@ -1856,6 +1857,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
         }
     };
+    /** A driven vehicle's wheel spin and body motion (bedrock-vehicle.ts): writes the animation file, returns what the client entity plays. */
+    const emitDriveAnimation = (ecid: string, motion: VehicleMotion, geo: CompiledLdrawGeometry): ClientAnimations => {
+        const anim = vehicleClientAnimation(ecid, motion, geo.wheelBones ?? []);
+        files.push({ name: `${rp}animations/${ecid}.animation.json`, data: json(anim.file) });
+        return anim.client;
+    };
     let creatorConfig: MinifigCreatorConfig | undefined;
     if (options.minifigCreator) {
         if (Object.keys(options.minifigCreator.slots.minidoll).length) throw new Error('Mini-doll creator export is unavailable: canonical doll rig positions are not measured.');
@@ -2143,6 +2150,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 partGeometry: options.partGeometry,
                 quality: options.entityQuality,
                 pbr,
+                // Spinning wheels and a body that leans (bedrock-vehicle.ts).
+                vehicleRig: true,
             });
             facing = ldrawGeo.facing;
         } else if (c.kind === 'car' && facing === 'auto') {
@@ -2157,7 +2166,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks), undefined, true);
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks), emitDriveAnimation(cid, vehicleMotionOf(c.kind, c.label), ldrawGeo), true);
             cameraVehicles.push(emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks));
 
             // Secondary objects the compiler found beside the vehicle (see
@@ -2179,6 +2188,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                         scale: ekind === 'figure' ? figureUnitsPerLdu : unitsPerLdu,
                         ...(extra.facingLdu ? { facing: snapFacing(extra.facingLdu) } : {}),
                         partGeometry: options.partGeometry, quality: options.entityQuality, pbr,
+                        ...(ekind === 'car' ? { vehicleRig: true } : {}),
                     });
                 } catch (e) {
                     warnings.push(`${elabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
@@ -2190,7 +2200,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
-                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined, ekind !== 'figure');
+                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });

@@ -483,6 +483,13 @@ export interface LegoGeometryDiagnostics {
   heaviestParts: Array<{ part: string; placements: number; cubesEach: number; microcellLdu: number; cubes: number }>;
   /** Which LDraw end became the nose, with every vote that decided it (`vehicle-facing.ts`). */
   facing: FacingDecision;
+  /**
+   * `vehicleRig` compiles only: wheel/tyre placements found, the road wheels
+   * they formed (one spinning bone each, its rolling radius in blocks, front
+   * or rear half), and the placements that were not a road wheel (flat, not
+   * round, or turned along the travel axis) and stayed on the body.
+   */
+  wheels?: { placements: number; bones: Array<{ name: string; radiusBlocks: number; parts: number; end: 1 | -1 }>; rejected: number };
 }
 
 /**
@@ -551,6 +558,8 @@ export interface CompiledLdrawGeometry {
   partBoxesLdu?: Array<{ min: Vec3; max: Vec3 }>;
   /** Figures only: the torso's exact horizontal facing in the SOURCE frame (x, z), and what the rig rebuilt. */
   figure?: { facingLdu: [number, number]; synthesized: string[]; dropped: string[] };
+  /** `vehicleRig` compiles only: the spinning road wheels (possibly none; the rig's `body` root is there either way). */
+  wheelBones?: VehicleWheelBone[];
   diagnostics: LegoGeometryDiagnostics;
   /** Human-readable degradations worth surfacing in the export status. */
   warnings: string[];
@@ -634,6 +643,75 @@ export interface CompileLdrawEntityOptions {
    * shell keeps every cell) and carves the head cells it covers.
    */
   figureSlots?: readonly MinifigSlot[];
+  /**
+   * A driven vehicle's rig (`vehicleWheelAssemblies`): every road wheel
+   * (a wheel and the tyre on it) gets its own `wheel_<n>` bone pivoted on its
+   * axle, and every bone of the model hangs under `body`, whose pivot is the
+   * model's floor centre (its mid-height for an aircraft). The client
+   * animation spins the wheels and leans, pitches and bobs the body
+   * (`vehicleClientAnimation` in playable-addon.ts). Off: the flat bone list
+   * every other entity has.
+   */
+  vehicleRig?: boolean;
+}
+
+/** One spinning road wheel of a compiled vehicle: its bone, axle radius and how many placements ride on it. */
+export interface VehicleWheelBone {
+  name: string;
+  /** Rolling radius in world blocks at the compiled scale (the tyre's outer radius). */
+  radiusBlocks: number;
+  /** Placements (wheel, tyre) on the bone. */
+  parts: number;
+  /** Axle centre in model units (entity frame, the JSON's mirrored X). */
+  pivot: [number, number, number];
+  /** +1 front half of the wheelbase, -1 rear: a front wheel can be steered by the animation. */
+  end: 1 | -1;
+}
+
+/**
+ * Group a vehicle's wheel and tyre placements into road wheels: placements
+ * whose boxes share a centre (a tyre sits on its rim) form one wheel; its
+ * axle is the box's SHORTEST side (a road wheel is wider across than it is
+ * thick) and must be horizontal. A wheel lying flat, one whose two long sides
+ * differ by more than a third (not round), or an axle along the travel axis is
+ * not a road wheel and is left on the body — and counted, so nothing is
+ * silently dropped.
+ */
+export function vehicleWheelAssemblies(
+  boxes: ReadonlyArray<{ index: number; min: Vec3; max: Vec3 }>,
+  travelAxis: 'x' | 'z',
+): { wheels: Array<{ indices: number[]; centre: Vec3; radiusLdu: number; axle: 0 | 2 }>; rejected: number } {
+  const groups: Array<{ indices: number[]; min: Vec3; max: Vec3 }> = [];
+  const centreOf = (b: { min: Vec3; max: Vec3 }): Vec3 => [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2];
+  const volume = (b: { min: Vec3; max: Vec3 }): number => Math.max(0, b.max[0] - b.min[0]) * Math.max(0, b.max[1] - b.min[1]) * Math.max(0, b.max[2] - b.min[2]);
+  for (const b of boxes) {
+    // Same wheel: the boxes share at least half of the smaller one (a rim sits
+    // inside its tyre, often set in along the axle, so the centres need not
+    // coincide), with the axle heights within a quarter of the smaller radius.
+    const g = groups.find(g => {
+      const inter = { min: [0, 1, 2].map(k => Math.max(g.min[k]!, b.min[k]!)) as Vec3, max: [0, 1, 2].map(k => Math.min(g.max[k]!, b.max[k]!)) as Vec3 };
+      const r = Math.min(Math.max(g.max[1] - g.min[1], 1), Math.max(b.max[1] - b.min[1], 1)) / 2;
+      return volume(inter) >= 0.5 * Math.min(volume(g), volume(b)) && Math.abs(centreOf(g)[1] - centreOf(b)[1]) <= Math.max(4, r * 0.25);
+    });
+    if (g) {
+      g.indices.push(b.index);
+      for (let k = 0; k < 3; k++) { g.min[k] = Math.min(g.min[k]!, b.min[k]!); g.max[k] = Math.max(g.max[k]!, b.max[k]!); }
+    } else groups.push({ indices: [b.index], min: [...b.min] as Vec3, max: [...b.max] as Vec3 });
+  }
+  const wheels: Array<{ indices: number[]; centre: Vec3; radiusLdu: number; axle: 0 | 2 }> = [];
+  let rejected = 0;
+  for (const g of groups) {
+    const ext = [g.max[0] - g.min[0], g.max[1] - g.min[1], g.max[2] - g.min[2]];
+    const axle = ext[0]! <= ext[2]! ? 0 : 2;
+    const across = [ext[1]!, ext[axle === 0 ? 2 : 0]!];
+    const round = Math.min(...across) >= Math.max(...across) * 0.66;
+    // The axle must be the thinnest side, horizontal, and across the travel axis.
+    const thin = ext[axle]! < Math.min(...across);
+    const acrossTravel = (axle === 0 ? 'x' : 'z') !== travelAxis;
+    if (!round || !thin || !acrossTravel) { rejected += g.indices.length; continue; }
+    wheels.push({ indices: g.indices, centre: centreOf(g), radiusLdu: Math.max(...across) / 2, axle });
+  }
+  return { wheels, rejected };
 }
 
 // ─── Internal geometry records ────────────────────────────────────────────────
@@ -1022,7 +1100,11 @@ export function cullHiddenCuboidsWithinBudget(
  */
 export function mergeAlignedCuboids(cuboids: RenderCuboid[], eps = 0.01): { cuboids: RenderCuboid[]; merged: number } {
   const eligible: RenderCuboid[] = [], rest: RenderCuboid[] = [];
-  for (const c of cuboids) (c.aligned && c.bone === 'body' && !c.studTop && !c.rotation ? eligible : rest).push(c);
+  // A vehicle's wheel bone (`wheel_<n>`) is authored aligned like `body`, so its
+  // cuboids merge too - but only with cuboids of the SAME bone, or a merged box
+  // would spin half on the wheel and half on the body.
+  const mergeable = (bone: string): boolean => bone === 'body' || bone.startsWith('wheel_');
+  for (const c of cuboids) (c.aligned && mergeable(c.bone) && !c.studTop && !c.rotation ? eligible : rest).push(c);
   let current = eligible;
   let merged = 0;
   const key = (v: number): string => String(Math.round(v / eps));
@@ -1032,7 +1114,7 @@ export function mergeAlignedCuboids(cuboids: RenderCuboid[], eps = 0.01): { cubo
       const o1 = (axis + 1) % 3, o2 = (axis + 2) % 3;
       const groups = new Map<string, RenderCuboid[]>();
       for (const c of current) {
-        const k = `${c.material.colorId}|${key(c.min[o1])}|${key(c.max[o1])}|${key(c.min[o2])}|${key(c.max[o2])}`;
+        const k = `${c.bone === 'body' ? '' : `${c.bone}|`}${c.material.colorId}|${key(c.min[o1])}|${key(c.max[o1])}|${key(c.min[o2])}|${key(c.max[o2])}`;
         const g = groups.get(k);
         if (g) g.push(c); else groups.set(k, [c]);
       }
@@ -1886,6 +1968,35 @@ export async function compileLdrawEntityGeometry(
     warnings.push(`${cid}: the seated driver figure (${driverFigureRemoved} part${driverFigureRemoved === 1 ? '' : 's'}) was left out of the geometry; the player sits in its place.`);
   }
 
+  // 3b. A driven vehicle's rig (`vehicleRig`): each road wheel on its own bone
+  //     at its axle, every bone under `body`. Found on the FINAL placements
+  //     (the driver figure is gone), in the levelled LDraw frame.
+  const vehicleRig = !!options.vehicleRig && !options.rig && kind !== 'figure' && kind !== 'prop';
+  const wheelBoneOf = new Map<number, string>();
+  const wheelPivotsLdu = new Map<string, Vec3>();
+  const wheelPlan: Array<{ name: string; radiusLdu: number; parts: number; centre: Vec3 }> = [];
+  let wheelPlacements = 0, wheelsRejected = 0;
+  if (vehicleRig) {
+    const isWheel = isWheelPartWith(meshes);
+    const boxes = placed.flatMap((b, i) => {
+      if (!isWheel(b)) return [];
+      wheelPlacements++;
+      const mesh = meshes.get(b.part);
+      if (!mesh || mesh.bounds.max[1] - mesh.bounds.min[1] <= 0) { wheelsRejected++; return []; }
+      const R: Mat3 = b.rot ?? IDENTITY;
+      const box = aabbOfCorners(cornersOf(mesh.bounds.min, mesh.bounds.max).map(v => { const r = apply(R, v); return [r[0] + b.x, r[1] + b.y, r[2] + b.z] as Vec3; }));
+      return [{ index: i, min: box.min, max: box.max }];
+    });
+    const found = vehicleWheelAssemblies(boxes, facing.axis);
+    wheelsRejected += found.rejected;
+    found.wheels.forEach((w, k) => {
+      const name = `wheel_${k}`;
+      for (const i of w.indices) wheelBoneOf.set(i, name);
+      wheelPivotsLdu.set(name, w.centre);
+      wheelPlan.push({ name, radiusLdu: w.radiusLdu, parts: w.indices.length, centre: w.centre });
+    });
+  }
+
   // 4. Instantiate prototypes into the render frame (body cuboids first, studs after exposure).
   //    Prototypes are compiled once per (part, grain, hollowness) and shared by
   //    the planning pass and the final pass through this one cache.
@@ -1900,9 +2011,11 @@ export async function compileLdrawEntityGeometry(
   const instantiate = (grainOf: (key: string) => number, cullAndMerge: boolean) => {
     const renderCuboids: RenderCuboid[] = [];
     const worldBoxes: WorldBox[] = [];
-    const studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string }> = [];
+    const studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string; aligned: boolean }> = [];
     const bones = new Map<string, { pivot: Vec3; rotation?: [number, number, number]; parent?: string }>();
     bones.set('body', { pivot: [0, 0, 0] });
+    // A wheel bone holds its parts ALIGNED, authored where they stand (like `body`); only the animation turns it.
+    for (const [name, p] of wheelPivotsLdu) bones.set(name, { pivot: apply(A, p), parent: 'body' });
     for (const b of options.rig?.bones ?? []) {
       // A static bone rotation is given in the LDraw frame and goes to the
       // render frame the same way a rotated part's does (M = A R A^T).
@@ -1933,10 +2046,11 @@ export async function compileLdrawEntityGeometry(
       const aligned = snapped !== null;
       const M: Mat3 = snapped ?? rawM;
       const R: Mat3 = snapped ? mul(mul(At, snapped), A) : rawR;
-      let bone = rigBoneOf(brickIndex);
+      let bone = wheelBoneOf.get(brickIndex) ?? rigBoneOf(brickIndex);
       if (!aligned) {
-        // A rotated part under a rig bone is that bone's child, so it turns with it.
-        const parent = bone === 'body' && !options.rig ? undefined : bone;
+        // A rotated part under a rig bone is that bone's child, so it turns with it
+        // (a vehicle's rotated parts hang under `body` too, so the body lean carries them).
+        const parent = bone === 'body' && !options.rig && !vehicleRig ? undefined : bone;
         bone = `r${brickIndex}`;
         const [ea, eb, ec] = eulerZYX(M);
         bones.set(bone, { pivot: apply(A, t), rotation: [ea, eb, ec], ...(parent ? { parent } : {}) });
@@ -2026,7 +2140,7 @@ export async function compileLdrawEntityGeometry(
           });
         }
       }
-      for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material, bone });
+      for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material, bone, aligned });
     });
 
     // Headwear carves the head: a head cell that shares space with its hair
@@ -2086,7 +2200,7 @@ export async function compileLdrawEntityGeometry(
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
   interface ExposedStud { centre: Vec3; up: Vec3; radius: number; height: number; material: LdrawEntityMaterial; bone: string }
-  const findExposedStuds = (worldBoxes: WorldBox[], studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string }>): ExposedStud[] => {
+  const findExposedStuds = (worldBoxes: WorldBox[], studCandidates: Array<{ brick: number; s: LdrawStud; R: Mat3; t: Vec3; material: LdrawEntityMaterial; bone: string; aligned: boolean }>): ExposedStud[] => {
     const CELL = 40;
     const hash = new Map<string, WorldBox[]>();
     const keyOf = (x: number, y: number, z: number): string => `${Math.floor(x / CELL)},${Math.floor(y / CELL)},${Math.floor(z / CELL)}`;
@@ -2110,14 +2224,15 @@ export async function compileLdrawEntityGeometry(
     };
     const exposed: ExposedStud[] = [];
     for (const cand of studCandidates) {
-      const { s, R, t, brick, material, bone } = cand;
+      const { s, R, t, brick, material, bone, aligned } = cand;
       const centerW = apply(R, s.center);
       const upW = apply(R, s.up);
       const probe: Vec3 = [
         centerW[0] + t[0] + upW[0] * (s.height + 2), centerW[1] + t[1] + upW[1] * (s.height + 2), centerW[2] + t[2] + upW[2] * (s.height + 2),
       ];
       if (covered(probe, brick)) continue;
-      if (bone === 'body') {
+      // A wheel bone's parts are authored where they stand, exactly like `body`'s.
+      if (bone === 'body' || (aligned && wheelPivotsLdu.has(bone))) {
         // Render frame: the stud's base centre and axis through the placement.
         exposed.push({ centre: apply(A, [centerW[0] + t[0], centerW[1] + t[1], centerW[2] + t[2]]), up: apply(A, upW), radius: s.radius, height: s.height, material, bone });
       } else {
@@ -2242,6 +2357,18 @@ export async function compileLdrawEntityGeometry(
   const originLiftBlocks = options.originAboveModel ? Math.ceil(totalHeight) + 1 : 0;
   const toUnits = (v: Vec3): Vec3 => [(v[0] - midX) * scale, (v[1] - floorY) * scale - originLiftBlocks * 16, (v[2] - midZ) * scale];
   const totalLength = (all.max[2] - all.min[2]) * scale / 16;
+  // The vehicle rig's root turns about the floor centre (a car leans and
+  // squats on its wheels), an aircraft's about its mid-height (it banks
+  // through its own middle). Bone pivots are absolute, so moving the root's
+  // pivot moves nothing until an animation turns it.
+  if (vehicleRig) bones.get('body')!.pivot = [midX, floorY + (kind === 'plane' ? (all.max[1] - all.min[1]) / 2 : 0), midZ];
+  const wheelBones: VehicleWheelBone[] = wheelPlan.map(w => {
+    const p = toUnits(apply(A, w.centre));
+    // Front or rear half: along the nose axis, relative to the wheels' own middle.
+    const ax = facing.axis === 'x' ? 0 : 2;
+    const mid = wheelPlan.reduce((s, o) => s + o.centre[ax]!, 0) / Math.max(1, wheelPlan.length);
+    return { name: w.name, radiusBlocks: round(w.radiusLdu * scale / 16), parts: w.parts, pivot: [round(-p[0]), round(p[1]), round(p[2])] as [number, number, number], end: ((w.centre[ax]! - mid) * facing.sign >= 0 ? 1 : -1) as 1 | -1 };
+  });
 
   // 7. Seat + collision. The cockpit's EYE point (LDraw) goes through the same
   //    frame; the rider's origin sits SEATED_EYE_HEIGHT_BLOCKS below it.
@@ -2462,6 +2589,7 @@ export async function compileLdrawEntityGeometry(
     mergedCubes,
     heaviestParts,
     facing,
+    ...(vehicleRig ? { wheels: { placements: wheelPlacements, bones: wheelBones.map(w => ({ name: w.name, radiusBlocks: w.radiusBlocks, parts: w.parts, end: w.end })), rejected: wheelsRejected } } : {}),
   };
 
   if (aabbFallbackParts.length) {
@@ -2495,6 +2623,7 @@ export async function compileLdrawEntityGeometry(
     originLiftBlocks,
     levelPose: level.rotation ? { rotation: [...level.rotation], centre: [...level.centre] as Vec3 } : null,
     ...(options.wholeModel ? { partBoxesLdu: worldBoxes.map(wb => ({ min: wb.min, max: wb.max })) } : {}),
+    ...(vehicleRig ? { wheelBones } : {}),
     diagnostics,
     warnings,
   };
