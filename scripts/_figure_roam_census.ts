@@ -63,7 +63,7 @@ for (const file of files) {
     const at = world.figures[k]!.at, t = tracks[k]!;
     const body = bodyHeights[f.typeId]!;
     const inArea = (x: number, z: number): boolean => x + 0.5 >= area[0] && x + 0.5 <= area[2] && z + 0.5 >= area[1] && z + 0.5 <= area[3];
-    const start = startCell(span, at.x, at.z, at.y, body, FIGURE_TUNING.maxUp, FIGURE_TUNING.maxDown, standFeetAt, (x, z) => inArea(x, z));
+    const start = startCell(span, at.x, at.z, at.y, body, FIGURE_TUNING.maxUp, FIGURE_TUNING.maxDown, standFeetAt, (x, z) => inArea(x, z), 1);
     const ownColumn = standFeetAt(span, Math.floor(at.x), Math.floor(at.z), at.y, body, 0.3, FIGURE_TUNING.maxDown) !== null;
     const feet = start ? start.feet : 0;
     const reach = !start ? 0 : exploreWalkable(span, start, body, FIGURE_TUNING.maxUp, FIGURE_TUNING.maxDown,

@@ -210,20 +210,20 @@ export function exploreWalkable(
 
 /**
  * Where a figure standing at (x, feet, z) starts planning from: its own
- * column when a body fits there, else the nearest standable column within two
- * cells on the same floor. A LEGO figure stands a hair from a wall, a counter
+ * column when a body fits there, else the nearest standable column within
+ * `maxRing` cells on the same floor (1 in the runtime: a step it can walk). A LEGO figure stands a hair from a wall, a counter
  * or a lamp post, and the 1-block collider column it stands in often holds
  * that part at head height (the Winter Chalet's "stuck" walkers: 1.8 blocks
  * of body under 0.55-0.7 blocks of headroom); the figure is then planned out
  * of that column into the first free one. Pure (serialised into the runtime).
  */
 export function startCell(spanAt: SpanLookup, x: number, z: number, feet: number, body: number, maxUp: number, maxDown: number, stand: typeof standFeetAt,
-  allowed: (x: number, z: number, feet: number) => boolean = () => true): { x: number; z: number; feet: number } | null {
+  allowed: (x: number, z: number, feet: number) => boolean = () => true, maxRing = 1): { x: number; z: number; feet: number } | null {
   const cx = Math.floor(x), cz = Math.floor(z);
   const own = stand(spanAt, cx, cz, feet, body, 0.3, maxDown);
   if (own !== null) return { x: cx, z: cz, feet: own };
   let best: { x: number; z: number; feet: number } | null = null, bestD = Infinity;
-  for (let r = 1; r <= 2 && !best; r++) {
+  for (let r = 1; r <= maxRing && !best; r++) {
     for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
       const f = stand(spanAt, cx + dx, cz + dz, feet, body, maxUp, maxDown);
@@ -231,6 +231,28 @@ export function startCell(spanAt: SpanLookup, x: number, z: number, feet: number
       const d = (cx + dx + 0.5 - x) ** 2 + (cz + dz + 0.5 - z) ** 2 + (f - feet) ** 2;
       if (d < bestD) { bestD = d; best = { x: cx + dx, z: cz + dz, feet: f }; }
     }
+  }
+  return best;
+}
+
+/**
+ * Where to set down a figure that stands inside a collider with no free
+ * column beside it (Pixel 2026-09-25: a Winter Chalet figure pushed into a
+ * cupboard's column, walls on three sides): the standable column within
+ * `maxRing` cells whose own walkable floor is LARGEST (so it lands in the
+ * room, not on a one-cell ledge behind the wall), nearest on a tie. Pure.
+ */
+export function refugeCell(spanAt: SpanLookup, x: number, z: number, feet: number, body: number, maxUp: number, maxDown: number, stand: typeof standFeetAt,
+  explore: typeof exploreWalkable, allowed: (x: number, z: number, feet: number) => boolean, maxRing: number): { x: number; z: number; feet: number } | null {
+  const cx = Math.floor(x), cz = Math.floor(z);
+  let best: { x: number; z: number; feet: number } | null = null, bestRoom = 0, bestD = Infinity;
+  for (let dx = -maxRing; dx <= maxRing; dx++) for (let dz = -maxRing; dz <= maxRing; dz++) {
+    if (!dx && !dz) continue;
+    const f = stand(spanAt, cx + dx, cz + dz, feet, body, maxUp, maxDown);
+    if (f === null || !allowed(cx + dx, cz + dz, f)) continue;
+    const room = explore(spanAt, { x: cx + dx, z: cz + dz, feet: f }, body, maxUp, maxDown, allowed, 64, stand).length;
+    const d = (cx + dx + 0.5 - x) ** 2 + (cz + dz + 0.5 - z) ** 2;
+    if (room > bestRoom || (room === bestRoom && d < bestD)) { best = { x: cx + dx, z: cz + dz, feet: f }; bestRoom = room; bestD = d; }
   }
   return best;
 }
@@ -266,6 +288,7 @@ export interface FigurePlanner {
   pathTo: typeof pathTo;
   blockSpan: typeof blockSpan;
   startCell: typeof startCell;
+  refugeCell: typeof refugeCell;
 }
 
 /**
@@ -280,8 +303,12 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     e: any; home: FigureHome; state: 'idle' | 'turn' | 'walk' | 'sit' | 'stay' | 'return';
     until: number; path: WalkCell[]; i: number; yaw: number; seat?: any; checkAt: number; checkPos?: any;
     stuck: number; outsideSince: number; nextSeatAt: number; cells: number;
-    /** The last plan started beside its own column (it stands in a collider); `unwedged` once it was walked out. */
-    wedged?: boolean; unwedged?: boolean; unwedging?: boolean;
+    /**
+     * `wedged`: the last plan started in the free column beside its own (it
+     * stands in a collider); `walled`: no free column beside it at all.
+     * `unwedged` once it was walked (or set) out.
+     */
+    wedged?: boolean; walled?: boolean; unwedged?: boolean; unwedging?: boolean;
   }
   const lives = new Map<string, Life>();
   let tick = 0;
@@ -361,7 +388,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     const span = spans(e.dimension);
     const body = bodyOf(l);
     const allowed = (cx: number, cz: number, cf: number): boolean => insideArea(h, cx, cz, cf, slack);
-    const start = planner.startCell(span, loc.x, loc.z, loc.y, body, T.maxUp, T.maxDown, planner.standFeetAt, allowed);
+    const start = planner.startCell(span, loc.x, loc.z, loc.y, body, T.maxUp, T.maxDown, planner.standFeetAt, allowed, 1);
+    l.walled = !start;
     if (!start) return [];
     const cells = planner.exploreWalkable(span, start, body, T.maxUp, T.maxDown, allowed, T.maxNodes, planner.standFeetAt);
     // Planned from a neighbouring column: walk into it first (pathTo drops the start cell).
@@ -389,12 +417,20 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     const e = l.e, h = l.home;
     const cells = explore(l, 0);
     l.cells = cells.length;
-    if (cells.length < T.minRoamCells) {
-      // Standing inside a collider column (a LEGO figure a hair from a cupboard):
-      // step once into the free column beside it, then stay there.
-      if (l.wedged && !l.unwedged && cells.length >= 2) { l.unwedged = true; l.unwedging = true; startPath(l, [cells[1]!], 'walk'); return; }
-      l.state = 'stay'; l.until = tick + 600; return;
+    // Standing inside a collider column (a LEGO figure a hair from a cupboard):
+    // first step once into the free column beside it; with none, set it down
+    // on the nearest floor with the most room (it cannot walk through walls).
+    if (!l.unwedged && l.wedged && cells.length >= 2) { l.unwedged = true; l.unwedging = true; startPath(l, [cells[1]!], 'walk'); return; }
+    if (!l.unwedged && l.walled) {
+      l.unwedged = true;
+      const loc = e.location, span = spans(e.dimension), body = bodyOf(l);
+      const allowed = (cx: number, cz: number, cf: number): boolean => insideArea(h, cx, cz, cf, 0);
+      const r = planner.refugeCell(span, loc.x, loc.z, loc.y, body, T.maxUp, T.maxDown, planner.standFeetAt, planner.exploreWalkable, allowed, 3);
+      if (r) { try { e.teleport({ x: r.x + 0.5, y: r.feet, z: r.z + 0.5 }); } catch { /* gone */ } }
+      setIdle(l, rand(T.idleMin, T.idleMax));
+      return;
     }
+    if (cells.length < T.minRoamCells) { l.state = 'stay'; l.until = tick + 600; return; }
     const leaves = leavesNear(e.dimension, e.location, radiusOf(h) + 3);
     const nearLeaf = (c: WalkCell): boolean => leaves.some(p => (p.x - c.x - 0.5) ** 2 + (p.z - c.z - 0.5) ** 2 < T.doorwayClearance ** 2);
     // A free seat of this pack in reach, now and then.
@@ -603,6 +639,6 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
 
 /** `scripts/figures.js`. */
 export function figureLifeScript(config: FigureLifeConfig): string {
-  const planner = `{ standFeetAt: ${standFeetAt.toString()}, exploreWalkable: ${exploreWalkable.toString()}, pathTo: ${pathTo.toString()}, blockSpan: ${blockSpan.toString()}, startCell: ${startCell.toString()} }`;
+  const planner = `{ standFeetAt: ${standFeetAt.toString()}, exploreWalkable: ${exploreWalkable.toString()}, pathTo: ${pathTo.toString()}, blockSpan: ${blockSpan.toString()}, startCell: ${startCell.toString()}, refugeCell: ${refugeCell.toString()} }`;
   return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${figureLifeRuntime.toString()})({ world, system }, CONFIG, ${planner}, ${JSON.stringify(FIGURE_HOME_PROPERTY)});\n`;
 }

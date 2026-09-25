@@ -146,6 +146,18 @@ describe('the serialised runtime', () => {
     expect(t!.slice(-200).every(p => Math.hypot(p.x - last.x, p.z - last.z) < 1e-6)).toBe(true);
   });
 
+  it('sets a figure walled into a collider (no free column beside it) down on the nearest roomy floor', () => {
+    // Column (5,5) and its eight neighbours are 3-block solids; open ground beyond.
+    const cells: SourceCell[] = [];
+    for (let x = 4; x <= 6; x++) for (let z = 4; z <= 6; z++) for (let y = 0; y < 3; y++) cells.push({ x, y, z, lo: 0, hi: 16 });
+    const w: SimWorld = { cells, area: [0, 0, 11, 11], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 5.5, y: 0, z: 5.5 } }] };
+    const [t] = simulateFigureLife(w, config, 600, 9);
+    const last = t![t!.length - 1]!;
+    const inSolid = (p: { x: number; z: number }) => Math.floor(p.x) >= 4 && Math.floor(p.x) <= 6 && Math.floor(p.z) >= 4 && Math.floor(p.z) <= 6;
+    expect(inSolid(last)).toBe(false);
+    expect(Math.hypot(last.x - 5.5, last.z - 5.5)).toBeLessThan(9);
+  });
+
   it('never stops next to a door leaf', () => {
     const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0, leaves: [{ x: 4.5, y: 0.2, z: 6 }], figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 4.5, y: 3 / 16, z: 3.5 } }] };
     const [t] = simulateFigureLife(w, config, 4000, 5);
