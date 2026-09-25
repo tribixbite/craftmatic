@@ -1088,7 +1088,9 @@ export const DOUBLE_DOOR_GAP_BLOCKS = 0.35;
  * gap) - a door hinged at each jamb, which the second test still finds when
  * the source left both leaves open (76269's). Two doors hung side by side,
  * each hinged on the same side, touch but do not pair: 76457's Door 1 swung
- * whenever Door 2 was tapped. Nor do two leaves meeting at a corner (10326).
+ * whenever Door 2 was tapped. Leaves also pair when one's closed cells stand
+ * a step along the other's normal from its own (10326's two leaves meeting at
+ * a corner: neither doorway passes unless both open).
  */
 export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
   const flat = (v: readonly number[]): [number, number] => [v[0]!, v[2]!];
@@ -1105,7 +1107,16 @@ export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
     const wa = Math.hypot(a.leaf.a[0]!, a.leaf.a[2]!), wb = Math.hypot(b.leaf.a[0]!, b.leaf.a[2]!);
     const meeting = gap <= DOUBLE_DOOR_GAP_BLOCKS && span > gap + 0.5 && cos >= Math.cos(Math.PI / 6);
     const jambs = Math.abs(span - (wa + wb)) <= DOUBLE_DOOR_GAP_BLOCKS;
-    if (!meeting && !jambs) return;
+    // One leaf's closed cells stand right in front of or behind the other's
+    // (a step along its normal): neither doorway passes unless both open, so
+    // they are one entrance - 10326's two leaves meeting at a corner.
+    const inPath = (p: InteractiveRuntimeItem, q: InteractiveRuntimeItem): boolean => {
+      const n = flat(p.leaf!.n), axis = Math.abs(n[0]) >= Math.abs(n[1]) ? 0 : 2;
+      const cells = new Set(q.blocking.map(c => `${c[0]},${c[1]},${c[2]}`));
+      return p.blocking.some(c => [-1, 1].some(d => cells.has(axis === 0 ? `${c[0] + d},${c[1]},${c[2]}` : `${c[0]},${c[1]},${c[2] + d}`)));
+    };
+    const oneEntrance = inPath(a, b) || inPath(b, a);
+    if (!meeting && !jambs && !oneEntrance) return;
     a.pairs = [...(a.pairs ?? []), j];
     b.pairs = [...(b.pairs ?? []), i];
   }));

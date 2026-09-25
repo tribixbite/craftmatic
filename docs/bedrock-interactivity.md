@@ -120,14 +120,16 @@ quality) with:
   leaves move together** (`pairDoubleDoors` → `pairs`: same kind, heights
   overlapping, and either parallel with the free edges within 0.35 block, or
   the hinges the two leaves' widths apart - which still finds a double door
-  the source left open, 76269's). Doorways
+  the source left open, 76269's - or one leaf's closed cells a step along the
+  other's normal, where neither passes unless both open: 10326's two leaves
+  meeting at a corner). Doorways
   whose closed cells merely share or touch a cell (`linkSharedDoorways` →
   `shares`) keep a shared cell laid while either is closed, but move on their
   own: the first build moved every touching pair together, so 76457's Door 1
   swung whenever Door 2, hung beside it on the same side, was tapped (device
-  2026-09-24e). Over the favourites 20 doorways touch another; 14 are halves of
-  a double door, 6 move on their own (76457's Door 1 and 2, 10326's two leaves
-  meeting at a corner, 42670's two staggered doors);
+  2026-09-24e). Over the favourites 20 doorways touch another; 16 are halves of
+  one entrance, 4 move on their own (76457's Door 1 and 2, 42670's two
+  staggered doors);
   `bun scripts/_ix_pairs_report.ts <dir> [--recompute]` lists them. Levers
   flip; turnables turn a step.
 - Sounds: `random.door_open` / `random.door_close`, `random.click` for levers

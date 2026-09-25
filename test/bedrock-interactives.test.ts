@@ -304,11 +304,23 @@ describe('linkSharedDoorways, pairDoubleDoors and ixClosedBlocks', () => {
     open[0]!.shares = [1]; open[1]!.shares = [0];
     pairDoubleDoors(open);
     expect(open[0]!.pairs).toEqual([1]);
-    // Two leaves meeting at a corner (10326): hinges close together, not the two widths apart.
-    const corner = [leafItem(2, [-1.3, 0, 0]), { ...leafItem(2.2, [0, 0, 1.3]), leaf: { c: [2.2, 1, 5.4], a: [0, 0, 1.3], u: [0, 2.5, 0], n: [1, 0, 0], t: 0.1 } }];
+    // Two leaves meeting at a corner (10326): one's closed cells stand a step along the other's normal, so
+    // neither doorway passes unless both open - one entrance, moved together.
+    const corner = [
+      { ...leafItem(2, [-1.3, 0, 0]), blocking: [[1, 1, 5, 0, 16], [2, 1, 5, 0, 16]] as IxCell[] },
+      { ...leafItem(2.2, [0, 0, 1.3]), leaf: { c: [2.2, 1, 5.4], a: [0, 0, 1.3], u: [0, 2.5, 0], n: [1, 0, 0], t: 0.1 }, blocking: [[2, 1, 6, 0, 16], [2, 1, 7, 0, 16]] as IxCell[] },
+    ];
     corner[0]!.shares = [1]; corner[1]!.shares = [0];
     pairDoubleDoors(corner);
-    expect(corner[0]!.pairs).toBeUndefined();
+    expect(corner[0]!.pairs).toEqual([1]);
+    // Two doors in line a pier apart, each hinged on its left: neither meets, nor spans, nor stands in the other's path.
+    const apart = [
+      { ...leafItem(2, [1.3, 0, 0]), blocking: [[2, 1, 5, 0, 16], [3, 1, 5, 0, 16]] as IxCell[] },
+      { ...leafItem(4, [1.3, 0, 0]), blocking: [[4, 1, 5, 0, 16], [5, 1, 5, 0, 16]] as IxCell[] },
+    ];
+    apart[0]!.shares = [1]; apart[1]!.shares = [0];
+    pairDoubleDoors(apart);
+    expect(apart[0]!.pairs).toBeUndefined();
   });
   it('links the two leaves of a double door, and lays a shared cell while either is closed', () => {
     const cfg = doubleDoorConfig();
