@@ -5,7 +5,7 @@ import {
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
   COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
-import type { CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
+import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
 import { extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
@@ -22,14 +22,14 @@ import { BlockGrid } from '../src/schem/types.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { host } from './_placement-host.js';
 
-interface RideHostOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number] }
+interface RideHostOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig> }
 
 /** One host per placement. A route that declares a train gets that many car
  * entities, all spawned at the same station point the placement uses. The
  * cart's wheelbase and seat are what `buildCoasterRideAssets` would fill in. */
 function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
   const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
-  const config = { ...bare, types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
+  const config = { ...bare, ...(options.camera ? { camera: { ...bare.camera!, ...options.camera } } : {}), types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
   const count = config.routes[0]!.cars.count;
   let loaded = true, removed = false;
   /** Cars whose chunk has gone: Bedrock reports an unloaded entity as invalid. */
@@ -1124,8 +1124,9 @@ describe('lift-extended route config', () => {
 // ─── Lift runtime ────────────────────────────────────────────────────────────
 
 /** A host whose entities are spawned from the config's own roles: cars per slot, the platform and the counterweight. */
-function liftHost(route: CoasterRoute) {
-  const config = coasterRuntimeConfig('craftmatic:test_cart', [route]);
+function liftHost(route: CoasterRoute, camera?: Partial<CoasterRiderViewConfig>) {
+  const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
+  const config = camera ? { ...bare, camera: { ...bare.camera!, ...camera } } : bare;
   const runtimeRoute = config.routes[0]!;
   let loaded = true;
   const removed = new Set<string>();
@@ -2032,8 +2033,11 @@ function routeChord(path: { points: number[][]; cumulative: number[]; length: nu
 const finiteView = (view: any) => Number.isFinite(view.rotation.x) && Number.isFinite(view.rotation.y) && Number.isFinite(view.location.x);
 
 describe('the rider camera follows the track', () => {
-  it('puts the view along the car\'s nose through a vertical loop, over the top and upside down, with no yaw snap', () => {
-    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
+  it('over mode: puts the view along the car\'s nose through a vertical loop, over the top and upside down, with no yaw snap', () => {
+    // A pitch past ±90 is REFUSED by Bedrock's script API on the Pixel
+    // ("Pitch (x rot) is outside accepted range of [-90, 90]"), so this mode is
+    // not the default; the math is kept honest for any client that allows it.
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'over' } });
     const { player } = cameraRider(h.entity);
     h.run(1); h.riders.push(player); h.run(120); // board at the station, depart
     const calls = player.camera.setCamera.mock.calls as any[][];
@@ -2101,22 +2105,37 @@ describe('the rider camera follows the track', () => {
     expect(down[2]).toBeCloseTo(1, 6);
   });
 
-  it('clamp mode keeps the pitch within ±90 and spreads the flip over the top across ticks', () => {
+  it('clamp mode (the default) looks exactly along the nose, keeps the pitch within ±90, and spreads the flip over the top across ticks', () => {
+    expect(COASTER_RIDER_VIEW.mode).toBe('clamp');
     const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
-    const clampConfig = { ...h.config, camera: { ...COASTER_RIDER_VIEW, mode: 'clamp' as const } };
-    const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? [h.entity] : [] }) };
-    let tick = () => {};
-    // A second runtime over the same cart, with the clamp camera; the first host's runtime is never ticked.
-    new Function('world', 'system', coasterScript(clampConfig).replace(/^import .*;\n/, ''))(world, { runInterval: (callback: () => void) => { tick = callback; } });
     const { player } = cameraRider(h.entity);
-    tick(); h.riders.push(player);
-    for (let i = 0; i < 700; i++) tick();
-    const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
-    for (let k = 1; k < views.length; k++) {
-      expect(Math.abs(views[k]!.x)).toBeLessThanOrEqual(90 + 1e-9);
-      expect(Math.abs(views[k]!.y - views[k - 1]!.y)).toBeLessThanOrEqual(COASTER_RIDER_VIEW.maxTurn + 1e-9);
+    h.run(1); h.riders.push(player); h.run(120);
+    const calls = player.camera.setCamera.mock.calls as any[][];
+    const route = h.config.routes[0]!, wheelbase = h.config.types['craftmatic:test_cart']!.wheelbase || 0;
+    let previous: any, flipping = 0, worstAlong = 0, compared = 0;
+    for (let t = 0; t < 700; t++) {
+      const before = h.distances.at(-1)!;
+      h.run(1);
+      const view = calls.at(-1)![1].rotation;
+      expect(Math.abs(view.x)).toBeLessThanOrEqual(90 + 1e-9);
+      if (previous) expect(Math.abs(view.y - previous.y)).toBeLessThanOrEqual(COASTER_RIDER_VIEW.maxTurn + 1e-9);
+      const after = h.distances.at(-1)!;
+      let step = after - before; if (Math.abs(step) > route.path.length / 2) step -= Math.sign(step) * route.path.length;
+      if (Math.abs(step) > 1e-6) {
+        const nose = routeChord(route.path, after, wheelbase).map(v => v * Math.sign(step));
+        const error = angleDeg(viewDirection(view), nose);
+        // While the yaw is still turning over the top the view is off the nose,
+        // but only near the zenith/nadir, where the yaw hardly matters.
+        if (error > 0.01) { flipping++; expect(Math.abs(view.x)).toBeGreaterThan(45); }
+        worstAlong = Math.max(worstAlong, error); compared++;
+      }
+      previous = view;
     }
-    const yaws = views.map(v => v.y);
+    expect(compared).toBeGreaterThan(400);
+    // Two flips a lap (up the loop's side, down the other), each a few ticks.
+    expect(flipping).toBeGreaterThan(0);
+    expect(flipping / compared).toBeLessThan(0.1);
+    const yaws = (calls as any[][]).map(call => call[1].rotation.y);
     expect(Math.max(...yaws) - Math.min(...yaws)).toBeGreaterThan(170);
   });
 
@@ -2156,9 +2175,9 @@ describe('the rider camera follows the track', () => {
 });
 
 describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop, the curves and both loops', () => {
-  it('looks along the track all lap, runs over both tops upside down, and never snaps', async () => {
+  it('over mode: looks along the track all lap, runs over both tops upside down, and never snaps', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!);
+    const h = liftHost(scene.routes[0]!, { mode: 'over' });
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
@@ -2199,5 +2218,38 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     // curve at speed), the pitch with its grade and loops.
     expect(worstYawStep).toBeLessThan(20);
     expect(worstPitchStep).toBeLessThan(30);
+  }, 240_000);
+
+  it('clamp mode (the default, what Bedrock accepts): exact along the nose except while turning over a loop, pitch within ±90, no yaw jump', async () => {
+    const { scene } = await corpusRoutes(PUBLISHED_10303);
+    const h = liftHost(scene.routes[0]!);
+    const rider = cameraRider(h.lead.entity);
+    h.run(1); h.lead.riders.push(rider.player);
+    const calls = rider.player.camera.setCamera.mock.calls as any[][];
+    const path = h.route.path, cars = h.route.cars;
+    const wheelbase = h.config.types[cars.slots![0]!.type]!.wheelbase || 0;
+    let compared = 0, off = 0, worstOffLevel = 0, worstYawStep = 0, worstError = 0;
+    for (let t = 0; t < 1400; t++) {
+      h.run(1);
+      const view = calls.at(-1)![1].rotation, previous = calls.at(-2)?.[1].rotation;
+      expect(Math.abs(view.x)).toBeLessThanOrEqual(90 + 1e-9);
+      if (previous) worstYawStep = Math.max(worstYawStep, Math.abs(view.y - previous.y));
+      if (h.phase() !== 'track') continue;
+      const nose = routeChord(path, h.distance() + cars.extent / 2, wheelbase).map(v => v * (cars.heading || 1));
+      if (Math.hypot(...nose) < 1e-9) continue;
+      const error = angleDeg(viewDirection(view), nose);
+      compared++;
+      if (error > 0.5) { off++; worstOffLevel = Math.max(worstOffLevel, 90 - Math.abs(view.x)); worstError = Math.max(worstError, error); }
+    }
+    expect(compared).toBeGreaterThan(800);
+    // Off the nose only while the yaw turns over a loop's side: measured 13
+    // ticks a lap (4 per flip, 4 flips), up to 34 degrees while the view is
+    // still 41-83 degrees from level — the image turns over in 0.2 s rather
+    // than snapping, and at 32 blocks/s the loop turns on under it meanwhile.
+    expect(off).toBeGreaterThan(0);
+    expect(off).toBeLessThan(20);
+    expect(worstOffLevel).toBeLessThan(50);
+    expect(worstError).toBeLessThan(40);
+    expect(worstYawStep).toBeLessThanOrEqual(COASTER_RIDER_VIEW.maxTurn + 1e-9);
   }, 240_000);
 });

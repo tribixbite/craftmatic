@@ -377,7 +377,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'over', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40 };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -1938,6 +1938,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   //   mode over|clamp|off · ease <s> · look <yaw> <pitch> · turn <deg> · debug 0|1
   //   rot <pitch> <yaw>       free camera at the sender's eye with that rotation (pitch range probe)
   //   roll <pitch> <yaw> <z>  a 6 s playAnimation holding rotation {x,y,z} (roll probe)
+  //   attach [locator]        attach the sender's camera to the nearest car (bone-following probe)
   //   clear                   clear the sender's camera
   // # TODO: remove once the camera defaults are device-final (see TASKS-BEDROCK-ADDON.md).
   try {
@@ -1963,13 +1964,26 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const rotation = { x: number(1, 0), y: number(2, 0), z: number(3, 0) };
           system.runTimeout(() => {
             try {
+              // Two points 0.01 apart were refused on the Pixel ("Linear needs at
+              // least 2 control points"); three a block apart drift the eye 1 block in 6 s.
               const spline = Spline ? new Spline() : {};
-              spline.controlPoints = [at, { x: at.x, y: at.y + 0.01, z: at.z }];
+              spline.controlPoints = [at, { x: at.x, y: at.y + 0.5, z: at.z }, { x: at.x, y: at.y + 1, z: at.z }];
               source.camera.playAnimation(spline, { totalTimeSeconds: 6, animation: {
                 progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: 1, timeSeconds: 6 }],
                 rotationKeyFrames: [{ rotation, timeSeconds: 0 }, { rotation, timeSeconds: 6 }] } });
             } catch (error) { console.warn(`[Craftmatic coaster] roll probe: ${error instanceof Error ? error.message : String(error)}`); }
           }, 2);
+        } else if (verb === 'attach') {
+          // Does a camera attached to a car inherit its animated pitch/roll? The nearest car within 24 blocks.
+          let best: any, bestDistance = 24;
+          for (const state of tracked.values()) {
+            if (state.role !== 'car') continue;
+            try {
+              const l = state.entity.location, d = Math.hypot(l.x - at.x, l.y - at.y, l.z - at.z);
+              if (d < bestDistance) { best = state.entity; bestDistance = d; }
+            } catch {}
+          }
+          if (best) source.camera.attachToEntity({ entity: best, locator: words[1] || 'Eyes' });
         } else if (verb === 'clear') source.camera.clear();
       }
       console.warn(`[Craftmatic coaster] camera ${words.join(' ')} -> ${JSON.stringify(camera)}`);
