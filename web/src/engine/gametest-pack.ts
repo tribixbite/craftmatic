@@ -1026,7 +1026,10 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     row.riders = riders();
     row.mounted = row.riders.includes(sim.name);
     if (!row.mounted) { log('VEHICLE', row); flush(); try { veh.remove(); } catch { /* gone */ } test.fail('the simulated player could not board'); return; }
-    const aim = (): void => { try { sim.lookAtLocation({ x: spawnRel.x + 20, y: spawnRel.y + 1.5, z: spawnRel.z }); } catch { /* not required */ } };
+    // Point the rider along the course: a native mount drives where its RIDER faces. Measured
+    // 2026-09-25: lookAtLocation left the rider at yaw -180 (the car drove across the course),
+    // so the yaw is set directly.
+    const aim = (yaw = yaw0): void => { try { sim.setRotation({ x: 0, y: yaw }); } catch (err) { row.aimError = String(err); } };
     aim();
     await test.idle(10);
 
@@ -1075,7 +1078,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       stop();
       try { veh.teleport(toW(rel), { rotation: { x: 0, y: yaw } }); } catch (err) { row.resetError = String(err); }
       await test.idle(6);
-      aim();
+      aim(yaw);
       await test.idle(14);
     };
     const checks: Record<string, boolean> = { mounted: row.mounted };
@@ -1138,7 +1141,6 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         // Lane B: the slab, then the full step, driven along the rider's own heading.
         const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
         await reset(laneRel);
-        try { sim.lookAtLocation({ x: laneRel.x + 20, y: laneRel.y + 1.5, z: laneRel.z }); } catch { /* not required */ }
         await test.idle(4);
         await phase('steps', 120, () => drive(0, 1, false, 1));
         stop();

@@ -379,6 +379,8 @@ export const ENTITY_FORMAT_VERSION = '1.26.30';
 export const DASH_ACTION = { cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 } as const;
 /** Aircraft component group that turns Jump into DESCEND (negative vertical velocity), and the events that toggle it. */
 export const AIRCRAFT_DESCEND_GROUP = 'craftmatic:descending';
+/** A car's `minecraft:movement` (see behaviorEntity: ~41.5 blocks/s per unit, measured on the Pixel 2026-09-25). */
+export const CAR_MOVEMENT = 0.45;
 /** Aircraft component group holding the normal Jump = CLIMB action; added at spawn and by `descend_off`. */
 export const AIRCRAFT_CLIMB_GROUP = 'craftmatic:climbing';
 export const AIRCRAFT_DESCEND_ON = 'craftmatic:descend_on';
@@ -504,9 +506,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // Aircraft speed is the Happy Ghast's (movement 0.3, flying_speed 0.083)
         // scaled: at 1.35 the X-wing climbed 206 blocks in about a second on the
         // Pixel (vertical velocity scales with the flying speed).
+        // A car at 1.05 was measured at 44.8-65.8 mph (20-29 blocks/s) with the
+        // stick HALF over (0.45-0.66) by a real rider, and 43.6 blocks/s at full
+        // stick in GameTest (Pixel, 2026-09-25): speed runs ~41.5 blocks/s per
+        // unit. 0.45 makes full stick ~19 blocks/s (42 mph), twice a sprinting
+        // player and faster than any horse, without leaping a block per tick.
+        // (A boat is scripted now; its value is overwritten below.)
         'minecraft:movement': isTimeMachine
             ? { value: .02, max: 6 }
-            : { value: kind === 'car' ? 1.05 : kind === 'boat' ? 1.15 : .3, max: kind === 'car' ? 1.35 : kind === 'boat' ? 1.5 : .6 },
+            : { value: kind === 'car' ? CAR_MOVEMENT : .3, max: kind === 'car' ? CAR_MOVEMENT * 1.3 : .6 },
         // Ridden vanilla mounts (horse, camel, Happy Ghast) are all tamed; the
         // `player_ride_tamed` goal that steers by rider input depends on it.
         'minecraft:is_tamed': {},

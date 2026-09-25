@@ -359,7 +359,7 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane';
     jumping = false;
   };
   const mkSim = (name: string): any => ({
-    name, location: { x: 0, y: 0, z: 0 }, teleport(at: Vec3) { this.location = { ...at }; }, lookAtEntity() {}, lookAtLocation() {},
+    name, location: { x: 0, y: 0, z: 0 }, teleport(at: Vec3) { this.location = { ...at }; }, lookAtEntity() {}, lookAtLocation() {}, setRotation() {},
     interactWithEntity() { riders.push(this); return true; }, moveRelative(_x: number, y: number) { input = { x: 0, y }; },
     stopMoving() { input = { x: 0, y: 0 }; }, rotateBody(a: number) { if (opts.drives) veh.rot.y += a; }, jump() { jumping = true; return true; },
   });
