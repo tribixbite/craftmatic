@@ -111,6 +111,94 @@ export interface GametestSeat {
   occupied?: boolean;
 }
 
+/**
+ * A rideable vehicle the device drives (`vehicle_<id>_<n>`): spawned in the
+ * vehicle arena (`buildVehicleArena`) rather than placed with the model, so
+ * every car, boat and plane is driven over the same measured course.
+ */
+export interface GametestVehicle {
+  label: string;
+  typeId: string;
+  kind: 'car' | 'boat' | 'plane';
+  /** `minecraft:rideable.seat_count`. */
+  seats: number;
+  /** Shipped geometry size in blocks (for the spawn clearance). */
+  size: { width: number; height: number; length: number };
+}
+
+/** The vehicle arena: 64 x 64 over one structure, land on the low-z half, a pool on the high-z half. */
+export const GT_VEHICLE_ARENA = { x: 64, y: 10, z: 64 } as const;
+/**
+ * Where things are in the vehicle arena, relative to its smooth-stone floor
+ * layer (`floorY`): the land is stone up to +3 (its top face at +4); the pool
+ * holds water in +1..+2 (its surface a block under the land, so a boat meets a
+ * real shore); lane A is flat, lane B has a half-slab and then a full-block
+ * step across it.
+ */
+export const GT_VEHICLE_LAYOUT = {
+  landTop: 4, waterTop: 3, poolZ0: 34,
+  laneA: { z: 8 }, laneB: { z0: 18, z1: 26, slabX: 30, stepX: 44 },
+  boat: { x: 14, z: 50 },
+} as const;
+
+/** The vehicle arena structure (see `GT_VEHICLE_LAYOUT`). */
+export function buildVehicleArena(): Uint8Array {
+  const { x: w, y: h, z: l } = GT_VEHICLE_ARENA;
+  const L = GT_VEHICLE_LAYOUT;
+  const grid = new BlockGrid(w, h, l);
+  for (let x = 0; x < w; x++) for (let z = 0; z < l; z++) {
+    grid.set(x, 0, z, 'minecraft:smooth_stone');
+    if (z < L.poolZ0) for (let y = 1; y < L.landTop; y++) grid.set(x, y, z, 'minecraft:stone');
+    else for (let y = 1; y < L.waterTop; y++) grid.set(x, y, z, 'minecraft:water');
+  }
+  for (let z = L.laneB.z0; z <= L.laneB.z1; z++) {
+    grid.set(L.laneB.slabX, L.landTop, z, 'minecraft:smooth_stone_slab[type=bottom]');
+    for (let x = L.laneB.stepX; x < w; x++) grid.set(x, L.landTop, z, 'minecraft:stone');
+  }
+  const tile = { name: 'vehicles', x: 0, y: 0, z: 0, width: w, height: h, length: l, ix: 0, iy: 0, iz: 0, nonAir: w * l * 3 };
+  const encoded = encodeMcstructureTile(grid, tile);
+  if (encoded.unmapped.length) throw new Error(`vehicle arena blocks without a Bedrock mapping: ${encoded.unmapped.join(', ')}`);
+  return encoded.bytes;
+}
+
+/** One sample of a driven vehicle, relative to where its phase started, in the phase's own forward frame. */
+export interface VehicleSample { t: number; along: number; side: number; dy: number; yaw: number; speed?: number; ground?: boolean; water?: boolean }
+
+/**
+ * What one driving phase did: how far and how fast along the heading it
+ * started with, how far it slid sideways, how much it turned and climbed.
+ * Speeds are blocks per second from the position deltas (a ridden vehicle is
+ * client-authoritative for a real player, so `getVelocity` cannot be trusted).
+ * Pure, so the unit tests and the device share it.
+ */
+export function summariseVehiclePhase(samples: VehicleSample[], ticksPerSample: number): {
+  along: number; side: number; dy: number; minDy: number; maxDy: number; yawChange: number; maxSpeed: number; meanSpeed: number; endSpeed: number;
+} {
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  if (!samples.length) return { along: 0, side: 0, dy: 0, minDy: 0, maxDy: 0, yawChange: 0, maxSpeed: 0, meanSpeed: 0, endSpeed: 0 };
+  const last = samples[samples.length - 1]!;
+  let maxSpeed = 0, path = 0, endSpeed = 0, minDy = Infinity, maxDy = -Infinity, turned = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i]!;
+    minDy = Math.min(minDy, s.dy); maxDy = Math.max(maxDy, s.dy);
+    if (i === 0) continue;
+    const p = samples[i - 1]!;
+    const step = Math.hypot(s.along - p.along, s.side - p.side);
+    path += step;
+    const v = step * 20 / Math.max(1, s.t - p.t);
+    maxSpeed = Math.max(maxSpeed, v);
+    endSpeed = v;
+    // Unwrapped yaw change (a turn through the ±180 seam is not a 360 jump).
+    let d = s.yaw - p.yaw;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    turned += d;
+  }
+  const span = Math.max(1, last.t - samples[0]!.t);
+  void ticksPerSample;
+  return { along: r2(last.along), side: r2(last.side), dy: r2(last.dy), minDy: r2(minDy), maxDy: r2(maxDy), yawChange: Math.round(turned), maxSpeed: r2(maxSpeed), meanSpeed: r2(path * 20 / span), endSpeed: r2(endSpeed) };
+}
+
 export interface GametestPlan {
   /** Placement CONFIG id (`downtown_41732`), used for names. */
   modelId: string;
@@ -143,6 +231,10 @@ export interface GametestPlan {
    * (a smoke or doors arena beside it could sit on the overflow).
    */
   oversized?: boolean | undefined;
+  /** Rideable vehicles to drive in the vehicle arena (`vehicle_<id>_<n>`); absent or empty: no test. */
+  vehicles?: GametestVehicle[] | undefined;
+  /** Only the vehicle tests are registered (`--only=vehicles`): the model's own tests are left out of the run. */
+  vehiclesOnly?: boolean | undefined;
 }
 
 /**
@@ -412,8 +504,10 @@ interface RuntimeModules { mc: any; gt: any }
  * line `CMGT <TAG> <json>` via `console.warn` (the level the content log keeps
  * by default), then ~16 KiB of padding so the block-buffered log flushes.
  */
-export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack): void {
+export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack, vehicleKit?: { summarise: typeof summariseVehiclePhase; layout: typeof GT_VEHICLE_LAYOUT }): void {
   const { mc, gt } = mods;
+  // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
+  if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
   const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
@@ -457,7 +551,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   if (oversized) log('OVERSIZED', { model: plan.modelId, arena, note: 'only the figures test runs; it lays the floor past the structure itself' });
 
   /** Smoke: the framework runs, a simulated player spawns on the arena floor and walks 4 blocks. */
-  if (!oversized) gt.registerAsync(NS, 'smoke', async (test: any) => {
+  if (!oversized && !plan.vehiclesOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
     const f = floorY(test, 2, 2);
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
@@ -884,6 +978,157 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
 
+  /**
+   * Vehicles: spawn each rideable type in the vehicle arena, seat a simulated
+   * player (the engine's rideable, as a tap does), and drive it through
+   * phases, sampling the vehicle every 2 ticks: settle (a boat's float and
+   * bob, a plane's hover), forward, coast, reverse, a held turn, the class's
+   * own Jump (a car's dash, a plane's climb, BACK + Jump descend, then hands
+   * off), a car over lane B's slab and step, a boat run at the shore, and a
+   * second rider. Every phase is one `CMGT VEHICLE_PHASE` line in the
+   * phase's own forward frame (`summariseVehiclePhase`); the verdict is
+   * `CMGT VEHICLE`.
+   */
+  const vehicles = vehicleKit ? plan.vehicles ?? [] : [];
+  vehicles.forEach((v, n) => gt.registerAsync(NS, `vehicle_${plan.modelId}_${n + 1}`, async (test: any) => {
+    const L = vehicleKit!.layout;
+    const f = floorY(test, 2, 2);
+    const dim = test.getDimension();
+    const boat = v.kind === 'boat';
+    const spawnRel = boat
+      ? { x: L.boat.x + 0.5, y: f.y + L.waterTop, z: L.boat.z + 0.5 }
+      : { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: L.laneA.z + 0.5 };
+    const toW = (rel: Vec3): Vec3 => test.worldLocation(rel);
+    /** World yaw of a test-relative direction (Bedrock: yaw 0 faces +Z, forward = (-sin, cos)). */
+    const yawOf = (fromRel: Vec3, toRel: Vec3): number => { const a = toW(fromRel), b = toW(toRel); return Math.atan2(-(b.x - a.x), b.z - a.z) * 180 / Math.PI; };
+    const row: any = { label: v.label, type: v.typeId, kind: v.kind, floorY: f.y, phases: {} };
+    let veh: any;
+    try { veh = dim.spawnEntity(v.typeId, toW(spawnRel)); } catch (err) { row.error = `spawn: ${String(err)}`; log('VEHICLE', row); flush(); test.fail(row.error); return; }
+    const yaw0 = yawOf(spawnRel, { ...spawnRel, x: spawnRel.x + 10 });
+    try { veh.setRotation({ x: 0, y: yaw0 }); } catch { /* keeps its spawn yaw */ }
+    const sim = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + (boat ? L.landTop : L.landTop), z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_drv${n}`, gameMode);
+    const riders = (): string[] => { try { return (veh.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+    const velOf = (): Vec3 => { try { return round(veh.getVelocity()); } catch { return { x: NaN, y: NaN, z: NaN }; } };
+    await test.idle(10);
+    // Mount: the interaction a tap makes, then the component call if it did not seat.
+    sim.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
+    await test.idle(4);
+    try { sim.lookAtEntity(veh); } catch { /* not required */ }
+    row.interactReturned = sim.interactWithEntity(veh);
+    await test.idle(10);
+    row.ridersAfterInteract = riders();
+    if (!row.ridersAfterInteract.includes(sim.name)) {
+      try { row.addRiderReturned = veh.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; }
+      await test.idle(10);
+    }
+    row.riders = riders();
+    row.mounted = row.riders.includes(sim.name);
+    if (!row.mounted) { log('VEHICLE', row); flush(); try { veh.remove(); } catch { /* gone */ } test.fail('the simulated player could not board'); return; }
+    // Face the rider along the vehicle's heading (the input controllers steer by the rider's yaw).
+    try { sim.lookAtLocation({ x: spawnRel.x + 20, y: spawnRel.y + 1.5, z: spawnRel.z }); } catch { /* not required */ }
+    await test.idle(10);
+
+    /** Run one phase: `act(tick)` every tick, a sample every 2; summarised in the heading the phase started with. */
+    const phase = async (name: string, ticks: number, act: (t: number) => void): Promise<any> => {
+      const origin = { ...veh.location };
+      let yaw = 0;
+      try { yaw = veh.getRotation().y; } catch { /* 0 */ }
+      const rad = yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
+      const samples: VehicleSample[] = [];
+      const extra: any = { inputs: [] as unknown[] };
+      for (let t = 0; t <= ticks; t++) {
+        if (t < ticks) { try { act(t); } catch (err) { extra.actError = String(err); } }
+        if (t % 2 === 0) {
+          let loc: any, ry = 0, ground: boolean | undefined, water: boolean | undefined;
+          try { loc = veh.location; ry = veh.getRotation().y; } catch { break; }
+          try { ground = veh.isOnGround; water = veh.isInWater; } catch { /* older API */ }
+          const dx = loc.x - origin.x, dz = loc.z - origin.z;
+          samples.push({ t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: Math.round(ry * 10) / 10, ground, water });
+          if (t % 20 === 0) { try { extra.inputs.push(sim.inputInfo?.getMovementVector?.() ?? null); } catch { extra.inputs.push('n/a'); } }
+        }
+        if (t < ticks) await test.idle(1);
+      }
+      const s = vehicleKit!.summarise(samples, 2);
+      const out = { ...s, ticks, startYaw: Math.round(yaw), velocityEnd: velOf(), riders: riders().length, track: samples.filter((_, i) => i % 5 === 0).map(p => [p.t, p.along, p.side, p.dy, p.yaw, p.ground ? 1 : 0, p.water ? 1 : 0]), ...extra };
+      row.phases[name] = s;
+      log('VEHICLE_PHASE', { vehicle: v.label, phase: name, ...out });
+      return out;
+    };
+    const stop = (): void => { try { sim.stopMoving(); } catch { /* idle */ } };
+
+    await phase('settle', 40, () => {});
+    await phase('forward', 60, () => sim.moveRelative(0, 1));
+    stop();
+    await phase('coast', 40, () => {});
+    await phase('reverse', 40, () => sim.moveRelative(0, -1));
+    stop();
+    await phase('stop_after_reverse', 20, () => {});
+    await phase('turn_left', 60, (t) => { sim.moveRelative(0, 1); if (t % 2 === 0) sim.rotateBody(-6); });
+    stop();
+    await phase('turn_stop', 20, () => {});
+    if (v.kind === 'plane') {
+      row.jumpReturned = [] as unknown[];
+      await phase('climb', 40, (t) => { const r = sim.jump(); if (t % 10 === 0) row.jumpReturned.push(r); });
+      await phase('climb_forward', 40, () => { sim.jump(); sim.moveRelative(0, 1); });
+      stop();
+      await phase('descend', 40, () => { sim.moveRelative(0, -1); sim.jump(); });
+      stop();
+      await phase('hands_off', 80, () => {});
+    } else if (v.kind === 'car') {
+      row.jumpReturned = [] as unknown[];
+      await phase('dash', 40, (t) => { sim.moveRelative(0, 1); if (t < 20) { const r = sim.jump(); if (t % 10 === 0) row.jumpReturned.push(r); } });
+      stop();
+      // Lane B: the slab, then the full step.
+      const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
+      try { veh.teleport(toW(laneRel), { rotation: { x: 0, y: yaw0 } }); } catch (err) { row.laneTeleport = String(err); }
+      await test.idle(10);
+      row.ridersAfterTeleport = riders();
+      try { sim.lookAtLocation({ x: laneRel.x + 20, y: laneRel.y + 1.5, z: laneRel.z }); } catch { /* not required */ }
+      await test.idle(4);
+      await phase('steps', 120, () => sim.moveRelative(0, 1));
+      stop();
+    } else {
+      // Toward the shore (-z) from the middle of the pool: does it beach or climb out?
+      try { veh.teleport(toW({ x: L.boat.x + 0.5, y: f.y + L.waterTop, z: L.poolZ0 + 8.5 }), { rotation: { x: 0, y: yawOf(spawnRel, { ...spawnRel, z: spawnRel.z - 10 }) } }); } catch (err) { row.shoreTeleport = String(err); }
+      await test.idle(10);
+      try { sim.lookAtLocation({ x: L.boat.x + 0.5, y: f.y + L.landTop + 1.5, z: 2 }); } catch { /* not required */ }
+      await test.idle(4);
+      await phase('shore', 100, () => sim.moveRelative(0, 1));
+      stop();
+      await phase('after_shore', 40, () => {});
+    }
+    // A second rider, where the vehicle has a second seat.
+    if (v.seats > 1) {
+      const sim2 = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_pas${n}`, gameMode);
+      await test.idle(4);
+      sim2.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
+      await test.idle(4);
+      row.passengerInteract = sim2.interactWithEntity(veh);
+      await test.idle(10);
+      row.ridersWithPassenger = riders();
+    }
+    try { veh.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+    await test.idle(4);
+    row.ridersAfterEject = riders();
+    try { veh.remove(); } catch { /* gone */ }
+    // A verdict per class; the numbers are what matter, the verdict is the regression gate.
+    const ph = row.phases;
+    const checks: Record<string, boolean> = {
+      mounted: row.mounted,
+      forwardMoves: (ph.forward?.along ?? 0) > 3,
+      reverseMoves: (ph.reverse?.along ?? 0) < -0.5,
+      turns: Math.abs(ph.turn_left?.yawChange ?? 0) > 30,
+    };
+    if (boat) checks.floats = Math.abs(ph.settle?.dy ?? 9) < 0.6;
+    if (v.kind === 'plane') checks.climbs = (ph.climb?.dy ?? 0) > 2;
+    if (v.kind === 'car') checks.climbsStep = (ph.steps?.maxDy ?? 0) >= 0.9;
+    row.checks = checks;
+    row.pass = Object.values(checks).every(Boolean);
+    log('VEHICLE', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail(`vehicle ${v.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+  }).structureName(`${NS}:vehicles_${plan.modelId}`).maxTicks(3000).tag(NS));
+
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {
     // Run 5 measured every /script subcommand at successCount 0 from the dimension;
@@ -919,6 +1164,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   }
 
   let started = false;
+  if (vehicles.length) log('VEHICLES_READY', { model: plan.modelId, vehicles: vehicles.map(v => `${v.kind}:${v.typeId}`) });
   world.afterEvents.playerSpawn.subscribe((ev: any) => {
     if (started || !ev.initialSpawn || String(ev.player.name).startsWith('cmgt_')) return;
     started = true;
@@ -933,7 +1179,7 @@ export function gametestScript(plan: GametestPlan): string {
   const arena = arenaSize(plan.dims);
   return `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n`
     + `const PLAN = ${JSON.stringify(plan)};\n`
-    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()});\n`;
+    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()}, { summarise: ${summariseVehiclePhase.toString()}, layout: ${JSON.stringify(GT_VEHICLE_LAYOUT)} });\n`;
 }
 
 /** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */
@@ -948,5 +1194,6 @@ export function gametestVariantFiles(plan: GametestPlan): Array<{ name: string; 
   return [
     { name: 'scripts/gametest.js', data: enc.encode(gametestScript(plan)) },
     { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims, { overflow: !!plan.oversized }) },
+    ...(plan.vehicles?.length ? [{ name: `structures/${GT_NAMESPACE}/vehicles_${plan.modelId}.mcstructure`, data: buildVehicleArena() }] : []),
   ];
 }

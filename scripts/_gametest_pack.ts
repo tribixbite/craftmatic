@@ -19,7 +19,7 @@ import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-wal
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
   arenaExceeds, arenaWindows, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGametestImport,
-  type GametestDoorway, type GametestPart, type GametestPlan, type GametestSeat, type WalkOutcome,
+  type GametestDoorway, type GametestPart, type GametestPlan, type GametestSeat, type GametestVehicle, type WalkOutcome,
 } from '../web/src/engine/gametest-pack.ts';
 import { auditPackTaps } from '../test/_ix-tap-audit.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
@@ -132,6 +132,29 @@ if (pinballName) {
   };
 }
 
+// Every rideable vehicle type the placement spawns (family `craftmatic_vehicle`),
+// driven in the vehicle arena: its kind, seats and shipped size.
+const vehicles: GametestVehicle[] = [];
+for (const typeId of [...new Set(placement.actors.map(a => a.typeId))]) {
+  const cid = typeId.replace(/^[^:]*:/, '');
+  const beh = [...entries.keys()].find(n => n === `${bpFolder}/entities/${cid}.json`);
+  if (!beh) continue;
+  const ent = JSON.parse(text(beh).replace(/^﻿/, ''))['minecraft:entity'];
+  const family: string[] = ent?.components?.['minecraft:type_family']?.family ?? [];
+  if (!family.includes('craftmatic_vehicle')) continue;
+  const kind = (['boat', 'plane', 'car'] as const).find(k => family.includes(k)) ?? 'car';
+  const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (const [name] of entries) {
+    if (!name.endsWith(`/models/entity/${cid}.geo.json`)) continue;
+    for (const geo of JSON.parse(text(name).replace(/^﻿/, ''))['minecraft:geometry'] ?? []) for (const bone of geo.bones ?? []) for (const c of bone.cubes ?? []) {
+      for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, c.origin[k]); max[k] = Math.max(max[k]!, c.origin[k] + c.size[k]); }
+    }
+  }
+  const size = Number.isFinite(min[0]) ? { width: (max[0]! - min[0]!) / 16, height: (max[1]! - min[1]!) / 16, length: (max[2]! - min[2]!) / 16 } : { width: 2, height: 2, length: 4 };
+  const label = placement.actors.find(a => a.typeId === typeId)?.label ?? cid;
+  vehicles.push({ label, typeId, kind, seats: ent.components['minecraft:rideable']?.seat_count ?? 1, size });
+}
+
 const plan: GametestPlan = {
   modelId: placement.id,
   label: placement.label,
@@ -150,6 +173,9 @@ const plan: GametestPlan = {
   figureTicks: flag('figure-ticks') ? Number(flag('figure-ticks')) : undefined,
   // Wider than one structure: only the figures test runs, laying the floor past the structure itself.
   oversized: arenaExceeds({ width: placement.width, height: placement.height, length: placement.length }) || undefined,
+  vehicles: vehicles.length ? vehicles : undefined,
+  // `--only=vehicles`: a short run with nothing but the vehicle tests.
+  vehiclesOnly: flag('only') === 'vehicles' || undefined,
 };
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
@@ -180,6 +206,7 @@ writeFileSync(variantPath, await createZip(variantFiles));
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats, ${plan.figures!.length} figures${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
+console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats, ${plan.figures!.length} figures, ${vehicles.length} vehicles${plan.vehiclesOnly ? ' (vehicle tests only)' : ''}${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
+for (const v of vehicles) console.log(`  vehicle ${v.kind.padEnd(5)} ${v.typeId} seats ${v.seats} size ${v.size.width.toFixed(1)}x${v.size.height.toFixed(1)}x${v.size.length.toFixed(1)}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);
