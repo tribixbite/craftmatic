@@ -50,10 +50,12 @@ Re-run: `bun scripts/_vehicle_audit.ts --md --mirror=http://localhost:4000/ldraw
 (one variant bound); real drive: `/scriptevent craftmatic:vehicle_telemetry fast`.
 
 Open, largest first:
-- [ ] **Scripted car on the device** (`carStep`, `f06405e7`): replaces the
-  camel, which drove circles on a straight stick under `player_relative`
-  and slid sideways on left/right under every other scheme (four-scheme A/B,
-  `real-v4/`). Device result: the guide's "The scripted car on the device".
+- [ ] The scripted car (`carStep`) passed GameTest 8/8 and a real rider drove
+  it straight, turned it right, coasted and reversed (`gt-v5/`, `real-v5/`).
+  Still to feel on the phone: steering rate at top speed (43 degrees/s), the
+  step ease, a slope's pitch, a wall stop; the camel's tuning hooks
+  (`craftmatic:vehicle_scheme`, `vehicle_camera`) now serve only the time
+  machine and can go once 10300 is scripted too.
 - [ ] Rail GameTest cannot drive a train: a simulated player's
   `moveRelative` never reaches `getMovementVector`. Give the coaster runtime
   a `FLIGHT_INPUT_EVENT`-style stick override, as the scripted vehicles have.

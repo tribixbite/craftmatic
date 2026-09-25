@@ -3117,6 +3117,22 @@ pinball 2026-09-24).
 - **Facing**: a car or boat with a decisively long footprint (≥ 1.3×) keeps
   its nose on the long axis; the votes only choose the end.
 
+### The scripted car on the device (42172, `f06405e7`)
+
+- **GameTest** (`gt-v5/42172/device/`): 8/8 checks. Ahead 30.7 blocks in
+  3 s with 0 sideways (top 19.0 blocks/s); coasts 33.6 blocks after release
+  (15.6 blocks/s after 2 s; it rolled off the arena's edge and dropped 4.5
+  blocks, which the fall handled); reverse 5.0 blocks/s; a held right turn
+  155 degrees in 3 s; the boost to 20.8 (40 ticks from rest); lane B's slab
+  and step climbed (dy +1); a second rider seated.
+- **A real rider** (`real-v5/car-cmvt.txt`): straight stick (y 0.33 → 0.75,
+  x ≈ 0): yaw held at exactly 0 while speed rose 1.05 → 14.3 blocks/s;
+  released, it coasted 14 → 6 blocks/s over 3 s (the camel stopped dead);
+  forward-right (x -0.30 → -0.49): yaw 0 → 10 → 36 → 68, a right turn;
+  back (y -0.53): -2.6 → -3.6 blocks/s astern. Against the camel's same
+  straight drag (yaw 69 → -125 → -36), the four-scheme A/B that proved no
+  scheme could steer it is in `real-v4/scheme-ab-cmvt.txt`.
+
 ### Vehicle audit: the 40 favourites and 21 vehicle sets
 
 `bun scripts/_vehicle_audit.ts --md --mirror=http://localhost:4000/ldraw-parts`
