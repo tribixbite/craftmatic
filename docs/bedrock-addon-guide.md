@@ -2225,6 +2225,16 @@ calls, same animations on the same ticks. Steep-tick substeps: 10261
 117 → 2.4, 10303 77.5 → 7.8. Tests: "loop mode on steep track with no
 inversion … predicts nothing" and "loop mode predicts only near an
 inversion" count the ride's work through the `Math` the runtime sees.
+Ridden on the Saga (2026-09-25, world 925, packs `37cdf61c`), with an A/B on
+10261: on the shipped `243f54b1` pack the 9-second chain lift (host: 180
+ticks at 3.5 blocks/s) took ~47 s of wall time, about 4 ticks a second, and
+the action bar refreshed only every ~5 s; on `37cdf61c` it took 9 s. Station
+dwells ran at full rate on both, so only the steep track lagged. 10303's
+lift-top-to-lift-top cycle took 55 s against the host's 54, both loops still
+roll, and `freezedetect` finds no frozen frame on the drop and loops. 42703's
+departure cycle took 23-25 s against the host's 23. The content logs were
+clean. Evidence: `output/coaster-lag-0925/device/` in the fix's worktree
+(the ride videos, `*-bars*.png` action-bar strips, contact sheets).
 
 **The "Experimental Creator Camera Features" experiment
 (`experiments.experimental_creator_cameras`, set in `cmgametest` with
