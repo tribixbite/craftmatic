@@ -61,6 +61,12 @@ export interface AppearanceGroup {
   ldrawColor: number | null;
   cubes: AppearanceCube[];
   /**
+   * Drawn only FAR from the camera: an LOD hull controller
+   * (`Array.g[query.distance_from_camera <= D]`, whose near index is the empty
+   * geometry). Anything showing or measuring the close-up model skips it.
+   */
+  far?: boolean;
+  /**
    * A REAL texture rather than a swatch (an entity's face atlas): its resource
    * path without extension and its size in texels, for cubes with `faceUv`.
    */
@@ -152,6 +158,16 @@ function geometryKeyOf(controller: Record<string, unknown>): string | null {
     if (m && m[1] !== 'empty') return m[1]!;
   }
   return null;
+}
+
+/**
+ * Whether a controller draws its geometry only past its LOD distance: the
+ * index expression is `query.distance_from_camera < D` (or `<=`), so up close
+ * it evaluates to 1 and selects the array's SECOND entry, the empty geometry.
+ */
+function drawnOnlyFar(controller: Record<string, unknown>): boolean {
+  const expr = typeof controller.geometry === 'string' ? controller.geometry : '';
+  return /query\.distance_from_camera\s*<=?\s*[\d.]+\s*\]\s*$/.test(expr);
 }
 
 /** The first `Texture.<key>` a controller binds. */
@@ -305,8 +321,9 @@ export function buildAddonAppearance(sources: AppearanceSources): AddonAppearanc
       const texture = texPath && ldrawColor === null && geo.cubes.some(c => c.faceUv)
         ? { path: texPath, width: geo.textureSize[0], height: geo.textureSize[1] }
         : undefined;
+      const far = controller ? drawnOnlyFar(controller) : false;
       if (geo.cubes.length) {
-        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}) });
+        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}), ...(far ? { far } : {}) });
         cubeCount += geo.cubes.length;
       }
     }
