@@ -243,7 +243,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   <pack.mcaddon>...`** — Minecraft storage is external, but `games/com.mojang/**`
   is `drwxr-s---`: adb can OVERWRITE existing files (the world's
   `world_*_packs.json`) yet cannot create or move anything, so development-pack
-  installs need root. The script imports each pack through the VIEW intent,
+  installs need root. On a ROOTED phone (the Saga, `192.168.1.243:5555`,
+  auto-detected by `su -c id`) the script stages under `/data/local/tmp`,
+  `cp -r`s into `development_*_packs` in place and restores the app's owner,
+  mode and SELinux label read LIVE (the app uid changes on reinstall); on
+  the Saga a plain `input tap` is ignored, use `input swipe x y x y 90`. The script imports each pack through the VIEW intent,
   then force-stops Minecraft and rebinds the world to the new versions in
   place (verified with `exec-out cat`; an `adb pull` right after the rewrite
   can return 0 bytes). A listing of a folder the running game writes can be

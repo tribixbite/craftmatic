@@ -90,20 +90,12 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   geograde's sunk-floor estimate misfires on cars resting on tyres only.
 - [x] Loop camera: the user chose to KEEP the look lock during loops
   (2026-09-25) — the per-loop camera animation stays; no setting needed.
-- [ ] Saga (second test phone, `192.168.1.243:5555`, device `ingot`, Android 13,
-  Magisk root; NEVER `stop`/`start` on it): Minecraft 1.26.51.1 installed from
-  the Pixel's APKs (`output/saga-setup/apk/`, sha256 in `SHA256SUMS.txt`),
-  recorded as installed by Play. BLOCKED on the user: Play licence check needs a
-  Google account signed in on the Saga (it has none), then launch Minecraft and
-  sign in to Microsoft. After that: storage External, content log file + UI,
-  then add a root/dev mode to `_pixel_dev_deploy.py` — push to
-  `/data/local/tmp/<new>`, `su -c cp -r` into `development_*_packs`, then chown
-  to the app uid (read with `stat -c %U`, e.g. `u0_a267:ext_data_rw`), chmod
-  dirs 2750 / files 660, `chcon -R` to the parent's label (`ls -dZ`; toybox has
-  no `--reference`); detect internal vs external root. Pass `--serial`.
-
-## Round 2026-09-25 afternoon — merged at `f5396df2`
-
+- [x] Saga (second test phone, `192.168.1.243:5555`, rooted; NEVER `stop`/
+  `start`): Minecraft 26.52 (Play-updated; Pixel is 26.51), external storage,
+  content log on, test world "925" binds the 14 `243f54b1` packs (0 errors).
+  Deploy: `python -u scripts/_pixel_dev_deploy.py 925 <packs> --serial
+  192.168.1.243:5555 --exclusive` (root dev mode). Lock `output/.saga-lock`.
+  Each deploy leaves a ~7 MB `/data/local/tmp/craftmatic-deploy-*` stage.
 - [x] Vehicles: scripted cars / boats / fixed-wing planes (vanilla controllers
   measured and rejected on the Pixel); trains run on the coaster's
   `rideSubstep` (DRY; coasters replay identically). Audit table in
