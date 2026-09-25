@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
@@ -2311,7 +2311,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const ballBounds = visibleBoundsForSizeSteps({ min: [-tableReach, -tableReach, -tableReach], max: [tableReach, tableReach, tableReach] });
             for (const g of (bgeo.value as { 'minecraft:geometry': Array<{ description: Record<string, unknown> }> })['minecraft:geometry']) Object.assign(g.description, ballBounds);
             const banim = ballAnimation(ballType, plan.map);
-            emitCompiledEntity(bid, bgeo, pinballPropBehavior(ballType, { width: 0.3, height: 0.3 }, ballProperties()), { animations: { move: banim.id }, animate: ['move'], preAnimation: BALL_PRE_ANIMATION });
+            emitCompiledEntity(bid, bgeo, pinballPropBehavior(ballType, { width: 0.3, height: 0.3 }, ballProperties()), { animations: { move: banim.id }, animate: ['move'], initialize: BALL_INITIALIZE, preAnimation: BALL_PRE_ANIMATION });
             files.push({ name: `${rp}animations/${bid}.animation.json`, data: json(banim.file) });
             addEntityName(ballType, `${label} ball`, false);
             const bat = sceneGridPoint(frame, bgeo.originLdu);

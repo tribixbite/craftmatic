@@ -429,6 +429,14 @@ export function plungerProperties(): Record<string, unknown> {
  * properties last changed (the server bumps `seq` whenever it writes them),
  * capped at two ticks so a stalled server never flings the ball.
  */
+/**
+ * Every variable the ball's scripts read, declared when the client creates
+ * the entity: Bedrock does not default an unset variable to 0, it logs
+ * "unhandled request for unknown variable" every frame (Pixel, 2026-09-25:
+ * 11,969 content-log errors in one GameTest run before this).
+ */
+export const BALL_INITIALIZE = ['v.seq_now = 0;', 'v.seq_last = -1;', 'v.t0 = 0;', 'v.dt = 0;'];
+
 export const BALL_PRE_ANIMATION = [
   `v.seq_now = q.property('${PROP_BALL_SEQ}');`,
   'v.t0 = (v.seq_now != v.seq_last) ? q.life_time : v.t0;',

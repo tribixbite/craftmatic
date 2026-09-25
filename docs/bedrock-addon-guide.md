@@ -2683,3 +2683,71 @@ cells are laid by `scripts/interactives.js`, which also persists the state.
 The vanilla-door path (`applySceneDoors`, `runtimeDoorCandidates`, leaf actors)
 now serves only the coloured-block export. Design, rules, the scale rule and
 the offline proofs: [bedrock-interactivity.md](bedrock-interactivity.md).
+
+## Pinball: plunger, tap targets on the flippers, drawn ball (2026-09-25)
+
+`engine/bedrock-pinball.ts` (runtime + plan), `pinball-physics.ts` (sim),
+`pinball-table.ts` (detection). The user's report on the 2026-09-24 pack
+(`1e33902c`): an orange overlay near the right, a wrong right-flipper swing,
+lag, a launch button instead of a plunger, and half-screen tap zones that
+were unreliable and hard to find.
+
+- **The orange things in the seated view.** Two, both set parts
+  (`bun scripts/_pinball_parts_near.ts <ldr> --colors=25,182,191 [--u=a..b --w=a..b]`):
+  (1) the orange capsule floating left of the cabinet front is 96874 **Brick
+  Separator** (#2254), the set's loose accessory lying beside the two spare
+  balls; it now leaves the shell (`PinballTable.looseBricks`, any part
+  described "Brick Separator"). (2) The orange ball in a gold ring near the
+  right wall above the right flipper is the set's own **planet**: 32474
+  Technic Ball Joint (orange) on a trans-clear 6019 clip, ringed by pearl-gold
+  35485 (#1918, #1819, #2235, u 784 w 1303, 57 LDU above the playfield). It is
+  genuine model geometry and stays; it stands above the ball's band, so the
+  ball passes under it.
+- **Right flipper.** The half-turn was the ±180° seam (`71c98317`): 11374's
+  right flipper rests at 162.5° and its raised angle is −162.5°, so the
+  unwrapped swing read 325° and was clamped to 180. Both flippers now swing
+  35° in opposite senses (host test "mirror of the left").
+- **Plunger.** `PinballTable.plungerBricks`: Technic rod parts (no bricks,
+  plates, tiles) within 1.2 ball radii of the lane's line behind the serve,
+  down to 4 radii under the playfield: on 11374 the 13 parts of the tow-ball
+  tip, 1 x 15 liftarm rod, axles, cam knob and rubber pin. They ship as one
+  entity on a single `pb_move` bone; `craftmatic:pull` (0..1) translates it
+  `plungerStroke` (40 LDU) toward the player. The sim fires at
+  `launchMax x pull` (a spring), so a pull under ~0.63 does not climb 11374's
+  lane and rolls back onto the plunger (`return`). Touch: tap the plunger's
+  target to take hold (it draws back over 1.2 s), tap again to let go; a
+  finger whose events repeat while held fires when they stop. Stick: pulled
+  back = drawn that far (rate-limited to half a second from rest to full).
+- **Tap targets on the parts.** Three small boxes (`zoneAssets`) 1.2 blocks
+  from the head, each on the line of sight to what it works
+  (`fitPinballZone`), sized at build time from the planned eye
+  (`planPinballZones`): flipper boxes 0.22 x 0.14, plunger 0.18 x 0.14 on
+  11374, capped so neighbours never overlap (square footprints overlapped by
+  0.04/0.05 blocks before). The camera sits ON the head (it was 0.3 ahead),
+  so the picture and the pick ray start at one point. Each box is a cube
+  with an alpha-blended outline on its top face only. Offline proof:
+  `bun scripts/_pinball_zone_report.ts <BP dir> --svg=<file>` projects the
+  playfield, both flippers (rest and raised), the waiting ball and the
+  targets through the seated camera, and counts sampled rays that reach
+  their own target first (11374: flippers 20/25 - the misses are the
+  outermost column of the padded area - plunger 25/25, no overlaps).
+- **Ball drawn by properties.** The ball entity stays on the serve point;
+  every changed tick the runtime writes its plane offset and velocity
+  (`craftmatic:bu/bw/bvu/bvw`) and bumps `craftmatic:seq`. The client's
+  pre-animation times `v.dt` since the last bump and the `move` animation
+  draws offset + velocity x dt, so it moves at the frame rate between 20 Hz
+  updates. The culling box is the whole table. `{"ball":"teleport"}`
+  restores the per-tick teleport. X/Z signs of a bone translation are
+  properties (`craftmatic:sx/sz`, default −1/+1 after the geometry writer's
+  X mirror), so a wrong guess is fixed live with `{"axes":[1,1]}` etc.
+- **Cost.** The world scan (getEntities plus three dynamic-property reads
+  per actor) is cached for 20 ticks; the sim adapts its substeps to the
+  motion (2 for a ball at rest, up to 12) and broad-phases bumpers.
+  `{"perf":1}` writes `[pinball-perf]` lines (script ms per tick, tick gap)
+  to the content log; `{"cache":0,"fixed":1,"ball":"teleport"}` reproduces
+  the old per-tick cost for comparison.
+- **Pick model is unmeasured.** Whether a phone's tap ray follows the free
+  camera or the player's own (level) view is not documented. `{"pick":
+  "level","pitch":N}` switches the fit, and `{"probe":[[yaw,pitch],...],
+  "d":1.5}` spawns probe targets along view directions and logs which one a
+  tap hits (`[pinball] tap probe i ...` in the content log).

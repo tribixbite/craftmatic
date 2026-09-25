@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   consoleAssets, fitPinballZone, pinballPropBehavior, pinballScript, pinballZoneTexture, rotationBetween, flipperRig, moveRig,
-  ballAnimation, plungerAnimation, zoneAssets, type PinballRuntimeConfig,
+  ballAnimation, plungerAnimation, zoneAssets, BALL_INITIALIZE, BALL_PRE_ANIMATION, type PinballRuntimeConfig,
 } from '../web/src/engine/bedrock-pinball.js';
 import type { PinballSimTable } from '../web/src/engine/pinball-physics.js';
 
@@ -467,6 +467,14 @@ describe('pinball entity definitions', () => {
     expect(alpha(20, 5)).toBe(0); // the transparent tile
     expect(alpha(0, 0)).toBeGreaterThan(150); // a frame corner
     expect(alpha(8, 8)).toBeLessThan(40); // faint fill
+  });
+
+  it('declares every Molang variable the ball reads before it is read (the device logs each unknown one every frame)', () => {
+    const map = { p0: [0, 0, 0] as [number, number, number], u: [0, 0, 0.01] as [number, number, number], w: [0.01, 0, 0] as [number, number, number], n: [0, 0.01, 0] as [number, number, number] };
+    const text = JSON.stringify([BALL_PRE_ANIMATION, ballAnimation('craftmatic:b', map).file]);
+    const read = new Set([...text.matchAll(/(?:^|[^a-z_])v\.([a-z_0-9]+)/g)].map(m => m[1]));
+    const declared = new Set(BALL_INITIALIZE.map(l => /^v\.([a-z_0-9]+) =/.exec(l)![1]));
+    for (const v of read) expect(declared.has(v), `v.${v}`).toBe(true);
   });
 
   it('the ball and plunger animations translate one bone along the plane, X and Z through the sign properties', () => {
