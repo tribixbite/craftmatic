@@ -48,6 +48,13 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   `--figure-ticks=3600` on a set with free seats); gait rate's ~4 units/block
   reading unmeasured; mini-doll legs stiff; figures at 200-400 % untested on
   the device.
+  The re-home fix (`2deb13e9`) is not device-run: the 21360 run collided with
+  another agent's pinball session and was abandoned. cmgametest's BP binding
+  is left on the 21360 variant. Restore the pinball variant with the figures
+  worktree's `python output/figure-ai/bind.py nRnt66NBH0Y=
+  94baeb94-f1f1-4712-a221-e34addce9808@2609.2501.5013`, which force-stops
+  Minecraft. 16 figures in 5 favourites spawn on parts the collider grid does
+  not carry, and they fall at spawn (census).
 
 ## Round — 2026-09-24 evening (user's 7 questions)
 
