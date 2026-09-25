@@ -421,6 +421,35 @@ const FACE_SIDE: Record<string, { axis: 0 | 1 | 2; max: boolean }> = {
 /** Area of a face quad (model units squared). */
 const faceArea = (q: readonly Vec3[]): number => Math.hypot(...cross(sub(q[1]!, q[0]!), sub(q[3]!, q[0]!)));
 
+/**
+ * A test for faces pressed flat against another cube's OPPOSITE face over
+ * (almost) their whole area - the top of a stud under a brick, two plates
+ * stacked. Such a face is buried: a coplanar fight on it is never seen, so
+ * neither the separation nor the audit counts it.
+ */
+export function buriedFaceTest(faces: readonly WorldFace[]): (f: WorldFace) => boolean {
+  const planeKey = (n: Vec3, d: number, k: number): string => `${Math.round(n[0] * 1e3)},${Math.round(n[1] * 1e3)},${Math.round(n[2] * 1e3)}|${Math.floor(d / CONTACT_EPS) + k}`;
+  const byPlane = new Map<string, WorldFace[]>();
+  for (const f of faces) { const key = planeKey(f.normal, f.d, 0); let list = byPlane.get(key); if (!list) byPlane.set(key, list = []); list.push(f); }
+  return (f: WorldFace): boolean => {
+    const area = faceArea(f.corners);
+    const n: Vec3 = [-f.normal[0], -f.normal[1], -f.normal[2]];
+    for (const k of [-1, 0, 1]) for (const o of byPlane.get(planeKey(n, -f.d, k)) ?? []) {
+      if (Math.abs(o.d + f.d) <= CONTACT_EPS && overlapArea(f, o) >= area * 0.98) return true;
+    }
+    return false;
+  };
+}
+
+/** The coplanar hits a player can see: neither face of the pair is buried (`buriedFaceTest`). */
+export function visibleCoplanarHits(faces: readonly WorldFace[], options: CoplanarOptions = {}): CoplanarHit[] {
+  const { hits } = coplanarFaces(faces, options);
+  const buried = buriedFaceTest(faces);
+  const byKey = new Map<string, WorldFace>();
+  for (const f of faces) byKey.set(`${f.actor}:${f.group}:${f.cube}:${f.face}`, f);
+  return hits.filter(h => !buried(byKey.get(`${h.a.actor}:${h.a.group}:${h.a.cube}:${h.a.face}`)!) && !buried(byKey.get(`${h.b.actor}:${h.b.group}:${h.b.cube}:${h.b.face}`)!));
+}
+
 export interface CoplanarSeparation {
   /** Visible different-colour coplanar overlaps found on the first pass (a pair pressed against a third face is buried and not counted). */
   pairsFound: number;
@@ -461,19 +490,7 @@ export function separateCoplanarFaces(entry: AddonAppearanceEntry, options: { of
     const faces = worldFaces([actor]);
     const byKey = new Map<string, WorldFace>();
     for (const f of faces) byKey.set(`${f.group}:${f.cube}:${f.face}`, f);
-    // Faces by plane, for the contact test below.
-    const planeKey = (n: Vec3, d: number, k: number): string => `${Math.round(n[0] * 1e3)},${Math.round(n[1] * 1e3)},${Math.round(n[2] * 1e3)}|${Math.floor(d / CONTACT_EPS) + k}`;
-    const byPlane = new Map<string, WorldFace[]>();
-    for (const f of faces) { const key = planeKey(f.normal, f.d, 0); let list = byPlane.get(key); if (!list) byPlane.set(key, list = []); list.push(f); }
-    /** A face pressed flat against another cube's opposite face is buried: nothing can see it fight. */
-    const buried = (f: WorldFace): boolean => {
-      const area = faceArea(f.corners);
-      const n: Vec3 = [-f.normal[0], -f.normal[1], -f.normal[2]];
-      for (const k of [-1, 0, 1]) for (const o of byPlane.get(planeKey(n, -f.d, k)) ?? []) {
-        if (Math.abs(o.d + f.d) <= CONTACT_EPS && overlapArea(f, o) >= area * 0.98) return true;
-      }
-      return false;
-    };
+    const buried = buriedFaceTest(faces);
     const { hits } = coplanarFaces(faces, { planeEps: Math.max(options.planeEps ?? 0.02, offset * 0.5) });
     const grow = new Map<string, number>();
     let pending = 0, pendingArea = 0;
@@ -492,7 +509,7 @@ export function separateCoplanarFaces(entry: AddonAppearanceEntry, options: { of
           : ga.alpha !== gb.alpha ? ga.alpha > gb.alpha
             : fa.group !== fb.group ? fa.group > fb.group : fa.cube > fb.cube;
       const [w, l] = aWins ? [fa, fb] : [fb, fa];
-      if (buried(w)) continue;
+      if (buried(w) || buried(l)) continue;
       // Both share the normal; the winner must lead the loser by `offset` along it.
       const need = l.d - w.d + offset;
       if (need <= 1e-6) continue;

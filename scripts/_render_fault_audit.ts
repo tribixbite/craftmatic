@@ -11,7 +11,7 @@
 import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { loadAddonPreviewModel, placedPoint, entitySpawnsAt } from '../web/src/ui/addon-preview-data.ts';
-import { coplanarFaces, thinCubes, worldFaces, type AuditActor, type CoplanarHit } from '../web/src/engine/bedrock-geometry-faces.ts';
+import { visibleCoplanarHits, thinCubes, worldFaces, type AuditActor, type CoplanarHit } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 const args = process.argv.slice(2);
 const jsonOut = args.find(a => a.startsWith('--json='))?.slice(7);
@@ -40,7 +40,8 @@ for (const file of files.sort()) {
     actors.push({ typeId: e.typeId, kind: e.kind, entry, at: placedPoint(e, model.dims, 100, 0), yawDeg: e.yaw });
   }
   const faces = worldFaces(actors);
-  const { hits, sameColourArea } = coplanarFaces(faces);
+  const hits = visibleCoplanarHits(faces);
+  const sameColourArea = 0;
   const pairArea = new Map<string, { area: number; n: number; worst: CoplanarHit[] }>();
   for (const h of hits) {
     const ka = actors[h.a.actor]!.typeId.replace(/^craftmatic:/, ''), kb = actors[h.b.actor]!.typeId.replace(/^craftmatic:/, '');

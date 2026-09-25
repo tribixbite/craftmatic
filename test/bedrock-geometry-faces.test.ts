@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  COPLANAR_SEPARATION_UNITS, apply, coplanarFaces, pivotRotation, separateCoplanarFaces, worldFaces,
+  COPLANAR_SEPARATION_UNITS, apply, coplanarFaces, pivotRotation, separateCoplanarFaces, visibleCoplanarHits, worldFaces,
   type GeoEntryLike, type Vec3,
 } from '../web/src/engine/bedrock-geometry-faces.js';
 import { eulerZYX } from '../web/src/engine/ldraw-entity-compiler.js';
@@ -84,6 +84,8 @@ describe('coplanar faces', () => {
     const r = separateCoplanarFaces(entry);
     expect(r.pairsFound).toBe(0);
     expect(entry.groups[1]!.cubes[0]!.size[1]).toBe(1.8);
+    expect(coplanarFaces(self(entry)).hits).toHaveLength(1);
+    expect(visibleCoplanarHits(self(entry))).toHaveLength(0);
   });
 
   it('never moves a face decal: the fringe on its plane goes in front', () => {
