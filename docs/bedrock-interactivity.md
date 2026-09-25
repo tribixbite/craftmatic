@@ -6,8 +6,11 @@ ensuring the player can physically get past when open — this is CRUCIAL)"*,
 and *"a full basic interactivity system: sit on furniture, open doors and
 applicable windows, turn any turnable mechanisms"*.
 
-Code: `web/src/engine/bedrock-interactives.ts` (detection, rig, collider plan,
-runtime), `web/src/engine/interactive-walk.ts` (the passability harness),
+Code: `web/src/engine/interactivity-stage.ts` (the ONE stage that decides and
+reports every candidate), `web/src/engine/bedrock-interactives.ts` (detection,
+rig, collider plan, runtime), `web/src/engine/bedrock-scene-actors.ts` (seats,
+stools, brick-built furniture), `web/src/engine/interactive-walk.ts` (the
+passability harness), `web/src/engine/gametest-pack.ts` (in-game tests),
 `web/src/engine/playable-addon.ts` (pack assembly), `web/src/engine/schem-pipeline.ts`
 (where the scene is read), the Walk add-on (`web/src/ui/addon-preview*.ts`).
 
@@ -23,18 +26,59 @@ bank doors are 1.1 x 2.7, and the gap showed.
 | door | `Door …` leaf (`isDoorLeafDescription`), `Train Door …`, `GLASS DOOR FOR FRAME` (60616), at least 72 LDU tall | the leaf + what sits inside its own box (glass insert, handle, sticker) | the leaf's up axis through its origin end | ±90° (the side the sweep finds clear) | doorway: closed cells laid, opened when passable |
 | gate | `Gate …`, `Fence Gate …`, `Door … Gate` | as door | as door | ±90° | doorway (no headroom rule: a gate has no lintel) |
 | cabinet | a door leaf under 72 LDU (1 x 3 x 1 car / cupboard door), `Container Cupboard/Box … Door` | the leaf | as door | ±100° | static (its closed box stays a collider) |
+| lid | `Container … Lid`, `Minifig Coffin … Lid`, `CHEST LID` (not battery-box lids) | the lid | a treasure chest's hinge pins when a chest body is under it (4738a/b: local (±40, 3, 18)), else its own +Z top edge | 100°, free edge UP | static |
+| drawer | `Container … Drawer` (not `Drawers`, the body) | the drawer | SLIDES along its depth (local Z), the way that is free of the cupboard | 0.6 x its depth | static |
+| garage door | a STACK of upright `Roller Door …` segments (same column, each within 32 LDU of the next, 72+ LDU tall) | the whole stack | SLIDES up by its height | its height | doorway |
+| sliding door | `Door … Sliding` | the leaf | SLIDES along its width, the free way | its width | doorway |
 | window | `Glass for Window … Opening` (top-hung casement), `Window … Shutter`, `Window … Pane` | the pane / shutter | casement: the in-plane edge its origin marks (the top, on 60603); shutter / pane: its up axis at the origin end | ±60° | static |
 | hatch | `… Trap Door` (not `… Frame`), `Hatch …` | the plate | the horizontal edge its origin marks | 90°, free edge UP | doorway in a floor: closed cells laid, opened when 1 x 1 block |
 | lever | `Hinge Control Stick`, `… Lever` (not base/pattern) | the stick | local X through its origin (the ball joint) | 35° flip | static |
 | turnable | `Turntable … Top`, `… Steering Wheel` (not hubs/holders), `Technic Rotor`, `Propeller`, `Ship's Wheel` | the part (a turntable top also carries what is stacked on it within 1.5x its radius, at most 60 parts) | a turntable's up axis; otherwise the axis the part is most round about, the thinnest on a tie; through its box centre | 90° per tap | static |
-| seat | 4079 family + `Seat/Chair/Bench` (`isSeat`); library furniture `Chair/Bench/Stool/Toilet/Throne/Sofa/Couch/Armchair` incl. Fabuland (`isFurnitureSeat`), seated on its PAN (`seatPanLocalY`); brick-built stools: a 2 x 2 tile on a narrow column 6-32 LDU over its floor (`brickBuiltStools`) | — | — | — | the invisible rideable seat entity (the same one the Brick Wand's "Add seat here" uses); a figure the source sat there rides it |
+| seat | 4079 family + `Seat/Chair/Bench` (`isSeat`); library furniture `Chair/Bench/Stool/Toilet/Throne/Sofa/Couch/Armchair` incl. Fabuland (`isFurnitureSeat`), seated on its PAN (`seatPanLocalY`); brick-built stools (`brickBuiltStools`) and benches, chairs, sofas (`brickBuiltFurniture`, below) | — | — | — | the invisible rideable seat entity (the same one the Brick Wand's "Add seat here" uses); a figure the source sat there rides it |
+| bed | brick-built: a bed-sized mattress with a headboard (`brickBuiltFurniture`) | — | — | — | a seat on the mattress (Bedrock cannot lay the player down) |
 
-Detection runs on the SCENERY's placements only (`discoverInteractives` with
-`exclude: movable`): figures, vehicles, coaster cars and pinball parts are not
-scenery. **Technic gears are deliberately not turnables** (they are mechanism
-internals: 10261 has 30 of them inside its lift); sliding and roller doors are
-not modelled; LEGO's modern chairs are brick-built and have no mould (mark them
-with the wand).
+A sliding part is the same rig with the spin bone MOVED along the axis
+instead of turned about it (`interactiveAnimation(…, slideUnitsPerLdu)`: the
+property is the distance in LDU). Its tap boxes follow it out
+(`movedOpen`), and the Walk add-on moves it the same way. **The slide
+direction on the device is derived, not yet seen** (a TODO in the code).
+
+A retired mould (`~Moved to 3068b`) is classified by the wording of the part
+it moved to (`movedDescription` / `classifiedDescription`): 910032's dining
+chairs sit on `3068` tiles whose own description is the stub. Figures keep
+reading the stub (`mouldFamilyId` takes the target ID from it).
+
+Detection runs on the SCENERY's placements only: figures, vehicles, coaster
+cars and pinball parts are owned by their own entities and reported as such.
+**Technic gears are deliberately not turnables** (they are mechanism internals:
+10261 has 30 of them inside its lift). Roller-door segments laid flat side by
+side are a slatted roof or deck (42639's sun deck), and one or two on their
+own are trim (42670's lone handle segment); both stay static, and say so.
+
+### The stage and its report
+
+`interactivityStage` (`engine/interactivity-stage.ts`) is the one place that
+decides. It runs discovery, shapes every part's tap boxes and keeps them clear
+of the seats and of each other, and reports EVERY placement whose description
+names something a player would expect to use (`movableClassOf`: a door, gate,
+window, hatch, cupboard, lid, drawer, seat, bed, lever or turnable) with its
+verdict:
+
+- `found` - it moves, or it is a seat;
+- `static` - matched but left in the shell, with the rule that kept it (a
+  centred origin names no hinge; a leaf lying on its side; a tap box that
+  cannot be kept clear; a roller segment laid flat);
+- `rides` - carried by another part's entity (a glass insert, a handle);
+- `excluded` - owned by a vehicle, figure, ride car or pinball table;
+- `unhandled` - no rule moves it yet: the list the next rule is written from.
+
+Container bodies (a cupboard's, a chest's), window frames, rails, bases,
+headgear, wheel hubs and a stroller seat are fixtures and not listed. Every
+rule is a description, a part's own frame or the model's geometry - never a
+set number. The report ships in `craftmatic-diagnostics.json` as
+`interactivity`, one line of it goes to the pack warnings
+(`interactivitySummary`), and `bun scripts/_ix_audit_report.ts <dir>` prints
+it over built packs.
 
 ### The hinge comes from the part's own frame
 
@@ -281,6 +325,22 @@ A library chair's box top is its backrest (4222a Fabuland chair: 40 LDU over
 the pan), so furniture moulds now sit on the pan a vertical line down the
 middle meets (`seatPanLocalY`). The 4079 family keeps `origin - 8`: its pan is
 at the origin and the extra plate is the stud a minifig sits over.
+
+`brickBuiltFurniture` generalises the stool to benches, chairs, sofas and
+beds. The seat is a flat surface of plates or tiles - one part, or several
+side by side at one height (a two-tile mattress, a sofa seat of two plates) -
+1-2 studs by 2-6 (a seat) or 2-4 by 4-8 (a bed), 12-32 LDU over its floor
+(8-32 for a bed), with no counter continuing it. It is a BENCH on legs (what
+holds it up covers under 70 % of its footprint), a CHAIR or SOFA with a
+backrest rising 20-60 LDU along a long side (facing away from it; head room is
+checked only over the backrest half, since a dining chair is tucked under its
+table's edge), a BED with a headboard rising 8-60 LDU at a short end. A long
+bench or sofa gets one seat per two studs, up to three. What it cannot see: a
+seat whose surface is a slope or a brick top, a mattress with no headboard
+(42663's camper beds), furniture inside a closed wall, a seat under something
+over its whole surface. The favourites' counts and the misses are in the
+40-set table below; `bun scripts/_seat_scan.ts <ldr> --why` says why each
+surface is or is not furniture.
 
 ## Not verified on a device
 

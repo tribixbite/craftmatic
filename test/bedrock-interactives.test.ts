@@ -723,6 +723,7 @@ describe('furniture seats', () => {
       ['3010.dat', mesh('3010', 'Brick  1 x  4', [-40, 0, -10], [40, 24, 10])],
       ['3009.dat', mesh('3009', 'Brick  1 x  6', [-60, 0, -10], [60, 24, 10])],
       ['bed.dat', mesh('bed', 'Tile  4 x  6', [-40, 0, -60], [40, 8, 60])],
+      ['b16.dat', mesh('b16', 'Brick  2 x  4 x  2/3', [-40, 0, -20], [40, 16, 20])],
       ['3001.dat', mesh('3001', 'Brick  2 x  4', [-40, 0, -20], [40, 24, 20])],
     ]);
     const floor = brick('floor.dat', 0, 0, 0);
@@ -740,8 +741,8 @@ describe('furniture seats', () => {
     expect(brickBuiltFurniture([floor, sofa[0]!, sofa[1]!], meshes, new Set())).toHaveLength(0);
     // A counter: the surface continues into a brick top at its height.
     expect(brickBuiltFurniture([floor, ...bench, brick('3009.dat', 100, -32, 0)], meshes, new Set())).toHaveLength(0);
-    // A bed: a 4 x 6 mattress on 2 x 4 bricks, a 1 x 4 brick headboard rising 24 at one short end.
-    const bed = [brick('bed.dat', 0, -32, 0), brick('3001.dat', 0, -24, -40), brick('3001.dat', 0, -24, 40), brick('3010.dat', 0, -56, 70)];
+    // A bed: a 4 x 6 mattress 24 LDU up on 2 x 4 x 2/3 bricks, a 1 x 4 brick headboard rising 24 across one short end.
+    const bed = [brick('bed.dat', 0, -24, 0), brick('b16.dat', 0, -16, -40), brick('b16.dat', 0, -16, 40), brick('3010.dat', 0, -48, 70)];
     const d = brickBuiltFurniture([floor, ...bed], meshes, new Set());
     expect(d.map(s2 => s2.part)).toEqual(['bed']);
   });

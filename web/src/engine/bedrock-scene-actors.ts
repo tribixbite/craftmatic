@@ -327,7 +327,7 @@ export const FURNITURE_SIZES = {
   bed: { minWide: 36, maxWide: 90, minLong: 76, maxLong: 170 },
 } as const;
 /** How high a brick-built seat or bed surface stands over its floor, LDU. */
-export const FURNITURE_HEIGHT_LDU = { seat: { min: 12, max: 32 }, bed: { min: 8, max: 32 } } as const;
+export const FURNITURE_HEIGHT_LDU = { seat: { min: 12, max: 32 }, bed: { min: 8, max: 24 } } as const;
 
 /**
  * Brick-built benches, chairs, sofas and beds: the seat is a flat surface of
@@ -338,7 +338,7 @@ export const FURNITURE_HEIGHT_LDU = { seat: { min: 12, max: 32 }, bed: { min: 8,
  *     its footprint),
  *   - a CHAIR or SOFA when a backrest rises 20-60 LDU along one long side
  *     (it faces away from it),
- *   - a BED when it is bed-sized with a headboard rising 8-60 LDU at one short end.
+ *   - a BED when it is bed-sized, 8-24 LDU up, with a headboard rising 16-60 LDU across 80 % of one short end.
  * A long bench or sofa seats one per two studs, up to three. The 2 x 2 stool
  * has its own rule (`brickBuiltStools`). What this cannot see: a seat whose
  * surface is a slope or a brick top, or one hidden inside a closed wall.
@@ -399,7 +399,8 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
     let floor = Infinity;
     for (const { o } of others) {
       if (o.min[1] < bottom - 1 || o.min[1] > top + 60 || !touching(o, -1)) continue;
-      const wide = o.min[0] < min[0] - 8 || o.max[0] > max[0] + 8 || o.min[2] < min[2] - 8 || o.max[2] > max[2] + 8;
+      // A floor reaches well past the surface along BOTH horizontal axes: a 1 x 6 plate under a 1 x 4 tile is a coaster support's foot (10303), not a floor.
+      const wide = (o.min[0] < min[0] - 16 || o.max[0] > max[0] + 16) && (o.min[2] < min[2] - 16 || o.max[2] > max[2] + 16);
       if (wide && o.min[1] < floor) floor = o.min[1];
     }
     if (!Number.isFinite(floor)) { if (ground - top <= 40) floor = ground; else { no('no floor under it'); continue; } }
@@ -425,7 +426,7 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
       return cover / (runAxis === 0 ? ex : ez);
     };
     const back = (['min', 'max'] as const).find(side => rising(side, 'long', 20) >= 0.5);
-    const head = (['min', 'max'] as const).find(side => rising(side, 'short', 8) >= 0.5);
+    const head = (['min', 'max'] as const).find(side => rising(side, 'short', 16) >= 0.8);
     // A minifig's head room: over the middle, or over the half by the backrest
     // (a dining chair is tucked under its table's edge, 910032).
     const sh = Math.max(0, Math.min(6, (w - 8) / 2));
