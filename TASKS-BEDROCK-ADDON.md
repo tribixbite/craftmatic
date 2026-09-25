@@ -26,35 +26,30 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
-## In flight — 2026-09-24 late (agents in worktrees; merge each, rebuild, deploy to 924)
+## Round 2026-09-25 — merged at `56a96e0f`; packs `output/device-round-2026-09-25/packs-56a96e0f/` (9, zip beside), deployed to world 924
 
-- [ ] **Interactivity pipeline over all 40 favourites**: no set-specific code;
-  per-set audit (found / missed / false positive / static), passability, tap
-  boxes, GameTest checks per set in `cmgametest`; table in
-  `docs/bedrock-interactivity.md`. Also the 3 open 76457 defects (seat height,
-  window 1, the 9.4-degree door).
-- [ ] **Pinball**: orange overlay near the right of the seated view; right
-  flipper animation (device pack predates `71c98317`); lag (measure script
-  time, smooth the ball); plunger strength = pull-back amount, fired on
-  release, animated; tap targets ON the flippers (on the line of sight, within
-  reach, faintly visible).
-- [ ] **Coaster rider camera**: baseline view follows the track frame (curves,
-  climbs, loops) with the player's look as a clamped offset; research camera
-  pitch/roll limits (free camera clamps pitch to +-90).
-- [x] **Minifig AI** (figures worktree, `fa31d941`..`0711e753`): `scripts/figures.js`
-  plans over the collider spans; Pixel GameTest 910004 / 41732 / 76457: left
-  the model 2/6/3 -> 0/0/0, fell 2/4/0 -> 0, in a wall 1 -> 0 (guide:
-  "Figure life"). Open: seat borrowing seen only in the host sim (run
-  `--figure-ticks=3600` on a set with free seats); gait rate's ~4 units/block
-  reading unmeasured; mini-doll legs stiff; figures at 200-400 % untested on
-  the device.
-  The re-home fix (`2deb13e9`) is not device-run: the 21360 run collided with
-  another agent's pinball session and was abandoned. cmgametest's BP binding
-  is left on the 21360 variant. Restore the pinball variant with the figures
-  worktree's `python output/figure-ai/bind.py nRnt66NBH0Y=
-  94baeb94-f1f1-4712-a221-e34addce9808@2609.2501.5013`, which force-stops
-  Minecraft. 16 figures in 5 favourites spawn on parts the collider grid does
-  not carry, and they fall at spawn (census).
+- Interactivity stage (`engine/interactivity-stage.ts`) over all 40 favourites,
+  table in `docs/bedrock-interactivity.md` "The 40-set audit": GameTest on the
+  Pixel 61/63 doorways + 269/270 parts/seats as predicted.
+  Open: brick-built doors/gates/mechanisms (80049, 910004, 910047, 10354,
+  42639, 910049, 41395) need a hinge-joint detector; missed seats (910032 x12);
+  beds without headboard (42663); 71040 Door 1 test stand spot; 41395 Door 1
+  offline too pessimistic; 42670 Door 4 approach; drawers/garage doors
+  unseen on the device.
+- Pinball: rider camera at the head, plunger entity (pull amount = strength),
+  flipper outlines + hit boxes on the player's own ray (the phone picks along
+  the PLAYER view, not the camera), script time 3.39 -> 1.71 ms/tick. Open:
+  rerun its GameTest alone in `cmgametest`; held-finger repeat; ball jumps
+  ~0.75 block on launch; tuning hooks still ship (TODO).
+- Coaster rider camera follows the track frame with +-70/+-50 look offset;
+  no apex roll (only camera ANIMATIONS roll; per-loop pre-computed animation
+  untried). Final pack defaults ridden only as live settings.
+- Minifig AI (`scripts/figures.js`): 0 left/fell/in-wall on 910004/41732/76457;
+  open: 16 figures stand on non-walkable parts (fall on placement), seat use
+  unproven on device, 71040/31141/910049 figure stalls, Minifig Creator
+  figures still vanilla.
+- Wand Undo does not survive a world reload (agents had to clean by hand) —
+  worth fixing.
 
 ## Round — 2026-09-24 evening (user's 7 questions)
 
