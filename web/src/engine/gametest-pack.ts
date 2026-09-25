@@ -481,7 +481,19 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
    * injected hook), for a simulated player spawned in the arena. Returns
    * undefined (after failing the test) when the placement did not land.
    */
-  const placeModel = async (test: any, testName: string, shiftX = 0): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
+  /**
+   * One placement at a time, in this pack's own order: the doors, parts and
+   * figures tests start together, and three tests hammering the placement
+   * runtime starved the figures test of 60380 and 76269 through all its
+   * retries (Pixel, 2026-09-25). A test waits its turn here instead.
+   */
+  let placing: Promise<unknown> = Promise.resolve();
+  const placeModel = (test: any, testName: string, shiftX = 0): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
+    const turn = placing.then(() => placeModelNow(test, testName, shiftX));
+    placing = turn.catch(() => undefined);
+    return turn;
+  };
+  const placeModelNow = async (test: any, testName: string, shiftX: number): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
     const name = `cmgt_${Math.floor(Math.random() * 1e6)}`;
     const f = floorY(test, margin, margin);
     // A window past the first: the model is placed shifted -x so that window lies over the arena.

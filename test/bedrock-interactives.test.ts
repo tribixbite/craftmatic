@@ -522,6 +522,22 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
   });
 
+  it('shuts a window, lid or cupboard past a player standing at it: only a doorway refuses to close on someone', () => {
+    const cfg = doubleDoorConfig();
+    // Door 1 as a window: the same leaf, no doorway cells.
+    cfg.items[0] = { ...cfg.items[0]!, kind: 'window', blocking: [], neighbours: [], shares: [], pairs: undefined };
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor);
+    h.sync();
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    // Standing right on the closed pane's plane (GameTest 2026-09-25: a lid never closed on the player beside it).
+    h.player.location = { x: anchor.x + 3, y: anchor.y + 1, z: 205.5 };
+    h.players.push(h.player);
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+  });
+
   it('counts a tap reported twice (hit and interact in one tick) once', () => {
     const cfg = doubleDoorConfig();
     const h = runtimeHost(cfg);

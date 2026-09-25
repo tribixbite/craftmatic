@@ -98,7 +98,11 @@ if (cfg) {
     const spots = (audit?.spots ?? []).filter(sp => sp.ok);
     if (!actor || !spots.length) { console.log(`  ${it.label}: ${actor ? 'no standing spot the tap audit accepted' : 'no actor'}; not tested`); return; }
     const d2 = (sp: { at: number[] }): number => (sp.at[0]! - actor.x) ** 2 + (sp.at[2]! - actor.z) ** 2 + (sp.at[1]! - actor.y) ** 2;
-    const best = spots.reduce((a, b) => (d2(b) < d2(a) ? b : a));
+    // Not standing IN the part: a doorway will not close on a player in its leaf (the runtime's
+    // occupancy test), and the nearest accepted spot was often right on the leaf (Pixel 2026-09-25).
+    const clear = spots.filter(sp => Math.hypot(sp.at[0]! - actor.x, sp.at[2]! - actor.z) >= 1.2);
+    const pool = clear.length ? clear : spots;
+    const best = pool.reduce((a, b) => (d2(b) < d2(a) ? b : a));
     parts.push({ label: it.label, typeId: it.type, kind: it.kind, actor: { x: actor.x, y: actor.y, z: actor.z }, from: { x: best.at[0]!, y: best.at[1]!, z: best.at[2]! }, openAngle: it.angle, window: windowOf(windows, actor.x) });
   });
 }

@@ -1403,7 +1403,10 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const obstructed = (e: any, i: number, pl: any): boolean => {
     const it = config.items[i]!;
     const lf = it.leaf;
-    if (!lf) return false;
+    // Only a DOORWAY refuses to close on someone: a window, a lid or a cupboard door
+    // shuts past a player beside it (GameTest 2026-09-25: a player standing at a chest
+    // could open its lid but never close it again).
+    if (!lf || !it.blocking.length) return false;
     const c = toWorld(pl, lf.c), a = toWorld(pl, [lf.c[0]! + lf.a[0]!, lf.c[1]! + lf.a[1]!, lf.c[2]! + lf.a[2]!]), u = toWorld(pl, [lf.c[0]! + lf.u[0]!, lf.c[1]! + lf.u[1]!, lf.c[2]! + lf.u[2]!]);
     const A = { x: a.x - c.x, y: a.y - c.y, z: a.z - c.z }, U = { x: u.x - c.x, y: u.y - c.y, z: u.z - c.z };
     const nA = Math.max(2, Math.ceil(Math.hypot(A.x, A.y, A.z) / 0.15) + 1), nU = Math.max(2, Math.ceil(Math.hypot(U.x, U.y, U.z) / 0.15) + 1);
