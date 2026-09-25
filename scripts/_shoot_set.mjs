@@ -75,6 +75,10 @@ const read = () => page.evaluate(() => {
   const canvas = document.querySelector('#lego-viewer canvas');
   return {
     status: badge?.textContent?.trim().slice(0, 160) ?? '',
+    // The viewer's own loading overlay ("ENTERING HYPERSPACE nn%"): an upload never
+    // changes the badge (it keeps "Browsing all sets"), so the badge alone passed
+    // the overlay off as a finished render (audit agents, 2026-09-25).
+    overlay: document.querySelector('#lego-viewer')?.innerText?.slice(0, 160) ?? '',
     hasCanvas: Boolean(canvas),
     // A canvas exists before anything is drawn in it; ask WebGL for the draw
     // count instead by sampling whether the picture is a flat background.
@@ -83,11 +87,17 @@ const read = () => page.evaluate(() => {
 });
 
 const deadline = Date.now() + WAIT;
+const started = Date.now();
 let last = await read();
 let settled = 0;
+// An upload must be SEEN loading before "not loading" means done (the overlay appears a moment after the file is set).
+let sawLoading = !uploadFile;
+const LOADING = /loading|prefetch|voxel|resolving|hyperspace|geometries loaded/i;
 while (Date.now() < deadline) {
   const now = await read();
-  const done = now.hasCanvas && !/loading|prefetch|voxel|resolving/i.test(now.status);
+  const loading = LOADING.test(now.status) || LOADING.test(now.overlay);
+  if (loading) sawLoading = true;
+  const done = now.hasCanvas && !loading && (sawLoading || Date.now() - started > 20000);
   if (done) { settled++; if (settled >= 4) { last = now; break; } }
   else settled = 0;
   last = now;
