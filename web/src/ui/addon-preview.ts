@@ -31,7 +31,7 @@ import {
   type EntitySolid, type PlayerState, type PointReach, type WalkInput, type WalkWorld,
 } from '@engine/addon-walk.js';
 import { QUARTER_TURNS, type QuarterTurn, type ReachTarget } from '@engine/bedrock-collider-scale.js';
-import { COASTER_PHYSICS, RIDE_INTERACT_TEXT } from '@engine/bedrock-coaster.js';
+import { COASTER_PHYSICS, RIDE_INTERACT_TEXT, coasterRiderLook, coasterRiderView, type CoasterRiderLook, type CoasterRiderView } from '@engine/bedrock-coaster.js';
 import { PINBALL_INTERACT_TEXT } from '@engine/bedrock-pinball.js';
 import { createPinballSim, type PinballSim } from '@engine/pinball-physics.js';
 import { SWING_SECONDS, ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeItem } from '@engine/bedrock-interactives.js';
@@ -201,7 +201,9 @@ class AddonWalk implements AddonPreviewHandle {
   /** The nearest thing an Interact key/button would act on right now. */
   private nearestInteract: { label: string; act: () => void } | null = null;
   /** Riding a car: which route/slot, and the player state to restore on dismount. */
-  private riding: { routeIndex: number; slot: number; entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number } | null = null;
+  private riding: { routeIndex: number; slot: number; entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number;
+    /** The rider camera's state, exactly as the pack's runtime keeps it per rider: the look reference and the last view (for unwrapping). */
+    look: CoasterRiderLook | null; view: CoasterRiderView | null } | null = null;
   /** Sitting at a static (non-coaster) seat: just parks the camera there. */
   private sitting: { entityIndex: number; restore: PlayerState; restoreYaw: number; restorePitch: number } | null = null;
   private interactQueued = false;
@@ -718,7 +720,8 @@ class AddonWalk implements AddonPreviewHandle {
       ...(route.station ? { station: { start: route.station.start, end: route.station.end, stop: route.station.stop } } : {}),
       ...(route.chain ? { chain: route.chain } : {}),
       ...(route.lift ? { lift: { deckLength: route.lift.deckLength, travel: route.lift.travel, parkedPoint: route.lift.parkedPoint } } : {}),
-      cars: { count: route.cars.count, spacing: route.cars.spacing, extent: route.cars.extent },
+      cars: { count: route.cars.count, spacing: route.cars.spacing, extent: route.cars.extent, heading: route.cars.heading },
+      direction: route.direction,
     };
   }
 
@@ -868,7 +871,7 @@ class AddonWalk implements AddonPreviewHandle {
   private board(entityIndex: number): void {
     const entity = this.model.entities[entityIndex];
     if (!entity || entity.coasterRouteIndex === undefined || entity.coasterCarIndex === undefined) return;
-    this.riding = { routeIndex: entity.coasterRouteIndex, slot: entity.coasterCarIndex, entityIndex, restore: this.state, restoreYaw: this.yaw, restorePitch: this.pitch };
+    this.riding = { routeIndex: entity.coasterRouteIndex, slot: entity.coasterCarIndex, entityIndex, restore: this.state, restoreYaw: this.yaw, restorePitch: this.pitch, look: null, view: null };
     this.onStatus(`Boarded ${entity.label} — ${RIDE_INTERACT_TEXT.toLowerCase()}. Sneak (Shift) to dismount.`, 'success');
   }
 
@@ -1179,7 +1182,17 @@ class AddonWalk implements AddonPreviewHandle {
     this.onStatus(open ? 'Door opened — walk through.' : 'Door closed.', 'info');
   }
 
-  /** The camera while riding a car: the rider's eye through the car's own frame (`coasterCarEyePoint`), the pack's own seat offset when it measured one. */
+  /**
+   * The camera while riding a car: the rider's eye through the car's own frame
+   * (`coasterCarEyePoint`, the pack's own seat offset when it measured one),
+   * looking the way the pack's runtime points the device camera — the SAME
+   * `coasterRiderView`/`coasterRiderLook` over the SAME config, with a mouse or
+   * touch drag standing in for the player's head turn (clamped, ratcheting).
+   * The device can only draw a roll-free rotation, so neither does this: the
+   * view's (yaw, pitch) is turned back into vectors and the preview draws
+   * exactly that. A pack built before the rider camera rides in plain first
+   * person facing the car, as it did.
+   */
   private applyRidingCamera(): void {
     if (!this.riding) return;
     const car = this.carWorld.get(this.riding.entityIndex);
@@ -1190,10 +1203,25 @@ class AddonWalk implements AddonPreviewHandle {
     const [ex, ey, ez] = coasterCarEyePoint(car.frame, seat);
     const eye = placedPoint({ x: ex, y: ey, z: ez }, this.model.dims, this.sizePct, this.rotation);
     this.camera.position.set(eye.x, eye.y, eye.z);
-    this.camera.rotation.set(0, 0, 0);
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = car.yawDeg * Math.PI / 180;
-    this.camera.rotation.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, -car.frame.pitch * Math.PI / 180));
+    const camera = this.model.coasterCamera;
+    if (!camera || camera.mode === 'off') {
+      this.camera.rotation.set(0, 0, 0);
+      this.camera.rotation.order = 'YXZ';
+      this.camera.rotation.y = car.yawDeg * Math.PI / 180;
+      this.camera.rotation.x = Math.max(-Math.PI / 2 + 0.05, Math.min(Math.PI / 2 - 0.05, -car.frame.pitch * Math.PI / 180));
+      return;
+    }
+    // The drag as a head turn in Bedrock's sense: +yaw turns right, +pitch looks down.
+    const toDeg = 180 / Math.PI;
+    this.riding.look = coasterRiderLook(-(this.yaw - this.riding.restoreYaw) * toDeg, -this.pitch * toDeg, this.riding.look, camera.lookYaw, camera.lookPitch);
+    const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode, camera.maxTurn);
+    this.riding.view = view;
+    const yaw = view.yaw / toDeg, pitch = view.pitch / toDeg;
+    const direction = placedDirection({ x: -Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) }, this.model.dims, 100, this.rotation);
+    const up = placedDirection({ x: -Math.sin(yaw) * Math.sin(pitch), y: Math.cos(pitch), z: Math.cos(yaw) * Math.sin(pitch) }, this.model.dims, 100, this.rotation);
+    this.camera.up.set(up.x, up.y, up.z);
+    this.camera.lookAt(eye.x + direction.x, eye.y + direction.y, eye.z + direction.z);
+    this.camera.up.set(0, 1, 0);
   }
 
   /** The camera while sitting at a static seat: parked at the seat's own placed point, facing its yaw. */

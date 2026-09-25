@@ -340,7 +340,44 @@ export interface CoasterRuntimeConfig {
    * Optional only so a hand-built config in an older test compiles; every real
    * pack gets one from `coasterRuntimeConfig`. */
   physics?: CoasterPhysics;
+  /** The rider's track-following camera (see `COASTER_RIDER_VIEW`); absent = no camera, the pre-2026-09-24 behaviour. */
+  camera?: CoasterRiderViewConfig;
 }
+
+/**
+ * How the rider's camera represents a view past vertical.
+ *  - `over`: the free camera's pitch runs past ±90 (through a loop it goes
+ *    0 → -90 → -180 → -270 ≡ +90 → 0), which draws the world upside down at
+ *    the apex exactly as a rider sees it. Needs a client that honours a pitch
+ *    outside [-90, 90] (measured on the Pixel, see `docs/bedrock-addon-guide.md`).
+ *  - `clamp`: the view DIRECTION is exact but kept to pitch [-90, 90] with the
+ *    world drawn upright; going over the top turns the image 180 degrees about
+ *    the view axis, spread over a few ticks by `maxTurn`.
+ *  - `off`: no camera; the player's own first person, as before.
+ */
+export type CoasterRiderViewMode = 'over' | 'clamp' | 'off';
+
+/** The camera constants the runtime reads from `config.camera`. */
+export interface CoasterRiderViewConfig {
+  mode: CoasterRiderViewMode;
+  /** Most the rider may look away from the track frame, degrees: yaw either way, and pitch up or down. */
+  lookYaw: number; lookPitch: number;
+  /** Ease of each per-tick camera update, seconds (a tick is 0.05). */
+  ease: number;
+  /** Most the camera's yaw may turn in one tick, degrees (only `clamp` ever needs it: the flip over the top). */
+  maxTurn: number;
+}
+
+/**
+ * The rider's baseline view is the car's own frame: the eye where the rider's
+ * head is (seat plus seated eye height along the car's real up), looking along
+ * the car's nose, turning with every curve and pitching through every climb,
+ * drop and inversion. The player's own look is layered on top as an offset,
+ * clamped to `lookYaw`/`lookPitch`, so they can look around but the track
+ * always sets where "ahead" is. Values chosen and measured in the guide's
+ * "The rider's camera follows the track" section.
+ */
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'over', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -788,6 +825,117 @@ export function coasterCarAttitude(nose: readonly number[], up: readonly number[
   return { yaw, pitch, roll };
 }
 
+/** The rider's camera for one tick: Bedrock rotation (degrees; pitch positive looks down) plus the view's direction and up. */
+export interface CoasterRiderView { yaw: number; pitch: number; roll: number; direction: number[]; up: number[] }
+
+/**
+ * The rider's camera from the car's frame and the rider's own look offset.
+ *
+ * `nose` and `up` are the car's (any one frame, world or model); `look` is how
+ * far the rider has turned their head from it, degrees, Bedrock sense (+yaw
+ * turns right, +pitch looks down), already clamped by `coasterRiderLook`. The
+ * look is applied IN THE CAR'S FRAME — yaw about the car's up, then pitch about
+ * the turned axle — so "look left" upside down in a loop is still the rider's
+ * left, as it is for a real rider.
+ *
+ * `over` returns the roll-free rotation closest to the view (yaw from its
+ * right axis, pitch fitted to its direction and up), so the pitch runs on past
+ * ±90 through a loop and the yaw moves only as the track turns. `clamp` gives the plain
+ * direction's yaw/pitch within ±90 and limits the yaw to `maxTurn` degrees per
+ * tick, so passing the zenith turns the image over in a few ticks instead of
+ * one. Both are unwrapped against `previous`, so a camera ease never takes the
+ * long way round the ±180 seam. The roll that `over` cannot draw (only the
+ * helix's lean, or a large look offset inside a loop) is returned for anything
+ * that can draw it (the add-on preview).
+ *
+ * Serialized into the pack like `coasterCarAttitude`: it may reference nothing
+ * outside its own body.
+ */
+export function coasterRiderView(nose: readonly number[], up: readonly number[], look: { yaw: number; pitch: number }, previous: { yaw: number; pitch: number } | null,
+  mode: string, maxTurn: number): CoasterRiderView {
+  const toRad = Math.PI / 180, toDeg = 180 / Math.PI;
+  const nLength = Math.hypot(nose[0]!, nose[1]!, nose[2]!) || 1;
+  const n = [nose[0]! / nLength, nose[1]! / nLength, nose[2]! / nLength];
+  const along = up[0]! * n[0]! + up[1]! * n[1]! + up[2]! * n[2]!;
+  let u = [up[0]! - along * n[0]!, up[1]! - along * n[1]!, up[2]! - along * n[2]!];
+  const uLength = Math.hypot(u[0]!, u[1]!, u[2]!);
+  u = uLength > 1e-9 ? [u[0]! / uLength, u[1]! / uLength, u[2]! / uLength] : [0, 1, 0];
+  // The rider's right: nose × up (facing +Z with +Y up, that is -X, which a
+  // Bedrock yaw of +90 faces — so +yaw turns right, as the player's own does).
+  const r = [n[1]! * u[2]! - n[2]! * u[1]!, n[2]! * u[0]! - n[0]! * u[2]!, n[0]! * u[1]! - n[1]! * u[0]!];
+  const a = look.yaw * toRad, b = look.pitch * toRad;
+  const heading = [0, 1, 2].map(k => Math.cos(a) * n[k]! + Math.sin(a) * r[k]!);
+  const direction = [0, 1, 2].map(k => Math.cos(b) * heading[k]! - Math.sin(b) * u[k]!);
+  const viewUp = [0, 1, 2].map(k => Math.sin(b) * heading[k]! + Math.cos(b) * u[k]!);
+  const wrap = (angle: number) => ((angle % 360) + 540) % 360 - 180;
+  const near = (angle: number, reference: number | undefined) => reference === undefined || !Number.isFinite(reference) ? angle : reference + wrap(angle - reference);
+  if (mode === 'clamp') {
+    const horizontal = Math.hypot(direction[0]!, direction[2]!);
+    const target = horizontal > 1e-4 ? Math.atan2(-direction[0]!, direction[2]!) * toDeg : (previous ? previous.yaw : 0);
+    let yaw = near(target, previous?.yaw);
+    if (previous && Number.isFinite(previous.yaw) && maxTurn > 0) yaw = previous.yaw + Math.max(-maxTurn, Math.min(maxTurn, yaw - previous.yaw));
+    const pitch = -Math.asin(Math.max(-1, Math.min(1, direction[1]!))) * toDeg;
+    return { yaw, pitch, roll: 0, direction, up: viewUp };
+  }
+  // A Bedrock camera rotation has no roll, so the rider's view (direction d,
+  // up u) is drawn with the roll-free rotation CLOSEST to it. Its right axis is
+  // horizontal, so the yaw is the heading of the view's own right axis
+  // (d × u, projected level): continuous through any loop, planar or helical,
+  // exactly as the car's yaw is taken from its axle. The pitch then fits BOTH
+  // axes in that heading's vertical plane — maximising d0·d + u0·u for
+  // d0 = cos p h - sin p y, u0 = sin p h + cos p y — so it runs on past ±90
+  // through a loop, and an unrollable lean (10303's helix, ~12 degrees; a big
+  // look offset inside a loop) costs a little of each instead of spinning the
+  // image. Taking the yaw from the direction instead is exact in direction but
+  // must swing the yaw 100+ degrees in a tick wherever a leaning view passes
+  // near the zenith (measured on 10303, 2026-09-24).
+  const right = [direction[1]! * viewUp[2]! - direction[2]! * viewUp[1]!, direction[2]! * viewUp[0]! - direction[0]! * viewUp[2]!, direction[0]! * viewUp[1]! - direction[1]! * viewUp[0]!];
+  const level = Math.hypot(right[0]!, right[2]!);
+  // Right axis (-cos y, 0, -sin y). Within ~11 degrees of vertical (a view
+  // rolled on its side) it has no heading: hold the last yaw.
+  let yaw = level > 0.2 ? near(Math.atan2(-right[2]!, -right[0]!) * toDeg, previous?.yaw) : (previous && Number.isFinite(previous.yaw) ? previous.yaw : 0);
+  if (previous && Number.isFinite(previous.yaw) && maxTurn > 0) yaw = previous.yaw + Math.max(-maxTurn, Math.min(maxTurn, yaw - previous.yaw));
+  const yr = yaw * toRad;
+  const h = [-Math.sin(yr), 0, Math.cos(yr)];
+  const hd = h[0]! * direction[0]! + h[2]! * direction[2]!, hu = h[0]! * viewUp[0]! + h[2]! * viewUp[2]!;
+  const pitch = near(Math.atan2(hu - direction[1]!, hd + viewUp[1]!) * toDeg, previous?.pitch);
+  // What the rotation cannot carry: the roll from its own up to the view's, about its own direction.
+  const pr = pitch * toRad;
+  const ownDirection = [h[0]! * Math.cos(pr), -Math.sin(pr), h[2]! * Math.cos(pr)];
+  const ownUp = [h[0]! * Math.sin(pr), Math.cos(pr), h[2]! * Math.sin(pr)];
+  const cross = [ownUp[1]! * viewUp[2]! - ownUp[2]! * viewUp[1]!, ownUp[2]! * viewUp[0]! - ownUp[0]! * viewUp[2]!, ownUp[0]! * viewUp[1]! - ownUp[1]! * viewUp[0]!];
+  const roll = Math.atan2(cross[0]! * ownDirection[0]! + cross[1]! * ownDirection[1]! + cross[2]! * ownDirection[2]!, ownUp[0]! * viewUp[0]! + ownUp[1]! * viewUp[1]! + ownUp[2]! * viewUp[2]!) * toDeg;
+  return { yaw, pitch, roll, direction, up: viewUp };
+}
+
+/** The rider's look offset and the reference it is measured from. */
+export interface CoasterRiderLook { yaw: number; pitch: number; yawRef: number; pitchRef: number }
+
+/**
+ * The rider's head turn relative to the car, clamped, from the player's own
+ * rotation. `relativeYaw` is the player's yaw less the car's (Bedrock turns a
+ * rider with its vehicle, so this is what the player has turned themselves);
+ * `pitch` is the player's own pitch. The reference is where the player was
+ * looking when they boarded, so the view starts on the track frame whatever
+ * they were looking at, and it RATCHETS: pushing past a limit drags the
+ * reference along, so the offset is always reachable back to zero by looking
+ * the other way — the same feel as a clamped head, without being able to
+ * write the player's pitch (Bedrock ignores `setRotation` pitch on the phone,
+ * measured 2026-09-24). Serialized into the pack; self-contained.
+ */
+export function coasterRiderLook(relativeYaw: number, pitch: number, previous: { yawRef: number; pitchRef: number } | null, limitYaw: number, limitPitch: number): CoasterRiderLook {
+  const wrap = (angle: number) => ((angle % 360) + 540) % 360 - 180;
+  let yawRef = previous && Number.isFinite(previous.yawRef) ? previous.yawRef : relativeYaw;
+  let pitchRef = previous && Number.isFinite(previous.pitchRef) ? previous.pitchRef : pitch;
+  let yaw = wrap(relativeYaw - yawRef);
+  if (yaw > limitYaw) { yawRef = wrap(yawRef + yaw - limitYaw); yaw = limitYaw; }
+  else if (yaw < -limitYaw) { yawRef = wrap(yawRef + yaw + limitYaw); yaw = -limitYaw; }
+  let offset = pitch - pitchRef;
+  if (offset > limitPitch) { pitchRef = pitch - limitPitch; offset = limitPitch; }
+  else if (offset < -limitPitch) { pitchRef = pitch + limitPitch; offset = -limitPitch; }
+  return { yaw, pitch: offset, yawRef, pitchRef };
+}
+
 // ─── Small geometry helpers (config time; the runtime carries its own) ───────
 
 const sub3 = (a: readonly number[], b: readonly number[]): Vec3 => [a[0]! - b[0]!, a[1]! - b[1]!, a[2]! - b[2]!];
@@ -1095,7 +1243,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(runtimeLift ? { lift: runtimeLift } : {}),
     };
   });
-  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS };
+  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW } };
 }
 
 // ─── Pack assets ─────────────────────────────────────────────────────────────
@@ -1319,9 +1467,9 @@ const COASTER_README = (own: boolean, lift: boolean): string => [
   own
     ? "The set's own cars are the ride: each car's LEGO bricks are the rideable vehicle, its posed rider sits in it until you take the seat, and it runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to a car while the train is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount."
     : 'The grey Ride Cart runs continuously on the measured track and brakes to a stop at the flat reload zone. Walk up to it while it is stopped and tap to ride; it departs two seconds after you board, and stops at the station on every lap. Sneak to dismount.',
-  'It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent where the set has one. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The car follows the source track in 3D; the player stays upright (no upside-down player roll). A set whose cars form a train runs them as one train; any car can be boarded.',
+  'It rolls on gravity - slow up a climb, fast on a drop - with a chain lift on the steep ascent where the set has one. Closed measured tracks circulate; open tracks reverse at their real ends, never teleport across missing segments. The car follows the source track in 3D, and so does your view: from the seat, looking along the track, pitching through every climb and drop and over the top of a loop; drag to look around (up to 70 degrees either side, 50 up or down). A set whose cars form a train runs them as one train; any car can be boarded.',
   ...(lift ? ["The set's own lift completes the circuit: the train rolls onto the platform, which carries it up its measured travel (its counterweight sinks opposite) and lets it go at the top. The platform returns for the next lap; a train that arrives first waits at the foot."] : []),
-  ...(own ? ['Two trains share each track: the second waits in the loading bay behind the platform and leaves once the first is half a lap ahead; a train coming back to an occupied platform holds behind it. Through a loop the car turns over on its rails while you stay upright inside the loop.'] : []),
+  ...(own ? ['Two trains share each track: the second waits in the loading bay behind the platform and leaves once the first is half a lap ahead; a train coming back to an occupied platform holds behind it. Through a loop the car turns over on its rails and your view goes over the top with it.'] : []),
   own ? "Cars with no track of their own stay where the set parked them. Undo/re-place removes the ride cars and lift. Motion pauses at unloaded chunks." : 'Imported display cars remain part of the source scenery; the grey cart is an added ride mechanism, not replacement LEGO geometry. Undo/re-place removes the old ride cart. Motion pauses at unloaded chunks.',
 ].join('\n');
 
@@ -1454,7 +1602,7 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     { name: `${bp}COASTER.txt`, data: textBytes(COASTER_README(own, lifted)) },
   );
   const ownRoutes = config.routes.filter(route => route.cars.slots).length;
-  warnings.push(`${config.routes.length} measured coaster route(s): ${ownRoutes ? `the set's own cars run ${ownRoutes === config.routes.length ? 'every route' : `${ownRoutes} of them`}${lifted ? ' and its lift completes the circuit' : ''}` : 'the grey Ride Cart runs on its own'} and stop at the reload zone — walk up and tap to ride. ${config.routes.some(route => !route.direction) ? 'Open tracks shuttle; riders' : 'Riders'} stay upright.`);
+  warnings.push(`${config.routes.length} measured coaster route(s): ${ownRoutes ? `the set's own cars run ${ownRoutes === config.routes.length ? 'every route' : `${ownRoutes} of them`}${lifted ? ' and its lift completes the circuit' : ''}` : 'the grey Ride Cart runs on its own'} and stop at the reload zone — walk up and tap to ride. ${config.routes.some(route => !route.direction) ? 'Open tracks shuttle; the' : 'The'} rider's view follows the track.`);
   return { compiled, types, files, actors, names, warnings, cartCuboids, vehicleCuboids, entityTypes: compiled.length + (cartTypeUsed ? 1 : 0), cartTypeUsed };
 }
 
@@ -1696,7 +1844,7 @@ function platformRouteLift(found: CoasterPlatformLift, assemblies: CoasterAssemb
 
 // Serialized with the pure sampler into the pack. No imports may be captured,
 // so every tuning constant is declared inside this function body.
-function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath, attitude: typeof coasterCarAttitude) {
+function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoasterPath, attitude: typeof coasterCarAttitude, riderView: typeof coasterRiderView, riderLook: typeof coasterRiderLook, Spline?: any) {
   // ── Ride physics (see the module header for the model and its units) ──
   // Every value below comes from `config.physics` (== `COASTER_PHYSICS`,
   // JSON-serialized into CONFIG by `coasterRuntimeConfig`) rather than a
@@ -1740,6 +1888,93 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const warn = (riders: any[], message: string) => {
     for (const rider of riders) try { rider.onScreenDisplay?.setActionBar(message); } catch {}
   };
+  // ── The rider's track-following camera (`coasterRiderView`) ──
+  // One entry per player riding a car: their look reference, the last camera
+  // rotation (for unwrapping), and whether this runtime made them invisible
+  // (a free camera at the eye draws the rider's own upright body around it,
+  // as the pinball seat measured). `seen` is refreshed while grouping, before
+  // any hold can skip a train, so a paused tick never drops the camera.
+  const camera: CoasterRiderViewConfig = { ...(config.camera || { mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40 }) };
+  const viewers = new Map<string, any>();
+  /** Each rider's rotation and their car's, read together at the start of the tick. */
+  const headings = new Map<string, { head: any; car: number }>();
+  let cameraDebug = false, traceTicks = 0;
+  const releaseViewer = (id: string) => {
+    const viewer = viewers.get(id);
+    viewers.delete(id);
+    if (!viewer) return;
+    try { viewer.player.camera.clear(); } catch {}
+    if (viewer.invisible) try { viewer.player.removeEffect('invisibility'); } catch {}
+  };
+  const aimRider = (rider: any, frame: any) => {
+    if (camera.mode === 'off' || !rider?.camera) return;
+    let viewer = viewers.get(rider.id);
+    if (!viewer) {
+      viewer = { player: rider, look: null, view: null, invisible: false, seen: ticks };
+      viewers.set(rider.id, viewer);
+      try { rider.addEffect('invisibility', 20 * 60 * 60, { showParticles: false }); viewer.invisible = true; } catch {}
+    }
+    viewer.player = rider;
+    viewer.seen = ticks;
+    // Sampled with the car's rotation at the start of the tick (see the
+    // grouping stage); a rider seen only now falls back to the car's last yaw.
+    const sampled = headings.get(rider.id);
+    const rotation = sampled ? sampled.head : rider.getRotation();
+    const carYaw = sampled && Number.isFinite(sampled.car) ? sampled.car : Number.isFinite(frame.priorYaw) ? frame.priorYaw : frame.yaw;
+    viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch);
+    viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, camera.mode, camera.maxTurn);
+    const options: any = { location: frame.eye, rotation: { x: viewer.view.pitch, y: viewer.view.yaw } };
+    if (camera.ease > 0) options.easeOptions = { easeTime: camera.ease, easeType: 'Linear' };
+    rider.camera.setCamera('minecraft:free', options);
+    if (cameraDebug && ticks % 5 === 0) {
+      try { rider.onScreenDisplay?.setActionBar(`cam ${camera.mode} y${viewer.view.yaw.toFixed(0)} p${viewer.view.pitch.toFixed(0)} | car y${frame.yaw.toFixed(0)} p${frame.pitch.toFixed(0)} | head y${rotation.y.toFixed(0)} p${rotation.x.toFixed(0)} | look ${viewer.look.yaw.toFixed(0)}/${viewer.look.pitch.toFixed(0)}`); } catch {}
+    }
+    if (traceTicks > 0) {
+      traceTicks--;
+      console.warn(`CAMTRACE ${ticks} carNow=${carYaw.toFixed(2)} car=${frame.yaw.toFixed(2)} prior=${Number(frame.priorYaw).toFixed(2)} carP=${frame.pitch.toFixed(2)} headY=${rotation.y.toFixed(2)} headP=${rotation.x.toFixed(2)} live=${JSON.stringify(rider.getRotation())} look=${viewer.look.yaw.toFixed(2)}/${viewer.look.pitch.toFixed(2)} cam=${viewer.view.yaw.toFixed(2)}/${viewer.view.pitch.toFixed(2)} eye=${frame.eye.x.toFixed(2)},${frame.eye.y.toFixed(2)},${frame.eye.z.toFixed(2)}`);
+    }
+  };
+  // Device tuning and measurement hook: `/scriptevent craftmatic:coaster_cam <words>`.
+  //   mode over|clamp|off · ease <s> · look <yaw> <pitch> · turn <deg> · debug 0|1
+  //   rot <pitch> <yaw>       free camera at the sender's eye with that rotation (pitch range probe)
+  //   roll <pitch> <yaw> <z>  a 6 s playAnimation holding rotation {x,y,z} (roll probe)
+  //   clear                   clear the sender's camera
+  // # TODO: remove once the camera defaults are device-final (see TASKS-BEDROCK-ADDON.md).
+  try {
+    system.afterEvents.scriptEventReceive.subscribe((event: any) => {
+      if (event.id !== 'craftmatic:coaster_cam') return;
+      const words = String(event.message || '').trim().split(/\s+/);
+      const number = (k: number, fallback: number) => { const v = Number(words[k]); return Number.isFinite(v) ? v : fallback; };
+      const source = event.sourceEntity;
+      const verb = words[0];
+      if (verb === 'mode' && (words[1] === 'over' || words[1] === 'clamp' || words[1] === 'off')) {
+        camera.mode = words[1];
+        for (const id of [...viewers.keys()]) releaseViewer(id);
+      } else if (verb === 'ease') camera.ease = Math.max(0, number(1, camera.ease));
+      else if (verb === 'look') { camera.lookYaw = Math.max(0, number(1, camera.lookYaw)); camera.lookPitch = Math.max(0, number(2, camera.lookPitch)); }
+      else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
+      else if (verb === 'debug') cameraDebug = words[1] === '1';
+      else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
+      else if (source?.camera) {
+        const at = source.getHeadLocation ? source.getHeadLocation() : source.location;
+        if (verb === 'rot') source.camera.setCamera('minecraft:free', { location: at, rotation: { x: number(1, 0), y: number(2, 0) } });
+        else if (verb === 'roll') {
+          source.camera.setCamera('minecraft:free', { location: at, rotation: { x: number(1, 0), y: number(2, 0) } });
+          const rotation = { x: number(1, 0), y: number(2, 0), z: number(3, 0) };
+          system.runTimeout(() => {
+            try {
+              const spline = Spline ? new Spline() : {};
+              spline.controlPoints = [at, { x: at.x, y: at.y + 0.01, z: at.z }];
+              source.camera.playAnimation(spline, { totalTimeSeconds: 6, animation: {
+                progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: 1, timeSeconds: 6 }],
+                rotationKeyFrames: [{ rotation, timeSeconds: 0 }, { rotation, timeSeconds: 6 }] } });
+            } catch (error) { console.warn(`[Craftmatic coaster] roll probe: ${error instanceof Error ? error.message : String(error)}`); }
+          }, 2);
+        } else if (verb === 'clear') source.camera.clear();
+      }
+      console.warn(`[Craftmatic coaster] camera ${words.join(' ')} -> ${JSON.stringify(camera)}`);
+    });
+  } catch { /* A host without script events (the offline tests) has no tuning hook. */ }
   const report = (id: string, stage: string, error: unknown, riders: any[]) => {
     const detail = error instanceof Error ? error.message : String(error);
     const boundedDetail = detail.slice(0, 160);
@@ -1781,6 +2016,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   };
   const tick = () => {
     ticks++;
+    headings.clear();
     if (ticks === 1 || ticks % 20 === 0) {
       for (const name of ['overworld', 'nether', 'the_end']) {
         try {
@@ -1812,6 +2048,17 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       try {
         const rideable = state.role === 'car' ? entity.getComponent('minecraft:rideable') : undefined;
         riders = rideable?.getRiders() ?? [];
+        // The rider's head turn is measured against the car's rotation READ AT
+        // THE SAME MOMENT, before this tick's teleport: Bedrock turns a rider
+        // with its vehicle during its own entity tick, so both readings come
+        // from one engine state whichever order the engine applies them in.
+        let carYawNow = NaN;
+        if (riders.length) try { carYawNow = entity.getRotation().y; } catch {}
+        for (const rider of riders) {
+          const viewer = viewers.get(rider?.id);
+          if (viewer) viewer.seen = ticks;
+          try { headings.set(rider.id, { head: rider.getRotation(), car: carYawNow }); } catch {}
+        }
         stage = 'read route placement';
         const routeIndex = entity.getDynamicProperty(key + 'route');
         const route = Number.isInteger(routeIndex) ? config.routes[routeIndex as number] : undefined;
@@ -2158,6 +2405,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // read back off the entity, whose rotation a rider can disturb.
           const heldYaw = Number.isFinite(car.state.yaw) ? car.state.yaw : car.entity.getRotation().y;
           const { yaw, pitch, roll } = attitude([worldTx, tangent[1], worldTz], [ux, uy, uz], heldYaw, YAW_HOLD_HORIZONTAL);
+          const priorYaw = car.state.yaw;
           car.state.yaw = yaw;
           const yawRad = yaw * Math.PI / 180;
           // ── Where the rider's head belongs ──
@@ -2179,17 +2427,22 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           const sinYaw = Math.sin(yawRad), cosYaw = Math.cos(yawRad);
           const noseFlat = [-sinYaw, 0, cosYaw], rightFlat = [-cosYaw, 0, -sinYaw];
           const offset = [0, 0, 0];
+          const eyeOffset = [0, 0, 0];
           for (let axis = 0; axis < 3; axis++) {
             const real = (seat[0] * right[axis] + seat[1] * cu[axis] - seat[2] * nose[axis]) * scale + RIDER_EYE * cu[axis];
             const flat = (seat[0] * rightFlat[axis] + seat[1] * (axis === 1 ? 1 : 0) - seat[2] * noseFlat[axis]) * scale + RIDER_EYE * (axis === 1 ? 1 : 0);
             offset[axis] = real - flat;
+            eyeOffset[axis] = real;
           }
           const position = { x: datum.x + offset[0], y: datum.y + offset[1], z: datum.z + offset[2] };
+          // The rider's eye in the seat through the car's real frame: where the
+          // track-following camera sits (`coasterRiderView`).
+          const eye = { x: datum.x + eyeOffset[0], y: datum.y + eyeOffset[1], z: datum.z + eyeOffset[2] };
           // The body offset in model units: the world vector back to the datum,
           // turned into the entity's frame (yaw plus the model's 180-degree facing).
           const gx = -offset[0], gy = -offset[1], gz = -offset[2];
           const body = [-(cosYaw * gx + sinYaw * gz), gy, sinYaw * gx - cosYaw * gz].map(value => Math.max(-BODY_RANGE, Math.min(BODY_RANGE, value * 16 / scale)));
-          frames.push({ car, position, yaw, pitch, roll, body });
+          frames.push({ car, position, yaw, priorYaw, pitch, roll, body, eye, nose, up: cu });
         }
         // The platform and counterweight: placed once on first sight and then
         // whenever the hoist moves, by the train that holds it. Absent entities
@@ -2261,6 +2514,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             if (frame.car.state.occupied !== occupied) { frame.car.entity.setProperty('craftmatic:occupied', occupied); frame.car.state.occupied = occupied; }
           }
         }
+        // The camera follows the car the rider is in. A camera fault must never
+        // stop the ride: it is reported like any stage, but per rider.
+        for (const frame of frames) {
+          for (const rider of frame.car.riders) {
+            try { aimRider(rider, frame); } catch (error) {
+              if (ticks - lastErrorLogTick >= 200) { console.warn(`[Craftmatic coaster] ${config.typeId} rider camera: ${error instanceof Error ? error.message : String(error)}`); lastErrorLogTick = ticks; }
+            }
+          }
+        }
         stage = 'check rider retention';
         for (const car of list) {
           const aboard: any[] = car.rideable?.getRiders() ?? [];
@@ -2292,12 +2554,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // Forget the ride state of a train whose cars have all gone.
     for (const [placement, train] of trains) if (train.seen !== ticks) trains.delete(placement);
     for (const base of [...hoists.keys()]) if (!places.has(base)) hoists.delete(base);
+    // A rider no car reported this tick has dismounted (sneak, Undo, a removed
+    // car): give them their own camera back.
+    for (const [id, viewer] of [...viewers]) if (viewer.seen !== ticks) releaseViewer(id);
   };
   system.runInterval(tick, 1);
 }
 
-/** Emit the same runtime exercised by the host tests. Riders remain upright;
- * pitch animates the cart only, not an unsupported upside-down player pose. */
+/** Emit the same runtime exercised by the host tests. The player model stays
+ * upright in the seat; the rider's CAMERA follows the car (`coasterRiderView`). */
 export function coasterScript(config: CoasterRuntimeConfig): string {
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${coasterRuntime.toString()})(CONFIG, ${sampleCoasterPath.toString()}, ${coasterCarAttitude.toString()});\n`;
+  return `import { world, system, LinearSpline } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${coasterRuntime.toString()})(CONFIG, ${sampleCoasterPath.toString()}, ${coasterCarAttitude.toString()}, ${coasterRiderView.toString()}, ${coasterRiderLook.toString()}, typeof LinearSpline === 'undefined' ? undefined : LinearSpline);\n`;
 }

@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
-  COASTER_PHYSICS, COASTER_RIDE_PACE, coasterCarAttitude, coasterLoopRadius,
+  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -1138,11 +1138,13 @@ function liftHost(route: CoasterRoute) {
     const actorProperties = new Map<string, unknown>();
     const riders: any[] = [];
     const positions: Array<{ x: number; y: number; z: number }> = [];
+    /** The rotation Bedrock remembers from the last teleport. */
+    const rotation = { x: 0, y: 0 };
     const entity: any = {
       id, typeId, getDynamicProperty: (key: string) => properties.get(key), setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
-      setProperty: (key: string, value: unknown) => actorProperties.set(key, value), getRotation: () => ({ x: 0, y: 0 }), isValid: () => !removed.has(id),
+      setProperty: (key: string, value: unknown) => actorProperties.set(key, value), getRotation: () => ({ ...rotation }), isValid: () => !removed.has(id),
       getComponent: (name: string) => name === 'minecraft:rideable' ? { getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } } : undefined,
-      tryTeleport: vi.fn((position: any) => { if (refuse?.(typeId)) return false; positions.push({ ...position }); return true; }),
+      tryTeleport: vi.fn((position: any, options?: any) => { if (refuse?.(typeId)) return false; positions.push({ ...position }); if (options?.rotation) Object.assign(rotation, options.rotation); return true; }),
       dimension: { getBlock: () => loaded ? {} : undefined },
     };
     return { id, typeId, entity, properties, actorProperties, riders, positions };
@@ -1985,4 +1987,217 @@ describe.skipIf(!ADDON_INTEGRATED)("pack assets with the set's own cars", () => 
     const entity = await decode(entries.find(e => /coaster_vehicle_1\.json$/.test(e))!);
     expect(entity).toMatch(/"default": 0\.0/);
   }, 60_000);
+});
+
+// ─── The rider's track-following camera ──────────────────────────────────────
+
+/** A player mock riding `entity`: Bedrock turns a rider with its vehicle, so the
+ * player's yaw is the car's last teleported yaw plus the head turn `head`. */
+function cameraRider(entity: any, head = { yaw: 0, pitch: 0 }) {
+  const lastYaw = () => {
+    const calls = entity.tryTeleport.mock.calls as any[][];
+    return calls.length ? Number(calls.at(-1)![1].rotation.y) : 0;
+  };
+  return {
+    head,
+    player: {
+      id: 'player', typeId: 'minecraft:player', onScreenDisplay: { setActionBar: vi.fn() },
+      camera: { setCamera: vi.fn(), clear: vi.fn() }, addEffect: vi.fn(), removeEffect: vi.fn(),
+      getRotation: () => ({ x: head.pitch, y: lastYaw() + head.yaw }),
+    },
+  };
+}
+
+/** Bedrock's view direction for a camera rotation (yaw 0 faces +Z, +pitch looks down), pitch taken literally past ±90. */
+function viewDirection(rotation: { x: number; y: number }): number[] {
+  const y = rotation.y * Math.PI / 180, p = rotation.x * Math.PI / 180;
+  return [-Math.sin(y) * Math.cos(p), -Math.sin(p), Math.cos(y) * Math.cos(p)];
+}
+const angleDeg = (a: number[], b: number[]) => {
+  const la = Math.hypot(...a), lb = Math.hypot(...b);
+  return Math.acos(Math.max(-1, Math.min(1, (a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!) / (la * lb)))) * 180 / Math.PI;
+};
+/** A car's nose on `path` at `arc`: the chord between its wheel contacts (the runtime's `chordAt`, closed-route aware). */
+function routeChord(path: { points: number[][]; cumulative: number[]; length: number; closed: boolean }, arc: number, wheelbase: number): number[] {
+  const at = (value: number) => {
+    const d = path.closed ? ((value % path.length) + path.length) % path.length : Math.max(0, Math.min(path.length, value));
+    let i = 0; while (i < path.points.length - 2 && path.cumulative[i + 1]! <= d) i++;
+    const t = (d - path.cumulative[i]!) / (path.cumulative[i + 1]! - path.cumulative[i]!);
+    return [0, 1, 2].map(k => path.points[i]![k]! + (path.points[i + 1]![k]! - path.points[i]![k]!) * t);
+  };
+  // No measured wheelbase: the runtime takes the tangent of the segment the arc is on.
+  const [front, rear] = wheelbase > 0.01 ? [at(arc + wheelbase / 2), at(arc - wheelbase / 2)] : [at(arc + 1e-4), at(arc)];
+  return [0, 1, 2].map(k => front[k]! - rear[k]!);
+}
+const finiteView = (view: any) => Number.isFinite(view.rotation.x) && Number.isFinite(view.rotation.y) && Number.isFinite(view.location.x);
+
+describe('the rider camera follows the track', () => {
+  it('puts the view along the car\'s nose through a vertical loop, over the top and upside down, with no yaw snap', () => {
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
+    const { player } = cameraRider(h.entity);
+    h.run(1); h.riders.push(player); h.run(120); // board at the station, depart
+    const calls = player.camera.setCamera.mock.calls as any[][];
+    const route = h.config.routes[0]!, wheelbase = h.config.types['craftmatic:test_cart']!.wheelbase || 0;
+    let worstYawStep = 0, worstPitchStep = 0, worstAlong = 0, minPitch = 0, maxPitch = 0, compared = 0;
+    let previous: any;
+    for (let t = 0; t < 600; t++) {
+      const before = h.distances.at(-1)!;
+      h.run(1);
+      const view = calls.at(-1)![1];
+      expect(finiteView(view)).toBe(true);
+      if (previous) {
+        worstYawStep = Math.max(worstYawStep, Math.abs(view.rotation.y - previous.rotation.y));
+        worstPitchStep = Math.max(worstPitchStep, Math.abs(view.rotation.x - previous.rotation.x));
+      }
+      minPitch = Math.min(minPitch, view.rotation.x); maxPitch = Math.max(maxPitch, view.rotation.x);
+      previous = view;
+      // The fabricated cart faces its motion: the nose is the wheel chord, signed by the way it moved.
+      const after = h.distances.at(-1)!;
+      let step = after - before; if (Math.abs(step) > route.path.length / 2) step -= Math.sign(step) * route.path.length;
+      if (Math.abs(step) < 1e-6) continue;
+      const nose = routeChord(route.path, after, wheelbase).map(v => v * Math.sign(step));
+      worstAlong = Math.max(worstAlong, angleDeg(viewDirection(view.rotation), nose)); compared++;
+    }
+    expect(compared).toBeGreaterThan(400);
+    expect(worstAlong).toBeLessThan(0.01);
+    // Never a snap: the camera's yaw is held through the loop, the pitch rolls on past vertical.
+    expect(worstYawStep).toBeLessThan(1e-6);
+    expect(worstPitchStep).toBeLessThan(30);
+    // Over the top: the pitch runs through -180 (upside down, looking back), a full turn per lap.
+    expect(maxPitch - minPitch).toBeGreaterThan(300);
+    expect(calls[0]![1].easeOptions).toEqual({ easeTime: COASTER_RIDER_VIEW.ease, easeType: 'Linear' });
+  });
+
+  it('layers the rider\'s head turn on the track frame, clamped, and recentres by looking back', () => {
+    const h = rideHost(towerRoute(), { seat: [0, 0.35, 0] });
+    const rider = cameraRider(h.entity, { yaw: 25, pitch: -10 }); // boards looking somewhere else
+    h.run(1); h.riders.push(rider.player); h.run(1);
+    const calls = rider.player.camera.setCamera.mock.calls as any[][];
+    const cart = () => { const c = h.entity.tryTeleport.mock.calls as any[][]; return c.at(-1)![1].rotation.y as number; };
+    // Boarding sets the reference: the view starts on the track frame whatever the player was looking at.
+    expect(calls.at(-1)![1].rotation.y).toBeCloseTo(cart(), 6);
+    expect(calls.at(-1)![1].rotation.x).toBeCloseTo(0, 6);
+    // Turn the head 30 right and 20 down: the view turns with it, relative to the car.
+    rider.head.yaw = 55; rider.head.pitch = 10; h.run(1);
+    expect(calls.at(-1)![1].rotation.y - cart()).toBeCloseTo(30, 6);
+    expect(calls.at(-1)![1].rotation.x).toBeCloseTo(20, 6);
+    // Past the limits the offset holds at the limit ...
+    // (the camera turns at most `maxTurn` a tick, so a 150-degree flick takes a few)
+    rider.head.yaw = 25 + 150; rider.head.pitch = -10 - 90; h.run(3);
+    expect(calls.at(-1)![1].rotation.y - cart()).toBeCloseTo(COASTER_RIDER_VIEW.lookYaw, 6);
+    expect(calls.at(-1)![1].rotation.x).toBeCloseTo(-COASTER_RIDER_VIEW.lookPitch, 6);
+    // ... and looking back by the limit returns to the track frame exactly.
+    rider.head.yaw -= COASTER_RIDER_VIEW.lookYaw; rider.head.pitch += COASTER_RIDER_VIEW.lookPitch; h.run(3);
+    expect(calls.at(-1)![1].rotation.y).toBeCloseTo(cart(), 6);
+    expect(calls.at(-1)![1].rotation.x).toBeCloseTo(0, 6);
+  });
+
+  it('turns the look with the car upside down: "right" in a loop is the rider\'s right', () => {
+    // Nose straight up the loop side, the car's up pointing to -Z: its right is nose x up = -X.
+    const right = coasterRiderView([0, 1, 0], [0, 0, -1], { yaw: 90, pitch: 0 }, null, 'over', 40).direction;
+    expect(right[0]).toBeCloseTo(-1, 6); expect(right[1]).toBeCloseTo(0, 6);
+    // Looking "down" in the seat is toward the car's floor, +Z here.
+    const down = coasterRiderView([0, 1, 0], [0, 0, -1], { yaw: 0, pitch: 90 }, null, 'over', 40).direction;
+    expect(down[2]).toBeCloseTo(1, 6);
+  });
+
+  it('clamp mode keeps the pitch within ±90 and spreads the flip over the top across ticks', () => {
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
+    const clampConfig = { ...h.config, camera: { ...COASTER_RIDER_VIEW, mode: 'clamp' as const } };
+    const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? [h.entity] : [] }) };
+    let tick = () => {};
+    // A second runtime over the same cart, with the clamp camera; the first host's runtime is never ticked.
+    new Function('world', 'system', coasterScript(clampConfig).replace(/^import .*;\n/, ''))(world, { runInterval: (callback: () => void) => { tick = callback; } });
+    const { player } = cameraRider(h.entity);
+    tick(); h.riders.push(player);
+    for (let i = 0; i < 700; i++) tick();
+    const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
+    for (let k = 1; k < views.length; k++) {
+      expect(Math.abs(views[k]!.x)).toBeLessThanOrEqual(90 + 1e-9);
+      expect(Math.abs(views[k]!.y - views[k - 1]!.y)).toBeLessThanOrEqual(COASTER_RIDER_VIEW.maxTurn + 1e-9);
+    }
+    const yaws = views.map(v => v.y);
+    expect(Math.max(...yaws) - Math.min(...yaws)).toBeGreaterThan(170);
+  });
+
+  it('gives the player their own camera back, and their visibility, on dismount', () => {
+    const h = rideHost(towerRoute());
+    const { player } = cameraRider(h.entity);
+    h.run(1); h.riders.push(player); h.run(5);
+    expect(player.addEffect).toHaveBeenCalledWith('invisibility', expect.any(Number), { showParticles: false });
+    expect(player.camera.clear).not.toHaveBeenCalled();
+    h.dismount(); h.run(1);
+    expect(player.camera.clear).toHaveBeenCalledTimes(1);
+    expect(player.removeEffect).toHaveBeenCalledWith('invisibility');
+    h.run(5);
+    expect(player.camera.clear).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the camera through a paused tick (an unloaded chunk) instead of dropping it', () => {
+    const h = rideHost(towerRoute());
+    const { player } = cameraRider(h.entity);
+    h.run(1); h.riders.push(player); h.run(3);
+    h.setLoaded(false); h.run(3); h.setLoaded(true); h.run(2);
+    expect(player.camera.clear).not.toHaveBeenCalled();
+  });
+
+  it('never touches the camera of a pack built without one', () => {
+    const h = rideHost(towerRoute());
+    const bare = { ...h.config }; delete bare.camera;
+    const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? [h.entity] : [] }) };
+    let tick = () => {};
+    new Function('world', 'system', coasterScript(bare).replace(/^import .*;\n/, ''))(world, { runInterval: (callback: () => void) => { tick = callback; } });
+    const { player } = cameraRider(h.entity);
+    tick(); h.riders.push(player);
+    for (let i = 0; i < 20; i++) tick();
+    expect(player.camera.setCamera).not.toHaveBeenCalled();
+    expect(player.addEffect).not.toHaveBeenCalled();
+  });
+});
+
+describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop, the curves and both loops', () => {
+  it('looks along the track all lap, runs over both tops upside down, and never snaps', async () => {
+    const { scene } = await corpusRoutes(PUBLISHED_10303);
+    const h = liftHost(scene.routes[0]!);
+    const rider = cameraRider(h.lead.entity);
+    h.run(1); h.lead.riders.push(rider.player);
+    const calls = rider.player.camera.setCamera.mock.calls as any[][];
+    const phases: string[] = [];
+    const centres: number[] = [];
+    for (let t = 0; t < 1400; t++) { h.run(1); phases.push(h.phase()); centres.push(h.distance()); }
+    const views = calls.map(call => call[1]);
+    expect(views.length).toBeGreaterThan(1300);
+    let worstAlong = 0, compared = 0, worstYawStep = 0, worstPitchStep = 0, inverted = 0, leaning = 0;
+    const tops: number[] = [];
+    const path = h.route.path, cars = h.route.cars;
+    const wheelbase = h.config.types[cars.slots![0]!.type]!.wheelbase || 0;
+    for (let k = 1; k < views.length; k++) {
+      worstYawStep = Math.max(worstYawStep, Math.abs(views[k]!.rotation.y - views[k - 1]!.rotation.y));
+      worstPitchStep = Math.max(worstPitchStep, Math.abs(views[k]!.rotation.x - views[k - 1]!.rotation.x));
+      const pitch = views[k]!.rotation.x, over = Math.abs(((pitch % 360) + 540) % 360 - 180) > 120;
+      if (over) { inverted++; if (!tops.length || k - tops.at(-1)! > 40) tops.push(k); }
+      if (phases[k] !== 'track') continue;
+      // The car's nose: the chord between its wheels at slot 0's arc, facing its authored heading.
+      const arc = centres[k]! + cars.extent / 2;
+      const nose = routeChord(path, arc, wheelbase).map(v => v * (cars.heading || 1));
+      if (Math.hypot(...nose) < 1e-6) continue;
+      const e = angleDeg(viewDirection(views[k]!.rotation), nose);
+      if (e > 2) leaning++;
+      worstAlong = Math.max(worstAlong, e); compared++;
+    }
+    expect(compared).toBeGreaterThan(800);
+    // With no head turn the view is the car's nose everywhere but inside the two
+    // helical loops, where the loop's ~12-degree lean is a roll a Bedrock camera
+    // cannot draw and the closest roll-free view splits it (measured: 2-11
+    // degrees over ~20 ticks a loop, 17 once at loop 2's fragment-join jog).
+    expect(worstAlong).toBeLessThan(20);
+    expect(leaning).toBeLessThan(50);
+    // Two loop tops, each seen upside down (pitch within 60 of ±180).
+    expect(tops.length).toBe(2);
+    expect(inverted).toBeGreaterThan(10);
+    // No snap anywhere: the yaw moves with the track's turns (16.9 at most, on a
+    // curve at speed), the pitch with its grade and loops.
+    expect(worstYawStep).toBeLessThan(20);
+    expect(worstPitchStep).toBeLessThan(30);
+  }, 240_000);
 });
