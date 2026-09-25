@@ -95,12 +95,17 @@ describe('sliding parts and lids (drawers, roller and sliding doors, chest lids)
     ['4738b.dat', mesh('4738b', 'Container Treasure Chest without Slots', [-52, -2, -20], [52, 32, 20])],
     ['80835.dat', mesh('80835', 'Container Treasure Chest Lid with Flat Top', [-40, 0, -20], [40, 17, 20])],
   ]);
-  it('groups a stack of roller-door segments into ONE door that slides up by its height (42639\'s garage)', () => {
+  it('groups a stack of roller-door segments into ONE door that slides up by its height (42670\'s garage), and leaves flat or lone segments static', () => {
     const segs = [0, 28, 56, 84].map(y => brick('4218b.dat', 100, y, 50));
     // A second garage door beside it: a stack of its own.
-    const other = [0, 28].map(y => brick('4218b.dat', 300, y, 50));
-    const found = discoverInteractives([...segs, ...other], M);
+    const other = [0, 28, 56].map(y => brick('4218b.dat', 300, y, 50));
+    // 42639's sun deck: segments laid flat side by side; 42670's lone handle segment: trim.
+    const flat = [0, 20, 40].map(x => brick('4218b.dat', 600 + x, -200, 50, [0, 0, 1, -1, 0, 0, 0, -1, 0]));
+    const lone = brick('4218b.dat', 900, 0, 50);
+    const found = discoverInteractives([...segs, ...other, ...flat, lone], M);
     expect(found.items).toHaveLength(2);
+    expect(found.skipped.filter(sk => /laid flat/.test(sk.reason))).toHaveLength(3);
+    expect(found.skipped.filter(sk => /too few for a doorway/.test(sk.reason))).toHaveLength(1);
     const d = found.items.find(i => i.bricks.length === 4)!;
     expect(d.kind).toBe('door');
     expect(d.slide).toBe(true);
@@ -706,6 +711,39 @@ describe('furniture seats', () => {
     expect(scene.seats).toHaveLength(1);
     // The pan (y 0), not the backrest's top (y -40): a chair's box top is its back (device 2026-09-24e seat audit).
     expect(scene.seats[0]!.surfaceLdu).toEqual([100, 0, 50]);
+  });
+
+  it('finds brick-built benches (on legs), chairs (a backrest along a long side) and beds (a headboard), and not a counter or a low block', async () => {
+    const { brickBuiltFurniture } = await import('../web/src/engine/bedrock-scene-actors.js');
+    const meshes = new Map<string, LdrawPartMesh>([
+      ['3958.dat', mesh('3958', 'Plate  6 x  6', [-60, 0, -60], [60, 8, 60])],
+      ['floor.dat', mesh('floor', 'Plate 16 x 16', [-160, 0, -160], [160, 8, 160])],
+      ['2431.dat', mesh('2431', 'Tile  1 x  4 with Groove', [-40, 0, -10], [40, 8, 10])],
+      ['3005.dat', mesh('3005', 'Brick  1 x  1', [-10, 0, -10], [10, 24, 10])],
+      ['3010.dat', mesh('3010', 'Brick  1 x  4', [-40, 0, -10], [40, 24, 10])],
+      ['3009.dat', mesh('3009', 'Brick  1 x  6', [-60, 0, -10], [60, 24, 10])],
+      ['bed.dat', mesh('bed', 'Tile  4 x  6', [-40, 0, -60], [40, 8, 60])],
+      ['3001.dat', mesh('3001', 'Brick  2 x  4', [-40, 0, -20], [40, 24, 20])],
+    ]);
+    const floor = brick('floor.dat', 0, 0, 0);
+    // A bench: a 1 x 4 tile on two 1 x 1 bricks at its ends (24 LDU over the floor).
+    const bench = [brick('2431.dat', 0, -32, 0), brick('3005.dat', -30, -24, 0), brick('3005.dat', 30, -24, 0)];
+    const b = brickBuiltFurniture([floor, ...bench], meshes, new Set());
+    expect(b.map(s2 => s2.part)).toEqual(['bench', 'bench']);
+    expect(b[0]!.surfaceLdu[1]).toBe(-32);
+    // A sofa: the same seat on a solid 1 x 4 brick, a 1 x 4 brick backrest rising 24 along its +Z side: it faces -Z.
+    const sofa = [brick('2431.dat', 0, -32, 0), brick('3010.dat', 0, -24, 0), brick('3010.dat', 0, -56, 20)];
+    const c = brickBuiltFurniture([floor, ...sofa], meshes, new Set());
+    expect(c[0]!.part).toBe('chair');
+    expect(c[0]!.facingLdu).toEqual([0, -1]);
+    // Without the backrest the solid block is not furniture (a step, a low wall).
+    expect(brickBuiltFurniture([floor, sofa[0]!, sofa[1]!], meshes, new Set())).toHaveLength(0);
+    // A counter: the surface continues into a brick top at its height.
+    expect(brickBuiltFurniture([floor, ...bench, brick('3009.dat', 100, -32, 0)], meshes, new Set())).toHaveLength(0);
+    // A bed: a 4 x 6 mattress on 2 x 4 bricks, a 1 x 4 brick headboard rising 24 at one short end.
+    const bed = [brick('bed.dat', 0, -32, 0), brick('3001.dat', 0, -24, -40), brick('3001.dat', 0, -24, 40), brick('3010.dat', 0, -56, 70)];
+    const d = brickBuiltFurniture([floor, ...bed], meshes, new Set());
+    expect(d.map(s2 => s2.part)).toEqual(['bed']);
   });
 
   it('finds a brick-built stool (a 2 x 2 tile on a narrow column), and not a tile lying on the floor or part of a counter', async () => {

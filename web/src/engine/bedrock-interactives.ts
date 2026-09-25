@@ -35,7 +35,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
+import { withClassifiedDescriptions, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
 import type { EntityRig } from './minifig-rig.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { isDoorLeafDescription, sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
@@ -348,7 +348,9 @@ export interface DiscoverInteractivesOptions {
  * assembly, hinge and open angle. Pure given the meshes (`discoverSceneActors`
  * already loads one per part).
  */
-export function discoverInteractives(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, options: DiscoverInteractivesOptions = {}): InteractiveDiscovery {
+export function discoverInteractives(bricks: readonly ParsedBrick[], sourceMeshes: ReadonlyMap<string, LdrawPartMesh | null>, options: DiscoverInteractivesOptions = {}): InteractiveDiscovery {
+  // A retired mould (`~Moved to 3068b`) is classified by the wording of the part it moved to.
+  const meshes = withClassifiedDescriptions(sourceMeshes);
   const exclude = options.exclude ?? new Set<ParsedBrick>();
   const skipped: InteractiveDiscovery['skipped'] = [];
   const warnings: string[] = [];
@@ -390,6 +392,10 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], meshes: Rea
   for (const { brick, mesh, kind: rawKind } of candidates) {
     if (taken.has(brick)) continue;
     const part = cleanPartId(brick.part);
+    if (/^Roller Door\b/i.test(mesh.description.replace(/^[~=_]+\s*/, ''))) {
+      skipped.push({ part, kind: rawKind, reason: Math.abs((brick.rot ?? IDENTITY)[4]!) >= 0.9 ? 'roller-door segments too few for a doorway (trim, not a door)' : 'a roller-door segment laid flat (a slatted roof or deck), not a door' });
+      continue;
+    }
     let kind = rawKind;
     const R = brick.rot ?? IDENTITY;
     const box = boxes.get(brick)!;
@@ -534,16 +540,22 @@ const offGridOf = (v: Vec3): number => { const fromX = Math.atan2(Math.abs(v[2])
  * One stack is one door (42639's garage: twelve segments, two doors).
  */
 function rollerStacks(segments: readonly ParsedBrick[], boxes: ReadonlyMap<ParsedBrick, Box>): ParsedBrick[][] {
-  const left = [...segments].sort((a, b) => a.y - b.y);
+  // Only an UPRIGHT segment is part of a door: its local up axis is world up. Segments
+  // laid flat side by side are a slatted roof or deck (42639's sun deck) and stay static.
+  const upright = (b: ParsedBrick): boolean => Math.abs((b.rot ?? IDENTITY)[4]!) >= 0.9;
+  const left = segments.filter(upright).sort((a, b) => a.y - b.y);
   const out: ParsedBrick[][] = [];
   while (left.length) {
     const stack = [left.shift()!];
     for (let i = 0; i < left.length; i++) {
       const b = left[i]!, top = stack[stack.length - 1]!;
-      const same = (b.rot ?? IDENTITY).every((v, k) => Math.abs(v - (top.rot ?? IDENTITY)[k]!) < 1e-3);
+      // Studio curls a stack a degree or two per segment (42670: 0.2 to 1.8 degrees): the same door.
+      const same = (b.rot ?? IDENTITY).every((v, k) => Math.abs(v - (top.rot ?? IDENTITY)[k]!) < 0.05);
       if (same && Math.hypot(b.x - top.x, b.z - top.z) <= 4 && Math.abs(b.y - top.y) <= 32 && boxes.has(b)) { stack.push(b); left.splice(i, 1); i--; }
     }
-    if (stack.every(b => boxes.has(b))) out.push(stack);
+    // A doorway's worth of segments; one or two on their own (42670's lone handle segment) are trim, not a door.
+    const lo = Math.min(...stack.map(b => boxes.get(b)?.min[1] ?? Infinity)), hi = Math.max(...stack.map(b => boxes.get(b)?.max[1] ?? -Infinity));
+    if (stack.every(b => boxes.has(b)) && hi - lo >= DOORWAY_MIN_HEIGHT_LDU) out.push(stack);
   }
   return out;
 }

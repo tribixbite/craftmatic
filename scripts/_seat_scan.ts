@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { parseLDrawDocument, embeddedPartTexts } from '../web/src/engine/ldraw-parser.ts';
 import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
-import { brickBuiltStools, discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.ts';
+import { brickBuiltFurniture, brickBuiltStools, discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.ts';
 
 setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
 const why = process.argv.includes('--why');
@@ -27,11 +27,12 @@ for (const file of files) {
   seedDatTexts(embeddedPartTexts(doc));
   const scene = await discoverSceneActors(doc.bricks);
   const stools = scene.seats.filter(s => s.part === 'stool');
-  if (why) brickBuiltStools(doc.bricks, scene.meshes, scene.figureBricks, (b, v) => console.log(`  why ${b.part}@${[b.x, b.y, b.z].map(q => Math.round(q)).join(',')}/c${b.color}: ${v}`));
+  if (why) for (const fn of [brickBuiltStools, brickBuiltFurniture]) fn(doc.bricks, scene.meshes, scene.figureBricks, (b, v) => console.log(`  why ${b.part}@${[b.x, b.y, b.z].map(q => Math.round(q)).join(',')}/c${b.color}: ${v}`));
   console.log(`${basename(file)}: ${scene.seats.length} seats (${stools.length} brick-built stools), ground ${scene.groundLdu}`);
   for (const s of scene.seats) {
     const [x, y, z] = s.surfaceLdu;
-    const column = s.part === 'stool'
+    const brickBuilt = ['stool', 'bench', 'chair', 'bed'].includes(s.part);
+    const column = brickBuilt
       ? doc.bricks.filter(b => Math.abs(b.x - x) <= 20 && Math.abs(b.z - z) <= 20 && b.y >= y - 1 && b.y <= y + 40).map(b => `${b.part.replace(/\.dat$/i, '')}@${Math.round(b.y)}/c${b.color}`).join(' ')
       : '';
     console.log(`  ${s.part.padEnd(8)} surface ${[x, y, z].map(v => v.toFixed(1)).join(', ')} facing ${s.facingLdu.map(v => v.toFixed(2)).join(',')}${column ? `  column ${column}` : ''}`);

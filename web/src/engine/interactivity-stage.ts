@@ -17,13 +17,13 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
+import { classifiedDescription, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
 import { cleanPartId } from './ldraw-entity-compiler.js';
 import { discoverInteractives, interactiveHitboxes, interactiveKindOf, separateHitboxes, type InteractiveKind, type SceneInteractive } from './bedrock-interactives.js';
 import type { SceneSeat } from './bedrock-scene-actors.js';
 
-/** What a player does with a part. `drawer` and `bed` have no rule yet; they are reported so they are counted, not forgotten. */
-export type InteractivityClass = InteractiveKind | 'drawer' | 'seat' | 'bed';
+/** What a player does with a part: a moving part's kind, a seat, or a bed (a seat on its mattress). */
+export type InteractivityClass = InteractiveKind | 'seat' | 'bed';
 
 export type InteractivityVerdict = 'found' | 'static' | 'rides' | 'excluded' | 'unhandled';
 
@@ -125,7 +125,11 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
   // `skipped` names the mould, not the placement: match by part among the unassigned placements.
   const skippedByPart = new Map<string, string[]>();
   for (const s of found.skipped) { const l = skippedByPart.get(s.part) ?? []; l.push(s.reason); skippedByPart.set(s.part, l); }
-  for (const s of input.seats) if (s.brick) verdictOf.set(s.brick, { verdict: 'found', cls: 'seat', reason: s.part === 'stool' ? 'brick-built stool (a 2 x 2 tile on a narrow column)' : undefined });
+  const builtFrom: Record<string, string> = {
+    stool: 'brick-built stool (a 2 x 2 tile on a narrow column)', bench: 'brick-built bench (a seat on legs)',
+    chair: 'brick-built chair or sofa (a seat with a backrest)', bed: 'brick-built bed (a mattress with a headboard)',
+  };
+  for (const s of input.seats) if (s.brick) verdictOf.set(s.brick, { verdict: 'found', cls: s.part === 'bed' ? 'bed' : 'seat', ...(builtFrom[s.part] ? { reason: builtFrom[s.part] } : {}) });
 
   const groups = new Map<string, InteractivityRow>();
   const addRow = (cls: InteractivityClass, b: ParsedBrick, description: string, verdict: InteractivityVerdict, reason?: string): void => {
@@ -138,7 +142,7 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
   };
   for (const b of input.bricks) {
     const m = input.meshes.get(b.part);
-    const description = m?.description ?? '';
+    const description = m ? classifiedDescription(m) : '';
     const v = verdictOf.get(b);
     const named = movableClassOf(description);
     if (v && v.verdict !== 'rides') { addRow(v.cls ?? named ?? 'door', b, description, v.verdict, v.reason); continue; }
@@ -157,7 +161,7 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
   for (const r of rows) totals[r.verdict] += r.count;
   const foundByClass: Partial<Record<InteractivityClass, number>> = {};
   for (const it of items) foundByClass[it.kind] = (foundByClass[it.kind] ?? 0) + 1;
-  if (input.seats.length) foundByClass.seat = input.seats.length;
+  for (const s of input.seats) { const c: InteractivityClass = s.part === 'bed' ? 'bed' : 'seat'; foundByClass[c] = (foundByClass[c] ?? 0) + 1; }
   return { items, report: { rows, totals, found: foundByClass }, warnings };
 }
 

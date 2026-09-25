@@ -67,6 +67,29 @@ export interface LdrawPartMesh {
    * canopies, doors) the way part-elements.ts already does for panes.
    */
   description: string;
+  /**
+   * For a retired mould (`~Moved to 3068b`): the description of the part it
+   * moved to, following up to three redirects. `description` keeps the stub
+   * (the figure classifiers read the target ID from it, `mouldFamilyId`); a
+   * detector that classifies by wording reads this (`classifiedDescription`).
+   * 910032's white dining chairs sit on `3068` tiles, whose description is
+   * the stub and matched no tile rule.
+   */
+  movedDescription?: string;
+}
+
+/** The wording to classify a part by: its moved-to target's description for a retired mould, else its own. */
+export const classifiedDescription = (mesh: Pick<LdrawPartMesh, 'description' | 'movedDescription'>): string => mesh.movedDescription ?? mesh.description;
+
+/**
+ * The meshes with every retired mould's description replaced by its target's
+ * (`classifiedDescription`), for detectors that classify by wording (moving
+ * parts, seats, stools, furniture). Figure classification keeps the stub: it
+ * reads the target ID from it (`mouldFamilyId`).
+ */
+export function withClassifiedDescriptions(meshes: ReadonlyMap<string, LdrawPartMesh | null>): ReadonlyMap<string, LdrawPartMesh | null> {
+  if (![...meshes.values()].some(m => m?.movedDescription)) return meshes;
+  return new Map([...meshes].map(([k, m]) => [k, m?.movedDescription ? { ...m, description: classifiedDescription(m) } : m]));
 }
 
 export interface PartGeometryProvider {
@@ -380,7 +403,21 @@ export function createPartGeometryProvider(options: PartGeometryProviderOptions 
       unresolvedRefs: [...new Set(raw.unresolvedRefs)],
       description: raw.description,
       ...(printFallback ? { printFallback } : {}),
+      ...(await movedDescriptionOf(raw.description)),
     };
+  }
+
+  /** The description a `~Moved to <id>` stub redirects to (up to three hops), or nothing. */
+  async function movedDescriptionOf(description: string): Promise<{ movedDescription?: string }> {
+    let d = description;
+    for (let hop = 0; hop < 3; hop++) {
+      const m = /^[~=_]*\s*Moved to\s+(\S+)/i.exec(d);
+      if (!m) break;
+      const text = await textFor(normPartId(m[1]!));
+      if (text === null) return {};
+      d = descriptionOf(text);
+    }
+    return d !== description ? { movedDescription: d } : {};
   }
 
   return {

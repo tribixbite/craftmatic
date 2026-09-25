@@ -467,7 +467,7 @@ export async function runSchemPipeline(
           }
           for (const s of scene.seats) {
             const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
-            seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: `Seat (${s.part})` });
+            seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: s.part === 'bed' ? 'Bed' : `Seat (${s.part})` });
           }
           if (entityDoors) {
             // Every door, gate, hatch, opening window, cupboard, lever and

@@ -34,7 +34,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { createPartGeometryProvider, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
+import { classifiedDescription, createPartGeometryProvider, withClassifiedDescriptions, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import { figureRole, groupFigures, isSeat, cleanPartId } from './ldraw-entity-compiler.js';
 import { assembleMinifig, figureAnchor } from './minifig-rig.js';
 import type { BlockGrid } from '@craft/schem/types.js';
@@ -249,7 +249,8 @@ export const STOOL_HEIGHT_LDU = { min: 6, max: 32 } as const;
  * surface, not a seat) and two bricks of head room over it. It faces the
  * nearest part standing higher beside it (a table), else the model's front.
  */
-export function brickBuiltStools(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, skip: ReadonlySet<ParsedBrick>, trace?: (b: ParsedBrick, verdict: string) => void): SceneSeat[] {
+export function brickBuiltStools(bricks: readonly ParsedBrick[], sourceMeshes: ReadonlyMap<string, LdrawPartMesh | null>, skip: ReadonlySet<ParsedBrick>, trace?: (b: ParsedBrick, verdict: string) => void): SceneSeat[] {
+  const meshes = withClassifiedDescriptions(sourceMeshes);
   const boxes = bricks.map(b => {
     const m = meshes.get(b.part);
     return m && m.triangles.length ? worldBounds(b, m) : null;
@@ -320,6 +321,150 @@ export function brickBuiltStools(bricks: readonly ParsedBrick[], meshes: Readonl
   return out;
 }
 
+/** Seat-sized and bed-sized flat surfaces a brick-built piece of furniture presents, LDU (width = the short side). */
+export const FURNITURE_SIZES = {
+  seat: { minWide: 16, maxWide: 44, minLong: 36, maxLong: 124 },
+  bed: { minWide: 36, maxWide: 90, minLong: 76, maxLong: 170 },
+} as const;
+/** How high a brick-built seat or bed surface stands over its floor, LDU. */
+export const FURNITURE_HEIGHT_LDU = { seat: { min: 12, max: 32 }, bed: { min: 8, max: 32 } } as const;
+
+/**
+ * Brick-built benches, chairs, sofas and beds: the seat is a flat surface of
+ * plates or tiles (one part or several side by side at one height) of seat or
+ * bed size, standing 12-32 LDU over its floor (8-32 for a bed) with a
+ * minifig's head room over its middle and no counter continuing it. It is
+ *   - a BENCH when it stands on legs (what holds it up covers under 70 % of
+ *     its footprint),
+ *   - a CHAIR or SOFA when a backrest rises 20-60 LDU along one long side
+ *     (it faces away from it),
+ *   - a BED when it is bed-sized with a headboard rising 8-60 LDU at one short end.
+ * A long bench or sofa seats one per two studs, up to three. The 2 x 2 stool
+ * has its own rule (`brickBuiltStools`). What this cannot see: a seat whose
+ * surface is a slope or a brick top, or one hidden inside a closed wall.
+ */
+export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes: ReadonlyMap<string, LdrawPartMesh | null>, skip: ReadonlySet<ParsedBrick>, trace?: (b: ParsedBrick, verdict: string) => void): SceneSeat[] {
+  const meshes = withClassifiedDescriptions(sourceMeshes);
+  const boxes = bricks.map(b => {
+    const m = meshes.get(b.part);
+    return m && m.triangles.length && !skip.has(b) ? worldBounds(b, m) : null;
+  });
+  let ground = -Infinity;
+  boxes.forEach(o => { if (o && o.max[1] > ground) ground = o.max[1]; });
+  const flat = (i: number): boolean => {
+    const b = bricks[i]!, m = meshes.get(b.part), o = boxes[i];
+    if (!m || !o || tiltDegOf(b.rot) > 3) return false;
+    const d = m.description.replace(/^[~=_]+\s*/, '');
+    if (!/^(Tile|Plate)\b/i.test(d) || /\b(Sticker|Inverted|Hinge|Swivel|Round Corner|with Hole|Grille)\b/i.test(d)) return false;
+    return o.max[1] - o.min[1] <= 10 && Math.max(o.max[0] - o.min[0], o.max[2] - o.min[2]) <= FURNITURE_SIZES.bed.maxLong;
+  };
+  const cand = boxes.map((_, i) => i).filter(flat);
+  // Same-height surfaces side by side are one surface (a two-tile mattress, a sofa seat of two plates).
+  const parent = new Map<number, number>(cand.map(i => [i, i]));
+  const find = (i: number): number => { let r = i; while (parent.get(r) !== r) r = parent.get(r)!; parent.set(i, r); return r; };
+  const byTop = [...cand].sort((a, b) => boxes[a]!.min[1] - boxes[b]!.min[1]);
+  for (let x = 0; x < byTop.length; x++) {
+    const a = boxes[byTop[x]!]!;
+    for (let y = x + 1; y < byTop.length && boxes[byTop[y]!]!.min[1] - a.min[1] <= 1; y++) {
+      const b = boxes[byTop[y]!]!;
+      if (a.min[0] <= b.max[0] + 1 && b.min[0] <= a.max[0] + 1 && a.min[2] <= b.max[2] + 1 && b.min[2] <= a.max[2] + 1) parent.set(find(byTop[y]!), find(byTop[x]!));
+    }
+  }
+  const comps = new Map<number, number[]>();
+  for (const i of cand) { const r = find(i); const l = comps.get(r) ?? []; l.push(i); comps.set(r, l); }
+  const out: SceneSeat[] = [];
+  const overlapArea = (o: { min: Vec3; max: Vec3 }, bb: { min: Vec3; max: Vec3 }): number =>
+    Math.max(0, Math.min(o.max[0], bb.max[0]) - Math.max(o.min[0], bb.min[0])) * Math.max(0, Math.min(o.max[2], bb.max[2]) - Math.max(o.min[2], bb.min[2]));
+  for (const members of comps.values()) {
+    const set = new Set(members);
+    const first = bricks[members[0]!]!;
+    const no = (why: string): void => { trace?.(first, why); };
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    let area = 0;
+    for (const i of members) { const o = boxes[i]!; for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, o.min[k]!); max[k] = Math.max(max[k]!, o.max[k]!); } area += (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]); }
+    const bb = { min, max };
+    const ex = max[0] - min[0], ez = max[2] - min[2], w = Math.min(ex, ez), l = Math.max(ex, ez);
+    const S = FURNITURE_SIZES;
+    const seatSize = w >= S.seat.minWide && w <= S.seat.maxWide && l >= S.seat.minLong && l <= S.seat.maxLong;
+    const bedSize = w >= S.bed.minWide && w <= S.bed.maxWide && l >= S.bed.minLong && l <= S.bed.maxLong;
+    if (!seatSize && !bedSize) continue;
+    if (area < 0.8 * ex * ez) { no('not a rectangle of tiles'); continue; }
+    const top = min[1], bottom = max[1];
+    const others = boxes.map((o, j) => ({ o, j })).filter(({ o, j }) => o && !set.has(j)) as Array<{ o: { min: Vec3; max: Vec3 }; j: number }>;
+    const touching = (o: { min: Vec3; max: Vec3 }, pad: number): boolean => o.min[0] < max[0] + pad && o.max[0] > min[0] - pad && o.min[2] < max[2] + pad && o.max[2] > min[2] - pad;
+    // A counter or a shelf: the surface continues into something else at its height.
+    const cont = others.find(({ o }) => Math.abs(o.min[1] - top) <= 2 && touching(o, 1));
+    if (cont) { no(`surface continues into ${bricks[cont.j]!.part}`); continue; }
+    // The floor: the nearest part below reaching well past the surface, or the model's underside.
+    let floor = Infinity;
+    for (const { o } of others) {
+      if (o.min[1] < bottom - 1 || o.min[1] > top + 60 || !touching(o, -1)) continue;
+      const wide = o.min[0] < min[0] - 8 || o.max[0] > max[0] + 8 || o.min[2] < min[2] - 8 || o.max[2] > max[2] + 8;
+      if (wide && o.min[1] < floor) floor = o.min[1];
+    }
+    if (!Number.isFinite(floor)) { if (ground - top <= 40) floor = ground; else { no('no floor under it'); continue; } }
+    const height = floor - top;
+    const supports = others.filter(({ o }) => touching(o, -1) && o.min[1] >= bottom - 1 && o.max[1] <= floor + 1);
+    const supportArea = supports.reduce((n, { o }) => n + overlapArea(o, bb), 0);
+    const onLegs = supports.length > 0 && supportArea < 0.7 * ex * ez;
+    // Sides: which horizontal axis is the long one, and what rises beside each side.
+    const longX = ex >= ez;
+    const rising = (side: 'min' | 'max', along: 'long' | 'short', minRise: number): number => {
+      // The run of parts touching that side (within 2 LDU) that rise 20-60 LDU above the seat from about its level.
+      const axis = (along === 'long') === longX ? 2 : 0; // the axis across that side
+      const runAxis = axis === 0 ? 2 : 0;
+      let cover = 0;
+      for (const { o } of others) {
+        const edge = side === 'min' ? min[axis]! : max[axis]!;
+        const adj = side === 'min' ? Math.abs(o.max[axis]! - edge) <= 2 || (o.min[axis]! < edge && o.max[axis]! > edge) : Math.abs(o.min[axis]! - edge) <= 2 || (o.min[axis]! < edge && o.max[axis]! > edge);
+        if (!adj) continue;
+        const rise = top - o.min[1];
+        if (rise < minRise || rise > 60 || o.max[1] < top - 4) continue;
+        cover += Math.max(0, Math.min(o.max[runAxis]!, max[runAxis]!) - Math.max(o.min[runAxis]!, min[runAxis]!));
+      }
+      return cover / (runAxis === 0 ? ex : ez);
+    };
+    const back = (['min', 'max'] as const).find(side => rising(side, 'long', 20) >= 0.5);
+    const head = (['min', 'max'] as const).find(side => rising(side, 'short', 8) >= 0.5);
+    // A minifig's head room: over the middle, or over the half by the backrest
+    // (a dining chair is tucked under its table's edge, 910032).
+    const sh = Math.max(0, Math.min(6, (w - 8) / 2));
+    const room = { min: [min[0] + sh, 0, min[2] + sh] as Vec3, max: [max[0] - sh, 0, max[2] - sh] as Vec3 };
+    if (back) {
+      const axis = longX ? 2 : 0, mid = (min[axis]! + max[axis]!) / 2;
+      if (back === 'min') room.max[axis] = mid; else room.min[axis] = mid;
+    }
+    const roof = others.find(({ o }) => o.max[1] <= top + 0.5 && o.max[1] > top - 44 && o.min[0] < room.max[0] && o.max[0] > room.min[0] && o.min[2] < room.max[2] && o.max[2] > room.min[2]);
+    if (roof) { no(`no head room under ${bricks[roof.j]!.part}`); continue; }
+    let kind: 'bench' | 'chair' | 'bed' | undefined;
+    if (bedSize && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max && head) kind = 'bed';
+    else if (seatSize && height >= FURNITURE_HEIGHT_LDU.seat.min && height <= FURNITURE_HEIGHT_LDU.seat.max) kind = back ? 'chair' : onLegs ? 'bench' : undefined;
+    if (!kind) { no(`${bedSize ? 'bed' : 'seat'}-sized, ${height.toFixed(0)} LDU up, ${back ? 'backrest' : 'no backrest'}, ${onLegs ? 'on legs' : 'on a solid base'}: not furniture`); continue; }
+    // Facing: away from a backrest; a bed along its length from the headboard; a bench towards the table beside it.
+    const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
+    const acrossAxis = longX ? 2 : 0;
+    let facing: [number, number] = [0, -1];
+    if (kind === 'chair' && back) facing = acrossAxis === 0 ? [back === 'min' ? 1 : -1, 0] : [0, back === 'min' ? 1 : -1];
+    else if (kind === 'bed' && head) facing = longX ? [head === 'min' ? 1 : -1, 0] : [0, head === 'min' ? 1 : -1];
+    else {
+      let best = Infinity;
+      for (const { o } of others) {
+        if (!(o.min[1] < top - 8 && o.min[1] > top - 48) || !touching(o, 24)) continue;
+        const ox = (o.min[0] + o.max[0]) / 2 - cx, oz = (o.min[2] + o.max[2]) / 2 - cz, dist = Math.hypot(ox, oz);
+        if (dist > 1 && dist < best) { best = dist; facing = [ox / dist, oz / dist]; }
+      }
+    }
+    const n = kind === 'bed' ? 1 : Math.max(1, Math.min(3, Math.floor(l / 40)));
+    for (let k = 0; k < n; k++) {
+      const t = (k + 0.5) / n;
+      const p: Vec3 = longX ? [min[0] + ex * t, top, cz] : [cx, top, min[2] + ez * t];
+      out.push({ part: kind, brick: first, surfaceLdu: p, facingLdu: facing });
+    }
+    trace?.(first, `${kind} x${n}`);
+  }
+  return out;
+}
+
 /** A door LEAF (not a frame, not the glass insert, not a sticker). */
 export function isDoorLeafDescription(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
@@ -331,7 +476,8 @@ export function isDoorLeafDescription(description: string): boolean {
 export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartGeometryProvider = createPartGeometryProvider()): Promise<SceneActors> {
   const meshes = new Map<string, LdrawPartMesh | null>();
   await Promise.all([...new Set(bricks.map(b => b.part))].map(async part => { meshes.set(part, await provider.getPartMesh(part)); }));
-  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  // Seats, doors and furniture classify a retired mould by the part it moved to; figures keep the stub (`mouldFamilyId`).
+  const classedDesc = (b: ParsedBrick): string => { const m = meshes.get(b.part); return m ? classifiedDescription(m) : ''; };
 
   // Figures: a torso with at least a head or legs beside it.
   const figures: SceneFigure[] = [];
@@ -386,8 +532,8 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
   // it is taken.
   const seats: SceneSeat[] = [];
   for (const b of bricks) {
-    const isMouldSeat = isSeat(b.part, desc(b));
-    if (!isMouldSeat && !isFurnitureSeat(desc(b))) continue;
+    const isMouldSeat = isSeat(b.part, classedDesc(b));
+    if (!isMouldSeat && !isFurnitureSeat(classedDesc(b))) continue;
     const bm = meshes.get(b.part);
     const surface = isMouldSeat || !bm || !bm.triangles.length
       ? local(b, [0, -8, 0])
@@ -405,10 +551,10 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     // A figure the source sat here rides this seat's entity (the seat stays, occupied).
     if (sitter) { sitter.seated = true; sitter.seatIndex = seats.length - 1; }
   }
-  // Brick-built stools (no seat mould), away from any moulded seat.
-  for (const stool of brickBuiltStools(bricks, meshes, figureBricks)) {
-    if (seats.some(s => Math.hypot(s.surfaceLdu[0] - stool.surfaceLdu[0], s.surfaceLdu[2] - stool.surfaceLdu[2]) < 20 && Math.abs(s.surfaceLdu[1] - stool.surfaceLdu[1]) < 24)) continue;
-    seats.push(stool);
+  // Brick-built stools, benches, chairs, sofas and beds (no seat mould), away from any seat already found.
+  for (const seat of [...brickBuiltStools(bricks, meshes, figureBricks), ...brickBuiltFurniture(bricks, meshes, figureBricks)]) {
+    if (seats.some(s => Math.hypot(s.surfaceLdu[0] - seat.surfaceLdu[0], s.surfaceLdu[2] - seat.surfaceLdu[2]) < 20 && Math.abs(s.surfaceLdu[1] - seat.surfaceLdu[1]) < 24)) continue;
+    seats.push(seat);
   }
 
   // Door leaves, and the frames they hang in.
