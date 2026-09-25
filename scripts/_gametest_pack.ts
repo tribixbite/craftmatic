@@ -5,7 +5,7 @@
  *                                       hook, scripts/gametest.js and the arena; its RP unchanged
  *   <out>/<stem>-gametest-plan.json     the doorways and their offline predictions
  *
- * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port]
+ * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port] [--figure-ticks=1200]
  *
  * Deploy it to a world that has Beta APIs + cheats on (never a normal play
  * world), e.g. `python -u scripts/_pixel_dev_deploy.py cmgametest
@@ -18,13 +18,13 @@ import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-previe
 import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
-  arenaWindows, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGametestImport,
+  arenaExceeds, arenaWindows, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGametestImport,
   type GametestDoorway, type GametestPart, type GametestPlan, type GametestSeat, type WalkOutcome,
 } from '../web/src/engine/gametest-pack.ts';
 import { auditPackTaps } from '../test/_ix-tap-audit.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
-import { PROP_FLIP } from '../web/src/engine/bedrock-pinball.ts';
+import { PROP_BALL_U, PROP_FLIP, PROP_PULL } from '../web/src/engine/bedrock-pinball.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
@@ -46,7 +46,8 @@ const configMatch = /^const CONFIG = (\{.*\});$/m.exec(placementJs);
 if (!configMatch) throw new Error('placement.js: no `const CONFIG = {...};` line');
 const placement = JSON.parse(configMatch[1]!) as {
   id: string; label: string; width: number; height: number; length: number;
-  actors: Array<{ typeId: string; label: string; x: number; y: number; z: number; interactive?: number }>;
+  actors: Array<{ typeId: string; label: string; x: number; y: number; z: number; interactive?: number; rideOf?: number }>;
+  colliders?: { block: string; loState: string; hiState: string };
 };
 
 // Offline predictions: the same walk `_ix_passability.ts` runs, at 100 %, turn 0.
@@ -113,11 +114,14 @@ const pinballName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/pin
 let pinball: GametestPlan['pinball'];
 if (pinballName) {
   const js = text(pinballName);
-  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[] } | null;
+  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[]; plungerButtonType?: string; plungerType?: string; ballType?: string } | null;
   const park = /\bPARK_SLOT = (\d+)/.exec(js)?.[1];
   const tag = /\bSEATED_TAG = ["']([^"']+)["']/.exec(js)?.[1];
   if (!cfg || park === undefined || !tag) throw new Error(`${pinballName}: CONFIG, PARK_SLOT or SEATED_TAG not found; the pinball runtime changed shape`);
-  pinball = { consoleType: cfg.consoleType, buttonType: cfg.buttonType, flipperTypes: cfg.flipperTypes, flipProperty: PROP_FLIP, seatedTag: tag, parkSlot: Number(park) };
+  pinball = {
+    consoleType: cfg.consoleType, buttonType: cfg.buttonType, flipperTypes: cfg.flipperTypes, flipProperty: PROP_FLIP, seatedTag: tag, parkSlot: Number(park),
+    plungerButtonType: cfg.plungerButtonType, plungerType: cfg.plungerType, pullProperty: PROP_PULL, ballType: cfg.ballType, ballUProperty: PROP_BALL_U,
+  };
 }
 
 const plan: GametestPlan = {
@@ -132,6 +136,12 @@ const plan: GametestPlan = {
   parts,
   seats,
   ...(windows.length > 1 ? { windows } : {}),
+  // Every minifig NPC the placement spawns (`_fig<n>` types; a seated one rides a seat).
+  figures: placement.actors.filter(a => /_fig\d+$/.test(a.typeId)).map(a => ({ label: a.label, typeId: a.typeId, actor: { x: a.x, y: a.y, z: a.z }, seated: a.rideOf !== undefined })),
+  colliders: placement.colliders ? { block: placement.colliders.block, loState: placement.colliders.loState, hiState: placement.colliders.hiState } : undefined,
+  figureTicks: flag('figure-ticks') ? Number(flag('figure-ticks')) : undefined,
+  // Wider than one structure: only the figures test runs, laying the floor past the structure itself.
+  oversized: arenaExceeds({ width: placement.width, height: placement.height, length: placement.length }) || undefined,
 };
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
@@ -162,6 +172,6 @@ writeFileSync(variantPath, await createZip(variantFiles));
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
+console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats, ${plan.figures!.length} figures${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);

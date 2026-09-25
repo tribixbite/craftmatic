@@ -22,8 +22,19 @@
  *   - FLIPPERS as capsules swinging about their pivots; the contact carries
  *     the flipper's own surface velocity, which is what makes a shot;
  *   - BUMPERS as circles that kick the ball off at `bumperKick` and score.
- * Each 20 Hz tick is split into `substeps` so no step moves the ball more than
- * a fraction of its radius.
+ * Each 20 Hz tick is split into substeps so no step moves the ball (or a
+ * swinging flipper's tip) more than `maxStepFraction` of the ball's radius.
+ * The count ADAPTS to the motion: a ball rolling slowly takes 2 substeps, a
+ * full-speed shot `substeps` (the cap). The add-on runs this every game tick in
+ * Bedrock's script interpreter, where a fixed 12 substeps spent most of its
+ * time on a ball that was barely moving.
+ *
+ * THE PLUNGER is a spring: the ball leaves at `launchMax` times how far the
+ * plunger was pulled back (0..1), so energy grows with the square of the pull
+ * as it does for a real spring. A weak pull does not climb the lane and the
+ * ball rolls back onto the plunger (the `return` rule), as on a real machine.
+ * The pull is either set directly (`PinballInput.pull`, the add-on's pull-back
+ * gestures) or grows while `launch` is held (`chargeSeconds` to full).
  */
 
 /** What the simulation needs from a detected table (plain JSON; no typed arrays). */
@@ -49,20 +60,30 @@ export interface PinballSimTable {
 
 export interface PinballSimOptions {
   gravity?: number;          // LDU/s2 along +u
+  /** Most substeps per tick (the count adapts to the motion, from 2 up to this). */
   substeps?: number;
+  /** Longest move per substep, as a fraction of the ball radius. */
+  maxStepFraction?: number;
+  /** False: always `substeps` per tick (the pre-2026-09-25 cost, kept to measure against). */
+  adaptiveSubsteps?: boolean;
   wallBounce?: number;
   flipperBounce?: number;
   flipperUpSpeed?: number;   // rad/s
   flipperDownSpeed?: number; // rad/s
   bumperKick?: number;       // LDU/s leaving a bumper
-  launchMin?: number;        // LDU/s at zero charge
-  launchMax?: number;        // LDU/s at full charge
-  chargeSeconds?: number;    // hold time for full charge
+  launchMax?: number;        // LDU/s at a full pull (speed = launchMax * pull)
+  chargeSeconds?: number;    // hold time for a full pull with `launch`
   maxSpeed?: number;
   balls?: number;
 }
 
-export interface PinballInput { left: boolean; right: boolean; launch: boolean }
+/**
+ * One tick's controls. `launch` held pulls the plunger back over
+ * `chargeSeconds` and releasing it fires. `pull`, when given, IS the plunger's
+ * pull-back (0..1) instead: the ball fires when it drops back to zero, at the
+ * pull it had the tick before.
+ */
+export interface PinballInput { left: boolean; right: boolean; launch: boolean; pull?: number }
 
 export type PinballPhase = 'ready' | 'play' | 'over';
 
@@ -92,13 +113,16 @@ export interface PinballSim {
 export function createPinballSim(table: PinballSimTable, options: PinballSimOptions = {}): PinballSim {
   const G = options.gravity ?? 1100;
   const SUB = options.substeps ?? 12;
+  const STEP_FRACTION = options.maxStepFraction ?? 0.4;
+  const ADAPTIVE = options.adaptiveSubsteps ?? true;
   const E_WALL = options.wallBounce ?? 0.5;
   const E_FLIP = options.flipperBounce ?? 0.3;
   const UP = options.flipperUpSpeed ?? 14;
   const DOWN = options.flipperDownSpeed ?? 7;
   const KICK = options.bumperKick ?? 900;
-  const L_MIN = options.launchMin ?? 900;
   const L_MAX = options.launchMax ?? 1900;
+  /** A pull under this is the plunger let go without a shot. */
+  const MIN_PULL = 0.05;
   const CHARGE_S = options.chargeSeconds ?? 1;
   const V_MAX = options.maxSpeed ?? 2400;
   const BALLS = options.balls ?? 3;
@@ -188,37 +212,60 @@ export function createPinballSim(table: PinballSimTable, options: PinballSimOpti
   const step = (input: PinballInput, dt: number): PinballEvent[] => {
     const events: PinballEvent[] = [];
     state.time += dt;
+    // "Held" is the launch button, or a plunger pulled back at all.
+    const pull = input.pull === undefined ? undefined : Math.max(0, Math.min(1, input.pull));
+    const held = pull === undefined ? input.launch : pull > 0.02;
     if (state.phase === 'over') {
-      // A fresh game starts on a launch press after game over.
-      if (input.launch && !launchHeld) { reset(); }
-      launchHeld = input.launch;
+      // A fresh game starts on a launch press (or a pull) after game over.
+      if (held && !launchHeld) { reset(); }
+      launchHeld = held;
       return events;
     }
-    const h = dt / SUB;
     for (let k = 0; k < bumperCool.length; k++) bumperCool[k] = Math.max(0, bumperCool[k]! - dt);
 
     if (state.phase === 'ready') {
+      const h = dt / SUB;
       for (let i = 0; i < table.flippers.length; i++) {
         const pressed = table.flippers[i]!.side === 'left' ? input.left : input.right;
         for (let s = 0; s < SUB; s++) moveFlipper(i, pressed, h);
       }
-      if (input.launch) state.charge = Math.min(1, state.charge + dt / CHARGE_S);
-      if (!input.launch && launchHeld) {
-        // Release: fire along the launch direction at a speed set by the charge.
-        const dir = table.launchDir ?? [-1, 0];
-        const speed = L_MIN + (L_MAX - L_MIN) * state.charge;
-        state.vu = dir[0] * speed;
-        state.vw = dir[1] * speed;
-        state.phase = 'play';
-        events.push({ kind: 'launch', at: [state.u, state.w] });
+      // The pull the plunger had going into this tick is what a release fires with.
+      const released = state.charge;
+      if (pull !== undefined) state.charge = pull;
+      else if (input.launch) state.charge = Math.min(1, state.charge + dt / CHARGE_S);
+      if (!held && launchHeld) {
         state.charge = 0;
+        if (released >= MIN_PULL) {
+          // Release: the spring fires the ball along the lane at a speed
+          // proportional to the pull.
+          const dir = table.launchDir ?? [-1, 0];
+          const speed = L_MAX * released;
+          state.vu = dir[0] * speed;
+          state.vw = dir[1] * speed;
+          state.phase = 'play';
+          events.push({ kind: 'launch', at: [state.u, state.w] });
+        }
       }
-      launchHeld = input.launch;
+      launchHeld = held;
       return events;
     }
-    launchHeld = input.launch;
+    launchHeld = held;
 
-    for (let s = 0; s < SUB; s++) {
+    // Substeps for this tick: enough that neither the ball nor a swinging
+    // flipper's tip moves more than STEP_FRACTION of a ball radius per step.
+    let reach = Math.hypot(state.vu, state.vw) + G * dt;
+    for (let i = 0; i < table.flippers.length; i++) {
+      const f = table.flippers[i]!;
+      const target = (f.side === 'left' ? input.left : input.right) ? f.activeAngle : f.restAngle;
+      let diff = target - state.flipperAngles[i]!;
+      while (diff > Math.PI) diff -= 2 * Math.PI;
+      while (diff < -Math.PI) diff += 2 * Math.PI;
+      if (Math.abs(diff) > 1e-9) reach += UP * (f.length + f.tipRadius);
+    }
+    const SUBS = ADAPTIVE ? Math.max(2, Math.min(SUB, Math.ceil(reach * dt / (R * STEP_FRACTION)))) : SUB;
+    const h = dt / SUBS;
+
+    for (let s = 0; s < SUBS; s++) {
       for (let i = 0; i < table.flippers.length; i++) {
         moveFlipper(i, table.flippers[i]!.side === 'left' ? input.left : input.right, h);
       }
@@ -250,6 +297,10 @@ export function createPinballSim(table: PinballSimTable, options: PinballSimOpti
       for (let b = 0; b < table.bumpers.length; b++) {
         const bp = table.bumpers[b]!;
         let nu = state.u - bp.centre[0], nw = state.w - bp.centre[1];
+        // Broad phase first: most bumpers are far away, and a square test is
+        // much cheaper than a hypot in the device's script interpreter.
+        const touch = bp.radius + R;
+        if (nu > touch || nu < -touch || nw > touch || nw < -touch) continue;
         const dist = Math.hypot(nu, nw);
         if (dist >= bp.radius + R || dist < 1e-6) continue;
         nu /= dist; nw /= dist;

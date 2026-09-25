@@ -8,7 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   arenaSize, arenaWindows, windowOf, buildArenaStructure, gametestRuntime, gametestVariantFiles, withGametestImport, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
-  judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, type GametestPlan, type Vec3,
+  judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, judgeFigureTrack, arenaExceeds, type GametestPlan, type Vec3,
 } from '../web/src/engine/gametest-pack.js';
 
 const PLACEMENT_FIXTURE = [
@@ -74,8 +74,9 @@ describe('arena structure', () => {
     expect(new TextDecoder().decode(bytes)).toContain('minecraft:smooth_stone');
   });
   it('tests a model wider than one structure in windows over one arena (76457 is 77 wide)', () => {
-    expect(arenaSize({ width: 77, height: 5, length: 5 }).x).toBe(64);
-    expect(() => buildArenaStructure({ width: 77, height: 5, length: 5 })).not.toThrow();
+    // The full arena exceeds one structure: it is built capped (overflow) and tested in windows.
+    expect(arenaExceeds({ width: 77, height: 5, length: 5 })).toBe(true);
+    expect(() => buildArenaStructure({ width: 77, height: 5, length: 5 }, { overflow: true })).not.toThrow();
     const w = arenaWindows({ width: 77, height: 5, length: 5 });
     expect(w).toEqual([{ x0: 0, x1: 58 }, { x0: 50, x1: 77 }]);
     // Every x lands in a window with room round it; the overlap goes to the first.
@@ -84,6 +85,27 @@ describe('arena structure', () => {
     expect(windowOf(w, 56)).toBe(1);
     expect(windowOf(w, 76)).toBe(1);
     expect(arenaWindows({ width: 40, height: 5, length: 5 })).toEqual([{ x0: 0, x1: 40 }]);
+  });
+});
+
+describe('figure verdicts', () => {
+  const area = { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 5, z: 8 } };
+  it('measures path, excursion, leaving the footprint, falling and moving', () => {
+    const v = judgeFigureTrack([{ x: 1, y: 0.2, z: 1 }, { x: 3, y: 0.2, z: 1 }, { x: 3, y: 0.2, z: 3 }], area, 0, false, 1);
+    expect(v).toMatchObject({ samples: 3, pathLength: 4, maxExcursion: 2.83, outsideSamples: 0, belowGround: false, droppedStorey: false, moved: true });
+    const out = judgeFigureTrack([{ x: 9, y: 3, z: 1 }, { x: 11.5, y: 0, z: 1 }, { x: 12, y: -1, z: 1 }], area, 0, true, 1);
+    expect(out).toMatchObject({ outsideSamples: 2, belowGround: true, droppedStorey: true, endInsideWall: true });
+    expect(judgeFigureTrack([{ x: 1, y: 0, z: 1, riding: true }, { x: 1, y: 0, z: 1.5, riding: true }], area, 0, false, 1)).toMatchObject({ moved: false, ridingSamples: 2 });
+  });
+  it('knows a model too wide for one structure, and the capped arena builds', () => {
+    expect(arenaExceeds({ width: 77, height: 17, length: 15 })).toBe(true);
+    expect(arenaExceeds(PLAN.dims)).toBe(false);
+    expect(() => buildArenaStructure({ width: 77, height: 17, length: 15 }, { overflow: true })).not.toThrow();
+  });
+  it('registers the figures test only for a plan that has figures', () => {
+    const js = gametestScript({ ...PLAN, figures: [{ label: 'F1', typeId: 'craftmatic:demo_1_fig1', actor: { x: 2, y: 0, z: 2 }, seated: false }] });
+    expect(js).toContain('figures_');
+    expect(js).toContain('function judgeFigureTrack');
   });
 });
 

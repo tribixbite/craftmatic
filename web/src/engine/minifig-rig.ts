@@ -840,9 +840,10 @@ export function minifigFromSpec(spec: MinifigSpec): AssembledMinifig {
 /**
  * The animations every minifig entity plays. Bone rotations are relative to
  * the bind pose the compiler emitted (pivots at the joints):
- *  - walk: legs swing ±32° and arms ±25° in opposite phase, driven by the
- *    distance travelled so the feet never slide, and only while the entity
- *    moves (`query.is_moving`);
+ *  - walk: legs swing ±`MINIFIG_GAIT.legSwingDeg` and arms ±`armSwingDeg`
+ *    in opposite phase, phased by the distance travelled at the rate that
+ *    keeps a planted foot still (`MINIFIG_GAIT`), faded in and out with the
+ *    walk speed, and only while the entity moves (`query.is_moving`);
  *  - look: the head follows the look target (vanilla's look_at_target);
  *  - sit: legs forward while riding a seat.
  */
@@ -852,16 +853,40 @@ export const MINIFIG_ANIMATION_IDS = {
   sit: 'animation.craftmatic.minifig.sit',
 } as const;
 
+/**
+ * The walk's gait, derived so a foot does not slide.
+ *
+ * A leg of length L (hip pivot to sole: 72 - 44 = 28 LDU = 0.525 blocks at the
+ * 96 LDU = 1.8 block scale) swung ±A carries its foot 2·L·sin A per step and
+ * 4·L·sin A per full cycle (two steps). `query.modified_distance_moved` is the
+ * engine's limb-swing position, which advances ~4 units per block at walking
+ * speed (the vanilla `× 38.17` humanoid cycles every 9.4 units = 2.4 blocks;
+ * vanilla wheels turn `× -30` per unit, a 3-block circumference). So the
+ * phase rate is 360 / (4 · 4·L·sin A) degrees per unit. The old walk used the
+ * vanilla 38.17 with a 0.525-block leg: its feet covered half the ground the
+ * body did - the "sliding" figure. `modified_move_speed` (the limb-swing
+ * amount, ~4 × blocks per tick) fades the swing in and out.
+ * TODO: confirm the ~4 units/block reading against a device recording at a known speed.
+ */
+export const MINIFIG_GAIT = (() => {
+  const legBlocks = (MINIFIG_FEET_Y - 44) / 96 * 1.8;
+  const legSwingDeg = 35, armSwingDeg = 28, unitsPerBlock = 4;
+  const cycleBlocks = 4 * legBlocks * Math.sin(legSwingDeg * Math.PI / 180);
+  return { legBlocks, legSwingDeg, armSwingDeg, cycleBlocks, degPerUnit: Math.round(360 / (unitsPerBlock * cycleBlocks) * 100) / 100 };
+})();
+const GAIT_PHASE = `math.cos(query.modified_distance_moved * ${MINIFIG_GAIT.degPerUnit})`;
+const GAIT_AMOUNT = 'math.clamp(query.modified_move_speed * 4.0, 0.0, 1.0) * query.is_moving';
+
 export const MINIFIG_ANIMATIONS = {
   format_version: '1.8.0',
   animations: {
     [MINIFIG_ANIMATION_IDS.walk]: {
       loop: true,
       bones: {
-        leg_right: { rotation: ['math.cos(query.modified_distance_moved * 38.17) * 32 * query.is_moving', 0, 0] },
-        leg_left: { rotation: ['-math.cos(query.modified_distance_moved * 38.17) * 32 * query.is_moving', 0, 0] },
-        arm_right: { rotation: ['-math.cos(query.modified_distance_moved * 38.17) * 25 * query.is_moving', 0, 0] },
-        arm_left: { rotation: ['math.cos(query.modified_distance_moved * 38.17) * 25 * query.is_moving', 0, 0] },
+        leg_right: { rotation: [`${GAIT_PHASE} * ${MINIFIG_GAIT.legSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+        leg_left: { rotation: [`-${GAIT_PHASE} * ${MINIFIG_GAIT.legSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+        arm_right: { rotation: [`-${GAIT_PHASE} * ${MINIFIG_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+        arm_left: { rotation: [`${GAIT_PHASE} * ${MINIFIG_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
       },
     },
     [MINIFIG_ANIMATION_IDS.look]: {

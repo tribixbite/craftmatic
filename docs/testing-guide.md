@@ -323,6 +323,8 @@ be turned off, and it disables achievements.
 | `41732-run3/` | tests in a SEPARATE pack | a simulated player is `undefined` in the model pack's `getAllPlayers()` (`undefinedPlayers: 2`), even though that pack declared `server-gametest`. Door interactions from the simulated player never reached the model pack |
 | `41732-run5/` | tests INSIDE the model pack | floor found at relative y 1; placement through the hook: 16/16 actors; **6/6 doorways as the offline walk predicts**. Doors 1, 2, 4, 5 and 6 are blocked closed and walkable open. Door 3 (SEALED): the open walk drops 3.25 blocks off the far side (`fell`) |
 | `11374-run1/` | pinball seat + flippers | `interactWithEntity(seat)` **seats** the player (the engine's rideable, no script). The runtime tags the player and parks the hotbar on slot 4 immediately. Slot 3: left flipper at 35.0° for 6 ticks, then 15°, then 0°. Slot 5: right flipper 180° for 7 ticks. Tap-zone hit: right flipper 180° for 6 ticks. Slot re-parked to 4 each time. In chat: "All required tests passed" |
+| pinball `7234854a` (2026-09-25, `output/pb0924f/device/gt-contentlog-1.txt` in the pinball worktree) | seat, flippers, flipper targets, plunger | Right flipper now reads **−35.04** (the ±180 seam fix, `71c98317`). Each flipper target moves only its own flipper (`targetHits` [[0,35],[35,0]]). The plunger target's pull rises 0.04 a tick to 0.79 over 20 ticks, and after the second hit the ball offset `craftmatic:bu` reaches −665 LDU (up the lane). PASS. The same log held 11,969 "unknown variable" Molang errors: the ball's variables were not declared in `initialize` (fixed in `af917a0f`). |
+| figures worktree `output/figure-ai/device/` (2026-09-25) | `figures_<id>`: place, then sample every figure every 20 ticks for 60 s | vanilla AI vs scripted `figures.js` on 910004 / 41732 / 76457: left the model 2 / 6 / 3 → 0 / 0 / 0; fell below the floor 2 / 4 / 0 → 0; ended in a wall 1 → 0; roamers moved 2/4, 7/7, 12/12 → 2/4, 6/7, 11/12 (the ones that stay have under 4 reachable cells). A doors and a figures test starting together had the second placement refused ("Another placement is running"); the test now retries. 76457 (77 wide) is wider than one structure, so only its figures test runs, and it lays the floor past the structure itself (`oversized`) |
 
 Findings a device round would not have reached:
 
@@ -343,12 +345,13 @@ Findings a device round would not have reached:
   route works.
 - **Double doors move together.** Opening Door 2 also opened Door 4, so each
   doorway is closed first before its own walk.
-- **The right flipper's property reads 180** during a pulse while the left
-  reads 35. The right flipper's rest angle is 162.5° (`restAngles[1]` =
-  2.836 rad), and `(rest - angle) * 180/π` is clamped to ±180 without being
-  wrapped. That looks like a wrap bug that swings the right flipper half a
-  turn. The cause is inferred from the code and not visually confirmed.
-  Check it before the next pinball device round.
+- **The right flipper's property read 180** during a pulse while the left
+  read 35: the unwrapped swing crossed the ±180 seam and was clamped. Fixed
+  in `71c98317`. The 2026-09-25 run reads −35 and shows the flip on screen.
+- **Two test variants bound in one world break each other.** On 2026-09-25 a
+  21360 figures variant and the 11374 pinball variant were bound together in
+  `cmgametest`. Both placement hooks answered, and the pinball placement came
+  back `actorsFound 0` (`seat: false`). Bind exactly one variant per run.
 - A test's own pass/fail message goes to chat only, not to the content log.
   The runtime writes one `CMGT <TAG> {json}` line per result with
   `console.warn`, followed by about 18 KiB of padding so the block-buffered
@@ -414,6 +417,9 @@ What it cannot prove, so keep screenshots for these:
   rider.
 - **Coaster:** mount the car and assert the rider's position along the track
   over N ticks.
-- **Pinball:** assert the right-flipper angle once the wrap question is
-  settled.
+- **Pinball:** rerun `pinball_arcade_11374` on the current build (`2e249b7f`)
+  with only its variant bound (the 2026-09-25 rerun collided with another
+  variant).
 - **Wand sizes:** the same doors test at 200 % (`size` in the place message).
+- **Figures:** a longer watch (`--figure-ticks=3600`) on a set with free seats,
+  to see a figure borrow one on the device; the same watch at 200 %.

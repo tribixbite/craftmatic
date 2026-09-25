@@ -26,6 +26,36 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## In flight — 2026-09-24 late (agents in worktrees; merge each, rebuild, deploy to 924)
+
+- [ ] **Interactivity pipeline over all 40 favourites**: no set-specific code;
+  per-set audit (found / missed / false positive / static), passability, tap
+  boxes, GameTest checks per set in `cmgametest`; table in
+  `docs/bedrock-interactivity.md`. Also the 3 open 76457 defects (seat height,
+  window 1, the 9.4-degree door).
+- [ ] **Pinball**: orange overlay near the right of the seated view; right
+  flipper animation (device pack predates `71c98317`); lag (measure script
+  time, smooth the ball); plunger strength = pull-back amount, fired on
+  release, animated; tap targets ON the flippers (on the line of sight, within
+  reach, faintly visible).
+- [ ] **Coaster rider camera**: baseline view follows the track frame (curves,
+  climbs, loops) with the player's look as a clamped offset; research camera
+  pitch/roll limits (free camera clamps pitch to +-90).
+- [x] **Minifig AI** (figures worktree, `fa31d941`..`0711e753`): `scripts/figures.js`
+  plans over the collider spans; Pixel GameTest 910004 / 41732 / 76457: left
+  the model 2/6/3 -> 0/0/0, fell 2/4/0 -> 0, in a wall 1 -> 0 (guide:
+  "Figure life"). Open: seat borrowing seen only in the host sim (run
+  `--figure-ticks=3600` on a set with free seats); gait rate's ~4 units/block
+  reading unmeasured; mini-doll legs stiff; figures at 200-400 % untested on
+  the device.
+  The re-home fix (`2deb13e9`) is not device-run: the 21360 run collided with
+  another agent's pinball session and was abandoned. cmgametest's BP binding
+  is left on the 21360 variant. Restore the pinball variant with the figures
+  worktree's `python output/figure-ai/bind.py nRnt66NBH0Y=
+  94baeb94-f1f1-4712-a221-e34addce9808@2609.2501.5013`, which force-stops
+  Minecraft. 16 figures in 5 favourites spawn on parts the collider grid does
+  not carry, and they fall at spawn (census).
+
 ## Round — 2026-09-24 evening (user's 7 questions)
 
 - [x] **Generalization audit** (2026-09-24): explode M.R^T bug exists nowhere
@@ -79,6 +109,20 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   are unavailable on the phone. Found the right-flipper half-turn (`71c98317`).
   Next: fold every door/seat/coaster check into GameTest instead of tap runs.
 - Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
+- [x] **Coaster rider camera follows the track** (guide: "The rider's camera
+  follows the track"). Ships `clamp`: free camera at the seated eye along the
+  car's nose, pitch within ±90, image turned over in ~4 ticks at each loop
+  side; look-around ±70/±50 with the rider's client yaw compared 6 ticks back,
+  no ratchet. Ridden on the Pixel in world 924 (10303, two laps, recordings in
+  `output/coaster-camera-0924/device/`); world 924 restored by hand (undo does
+  not survive an app restart: `/kill @e[family=…]` in the box + `/fill … air`).
+  Open:
+  - [ ] Real roll (upside-down at the apex): only a single camera ANIMATION
+    rolls (`RotationKeyFrame.rotation.z`), and chained/overlapping ones are not
+    drawn. Untested route: one pre-computed animation per inversion.
+  - [ ] Ride the final defaults once from a built pack (they were ridden as
+    live `/scriptevent craftmatic:coaster_cam` tuning: `ratchet 0`, `lag 6`),
+    then remove the tuning hook (`# TODO` in `coasterRuntime`).
 - Pack updates: importing a new .mcaddon does NOT repoint a world's active
   pack (device runs: world 922 kept 83614b39 active after 980f54fd was
   imported). Remove + add in the world's pack settings, or deploy into
@@ -117,22 +161,29 @@ now **924** (blank, created by the user); packs are deployed into
 | 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
 | 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
 
-### Pinball input — device-proven at `d735121b` (runs 1-8, `output/device-round-2026-09-24b/pinball-device*/`)
+### Pinball — user report 3 handled at `2e249b7f` (device: world 924, 2026-09-25)
 
-- Screen taps: free camera hung from the measured head along the planned
-  heading; the rider turned by setRotation (yaw applies, pitch does NOT) with
-  head turning locked; zones 3 blocks wide, side +0.1, drawn as a CUBE with a
-  fully transparent texture (no-cube zones are never picked). Run 8: every
-  tap L/R correct top and bottom, split at centre; x < ~600 at mid-height misses.
-- Hotbar slots 1-4 / 6-9 = left / right flipper (exact, any camera; wands
-  skip players tagged `craftmatic_pinball`). Stick works in play. Jump dismounts.
-- Seated player invisible (the free camera drew their arm over the table).
-- Findings that must not be re-tested: with a free camera, a zone WITHOUT
-  cubes is only "hit" when it encloses the head; chasing the rider's yaw
-  with the seat orbits it; first person looks level (pitch ignored).
-- [ ] Far-left mid-height taps (x < ~600 of 2244): widen/lower the left zone
-  or accept. `/scriptevent craftmatic:pinball {...}` tuning hook still ships
-  (`# TODO` to remove once the defaults are final).
+Pack `output/pb0924f/11374-pinball-2e249b7f.mcaddon` in the pinball worktree
+(sha256 38f78c32e57dcdb4207891d1c60545c5ae5ce813a3366d865c9e1b14b6ed72df),
+bound in world 924. Design and measurements: the add-on guide's "Pinball:
+plunger, tap targets on the flippers, drawn ball".
+
+- Taps: each target = outline on the camera ray + invisible pick box on the
+  player's own level-view ray (the phone ignores the free camera for picking;
+  probe-measured). Hotbar slots 1-4 / 6-9 and the stick still work. Jump
+  dismounts. The seated player is invisible and the seat pad is hidden.
+- Plunger: tap to take hold, tap to fire, strength = pull (spring). The stick
+  pulled back draws it as far as it is pulled.
+- Ball drawn from properties; axis signs +1/−1 measured.
+- [ ] Rerun the pinball GameTest on `2e249b7f` with ONLY its variant bound in
+  `cmgametest` (the 2026-09-25 rerun collided with a 21360 variant).
+- [ ] A held finger: whether a phone repeats hit/interact events while a
+  finger stays down is not measured; tap-tap works either way.
+- [ ] The ball-follows-plunger offset makes the ball jump 40 LDU forward at
+  release (one tick). Cosmetic; accept or ease it.
+- [ ] `/scriptevent craftmatic:pinball` tuning hook and probe still ship
+  (`# TODO` in `pinballRuntime` to drop once the pick model is settled on a
+  second device).
 
 ### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
 
@@ -918,13 +969,6 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
   Existing `--lod=hull --lod-distance=1024` versus `--lod-distance=1` isolates
   the representation at one near camera while keeping resident geometry equal;
   pack invariant test and version-selection recipe are in the add-on guide.
-- [ ] Chalet roaming: old h1.8 control 0/7 versus h0.95 1/7. New dwell trial
-  aborted before world load due repeated ADB chat-input drops. Keep seated
-  figures 4/5/6 out of the walker denominator; census walkers 1/2/3/7 for ≥10 min.
-  Test local clearance before changing global height. Walkers have floor
-  support but ceilings/head-cell colliders; an actor moved to open grass walks.
-  Alternative: nearest navigable porch/garden cell. Blank still intentionally
-  has its restored h0.95 pack; deactivate it explicitly for a future clean test.
 - [ ] 76435 detached roofline objects at 400%: distinguish source extras from
   polished/parked parts. Source is exploded (42 clusters); IO/76435.io has
   70 clusters and no IOModel2V2 replacement exists.

@@ -1123,6 +1123,15 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           // A moving part keeps yaw 0: its rig's root turns it (the interactives
           // runtime sets the turn), so its world-aligned tap boxes stay true.
           entity.setRotation({ x: 0, y: actor.interactive !== undefined ? 0 : (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
+          if (/_fig[0-9]+$/.test(actor.typeId)) {
+            // The figure's home record (bedrock-figure-life.ts FigureHome): where it
+            // stands, the placement's world box, the pin plane and the size, so
+            // scripts/figures.js keeps it on this model, on this floor, and can
+            // re-adopt it after a reload. A source-seated figure stays seated.
+            try {
+              entity.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [q.x, spawnY, q.z], area: [bounds.from.x, bounds.from.z, bounds.to.x + 1, bounds.to.z + 1], ground: st.anchor.y, f: factor(st), mode: actor.rideOf !== undefined ? 'seated' : 'roam' }));
+            } catch {}
+          }
           if (actor.coasterRouteIndex !== undefined) {
             // Store the transformed model origin, not the cart's start point.
             // Route samples use the same rotation/scale as every shell actor.

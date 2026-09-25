@@ -37,6 +37,7 @@ import {
 } from '@engine/bedrock-collider-scale.js';
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
 import type { PinballMap, PinballRuntimeConfig } from '@engine/bedrock-pinball.js';
+import type { CoasterRiderViewConfig } from '@engine/bedrock-coaster.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
 import type { InteractiveRuntimeConfig } from '@engine/bedrock-interactives.js';
 import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, type AddonAppearance } from './addon-appearance.js';
@@ -89,7 +90,8 @@ export interface AddonRoute {
   /** A measured chain drive's arc span. */
   chain?: { start: number; end: number };
   lift?: AddonRouteLift;
-  cars: { count: number; spacing: number; extent: number; slots?: Array<{ type: string; rider: number; label: string }> };
+  /** `heading` ±1: the set's own cars keep their authored nose along the route; 0: the fabricated cart faces its motion. */
+  cars: { count: number; spacing: number; extent: number; heading: 1 | -1 | 0; slots?: Array<{ type: string; rider: number; label: string }> };
   direction: 1 | -1 | 0;
 }
 
@@ -133,6 +135,8 @@ export interface AddonPreviewModel {
    * full type id, same as `AddonEntity.typeId` and `AddonRoute.cars.slots[].type`.
    */
   coasterTypes: Record<string, { role: string; riders: number; wheelbase?: number; seat?: [number, number, number] }>;
+  /** The pack's rider camera (`CONFIG.camera`, `COASTER_RIDER_VIEW`); absent in a pack built before it, which rides in plain first person. */
+  coasterCamera?: CoasterRiderViewConfig;
   /**
    * `scripts/pinball.js`'s `CONFIG`, whole (`PinballRuntimeConfig`), when the
    * pack ships a playable pinball table: the console/ball/flipper type ids,
@@ -326,9 +330,15 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
   const routes: AddonRoute[] = [];
   const coasterRoles: Record<string, string> = {};
   const coasterTypes: AddonPreviewModel['coasterTypes'] = {};
+  let coasterCamera: CoasterRiderViewConfig | undefined;
   if (files.coasterScript) {
     const coaster = extractJsonAfter(files.coasterScript, 'const CONFIG') as Record<string, unknown> | undefined;
     if (coaster) {
+      const camera = coaster['camera'] as Record<string, unknown> | undefined;
+      const mode = camera?.['mode'];
+      if (camera && (mode === 'roll' || mode === 'rollover' || mode === 'clamp' || mode === 'over' || mode === 'off')) {
+        coasterCamera = { mode, lookYaw: num(camera['lookYaw'], 70), lookPitch: num(camera['lookPitch'], 50), ease: num(camera['ease'], 0.1), maxTurn: num(camera['maxTurn'], 40), lookLag: num(camera['lookLag'], 0), ratchet: camera['ratchet'] === true, spline: num(camera['spline'], 0.1) };
+      }
       for (const [type, t] of Object.entries((coaster['types'] as Record<string, { role?: string; riders?: number; wheelbase?: number; seat?: unknown }> | undefined) ?? {})) {
         if (!t?.role) continue;
         coasterRoles[type] = t.role;
@@ -364,6 +374,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
             ...(vec3(lift['counterweightPoint']) ? { counterweightPoint: vec3(lift['counterweightPoint'])! } : {}),
           } } : {}),
           cars: { count: Math.max(1, num(cars?.['count'], 1)), spacing: num(cars?.['spacing']), extent: num(cars?.['extent']),
+            heading: (cars?.['heading'] === 1 || cars?.['heading'] === -1 ? cars['heading'] : 0) as 1 | -1 | 0,
             ...(Array.isArray(cars?.['slots']) ? { slots: cars['slots'] as AddonRoute['cars']['slots'] } : {}) },
           direction: (r['direction'] === 1 || r['direction'] === -1 ? r['direction'] : 0) as 1 | -1 | 0,
         });
@@ -461,7 +472,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
     id: String(config['id'] ?? 'addon'), label: String(config['label'] ?? config['id'] ?? 'Add-on'),
     dims, cells, colliders, keptCells: colliders ? num(colliders.keptCells) : 0,
     entities, routes, doorCandidates, sizes, access, accessDetail, treadReport, provenance, pack,
-    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, pinball, interactives, entityCollision, notes,
+    appearance, faceTextures: files.faceTextures ?? new Map(), coasterTypes, ...(coasterCamera ? { coasterCamera } : {}), pinball, interactives, entityCollision, notes,
   };
 }
 

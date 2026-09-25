@@ -2081,6 +2081,87 @@ smoothly on the Pixel, and that the faster hoist (4 blocks/s) carries a rider
 visibly. Old packs keep their old physics: CONFIG carries it, so the change
 needs a rebuilt pack.
 
+### The rider's camera follows the track (2026-09-24, measured on the Pixel)
+
+User request: the rider's baseline view should be what a real rider sees,
+following the track "including the upside down loops", while the player can
+still look around. Until now a rider had their own first person, upright, with
+the yaw turning with the car.
+
+**What Bedrock offers (researched, then measured on Minecraft 26.51 / script
+runtime `@minecraft/server` 2.10.0, world 924 with NO experiments):**
+
+| API | Rotation it takes | Measured |
+|---|---|---|
+| `Camera.setCamera('minecraft:free', {location, rotation: {x, y}, easeOptions})` | `CameraSetRotOptions.rotation` is a `Vector2`: yaw and pitch, no roll | Pitch outside ±90 **throws** "Pitch (x rot) is outside accepted range of [-90, 90]" |
+| `Camera.playAnimation(spline, {animation: {progressKeyFrames, rotationKeyFrames}})` (stable since 2.6.0 / 1.26.10) | `RotationKeyFrame.rotation` is a `Vector3`; **z is roll** | One held animation of `{x: 0, y: 0, z: 90}` turns the horizon vertical (ground on the LEFT: +z rolls the view left); z 180 draws the world upside down |
+| same | keyframes | Refused unless more than 0.05 s apart ("Time between rotation frames must be greater than 0.05"); a two-point `LinearSpline` is refused ("Linear needs at least 2 control points") whether its points are 0.01 or 1 block apart — three points play |
+| same, re-issued | chaining | A new animation issued while one is playing moves the camera but its rotation is **never drawn** (0.1 s every tick, 0.15 s and 0.12 s every 2 ticks: level horizon throughout). Back-to-back animations that each finish do roll, but the camera **reverts to the player's own view** in any gap and after the last one (flashes seen at 2-tick / 0.1 s spacing) |
+| `Camera.attachToEntity` | follows an entity locator | not needed once `clamp` worked; not measured |
+
+Sources: `@minecraft/server@2.9.0` and `@2.12.0-beta` typings from unpkg
+(`CameraSetRotOptions`, `RotationKeyFrame`, `SplineAnimation`); Microsoft Learn
+"Animating with the Free Camera Script API" and "1.26.10 Update Notes" (splines
+and attach-to-entity released in 2.6.0); minecraft.wiki `/camera` history. No
+source documents roll; the z meaning and every limit above are device facts.
+
+**So a true upside-down view is possible in stable only as a single camera
+animation, and cannot be sustained tick by tick.** A pre-computed animation
+covering a whole inversion (the physics is deterministic) is the one untested
+route to real roll; its unknowns are how spline progress maps to time and how
+the camera leaves it without a flash. `# TODO` if the user wants roll badly
+enough to spend a device round on it.
+
+**What ships: `clamp` (`COASTER_RIDER_VIEW`, `coasterRiderView`).** Each tick
+the runtime puts a free camera at the rider's eye in the seat (the seat and the
+seated eye height carried through the car's real frame — the same point the
+entity placement already computes) looking exactly along the car's nose (the
+wheel chord, facing its authored heading), eased over 0.1 s. It pitches with
+every climb and drop and follows every curve; through a loop the view pitches
+up to vertical and, because the pitch cannot pass 90, the image turns over
+(yaw +180) spread over ~4 ticks at 40°/tick instead of snapping. It cannot
+draw the world upside down at the apex (the rider looks back along the track
+with the sky up). Host numbers on 10303: exact along the nose on every tick but
+13 per lap (the turn-overs), where it lags by up to 34° while the view is
+41-83° from level.
+
+**Look-around.** The player's own head turn, measured against the car, is a
+clamped offset applied in the car's frame (±70 yaw, ±50 pitch;
+`coasterRiderLook`). Three device facts shape it:
+- `setRotation` cannot recentre the pitch (known), so the reference is where
+  the head was when boarding, re-taken for the first **10 ticks**: Bedrock turns
+  a new rider to the seat a few ticks after mounting (a 65° offset appeared
+  without the settle).
+- The yaw Bedrock reports for a rider is the CLIENT's, which turns the rider
+  with its own interpolated view of the car: it trails the server's car yaw by
+  **~6 ticks**. Uncompensated, the look swung -37..+55° through the fast curve
+  after the lift; compared with the car's yaw 6 ticks back (`lookLag` 6) it
+  stayed within 5° of the rider's real head turn.
+- A ratcheting reference turned those transients into a permanent drift (0 →
+  49° over one lap), so the reference never moves (`ratchet` false).
+
+Device evidence (`output/coaster-camera-0924/device/` in the main checkout,
+with the recordings `clamp1.mp4`, `clamp2.mp4`, `roll3.mp4`, `seq*.mp4`): `clamp1-loops.jpg` (lift, crest, curve, vertical drop, both loops at
+4 fps), `clamp-look.jpg` (drag right → camera 70° right of the car, clamped;
+drag back), `clamp2-debug.jpg` (the on-screen per-tick readout with `lag 6`),
+`ab.jpg`/`24-roll90.jpg`/`25-roll180.jpg` (the roll probe), `seq-sheet*.jpg`,
+`seq2-sheet.jpg` (the chaining probes), `roll3-loops0.jpg` (roll mode riding:
+level horizon, the chain never drawn).
+
+Also: the camera draws the rider's own upright body around the eye, so a rider
+is made invisible while the camera is theirs (as the pinball seat); camera and
+invisibility are released on dismount and kept through a paused tick. A car
+standing still uses the plain eased camera in every mode.
+
+`/scriptevent craftmatic:coaster_cam <words>` retunes a live pack: `mode
+clamp|roll|rollover|over|off`, `ease`, `look <yaw> <pitch>`, `turn`, `lag`,
+`ratchet 0|1`, `debug 1` (per-tick readout on the action bar), `trace <ticks>`
+(content log; that log stops growing early in a session, so prefer `debug`),
+and the probes `rot`, `roll`, `seq`, `attach`, `clear`. `# TODO` remove the
+hook once the defaults are final. The walk preview rides with the same
+functions (drag = head turn) and now honours a route's fixed direction and the
+cars' authored heading, which it ignored before (it ran 10303 the wrong way).
+
 ### The ramps' running line was on two datums (2026-09-22, `coaster-track.ts`)
 
 The residue the chord fix left — 10261 arc 79-81 climbing a block in half a
@@ -2683,3 +2764,171 @@ cells are laid by `scripts/interactives.js`, which also persists the state.
 The vanilla-door path (`applySceneDoors`, `runtimeDoorCandidates`, leaf actors)
 now serves only the coloured-block export. Design, rules, the scale rule and
 the offline proofs: [bedrock-interactivity.md](bedrock-interactivity.md).
+
+## Pinball: plunger, tap targets on the flippers, drawn ball (2026-09-25)
+
+`engine/bedrock-pinball.ts` (runtime + plan), `pinball-physics.ts` (sim),
+`pinball-table.ts` (detection). The user's report on the 2026-09-24 pack
+(`1e33902c`): an orange overlay near the right, a wrong right-flipper swing,
+lag, a launch button instead of a plunger, and half-screen tap zones that
+were unreliable and hard to find. Device evidence for everything below:
+`output/pb0924f/device/` in the pinball worktree (world 924, Pixel 8 Pro,
+Minecraft 26.51).
+
+- **The orange things in the seated view.** Two, both set parts
+  (`bun scripts/_pinball_parts_near.ts <ldr> --colors=25,182,191 [--u=a..b --w=a..b]`):
+  (1) the orange capsule floating left of the cabinet front is 96874 **Brick
+  Separator** (#2254), the set's loose accessory lying beside the two spare
+  balls. It now leaves the shell (`PinballTable.looseBricks`, any part
+  described "Brick Separator"). (2) The orange ball in a gold ring near the
+  right wall above the right flipper is the set's own **planet**: 32474
+  Technic Ball Joint (orange) on a trans-clear 6019 clip, ringed by pearl-gold
+  35485 (#1918, #1819, #2235, u 784 w 1303, 57 LDU above the playfield). It is
+  model geometry and stays; it stands above the ball's band, so the ball
+  passes under it. With the camera moved onto the head, the lifted yellow
+  seat pad also filled the bottom third of the view; the pad now shrinks to
+  nothing while ridden (`consoleHideAnimation`, `q.has_rider`).
+- **Right flipper.** The half-turn was the ±180° seam (`71c98317`): 11374's
+  right flipper rests at 162.5° and raises to −162.5°, so the unwrapped swing
+  read 325° and was clamped to 180. On the Pixel both flippers now swing 35°
+  in opposite senses: GameTest `maxMove` [35, 0] / [0, 35] per hotbar slot and
+  per flipper target (right reads −35.04, not 180), and the recordings show
+  each flipper raise on its own tap (`65-right-flipper-up.jpg`).
+- **Plunger.** `PinballTable.plungerBricks`: Technic rod parts (no bricks,
+  plates, tiles) within 1.2 ball radii of the lane's line behind the serve,
+  down to 4 radii under the playfield. On 11374 these are the 13 parts of the
+  tow-ball tip, 1 x 15 liftarm rod, axles, cam knob and rubber pin. They ship
+  as one entity on a single `pb_move` bone; `craftmatic:pull` (0..1) moves it
+  `plungerStroke` (40 LDU) toward the player. The sim fires at
+  `launchMax x pull` (a spring), so a pull under ~0.63 does not climb 11374's
+  lane and rolls back onto the plunger (`return`). Touch: tap the plunger's
+  yellow target to take hold (it draws back over 1.2 s), tap again to let go.
+  If a finger's events repeat while it is held, the plunger fires when they
+  stop. Stick: pulled back = drawn that far (rate-limited to half a second
+  from rest to full). Device: the knob draws back out of the cabinet front
+  and the ball follows it (`64-plunger-strip.jpg`); release fires and scores.
+- **Tap targets: what the phone's tap ray actually is.** Probe targets along
+  the screen's centre column (`{"probe":[[0,-20],...,[0,80]],"d":1.6}`) were
+  hit at pitch 0 / 10 / 20 / 40 for taps at y 250 / 450 / 640 / 850 of 1008.
+  The tap ray follows the **player's own view** (reported pitch 18°, not the
+  free camera's ~50°), mapped through the tapped screen position. Boxes on
+  the camera's line of sight to each flipper were drawn on the flippers but
+  never hit (taps 0/0/0). So every target is **two entities**: an OUTLINE on
+  the camera ray (alpha-blended frame on its top face, what the player sees
+  on the part) and an invisible PICK box on the level-view ray for the same
+  screen spot, following the rider's reported pitch (`fitPinballZone` models
+  `camera` / `level`). Both count as the target. Pick boxes 1.2 blocks from
+  the head, sized for pitches 0-50 (`PICK_PITCHES`) and capped so neighbours
+  never overlap. Device: left, right, left, right, plunger, plunger
+  registered in that order (readout 1/1/0 → 2/3/2) and the ball launched.
+  Offline check of the outlines: `bun scripts/_pinball_zone_report.ts <BP dir>
+  --svg=<file>` projects the playfield, both flippers, the waiting ball and
+  the targets through the seated camera.
+- **The ball is drawn from properties.** The ball entity stays on the serve
+  point; each tick it changes, the runtime writes its plane offset and
+  velocity (`craftmatic:bu/bw/bvu/bvw`) and bumps `craftmatic:seq`. The
+  client's pre-animation times `v.dt` since the last bump, and the `move`
+  animation draws offset + velocity x dt. All four variables must be declared
+  in `initialize`: Bedrock does not default an unset variable, and one GameTest
+  run logged 11,969 "unknown variable" errors before that (0 after, both 924
+  sessions). **Animated bone positions keep the render frame's X and negate
+  its Z** (`PINBALL_AXIS_SIGNS` = +1/−1): with the geometry writer's −1/+1 the
+  ball flew off the cabinet. `{"axes":[sx,sz]}` overrides them live.
+- **Lag, measured.** `{"perf":1}` logs `[pinball-perf]` lines to the content
+  log. With the old per-tick world scan, fixed 12 substeps and teleported
+  ball (`{"cache":0,"fixed":1,"ball":"teleport"}`), the script took 3.39 ms per
+  tick on average (10 windows of 100 ticks, 2.83-4.01). The new defaults took
+  1.71 ms (52 windows, 1.23-2.01). The server tick gap was 50.5 ms either way,
+  so the old runtime did not slow the server. Both ball modes reach the
+  frame rate: `scripts/_video_motion_rate.py` counts 26-29 new pictures per
+  0.5 s in the upper playfield during a shot, teleported or drawn. The client
+  interpolates a teleported entity, so the 20 Hz teleport was not jerky. What
+  the drawn ball removes is the client's interpolation delay (it
+  extrapolates from the latest update instead of easing toward it). That
+  delay was not measured separately, and we do not know which part of the
+  "lag" the user felt it accounts for.
+- **Still open.** The final build's pinball GameTest could not run: another
+  agent's 21360 test variant was bound in `cmgametest` at the same time, and
+  its placement hook answered the pinball request (`actorsFound 0`). The
+  previous build of the same runtime (`7234854a`) passed there: flipper
+  targets 2/2, plunger pull 0 → 0.79 in 20 ticks, ball offset −665 LDU up the
+  lane. Rerun `pinball_arcade_11374` with only that variant bound.
+
+## Figure life: scripted strolls over the real colliders (2026-09-25)
+
+Figures no longer use vanilla `random_stroll` / `minecraft:home`. On the
+Pixel the mob path-finder, which plans in whole block cells, never found a
+path over the partial-height `craftmatic:collider` floors (Winter Chalet:
+0 of 7 roamed). Figures standing on plain ground strolled off the model under
+the 12-block home radius. `scripts/figures.js` (`engine/bedrock-figure-life.ts`)
+now plans over the collision spans themselves: a collider's `[lo, hi]`
+sixteenths, any other block as a cube, plants and carpets excluded. It moves
+the figure by velocity (`applyImpulse` to a target speed each tick). The
+engine's own collision, gravity and step-up then carry that out. This was
+measured to work on mobs on the Pixel. The vanilla behaviour that stays is
+`look_at_player` (probability 0.08) and `random_look_around` for the head.
+
+- **Home record.** At spawn, the placement runtime writes the dynamic property
+  `craftmatic:fig`: `{home, area, ground, f, mode}`. `area` is the placement's
+  world box, `ground` the pin plane, `f` the size factor, and `mode` is
+  `seated` for a `rideOf` figure. The record survives a reload, so the runtime
+  re-adopts figures after one. A figure summoned with a spawn egg takes its
+  current position as home. Only the pack's own figure types are driven.
+- **Planner rules** (`FIGURE_TUNING`). A stroll ends 2-6 cells away. It stays
+  in the footprint, within 7 blocks of home (× the size, capped at 14) and
+  within 1.2 blocks (× size) of the home floor. Steps rise and drop at most
+  0.6 blocks: no jumps and no falls, so a figure keeps to its floor. A
+  diagonal step needs both of its corner cells to be free. A figure turns on
+  the spot when its heading is more than 60° off, walks at 1.2 blocks/s, and
+  pauses 3-9 s between strolls, with a 20 % chance of a 15-25 s pause. After
+  2-12 minutes it may borrow a free seat of its pack for 20-40 s, and it
+  gets up when a player comes within 2.5 blocks. It never stops within 1.25
+  blocks of a door or window leaf. If it is pushed out of its area it plans
+  back in, and after 10 s it is put home. A source-seated figure stays on its
+  seat and is re-seated if it is knocked off. A figure with fewer than 4
+  reachable cells (a plinth or a loft) stays and looks about.
+- **Wedged figures.** A LEGO figure stands a hair from a cupboard, and its
+  1-block collider column often holds that part at head height. The figure
+  first walks one cell out into the free column. With no free neighbour, it
+  is set down once on the standable column within 3 cells whose floor is
+  largest. The first version searched 2 cells for the nearest one, and the
+  chalet's figure 7 picked a cell behind the house wall.
+- **Unsupported homes.** Some sources stand a figure on a part that the
+  collider grid does not carry, such as a display row or a balcony rail. The
+  figure falls at spawn. If its home column has nothing to stand on, the
+  floor it landed on becomes its home, once, and the home record is
+  rewritten. Before this, it was put back in the air every 10 s and fell
+  again. Across the 40 favourites, the census found 16 figures in 5 sets
+  whose spawn point had no support, with 7 in 21360 and 4 in 42639. The
+  cause is spawn and collider coverage, not the AI, and is still open.
+- **Gait.** The walk phase rate comes from the leg: 0.525 blocks from hip to
+  sole, a ±35° swing, and `modified_distance_moved` at about 4 units per
+  block, which gives 74.72°/unit. The old vanilla 38.17 made the feet cover
+  half the ground the body did. The swing fades with `modified_move_speed`.
+  On the Pixel recording (`cm-figures-76457.mp4`) the legs visibly cycle
+  while walking. The 4 units/block reading is not yet measured. A mini-doll's
+  one-piece legs still ride `hips`, so a doll walks stiff-legged.
+
+**Measured on the Pixel** (GameTest `figures_<id>`, 60 s, 100 %, in the
+`cmgametest` arena; logs in the figures worktree's `output/figure-ai/device/`):
+
+| set | vanilla AI (before) | scripted (after, `0711e753`) |
+|---|---|---|
+| 910004 Winter Chalet | 4 roamers: 2 moved (about 40 blocks each), both **left the model** (17-23 of 61 samples) and **fell off the arena** to -2; figure 7 ended **inside a cupboard's collider**; 3 seated stayed | 2/4 moved (mean 4.7 blocks), **0 left, 0 fell, 0 in a wall**; 3/3 seated stayed; the loft figure (2 cells) and figure 7 (set down beside the cupboard, under 4 cells) stay |
+| 41732 Downtown | 7/7 moved (mean 31.1), **6/7 left the model, 4 fell below the floor** | 6/7 moved (mean 17.8), **0 left, 0 fell, 0 in a wall**; figure 3 stays on its 0.94-block perch |
+| 76457 Hogsmeade | 12/12 moved (mean 30.4), **3/12 left the model** | 11/12 moved (mean 17.0), **0 left, 0 fell**; figure 9 stays on its 1-block perch |
+
+The doors tests in the same runs still match the offline walk (910004 3/3,
+41732 6/6). No figure sat down in the 60 s watches, so seat borrowing is
+proved only by the host simulation.
+
+**Offline:** `bun scripts/_figure_roam_census.ts <pack.mcaddon>...` runs the
+shipped `figures.js` in `engine/figure-life-sim.ts`. That is a host world of
+the pack's collider grid with a stand-in for Bedrock's collision. The census
+prints each figure's spawn lift, headroom, reachable cells and simulated
+path. For 41732 and 76457 its "moved" counts matched the device: 6/7 and
+11/12. For 910004 it gives 3/4 against 2/4 on the device. Over all 40
+favourites (`0711e753` packs plus the re-home fix) it simulates 60 s for 236
+figures. 4 are source-seated and stay seated. Of 232 roamers, 177 moved and
+0 left their area. 83 start with fewer than 4 reachable cells, and 16 fell
+from an unsupported spawn.

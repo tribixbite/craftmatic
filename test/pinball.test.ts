@@ -43,12 +43,52 @@ describe('pinball physics (synthetic box)', () => {
     const events = sim.step(IDLE, 0.05);
     expect(events.map(e => e.kind)).toContain('launch');
     expect(sim.state.phase).toBe('play');
-    expect(sim.state.vu).toBeLessThan(-1000);
+    // A spring: half the pull, half the full-pull speed (1900 LDU/s).
+    expect(sim.state.vu).toBeCloseTo(-950, 5);
+  });
+
+  it('a pulled plunger fires on release at a speed proportional to the pull; a weak pull rolls back and re-plunges', () => {
+    const strong = createPinballSim(boxTable());
+    for (const p of [0.3, 0.6, 0.9, 0.9]) strong.step({ ...IDLE, pull: p }, 0.05);
+    expect(strong.state.charge).toBeCloseTo(0.9, 9);
+    expect(strong.state.phase).toBe('ready');
+    const ev = strong.step({ ...IDLE, pull: 0 }, 0.05);
+    expect(ev.map(e => e.kind)).toContain('launch');
+    expect(strong.state.vu).toBeCloseTo(-1900 * 0.9, 5);
+    // A tiny pull is the plunger let go: no shot.
+    const none = createPinballSim(boxTable());
+    none.step({ ...IDLE, pull: 0.03 }, 0.05);
+    expect(none.step({ ...IDLE, pull: 0 }, 0.05).map(e => e.kind)).not.toContain('launch');
+    expect(none.state.phase).toBe('ready');
+    // A weak shot climbs a little, falls back onto the plunger and is served again (no ball lost).
+    const weak = createPinballSim(boxTable());
+    weak.step({ ...IDLE, pull: 0.15 }, 0.05);
+    weak.step({ ...IDLE, pull: 0 }, 0.05);
+    expect(weak.state.phase).toBe('play');
+    const kinds: string[] = [];
+    for (let t = 0; t < 200 && weak.state.phase === 'play'; t++) kinds.push(...weak.step(IDLE, 0.05).map(e => e.kind));
+    expect(kinds).toContain('return');
+    expect(weak.state.ball).toBe(1);
+  });
+
+  it('adapts its substeps: a ball at rest in play costs 2, a fast one the full 12, and neither tunnels', () => {
+    // Count distance() probes through the SDF reads: the static-field test runs once per substep.
+    const t = boxTable();
+    let reads = 0;
+    const counted = { ...t, sdf2: new Proxy(t.sdf2, { get(target, k) { if (typeof k === 'string' && /^\d+$/.test(k)) reads++; return Reflect.get(target, k); } }) } as PinballSimTable;
+    const sim = createPinballSim(counted);
+    sim.state.phase = 'play'; sim.state.u = 300; sim.state.w = 200; sim.state.vu = 0; sim.state.vw = 0;
+    reads = 0; sim.step(IDLE, 0.05);
+    const slow = reads;
+    sim.state.u = 300; sim.state.w = 120; sim.state.vu = -2000; sim.state.vw = 0;
+    reads = 0; sim.step(IDLE, 0.05);
+    const fast = reads;
+    expect(fast / slow).toBeGreaterThan(3);
   });
 
   it('never leaves the box and always drains within a minute without flippers', () => {
     const sim = createPinballSim(boxTable());
-    sim.step({ ...IDLE, launch: true }, 0.05);
+    for (let t = 0; t < 20; t++) sim.step({ ...IDLE, launch: true }, 0.05);
     sim.step(IDLE, 0.05);
     let drained = false;
     for (let t = 0; t < 1200 && !drained; t++) {
