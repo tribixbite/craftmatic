@@ -363,6 +363,19 @@ export async function runSchemPipeline(
       const source = { ...input.source, bricks: repaired.bricks };
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
       warnings.push(...found.warnings);
+      // A train that stands on its own railway track runs ON it (the coaster
+      // engine, driven: bedrock-coaster.ts `RAIL_TRAIN_PHYSICS`), not as a free
+      // wheeled vehicle that would take the track away with it (10277 is titled
+      // "Locomotive"). Only in auto mode: an explicit vehicle mode still wins.
+      if ((input.vehicleMode ?? 'auto') === 'auto' && found.components.length) {
+        const { extractCoasterTrackRoutes } = await import('./coaster-track.js');
+        for (let k = found.components.length - 1; k >= 0; k--) {
+          const railway = extractCoasterTrackRoutes(found.components[k]!.bricks).routes.filter(route => route.family === 'train');
+          if (!railway.length) continue;
+          warnings.push(`Rail: ${found.components[k]!.label} stands on ${railway.length} railway line${railway.length === 1 ? '' : 's'} of its own; it runs on its track as a driven train instead of a free vehicle.`);
+          found.components.splice(k, 1);
+        }
+      }
       const movable = new Set<ParsedBrick>();
       for (const component of found.components) for (const brick of component.bricks) movable.add(brick);
       // The building's own life: figures become NPCs, seats sittable, door leaves doors.
@@ -436,6 +449,9 @@ export async function runSchemPipeline(
             // The set's own cars ARE the train; only a route without them is
             // measured from its posed riders and given the fabricated cart.
             if (route.vehicles) { coasterRoutes.push(route); continue; }
+            // A railway line with no train of the set's own on it stays scenery:
+            // a coaster cart on train track would be invented, not measured.
+            if (route.family === 'train') { warnings.push(`Rail: ${route.label} has no train of the set's own standing on it; it stays part of the build.`); continue; }
             const train = measureCoasterTrain({ points: route.points, closed: route.closed }, riderAnchors, riderMaxOffset);
             if (train) warnings.push(`Coaster: ${route.label} carries a measured train of ${train.count} cars at a ${train.spacing}-block pitch (${train.riders} posed rider${train.riders === 1 ? '' : 's'} on the track; pitches ${train.pitches.join(', ')}).`);
             coasterRoutes.push({ ...route, ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}) });

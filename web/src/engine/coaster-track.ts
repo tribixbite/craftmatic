@@ -410,6 +410,8 @@ function trainProfiles(): Array<[string, CoasterTrackProfile]> {
  * partner is left unrouted.
  */
 const SINGLE_RAILS = new Set(['3228a', '3228b', '3228c']);
+/** A loose 4.5V/12V rail (`pairSingleRails`): track, even where it has no partner to route with. */
+export const isSingleRail = (part: string): boolean => SINGLE_RAILS.has(partStem(part));
 const RAIL_GAUGES_LDU = [100, 60], RAIL_HALF_LENGTH_LDU = 160;
 function pairSingleRails(bricks: readonly ParsedBrick[]): CoasterTrackFragment[] {
   const rails = bricks.map((b, index) => ({ b, index })).filter(({ b }) => SINGLE_RAILS.has(stem(b.part)));

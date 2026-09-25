@@ -251,6 +251,12 @@ export interface CoasterRoute {
   reserve?: CoasterRouteCar[];
   /** The set's own lift on this route, when one was measured. */
   lift?: CoasterRouteLift;
+  /**
+   * `train`: a railway line (`CoasterTrackRouteLdu.family`) carrying the set's
+   * own train, which the rider DRIVES on `RAIL_TRAIN_PHYSICS`: no lift, no
+   * second train, no fabricated cart. Absent: a coaster route, as before.
+   */
+  family?: 'train';
 }
 
 /** The measured flat reload zone a cart brakes into, dwells on, and departs from. */
@@ -417,6 +423,8 @@ export const COASTER_FAMILY = 'craftmatic_coaster';
  * prompt offline (the add-on preview) reads this constant rather than a copy,
  * so the two can never drift. */
 export const RIDE_INTERACT_TEXT = 'Ride the coaster';
+/** The boarding prompt of a railway car (a driven train, `CoasterRoute.family`). */
+export const RAIL_INTERACT_TEXT = 'Drive the train';
 
 /**
  * The ride's physics constants (see the module header for the model), read by
@@ -1343,7 +1351,10 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     // chain climbs; a closed circuit without one runs the way its cars face; an
     // open route with a platform runs toward the parked deck; any other open
     // route shuttles (direction 0: the runtime keeps whichever way it was going).
-    const direction: 1 | -1 | 0 = lift?.kind === 'chain' && route.closed ? lift.climbDirection
+    // A driven train keeps whichever way its driver last sent it (0), circuit or not.
+    const railway = route.family === 'train';
+    const direction: 1 | -1 | 0 = railway ? 0
+      : lift?.kind === 'chain' && route.closed ? lift.climbDirection
       : route.closed ? (cars.heading || 1)
       : lift?.kind === 'platform' ? -1 : 0;
     // A second train waits one train length behind the platform, against the
@@ -1369,6 +1380,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(dispatch ? { dispatch } : {}),
       ...(lift?.kind === 'chain' ? { chain: { start: round3(Math.min(lift.arcStart, lift.arcEnd) + deckLength), end: round3(Math.max(lift.arcStart, lift.arcEnd) + deckLength) } } : {}),
       ...(runtimeLift ? { lift: runtimeLift } : {}),
+      ...(railway ? { physics: RAIL_TRAIN_PHYSICS } : {}),
     };
   });
   return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW } };
@@ -1534,8 +1546,8 @@ function countCuboids(geo: CompiledLdrawGeometry, riderPrefix = 'rider_'): { tot
 }
 
 /** The rideable ride-car behaviour: the fabricated cart's, with the compiled body's hit box and the measured seat. */
-function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number]): unknown {
-  const rideable = { seat_count: 1, family_types: ['player'], interact_text: RIDE_INTERACT_TEXT,
+function carBehavior(typeId: string, riders: number, collision: { width: number; height: number }, seat: [number, number, number], interactText = RIDE_INTERACT_TEXT): unknown {
+  const rideable = { seat_count: 1, family_types: ['player'], interact_text: interactText,
     crouching_skip_interact: true, seats: { position: seat, lock_rider_rotation: 181 } };
   return withSizeGroups({ format_version: '1.26.30', 'minecraft:entity': {
     description: { identifier: typeId, is_spawnable: false, is_summonable: true,
@@ -1618,6 +1630,8 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
   const names: CoasterRideAssets['names'] = [];
   const warnings: string[] = [];
   const cartTypeUsed = config.routes.some(route => !route.cars.slots);
+  /** Car types that run on a railway line: their prompt says the rider drives. */
+  const railTypes = new Set(config.routes.filter(route => route.physics?.DRIVER).flatMap(route => (route.cars.slots ?? []).map(slot => slot.type)));
   let cartCuboids = 0, vehicleCuboids = 0;
   // The runtime's types, with what only this stage knows: the fabricated
   // cart's wheelbase at the export scale, each compiled car's seat.
@@ -1669,7 +1683,7 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
     files.push({ name: `${rp}animations/${type.id}.animation.json`, data: jsonBytes(carAnimation(animationId, type.riders.length)) });
     compiled.push({
       id: type.id, typeId: type.typeId, role: 'car', label: `${label} ${type.chassis.replace(/\.dat$/i, '')} car`, geo,
-      behavior: carBehavior(type.typeId, type.riders.length, geo.collisionBox, seat),
+      behavior: carBehavior(type.typeId, type.riders.length, geo.collisionBox, seat, railTypes.has(type.typeId) ? RAIL_INTERACT_TEXT : RIDE_INTERACT_TEXT),
       animations: { animations: { track: animationId }, animate: ['track'] },
       cuboids: counted.total, riderCuboids: counted.rider, riders: type.riders.length,
     });
@@ -1846,7 +1860,8 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
   tracks.routes.forEach((track, routeIndex) => {
     const points = track.points.map(toBlocks);
     const maxSegmentLength = track.maxSegmentLengthLdu * frame.scale / Math.min(frame.cellXZ, frame.cellY);
-    const base: CoasterRoute = { label: track.label, points, closed: track.closed, maxSegmentLength };
+    const railway = track.family === 'train';
+    const base: CoasterRoute = { label: track.label, points, closed: track.closed, maxSegmentLength, ...(railway ? { family: 'train' as const } : {}) };
     // LDU arcs along this route, for the chain lift's span and the siding rule.
     const cumulativeLdu = [0];
     for (let i = 1; i < track.points.length; i++) cumulativeLdu.push(cumulativeLdu[i - 1]! + len3(sub3(track.points[i]!, track.points[i - 1]!)));
@@ -1864,7 +1879,9 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
     if (cars.length) {
       const longest = Math.max(...cars.map(car => car.lengthLdu));
       const trainLength = (train?.extentLdu ?? 0) + Math.max(train?.meanPitchLdu ?? 0, longest);
-      if (!track.closed && lengthLdu < PARKED_SIDING_FACTOR * trainLength) {
+      // A railway line is driven wherever the train has room to move at all; a
+      // coaster's short open track is a siding that holds a spare train.
+      if (!track.closed && (railway ? lengthLdu <= trainLength : lengthLdu < PARKED_SIDING_FACTOR * trainLength)) {
         const entry = { label: track.label, cars: cars.length, reason: `an open ${round3(lengthLdu)}-LDU track holding a ${round3(trainLength)}-LDU train is a siding` };
         parked.push(entry);
         sidings.push({ label: track.label, cars, points, parked: entry, stays: `${track.label}: its ${cars.length} car${cars.length === 1 ? '' : 's'} stay parked - ${round3(lengthLdu)} LDU of open track is under ${PARKED_SIDING_FACTOR} train lengths (${round3(trainLength)} LDU), a siding rather than a ride.` });
@@ -1875,9 +1892,9 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
       vehicles = kept.map(routeCar);
     }
 
-    // ── The route's lift ──
+    // ── The route's lift ── (a railway line has none)
     let lift: CoasterRouteLift | undefined;
-    for (const found of assemblies.lifts) {
+    for (const found of railway ? [] : assemblies.lifts) {
       if (found.kind === 'chain' && found.routeIndex === routeIndex) {
         lift = { kind: 'chain', arcStart: round3(arcToBlocks(found.arcStartLdu)), arcEnd: round3(arcToBlocks(found.arcEndLdu)), climbDirection: found.climbDirection, sprockets: found.sprockets.length + found.links.length };
         break;
@@ -1891,7 +1908,7 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
     }
     const route: CoasterRoute = { ...base, ...(vehicles ? { vehicles } : {}), ...(lift ? { lift } : {}) };
     // The set's own cars run two trains where the route circulates (a circuit, or the lift's).
-    if (vehicles && (track.closed || lift?.kind === 'platform')) {
+    if (vehicles && !railway && (track.closed || lift?.kind === 'platform')) {
       route.trains = COASTER_TRAINS;
       rideRoutes.push({ route, points, count: vehicles.length });
     }
