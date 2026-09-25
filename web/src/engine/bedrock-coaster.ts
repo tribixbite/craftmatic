@@ -2140,7 +2140,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             points.push(p.location);
             previous = riderView(p.nose, p.up, { yaw: 0, pitch: 0 }, previous, 'roll', 40);
             // Keyframes must be MORE than 0.05 s apart: every second tick, and the last.
-            if (k % 2 === 0 || k === steps) rotations.push({ rotation: { x: previous.pitch, y: previous.yaw, z: previous.roll }, timeSeconds: k * seconds / steps });
+            if (k % 2 === 0 || k === steps) rotations.push({ rotation: { x: (words[6] === "same" ? 1 : -1) * previous.pitch, y: previous.yaw, z: previous.roll }, timeSeconds: k * seconds / steps });
           }
           if (rotations.length > 2 && rotations[rotations.length - 1].timeSeconds - rotations[rotations.length - 2].timeSeconds <= 0.05) rotations.splice(rotations.length - 2, 1);
           const byIndex = words[5] === 'index';
