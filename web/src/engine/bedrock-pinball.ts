@@ -102,6 +102,14 @@ export interface PinballPlungerPlan {
 
 /** What a tap target works, and the playfield rectangle (u0, u1, w0, w1; LDU) it must cover on screen. */
 export interface PinballZoneSpec {
+  /**
+   * Distance from the head to this target's boxes, as a fraction of the
+   * shared reach. The plunger's sits nearer (0.75) than the flipper
+   * buttons': where the right button's enlarged area and the plunger's meet
+   * on screen, the nearer box is the one a tap hits, so the two need not be
+   * squeezed apart (square pick boxes squeezed the plunger's to 0.05 blocks).
+   */
+  depth?: number;
   role: 'left' | 'right' | 'plunger';
   rect: [number, number, number, number];
   /** Height above the model origin along the normal where the target's parts are, LDU. */
@@ -261,6 +269,8 @@ function rectSamples(rect: [number, number, number, number], h: number, toPoint:
 
 /** Tap-target reach: close enough for any phone tap, far enough that the box is not inside the head. */
 export const PINBALL_TAP_REACH = 1.2;
+/** The plunger target's distance as a fraction of `PINBALL_TAP_REACH` (see `PinballZoneSpec.depth`). */
+export const PLUNGER_DEPTH = 0.75;
 
 /**
  * The tap targets: over each flipper, the playfield from its hinge's outer
@@ -296,10 +306,10 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
   ];
   if (hasPlunger) {
     const [lu, lw] = table.launch.at;
-    specs.push({ role: 'plunger', rect: [lu - R * 1.5, lu + R * 4, lw - R * 1.2, lw + R * 1.2], h });
+    specs.push({ role: 'plunger', rect: [lu - R * 1.5, lu + R * 4, lw - R * 1.2, lw + R * 1.2], h, depth: PLUNGER_DEPTH });
   }
   const toModel = (u: number, w: number, hh: number): number[] => [0, 1, 2].map(k => map.p0[k]! + u * map.u[k]! + w * map.w[k]! + hh * map.n[k]!);
-  const fits = specs.map(s => ({ role: s.role, ...fitPinballZone(eye, eye, look, rectSamples(s.rect, s.h, toModel), PINBALL_TAP_REACH, 'camera', 0) }));
+  const fits = specs.map(s => ({ role: s.role, ...fitPinballZone(eye, eye, look, rectSamples(s.rect, s.h, toModel), PINBALL_TAP_REACH * (s.depth ?? 1), 'camera', 0) }));
   // A box is square across (one width for X and Z) - it has to cover the
   // larger of the two horizontal extents - and is padded a little so a tap on
   // the very edge of the covered area still lands.
@@ -323,7 +333,7 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
   const sep = (a: { centre: number[] }, b: { centre: number[] }): number => Math.max(Math.abs(a.centre[0]! - b.centre[0]!), Math.abs(a.centre[2]! - b.centre[2]!));
   const [lFit, rFit] = [flipperFits.find(f => f.role === 'left'), flipperFits.find(f => f.role === 'right')];
   if (lFit && rFit) flipperBox.width = Math.min(flipperBox.width, Math.floor((sep(lFit, rFit) - GAP) * 100) / 100);
-  for (const p of plungerFits) for (const f of flipperFits) {
+  for (const p of plungerFits.filter(x => (specs.find(s => s.role === x.role)!.depth ?? 1) === 1)) for (const f of flipperFits) {
     const room = 2 * sep(p, f) - flipperBox.width - GAP;
     if (room < plungerBox.width) plungerBox.width = Math.max(0.05, Math.floor(room * 100) / 100);
   }
@@ -343,7 +353,7 @@ function planPickBoxes(specs: PinballZoneSpec[], toModel: (u: number, w: number,
   const size = (f: { lo: number[]; hi: number[] }): { w: number; h: number } => ({ w: Math.max(f.hi[0]! - f.lo[0]!, f.hi[2]! - f.lo[2]!) + 2 * PAD, h: f.hi[1]! - f.lo[1]! + 2 * PAD });
   const sep = (a: { centre: number[] }, b: { centre: number[] }): number => Math.max(Math.abs(a.centre[0]! - b.centre[0]!), Math.abs(a.centre[2]! - b.centre[2]!));
   let fw = 0, fh = 0, pw = 0, ph = 0, capF = Infinity;
-  const perPitch = PICK_PITCHES.map(pp => specs.map(s => ({ role: s.role, ...fitPinballZone(eye, eye, look, rectSamples(s.rect, s.h, toModel), PINBALL_TAP_REACH, 'level', pp) })));
+  const perPitch = PICK_PITCHES.map(pp => specs.map(s => ({ role: s.role, ...fitPinballZone(eye, eye, look, rectSamples(s.rect, s.h, toModel), PINBALL_TAP_REACH * (s.depth ?? 1), 'level', pp) })));
   for (const fits of perPitch) {
     for (const f of fits) {
       const z = size(f);
@@ -353,7 +363,8 @@ function planPickBoxes(specs: PinballZoneSpec[], toModel: (u: number, w: number,
     if (l && r) capF = Math.min(capF, sep(l, r) - GAP);
   }
   fw = Math.min(fw, capF);
-  for (const fits of perPitch) for (const pf of fits.filter(f => f.role === 'plunger')) for (const f of fits.filter(x => x.role !== 'plunger')) pw = Math.min(pw, Math.max(0.05, 2 * sep(pf, f) - fw - GAP));
+  const plungerDepth = specs.find(s => s.role === 'plunger')?.depth ?? 1;
+  if (plungerDepth === 1) for (const fits of perPitch) for (const pf of fits.filter(f => f.role === 'plunger')) for (const f of fits.filter(x => x.role !== 'plunger')) pw = Math.min(pw, Math.max(0.05, 2 * sep(pf, f) - fw - GAP));
   const r2 = (v: number): number => Math.floor(v * 100) / 100;
   return { flipper: { width: r2(fw), height: r2(fh) }, plunger: { width: r2(pw), height: r2(ph) } };
 }
@@ -892,7 +903,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     const outline = layer === 'outline';
     const model = outline ? 'camera' : tune.pick;
     const pitch = Number.isFinite(tune.pitch) ? tune.pitch : Number.isFinite(game.riderPitch) ? game.riderPitch : 0;
-    const fit = fitZone([a.eye.x, a.eye.y, a.eye.z], [a.cam.x, a.cam.y, a.cam.z], [a.facing.x, a.facing.y, a.facing.z], samples, tune.reach, model, pitch);
+    const fit = fitZone([a.eye.x, a.eye.y, a.eye.z], [a.cam.x, a.cam.y, a.cam.z], [a.facing.x, a.facing.y, a.facing.z], samples, tune.reach * (spec.depth ?? 1), model, pitch);
     const z = config.zones;
     const box = outline ? (role === 'plunger' ? z.plungerBox : z.flipperBox) : (role === 'plunger' ? z.pickPlungerBox : z.pickFlipperBox);
     const off = outline ? { fwd: 0, left: 0, up: 0 } : tune;

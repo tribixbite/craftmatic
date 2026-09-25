@@ -34,7 +34,7 @@ const samples = (rect: number[], h: number): number[][] => {
   return out;
 };
 const boxes = cfg.zones.specs.map(s => {
-  const fit = fitPinballZone(eye, eye, facing, samples(s.rect, s.h), cfg.zones.reach, pick, pitch);
+  const fit = fitPinballZone(eye, eye, facing, samples(s.rect, s.h), cfg.zones.reach * (s.depth ?? 1), pick, pitch);
   const size = s.role === 'plunger' ? cfg.zones.plungerBox : cfg.zones.flipperBox;
   const lo = [fit.centre[0]! - size.width / 2, fit.centre[1]! - size.height / 2, fit.centre[2]! - size.width / 2];
   const hi = [fit.centre[0]! + size.width / 2, fit.centre[1]! + size.height / 2, fit.centre[2]! + size.width / 2];
