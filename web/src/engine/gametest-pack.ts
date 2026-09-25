@@ -1321,8 +1321,10 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
    * TRAIN_PHASE` line per phase, the verdict `CMGT TRAIN`.
    */
   const trainList = vehicleKit ? plan.trains ?? [] : [];
+  // A model wider than one structure (4559's circuit is 64 wide) still runs its
+  // train: the placement stands partly on the flat world beside the arena, and
+  // the train only needs its own track, which the placement lays.
   trainList.forEach((tr, n) => {
-    if (oversized) { log('TRAIN', { label: tr.label, skipped: 'model wider than one arena' }); return; }
     gt.registerAsync(NS, `train_${plan.modelId}_${n + 1}`, async (test: any) => {
       const placed = await placeModel(test, `train${n + 1}`, windows[windowIndexOf(tr)]!.x0);
       if (!placed) return;
