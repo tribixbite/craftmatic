@@ -26,13 +26,29 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
-## In flight — 2026-09-25 (agents in worktrees)
+## Round 2026-09-25 afternoon — merged at `f5396df2`
 
-- [ ] **Physics audit + spec**: gravity/units across coaster, pinball,
-  vehicles, figure walker (vs real and vs Minecraft's ~32 blocks/s^2, Froude
-  scaling with wand size); coaster pace "a touch too fast" — pace 1.4 broke
-  two 10303 tests (patch `output/pace-1.4-attempt.patch`); spec
-  `docs/physics-architecture.md` with a CI-gated staleness checker.
+- [x] Vehicles: scripted cars / boats / fixed-wing planes (vanilla controllers
+  measured and rejected on the Pixel); trains run on the coaster's
+  `rideSubstep` (DRY; coasters replay identically). Audit table in
+  docs/bedrock-addon-guide.md "Vehicle operation ... measured"
+  (`scripts/_vehicle_audit.ts`). Open: misclassified 70618 / 10497 / 75397,
+  vehicles inside scenery (60380 cars, 910047 boats) never offered, 42128
+  facing unknown, rough collision (centre line + nose only), GameTest cannot
+  drive trains, Mecabricks/LXF train track 90 degrees off (clego), 10337 rims
+  38 LDU off their tyres (source), headlights.
+- [x] Physics: gravity audited (coaster 2 g at pace sqrt(2), pinball 0.65x
+  real, Minecraft 16/32 blocks/s^2); spec `docs/physics-architecture.md` gated
+  by `test/physics-spec.test.ts`. Merge note: the camera's pure `integrate`
+  and the trains' `rideStep` are ONE integrator now (`coasterRuntime`).
+- [x] Pinball round 3: tap targets on the cabinet's flipper buttons, held item
+  hidden (empty-slot park / safe swap), drag or stick-pull plunger, ~100 ms
+  tap-to-flipper (round-trip floor). Open: button press barely visible from
+  the seat; tuning hooks still ship.
+- [ ] Coaster camera round 2 (`loop` mode: per-loop camera animation rolls
+  upside down; drop fixed) — **device ride pending** (camera agent waits for
+  the phone lock).
+- [x] Tests/builds read clego's `ldraw_ref/` before prod (`CRAFTMATIC_LDRAW_REF`).
 
 ## Vehicle round — 2026-09-25 (cars, boats, planes; trains on the coaster engine)
 
