@@ -193,12 +193,12 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
   not the view ray, and says when it refuses; the wand menu says to stand
   within about 3 blocks (`INTERACTIVE_REACH_NOTE`). Window 1 is 5 blocks up:
   out of reach from the street, taps accepted from the room behind it offline.
-- Favourites at `7f4637f7`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
+- Favourites at `07651eae`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
   (all walked without a jump), 1 SMALL (OK at 150 %), 36 SEALED; tap-box audit
   246 parts / 1,434 boxes / 0 problems; tap probe 242 of 246 parts take a tap
   (2 enclosed turnables refused, 2 out of reach); 61 seats (21 brick-built
-  stools). Output: `output/interactivity-0924/favorites-sweep-7f46/`,
-  `favorites-ix-7f46.{md,json}`.
+  stools). Output: `output/interactivity-0924/favorites-sweep-0765/`,
+  `favorites-ix-0765.{md,json}`.
 - Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
 
 Open:

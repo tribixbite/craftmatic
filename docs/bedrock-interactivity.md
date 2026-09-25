@@ -298,7 +298,7 @@ occupant step-out and the threshold treads.
 
 ## Measured on the favourites (2026-09-24)
 
-`bun scripts/_favorites_export_sweep.ts` at `7f4637f7` (after device round
+`bun scripts/_favorites_export_sweep.ts` at `07651eae` (after device round
 2026-09-24e's fixes): **40/40 exported, 0 problems**; then `bun scripts/_ix_sweep_report.ts <sweep dir> --md=...` walked every
 doorway at 100 % (turn 0) and at its passable size. **72 doorways, 0 FAIL**: 35
 walked through open and blocked closed at 100 %, 1 too small at 100 % (SMALL,
