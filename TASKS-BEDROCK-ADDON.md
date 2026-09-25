@@ -252,35 +252,46 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
   not the view ray, and says when it refuses; the wand menu says to stand
   within about 3 blocks (`INTERACTIVE_REACH_NOTE`). Window 1 is 5 blocks up:
   out of reach from the street, taps accepted from the room behind it offline.
-- Favourites at `07651eae`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
-  (all walked without a jump), 1 SMALL (OK at 150 %), 36 SEALED; tap-box audit
-  246 parts / 1,434 boxes / 0 problems; tap probe 242 of 246 parts take a tap
-  (2 enclosed turnables refused, 2 out of reach); 61 seats (21 brick-built
-  stools). Output: `output/interactivity-0924/favorites-sweep-0765/`,
-  `favorites-ix-0765.{md,json}`.
+- 2026-09-25 extension (automated pipeline over the 40 favourites): ONE
+  interactivity stage (`engine/interactivity-stage.ts`) with a per-set report
+  of every candidate (found / static + rule / rides / owned / unhandled) in the
+  pack diagnostics; new classes: drawers, chest lids, garage roller doors and
+  sliding doors (slides), brick-built benches, chairs, sofas and beds;
+  `~Moved to` moulds classify by their target; decorative rotors stay static;
+  double doors pair by jambs or blocked paths. The 40-set table (found /
+  missed / found more / doorways / GameTest) is in docs/bedrock-interactivity.md
+  "The 40-set audit"; visual audit JSONs in `output/interactivity-0924/audit-visual/`.
+- Favourites at `7867a80f`: 40/40 export, 73 doorways, 0 FAIL, 36 OK at 100 %,
+  1 SMALL, 36 SEALED; 233 parts / 1,512 tap boxes / 0 problems; 227 parts take
+  a tap within 3 blocks; 0 unhandled candidates. Output:
+  `output/interactivity-0924/audit-7867/`, `favorites-ix-7867.{md,json}`,
+  `audit-table-final.md`.
+- GameTest (parts toggled by a hit from an audited spot, seats mounted, doors
+  walked, wide models in x-windows) on the Pixel: `output/gametest/ix-7867/`
+  (`device-summary.json`, `logs/<set>.log`).
 - Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
 
 Open:
 - [ ] Device round on the rebuilt 76457 pack: sit on the stool by Window 3;
-  Door 1 swings on its own (Door 2 does not move with it) - if it still does
-  not, the action bar now says why; Window 1 from the room behind it.
-  Still unproven: `custom_hit_test` pivot as the box centre, root-bone scale at
-  a non-100 % size, occupant step-out, threshold treads, state after reload.
+  Door 1 swings on its own; Window 1 from the room behind it. Unproven:
+  `custom_hit_test` pivot as the box centre, root-bone scale at a non-100 %
+  size, occupant step-out, threshold treads, the SLIDE direction of drawers
+  and roller doors (derived), lids' swing.
+- [ ] Brick-built doors and gates (80049, 910004, 910047, 10354, 42639,
+  910049, 41395): need a hinge-joint detector (clip/hinge pair + the slab on
+  its free side). Mechanisms (cranes, winches, lifts, drawbridges): no rule.
+- [ ] Brick-built seats and beds the furniture rule misses (910032 12 seats,
+  42670 6, 71043 hall benches, 42663 camper beds without headboards, 910004
+  beds) and its unverified finds (read from columns, not seen in game; 31141's
+  roof "stool" is probably a chimney cap).
 - [ ] 36 SEALED doorways: rooms the 1-block collider grid fills (any geometry
   in a cell makes it solid). Needs finer colliders (half-block or per-cell
   occupancy fraction), not a deeper doorway cut.
 - [ ] STEP at big sizes: a doorstep that grows past the 1.25-block jump (31141
   at 200 %, 76417's front doors at 300 %); the tread planner does not reach it.
-- [ ] Stool false positives: 31141's roof tile on 1 x 2 bricks (a chimney
-  cap?) gets a seat; 60446's rounded-end tiles and one 41732 tile are unclear.
-  Look at the 21 in the game or the Walk add-on before tightening the rule
-  (an indoors test would drop outdoor cafe stools).
-- [ ] Symmetric-origin moulds stay static (40066 arch door, 92099 trap door,
-  30059 container door, 38320 pane); sliding/roller doors unmodelled; gears
-  excluded; doors on DRIVEN vehicles are part of the vehicle entity.
-- [ ] Brick-built chairs other than a 2 x 2 tile on a narrow column (benches,
-  1 x 2 seats, chairs whose seat is a plate with studs) still need the wand's
-  "Add seat here".
+- [ ] Symmetric-origin moulds stay static (40066 arch, 92099 trap door, 4346
+  box door, 38320 pane); gears excluded; doors on DRIVEN vehicles are part of
+  the vehicle entity.
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 
