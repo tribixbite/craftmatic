@@ -125,6 +125,8 @@ describe('playable Bedrock add-on',()=>{
     expect(cameraScript).toContain("controlscheme @s ${value}");
     expect(cameraScript).toContain('minecraft:free');
     expect(cameraScript).toContain('"radius":');
+    // Hotbar slot 9 swaps the chase camera for the cockpit view.
+    expect(cameraScript).toContain('selectedSlotIndex === 8');
     expect(driverScript).toContain('stallTicks');
     // Reverse is native (GameTest 2026-09-25); sneak is Dismount, never a horn; telemetry for measured drives.
     expect(driverScript).not.toContain('revSpeed');

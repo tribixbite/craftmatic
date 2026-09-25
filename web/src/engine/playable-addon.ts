@@ -1611,9 +1611,21 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
       if (!t || t.typeId !== cfg.typeId) {
         scheme(player, cfg.scripted ? 'clear' : 'set player_relative');
         tracked.set(id, { typeId: cfg.typeId, chase: true });
+        try { player.sendMessage('§7Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
       } else if (schemeTick % 10 === 0 && !cfg.scripted) {
         scheme(player, 'set player_relative');
       }
+      // Hotbar slot 9 is the COCKPIT view: the chase camera steps aside and the
+      // rider sees from the seat (their own first person). Sneak is Dismount and
+      // Jump is the vehicle's, so a hotbar slot is the one free touch input.
+      let cockpit = false;
+      try { cockpit = player.selectedSlotIndex === 8; } catch {}
+      const now = tracked.get(id);
+      if (cockpit) {
+        if (now && now.chase) { try { player.camera.clear(); } catch {} now.chase = false; }
+        continue;
+      }
+      if (now) now.chase = true;
       if (!chase(player, vehicle, cfg) && !t) applyPreset(player, cfg.preset);
     }
     schemeTick++;
