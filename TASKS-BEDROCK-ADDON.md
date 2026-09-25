@@ -193,10 +193,12 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
   not the view ray, and says when it refuses; the wand menu says to stand
   within about 3 blocks (`INTERACTIVE_REACH_NOTE`). Window 1 is 5 blocks up:
   out of reach from the street, taps accepted from the room behind it offline.
-- Favourites at `d8c85e34`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
+- Favourites at `7f4637f7`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
   (all walked without a jump), 1 SMALL (OK at 150 %), 36 SEALED; tap-box audit
-  246 parts / 1,434 boxes / 0 problems. Output:
-  `output/interactivity-0924/favorites-sweep-d8c8/`, `favorites-ix-d8c8.{md,json}`.
+  246 parts / 1,434 boxes / 0 problems; tap probe 242 of 246 parts take a tap
+  (2 enclosed turnables refused, 2 out of reach); 61 seats (21 brick-built
+  stools). Output: `output/interactivity-0924/favorites-sweep-7f46/`,
+  `favorites-ix-7f46.{md,json}`.
 - Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
 
 Open:
@@ -210,6 +212,10 @@ Open:
   occupancy fraction), not a deeper doorway cut.
 - [ ] STEP at big sizes: a doorstep that grows past the 1.25-block jump (31141
   at 200 %, 76417's front doors at 300 %); the tread planner does not reach it.
+- [ ] Stool false positives: 31141's roof tile on 1 x 2 bricks (a chimney
+  cap?) gets a seat; 60446's rounded-end tiles and one 41732 tile are unclear.
+  Look at the 21 in the game or the Walk add-on before tightening the rule
+  (an indoors test would drop outdoor cafe stools).
 - [ ] Symmetric-origin moulds stay static (40066 arch door, 92099 trap door,
   30059 container door, 38320 pane); sliding/roller doors unmodelled; gears
   excluded; doors on DRIVEN vehicles are part of the vehicle entity.

@@ -290,18 +290,31 @@ occupant step-out and the threshold treads.
 
 ## Measured on the favourites (2026-09-24)
 
-`bun scripts/_favorites_export_sweep.ts` at `d8c85e34` (after the device-round
-fixes): **40/40 exported, 0 problems**; then `bun scripts/_ix_sweep_report.ts <sweep dir> --md=...` walked every
+`bun scripts/_favorites_export_sweep.ts` at `7f4637f7` (after device round
+2026-09-24e's fixes): **40/40 exported, 0 problems**; then `bun scripts/_ix_sweep_report.ts <sweep dir> --md=...` walked every
 doorway at 100 % (turn 0) and at its passable size. **72 doorways, 0 FAIL**: 35
 walked through open and blocked closed at 100 %, 1 too small at 100 % (SMALL,
 kept blocked) and walked through at its 150 %, **36 SEALED**. Totals: 72 doors,
-12 cabinets, 67 windows, 11 levers, 84 turnables, 40 seats. `bun
+12 cabinets, 67 windows, 11 levers, 84 turnables, 61 seats (40 moulded, 21
+brick-built stools in 12 sets). `bun
 scripts/_ix_hitbox_audit.ts` over the same 40 packs: 246 parts, 1,434 tap
 boxes, **0 overlaps between parts, 0 over a seat, 0 parts without a box**. Two
 turnables could not keep a box clear and stay static (the export warns): 10261's
 turntable 3679 sits under a seat, and one of 21318's two coincident 32124s (0 gates and 0 hatches:
 the favourites have no fence gate, and their two trap doors are 92099, whose
 centred origin names no hinge).
+
+`bun scripts/_ix_tap_probe.ts` over the same packs: of 246 parts, **242 take a
+tap** from a standing spot within 3 blocks. 2 are refused from every such spot
+because the model's own colliders stand on every line of sight: 10337's
+turnable 1 and 75397's turnable 1, both closed inside a body you cannot stand
+in. 2 more have no standing spot within reach at all: 21318's and 75397's
+turnable 2. The 21 stools were read from their columns (`_seat_scan.ts`), not
+checked by eye in the game. Most are a round tile or a studs-on-edge tile on a
+round plate or brick, as designed. At least one is a false positive: 31141's
+is a 2 x 2 tile on 1 x 2 bricks on a roof, probably a chimney cap. Some others
+are unclear: 60446's rounded-end tiles, and a 41732 tile on small tiles on a
+plate. The stool rule has no test for indoors.
 
 SEALED is the one number to read carefully. It means the doorway opens (leaf
 swings, its cells clear) but one side has no floor a player can stand on along
