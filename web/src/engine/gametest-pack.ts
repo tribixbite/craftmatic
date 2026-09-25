@@ -76,6 +76,37 @@ export interface GametestDoorway {
   expectOpen: WalkOutcome;
   /** Offline verdict (OK, SEALED, …) — reported beside the device verdict. */
   offlineVerdict: string;
+  /** The arena window it is tested in (`arenaWindows`), 0 for a model that fits one arena. */
+  window?: number;
+}
+
+/**
+ * A moving part the device toggles by a hit (`attackEntity`, the route that
+ * reaches `entityHitEntity`): a window, cupboard, hatch, lever or turnable,
+ * or a door with no doorway walk. `from` is a standing spot the offline tap
+ * audit (`test/_ix-tap-audit.ts`) accepted, so the runtime's line-of-sight
+ * test lets the tap through there.
+ */
+export interface GametestPart {
+  label: string;
+  typeId: string;
+  kind: string;
+  /** Actor position, model-local (turn 0, 100 %). */
+  actor: Vec3;
+  /** Feet position to tap from, model-local. */
+  from: Vec3;
+  /** The item's open angle (signed), or a turnable's step: what one tap sets or adds. */
+  openAngle: number;
+  window?: number;
+}
+
+/** A seat the device mounts with `interactWithEntity` (the engine's rideable, no script). */
+export interface GametestSeat {
+  label: string;
+  typeId: string;
+  /** Seat actor position, model-local. */
+  at: Vec3;
+  window?: number;
 }
 
 export interface GametestPlan {
@@ -92,6 +123,34 @@ export interface GametestPlan {
   debuggerTarget?: string | undefined;
   /** A pinball machine's runtime types (`scripts/pinball.js` CONFIG), when the pack has one. */
   pinball?: GametestPinball | undefined;
+  /** Moving parts to toggle by a hit, and seats to mount. */
+  parts?: GametestPart[] | undefined;
+  seats?: GametestSeat[] | undefined;
+  /** Model-local x ranges tested one arena at a time (`arenaWindows`); absent: the whole model fits one. */
+  windows?: Array<{ x0: number; x1: number }> | undefined;
+}
+
+/**
+ * The model-local x ranges the tests run in: one arena holds at most
+ * `GT_MAX_ARENA.x - 2 * GT_MARGIN` blocks of model, so a wider model (76457,
+ * 77092) is tested in windows, each placing the model shifted so that window
+ * lies over the arena floor (the rest stands on the world beside it).
+ */
+export function arenaWindows(dims: GametestPlan['dims']): Array<{ x0: number; x1: number }> {
+  const span = GT_MAX_ARENA.x - 2 * GT_MARGIN;
+  if (dims.width <= span) return [{ x0: 0, x1: dims.width }];
+  const out: Array<{ x0: number; x1: number }> = [];
+  for (let x0 = 0; x0 < dims.width; x0 += span - 8) {
+    out.push({ x0, x1: Math.min(dims.width, x0 + span) });
+    if (x0 + span >= dims.width) break;
+  }
+  return out;
+}
+
+/** The window a model-local x is tested in: the first whose middle part holds it (4 blocks of slack each side). */
+export function windowOf(windows: ReadonlyArray<{ x0: number; x1: number }>, x: number): number {
+  const i = windows.findIndex((w, k) => x >= w.x0 + (k ? 4 : 0) && x < w.x1 - (k < windows.length - 1 ? 4 : 0));
+  return i >= 0 ? i : windows.length - 1;
 }
 
 export interface GametestPinball {
@@ -192,7 +251,8 @@ export function variantManifest(manifest: Manifest, version: number[] = manifest
 
 /** Arena size: the model's box plus `GT_MARGIN` each side, one floor layer and headroom. */
 export function arenaSize(dims: GametestPlan['dims']): Vec3 {
-  return { x: dims.width + 2 * GT_MARGIN, y: dims.height + 3, z: dims.length + 2 * GT_MARGIN };
+  // A model wider than one structure is tested in windows (`arenaWindows`); the arena is the widest window.
+  return { x: Math.min(dims.width + 2 * GT_MARGIN, GT_MAX_ARENA.x), y: dims.height + 3, z: dims.length + 2 * GT_MARGIN };
 }
 
 /**
@@ -314,10 +374,11 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
    * injected hook), for a simulated player spawned in the arena. Returns
    * undefined (after failing the test) when the placement did not land.
    */
-  const placeModel = async (test: any, testName: string): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
+  const placeModel = async (test: any, testName: string, shiftX = 0): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
     const name = `cmgt_${Math.floor(Math.random() * 1e6)}`;
     const f = floorY(test, margin, margin);
-    const anchor = test.worldBlockLocation({ x: margin, y: f.y + 1, z: margin });
+    // A window past the first: the model is placed shifted -x so that window lies over the arena.
+    const anchor = test.worldBlockLocation({ x: margin - shiftX, y: f.y + 1, z: margin });
     const sim = test.spawnSimulatedPlayer({ x: 1, y: f.y + 1, z: 1 }, name, gameMode);
     log('ARENA', { test: testName, model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
     await test.idle(5);
@@ -333,9 +394,17 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   const nearest = (dim: any, type: string, at: Vec3, maxDistance: number): any =>
     dim.getEntities({ type, location: at, maxDistance }).sort((a: any, b: any) => dist2(a.location, at) - dist2(b.location, at))[0];
 
+  // The plan's arena windows (`arenaWindows`) and each item's window (`windowOf`), computed by the plan builder.
+  const windows: Array<{ x0: number; x1: number }> = plan.windows?.length ? plan.windows : [{ x0: 0, x1: plan.dims.width }];
+  const windowIndexOf = (item: { window?: number }): number => item.window ?? 0;
+  const suffix = (w: number): string => (windows.length > 1 ? `_w${w}` : '');
+  const angleOf = (e: any): unknown => { try { return e.getProperty(plan.angleProperty); } catch (err) { return `error: ${String(err)}`; } };
+
   /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
-  if (plan.doorways.length) gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
-    const placed = await placeModel(test, 'doors');
+  for (let w = 0; w < windows.length; w++) {
+  const doorways = plan.doorways.filter(d => windowIndexOf(d) === w);
+  if (doorways.length) gt.registerAsync(NS, `doors_${plan.modelId}${suffix(w)}`, async (test: any) => {
+    const placed = await placeModel(test, 'doors', windows[w]!.x0);
     if (!placed) return;
     const { sim, anchor, dim } = placed;
     await test.idle(40); // two interactives sync passes: closed doorways get their colliders
@@ -350,10 +419,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       const j = judge(startW, endW, at);
       return { outcome: j.outcome, progress: j.progress, at: round(at) };
     };
-    const angleOf = (e: any): unknown => { try { return e.getProperty(plan.angleProperty); } catch (err) { return `error: ${String(err)}`; } };
-
     const results: any[] = [];
-    for (const d of plan.doorways) {
+    for (const d of doorways) {
       const leafAt = add(anchor, d.actor);
       const leaf = nearest(dim, d.typeId, leafAt, 4);
       const startW = add(anchor, d.start), endW = add(anchor, d.end);
@@ -396,7 +463,75 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     flush();
     if (failed.length) test.fail(`${failed.length}/${results.length} doorways differ from the offline walk: ${failed.map(r => r.label).join(', ')}`);
     else test.succeed();
-  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + plan.doorways.length * 400).tag(NS);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + doorways.length * 400).tag(NS);
+
+  /**
+   * Parts and seats: every moving part without a doorway walk is hit twice
+   * from a spot the offline tap audit accepted - a door-like part must read
+   * its open angle, then 0; a turnable two steps - and every seat is mounted
+   * with `interactWithEntity` (run 1 on 11374 seated a player this way) and
+   * left again.
+   */
+  const parts = (plan.parts ?? []).filter(p => windowIndexOf(p) === w);
+  const seats = (plan.seats ?? []).filter(s => windowIndexOf(s) === w);
+  if (parts.length || seats.length) gt.registerAsync(NS, `parts_${plan.modelId}${suffix(w)}`, async (test: any) => {
+    const placed = await placeModel(test, 'parts', windows[w]!.x0);
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    await test.idle(40);
+    const near = (a: unknown, b: number): boolean => typeof a === 'number' && Math.abs(a - b) < 0.5;
+    const results: any[] = [];
+    for (const p of parts) {
+      const row: any = { label: p.label, kind: p.kind, openAngle: p.openAngle };
+      const e = nearest(dim, p.typeId, add(anchor, p.actor), 4);
+      if (!e) { row.error = 'entity not found'; row.pass = false; results.push(row); log('PART', row); continue; }
+      try {
+        sim.teleport(add(anchor, p.from), { facingLocation: e.location });
+        await test.idle(4);
+        sim.lookAtEntity(e);
+        const before = { ...events };
+        const a0 = angleOf(e);
+        row.hit1 = sim.attackEntity(e);
+        await test.idle(20);
+        const a1 = angleOf(e);
+        row.hit2 = sim.attackEntity(e);
+        await test.idle(20);
+        const a2 = angleOf(e);
+        row.angles = [a0, a1, a2];
+        row.hitEvents = events.hit - before.hit;
+        row.pass = p.kind === 'turnable'
+          ? typeof a0 === 'number' && near(a1, a0 + p.openAngle) && near(a2, a0 + 2 * p.openAngle)
+          : near(a0, 0) && near(a1, p.openAngle) && near(a2, 0);
+      } catch (err) { row.error = String(err && (err as Error).message || err); row.pass = false; }
+      results.push(row);
+      log('PART', row);
+    }
+    for (const s of seats) {
+      const row: any = { label: s.label, kind: 'seat' };
+      const seat = nearest(dim, s.typeId, add(anchor, s.at), 1.5);
+      if (!seat) { row.error = 'seat entity not found'; row.pass = false; results.push(row); log('SEAT', row); continue; }
+      const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+      try {
+        sim.teleport(add(seat.location, { x: 0, y: 0.1, z: 0 }), { facingLocation: seat.location });
+        await test.idle(4);
+        sim.lookAtEntity(seat);
+        row.interactReturned = sim.interactWithEntity(seat);
+        await test.idle(20);
+        row.riders = riders();
+        row.pass = row.riders.includes(sim.name);
+        try { seat.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* nothing to eject */ }
+        await test.idle(10);
+      } catch (err) { row.error = String(err && (err as Error).message || err); row.pass = false; }
+      results.push(row);
+      log('SEAT', row);
+    }
+    const failed = results.filter(r => !r.pass);
+    log('PARTS_SUMMARY', { model: plan.modelId, window: w, parts: parts.length, seats: seats.length, passed: results.length - failed.length, failed: failed.map(r => r.label) });
+    flush();
+    if (failed.length) test.fail(`${failed.length}/${results.length} parts or seats failed: ${failed.map(r => r.label).join(', ')}`);
+    else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + parts.length * 120 + seats.length * 80).tag(NS);
+  }
 
   /**
    * Pinball: sit on the machine's seat pad, then press each flipper the way the

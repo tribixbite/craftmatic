@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  arenaSize, buildArenaStructure, gametestRuntime, gametestVariantFiles, withGametestImport, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
+  arenaSize, arenaWindows, windowOf, buildArenaStructure, gametestRuntime, gametestVariantFiles, withGametestImport, gametestScript, GT_MARGIN, GT_PLACE_EVENT,
   judgeWalk, outcomeMatches, patchPlacementForGametest, variantManifest, type GametestPlan, type Vec3,
 } from '../web/src/engine/gametest-pack.js';
 
@@ -73,8 +73,17 @@ describe('arena structure', () => {
     expect(bytes[0]).toBe(10); // TAG_Compound root
     expect(new TextDecoder().decode(bytes)).toContain('minecraft:smooth_stone');
   });
-  it('refuses a model wider than one structure', () => {
-    expect(() => buildArenaStructure({ width: 70, height: 5, length: 5 })).toThrow(/exceeds one structure/);
+  it('tests a model wider than one structure in windows over one arena (76457 is 77 wide)', () => {
+    expect(arenaSize({ width: 77, height: 5, length: 5 }).x).toBe(64);
+    expect(() => buildArenaStructure({ width: 77, height: 5, length: 5 })).not.toThrow();
+    const w = arenaWindows({ width: 77, height: 5, length: 5 });
+    expect(w).toEqual([{ x0: 0, x1: 58 }, { x0: 50, x1: 77 }]);
+    // Every x lands in a window with room round it; the overlap goes to the first.
+    expect(windowOf(w, 10)).toBe(0);
+    expect(windowOf(w, 53)).toBe(0);
+    expect(windowOf(w, 56)).toBe(1);
+    expect(windowOf(w, 76)).toBe(1);
+    expect(arenaWindows({ width: 40, height: 5, length: 5 })).toEqual([{ x0: 0, x1: 40 }]);
   });
 });
 
@@ -192,5 +201,87 @@ describe('the serialised runtime', () => {
     const h = fakeHarness({ doorOpens: true, closedLeaks: true });
     await h.run('doors_demo_1');
     expect(h.outcome.failure).toMatch(/Door 1/);
+  });
+});
+
+/** A fake harness for the parts-and-seats test: a door-like part, a turnable, and a seat. */
+function partsHarness(opts: { toggles: boolean; seats: boolean }) {
+  const origin: Vec3 = { x: 100, y: -60, z: 200 };
+  const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+  const anchor = add(origin, { x: GT_MARGIN, y: 1, z: GT_MARGIN });
+  const scriptSubs: Array<(ev: any) => void> = [];
+  const logs: string[] = [];
+  const registered = new Map<string, (t: any) => Promise<void>>();
+  const plan: GametestPlan = {
+    ...PLAN, doorways: [],
+    parts: [
+      { label: 'Window 1', typeId: 'craftmatic:demo_1_window_1', kind: 'window', actor: { x: 2, y: 1, z: 2 }, from: { x: 2.5, y: 0, z: 4.5 }, openAngle: -60 },
+      { label: 'Turnable 1', typeId: 'craftmatic:demo_1_turnable_1', kind: 'turnable', actor: { x: 6, y: 1, z: 2 }, from: { x: 6.5, y: 0, z: 4.5 }, openAngle: 90 },
+    ],
+    seats: [{ label: 'Seat (4079)', typeId: 'craftmatic:s_demo_1_seat', at: { x: 4, y: 0.5, z: 6 } }],
+  };
+  const entities = [
+    ...plan.parts!.map(p => ({ typeId: p.typeId, location: add(anchor, p.actor), angle: 0, kind: p.kind, step: p.openAngle, getProperty(this: any) { return this.angle; } })),
+  ];
+  const riders: string[] = [];
+  const seat = { typeId: plan.seats![0]!.typeId, location: add(anchor, plan.seats![0]!.at), getComponent: () => ({ getRiders: () => riders.map(name => ({ name })), ejectRiders: () => { riders.length = 0; } }) };
+  const all: any[] = [...entities, seat];
+  const dim = { getEntities: (q: any) => all.filter(e => !q.type || e.typeId === q.type), runCommand: () => ({ successCount: 1 }) };
+  const sim: any = {
+    name: 'cmgt_1', location: { x: 0, y: 0, z: 0 },
+    teleport(at: Vec3) { this.location = { ...at }; }, lookAtEntity() {}, stopMoving() {},
+    attackEntity(e: any) { if (!opts.toggles) return true; if (e.kind === 'turnable') e.angle += e.step; else e.angle = e.angle ? 0 : e.step; return true; },
+    interactWithEntity(e: any) { if (opts.seats && e === seat) riders.push(sim.name); return true; },
+  };
+  const outcome: { succeeded?: boolean; failure?: string } = {};
+  const test = {
+    worldBlockLocation: (r: Vec3) => add(origin, r), worldLocation: (r: Vec3) => add(origin, r),
+    relativeLocation: (w: Vec3) => ({ x: w.x - origin.x, y: w.y - origin.y, z: w.z - origin.z }),
+    getBlock: (r: Vec3) => ({ typeId: r.y === 0 ? 'minecraft:smooth_stone' : 'minecraft:air' }), getTestDirection: () => 'South',
+    getDimension: () => dim, idle: async () => {}, spawnSimulatedPlayer: () => sim,
+    succeed: () => { outcome.succeeded = true; }, fail: (m: string) => { outcome.failure = m; },
+  };
+  const builder: any = new Proxy({}, { get: () => () => builder });
+  const mc = {
+    GameMode: { Survival: 'Survival' },
+    world: { afterEvents: { playerSpawn: { subscribe() {} }, playerInteractWithEntity: { subscribe() {} }, entityHitEntity: { subscribe() {} } }, getDimension: () => dim, getPlayers: () => [] },
+    system: {
+      afterEvents: { scriptEventReceive: { subscribe: (fn: (ev: any) => void) => scriptSubs.push(fn) } },
+      runTimeout: (fn: () => void) => fn(),
+      sendScriptEvent: (id: string, message: string) => {
+        if (id !== GT_PLACE_EVENT) return;
+        const { player } = JSON.parse(message);
+        for (const fn of scriptSubs) fn({ id: 'craftmatic_gt:placed', message: JSON.stringify({ player, entities: 3 }) });
+      },
+    },
+  };
+  const gt = { registerAsync: (_c: string, name: string, fn: (t: any) => Promise<void>) => { registered.set(name, fn); return builder; } };
+  const warn = console.warn;
+  console.warn = (s2: string) => { if (!s2.startsWith('CMGT_PAD')) logs.push(s2); };
+  try { gametestRuntime({ mc, gt }, plan, arenaSize(plan.dims), GT_MARGIN, judgeWalk, outcomeMatches); } finally { console.warn = warn; }
+  const run = async (name: string) => {
+    console.warn = (s2: string) => { if (!s2.startsWith('CMGT_PAD')) logs.push(s2); };
+    try { await registered.get(name)!(test); } finally { console.warn = warn; }
+  };
+  return { registered, logs, run, outcome };
+}
+
+describe('the parts-and-seats test', () => {
+  it('registers once for a plan with parts or seats', () => {
+    expect([...partsHarness({ toggles: true, seats: true }).registered.keys()]).toEqual(['smoke', 'parts_demo_1']);
+  });
+  it('passes when a hit opens and closes a part, turns a turnable two steps, and a seat takes the player', async () => {
+    const h = partsHarness({ toggles: true, seats: true });
+    await h.run('parts_demo_1');
+    expect(h.outcome).toEqual({ succeeded: true });
+    const rows = h.logs.filter(l => /^CMGT (PART|SEAT) /.test(l)).map(l => JSON.parse(l.replace(/^CMGT (PART|SEAT) /, '')));
+    expect(rows.map(r => [r.label, r.pass])).toEqual([['Window 1', true], ['Turnable 1', true], ['Seat (4079)', true]]);
+    expect(rows[0].angles).toEqual([0, -60, 0]);
+    expect(rows[1].angles).toEqual([0, 90, 180]);
+  });
+  it('fails naming the parts that did not move and the seat that did not take the player', async () => {
+    const h = partsHarness({ toggles: false, seats: false });
+    await h.run('parts_demo_1');
+    expect(h.outcome.failure).toMatch(/3\/3 parts or seats failed: Window 1, Turnable 1, Seat \(4079\)/);
   });
 });

@@ -18,9 +18,10 @@ import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-previe
 import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
-  gametestVariantFiles, patchPlacementForGametest, variantManifest, withGametestImport,
-  type GametestDoorway, type GametestPlan, type WalkOutcome,
+  arenaWindows, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGametestImport,
+  type GametestDoorway, type GametestPart, type GametestPlan, type GametestSeat, type WalkOutcome,
 } from '../web/src/engine/gametest-pack.ts';
+import { auditPackTaps } from '../test/_ix-tap-audit.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
 import { PROP_FLIP } from '../web/src/engine/bedrock-pinball.ts';
@@ -45,7 +46,7 @@ const configMatch = /^const CONFIG = (\{.*\});$/m.exec(placementJs);
 if (!configMatch) throw new Error('placement.js: no `const CONFIG = {...};` line');
 const placement = JSON.parse(configMatch[1]!) as {
   id: string; label: string; width: number; height: number; length: number;
-  actors: Array<{ typeId: string; x: number; y: number; z: number; interactive?: number }>;
+  actors: Array<{ typeId: string; label: string; x: number; y: number; z: number; interactive?: number }>;
 };
 
 // Offline predictions: the same walk `_ix_passability.ts` runs, at 100 %, turn 0.
@@ -81,6 +82,31 @@ if (cfg) {
   });
 }
 
+// Every other moving part is toggled by a hit from a spot the offline tap audit
+// accepted (the runtime's line of sight lets the tap through there), and every
+// seat is mounted. A part no spot reaches is reported, not tested.
+const parts: GametestPart[] = [];
+const seats: GametestSeat[] = [];
+const windows = arenaWindows({ width: placement.width, height: placement.height, length: placement.length });
+if (cfg) {
+  const taps = await auditPackTaps(buffer, { trace: true });
+  cfg.items.forEach((it, i) => {
+    if (it.passSize !== undefined && it.blocking.length && doorways.some(d => d.typeId === it.type)) return;
+    const actor = placement.actors.find(a => a.interactive === i);
+    const audit = taps.parts.find(p => p.label === actor?.label);
+    const spots = (audit?.spots ?? []).filter(sp => sp.ok);
+    if (!actor || !spots.length) { console.log(`  ${it.label}: ${actor ? 'no standing spot the tap audit accepted' : 'no actor'}; not tested`); return; }
+    const d2 = (sp: { at: number[] }): number => (sp.at[0]! - actor.x) ** 2 + (sp.at[2]! - actor.z) ** 2 + (sp.at[1]! - actor.y) ** 2;
+    const best = spots.reduce((a, b) => (d2(b) < d2(a) ? b : a));
+    parts.push({ label: it.label, typeId: it.type, kind: it.kind, actor: { x: actor.x, y: actor.y, z: actor.z }, from: { x: best.at[0]!, y: best.at[1]!, z: best.at[2]! }, openAngle: it.angle, window: windowOf(windows, actor.x) });
+  });
+}
+for (const a of placement.actors) {
+  if (!/_seat(_\d+)?$/.test(a.typeId.replace(/^[^:]*:/, ''))) continue;
+  seats.push({ label: a.label, typeId: a.typeId, at: { x: a.x, y: a.y, z: a.z }, window: windowOf(windows, a.x) });
+}
+for (const d of doorways) d.window = windowOf(windows, d.actor.x);
+
 // A pinball machine: its types from scripts/pinball.js's CONFIG, and the seated
 // tag + parked hotbar slot read out of the same serialised runtime.
 const pinballName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/pinball.js`);
@@ -103,6 +129,9 @@ const plan: GametestPlan = {
   doorways,
   debuggerTarget: flag('debugger'),
   pinball,
+  parts,
+  seats,
+  ...(windows.length > 1 ? { windows } : {}),
 };
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
@@ -133,6 +162,6 @@ writeFileSync(variantPath, await createZip(variantFiles));
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
+console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);
