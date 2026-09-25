@@ -593,19 +593,6 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         // A boat rides a gentle swell (drawn only: the state keeps the calm line).
         const swell = kind.mode === 'boat' && ns.afloat ? { heave: Math.sin(tick * 0.16) * 0.04, roll: Math.sin(tick * 0.11) * 2, pitch: Math.sin(tick * 0.13) * 1.2 } : { heave: 0, roll: 0, pitch: 0 };
         try { e.teleport({ x: ns.x, y: ns.y + swell.heave, z: ns.z }, { rotation: { x: 0, y: ns.yaw }, keepVelocity: false }); } catch { /* unloaded */ }
-        // Turn the riders with the vehicle. A scripted vehicle takes no steering from
-        // the rider's yaw, and the Pixel drew a ridden car along its RIDER's yaw: a
-        // McLaren summoned facing away from the player drove down the street showing
-        // its nose to the chase camera (world 924 recording, 2026-09-25). Only when it
-        // is off by more than a degree, so a steady heading sends nothing.
-        for (const rr of riders) {
-          if (!rr || rr.typeId !== 'minecraft:player') continue;
-          try {
-            const rrot = rr.getRotation();
-            const off = ((ns.yaw - rrot.y + 540) % 360) - 180;
-            if (Math.abs(off) > 1) rr.setRotation({ x: rrot.x, y: ns.yaw });
-          } catch { /* not turnable */ }
-        }
         try { e.setProperty(config.props.pitch, Math.max(-90, Math.min(90, ns.pitch + swell.pitch))); } catch { /* not declared */ }
         try { e.setProperty(config.props.bank, Math.max(-90, Math.min(90, ns.bank + swell.roll))); } catch { /* not declared */ }
         try { e.setProperty(config.props.wheel, ns.wheel % 100000); } catch { /* not declared */ }
