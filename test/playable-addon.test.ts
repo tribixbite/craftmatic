@@ -90,7 +90,8 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:dash_action']).toEqual({ cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 });
     expect(entity.format_version).toBe('1.26.30');
     expect(components['minecraft:rideable'].seats.third_person_camera_radius).toBeGreaterThanOrEqual(5);
-    expect(components['minecraft:movement'].value).toBeGreaterThan(1);
+    // ~41.5 blocks/s per unit measured on the Pixel: 0.45 is ~19 blocks/s (42 mph) at full stick.
+    expect(components['minecraft:movement'].value).toBe(0.45);
     expect(components['minecraft:movement'].value).toBeLessThan(1.4);
     expect(components['minecraft:damage_sensor'].triggers).toEqual([{ cause: 'all', deals_damage: 'no' }]);
     expect(components['minecraft:fire_immune']).toEqual({});
