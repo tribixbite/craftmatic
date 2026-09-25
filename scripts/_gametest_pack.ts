@@ -1,0 +1,123 @@
+/**
+ * Build the GameTest pair for a built Craftmatic add-on (web/src/engine/gametest-pack.ts):
+ *
+ *   <out>/<stem>-gt-variant.mcaddon   the model's BP with new uuids + the placement hook, and its RP unchanged
+ *   <out>/<stem>-gametests.mcaddon    the GameTest BP (arena structure + tests)
+ *   <out>/<stem>-gametest-plan.json   the doorways, their offline predictions, the world coordinates frame
+ *
+ * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port]
+ *
+ * Deploy both to a world that has Beta APIs + cheats on (never a normal play
+ * world), e.g. `python -u scripts/_pixel_dev_deploy.py craftmatic-gametest
+ * <out>/*.mcaddon`. On world load the tests run by themselves; pull the newest
+ * content log and grep `CMGT ` (docs/testing-guide.md).
+ */
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
+import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
+import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
+import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
+import {
+  gametestPackFiles, patchPlacementForGametest, variantManifest,
+  type GametestDoorway, type GametestPlan, type WalkOutcome,
+} from '../web/src/engine/gametest-pack.ts';
+import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
+import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
+
+const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+const file = process.argv.slice(2).find(a => !a.startsWith('--'));
+if (!file) { console.error('usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port]'); process.exit(2); }
+const outDir = resolve(flag('out') ?? 'output/gametest');
+mkdirSync(outDir, { recursive: true });
+const stem = basename(file).replace(/\.mcaddon$/i, '');
+
+const bytes = readFileSync(file);
+const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+const entries = await extractMatching(buffer, () => true);
+const text = (name: string): string => new TextDecoder().decode(entries.get(name)!);
+
+const placementName = [...entries.keys()].find(n => /\/scripts\/placement\.js$/.test(n));
+if (!placementName) throw new Error(`${file}: no scripts/placement.js (not a playable add-on)`);
+const bpFolder = placementName.split('/')[0]!;
+const placementJs = text(placementName);
+const configMatch = /^const CONFIG = (\{.*\});$/m.exec(placementJs);
+if (!configMatch) throw new Error('placement.js: no `const CONFIG = {...};` line');
+const placement = JSON.parse(configMatch[1]!) as {
+  id: string; label: string; width: number; height: number; length: number;
+  actors: Array<{ typeId: string; x: number; y: number; z: number; interactive?: number }>;
+};
+
+// Offline predictions: the same walk `_ix_passability.ts` runs, at 100 %, turn 0.
+const model = await loadAddonPreviewModel(buffer);
+const cfg = model.interactives;
+const doorways: GametestDoorway[] = [];
+if (cfg) {
+  const pack = { cells: model.cells, dims: model.dims, interactives: cfg, shippedTreads: (s: number, r: QuarterTurn) => treadBlocksAt(model, s, r) };
+  cfg.items.forEach((it, i) => {
+    if (it.passSize === undefined || !it.blocking.length) return;
+    const open = walkThroughDoorway(pack, i, 100, 0, true);
+    const closed = walkThroughDoorway(pack, i, 100, 0, false);
+    const actor = placement.actors.find(a => a.interactive === i);
+    // Walk the first direction that has a start; an END exists only for a walk that got
+    // somewhere, so a sealed side mirrors its start across the leaf.
+    const dir = open.directions.find(d => d.start) ?? closed.directions.find(d => d.start);
+    if (!actor || !dir?.start) { console.log(`  ${it.label}: no actor or approach; skipped`); return; }
+    const start = dir.start;
+    // No end means the walk never got through: mirror the start across the doorway centre.
+    const end = dir.end ?? { x: 2 * open.centre.x - start.x, y: start.y, z: 2 * open.centre.z - start.z };
+    const openDir = open.directions.find(d => d.from === dir.from);
+    const closedDir = closed.directions.find(d => d.from === dir.from);
+    doorways.push({
+      label: it.label, typeId: it.type, actor: { x: actor.x, y: actor.y, z: actor.z },
+      start, end,
+      // SEALED: the walk never reaches the leaf, and its per-direction rows read a zero-tick
+      // "passed" on the reachable side; the prediction is "not walkable" both ways.
+      expectClosed: (open.outcome === 'sealed' ? 'sealed' : closedDir?.outcome ?? closed.outcome) as WalkOutcome,
+      // A sealed doorway is sealed as a whole; per-direction outcomes only say blocked.
+      expectOpen: (open.outcome === 'sealed' ? 'sealed' : openDir?.outcome ?? open.outcome) as WalkOutcome,
+      offlineVerdict: verdictOf(open, closed),
+    });
+  });
+}
+
+const plan: GametestPlan = {
+  modelId: placement.id,
+  label: placement.label,
+  dims: { width: placement.width, height: placement.height, length: placement.length },
+  actorTypes: placement.actors.map(a => a.typeId),
+  angleProperty: cfg?.property ?? 'craftmatic:angle',
+  doorways,
+  debuggerTarget: flag('debugger'),
+};
+
+// Both test packs carry the BUILD time as their version, so every rebuild re-imports.
+const testVersion = packVersionAt();
+
+// 1. The test variant of the model pack.
+const variantFiles: Array<{ name: string; data: Uint8Array }> = [];
+for (const [name, data] of entries) {
+  if (name.endsWith('/')) continue;
+  if (name === `${bpFolder}/manifest.json`) {
+    const manifest = JSON.parse(text(name).replace(/^﻿/, ''));
+    variantFiles.push({ name, data: new TextEncoder().encode(JSON.stringify(variantManifest(manifest, testVersion), null, 2) + '\n') });
+  } else if (name === placementName) {
+    variantFiles.push({ name, data: new TextEncoder().encode(patchPlacementForGametest(placementJs)) });
+  } else {
+    variantFiles.push({ name, data: new Uint8Array(data) });
+  }
+}
+const variantPath = join(outDir, `${stem}-gt-variant.mcaddon`);
+writeFileSync(variantPath, await createZip(variantFiles));
+
+// 2. The GameTest pack.
+const folder = `Craftmatic_GT_${placement.id}_BP`;
+const gtFiles = gametestPackFiles(plan, testVersion).map(f => ({ name: `${folder}/${f.name}`, data: f.data }));
+const gtPath = join(outDir, `${stem}-gametests.mcaddon`);
+writeFileSync(gtPath, await createZip(gtFiles));
+
+const planPath = join(outDir, `${stem}-gametest-plan.json`);
+writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
+
+console.log(`${placement.label}: ${doorways.length} doorways`);
+for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
+console.log(`variant   ${variantPath}\ngametests ${gtPath}\nplan      ${planPath}`);
