@@ -478,7 +478,13 @@ export function plungerAnimation(typeId: string, map: PinballMap, strokeLdu: num
   return { id, file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones: { [MOVE_BONE]: { position: planeTranslation(map, `q.property('${PROP_PULL}') * ${molangNumber(strokeLdu)}`, '0') } } } } } };
 }
 
-/** The console seat: a rideable with no visible geometry. */
+/** The console's animation id: the pad shrinks to nothing while it has a rider. */
+export function consoleHideAnimationId(typeId: string): string { return `animation.${typeId.replace(':', '.')}.hide`; }
+export function consoleHideAnimation(typeId: string): unknown {
+  return { format_version: '1.8.0', animations: { [consoleHideAnimationId(typeId)]: { loop: true, bones: { root: { scale: 'q.has_rider ? 0 : 1' } } } } };
+}
+
+/** The console seat: a yellow pad, hidden while someone sits on it. */
 export function consoleAssets(typeId: string): { behavior: unknown; client: unknown; geometry: unknown } {
   const collision = { width: 1.2, height: 1.0 };
   // The rider's yaw is locked to the seat (0 degrees of freedom): the runtime
@@ -507,6 +513,10 @@ export function consoleAssets(typeId: string): { behavior: unknown; client: unkn
       identifier: typeId, materials: { default: 'entity_alphatest' },
       textures: { default: 'textures/entity/craftmatic_pinball_console' }, geometry: { default: geometryId },
       render_controllers: ['controller.render.default'],
+      // Hidden while ridden: the camera sits on the rider's head right above
+      // the lifted pad, which then filled the bottom third of the seated view
+      // in yellow (device 2026-09-25).
+      animations: { hide: consoleHideAnimationId(typeId) }, scripts: { animate: ['hide'] },
     } } },
     geometry: { format_version: '1.12.0', 'minecraft:geometry': [{
       description: { identifier: geometryId, texture_width: 2, texture_height: 2, visible_bounds_width: 2, visible_bounds_height: 2, visible_bounds_offset: [0, 0.5, 0] },
@@ -1153,14 +1163,16 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       // see which input arrived.
       const held = `${left ? '§a<<§r' : '  '} ${right ? '§a>>§r' : '  '}`;
       const bar = (v: number): string => `§e${'|'.repeat(Math.round(v * 12))}§8${'|'.repeat(12 - Math.round(v * 12))}§r`;
-      const note = tune.log || probe ? `  (taps ${game.taps.left}/${game.taps.right}/${game.taps.plunger}${game.lastTap ? `, last ${game.lastTap}` : ''})` : '';
+      // The tap readout (a tuning aid) goes FIRST: a phone's action bar cuts
+      // a long line at both edges (device 2026-09-25).
+      const note = tune.log || probe ? `§7[taps ${game.taps.left}/${game.taps.right}/${game.taps.plunger}${game.lastTap ? ` ${game.lastTap}` : ''}]§r ` : '';
       let line: string;
-      if (st.phase === 'over') line = `§eGAME OVER§r  ${fmt(st.score)} points  (best ${fmt(game.best)})  - tap a flipper or the plunger for a new game${note}`;
+      if (st.phase === 'over') line = `${note}§eGAME OVER§r ${fmt(st.score)} (best ${fmt(game.best)}) - tap a flipper for a new game`;
       else if (st.phase === 'ready') {
         line = pullNow > 0
-          ? `§bBall ${st.ball}/${st.balls}§r  plunger ${bar(pullNow)}  - ${pl.grabbed ? 'tap it again to let go' : 'let the stick go to fire'}${note}`
-          : `§bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  - tap the yellow box on the plunger to pull it back, tap again to fire (or pull the stick back)${note}`;
-      } else line = `${held} §bBall ${st.ball}/${st.balls}§r  ${fmt(st.score)}  (best ${fmt(game.best)})  - tap the boxes on the flippers; sneak to leave${note}`;
+          ? `${note}§bBall ${st.ball}/${st.balls}§r plunger ${bar(pullNow)} - ${pl.grabbed ? 'tap again to let go' : 'let the stick go'}`
+          : `${note}§bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} - tap the yellow box to pull the plunger`;
+      } else line = `${note}${held} §bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} (best ${fmt(game.best)})`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }
   };

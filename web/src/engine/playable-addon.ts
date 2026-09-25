@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, consoleHideAnimation, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
@@ -2324,6 +2324,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${bp}entities/${cid}.json`, data: json(ca.behavior) },
                 { name: `${rp}entity/${cid}.entity.json`, data: json(ca.client) },
                 { name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(ca.geometry) },
+                { name: `${rp}animations/${cid}.animation.json`, data: json(consoleHideAnimation(consoleType)) },
                 // Solid LEGO yellow, so the pad reads as the thing to tap.
                 { name: `${rp}textures/entity/craftmatic_pinball_console.png`, data: generateLegoMaterialSwatch(resolveLdrawEntityMaterial(14), { pbr: false, textureName: 'craftmatic_pinball_console' }).colorPng },
             );
