@@ -49,7 +49,7 @@ export interface CoasterPreviewRouteInput {
   chain?: { start: number; end: number };
   lift?: { deckLength: number; travel: readonly [number, number, number]; parkedPoint: readonly [number, number, number] };
   /** `heading` ±1: the cars' noses keep their authored way along the route (the set's own cars); absent/0: they face their motion (the fabricated cart). */
-  cars: { count: number; spacing: number; extent: number; heading?: number };
+  cars: { count: number; spacing: number; extent: number; heading?: number; endInset?: number };
   /** A fixed ride direction (a circuit, or a lift route), as `coasterRuntime` enforces it; absent/0: a shuttle, which reverses at its ends. */
   direction?: number;
   /** A railway route's own constants (`CoasterRuntimeRoute.physics`, `RAIL_TRAIN_PHYSICS`): a driven train, which the preview shows parked (nobody at its controls). */
@@ -200,7 +200,9 @@ export function stepCoasterPreviewTick(
   // The noses: the authored heading for the set's own cars, else the motion.
   const facing = route.cars.heading === 1 || route.cars.heading === -1 ? route.cars.heading : direction;
   const lastYaw = [...state.lastYaw];
-  const low = route.closed ? 0 : extent / 2, high = route.closed ? total : total - extent / 2;
+  // A railway train stops with its end car at the buffer (`cars.endInset`), as the runtime does.
+  const inset = extent / 2 + (route.cars.endInset ?? 0);
+  const low = route.closed ? 0 : inset, high = route.closed ? total : total - inset;
   const target = route.closed ? station.stop : Math.max(low, Math.min(high, station.stop));
 
   let next = centre;

@@ -169,6 +169,8 @@ export interface CoasterRouteCar {
    */
   wheelbase?: number;
   wheelbaseLdu?: number;
+  /** The car's measured length along its travel, model blocks: a railway line's buffer stops hold the whole car on the line (`CoasterRuntimeRoute.cars.endInset`). */
+  length?: number;
 }
 
 /** How many trains a route with the set's own cars runs: one riding, one waiting in the loading bay. */
@@ -315,7 +317,9 @@ export interface CoasterRuntimeRoute {
    * fabricated cart face its direction of motion. `slots` names each car's
    * entity type and rider variant for every train (`trains` × `count` of
    * them); absent for the fabricated cart. */
-  cars: { count: number; spacing: number; extent: number; minChord?: number; heading: 1 | -1 | 0; trains: number; slots?: CoasterCarSlot[] };
+  cars: { count: number; spacing: number; extent: number; minChord?: number; heading: 1 | -1 | 0; trains: number; slots?: CoasterCarSlot[];
+    /** A railway train's buffer-stop inset, model blocks: half its longest end car, so the train's CENTRE stops where its end car meets the buffer. Absent (0) on a coaster. */
+    endInset?: number };
   /** Present when `cars.trains` > 1: where the second train waits and the lap it is dispatched against. */
   dispatch?: CoasterDispatch;
   /** Fixed ride direction (a closed circuit's, or toward a platform lift's deck); 0 shuttles an open route. */
@@ -1353,6 +1357,12 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
     // route shuttles (direction 0: the runtime keeps whichever way it was going).
     // A driven train keeps whichever way its driver last sent it (0), circuit or not.
     const railway = route.family === 'train';
+    // A railway line's buffer stops hold the whole train on it: its centre stops half its longest end car short.
+    if (railway && vehicles && route.vehicles?.length && !path.closed) {
+      const ends = [route.vehicles[0]!, route.vehicles.at(-1)!].map(car => car.length ?? 0);
+      const endInset = round3(Math.max(...ends) / 2);
+      if (endInset > 0) cars = { ...cars, endInset };
+    }
     const direction: 1 | -1 | 0 = railway ? 0
       : lift?.kind === 'chain' && route.closed ? lift.climbDirection
       : route.closed ? (cars.heading || 1)
@@ -1839,7 +1849,7 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
   const toBlocks = (p: readonly number[]): Vec3 => sceneGridPoint(frame, [p[0]!, p[1]!, p[2]!]);
   const usedStrays = new Set<string>();
   /** A detected car as a route vehicle, its bricks and rider taken out of the shell. */
-  const routeCar = (car: CoasterCar): CoasterRouteCar => {
+  const routeCar = (car: CoasterCar, railway = false): CoasterRouteCar => {
     const originAboveDatum = car.route!.originAboveDatumLdu;
     const canonical = canonicalCoasterCar(car, bricks, originAboveDatum);
     const datumLdu = sub3(car.frame.originLdu, mul3(car.frame.upWorld, originAboveDatum));
@@ -1851,6 +1861,7 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
       bricks: canonical.bricks, rider: canonical.rider, ...(canonical.seatLdu ? { seatLdu: canonical.seatLdu } : {}),
       datumPoint: toBlocks(datumLdu), heading: car.route!.heading,
       ...(wheelbaseLdu !== undefined ? { wheelbaseLdu, wheelbase: round3(wheelbaseLdu / frame.cellXZ * frame.scale) } : {}),
+      ...(railway ? { length: round3(car.lengthLdu / frame.cellXZ * frame.scale) } : {}),
     };
   };
   /** Sidings: their cars stay parked unless a ride route takes them as its second train. */
@@ -1896,7 +1907,7 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
       }
       const kept = cars.slice(0, COASTER_MAX_CARS);
       if (kept.length < cars.length) warnings.push(`${track.label}: ${cars.length} cars found; the ${cars.length - kept.length} lowest on the track stay in the shell (the runtime carries at most ${COASTER_MAX_CARS} per train).`);
-      vehicles = kept.map(routeCar);
+      vehicles = kept.map(car => routeCar(car, railway));
     }
 
     // ── The route's lift ── (a railway line has none)
@@ -1932,7 +1943,7 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
     const nearest = candidates[0];
     if (!nearest) continue;
     const spare = nearest.s.cars.slice(0, ride.count);
-    ride.route.reserve = spare.map(routeCar);
+    ride.route.reserve = spare.map(car => routeCar(car));
     nearest.s.parked.dispatchedTo = ride.route.label;
     warnings.push(`${nearest.s.label}: its ${spare.length} parked car${spare.length === 1 ? '' : 's'} run as ${ride.route.label}'s second train (${round3(nearest.distance)} blocks from that track)${nearest.s.cars.length > spare.length ? `; ${nearest.s.cars.length - spare.length} stay in the shell` : ''}.`);
   }
@@ -2407,7 +2418,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const wheelbaseOf = (car: any): number => { const wheelbase = types[car.entity.typeId]?.wheelbase; return wheelbase !== undefined && wheelbase > 0 ? wheelbase : 0; };
         // The whole train has to fit on an open route, so its centre cannot
         // reach either end by half the train's length.
-        const low = path.closed ? 0 : extent / 2, high = path.closed ? total : total - extent / 2;
+        const inset = extent / 2 + (cars.endInset || 0);
+        const low = path.closed ? 0 : inset, high = path.closed ? total : total - inset;
         const target = path.closed ? station.stop : Math.max(low, Math.min(high, station.stop));
         const storedDistance = Number(lead.entity.getDynamicProperty(key + 'distance'));
         const placed = !Number.isFinite(storedDistance);
