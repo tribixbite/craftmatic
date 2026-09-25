@@ -58,10 +58,8 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   NOT pushed): Mecabricks/LXF train track 90 degrees off; 10337 rims 38 LDU off;
   663 uuid-schema top-level explodes (offset vs assembly); regenerate the 424
   `convert_lxf.py` app picks; strict A/B, publish accepted, prod readback.
-- [ ] **Asked the user** (no answer yet): the loop camera locks look-around
-  for ~1.2-1.5 s per loop because only a camera ANIMATION can roll upside
-  down and a mid-animation reissue drops its rotation. Options: keep; drop
-  inversion for full look freedom; or a per-ride setting.
+- [x] Loop camera: the user chose to KEEP the look lock during loops
+  (2026-09-25) — the per-loop camera animation stays; no setting needed.
 
 ## Round 2026-09-25 afternoon — merged at `f5396df2`
 
