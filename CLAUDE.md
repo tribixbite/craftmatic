@@ -284,6 +284,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (76417: 1,070 of 3,535 collider blocks held nothing, an invisible plane over
   the bank floor), and are now laid from the shell's own part boxes
   (`buildColliderGrid`). Derive world-block facts from geometry, not voxels.
+- **A collider is a FORM, not always a whole block** (clearance, 2026-09-25,
+  `engine/collider-form.ts` + `collider-clearance.ts`, docs/bedrock-interactivity.md
+  "Clearance"). Walls are pulled back to their own geometry as 43 block ids
+  `craftmatic:collider[_<w|f|c><shape>]`, each with the same `lo`/`hi`
+  states; a run value is `v·136 + pair`. Anything that reads or lays
+  colliders goes through the kit (`cover`, `formBoxes`, `cellPieces`, `lay`) -
+  checking `typeId === 'craftmatic:collider'` misses 42 of them, and reading a
+  form's `hi` as its top is wrong for a floor + wall form (its wall runs to
+  the block top). A trim ships only past the certain test (subset, superset
+  of the geometry, not at a leaf's plane, floors keep their top, the leak
+  flood); judge it with `_clearance_report.ts`, never by eye.
 - **An LXFML's top-level `<Step>` is the finished-model page.** Its DIRECT
   `<Explode>` children place every sub-build and figure (76417: bank, dragon,
   cart, 13 figures); explodes inside nested sub-builds are diagrams. Nested
