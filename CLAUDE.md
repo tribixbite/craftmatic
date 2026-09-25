@@ -13,6 +13,7 @@ and conventions there; keep this file as the short project entry point.
 - **PDF reconstruction:** [pipeline guide](docs/pdf-pipeline-guide.md) — PDF-only input, zero runtime VLM, extraction/placement experiments, accuracy limits, and test harnesses.
 - **Minecraft exports:** [pipeline guide](docs/minecraft-pipeline-guide.md) — shared export worker, voxelization, resolution, palettes, schematic/litematic and Bedrock structures.
 - **Bedrock playable add-ons:** [add-on guide](docs/bedrock-addon-guide.md) — entity geometry, vehicle controls/cameras, pack constraints, and Pixel QA.
+- **Physics (coaster, pinball, walker, figures, vehicles):** [physics architecture](docs/physics-architecture.md) — units and frames, every constant with its justification, the serialised-runtime rules, the DRY map, how to add a vehicle class, known limits. **Read it before touching any physics; `bun scripts/_physics_spec_check.ts` (in `bun run test`) fails when it drifts from the code** — a new export, a changed constant or an unclassified physics-named module.
 - **LEGO/LDraw rendering:** [renderer guide](docs/lego-renderer-guide.md) — architecture, imports, rendering, colors, mesh metadata, contact checks, and download UI.
 - **LEGO models and parts:** [source guide](docs/lego-sources-guide.md) — dev/prod libraries, source-quality gates, index schema, offline data, and source freshness.
 - **Testing:** [testing guide](docs/testing-guide.md) — offline suites, manual validation gates, browser-automation caveats, and the two QA surfaces below.

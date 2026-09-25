@@ -16,7 +16,7 @@
  * PHYSICS, matched to Minecraft's per-tick model (20 ticks/s):
  *   - a 0.6 x 1.8 axis-aligned box (`PLAYER_WIDTH_BLOCKS`, `PLAYER_HEIGHT_BLOCKS`);
  *   - gravity 0.08 blocks/tick^2 with the 0.98 vertical drag, so a jump at
- *     0.42 blocks/tick peaks at 1.2519 blocks: the 1.25-block jump;
+ *     0.42 blocks/tick peaks at 1.2522 blocks: the 1.25-block jump;
  *   - horizontal: walk 4.317 blocks/s (sprint x1.3, sneak x0.3), ground
  *     friction 0.546 and air friction 0.91 with the 0.02/tick air control -
  *     a player walking off a ledge drifts ~0.8 blocks over a one-block fall,
@@ -40,7 +40,7 @@
  *     headroom only for a jump);
  *   - dropping INTO a low-headroom column from above (a tunnel is entered
  *     from its mouth, not through its roof);
- *   - a 1.25-block rise at exactly the jump's 0.0019-block margin under a
+ *   - a 1.25-block rise at exactly the jump's 0.0022-block margin under a
  *     ceiling that the arc clips.
  *
  * Frame: world blocks from the pin at the chosen size and turn (column x in
@@ -82,7 +82,7 @@ export const AIR_FRICTION = 0.91;
 export const AIR_ACCELERATION = 0.02;
 /** The auto-step, the reach walk's own quantised height (9/16 = 0.5625), so the two agree by construction. */
 export const STEP_HEIGHT = STEP16 / 16;
-/** The jump's reach in blocks under this integrator (1.2519), against the walk's `JUMP16` (1.25). */
+/** The jump's reach in blocks under this integrator (1.2522), against the walk's `JUMP16` (1.25). */
 export const JUMP_PEAK = ((): number => {
   let y = 0, v = JUMP_VELOCITY, peak = 0;
   for (let i = 0; i < 20; i++) { y += v; if (y > peak) peak = y; v = (v - GRAVITY) * VERTICAL_DRAG; }
