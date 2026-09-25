@@ -73,6 +73,14 @@ export const OPEN_DEG: Readonly<Record<InteractiveKind, number>> = { door: 90, g
 /** Seconds the client takes to swing (or turn) through the full angle. */
 export const SWING_SECONDS = 0.4;
 /**
+ * Where to stand to tap a moving part. Minecraft hands a tap on an entity to
+ * the script only within the player's reach: on the Pixel (device
+ * 2026-09-24e) taps engaged from 2-3 blocks and did nothing from 3.5 blocks
+ * or more (a door from 6.5 blocks, a turned door from 3.5). Shown in the wand
+ * menu of every pack with moving parts.
+ */
+export const INTERACTIVE_REACH_NOTE = 'Stand next to a door, window or lever to tap it: Minecraft only takes a tap on it from about 3 blocks or closer.';
+/**
  * How many interactives one pack ships. Each is an actor (31-48 kB idle on the
  * Pixel, docs/bedrock-addon-guide.md) and an entity type; doorways first, then
  * mechanisms, then windows. Past the cap a part stays in the static shell.
@@ -997,8 +1005,17 @@ export interface InteractiveRuntimeItem {
   /** Closed-state cells and the static cells around them (doorways). */
   blocking: IxCell[];
   neighbours: IxCell[];
-  /** The other leaves of the same doorway (a double door): their closed cells share or touch this one's. They open and close together. */
+  /**
+   * Doorways whose closed cells share or touch this one's: a shared cell stays
+   * laid while any of them is closed. Touching is not enough to move together
+   * (76457's Door 1 and Door 2 are two doors side by side, device 2026-09-24e);
+   * `pairs` says which leaves are one double door.
+   */
   shares: number[];
+  /** The other leaf of a DOUBLE door (`pairDoubleDoors`): hinged at the far end, free ends meeting. They open and close together. */
+  pairs?: number[];
+  /** The part's tap boxes at turn 0 and 100 %, closed and open, about the entity's origin (`interactiveHitboxes`): the runtime's line-of-sight test. */
+  hit?: { c: HitBox[]; o: HitBox[] };
   sounds: { open: string; close: string };
   /** The hinge point and unit axis in model blocks at 100 % (the placement's frame). The walk preview swings the part about it; the runtime does not need it. */
   pivot?: [number, number, number];
@@ -1044,17 +1061,46 @@ export function interactiveRuntimeItem(it: SceneInteractive, type: string, label
   };
 }
 
-/** Fill `shares`: doorways whose blocking cells overlap. */
+/** Fill `shares`: doorways whose blocking cells overlap or touch. */
 export function linkSharedDoorways(items: InteractiveRuntimeItem[]): void {
-  // Two leaves are one doorway when their closed cells share a cell or touch
-  // (a column apart, rows overlapping): a double door, whose leaves open and
-  // close together and whose shared cells stay laid while either is closed.
+  // Doorways whose closed cells share a cell or touch (a column apart, rows
+  // overlapping) lay a shared cell while either is closed. Whether they MOVE
+  // together is `pairDoubleDoors`'s question, answered from the leaves.
   const touch = (a: IxCell, b: IxCell): boolean => Math.abs(a[0] - b[0]) <= 1 && Math.abs(a[2] - b[2]) <= 1 && a[1] === b[1];
   items.forEach((a, i) => items.forEach((b, j) => {
     if (i >= j || a.kind !== b.kind || !a.blocking.length || !b.blocking.length) return;
     if (!a.blocking.some(ca => b.blocking.some(cb => touch(ca, cb)))) return;
     if (!a.shares.includes(j)) a.shares.push(j);
     if (!b.shares.includes(i)) b.shares.push(i);
+  }));
+}
+
+/** How close two leaves' free edges must be (blocks at 100 %) to be the two halves of one double door. */
+export const DOUBLE_DOOR_GAP_BLOCKS = 0.35;
+
+/**
+ * Fill `pairs`: the two leaves of a double door, which open and close on one
+ * tap. Needs `leaf` (the closed mid-plane). Two leaves pair when they are the
+ * same kind, their doorways touch (`shares`), their planes are parallel
+ * (within 30 degrees), their heights overlap, and their FREE edges meet (within
+ * `DOUBLE_DOOR_GAP_BLOCKS`) while their hinges stand apart - a door hinged at
+ * each jamb. Two doors hung side by side, each hinged on the same side, touch
+ * but do not pair: 76457's Door 1 swung whenever Door 2 was tapped.
+ */
+export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
+  const flat = (v: readonly number[]): [number, number] => [v[0]!, v[2]!];
+  items.forEach((a, i) => items.forEach((b, j) => {
+    if (i >= j || a.kind !== b.kind || !a.leaf || !b.leaf || !a.shares.includes(j)) return;
+    const ha = flat(a.leaf.c), hb = flat(b.leaf.c);
+    const fa: [number, number] = [ha[0] + a.leaf.a[0]!, ha[1] + a.leaf.a[2]!], fb: [number, number] = [hb[0] + b.leaf.a[0]!, hb[1] + b.leaf.a[2]!];
+    const gap = Math.hypot(fa[0] - fb[0], fa[1] - fb[1]), span = Math.hypot(ha[0] - hb[0], ha[1] - hb[1]);
+    const na = flat(a.leaf.n), nb = flat(b.leaf.n);
+    const cos = Math.abs(na[0] * nb[0] + na[1] * nb[1]) / ((Math.hypot(...na) * Math.hypot(...nb)) || 1);
+    const ya: [number, number] = [a.leaf.c[1]!, a.leaf.c[1]! + a.leaf.u[1]!], yb: [number, number] = [b.leaf.c[1]!, b.leaf.c[1]! + b.leaf.u[1]!];
+    const overlapY = Math.min(Math.max(...ya), Math.max(...yb)) - Math.max(Math.min(...ya), Math.min(...yb));
+    if (gap > DOUBLE_DOOR_GAP_BLOCKS || span <= gap + 0.5 || cos < Math.cos(Math.PI / 6) || overlapY <= 0) return;
+    a.pairs = [...(a.pairs ?? []), j];
+    b.pairs = [...(b.pairs ?? []), i];
   }));
 }
 
@@ -1098,10 +1144,10 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const passable = (it: any, pl: any): boolean => it.passSize !== undefined && it.passSize > 0 && Math.round(pl.f * 100) + 1e-9 >= it.passSize;
   const isOpen = (e: any): boolean => { try { return e.getDynamicProperty(K.open) === true; } catch { return false; } };
   const sameAnchor = (a: any, b: any): boolean => !!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z;
-  /** The sibling doorway entities sharing cells with item `i` at this placement, by item index. */
-  const siblings = (e: any, i: number, pl: any): Map<number, any> => {
+  /** The sibling doorway entities of item `i` at this placement, by item index: those sharing cells (`shares`) or the other leaf of a double door (`pairs`). */
+  const siblings = (e: any, i: number, pl: any, which: 'shares' | 'pairs' = 'shares'): Map<number, any> => {
     const out = new Map<number, any>();
-    const shares: number[] = config.items[i]!.shares || [];
+    const shares: number[] = (config.items[i] as any)[which] || [];
     if (!shares.length) return out;
     let near: any[] = [];
     try { near = e.dimension.getEntities({ families: [config.family], location: e.location, maxDistance: 12 * Math.max(1, pl.f) }); } catch { /* unloaded */ }
@@ -1226,8 +1272,8 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       return;
     }
     const open = !isOpen(e);
-    // A double door's leaves move together: the tapped one and its partners at this placement.
-    const group: Array<{ e: any; i: number }> = [{ e, i }, ...[...siblings(e, i, pl)].map(([j, s]) => ({ e: s, i: j }))];
+    // A double door's leaves move together: the tapped one and its other leaf at this placement.
+    const group: Array<{ e: any; i: number }> = [{ e, i }, ...[...siblings(e, i, pl, 'pairs')].map(([j, s]) => ({ e: s, i: j }))];
     if (!open && group.some(g => obstructed(g.e, g.i, pl))) { say(player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
     const before = group.map(g => isOpen(g.e));
     for (const g of group) { try { g.e.setDynamicProperty(K.open, open); } catch { /* keep going */ } }
@@ -1246,49 +1292,86 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
         : `This opening is ${size}: too small to walk through at any wand size.`);
     }
   };
+  /** The part's tap boxes for its state, placed at the entity for this placement's turn and size (`placeHitBox`), as world AABBs. */
+  const placedBoxes = (e: any, it: any, pl: any): Array<{ x0: number; x1: number; y0: number; y1: number; z0: number; z1: number }> => {
+    const list: any[] = (it.hit && (isOpen(e) && it.kind !== 'turnable' ? it.hit.o : it.hit.c)) || [];
+    const l = e.location;
+    return list.map((b: any) => {
+      const x = b.pivot[0], y = b.pivot[1], z = b.pivot[2];
+      const t = pl.r === 90 ? [-z, x] : pl.r === 180 ? [-x, -z] : pl.r === 270 ? [z, -x] : [x, z];
+      const cx = l.x + t[0]! * pl.f, cy = l.y + y * pl.f, cz = l.z + t[1]! * pl.f, w = b.width * pl.f / 2, h = b.height * pl.f / 2;
+      return { x0: cx - w, x1: cx + w, y0: cy - h, y1: cy + h, z0: cz - w, z1: cz + w };
+    });
+  };
   /**
    * Whether a wall of this pack's colliders stands between the player's eyes
-   * and the part. Collider blocks have no selection box (a tap passes through
-   * them), so without this a tap on a wall reached a door in the next room
-   * (76417's shop door through the bank-hall wall, device 2026-09-24d). The
-   * last `WALL_MARGIN` of the ray is not checked: a window or a cupboard sits
-   * in its own collider cell.
+   * and EVERY visible point of the part. Collider blocks have no selection box
+   * (a tap passes through them), so without this a tap on a wall reached a
+   * door in the next room (76417's shop door through the bank-hall wall,
+   * device 2026-09-24d). The test is a line of sight from the eyes to each tap
+   * box (its centre and the point nearest the eyes), NOT the view direction:
+   * on a touch screen the finger is not where the camera looks, and a view-ray
+   * test refused 76457's Door 1 from the spot a player stood at to tap it
+   * (device 2026-09-24e). A collider cell within `PART_MARGIN` of the part's tap boxes
+   * (a window in its wall cell, a leaf 9 degrees off the grid poking into its
+   * frame's cell) and the doorway's own closed cells are not a wall; nor is
+   * the last `WALL_MARGIN` of each line.
    */
   const behindWall = (player: any, target: any): boolean => {
-    let head: any, dir: any;
-    try { head = player.getHeadLocation(); dir = player.getViewDirection(); } catch { return false; }
-    if (!head || !dir) return false;
-    const l = target.location;
-    const reach = (l.x - head.x) * dir.x + (l.y + 1 - head.y) * dir.y + (l.z - head.z) * dir.z;
-    const WALL_MARGIN = 0.75;
-    // The doorway's own closed cells (and a double door partner's) are not a wall in front of it.
-    const own = new Set<string>();
+    let head: any;
+    try { head = player.getHeadLocation(); } catch { return false; }
+    if (!head) return false;
     const i = itemOf(target), pl = placementOf(target);
-    if (i !== undefined && pl) for (const j of [i, ...(config.items[i]!.shares || [])]) {
+    if (i === undefined || !pl) return false;
+    const it = config.items[i]!;
+    const boxes = placedBoxes(target, it, pl);
+    if (!boxes.length) return false;
+    const WALL_MARGIN = 0.3;
+    // Cells within this of a tap box are the part's own frame: a pane set back in a
+    // deep frame whose cell the collider grid fills whole (76417's tower windows).
+    const PART_MARGIN = 0.75;
+    const own = new Set<string>();
+    for (const j of [i, ...(it.shares || [])]) {
       for (const key of worldBlocks(config.items[j]!.blocking, config.dims, pl.f, pl.r).keys()) {
         const [x, y, z] = key.split(',').map(Number);
         own.add(`${pl.anchor.x + x!},${pl.anchor.y + y!},${pl.anchor.z + z!}`);
       }
     }
-    let last = '';
-    for (let d = 0.3; d < reach - WALL_MARGIN; d += 0.1) {
-      const p = { x: Math.floor(head.x + dir.x * d), y: Math.floor(head.y + dir.y * d), z: Math.floor(head.z + dir.z * d) };
-      const key = `${p.x},${p.y},${p.z}`;
-      if (key === last || own.has(key)) continue;
-      last = key;
-      let b: any;
-      try { b = target.dimension.getBlock(p); } catch { b = undefined; }
-      if (!b || b.typeId !== C.block) continue;
-      // Only a wall-height collider stops the ray (a floor plate under the line of sight does not).
-      const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
-      const y = head.y + dir.y * d - p.y;
-      if (!Number.isFinite(lo) || !Number.isFinite(hi) || (y * 16 >= lo && y * 16 <= hi)) return true;
+    const inPart = (p: any): boolean => boxes.some(b => p.x + 1 > b.x0 - PART_MARGIN && p.x < b.x1 + PART_MARGIN && p.y + 1 > b.y0 - PART_MARGIN && p.y < b.y1 + PART_MARGIN && p.z + 1 > b.z0 - PART_MARGIN && p.z < b.z1 + PART_MARGIN);
+    const clear = (to: any): boolean => {
+      const d = { x: to.x - head.x, y: to.y - head.y, z: to.z - head.z }, n = Math.hypot(d.x, d.y, d.z);
+      if (n < 1e-6) return true;
+      let last = '';
+      for (let s = 0.3; s < n - WALL_MARGIN; s += 0.1) {
+        const q = { x: head.x + d.x * s / n, y: head.y + d.y * s / n, z: head.z + d.z * s / n };
+        const p = { x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) };
+        const key = `${p.x},${p.y},${p.z}`;
+        if (key === last) continue;
+        last = key;
+        if (own.has(key) || inPart(p)) continue;
+        let b: any;
+        try { b = target.dimension.getBlock(p); } catch { b = undefined; }
+        if (!b || b.typeId !== C.block) continue;
+        const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
+        const y = q.y - p.y;
+        if (!Number.isFinite(lo) || !Number.isFinite(hi) || (y * 16 >= lo && y * 16 <= hi)) return false;
+      }
+      return true;
+    };
+    for (const b of boxes) {
+      const centre = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2 };
+      const near = { x: Math.max(b.x0, Math.min(head.x, b.x1)), y: Math.max(b.y0, Math.min(head.y, b.y1)), z: Math.max(b.z0, Math.min(head.z, b.z1)) };
+      if (clear(centre) || clear(near)) return false;
     }
-    return false;
+    return true;
   };
   const use = (player: any, target: any): void => {
     if (!target || !target.typeId || itemOf(target) === undefined) return;
-    if (behindWall(player, target)) return;
+    if (behindWall(player, target)) {
+      // Never refuse silently: a tap that does nothing reads as a broken part (device 2026-09-24e).
+      say(player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
+      return;
+    }
     const now = system.currentTick;
     if (now - (lastUse.get(target.id) ?? -100) < 6) return;
     lastUse.set(target.id, now);

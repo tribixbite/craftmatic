@@ -1067,7 +1067,7 @@ class AddonWalk implements AddonPreviewHandle {
   /**
    * Toggle a moving part exactly as `scripts/interactives.js` does: a
    * turnable turns a step; anything else opens or closes, a double door's
-   * leaves together (`shares`). A doorway lays its closed cells over the
+   * leaves together (`pairs`). A doorway lays its closed cells over the
    * static colliders while closed (`ixClosedBlocks`, the runtime's own
    * `layDoorway` state) and stays blocked when opened at a size where the
    * opening is under the player's 1 x 2-block passage - said in the status.
@@ -1082,7 +1082,7 @@ class AddonWalk implements AddonPreviewHandle {
       return;
     }
     const open = !this.ixOpen.get(index);
-    const group = [index, ...item.shares];
+    const group = [index, ...(item.pairs ?? [])];
     if (!open && this.world && item.blocking.length) {
       // Never close a door on the player: the runtime refuses the same way.
       const f = this.sizePct / 100;

@@ -27,7 +27,7 @@ bank doors are 1.1 x 2.7, and the gap showed.
 | hatch | `… Trap Door` (not `… Frame`), `Hatch …` | the plate | the horizontal edge its origin marks | 90°, free edge UP | doorway in a floor: closed cells laid, opened when 1 x 1 block |
 | lever | `Hinge Control Stick`, `… Lever` (not base/pattern) | the stick | local X through its origin (the ball joint) | 35° flip | static |
 | turnable | `Turntable … Top`, `… Steering Wheel` (not hubs/holders), `Technic Rotor`, `Propeller`, `Ship's Wheel` | the part (a turntable top also carries what is stacked on it within 1.5x its radius, at most 60 parts) | a turntable's up axis; otherwise the axis the part is most round about, the thinnest on a tie; through its box centre | 90° per tap | static |
-| seat | 4079 family + `Seat/Chair/Bench` (`isSeat`); library furniture `Chair/Bench/Stool/Toilet/Throne/Sofa/Couch/Armchair` incl. Fabuland (`isFurnitureSeat`) | — | — | — | the invisible rideable seat entity (the same one the Brick Wand's "Add seat here" uses); a figure the source sat there rides it |
+| seat | 4079 family + `Seat/Chair/Bench` (`isSeat`); library furniture `Chair/Bench/Stool/Toilet/Throne/Sofa/Couch/Armchair` incl. Fabuland (`isFurnitureSeat`), seated on its PAN (`seatPanLocalY`); brick-built stools: a 2 x 2 tile on a narrow column 6-32 LDU over its floor (`brickBuiltStools`) | — | — | — | the invisible rideable seat entity (the same one the Brick Wand's "Add seat here" uses); a figure the source sat there rides it |
 
 Detection runs on the SCENERY's placements only (`discoverInteractives` with
 `exclude: movable`): figures, vehicles, coaster cars and pinball parts are not
@@ -117,16 +117,35 @@ quality) with:
   (`playerInteractWithEntity`) toggles the part; a second event for the same
   entity within 6 ticks is the same tap reported twice.
 - Doors, gates, hatches, cabinets, windows open and close; a **double door's
-  leaves move together** (leaves whose closed cells share or touch a cell:
-  `linkSharedDoorways` → `shares`). Levers flip; turnables turn a step.
+  leaves move together** (`pairDoubleDoors` → `pairs`: same kind, parallel,
+  hinged at opposite jambs with the free edges within 0.35 block). Doorways
+  whose closed cells merely share or touch a cell (`linkSharedDoorways` →
+  `shares`) keep a shared cell laid while either is closed, but move on their
+  own: the first build moved every touching pair together, so 76457's Door 1
+  swung whenever Door 2, hung beside it on the same side, was tapped (device
+  2026-09-24e). Levers flip; turnables turn a step.
 - Sounds: `random.door_open` / `random.door_close`, `random.click` for levers
   and turnables.
-- **Taps through walls are ignored**: collider blocks have no selection box,
-  so a tap aimed at a wall used to reach a door in the next room (76417's shop
-  door through the bank-hall wall, device 2026-09-24d). The runtime walks the
-  ray from the player's eyes and drops a tap that crosses a wall-height
-  collider more than 0.75 block before the part (its own and a double-door
-  partner's closed cells excepted).
+- **Taps through walls are ignored, and say so**: collider blocks have no
+  selection box, so a tap aimed at a wall used to reach a door in the next
+  room (76417's shop door through the bank-hall wall, device 2026-09-24d). The
+  runtime refuses a tap when a wall-height collider stands on EVERY line of
+  sight from the player's eyes to the part's current tap boxes (each box's
+  centre and its point nearest the eyes; the item ships its boxes as `hit`).
+  It is a line of sight, not the camera's view ray: on a touch screen the
+  finger is not where the camera looks, and the first filter (the view ray,
+  0.75 block margin) refused 76457's Door 1 from where the player stood.
+  A collider cell the part's own boxes reach into (a window in its wall cell,
+  a leaf 9 degrees off the grid poking into its frame's cell) and the
+  doorway's own closed cells are not a wall, nor is the last 0.3 block of a
+  line. A refused tap says *"The door 1 is behind a wall from here - step in
+  front of it"*: a tap that does nothing reads as a broken part.
+- **Reach**: Minecraft hands a tap on an entity to the script only within
+  the player's reach - about 3 blocks on the Pixel (device 2026-09-24e: a door
+  from 6.5 blocks and a turned door from 3.5 did nothing). Nothing reaches the
+  script beyond that, so the pack says where to stand in the wand menu
+  (`INTERACTIVE_REACH_NOTE`). A window 5 blocks up is out of reach from the
+  street: tap it from the room behind it.
 - **State persists**: the placement writes `craftmatic:ix` (item),
   `craftmatic:ix_anchor`, `craftmatic:ix_rotation`, `craftmatic:ix_scale` on
   each spawned part; the runtime keeps `craftmatic:ix_open` / `craftmatic:ix_angle`
@@ -209,6 +228,19 @@ Walk add-on's legend says how many are passable at the chosen size.
   the parts; `bun scripts/_ix_doorway_map.ts <pack> <i>` draws one doorway's
   collider plan; `bun scripts/_ix_hitbox_audit.ts <pack | dir>` audits the
   shipped tap boxes (exit 1 on any overlap).
+- `bun scripts/_ix_tap_probe.ts <pack | dir> [--trace=<label>]`
+  (`test/_ix-tap-audit.ts`): lays the pack's colliders in the runtime host,
+  and from every spot a player can stand within 3 blocks of a part, with no
+  other part's box or seat in front, taps each of its closed boxes through the
+  REAL runtime. Exit 1 when a reachable part refuses every tap; `--trace`
+  prints each spot. The passability test runs it over its five sets.
+  `bun scripts/_ix_host_trace.ts <pack> <label> <feet x,y,z>` taps one part
+  from one spot with every part spawned (double-door partners included) and
+  prints what the runtime did.
+- Seats: `bun scripts/_seat_scan.ts <ldr…> | --sweep <summary.json> [--why]`
+  lists every seat and stool with a stool's column; `--why` says why each 2 x 2
+  tile is or is not a stool. `bun scripts/_ix_seat_support.ts <pack | dir>`
+  prints each shipped seat over the collider under it.
 - The wand's door count is the walk's: the pack walks every doorway at 100 %
   at export and says *"Doorways a player walks through at 100 percent over this
   pack's own blocks: 5 of 6. Door 3 opens onto the model's own solid geometry
@@ -220,15 +252,41 @@ Walk add-on's legend says how many are passable at the chosen size.
   `node scripts/_shoot_addon_walk.mjs <pack> <out.png> model doors --door=<n>`
   shoots a part closed, open, and after a walking player tried to pass.
 
+## Brick-built seats
+
+LEGO's modern furniture has no seat mould. `brickBuiltStools` seats a 2 x 2
+tile (`isStoolTop`: plain, round, grooved or with studs on edge) that stands
+upright on a column no wider than itself, 6 to 32 LDU over its floor (a plate
+to a brick and a third; 4079's pan is 16), with nothing else at its height
+touching it (a counter or a table top), two bricks of head room, and facing the
+nearest higher part beside it (a table). The floor is the first part wider than
+the tile under the column, a layer where other parts stand flush beside it, or
+the model's underside within a plate. A tile lying straight on a wide part is
+floor decoration. 76457's dark-red stool by Window 3 (a studs-on-edge tile on a
+2 x 2 round plate, on the grass: the room has no floor of its own) had no seat;
+the seat the device found "3.75 blocks up" was the upstairs chair right above
+it, correctly on its own pan (4079b at LDraw y -188 on the first floor). Now
+the stool has its own seat on its top, and 76457's two dark-green brick-built
+chairs upstairs (a studs-on-edge tile on two 1 x 2 plates) get one too.
+
+A library chair's box top is its backrest (4222a Fabuland chair: 40 LDU over
+the pan), so furniture moulds now sit on the pan a vertical line down the
+middle meets (`seatPanLocalY`). The 4079 family keeps `origin - 8`: its pan is
+at the origin and the extra plate is the stud a minifig sits over.
+
 ## Not verified on a device
 
 Device round 2026-09-24d (packs at 8346fb29): doors render as LEGO, open and
 close on tap, walk-through confirmed (76457 doors, 76417's front double doors
-and 45-degree barred door). Its defects are fixed above; unproven on the device
-since: `custom_hit_test` picking (and that `pivot` is the box centre, read from
-vanilla ravager/hoglin), the root-bone turn at a non-zero wand turn (sign
-derived, not seen), the root-bone scale at a non-100 % size, the through-wall
-tap filter, the occupant step-out and the threshold treads.
+and 45-degree barred door). Device round 2026-09-24e (packs at 1e33902c):
+76417's front doors open, close and block both ways; the through-wall filter
+worked there; 41732's doors 4 and 5 walk both ways and the wand reads 5 of 6;
+76457's Doors 2-5 and Gate 1 open and close, a 90-degree placement's Door 3
+works. Fixed since, unproven on the device: the line-of-sight tap filter and
+its message, double doors paired only when they are one (76457's Door 1), the
+stool seat, the reach note. Still unproven: `custom_hit_test` picking (and that
+`pivot` is the box centre), the root-bone scale at a non-100 % size, the
+occupant step-out and the threshold treads.
 
 ## Measured on the favourites (2026-09-24)
 

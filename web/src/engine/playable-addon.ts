@@ -29,7 +29,7 @@ import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type 
 import { PINBALL_ZONE_TEXTURE, buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
-import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
+import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -2009,7 +2009,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                         const c0 = sceneGridPoint(f, it.leaf.corner), ca = sceneGridPoint(f, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(f, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
                         item.leaf = { c: q4(c0), a: q4([ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]]), u: q4([cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]]), n: q4(item.normal), t: Math.round(it.leaf.thicknessLdu * f.scale / f.cellXZ * 1e4) / 1e4 };
                     }
+                    // The tap boxes the entity ships (turn 0, 100 %): the runtime's line-of-sight test.
+                    item.hit = { c: compiledIx[k]!.hit.closed, o: compiledIx[k]!.hit.open };
                 });
+                pairDoubleDoors(items);
                 interactiveConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label, dims: { width: colliders.grid.width, height: colliders.grid.height, length: colliders.grid.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
                 interactiveReport = compiledIx.map((c, k) => ({
                     type: c.typeId, kind: c.it.kind, part: c.it.part, label: c.label, parts: c.it.bricks.length, angleDeg: items[k]!.angle,
@@ -2030,6 +2033,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 // (device 2026-09-24d: "6/6 clear" against 5 walkable, 41732).
                 const walks = doorwayWalkSummary({ cells: colliderSourceCells(placementColliders), dims: interactiveConfig.dims, interactives: interactiveConfig });
                 if (walks.note) { ixWalkNote = walks.note; warnings.push(`${label}: ${walks.note}`); }
+                // Minecraft only hands a tap on an entity to the script within the player's reach
+                // (device 2026-09-24e: nothing from 3.5 blocks and more), so say where to stand.
+                ixWalkNote = [INTERACTIVE_REACH_NOTE, ixWalkNote].filter(Boolean).join(' ');
                 if (interactiveReport) interactiveReport = interactiveReport.map((r, k) => ({ ...(r as object), ...(walks.verdicts[k] ? { walk100: walks.verdicts[k] } : {}) }));
             }
             files.push(

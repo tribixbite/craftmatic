@@ -80,6 +80,7 @@ export interface ScenePosedFigure {
 }
 
 export interface SceneSeat {
+  /** The seat mould's id, or `stool` for a brick-built one (`brickBuiltStools`). */
   part: string;
   /** The sitting surface's centre, LDraw. */
   surfaceLdu: Vec3;
@@ -196,6 +197,127 @@ export function isFurnitureSeat(description: string): boolean {
   return /^(Minifig |Fabuland |Duplo )?(Chair|Bench|Stool|Toilet|Throne|Sofa|Couch|Armchair)\b/i.test(d) && !/\b(Holder|Sticker|Pattern)\b/i.test(d);
 }
 
+/**
+ * A seat's sitting surface in the part's own frame: the highest face a
+ * vertical line through the footprint's centre meets (LDraw Y down, so the
+ * smallest y). A chair's box top is its BACKREST (a Fabuland chair's is 40
+ * LDU over its pan); the pan is what a line down the middle meets first.
+ * Falls back to the box top when the line meets nothing (an open frame).
+ */
+export function seatPanLocalY(mesh: LdrawPartMesh): number {
+  const { min, max } = mesh.bounds;
+  const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
+  let best = Infinity;
+  for (const t of mesh.triangles) {
+    // Barycentric test of (cx, cz) against the triangle's XZ projection.
+    const x1 = t.b[0] - t.a[0], z1 = t.b[2] - t.a[2], x2 = t.c[0] - t.a[0], z2 = t.c[2] - t.a[2];
+    const det = x1 * z2 - x2 * z1;
+    if (Math.abs(det) < 1e-9) continue; // edge-on (a vertical face)
+    const px = cx - t.a[0], pz = cz - t.a[2];
+    const u = (px * z2 - x2 * pz) / det, v = (x1 * pz - px * z1) / det;
+    if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
+    const y = t.a[1] + u * (t.b[1] - t.a[1]) + v * (t.c[1] - t.a[1]);
+    if (y < best) best = y;
+  }
+  return Number.isFinite(best) ? best : min[1];
+}
+
+/** A 2 x 2 tile (flat top, a stool's seat): `Tile 2 x 2`, round, grooved or with studs on edge. */
+export function isStoolTop(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  return /^Tile\s+2\s*x\s*2\b/i.test(d) && !/\b(Sticker|Pattern|Inverted|Corner|Hinge|Swivel)\b/i.test(d);
+}
+
+/** How high a brick-built stool's seat may stand over its floor, LDU: a plate (a pouf) to a brick and a third (4079's pan is 16). */
+export const STOOL_HEIGHT_LDU = { min: 6, max: 32 } as const;
+
+/**
+ * Brick-built stools: LEGO's modern furniture has no seat mould, and a
+ * minifig stool is a 2 x 2 tile on a narrow column (a 2 x 2 round plate, a
+ * 1 x 1 round brick) standing a plate to a brick and a third over the floor.
+ * 76457's dark-red stool by the shop window is a 2 x 2 tile with studs on
+ * edge on a 2 x 2 round plate set into the floor tiles; with no seat there,
+ * the nearest seat was the upstairs chair right above it (device 2026-09-24e).
+ *
+ * A candidate is an upright `isStoolTop` tile whose column (the parts under
+ * its centre) is no wider than the tile until it reaches the floor - a part
+ * wider than the tile, or a layer where other parts stand flush beside the
+ * column (the floor tiles round a round plate) - at `STOOL_HEIGHT_LDU`, with
+ * nothing else at its seat height touching it (a counter or a table top is a
+ * surface, not a seat) and two bricks of head room over it. It faces the
+ * nearest part standing higher beside it (a table), else the model's front.
+ */
+export function brickBuiltStools(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, skip: ReadonlySet<ParsedBrick>, trace?: (b: ParsedBrick, verdict: string) => void): SceneSeat[] {
+  const boxes = bricks.map(b => {
+    const m = meshes.get(b.part);
+    return m && m.triangles.length ? worldBounds(b, m) : null;
+  });
+  // The model's underside: a column whose foot reaches it stands on the ground.
+  let ground = -Infinity;
+  boxes.forEach((o, j) => { if (o && !skip.has(bricks[j]!) && o.max[1] > ground) ground = o.max[1]; });
+  const out: SceneSeat[] = [];
+  bricks.forEach((b, i) => {
+    const m = meshes.get(b.part), box = boxes[i];
+    if (!m || !box || skip.has(b) || !isStoolTop(m.description)) return;
+    const no = (why: string): void => { trace?.(b, why); };
+    if (tiltDegOf(b.rot) > 3) return no('tilted');
+    const w = box.max[0] - box.min[0], d = box.max[2] - box.min[2];
+    if (w > 44 || d > 44 || w < 36 || d < 36) return no(`footprint ${w.toFixed(0)} x ${d.toFixed(0)}`);
+    const cx = (box.min[0] + box.max[0]) / 2, cz = (box.min[2] + box.max[2]) / 2;
+    const pan = b.y; // a tile's origin is its top face
+    const near = (j: number, pad: number): boolean => {
+      const o = boxes[j]!;
+      return o.min[0] < box.max[0] + pad && o.max[0] > box.min[0] - pad && o.min[2] < box.max[2] + pad && o.max[2] > box.min[2] - pad;
+    };
+    // Nothing else at the seat's height touching it.
+    for (let j = 0; j < bricks.length; j++) {
+      if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
+      if (Math.abs(boxes[j]!.min[1] - pan) <= 2 && near(j, 1)) return no(`surface continues into ${bricks[j]!.part}`);
+    }
+    // Head room: two bricks clear over the seat's middle.
+    for (let j = 0; j < bricks.length; j++) {
+      if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
+      const o = boxes[j]!;
+      if (o.max[1] <= pan + 0.5 && o.max[1] > pan - 48 && o.min[0] < cx + 14 && o.max[0] > cx - 14 && o.min[2] < cz + 14 && o.max[2] > cz - 14) return no(`no head room under ${bricks[j]!.part}`);
+    }
+    // Down the column to the floor.
+    let bottom = box.max[1], floor = NaN;
+    for (let step = 0; step < 6 && Number.isNaN(floor); step++) {
+      const under = boxes.map((_, j) => j).filter(j => j !== i && boxes[j] && !skip.has(bricks[j]!) && Math.abs(boxes[j]!.min[1] - bottom) <= 1.5
+        && boxes[j]!.min[0] <= cx && boxes[j]!.max[0] >= cx && boxes[j]!.min[2] <= cz && boxes[j]!.max[2] >= cz);
+      if (!under.length) {
+        // The column's foot is on the model's underside (within a plate of it): it stands on the ground.
+        // 76457's stool is a round plate at the bottom of a room with no floor of its own; on the device it stood on the grass.
+        if (step > 0 && ground - bottom <= 8.5) { floor = bottom; break; }
+        return no(`nothing under the column at ${bottom.toFixed(1)}`); // floating: not a stool
+      }
+      const wide = under.some(j => boxes[j]!.max[0] - boxes[j]!.min[0] > 44 || boxes[j]!.max[2] - boxes[j]!.min[2] > 44);
+      // A tile lying straight on a wide part is floor decoration, not a stool.
+      if (wide && step === 0) return no('lies flat on the floor');
+      if (wide) { floor = bottom; break; }
+      const col = under[0]!;
+      // A layer where other parts stand flush beside the column: that layer's top is the floor.
+      const flush = boxes.some((o, j) => j !== col && j !== i && o && !skip.has(bricks[j]!) && Math.abs(o.min[1] - boxes[col]!.min[1]) <= 1.5 && !under.includes(j) && near(j, 2));
+      if (flush) { floor = boxes[col]!.min[1]; break; }
+      bottom = Math.max(...under.map(j => boxes[j]!.max[1]));
+    }
+    if (Number.isNaN(floor)) return no('column never reaches a floor');
+    const height = floor - pan;
+    if (height < STOOL_HEIGHT_LDU.min || height > STOOL_HEIGHT_LDU.max) return no(`seat ${height.toFixed(1)} LDU over its floor`);
+    // Face the nearest higher part beside it (a table), else the model's front.
+    let facing: [number, number] = [0, -1], best = Infinity;
+    for (let j = 0; j < bricks.length; j++) {
+      const o = boxes[j];
+      if (j === i || !o || skip.has(bricks[j]!) || !(o.min[1] < pan - 8 && o.min[1] > pan - 48) || !near(j, 24)) continue;
+      const ox = (o.min[0] + o.max[0]) / 2 - cx, oz = (o.min[2] + o.max[2]) / 2 - cz, dist = Math.hypot(ox, oz);
+      if (dist > 1 && dist < best) { best = dist; facing = [ox / dist, oz / dist]; }
+    }
+    trace?.(b, 'stool');
+    out.push({ part: 'stool', surfaceLdu: [cx, pan, cz], facingLdu: facing });
+  });
+  return out;
+}
+
 /** A door LEAF (not a frame, not the glass insert, not a sticker). */
 export function isDoorLeafDescription(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
@@ -256,8 +378,10 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
 
   // Seats: the sitting surface is one plate above the mould's origin (4079: the
   // origin is under the seat pan). Other furniture moulds (a Fabuland chair or
-  // bench, a stool, a throne) sit on the top of their own box. A seat with a
-  // figure's torso over it is taken.
+  // bench, a stool, a throne) sit on their PAN - the face a line down the
+  // middle meets (`seatPanLocalY`), not the box top, which is a chair's
+  // backrest (4222a: 40 LDU over the pan). A seat with a figure's torso over
+  // it is taken.
   const seats: SceneSeat[] = [];
   for (const b of bricks) {
     const isMouldSeat = isSeat(b.part, desc(b));
@@ -265,7 +389,7 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const bm = meshes.get(b.part);
     const surface = isMouldSeat || !bm || !bm.triangles.length
       ? local(b, [0, -8, 0])
-      : local(b, [(bm.bounds.min[0] + bm.bounds.max[0]) / 2, bm.bounds.min[1], (bm.bounds.min[2] + bm.bounds.max[2]) / 2]);
+      : local(b, [(bm.bounds.min[0] + bm.bounds.max[0]) / 2, seatPanLocalY(bm), (bm.bounds.min[2] + bm.bounds.max[2]) / 2]);
     const facing = horizontal(b, [0, 0, -1]) ?? [0, -1];
     // The figure's torso, or the head standing in for a lost one (`figureAnchor`), at the head's offset.
     const sitter = figures.find(f => f.seatIndex === undefined && (() => {
@@ -278,6 +402,11 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     seats.push({ part: cleanPartId(b.part), surfaceLdu: surface, facingLdu: facing });
     // A figure the source sat here rides this seat's entity (the seat stays, occupied).
     if (sitter) { sitter.seated = true; sitter.seatIndex = seats.length - 1; }
+  }
+  // Brick-built stools (no seat mould), away from any moulded seat.
+  for (const stool of brickBuiltStools(bricks, meshes, figureBricks)) {
+    if (seats.some(s => Math.hypot(s.surfaceLdu[0] - stool.surfaceLdu[0], s.surfaceLdu[2] - stool.surfaceLdu[2]) < 20 && Math.abs(s.surfaceLdu[1] - stool.surfaceLdu[1]) < 24)) continue;
+    seats.push(stool);
   }
 
   // Door leaves, and the frames they hang in.

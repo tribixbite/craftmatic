@@ -182,11 +182,17 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
   cupboard door, lever and turnable of a brick-accurate building is its own
   hinged entity of the exact parts; `scripts/interactives.js` toggles on tap or
   interact, lays/clears the doorway's collider cells, plays door sounds, keeps
-  state in dynamic properties; double doors move together.
-- Device round 2026-09-24d defects (tap boxes overlapping a chair / the next
-  door / through a wall, 76417's front doors refusing to close on a player
-  outside them, 41732's raised shop threshold, "Door" on a barred gate) fixed
-  offline in `b5450028` + `d8c85e34`; re-test with the packs below.
+  state in dynamic properties; double doors (hinged at opposite jambs) move
+  together.
+- Device round 2026-09-24e (packs 1e33902c) confirmed 76417's front doors and
+  through-wall filter, 41732's doors 4/5 and "5 of 6", 76457's Doors 2-5, Gate 1
+  and a 90-degree Door 3. Its 76457 defects are fixed offline (this round):
+  the stool by Window 3 gets its own seat (`brickBuiltStools`; the "floating"
+  seat was the upstairs chair above it, correct); Door 1 was paired with Door 2
+  (`pairDoubleDoors` now); the tap filter is a line of sight to the tap boxes,
+  not the view ray, and says when it refuses; the wand menu says to stand
+  within about 3 blocks (`INTERACTIVE_REACH_NOTE`). Window 1 is 5 blocks up:
+  out of reach from the street, taps accepted from the room behind it offline.
 - Favourites at `d8c85e34`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
   (all walked without a jump), 1 SMALL (OK at 150 %), 36 SEALED; tap-box audit
   246 parts / 1,434 boxes / 0 problems. Output:
@@ -194,10 +200,11 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
 - Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
 
 Open:
-- [ ] Device round on the rebuilt packs: `custom_hit_test` picking (pivot read
-  as the box centre), root-bone turn at a non-zero wand turn and scale at a
-  non-100 % size, the through-wall tap filter, occupant step-out, threshold
-  treads, state after reload.
+- [ ] Device round on the rebuilt 76457 pack: sit on the stool by Window 3;
+  Door 1 swings on its own (Door 2 does not move with it) - if it still does
+  not, the action bar now says why; Window 1 from the room behind it.
+  Still unproven: `custom_hit_test` pivot as the box centre, root-bone scale at
+  a non-100 % size, occupant step-out, threshold treads, state after reload.
 - [ ] 36 SEALED doorways: rooms the 1-block collider grid fills (any geometry
   in a cell makes it solid). Needs finer colliders (half-block or per-cell
   occupancy fraction), not a deeper doorway cut.
@@ -206,7 +213,9 @@ Open:
 - [ ] Symmetric-origin moulds stay static (40066 arch door, 92099 trap door,
   30059 container door, 38320 pane); sliding/roller doors unmodelled; gears
   excluded; doors on DRIVEN vehicles are part of the vehicle entity.
-- [ ] Brick-built chairs still need the wand's "Add seat here".
+- [ ] Brick-built chairs other than a 2 x 2 tile on a narrow column (benches,
+  1 x 2 seats, chairs whose seat is a plate with studs) still need the wand's
+  "Add seat here".
 
 ## Previous round — 2026-09-22, the set's own cars and a working elevator
 

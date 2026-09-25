@@ -5,11 +5,12 @@
  * collider re-lay's own oracle at every size and turn), the pack assets, and
  * the serialised runtime run as the device runs it.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
+import { runtimeHost } from './_ix-host.js';
 import { BlockGrid } from '../src/schem/types.js';
 import {
   DOORWAY_MIN_HEIGHT_LDU, INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, hitGroupName, interactiveHitboxes, interactiveNoun, placeHitBox, separateHitboxes, worldHitBox, hitBoxesOverlap, seatHitBox, type HitBox, OPEN_DEG, discoverInteractives, interactiveAnimation, interactiveBehavior, interactiveKindOf,
-  interactiveRig, interactiveRuntimeItem, interactivesScript, ixClosedBlocks, ixWorldBlocks, linkSharedDoorways, passSizeFor, planInteractiveColliders,
+  interactiveRig, interactiveRuntimeItem, ixClosedBlocks, ixWorldBlocks, linkSharedDoorways, pairDoubleDoors, passSizeFor, planInteractiveColliders,
   rotateAbout, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type IxCell, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
 import { colliderState, COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
@@ -264,21 +265,40 @@ function leafModel(it: SceneInteractive): InteractiveRuntimeItem['leaf'] {
 }
 const add3 = (a: Vec3, b: Vec3): Vec3 => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
 
-/** Runtime items for two leaves of a double door in a 1-thick wall, plus a turnable, as the pack ships them. */
-function doubleDoorConfig(passSize = 100): InteractiveRuntimeConfig {
+/** `leafAt` hinged at its RIGHT end (x0 + width), swinging the other way: the right leaf of a double door. */
+function leafAtRight(x0: number, width: number, zc: number, height = 2.6): SceneInteractive {
+  const l = leafAt(x0, width, zc, height);
+  const corner: Vec3 = [(x0 + width) * C, -C, -zc * C];
+  return { ...l, pivotLdu: corner, angleDeg: -90, leaf: { ...l.leaf!, corner, along: [-width * C, 0, 0] } };
+}
+
+/** Runtime items for two leaves of a double door in a 1-thick wall (hinged at each jamb), plus a turnable, as the pack ships them. */
+function doubleDoorConfig(passSize = 100, sideBySide = false): InteractiveRuntimeConfig {
   const g = wallGrid();
-  const left = leafAt(2.25, 1.5, 5.5), right = leafAt(3.75, 1.5, 5.5);
+  // `sideBySide`: two doors in adjacent openings, both hinged on the left (76457's Door 1 and Door 2).
+  const left = leafAt(2.25, 1.5, 5.5), right = sideBySide ? leafAt(3.75, 1.5, 5.5) : leafAtRight(3.75, 1.5, 5.5);
   const plans = planInteractiveColliders(g, [left, right], frame);
   const items: InteractiveRuntimeItem[] = [
     { ...interactiveRuntimeItem(left, 'craftmatic:x_door_1', 'Door 1', plans[0]!), passSize, leaf: leafModel(left) },
-    { ...interactiveRuntimeItem(right, 'craftmatic:x_door_2', 'Door 2', plans[1]!), angle: -90, passSize, leaf: leafModel(right) },
+    { ...interactiveRuntimeItem(right, 'craftmatic:x_door_2', 'Door 2', plans[1]!), angle: sideBySide ? 90 : -90, passSize, leaf: leafModel(right) },
     interactiveRuntimeItem({ ...left, kind: 'turnable', angleDeg: 90, leaf: undefined, openingLdu: undefined }, 'craftmatic:x_turnable_1', 'Turnable 1', null),
   ];
   linkSharedDoorways(items);
+  pairDoubleDoors(items);
   return { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Test', dims: { width: 12, height: 6, length: 10 }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items, turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
 }
 
-describe('linkSharedDoorways and ixClosedBlocks', () => {
+describe('linkSharedDoorways, pairDoubleDoors and ixClosedBlocks', () => {
+  it('pairs the two leaves of a double door (hinged at each jamb), not two doors hung side by side', () => {
+    const pair = doubleDoorConfig();
+    expect(pair.items[0]!.pairs).toEqual([1]);
+    expect(pair.items[1]!.pairs).toEqual([0]);
+    // 76457's Door 1 and Door 2 (device 2026-09-24e): the doorways touch, but each is its own door.
+    const side = doubleDoorConfig(100, true);
+    expect(side.items[0]!.shares).toEqual([1]);
+    expect(side.items[0]!.pairs).toBeUndefined();
+    expect(side.items[1]!.pairs).toBeUndefined();
+  });
   it('links the two leaves of a double door, and lays a shared cell while either is closed', () => {
     const cfg = doubleDoorConfig();
     expect(cfg.items[0]!.shares).toEqual([1]);
@@ -327,68 +347,6 @@ describe('interactive entity assets', () => {
 
 // ─── The serialised runtime, run as the device runs it ───────────────────────
 
-function runtimeHost(cfg: InteractiveRuntimeConfig) {
-  const blocks = new Map<string, { typeId: string; states: Record<string, number> }>();
-  const setCollider = (x: number, y: number, z: number, lo: number, hi: number): void => { blocks.set(`${x},${y},${z}`, { typeId: cfg.colliders.block, states: { [cfg.colliders.loState]: lo, [cfg.colliders.hiState]: hi } }); };
-  const blockAt = (pos: { x: number; y: number; z: number }) => {
-    const key = `${pos.x},${pos.y},${pos.z}`;
-    const cur = blocks.get(key) ?? { typeId: 'minecraft:air', states: {} };
-    return {
-      typeId: cur.typeId, isAir: cur.typeId === 'minecraft:air',
-      permutation: { getState: (k: string) => cur.states[k] },
-      setPermutation: (perm: { id: string; states: Record<string, number> }) => { if (perm.id === 'minecraft:air') blocks.delete(key); else blocks.set(key, { typeId: perm.id, states: { ...perm.states } }); },
-    };
-  };
-  const entities: any[] = [];
-  const players: any[] = [];
-  const sounds: string[] = [];
-  const dim: any = {
-    id: 'minecraft:overworld',
-    getBlock: (pos: any) => blockAt(pos),
-    getEntities: (q: any) => [...entities, ...players].filter(e => (!q?.families || (e.families ?? []).some((f: string) => q.families.includes(f)))
-      && (!q?.location || Math.hypot(e.location.x - q.location.x, e.location.y - q.location.y, e.location.z - q.location.z) <= (q.maxDistance ?? Infinity))),
-    playSound: (id: string) => { sounds.push(id); },
-  };
-  const spawn = (item: number, anchor: { x: number; y: number; z: number }, f = 1, r = 0, at?: { x: number; y: number; z: number }) => {
-    const props = new Map<string, unknown>([['craftmatic:ix', item], ['craftmatic:ix_anchor', anchor], ['craftmatic:ix_rotation', r], ['craftmatic:ix_scale', f]]);
-    const e = {
-      id: `e${entities.length}`, typeId: cfg.items[item]!.type, families: [cfg.family], dimension: dim, location: at ?? { ...anchor },
-      angle: undefined as number | undefined,
-      actorProps: new Map<string, number>(), events: [] as string[],
-      getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => { props.set(k, v); },
-      setProperty: vi.fn(function (this: any, k: string, v: number) { e.actorProps.set(k, v); if (k === INTERACTIVE_PROPERTY) e.angle = v; }),
-      triggerEvent: (ev: string) => { e.events.push(ev); },
-      props,
-    };
-    entities.push(e);
-    return e;
-  };
-  let tickFn: () => void = () => {};
-  let interactFn: (ev: any) => void = () => {};
-  let hitFn: (ev: any) => void = () => {};
-  const system = { currentTick: 0, runInterval: (cb: () => void) => { tickFn = cb; }, run: (cb: () => void) => cb() };
-  const world = {
-    getDimension: (name: string) => (name === 'overworld' ? dim : { getEntities: () => [] }),
-    afterEvents: { playerInteractWithEntity: { subscribe: (cb: any) => { interactFn = cb; } }, entityHitEntity: { subscribe: (cb: any) => { hitFn = cb; } } },
-  };
-  const BlockPermutation = { resolve: (id: string, states: Record<string, number> = {}) => ({ id, states }) };
-  const load = (): void => {
-    const script = interactivesScript(cfg).replace(/^import .*;\n/, '');
-    const console = { warn: () => {} };
-    new Function('world', 'system', 'BlockPermutation', 'console', script)(world, system, BlockPermutation, console);
-  };
-  load();
-  const player = { typeId: 'minecraft:player', id: 'p1', location: { x: 0, y: 0, z: 0 }, onScreenDisplay: { setActionBar: vi.fn() }, teleport: vi.fn(function (to: any) { player.location = { ...to }; }) };
-  return {
-    blocks, setCollider, spawn, sounds, player, players, load,
-    sync: () => tickFn(),
-    tap: (e: any) => { system.currentTick += 10; hitFn({ damagingEntity: player, hitEntity: e }); },
-    interact: (e: any) => { system.currentTick += 10; interactFn({ player, target: e }); },
-    interactTwice: (e: any) => { system.currentTick += 10; interactFn({ player, target: e }); hitFn({ damagingEntity: player, hitEntity: e }); },
-    lastBar: () => player.onScreenDisplay.setActionBar.mock.calls.at(-1)?.[0] as string | undefined,
-  };
-}
-
 describe('interactives runtime (scripts/interactives.js)', () => {
   const anchor = { x: 100, y: 64, z: 200 };
   const keysOf = (cfg: InteractiveRuntimeConfig, i: number, f = 1, r = 0) => [...ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r).keys()].map(k => { const [x, y, z] = k.split(',').map(Number) as [number, number, number]; return `${anchor.x + x},${anchor.y + y},${anchor.z + z}`; });
@@ -413,18 +371,61 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(h.sounds.at(-1)).toBe('random.door_close');
   });
 
-  it('ignores a tap that reaches the part through a wall of the pack\'s colliders (they have no selection box)', () => {
+  it('ignores a tap that reaches the part through a wall of the pack\'s colliders (they have no selection box), and says so', () => {
     const cfg = doubleDoorConfig();
+    // One tap box, 0.3 wide and 2.5 tall, standing on the entity's origin.
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
     const h = runtimeHost(cfg);
     const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
     h.sync();
-    Object.assign(h.player, { getHeadLocation: () => ({ x: 103.5, y: 66.6, z: 199.5 }), getViewDirection: () => ({ x: 0, y: 0, z: 1 }) });
-    h.setCollider(103, 66, 202, 0, 16);
+    h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103, y: 66.25, z: 205.5 });
+    // A wall across the whole line of sight (three cells wide, the part's height).
+    for (const x of [102, 103, 104]) for (const y of [65, 66, 67]) h.setCollider(x, y, 202, 0, 16);
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBeUndefined();
+    expect(h.lastBar()).toMatch(/door 1 is behind a wall from here/);
     // A floor plate under the line of sight is not a wall.
-    h.setCollider(103, 66, 202, 0, 3);
+    for (const x of [102, 103, 104]) for (const y of [65, 66, 67]) h.setCollider(x, y, 202, 0, 3);
     h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+  });
+
+  it('judges a tap by the line of sight to the part, not by where the camera looks (a touch tap), and not by the cell the part itself pokes into', () => {
+    const cfg = doubleDoorConfig();
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
+    h.sync();
+    // The camera looks at a wall to the side; the finger is on the door, which the eyes see clearly (device 2026-09-24e, 76457's Door 1).
+    h.setCollider(99, 66, 199, 0, 16);
+    Object.assign(h.player, { getHeadLocation: () => ({ x: 103.5, y: 66.6, z: 199.5 }), getViewDirection: () => ({ x: -1, y: 0, z: 0 }) });
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    // The frame's cell the (skewed) leaf reaches into is full, right in front of the leaf: not a wall in front of it.
+    const h2 = runtimeHost(cfg);
+    const b = h2.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
+    h2.sync();
+    for (const y of [65, 66, 67]) h2.setCollider(103, y, 205, 0, 16);
+    h2.aim({ x: 103.5, y: 66.6, z: 201.5 }, { x: 103, y: 66.25, z: 205.5 });
+    h2.tap(b);
+    expect(b.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+  });
+
+  it('moves the two leaves of a double door together, and never a door hung beside another', () => {
+    const side = doubleDoorConfig(100, true);
+    const h = runtimeHost(side);
+    const a = h.spawn(0, anchor), b = h.spawn(1, anchor);
+    h.sync();
+    h.tap(b);
+    expect(b.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBeUndefined();
+    expect(a.angle).toBe(0);
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
+    expect(a.angle).toBe(90);
+    // Closing one keeps the other open, and the shared cells follow each leaf's own state.
+    h.tap(b);
+    expect(b.getDynamicProperty('craftmatic:ix_open')).toBe(false);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
   });
 
@@ -455,7 +456,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.player.location = { x: x + 0.5, y, z: z + 0.12 };
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
-    expect(h.player.teleport).toHaveBeenCalled();
+    expect(h.teleports.length).toBeGreaterThan(0);
     expect(h.player.location.z).toBeLessThanOrEqual(z - 0.3 + 1e-9);
     h.tap(a);
     h.players.length = 0;
@@ -607,17 +608,57 @@ describe('tap boxes (minecraft:custom_hit_test)', () => {
 });
 
 describe('furniture seats', () => {
-  it('sits on a library chair, bench or stool mould at the top of its own box, not only on the minifig seat', async () => {
+  it('sits on a library chair, bench or stool mould on its PAN (not its backrest), not only on the minifig seat', async () => {
     const { isFurnitureSeat, discoverSceneActors } = await import('../web/src/engine/bedrock-scene-actors.js');
     expect(isFurnitureSeat('Fabuland Chair')).toBe(true);
     expect(isFurnitureSeat('Fabuland Bench')).toBe(true);
     expect(isFurnitureSeat('HOLDER FOR CHAIR 20MM (Needs Work)')).toBe(false);
     expect(isFurnitureSeat('Brick  2 x  4')).toBe(false);
-    const meshes = new Map([['4222a.dat', mesh('4222a', 'Fabuland Chair', [-20, -40, -20], [20, 0, 20])]]);
+    // A chair: the pan at y 0 over the whole footprint, a backrest rising 40 LDU at the back edge with a rail on top.
+    const chair = {
+      ...mesh('4222a', 'Fabuland Chair', [-20, -40, -20], [20, 24, 20]),
+      triangles: [
+        { a: [-20, 0, -20], b: [20, 0, -20], c: [20, 0, 20], color: 16 }, { a: [-20, 0, -20], b: [20, 0, 20], c: [-20, 0, 20], color: 16 },
+        { a: [-20, 0, 20], b: [20, 0, 20], c: [20, -40, 20], color: 16 },
+        { a: [-20, -40, 16], b: [20, -40, 16], c: [20, -40, 20], color: 16 }, { a: [-20, -40, 16], b: [20, -40, 20], c: [-20, -40, 20], color: 16 },
+        { a: [-20, 24, -20], b: [20, 24, -20], c: [20, 24, 20], color: 16 },
+      ],
+    } as unknown as LdrawPartMesh;
+    const meshes = new Map([['4222a.dat', chair]]);
     const provider = { getPartMesh: async (p: string) => meshes.get(p) ?? null } as unknown as Parameters<typeof discoverSceneActors>[1];
     const scene = await discoverSceneActors([brick('4222a.dat', 100, 0, 50)], provider);
     expect(scene.seats).toHaveLength(1);
-    expect(scene.seats[0]!.surfaceLdu).toEqual([100, -40, 50]);
+    // The pan (y 0), not the backrest's top (y -40): a chair's box top is its back (device 2026-09-24e seat audit).
+    expect(scene.seats[0]!.surfaceLdu).toEqual([100, 0, 50]);
+  });
+
+  it('finds a brick-built stool (a 2 x 2 tile on a narrow column), and not a tile lying on the floor or part of a counter', async () => {
+    const { brickBuiltStools, isStoolTop } = await import('../web/src/engine/bedrock-scene-actors.js');
+    expect(isStoolTop('Tile  2 x  2 with Studs on Edge')).toBe(true);
+    expect(isStoolTop('Tile  2 x  2 Round with Round Underside Stud')).toBe(true);
+    expect(isStoolTop('Tile  2 x  4')).toBe(false);
+    const meshes = new Map<string, LdrawPartMesh>([
+      ['33909.dat', mesh('33909', 'Tile  2 x  2 with Studs on Edge', [-20, 0, -20], [20, 8, 20])],
+      ['4032b.dat', mesh('4032b', 'Plate  2 x  2 Round with Axlehole Type 2', [-20, 0, -20], [20, 8, 20])],
+      ['3958.dat', mesh('3958', 'Plate  6 x  6', [-60, 0, -60], [60, 8, 60])],
+      ['3068b.dat', mesh('3068b', 'Tile  2 x  2 with Groove', [-20, 0, -20], [20, 8, 20])],
+      ['3001.dat', mesh('3001', 'Brick  2 x  4', [-40, 0, -20], [40, 24, 20])],
+    ]);
+    // 76457's dark-red stool: a studs-on-edge tile on a round plate standing on the model's underside, a table beside it.
+    const floor = brick('3958.dat', 0, 0, 0);
+    const stoolTop = brick('33909.dat', 0, -16, 0), stoolFoot = brick('4032b.dat', 0, -8, 0);
+    const table = brick('3001.dat', 0, -32, -60);
+    const found = brickBuiltStools([floor, stoolFoot, stoolTop, table], meshes, new Set());
+    expect(found).toHaveLength(1);
+    expect(found[0]!.surfaceLdu).toEqual([0, -16, 0]);
+    // It faces the table (LDraw -Z).
+    expect(found[0]!.facingLdu[1]).toBeLessThan(-0.9);
+    // A tile lying straight on the floor plate is floor decoration.
+    expect(brickBuiltStools([floor, brick('3068b.dat', 0, -8, 0)], meshes, new Set())).toHaveLength(0);
+    // A tile flush with a brick beside it is a counter top.
+    expect(brickBuiltStools([floor, stoolFoot, stoolTop, brick('3001.dat', 60, -16, 0)], meshes, new Set())).toHaveLength(0);
+    // No head room: something two plates over it.
+    expect(brickBuiltStools([floor, stoolFoot, stoolTop, brick('3001.dat', 0, -56, 0)], meshes, new Set())).toHaveLength(0);
   });
 });
 

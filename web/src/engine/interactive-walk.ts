@@ -144,8 +144,8 @@ const nodeKey = (n: { x: number; z: number; t: number }): string => `${n.x},${n.
 export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn, open: boolean, openOthers = false, trace?: DoorwayWalkTrace): DoorwayWalkResult {
   const cfg = pack.interactives, item = cfg.items[index]!;
   const f = sizePct / 100, k = Math.max(1, f);
-  // A double door's leaves open together (`shares`, the runtime's group).
-  const group = new Set([index, ...item.shares]);
+  // A double door's leaves open together (`pairs`, the runtime's group).
+  const group = new Set([index, ...(item.pairs ?? [])]);
   /**
    * The walk world with the doorway's group in `groupOpen` (the runtime's
    * state: an opening too small at this size stays laid) - or, with
