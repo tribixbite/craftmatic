@@ -17,9 +17,10 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { classifiedDescription, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
+import { classifiedDescription, withClassifiedDescriptions, type LdrawPartMesh, type Vec3 } from './ldraw-part-geometry.js';
 import { cleanPartId } from './ldraw-entity-compiler.js';
-import { discoverInteractives, interactiveHitboxes, interactiveKindOf, separateHitboxes, type InteractiveKind, type SceneInteractive } from './bedrock-interactives.js';
+import { MAX_INTERACTIVES, capInteractives, discoverInteractives, interactiveHitboxes, interactiveKindOf, separateHitboxes, type InteractiveKind, type SceneInteractive } from './bedrock-interactives.js';
+import { discoverBrickHinges, type HingeLineReport } from './brick-hinges.js';
 import type { SceneSeat } from './bedrock-scene-actors.js';
 
 /** What a player does with a part: a moving part's kind, a seat, or a bed (a seat on its mattress). */
@@ -44,6 +45,11 @@ export interface InteractivityReport {
   totals: Record<InteractivityVerdict, number>;
   /** Found per class (seats count seats, moving parts count entities). */
   found: Partial<Record<InteractivityClass, number>>;
+  /**
+   * The brick-built hinge detector (`brick-hinges.ts`): how many joint lines
+   * it cut, their verdicts, and every line that moved with what it became.
+   */
+  hinges?: { lines: number; verdicts: Partial<Record<HingeLineReport['verdict'], number>>; moved: HingeLineReport[] };
 }
 
 /**
@@ -103,7 +109,14 @@ export interface InteractivityStageResult {
 export function interactivityStage(input: InteractivityStageInput): InteractivityStageResult {
   const warnings: string[] = [];
   const scenery = input.bricks.filter(b => !input.owned.has(b));
-  const found = discoverInteractives(scenery, input.meshes, { ...(input.max !== undefined ? { max: input.max } : {}) });
+  // Moulded parts by description, then BRICK-BUILT assemblies on a turning
+  // joint (`brick-hinges.ts`) among what is left; the cap applies to both together.
+  const moulded = discoverInteractives(scenery, input.meshes, { max: Number.MAX_SAFE_INTEGER });
+  const classified = withClassifiedDescriptions(input.meshes);
+  const taken = new Set<ParsedBrick>([...moulded.items.flatMap(it => it.bricks), ...input.seats.flatMap(s => (s.brick ? [s.brick] : []))]);
+  const hinged = discoverBrickHinges({ bricks: scenery, meshOf: b => { const m = classified.get(b.part); return m && m.triangles.length ? m : null; }, taken });
+  const capped = capInteractives([...moulded.items, ...hinged.items], input.max ?? MAX_INTERACTIVES);
+  const found = { items: capped.items, skipped: [...moulded.skipped, ...capped.skipped], warnings: [...moulded.warnings, ...capped.warnings] };
   warnings.push(...found.warnings);
   // Tap boxes: each part's own shape, kept off the seats and off each other. A
   // part that cannot keep a box to itself (a turntable under a seat, two
@@ -116,10 +129,11 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
   if (lostBoxes.length) warnings.push(`${lostBoxes.length} moving part${lostBoxes.length === 1 ? ' stays' : 's stay'} static: ${lostBoxes.map(it => `${it.kind} ${it.part}`).join(', ')} cannot keep a tap box clear of a seat or another part.`);
 
   // Who each placement ended up with.
-  const verdictOf = new Map<ParsedBrick, { verdict: InteractivityVerdict; reason?: string; cls?: InteractivityClass }>();
+  const verdictOf = new Map<ParsedBrick, { verdict: InteractivityVerdict; reason?: string; cls?: InteractivityClass; description?: string }>();
   const labelOf = (it: SceneInteractive): string => `${it.kind} ${it.part}`;
   for (const it of items) {
-    it.bricks.forEach((b, i) => verdictOf.set(b, i === 0 ? { verdict: 'found', cls: it.kind } : { verdict: 'rides', reason: `rides with ${labelOf(it)}` }));
+    // A brick-built assembly's row is the assembly (its joint half is only the part that names it).
+    it.bricks.forEach((b, i) => verdictOf.set(b, i === 0 ? { verdict: 'found', cls: it.kind, ...(it.builtFrom ? { reason: 'brick-built on a turning joint', description: it.builtFrom } : {}) } : { verdict: 'rides', reason: `rides with ${labelOf(it)}` }));
   }
   for (const it of lostBoxes) verdictOf.set(it.bricks[0]!, { verdict: 'static', reason: 'its tap box cannot be kept clear of a seat or another part', cls: it.kind });
   // `skipped` names the mould, not the placement: match by part among the unassigned placements.
@@ -145,7 +159,7 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
     const description = m ? classifiedDescription(m) : '';
     const v = verdictOf.get(b);
     const named = movableClassOf(description);
-    if (v && v.verdict !== 'rides') { addRow(v.cls ?? named ?? 'door', b, description, v.verdict, v.reason); continue; }
+    if (v && v.verdict !== 'rides') { addRow(v.cls ?? named ?? 'door', b, v.description ?? description, v.verdict, v.reason); continue; }
     if (!named) continue;
     if (v) { addRow(named, b, description, 'rides', v.reason); continue; }
     const owner = input.owned.get(b);
@@ -162,7 +176,10 @@ export function interactivityStage(input: InteractivityStageInput): Interactivit
   const foundByClass: Partial<Record<InteractivityClass, number>> = {};
   for (const it of items) foundByClass[it.kind] = (foundByClass[it.kind] ?? 0) + 1;
   for (const s of input.seats) { const c: InteractivityClass = s.part === 'bed' ? 'bed' : 'seat'; foundByClass[c] = (foundByClass[c] ?? 0) + 1; }
-  return { items, report: { rows, totals, found: foundByClass }, warnings };
+  const verdicts: Partial<Record<HingeLineReport['verdict'], number>> = {};
+  for (const l of hinged.lines) verdicts[l.verdict] = (verdicts[l.verdict] ?? 0) + 1;
+  const hinges = { lines: hinged.lines.length, verdicts, moved: hinged.lines.filter(l => l.verdict === 'moves') };
+  return { items, report: { rows, totals, found: foundByClass, hinges }, warnings };
 }
 
 /** One line for the pack warnings: what the stage found and what it left, by verdict. */

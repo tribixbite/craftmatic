@@ -256,6 +256,8 @@ export interface SceneInteractive {
   hit?: InteractiveHitboxes;
   /** Degrees each sign of the swing was obstructed in the sweep (samples inside other parts), for diagnostics. */
   sweep?: { chosen: number; other: number };
+  /** A BRICK-BUILT assembly on a joint (`brick-hinges.ts`): what it is and what it hangs on, for the report. */
+  builtFrom?: string;
 }
 
 export interface InteractiveDiscovery {
@@ -537,13 +539,21 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], sourceMeshe
       sweep: { chosen: sign > 0 ? plus : minus, other: sign > 0 ? minus : plus },
     });
   }
-  // The cap: doorways first, then mechanisms, then cabinets and windows.
+  const capped = capInteractives(found, options.max ?? MAX_INTERACTIVES);
+  return { items: capped.items, skipped: [...skipped, ...capped.skipped], warnings: [...warnings, ...capped.warnings] };
+}
+
+/**
+ * The cap on shipped moving parts: doorways first, then mechanisms, then
+ * cabinets and windows; within a rank, the order found. What is over the cap
+ * stays static in the building, and says so.
+ */
+export function capInteractives(found: readonly SceneInteractive[], cap: number): { items: SceneInteractive[]; skipped: InteractiveDiscovery['skipped']; warnings: string[] } {
   const rank: Record<InteractiveKind, number> = { door: 0, gate: 0, hatch: 1, turnable: 2, lever: 2, cabinet: 3, lid: 3, drawer: 3, window: 4 };
-  const cap = options.max ?? MAX_INTERACTIVES;
   const ordered = found.map((it, i) => ({ it, i })).sort((a, b) => rank[a.it.kind] - rank[b.it.kind] || a.i - b.i);
   const items = ordered.slice(0, cap).sort((a, b) => a.i - b.i).map(o => o.it);
-  for (const { it } of ordered.slice(cap)) skipped.push({ part: it.part, kind: it.kind, reason: `over the ${cap}-part cap (it stays static in the building)` });
-  if (ordered.length > cap) warnings.push(`${ordered.length - cap} interactive part${ordered.length - cap === 1 ? '' : 's'} over the ${cap}-part cap stay static (doorways are kept first).`);
+  const skipped = ordered.slice(cap).map(({ it }) => ({ part: it.part, kind: it.kind, reason: `over the ${cap}-part cap (it stays static in the building)` }));
+  const warnings = ordered.length > cap ? [`${ordered.length - cap} interactive part${ordered.length - cap === 1 ? '' : 's'} over the ${cap}-part cap stay static (doorways are kept first).`] : [];
   return { items, skipped, warnings };
 }
 
@@ -963,6 +973,9 @@ export function interactiveAnimation(typeId: string, rateDegPerSecond: number, s
  * Barred" read as "door 1" on the device), a short leaf a cupboard.
  */
 export function interactiveNoun(it: Pick<SceneInteractive, 'kind' | 'description'>): string {
+  // A brick-built assembly names itself (`brick-hinges.ts`): "Brick-built drop-down flap (…)" is a Drop-down flap.
+  const built = /^Brick-built ([a-z -]+?) \(/i.exec(it.description);
+  if (built) return `${built[1]![0]!.toUpperCase()}${built[1]!.slice(1)}`;
   if (it.kind === 'gate' || (it.kind === 'door' && /\b(Barred|Bars|Gate|Portcullis)\b/i.test(it.description))) return 'Gate';
   if (it.kind === 'cabinet') return 'Cupboard';
   if (it.kind === 'door' && /^Roller Door\b/i.test(it.description.replace(/^[~=_]+\s*/, ''))) return 'Garage door';
