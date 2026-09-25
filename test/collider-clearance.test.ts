@@ -26,6 +26,7 @@ import { ixWorldBlocks } from '../web/src/engine/bedrock-interactives.js';
 import { colliderSourceCells, encodeColliderRuns, withColliderTreads, SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { WalkWorld, tickPlayer, type PlayerState } from '../web/src/engine/addon-walk.js';
 import { QUARTER_TURNS } from '../web/src/engine/bedrock-collider-scale.js';
+import { blockSpan } from '../web/src/engine/bedrock-figure-life.js';
 
 const K = COLLIDER_KIT;
 
@@ -247,6 +248,17 @@ describe('applyColliderClearance', () => {
     const r = applyColliderClearance(s.input());
     expect(s.form(1, 0, 0)).toEqual({ v: 0, lo: 0, hi: 3 });
     expect(r.refused['walkable-top']).toBe(1);
+  });
+});
+
+describe('figures read a form as the full collider it replaced (bedrock-figure-life.ts blockSpan)', () => {
+  it('a wall form spans lo..hi, a floor + wall form runs to the block top, a wall + ceiling form from its bottom', () => {
+    const C = { block: 'craftmatic:collider' };
+    const id = (kind: 0 | 1 | 2): string => K.VARIANTS.find(d => d.kind === kind && d.shape === 3)!.id;
+    expect(blockSpan(id(0), false, false, 5, C, 2, 9)).toEqual([5 + 2 / 16, 5 + 9 / 16]);
+    expect(blockSpan(id(1), false, false, 5, C, 2, 9)).toEqual([5 + 2 / 16, 6]);
+    expect(blockSpan(id(2), false, false, 5, C, 2, 9)).toEqual([5, 5 + 9 / 16]);
+    expect(blockSpan('craftmatic:collider', false, false, 5, C, 2, 9)).toEqual([5 + 2 / 16, 5 + 9 / 16]);
   });
 });
 
