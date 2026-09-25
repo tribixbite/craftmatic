@@ -133,6 +133,7 @@ import { SHELL_FRAME } from './bedrock-building-shell.js';
 import type { CoasterAssemblies, CoasterCar, CoasterPlatformLift } from './coaster-assemblies.js';
 import type { CoasterTrackExtraction } from './coaster-track.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
+import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
 
 declare const world: any;
 declare const system: any;
@@ -358,6 +359,14 @@ export interface CoasterRuntimeConfig {
   physics?: CoasterPhysics;
   /** The rider's track-following camera (see `COASTER_RIDER_VIEW`); absent = no camera, the pre-2026-09-24 behaviour. */
   camera?: CoasterRiderViewConfig;
+  /**
+   * The driven trains' stick override (`FLIGHT_INPUT_EVENT` of bedrock-vehicle.ts,
+   * the scripted vehicles' own hook): `/scriptevent <inputEvent> {"y":1,"ticks":40,"id":"<any car>"}`
+   * drives a train as if its driver held that stick. A GameTest simulated
+   * player's stick never reaches `inputInfo` (Pixel, 2026-09-25). Present only
+   * when a route is a railway line.
+   */
+  inputEvent?: string;
 }
 
 /**
@@ -1431,7 +1440,8 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(railway ? { physics: RAIL_TRAIN_PHYSICS } : {}),
     };
   });
-  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW } };
+  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW },
+    ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };
 }
 
 // ─── Pack assets ─────────────────────────────────────────────────────────────
@@ -2083,8 +2093,29 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const BODY_RANGE = PHYSICS.BODY_RANGE ?? 320;
   /** The coaster's constants as the shared ride step (`rideSubstep`) reads them. */
   const COASTER_RIDE: any = { GRAVITY, ROLLING, DRAG, MIN_SPEED, MAX_SPEED, LIFT_GRADE, LIFT_SPEED, LIFT_ACCEL };
-  /** The stick of the train's driver along the car's nose, -1..1, or NaN with nobody at the controls. */
-  const stickOf = (riders: any[]): number => {
+  /**
+   * Stick overrides from `config.inputEvent` (a GameTest drives a train this
+   * way), by car entity id or `*` for every train: consumed one per tick.
+   */
+  const stickOverrides = new Map<string, { y: number; ticks: number }>();
+  if (config.inputEvent) {
+    try {
+      system.afterEvents.scriptEventReceive.subscribe((event: any) => {
+        if (event.id !== config.inputEvent) return;
+        let m: any;
+        try { m = JSON.parse(event.message || '{}'); } catch { return; }
+        stickOverrides.set(m.id ? String(m.id) : '*', { y: Math.max(-1, Math.min(1, Number(m.y) || 0)), ticks: Math.max(1, Number(m.ticks) || 20) });
+      }, { namespaces: ['craftmatic'] });
+    } catch {}
+  }
+  /** The stick of the train's driver along the car's nose, -1..1, or NaN with nobody at the controls; an override from `inputEvent` wins. */
+  const stickOf = (riders: any[], cars: any[] = []): number => {
+    for (const k of [...cars.map((car: any) => String(car.id)), '*']) {
+      const o = stickOverrides.get(k);
+      if (!o) continue;
+      if (--o.ticks <= 0) stickOverrides.delete(k);
+      return o.y;
+    }
     for (const rider of riders) {
       try { const m = rider?.inputInfo?.getMovementVector?.(); if (m && Number.isFinite(m.y)) return m.y; } catch {}
     }
@@ -2502,7 +2533,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // A railway route is driven: its own constants, and the stick of whoever is aboard.
         const RIDE: any = route.physics && route.physics.DRIVER ? route.physics : COASTER_RIDE;
         const driver: any = route.physics && route.physics.DRIVER ? route.physics.DRIVER : undefined;
-        const stick = driver ? stickOf(riders) : NaN;
+        const stick = driver ? stickOf(riders, list) : NaN;
         const driven = Number.isFinite(stick);
         // One tick of ride physics from (centre, speed) in `direction`: the
         // advance in model blocks, the new speed and the direction (only a

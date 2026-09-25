@@ -1,5 +1,6 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import { partStem } from './part-id.js';
+import { HOVER_WORDS } from './bedrock-vehicle.js';
 
 export type VehicleMode = 'auto' | 'car' | 'plane' | 'boat' | 'static';
 export type PlayableKind = 'car' | 'plane' | 'boat';
@@ -25,7 +26,40 @@ const CAR_WORDS = /\b(car|truck|bus|buggy|racer|roadster|batmobile|tumbler|vehic
 const PLANE_WORDS = /\b(plane|airplane|aeroplane|jet|aircraft|starfighter|fighter|helicopter|copter|spaceship|shuttle|biplane|monoplane|seaplane|bomber|rotorcraft|starship|rocket|x-wing|tie fighter|falcon|milano|interceptor|speeder|gunship|drone)\b/i;
 const BOAT_WORDS = /\b(boat|ship|yacht|sailboat|speedboat|cruiser|ferry|canoe|kayak|raft|vessel|barge|pirate ship|watercraft|rowboat|cutter|catamaran|schooner|galleon|tugboat|steamboat|dinghy|skiff|hydrofoil)\b/i;
 const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox|shadow box|workshop|city|showroom)\b/i;
-export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label) || BOAT_WORDS.test(label));
+/**
+ * A title that names a CRAFT without saying which kind: "Destiny's Bounty"
+ * (a flying ship), "Galaxy Explorer" (a spaceship), "Polar Explorer" (a
+ * truck). Over the index's 10,169 titles, "explorer" and "bounty" name a
+ * vehicle in every one of the 52 that carry them except "Bounty Hunter"
+ * figures and kits (excluded below); the KIND is read from the parts
+ * (`vehicleKindFromParts`). Measured 2026-09-25 (vehicle audit).
+ */
+export const CRAFT_WORDS = /\b(explorer|bounty|voyager|lander|orbiter)\b(?! hunter)/i;
+/** Any title word that fixes a kind by itself (the car, plane, boat and hover lists). */
+const TITLE_KIND_WORDS = new RegExp(`${CAR_WORDS.source}|${PLANE_WORDS.source}|${BOAT_WORDS.source}|${HOVER_WORDS.source}`, 'i');
+export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label) || BOAT_WORDS.test(label) || HOVER_WORDS.test(label) || CRAFT_WORDS.test(label));
+
+/**
+ * The kind of a craft from its parts, for a title that names no kind (a
+ * CRAFT word): wings make it fly, road wheels it stands on make it a car, a
+ * hull, oars or a rudder make it a boat. Counted by library description.
+ * Destiny's Bounty (70618): 30 wing placements, 2 boat -> plane (it flies in
+ * the show); Galaxy Explorer (10497): 35 wing, 15 wheel -> plane.
+ */
+export function vehicleKindFromParts(bricks: readonly ParsedBrick[], describe: (part: string) => string): { kind: PlayableKind | null; reason: string } {
+  let wings = 0, wheels = 0, hull = 0;
+  for (const b of bricks) {
+    const d = describe(b.part).replace(/^[~=_]+\s*/, '');
+    if (/\bWing\b/i.test(d)) wings++;
+    else if (/^(Wheel|Tyre|Tire)\b/i.test(d) && !/^Wheel (Holder|Arch|Cover|Hub|Centre|Center)/i.test(d)) wheels++;
+    else if (/^Boat\b|\bHull\b|\bOar\b|\bRudder\b/i.test(d)) hull++;
+  }
+  const counts = `${wings} wing, ${wheels} wheel, ${hull} hull/oar placement${wings + wheels + hull === 1 ? '' : 's'}`;
+  if (wings >= 4 && wings >= wheels && wings >= hull * 4) return { kind: 'plane', reason: `${counts}: wings` };
+  if (hull >= 2 && hull * 4 > wings) return { kind: 'boat', reason: `${counts}: a hull` };
+  if (wheels >= 4) return { kind: 'car', reason: `${counts}: road wheels` };
+  return { kind: null, reason: counts };
+}
 // Small/medium road wheels and tires used by System and Technic vehicles.
 const ROAD_WHEELS = new Set([
   '55982', '58090', '30027', '30028', '11208', '11209', '18976', '18977', '30391',
@@ -47,13 +81,21 @@ function verifiedBatmobile(bricks: ParsedBrick[]): ParsedBrick[] | null {
   return (hash >>> 0) === 0x1001363b ? car : null;
 }
 
-export function classifyVehicleKind(label: string, mode: VehicleMode): PlayableKind | null {
+/**
+ * The kind a title (or an explicit mode) gives: boat, plane or car words; a
+ * hover title with no other word is hull-shaped (a sail barge, a speeder:
+ * `boat` geometry, and `vehicleMotionOf` makes it float); a craft word takes
+ * `partsKind` (`vehicleKindFromParts`) or stays unknown.
+ */
+export function classifyVehicleKind(label: string, mode: VehicleMode, partsKind: PlayableKind | null = null): PlayableKind | null {
   if (mode === 'car' || mode === 'plane' || mode === 'boat') return mode;
   if (mode === 'static') return null;
   if (/\b(?:76252|10300)\b|batcave shadow/i.test(label)) return 'car';
   if (BOAT_WORDS.test(label)) return 'boat';
   if (PLANE_WORDS.test(label)) return 'plane';
   if (CAR_WORDS.test(label)) return 'car';
+  if (HOVER_WORDS.test(label)) return 'boat';
+  if (CRAFT_WORDS.test(label)) return partsKind;
   return null;
 }
 
@@ -130,11 +172,31 @@ function wheelComponents(bricks: ParsedBrick[]): ParsedBrick[][] {
 }
 
 export function discoverPlayableComponents(
-  bricks: ParsedBrick[], label: string, mode: VehicleMode = 'auto',
+  bricks: ParsedBrick[], label: string, mode: VehicleMode = 'auto', describe?: (part: string) => string,
 ): { components: PlayableBrickComponent[]; warnings: string[] } {
-  const kind = classifyVehicleKind(label, mode);
-  if (!kind) return { components: [], warnings: [] };
-  const withBounds = (component: Omit<PlayableBrickComponent, 'bounds'>): PlayableBrickComponent => {
+  // A title with only a craft word ("Destiny's Bounty", "Galaxy Explorer") is a vehicle whose kind the parts decide.
+  const evidence = describe ? vehicleKindFromParts(bricks, describe) : null;
+  const kind = classifyVehicleKind(label, mode, evidence?.kind ?? null);
+  if (!kind) {
+    const warnings = mode === 'auto' && CRAFT_WORDS.test(label) && !TITLE_KIND_WORDS.test(label)
+      ? [`${label}: the title names a craft but its parts do not say which kind (${evidence ? evidence.reason : 'no part descriptions'}); exported static. Choose a vehicle mode to ride it.`] : [];
+    return { components: [], warnings };
+  }
+  const withBounds = withPlayableBounds;
+  const craftNote = evidence && !TITLE_KIND_WORDS.test(label) && CRAFT_WORDS.test(label) ? `; kind from its parts: ${evidence.reason}` : '';
+  if (craftNote && mode === 'auto') {
+    return { components: [withBounds({ id: kind, label, kind, bricks, provenance: `whole model identified by source title (a craft word)${craftNote}` })], warnings: [] };
+  }
+  return discoverTitled(bricks, label, mode, kind, withBounds);
+}
+
+/**
+ * A component's LDraw bounds, long axis (a car) and a cockpit-derived seat
+ * anchor: what every rideable component carries (a title-found vehicle and a
+ * vehicle found standing in a scene alike).
+ */
+export function withPlayableBounds(component: Omit<PlayableBrickComponent, 'bounds'>): PlayableBrickComponent {
+  {
     const xs=component.bricks.map(b=>b.x), ys=component.bricks.map(b=>b.y), zs=component.bricks.map(b=>b.z);
     const bounds = {min:[Math.min(...xs),Math.min(...ys),Math.min(...zs)] as [number,number,number],max:[Math.max(...xs),Math.max(...ys),Math.max(...zs)] as [number,number,number]};
     const longitudinalAxis = component.kind === 'car'
@@ -169,8 +231,14 @@ export function discoverPlayableComponents(
     }
 
     return {...component,bounds,...(longitudinalAxis ? { longitudinalAxis } : {}), ...(seatAnchor ? { seatAnchor } : {})};
-  };
+  }
+}
 
+/** The title-driven discovery: a verified Batmobile, a whole-model vehicle, named submodels, wheel clusters. */
+function discoverTitled(
+  bricks: ParsedBrick[], label: string, mode: VehicleMode, kind: PlayableKind,
+  withBounds: (component: Omit<PlayableBrickComponent, 'bounds'>) => PlayableBrickComponent,
+): { components: PlayableBrickComponent[]; warnings: string[] } {
   if (/\b76252\b|batcave shadow/i.test(label) && kind === 'car') {
     const car = verifiedBatmobile(bricks);
     if (car) return {

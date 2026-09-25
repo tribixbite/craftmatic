@@ -223,6 +223,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   The "Experimental Creator Camera Features" experiment changes none of this.
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".
+- **An unloaded block is not air.** `dim.getBlock` returns `undefined` outside
+  the loaded/simulated area; a runtime that reads that as "no ground" lets an
+  entity fall through the world (an empty scripted car coasted off and fell
+  250 blocks, Pixel 2026-09-25). Hold still instead (`scriptedVehicleRuntime`).
+  The same limit ends a GameTest: a vehicle flown ~100 blocks from the arena
+  stops being readable ("Entity being invalid"), so keep test courses near.
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`

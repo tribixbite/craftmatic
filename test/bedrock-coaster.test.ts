@@ -2239,7 +2239,11 @@ describe('the rider camera follows the track', () => {
     const config = coasterRuntimeConfig('craftmatic:tune_check', [loopCourse()]);
     expect(config.camera?.animLag).toBe(COASTER_RIDER_VIEW.animLag);
     const script = coasterScript(config);
-    expect(script).not.toContain('scriptEventReceive');
+    // The one script-event listener is a driven TRAIN's stick hook (GameTest),
+    // subscribed only when the config names `inputEvent`; a coaster has none.
+    expect(config.inputEvent).toBeUndefined();
+    expect(script.match(/scriptEventReceive/g) ?? []).toHaveLength(1);
+    expect(script).toMatch(/if \(config\.inputEvent\) \{\s*try \{\s*system\.afterEvents\.scriptEventReceive/);
     expect(script).not.toContain('coaster_cam');
     expect(script).not.toContain('CAMTRACE');
   });

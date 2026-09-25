@@ -57,7 +57,8 @@ mkdirSync(OUT, { recursive: true });
 export interface VehicleRow {
   entity: string;
   role: 'main' | 'extra';
-  kind: 'car' | 'plane' | 'boat';
+  /** `hover`: a hover craft (family `hover`, whatever its geometry kind). */
+  kind: 'car' | 'plane' | 'boat' | 'hover';
   /** Nose in the LDraw frame and how it was decided (`vehicle-facing.ts`). */
   nose: string | null; noseSource: string | null; agreement: number | null; votes: string[];
   seats: number; seat: number[] | null;
@@ -139,7 +140,7 @@ async function packVehicles(bytes: Buffer, diagnostics: Record<string, any>): Pr
     if (!family.includes('craftmatic_vehicle')) continue;
     const id: string = ent.description.identifier;
     const cid = id.replace(/^[^:]*:/, '');
-    const kind = (['car', 'plane', 'boat'] as const).find(k => family.includes(k)) ?? 'car';
+    const kind = (['hover', 'car', 'plane', 'boat'] as const).find(k => family.includes(k)) ?? 'car';
     const ride = c['minecraft:rideable'] ?? {};
     const seats = Array.isArray(ride.seats) ? ride.seats : ride.seats ? [ride.seats] : [];
     const d = diagnostics[cid] ?? null;
