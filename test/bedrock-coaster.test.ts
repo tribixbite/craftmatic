@@ -2174,12 +2174,17 @@ describe('the rider camera follows the track', () => {
     try {
       const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'roll' } });
       const { player } = cameraRider(h.entity);
-      (player.camera as any).playAnimation = vi.fn();
+      // One camera call a tick: an animation while the car moves, the plain
+      // eased camera while it stands still (the station), in tick order.
+      const order: string[] = [];
+      (player.camera as any).playAnimation = vi.fn(() => { order.push('play'); });
+      player.camera.setCamera.mockImplementation(() => { order.push('set'); });
       h.run(1); h.riders.push(player); h.run(400);
-      // The free camera is set once; everything after is an animation.
-      expect(player.camera.setCamera).toHaveBeenCalledTimes(1);
+      expect(order).toHaveLength(400);
       const plays = (player.camera as any).playAnimation.mock.calls as any[][];
-      expect(plays.length).toBe(399);
+      expect(plays.length).toBeGreaterThan(200);
+      const follows = new Set<number>();
+      for (let k = 1, play = 0; k < order.length; k++) if (order[k] === 'play') { if (order[k - 1] === 'play') follows.add(play); play++; }
       let rolledOver = 0, worstMiss = 0;
       for (let k = 0; k < plays.length; k++) {
         const [spline, options] = plays[k]!;
@@ -2193,7 +2198,7 @@ describe('the rider camera follows the track', () => {
         expect(Math.abs(start.rotation.x)).toBeLessThanOrEqual(90);
         expect(Math.abs(end.rotation.x)).toBeLessThanOrEqual(90);
         if (Math.abs(Math.abs(((start.rotation.z % 360) + 540) % 360 - 180)) < 30) rolledOver++;
-        if (k > 0) {
+        if (follows.has(k)) {
           // Replaced halfway: where the last animation had got to by now is its
           // start plus half its travel, and this one starts at the true pose.
           // Off by the change in rate only, never by a tick's lag.

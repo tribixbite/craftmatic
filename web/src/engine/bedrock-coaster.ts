@@ -932,16 +932,18 @@ export interface CoasterRiderLook { yaw: number; pitch: number; yawRef: number; 
  * write the player's pitch (Bedrock ignores `setRotation` pitch on the phone,
  * measured 2026-09-24). Serialized into the pack; self-contained.
  */
-export function coasterRiderLook(relativeYaw: number, pitch: number, previous: { yawRef: number; pitchRef: number } | null, limitYaw: number, limitPitch: number): CoasterRiderLook {
+export function coasterRiderLook(relativeYaw: number, pitch: number, previous: { yawRef: number; pitchRef: number } | null, limitYaw: number, limitPitch: number, ratchet = true): CoasterRiderLook {
   const wrap = (angle: number) => ((angle % 360) + 540) % 360 - 180;
   let yawRef = previous && Number.isFinite(previous.yawRef) ? previous.yawRef : relativeYaw;
   let pitchRef = previous && Number.isFinite(previous.pitchRef) ? previous.pitchRef : pitch;
   let yaw = wrap(relativeYaw - yawRef);
-  if (yaw > limitYaw) { yawRef = wrap(yawRef + yaw - limitYaw); yaw = limitYaw; }
-  else if (yaw < -limitYaw) { yawRef = wrap(yawRef + yaw + limitYaw); yaw = -limitYaw; }
+  // Without the ratchet the reference never moves: a transient past the limit
+  // (the rider's yaw trailing the car's through a fast turn) cannot shift the view for good.
+  if (yaw > limitYaw) { if (ratchet) yawRef = wrap(yawRef + yaw - limitYaw); yaw = limitYaw; }
+  else if (yaw < -limitYaw) { if (ratchet) yawRef = wrap(yawRef + yaw + limitYaw); yaw = -limitYaw; }
   let offset = pitch - pitchRef;
-  if (offset > limitPitch) { pitchRef = pitch - limitPitch; offset = limitPitch; }
-  else if (offset < -limitPitch) { pitchRef = pitch + limitPitch; offset = -limitPitch; }
+  if (offset > limitPitch) { if (ratchet) pitchRef = pitch - limitPitch; offset = limitPitch; }
+  else if (offset < -limitPitch) { if (ratchet) pitchRef = pitch + limitPitch; offset = -limitPitch; }
   return { yaw, pitch: offset, yawRef, pitchRef };
 }
 
@@ -1907,7 +1909,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
-  let cameraDebug = false, traceTicks = 0;
+  let cameraDebug = false, traceTicks = 0, lookLag = 0, lookRatchet = true, stillMode = 'set', animEvery = 1;
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
@@ -1931,12 +1933,19 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // grouping stage); a rider seen only now falls back to the car's last yaw.
     const sampled = headings.get(rider.id);
     const rotation = sampled ? sampled.head : rider.getRotation();
-    const carYaw = sampled && Number.isFinite(sampled.car) ? sampled.car : Number.isFinite(frame.priorYaw) ? frame.priorYaw : frame.yaw;
+    const nowYaw = sampled && Number.isFinite(sampled.car) ? sampled.car : Number.isFinite(frame.priorYaw) ? frame.priorYaw : frame.yaw;
+    // The rider's yaw is the CLIENT's (it turns the rider with its own,
+    // interpolated view of the car), so it can trail the server's car yaw:
+    // compare it with the car's yaw `lookLag` ticks back.
+    viewer.carYaws = viewer.carYaws || [];
+    viewer.carYaws.push(nowYaw);
+    if (viewer.carYaws.length > 20) viewer.carYaws.shift();
+    const carYaw = viewer.carYaws[Math.max(0, viewer.carYaws.length - 1 - lookLag)];
     // Bedrock turns a new rider to face the seat a few ticks AFTER mounting
     // (Pixel: a 65-degree offset appeared once boarded), so the look reference
     // follows the head until that has settled: the ride starts looking ahead.
     if (viewer.settle > 0) { viewer.settle--; viewer.look = null; }
-    viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch);
+    viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch, lookRatchet);
     viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, camera.mode, camera.maxTurn);
     const eye = frame.eye, view = viewer.view;
     if (traceTicks > 0) {
@@ -1959,10 +1968,18 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         rider.camera.setCamera('minecraft:free', { location: eye, rotation: { x: Math.max(-90, Math.min(90, view.pitch)), y: view.yaw } });
       } else {
         const seconds = camera.spline > 0.05 ? camera.spline : 0.1;
-        const ahead = seconds / 0.05;
+        const ahead = seconds / (0.05 * animEvery);
         const from = viewer.eye, last = viewer.rotation;
         const step = [eye.x - from.x, eye.y - from.y, eye.z - from.z];
         const moved = Math.hypot(step[0]!, step[1]!, step[2]!) > 0.01;
+        if (!moved && stillMode === 'set') {
+          // Standing still (the station, the lift deck, a hold): the plain
+          // camera, eased; a still car is upright, so there is no roll to lose.
+          rider.camera.setCamera('minecraft:free', { location: eye, rotation: { x: Math.max(-90, Math.min(90, view.pitch)), y: view.yaw }, easeOptions: { easeTime: Math.max(0.05, camera.ease), easeType: 'Linear' } });
+          viewer.eye = eye; viewer.rotation = rotation;
+          return;
+        }
+        if (animEvery > 1 && ticks % animEvery !== 0) return;
         const spline = new Spline();
         // The Pixel refuses a linear spline of TWO points ("Linear needs at
         // least 2 control points", with them 0.01 and 1 block apart alike)
@@ -2012,6 +2029,10 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
       else if (verb === 'spline') camera.spline = Math.max(0.06, number(1, camera.spline));
       else if (verb === 'debug') cameraDebug = words[1] === '1';
+      else if (verb === 'lag') lookLag = Math.max(0, Math.min(19, Math.round(number(1, 0))));
+      else if (verb === 'ratchet') lookRatchet = words[1] !== '0';
+      else if (verb === 'every') animEvery = Math.max(1, Math.min(20, Math.round(number(1, 1))));
+      else if (verb === 'still') stillMode = words[1] === 'anim' ? 'anim' : 'set';
       else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
       else if (source?.camera) {
         const at = source.getHeadLocation ? source.getHeadLocation() : source.location;
@@ -2031,6 +2052,30 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
                 rotationKeyFrames: [{ rotation, timeSeconds: 0 }, { rotation, timeSeconds: 6 }] } });
             } catch (error) { console.warn(`[Craftmatic coaster] roll probe: ${error instanceof Error ? error.message : String(error)}`); }
           }, 2);
+        } else if (verb === 'seq') {
+          // Chaining probe: seq <interval ticks> <seconds> <count> <roll step> <move 0|1>.
+          // A free camera at the eye, then `count` animations every `interval`
+          // ticks, each `seconds` long, rolling `step` degrees further; `move`
+          // drifts the eye up 0.05 blocks a tick (else progress holds at 0).
+          const interval = Math.max(1, Math.round(number(1, 1))), seconds = Math.max(0.06, number(2, 0.1));
+          const count = Math.max(1, Math.round(number(3, 60))), rollStep = number(4, 3), move = number(5, 1) !== 0;
+          const yaw = source.getRotation().y;
+          source.camera.setCamera('minecraft:free', { location: at, rotation: { x: 0, y: yaw } });
+          let k = 0;
+          const run = system.runInterval(() => {
+            if (k >= count) { system.clearRun(run); return; }
+            try {
+              const rise = move ? 0.05 * interval : 0;
+              const p0 = { x: at.x, y: at.y + k * rise, z: at.z };
+              const p2 = move ? { x: at.x, y: at.y + (k + 2) * rise, z: at.z } : { x: at.x, y: at.y + 1, z: at.z };
+              const spline = Spline ? new Spline() : {};
+              spline.controlPoints = [p0, { x: p0.x, y: (p0.y + p2.y) / 2, z: p0.z }, p2];
+              source.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: {
+                progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: move ? 1 : 0, timeSeconds: seconds }],
+                rotationKeyFrames: [{ rotation: { x: 0, y: yaw, z: k * rollStep }, timeSeconds: 0 }, { rotation: { x: 0, y: yaw, z: (k + 1) * rollStep }, timeSeconds: seconds }] } });
+            } catch (error) { console.warn(`[Craftmatic coaster] seq probe ${k}: ${error instanceof Error ? error.message : String(error)}`); }
+            k++;
+          }, interval);
         } else if (verb === 'attach') {
           // Does a camera attached to a car inherit its animated pitch/roll? The nearest car within 24 blocks.
           let best: any, bestDistance = 24;
