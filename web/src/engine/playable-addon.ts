@@ -1254,9 +1254,9 @@ function timeMachineRuntime(config: TimeMachineConfig) {
       let yaw = 0;
       try { yaw = vehicle.getRotation().y * Math.PI / 180; } catch {}
       const forwardMph = Math.max(0, velocity.x * -Math.sin(yaw) + velocity.z * Math.cos(yaw)) * MPH_PER_BLOCK_TICK;
-      if (rider && forwardMph > 60 && tick % 6 === 0) {
-        try { vehicle.dimension?.spawnParticle?.('minecraft:electric_spark_particle', vehicle.location); } catch {}
-      }
+      // (No spark trail over 60 mph: `minecraft:electric_spark_particle` reads a
+      // `variable.direction` this script cannot pass, and logged three Molang
+      // errors per spawn on the Pixel, 2026-09-25.)
       if (rider && state.armed && state.ready && !state.failed && forwardMph >= state.threshold) { state.inFlight = true; void teleport(vehicle, state, riders); }
     }
     for (const [id, state] of states) if (!seen.has(id)) { if (state.areaId && !state.inFlight) void removeArea(state); states.delete(id); }
