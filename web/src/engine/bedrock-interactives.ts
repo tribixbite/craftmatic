@@ -1329,6 +1329,16 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const synced = new Set<string>();
   const percent = (n: number): string => `${n} percent`;
   const say = (p: any, s: string): void => { try { p.onScreenDisplay.setActionBar(s); } catch { /* player left */ } };
+  /**
+   * A refused tap: tell the player, and keep the reason on the part
+   * (`craftmatic:ix_refused`, "<tick> <text>") so a GameTest can log WHY a
+   * device refused what the offline host accepted (31141's Window 2 and
+   * 71040's Door 1 closing hits, 2026-09-25: the action bar is not logged).
+   */
+  const refuse = (e: any, p: any, s: string): void => {
+    say(p, s);
+    try { e.setDynamicProperty('craftmatic:ix_refused', `${system.currentTick} ${s}`); } catch { /* entity gone */ }
+  };
   const itemOf = (e: any): number | undefined => {
     let i: any; try { i = e.getDynamicProperty(K.index); } catch { return undefined; }
     if (typeof i === 'number' && config.items[i] && config.items[i]!.type === e.typeId) return i;
@@ -1476,12 +1486,12 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const open = !isOpen(e);
     // A double door's leaves move together: the tapped one and its other leaf at this placement.
     const group: Array<{ e: any; i: number }> = [{ e, i }, ...[...siblings(e, i, pl, 'pairs')].map(([j, s]) => ({ e: s, i: j }))];
-    if (!open && group.some(g => obstructed(g.e, g.i, pl))) { say(player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
+    if (!open && group.some(g => obstructed(g.e, g.i, pl))) { refuse(e, player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
     const before = group.map(g => isOpen(g.e));
     for (const g of group) { try { g.e.setDynamicProperty(K.open, open); } catch { /* keep going */ } }
     if (!group.every(g => layDoorway(g.e, g.i, pl, open))) {
       group.forEach((g, k) => { try { g.e.setDynamicProperty(K.open, before[k]); } catch { /* keep going */ } layDoorway(g.e, g.i, pl, before[k]!); });
-      say(player, `The ${it.label.toLowerCase()} is not loaded - come closer.`);
+      refuse(e, player, `The ${it.label.toLowerCase()} is not loaded - come closer.`);
       return;
     }
     for (const g of group) { setAngle(g.e, open ? config.items[g.i]!.angle : 0); place(g.e, pl, open); }
@@ -1571,7 +1581,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     if (!target || !target.typeId || itemOf(target) === undefined) return;
     if (behindWall(player, target)) {
       // Never refuse silently: a tap that does nothing reads as a broken part (device 2026-09-24e).
-      say(player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
+      refuse(target, player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
       return;
     }
     const now = system.currentTick;

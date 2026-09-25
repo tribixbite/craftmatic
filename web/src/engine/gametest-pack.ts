@@ -706,6 +706,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
           row.hitEvents = events.hit - before.hit;
         }
         row.open = await walk(startW, endW, viaW);
+        try { const why = leaf.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
         row.pass = matches(d.expectClosed, row.closed.outcome) && matches(d.expectOpen, row.open.outcome);
         // Leave it closed for the next doorway (its partner may be next).
         if (angleOf(leaf) !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); }
@@ -756,6 +757,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         await test.idle(20);
         const a2 = angleOf(e);
         row.angles = [a0, a1, a2];
+        // Why the runtime refused a hit, when it did (`refuse` in scripts/interactives.js).
+        try { const why = e.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
         row.hitEvents = events.hit - before.hit;
         row.pass = p.kind === 'turnable'
           ? typeof a0 === 'number' && near(a1, a0 + p.openAngle) && near(a2, a0 + 2 * p.openAngle)
