@@ -26,6 +26,28 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## Render faults (user report on `243f54b1`, 2026-09-25) — worktree agent-a79aac62
+
+Guide: `docs/bedrock-addon-guide.md` "Render faults from the 2026-09-25 device
+report". Commits `013bdc9b`..HEAD on `worktree-agent-a79aac62caeb21d7c`. Packs
+built at `b6c1c882` are on the Saga (world 925); the user's zip was NOT
+replaced — build the next round from main after the merge.
+Open:
+- [ ] Rebuild the 14-pack round from merged main, check it on the Pixel (world
+  924): hatching gone on 76417/76457 at 2-6 blocks, dolls with legs and hair on
+  heads (41732), faces without the mottle, the far view of 76417 (hull glass
+  now opaque, `ad90f46d`, not yet seen on a device).
+- [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
+  2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
+- [ ] Loose accessories floating in shells (76417: 84 figure parts outside any
+  NPC, 22 Viking helmets): a display-scatter rule for unsupported figure
+  vocabulary, measured with `_figure_parts_census.ts` before changing anything.
+- [ ] Open the Walk add-on in Chrome once: the preview's Z mirror and rotation
+  change is typecheck- and render-verified only (door swing, pinball flippers
+  and the sit overlay run through the mirrored holder).
+- [ ] Tell the user: remove the older `Gringotts`/`Hogsmeade`-labelled packs
+  (different uuids, same entity ids) from any world that has the new ones.
+
 ## IN FLIGHT — 2026-09-25 evening "work on open items" (five agents; main at `9e0f60fe`)
 
 Resume recipe for a fresh session: each agent works in its own worktree
