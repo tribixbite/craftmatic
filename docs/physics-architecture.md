@@ -201,12 +201,44 @@ coaster sections, from "Measured coaster runtime" on.
 `stepCoasterPreviewTick` advances train 0 one tick for the LEGO tab's "Walk
 add-on" (`web/src/ui/addon-preview.ts`). It takes `COASTER_PHYSICS`,
 `coasterTrackUps`, `coasterLoopRadius` and `coasterCarAttitude` from
-`bedrock-coaster.ts` unchanged, and MIRRORS the integrator's formulas (the
-runtime is serialised whole, so its numeric core is not importable). The
-second train is drawn parked, and the platform lift is a visual analogue.
-# TODO: share one pure integrator between `coasterRuntime` and the preview
-(an extraction is in progress for the trains work; when it lands, move its
-file into §12 and delete this mirror note).
+`bedrock-coaster.ts` unchanged, and integrates with the SAME speed step the
+runtime serialises, `rideSubstep` (§4.1a): the numeric core is no longer
+mirrored. The substep bound, station brake and lift hand-off are still the
+preview's own state machine. The second train is drawn parked, and the
+platform lift is a visual analogue. A railway route (`route.physics`) is
+drawn parked: nobody drives a preview train.
+
+### 4.1a Rail vehicles — the coaster engine with a driver
+
+`rideSubstep(speed, direction, gradeArc, dt, input, P)` in
+`bedrock-coaster.ts` is the one speed step every rail vehicle runs. The
+runtime receives it as an argument and serialises it (§5); the preview and
+the tests import it. Without `P.DRIVER` it is §4.1's integrator body in the
+same floating-point order (the chain, `MIN_SPEED` and the inversion floor
+included): bit-identical over 20,000 sampled states, and the shipped
+10303/10261 runtimes replayed through the refactored `coasterScript` digest
+identically (`scripts/_coaster_replay.ts --rebuild`).
+
+With `P.DRIVER` (`RAIL_TRAIN_PHYSICS`, carried per route in
+`CoasterRuntimeRoute.physics`) the state is a signed velocity along the arc:
+
+    a = −GRAVITY × grade − sign(u) (ROLLING + DRAG u²) + push × TRACTION     (pushing with the motion, or from rest)
+    a = … − sign(u) × BRAKE × |push|                                         (pushing against it)
+    a = … − sign(u) × PARK_BRAKE                                             (nobody aboard)
+
+`push` is the rider's stick (`inputInfo.getMovementVector().y`) against the
+train's FIXED nose (its cars' authored heading), so the stick never flips at
+a reversal. Losses and brakes stop a train and never reverse it; from rest
+only a push or a grade steeper than the rolling loss starts it, and the
+runtime reverses only on a tick that begins at rest. `|u| ≤ MAX_SPEED`. No
+chain, inversion floor, minimum speed or station dwell; an open end is a
+buffer stop that holds the end car on the line (`cars.endInset`, half its
+measured length), not a shuttle reversal. Everything else — track routing
+(`coaster-track.ts`, railway profile family), car detection
+(`coaster-assemblies.ts`, railway branch), attitude, boarding, the rider
+camera — is the coaster's. Constants are world-absolute (a motor, not
+gravity), so the wand size does not rescale them. Tests:
+`test/rail-track.test.ts`; guide: "Rail vehicles on the coaster engine".
 
 ### 4.3 Pinball — `web/src/engine/pinball-physics.ts`
 
@@ -329,7 +361,8 @@ Each device runtime is a function turned into the pack's script text with
 | `coasterTrackUps`, `coasterLoopRadius` | config time (`coasterRuntimeConfig`) | yes | yes |
 | `coasterCarAttitude` | serialised | yes | yes |
 | `coasterRiderView`, `coasterRiderLook` | serialised | `addon-preview.ts` (board camera) | yes |
-| the coaster integrator | inside `coasterRuntime` | MIRRORED in `stepCoasterPreviewTick` (§4.2) | via the serialised runtime |
+| `rideSubstep` (the rail speed step: coaster and driven train) | serialised argument of `coasterRuntime` | `stepCoasterPreviewTick` | `test/rail-track.test.ts` (bit-identical to the shipped coaster formula), `scripts/_coaster_replay.ts` |
+| `RAIL_TRAIN_PHYSICS` | per route, `CoasterRuntimeRoute.physics` | via `route.physics` | `test/rail-track.test.ts` |
 | `createPinballSim` | serialised | `addon-preview.ts` | `test/pinball.test.ts`, `pinball-table.ts` (lane probing) |
 | figure planner functions | serialised | — | `figure-life-sim.ts`, census script |
 | `tickPlayer` | — (Bedrock is the player) | `addon-preview.ts` | `interactive-walk.ts`, `scripts/_addon_walk.ts` |
@@ -423,6 +456,13 @@ literal inside a function body (`§` marks the number).
 | `COASTER_PHYSICS.RIDER_EYE` | `web/src/engine/bedrock-coaster.ts` | 1.25 | world blocks | Must equal `SEATED_EYE_HEIGHT_BLOCKS` (carried in config because the runtime cannot import). |
 | `COASTER_PHYSICS.YAW_HOLD_HORIZONTAL` | `web/src/engine/bedrock-coaster.ts` | 0.2 | horizontal fraction | Below it the axle is near vertical (a car on its side) and the last yaw is held. |
 | `COASTER_PHYSICS.BODY_RANGE` | `web/src/engine/bedrock-coaster.ts` | 320 | model units | Declared range of the body-offset actor properties. |
+| `RAIL_TRAIN_PHYSICS.GRAVITY` | `web/src/engine/bedrock-coaster.ts` | 9.8 | world blocks/s² | Real gravity: a train set is level, nothing is time-scaled. |
+| `RAIL_TRAIN_PHYSICS.ROLLING` | `web/src/engine/bedrock-coaster.ts` | 0.3 | world blocks/s² | A coasting train (stick released) sheds ~0.3-0.9 blocks/s each second: 12 → 2.2 blocks/s in 20 s on 4559's circuit. |
+| `RAIL_TRAIN_PHYSICS.DRAG` | `web/src/engine/bedrock-coaster.ts` | 0.004 | 1/world block | Half the coaster's: a train is heavier for its frontal area. |
+| `RAIL_TRAIN_PHYSICS.MAX_SPEED` | `web/src/engine/bedrock-coaster.ts` | 12 | world blocks/s | 1.5 × a minecart; still lets a rider read an R40 curve (15 blocks radius at minifig scale). |
+| `RAIL_TRAIN_PHYSICS.DRIVER.TRACTION` | `web/src/engine/bedrock-coaster.ts` | 3 | world blocks/s² | 0 → 12 blocks/s in about 4.5 s at full stick. |
+| `RAIL_TRAIN_PHYSICS.DRIVER.BRAKE` | `web/src/engine/bedrock-coaster.ts` | 6 | world blocks/s² | A full-stick stop from top speed in about 2 s. |
+| `RAIL_TRAIN_PHYSICS.DRIVER.PARK_BRAKE` | `web/src/engine/bedrock-coaster.ts` | 6 | world blocks/s² | An unattended train stops and holds on any grade under 6/9.8 ≈ 0.6. |
 | `COASTER_RIDER_VIEW.maxTurn` | `web/src/engine/bedrock-coaster.ts` | 40 | degrees/tick | The clamp camera's flip over a loop's side takes 180/40 → 5 ticks: turns over in 0.25 s instead of snapping. |
 | `COASTER_RIDER_VIEW.lookYaw` | `web/src/engine/bedrock-coaster.ts` | 70 | degrees | Most a rider may look away sideways. |
 | `COASTER_RIDER_VIEW.lookPitch` | `web/src/engine/bedrock-coaster.ts` | 50 | degrees | Most up or down. |
@@ -590,7 +630,12 @@ one of these files fails the check until its row is written.
 | `CoasterRouteLift` | type | Chain or platform lift. |
 | `coasterRuntimeConfig` | function | Builds `CoasterRuntimeConfig` (physics, camera, routes) for the pack. |
 | `coasterScript` | function | Serialises the runtime and its pure helpers into `BP/scripts/coaster.js` (§5). |
-| `COASTER_FAMILY`, `RIDE_INTERACT_TEXT` | const | Entity family and interact text (not physics). |
+| `COASTER_FAMILY`, `RIDE_INTERACT_TEXT`, `RAIL_INTERACT_TEXT` | const | Entity family and the coaster / railway boarding prompts (not physics). |
+| `rideSubstep` | function | SERIALISED. The one rail speed step: the coaster's integrator body without `DRIVER`, the driven train with it (§4.1a). |
+| `RideSubstepInput` | interface | Its per-substep input: chain here, inversion floor, the driver's stick, whether anyone drives. |
+| `RAIL_TRAIN_PHYSICS` | const | A driven train's constants, per route in `CoasterRuntimeRoute.physics` (§4.1a, §9). |
+| `RidePhysics` | type | `COASTER_PHYSICS` widened to numbers, plus the optional `DRIVER`. |
+| `RideDriverPhysics` | interface | `TRACTION`, `BRAKE`, `PARK_BRAKE`. |
 | `projectArcOnPolyline` | function | Nearest arc on a polyline (geometry helper). |
 | `canonicalCoasterCar` | function | A set's car in its canonical frame, with its seats and riders (not physics). |
 | `CoasterVehicleType`, `CoasterVehiclePlan` | interface | One entity type per car body (not physics). |
