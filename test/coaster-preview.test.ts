@@ -190,7 +190,7 @@ describe('stepCoasterPreviewTick — a route with a platform lift', () => {
 
 describe('coasterCarEyePoint', () => {
   it('with no measured seat, sits the eye straight up the car\'s own up vector', () => {
-    const frame = { slot: 0, position: [1, 2, 3] as const, yaw: 0, pitch: 0, roll: 0, up: [0, 1, 0] as const, moving: true };
+    const frame = { slot: 0, position: [1, 2, 3] as const, yaw: 0, pitch: 0, roll: 0, up: [0, 1, 0] as const, nose: [0, 0, 1] as const, moving: true };
     const eye = coasterCarEyePoint(frame, undefined);
     expect(eye[0]).toBeCloseTo(1);
     expect(eye[1]).toBeCloseTo(2 + COASTER_PHYSICS.RIDER_EYE);
@@ -198,7 +198,7 @@ describe('coasterCarEyePoint', () => {
   });
 
   it('is exactly the position plus RIDER_EYE up when the seat offset is zero', () => {
-    const frame = { slot: 0, position: [0, 0, 0] as const, yaw: 45, pitch: 10, roll: 5, up: [0, 1, 0] as const, moving: true };
+    const frame = { slot: 0, position: [0, 0, 0] as const, yaw: 45, pitch: 10, roll: 5, up: [0, 1, 0] as const, nose: [-Math.SQRT1_2, 0, Math.SQRT1_2] as const, moving: true };
     const eye = coasterCarEyePoint(frame, [0, 0, 0]);
     expect(eye[1]).toBeCloseTo(COASTER_PHYSICS.RIDER_EYE);
   });
@@ -226,11 +226,28 @@ describe('stepCoasterPreviewTick — an inverting helical loop', () => {
     const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
     let inverted = 0;
     for (let k = 1; k < yaws.length; k++) {
-      expect(turn(yaws[k - 1]!, yaws[k]!)).toBeLessThan(5);
-      // The yaw stays near the entry heading (0) through the loop, both ways.
-      if (ups[k]! < 0) { inverted++; expect(turn(0, yaws[k]!)).toBeLessThan(8); }
+      // The fabricated cart faces its motion, as the pack's does: a shuttle's
+      // dead-end reversal turns it round in one tick, and nowhere else may it turn fast.
+      const facing = history[k]!.direction;
+      if (history[k - 1]!.direction === facing) expect(turn(yaws[k - 1]!, yaws[k]!)).toBeLessThan(5);
+      // The yaw stays near the heading of travel (0 out, 180 back) through the loop, both ways.
+      if (ups[k]! < 0) { inverted++; expect(turn(facing === 1 ? 0 : 180, yaws[k]!)).toBeLessThan(8); }
       if (ups[k]! < -0.9) expect(history[k + 1]!.speed).toBeGreaterThan(Math.sqrt(COASTER_PHYSICS.GRAVITY * 4));
     }
     expect(inverted).toBeGreaterThan(5);
+  });
+});
+
+describe('stepCoasterPreviewTick — the pack\'s direction and heading', () => {
+  it('runs a fixed-direction route its own way from the start, the noses on their authored heading', () => {
+    const route = { ...hillLoop(), direction: -1, cars: { count: 1, spacing: 0, extent: 0, heading: -1 } };
+    const { history, frames } = run(route, 200);
+    expect(history.every(s => s.direction === -1)).toBe(true);
+    const moved = history.findIndex((s, k) => k > 0 && s.centre !== history[k - 1]!.centre);
+    expect(moved).toBeGreaterThan(0);
+    // The station runs +X; a heading -1 car noses along -tangent there (the rider camera's forward).
+    const frame = frames[moved - 1]![0]!;
+    expect(Math.hypot(...frame.nose)).toBeCloseTo(1, 6);
+    expect(frame.nose[0]).toBeLessThan(-0.9);
   });
 });

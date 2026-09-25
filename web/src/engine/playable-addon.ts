@@ -29,6 +29,7 @@ import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type 
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, consoleHideAnimation, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
+import { figureLifeScript, FIGURE_TUNING } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
@@ -585,7 +586,8 @@ export function figureModelScale(modelScale: number): number {
     return Math.min(1, Number.isFinite(modelScale) && modelScale > 0 ? modelScale : 1);
 }
 
-function figureBehavior(id: string, size: { width: number; height: number; length: number }, collisionHeightOverride?: number): unknown {
+/** A figure NPC's collision box (see `figureBehavior`); its height is what scripts/figures.js keeps clear overhead. */
+export function figureCollisionBox(size: { width: number; height: number; length: number }, collisionHeightOverride?: number): { width: number; height: number } {
     // No bigger than the player (0.6 x 1.8), who walks every room and doorway of
     // a minifig-scale build: at 0.9 x 2.0 six of seven chalet figures could not
     // path out of where they spawned (Pixel round 2026-09-17).
@@ -593,7 +595,11 @@ function figureBehavior(id: string, size: { width: number; height: number; lengt
     // computed/clamped height outright rather than participating in the
     // 1.0-1.8 clamp, so a below-1.0 experimental value is not clamped back up.
     const height = collisionHeightOverride ?? Math.min(1.8, Math.max(1.0, Math.round(size.height * 10) / 10));
-    const collision = { width: Math.min(0.6, Math.max(0.4, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height };
+    return { width: Math.min(0.6, Math.max(0.4, Math.round(Math.max(size.width, size.length) * 0.8 * 10) / 10)), height };
+}
+
+function figureBehavior(id: string, size: { width: number; height: number; length: number }, collisionHeightOverride?: number): unknown {
+    const collision = figureCollisionBox(size, collisionHeightOverride);
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_figure', 'mob'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -614,14 +620,14 @@ function figureBehavior(id: string, size: { width: number; height: number; lengt
         'minecraft:can_climb': {},
         'minecraft:behavior.float': { priority: 0 },
         'minecraft:behavior.open_door': { priority: 1, close_door_after: true },
-        // Tethered to where it was placed: round 2 on the Pixel had a museum
-        // figure 28 blocks outside the building within minutes.
-        // `restriction_type` is required or the radius is ignored ("will be ignored as
-        // restriction_type was set to none" on every figure, Pixel round 3).
-        'minecraft:home': { restriction_radius: 12, restriction_type: 'random_movement' },
-        'minecraft:behavior.move_towards_home_restriction': { priority: 5, speed_multiplier: 1 },
-        'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: 0.8, interval: 60, xz_dist: 6, y_dist: 3 },
-        'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: 0.02 },
+        // WHERE it walks is scripts/figures.js (bedrock-figure-life.ts), not a
+        // vanilla stroll: the mob path-finder plans on whole cells and never
+        // found a path over the partial-height collider floors (Chalet: 0 of 7
+        // roamed), while figures on plain ground strolled 12 blocks off the
+        // model under `minecraft:home`. The script plans over the real
+        // collision spans, inside the model's footprint and the figure's own
+        // floor, and moves it by velocity. Only the head goals stay vanilla.
+        'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: 0.08 },
         'minecraft:behavior.random_look_around': { priority: 8 },
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
     // Player-sized at every wand step at or above 100 %: a figure never becomes a giant (SizeGroupOptions).
@@ -1724,6 +1730,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     /** What the doorway walk found at 100 % (`doorwayWalkSummary`), for the wand. */
     let ixWalkNote: string | undefined;
     const actors: PlacementActor[] = [];
+    /** Collision height of every figure NPC type, for scripts/figures.js (bedrock-figure-life.ts). */
+    const figureBodies: Record<string, number> = {};
     const extraComponents: PlayableAddonResult['components'] = [];
     /**
      * Every entity this pack declares gets a `texts/en_US.lang` name (and, if
@@ -2167,6 +2175,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }
                 diagnostics[ecid] = egeo.diagnostics;
                 warnings.push(...egeo.warnings.filter(w => !/front\/rear direction/.test(w)));
+                if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
@@ -2213,6 +2222,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         diagnostics[fcid] = fgeo.diagnostics;
         warnings.push(...fgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
         emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks, options.figureCollisionHeight), fgeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
+        figureBodies[`${PACK_NAMESPACE}:${fcid}`] = figureCollisionBox(fgeo.sizeBlocks, options.figureCollisionHeight).height;
         addEntityName(`${PACK_NAMESPACE}:${fcid}`, flabel, true);
         // A rigged figure faces exactly where its torso pointed; an unrigged one the nearest axis it was compiled to.
         const yaw = fgeo.figure ? yawForFacing(fgeo.figure.facingLdu) : (() => {
@@ -2560,6 +2570,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
+    // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
+    const figureTypes = Object.keys(figureBodies);
+    if (figureTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
+        figureTypes, bodyHeights: figureBodies, bodyHeight: 1.8,
+        seatTypes: [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))],
+        interactiveFamily: INTERACTIVE_FAMILY,
+        colliders: placementColliders ? { block: placementColliders.block, loState: placementColliders.loState, hiState: placementColliders.hiState } : undefined,
+        tuning: FIGURE_TUNING,
+    })) });
     // texts/en_US.lang: one name per entity this pack declares (localisedEntities,
     // built up throughout the function above), plus the creator wand item name
     // when a minifig creator is present. Unconditional — a plain model pack
@@ -2589,6 +2608,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(coasterConfig ? ["import './coaster.js';"] : []),
         ...(pinballConfig ? ["import './pinball.js';"] : []),
         ...(interactiveConfig ? ["import './interactives.js';"] : []),
+        ...(figureTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when it is at least 1 x 2 blocks at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
