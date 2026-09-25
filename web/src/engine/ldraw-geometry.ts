@@ -218,6 +218,21 @@ async function probeMirror(key: string): Promise<string | null> {
   const rels = key.includes('/')
     ? (key.startsWith('s/') ? [`parts/${key}.dat`] : [`p/${key}.dat`])
     : [`parts/${stem}.dat`, `p/${stem}.dat`, `parts/s/${stem}.dat`];
+  // A LOCAL copy of what the mirror serves, when this machine has one
+  // (`CRAFTMATIC_LDRAW_REF`, e.g. clego's `ldraw_ref/` with `official/` and
+  // `unofficial/` trees). Tests and CLI builds then never depend on prod: a
+  // Cloudflare rate limit (HTTP 429 for 90+ minutes, 2026-09-25) otherwise
+  // fails every test that needs a post-2020 part.
+  const localRef = typeof process !== 'undefined' ? process.env?.['CRAFTMATIC_LDRAW_REF'] : undefined;
+  if (localRef && useFilesystem) {
+    const { readFileSync, existsSync } = await import('node:fs');
+    for (const rel of rels) {
+      for (const tree of ['official', 'unofficial']) {
+        const path = `${localRef.replace(/[\\/]$/, '')}/${tree}/${rel}`;
+        try { if (existsSync(path)) return readFileSync(path, 'utf-8'); } catch { /* try next */ }
+      }
+    }
+  }
   for (const rel of rels) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
