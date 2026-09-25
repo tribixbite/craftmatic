@@ -650,7 +650,7 @@ one of these files fails the check until its row is written.
 | `_pinballRuntimeForTests` | re-export | The runtime, for the host test. |
 | `planPinball`, `planPinballZones`, `fitPinballZone` | function | Where the table, its tap zones and pick boxes go (fit is SERIALISED). |
 | `PinballMap`, `PinballFlipperPlan`, `PinballButtonPlan`, `PinballPlungerPlan`, `PinballZoneSpec`, `PinballZonePlan`, `PinballPlan` | interface | Plane map (LDU table plane → model blocks) and plan types. |
-| `PINBALL_TAP_REACH`, `PLUNGER_DEPTH`, `PICK_PITCHES` | const | Zone reach (blocks), the plunger target's nearer depth (fraction of the reach, so it wins where it meets a button target on screen) and pick pitches (degrees). |
+| `PINBALL_TAP_REACH`, `PLUNGER_DEPTH`, `PICK_PITCHES` | const | Zone reach (blocks), the plunger target's depth (fraction of the reach; farther than the buttons', so a button wins where the two meet on screen) and pick pitches (degrees). |
 | `rotationBetween`, `flipperRig`, `moveRig` | function | Bone rigs that swing flippers about the tilted normal and move the ball/plunger. |
 | `PINBALL_AXIS_SIGNS` | const | Model X/Z signs in a bone translation. |
 | `PROP_FLIP`, `PROP_PULL`, `PROP_PRESS`, `PROP_BALL_U`, `PROP_BALL_W`, `PROP_BALL_VU`, `PROP_BALL_VW`, `PROP_BALL_SEQ`, `PROP_SX`, `PROP_SZ` | const | Actor properties the client animates from (ball position/velocity for extrapolation). |

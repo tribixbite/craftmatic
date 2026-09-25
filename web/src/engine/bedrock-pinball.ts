@@ -104,10 +104,12 @@ export interface PinballPlungerPlan {
 export interface PinballZoneSpec {
   /**
    * Distance from the head to this target's boxes, as a fraction of the
-   * shared reach. The plunger's sits nearer (0.75) than the flipper
+   * shared reach. The plunger's sits FARTHER (1.3) than the flipper
    * buttons': where the right button's enlarged area and the plunger's meet
-   * on screen, the nearer box is the one a tap hits, so the two need not be
-   * squeezed apart (square pick boxes squeezed the plunger's to 0.05 blocks).
+   * on screen, the nearer box is the one a tap hits, so the button wins
+   * there and the two need not be squeezed apart (square pick boxes at one
+   * depth squeezed the plunger's to 0.05 blocks; nearer, it covered the
+   * right button itself).
    */
   depth?: number;
   role: 'left' | 'right' | 'plunger';
@@ -270,7 +272,7 @@ function rectSamples(rect: [number, number, number, number], h: number, toPoint:
 /** Tap-target reach: close enough for any phone tap, far enough that the box is not inside the head. */
 export const PINBALL_TAP_REACH = 1.2;
 /** The plunger target's distance as a fraction of `PINBALL_TAP_REACH` (see `PinballZoneSpec.depth`). */
-export const PLUNGER_DEPTH = 0.75;
+export const PLUNGER_DEPTH = 1.3;
 
 /**
  * The tap targets: over each flipper, the playfield from its hinge's outer
@@ -306,7 +308,11 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
   ];
   if (hasPlunger) {
     const [lu, lw] = table.launch.at;
-    specs.push({ role: 'plunger', rect: [lu - R * 1.5, lu + R * 4, lw - R * 1.2, lw + R * 1.2], h, depth: PLUNGER_DEPTH });
+    // Toward the table from the lane (the right button's target is on the
+    // other side), from just above the waiting ball to the plunger's tip.
+    const inward = lw > centreW ? -1 : 1;
+    const [wa, wb] = [lw + inward * R * 1.6, lw - inward * R * 0.5];
+    specs.push({ role: 'plunger', rect: [lu - R * 1.5, lu + R * 3, Math.min(wa, wb), Math.max(wa, wb)], h, depth: PLUNGER_DEPTH });
   }
   const toModel = (u: number, w: number, hh: number): number[] => [0, 1, 2].map(k => map.p0[k]! + u * map.u[k]! + w * map.w[k]! + hh * map.n[k]!);
   const fits = specs.map(s => ({ role: s.role, ...fitPinballZone(eye, eye, look, rectSamples(s.rect, s.h, toModel), PINBALL_TAP_REACH * (s.depth ?? 1), 'camera', 0) }));
