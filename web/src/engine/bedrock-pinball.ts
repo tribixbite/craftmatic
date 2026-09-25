@@ -574,8 +574,10 @@ export function ballAnimation(typeId: string, map: PinballMap): { id: string; fi
  * measured on the model (8 LDU on 11374). The measured stroke was all but
  * invisible from the seat (device 2026-09-25: "the press animation is small
  * from the seat"), so the picture exaggerates it; nothing else reads it.
+ * 2.5x slid the button mostly into the cabinet wall (device 2026-09-25: only a
+ * yellow sliver showed), so 1.5x; the yellow flash carries the rest.
  */
-export const PINBALL_BUTTON_TRAVEL = 2.5;
+export const PINBALL_BUTTON_TRAVEL = 1.5;
 
 /**
  * The press FLASH, as a render controller's `overlay_color`: while
@@ -842,8 +844,15 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
    * drag began over `DRAG_FULL_DEG` (about 140 px for a full pull). No event
    * says a finger lifted, so a pull that stops changing for `DRAG_RELEASE`
    * ticks has been let go and fires.
+   *
+   * A drag only ARMS once the pitch has settled: for `DRAG_SETTLE` ticks after
+   * the drag state begins (sitting down, a world reload, the tick after a shot)
+   * its base follows the reported pitch and nothing pulls. Reopening a world
+   * with the player seated launched a ball by itself (device 2026-09-25): the
+   * client's first reported pitch is not its settled one, and the jump between
+   * them read as a pull.
    */
-  const DRAG_FULL_DEG = 30, DRAG_RELEASE = 5, DRAG_MOVE_DEG = 0.3;
+  const DRAG_FULL_DEG = 30, DRAG_RELEASE = 5, DRAG_MOVE_DEG = 0.3, DRAG_SETTLE = 20;
   /** Head-to-eye tolerance when lifting the seat, blocks, and the most corrections tried. */
   const SEAT_TOLERANCE = 0.08, SEAT_TRIES = 8;
   /** Ticks between rescans of the world for pinball actors (cached in between). */
@@ -1261,10 +1270,17 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           let px = NaN;
           try { px = Number(rider.getRotation().x); } catch {}
           if (Number.isFinite(px)) {
-            const d = game.drag ??= { base: px, last: px, still: 0, pull: 0 };
+            const d = game.drag ??= { base: px, last: px, still: 0, pull: 0, age: 0 };
             const moving = Math.abs(px - d.last) > DRAG_MOVE_DEG;
             d.still = moving ? 0 : d.still + 1;
             d.last = px;
+            // Settling: the base rides with the pitch until it has held still
+            // at least DRAG_RELEASE ticks after DRAG_SETTLE ticks have passed.
+            if (!d.armed) {
+              d.age++;
+              d.base = px;
+              if (d.age >= DRAG_SETTLE && d.still >= DRAG_RELEASE) d.armed = true;
+            }
             // Either direction pulls. A script cannot put the pitch back after
             // a shot (setRotation's pitch does not take on the phone: the
             // reported pitch stayed at 64 after a full pull, 2026-09-25), so

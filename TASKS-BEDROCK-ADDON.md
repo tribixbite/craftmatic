@@ -48,9 +48,10 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
 - [ ] Vehicles: classify 70618 / 10497 (ships), 75397 (hovers), vehicles in
   scenery (60380 cars, 910047 boats), 42128 facing; swept-footprint collision;
   GameTest drives trains (4559, 910044); real headlights; drop old car hooks.
-- [ ] Polish: remove pinball + coaster-cam tuning hooks/probes; `animLag` into
-  `COASTER_RIDER_VIEW` + spec; visible pinball button press + action bar off
-  the buttons; smooth the launch-tick ball jump; wand Undo survives reload.
+- [ ] Pinball, device-check in the next round: button travel now 1.5x (2.5x
+  slid into the cabinet wall); the drag pull arms only after the seated pitch
+  settles (`DRAG_SETTLE` 20 ticks), so a reopened world no longer launches by
+  itself (host test); watch the launch-tick smoothing on the phone.
 - [ ] Figures: 16 figures on non-walkable parts (21360 x7, 42639 x4 ...); seat
   use proven on device (3-min GameTest); stalls 71040 / 31141 / 910049;
   Minifig Creator figures on the walker; walk-cycle vs speed, mini-doll legs.
@@ -95,17 +96,13 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   ride; full 180 proven by a probe), hand-back clean, `animLag` 3 ticks.
 - [x] Polish `708e6e67` (worktree agent-afca97ce): pinball + coaster tuning
   hooks removed, `COASTER_RIDER_VIEW.animLag` 3 (spec row), pinball press
-  readable (button 2.5x travel + yellow flash on button and outline; action
+  readable (button travel + yellow flash on button and outline; action
   bar <= 26 chars; game-over score in the title), no ball jump on launch
   (host-proved only), wand Undo persists across reload. Device (world 924,
   2026-09-25, `output/polish-0925/device/` in that worktree): outline flash
   and short bar seen (`s14-leftheld.jpg`, `s13-s14-leftbutton.jpg`); placed
   11374, force-stop + relaunch, Undo -> "Undo complete.", 0 pinball/shell/
   zone entities left (`s20`-`s22`); content log 0 errors in both sessions.
-  Open: the pressed button now slides mostly INTO the cabinet wall (reads as
-  a yellow sliver) - maybe 1.5x is enough; launch smoothness not watched on
-  the device; reseating after a reload launched ball 1 by itself (drag pull
-  read the reload's pitch change as a pull - pre-existing, not investigated).
 - [x] **Sent**: `output/device-round-2026-09-25b/craftmatic-packs-243f54b1.zip`
   (14 packs + PACKS.md, sha256 79bd1f70...). World 924 binds EXACTLY these 14
   (`_pixel_dev_deploy.py --exclusive`; 24 -> 14 bindings), 0 content-log

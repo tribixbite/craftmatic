@@ -379,7 +379,8 @@ describe('pinball runtime (host simulation)', () => {
   it('a drag down the screen pulls the plunger (head turning unlocked while a ball waits), and it fires when the drag stops', () => {
     const shot = (degrees: number): { pull: number; vu: number; locked: unknown[] } => {
       const h = seated({ ballMode: 'teleport' });
-      h.run(1);
+      // The drag arms once the seated pitch has settled (DRAG_SETTLE ticks).
+      h.run(26);
       // Unlocked for the ready phase.
       const perm = h.player.inputPermissions.setPermissionCategory;
       expect(perm.mock.calls.at(-1)).toEqual([1, true]);
@@ -410,10 +411,25 @@ describe('pinball runtime (host simulation)', () => {
 
   it('a drag UP pulls too (the pitch cannot be put back after a shot); no drag, no shot', () => {
     const h = seated();
-    h.run(12);
+    h.run(26);
     expect(launched(h)).toBe(false);
     const p0 = h.player.getRotation().x;
     for (let k = 1; k <= 5; k++) { h.player.head = { x: p0 - 3 * k, y: 180 }; h.run(1); }
+    expect(h.plunger.actorProps['craftmatic:pull']).toBeCloseTo(0.5, 6);
+    h.run(8);
+    expect(launched(h)).toBe(true);
+  });
+
+  it('a pitch that jumps while the seat settles (a world reopened with the player seated) does not launch', () => {
+    const h = seated();
+    // The client first reports one pitch, then its settled one a few ticks later.
+    h.player.head = { x: 0, y: 180 }; h.run(3);
+    h.player.head = { x: 64, y: 180 }; h.run(2);
+    h.player.head = { x: 58, y: 180 }; h.run(30);
+    expect(h.plunger.actorProps['craftmatic:pull'] ?? 0).toBe(0);
+    expect(launched(h)).toBe(false);
+    // Once settled, a real drag still pulls and fires.
+    for (let k = 1; k <= 5; k++) { h.player.head = { x: 58 - 3 * k, y: 180 }; h.run(1); }
     expect(h.plunger.actorProps['craftmatic:pull']).toBeCloseTo(0.5, 6);
     h.run(8);
     expect(launched(h)).toBe(true);
