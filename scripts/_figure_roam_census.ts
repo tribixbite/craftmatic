@@ -13,7 +13,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadAddonPreviewModel } from '../web/src/ui/addon-preview-data.ts';
-import { exploreWalkable, FIGURE_TUNING, standFeetAt, startCell, type SpanLookup } from '../web/src/engine/bedrock-figure-life.ts';
+import { exploreWalkable, FIGURE_TUNING, spawnLift, standFeetAt, startCell, type SpanLookup } from '../web/src/engine/bedrock-figure-life.ts';
 import { simulateFigureLife, type SimWorld } from '../web/src/engine/figure-life-sim.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -38,19 +38,7 @@ for (const file of files) {
   for (const f of figures) bodyHeights[f.typeId] = model.entityCollision.get(f.typeId)?.height ?? 1.8;
   // The placement's spawn lift (bedrock-placement-pack.ts), at 100 %: raise the
   // 1.8-block body past any span it overlaps, within a 3-block budget.
-  const lift = (x: number, y: number, z: number): number => {
-    if (!model.cells.length) return y;
-    let feet = y;
-    for (let guard = 0; guard < 64; guard++) {
-      let lifted = false;
-      for (let yy = Math.floor(feet); yy <= Math.floor(feet + 1.8 - 1e-9); yy++) {
-        const s = span(Math.floor(x), yy, Math.floor(z));
-        if (s && s[0]! < feet + 1.8 - 1e-9 && s[1]! > feet + 1e-9) { feet = s[1]!; lifted = true; break; }
-      }
-      if (!lifted) break;
-    }
-    return feet - y <= 3 + 1e-9 ? feet : y;
-  };
+  const lift = (x: number, y: number, z: number): number => (model.cells.length ? spawnLift(span, x, z, y, 1.8, 3) : y);
   const area: [number, number, number, number] = [0, 0, model.dims.width, model.dims.length];
   const world: SimWorld = {
     cells: model.cells, area, ground: 0,
@@ -78,7 +66,8 @@ for (const file of files) {
     const r2 = (v: number): number => Math.round(v * 100) / 100;
     return {
       label: f.label, seated: f.rideOf !== undefined, spawn: [r2(at.x), r2(at.y), r2(at.z)], lifted: r2(at.y - f.y), headroom: Number.isFinite(headroom) ? r2(headroom) : null,
-      standable: ownColumn, startsBeside: !!start && !ownColumn, reachCells: reach, path: r2(path), moved: path >= 2, outside, minY: r2(Math.min(...t.map(p => p.y))), dropped: t[t.length - 1]!.y < at.y - 1.5,
+      standable: ownColumn, startsBeside: !!start && !ownColumn, reachCells: reach, path: r2(path), moved: path >= 2, outside, minY: r2(Math.min(...t.map(p => p.y))), // A rider sits at its seat's height, not where the census lifted it: not a fall.
+      dropped: f.rideOf === undefined && t[t.length - 1]!.y < at.y - 1.5 && !t[t.length - 1]!.riding,
       ridingTicks: t.filter(p => p.riding).length,
     };
   });

@@ -5,7 +5,7 @@
  *                                       hook, scripts/gametest.js and the arena; its RP unchanged
  *   <out>/<stem>-gametest-plan.json     the doorways and their offline predictions
  *
- * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port] [--figure-ticks=1200]
+ * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port] [--figure-ticks=1200] [--only=vehicles|figures] [--gait-probe]
  *
  * Deploy it to a world that has Beta APIs + cheats on (never a normal play
  * world), e.g. `python -u scripts/_pixel_dev_deploy.py cmgametest
@@ -18,7 +18,7 @@ import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-previe
 import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
-  arenaExceeds, arenaWindows, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGametestImport,
+  arenaExceeds, arenaWindows, gaitProbeController, gametestVariantFiles, patchPlacementForGametest, variantManifest, windowOf, withGaitProbe, withGametestImport,
   type GametestDoorway, type GametestPart, type GametestPlan, type GametestSeat, type GametestVehicle, type WalkOutcome,
 } from '../web/src/engine/gametest-pack.ts';
 import { auditPackTaps } from '../test/_ix-tap-audit.ts';
@@ -179,7 +179,21 @@ const plan: GametestPlan = {
   vehicles: vehicles.length ? vehicles : undefined,
   // `--only=vehicles`: a short run with nothing but the vehicle tests.
   vehiclesOnly: flag('only') === 'vehicles' || undefined,
+  // `--only=figures`: the figures test alone (a long `--figure-ticks` watch).
+  figuresOnly: flag('only') === 'figures' || undefined,
 };
+// `--gait-probe`: the walk-cycle probe on the first standing figure (units of
+// query.modified_distance_moved per block at 50 %, 100 % and 200 % of the walker's speed).
+const gaitFigure = process.argv.includes('--gait-probe') ? plan.figures!.find(f => !f.seated) : undefined;
+if (process.argv.includes('--gait-probe') && !gaitFigure) throw new Error('--gait-probe: this pack has no standing figure');
+if (gaitFigure) plan.gaitProbe = { typeId: gaitFigure.typeId, speeds: [0.03, 0.06, 0.12] };
+// A Minifig Creator pack (`--creator=starter` builds): its figure type, for `creator_<id>`.
+const wandName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/minifig-wand.js`);
+if (wandName) {
+  const wandConfig = /^const C=(\{.*\});$/m.exec(text(wandName));
+  if (!wandConfig) throw new Error(`${wandName}: no creator CONFIG found (the wand script changed shape)`);
+  plan.creatorFigure = (JSON.parse(wandConfig[1]!) as { figureType: string }).figureType;
+}
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
 const testVersion = packVersionAt();
@@ -198,18 +212,22 @@ for (const [name, data] of entries) {
     variantFiles.push({ name, data: new TextEncoder().encode(patchPlacementForGametest(placementJs)) });
   } else if (name === mainName) {
     variantFiles.push({ name, data: new TextEncoder().encode(withGametestImport(text(name))) });
+  } else if (gaitFigure && name.startsWith(`${bpFolder}/entities/`) && name.endsWith('.json')
+    && JSON.parse(text(name).replace(/^\uFEFF/, ''))['minecraft:entity']?.description?.identifier === gaitFigure.typeId) {
+    variantFiles.push({ name, data: new TextEncoder().encode(JSON.stringify(withGaitProbe(JSON.parse(text(name).replace(/^\uFEFF/, ''))), null, 1)) });
   } else {
     variantFiles.push({ name, data: new Uint8Array(data) });
   }
 }
 for (const f of gametestVariantFiles(plan)) variantFiles.push({ name: `${bpFolder}/${f.name}`, data: f.data });
+if (gaitFigure) variantFiles.push({ name: `${bpFolder}/animation_controllers/cm_gait_probe.json`, data: new TextEncoder().encode(JSON.stringify(gaitProbeController(), null, 1)) });
 const variantPath = join(outDir, `${stem}-gametest.mcaddon`);
 writeFileSync(variantPath, await createZip(variantFiles));
 
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats, ${plan.figures!.length} figures, ${vehicles.length} vehicles${plan.vehiclesOnly ? ' (vehicle tests only)' : ''}${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
+console.log(`${placement.label}: ${doorways.length} doorways, ${parts.length} parts, ${seats.length} seats, ${plan.figures!.length} figures, ${vehicles.length} vehicles${plan.vehiclesOnly ? ' (vehicle tests only)' : ''}${plan.figuresOnly ? ' (figures test only)' : ''}${windows.length > 1 ? ` in ${windows.length} arena windows` : ''}${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
 for (const v of vehicles) console.log(`  vehicle ${v.kind.padEnd(5)}${v.scripted ? ' (scripted)' : ''} ${v.typeId} seats ${v.seats} size ${v.size.width.toFixed(1)}x${v.size.height.toFixed(1)}x${v.size.length.toFixed(1)}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
 console.log(`variant ${variantPath}\nplan    ${planPath}`);

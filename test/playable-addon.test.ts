@@ -41,6 +41,19 @@ describe('playable Bedrock add-on',()=>{
     expect(entries).toContain('Craftmatic_creator_BP/scripts/minifig-wand.js');
     const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/entities/creator_minifig.json')));
     expect(entity['minecraft:entity'].description.properties['craftmatic:torso'].client_sync).toBe(true);
+    // Bedrock drops the whole property component over one [0, 0] range (Pixel 2026-09-25: the
+    // slots with a single entry and `craftmatic:family`), and the wand could then set nothing.
+    for (const [name, prop] of Object.entries(entity['minecraft:entity'].description.properties as Record<string, { type: string; range?: number[] }>)) {
+      if (prop.type === 'int') expect(prop.range![1]! > prop.range![0]!, name).toBe(true);
+    }
+    // A released creator figure walks with the scripted walker, not vanilla's stroll (bedrock-figure-life.ts).
+    expect(JSON.stringify(entity)).not.toContain('random_stroll');
+    expect(entries).toContain('Craftmatic_creator_BP/scripts/figures.js');
+    const figuresJs = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/scripts/figures.js'));
+    const figuresConfig = JSON.parse(/const CONFIG = (.*);\n/.exec(figuresJs)![1]!) as { figureTypes: string[]; draftTypes: string[] };
+    expect(figuresConfig.figureTypes).toContain(entity['minecraft:entity'].description.identifier);
+    expect(figuresConfig.draftTypes).toEqual([entity['minecraft:entity'].description.identifier]);
+    expect(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/scripts/main.js'))).toContain("import './figures.js';");
     const controller = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_RP/render_controllers/creator_minifig.render_controllers.json'));
     expect(controller).toContain("q.property('craftmatic:torso')");
     expect(controller).toContain('Array.swatch');

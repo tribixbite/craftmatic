@@ -249,11 +249,15 @@ export const MINIFIG_BONES: readonly RigBone[] = [
 ];
 
 /**
- * The mini-doll's bones: the same names as the minifig's (so one animation
- * file drives every figure — walk swings `arm_*`, look turns `head`), with
- * pivots at the doll's joints. The one-piece legs ride `hips`, so a doll
- * walks stiff-legged and does not bend to sit.
- * # TODO: a per-system animation set (the doll's legs swing as one at the hip).
+ * The mini-doll's bones: the minifig's names for what the two share (walk
+ * swings `arm_*`, look turns `head`), with pivots at the doll's joints, and
+ * one `legs` bone for the one-piece legs mould (`92251`, `16529`), hinged
+ * where the real doll's legs hinge on its hips: the moulds' `!HELP` "Hips
+ * Rotation point: Y=-47.4, Z=2.7" from the legs origin (76.8, -3.9 below the
+ * torso) is 29.4 / -1.2, the hips joint itself. The doll's own animations
+ * (`MINIDOLL_CLIENT_ANIMATIONS`) bend it there to sit and rock it as one
+ * piece to walk; a one-piece HIPS-and-legs mould has no hinge and stays on
+ * `hips`.
  */
 export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'body', pivotLdu: [0, 0, 0] },
@@ -263,6 +267,7 @@ export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'hand_right', parent: 'arm_right', pivotLdu: [-25.9, 29.7, -4] },
   { name: 'hand_left', parent: 'arm_left', pivotLdu: [25.9, 29.7, -4] },
   { name: 'hips', parent: 'body', pivotLdu: [0, 29.4, -1.2] },
+  { name: 'legs', parent: 'hips', pivotLdu: [0, 29.4, -1.2] },
 ];
 
 /** The big-fig's bones: body, the head on the neck, two pinned arms with hands, the legs under the coat. */
@@ -286,6 +291,8 @@ const SLOT_BONE: Record<MinifigSlot, string> = {
   hips: 'hips', hips_legs: 'hips', legs: 'hips', leg_right: 'leg_right', leg_left: 'leg_left',
   held: 'body',
 };
+/** Where a system's skeleton differs from `SLOT_BONE`: the doll's one-piece legs hinge on their own bone. */
+const SYSTEM_SLOT_BONE: Record<FigureSystem, Partial<Record<MinifigSlot, string>>> = { minifig: {}, minidoll: { legs: 'legs' }, bigfig: {} };
 
 /** The slots that stand on the floor: their lowest point is where the figure's feet are. */
 const FLOOR_SLOTS: ReadonlySet<MinifigSlot> = new Set<MinifigSlot>(['torso', 'hips', 'hips_legs', 'legs', 'leg_right', 'leg_left']);
@@ -634,7 +641,7 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   const boneOf: string[] = [];
   const dropped: string[] = [];
   const bystanders: string[] = [];
-  const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
+  const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SYSTEM_SLOT_BONE[system][slot] ?? SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
   const first = (slot: MinifigSlot): SourcePart | undefined => source.find(s => s.slot === slot);
   /** Place a source part at its slot's canon when the system has one, else keep its (re-anchored) source pose. */
   const placeCanon = (s: SourcePart, slot: MinifigSlot, bone?: string): void => {
@@ -851,7 +858,20 @@ export const MINIFIG_ANIMATION_IDS = {
   walk: 'animation.craftmatic.minifig.walk',
   look: 'animation.craftmatic.minifig.look',
   sit: 'animation.craftmatic.minifig.sit',
+  /** The mini-doll's own walk and sit (its one-piece legs on the `legs` hinge, `MINIDOLL_BONES`). */
+  dollWalk: 'animation.craftmatic.minidoll.walk',
+  dollSit: 'animation.craftmatic.minidoll.sit',
 } as const;
+
+/**
+ * The mini-doll's walk. Its legs are one moulded piece, so they cannot
+ * scissor: the doll rocks side to side on the hip hinge (the whole legs
+ * piece rolls `waddleDeg` about the walking direction, one rock per step, at
+ * the minifig's distance-locked rate) with its arms swinging as a minifig's.
+ * Sitting bends the legs forward 90 degrees at the same hinge, as the toy's
+ * legs do.
+ */
+export const MINIDOLL_GAIT = { waddleDeg: 5, armSwingDeg: 22 } as const;
 
 /**
  * The walk's gait, derived so a foot does not slide.
@@ -859,23 +879,35 @@ export const MINIFIG_ANIMATION_IDS = {
  * A leg of length L (hip pivot to sole: 72 - 44 = 28 LDU = 0.525 blocks at the
  * 96 LDU = 1.8 block scale) swung ±A carries its foot 2·L·sin A per step and
  * 4·L·sin A per full cycle (two steps). `query.modified_distance_moved` is the
- * engine's limb-swing position, which advances ~4 units per block at walking
- * speed (the vanilla `× 38.17` humanoid cycles every 9.4 units = 2.4 blocks;
- * vanilla wheels turn `× -30` per unit, a 3-block circumference). So the
- * phase rate is 360 / (4 · 4·L·sin A) degrees per unit. The old walk used the
- * vanilla 38.17 with a 0.525-block leg: its feet covered half the ground the
- * body did - the "sliding" figure. `modified_move_speed` (the limb-swing
- * amount, ~4 × blocks per tick) fades the swing in and out.
- * TODO: confirm the ~4 units/block reading against a device recording at a known speed.
+ * engine's limb-swing position; the phase rate is 360 / (u · 4·L·sin A)
+ * degrees per unit, u being its units per block.
+ *
+ * MEASURED on the Pixel 8 Pro (GameTest `gait_<id>`, a server-side animation
+ * controller counting whole units while a figure is pushed exactly as the
+ * walker pushes it, ~25 blocks per speed, 2026-09-25): u = 3.88 at 0.021 and
+ * 0.042 blocks/tick (96 and 97 units), 3.76 at 0.083 (the limb swing's
+ * start-up lag, counted once per pass, weighs more on the short fast passes).
+ * The earlier guess of 4 was 3 % fast.
+ *
+ * The same probe measured `query.modified_move_speed` = 3.9 x blocks per tick
+ * (0.075-0.1 at 0.021, 0.15-0.175 at 0.042, 0.325-0.35 at 0.083): the old
+ * swing amount `modified_move_speed x 4` was 0.65 at the walker's real 100 %
+ * speed (0.042 blocks/tick, not the 0.06 it asks for) and 0.33 at 50 %, so the
+ * legs swung 23 and 11 degrees against a phase rate derived for 35: the feet
+ * covered 68 % and 33 % of the ground - the sliding. `GAIT_FULL_SWING_SPEED`
+ * now reaches the full swing at 0.01 blocks/tick (a 25 % figure's walk) and
+ * only fades it in and out at a start and a stop.
  */
 export const MINIFIG_GAIT = (() => {
   const legBlocks = (MINIFIG_FEET_Y - 44) / 96 * 1.8;
-  const legSwingDeg = 35, armSwingDeg = 28, unitsPerBlock = 4;
+  const legSwingDeg = 35, armSwingDeg = 28, unitsPerBlock = 3.88;
   const cycleBlocks = 4 * legBlocks * Math.sin(legSwingDeg * Math.PI / 180);
-  return { legBlocks, legSwingDeg, armSwingDeg, cycleBlocks, degPerUnit: Math.round(360 / (unitsPerBlock * cycleBlocks) * 100) / 100 };
+  return { legBlocks, legSwingDeg, armSwingDeg, unitsPerBlock, cycleBlocks, degPerUnit: Math.round(360 / (unitsPerBlock * cycleBlocks) * 100) / 100 };
 })();
+/** `query.modified_move_speed` at which the walk swings fully: 0.04 = 0.01 blocks/tick at the measured 3.9 per block. */
+export const GAIT_FULL_SWING_SPEED = 0.04;
 const GAIT_PHASE = `math.cos(query.modified_distance_moved * ${MINIFIG_GAIT.degPerUnit})`;
-const GAIT_AMOUNT = 'math.clamp(query.modified_move_speed * 4.0, 0.0, 1.0) * query.is_moving';
+const GAIT_AMOUNT = `math.clamp(query.modified_move_speed / ${GAIT_FULL_SWING_SPEED}, 0.0, 1.0) * query.is_moving`;
 
 export const MINIFIG_ANIMATIONS = {
   format_version: '1.8.0',
@@ -902,11 +934,37 @@ export const MINIFIG_ANIMATIONS = {
         leg_left: { rotation: [-90, 0, 0] },
       },
     },
+    [MINIFIG_ANIMATION_IDS.dollWalk]: {
+      loop: true,
+      bones: {
+        legs: { rotation: [0, 0, `${GAIT_PHASE} * ${MINIDOLL_GAIT.waddleDeg} * ${GAIT_AMOUNT}`] },
+        arm_right: { rotation: [`-${GAIT_PHASE} * ${MINIDOLL_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+        arm_left: { rotation: [`${GAIT_PHASE} * ${MINIDOLL_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+      },
+    },
+    [MINIFIG_ANIMATION_IDS.dollSit]: {
+      loop: true,
+      bones: { legs: { rotation: [-90, 0, 0] } },
+    },
   },
 } as const;
 
 /** The client entity's `animations` map and `scripts.animate` list for a minifig. */
-export const MINIFIG_CLIENT_ANIMATIONS = {
+/** A figure entity's client animation map and its `scripts.animate` list. */
+export interface FigureClientAnimations { animations: Record<'walk' | 'look' | 'sit', string>; animate: Array<string | Record<string, string>> }
+
+export const MINIFIG_CLIENT_ANIMATIONS: FigureClientAnimations = {
   animations: { walk: MINIFIG_ANIMATION_IDS.walk, look: MINIFIG_ANIMATION_IDS.look, sit: MINIFIG_ANIMATION_IDS.sit },
-  animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }, 'look'] as Array<string | Record<string, string>>,
+  animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }, 'look'],
 };
+
+/** The same for a mini-doll (`MINIDOLL_GAIT`): its walk and sit bend the one-piece legs at their hinge. */
+export const MINIDOLL_CLIENT_ANIMATIONS: FigureClientAnimations = {
+  animations: { walk: MINIFIG_ANIMATION_IDS.dollWalk, look: MINIFIG_ANIMATION_IDS.look, sit: MINIFIG_ANIMATION_IDS.dollSit },
+  animate: MINIFIG_CLIENT_ANIMATIONS.animate,
+};
+
+/** The client animation set for a figure of `system` (a big-fig walks as a minifig: it has two legs). */
+export function figureClientAnimations(system: FigureSystem | undefined): FigureClientAnimations {
+  return system === 'minidoll' ? MINIDOLL_CLIENT_ANIMATIONS : MINIFIG_CLIENT_ANIMATIONS;
+}

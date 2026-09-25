@@ -52,9 +52,6 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   slid into the cabinet wall); the drag pull arms only after the seated pitch
   settles (`DRAG_SETTLE` 20 ticks), so a reopened world no longer launches by
   itself (host test); watch the launch-tick smoothing on the phone.
-- [ ] Figures: 16 figures on non-walkable parts (21360 x7, 42639 x4 ...); seat
-  use proven on device (3-min GameTest); stalls 71040 / 31141 / 910049;
-  Minifig Creator figures on the walker; walk-cycle vs speed, mini-doll legs.
 - [ ] clego sources round (agent a2349714, clego commits `818cc7a8` `17d40022`
   `1858beba` `69b5cc54` NOT pushed; craftmatic index `1e954010`): 113 files
   published and R2-verified (14 Mecabricks track, 86 EurobricksLDR regens, 13
@@ -173,10 +170,26 @@ Open, largest first:
   rerun its GameTest alone in `cmgametest`; held-finger repeat.
 - Coaster rider camera: `loop` mode (reflect per tick, one rolling animation
   per inversion) built and host-proved; the device ride of the final pack is open.
-- Minifig AI (`scripts/figures.js`): 0 left/fell/in-wall on 910004/41732/76457;
-  open: 16 figures stand on non-walkable parts (fall on placement), seat use
-  unproven on device, 71040/31141/910049 figure stalls, Minifig Creator
-  figures still vanilla.
+- Minifig AI: figure round 2 (figures worktree, `output/fig-close/`; guide
+  "Figure life" -> "Where a figure spawns", "Gait, measured", "Round 2 on the
+  Pixel"). Device-proved in `cmgametest`: 0 fall at spawn (21360 was 7),
+  71040 2/2 move, 31141 4/6, 910049 7/8 and 0 in a wall, figures sit AND
+  stand up (76269 x3, 910049 x1), Minifig Creator figures use the walker.
+  Open:
+  - [ ] Look at a walking figure after the gait fix (3.88 units/block, full
+    swing): one recording of a straight walk; mini-doll walk/sit on the device
+    (42663 or 41395 have dolls).
+  - [ ] Figures that stay: 31141 1 and 5, 910049 7, 76269 3/6/7 have 1-4
+    reachable cells - rooms the 1-block collider grid fills (the same cause
+    as the 36 SEALED doorways; finer colliders).
+  - [ ] Shell and colliders are laid in the grid frame, figures in the
+    underside frame (guide "Colliders and figures are in two different
+    frames"): a baseplate off a cell boundary is drawn into the terrain and
+    clipped from the colliders.
+  - [ ] Figure walk phase at sizes below 100 % (shorter legs, same rate).
+  - [ ] Creator figure geometry: every head/hair geometry re-declares the
+    `armor_offset.default_neck` locator (content-log error per geometry,
+    harmless so far).
 
 ## Round — 2026-09-24 evening (user's 7 questions)
 
@@ -400,8 +413,7 @@ Open:
 - [ ] GameTest leftovers: 71040 Door 1's closing hit is refused (the test's
   spot sees only the closed leaf: TODO in `_gametest_pack.ts`); 41395 Door 1
   offline SEALED but walkable on the device; 42670 Door 4 walker falls off
-  the approach (look at it). Figures (minifig-AI stage): 71040 none move,
-  31141 2/6, 910049 one ends in a wall.
+  the approach (look at it).
 - [ ] Brick-built doors and gates (80049, 910004, 910047, 10354, 42639,
   910049, 41395): need a hinge-joint detector (clip/hinge pair + the slab on
   its free side). Mechanisms (cranes, winches, lifts, drawbridges): no rule.
@@ -1156,13 +1168,14 @@ selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
   (Rebrickable calls it "Special Mantle"), 22 refs across ~20 distinct sets,
   almost all under `_MecabricksLDR_prev/`; LDraw ships no rigid equivalent, so
   it stays unmapped rather than guessed. Do not invent geometry for either.
-- [ ] Mini-dolls are excluded from minifig held-part classification but not rigged.
-  76419's microfigure auto-scales 2×, but its four-part torso group is not an NPC.
+- [ ] 76419's microfigure auto-scales 2×, but its four-part torso group is not
+  an NPC. (Mini-dolls are rigged on their own skeleton with a `legs` hinge.)
 - [ ] Grader false-positive work: wheel/tyre, hand/weapon, axle/hole encased
   overlaps; inspect pairs before treating the old 52-file overlap tail as bad.
   Deliberate gaps: cone on torso neck and uncalibrated medium-leg band.
-- [ ] Creator pack is implemented but not device-accepted. Actual emitted
-  geometry/print checks and phone save/load/edit/reload/NPC behavior remain
+- [ ] Creator pack: properties load on the device since the `[0, 1]` range fix
+  (2026-09-25) and the NPC walks (GameTest `creator_<id>`). Emitted
+  geometry/print checks and phone save/load/edit/reload by hand remain
   release gates; see `docs/minifig-creator-wand.md`.
 - [ ] Source compact-layout quality flag: staged DBIX instruction layouts can
   remain spread despite arm repair; proposed density threshold ~0.3 parts/stud²

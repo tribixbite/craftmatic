@@ -232,7 +232,7 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     return JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(script)![1]!);
   }
 
-  it('stands a figure on the plate TOP, and one beside the model on the pin plane — not a plate under it', async () => {
+  it('stands a figure on the drawn plate TOP, and one beside the model on the pin plane — not a plate under or over it', async () => {
     seedDatTexts(Object.entries(PARTS).map(([id, t]) => [`${id}.dat`, t] as const));
     const bricks: ParsedBrick[] = [
       { part: '3029.dat', color: 2, x: 0, y: PLATE_BOTTOM_LDU, z: 0, rot: I },
@@ -254,14 +254,20 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     // colliders stand on (and inside the grass at 400 %).
     expect(sceneGridPoint(frame, [0, PLATE_BOTTOM_LDU, 0])[1]).toBeCloseTo(-plate, 6);
 
-    // Measured up from the model's underside instead: the figure beside the
-    // model stands exactly on the pin plane, and the one on the baseplate a
-    // plate higher — on the plate's top, where the source put it.
+    // Measured up from the model's underside instead, the figure beside the
+    // model stands exactly on the pin plane: never inside the grass.
     expect(figs[1]!.y).toBeCloseTo(sceneFloorPoint(frame, PLATE_BOTTOM_LDU, [400, PLATE_BOTTOM_LDU, 0])[1], 6);
     expect(figs[1]!.y).toBeCloseTo(0, 6);
-    expect(figs[0]!.y).toBeCloseTo(sceneFloorPoint(frame, PLATE_BOTTOM_LDU, [0, PLATE_TOP_LDU, 0])[1], 6);
-    expect(figs[0]!.y).toBeCloseTo(plate, 6);
-    expect(figs[0]!.y - figs[1]!.y).toBeCloseTo(plate, 6);
+    // The one on the baseplate would stand a plate up in that frame (0.15),
+    // but the shell and its colliders are laid in the GRID frame
+    // (`sceneGridPoint`), where this baseplate is drawn from -0.15 to 0 and
+    // lies under the pin plane, so no collider carries it. The export sets the
+    // figure down on the surface under its feet (`resolveFigureSpawn`): the
+    // ground at 0, which is the drawn plate's top - not 0.15 above it, where
+    // it used to fall from at placement.
+    expect(sceneFloorPoint(frame, PLATE_BOTTOM_LDU, [0, PLATE_TOP_LDU, 0])[1]).toBeCloseTo(plate, 6);
+    expect(figs[0]!.y).toBeCloseTo(sceneGridPoint(frame, [0, PLATE_TOP_LDU, 0])[1], 6);
+    expect(figs[0]!.y).toBeCloseTo(0, 6);
   }, 120_000);
 
   it('measures the walk-through size and carries it to the summary, the diagnostics and the wand', async () => {

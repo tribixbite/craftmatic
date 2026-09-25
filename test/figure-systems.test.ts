@@ -148,7 +148,9 @@ describe('figure systems: the mini-doll rig', () => {
     // rig puts it 47.4 below them, where `16529`'s own `!HELP` says its hips pivot is.
     expect(one('legs').part).toBe('16529');
     expect(pos(one('legs'))).toEqual([0, 76.8, -3.9]);
-    expect(a.rig.boneOf[a.bricks.indexOf(one('legs'))]).toBe('hips');
+    // The one-piece legs hinge on their own bone at the hips joint (the doll's sit and walk bend it there).
+    expect(a.rig.boneOf[a.bricks.indexOf(one('legs'))]).toBe('legs');
+    expect(MINIDOLL_BONES.find(b => b.name === 'legs')).toEqual({ name: 'legs', parent: 'hips', pivotLdu: [0, 29.4, -1.2] });
     // Hair keeps its offset from the head; the microphone sits in the canonical right hand.
     const hair = one('headwear');
     expect(hair.x).toBeCloseTo(0, 1); expect(hair.y).toBeCloseTo(-33.3, 1); expect(hair.z).toBeCloseTo(-3, 1);

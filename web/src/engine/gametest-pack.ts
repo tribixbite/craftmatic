@@ -238,6 +238,71 @@ export interface GametestPlan {
   vehicles?: GametestVehicle[] | undefined;
   /** Only the vehicle tests are registered (`--only=vehicles`): the model's own tests are left out of the run. */
   vehiclesOnly?: boolean | undefined;
+  /** Only the figures test is registered (`--only=figures`): a long watch without the doors and seats tests beside it. */
+  figuresOnly?: boolean | undefined;
+  /**
+   * The walk-cycle probe (`gait_<id>`, `--gait-probe`): one figure of this
+   * type, its BP entity patched with `gaitProbeController`, is pushed in a
+   * straight line at each speed (blocks per tick) and every whole unit of
+   * `query.modified_distance_moved` it crosses is counted against the
+   * distance it covered: the units-per-block the walk animation's phase rate
+   * (`MINIFIG_GAIT`) is derived from.
+   */
+  gaitProbe?: { typeId: string; speeds: number[] } | undefined;
+  /**
+   * The pack's Minifig Creator figure type (`creator_<id>`): one is spawned as
+   * a wand draft, then released as the wand releases it, and must stand still
+   * while it is a draft and walk (scripts/figures.js) once it is not.
+   */
+  creatorFigure?: string | undefined;
+}
+
+/** The server-side animation controller the gait probe adds to one figure's BP entity. */
+export const GAIT_PROBE_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe';
+/** The script event the probe's controller sends on every whole unit of `query.modified_distance_moved`. */
+export const GAIT_PROBE_EVENT = 'craftmatic_gt:gait';
+/**
+ * Two states flipping on the parity of `floor(query.modified_distance_moved)`;
+ * each entry runs `/scriptevent`, which the probe test pairs with the
+ * entity's position. A behaviour-pack controller evaluates on the server.
+ */
+export function gaitProbeController(): unknown {
+  const state = (parity: number, other: string): unknown => ({
+    transitions: [{ [other]: `math.mod(math.floor(query.modified_distance_moved), 2) != ${parity}` }],
+    on_entry: [`/scriptevent ${GAIT_PROBE_EVENT} u`],
+  });
+  // `query.modified_move_speed` in steps of 1/GAIT_SPEED_STEPS: a chain of
+  // states, each stepping to its neighbour while the value is past its edge
+  // (one step a tick, so a steady value is reached within a few ticks), and
+  // each entry reports its bucket.
+  const speedStates: Record<string, unknown> = {};
+  for (let k = 0; k <= GAIT_SPEED_BUCKETS; k++) {
+    const transitions: unknown[] = [];
+    if (k < GAIT_SPEED_BUCKETS) transitions.push({ [`s${k + 1}`]: `query.modified_move_speed >= ${(k + 1) / GAIT_SPEED_STEPS}` });
+    if (k > 0) transitions.push({ [`s${k - 1}`]: `query.modified_move_speed < ${k / GAIT_SPEED_STEPS}` });
+    speedStates[`s${k}`] = { transitions, on_entry: [`/scriptevent ${GAIT_PROBE_SPEED_EVENT} ${k}`] };
+  }
+  return { format_version: '1.10.0', animation_controllers: {
+    [GAIT_PROBE_CONTROLLER_ID]: { initial_state: 'even', states: { even: state(0, 'odd'), odd: state(1, 'even') } },
+    [GAIT_PROBE_SPEED_CONTROLLER_ID]: { initial_state: 's0', states: speedStates },
+  } };
+}
+
+/** The probe's second controller: `query.modified_move_speed` in buckets of 1/GAIT_SPEED_STEPS. */
+export const GAIT_PROBE_SPEED_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe_speed';
+/** Its script event; the message is the bucket index. */
+export const GAIT_PROBE_SPEED_EVENT = 'craftmatic_gt:gaitspeed';
+/** Buckets per unit of `query.modified_move_speed`, and the highest bucket (values up to 1.5). */
+export const GAIT_SPEED_STEPS = 40;
+export const GAIT_SPEED_BUCKETS = 60;
+
+/** A copy of a BP entity definition that also runs the gait probe controller. */
+export function withGaitProbe(entity: any): any {
+  const e = JSON.parse(JSON.stringify(entity));
+  const d = e['minecraft:entity'].description;
+  d.animations = { ...(d.animations ?? {}), cm_gait: GAIT_PROBE_CONTROLLER_ID, cm_gait_speed: GAIT_PROBE_SPEED_CONTROLLER_ID };
+  d.scripts = { ...(d.scripts ?? {}), animate: [...(d.scripts?.animate ?? []), 'cm_gait', 'cm_gait_speed'] };
+  return e;
 }
 
 /**
@@ -302,6 +367,8 @@ export interface FigureTrackVerdict {
   /** Samples whose body overlapped a collider taller than a step (furniture or a wall). */
   clippingSamples: number;
   ridingSamples: number;
+  /** A roamer that sat on a seat and later stood up again (a riding sample, then a standing one). */
+  satAndStood: boolean;
   /** Walked at least 2 blocks in the watch. */
   moved: boolean;
   endInsideWall: boolean;
@@ -314,7 +381,7 @@ export interface FigureTrackVerdict {
  * serialised into the device runtime unchanged.
  */
 export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: Vec3 }, groundY: number, endInsideWall: boolean, margin: number): FigureTrackVerdict {
-  let pathLength = 0, maxExcursion = 0, outsideSamples = 0, clippingSamples = 0, ridingSamples = 0, minY = Infinity;
+  let pathLength = 0, maxExcursion = 0, outsideSamples = 0, clippingSamples = 0, ridingSamples = 0, minY = Infinity, satAndStood = false;
   const first = track[0];
   for (let i = 0; i < track.length; i++) {
     const s = track[i]!;
@@ -323,6 +390,7 @@ export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: 
     if (s.x < area.min.x - margin || s.x > area.max.x + margin || s.z < area.min.z - margin || s.z > area.max.z + margin) outsideSamples++;
     if (s.clipping) clippingSamples++;
     if (s.riding) ridingSamples++;
+    if (i > 0 && track[i - 1]!.riding && !s.riding) satAndStood = true;
     minY = Math.min(minY, s.y);
   }
   const last = track[track.length - 1];
@@ -332,7 +400,7 @@ export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: 
     minAboveGround: r2(Number.isFinite(minY) ? minY - groundY : 0),
     belowGround: Number.isFinite(minY) && minY < groundY - 0.5,
     droppedStorey: !!first && !!last && last.y < first.y - 1.5,
-    clippingSamples, ridingSamples, moved: pathLength >= 2, endInsideWall,
+    clippingSamples, ridingSamples, satAndStood, moved: pathLength >= 2, endInsideWall,
   };
 }
 
@@ -514,8 +582,12 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   const { mc, gt } = mods;
   // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
   if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
+  if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [] };
+  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
+  /** `GAIT_PROBE_EVENT` (the runtime is serialised: it cannot import it). */
+  const gaitEvent = `${NS}:gait`;
   const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
   const flush = (): void => { const pad = 'x'.repeat(1000); for (let i = 0; i < 18; i++) console.warn(`CMGT_PAD ${i} ${pad}`); };
   const placedReplies = new Map<string, any>();
@@ -557,7 +629,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   if (oversized) log('OVERSIZED', { model: plan.modelId, arena, note: 'only the figures test runs; it lays the floor past the structure itself' });
 
   /** Smoke: the framework runs, a simulated player spawns on the arena floor and walks 4 blocks. */
-  if (!oversized && !plan.vehiclesOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
+  if (!oversized && !plan.vehiclesOnly && !plan.figuresOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
     const f = floorY(test, 2, 2);
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
@@ -980,7 +1052,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       const v = judgeFigure(tr.track, area, anchor.y, bodyCheck(last).wall, 1);
       // Relative to the anchor so a row reads in model blocks.
       const rel = (p: Vec3): Vec3 => round({ x: p.x - anchor.x, y: p.y - anchor.y, z: p.z - anchor.z });
-      return { label: tr.f.label, seated: tr.f.seated, start: rel(tr.track[0]), end: rel(last), ...v,
+      // Where the pack put it against where it was first seen (40 ticks later): a fall at placement.
+      const spawnDrop = Math.round((anchor.y + tr.f.actor.y - tr.track[0].y) * 100) / 100;
+      return { label: tr.f.label, seated: tr.f.seated, start: rel(tr.track[0]), end: rel(last), spawnDrop, ...v,
         path: tr.track.filter((_: any, i: number) => i % 6 === 0).map((p: any) => [Math.round((p.x - anchor.x) * 10) / 10, Math.round((p.y - anchor.y) * 10) / 10, Math.round((p.z - anchor.z) * 10) / 10]) };
     });
     for (const r of rows) log('FIGURE', r);
@@ -997,6 +1071,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       clipping: found.filter(r => r.clippingSamples > 0).map(r => `${r.label}:${r.clippingSamples}`),
       seatedStayed: found.filter(r => r.seated && r.ridingSamples === r.samples).length, seatedInSet: found.filter(r => r.seated).length,
       satDown: roamers.filter(r => r.ridingSamples > 0).map(r => r.label),
+      satAndStood: roamers.filter(r => r.satAndStood).map(r => r.label),
+      // Standing figures that dropped more than a step between spawning and the first sample.
+      fellAtSpawn: roamers.filter(r => r.spawnDrop > 0.6).map(r => `${r.label}:${r.spawnDrop}`),
       meanPath: roamers.length ? Math.round(roamers.reduce((s, r) => s + r.pathLength, 0) / roamers.length * 10) / 10 : 0,
       watchTicks,
     };
@@ -1017,6 +1094,107 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (roamers.length && summary.moved * 2 < roamers.length) problems.push(`only ${summary.moved}/${roamers.length} roaming figures moved`);
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
+
+  /**
+   * The Minifig Creator's figure: spawned as a draft (the wand's
+   * `craftmatic:draft`), watched for 100 ticks, released (draft off +
+   * `craftmatic:release`, what the wand's Place does), then watched for the
+   * figures test's length. A draft must not move; a released figure must walk
+   * at least 2 blocks and stay within the walker's radius of where it was let go.
+   */
+  const creatorType = plan.creatorFigure;
+  if (creatorType) gt.registerAsync(NS, `creator_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const at = test.worldLocation({ x: margin + 5.5, y: f0 + 1, z: margin + 5.5 });
+    const e = dim.spawnEntity(creatorType, at);
+    try { e.setProperty('craftmatic:draft', true); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const path = (track: any[]): number => track.reduce((sum: number, p: any, i: number) => i ? sum + Math.hypot(p.x - track[i - 1].x, p.z - track[i - 1].z) : 0, 0);
+    const held: any[] = [];
+    for (let t = 0; t <= 100; t += 10) { held.push({ ...e.location }); if (t < 100) await test.idle(10); }
+    const released = { ...e.location };
+    try { e.setProperty('craftmatic:draft', false); e.triggerEvent('craftmatic:release'); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const walk: any[] = [];
+    const ticks = plan.figureTicks ?? 1200;
+    for (let t = 0; t <= ticks; t += 20) { try { walk.push({ ...e.location }); } catch { break; } if (t < ticks) await test.idle(20); }
+    const r2 = (v: number): number => Math.round(v * 100) / 100;
+    const heldPath = r2(path(held)), walkPath = r2(path(walk));
+    const maxExcursion = r2(Math.max(...walk.map(p => Math.hypot(p.x - released.x, p.z - released.z))));
+    const minY = r2(Math.min(...walk.map(p => p.y)) - released.y);
+    let home: unknown = null;
+    try { home = JSON.parse(String(e.getDynamicProperty('craftmatic:fig'))); } catch { /* none written */ }
+    log('CREATOR', { model: plan.modelId, typeId: creatorType, heldPath, walkPath, maxExcursion, minY, home });
+    flush();
+    try { e.remove(); } catch { /* gone */ }
+    const problems: string[] = [];
+    if (heldPath > 0.2) problems.push(`the draft moved ${heldPath} blocks`);
+    if (walkPath < 2) problems.push(`the released figure walked only ${walkPath} blocks`);
+    if (maxExcursion > 8) problems.push(`it strayed ${maxExcursion} blocks from where it was released`);
+    if (minY < -0.6) problems.push(`it dropped ${-minY} blocks`);
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + (plan.figureTicks ?? 1200)).tag(NS);
+
+  /**
+   * The walk-cycle probe: how many units of `query.modified_distance_moved`
+   * a figure covers per block at a figure's walking speeds. One figure is
+   * spawned on the empty arena floor (a `seated` home so scripts/figures.js
+   * leaves it alone), pushed along +x / -x by velocity exactly as the
+   * walker pushes it, and every unit its controller reports is counted.
+   */
+  const gaitPlan = plan.gaitProbe;
+  if (gaitPlan) gt.registerAsync(NS, `gait_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const lane = Math.max(4, Math.min(arena.x - 2 * margin - 2, 14));
+    const start = test.worldLocation({ x: margin + 1, y: f0 + 1, z: margin + 2.5 });
+    const e = dim.spawnEntity(gaitPlan.typeId, start);
+    try { e.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [start.x, start.y, start.z], area: [start.x - 1, start.z - 1, start.x + lane + 1, start.z + 1], ground: start.y, f: 1, mode: 'seated' })); } catch { /* the runtime then adopts it as a roamer */ }
+    const units: Array<{ t: number }> = [];
+    /** The last `query.modified_move_speed` bucket the speed controller entered. */
+    let speedBucket = 0;
+    const sub = system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.sourceEntity?.id !== e.id) return;
+      if (ev.id === gaitEvent) units.push({ t: system.currentTick });
+      else if (ev.id === `${NS}:gaitspeed`) speedBucket = Number(ev.message);
+    }, { namespaces: [NS] });
+    await test.idle(20);
+    const rows: any[] = [];
+    let dir = 1;
+    // Back and forth along the lane until GAIT_BLOCKS are covered at each speed:
+    // a count of whole units is +-1 per pass, so the error shrinks with the distance.
+    const GAIT_BLOCKS = 24;
+    for (const speed of gaitPlan.speeds) {
+      let blocks = 0, seen = 0, ticksPushed = 0;
+      /** Buckets read in the second half of every pass (the steady walk), as a histogram. */
+      const moveSpeed: Record<number, number> = {};
+      for (let pass = 0; pass < 16 && blocks < GAIT_BLOCKS; pass++) {
+        const ticks = Math.round(lane / speed);
+        const from = { ...e.location }, t0 = system.currentTick, n0 = units.length;
+        for (let t = 0; t < ticks; t++) {
+          try { const v = e.getVelocity(); e.applyImpulse({ x: dir * speed - v.x, y: 0, z: -v.z }); } catch { break; }
+          await test.idle(1);
+          if (t >= ticks / 2) moveSpeed[speedBucket] = (moveSpeed[speedBucket] ?? 0) + 1;
+        }
+        const to = { ...e.location }, t1 = system.currentTick;
+        try { const v = e.getVelocity(); e.applyImpulse({ x: -v.x, y: 0, z: -v.z }); } catch { /* gone */ }
+        await test.idle(20);
+        // Units reached while it was pushed (the stop's slide after t1 is left out).
+        seen += units.slice(n0).filter(u => u.t <= t1).length;
+        blocks += Math.hypot(to.x - from.x, to.z - from.z);
+        ticksPushed += t1 - t0;
+        dir = -dir;
+      }
+      // modified_move_speed while walking steadily: bucket k is [k/40, (k+1)/40).
+      const modifiedMoveSpeed = Object.fromEntries(Object.entries(moveSpeed).map(([k, n]) => [(Number(k) / 40).toFixed(3), n]));
+      rows.push({ speed, ticks: ticksPushed, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, ticksPushed) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 1000) / 1000 : null, modifiedMoveSpeed });
+    }
+    try { system.afterEvents.scriptEventReceive.unsubscribe(sub); } catch { /* older API */ }
+    try { e.remove(); } catch { /* gone */ }
+    log('GAIT', { model: plan.modelId, typeId: gaitPlan.typeId, rows });
+    flush();
+    if (rows.every(r => !r.units)) test.fail('the gait controller reported no distance units (query.modified_distance_moved not evaluated on the server?)');
+    else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(12000).tag(NS);
 
   /**
    * Vehicles: spawn each rideable type in the vehicle arena, seat a simulated
