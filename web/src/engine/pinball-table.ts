@@ -54,6 +54,19 @@ export interface PinballFlipper {
   bricks: number[];
 }
 
+export interface PinballButton {
+  side: 'left' | 'right';
+  /** Indices into the source brick list. */
+  bricks: number[];
+  /** Centre (u, w) in plane coordinates and h above the floor, LDU. */
+  centre: [number, number];
+  h: number;
+  /** +1 or -1: the w-direction a press moves the button. */
+  inward: number;
+  /** How far a press moves it, LDU. */
+  stroke: number;
+}
+
 export interface PinballBumper {
   /** Centre (u, w) and radius, LDU. */
   centre: [number, number];
@@ -99,6 +112,15 @@ export interface PinballTable {
    * stood in front of the seated view as an orange post).
    */
   looseBricks: number[];
+  /**
+   * The cabinet's FLIPPER BUTTONS, left then right: the round parts on the
+   * outside of each side wall level with the flippers (11374: a trans-clear
+   * 4 x 4 dome, a white round tile cap and two round plates per side, at
+   * u 878, 15 LDU below the flipper pivots' line). `centre` is in plane
+   * coordinates plus height above the floor; `inward` is the unit w-direction
+   * a press moves it (toward the table's centre line).
+   */
+  buttons: PinballButton[];
   warnings: string[];
 }
 
@@ -154,6 +176,8 @@ const PLUNGER_RE = /technic|axle|\bpin\b|liftarm|\bbeam\b|\bcam\b|\bbush\b|towba
 const STRUCTURE_RE = /brick|plate|tile|slope|panel|bracket/i;
 /** Accessories that are never part of a model. */
 const LOOSE_RE = /brick separator/i;
+/** A cabinet button's parts: domes, round tiles and round plates. */
+const BUTTON_RE = /dome|round/i;
 
 /**
  * Read a pinball table out of a model. Returns null when the model has no
@@ -510,6 +534,35 @@ export function detectPinballTable(
   debug(`plunger: ${plungerBricks.length} parts behind the serve${plungerBricks.length ? ` (${plungerBricks.map(i => partStem(bricks[i]!.part)).join(' ')})` : ''}`);
   const looseBricks: number[] = [];
   bricks.forEach((b, i) => { if (LOOSE_RE.test(descOf(b))) looseBricks.push(i); });
+
+  // 10. Flipper buttons: round parts outside each side of the playfield,
+  //     level with the flippers (within 3 radii up and 6 down the table of
+  //     the pivots, up to 6 radii under the floor). The seed is the one
+  //     nearest the flipper line; its button is every round part within two
+  //     radii of it across and one along and in height.
+  const taken = new Set<number>([...flipperAll, ...ballBricks, ...plungerBricks, ...looseBricks]);
+  const wMin = w0 - ballRadius, wMax = w1 + ballRadius;
+  const buttons: PinballButton[] = [];
+  for (const f of flippers) {
+    const outside = (pw: number): boolean => (f.side === 'left' ? pw < wMin : pw > wMax);
+    const cands: Array<{ i: number; u: number; w: number; h: number }> = [];
+    bricks.forEach((b, i) => {
+      if (taken.has(i) || !BUTTON_RE.test(descOf(b))) return;
+      const [pu, pw] = toPlane([b.x, b.y, b.z]);
+      const h = dot([b.x, b.y, b.z], axisN) - floorH;
+      if (!outside(pw) || pu < flipU - ballRadius * 3 || pu > flipU + ballRadius * 6 || h < -ballRadius * 6 || h > ballRadius) return;
+      cands.push({ i, u: pu, w: pw, h });
+    });
+    if (!cands.length) continue;
+    // The seed: nearest the flipper line, then nearest the side wall.
+    cands.sort((a, b) => Math.abs(a.u - f.pivot[0]) - Math.abs(b.u - f.pivot[0]) || (f.side === 'left' ? b.w - a.w : a.w - b.w));
+    const seed = cands[0]!;
+    const group = cands.filter(c => Math.abs(c.w - seed.w) <= ballRadius * 2 && Math.abs(c.u - seed.u) <= ballRadius && Math.abs(c.h - seed.h) <= ballRadius);
+    for (const c of group) taken.add(c.i);
+    const avg = (k: 'u' | 'w' | 'h'): number => group.reduce((sum, c) => sum + c[k], 0) / group.length;
+    buttons.push({ side: f.side, bricks: group.map(c => c.i), centre: [avg('u'), avg('w')], h: avg('h'), inward: f.side === 'left' ? 1 : -1, stroke: 8 });
+  }
+  debug(`buttons: ${buttons.map(b => `${b.side} ${b.bricks.map(i => partStem(bricks[i]!.part)).join('+')} at (${b.centre.map(v => v.toFixed(0))}) h ${b.h.toFixed(0)}`).join('; ') || 'none'}`);
   return {
     axisU, axisW, axisN,
     tiltDeg: Math.acos(Math.min(1, Math.abs(dot(axisN, MODEL_UP)))) * 180 / Math.PI || (nominalTilt ? options.nominalTiltDeg ?? 6.5 : 0),
@@ -524,6 +577,7 @@ export function detectPinballTable(
     // Two studs: about what a real plunger draws back, and visible from the seat.
     plungerStroke: 40,
     looseBricks,
+    buttons,
     warnings,
   };
 }

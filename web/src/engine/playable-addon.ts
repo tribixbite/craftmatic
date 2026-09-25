@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, consoleHideAnimation, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING } from './bedrock-figure-life.js';
@@ -2321,6 +2321,22 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 actors.push({ typeId: plungerType, label: `${label} plunger`, x: pat[0], y: pat[1] + pgeo.originLiftBlocks, z: pat[2], yaw: 0, pinball: true });
                 extraComponents.push({ id: pid, label: `${label} plunger`, kind: 'shell', provenance: `${plan.plunger.bricks.length} source placements drawn back along the launch lane` });
             }
+            // The cabinet's flipper buttons: each its own entity, pressed in while its flipper is up.
+            const cabinetButtons: { left?: string; right?: string } = {};
+            for (const b of plan.buttons) {
+                const cbid = entityId(`${id}_pinball_cabinet_button_${b.side}`, 'p');
+                const cbType = `${PACK_NAMESPACE}:${cbid}`;
+                const cbgeo = await compileLdrawEntityGeometry(cbid, 'prop', b.bricks, { ...compileOpts, rig: b.rig });
+                diagnostics[cbid] = cbgeo.diagnostics;
+                const cbanim = buttonPressAnimation(cbType, plan.map, b.strokeLdu, b.inward);
+                emitCompiledEntity(cbid, cbgeo, pinballPropBehavior(cbType, { width: 0.3, height: 0.3 }, pressProperties()), { animations: { press: cbanim.id }, animate: ['press'] });
+                files.push({ name: `${rp}animations/${cbid}.animation.json`, data: json(cbanim.file) });
+                addEntityName(cbType, `${label} ${b.side} flipper button`, false);
+                const cbat = sceneGridPoint(frame, cbgeo.originLdu);
+                actors.push({ typeId: cbType, label: `${label} ${b.side} flipper button`, x: cbat[0], y: cbat[1] + cbgeo.originLiftBlocks, z: cbat[2], yaw: 0, pinball: true });
+                extraComponents.push({ id: cbid, label: `${label} ${b.side} flipper button`, kind: 'shell', provenance: `${b.bricks.length} source placements pressed in along the table's width` });
+                cabinetButtons[b.side] = cbType;
+            }
             // The ball: it stands on the serve point and its animation draws it
             // where the runtime's properties say (bedrock-pinball.ts), so its
             // culling box has to cover the whole table, not the ball.
@@ -2396,10 +2412,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             // The flipper spin is authored in the render frame; a mirrored frame reverses it.
             const f = SHELL_FRAME;
             const det = f[0]! * (f[4]! * f[8]! - f[5]! * f[7]!) - f[1]! * (f[3]! * f[8]! - f[5]! * f[6]!) + f[2]! * (f[3]! * f[7]! - f[4]! * f[6]!);
-            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType, pick: pickType, plunger: plungerType, plungerButton: plungerButtonType, plungerPick: plungerPickType }, ballEntityModel, Math.sign(det) || 1, label);
+            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType, pick: pickType, plunger: plungerType, plungerButton: plungerButtonType, plungerPick: plungerPickType, cabinetButtons }, ballEntityModel, Math.sign(det) || 1, label);
             files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
             warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
-            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the outlined box over a flipper (or a hotbar slot left or right of the middle) to flip it; tap the yellow box over the plunger to draw it back and tap again to let go - the further it is drawn, the harder the shot. The stick works too (pull it back for the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
+            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the flipper buttons on the cabinet's sides (or a hotbar slot left or right of the middle) to flip; tap the yellow box over the plunger to draw it back and tap again to let go - the further it is drawn, the harder the shot. The stick works too (pull it back for the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
         } catch (e) {
             pinballConfig = undefined;
             warnings.push(`${label}: the pinball game could not be built (${e instanceof Error ? e.message : String(e)}); the machine ships as a static model.`);

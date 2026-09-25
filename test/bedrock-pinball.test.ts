@@ -33,7 +33,7 @@ function config(): PinballRuntimeConfig {
   const sim = boxSim();
   return {
     family: 'craftmatic_pinball', consoleType: 'craftmatic:con', ballType: 'craftmatic:ball', flipperTypes: ['craftmatic:fl', 'craftmatic:fr'],
-    plungerType: 'craftmatic:plunger', buttonType: 'craftmatic:zone', plungerButtonType: 'craftmatic:pzone',
+    plungerType: 'craftmatic:plunger', cabinetButtonTypes: { left: 'craftmatic:cbl', right: 'craftmatic:cbr' }, buttonType: 'craftmatic:zone', plungerButtonType: 'craftmatic:pzone',
     pickType: 'craftmatic:pick', plungerPickType: 'craftmatic:ppick', buttonFamily: 'craftmatic_pinball_button',
     zones: {
       reach: 1.2,
@@ -58,7 +58,21 @@ function config(): PinballRuntimeConfig {
 /** The seated head sits this far above the pad's position (the engine's seat offset + sitting eye). */
 const HEAD_ABOVE_SEAT = 1.35;
 
-function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
+/** A player inventory: 36 slots, `items[k]` a type id or undefined. */
+function inventory(items: Array<string | undefined>) {
+  const slots = [...items];
+  while (slots.length < 36) slots.push(undefined);
+  return {
+    slots,
+    container: {
+      size: 36,
+      getItem: (k: number) => (slots[k] ? { typeId: slots[k] } : undefined),
+      moveItem: (from: number, to: number) => { slots[to] = slots[from]; slots[from] = undefined; },
+    },
+  };
+}
+
+function harness(engine: { headSide?: number; yawOffset?: number; inventory?: ReturnType<typeof inventory> } = {}) {
   const cfg = config();
   const origin = { x: 100, y: 64, z: 200 };
   const props: Record<string, unknown> = { 'craftmatic:pinball_origin': origin, 'craftmatic:pinball_rotation': 0, 'craftmatic:pinball_scale': 1 };
@@ -80,6 +94,7 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
   };
   const home = { x: 102, y: 64, z: 209 };
   const con = mk(cfg.consoleType, home), ball = mk(cfg.ballType), fl = mk(cfg.flipperTypes[0]!), fr = mk(cfg.flipperTypes[1]!), plunger = mk(cfg.plungerType!);
+  const cbl = mk(cfg.cabinetButtonTypes.left!), cbr = mk(cfg.cabinetButtonTypes.right!);
   let riders: any[] = [];
   con.getComponent.mockImplementation((name: string) => name === 'minecraft:rideable' ? { getRiders: () => riders } : undefined);
   const input = { x: 0, y: 0, jump: false };
@@ -107,12 +122,16 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     addEffect: vi.fn(),
     removeEffect: vi.fn(),
     teleport: vi.fn(),
+    dyn: {} as Record<string, unknown>,
+    getDynamicProperty(k: string) { return this.dyn[k]; },
+    setDynamicProperty(k: string, v: unknown) { if (v === undefined) delete this.dyn[k]; else this.dyn[k] = v; },
+    getComponent: (name: string) => (name === 'minecraft:inventory' && engine.inventory ? { container: engine.inventory.container } : undefined),
   };
   let tick: () => void = () => {};
   const spawned: any[] = [];
   let hit: (ev: any) => void = () => {};
   let interact: (ev: any) => void = () => {};
-  const getEntities = vi.fn((q: any) => (q?.families?.[0] === cfg.buttonFamily ? spawned.filter(e => !e.removed) : [con, ball, fl, fr, plunger]));
+  const getEntities = vi.fn((q: any) => (q?.families?.[0] === cfg.buttonFamily ? spawned.filter(e => !e.removed) : [con, ball, fl, fr, plunger, cbl, cbr]));
   const dim = {
     id: 'minecraft:overworld',
     getEntities,
@@ -131,7 +150,7 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     beforeEvents: { playerInteractWithEntity: { subscribe: (cb: any) => { interact = cb; } } },
   };
   let scriptEvent: (ev: any) => void = () => {};
-  const system = { runInterval: (cb: () => void) => { tick = cb; }, afterEvents: { scriptEventReceive: { subscribe: (cb: any) => { scriptEvent = cb; } } } };
+  const system = { run: (cb: () => void) => cb(), runInterval: (cb: () => void) => { tick = cb; }, afterEvents: { scriptEventReceive: { subscribe: (cb: any) => { scriptEvent = cb; } } } };
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   const script = pinballScript(cfg).replace(/^import .*;\n/, '');
   new Function('world', 'system', script)(world, system);
@@ -147,7 +166,7 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerPickType) : z[role === 'left' ? 0 : 1];
   };
   return {
-    cfg, origin, home, con, ball, fl, fr, plunger, player, input, dim, spawned, zone, pick, warn, getEntities,
+    cfg, origin, home, con, ball, fl, fr, plunger, cbl, cbr, player, input, dim, spawned, zone, pick, warn, getEntities,
     hit: (role: 'left' | 'right' | 'plunger', by: any = player) => hit({ damagingEntity: by, hitEntity: zone(role) }),
     hitEntity: (e: any) => hit({ damagingEntity: player, hitEntity: e }),
     hitPick: (role: 'left' | 'right' | 'plunger') => hit({ damagingEntity: player, hitEntity: pick(role) }),
@@ -300,6 +319,49 @@ describe('pinball runtime (host simulation)', () => {
     const ev = h.press('right'); h.run(4);
     expect(ev.cancel).toBe(true);
     expect(flipOf(h.fr)).toBeGreaterThan(30);
+  });
+
+  it('a tap raises its flipper INSIDE the event (before the next tick) and presses its cabinet button in', () => {
+    const h = seated();
+    h.hit('left'); // no tick run
+    expect(flipOf(h.fl)).toBeGreaterThan(30);
+    expect(neverRaised(h.fr)).toBe(true);
+    expect(h.cbl.actorProps['craftmatic:press']).toBe(1);
+    h.run(20);
+    expect(h.cbl.actorProps['craftmatic:press']).toBe(0);
+    expect(flipOf(h.fl)).toBeLessThan(1);
+    // A long press arrives in a read-only before-event: the raise goes through system.run.
+    h.press('right');
+    expect(flipOf(h.fr)).toBeGreaterThan(30);
+    expect(h.cbr.actorProps['craftmatic:press']).toBe(1);
+  });
+
+  it('parks the hotbar on an EMPTY slot (nothing held shows in the free camera) and gives the old slot back', () => {
+    const inv = inventory([undefined, 'a', 'b', 'c', 'd', 'e', undefined, 'g', 'h']);
+    const h = harness({ inventory: inv });
+    h.player.selectedSlotIndex = 4;
+    h.run(1); h.sit(); h.run(12);
+    expect(h.player.selectedSlotIndex).toBe(6); // the free slot nearest the middle
+    h.player.selectedSlotIndex = 2; h.run(3); // a slot left of the parked one
+    expect(flipOf(h.fl)).toBeGreaterThan(30);
+    expect(h.player.selectedSlotIndex).toBe(6);
+    h.stand(); h.run(1);
+    expect(h.player.selectedSlotIndex).toBe(4);
+    expect(inv.slots.slice(0, 9)).toEqual([undefined, 'a', 'b', 'c', 'd', 'e', undefined, 'g', 'h']);
+  });
+
+  it('with a full hotbar, moves the middle item to a free inventory slot and puts it back exactly on leaving', () => {
+    const items = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+    const inv = inventory(items);
+    const h = harness({ inventory: inv });
+    h.run(1); h.sit(); h.run(12);
+    expect(h.player.selectedSlotIndex).toBe(4);
+    expect(inv.slots[4]).toBeUndefined();
+    expect(inv.slots[10]).toBe('e');
+    expect(h.player.dyn['craftmatic:pinball_stash']).toBeDefined();
+    h.stand(); h.run(1);
+    expect(inv.slots.slice(0, 11)).toEqual([...items, undefined]);
+    expect(h.player.dyn['craftmatic:pinball_stash']).toBeUndefined();
   });
 
   it('a flipper tap while the ball waits does NOT launch it (the plunger does)', () => {

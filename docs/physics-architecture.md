@@ -638,7 +638,7 @@ one of these files fails the check until its row is written.
 |---|---|---|
 | `detectPinballTable` | function | Measures the playfield plane and tilt, flippers, bumpers, SDF and plunger lane from the parts. |
 | `pinballSimTable` | function | Table → plain-JSON `PinballSimTable`. |
-| `PinballFlipper`, `PinballBumper`, `PinballTable`, `PinballDetectOptions` | interface | Types. |
+| `PinballFlipper`, `PinballButton`, `PinballBumper`, `PinballTable`, `PinballDetectOptions` | interface | Types. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-pinball.ts -->
@@ -649,13 +649,13 @@ one of these files fails the check until its row is written.
 | `PinballRuntimeConfig` | interface | Its type. |
 | `_pinballRuntimeForTests` | re-export | The runtime, for the host test. |
 | `planPinball`, `planPinballZones`, `fitPinballZone` | function | Where the table, its tap zones and pick boxes go (fit is SERIALISED). |
-| `PinballMap`, `PinballFlipperPlan`, `PinballPlungerPlan`, `PinballZoneSpec`, `PinballZonePlan`, `PinballPlan` | interface | Plane map (LDU table plane → model blocks) and plan types. |
+| `PinballMap`, `PinballFlipperPlan`, `PinballButtonPlan`, `PinballPlungerPlan`, `PinballZoneSpec`, `PinballZonePlan`, `PinballPlan` | interface | Plane map (LDU table plane → model blocks) and plan types. |
 | `PINBALL_TAP_REACH`, `PICK_PITCHES` | const | Zone reach (blocks) and pick pitches (degrees). |
 | `rotationBetween`, `flipperRig`, `moveRig` | function | Bone rigs that swing flippers about the tilted normal and move the ball/plunger. |
 | `PINBALL_AXIS_SIGNS` | const | Model X/Z signs in a bone translation. |
-| `PROP_FLIP`, `PROP_PULL`, `PROP_BALL_U`, `PROP_BALL_W`, `PROP_BALL_VU`, `PROP_BALL_VW`, `PROP_BALL_SEQ`, `PROP_SX`, `PROP_SZ` | const | Actor properties the client animates from (ball position/velocity for extrapolation). |
+| `PROP_FLIP`, `PROP_PULL`, `PROP_PRESS`, `PROP_BALL_U`, `PROP_BALL_W`, `PROP_BALL_VU`, `PROP_BALL_VW`, `PROP_BALL_SEQ`, `PROP_SX`, `PROP_SZ` | const | Actor properties the client animates from (ball position/velocity for extrapolation). |
 | `BALL_INITIALIZE`, `BALL_PRE_ANIMATION` | const | The ball's client-side extrapolation clock (Molang). |
-| `pinballPropBehavior`, `flipperProperties`, `flipperAnimation`, `ballProperties`, `plungerProperties`, `ballAnimation`, `plungerAnimation`, `consoleHideAnimationId`, `consoleHideAnimation`, `consoleAssets`, `pinballZoneTexture`, `zoneAssets` | function | Entity and animation assets (not physics). |
+| `pinballPropBehavior`, `flipperProperties`, `flipperAnimation`, `ballProperties`, `plungerProperties`, `pressProperties`, `ballAnimation`, `plungerAnimation`, `buttonPressAnimation`, `consoleHideAnimationId`, `consoleHideAnimation`, `consoleAssets`, `pinballZoneTexture`, `zoneAssets` | function | Entity and animation assets (not physics). |
 | `PINBALL_FAMILY`, `PINBALL_INTERACT_TEXT`, `PINBALL_BUTTON_FAMILY`, `PINBALL_ZONE_TEXTURE`, `PINBALL_KEY` | const | Names (not physics). |
 <!-- /physics-spec:exports -->
 

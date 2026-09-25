@@ -182,6 +182,18 @@ describe.skipIf(!HAVE_CORPUS)('11374 Arcade Pinball Machine', () => {
     expect(table!.bumpers.length).toBeGreaterThan(5);
   });
 
+  it('finds the cabinet flipper buttons (dome, cap and two plates each), outside the side walls level with the flippers', () => {
+    if (!table) return;
+    expect(table.buttons.map(b => b.side)).toEqual(['left', 'right']);
+    for (const b of table.buttons) {
+      expect(b.bricks.length).toBe(4);
+      const f = table.flippers.find(x => x.side === b.side)!;
+      expect(Math.abs(b.centre[0] - f.pivot[0])).toBeLessThan(table.ballRadius * 2);
+      expect(b.side === 'left' ? b.centre[1] < f.pivot[1] - 100 : b.centre[1] > f.pivot[1] + 100).toBe(true);
+      expect(b.inward).toBe(b.side === 'left' ? 1 : -1);
+    }
+  });
+
   it('the drain gap between the resting flipper tips passes the ball, as on the real set', () => {
     const tip = (f: import('../web/src/engine/pinball-table.js').PinballFlipper): [number, number] =>
       [f.pivot[0] + Math.sin(f.restAngle) * f.length, f.pivot[1] + Math.cos(f.restAngle) * f.length];

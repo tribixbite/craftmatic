@@ -83,6 +83,16 @@ export interface PinballFlipperPlan {
   restAngle: number;
 }
 
+/** A cabinet flipper button: its parts on one bone, pressed in along w by `press` x the stroke. */
+export interface PinballButtonPlan {
+  side: 'left' | 'right';
+  bricks: ParsedBrick[];
+  rig: EntityRig;
+  strokeLdu: number;
+  /** +1 / -1: the w-direction of a press. */
+  inward: number;
+}
+
 export interface PinballPlungerPlan {
   bricks: ParsedBrick[];
   rig: EntityRig;
@@ -126,6 +136,8 @@ export interface PinballPlan {
   ballH: number;
   flippers: PinballFlipperPlan[];
   plunger: PinballPlungerPlan | null;
+  /** The cabinet's flipper buttons (the tap targets sit on them). */
+  buttons: PinballButtonPlan[];
   /** The ball the runtime moves: the set's own part, re-placed at the serve point with its centre on it. */
   ballBrick: ParsedBrick;
   /** One bone at the ball's centre, which the ball's animation translates. */
@@ -265,9 +277,19 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
   const h = table.floorH + R * 0.5;
   const gap = R * 0.25;
   const uSpan = (f: typeof lf): [number, number] => [f.pivot[0] - R * 2.2, f.pivot[0] + R * 1.6];
+  // A flipper's target sits on the cabinet's BUTTON for it (the user, after
+  // playing 2026-09-25: "tap the flipper buttons, with enlarged area"),
+  // enlarged well beyond the button itself: 3 radii either side across, and
+  // from 3.5 radii up the table to 2.5 down it. A table without buttons
+  // keeps the target over the flipper.
+  const buttonRect = (side: 'left' | 'right'): PinballZoneSpec | undefined => {
+    const b = table.buttons.find(x => x.side === side);
+    if (!b) return undefined;
+    return { role: side, rect: [b.centre[0] - R * 3.5, b.centre[0] + R * 2.5, b.centre[1] - R * 3, b.centre[1] + R * 3], h: table.floorH + b.h };
+  };
   const specs: PinballZoneSpec[] = [
-    { role: 'left', rect: [...uSpan(lf), lf.pivot[1] - lf.pivotRadius - R * 0.8, centreW - gap], h },
-    { role: 'right', rect: [...uSpan(rf), centreW + gap, rf.pivot[1] + rf.pivotRadius + R * 0.8], h },
+    buttonRect('left') ?? { role: 'left', rect: [...uSpan(lf), lf.pivot[1] - lf.pivotRadius - R * 0.8, centreW - gap], h },
+    buttonRect('right') ?? { role: 'right', rect: [...uSpan(rf), centreW + gap, rf.pivot[1] + rf.pivotRadius + R * 0.8], h },
   ];
   if (hasPlunger) {
     const [lu, lw] = table.launch.at;
@@ -360,6 +382,12 @@ export function planPinball(
   for (const i of table.ballBricks) moved.add(bricks[i]!);
   for (const i of table.looseBricks) moved.add(bricks[i]!);
   let plunger: PinballPlungerPlan | null = null;
+  const buttons: PinballButtonPlan[] = table.buttons.map(b => {
+    const bb = b.bricks.map(i => bricks[i]!);
+    for (const x of bb) moved.add(x);
+    return { side: b.side, bricks: bb, rig: moveRig(bb.length, ldu(b.centre[0], b.centre[1], table.floorH + b.h)), strokeLdu: b.stroke, inward: b.inward };
+  });
+  if (table.buttons.length < 2) warnings.push(`${2 - table.buttons.length} flipper button(s) not found on the cabinet sides; that flipper's tap target sits over the flipper`);
   if (table.plungerBricks.length) {
     const pb = table.plungerBricks.map(i => bricks[i]!);
     for (const b of pb) moved.add(b);
@@ -401,7 +429,7 @@ export function planPinball(
   const zones = planPinballZones(table, map, cameraEyeModel, cameraLookModel, !!plunger);
 
   return {
-    table, sim, map, ballH, flippers, plunger, ballBrick, ballRig: moveRig(1, serveCentre), ballCentreModel: toModel(serveCentre),
+    table, sim, map, ballH, flippers, plunger, buttons, ballBrick, ballRig: moveRig(1, serveCentre), ballCentreModel: toModel(serveCentre),
     consoleModel, consoleYaw, cameraEyeModel, cameraLookModel, zones, moved, warnings,
   };
 }
@@ -454,6 +482,12 @@ export function ballProperties(): Record<string, unknown> {
     [PROP_BALL_VU]: floatActorProperty([-4000, 4000], 0), [PROP_BALL_VW]: floatActorProperty([-4000, 4000], 0),
     [PROP_BALL_SEQ]: floatActorProperty([0, 1000], 0), ...signProperties(),
   };
+}
+
+/** A cabinet button's properties: how far it is pressed in (0..1) and the axis signs. */
+export const PROP_PRESS = 'craftmatic:press';
+export function pressProperties(): Record<string, unknown> {
+  return { [PROP_PRESS]: floatActorProperty([0, 1], 0), ...signProperties() };
 }
 
 /** The plunger's properties: its pull-back and the axis signs. */
@@ -514,6 +548,12 @@ export function ballAnimation(typeId: string, map: PinballMap): { id: string; fi
   const du = `q.property('${PROP_BALL_U}') + q.property('${PROP_BALL_VU}') * v.dt`;
   const dw = `q.property('${PROP_BALL_W}') + q.property('${PROP_BALL_VW}') * v.dt`;
   return { id, file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones: { [MOVE_BONE]: { position: planeTranslation(map, du, dw) } } } } } };
+}
+
+/** A cabinet button's press animation: in along w (toward the table) by `press` x the stroke. */
+export function buttonPressAnimation(typeId: string, map: PinballMap, strokeLdu: number, inward: number): { id: string; file: unknown } {
+  const id = `animation.${typeId.replace(':', '.')}.press`;
+  return { id, file: { format_version: '1.8.0', animations: { [id]: { loop: true, bones: { [MOVE_BONE]: { position: planeTranslation(map, '0', `q.property('${PROP_PRESS}') * ${molangNumber(strokeLdu * inward)}`) } } } } } };
 }
 
 /** The plunger's pull animation: back along +u (toward the player) by `pull` x the stroke. */
@@ -657,6 +697,8 @@ export interface PinballRuntimeConfig {
   flipperTypes: string[];
   /** The plunger entity, when the set has one. */
   plungerType?: string | undefined;
+  /** The cabinet flipper-button entities, per side (pressed in while that flipper is up). */
+  cabinetButtonTypes: { left?: string | undefined; right?: string | undefined };
   /** Tap-target entity types (flipper, plunger) the runtime spawns in front of a seated player's head, and their family. */
   buttonType: string;
   plungerButtonType?: string | undefined;
@@ -694,12 +736,12 @@ export interface PinballRuntimeConfig {
 
 export function pinballRuntimeConfig(
   plan: PinballPlan,
-  types: { console: string; ball: string; flippers: string[]; button: string; pick: string; plunger?: string | undefined; plungerButton?: string | undefined; plungerPick?: string | undefined },
+  types: { console: string; ball: string; flippers: string[]; button: string; pick: string; plunger?: string | undefined; plungerButton?: string | undefined; plungerPick?: string | undefined; cabinetButtons?: { left?: string | undefined; right?: string | undefined } },
   ballEntityModel: Vec3, spinSign: number, label: string,
 ): PinballRuntimeConfig {
   return {
     family: PINBALL_FAMILY, consoleType: types.console, ballType: types.ball, flipperTypes: types.flippers,
-    plungerType: types.plunger, buttonType: types.button, plungerButtonType: types.plungerButton,
+    plungerType: types.plunger, cabinetButtonTypes: types.cabinetButtons ?? {}, buttonType: types.button, plungerButtonType: types.plungerButton,
     pickType: types.pick, plungerPickType: types.plungerPick, buttonFamily: PINBALL_BUTTON_FAMILY,
     zones: {
       reach: plan.zones.reach, specs: plan.zones.specs, flipperBox: plan.zones.flipperBox, plungerBox: plan.zones.plungerBox,
@@ -785,7 +827,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   };
   const wrapDeg = (d: number): number => ((d + 540) % 360) - 180;
 
-  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'level' as 'camera' | 'level', pitch: NaN, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false };
+  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'level' as 'camera' | 'level', pitch: NaN, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false, camlock: true, predict: true };
   const tune: typeof DEFAULT_TUNE = { ...DEFAULT_TUNE };
   let ballMode: 'animate' | 'teleport' = config.ballMode;
   let axisSigns: number[] = [...config.axisSigns];
@@ -813,6 +855,11 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       // {"fixed":1} runs 12 substeps every tick, as the runtime did before
       // 2026-09-25 (a fresh game starts so the sim picks the setting up).
       if ('cache' in t) tune.cache = !!t.cache;
+      // {"camlock":0} gives the seated player back head turning (a drag then
+      // turns the player, which the log reports); {"predict":0} leaves the
+      // flipper to the next tick instead of raising it in the tap's own event.
+      if ('camlock' in t) tune.camlock = !!t.camlock;
+      if ('predict' in t) tune.predict = !!t.predict;
       if ('fixed' in t && !!t.fixed !== tune.fixed) { tune.fixed = !!t.fixed; for (const game of games.values()) game.sim = createSim(config.sim, { adaptiveSubsteps: !tune.fixed }); }
       if ('ball' in t) ballMode = t.ball === 'teleport' ? 'teleport' : 'animate';
       if (Array.isArray(t.axes) && t.axes.length === 2) axisSigns = [Math.sign(num(t.axes[0], -1)) || -1, Math.sign(num(t.axes[1], 1)) || 1];
@@ -859,6 +906,31 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   };
 
   // ── Input ──
+  /**
+   * Raise a flipper NOW, from inside the tap's own event, instead of on the
+   * next tick: the sim swings a flipper up in under a tick (14 rad/s over 35
+   * degrees), so the tick that follows would write the same raised angle -
+   * this only takes the wait for it out of the path from finger to picture.
+   */
+  const flipNow = (game: any, side: 'left' | 'right'): void => {
+    const g = game.g;
+    if (!g || !tune.predict) return;
+    config.sim.flippers.forEach((f, i) => {
+      if (f.side !== side) return;
+      const e = g.parts[config.flipperTypes[i]!];
+      if (!e) return;
+      let swing = config.restAngles[i]! - f.activeAngle;
+      while (swing > Math.PI) swing -= 2 * Math.PI;
+      while (swing < -Math.PI) swing += 2 * Math.PI;
+      const deg = swing * 180 / Math.PI * config.spinSign;
+      game.flip[i] = deg;
+      try { e.setProperty('craftmatic:flip', Math.max(-180, Math.min(180, deg))); } catch {}
+      if (tune.log) { try { console.warn(`[pinball] flip ${side} set in-event at tick ${now}`); } catch {} }
+    });
+    const bt = (config.cabinetButtonTypes ?? {})[side];
+    const be = bt ? g.parts[bt] : undefined;
+    if (be) setProp(be, game.props[`button_${side}`] ??= {}, 'craftmatic:press', 1, 0.01);
+  };
   const press = (game: any, side: 'left' | 'right'): void => {
     game.tapUntil[side] = now + TAP_TICKS;
     game.taps[side]++;
@@ -875,27 +947,64 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     else if (now - pl.last <= HOLD_GAP) { pl.repeats++; pl.last = now; }
     else { pl.release = true; pl.last = now; }
   };
-  const tap = (zone: any, player: any): void => {
+  /** A tap (`hit`) or long press (`interact`) on a target. `live` is false inside a read-only before-event. */
+  const tap = (zone: any, player: any, kind: 'hit' | 'interact', live: boolean): void => {
     const z = zones.get(zone.id);
     if (!z) return;
     const game = games.get(z.key);
     if (!game || !game.rider || !player || game.rider.id !== player.id) return;
     if (tune.log || z.role.startsWith('probe')) {
-      try { console.warn(`[pinball] tap ${z.role} at tick ${now}`); } catch {}
-      game.lastTap = z.role;
+      try { console.warn(`[pinball] tap ${z.role} ${kind} at tick ${now} +${Date.now() - tickStartMs} ms`); } catch {}
+      game.lastTap = `${z.role} ${kind}`;
     }
-    if (z.role === 'left' || z.role === 'right') press(game, z.role);
-    else if (z.role === 'plunger') plungerTouch(game);
+    if (z.role === 'left' || z.role === 'right') {
+      press(game, z.role);
+      if (live) flipNow(game, z.role);
+      else { try { system.run(() => flipNow(game, z.role as 'left' | 'right')); } catch {} }
+    } else if (z.role === 'plunger') plungerTouch(game);
   };
-  /** The hotbar slot a seated player is parked on; a tap on a slot left / right of it is that flipper. */
+  /** The hotbar slot a seated player is parked on when it is free; a tap on a slot left / right of the parked one is that flipper. */
   const PARK_SLOT = 4;
+  /**
+   * Park the hotbar on an EMPTY slot: invisibility hides the seated player
+   * but not what they hold, and the free camera drew it (user, 2026-09-25).
+   * The free hotbar slot nearest the middle; if every hotbar slot holds
+   * something, the middle slot's item moves to a free inventory slot and is
+   * put back on leaving (recorded on the player, so a reload restores it too).
+   * Nothing is ever dropped: with no free slot at all the hotbar stays put.
+   */
+  const containerOf = (pl: any): any => { try { return pl.getComponent('minecraft:inventory')?.container; } catch { return undefined; } };
+  const isEmpty = (inv: any, k: number): boolean => { try { return !inv.getItem(k); } catch { return false; } };
+  const parkHotbar = (pl: any): number => {
+    const inv = containerOf(pl);
+    if (!inv) return PARK_SLOT;
+    for (const k of [4, 3, 5, 2, 6, 1, 7, 0, 8]) if (isEmpty(inv, k)) return k;
+    for (let k = 9; k < (inv.size ?? 36); k++) {
+      if (!isEmpty(inv, k)) continue;
+      try {
+        inv.moveItem(PARK_SLOT, k, inv);
+        pl.setDynamicProperty(KEY + 'stash', JSON.stringify({ from: PARK_SLOT, to: k }));
+        return PARK_SLOT;
+      } catch { break; }
+    }
+    return PARK_SLOT;
+  };
+  const unstash = (pl: any): void => {
+    let st: any;
+    try { st = JSON.parse(String(pl.getDynamicProperty(KEY + 'stash') ?? 'null')); } catch {}
+    if (!st || !Number.isInteger(st.from) || !Number.isInteger(st.to)) return;
+    const inv = containerOf(pl);
+    // Back to its own slot when that is still free; otherwise it stays where it was put (never lost).
+    if (inv && isEmpty(inv, st.from) && !isEmpty(inv, st.to)) { try { inv.moveItem(st.to, st.from, inv); } catch {} }
+    try { pl.setDynamicProperty(KEY + 'stash', undefined); } catch {}
+  };
   /** Seated players carry this tag, so the Brick Wands do not open when a hotbar tap lands on theirs. */
   const SEATED_TAG = 'craftmatic_pinball';
   const TARGET_TYPES = [config.buttonType, config.plungerButtonType, config.pickType, config.plungerPickType].filter(Boolean);
-  try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { try { if (TARGET_TYPES.includes(ev.hitEntity?.typeId)) tap(ev.hitEntity, ev.damagingEntity); } catch {} }); } catch {}
+  try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { try { if (TARGET_TYPES.includes(ev.hitEntity?.typeId)) tap(ev.hitEntity, ev.damagingEntity, 'hit', true); } catch {} }); } catch {}
   try {
     world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
-      try { if (TARGET_TYPES.includes(ev.target?.typeId)) { ev.cancel = true; tap(ev.target, ev.player); } } catch {}
+      try { if (TARGET_TYPES.includes(ev.target?.typeId)) { ev.cancel = true; tap(ev.target, ev.player, 'interact', false); } } catch {}
     });
   } catch {}
 
@@ -935,6 +1044,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       };
       games.set(key, game);
     }
+    game.g = g;
     let rider: any;
     try { rider = console_.getComponent('minecraft:rideable')?.getRiders?.()?.[0]; } catch {}
     if (rider && rider.typeId !== 'minecraft:player') rider = undefined;
@@ -964,7 +1074,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         try { rider.camera.setCamera('minecraft:free', { location: { ...view.eye }, facingLocation: view.look, easeOptions: { easeTime: 0.6, easeType: 'InOutSine' } }); } catch {}
       }
       // Park the hotbar on the middle slot (the old one comes back on leaving).
-      try { game.slot0 = rider.selectedSlotIndex; rider.selectedSlotIndex = PARK_SLOT; } catch {}
+      try { game.slot0 = rider.selectedSlotIndex; game.park = parkHotbar(rider); rider.selectedSlotIndex = game.park; } catch {}
       try { rider.addTag(SEATED_TAG); } catch {}
       // The seated player is drawn by the free camera, and every tap swung
       // their arm across the lower right of the table (device run 7).
@@ -978,6 +1088,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const home = homeOf(g, console_);
       try { p.camera.clear(); } catch {}
       try { p.inputPermissions.setPermissionCategory(1, true); } catch {} // InputPermissionCategory.Camera
+      unstash(p);
       try { if (Number.isInteger(game.slot0)) p.selectedSlotIndex = game.slot0; } catch {}
       try { p.removeTag(SEATED_TAG); } catch {}
       try { p.removeEffect('invisibility'); } catch {}
@@ -1044,15 +1155,31 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         let ry = NaN;
         try { ry = Number(rider.getRotation().y); } catch {}
         game.aimError = Number.isFinite(ry) ? Math.abs(wrapDeg(view.yaw - ry)) : NaN;
-        if (game.aim && Number.isFinite(ry) && game.aimError > 5 && now % 5 === 0) {
+        if (tune.camlock && game.aim && Number.isFinite(ry) && game.aimError > 5 && now % 5 === 0) {
           try { rider.setRotation({ x: game.pitch, y: game.aim.yaw }); } catch {}
         }
         // Hotbar taps: a slot left of the parked one is the left flipper, right of it the right.
-        let slot = PARK_SLOT;
+        const park = Number.isInteger(game.park) ? game.park : PARK_SLOT;
+        let slot = park;
         try { slot = rider.selectedSlotIndex; } catch {}
-        if (Number.isInteger(slot) && slot !== PARK_SLOT) {
-          press(game, slot < PARK_SLOT ? 'left' : 'right');
-          try { rider.selectedSlotIndex = PARK_SLOT; } catch {}
+        if (Number.isInteger(slot) && slot !== park) {
+          const side = slot < park ? 'left' : 'right';
+          press(game, side);
+          flipNow(game, side);
+          try { rider.selectedSlotIndex = park; } catch {}
+        }
+        // Head turning: locked while seated, unless a measurement unlocked it.
+        if (game.camlock !== tune.camlock) {
+          game.camlock = tune.camlock;
+          try { rider.inputPermissions.setPermissionCategory(1, !tune.camlock); } catch {}
+        }
+        // What the device reports while a finger is down or dragging ({"log":1}).
+        if (tune.log) {
+          let r: any, mv: any;
+          try { r = rider.getRotation(); } catch {}
+          try { mv = rider.inputInfo?.getMovementVector?.(); } catch {}
+          const sig = `${r ? `${Number(r.x).toFixed(1)}/${Number(r.y).toFixed(1)}` : '-'} mv ${mv ? `${Number(mv.x).toFixed(2)}/${Number(mv.y).toFixed(2)}` : '-'}`;
+          if (sig !== game.lastSig) { game.lastSig = sig; try { console.warn(`[pinball] rot ${sig} at tick ${now}`); } catch {} }
         }
         // The targets: spawned once seated, re-placed when retuned.
         // The player's pitch, which the pick boxes follow (a turned head moves the tap rays).
@@ -1114,6 +1241,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         for (const pl of world.getPlayers({ tags: [SEATED_TAG] }).filter(Boolean)) {
           if ([...games.values()].some(gm => gm.rider?.id === pl.id)) continue;
           try { pl.removeTag(SEATED_TAG); } catch {}
+          unstash(pl);
           try { pl.removeEffect('invisibility'); } catch {}
           try { pl.inputPermissions.setPermissionCategory(1, true); } catch {}
           try { pl.camera.clear(); } catch {}
@@ -1167,6 +1295,12 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         setProp(ball, bp, 'craftmatic:sx', axisSigns[0]!); setProp(ball, bp, 'craftmatic:sz', axisSigns[1]!);
         const plunger = config.plungerType ? g.parts[config.plungerType] : undefined;
         if (plunger) { setProp(plunger, game.props.plunger, 'craftmatic:sx', axisSigns[0]!); setProp(plunger, game.props.plunger, 'craftmatic:sz', axisSigns[1]!); }
+        for (const side of ['left', 'right'] as const) {
+          const bt = (config.cabinetButtonTypes ?? {})[side];
+          const be = bt ? g.parts[bt] : undefined;
+          const bp2 = game.props[`button_${side}`] ??= {};
+          if (be) { setProp(be, bp2, 'craftmatic:sx', axisSigns[0]!); setProp(be, bp2, 'craftmatic:sz', axisSigns[1]!); }
+        }
         game.signsAt = g.stamp;
       }
       if (ballMode === 'animate') {
@@ -1201,6 +1335,12 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     // ── Plunger ──
     const plunger = config.plungerType ? g.parts[config.plungerType] : undefined;
     if (plunger) setProp(plunger, game.props.plunger, 'craftmatic:pull', inPlay ? 0 : pullNow, 0.005);
+    // ── Cabinet buttons: pressed in while their flipper is held ──
+    for (const side of ['left', 'right'] as const) {
+      const bt = (config.cabinetButtonTypes ?? {})[side];
+      const be = bt ? g.parts[bt] : undefined;
+      if (be) setProp(be, game.props[`button_${side}`] ??= {}, 'craftmatic:press', (side === 'left' ? left : right) ? 1 : 0, 0.01);
+    }
     // ── Flippers: the swing in degrees about the normal, only when it changed ──
     for (let i = 0; i < config.flipperTypes.length; i++) {
       const e = g.parts[config.flipperTypes[i]!];
@@ -1282,10 +1422,12 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     }
     return groups;
   };
+  let tickStartMs = Date.now();
   const perf = { busy: 0, busyMax: 0, gap: 0, gapMax: 0, n: 0, last: 0, scans: 0 };
 
   system.runInterval(() => {
     const t0 = Date.now();
+    tickStartMs = t0;
     if (perf.last) { const gap = t0 - perf.last; perf.gap += gap; perf.gapMax = Math.max(perf.gapMax, gap); }
     perf.last = t0;
     now++;
