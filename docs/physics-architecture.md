@@ -180,10 +180,16 @@ per-sample track up (`coasterTrackUps`: gravity's up where upright, the loop's
 own normal through a loop, twist bounded by `TRACK_TWIST_RATE_DEG_PER_BLOCK`).
 
 **Rider camera.** `coasterRiderView` / `coasterRiderLook`, constants in
-`COASTER_RIDER_VIEW`. Default `clamp`: the direction's own yaw and pitch
-within ±90, the yaw limited to `maxTurn` (40°) a tick, so the 180° flip over
-a loop's side takes 5 ticks. Device facts and the modes: the add-on guide,
-"The rider's camera follows the track".
+`COASTER_RIDER_VIEW`. Default `loop`: tick by tick the `reflect` view (yaw
+from the view's right axis — the car's axle — so it never re-derives a yaw
+from a near-vertical nose; the pitch folded back into ±90 past vertical),
+and each inversion sent as ONE camera animation that rolls, planned by
+running the ride's own `integrate` / `carPose` ahead of the train
+(`planInversion`); it hands back the instant the ride leaves the plan.
+`clamp` (the first shipped mode) turned the yaw over at `maxTurn` a tick past
+every vertical, which is what the user saw as a 90° turn on 10303's
+overhanging drop and a sideways swing in the loops. Device facts and the
+modes: the add-on guide, "The rider's camera follows the track".
 
 **Wand size.** Every speed is world blocks/s and every height `× scale`, so
 gravity-driven speeds grow as `sqrt(scale)` (Froude-correct) until the
@@ -423,12 +429,11 @@ literal inside a function body (`§` marks the number).
 | `COASTER_PHYSICS.RIDER_EYE` | `web/src/engine/bedrock-coaster.ts` | 1.25 | world blocks | Must equal `SEATED_EYE_HEIGHT_BLOCKS` (carried in config because the runtime cannot import). |
 | `COASTER_PHYSICS.YAW_HOLD_HORIZONTAL` | `web/src/engine/bedrock-coaster.ts` | 0.2 | horizontal fraction | Below it the axle is near vertical (a car on its side) and the last yaw is held. |
 | `COASTER_PHYSICS.BODY_RANGE` | `web/src/engine/bedrock-coaster.ts` | 320 | model units | Declared range of the body-offset actor properties. |
-| `COASTER_RIDER_VIEW.maxTurn` | `web/src/engine/bedrock-coaster.ts` | 40 | degrees/tick | The clamp camera's flip over a loop's side takes 180/40 → 5 ticks: turns over in 0.25 s instead of snapping. |
+| `COASTER_RIDER_VIEW.maxTurn` | `web/src/engine/bedrock-coaster.ts` | 40 | degrees/tick | Most the per-tick camera's yaw turns in a tick (reflect: only a rider's fast head turn reaches it; clamp: its flip over a loop's side takes 5 ticks). |
 | `COASTER_RIDER_VIEW.lookYaw` | `web/src/engine/bedrock-coaster.ts` | 70 | degrees | Most a rider may look away sideways. |
 | `COASTER_RIDER_VIEW.lookPitch` | `web/src/engine/bedrock-coaster.ts` | 50 | degrees | Most up or down. |
 | `COASTER_RIDER_VIEW.lookLag` | `web/src/engine/bedrock-coaster.ts` | 6 | ticks | The client's rider yaw trails the car ~0.3 s on the Pixel; 6 held the look within 5°. |
 | `COASTER_RIDER_VIEW.ease` | `web/src/engine/bedrock-coaster.ts` | 0.1 | s | Camera ease per update. |
-| `COASTER_RIDER_VIEW.spline` | `web/src/engine/bedrock-coaster.ts` | 0.1 | s | Roll-mode animation length; the engine refuses keyframes 0.05 apart. |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | `web/src/engine/bedrock-coaster.ts` | 20 | degrees/block | Largest roll change of the track up between gravity's up and a loop's normal. |
 | `COASTER_CAR_LENGTH` | `web/src/engine/bedrock-coaster.ts` | 1.25 | model blocks | The fabricated cart's drawn length. |
 | `COASTER_CART_WHEELBASE` | `web/src/engine/bedrock-coaster.ts` | 1.125 | model blocks | The fabricated cart's wheel spacing (18 units). |

@@ -2115,7 +2115,7 @@ route to real roll; its unknowns are how spline progress maps to time and how
 the camera leaves it without a flash. `# TODO` if the user wants roll badly
 enough to spend a device round on it.
 
-**What ships: `clamp` (`COASTER_RIDER_VIEW`, `coasterRiderView`).** Each tick
+**What shipped first: `clamp` (superseded 2026-09-25 by `loop`, below).** Each tick
 the runtime puts a free camera at the rider's eye in the seat (the seat and the
 seated eye height carried through the car's real frame — the same point the
 entity placement already computes) looking exactly along the car's nose (the
@@ -2164,6 +2164,58 @@ and the probes `rot`, `roll`, `seq`, `attach`, `clear`. `# TODO` remove the
 hook once the defaults are final. The walk preview rides with the same
 functions (drag = head turn) and now honours a route's fixed direction and the
 cars' authored heading, which it ignored before (it ran 10303 the wrong way).
+
+#### Round 2 (2026-09-25): no turn on the drop, a real upside-down loop
+
+User, after riding `clamp`: "the camera view works mostly except it turns
+about 90 degrees upon descent and does a strange sideways turn for the upside
+down loops". Both were `clamp`'s turn-over (reproduced offline on 10303 at
+pace √2, `repro-*.tsv` in `output/coaster-camera-0924/`): past vertical it
+re-derived the yaw from the nose and turned it round at 40° a tick — and
+10303's drop OVERHANGS past vertical (car pitch 97-103°), so the drop turned
+the view too. The rider's 6-tick look-lag correction was not involved.
+
+**Per tick, `reflect`**: the yaw is the heading of the view's own right axis
+(the car's axle; continuous through any loop), the pitch is fitted to the
+view's direction and up and then folded back into ±90 past vertical (a
+triangle wave: 100 → 80, ±180 → 0). The view never turns round: up a loop it
+pitches to the zenith and back down to level over the top, world upright.
+10303 host numbers: worst yaw step 16.7°/tick (a real curve at 18 blocks/s),
+none on the drop or in the loops, where `clamp` stepped 40.
+
+**Through an inversion, one animation (`loop`, the default)**: measured on the
+Pixel, a camera animation re-issued every tick draws NO rotation (only the
+last, uninterrupted one does; with or without the experiment), but a single
+uninterrupted animation rolls: `loopsim` (a 5-block loop in front of the
+player, 2-3 s) goes up, fully upside down (grass at the top of the screen),
+down and back to level (`loopsim4-flip-zoom.jpg`). Keyframe facts: `x` is the
+NEGATED pitch (Microsoft's flyover sample agrees: `x: -55` looks down),
+`z = +90` rolls the view left, keyframes more than 0.05 s apart. So when the
+car climbs into a loop the runtime predicts the train (`planner`: the ride's
+own `integrate`/`carPose`, same order, bit-exact), finds the first inverted
+run (car up.y < -0.2, starting within 10 ticks) and its end (up.y > 0.3), and
+sends it as one animation: eye positions resampled to equal arc steps (so
+progress is the same whether the client reads alpha by arc or by point),
+`roll`-mode views every 2 ticks. The per-tick camera stays silent while the
+train is exactly where the plan put it and takes over, without an ease, at
+the plan's end or the moment the ride leaves the plan (a held chunk, a
+refused teleport). The plan stops where any brake could engage (the station,
+the loading bay, the deck, the end of an open route): there the loop is
+drawn by `reflect` alone. 10303: both loops, 30 and 24 ticks (1.5 s and
+1.2 s), every animation played to its planned end on the host.
+
+**The "Experimental Creator Camera Features" experiment
+(`experiments.experimental_creator_cameras`, set in `cmgametest` with
+`scripts/_leveldat_experiments.py --creator-cameras`) changes none of this**:
+`setCamera` still refuses a pitch past ±90 and per-tick animations still draw
+no rotation (`c-rot.jpg`, `cmg-seq-sheet.jpg`, `cmg-seq2-sheet.jpg`). What it
+adds (Microsoft Learn, minecraft.wiki "Experiments"): an over-the-shoulder
+preset and `/camera play_spline` for splines written into a behaviour pack —
+static paths, no use for a placed, moving ride. Nothing needs it, so the pack
+does not probe for it. `attachToEntity` takes only a fixed attach point
+(`EntityAttachPoint`: Eyes, Head, Body…), not a bone locator, and the car's
+pitch and roll are client-side bone animations, so an attached camera cannot
+inherit them; not built.
 
 ### The ramps' running line was on two datums (2026-09-22, `coaster-track.ts`)
 

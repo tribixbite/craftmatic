@@ -1220,11 +1220,15 @@ class AddonWalk implements AddonPreviewHandle {
     // The drag as a head turn in Bedrock's sense: +yaw turns right, +pitch looks down.
     const toDeg = 180 / Math.PI;
     this.riding.look = coasterRiderLook(-(this.yaw - this.riding.restoreYaw) * toDeg, -this.pitch * toDeg, this.riding.look, camera.lookYaw, camera.lookPitch, camera.ratchet);
-    const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode, camera.maxTurn);
+    // `loop` is `reflect` tick by tick, and the pack hands each inversion to one
+    // rolling camera animation (from ~10 ticks before it until the car is
+    // upright again); the preview draws that stretch as the exact view.
+    const inverting = camera.mode === 'loop' && car.frame.up[1] < 0.7;
+    const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode === 'loop' ? (inverting ? 'roll' : 'reflect') : camera.mode, camera.maxTurn);
     this.riding.view = view;
     // The roll modes draw the view exactly (the device rolls its camera through
     // a spline keyframe); `clamp` draws the roll-free (yaw, pitch) it sends.
-    const exact = camera.mode === 'roll' || camera.mode === 'rollover';
+    const exact = camera.mode === 'roll' || inverting;
     const yaw = view.yaw / toDeg, pitch = view.pitch / toDeg;
     const d = exact ? { x: view.direction[0]!, y: view.direction[1]!, z: view.direction[2]! }
       : { x: -Math.sin(yaw) * Math.cos(pitch), y: -Math.sin(pitch), z: Math.cos(yaw) * Math.cos(pitch) };

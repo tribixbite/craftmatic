@@ -355,7 +355,7 @@ export interface CoasterRuntimeConfig {
  *    the view axis, spread over a few ticks by `maxTurn`.
  *  - `off`: no camera; the player's own first person, as before.
  */
-export type CoasterRiderViewMode = 'reflect' | 'roll' | 'rollover' | 'clamp' | 'over' | 'off';
+export type CoasterRiderViewMode = 'loop' | 'reflect' | 'roll' | 'clamp' | 'over' | 'off';
 
 /** The camera constants the runtime reads from `config.camera`. */
 export interface CoasterRiderViewConfig {
@@ -370,8 +370,6 @@ export interface CoasterRiderViewConfig {
   lookLag: number;
   /** Whether pushing the head past a limit drags the look reference along. Off: a lag transient can never shift the view for good. */
   ratchet: boolean;
-  /** Length of each tick's camera animation in the roll modes, seconds: more than 0.05 (the engine refuses rotation keyframes 0.05 apart); the next tick replaces it. */
-  spline: number;
 }
 
 /**
@@ -383,7 +381,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'reflect', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false, spline: 0.1 };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'loop', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -1941,11 +1939,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // (a free camera at the eye draws the rider's own upright body around it,
   // as the pinball seat measured). `seen` is refreshed while grouping, before
   // any hold can skip a train, so a paused tick never drops the camera.
-  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false, spline: 0.1 }, ...(config.camera || {}) };
+  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false }, ...(config.camera || {}) };
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
-  let cameraDebug = false, traceTicks = 0, lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet, stillMode = 'set', animEvery = 1;
+  let cameraDebug = false, traceTicks = 0, lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet;
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
@@ -1955,7 +1953,70 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     try { viewer.player.camera.clear(); } catch {}
     if (viewer.invisible) try { viewer.player.removeEffect('invisibility'); } catch {}
   };
-  const aimRider = (rider: any, frame: any) => {
+  /**
+   * One camera animation for the inversion ahead of a rider, or nothing.
+   * `setCamera` cannot roll and animations re-issued every tick are never
+   * drawn (Pixel, 26.51), but ONE uninterrupted animation rolls: measured, a
+   * loop drawn this way passes fully upside down (`loopsim`). So when the car
+   * is climbing into a loop, the ride is predicted tick by tick with its own
+   * integration (`planner`, the same `integrate`/`carPose` the ride runs) and
+   * the whole inversion is sent as one animation: the eye path as a linear
+   * spline resampled to equal arc steps (so progress means the same whether
+   * the client reads alpha by arc or by point index), the rider's `roll`-mode
+   * view every second tick as rotation keyframes (they must be more than
+   * 0.05 s apart; a keyframe's x is the NEGATED pitch, measured), ending
+   * with the car right side up. Returns nothing unless an inversion starts
+   * within 10 ticks and ends inside the prediction.
+   */
+  const planInversion = (frame: any, planner: any, look: any) => {
+    const plan = planner.plan(frame.car, 80);
+    if (!plan || plan.poses.length < 4) return null;
+    const upY = (pose: any) => pose.up[1];
+    const first = plan.poses.findIndex((pose: any) => upY(pose) < -0.2);
+    if (first < 0 || first > 10) return null;
+    // This inversion only (a second loop may follow in the same prediction),
+    // and hand back once the car is right side up again: from there the
+    // per-tick camera and the rolling view agree to within the helix's lean.
+    let last = first;
+    while (last + 1 < plan.poses.length && upY(plan.poses[last + 1]) < -0.2) last++;
+    let end = -1;
+    for (let k = last; k < plan.poses.length; k++) if (upY(plan.poses[k]) > 0.3) { end = k; break; }
+    if (end < 0) return null;
+    // Ticks 0..length, tick 0 being this one; an even length keeps keyframes 0.1 s apart to the end.
+    let length = end + 1;
+    if (length % 2) length++;
+    if (length > plan.poses.length) return null;
+    const poses = [{ eye: frame.eye, nose: frame.nose, up: frame.up }, ...plan.poses.slice(0, length)];
+    const views: any[] = [];
+    let previous: any = null;
+    for (const pose of poses) { previous = riderView(pose.nose, pose.up, look, previous, 'roll', 40); views.push(previous); }
+    const arcs = [0];
+    for (let k = 1; k < poses.length; k++) {
+      const a = poses[k - 1].eye, b = poses[k].eye;
+      arcs.push(arcs[k - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+    }
+    const totalArc = arcs[arcs.length - 1];
+    if (!(totalArc > 0.1)) return null;
+    // The eye path resampled at equal arc steps.
+    const points: any[] = [];
+    for (let j = 0; j < poses.length; j++) {
+      const want = totalArc * j / (poses.length - 1);
+      let k = 1; while (k < arcs.length - 1 && arcs[k] < want) k++;
+      const t = (want - arcs[k - 1]) / Math.max(1e-9, arcs[k] - arcs[k - 1]);
+      const a = poses[k - 1].eye, b = poses[k].eye;
+      points.push({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t });
+    }
+    const progressKeyFrames: any[] = [], rotationKeyFrames: any[] = [];
+    for (let k = 0; k <= length; k += 2) {
+      progressKeyFrames.push({ alpha: arcs[k] / totalArc, timeSeconds: k * 0.05 });
+      rotationKeyFrames.push({ rotation: { x: -views[k].pitch, y: views[k].yaw, z: views[k].roll }, timeSeconds: k * 0.05 });
+    }
+    const spline = new Spline();
+    spline.controlPoints = points;
+    return { spline, length, centres: plan.centres.slice(0, length),
+      options: { totalTimeSeconds: length * 0.05, animation: { progressKeyFrames, rotationKeyFrames } } };
+  };
+  const aimRider = (rider: any, frame: any, planner?: any) => {
     if (camera.mode === 'off' || !rider?.camera) return;
     let viewer = viewers.get(rider.id);
     if (!viewer) {
@@ -1982,61 +2043,50 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // follows the head until that has settled: the ride starts looking ahead.
     if (viewer.settle > 0) { viewer.settle--; viewer.look = null; }
     viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch, lookRatchet);
-    viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, camera.mode, camera.maxTurn);
+    // `loop` draws `reflect` tick by tick and hands each inversion to one animation.
+    const tickMode = camera.mode === 'loop' ? 'reflect' : camera.mode;
+    viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, tickMode, camera.maxTurn);
     const eye = frame.eye, view = viewer.view;
     if (traceTicks > 0) {
       traceTicks--;
       console.warn(`CAMTRACE ${ticks} carNow=${carYaw.toFixed(2)} car=${frame.yaw.toFixed(2)} prior=${Number(frame.priorYaw).toFixed(2)} carP=${frame.pitch.toFixed(2)} headY=${rotation.y.toFixed(2)} headP=${rotation.x.toFixed(2)} live=${JSON.stringify(rider.getRotation())} look=${viewer.look.yaw.toFixed(2)}/${viewer.look.pitch.toFixed(2)} cam=${viewer.view.yaw.toFixed(2)}/${viewer.view.pitch.toFixed(2)} eye=${frame.eye.x.toFixed(2)},${frame.eye.y.toFixed(2)},${frame.eye.z.toFixed(2)}`);
     }
-    if ((camera.mode === 'roll' || camera.mode === 'rollover') && Spline) {
-      // Roll is only reachable through a camera ANIMATION (`setCamera` takes
-      // yaw and pitch alone). Its rotation keyframes must be MORE than 0.05 s
-      // apart (Pixel: "Time between rotation frames must be greater than
-      // 0.05"), so a one-tick animation is refused. Each tick therefore plays
-      // a `spline`-second animation (0.1) that starts at this tick's true pose
-      // and runs on at the pose's current rate; the next tick replaces it
-      // halfway, where the camera has reached about the next true pose, so
-      // the motion is continuous with no added lag. A component that jumped
-      // (the yaw and roll swapping sides at a zenith) is not extrapolated.
-      // The free camera the animation needs is set once, at the first frame.
-      const rotation = { x: view.pitch, y: view.yaw, z: view.roll };
-      if (!viewer.eye) {
-        rider.camera.setCamera('minecraft:free', { location: eye, rotation: { x: Math.max(-90, Math.min(90, view.pitch)), y: view.yaw } });
-      } else {
-        const seconds = camera.spline > 0.05 ? camera.spline : 0.1;
-        const ahead = seconds / (0.05 * animEvery);
-        const from = viewer.eye, last = viewer.rotation;
-        const step = [eye.x - from.x, eye.y - from.y, eye.z - from.z];
-        const moved = Math.hypot(step[0]!, step[1]!, step[2]!) > 0.01;
-        if (!moved && stillMode === 'set') {
-          // Standing still (the station, the lift deck, a hold): the plain
-          // camera, eased; a still car is upright, so there is no roll to lose.
-          rider.camera.setCamera('minecraft:free', { location: eye, rotation: { x: Math.max(-90, Math.min(90, view.pitch)), y: view.yaw }, easeOptions: { easeTime: Math.max(0.05, camera.ease), easeType: 'Linear' } });
-          viewer.eye = eye; viewer.rotation = rotation;
-          return;
+    let handBack = false;
+    if (camera.mode === 'loop' && Spline && planner && !viewer.noAnim) {
+      if (viewer.anim) {
+        // An inversion animation is playing: leave the camera to it while the
+        // train is exactly where the plan put it this tick. The plan is the
+        // ride's own arithmetic in the same order, so it matches to the last
+        // bit unless the ride held (an unloaded chunk, a refused teleport) —
+        // then hand back at once. A tolerance would hide a held tick on a
+        // chain climb, where the train moves 0.2 blocks a tick.
+        const anim = viewer.anim, k = ticks - anim.start;
+        if (k < anim.length && Math.abs(planner.centre - anim.centres[k - 1]) < 1e-6) return;
+        viewer.anim = null;
+        viewer.cooldown = ticks + 10;
+        handBack = true;
+        // The animation ends upright, at this pose; the per-tick camera takes over from it without an ease.
+        viewer.view = riderView(frame.nose, frame.up, viewer.look, null, tickMode, camera.maxTurn);
+      } else if (!(viewer.cooldown > ticks) && Math.abs(frame.pitch) > 20) {
+        const planned = planInversion(frame, planner, viewer.look);
+        if (planned) {
+          try {
+            rider.camera.playAnimation(planned.spline, planned.options);
+            viewer.anim = { start: ticks, length: planned.length, centres: planned.centres };
+            return;
+          } catch (error) {
+            // A client that refuses it keeps the per-tick camera for the ride.
+            viewer.noAnim = true;
+            console.warn(`[Craftmatic coaster] inversion camera refused: ${error instanceof Error ? error.message : String(error)}`);
+          }
         }
-        if (animEvery > 1 && ticks % animEvery !== 0) return;
-        const spline = new Spline();
-        // The Pixel refuses a linear spline of TWO points ("Linear needs at
-        // least 2 control points", with them 0.01 and 1 block apart alike)
-        // and plays one of three, so the segment is given its midpoint too. A
-        // car standing still holds the first point with its progress at 0.
-        const end = moved ? { x: eye.x + step[0]! * ahead, y: eye.y + step[1]! * ahead, z: eye.z + step[2]! * ahead } : { x: eye.x, y: eye.y + 1, z: eye.z };
-        spline.controlPoints = [eye, { x: (eye.x + end.x) / 2, y: (eye.y + end.y) / 2, z: (eye.z + end.z) / 2 }, end];
-        const extrapolate = (now: number, before: number) => { const rate = now - before; return Math.abs(rate) <= 30 ? now + rate * ahead : now; };
-        const target = { x: extrapolate(rotation.x, last.x), y: extrapolate(rotation.y, last.y), z: extrapolate(rotation.z, last.z) };
-        // `roll` keeps the pitch within ±90; `rollover` asks the keyframes for more (device probe).
-        if (camera.mode === 'roll') target.x = Math.max(-90, Math.min(90, target.x));
-        rider.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: {
-          progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: moved ? 1 : 0, timeSeconds: seconds }],
-          rotationKeyFrames: [{ rotation, timeSeconds: 0 }, { rotation: target, timeSeconds: seconds }] } });
       }
-      viewer.eye = eye; viewer.rotation = rotation;
-    } else {
+    }
+    {
       // `setCamera` refuses a pitch outside ±90 (Pixel, 26.51): only `over`
       // ever asks for one, and it is not a device mode.
       const options: any = { location: eye, rotation: { x: view.pitch, y: view.yaw } };
-      if (camera.ease > 0) options.easeOptions = { easeTime: camera.ease, easeType: 'Linear' };
+      if (camera.ease > 0 && !handBack) options.easeOptions = { easeTime: camera.ease, easeType: 'Linear' };
       rider.camera.setCamera('minecraft:free', options);
     }
     if (cameraDebug && ticks % 5 === 0) {
@@ -2044,7 +2094,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
   };
   // Device tuning and measurement hook: `/scriptevent craftmatic:coaster_cam <words>`.
-  //   mode clamp|roll|rollover|over|off · ease <s> · spline <s> · look <yaw> <pitch> · turn <deg> · debug 0|1 · trace <ticks>
+  //   mode loop|reflect|clamp|over|off · ease <s> · look <yaw> <pitch> · turn <deg> · debug 0|1 · trace <ticks>
   //   rot <pitch> <yaw>       free camera at the sender's eye with that rotation (pitch range probe)
   //   roll <pitch> <yaw> <z>  a 6 s playAnimation holding rotation {x,y,z} (roll probe)
   //   attach [locator]        attach the sender's camera to the nearest car (bone-following probe)
@@ -2057,18 +2107,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       const number = (k: number, fallback: number) => { const v = Number(words[k]); return Number.isFinite(v) ? v : fallback; };
       const source = event.sourceEntity;
       const verb = words[0];
-      if (verb === 'mode' && ['reflect', 'over', 'clamp', 'roll', 'rollover', 'off'].includes(words[1]!)) {
+      if (verb === 'mode' && ['loop', 'reflect', 'over', 'clamp', 'off'].includes(words[1]!)) {
         camera.mode = words[1] as CoasterRiderViewMode;
         for (const id of [...viewers.keys()]) releaseViewer(id);
       } else if (verb === 'ease') camera.ease = Math.max(0, number(1, camera.ease));
       else if (verb === 'look') { camera.lookYaw = Math.max(0, number(1, camera.lookYaw)); camera.lookPitch = Math.max(0, number(2, camera.lookPitch)); }
       else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
-      else if (verb === 'spline') camera.spline = Math.max(0.06, number(1, camera.spline));
       else if (verb === 'debug') cameraDebug = words[1] === '1';
       else if (verb === 'lag') lookLag = Math.max(0, Math.min(19, Math.round(number(1, 0))));
       else if (verb === 'ratchet') lookRatchet = words[1] !== '0';
-      else if (verb === 'every') animEvery = Math.max(1, Math.min(20, Math.round(number(1, 1))));
-      else if (verb === 'still') stillMode = words[1] === 'anim' ? 'anim' : 'set';
       else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
       else if (source?.camera) {
         const at = source.getHeadLocation ? source.getHeadLocation() : source.location;
@@ -2727,11 +2774,49 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             if (frame.car.state.occupied !== occupied) { frame.car.entity.setProperty('craftmatic:occupied', occupied); frame.car.state.occupied = occupied; }
           }
         }
+        // The train ahead, predicted with the ride's own arithmetic, for the
+        // rider camera's inversion animation (`planInversion`). It stops short
+        // of anything that is not plain track: a stop the brake may catch, the
+        // end of an open route, the lift.
+        const planner = {
+          centre: next,
+          plan: (car: any, horizon: number) => {
+            if (phase !== 'track' || train.dwell > 0 || train.holding || arrived) return null;
+            // Any point a brake may stop the train at, in the direction of travel
+            // (the platform, the loading bay, the deck and the wait before it).
+            const stops = [target, ...(dispatch ? [dispatch.hold] : []), ...(lift ? [deckLength / 2, deckLength + extent / 2] : [])];
+            // The station brake caps the speed at sqrt(2 a s) from its stop, so
+            // the plan ends a block before that could bite.
+            const braking = (arc: number, speed: number) => stops.some(point => {
+              let ahead = (point - arc) * nextDirection;
+              if (path.closed) { ahead %= total; if (ahead < 0) ahead += total; }
+              return ahead >= 0 && ahead < speed * speed / (2 * STATION_BRAKE * scale) + 1;
+            });
+            let c = next, v = speed, held = Number.isFinite(car.state.yaw) ? car.state.yaw : 0;
+            const d = nextDirection;
+            const face = cars.heading === 1 || cars.heading === -1 ? cars.heading : d;
+            const centres: number[] = [], poses: any[] = [];
+            for (let k = 0; k < horizon; k++) {
+              const moved = integrate(c, v, d);
+              const clamped = Math.min(moved.speed, MAX_SPEED);
+              const step = moved.speed > 0 ? moved.advanced * clamped / moved.speed : clamped / (20 * scale);
+              let n = c + step * d;
+              if (path.closed) n = ((n % total) + total) % total;
+              else if (n > high || n < low) break;
+              if (braking(n, clamped)) break;
+              const pose = carPose(car, carArc(n, car.slot), 0, held, face);
+              held = pose.yaw;
+              centres.push(n); poses.push(pose);
+              c = n; v = clamped;
+            }
+            return { centres, poses };
+          },
+        };
         // The camera follows the car the rider is in. A camera fault must never
         // stop the ride: it is reported like any stage, but per rider.
         for (const frame of frames) {
           for (const rider of frame.car.riders) {
-            try { aimRider(rider, frame); } catch (error) {
+            try { aimRider(rider, frame, planner); } catch (error) {
               if (ticks - lastErrorLogTick >= 200) { console.warn(`[Craftmatic coaster] ${config.typeId} rider camera: ${error instanceof Error ? error.message : String(error)}`); lastErrorLogTick = ticks; }
             }
           }

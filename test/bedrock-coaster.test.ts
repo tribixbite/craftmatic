@@ -2060,6 +2060,16 @@ function rollFrame(v: { yaw: number; pitch: number; roll: number }): { d: number
   const u0 = [-Math.sin(y) * Math.sin(p), Math.cos(p), Math.cos(y) * Math.sin(p)], r0 = [-Math.cos(y), 0, -Math.sin(y)];
   return { d, u: [0, 1, 2].map(k => Math.cos(r) * u0[k]! - Math.sin(r) * r0[k]!) };
 }
+/** A 60-block station straight, one slightly helical vertical loop (radius 4), and a 30-block exit straight: an open shuttle. */
+function loopCourse(): CoasterRoute {
+  const points: Array<[number, number, number]> = [];
+  // The station is the longest level run: the 60-block entry straight, far from the loop's exit.
+  for (let z = 0; z <= 60 + 1e-9; z += 0.25) points.push([0, 0, z]);
+  const r = 4, n = 120;
+  for (let k = 1; k <= n; k++) { const a = k / n * 2 * Math.PI; points.push([1.5 * k / n, r - r * Math.cos(a), 60 + r * Math.sin(a)]); }
+  for (let z = 60.25; z <= 90 + 1e-9; z += 0.25) points.push([1.5, 0, z]);
+  return { label: 'Loop course', points, closed: false, maxSegmentLength: 0.5 };
+}
 const finiteView = (view: any) => Number.isFinite(view.rotation.x) && Number.isFinite(view.rotation.y) && Number.isFinite(view.location.x);
 
 describe('the rider camera follows the track', () => {
@@ -2223,53 +2233,86 @@ describe('the rider camera follows the track', () => {
     expect(apex.pitch).toBeCloseTo(0, 6);
   });
 
-  it('roll mode drives the camera with overlapping spline animations that each start at the true pose and run one tick ahead', () => {
+  it('loop mode (the default) sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
+    expect(COASTER_RIDER_VIEW.mode).toBe('loop');
     class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
     (globalThis as any).LinearSpline = Spline;
     try {
-      const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'roll' } });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
       const { player } = cameraRider(h.entity);
-      // One camera call a tick: an animation while the car moves, the plain
-      // eased camera while it stands still (the station), in tick order.
-      const order: string[] = [];
-      (player.camera as any).playAnimation = vi.fn(() => { order.push('play'); });
-      player.camera.setCamera.mockImplementation(() => { order.push('set'); });
-      h.run(1); h.riders.push(player); h.run(400);
-      expect(order).toHaveLength(400);
-      const plays = (player.camera as any).playAnimation.mock.calls as any[][];
-      expect(plays.length).toBeGreaterThan(200);
-      const follows = new Set<number>();
-      for (let k = 1, play = 0; k < order.length; k++) if (order[k] === 'play') { if (order[k - 1] === 'play') follows.add(play); play++; }
-      let rolledOver = 0, worstMiss = 0;
-      for (let k = 0; k < plays.length; k++) {
-        const [spline, options] = plays[k]!;
-        expect(spline).toBeInstanceOf(Spline);
-        // Three points: the Pixel refuses a two-point linear spline.
-        expect(spline.controlPoints).toHaveLength(3);
-        // The engine refuses rotation keyframes 0.05 s or less apart (Pixel, 26.51).
-        const [start, end] = options.animation.rotationKeyFrames;
-        expect(end.timeSeconds - start.timeSeconds).toBeGreaterThan(0.05);
-        expect(options.totalTimeSeconds).toBeCloseTo(COASTER_RIDER_VIEW.spline, 9);
-        expect(Math.abs(start.rotation.x)).toBeLessThanOrEqual(90);
-        expect(Math.abs(end.rotation.x)).toBeLessThanOrEqual(90);
-        if (Math.abs(Math.abs(((start.rotation.z % 360) + 540) % 360 - 180)) < 30) rolledOver++;
-        if (follows.has(k)) {
-          // Replaced halfway: where the last animation had got to by now is its
-          // start plus half its travel, and this one starts at the true pose.
-          // Off by the change in rate only, never by a tick's lag.
-          // Compared as ORIENTATIONS: at a zenith the yaw and roll swap sides
-          // together, which is the same view written differently.
-          const [, before] = plays[k - 1]!;
-          const [s0, s1] = before.animation.rotationKeyFrames;
-          const halfway = { yaw: (s0.rotation.y + s1.rotation.y) / 2, pitch: (s0.rotation.x + s1.rotation.x) / 2, roll: (s0.rotation.z + s1.rotation.z) / 2 };
-          const got = rollFrame(halfway), now = rollFrame({ yaw: start.rotation.y, pitch: start.rotation.x, roll: start.rotation.z });
-          worstMiss = Math.max(worstMiss, angleDeg(got.d, now.d), angleDeg(got.u, now.u));
+      const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[]; distance: number }> = [];
+      let tick = 0;
+      (player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args, distance: NaN }); });
+      player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args, distance: NaN }); });
+      h.run(1); h.riders.push(player);
+      const distances: number[] = [];
+      for (tick = 0; tick < 1200; tick++) { h.run(1); distances[tick] = h.distances.at(-1)!; }
+      const plays = log.filter(e => e.kind === 'play');
+      // The shuttle runs the loop out and back: one animation each time through.
+      expect(plays.length).toBeGreaterThanOrEqual(2);
+      const route = h.config.routes[0]!, wheelbase = h.config.types['craftmatic:test_cart']!.wheelbase || 0;
+      for (const play of plays) {
+        const [spline, options] = play.args;
+        const keys = options.animation.rotationKeyFrames as any[];
+        const length = Math.round(options.totalTimeSeconds / 0.05);
+        expect(length % 2).toBe(0);
+        expect(spline.controlPoints).toHaveLength(length + 1);
+        for (let k = 1; k < keys.length; k++) expect(keys[k].timeSeconds - keys[k - 1].timeSeconds).toBeGreaterThan(0.05);
+        expect(options.animation.progressKeyFrames.at(-1).alpha).toBeCloseTo(1, 9);
+        // Nothing else touches the camera while it plays, and the per-tick camera
+        // takes over at its last tick, without an ease (the poses meet there).
+        const during = log.filter(e => e.tick > play.tick && e.tick < play.tick + length);
+        expect(during).toHaveLength(0);
+        const after = log.find(e => e.tick === play.tick + length)!;
+        expect(after.kind).toBe('set');
+        expect(after.args[1].easeOptions).toBeUndefined();
+        // Every keyframe is the view the ride really gives at that tick: its x is
+        // the negated pitch (measured on the Pixel), its z the roll, and the
+        // whole loop is drawn: the roll passes upside down.
+        let upsideDown = 0;
+        for (const key of keys) {
+          const k = Math.round(key.timeSeconds / 0.05);
+          const view = rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z });
+          expect(Math.abs(key.rotation.x)).toBeLessThanOrEqual(90 + 1e-9);
+          const arc = distances[play.tick + k - 1 + 1] ?? distances[play.tick + k];
+          const before = distances[play.tick + k - 1]!;
+          let step = arc! - before; if (Math.abs(step) > route.path.length / 2) step -= Math.sign(step) * route.path.length;
+          if (k > 0 && Math.abs(step) > 1e-6) expect(angleDeg(view.d, routeChord(route.path, arc!, wheelbase).map(v => v * Math.sign(step)))).toBeLessThan(1);
+          if (view.u[1] < -0.9) upsideDown++;
         }
+        expect(upsideDown).toBeGreaterThan(0);
       }
-      // Over the top the world is drawn upside down (roll near 180), not flipped round.
-      expect(rolledOver).toBeGreaterThan(5);
-      expect(worstMiss).toBeLessThan(15);
     } finally { delete (globalThis as any).LinearSpline; }
+  });
+
+  it('loop mode hands back at once when the ride leaves the plan (a held chunk)', () => {
+    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
+    (globalThis as any).LinearSpline = Spline;
+    try {
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
+      const { player } = cameraRider(h.entity);
+      (player.camera as any).playAnimation = vi.fn();
+      h.run(1); h.riders.push(player);
+      // Run until an animation starts, then hold the ride for a tick.
+      let guard = 0;
+      while ((player.camera as any).playAnimation.mock.calls.length === 0 && guard++ < 1200) h.run(1);
+      expect((player.camera as any).playAnimation).toHaveBeenCalledTimes(1);
+      h.run(2);
+      const sets = player.camera.setCamera.mock.calls.length;
+      h.setLoaded(false); h.run(1); h.setLoaded(true); h.run(1);
+      expect(player.camera.setCamera.mock.calls.length).toBe(sets + 1);
+    } finally { delete (globalThis as any).LinearSpline; }
+  });
+
+  it('a client without LinearSpline rides loop mode on the per-tick reflect camera alone', () => {
+    const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
+    const { player } = cameraRider(h.entity);
+    (player.camera as any).playAnimation = vi.fn();
+    h.run(1); h.riders.push(player); h.run(400);
+    expect((player.camera as any).playAnimation).not.toHaveBeenCalled();
+    const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
+    expect(views.length).toBeGreaterThan(300);
+    expect(views.every(v => Math.abs(v.x) <= 90 + 1e-9)).toBe(true);
   });
 
   it('gives the player their own camera back, and their visibility, on dismount', () => {
@@ -2353,14 +2396,13 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     expect(worstPitchStep).toBeLessThan(30);
   }, 240_000);
 
-  it('reflect mode (the default): never turns round — not on the overhanging drop, not in either loop — and looks along the nose wherever it can', async () => {
+  it('reflect mode (the per-tick camera of loop): never turns round — not on the overhanging drop, not in either loop — and looks along the nose wherever it can', async () => {
     // Device report 2026-09-25: "turns about 90 degrees upon descent and does a
     // strange sideways turn for the upside down loops". Both were `clamp`'s
     // turn-over: 10303's drop overhangs past vertical (car pitch 97-103), so
     // the view's yaw swung round at 40 degrees a tick there too.
-    expect(COASTER_RIDER_VIEW.mode).toBe('reflect');
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
+    const h = liftHost(scene.routes[0]!, { mode: 'reflect' }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
@@ -2395,6 +2437,46 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     expect(worstOffCar).toBeLessThan(15);
     expect(worstPitchStep).toBeLessThan(30);
     expect(worstAlong).toBeLessThan(15);
+  }, 240_000);
+
+  it('loop mode: one rolling animation per loop, each played to its planned end, and the per-tick camera never turns round', async () => {
+    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
+    (globalThis as any).LinearSpline = Spline;
+    try {
+      const { scene } = await corpusRoutes(PUBLISHED_10303);
+      const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
+      const rider = cameraRider(h.lead.entity);
+      const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
+      let tick = 0;
+      (rider.player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
+      rider.player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
+      h.run(1); h.lead.riders.push(rider.player);
+      const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
+      let worstYawStep = 0, previous: any;
+      for (tick = 0; tick < 1400; tick++) {
+        h.run(1);
+        const last = log.at(-1);
+        if (last?.tick === tick && last.kind === 'set') {
+          const view = last.args[1].rotation;
+          expect(Math.abs(view.x)).toBeLessThanOrEqual(90 + 1e-9);
+          if (previous && previous.tick === tick - 1 && h.phase() === 'track') worstYawStep = Math.max(worstYawStep, turn(previous.view.y, view.y));
+          previous = { tick, view };
+        }
+      }
+      const plays = log.filter(e => e.kind === 'play');
+      // Two laps' worth of ticks includes both loops at least once; the plan
+      // held every time: the per-tick camera resumed exactly at its end.
+      expect(plays.length).toBeGreaterThanOrEqual(2);
+      for (const play of plays) {
+        const length = Math.round(play.args[1].totalTimeSeconds / 0.05);
+        expect(log.filter(e => e.tick > play.tick && e.tick < play.tick + length)).toHaveLength(0);
+        expect(log.find(e => e.tick === play.tick + length)?.kind).toBe('set');
+        const rolls = play.args[1].animation.rotationKeyFrames.map((key: any) => key.rotation.z);
+        expect(Math.max(...rolls.map((r: number) => Math.abs(((r % 360) + 540) % 360 - 180)))).toBeGreaterThan(-1);
+        expect(Math.min(...rolls.map((r: number) => Math.abs(((r % 360) + 540) % 360 - 180)))).toBeLessThan(30); // upside down somewhere
+      }
+      expect(worstYawStep).toBeLessThan(20);
+    } finally { delete (globalThis as any).LinearSpline; }
   }, 240_000);
 
   it('clamp mode: exact along the nose except while turning over a loop, pitch within ±90, no yaw jump', async () => {
