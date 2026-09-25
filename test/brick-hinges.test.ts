@@ -68,7 +68,10 @@ describe('discoverBrickHinges', () => {
     const leafBrick = at('leafbrick.dat', 0, 0, 0), leafTile = at('leaftile.dat', 0, -72, 0);
     // The rest of the building on the floor: the model the door is a small part of.
     const building = [-80, -100].flatMap(x => [-40, 0, 40].map(z => at('wall.dat', x, 24, z)));
-    return { bricks: [floor, wall, lintel, base, top, leafBrick, leafTile, ...building], meshes, leaf: [top, leafBrick, leafTile] };
+    // The doorway's threshold: a smooth tile under the swinging half (a stud there would hold it shut).
+    meshes.set('threshold.dat', mesh('Tile 2 x 2', [0, 0, -10], [40, 8, 10]));
+    const threshold = at('threshold.dat', 0, 24, 0);
+    return { bricks: [floor, threshold, wall, lintel, base, top, leafBrick, leafTile, ...building], meshes, leaf: [top, leafBrick, leafTile] };
   }
 
   it('moves the assembly on the hinge top: a door about the pin line, the hinge half first, with a lintel over it', () => {

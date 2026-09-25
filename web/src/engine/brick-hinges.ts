@@ -24,14 +24,19 @@
  *      two hinges on one line). If that splits off an assembly - one no other
  *      connection holds to the rest of the model - the assembly MOVES about the
  *      line, and its side of each joint moves with it.
- *   4. The assembly is classed by its shape against the line: a slab beside a
- *      vertical hinge line is a door (tall enough, a lintel over it), a gate
- *      (nothing over it) or a cupboard door / shutter; a slab on a horizontal
- *      line is a hatch or lid (lying flat) or a flap (standing: hung from its
- *      top edge it is a window, from its bottom edge a drawbridge or a
- *      tailgate); anything else on a pin, axle or turntable is a mechanism
- *      that turns a step per tap - but only when turning it does not sweep
- *      through the parts around it.
+ *   4. The assembly is classed by its shape against the line, and every class
+ *      was tightened by a visual review of what it found over the 40
+ *      favourites (docs/bedrock-interactivity.md, "Brick-built doors, gates
+ *      and mechanisms"): a PANEL (its parts cover half its outline) beside a
+ *      vertical line, standing on a floor, is a door (a lintel over it) or a
+ *      gate (none); one under a lintel but not on a floor, or too tall for a
+ *      doorway, is a door leaf or hinged panel that swings with its collider
+ *      kept. A flat panel (a lid) or a standing one on a level line (a flap)
+ *      moves only on a hinge proper. A thick section on hinge bricks or plates
+ *      is a WING when it swings out into free air and could not swing in. A
+ *      mechanism turns a step per tap only on a turntable. A bar in a tube or
+ *      a hollow stud swings nothing (railings, ladders, lamp posts), and
+ *      mostly-Technic assemblies are a mechanism's insides.
  *
  * Nothing here names a set. A rule that finds nothing reports why for every
  * joint line it cut (`BrickHingeDiagnostics`), so the next rule is written
@@ -147,12 +152,16 @@ export interface HingeJoint {
   type: 'finger' | 'clip' | 'cylinder';
   /** It can turn (an axle in an axle hole cannot). */
   turns: boolean;
+  /** The radius the joint turns on, LDU: 4 a bar, 6 a Technic pin or axle, 7 and up a turntable ring (0 for fingers and clips). */
+  radius: number;
 }
 
 /** The span a connector covers along its own axis, measured from its position: a centred one straddles it. */
 function spanOf(s: JointSnap): [number, number] {
   const l = Math.max(s.length, 1);
-  return s.centred ? [-l / 2, l / 2] : [0, l];
+  // LDCad lays a snap's sections from its position toward its local -Y (63965's bar
+  // runs from its stop at y 18 up to its tip at y -102.5), i.e. against `a`.
+  return s.centred ? [-l / 2, l / 2] : [-l, 0];
 }
 
 /** Distance from `p` to the line through `q` along unit `a`. */
@@ -203,14 +212,14 @@ export function findHingeJoints(bricks: readonly ParsedBrick[]): HingeJoint[] {
       const k = ia < ib ? `${ia}|${ib}|${mated.type}` : `${ib}|${ia}|${mated.type}`;
       if (done.has(k)) continue;
       done.add(k);
-      joints.push({ a: u.brick, b: v.brick, point: mated.point, axis: u.a, type: mated.type, turns: mated.turns });
+      joints.push({ a: u.brick, b: v.brick, point: mated.point, axis: u.a, type: mated.type, turns: mated.turns, radius: mated.radius });
     }
   }
   return joints;
 }
 
 /** Whether two connectors on (near) one line mate, and how. */
-function mate(u: WorldSnap, v: WorldSnap): { type: HingeJoint['type']; turns: boolean; point: Vec3 } | null {
+function mate(u: WorldSnap, v: WorldSnap): { type: HingeJoint['type']; turns: boolean; point: Vec3; radius: number } | null {
   const ku = u.snap.kind, kv = v.snap.kind;
   // Spans along u's axis: u's own, and v's projected onto it.
   const along = (w: WorldSnap, t: number): number => dot(sub(add(w.p, scale(w.a, t)), u.p), u.a);
@@ -221,7 +230,7 @@ function mate(u: WorldSnap, v: WorldSnap): { type: HingeJoint['type']; turns: bo
   if (ku === 'f' && kv === 'f') {
     if (u.snap.group && v.snap.group && u.snap.group !== v.snap.group) return null;
     if (lineDistance(v.p, u.p, u.a) > LINE_TOLERANCE || !overlap(v, 1)) return null;
-    return { type: 'finger', turns: true, point: u.p };
+    return { type: 'finger', turns: true, point: u.p, radius: 0 };
   }
   if ((ku === 'c' && kv === 'y') || (ku === 'y' && kv === 'c')) {
     const clip = ku === 'c' ? u : v, bar = ku === 'c' ? v : u;
@@ -230,7 +239,7 @@ function mate(u: WorldSnap, v: WorldSnap): { type: HingeJoint['type']; turns: bo
     if (lineDistance(clip.p, bar.p, bar.a) > LINE_TOLERANCE + 0.5) return null;
     const t = dot(sub(clip.p, bar.p), bar.a);
     if (t < bar.from - 4 || t > bar.to + 4) return null;
-    return { type: 'clip', turns: true, point: clip.p };
+    return { type: 'clip', turns: true, point: clip.p, radius: 0 };
   }
   if (ku === 'y' && kv === 'y') {
     const genders = u.snap.gender + v.snap.gender;
@@ -240,7 +249,7 @@ function mate(u: WorldSnap, v: WorldSnap): { type: HingeJoint['type']; turns: bo
     const male = u.snap.gender === 'M' ? u : v, female = male === u ? v : u;
     // An axle in an axle hole is locked; a round pin, or an axle in a round hole, turns.
     const turns = !(male.snap.shapes.includes('A') && female.snap.shapes.includes('A'));
-    return { type: 'cylinder', turns, point: female.p };
+    return { type: 'cylinder', turns, point: female.p, radius: Math.min(male.snap.radius, female.snap.radius) };
   }
   return null;
 }
@@ -379,7 +388,7 @@ export interface HingeLine {
  * each joint, reached without crossing a cut joint, of at most
  * `MAX_HINGED_PARTS`. The other side must be bigger (the model).
  */
-export function hingedAssemblies(bricks: readonly ParsedBrick[], graph: RigidGraph, joints: readonly HingeJoint[], blocked: ReadonlySet<number>): HingeLine[] {
+export function hingedAssemblies(bricks: readonly ParsedBrick[], graph: RigidGraph, joints: readonly HingeJoint[], blocked: ReadonlySet<number>, isPin: (i: number) => boolean = () => false): HingeLine[] {
   const index = new Map<ParsedBrick, number>();
   bricks.forEach((b, i) => index.set(b, i));
   const turning = joints.filter(j => j.turns);
@@ -415,8 +424,13 @@ export function hingedAssemblies(bricks: readonly ParsedBrick[], graph: RigidGra
       const ra = reach(a, MAX_HINGED_PARTS * 4), rb = reach(b, MAX_HINGED_PARTS * 4);
       if (ra && rb && ra.includes(b)) continue; // still connected round the cut
       if (!ra && !rb) continue; // both sides are big: the joint is inside the model, held elsewhere
-      const side = !ra ? rb! : !rb ? ra : (ra.length <= rb.length ? ra : rb);
-      if (ra && rb && Math.min(ra.length, rb.length) * 2 > Math.max(ra.length, rb.length)) {
+      let side = !ra ? rb! : !rb ? ra : (ra.length <= rb.length ? ra : rb);
+      // A lone pin on the joint (a bar held by nothing but the door's own clips: 910004's
+      // patchwork door, whose bar the source stands free in its frame) is the PIVOT, not the
+      // thing that moves: the other side swings about it, when that side is small.
+      const other = side === ra ? rb : ra;
+      if (side.length === 1 && isPin(side[0]!) && line.joints.length >= 2 && other && other.length >= MIN_HINGED_PARTS && other.length <= MAX_HINGED_PARTS) side = other;
+      else if (ra && rb && Math.min(ra.length, rb.length) * 2 > Math.max(ra.length, rb.length)) {
         verdict = 'rejected'; reason = `both sides are about the same size (${ra.length} and ${rb.length} parts): neither is the model`;
         continue;
       }
@@ -472,7 +486,20 @@ export function hingedShape(points: readonly Vec3[], centres: readonly Vec3[], p
   const radius = Math.max(...points.map(p => len(perp(p))));
   // Balanced round the line (a rotor, a turntable's load): no side to be a leaf on.
   const fallback = norm(Math.abs(axis[1]) < 0.9 ? cross(axis, [0, 1, 0]) : cross(axis, [1, 0, 0]));
-  const along = len(mean) >= 4 ? norm(mean) : fallback, normal = norm(cross(axis, along));
+  // The leaf's own direction is its LONG axis across the line (the major axis of its
+  // corners projected on the plane square to the line), pointed at its middle: the
+  // direction to the middle alone leans towards the side its handles stand on
+  // (80049's square doors read 6.4 degrees off the grid).
+  const e1 = fallback, e2 = norm(cross(axis, e1));
+  let sxx = 0, sxy = 0, syy = 0, mx = 0, my = 0;
+  const flat = points.map(p => { const v = perp(p); return [dot(v, e1), dot(v, e2)] as const; });
+  for (const [x, y] of flat) { mx += x; my += y; }
+  mx /= flat.length; my /= flat.length;
+  for (const [x, y] of flat) { sxx += (x - mx) ** 2; sxy += (x - mx) * (y - my); syy += (y - my) ** 2; }
+  const theta = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+  let major = norm(add(scale(e1, Math.cos(theta)), scale(e2, Math.sin(theta))));
+  if (dot(major, mean) < 0) major = scale(major, -1);
+  const along = len(mean) >= 4 ? major : fallback, normal = norm(cross(axis, along));
   const ws = points.map(p => dot(perp(p), along)), ts = points.map(p => dot(perp(p), normal));
   const width = Math.max(...ws), back = Math.min(...ws);
   const thickness = Math.max(...ts) - Math.min(...ts), tMid = (Math.max(...ts) + Math.min(...ts)) / 2;
@@ -496,8 +523,17 @@ const GATE_MIN_HEIGHT_LDU = 48;
 /** A leaf is at least this wide and tall (LDU: a stud and a half) and at most this thick (a brick and handles). */
 const LEAF_MIN_LDU = 30;
 const LEAF_MAX_THICK_LDU = 26;
+/** How much of a leaf's outline its parts must cover, face on (a panel, not struts). */
+const LEAF_COVER = 0.5;
+/** A one-way hinged section (a wall wing) is at least this many parts. */
+const SECTION_MIN_PARTS = 12;
+/** A wing's sweep: at most this share of it in the model swung out, at least this share swung in. */
+const SECTION_OUT_MAX = 0.02;
+const SECTION_IN_MIN = 0.25;
+/** A flap or a lid is at least this much each way (LDU: two studs). */
+const FLAP_MIN_LDU = 40;
 /** What a leaf or a hinged section is built from: at least half its parts (joint halves aside). */
-const STRUCTURAL = /^(Plate|Tile|Brick|Panel|Slope|Wedge|Door|Window|Glass|Fence|Bar|Lattice|Wall|Arch|Roof|Hinge|Technic,? (Brick|Beam|Liftarm|Plate|Panel)|Wood|Cylinder Half)\b/i;
+const STRUCTURAL = /^(Plate|Tile|Brick|Panel|Slope|Wedge|Door|Window|Glass|Fence|Lattice|Wall|Arch|Roof|Hinge|Technic,? (Brick|Beam|Liftarm|Plate|Panel)|Wood|Cylinder Half)\b/i;
 
 export interface BrickHingeInput {
   /** The scenery's placements (not figures, vehicles, rides). */
@@ -517,6 +553,8 @@ export interface HingeLineReport {
   parts: number;
   /** What it became. */
   kind?: InteractiveKind;
+  /** And what it is called (door, gate, door leaf, shutter, flap, drop-down flap, lid, hinged section, mechanism). */
+  noun?: string;
   /** The line's point, LDraw (to find it in a render). */
   at: Vec3;
 }
@@ -563,10 +601,12 @@ export function discoverBrickHinges(input: BrickHingeInput): BrickHingeResult {
   const items: SceneInteractive[] = [];
   const lines: HingeLineReport[] = [];
   const claimed = new Set<number>();
-  for (const line of hingedAssemblies(bricks, graph, joints, blocked)) {
+  // A bar or a Technic pin or axle: what a leaf's clips or holes turn about.
+  const PIN = /^(Bar\b|Technic,? (Axle|Pin)\b)/i;
+  for (const line of hingedAssemblies(bricks, graph, joints, blocked, i => PIN.test(meshes[i]!.description.replace(/^[~=_]+\s*/, '')))) {
     const joint = `${[...new Set(line.joints.map(j => `${partStem(j.a.part)}/${partStem(j.b.part)}`))].join(', ')} ${line.joints[0]!.type}`;
     const at: Vec3 = [Math.round(line.point[0]), Math.round(line.point[1]), Math.round(line.point[2])];
-    const report = (verdict: HingeLineReport['verdict'], reason: string, parts = 0, kind?: InteractiveKind): void => { lines.push({ joint, verdict, reason, parts, at, ...(kind ? { kind } : {}) }); };
+    const report = (verdict: HingeLineReport['verdict'], reason: string, parts = 0, kind?: InteractiveKind, noun?: string): void => { lines.push({ joint, verdict, reason, parts, at, ...(kind ? { kind } : {}), ...(noun ? { noun } : {}) }); };
     if (!line.moving) { report(line.verdict, line.reason); continue; }
     const moving = line.moving;
     if (moving.length > maxParts) { report('too big', `the side that comes away is ${moving.length} parts, over ${maxParts} (${Math.round(MAX_SHARE * 100)} percent of the scenery or ${MAX_HINGED_PARTS})`, moving.length); continue; }
@@ -590,25 +630,49 @@ export function discoverBrickHinges(input: BrickHingeInput): BrickHingeResult {
     const free = obstacles.filter(bb => !samples.some(p => inBox(p, bb, 1)));
     const hits = (deg: number): number => samples.reduce((n, p) => n + (free.some(bb => inBox(rotateAbout(p, line.point, axis, deg), bb, 1)) ? 1 : 0), 0);
     const share = (deg: number): number => hits(deg) / samples.length;
-    const cylinder = line.joints.some(j => j.type === 'cylinder');
+    // What turns something that is not a leaf: a Technic pin or axle in its hole, a
+    // turntable ring, a hinge brick's or plate's pivot. A bar standing in a hollow stud
+    // turns too (a lamp post, a railing, a flag), but it is not a mechanism.
+    const named = (b: ParsedBrick): boolean => /\b(Hinge|Turntable)\b/i.test(meshes[index.get(b)!]!.description);
+    const cylinder = line.joints.some(j => j.type === 'cylinder' && (j.radius >= 5.5 || named(j.a) || named(j.b)));
+    // A HINGE proper: finger hinges and the named hinge and turntable parts. A clip on a
+    // bar hangs doors and gates too (80049, 910004, 910047). A bar in a bar tube or a
+    // hollow stud is how railings, ladders and lamp posts stand (10341's launch tower
+    // read as twenty "lids" on them): it swings nothing here.
+    const hinge = line.joints.some(j => j.type === 'finger' || (j.type === 'cylinder' && (named(j.a) || named(j.b))));
+    const clipped = line.joints.some(j => j.type === 'clip');
+    if (!hinge && !clipped && !cylinder) { report('rejected', 'a bar in a tube or a hollow stud: structure (a railing, a ladder, a post), not a hinge', moving.length); continue; }
     const sideOf = (): { sign: number; best: number } => { const p = share(90), m = share(-90); return p <= m ? { sign: 1, best: p } : { sign: -1, best: m }; };
     let kind: InteractiveKind;
     let noun: string;
     let angle: number;
     let leaf: LeafPlane | undefined;
     let opening: { width: number; height: number } | undefined;
+    let sweepShares: { chosen: number; other: number } | undefined;
     const lineLen = shape.lineTo - shape.lineFrom;
     const vertical = Math.abs(axis[1]) >= 0.85;
     // What it is built from: a panel of plates, tiles, bricks and panels, not a
     // lantern, a flame or a plume on a clip (the joint halves themselves aside).
     const body = moving.filter(i => !halves.includes(bricks[i]!));
     const structural = body.filter(i => STRUCTURAL.test(meshes[i]!.description.replace(/^[~=_]+\s*/, ''))).length;
-    if (shape.cls === 'leaf') {
-      if (shape.width < LEAF_MIN_LDU || lineLen < LEAF_MIN_LDU || shape.thickness > LEAF_MAX_THICK_LDU) {
-        report('too small', `a leaf ${Math.round(shape.width)} x ${Math.round(lineLen)} x ${Math.round(shape.thickness)} LDU: under ${LEAF_MIN_LDU} x ${LEAF_MIN_LDU} or over ${LEAF_MAX_THICK_LDU} thick (an ornament or a trim)`, moving.length);
-        continue;
-      }
-      if (!body.length || structural * 2 < body.length) { report('rejected', `a leaf of ${body.length} parts, ${structural} of them plates, tiles, bricks or panels: an ornament on a hinge`, moving.length); continue; }
+    const builtUp = body.length > 0 && structural * 2 >= body.length;
+    if (shape.cls === 'leaf' && (shape.width < LEAF_MIN_LDU || lineLen < LEAF_MIN_LDU)) {
+      report('too small', `a leaf ${Math.round(shape.width)} x ${Math.round(lineLen)} LDU: under ${LEAF_MIN_LDU} x ${LEAF_MIN_LDU} (an ornament or a trim)`, moving.length);
+      continue;
+    }
+    // A slab thicker than a brick and its handles is a hinged SECTION (a wall wing), judged as one below.
+    if (shape.cls === 'leaf' && shape.thickness <= LEAF_MAX_THICK_LDU) {
+      if (!builtUp) { report('rejected', `a leaf of ${body.length} parts, ${structural} of them plates, tiles, bricks or panels: an ornament on a hinge`, moving.length); continue; }
+      // A leaf is a PANEL: its parts, seen face on, cover at least half of its outline.
+      // Struts, railings and a mirror on its arm are lines, not panels (10341's tower
+      // struts and 42172's mirrors on clips read as doors before this).
+      const faceOf = (i: number): number => {
+        const c = corners[i]!;
+        const a = c.map(p => dot(sub(p, line.point), shape.along)), u = c.map(p => dot(sub(p, line.point), axis));
+        return (Math.max(...a) - Math.min(...a)) * (Math.max(...u) - Math.min(...u));
+      };
+      const cover = body.reduce((n, i) => n + faceOf(i), 0) / Math.max(1, shape.width * lineLen);
+      if (cover < LEAF_COVER) { report('rejected', `its parts cover ${Math.round(cover * 100)} percent of its outline: struts or a frame, not a panel`, moving.length); continue; }
       const alongY = shape.along[1];
       if (vertical) {
         const { sign, best } = sideOf();
@@ -617,19 +681,41 @@ export function discoverBrickHinges(input: BrickHingeInput): BrickHingeResult {
         const top = bound.min[1];
         const lintel = boxes.some((bb, i) => !set.has(i) && !fixedHalves.has(i) && bb.max[1] <= top + 1 && bb.max[1] >= top - 36
           && overlapOn(bb, bound, 0) > 4 && overlapOn(bb, bound, 2) > 4);
-        if (lineLen >= DOORWAY_MIN_HEIGHT_LDU && shape.width >= 30 && lintel) { kind = 'door'; noun = 'door'; }
-        else if (!lintel && lineLen >= GATE_MIN_HEIGHT_LDU && shape.width >= 30) { kind = 'gate'; noun = 'gate'; }
-        else { kind = 'cabinet'; noun = lineLen >= DOORWAY_MIN_HEIGHT_LDU ? 'door leaf' : 'shutter'; }
+        // A floor: a door or a gate stands on something, within a plate and a half of its foot
+        // (a car's mirror on its clip is as tall as a door but hangs in the air).
+        const foot = bound.max[1];
+        const floored = boxes.some((bb, i) => !set.has(i) && bb.min[1] >= foot - 2 && bb.min[1] <= foot + 24
+          && overlapOn(bb, bound, 0) > 4 && overlapOn(bb, bound, 2) > 4);
+        // A doorway's leaf is at most 3.5 times as tall as it is wide: a panel two floors tall on
+        // a tower's hinges (11371) is a hinged facade, not a doorway to cut into the walls.
+        const doorShaped = lineLen <= 3.5 * shape.width;
+        if (lineLen >= DOORWAY_MIN_HEIGHT_LDU && shape.width >= 30 && lintel && floored && doorShaped) { kind = 'door'; noun = 'door'; }
+        else if (!lintel && floored && doorShaped && lineLen >= GATE_MIN_HEIGHT_LDU && shape.width >= 30) { kind = 'gate'; noun = 'gate'; }
+        else if (lintel && lineLen >= DOORWAY_MIN_HEIGHT_LDU && moving.length >= 4) { kind = 'cabinet'; noun = doorShaped ? 'door leaf' : 'hinged panel'; }
+        else {
+          // A short leaf, or a tall one with neither a floor nor a lintel: in the review every
+          // one was a mirror, a sign or a trim on its clip, not a shutter (docs/bedrock-interactivity.md).
+          report('rejected', `a leaf ${Math.round(shape.width)} x ${Math.round(lineLen)} LDU ${floored ? 'on a floor' : 'in the air'} ${lintel ? 'under a lintel' : 'with nothing over it'}: not a door or a gate, and no shutter rule tells a shutter from a trim yet`, moving.length);
+          continue;
+        }
         angle = sign * OPEN_DEG[kind === 'cabinet' ? 'door' : kind];
         if (kind === 'door' || kind === 'gate') opening = { width: shape.width, height: lineLen };
       } else if (Math.abs(alongY) >= 0.7) {
         // Standing on a horizontal line: hung from its top edge (it hangs DOWN, LDraw +Y) or its bottom.
         const { sign, best } = sideOf();
         if (best > LEAF_SWEEP_BLOCKED) { report('rejected', `a flap that cannot swing: ${Math.round(best * 100)} percent of it lands in the model either way`, moving.length); continue; }
+        // Like a lid, a flap hangs on a hinge proper: on clips and pins the review found only
+        // roof wedges, pipes and signs (docs/bedrock-interactivity.md).
+        if (!hinge) { report('rejected', 'a standing panel on clips or pins (a sign, a trim): a flap hangs on a hinge', moving.length); continue; }
+        // A flap is a panel: two parts at least besides its hinge half, and a stud and a half each way.
+        if (body.length < 2 || shape.width < FLAP_MIN_LDU || lineLen < FLAP_MIN_LDU) { report('too small', `a flap of ${body.length} parts, ${Math.round(shape.width)} x ${Math.round(lineLen)} LDU: a trim or a sign, not a panel`, moving.length); continue; }
         if (alongY > 0) { kind = 'window'; noun = 'flap'; angle = sign * OPEN_DEG.window; }
         else { kind = 'cabinet'; noun = 'drop-down flap'; angle = sign * 90; }
       } else {
-        // Lying flat: a lid, its free edge rises.
+        // Lying flat: a lid, its free edge rises. Only on a hinge proper: a flat panel on
+        // clips or pins is a shelf, an awning or a sign far more often than a lid.
+        if (!hinge) { report('rejected', 'a flat panel on clips or pins (a shelf, an awning, a sign): a lid hangs on a hinge', moving.length); continue; }
+        if (body.length < 2 || shape.width < FLAP_MIN_LDU || lineLen < FLAP_MIN_LDU) { report('too small', `a lid of ${body.length} parts, ${Math.round(shape.width)} x ${Math.round(lineLen)} LDU: a trim, not a lid`, moving.length); continue; }
         const free = add(line.point, scale(shape.along, shape.width));
         const sign = rotateAbout(free, line.point, axis, 90)[1] <= rotateAbout(free, line.point, axis, -90)[1] ? 1 : -1;
         const blockedUp = share(sign * OPEN_DEG.lid);
@@ -642,12 +728,42 @@ export function discoverBrickHinges(input: BrickHingeInput): BrickHingeResult {
       const corner = add(lineAt(from), scale(shape.normal, shape.tMid));
       leaf = { corner, along: scale(shape.along, shape.width), up: scale(sub(lineAt(to), lineAt(from)), 1), normal: shape.normal, thicknessLdu: shape.thickness };
     } else {
-      if (!cylinder) { report('rejected', 'not a leaf, and a clip or finger hinge only swings a leaf (an ornament on a hinge)', moving.length); continue; }
+      if (!cylinder) { report('rejected', 'not a leaf, and a clip, a finger hinge or a bar only swings a leaf (an ornament on a hinge)', moving.length); continue; }
       if (moving.length < MECHANISM_MIN_PARTS || shape.radius < MECHANISM_MIN_RADIUS) { report('too small', `a mechanism of ${moving.length} parts reaching ${Math.round(shape.radius)} LDU: an ornament, not worth an entity`, moving.length); continue; }
+      // Mostly Technic parts turning on Technic pins are a mechanism's INSIDES (a lift's
+      // gears, a pinball table's linkage, a supercar's suspension), not a thing a player turns.
+      const technic = body.filter(i => /^Technic\b/i.test(meshes[i]!.description.replace(/^[~=_]+\s*/, ''))).length;
+      if (technic * 2 > body.length) { report('rejected', `${technic} of its ${body.length} parts are Technic: a mechanism's insides, not a thing a player turns`, moving.length); continue; }
       const p90 = share(90), m90 = share(-90), half = share(180);
       if (Math.min(p90, m90) > SWEEP_FREE) { report('rejected', `turning it sweeps through the model (${Math.round(Math.min(p90, m90) * 100)} percent of it at a quarter turn)`, moving.length); continue; }
-      if (p90 <= SWEEP_FREE && m90 <= SWEEP_FREE && half <= SWEEP_FREE) { kind = 'turnable'; noun = 'mechanism'; angle = OPEN_DEG.turnable; }
-      else { kind = 'cabinet'; noun = 'hinged section'; angle = (p90 <= m90 ? 1 : -1) * 90; }
+      if (p90 <= SWEEP_FREE && m90 <= SWEEP_FREE && half <= SWEEP_FREE) {
+        // Free all round. Only a TURNTABLE says it is meant to turn: on a pin or an axle
+        // the review found a cart's wheel, a davit and a lift's linkage beside the rare
+        // windmill (docs/bedrock-interactivity.md), and no rule tells them apart yet.
+        if (!line.joints.some(j => /\bTurntable\b/i.test(meshes[index.get(j.a)!]!.description) || /\bTurntable\b/i.test(meshes[index.get(j.b)!]!.description))) {
+          report('rejected', 'free to turn on a pin or an axle, but nothing says it is meant to (a wheel, a boom, a linkage): only a turntable makes a brick-built mechanism', moving.length);
+          continue;
+        }
+        kind = 'turnable'; noun = 'mechanism'; angle = OPEN_DEG.turnable;
+      } else {
+        // A section swings on a hinge proper (a wall wing on hinge bricks or plates), with some size to it.
+        // A LEVEL hinge set at an angle (not a quarter-turn multiple between its halves) is an
+        // ANGLE joint: a sloped roof or a ramp (10261's lift deck in the review). An upright
+        // hinge set at an angle is a wing the source left open (41395's bus sides).
+        const j0 = line.joints[0]!, R0 = j0.a.rot ?? IDENTITY, R1 = j0.b.rot ?? IDENTITY;
+        const square = [0, 1, 2].every(r => [0, 1, 2].every(c => { const v = Math.abs(R0[r]! * R1[c]! + R0[3 + r]! * R1[3 + c]! + R0[6 + r]! * R1[6 + c]!); return v < 0.05 || v > 0.95; }));
+        if (!square && !vertical) { report('rejected', 'its level hinge is set at an angle: an angle joint (a sloped roof, a ramp), not a section that swings', moving.length); continue; }
+        if (!hinge || moving.length < SECTION_MIN_PARTS) { report('rejected', `a one-way section of ${moving.length} parts on ${hinge ? 'a hinge' : 'clips or pins'}: a section is at least ${SECTION_MIN_PARTS} parts on hinge bricks or plates`, moving.length); continue; }
+        // A section that swings one way only: a wall wing, a fold-out side. It is building, not a flag on a pin.
+        if (!builtUp) { report('rejected', `a hinged section of ${body.length} parts, ${structural} of them plates, tiles, bricks or panels: an ornament on a hinge`, moving.length); continue; }
+        // A wing swings OUT into free air and could not swing in: the way out clear, the way
+        // in through the model (41395's bus sides: 0 and 27-46 percent). A piece of a lattice
+        // or a railing brushes something either way (10261 0/19 and 6/10, 910049 8/44).
+        const out = Math.min(p90, m90), into = Math.max(p90, m90);
+        if (out > SECTION_OUT_MAX || into < SECTION_IN_MIN) { report('rejected', `swung a quarter turn it lands ${Math.round(out * 100)} and ${Math.round(into * 100)} percent in the model: not a wing that swings out of it`, moving.length); continue; }
+        kind = 'cabinet'; noun = 'hinged section'; angle = (p90 <= m90 ? 1 : -1) * 90;
+        sweepShares = { chosen: Math.min(p90, m90), other: Math.max(p90, m90) };
+      }
     }
     for (const i of moving) claimed.add(i);
     const assembly = [...halves.filter((b, k) => halves.indexOf(b) === k), ...moving.map(i => bricks[i]!).filter(b => !halves.includes(b))];
@@ -658,10 +774,10 @@ export function discoverBrickHinges(input: BrickHingeInput): BrickHingeResult {
       pivotLdu: mid, axisLdu: axis, angleDeg: angle, ...(leaf ? { leaf } : {}),
       anchorLdu: [(bound.min[0] + bound.max[0]) / 2, bound.max[1], (bound.min[2] + bound.max[2]) / 2], boundsLdu: bound,
       ...(opening ? { openingLdu: opening } : {}), offGridDeg: leaf && vertical ? offGridOf(leaf.along) : 0,
-      builtFrom: description,
+      builtFrom: description, ...(sweepShares ? { sweep: { chosen: Math.round(sweepShares.chosen * 100), other: Math.round(sweepShares.other * 100) } } : {}),
     });
     void lo;
-    report('moves', '', moving.length, kind);
+    report('moves', '', moving.length, kind, noun);
   }
   return { items, lines };
 }

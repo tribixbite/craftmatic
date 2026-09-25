@@ -52,7 +52,7 @@ JOINT_FAMILY = re.compile(
     r'\b(Hinge|Clip|Clips|Turntable|Bar|Bars|Handle|Swivel|Click|Ladder|'
     r'Technic (Pin|Axle|Brick|Beam|Liftarm|Connector|Bush|Cross Block|Plate)|'
     r'Technic,? (Pin|Axle|Brick|Beam|Liftarm|Connector|Bush|Cross Block|Plate)|'
-    r'with (Pin|Pin Hole|Axle Hole|Hole)|Rotor|Propeller)\b', re.I)
+    r'with (Pin|Pin Hole|Axle Hole|Hole)|Rotor|Propeller|Open Stud|Hollow Stud)\b', re.I)
 
 
 def description_of(path: str) -> str:
@@ -91,9 +91,11 @@ def rotational(name: str):
         if depth > 30:
             return
         # The stud system (studs, anti-stud tubes, stud groups) is how every wall
-        # is built: never a hinge. Its primitives are `stud*` / `stug*`.
-        if STUD_PRIMITIVE.match(n.lower().replace(chr(92), '/').split('/')[-1]):
-            return
+        # is built: never a hinge. Its primitives are `stud*` / `stug*`; from
+        # them only a HOLLOW stud's hole is kept (a female 4 LDU cylinder): a bar
+        # stands in it (910004's door bar in its frame), and without it the bar
+        # held by a door's clips floated free and read as the moving side.
+        in_stud = bool(STUD_PRIMITIVE.match(n.lower().replace(chr(92), '/').split('/')[-1]))
         sh = L.shadow_for(n)
         if sh:
             for raw in sh.splitlines():
@@ -112,7 +114,7 @@ def rotational(name: str):
                         at = L.vadd(ip, L.mvec(io, g))
                         walk(kv['ref'], L.mmul(mat, io), L.vadd(L.mvec(mat, at), pos), depth + 1, shadow_only=True)
                     continue
-                if kind not in ('SNAP_CYL', 'SNAP_CLP', 'SNAP_FGR'):
+                if kind not in ('SNAP_CYL', 'SNAP_CLP', 'SNAP_FGR') or (in_stud and kind != 'SNAP_CYL'):
                     continue
                 lp = [float(x) for x in kv.get('pos', '0 0 0').split()]
                 lori = tuple(float(x) for x in kv['ori'].split()) if 'ori' in kv else L.I3
@@ -127,6 +129,8 @@ def rotational(name: str):
                     radius = max(secs, key=lambda s: s[2])[1]
                     length = sum(s[2] for s in secs)
                     g = kv.get('gender', '?')[:1].upper()
+                    if in_stud and not (g == 'F' and radius <= 4.5):
+                        continue
                     extra = {'s': shapes, 'r': round(radius, 2), 'l': round(length, 2), 'g': g}
                     if kv.get('slide', '').lower() == 'true':
                         extra['sl'] = 1
