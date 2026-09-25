@@ -132,6 +132,32 @@ describe('LOD hull geometry', () => {
     expect(byColour.get(4)).toEqual([{ origin: [U, 0, 0], size: [U, U, U], uv: [0, 0] }]);
   });
 
+  it('never lets glass take a cell with anything opaque in it (76417\'s upper floor read as a glass sheet)', () => {
+    const U = UNITS_PER_BLOCK;
+    // A sand-green roof plate filling a quarter of cell 0, a trans-clear pane filling
+    // the rest of it, and a pane alone in cell 1: the roof keeps cell 0, glass keeps cell 1.
+    const hull = buildLodHull('t', geometryOf(new Map([
+      [378, [{ origin: [0, 0, 0], size: [U, U / 4, U] }]],
+      [47, [{ origin: [0, U / 4, 0], size: [U, 3 * U / 4, U] }, { origin: [U, 0, 0], size: [U, U, U] }]],
+    ])), { cellBlocks: 1 })!;
+    const byColour = new Map(hull.meshes.map((m, i) => [m.material.colorId, (hull.value as Geo)['minecraft:geometry'][i]!.bones[0]!.cubes!]));
+    expect(byColour.get(378)).toEqual([{ origin: [0, 0, 0], size: [U, U, U], uv: [0, 0] }]);
+    expect(byColour.get(47)).toEqual([{ origin: [U, 0, 0], size: [U, U, U], uv: [0, 0] }]);
+    // And the hull draws it opaque: blended, it showed the hollow hull's own inside.
+    expect(hull.meshes.every(m => !m.translucent)).toBe(true);
+  });
+
+  it('turns a rotated bone\'s cubes with the geometry\'s own convention, not the render frame\'s', () => {
+    const U = UNITS_PER_BLOCK;
+    // A 2 x 1 x 1 bar on a bone turned 90 degrees about Z (JSON): under the X mirror the
+    // compiler writes, it points DOWN from its pivot (Rz(-90) in JSON coordinates).
+    const doc = { 'minecraft:geometry': [{ description: { identifier: 'geometry.craftmatic.t_mesh_0' }, bones: [{ name: 'r1', pivot: [0, 0, 0], rotation: [0, 0, 90], cubes: [{ origin: [0, 0, 0], size: [2 * U, U, U] }] }] }] };
+    const hull = buildLodHull('t', { value: doc, meshes: [{ id: 'geometry.craftmatic.t_mesh_0', material: resolveLdrawEntityMaterial(4), translucent: false }] }, { cellBlocks: 1 })!;
+    const ys = cubesOf(hull).flatMap(c => [c.origin[1]!, c.origin[1]! + c.size[1]!]);
+    expect(Math.min(...ys)).toBe(-2 * U);
+    expect(Math.max(...ys)).toBe(0);
+  });
+
   it('breaks a volume tie by draw order and never leaves a skin cell to two colours', () => {
     const U = UNITS_PER_BLOCK;
     // Red and blue each fill half of the one cell: red is drawn first and keeps it.

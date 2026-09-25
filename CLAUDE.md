@@ -294,6 +294,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (76417: 1,070 of 3,535 collider blocks held nothing, an invisible plane over
   the bank floor), and are now laid from the shell's own part boxes
   (`buildColliderGrid`). Derive world-block facts from geometry, not voxels.
+- **Reading a built pack's geometry: ONE rotation convention and a Z mirror.**
+  JSON angles turn JSON coordinates by `Rz(−rz)·Ry(ry)·Rx(−rx)` and the world
+  is the JSON frame mirrored in Z (`pivotRotation`/`worldFaces` in
+  `engine/bedrock-geometry-faces.ts`). The Walk preview and the LOD hull each
+  had another convention until 2026-09-25 (parts at the wrong angle, doors two
+  blocks off their doorways). Anything new that reads `.geo.json` calls these.
+- **Two colours on one plane hatch on the device.** Every entity passes
+  `separateCoplanarFaces` at export (winner pushed out 1/107 block);
+  `bun scripts/_render_fault_audit.ts <pack>` counts what is left and
+  `bun scripts/_pack_render.ts` renders a pack offline. BrickLink names hair
+  `MINI WIG …`: hair on either rig, never a held item.
 - **An LXFML's top-level `<Step>` is the finished-model page.** Its DIRECT
   `<Explode>` children place every sub-build and figure (76417: bank, dragon,
   cart, 13 figures); explodes inside nested sub-builds are diagrams. Nested

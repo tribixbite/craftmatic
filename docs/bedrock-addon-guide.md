@@ -3703,3 +3703,151 @@ Third device session, packs at `1939e916` (`device/gt4-76286/`,
   the grass at y −60 (session 2: ~200 blocks and a fall to −317).
   2.4-3.7 ms a tick driving, 0 Molang errors. (The telemetry rows after the
   dismount reached only the on-screen log, not the file.)
+  tab does.
+
+## Render faults from the 2026-09-25 device report, measured offline
+
+The user reported, on the 14-pack round `243f54b1`: tearing and strobing on
+every model, missing legs and arms, floating hair and figures, mangled faces,
+no detail, and Gringotts' upper level translucent. Evidence and tools:
+`output/render-faults-0925/` in the fixing worktree (agent a79aac62); Saga
+screenshots in its `saga/` folder.
+
+### Offline tools
+
+- `bun scripts/_render_fault_audit.ts <pack|dir> [--explain=N] [--eps=U]`:
+  every pair of drawn faces with the same outward normal on one plane
+  (within `--eps` model units, default 0.02), overlapping by a positive area,
+  in different colours, per actor and between actors drawn together. A face
+  pressed flat against another cube's opposite face is buried and not counted
+  (`buriedFaceTest`). Coaster cars are all recorded on the station point, so
+  car-against-car pairs are skipped.
+- `bun scripts/_pack_render.ts <pack> --out=<png> [--eye --at | --frame=<type re>]
+  [--far] [--geo-from=<older pack>]`: a z-buffered software render of a
+  pack's own geometry, swatches and face atlases, in the WORLD frame. `--far`
+  draws the LOD hull; `--geo-from` draws an older pack's geometry under this
+  pack's controllers (two packs with the same ids stacked in one world).
+- `bun scripts/_figure_parts_census.ts <source>`: every NPC figure's parts with
+  their rig slot and what the rig synthesised, and the figure parts left in
+  the scenery.
+
+### One rotation convention, and the world is the JSON frame mirrored in Z
+
+The compiler writes a render-frame turn `M = Rz(c)·Ry(b)·Rx(a)` as JSON
+`(−a, −b, c)` with every X coordinate mirrored. In the JSON's own coordinates
+that turn is **`Rz(−rz)·Ry(ry)·Rx(−rx)`** of the JSON angles
+(`pivotRotation`, `engine/bedrock-geometry-faces.ts`), and the game's world is
+those coordinates **mirrored in Z** (then the actor's yaw, then its
+position). Two consumers had other conventions: the Walk add-on preview
+applied `Euler(rx, −ry, −rz)` to unmirrored JSON coordinates (every part turned
+about X or Y stood out of 76417's walls at the wrong angle, and every door,
+figure and seat sat mirrored across its actor's origin, a door two blocks in
+front of its doorway), and the LOD hull applied `Rz(rz)·Ry(ry)·Rx(rx)`. Both
+now call `pivotRotation`; the preview holder scales Z by −1. Verified by
+rendering 76417 (roofs flush, doors in their doorways) and by host tests; the
+preview itself was not re-opened in a browser.
+
+### 1-2. Hatching, tearing, strobing: coplanar faces of two colours
+
+Two parts the source sinks into each other or lays flush on one plane leave
+faces of different colours on one plane; the depth test cannot order them.
+Measured on the round's packs (visible pairs / block faces of overlap):
+76417 4,766 / 46.5, 76457 3,920 / 17.4, 10365 2,278 / 33.3, 42703 5,216 /
+33.6, 11374 7,712 / 27.4. **Not a regression**: the same geometry measures the
+same in round `1e33902c` and in the 2026-09-22 sweep; 76417 doubled on
+2026-09-24 when its source became the assembled LXFML.
+
+Fix: `separateCoplanarFaces` runs on every compiled entity before chunking.
+Each pair's WINNING face is pushed out by `COPLANAR_SEPARATION_UNITS` (0.15
+units, 1/107 block): the smaller face (the tile or print sunk into a surface),
+then the smaller cube, then opaque over translucent; a face decal never moves
+and whatever shares its plane goes in front; buried pairs are left alone.
+Diagnostics: `coplanar {pairsFound, areaFound, facesGrown, pairsLeft}` per
+entity. After (`b6c1c882`): 76417 264 / 1.0, 76457 214 / 0.98, 10365 121 /
+1.0, 42703 42 / 0.32, 11374 571 / 1.78.
+
+**What it does not fix**: the horizontal striping under 42703's arches and
+on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
+of a curved part at the 2 LDU grain, drawn with face shading. It is geometry,
+it is in the offline render too, and the audit does not count it.
+
+### 3. Missing legs and arms
+
+The figures themselves are complete in 76457 (legs, hips, arms, hands). What
+is missing is in the SOURCE: 41732 has three mini-dolls with hips and no legs
+(the leg element has no LDraw mapping) and the rig synthesised legs only for a
+minifig. `assembleMinifig` now gives a doll without legs `92251` in its hips'
+colour, and a doll with NO arm the two plain arms (`MINIDOLL_DEFAULT_PARTS`); a
+doll with one arm (42703's stump) is left as built. Goblins' short legs are
+`41879` on the hips bone: correct, not missing.
+
+### 4. Floating hair
+
+BrickLink names hair `MINI WIG, NO. 366` (its `bl_` copies) and `MINI WIG
+NO. 13` (official files). Neither matched a hair pattern, so a doll carried its
+hair in its HAND (41732 x3, 42703) - hair floating beside the figure. It is now
+hair on both rigs. Still open: loose accessories the source leaves in the
+air (76417's display scatter: 84 figure parts outside any NPC, 22 Viking
+helmets and 7 fezzes among them) stay in the shell where the source put them
+(Saga, `saga/after-76417-figures-b6c1c882.jpg`: a hat and a hair piece in
+mid-air beside the line-up).
+
+### 5. Faces
+
+Photo face art (`--faces`, BrickLink cut-outs) kept the photo's own lit and
+shaded skin over the head's swatch, through a ragged mask: a mottle of two
+skins around the features. `faceArtImage` now drops texels within
+`PHOTO_SKIN_TOLERANCE` (56) of the photo's dominant skin (`photoSkinColour`),
+so the head's own colour shows and only ink is drawn. Art that is not a face
+on skin (under 64 texels, or no single colour a quarter of it) is kept whole.
+Face art has shipped since round `8346fb29` (2026-09-24).
+
+### 6. Detail, and the texture-pack question
+
+There is no texture pack to install and none to remove for detail: every pack
+ships ONE flat 16x16 swatch per LEGO colour (plus 16x16 MER and normal maps for
+PBR), and printed heads are its only images. The owl, printed tiles and
+stickers are their moulds' shapes in flat colour. The resource pack's manifest
+used to say "HD LEGO textures", which is why the question came up; it now says
+what it ships.
+
+An OLDER pack can override a newer one: rounds before `243f54b1` labelled
+76417 `Gringotts` and 76457 `Hogsmeade`, so their packs carry different uuids
+(`6fd3b8ff…`/`6afa018a…` for 76417) but the SAME entity and geometry ids
+(`craftmatic:gringotts_76417_shell`, `geometry.craftmatic.gringotts_76417_shell_mesh_N`).
+If both are active in one world, the one higher in the stack wins per id, and a
+mix (older geometry under newer controllers) is possible. Remove the older
+versions from the world's Behavior and Resource Packs; a pack merely installed
+and not active in the world changes nothing.
+
+### 7. Floating figures
+
+Two causes, both measured. (a) A figure's geometry stood on its lowest cube,
+and 76457 places a second wand at every figure's feet, grouped into the figure
+and hung from its hand: the whole figure stood 2.73 units (0.17 block) above
+the floor. A loose accessory now joins a figure only from hand height
+(`HELD_BELOW_LDU` 48, torso frame), and a rigged entity's floor is its body's
+lowest cube, not what it holds. (b) The 243f54b1 packs lifted a figure standing
+inside a collider column onto its top at spawn (76417 figures 9-11: 1.2-1.5
+blocks); round 2 of the figures work (`4872d616`, merged after that round)
+decides the spawn at export. Saga, `b6c1c882`: the 76417 line-up stands on the
+ground.
+
+### 8. The translucent upper level
+
+At a distance the LOD hull draws 76417, and its glass cells showed the hull's
+hollow inside through the skylight (`--far` render: a translucent sheet over
+the upper floor with loose blocks visible through it, as in the user's
+screenshot). The hull now never lets a translucent colour take a cell with
+anything opaque in it, and draws every hull colour opaque (`ad90f46d`). Not
+seen on a device yet.
+
+### Device check (Saga, world 925, `b6c1c882`)
+
+Deployed with `_pixel_dev_deploy.py --serial 192.168.1.243:5555 --exclusive`
+(14/14 bound, 0 content-log errors). 42703's arch before/after and 76417's bank
+level: no diagonal hatching; the arch's stair-step striping remains (above).
+Typing into the Saga's chat over adb drops and reorders characters and the
+first character lands at the END of the field: type one character at a time,
+then move the `/` to the front (`scripts/_saga_chat.sh`; check the field in a
+screenshot before sending, it is still not always right).

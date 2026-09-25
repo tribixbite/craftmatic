@@ -29,13 +29,29 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 ## URGENT — device report 2026-09-25 night (user, zip `243f54b1`; screenshots `output/device-report-0925c/`)
 
 Three worktree agents launched (merge per the IN FLIGHT recipe below):
-- [ ] REGRESSION rendering fidelity, all models: horizontal tearing / edge
-  distortion, overlapping layers strobing (z-fight), missing legs + arms,
-  floating hair, mangled faces, no detail on the white owl, floating
-  minifigs, Gringotts upper level translucent. Agent bisects against
-  `1e33902c`, builds offline detectors over the 40 favourites, fixes, checks on
-  the Pixel (924). User asked: is there a newer texture pack to install / old
-  one to remove? (packs ship one 16x16 swatch per colour; no separate pack).
+- [x] Rendering faults MERGED (agent-a79aac62; guide "Render faults from the
+  2026-09-25 device report"): coplanar two-colour faces pushed apart at
+  export (76417 46.5 -> 1.0 block faces; long-standing, not a regression),
+  doll legs/arms filled, "MINI WIG" is hair, feet on the body's lowest point,
+  face art drops the photo skin, LOD hull glass opaque, pack text no longer
+  claims HD textures. Saga-verified: hatching gone, 76417 line-up grounded.
+  Open:
+  - [ ] Rebuild the 14-pack round from merged main, check it on the Pixel (world
+    924): hatching gone on 76417/76457 at 2-6 blocks, dolls with legs and hair on
+    heads (41732), faces without the mottle, the far view of 76417 (hull glass
+    now opaque, `ad90f46d`, not yet seen on a device).
+  - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
+    2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
+  - [ ] Loose accessories floating in shells (76417: 84 figure parts outside any
+    NPC, 22 Viking helmets): a display-scatter rule for unsupported figure
+    vocabulary, measured with `_figure_parts_census.ts` before changing anything.
+  - [ ] Open the Walk add-on in Chrome once: the preview's Z mirror and rotation
+    change is typecheck- and render-verified only (door swing, pinball flippers
+    and the sit overlay run through the mirrored holder).
+  - [ ] 76435: figures 1 and 8 are recorded on the same spot (804 coplanar pairs,
+    5.6 block faces between them in the 40-set audit; every other favourite is
+    at or under 1.8): they fight until they walk apart. Offset a figure that
+    spawns inside another.
 - [x] REGRESSION coaster camera FIXED (`37cdf61c`, merged): the loop camera
   predicted 80 ticks on every tick the car pitched > 20 degrees (10261: 117
   substeps/tick vs 2.4) — from `2b7e11bd`. Now predicts only near an
