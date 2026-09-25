@@ -1908,6 +1908,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
   let cameraDebug = false, traceTicks = 0;
+  /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
+  const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
     const viewer = viewers.get(id);
     viewers.delete(id);
@@ -1919,7 +1921,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     if (camera.mode === 'off' || !rider?.camera) return;
     let viewer = viewers.get(rider.id);
     if (!viewer) {
-      viewer = { player: rider, look: null, view: null, invisible: false, seen: ticks };
+      viewer = { player: rider, look: null, view: null, invisible: false, seen: ticks, settle: SETTLE_TICKS };
       viewers.set(rider.id, viewer);
       try { rider.addEffect('invisibility', 20 * 60 * 60, { showParticles: false }); viewer.invisible = true; } catch {}
     }
@@ -1930,9 +1932,17 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const sampled = headings.get(rider.id);
     const rotation = sampled ? sampled.head : rider.getRotation();
     const carYaw = sampled && Number.isFinite(sampled.car) ? sampled.car : Number.isFinite(frame.priorYaw) ? frame.priorYaw : frame.yaw;
+    // Bedrock turns a new rider to face the seat a few ticks AFTER mounting
+    // (Pixel: a 65-degree offset appeared once boarded), so the look reference
+    // follows the head until that has settled: the ride starts looking ahead.
+    if (viewer.settle > 0) { viewer.settle--; viewer.look = null; }
     viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch);
     viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, camera.mode, camera.maxTurn);
     const eye = frame.eye, view = viewer.view;
+    if (traceTicks > 0) {
+      traceTicks--;
+      console.warn(`CAMTRACE ${ticks} carNow=${carYaw.toFixed(2)} car=${frame.yaw.toFixed(2)} prior=${Number(frame.priorYaw).toFixed(2)} carP=${frame.pitch.toFixed(2)} headY=${rotation.y.toFixed(2)} headP=${rotation.x.toFixed(2)} live=${JSON.stringify(rider.getRotation())} look=${viewer.look.yaw.toFixed(2)}/${viewer.look.pitch.toFixed(2)} cam=${viewer.view.yaw.toFixed(2)}/${viewer.view.pitch.toFixed(2)} eye=${frame.eye.x.toFixed(2)},${frame.eye.y.toFixed(2)},${frame.eye.z.toFixed(2)}`);
+    }
     if ((camera.mode === 'roll' || camera.mode === 'rollover') && Spline) {
       // Roll is only reachable through a camera ANIMATION (`setCamera` takes
       // yaw and pitch alone). Its rotation keyframes must be MORE than 0.05 s
@@ -1954,9 +1964,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         const step = [eye.x - from.x, eye.y - from.y, eye.z - from.z];
         const moved = Math.hypot(step[0]!, step[1]!, step[2]!) > 0.01;
         const spline = new Spline();
-        // A spline needs two distinct points (two 0.01 apart were refused); a
-        // car standing still holds the first with its progress at 0.
-        spline.controlPoints = moved ? [eye, { x: eye.x + step[0]! * ahead, y: eye.y + step[1]! * ahead, z: eye.z + step[2]! * ahead }] : [eye, { x: eye.x, y: eye.y + 1, z: eye.z }];
+        // The Pixel refuses a linear spline of TWO points ("Linear needs at
+        // least 2 control points", with them 0.01 and 1 block apart alike)
+        // and plays one of three, so the segment is given its midpoint too. A
+        // car standing still holds the first point with its progress at 0.
+        const end = moved ? { x: eye.x + step[0]! * ahead, y: eye.y + step[1]! * ahead, z: eye.z + step[2]! * ahead } : { x: eye.x, y: eye.y + 1, z: eye.z };
+        spline.controlPoints = [eye, { x: (eye.x + end.x) / 2, y: (eye.y + end.y) / 2, z: (eye.z + end.z) / 2 }, end];
         const extrapolate = (now: number, before: number) => { const rate = now - before; return Math.abs(rate) <= 30 ? now + rate * ahead : now; };
         const target = { x: extrapolate(rotation.x, last.x), y: extrapolate(rotation.y, last.y), z: extrapolate(rotation.z, last.z) };
         // `roll` keeps the pitch within ±90; `rollover` asks the keyframes for more (device probe).
@@ -1975,10 +1988,6 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     }
     if (cameraDebug && ticks % 5 === 0) {
       try { rider.onScreenDisplay?.setActionBar(`cam ${camera.mode} y${viewer.view.yaw.toFixed(0)} p${viewer.view.pitch.toFixed(0)} | car y${frame.yaw.toFixed(0)} p${frame.pitch.toFixed(0)} | head y${rotation.y.toFixed(0)} p${rotation.x.toFixed(0)} | look ${viewer.look.yaw.toFixed(0)}/${viewer.look.pitch.toFixed(0)}`); } catch {}
-    }
-    if (traceTicks > 0) {
-      traceTicks--;
-      console.warn(`CAMTRACE ${ticks} carNow=${carYaw.toFixed(2)} car=${frame.yaw.toFixed(2)} prior=${Number(frame.priorYaw).toFixed(2)} carP=${frame.pitch.toFixed(2)} headY=${rotation.y.toFixed(2)} headP=${rotation.x.toFixed(2)} live=${JSON.stringify(rider.getRotation())} look=${viewer.look.yaw.toFixed(2)}/${viewer.look.pitch.toFixed(2)} cam=${viewer.view.yaw.toFixed(2)}/${viewer.view.pitch.toFixed(2)} eye=${frame.eye.x.toFixed(2)},${frame.eye.y.toFixed(2)},${frame.eye.z.toFixed(2)}`);
     }
   };
   // Device tuning and measurement hook: `/scriptevent craftmatic:coaster_cam <words>`.

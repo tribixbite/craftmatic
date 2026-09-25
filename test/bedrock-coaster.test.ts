@@ -2083,18 +2083,21 @@ describe('the rider camera follows the track', () => {
     const h = rideHost(towerRoute(), { seat: [0, 0.35, 0] });
     const rider = cameraRider(h.entity, { yaw: 25, pitch: -10 }); // boards looking somewhere else
     h.run(1); h.riders.push(rider.player); h.run(1);
+    // Bedrock turns a new rider to the seat a few ticks after mounting: the
+    // reference follows the head until then, so the ride starts looking ahead.
+    rider.head.yaw = 40; h.run(11);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
     const cart = () => { const c = h.entity.tryTeleport.mock.calls as any[][]; return c.at(-1)![1].rotation.y as number; };
     // Boarding sets the reference: the view starts on the track frame whatever the player was looking at.
     expect(calls.at(-1)![1].rotation.y).toBeCloseTo(cart(), 6);
     expect(calls.at(-1)![1].rotation.x).toBeCloseTo(0, 6);
     // Turn the head 30 right and 20 down: the view turns with it, relative to the car.
-    rider.head.yaw = 55; rider.head.pitch = 10; h.run(1);
+    rider.head.yaw = 70; rider.head.pitch = 10; h.run(1);
     expect(calls.at(-1)![1].rotation.y - cart()).toBeCloseTo(30, 6);
     expect(calls.at(-1)![1].rotation.x).toBeCloseTo(20, 6);
     // Past the limits the offset holds at the limit ...
     // (the camera turns at most `maxTurn` a tick, so a 150-degree flick takes a few)
-    rider.head.yaw = 25 + 150; rider.head.pitch = -10 - 90; h.run(3);
+    rider.head.yaw = 40 + 150; rider.head.pitch = -10 - 90; h.run(3);
     expect(calls.at(-1)![1].rotation.y - cart()).toBeCloseTo(COASTER_RIDER_VIEW.lookYaw, 6);
     expect(calls.at(-1)![1].rotation.x).toBeCloseTo(-COASTER_RIDER_VIEW.lookPitch, 6);
     // ... and looking back by the limit returns to the track frame exactly.
@@ -2181,7 +2184,8 @@ describe('the rider camera follows the track', () => {
       for (let k = 0; k < plays.length; k++) {
         const [spline, options] = plays[k]!;
         expect(spline).toBeInstanceOf(Spline);
-        expect(spline.controlPoints).toHaveLength(2);
+        // Three points: the Pixel refuses a two-point linear spline.
+        expect(spline.controlPoints).toHaveLength(3);
         // The engine refuses rotation keyframes 0.05 s or less apart (Pixel, 26.51).
         const [start, end] = options.animation.rotationKeyFrames;
         expect(end.timeSeconds - start.timeSeconds).toBeGreaterThan(0.05);
