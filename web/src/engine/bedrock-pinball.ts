@@ -445,7 +445,7 @@ export function flipperAnimation(typeId: string): { id: string; file: unknown } 
 }
 
 /** Axis-sign properties shared by every translated part (set once by the runtime). */
-const signProperties = (): Record<string, unknown> => ({ [PROP_SX]: floatActorProperty([-1, 1], -1), [PROP_SZ]: floatActorProperty([-1, 1], 1) });
+const signProperties = (): Record<string, unknown> => ({ [PROP_SX]: floatActorProperty([-1, 1], PINBALL_AXIS_SIGNS[0]), [PROP_SZ]: floatActorProperty([-1, 1], PINBALL_AXIS_SIGNS[1]) });
 
 /** The ball's properties: plane offset and velocity from the serve point, and the update counter. */
 export function ballProperties(): Record<string, unknown> {
@@ -485,13 +485,20 @@ export const BALL_PRE_ANIMATION = [
 const molangNumber = (v: number): string => (Math.abs(v) < 1e-9 ? '0' : v.toFixed(6).replace(/0+$/, '').replace(/\.$/, ''));
 
 /**
+ * Signs of model X and Z in a bone's animated POSITION, measured on the Pixel
+ * (2026-09-25, 11374 in world 924): with the geometry writer's convention
+ * (-1, +1) the launched ball flew off the left of the cabinet; with (-1, -1)
+ * it climbed the lane and then left the table sideways; with (+1, -1) it
+ * played on the table. So an animated position keeps the render frame's X and
+ * negates its Z - not the geometry JSON's X mirror.
+ */
+export const PINBALL_AXIS_SIGNS: [number, number] = [1, -1];
+
+/**
  * A bone translation in model PIXELS from a plane offset (du, dw in LDU;
  * Molang expressions): `16 * (du * map.u + dw * map.w)` per axis, with X and Z
- * multiplied by the entity's own sign properties. The geometry JSON mirrors X
- * (ldraw-entity-compiler), and whether a bone's animated POSITION follows the
- * same convention is decided on the device: the runtime writes the signs
- * (`axisSigns`, tunable live), so a wrong guess costs a `/scriptevent`, not a
- * rebuild.
+ * multiplied by the entity's own sign properties (`PINBALL_AXIS_SIGNS`,
+ * written by the runtime and tunable live with {"axes":[sx,sz]}).
  */
 function planeTranslation(map: PinballMap, du: string, dw: string): string[] {
   return [0, 1, 2].map(k => {
@@ -702,7 +709,7 @@ export function pinballRuntimeConfig(
     ballOffset: sub(ballEntityModel, plan.ballCentreModel),
     restAngles: plan.flippers.map(f => f.restAngle), spinSign,
     plungerStroke: plan.plunger?.strokeLdu ?? 0,
-    ballMode: 'animate', axisSigns: [-1, 1],
+    ballMode: 'animate', axisSigns: [...PINBALL_AXIS_SIGNS],
     cameraEye: plan.cameraEyeModel, cameraLook: plan.cameraLookModel,
     consoleHome: plan.consoleModel, consoleYaw: plan.consoleYaw, label,
   };

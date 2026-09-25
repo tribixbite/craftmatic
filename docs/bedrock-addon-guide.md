@@ -2738,8 +2738,10 @@ were unreliable and hard to find.
   draws offset + velocity x dt, so it moves at the frame rate between 20 Hz
   updates. The culling box is the whole table. `{"ball":"teleport"}`
   restores the per-tick teleport. X/Z signs of a bone translation are
-  properties (`craftmatic:sx/sz`, default −1/+1 after the geometry writer's
-  X mirror), so a wrong guess is fixed live with `{"axes":[1,1]}` etc.
+  properties (`craftmatic:sx/sz`), measured on the Pixel as **+1 / −1**: an
+  animated bone position keeps the render frame's X and negates its Z, the
+  opposite of the geometry JSON's X mirror (with −1/+1 the ball flew off the
+  cabinet). `{"axes":[sx,sz]}` overrides them live.
 - **Cost.** The world scan (getEntities plus three dynamic-property reads
   per actor) is cached for 20 ticks; the sim adapts its substeps to the
   motion (2 for a ball at rest, up to 12) and broad-phases bumpers.

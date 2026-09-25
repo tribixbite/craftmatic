@@ -49,7 +49,7 @@ function config(): PinballRuntimeConfig {
     map: { p0: [0, 0, 0], u: [0, 0, 0.01], w: [0.01, 0, 0], n: [0, 0.01, 0] },
     ballH: 24, ballOffset: [0, -0.1, 0],
     restAngles: sim.flippers.map(f => f.restAngle), spinSign: 1,
-    plungerStroke: 40, ballMode: 'animate', axisSigns: [-1, 1],
+    plungerStroke: 40, ballMode: 'animate', axisSigns: [1, -1],
     // The eye stands off the table's +z end, looking up it (-z).
     cameraEye: [2, 5, 10], cameraLook: [2, 0, 3], consoleHome: [2, 0, 9], consoleYaw: 180, label: 'Test table',
   };
@@ -193,8 +193,8 @@ describe('pinball runtime (host simulation)', () => {
     const p = h.ball.teleport.mock.calls.at(-1)![0];
     expect(p.x).toBeCloseTo(103.7, 5); expect(p.y).toBeCloseTo(64.14, 5); expect(p.z).toBeCloseTo(206.0, 5);
     expect(h.ball.actorProps['craftmatic:bu']).toBe(0);
-    expect(h.ball.actorProps['craftmatic:sx']).toBe(-1);
-    expect(h.ball.actorProps['craftmatic:sz']).toBe(1);
+    expect(h.ball.actorProps['craftmatic:sx']).toBe(1);
+    expect(h.ball.actorProps['craftmatic:sz']).toBe(-1);
     const teleports = h.ball.teleport.mock.calls.length;
     h.input.y = -1; h.run(10); h.input.y = 0; h.run(6);
     expect(launched(h)).toBe(true);
