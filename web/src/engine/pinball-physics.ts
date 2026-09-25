@@ -8,12 +8,16 @@
  *
  * Units are the table's plane coordinates (engine/pinball-table.ts): LDU, with
  * `u` DOWN the table toward the player and `w` across it, and seconds. The
- * constants are GAME units, not the model's real scale: a real 19 mm ball on
- * an 8.45 degree LEGO playfield accelerates at ~3,600 LDU/s2 and crosses the
- * table in about 0.7 s, which at Bedrock's 20 ticks a second is a ball that
- * jumps 1.8 blocks per frame. Time runs at ~0.55x instead (gravity scaled by
- * its square), so a ball falls the 920 LDU table in ~1.3 s and a flipper shot
- * climbs it with room to spare.
+ * constants are GAME units, not the model's real scale: a real ball ROLLING
+ * down the 8.6 degree LEGO playfield (sin 0.15, pinball-table.ts) accelerates
+ * at 5/7 g sin = 1.05 m/s2 = 2,630 LDU/s2 (3,680 if it slid; 1 LDU = 0.4 mm)
+ * and falls the table in about 0.85 s, which at Bedrock's 20 ticks a second is
+ * a ball that jumps over a block per frame. Time runs at ~0.65x instead
+ * (gravity scaled by its square: 1,100 / 2,630 = 0.65^2), so a ball falls the
+ * 920 LDU table in ~1.3 s and a flipper shot climbs it with room to spare.
+ * The gravity is one number for every table: it does not read the detected
+ * tilt, and it does not change with the wand size (the game plays the same at
+ * 400 %). Audit: docs/physics-architecture.md.
  *
  * The ball is a disc of radius `ballRadius` sliding in the plane. It collides
  * with:

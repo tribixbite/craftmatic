@@ -145,7 +145,7 @@ now **924** (blank, created by the user); packs are deployed into
 |---|---|---|
 | 1 | pinball: nothing moves, touch awkward, camera closer | flippers/ball/zones never LOADED (`minecraft:pushable`, dropped in format 1.26.30) — fixed `980f54fd`, gated in `_mcaddon_check.py`. Device-proven: ball launches and rolls smoothly, flippers swing UP on the correct side, seat lift frames the table. Tap-to-flip: see pinball below. Camera closer (0.1 L out, 0.8 L up). |
 | 2 | second-loop swivel | fixed `d98d2b23` (yaw from the axle, up follows the loop); host-proved only |
-| 3 | coasters ~50 % slow | `COASTER_RIDE_PACE` 1.6, `MAX_SPEED` 32, inversion speed floor; host-proved only |
+| 3 | coasters ~50 % slow | 1.6 rode on the Pixel and was "a touch TOO fast" (2026-09-25); now `COASTER_RIDE_PACE` √2 (g = 19.6 = 2 g), `MAX_SPEED` 20 × pace, inversion speed floor; √2 host-proved only. Why √2 and the gravity audit: `docs/physics-architecture.md` |
 | 4 | faces missing | REAL faces 2026-09-24 (`2a7bf784`, `c203b22c`): decorated heads become their printed LDraw part (`ldd-print-map.json`) and a print is a TEXTURE on a decal cube; heads no library prints can carry BrickLink-photo face art (`--faces`). 76417 15/15 faced with art (2/15 without), 42703 3/6. Default face is the fallback. See the guide's "Accurate faces". |
 | 5 | partial hair | `preserveSurface` for headwear + head carving; `descriptionOf` skipped `0 FILE` headers |
 | 6 | mermaid legs | mini-doll rig (`FigureSystem`), tail re-placed at the legs joint |
@@ -201,6 +201,7 @@ with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
 ### Open
 
 - [ ] Device round: all five packs (coaster swivel/pace, figures, Gringotts colliders/doors, pinball input).
+- [ ] Coaster pace √2 on the Pixel (10303, 10261): 11.6 % slower than the 1.6 the user found "a touch too fast". Record the verdict in `docs/physics-architecture.md` §10-11. Physics TODOs there: the ceiling and drag are not Froude-scaled above 100 % (at 400 % the train crosses loop tops on the inversion floor); pinball gravity ignores the tilt.
 - [ ] Device round for the moving parts (see "Interactivity round" below): the
   bank front doors are now LEGO door entities that fill their frame.
 - [ ] Goblins at the teller desks: only by an explicit rule.
