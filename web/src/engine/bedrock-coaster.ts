@@ -2336,6 +2336,49 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           return path.closed ? ((arc % total) + total) % total : Math.max(0, Math.min(total, arc));
         };
         const wheelbaseOf = (car: any): number => { const wheelbase = types[car.entity.typeId]?.wheelbase; return wheelbase !== undefined && wheelbase > 0 ? wheelbase : 0; };
+        // One tick of ride physics from (centre, speed) in `direction`: the
+        // advance in model blocks and the new speed. Pure in the train's state,
+        // so the rider camera can PREDICT the train through an inversion with
+        // exactly the arithmetic the ride itself will run (`planInversion`).
+        const integrate = (centre: number, speed: number, direction: number): { speed: number; advanced: number } => {
+          // Integrate in substeps no longer than one authored sample spacing,
+          // each sampling the grade where the train actually is: the polyline
+          // bounds the integration step, never the speed.
+          // The inversion floor can lift the speed mid-tick, so it bounds the substep too.
+          const inversionFloor = route.loopRadius > 0 ? INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale) : 0;
+          const bound = (Math.max(speed, inversionFloor) + (GRAVITY + LIFT_ACCEL) / 20) / (20 * scale);
+          const substeps = Math.max(1, Math.ceil(bound / route.maxSpacing));
+          const dt = 1 / 20 / substeps;
+          let advanced = 0;
+          for (let sub = 0; sub < substeps; sub++) {
+            const here = centre + advanced * direction;
+            // sin(theta) of the track under the train, averaged over its cars
+            // in the direction of travel: a train straddling a crest feels both.
+            let sum = 0;
+            for (const car of list) sum += chordAt(path, carArc(here, car.slot), wheelbaseOf(car))[1];
+            const grade = sum / list.length * direction;
+            speed = Math.max(0, speed + (-GRAVITY * grade - ROLLING - DRAG * speed * speed) * dt);
+            // The chain catches a cart slower than itself on a climb and carries
+            // it at chain speed; it never touches a cart that is already faster.
+            // A measured drive engages only over its own sprockets.
+            const chainHere = !route.chain || (here >= route.chain.start - extent / 2 && here <= route.chain.end + extent / 2);
+            if (chainHere && grade > LIFT_GRADE && speed < LIFT_SPEED) speed = Math.min(LIFT_SPEED, speed + LIFT_ACCEL * dt);
+            speed = Math.max(speed, MIN_SPEED);
+            // Through an inversion the train keeps INVERSION_MARGIN x the
+            // speed that holds it on the loop at the apex, sqrt(g r), scaled
+            // by sqrt(how far over it is): zero where the track is vertical,
+            // so the floor rises from nothing instead of kicking the train at
+            // the side of the loop. It only ever lifts a train that has lost
+            // the energy real track would have given it.
+            if (route.loopRadius > 0) {
+              let lowest = 1;
+              for (const car of list) lowest = Math.min(lowest, upAt(route, carArc(here, car.slot))[1]);
+              if (lowest < 0) speed = Math.max(speed, INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale * -lowest));
+            }
+            advanced += speed * dt / scale;
+          }
+          return { speed, advanced };
+        };
         // The whole train has to fit on an open route, so its centre cannot
         // reach either end by half the train's length.
         const low = path.closed ? 0 : extent / 2, high = path.closed ? total : total - extent / 2;
@@ -2459,43 +2502,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             speed = 0;
             if (!stationBusy) { train.holding = false; speed = DEPART_SPEED; train.armed = true; }
           } else {
-            // Integrate in substeps no longer than one authored sample spacing,
-            // each sampling the grade where the train actually is: the polyline
-            // bounds the integration step, never the speed.
-            // The inversion floor can lift the speed mid-tick, so it bounds the substep too.
-            const inversionFloor = route.loopRadius > 0 ? INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale) : 0;
-            const bound = (Math.max(speed, inversionFloor) + (GRAVITY + LIFT_ACCEL) / 20) / (20 * scale);
-            const substeps = Math.max(1, Math.ceil(bound / route.maxSpacing));
-            const dt = 1 / 20 / substeps;
-            let advanced = 0;
-            for (let sub = 0; sub < substeps; sub++) {
-              const here = centre + advanced * direction;
-              // sin(theta) of the track under the train, averaged over its cars
-              // in the direction of travel: a train straddling a crest feels both.
-              let sum = 0;
-              for (const car of list) sum += chordAt(path, carArc(here, car.slot), wheelbaseOf(car))[1];
-              const grade = sum / list.length * direction;
-              speed = Math.max(0, speed + (-GRAVITY * grade - ROLLING - DRAG * speed * speed) * dt);
-              // The chain catches a cart slower than itself on a climb and carries
-              // it at chain speed; it never touches a cart that is already faster.
-              // A measured drive engages only over its own sprockets.
-              const chainHere = !route.chain || (here >= route.chain.start - extent / 2 && here <= route.chain.end + extent / 2);
-              if (chainHere && grade > LIFT_GRADE && speed < LIFT_SPEED) speed = Math.min(LIFT_SPEED, speed + LIFT_ACCEL * dt);
-              speed = Math.max(speed, MIN_SPEED);
-              // Through an inversion the train keeps INVERSION_MARGIN x the
-              // speed that holds it on the loop at the apex, sqrt(g r), scaled
-              // by sqrt(how far over it is): zero where the track is vertical,
-              // so the floor rises from nothing instead of kicking the train at
-              // the side of the loop. It only ever lifts a train that has lost
-              // the energy real track would have given it.
-              if (route.loopRadius > 0) {
-                let lowest = 1;
-                for (const car of list) lowest = Math.min(lowest, upAt(route, carArc(here, car.slot))[1]);
-                if (lowest < 0) speed = Math.max(speed, INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale * -lowest));
-              }
-              advanced += speed * dt / scale;
-            }
-            train.advanced = advanced;
+            const integratedStep = integrate(centre, speed, direction);
+            speed = integratedStep.speed;
+            train.advanced = integratedStep.advanced;
           }
           // Arc distance to the next stop in the direction of travel, or -1 when
           // nothing is ahead: the platform (armed, ahead, not still clearing it),
@@ -2578,12 +2587,13 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         stage = 'sample next track';
         const angle = rotation * Math.PI / 180, c = Math.cos(angle), s = Math.sin(angle);
         const toWorld = (p: readonly number[]) => ({ x: origin.x + (p[0]! * c - p[2]! * s) * scale, y: origin.y + p[1]! * scale, z: origin.z + (p[0]! * s + p[2]! * c) * scale });
-        const frames: any[] = [];
-        for (const car of list) {
-          const arc = carArc(next, car.slot);
+        // Where a car stands at `arc`: its entity position and attitude, the
+        // body offset back to the rails and the rider's eye and frame. `heldYaw`
+        // is the yaw kept for a car on its side (`coasterCarAttitude`).
+        const carPose = (car: any, arc: number, liftAt: number, heldYaw: number, facing: number) => {
           const at = sample(path, arc);
           const p = at.position;
-          const lifted = lift && carLift > 0 ? [p[0] + lift.travel[0] * carLift, p[1] + lift.travel[1] * carLift, p[2] + lift.travel[2] * carLift] : p;
+          const lifted = lift && liftAt > 0 ? [p[0] + lift.travel[0] * liftAt, p[1] + lift.travel[1] * liftAt, p[2] + lift.travel[2] * liftAt] : p;
           const datum = toWorld(lifted);
           // The car points along the chord between its wheel contacts, which is
           // the local tangent for a car that measured no wheelbase.
@@ -2601,10 +2611,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // past 90 degrees in that heading's vertical plane. The fallback is
           // only for a car on its side; it is the script's own last yaw, never
           // read back off the entity, whose rotation a rider can disturb.
-          const heldYaw = Number.isFinite(car.state.yaw) ? car.state.yaw : car.entity.getRotation().y;
           const { yaw, pitch, roll } = attitude([worldTx, tangent[1], worldTz], [ux, uy, uz], heldYaw, YAW_HOLD_HORIZONTAL);
-          const priorYaw = car.state.yaw;
-          car.state.yaw = yaw;
           const yawRad = yaw * Math.PI / 180;
           // ── Where the rider's head belongs ──
           // The seat is a fixed offset in the entity's yaw-only frame (model
@@ -2640,7 +2647,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           // turned into the entity's frame (yaw plus the model's 180-degree facing).
           const gx = -offset[0], gy = -offset[1], gz = -offset[2];
           const body = [-(cosYaw * gx + sinYaw * gz), gy, sinYaw * gx - cosYaw * gz].map(value => Math.max(-BODY_RANGE, Math.min(BODY_RANGE, value * 16 / scale)));
-          frames.push({ car, position, yaw, priorYaw, pitch, roll, body, eye, nose, up: cu });
+          return { position, yaw, pitch, roll, body, eye, nose, up: cu };
+        };
+        const frames: any[] = [];
+        for (const car of list) {
+          const heldYaw = Number.isFinite(car.state.yaw) ? car.state.yaw : car.entity.getRotation().y;
+          const pose = carPose(car, carArc(next, car.slot), carLift, heldYaw, facing);
+          const priorYaw = car.state.yaw;
+          car.state.yaw = pose.yaw;
+          frames.push({ car, ...pose, priorYaw, arc: carArc(next, car.slot) });
         }
         // The platform and counterweight: placed once on first sight and then
         // whenever the hoist moves, by the train that holds it. Absent entities
