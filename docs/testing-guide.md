@@ -262,115 +262,133 @@ path or the exporters. Each drives the REAL app in headless Chrome against
 
 ## In-game automated tests (GameTest)
 
-**Verdict (2026-09-24): use it — for everything the server can observe.**
-Bedrock's GameTest framework runs on the Pixel, driven from adb with no taps
-beyond world creation, and reports through the content log, which adb pulls.
-It replaces the tap-and-screenshot rounds for placement, doors/passability,
-seats and state changes; it does not replace the device for touch picking,
-rendering, culling, form text or the camera.
+**Verdict (2026-09-24): use it for everything the server can observe.** On
+the Pixel 8 Pro (Minecraft 1.26.51), Bedrock's GameTest framework placed
+41732 with the pack's own placement code, walked all six doorways closed and
+open, sat a simulated player in 11374's pinball seat, and pulsed each flipper
+from the hotbar, sampling the flipper angles every tick. Every verdict went
+to the content log, which adb pulls. No taps were needed after the world was
+created. This replaces tap-and-screenshot rounds for placement,
+doors/passability, seats, flippers and other state changes. It does not
+replace the phone for touch picking, rendering, culling, form text or the
+camera.
 
-**What was measured on the Pixel 8 Pro (Minecraft 1.26.51, run 1, evidence in
-`output/gametest/41732/device/`):**
-
-- A world made in the UI with experiments OFF, then its `level.dat` rewritten
-  IN PLACE over adb with `experiments.gametest = 1` + `commandsEnabled = 1`
-  (`scripts/_leveldat_experiments.py`, which refuses to write unless nbtlib
-  round-trips the original byte-for-byte), shows the **Experimental** badge
-  (`play-list-experimental-badge.jpg`) and loads `@minecraft/server-gametest`
-  1.0.0-beta. A UI-created Creative world had `commandsEnabled = 0`; the flip
-  enabled it. Minecraft must be stopped while the file is written.
-- The test pack auto-ran on world load: `player.runCommand('gametest runset
-  craftmatic_gt')` → successCount 1; tests placed their structure, spawned
-  simulated players and wrote `CMGT …` lines to the content log
-  (`contentlog-run1.txt`). A test's own pass/fail message goes to CHAT only,
-  never to the content log — report every verdict yourself with
-  `console.warn` (it is kept at any log level).
-- **A pack without `@minecraft/server-gametest` sees `undefined` in
-  `world.getAllPlayers()` for every simulated player.** The model pack's
-  placement loops threw `cannot read property 'id' of undefined` 845 times in
-  two minutes and its hook could not find the test player by name, so the doors
-  test timed out before placing. The test variant now declares the module too;
-  the shipped placement runtime should also skip `undefined` players
-  (not done: that file belongs to other in-flight work).
-- Relative `y = 0` of the test read `minecraft:air`, not the arena's floor
-  layer, and the smoke player moved 1.04 blocks in 60 ticks. The runtime now
-  finds the floor by scanning for the smooth stone and logs the column; run 2
-  (packs built, below) is what confirms the fix. **Run 2 was not done**: a
-  second device session took the phone at 21:00 and this work stopped rather
-  than contend for it.
-
-**What GameTest can do for us** (`@minecraft/server-gametest` 1.0.0-beta is the
-only version 1.26.5x ships; typings:
-`https://unpkg.com/@minecraft/server-gametest@1.0.0-beta.1.26.51-stable/index.d.ts`;
-its peer range accepts stable `@minecraft/server` 2.x, and Mojang's own
-creator-tools pack pairs stable server 2.7.0 with it):
-
-- `register`/`registerAsync(class, name, fn)` + `.structureName()`,
-  `.maxTicks()`, `.tag()`, `.batch()`; `/gametest run <class:name>`,
-  `runset <tag>`, `clearall`, `stopall`. Each test needs a structure
-  (default `<class>:<name>` → `structures/<class>/<name>.mcstructure`); we
-  generate an arena (smooth-stone floor + air) with `mcstructure-encode.ts`.
-  One structure caps at 64 x 384 x 64, so the arena caps a model at 58 x 58
-  footprint (TODO: tile or use `structureLocation` for bigger sets).
-- `test.spawnSimulatedPlayer` (also module-level `spawnSimulatedPlayer` outside
-  a test): `moveToLocation`/`navigateToLocation` (walks with real collision —
-  **passability**), `interactWithEntity`/`attackEntity` (the server-side
-  interaction our door/seat/pinball scripts subscribe to), `jump`, `lookAt*`,
-  `useItem*`, `setItem`/`selectedSlotIndex` (the pinball hotbar flippers),
-  `chat`, `teleport`; assertions `assertEntityPresent`, `assertBlockState`,
-  `assertCanReachLocation`, `succeedWhen`, `until`, `idle(ticks)`.
-- **What it cannot prove**: touch picking (which entity a finger hits — the
-  pinball zones needed rendered geometry to be tappable), the camera,
-  `setRotation` pitch on a phone, form (`server-ui`) answers — a simulated
-  player cannot answer a form, which is why the Brick Wand is bypassed — and
-  anything drawn (culling, textures, LOD). Keep screenshots for those.
-
-**The prototype** (`web/src/engine/gametest-pack.ts`,
-`scripts/_gametest_pack.ts`, `test/gametest-pack.test.ts`):
+### Commands
 
 ```bash
 bun scripts/_gametest_pack.ts <pack.mcaddon> --out=output/gametest/<id> [--debugger=<pc-ip>:19144]
-python -u scripts/_pixel_dev_deploy.py cmgametest output/gametest/<id>/*-gt-variant.mcaddon output/gametest/<id>/*-gametests.mcaddon --mode import
-# open world "cmgametest" (Play list, 120 ms press); the tests run 10 s after spawn
+python -u scripts/_pixel_dev_deploy.py cmgametest output/gametest/<id>/<stem>-gametest.mcaddon --mode import
+# bind ONE test variant at a time: each runs `gametest runset craftmatic_gt` on load
+# open world "cmgametest" (Play list, 120 ms press); the tests start 10 s after spawn
 MSYS_NO_PATHCONV=1 adb exec-out cat /sdcard/Android/data/com.mojang.minecraftpe/files/games/com.mojang/logs/<newest ContentLog> | grep -a 'CMGT '
 ```
 
-It emits a **variant** of the model's behaviour pack (new uuids, build-time
-version so a rebuild re-imports, `@minecraft/server-gametest` declared, and a
-`craftmatic_gt:place` scriptevent hook injected into `placement.js` that calls
-the pack's OWN `place()` for a named player — the injection throws if the
-runtime's shape changed) and a **GameTest pack** with two tests:
-`craftmatic_gt:smoke` (spawn + walk) and `craftmatic_gt:doors_<id>` (place the
-model at 100 %, then for every doorway: walk it closed, `interactWithEntity`
-the leaf, read the leaf's `craftmatic:angle` actor property, walk it open).
-Each doorway's start/end and expected outcome come from the offline walk
-(`interactive-walk.ts`), so a device row is also a check of that harness; one
-`CMGT DOOR {…}` line per doorway, `CMGT SUMMARY` at the end, then ~18 KiB of
-padding so the block-buffered log flushes. It also answers the open question
-in `docs/bedrock-interactivity.md`: whether `playerInteractWithEntity` fires
-for an entity with only `minecraft:interact` (`interactReturned` +
-`angleAfterInteract`). A `craftmatic_gt:probe` scriptevent (and one automatic
-pass after the run) tries `script profiler start/stop`, `script diagnostics
-startcapture/stopcapture` and `script debugger connect <host> <port>` from a
-script and logs whether each is allowed — unmeasured, run 1 ended before it.
+Under Git Bash, `adb exec-out cat /sdcard/...` without `MSYS_NO_PATHCONV=1`
+reads a path that MSYS has rewritten, so every read comes back empty. A `/`
+typed through `adb shell input text /` turns into `C:/Program Files/Git/`
+in the same way.
 
-Use the dedicated world **cmgametest** (folder `nRnt66NBH0Y=`, flat,
-Creative, Beta APIs on) — never world 924 or any play world: an experiment
-cannot be turned off and disables achievements.
+The world is **cmgametest** (folder `nRnt66NBH0Y=`, flat, Creative, Beta APIs
+on). Never use world 924 or any world someone plays in: an experiment cannot
+be turned off, and it disables achievements.
 
-**Other creator tooling:**
+### Results on the Pixel (evidence in `output/gametest/`)
 
-- Content log file + UI: already on; the file is the channel above.
-- **Turn on the script watchdog's slow/spike warnings** (Settings → Creator):
-  they land in the same content log, cost nothing, and would have flagged the
-  per-tick `getEntities` loops that the profiler guide warns about.
-- Script profiler: `/script profiler stop` writes a `.cpuprofile` (Mojang's
-  docs: the logs folder; community reports: `<world>/profiling/`); both are
-  adb-readable. Open it in VS Code or Chrome DevTools. Useful for the pinball
-  and coaster tick loops.
-- VS Code debugger (Mojang's "Minecraft Bedrock Edition Debugger", launch
-  `mode: "listen"`, port 19144; the phone runs `/script debugger connect
-  <pc-ip> 19144`). Over the LAN this needs the PC's firewall open for inbound
-  19144 and the unminified source for breakpoints. Useful for a live bug on the
-  device, not for regression testing; untested on the Pixel.
-- Client diagnostics (`/script diagnostics startcapture`): unmeasured.
+| run | what | result |
+|---|---|---|
+| `41732/` | world created in the UI with experiments off, then `level.dat` rewritten in place (`scripts/_leveldat_experiments.py`) | "Experimental" badge on the Play list; `gametest` + `commandsEnabled` survive the game's own saves (`41732-run2/device/level.dat.before-run2`). The UI created a Creative world with commands **off**. |
+| `41732-run3/` | tests in a SEPARATE pack | a simulated player is `undefined` in the model pack's `getAllPlayers()` (`undefinedPlayers: 2`), even though that pack declared `server-gametest`. Door interactions from the simulated player never reached the model pack |
+| `41732-run5/` | tests INSIDE the model pack | floor found at relative y 1; placement through the hook: 16/16 actors; **6/6 doorways as the offline walk predicts**. Doors 1, 2, 4, 5 and 6 are blocked closed and walkable open. Door 3 (SEALED): the open walk drops 3.25 blocks off the far side (`fell`) |
+| `11374-run1/` | pinball seat + flippers | `interactWithEntity(seat)` **seats** the player (the engine's rideable, no script). The runtime tags the player and parks the hotbar on slot 4 immediately. Slot 3: left flipper at 35.0° for 6 ticks, then 15°, then 0°. Slot 5: right flipper 180° for 7 ticks. Tap-zone hit: right flipper 180° for 6 ticks. Slot re-parked to 4 each time. In chat: "All required tests passed" |
+
+Findings a device round would not have reached:
+
+- **The tests must ship inside the model's own behaviour pack.** Only the
+  pack that spawned a simulated player can see it. `scripts/_gametest_pack.ts`
+  therefore emits one test variant of the model pack. It keeps the model's
+  files and adds new uuids, a build-time version (so a rebuild re-imports),
+  `@minecraft/server-gametest` 1.0.0-beta, a `craftmatic_gt:place` hook
+  injected into `placement.js`, and `scripts/gametest.js` with its arena
+  `.mcstructure`. The hook refuses to build if the runtime changed shape.
+  Main's `.filter(Boolean)` on player loops (`197fc454`) stopped the crashes
+  in every other pack.
+- **A simulated player's `interactWithEntity` on a door raised no
+  `playerInteractWithEntity` event** (0 events on every doorway). Its
+  `attackEntity` raised `entityHitEntity` (1 per doorway), and that toggled
+  every leaf. A real touch was not measured, so the open question in
+  `docs/bedrock-interactivity.md` stays open for the interact route. The hit
+  route works.
+- **Double doors move together.** Opening Door 2 also opened Door 4, so each
+  doorway is closed first before its own walk.
+- **The right flipper's property reads 180** during a pulse while the left
+  reads 35. The right flipper's rest angle is 162.5° (`restAngles[1]` =
+  2.836 rad), and `(rest - angle) * 180/π` is clamped to ±180 without being
+  wrapped. That looks like a wrap bug that swings the right flipper half a
+  turn. The cause is inferred from the code and not visually confirmed.
+  Check it before the next pinball device round.
+- A test's own pass/fail message goes to chat only, not to the content log.
+  The runtime writes one `CMGT <TAG> {json}` line per result with
+  `console.warn`, followed by about 18 KiB of padding so the block-buffered
+  log flushes. The padding also scrolls through the on-screen log UI.
+- `SimulatedPlayer.moveToLocation` takes **test-relative** coordinates; a
+  world position sent the walker to origin + position. A structure's
+  layer 0 lands at relative y 1.
+
+### What GameTest can and cannot do for us
+
+`@minecraft/server-gametest` 1.0.0-beta is the only version 1.26.5x ships.
+Typings:
+`https://unpkg.com/@minecraft/server-gametest@1.0.0-beta.1.26.51-stable/index.d.ts`.
+It pairs with a stable `@minecraft/server`: its peer range accepts 2.x, and
+Mojang's creator-tools pack pairs it with stable 2.7.0.
+
+What it can do:
+
+- Register tests: `register`/`registerAsync` with `.structureName`,
+  `.maxTicks`, `.tag` and `.batch`.
+- Run them: `/gametest runset <tag>`, `run`, `clearall`. `player.runCommand`
+  works from a script.
+- Each test needs a structure; we generate the arena with
+  `mcstructure-encode.ts`. One structure caps a model at 58 x 58 blocks
+  (TODO: tile it).
+- Drive simulated players: move with real collision, `interactWithEntity`
+  (mounts rideables), `attackEntity`, `selectedSlotIndex`, `jump`, `useItem*`
+  and `teleport`.
+
+What it cannot prove, so keep screenshots for these:
+
+- Touch picking.
+- The camera, and pitch on the phone.
+- `server-ui` forms: a simulated player cannot answer them, which is why the
+  Brick Wand is bypassed.
+- Anything drawn: culling, textures, LOD.
+- Whether a real tap raises `playerInteractWithEntity`.
+
+### Other creator tooling
+
+- **Content log file + UI:** on; they carry the results above.
+- **Script watchdog slow/spike warnings:** turn them ON in Settings → Creator.
+  They write to the same log, and GameTest runs are the right moment to catch
+  the per-tick `getEntities` loops.
+- **`/script profiler`, `/script diagnostics`, `/script debugger connect`:**
+  not usable from our scripts. Run from the dimension and as the real player,
+  every one returned successCount 0 (`11374-run1/device/contentlog-run1.txt`),
+  and a PC listener on 19144 received no connection. Typed in chat on the
+  phone, `/script profiler start` / `stop` gave no chat output and left no
+  `.cpuprofile` under `/sdcard/Android/data/com.mojang.minecraftpe/files`.
+  Mojang's docs describe these for Windows and dedicated servers. Treat them
+  as unavailable on the Pixel until a Creator toggle (script debugger /
+  diagnostics) is tried.
+- **VS Code debugger** (Mojang's "Minecraft Bedrock Edition Debugger", port
+  19144): not reachable from the phone as above. Not worth pursuing for
+  regression tests: GameTest plus `CMGT` log lines covers them.
+
+### Next tests
+
+- **Seats in a building:** mount via `interactWithEntity`, then assert the
+  rider.
+- **Coaster:** mount the car and assert the rider's position along the track
+  over N ticks.
+- **Pinball:** assert the right-flipper angle once the wrap question is
+  settled.
+- **Wand sizes:** the same doors test at 200 % (`size` in the place message).

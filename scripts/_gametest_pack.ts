@@ -1,15 +1,15 @@
 /**
- * Build the GameTest pair for a built Craftmatic add-on (web/src/engine/gametest-pack.ts):
+ * Build the GameTest variant of a built Craftmatic add-on (web/src/engine/gametest-pack.ts):
  *
- *   <out>/<stem>-gt-variant.mcaddon   the model's BP with new uuids + the placement hook, and its RP unchanged
- *   <out>/<stem>-gametests.mcaddon    the GameTest BP (arena structure + tests)
- *   <out>/<stem>-gametest-plan.json   the doorways, their offline predictions, the world coordinates frame
+ *   <out>/<stem>-gametest.mcaddon       the model's BP with new uuids, server-gametest, the placement
+ *                                       hook, scripts/gametest.js and the arena; its RP unchanged
+ *   <out>/<stem>-gametest-plan.json     the doorways and their offline predictions
  *
  * Usage: bun scripts/_gametest_pack.ts <pack.mcaddon> [--out=dir] [--debugger=host:port]
  *
- * Deploy both to a world that has Beta APIs + cheats on (never a normal play
- * world), e.g. `python -u scripts/_pixel_dev_deploy.py craftmatic-gametest
- * <out>/*.mcaddon`. On world load the tests run by themselves; pull the newest
+ * Deploy it to a world that has Beta APIs + cheats on (never a normal play
+ * world), e.g. `python -u scripts/_pixel_dev_deploy.py cmgametest
+ * <out>/<stem>-gametest.mcaddon`. On world load the tests run by themselves; pull the newest
  * content log and grep `CMGT ` (docs/testing-guide.md).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -18,11 +18,12 @@ import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-previe
 import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import { createZip, extractMatching } from '../web/src/engine/zip-utils.ts';
 import {
-  gametestPackFiles, patchPlacementForGametest, variantManifest,
+  gametestVariantFiles, patchPlacementForGametest, variantManifest, withGametestImport,
   type GametestDoorway, type GametestPlan, type WalkOutcome,
 } from '../web/src/engine/gametest-pack.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
+import { PROP_FLIP } from '../web/src/engine/bedrock-pinball.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
@@ -80,6 +81,19 @@ if (cfg) {
   });
 }
 
+// A pinball machine: its types from scripts/pinball.js's CONFIG, and the seated
+// tag + parked hotbar slot read out of the same serialised runtime.
+const pinballName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/pinball.js`);
+let pinball: GametestPlan['pinball'];
+if (pinballName) {
+  const js = text(pinballName);
+  const cfg = JSON.parse(/^const CONFIG = (\{.*\});$/m.exec(js)?.[1] ?? 'null') as { consoleType: string; buttonType: string; flipperTypes: string[] } | null;
+  const park = /\bPARK_SLOT = (\d+)/.exec(js)?.[1];
+  const tag = /\bSEATED_TAG = ["']([^"']+)["']/.exec(js)?.[1];
+  if (!cfg || park === undefined || !tag) throw new Error(`${pinballName}: CONFIG, PARK_SLOT or SEATED_TAG not found; the pinball runtime changed shape`);
+  pinball = { consoleType: cfg.consoleType, buttonType: cfg.buttonType, flipperTypes: cfg.flipperTypes, flipProperty: PROP_FLIP, seatedTag: tag, parkSlot: Number(park) };
+}
+
 const plan: GametestPlan = {
   modelId: placement.id,
   label: placement.label,
@@ -88,36 +102,37 @@ const plan: GametestPlan = {
   angleProperty: cfg?.property ?? 'craftmatic:angle',
   doorways,
   debuggerTarget: flag('debugger'),
+  pinball,
 };
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
 const testVersion = packVersionAt();
 
-// 1. The test variant of the model pack.
+// The model pack with the hook, the module and the tests IN it (see the module docs for why).
+const mainName = `${bpFolder}/scripts/main.js`;
 const variantFiles: Array<{ name: string; data: Uint8Array }> = [];
 for (const [name, data] of entries) {
   if (name.endsWith('/')) continue;
   if (name === `${bpFolder}/manifest.json`) {
-    const manifest = JSON.parse(text(name).replace(/^﻿/, ''));
+    const manifest = JSON.parse(text(name).replace(/^\uFEFF/, ''));
+    const entry = manifest.modules.find((m: { type: string; entry?: string }) => m.type === 'script')?.entry;
+    if (entry !== 'scripts/main.js') throw new Error(`${bpFolder}: script entry is ${entry}, expected scripts/main.js`);
     variantFiles.push({ name, data: new TextEncoder().encode(JSON.stringify(variantManifest(manifest, testVersion), null, 2) + '\n') });
   } else if (name === placementName) {
     variantFiles.push({ name, data: new TextEncoder().encode(patchPlacementForGametest(placementJs)) });
+  } else if (name === mainName) {
+    variantFiles.push({ name, data: new TextEncoder().encode(withGametestImport(text(name))) });
   } else {
     variantFiles.push({ name, data: new Uint8Array(data) });
   }
 }
-const variantPath = join(outDir, `${stem}-gt-variant.mcaddon`);
+for (const f of gametestVariantFiles(plan)) variantFiles.push({ name: `${bpFolder}/${f.name}`, data: f.data });
+const variantPath = join(outDir, `${stem}-gametest.mcaddon`);
 writeFileSync(variantPath, await createZip(variantFiles));
-
-// 2. The GameTest pack.
-const folder = `Craftmatic_GT_${placement.id}_BP`;
-const gtFiles = gametestPackFiles(plan, testVersion).map(f => ({ name: `${folder}/${f.name}`, data: f.data }));
-const gtPath = join(outDir, `${stem}-gametests.mcaddon`);
-writeFileSync(gtPath, await createZip(gtFiles));
 
 const planPath = join(outDir, `${stem}-gametest-plan.json`);
 writeFileSync(planPath, JSON.stringify(plan, null, 1) + '\n');
 
-console.log(`${placement.label}: ${doorways.length} doorways`);
+console.log(`${placement.label}: ${doorways.length} doorways${pinball ? `, pinball ${JSON.stringify(pinball)}` : ''}`);
 for (const d of doorways) console.log(`  ${d.label.padEnd(8)} ${d.offlineVerdict.padEnd(8)} closed:${d.expectClosed.padEnd(8)} open:${d.expectOpen.padEnd(8)} start ${JSON.stringify(d.start)} end ${JSON.stringify(d.end)}`);
-console.log(`variant   ${variantPath}\ngametests ${gtPath}\nplan      ${planPath}`);
+console.log(`variant ${variantPath}\nplan    ${planPath}`);

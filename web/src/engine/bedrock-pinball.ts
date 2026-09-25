@@ -707,7 +707,14 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     config.flipperTypes.forEach((type, i) => {
       const e = g.parts[type];
       if (!e) return;
-      const deg = (config.restAngles[i]! - st.flipperAngles[i]!) * 180 / Math.PI * config.spinSign;
+      // The swing the short way round: a flipper whose rest angle sits near
+      // +-180 degrees (11374's right one rests at 162.5) crosses the seam, and
+      // the unwrapped difference read 324 -> clamped to a 180 degree half-turn
+      // at the top of every swing (GameTest on the Pixel, 2026-09-24).
+      let swing = config.restAngles[i]! - st.flipperAngles[i]!;
+      while (swing > Math.PI) swing -= 2 * Math.PI;
+      while (swing < -Math.PI) swing += 2 * Math.PI;
+      const deg = swing * 180 / Math.PI * config.spinSign;
       if (Math.abs(deg - game.flip[i]) < 0.25) return;
       game.flip[i] = deg;
       try { e.setProperty('craftmatic:flip', Math.max(-180, Math.min(180, deg))); } catch {}

@@ -286,6 +286,15 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.ball.teleport.mock.calls.at(-1)![0].z).toBeLessThan(z0);
   });
 
+  it('a flipper resting near 180 degrees swings the short way (never a half-turn)', () => {
+    // The right flipper rests at atan2(33, -100) ~ 162 degrees and flips to
+    // ~ -162: the sim crosses the seam, and the property must stay near 36.
+    const h = seated();
+    h.input.x = -1; h.run(8);
+    for (const c of h.fr.setProperty.mock.calls) expect(Math.abs(c[1] as number)).toBeLessThan(90);
+    expect(flipOf(h.fr)).toBeGreaterThan(30);
+  });
+
   it('a left strafe raises only the left flipper; forward raises both', () => {
     const h = seated();
     h.input.x = 1; h.run(4);

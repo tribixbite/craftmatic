@@ -10,22 +10,26 @@
  * content log, which adb can pull. See docs/testing-guide.md, "In-game
  * automated tests (GameTest)".
  *
- * Output is TWO packs, both bound to a dedicated world that has Beta APIs on:
+ * Output is ONE test variant of the model's add-on, bound to a dedicated
+ * world that has Beta APIs on: the model's behaviour pack with new uuids and a
+ * build-time version, `@minecraft/server-gametest` 1.0.0-beta declared (the
+ * only version 1.26.5x ships; Mojang's creator-tools pack pairs it with a
+ * stable server the same way), a `craftmatic_gt:place` scriptevent hook
+ * injected into `scripts/placement.js` (a test drives the pack's OWN
+ * `place()`; a simulated player cannot answer the Brick Wand's forms), and
+ * the tests themselves in `scripts/gametest.js` with their arena
+ * `.mcstructure`. The resource pack ships unchanged.
  *
- * 1. A **test variant** of the model's behaviour pack: the same files with new
- *    uuids and one scriptevent hook injected into `scripts/placement.js`
- *    (`craftmatic_gt:place`), so a test can drive the pack's OWN `place()` for a
- *    named player without the Brick Wand's forms (a simulated player cannot
- *    answer a form). The model's resource pack ships unchanged.
- *    TODO: move the hook into the placement runtime itself (playable-addon.ts)
- *    so the shipped pack and the tested pack are byte-identical but for uuids.
- * 2. The **GameTest pack**: a tiny arena `.mcstructure` (a floor under the
- *    model's footprint plus a margin) and `scripts/main.js`, which registers
- *    `craftmatic_gt:smoke` and `craftmatic_gt:doors_<id>` and runs them on world
- *    load (`gametest runset craftmatic_gt`). Its dependencies are stable
- *    `@minecraft/server` + `@minecraft/server-gametest` `1.0.0-beta` (the only
- *    version 1.26.5x ships; Mojang's own creator-tools pack pairs a stable
- *    server with the beta gametest module the same way).
+ * The tests MUST live in the model's own pack. Measured on the Pixel
+ * (1.26.51, runs 2-3): a simulated player is `undefined` in
+ * `world.getAllPlayers()` of every OTHER pack - even one that declares
+ * server-gametest - and that pack's `playerInteractWithEntity` /
+ * `entityHitEntity` handlers never toggled a door the simulated player
+ * interacted with. A player handle belongs to the script context that
+ * spawned it.
+ *
+ * TODO: move the hook into the placement runtime itself (playable-addon.ts)
+ * so the shipped pack and the tested pack differ only in the added files.
  *
  * Expectations come from the offline passability walk
  * (`engine/interactive-walk.ts`): a doorway it calls OK must be blocked closed
@@ -47,8 +51,6 @@ export const GT_PLACE_EVENT = `${GT_NAMESPACE}:place`;
 export const GT_PLACED_EVENT = `${GT_NAMESPACE}:placed`;
 /** Blocks of arena floor around the model's footprint. */
 export const GT_MARGIN = 3;
-/** Stable server module the test pack binds; matches the model packs. */
-export const GT_SERVER_VERSION = '2.9.0';
 /** The only `@minecraft/server-gametest` module version Minecraft 1.26.5x ships. */
 export const GT_GAMETEST_VERSION = '1.0.0-beta';
 /** Largest arena one `.mcstructure` may carry (a structure block's save limit). */
@@ -57,7 +59,7 @@ export const GT_MAX_ARENA = { x: 64, y: 384, z: 64 } as const;
 export interface Vec3 { x: number; y: number; z: number }
 
 /** Walk outcome the offline harness predicts, per direction. */
-export type WalkOutcome = 'passed' | 'blocked' | 'sealed' | 'partial' | 'no-approach';
+export type WalkOutcome = 'passed' | 'blocked' | 'sealed' | 'partial' | 'fell' | 'no-approach';
 
 /** One doorway the device should walk, in model-local block coordinates (turn 0, 100 %). */
 export interface GametestDoorway {
@@ -88,6 +90,23 @@ export interface GametestPlan {
   doorways: GametestDoorway[];
   /** Optional `host:port` for a `/script debugger connect` probe after the run. */
   debuggerTarget?: string | undefined;
+  /** A pinball machine's runtime types (`scripts/pinball.js` CONFIG), when the pack has one. */
+  pinball?: GametestPinball | undefined;
+}
+
+export interface GametestPinball {
+  /** The rideable seat pad the player sits on to play. */
+  consoleType: string;
+  /** Tap-zone entities spawned in front of a seated player. */
+  buttonType: string;
+  /** Flipper entities, left then right; each carries the flip actor property. */
+  flipperTypes: string[];
+  /** Actor property holding a flipper's angle. */
+  flipProperty: string;
+  /** Tag the runtime gives a seated player. */
+  seatedTag: string;
+  /** Hotbar slot a seated player is parked on; a lower slot is the left flipper, a higher the right. */
+  parkSlot: number;
 }
 
 // ─── The placement hook (test variant only) ────────────────────────────────
@@ -105,13 +124,19 @@ const PLACEMENT_HOOK = `  system.afterEvents.scriptEventReceive.subscribe((ev) =
     if (ev.id !== "${GT_PLACE_EVENT}") return;
     let a;
     try { a = JSON.parse(ev.message); } catch (e) { console.warn("CMGT_HOOK bad message " + ev.message); return; }
-    const p = world.getPlayers({ name: a.player })[0];
-    if (!p) { console.warn("CMGT_HOOK no player " + a.player); return; }
+    // Measured on the Pixel (run 2): even with server-gametest declared, a simulated player
+    // is not found by name from this pack. place() only needs a player for its dimension,
+    // messages and undo history, so fall back to a real player and say which was used.
+    const all = world.getAllPlayers(), real = all.filter(Boolean);
+    const src = ev.sourceEntity && ev.sourceEntity.typeId === "minecraft:player" ? ev.sourceEntity : undefined;
+    const p = src || real.find((x) => x.name === a.player) || real[0];
+    console.warn("CMGT_HOOK " + JSON.stringify({ requested: a.player, players: all.length, undefinedPlayers: all.length - real.length, names: real.map((x) => x.name), using: p ? p.name : null }));
+    if (!p) return;
     const st = state(p);
     st.anchor = { x: a.x, y: a.y, z: a.z }; st.dimension = p.dimension.id; st.rotation = a.rotation || 0; st.size = a.size || 100; st.aim = false;
     system.run(() => place(p).then(() => {
       const h = histories.get(p.id);
-      system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, entities: h ? h.entities.length : -1 }));
+      system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, placedFor: p.name, entities: h ? h.entities.length : -1 }));
     }, (e) => system.sendScriptEvent("${GT_PLACED_EVENT}", JSON.stringify({ player: a.player, error: String(e && e.message || e) }))));
   }, { namespaces: ["${GT_NAMESPACE}"] });
   console.warn("CMGT_HOOK_READY " + config.id);
@@ -163,29 +188,6 @@ export function variantManifest(manifest: Manifest, version: number[] = manifest
   };
 }
 
-/** Manifest of the GameTest pack. Version follows the model pack's so a rebuild is recognisable. */
-export function gametestManifest(plan: GametestPlan, version: number[]): Manifest {
-  const id = `${GT_NAMESPACE}.pack:${plan.modelId}`;
-  return {
-    format_version: 2,
-    header: {
-      name: `Craftmatic GameTests — ${plan.label}`,
-      description: `Automated in-game tests for ${plan.label}. Needs the Beta APIs experiment and cheats; runs on world load (gametest runset ${GT_TAG}).`,
-      uuid: deterministicUuid(`${id}:header`),
-      version,
-      min_engine_version: [1, 26, 40],
-    },
-    modules: [
-      { type: 'data', uuid: deterministicUuid(`${id}:data`), version },
-      { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`${id}:script`), version },
-    ],
-    dependencies: [
-      { module_name: '@minecraft/server', version: GT_SERVER_VERSION },
-      { module_name: '@minecraft/server-gametest', version: GT_GAMETEST_VERSION },
-    ],
-  };
-}
-
 // ─── Arena structure ────────────────────────────────────────────────────────
 
 /** Arena size: the model's box plus `GT_MARGIN` each side, one floor layer and headroom. */
@@ -215,13 +217,17 @@ export function buildArenaStructure(dims: GametestPlan['dims']): Uint8Array {
 // ─── Walk judgement (shared by the runtime and the unit tests) ──────────────
 
 /**
- * Where a walker ended relative to its start→end line: `passed` at 75 % or
- * more of the way, `blocked` under 50 %, otherwise `partial`.
+ * Where a walker ended relative to its start->end line: `passed` at 75 % or
+ * more of the way, `blocked` under 50 %, otherwise `partial`; `fell` when it
+ * ended more than a block below both ends (run 4: 41732's Door 3 "walked
+ * through" by dropping 3.25 blocks off the far side - the drop that makes the
+ * offline walk call it SEALED).
  */
-export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed' | 'blocked' | 'partial'; progress: number } {
+export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed' | 'blocked' | 'partial' | 'fell'; progress: number } {
   const dx = end.x - start.x, dz = end.z - start.z, len2 = dx * dx + dz * dz;
   const progress = len2 > 0 ? ((at.x - start.x) * dx + (at.z - start.z) * dz) / len2 : 0;
   const rounded = Math.round(progress * 100) / 100;
+  if (at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
   return { outcome: progress >= 0.75 ? 'passed' : progress < 0.5 ? 'blocked' : 'partial', progress: rounded };
 }
 
@@ -255,6 +261,12 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (ev.id === `${NS}:probe`) void probe(ev.message);
   }, { namespaces: [NS] });
 
+  /** Entity-interaction events a simulated player caused, as this pack's own handlers see them. */
+  const events = { interact: 0, hit: 0 };
+  const isSim = (p: any): boolean => !!p && String(p.name).startsWith('cmgt_');
+  world.afterEvents.playerInteractWithEntity.subscribe((ev: any) => { if (isSim(ev.player)) events.interact++; });
+  world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (isSim(ev.damagingEntity)) events.hit++; });
+
   const round = (v: any): Vec3 => ({ x: Math.round(v.x * 100) / 100, y: Math.round(v.y * 100) / 100, z: Math.round(v.z * 100) / 100 });
   const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
   const dist2 = (a: Vec3, b: Vec3): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
@@ -283,8 +295,11 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
     const from = { ...sim.location };
-    const target = test.worldLocation({ x: 6.5, y: f.y + 1, z: 2.5 });
-    sim.moveToLocation(target);
+    // SimulatedPlayer movement takes TEST-RELATIVE coordinates (run 2: a world
+    // target sent the walker to origin + target).
+    const targetRel = { x: 6.5, y: f.y + 1, z: 2.5 };
+    const target = test.worldLocation(targetRel);
+    sim.moveToLocation(targetRel);
     const track: Vec3[] = [];
     for (let i = 0; i < 6; i++) { await test.idle(10); track.push(round(sim.location)); }
     const to = { ...sim.location };
@@ -294,27 +309,41 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (moved < 2) test.fail(`simulated player moved only ${moved.toFixed(2)} blocks`); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(300).tag(NS);
 
-  /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
-  gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
+  /**
+   * Place the model at 100 %, turn 0, with the pack's own placement code (the
+   * injected hook), for a simulated player spawned in the arena. Returns
+   * undefined (after failing the test) when the placement did not land.
+   */
+  const placeModel = async (test: any, testName: string): Promise<{ sim: any; anchor: Vec3; dim: any } | undefined> => {
     const name = `cmgt_${Math.floor(Math.random() * 1e6)}`;
     const f = floorY(test, margin, margin);
     const anchor = test.worldBlockLocation({ x: margin, y: f.y + 1, z: margin });
     const sim = test.spawnSimulatedPlayer({ x: 1, y: f.y + 1, z: 1 }, name, gameMode);
-    log('ARENA', { model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
+    log('ARENA', { test: testName, model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
     await test.idle(5);
     system.sendScriptEvent(`${NS}:place`, JSON.stringify({ player: name, x: anchor.x, y: anchor.y, z: anchor.z, rotation: 0, size: 100 }));
     let reply: any;
     for (let t = 0; t < 1200 && !reply; t += 10) { await test.idle(10); reply = placedReplies.get(name); }
     const dim = test.getDimension();
     const spawned = dim.getEntities({ location: add(anchor, { x: plan.dims.width / 2, y: plan.dims.height / 2, z: plan.dims.length / 2 }), maxDistance: Math.max(plan.dims.width, plan.dims.length, plan.dims.height) + 4 }).filter((e: any) => plan.actorTypes.includes(e.typeId));
-    log('PLACED', { reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
-    if (!reply || reply.error) { flush(); test.fail(`placement did not complete: ${reply ? reply.error : 'no reply in 1200 ticks'}`); return; }
+    log('PLACED', { test: testName, reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
+    if (!reply || reply.error) { flush(); test.fail(`placement did not complete: ${reply ? reply.error : 'no reply in 1200 ticks'}`); return undefined; }
+    return { sim, anchor, dim };
+  };
+  const nearest = (dim: any, type: string, at: Vec3, maxDistance: number): any =>
+    dim.getEntities({ type, location: at, maxDistance }).sort((a: any, b: any) => dist2(a.location, at) - dist2(b.location, at))[0];
+
+  /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
+  if (plan.doorways.length) gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'doors');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
     await test.idle(40); // two interactives sync passes: closed doorways get their colliders
 
     const walk = async (startW: Vec3, endW: Vec3): Promise<{ outcome: string; progress: number; at: Vec3 }> => {
       sim.teleport(startW, { facingLocation: endW });
       await test.idle(4);
-      sim.moveToLocation(endW);
+      sim.moveToLocation(test.relativeLocation(endW)); // relative, like every SimulatedPlayer move
       await test.idle(60);
       sim.stopMoving();
       const at = { ...sim.location };
@@ -326,28 +355,35 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const results: any[] = [];
     for (const d of plan.doorways) {
       const leafAt = add(anchor, d.actor);
-      const leaf = dim.getEntities({ type: d.typeId, location: leafAt, maxDistance: 4 })
-        .sort((a: any, b: any) => dist2(a.location, leafAt) - dist2(b.location, leafAt))[0];
+      const leaf = nearest(dim, d.typeId, leafAt, 4);
       const startW = add(anchor, d.start), endW = add(anchor, d.end);
       const row: any = { label: d.label, offline: d.offlineVerdict, expectClosed: d.expectClosed, expectOpen: d.expectOpen };
       if (!leaf) { row.error = 'leaf entity not found'; results.push(row); log('DOOR', row); continue; }
       try {
+        const face = async (): Promise<void> => { sim.teleport(startW, { facingLocation: leaf.location }); await test.idle(4); sim.lookAtEntity(leaf); };
+        // A double door's leaves share cells and move together (run 4: opening Door 2
+        // opened Door 4). Close a leaf that starts open, so every doorway starts closed.
+        const initial = angleOf(leaf);
+        if (initial !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); row.resetFrom = initial; }
         row.angleClosed = angleOf(leaf);
         row.closed = await walk(startW, endW);
-        sim.teleport(startW, { facingLocation: leaf.location });
-        await test.idle(4);
-        sim.lookAtEntity(leaf);
+        await face();
+        const before = { ...events };
         row.interactReturned = sim.interactWithEntity(leaf);
         await test.idle(20);
         row.angleAfterInteract = angleOf(leaf);
+        row.interactEvents = events.interact - before.interact;
         if (row.angleAfterInteract === row.angleClosed) {
-          // playerInteractWithEntity did not toggle it: try the other route the runtime listens to.
+          // The interact did not toggle it: try the other route the runtime listens to (a hit).
           row.attackReturned = sim.attackEntity(leaf);
           await test.idle(20);
           row.angleAfterAttack = angleOf(leaf);
+          row.hitEvents = events.hit - before.hit;
         }
         row.open = await walk(startW, endW);
         row.pass = matches(d.expectClosed, row.closed.outcome) && matches(d.expectOpen, row.open.outcome);
+        // Leave it closed for the next doorway (its partner may be next).
+        if (angleOf(leaf) !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); }
       } catch (err) {
         row.error = String(err && (err as Error).message || err);
         row.pass = false;
@@ -362,12 +398,80 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + plan.doorways.length * 400).tag(NS);
 
+  /**
+   * Pinball: sit on the machine's seat pad, then press each flipper the way the
+   * phone does it (a hotbar slot left / right of the parked one), then by a hit
+   * on a tap zone, sampling both flippers' angle property every tick - the
+   * 0.3 s pulse that screenshots missed.
+   */
+  const pb = plan.pinball;
+  if (pb) gt.registerAsync(NS, `pinball_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'pinball');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    await test.idle(20);
+    const row: any = {};
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const seat = nearest(dim, pb.consoleType, centre, 40);
+    const flippers = pb.flipperTypes.map(t => nearest(dim, t, centre, 40));
+    row.found = { seat: !!seat, flippers: flippers.map(f => !!f) };
+    if (!seat || flippers.some(f => !f)) { log('PINBALL', row); flush(); test.fail('pinball parts missing'); return; }
+    const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+    const flipAngles = (): unknown[] => flippers.map(f => { try { return f.getProperty(pb.flipProperty); } catch (err) { return `error: ${String(err)}`; } });
+
+    // Seat: the interaction a phone tap-and-hold makes, then the component call as a fallback.
+    sim.teleport(add(seat.location, { x: 0, y: 0, z: 1.2 }), { facingLocation: seat.location });
+    await test.idle(4);
+    sim.lookAtEntity(seat);
+    row.interactReturned = sim.interactWithEntity(seat);
+    await test.idle(20);
+    row.ridersAfterInteract = riders();
+    if (!row.ridersAfterInteract.includes(sim.name)) {
+      try { row.addRiderReturned = seat.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; }
+      await test.idle(20);
+      row.ridersAfterAddRider = riders();
+    }
+    // The runtime tags a seated player and parks the hotbar; the seat lifts over several ticks.
+    let t = 0;
+    for (; t < 200; t += 5) { if (sim.hasTag(pb.seatedTag) && sim.selectedSlotIndex === pb.parkSlot) break; await test.idle(5); }
+    row.seated = { tagged: sim.hasTag(pb.seatedTag), slot: sim.selectedSlotIndex, ticks: t };
+    await test.idle(40);
+    row.restAngles = flipAngles();
+
+    const pulse = async (label: string, act: () => unknown): Promise<any> => {
+      const rest = flipAngles();
+      const out: any = { label, rest, returned: act(), samples: [] as unknown[] };
+      for (let i = 0; i < 16; i++) { await test.idle(1); out.samples.push(flipAngles()); }
+      out.slotAfter = sim.selectedSlotIndex;
+      // Largest move of each flipper from rest over the 16 ticks.
+      out.maxMove = flippers.map((_, k) => Math.round(Math.max(0, ...out.samples.map((sm: any) => Math.abs(Number(sm[k]) - Number(rest[k])) || 0))));
+      await test.idle(20);
+      return out;
+    };
+    row.left = await pulse('slot left', () => { sim.selectedSlotIndex = pb.parkSlot - 1; return sim.selectedSlotIndex; });
+    row.right = await pulse('slot right', () => { sim.selectedSlotIndex = pb.parkSlot + 1; return sim.selectedSlotIndex; });
+    const zone = nearest(dim, pb.buttonType, sim.location, 12);
+    row.zoneFound = !!zone;
+    if (zone) row.zoneHit = await pulse('zone hit', () => sim.attackEntity(zone));
+    const moved = (r: any, k: number): boolean => !!r && r.maxMove[k] > 5;
+    row.pass = moved(row.left, 0) && moved(row.right, 1);
+    log('PINBALL', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail('a flipper did not move on its hotbar slot');
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
+
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {
+    // Run 5 measured every /script subcommand at successCount 0 from the dimension;
+    // try each from the dimension AND as the real player.
     const dim = world.getDimension('overworld');
+    const player = world.getPlayers().filter(Boolean).find((p: any) => !String(p.name).startsWith('cmgt_'));
     const tryCmd = (cmd: string): void => {
-      try { const r = dim.runCommand(cmd); log('PROBE', { cmd, successCount: r?.successCount }); }
-      catch (err) { log('PROBE', { cmd, error: String(err && (err as Error).message || err) }); }
+      for (const [source, runner] of [['dimension', dim], ['player', player]] as const) {
+        if (!runner) continue;
+        try { const r = runner.runCommand(cmd); log('PROBE', { cmd, source, successCount: r?.successCount }); }
+        catch (err) { log('PROBE', { cmd, source, error: String(err && (err as Error).message || err) }); }
+      }
     };
     tryCmd('script profiler start');
     await new Promise<void>(res => system.runTimeout(() => res(), 100));
@@ -408,12 +512,17 @@ export function gametestScript(plan: GametestPlan): string {
     + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()});\n`;
 }
 
-/** Every file of the GameTest pack, relative to its folder. */
-export function gametestPackFiles(plan: GametestPlan, version: number[]): Array<{ name: string; data: Uint8Array }> {
+/** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */
+export function withGametestImport(mainJs: string): string {
+  if (mainJs.includes('./gametest.js')) return mainJs;
+  return `${mainJs.replace(/\s*$/, '')}\nimport "./gametest.js";\n`;
+}
+
+/** Files the test variant ADDS to the model's behaviour pack, relative to its folder. */
+export function gametestVariantFiles(plan: GametestPlan): Array<{ name: string; data: Uint8Array }> {
   const enc = new TextEncoder();
   return [
-    { name: 'manifest.json', data: enc.encode(JSON.stringify(gametestManifest(plan, version), null, 2) + '\n') },
-    { name: 'scripts/main.js', data: enc.encode(gametestScript(plan)) },
+    { name: 'scripts/gametest.js', data: enc.encode(gametestScript(plan)) },
     { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims) },
   ];
 }

@@ -67,9 +67,17 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   `--faces=<dir>` - redistributing it is the user's licence call. Coverage:
   corpus 35 % print-exact, 80 % with photos; 986 head placements have no
   source (mostly mini-doll heads and elements newer than Studio's table).
-- [ ] **Device round `8346fb29`** (7 packs, faces art `output/faces-art-0924b`):
-  `output/device-round-2026-09-24d/packs-8346fb29/`, deployed to world 924 by
-  `scripts/_pixel_dev_deploy.py`; doors first, then faces, pinball, 10303 loops.
+- [x] **Device rounds `8346fb29` / `1e33902c`**: doors work on the phone (76417 front doors, 41732 doors 4/5, 76457 doors 2-5 + gate, 90-degree placement); faces, pinball, 10303 loops verified; zip `output/device-round-2026-09-24e/craftmatic-packs-1e33902c.zip` sent. Open: 76457 seat floats ~3.75 blocks above its chair, window 1 ignores a direct tap, Door 1 (9.4 degrees off grid) never swings; taps engage within ~2 blocks only.
+- [x] **GameTest on the Pixel works** (docs/testing-guide.md "In-game automated
+  tests (GameTest)"; `web/src/engine/gametest-pack.ts`, `scripts/_gametest_pack.ts`,
+  `scripts/_leveldat_experiments.py`). Test world `cmgametest` (Beta APIs set by
+  editing level.dat in place over adb; never world 924). Tests must live INSIDE
+  the model's pack copy (`<stem>-gametest.mcaddon`); results are `CMGT` lines in
+  the content log. 41732: 6/6 doorways as the offline walk predicts. Simulated
+  `interactWithEntity` raises NO `playerInteractWithEntity` (use `attackEntity`
+  -> `entityHitEntity`); seats mount by interact. Profiler/debugger commands
+  are unavailable on the phone. Found the right-flipper half-turn (`71c98317`).
+  Next: fold every door/seat/coaster check into GameTest instead of tap runs.
 - Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
 - Pack updates: importing a new .mcaddon does NOT repoint a world's active
   pack (device runs: world 922 kept 83614b39 active after 980f54fd was
