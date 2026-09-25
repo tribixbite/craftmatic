@@ -203,6 +203,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   above its floor, is a hole the wand's size multiplies — at 300-400 % players
   walked over and under closed doors. Judge any change with
   `bun scripts/_ix_passability.ts` / `_ix_sweep_report.ts`, never by eye.
+- **A Bedrock camera cannot roll per tick** (Pixel, 26.51): `setCamera` takes
+  yaw and a pitch within ±90 only (outside throws); roll exists only as
+  `playAnimation` keyframe `rotation.z`, keyframes must be >0.05 s apart, a
+  `LinearSpline` needs 3 points, and an animation issued while another plays
+  is never drawn. A rider's reported yaw is the CLIENT's and trails its
+  vehicle ~6 ticks. Details: the add-on guide's "The rider's camera follows
+  the track".
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`

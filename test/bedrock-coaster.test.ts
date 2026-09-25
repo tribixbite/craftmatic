@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   COASTER_MAX_CARS, PARKED_SIDING_FACTOR, TRACK_TWIST_RATE_DEG_PER_BLOCK, buildCoasterRideAssets, canonicalCoasterCar, coasterCarWheelbaseLdu, coasterCartAssets, coasterMaxSpacing, coasterRoutesFromAssemblies,
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
-  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterRiderView,
+  COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterRiderLook, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
@@ -1995,9 +1995,11 @@ describe.skipIf(!ADDON_INTEGRATED)("pack assets with the set's own cars", () => 
 /** A player mock riding `entity`: Bedrock turns a rider with its vehicle, so the
  * player's yaw is the car's last teleported yaw plus the head turn `head`. */
 function cameraRider(entity: any, head = { yaw: 0, pitch: 0 }) {
+  // The CLIENT turns a rider with its own interpolated view of the car, so the
+  // yaw it reports trails the car's; measured ~6 ticks on the Pixel.
   const lastYaw = () => {
     const calls = entity.tryTeleport.mock.calls as any[][];
-    return calls.length ? Number(calls.at(-1)![1].rotation.y) : 0;
+    return calls.length ? Number(calls[Math.max(0, calls.length - 1 - COASTER_RIDER_VIEW.lookLag)]![1].rotation.y) : 0;
   };
   return {
     head,
@@ -2100,10 +2102,25 @@ describe('the rider camera follows the track', () => {
     rider.head.yaw = 40 + 150; rider.head.pitch = -10 - 90; h.run(3);
     expect(calls.at(-1)![1].rotation.y - cart()).toBeCloseTo(COASTER_RIDER_VIEW.lookYaw, 6);
     expect(calls.at(-1)![1].rotation.x).toBeCloseTo(-COASTER_RIDER_VIEW.lookPitch, 6);
-    // ... and looking back by the limit returns to the track frame exactly.
-    rider.head.yaw -= COASTER_RIDER_VIEW.lookYaw; rider.head.pitch += COASTER_RIDER_VIEW.lookPitch; h.run(3);
+    // ... and, with no ratchet, looking back to where the head was at boarding
+    // returns to the track frame exactly: nothing past a limit moves the reference.
+    rider.head.yaw = 40; rider.head.pitch = -10; h.run(3);
     expect(calls.at(-1)![1].rotation.y).toBeCloseTo(cart(), 6);
     expect(calls.at(-1)![1].rotation.x).toBeCloseTo(0, 6);
+  });
+
+  it('ratchets the look reference only when asked', () => {
+    // Ratchet: 100 degrees of head past a 70 limit drags the reference 30; turning back 100 leaves -30.
+    let look = coasterRiderLook(0, 0, null, 70, 50, true);
+    look = coasterRiderLook(100, 0, look, 70, 50, true);
+    expect(look.yaw).toBe(70);
+    expect(coasterRiderLook(0, 0, look, 70, 50, true).yaw).toBeCloseTo(-30, 9);
+    // No ratchet (the default): the same round trip comes back to 0.
+    look = coasterRiderLook(0, 0, null, 70, 50, false);
+    look = coasterRiderLook(100, 0, look, 70, 50, false);
+    expect(look.yaw).toBe(70);
+    expect(coasterRiderLook(0, 0, look, 70, 50, false).yaw).toBeCloseTo(0, 9);
+    expect(COASTER_RIDER_VIEW.ratchet).toBe(false);
   });
 
   it('turns the look with the car upside down: "right" in a loop is the rider\'s right', () => {

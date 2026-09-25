@@ -79,6 +79,20 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
   are unavailable on the phone. Found the right-flipper half-turn (`71c98317`).
   Next: fold every door/seat/coaster check into GameTest instead of tap runs.
 - Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
+- [x] **Coaster rider camera follows the track** (guide: "The rider's camera
+  follows the track"). Ships `clamp`: free camera at the seated eye along the
+  car's nose, pitch within ±90, image turned over in ~4 ticks at each loop
+  side; look-around ±70/±50 with the rider's client yaw compared 6 ticks back,
+  no ratchet. Ridden on the Pixel in world 924 (10303, two laps, recordings in
+  `output/coaster-camera-0924/device/`); world 924 restored by hand (undo does
+  not survive an app restart: `/kill @e[family=…]` in the box + `/fill … air`).
+  Open:
+  - [ ] Real roll (upside-down at the apex): only a single camera ANIMATION
+    rolls (`RotationKeyFrame.rotation.z`), and chained/overlapping ones are not
+    drawn. Untested route: one pre-computed animation per inversion.
+  - [ ] Ride the final defaults once from a built pack (they were ridden as
+    live `/scriptevent craftmatic:coaster_cam` tuning: `ratchet 0`, `lag 6`),
+    then remove the tuning hook (`# TODO` in `coasterRuntime`).
 - Pack updates: importing a new .mcaddon does NOT repoint a world's active
   pack (device runs: world 922 kept 83614b39 active after 980f54fd was
   imported). Remove + add in the world's pack settings, or deploy into

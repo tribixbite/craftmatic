@@ -366,6 +366,10 @@ export interface CoasterRiderViewConfig {
   ease: number;
   /** Most the camera's yaw may turn in one tick, degrees (`clamp` needs it for the flip over the top). */
   maxTurn: number;
+  /** Ticks the rider's own yaw trails the car's: the client turns a rider with its interpolated view of the car (Pixel: ~0.3 s; 6 ticks held the look within 5 degrees through the fastest curve, from -37..+55 uncompensated). */
+  lookLag: number;
+  /** Whether pushing the head past a limit drags the look reference along. Off: a lag transient can never shift the view for good. */
+  ratchet: boolean;
   /** Length of each tick's camera animation in the roll modes, seconds: more than 0.05 (the engine refuses rotation keyframes 0.05 apart); the next tick replaces it. */
   spline: number;
 }
@@ -379,7 +383,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.1 };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false, spline: 0.1 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -1905,11 +1909,11 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // (a free camera at the eye draws the rider's own upright body around it,
   // as the pinball seat measured). `seen` is refreshed while grouping, before
   // any hold can skip a train, so a paused tick never drops the camera.
-  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.1 }, ...(config.camera || {}) };
+  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false, spline: 0.1 }, ...(config.camera || {}) };
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
-  let cameraDebug = false, traceTicks = 0, lookLag = 0, lookRatchet = true, stillMode = 'set', animEvery = 1;
+  let cameraDebug = false, traceTicks = 0, lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet, stillMode = 'set', animEvery = 1;
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
