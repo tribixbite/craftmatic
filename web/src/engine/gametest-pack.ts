@@ -249,6 +249,12 @@ export interface GametestPlan {
    * (`MINIFIG_GAIT`) is derived from.
    */
   gaitProbe?: { typeId: string; speeds: number[] } | undefined;
+  /**
+   * The pack's Minifig Creator figure type (`creator_<id>`): one is spawned as
+   * a wand draft, then released as the wand releases it, and must stand still
+   * while it is a draft and walk (scripts/figures.js) once it is not.
+   */
+  creatorFigure?: string | undefined;
 }
 
 /** The server-side animation controller the gait probe adds to one figure's BP entity. */
@@ -555,7 +561,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
   if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
   if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [] };
-  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined };
+  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
   /** `GAIT_PROBE_EVENT` (the runtime is serialised: it cannot import it). */
@@ -1066,6 +1072,45 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (roamers.length && summary.moved * 2 < roamers.length) problems.push(`only ${summary.moved}/${roamers.length} roaming figures moved`);
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
+
+  /**
+   * The Minifig Creator's figure: spawned as a draft (the wand's
+   * `craftmatic:draft`), watched for 100 ticks, released (draft off +
+   * `craftmatic:release`, what the wand's Place does), then watched for the
+   * figures test's length. A draft must not move; a released figure must walk
+   * at least 2 blocks and stay within the walker's radius of where it was let go.
+   */
+  const creatorType = plan.creatorFigure;
+  if (creatorType) gt.registerAsync(NS, `creator_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const at = test.worldLocation({ x: margin + 5.5, y: f0 + 1, z: margin + 5.5 });
+    const e = dim.spawnEntity(creatorType, at);
+    try { e.setProperty('craftmatic:draft', true); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const path = (track: any[]): number => track.reduce((sum: number, p: any, i: number) => i ? sum + Math.hypot(p.x - track[i - 1].x, p.z - track[i - 1].z) : 0, 0);
+    const held: any[] = [];
+    for (let t = 0; t <= 100; t += 10) { held.push({ ...e.location }); if (t < 100) await test.idle(10); }
+    const released = { ...e.location };
+    try { e.setProperty('craftmatic:draft', false); e.triggerEvent('craftmatic:release'); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const walk: any[] = [];
+    const ticks = plan.figureTicks ?? 1200;
+    for (let t = 0; t <= ticks; t += 20) { try { walk.push({ ...e.location }); } catch { break; } if (t < ticks) await test.idle(20); }
+    const r2 = (v: number): number => Math.round(v * 100) / 100;
+    const heldPath = r2(path(held)), walkPath = r2(path(walk));
+    const maxExcursion = r2(Math.max(...walk.map(p => Math.hypot(p.x - released.x, p.z - released.z))));
+    const minY = r2(Math.min(...walk.map(p => p.y)) - released.y);
+    let home: unknown = null;
+    try { home = JSON.parse(String(e.getDynamicProperty('craftmatic:fig'))); } catch { /* none written */ }
+    log('CREATOR', { model: plan.modelId, typeId: creatorType, heldPath, walkPath, maxExcursion, minY, home });
+    flush();
+    try { e.remove(); } catch { /* gone */ }
+    const problems: string[] = [];
+    if (heldPath > 0.2) problems.push(`the draft moved ${heldPath} blocks`);
+    if (walkPath < 2) problems.push(`the released figure walked only ${walkPath} blocks`);
+    if (maxExcursion > 8) problems.push(`it strayed ${maxExcursion} blocks from where it was released`);
+    if (minY < -0.6) problems.push(`it dropped ${-minY} blocks`);
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + (plan.figureTicks ?? 1200)).tag(NS);
 
   /**
    * The walk-cycle probe: how many units of `query.modified_distance_moved`

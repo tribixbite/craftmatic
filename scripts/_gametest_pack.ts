@@ -187,6 +187,13 @@ const plan: GametestPlan = {
 const gaitFigure = process.argv.includes('--gait-probe') ? plan.figures!.find(f => !f.seated) : undefined;
 if (process.argv.includes('--gait-probe') && !gaitFigure) throw new Error('--gait-probe: this pack has no standing figure');
 if (gaitFigure) plan.gaitProbe = { typeId: gaitFigure.typeId, speeds: [0.03, 0.06, 0.12] };
+// A Minifig Creator pack (`--creator=starter` builds): its figure type, for `creator_<id>`.
+const wandName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/minifig-wand.js`);
+if (wandName) {
+  const wandConfig = /const C=(\{.*?\});\(/s.exec(text(wandName));
+  if (!wandConfig) throw new Error(`${wandName}: no creator CONFIG found (the wand script changed shape)`);
+  plan.creatorFigure = (JSON.parse(wandConfig[1]!) as { figureType: string }).figureType;
+}
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
 const testVersion = packVersionAt();
