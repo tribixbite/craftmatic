@@ -312,7 +312,7 @@ function vehicleHost(o: HostOptions) {
   const player = { typeId: 'minecraft:player', inputInfo: { getMovementVector: () => ({ ...stick }), getButtonState: () => (jump ? 'Pressed' : 'Released') }, onScreenDisplay: { setActionBar: () => {} } };
   const dynamic = new Map<string, unknown>();
   const poses: Array<{ x: number; y: number; z: number; yaw: number }> = [];
-  const dim: any = { id: 'overworld', getBlock: block, getEntities: ({ type }: { type: string }) => (type === typeId ? [entity] : []), playSound: () => {}, runCommand: () => ({}) };
+  const dim: any = { id: 'overworld', getBlock: block, getEntities: (q: { type?: string; families?: string[] }) => (q.type === typeId || q.families?.includes('craftmatic_vehicle') ? [entity] : []), playSound: () => {}, runCommand: () => ({}) };
   const entity: any = {
     id: 'v1', typeId, location: { ...o.at }, rot: { x: 0, y: o.yaw ?? -90 }, dimension: dim,
     getRotation() { return { ...this.rot }; },
@@ -348,8 +348,8 @@ describe('swept footprint (sweepFootprint)', () => {
     expect(sweepFootprint({ x: 0, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 }, fp, solidCells(cells), FOOTPRINT).blocked).toBe(false);
   });
   it('sweeps a fast move in substeps, so a one-block trunk cannot be jumped between two ticks', () => {
-    // 1.6 blocks in one tick (32 blocks/s): the nose passes cell x = 3 between the two poses.
-    const hit = sweepFootprint({ x: 0, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { x: 1.6, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { ...fp, halfWidth: 0.3 }, solidCells(['2,64,0']), FOOTPRINT);
+    // 1.6 blocks in one tick (32 blocks/s): the nose (x + 2) goes from 1.5 to 3.1, over cell x = 2 between the two poses.
+    const hit = sweepFootprint({ x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { x: 1.1, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { ...fp, halfWidth: 0.3 }, solidCells(['2,64,0']), FOOTPRINT);
     expect(hit.blocked).toBe(true);
   });
   it('tilts the band with the pitch: a nose-up climb clears a low block the level nose would hit', () => {
@@ -358,6 +358,26 @@ describe('swept footprint (sweepFootprint)', () => {
     const climbing = sweepFootprint({ x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 40 }, { x: 0.3, y: 64, z: 0.5, yaw: -90, pitch: 40 }, { ...fp, halfWidth: 0.3 }, low, FOOTPRINT);
     expect(level.blocked).toBe(true);
     expect(climbing.blocked).toBe(false);
+  });
+  it('probes only the leading boundary: the bow going ahead, the stern backing up, the outward-swinging half in a turn', () => {
+    const barge = { halfLength: 18, halfWidth: 7, lo: 0.6, hi: 13 };
+    const none = (): boolean => false;
+    const ahead = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.6, yaw: 0, pitch: 0 }, barge, none, FOOTPRINT);
+    // The bow: 14 blocks at <= 0.9 spacing (17 points with both corners) at 4 heights.
+    expect(ahead.checks).toBe(17 * FOOTPRINT.MAX_LEVELS);
+    const turning = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.6, yaw: 3.5, pitch: 0 }, barge, none, FOOTPRINT);
+    expect(turning.checks).toBeGreaterThan(ahead.checks);
+    // A stump just behind the stern stops it backing up, and nothing ahead of the bow does.
+    const stern = (x: number, y: number, z: number): boolean => Math.floor(z) === -19 && Math.floor(y) === 64 && Math.abs(x) < 3;
+    expect(sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: -0.6, yaw: 0, pitch: 0 }, barge, stern, FOOTPRINT).blocked).toBe(true);
+    expect(sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.6, yaw: 0, pitch: 0 }, barge, stern, FOOTPRINT).blocked).toBe(false);
+  });
+  it('tilts the band about its low end, so an aircraft rotating on the runway does not strike its tail', () => {
+    // On flat ground (solid below y = 64), rotating nose-up from 7 to 8.5 degrees while turning a little:
+    // tilted about its centre the tail band (8 blocks aft, 1.05 up) sank from 64.07 into the runway at 63.85.
+    const runway = (_x: number, y: number): boolean => y < 64;
+    const r = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 7 }, { x: 0, y: 64, z: 0.5, yaw: 1, pitch: 8.5 }, { halfLength: 8, halfWidth: 15, lo: 1.05, hi: 8.7 }, runway, FOOTPRINT);
+    expect(r.blocked).toBe(false);
   });
   it('keeps a big hull to at most MAX_POINTS perimeter probes and MAX_LEVELS heights per pose', () => {
     const r = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.1, yaw: 0, pitch: 0 }, { halfLength: 18, halfWidth: 7, lo: 0.1, hi: 13 }, () => false, FOOTPRINT);
@@ -389,6 +409,15 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on a fake worl
     // The wingtip reaches z = 4.5: the post at x = 9 stops the leading edge (x + 3) at 9.
     expect(host.entity.location.x + plane.noseReach).toBeLessThanOrEqual(9.05);
     expect(host.entity.location.x).toBeGreaterThan(2);
+  });
+  it('takes off a long aircraft without its tail striking the runway as it rotates (the band tilts about its low end)', () => {
+    // The Milano: 16 long, 30 wide, 8.8 tall. Tilted about its centre at 12 degrees its tail dipped 1.7 blocks
+    // into the ground and every take-off roll stopped dead (Pixel GameTest, 2026-09-25).
+    const milano: ScriptedVehicleType = { mode: 'plane', noseReach: 8, halfWidth: 15, height: 8.8 };
+    const host = vehicleHost({ type: milano, at: { x: 0.5, y: 64, z: 0.5 } });
+    host.set(0, 0, true);
+    host.run(200);
+    expect(Math.max(...host.poses.map(p => p.y))).toBeGreaterThan(66);
   });
   it('drives ON a collider plate floor, at its sixteenth, not a block above it', () => {
     const colliders = { block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi' };

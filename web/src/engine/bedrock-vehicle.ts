@@ -508,29 +508,54 @@ export interface VehicleFootprint { halfLength: number; halfWidth: number; lo: n
  */
 export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: VehicleFootprint, solid: (x: number, y: number, z: number) => boolean, P: FootprintParams): { blocked: boolean; checks: number; at?: [number, number, number] } {
   const L = Math.max(0.05, fp.halfLength), W = Math.max(0.05, fp.halfWidth);
-  // Perimeter probes as (along, side) offsets: corners first, then each edge at <= SPACING.
-  const perimeter = 4 * (L + W);
-  const spacing = Math.max(P.SPACING, perimeter / P.MAX_POINTS);
-  const offsets: Array<[number, number]> = [];
-  const edge = (a0: number, s0: number, a1: number, s1: number): void => {
-    const n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, s1 - s0) / spacing));
-    for (let k = 0; k < n; k++) offsets.push([a0 + (a1 - a0) * k / n, s0 + (s1 - s0) * k / n]);
-  };
-  edge(L, -W, L, W); edge(L, W, -L, W); edge(-L, W, -L, -W); edge(-L, -W, L, -W);
-  const span = Math.max(0, fp.hi - fp.lo);
-  const levels: number[] = [];
-  const nLevels = Math.min(P.MAX_LEVELS, Math.max(1, Math.ceil(span) + 1));
-  for (let k = 0; k < nLevels; k++) levels.push(fp.lo + (nLevels === 1 ? 0 : span * k / (nLevels - 1)));
   const rad = (d: number): number => d * Math.PI / 180;
   const pointAt = (pose: FootprintPose, a: number, s: number, h: number): [number, number, number] => {
     const r = rad(pose.yaw), fx = -Math.sin(r), fz = Math.cos(r);
     // The vehicle's right (a right turn raises yaw): (-cos, -sin) in Bedrock's frame.
     const rx = -Math.cos(r), rz = -Math.sin(r);
-    return [pose.x + fx * a + rx * s, pose.y + a * Math.tan(rad(Math.max(-60, Math.min(60, pose.pitch)))) + h, pose.z + fz * a + rz * s];
+    // Pitched, the band tilts about its LOW end: nose up raises the nose and
+    // leaves the tail at the base (an aircraft rotates on its main gear; tilted
+    // about its centre the Milano's tail dipped into the runway at 12 degrees and
+    // every take-off roll "crashed", Pixel GameTest 2026-09-25); nose down the
+    // other way round.
+    const lift = Math.max(0, a * Math.tan(rad(Math.max(-60, Math.min(60, pose.pitch)))));
+    return [pose.x + fx * a + rx * s, pose.y + lift + h, pose.z + fz * a + rz * s];
   };
   let dyaw = to.yaw - from.yaw;
   while (dyaw > 180) dyaw -= 360;
   while (dyaw < -180) dyaw += 360;
+  // Perimeter probes as (along, side) offsets, each edge at <= SPACING, with the
+  // edge's outward normal. Only the LEADING boundary is probed: a point moving
+  // inward (or along its edge) sweeps space the vehicle itself covered, which
+  // was clear, so straight ahead that is the front edge alone, and in a turn
+  // the half of the perimeter that swings outward. A 36-block barge probed
+  // its whole perimeter at 890 checks and 20-24 ms a tick on the Pixel
+  // (world 924, 2026-09-25); its bow alone is a sixth of that.
+  const perimeter = 4 * (L + W);
+  const spacing = Math.max(P.SPACING, perimeter / P.MAX_POINTS);
+  const moveX = to.x - from.x, moveZ = to.z - from.z;
+  const vertical = Math.abs(to.y - from.y) > 0.01 && Math.hypot(moveX, moveZ) < 0.01 && Math.abs(dyaw) < 1e-3;
+  const offsets: Array<[number, number]> = [];
+  /** Whether the boundary point (a, s) with outward normal (na, ns) moves outward between the poses. */
+  const outward = (a: number, s: number, na: number, ns: number): boolean => {
+    if (vertical) return true; // a straight lift or drop: every point meets new space above or below
+    const p0 = pointAt(from, a, s, 0), p1 = pointAt(to, a, s, 0);
+    const r = rad(from.yaw), fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
+    const nx = fx * na + rx * ns, nz = fz * na + rz * ns;
+    return (p1[0] - p0[0]) * nx + (p1[2] - p0[2]) * nz > 1e-6;
+  };
+  const edge = (a0: number, s0: number, a1: number, s1: number, na: number, ns: number): void => {
+    const n = Math.max(1, Math.ceil(Math.hypot(a1 - a0, s1 - s0) / spacing));
+    for (let k = 0; k <= n; k++) {
+      const a = a0 + (a1 - a0) * k / n, s = s0 + (s1 - s0) * k / n;
+      if (outward(a, s, na, ns)) offsets.push([a, s]);
+    }
+  };
+  edge(L, -W, L, W, 1, 0); edge(L, W, -L, W, 0, 1); edge(-L, W, -L, -W, -1, 0); edge(-L, -W, L, -W, 0, -1);
+  const span = Math.max(0, fp.hi - fp.lo);
+  const levels: number[] = [];
+  const nLevels = Math.min(P.MAX_LEVELS, Math.max(1, Math.ceil(span) + 1));
+  for (let k = 0; k < nLevels; k++) levels.push(fp.lo + (nLevels === 1 ? 0 : span * k / (nLevels - 1)));
   const travel = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) + Math.abs(rad(dyaw)) * Math.hypot(L, W);
   const steps = Math.min(P.MAX_SUBSTEPS, Math.max(1, Math.ceil(travel / P.SWEEP_STEP)));
   let checks = 0;
@@ -779,11 +804,13 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     const started = Date.now();
     let isNight = false;
     try { isNight = night(world.getTimeOfDay(), HL); } catch { /* no clock */ }
-    for (const dim of dims()) for (const type of typeIds) {
-      const kind = config.types[type]!;
+    for (const dim of dims()) {
+      // One query per dimension for every scripted type (per type, 60367's seven vehicle types made 21 queries a tick).
       let list: any[] = [];
-      try { list = dim.getEntities({ type }); } catch { continue; }
+      try { list = dim.getEntities({ families: ['craftmatic_vehicle'] }); } catch { continue; }
       for (const e of list) {
+        const type = String(e.typeId), kind = config.types[type];
+        if (!kind) continue;
         let loc: any, rot: any;
         try { loc = e.location; rot = e.getRotation(); } catch { continue; }
         let st = states.get(e.id);
