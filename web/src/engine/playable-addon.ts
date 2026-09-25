@@ -2344,7 +2344,20 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${rp}models/entity/${zid}.geo.json`, data: geoJson(za.geometry) },
             );
             addEntityName(buttonType, `${label} flipper button`, false);
-            let plungerButtonType: string | undefined;
+            // The invisible pick boxes taps actually hit (see bedrock-pinball.ts `zoneAt`).
+            const emitZone = (zoneId: string, typeId: string, box: { width: number; height: number }, role: 'flipper' | 'plunger' | 'pick', name: string): void => {
+                const a = zoneAssets(typeId, box, role);
+                files.push(
+                    { name: `${bp}entities/${zoneId}.json`, data: json(a.behavior) },
+                    { name: `${rp}entity/${zoneId}.entity.json`, data: json(a.client) },
+                    { name: `${rp}models/entity/${zoneId}.geo.json`, data: geoJson(a.geometry) },
+                );
+                addEntityName(typeId, name, false);
+            };
+            const kid = entityId(`${id}_pinball_pick`, 'p');
+            const pickType = `${PACK_NAMESPACE}:${kid}`;
+            emitZone(kid, pickType, plan.zones.pickFlipperBox, 'pick', `${label} flipper pick`);
+            let plungerButtonType: string | undefined, plungerPickType: string | undefined;
             if (plan.plunger) {
                 const qid = entityId(`${id}_pinball_plunger_button`, 'p');
                 plungerButtonType = `${PACK_NAMESPACE}:${qid}`;
@@ -2355,11 +2368,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     { name: `${rp}models/entity/${qid}.geo.json`, data: geoJson(qa.geometry) },
                 );
                 addEntityName(plungerButtonType, `${label} plunger button`, false);
+                const qkid = entityId(`${id}_pinball_plunger_pick`, 'p');
+                plungerPickType = `${PACK_NAMESPACE}:${qkid}`;
+                emitZone(qkid, plungerPickType, plan.zones.pickPlungerBox, 'pick', `${label} plunger pick`);
             }
             // The flipper spin is authored in the render frame; a mirrored frame reverses it.
             const f = SHELL_FRAME;
             const det = f[0]! * (f[4]! * f[8]! - f[5]! * f[7]!) - f[1]! * (f[3]! * f[8]! - f[5]! * f[6]!) + f[2]! * (f[3]! * f[7]! - f[4]! * f[6]!);
-            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType, plunger: plungerType, plungerButton: plungerButtonType }, ballEntityModel, Math.sign(det) || 1, label);
+            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType, pick: pickType, plunger: plungerType, plungerButton: plungerButtonType, plungerPick: plungerPickType }, ballEntityModel, Math.sign(det) || 1, label);
             files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
             warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
             warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the outlined box over a flipper (or a hotbar slot left or right of the middle) to flip it; tap the yellow box over the plunger to draw it back and tap again to let go - the further it is drawn, the harder the shot. The stick works too (pull it back for the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);

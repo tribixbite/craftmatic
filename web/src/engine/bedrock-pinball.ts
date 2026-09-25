@@ -103,9 +103,17 @@ export interface PinballZonePlan {
   /** Distance from the head to a target's centre line, blocks (a phone tap reaches ~2-3). */
   reach: number;
   specs: PinballZoneSpec[];
-  /** Collision (= pick) box of a flipper target and of the plunger target, blocks. */
+  /** The OUTLINE boxes the player sees, on the camera's line of sight to each part, blocks. */
   flipperBox: { width: number; height: number };
   plungerBox: { width: number; height: number };
+  /**
+   * The invisible PICK boxes a tap actually hits, on the rays the phone casts:
+   * the player's own level view mapped through the tapped screen position
+   * (`fitPinballZone` model `level`; measured on the Pixel 2026-09-25), sized
+   * for any player pitch in `PICK_PITCHES`.
+   */
+  pickFlipperBox: { width: number; height: number };
+  pickPlungerBox: { width: number; height: number };
   /** The fitted box per spec from the planned eye, model blocks (for tests and the build report). */
   fits: Array<{ role: string; centre: number[]; lo: number[]; hi: number[] }>;
 }
@@ -276,6 +284,7 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
     height: Math.round((Math.max(...fs.map(f => f.hi[1]! - f.lo[1]!)) + 2 * PAD) * 100) / 100,
   });
   const flipperFits = fits.filter(f => f.role !== 'plunger');
+  const pick = planPickBoxes(specs, toModel, eye, look);
   const plungerFits = fits.filter(f => f.role === 'plunger');
   const flipperBox = box(flipperFits);
   const plungerBox = plungerFits.length ? box(plungerFits) : { width: 0.2, height: 0.2 };
@@ -293,7 +302,35 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
     const room = 2 * sep(p, f) - flipperBox.width - GAP;
     if (room < plungerBox.width) plungerBox.width = Math.max(0.05, Math.floor(room * 100) / 100);
   }
-  return { reach: PINBALL_TAP_REACH, specs, flipperBox, plungerBox, fits };
+  return { reach: PINBALL_TAP_REACH, specs, flipperBox, plungerBox, pickFlipperBox: pick.flipper, pickPlungerBox: pick.plunger, fits };
+}
+
+/** Player pitches (degrees, + down) a seated phone was seen to report or might: the pick boxes fit all of them. */
+export const PICK_PITCHES = [0, 10, 20, 30, 40, 50];
+
+/**
+ * Pick boxes for the level model: at each pitch in `PICK_PITCHES` every
+ * target's rays are fitted; a box is the largest fit (plus padding), capped
+ * so neighbours never overlap at the pitch where they are closest.
+ */
+function planPickBoxes(specs: PinballZoneSpec[], toModel: (u: number, w: number, h: number) => number[], eye: Vec3, look: Vec3): { flipper: { width: number; height: number }; plunger: { width: number; height: number } } {
+  const PAD = 0.03, GAP = 0.01;
+  const size = (f: { lo: number[]; hi: number[] }): { w: number; h: number } => ({ w: Math.max(f.hi[0]! - f.lo[0]!, f.hi[2]! - f.lo[2]!) + 2 * PAD, h: f.hi[1]! - f.lo[1]! + 2 * PAD });
+  const sep = (a: { centre: number[] }, b: { centre: number[] }): number => Math.max(Math.abs(a.centre[0]! - b.centre[0]!), Math.abs(a.centre[2]! - b.centre[2]!));
+  let fw = 0, fh = 0, pw = 0, ph = 0, capF = Infinity;
+  const perPitch = PICK_PITCHES.map(pp => specs.map(s => ({ role: s.role, ...fitPinballZone(eye, eye, look, rectSamples(s.rect, s.h, toModel), PINBALL_TAP_REACH, 'level', pp) })));
+  for (const fits of perPitch) {
+    for (const f of fits) {
+      const z = size(f);
+      if (f.role === 'plunger') { pw = Math.max(pw, z.w); ph = Math.max(ph, z.h); } else { fw = Math.max(fw, z.w); fh = Math.max(fh, z.h); }
+    }
+    const l = fits.find(f => f.role === 'left'), r = fits.find(f => f.role === 'right');
+    if (l && r) capF = Math.min(capF, sep(l, r) - GAP);
+  }
+  fw = Math.min(fw, capF);
+  for (const fits of perPitch) for (const pf of fits.filter(f => f.role === 'plunger')) for (const f of fits.filter(x => x.role !== 'plunger')) pw = Math.min(pw, Math.max(0.05, 2 * sep(pf, f) - fw - GAP));
+  const r2 = (v: number): number => Math.floor(v * 100) / 100;
+  return { flipper: { width: r2(fw), height: r2(fh) }, plunger: { width: r2(pw), height: r2(ph) } };
 }
 
 /**
@@ -568,11 +605,12 @@ export function pinballZoneTexture(): { width: number; height: number; rgba: Uin
  * every other face the transparent one. The collision box is the pick box.
  * No size groups: it is sized to the player's reach, not the model.
  */
-export function zoneAssets(typeId: string, box: { width: number; height: number }, role: 'flipper' | 'plunger'): { behavior: unknown; client: unknown; geometry: unknown } {
+export function zoneAssets(typeId: string, box: { width: number; height: number }, role: 'flipper' | 'plunger' | 'pick'): { behavior: unknown; client: unknown; geometry: unknown } {
   const geometryId = `geometry.${typeId.replace(':', '.')}`;
   const w = box.width * 16, h = box.height * 16;
   const clear = { uv: [16, 0], uv_size: [16, 16] };
-  const top = { uv: role === 'flipper' ? [0, 0] : [0, 16], uv_size: [16, 16] };
+  // A pick box is drawn too (the client only picks what it renders), but every face is the clear tile.
+  const top = role === 'pick' ? clear : { uv: role === 'flipper' ? [0, 0] : [0, 16], uv_size: [16, 16] };
   return {
     behavior: { format_version: '1.26.30', 'minecraft:entity': {
       description: { identifier: typeId, is_spawnable: false, is_summonable: true },
@@ -615,8 +653,15 @@ export interface PinballRuntimeConfig {
   /** Tap-target entity types (flipper, plunger) the runtime spawns in front of a seated player's head, and their family. */
   buttonType: string;
   plungerButtonType?: string | undefined;
+  /** The invisible pick boxes (flipper and plunger) that taps actually hit. */
+  pickType: string;
+  plungerPickType?: string | undefined;
   buttonFamily: string;
-  zones: { reach: number; specs: PinballZoneSpec[]; flipperBox: { width: number; height: number }; plungerBox: { width: number; height: number } };
+  zones: {
+    reach: number; specs: PinballZoneSpec[];
+    flipperBox: { width: number; height: number }; plungerBox: { width: number; height: number };
+    pickFlipperBox: { width: number; height: number }; pickPlungerBox: { width: number; height: number };
+  };
   sim: PinballSimTable;
   map: PinballMap;
   ballH: number;
@@ -642,13 +687,17 @@ export interface PinballRuntimeConfig {
 
 export function pinballRuntimeConfig(
   plan: PinballPlan,
-  types: { console: string; ball: string; flippers: string[]; button: string; plunger?: string | undefined; plungerButton?: string | undefined },
+  types: { console: string; ball: string; flippers: string[]; button: string; pick: string; plunger?: string | undefined; plungerButton?: string | undefined; plungerPick?: string | undefined },
   ballEntityModel: Vec3, spinSign: number, label: string,
 ): PinballRuntimeConfig {
   return {
     family: PINBALL_FAMILY, consoleType: types.console, ballType: types.ball, flipperTypes: types.flippers,
-    plungerType: types.plunger, buttonType: types.button, plungerButtonType: types.plungerButton, buttonFamily: PINBALL_BUTTON_FAMILY,
-    zones: { reach: plan.zones.reach, specs: plan.zones.specs, flipperBox: plan.zones.flipperBox, plungerBox: plan.zones.plungerBox },
+    plungerType: types.plunger, buttonType: types.button, plungerButtonType: types.plungerButton,
+    pickType: types.pick, plungerPickType: types.plungerPick, buttonFamily: PINBALL_BUTTON_FAMILY,
+    zones: {
+      reach: plan.zones.reach, specs: plan.zones.specs, flipperBox: plan.zones.flipperBox, plungerBox: plan.zones.plungerBox,
+      pickFlipperBox: plan.zones.pickFlipperBox, pickPlungerBox: plan.zones.pickPlungerBox,
+    },
     sim: plan.sim, map: plan.map, ballH: plan.ballH,
     ballOffset: sub(ballEntityModel, plan.ballCentreModel),
     restAngles: plan.flippers.map(f => f.restAngle), spinSign,
@@ -729,7 +778,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   };
   const wrapDeg = (d: number): number => ((d + 540) % 360) - 180;
 
-  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'camera' as 'camera' | 'level', pitch: 0, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false };
+  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'level' as 'camera' | 'level', pitch: NaN, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false };
   const tune: typeof DEFAULT_TUNE = { ...DEFAULT_TUNE };
   let ballMode: 'animate' | 'teleport' = config.ballMode;
   let axisSigns: number[] = [...config.axisSigns];
@@ -745,8 +794,10 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
         if (tune.fixed) for (const game of games.values()) game.sim = createSim(config.sim);
         Object.assign(tune, DEFAULT_TUNE); ballMode = config.ballMode; axisSigns = [...config.axisSigns]; probe = null;
       }
-      for (const k of ['fwd', 'left', 'up', 'reach', 'pitch', 'cam'] as const) if (k in t) tune[k] = num(t[k], DEFAULT_TUNE[k]);
-      if ('pick' in t) tune.pick = t.pick === 'level' ? 'level' : 'camera';
+      for (const k of ['fwd', 'left', 'up', 'reach', 'cam'] as const) if (k in t) tune[k] = num(t[k], DEFAULT_TUNE[k]);
+      // A pitch pins the level model's player pitch; without one the rider's own is read.
+      if ('pitch' in t) tune.pitch = num(t.pitch, NaN);
+      if ('pick' in t) tune.pick = t.pick === 'camera' ? 'camera' : 'level';
       // A new view mode ("first" / "free") takes effect at the next seating.
       if ('view' in t) tune.view = t.view === 'first' ? 'first' : 'free';
       if ('perf' in t) tune.perf = !!t.perf;
@@ -763,8 +814,17 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     });
   } catch {}
 
-  /** Where each target's box stands (its entity position: bottom centre), from the head and the camera. */
-  const zoneAt = (g: any, game: any, role: string): { x: number; y: number; z: number } => {
+  /**
+   * Where a target's box stands (its entity position: bottom centre). The
+   * OUTLINE sits on the camera's line of sight to the part, so it frames the
+   * part on screen; the PICK box sits where the phone's tap ray for that
+   * screen spot goes. On the Pixel (2026-09-25) that ray is the player's own
+   * view, level-ish (it ignores the free camera's pitch): probe targets along
+   * the screen's centre column were hit at pitch 0 / 10 / 20 / 40 for taps at
+   * y 250 / 450 / 640 / 850 of 1008, and flipper-centred boxes on the camera
+   * rays were never hit.
+   */
+  const zoneAt = (g: any, game: any, role: string, layer: 'outline' | 'pick' = 'pick'): { x: number; y: number; z: number } => {
     const spec = config.zones.specs.find(s => s.role === role)!;
     const a = game.aim;
     const samples: number[][] = [];
@@ -772,12 +832,17 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const p = toWorld(g, planePoint(spec.rect[0] + (spec.rect[1] - spec.rect[0]) * i / 4, spec.rect[2] + (spec.rect[3] - spec.rect[2]) * j / 4, spec.h));
       samples.push([p.x, p.y, p.z]);
     }
-    const fit = fitZone([a.eye.x, a.eye.y, a.eye.z], [a.cam.x, a.cam.y, a.cam.z], [a.facing.x, a.facing.y, a.facing.z], samples, tune.reach, tune.pick, tune.pick === 'level' ? tune.pitch : 0);
-    const box = role === 'plunger' ? config.zones.plungerBox : config.zones.flipperBox;
+    const outline = layer === 'outline';
+    const model = outline ? 'camera' : tune.pick;
+    const pitch = Number.isFinite(tune.pitch) ? tune.pitch : Number.isFinite(game.riderPitch) ? game.riderPitch : 0;
+    const fit = fitZone([a.eye.x, a.eye.y, a.eye.z], [a.cam.x, a.cam.y, a.cam.z], [a.facing.x, a.facing.y, a.facing.z], samples, tune.reach, model, pitch);
+    const z = config.zones;
+    const box = outline ? (role === 'plunger' ? z.plungerBox : z.flipperBox) : (role === 'plunger' ? z.pickPlungerBox : z.pickFlipperBox);
+    const off = outline ? { fwd: 0, left: 0, up: 0 } : tune;
     return {
-      x: fit.centre[0]! + a.fwd.x * tune.fwd + a.left.x * tune.left,
-      y: fit.centre[1]! - box.height / 2 + tune.up,
-      z: fit.centre[2]! + a.fwd.z * tune.fwd + a.left.z * tune.left,
+      x: fit.centre[0]! + a.fwd.x * off.fwd + a.left.x * off.left,
+      y: fit.centre[1]! - box.height / 2 + off.up,
+      z: fit.centre[2]! + a.fwd.z * off.fwd + a.left.z * off.left,
     };
   };
   /** A probe target along a view direction (yaw offset from the seated heading, absolute pitch; + is down). */
@@ -819,10 +884,11 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   const PARK_SLOT = 4;
   /** Seated players carry this tag, so the Brick Wands do not open when a hotbar tap lands on theirs. */
   const SEATED_TAG = 'craftmatic_pinball';
-  try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { try { if (ev.hitEntity?.typeId === config.buttonType || ev.hitEntity?.typeId === config.plungerButtonType) tap(ev.hitEntity, ev.damagingEntity); } catch {} }); } catch {}
+  const TARGET_TYPES = [config.buttonType, config.plungerButtonType, config.pickType, config.plungerPickType].filter(Boolean);
+  try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { try { if (TARGET_TYPES.includes(ev.hitEntity?.typeId)) tap(ev.hitEntity, ev.damagingEntity); } catch {} }); } catch {}
   try {
     world.beforeEvents.playerInteractWithEntity.subscribe((ev: any) => {
-      try { if (ev.target?.typeId === config.buttonType || ev.target?.typeId === config.plungerButtonType) { ev.cancel = true; tap(ev.target, ev.player); } } catch {}
+      try { if (TARGET_TYPES.includes(ev.target?.typeId)) { ev.cancel = true; tap(ev.target, ev.player); } } catch {}
     });
   } catch {}
 
@@ -982,21 +1048,33 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           try { rider.selectedSlotIndex = PARK_SLOT; } catch {}
         }
         // The targets: spawned once seated, re-placed when retuned.
+        // The player's pitch, which the pick boxes follow (a turned head moves the tap rays).
+        if (now % 20 === 0 || !Number.isFinite(game.riderPitch)) {
+          let px = NaN;
+          try { px = Number(rider.getRotation().x); } catch {}
+          if (Number.isFinite(px) && !(Math.abs(px - game.riderPitch) < 1)) { game.riderPitch = px; game.retune = true; }
+        }
         const roles = config.zones.specs.map(s => s.role).filter(r => r !== 'plunger' || config.plungerButtonType);
+        const layers = [['outline', ''], ['pick', ':pick']] as const;
+        const typeOf = (role: string, layer: string): string | undefined => (layer === 'pick'
+          ? (role === 'plunger' ? config.plungerPickType : config.pickType)
+          : (role === 'plunger' ? config.plungerButtonType : config.buttonType));
         if (!game.zones) {
           game.zones = {};
-          for (const role of roles) {
+          for (const role of roles) for (const [layer, suffix] of layers) {
+            const type = typeOf(role, layer);
+            if (!type) continue;
             try {
-              const e = dim.spawnEntity(role === 'plunger' ? config.plungerButtonType : config.buttonType, zoneAt(g, game, role));
-              game.zones[role] = e;
+              const e = dim.spawnEntity(type, zoneAt(g, game, role, layer));
+              game.zones[role + suffix] = e;
               zones.set(e.id, { key, role });
             } catch {}
           }
         } else if (now % 20 === 0 || game.retune) {
-          for (const role of roles) {
-            const e = game.zones[role];
+          for (const role of roles) for (const [layer, suffix] of layers) {
+            const e = game.zones[role + suffix];
             if (!e) continue;
-            const want = zoneAt(g, game, role);
+            const want = zoneAt(g, game, role, layer);
             try { if (dist(e.location, want) > 0.02) e.teleport(want, { keepVelocity: false, checkForBlocks: false }); } catch {}
           }
         }
@@ -1165,7 +1243,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       const bar = (v: number): string => `§e${'|'.repeat(Math.round(v * 12))}§8${'|'.repeat(12 - Math.round(v * 12))}§r`;
       // The tap readout (a tuning aid) goes FIRST: a phone's action bar cuts
       // a long line at both edges (device 2026-09-25).
-      const note = tune.log || probe ? `§7[taps ${game.taps.left}/${game.taps.right}/${game.taps.plunger}${game.lastTap ? ` ${game.lastTap}` : ''}]§r ` : '';
+      const note = tune.log || probe ? `§7[taps ${game.taps.left}/${game.taps.right}/${game.taps.plunger}${game.lastTap ? ` ${game.lastTap}` : ''} p${Math.round(game.riderPitch)}]§r ` : '';
       let line: string;
       if (st.phase === 'over') line = `${note}§eGAME OVER§r ${fmt(st.score)} (best ${fmt(game.best)}) - tap a flipper for a new game`;
       else if (st.phase === 'ready') {

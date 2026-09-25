@@ -33,7 +33,8 @@ function config(): PinballRuntimeConfig {
   const sim = boxSim();
   return {
     family: 'craftmatic_pinball', consoleType: 'craftmatic:con', ballType: 'craftmatic:ball', flipperTypes: ['craftmatic:fl', 'craftmatic:fr'],
-    plungerType: 'craftmatic:plunger', buttonType: 'craftmatic:zone', plungerButtonType: 'craftmatic:pzone', buttonFamily: 'craftmatic_pinball_button',
+    plungerType: 'craftmatic:plunger', buttonType: 'craftmatic:zone', plungerButtonType: 'craftmatic:pzone',
+    pickType: 'craftmatic:pick', plungerPickType: 'craftmatic:ppick', buttonFamily: 'craftmatic_pinball_button',
     zones: {
       reach: 1.2,
       specs: [
@@ -41,7 +42,7 @@ function config(): PinballRuntimeConfig {
         { role: 'right', rect: [650, 740, 205, 340], h: 12 },
         { role: 'plunger', rect: [570, 700, 345, 395], h: 12 },
       ],
-      flipperBox: BOX, plungerBox: BOX,
+      flipperBox: BOX, plungerBox: BOX, pickFlipperBox: BOX, pickPlungerBox: BOX,
     },
     sim,
     // 1 LDU = 0.01 model blocks, u along +z, w along +x, h up.
@@ -140,10 +141,16 @@ function harness(engine: { headSide?: number; yawOffset?: number } = {}) {
     const z = live().filter(e => e.typeId === cfg.buttonType);
     return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerButtonType) : z[role === 'left' ? 0 : 1];
   };
+  /** The invisible pick boxes, same order. */
+  const pick = (role: 'left' | 'right' | 'plunger') => {
+    const z = live().filter(e => e.typeId === cfg.pickType);
+    return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerPickType) : z[role === 'left' ? 0 : 1];
+  };
   return {
-    cfg, origin, home, con, ball, fl, fr, plunger, player, input, dim, spawned, zone, warn, getEntities,
+    cfg, origin, home, con, ball, fl, fr, plunger, player, input, dim, spawned, zone, pick, warn, getEntities,
     hit: (role: 'left' | 'right' | 'plunger', by: any = player) => hit({ damagingEntity: by, hitEntity: zone(role) }),
     hitEntity: (e: any) => hit({ damagingEntity: player, hitEntity: e }),
+    hitPick: (role: 'left' | 'right' | 'plunger') => hit({ damagingEntity: player, hitEntity: pick(role) }),
     press: (role: 'left' | 'right' | 'plunger') => { const ev: any = { player, target: zone(role), cancel: false }; interact(ev); return ev; },
     tune: (message: string) => scriptEvent({ id: 'craftmatic:pinball', message }),
     sit: () => { riders = [player]; }, stand: () => { riders = []; },
@@ -382,21 +389,45 @@ describe('pinball runtime (host simulation)', () => {
     expect(flipOf(h.fr)).toBeGreaterThan(30);
   });
 
-  it('a /scriptevent moves the targets live, and {} restores them', () => {
+  it('a /scriptevent moves the pick boxes live (never the outlines), and {} restores them', () => {
     const h = seated();
-    const before = { ...h.zone('left')!.location };
+    const before = { ...h.pick('left')!.location }, outline = { ...h.zone('left')!.location };
     h.tune('{"fwd":-1,"up":0.5}'); h.run(1);
-    const moved = h.zone('left')!.location;
+    const moved = h.pick('left')!.location;
     expect(moved.z).toBeCloseTo(before.z + 1, 6); // 1 block nearer (+z)
     expect(moved.y).toBeCloseTo(before.y + 0.5, 6);
+    expect(h.zone('left')!.location).toEqual(outline);
     h.tune('{}'); h.run(1);
-    expect(h.zone('left')!.location.z).toBeCloseTo(before.z, 6);
+    expect(h.pick('left')!.location.z).toBeCloseTo(before.z, 6);
+  });
+
+  it("puts each PICK box on the player's own (level) view ray through the part's screen position, following the rider's pitch", () => {
+    const h = seated();
+    // The rider reports pitch atan2(5, 7) (setRotation's); a level view at that
+    // pitch sees the waiting ball's screen spot along a different ray than the camera.
+    const head = h.player.getHeadLocation();
+    const w = (p: number[]): number[] => [h.origin.x + p[0]!, h.origin.y + p[1]!, h.origin.z + p[2]!];
+    const leftMid = w([150 * 0.01, 12 * 0.01, 716 * 0.01]);
+    const cam = h.player.camera.setCamera.mock.calls.at(-1)![1];
+    const pitch = h.player.getRotation().x;
+    const fit = fitPinballZone([head.x, head.y, head.z], [cam.location.x, cam.location.y, cam.location.z], [cam.facingLocation.x, cam.facingLocation.y, cam.facingLocation.z], [leftMid], 1.2, 'level', pitch);
+    const at = h.pick('left')!.location;
+    expect(rayHits(head, [head.x + (fit.centre[0]! - head.x) * 3, head.y + (fit.centre[1]! - head.y) * 3, head.z + (fit.centre[2]! - head.z) * 3], at, BOX)).toBe(true);
+    // A tap on a pick box works its flipper.
+    h.hitPick('left'); h.run(3);
+    expect(flipOf(h.fl)).toBeGreaterThan(30);
+    // A new pitch moves the pick boxes (within 20 ticks), not the outlines.
+    const outline = { ...h.zone('left')!.location }, pick0 = { ...at };
+    h.player.head = { x: 10, y: 180 };
+    h.run(21);
+    expect(h.pick('left')!.location.y).not.toBeCloseTo(pick0.y, 3);
+    expect(h.zone('left')!.location).toEqual(outline);
   });
 
   it('a probe spawns targets along given directions and logs which one a tap hits', () => {
     const h = seated();
     h.tune('{"probe":[[0,60],[0,75]],"d":1.5}'); h.run(1);
-    const probes = h.spawned.filter(e => !e.removed).slice(3);
+    const probes = h.spawned.filter(e => !e.removed).slice(6);
     expect(probes.length).toBe(2);
     const head = h.player.getHeadLocation();
     // 75 degrees down, 1.5 blocks out along the seated heading (-z).
