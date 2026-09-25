@@ -2935,3 +2935,95 @@ favourites (`0711e753` packs plus the re-home fix) it simulates 60 s for 236
 figures. 4 are source-seated and stay seated. Of 232 roamers, 177 moved and
 0 left their area. 83 start with fewer than 4 reachable cells, and 16 fell
 from an unsupported spawn.
+
+## Rail vehicles on the coaster engine (2026-09-25)
+
+A train is the coaster with a driver. There is ONE ride engine:
+`rideSubstep` (`engine/bedrock-coaster.ts`) is the per-substep speed step
+that the pack runtime (`coasterRuntime`, which receives it as an argument
+because it is serialised by `.toString()`) and the walk preview
+(`coaster-preview.ts`) both call. Track routing, car attitude
+(`coasterCarAttitude`), boarding, the rider camera and the placement are
+the coaster's, unchanged. What differs is data:
+
+- A railway route carries `physics: RAIL_TRAIN_PHYSICS`, whose `DRIVER`
+  block switches the step from gravity-only to driven: the rider's stick
+  (`inputInfo.getMovementVector().y`, read against the train's FIXED nose,
+  never its motion) accelerates at 3 blocks/s² to a 12 blocks/s top speed,
+  brakes at 6 against the motion, and reverses only from rest. Nobody at the
+  controls: a 6 blocks/s² park brake. No chain, no inversion floor, no
+  minimum speed, no station dwell. An open end is a buffer stop that holds
+  the whole end car on the line (`cars.endInset`), not the coaster's shuttle
+  reversal. Its cars prompt "Drive the train".
+- Without `DRIVER` the step is the shipped coaster formula in the same
+  floating-point order: bit-identical over 20,000 sampled states
+  (`test/rail-track.test.ts`), and the SHIPPED 10303/10261 runtimes replayed
+  through the refactored `coasterScript` give the same digest over 4,000
+  ticks (10303 `c3b205e9…`, 10261 `0b2f11a5…`;
+  `bun scripts/_coaster_replay.ts <pack> --rebuild`).
+
+### Track: railway moulds on the rail-top centreline
+
+`coaster-track.ts` routes railway moulds as a second profile family
+(`CoasterTrackProfile.family = 'train'`), measured on the library meshes:
+53401 / 2865 / 74746 straights (rail heads z ±50, top y −16, ends x ±160),
+53400 / 2867 / 74747 curves (both heads are circles about (0, −800): the
+centreline is R 800 over 22.5°), 85976 (R 480 over 45°, gauge 60), and loose
+4.5V/12V rails (3228a/b/c) paired one gauge apart (100; 60 for mine-cart
+track). Checks: 16 synthetic 53400s close one circle; 4559 closes a
+26-mould circuit, 4558/10001 a 20-mould one. Not routed: points, crossings,
+12V curves, the 53834/85977 ramps and the monorail — they break a line into
+open routes, and the audit names them.
+
+### Cars: a connected body over its running gear
+
+`detectCoasterAssemblies` runs a railway branch only where a railway route
+exists (a coaster set is detected exactly as before): running gear is every
+`Train Wheel …`, self-wheeled or plain wheel part; everything that is track
+(moulds, sleepers, points, loose rails) and every brick whose top is at or
+under the rail heads within 200 LDU of the line (a display's track bed) is
+scenery. The rest is clustered by contact with the gear and the couplers
+(magnets, buffer beams) left out, so coupled cars separate; a body with two
+gear units at least 20 LDU apart under it is a car, its widest brick the
+chassis frame, and it must stand square over the line (≤ 30 LDU lateral,
+≤ 120 LDU above the rail top). The pipeline keeps a train on its own track
+off the free-vehicle path (10277 is titled "Locomotive"), keeps it at
+minifig scale (`planAddonScale`: railway gauge is the minifig railway's),
+never puts the fabricated coaster cart on railway track, and leaves a train
+that fills its display line in the build.
+
+### Audit (`bun scripts/_rail_audit.ts [--all]`)
+
+None of the 40 favourites has railway track: 10261, 10303, 10341, 60380 and
+76417 carry coaster track only, the rest no rail. Over the whole index
+(10,169 sets read), 45 sets stand a train on its own railway track, 179
+have a train with no track in the source (it stays a wheeled vehicle or
+the build), 45 have track and no running gear, 19 track and train apart.
+
+| set | source | line | train found | what it does (replay host, 60 s) |
+|---|---|---|---|---|
+| 4559 Cargo Railway | IOModel2V2 | 9V circuit, 26 moulds, 8,225 LDU | 2 cars (2972 bases), 2 riders | laps at 12 blocks/s on full stick; brakes and reverses on the stick |
+| 910044 Wild West Train | IOModel2V2 | open, 8 × 53401, 2,560 LDU | loco, tender, car; driver and guard | runs 22 blocks between its buffers |
+| 10277 Crocodile Locomotive | OMR | open, 4 paired 3228c, 1,280 LDU | 1 car of 1,050 parts (the articulated loco as one body) | 2.25 blocks of play: the loco fills its display track |
+| 60052 Cargo Train | EurobricksTopic | open, 7 moulds | 4 cars | stays in the build: the 2,320-LDU train fills its 2,240-LDU line |
+| 21344 Orient Express | IOModel2V2 | open, 9 paired 3228c | 1 body of 2,138 parts | the whole train is one connected body (no coupler parts to split at) |
+| 4204 The Mine | IOModel2V2 | open, 4 paired 3228c (gauge 60) | 1 cart joined to a rock | cart welded to scenery by contact |
+| 4558 Metroliner | LDR | 12V circuit, 20 moulds | none | its 12V axles-with-wheels leave no body over two gear units |
+| 60198, 60197, 4512, 7938, 10254, 71044, 60098, 60051 … | Mecabricks / Eurobricks / some LDR | none | — | **source defect**: see below |
+
+**Mecabricks and LXF-converted sources place railway track 90° off the
+LDraw part.** Adjacent 53401/2865 straights 320 LDU apart step along the
+part's LOCAL Z in 12 of 13 MecabricksLDR and 6 of 6 EurobricksLDR sources
+with straights; the library part runs along local X (authentic LDR/OMR/
+IOModel2V2: 11 of 12 along X). So those sets' track is drawn as a ladder of
+crossways pieces in the viewer too, and nothing routes. This is a converter
+alignment row for 53400/53401 (clego), not something the router should
+guess around; `output/rail-0925/frame.ts` is the tally.
+
+Open: no device run yet (the phone was held by the free-vehicle round);
+seat for a train car with no posed rider is the compiler's mid-height
+default (inside a loco body); an articulated loco or a train with no
+coupler parts is one rigid body (fine on the straight display lines above,
+wrong on curves); the stick is only known to report while seated on a
+non-vehicle rideable during play (pinball), so a device check of the
+driven train's stick is the first thing to run.

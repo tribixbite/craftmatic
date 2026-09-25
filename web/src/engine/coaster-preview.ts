@@ -35,7 +35,7 @@
  *    default" — nothing here ever occupies a seat on its own.
  */
 import { buildCoasterPath, sampleCoasterPath, type CoasterPath, type CoasterVec3 } from './coaster-path.js';
-import { coasterCarAttitude, coasterLoopRadius, coasterTrackUps, COASTER_PHYSICS, type CoasterPhysics } from './bedrock-coaster.js';
+import { coasterCarAttitude, coasterLoopRadius, coasterTrackUps, rideSubstep, COASTER_PHYSICS, type RidePhysics } from './bedrock-coaster.js';
 
 /** The route fields this module needs — a structural subset of `AddonRoute`
  * (web/src/ui/addon-preview-data.ts); no import from ui/ on purpose (engine/
@@ -49,9 +49,11 @@ export interface CoasterPreviewRouteInput {
   chain?: { start: number; end: number };
   lift?: { deckLength: number; travel: readonly [number, number, number]; parkedPoint: readonly [number, number, number] };
   /** `heading` ±1: the cars' noses keep their authored way along the route (the set's own cars); absent/0: they face their motion (the fabricated cart). */
-  cars: { count: number; spacing: number; extent: number; heading?: number };
+  cars: { count: number; spacing: number; extent: number; heading?: number; endInset?: number };
   /** A fixed ride direction (a circuit, or a lift route), as `coasterRuntime` enforces it; absent/0: a shuttle, which reverses at its ends. */
   direction?: number;
+  /** A railway route's own constants (`CoasterRuntimeRoute.physics`, `RAIL_TRAIN_PHYSICS`): a driven train, which the preview shows parked (nobody at its controls). */
+  physics?: RidePhysics;
 }
 
 /** Per-type data this module needs from `AddonPreviewModel.coasterTypes`. */
@@ -102,9 +104,10 @@ export interface CoasterPreviewState {
 }
 
 /** A fresh train parked at the station (or arc 0 for a route with none), dwelling as a newly-placed empty train does. */
-export function initCoasterPreviewState(route: CoasterPreviewRouteInput, physics: CoasterPhysics = COASTER_PHYSICS): CoasterPreviewState {
+export function initCoasterPreviewState(route: CoasterPreviewRouteInput, physics: RidePhysics = COASTER_PHYSICS): CoasterPreviewState {
   const stop = route.station?.stop ?? 0;
-  return { centre: stop, direction: route.direction === -1 ? -1 : 1, speed: 0, dwell: physics.DWELL_EMPTY, armed: false, phase: 'track', liftProgress: 0, liftDwell: 0, lastYaw: new Array(Math.max(1, route.cars.count)).fill(0) };
+  // A driven train is placed standing, never dwelling (`coasterRuntime`).
+  return { centre: stop, direction: route.direction === -1 ? -1 : 1, speed: 0, dwell: (route.physics ?? physics).DRIVER ? 0 : physics.DWELL_EMPTY, armed: false, phase: 'track', liftProgress: 0, liftDwell: 0, lastYaw: new Array(Math.max(1, route.cars.count)).fill(0) };
 }
 
 const len3 = (v: readonly number[]): number => Math.hypot(v[0]!, v[1]!, v[2]!);
@@ -172,7 +175,7 @@ export interface StepCoasterPreviewResult { state: CoasterPreviewState; frames: 
  * a per-tick MODEL-block advance.
  */
 export function stepCoasterPreviewTick(
-  route: CoasterPreviewRouteInput, state: CoasterPreviewState, scale: number, physics: CoasterPhysics = COASTER_PHYSICS,
+  route: CoasterPreviewRouteInput, state: CoasterPreviewState, scale: number, physics: RidePhysics = COASTER_PHYSICS,
   /** The measured wheel-contact spacing (model blocks) of the car at a given
    * slot in train 0, when the set's own car measured one (`CoasterVehicleType.wheelbase`
    * in bedrock-coaster.ts, read back via `AddonPreviewModel.coasterTypes`). A
@@ -182,6 +185,9 @@ export function stepCoasterPreviewTick(
   wheelbaseOfSlot?: (slot: number) => number | undefined,
 ): StepCoasterPreviewResult {
   if (!(scale > 0)) throw new Error('Coaster preview scale must be positive.');
+  // A railway route rides on its own constants, like the pack's runtime (`RIDE`).
+  if (route.physics) physics = route.physics;
+  const driver = physics.DRIVER;
   const { path, maxSpacing, up, loopRadius } = toPath(route);
   const total = path.length;
   const count = Math.max(1, route.cars.count);
@@ -194,7 +200,9 @@ export function stepCoasterPreviewTick(
   // The noses: the authored heading for the set's own cars, else the motion.
   const facing = route.cars.heading === 1 || route.cars.heading === -1 ? route.cars.heading : direction;
   const lastYaw = [...state.lastYaw];
-  const low = route.closed ? 0 : extent / 2, high = route.closed ? total : total - extent / 2;
+  // A railway train stops with its end car at the buffer (`cars.endInset`), as the runtime does.
+  const inset = extent / 2 + (route.cars.endInset ?? 0);
+  const low = route.closed ? 0 : inset, high = route.closed ? total : total - inset;
   const target = route.closed ? station.stop : Math.max(low, Math.min(high, station.stop));
 
   let next = centre;
@@ -221,7 +229,9 @@ export function stepCoasterPreviewTick(
       // Substep the integrator so the polyline's own resolution bounds the
       // per-tick step, never the speed — mirrors `coasterRuntime`'s substep loop.
       const inversionFloor = loopRadius > 0 ? physics.INVERSION_MARGIN * Math.sqrt(physics.GRAVITY * loopRadius * scale) : 0;
-      const bound = (Math.max(speed, inversionFloor) + (physics.GRAVITY + physics.LIFT_ACCEL) / 20) / (20 * scale);
+      const bound = driver
+        ? (speed + (physics.GRAVITY + driver.TRACTION) / 20) / (20 * scale)
+        : (Math.max(speed, inversionFloor) + (physics.GRAVITY + physics.LIFT_ACCEL) / 20) / (20 * scale);
       const substeps = Math.max(1, Math.ceil(bound / maxSpacing));
       const dt = 1 / 20 / substeps;
       let advanced = 0;
@@ -229,17 +239,18 @@ export function stepCoasterPreviewTick(
         const here = centre + advanced * direction;
         let sum = 0;
         for (let slot = 0; slot < count; slot++) sum += chordAt(path, carArc(here, slot, extent, route.cars.spacing, route.closed, total), wheelbaseOfSlot?.(slot))[1];
-        const grade = (sum / count) * direction;
-        speed = Math.max(0, speed + (-physics.GRAVITY * grade - physics.ROLLING - physics.DRAG * speed * speed) * dt);
         const chainHere = !route.chain || (here >= route.chain.start - extent / 2 && here <= route.chain.end + extent / 2);
-        if (chainHere && grade > physics.LIFT_GRADE && speed < physics.LIFT_SPEED) speed = Math.min(physics.LIFT_SPEED, speed + physics.LIFT_ACCEL * dt);
-        speed = Math.max(speed, physics.MIN_SPEED);
-        // The inversion floor — mirrors `coasterRuntime`'s.
+        // The inversion floor — the same one `coasterRuntime` hands the step.
+        let floor = 0;
         if (loopRadius > 0) {
           let lowest = 1;
           for (let slot = 0; slot < count; slot++) lowest = Math.min(lowest, upAt(path, up, carArc(here, slot, extent, route.cars.spacing, route.closed, total))[1]);
-          if (lowest < 0) speed = Math.max(speed, physics.INVERSION_MARGIN * Math.sqrt(physics.GRAVITY * loopRadius * scale * -lowest));
+          if (lowest < 0) floor = physics.INVERSION_MARGIN * Math.sqrt(physics.GRAVITY * loopRadius * scale * -lowest);
         }
+        // The pack's own step (`rideSubstep`), not a copy of it. Nobody drives a preview train.
+        const moved = rideSubstep(speed, direction, sum / count, dt, { chain: chainHere, floor, push: 0, driven: false }, physics);
+        speed = moved.speed;
+        if (moved.direction !== direction) { if (advanced > 0) { speed = 0; break; } direction = moved.direction; nextDirection = direction; }
         advanced += (speed * dt) / scale;
       }
       // Gated on `armed`, exactly like `coasterRuntime`: a train that has just
@@ -248,7 +259,7 @@ export function stepCoasterPreviewTick(
       let toStop = -1, stopAt = target, stopKind: 'station' | 'deck' = 'station';
       let ahead = (target - centre) * direction;
       if (route.closed) { ahead = ((ahead % total) + total) % total; }
-      if (armed && ahead >= 0) toStop = ahead;
+      if (armed && ahead >= 0 && !driver) toStop = ahead;
       if (armed && lift && direction === -1) {
         const deckTarget = liftProgress <= 0 ? lift.deckLength / 2 : lift.deckLength + extent / 2;
         const deckAhead = centre - deckTarget;
@@ -269,7 +280,8 @@ export function stepCoasterPreviewTick(
         // (extent 0, a very short deck) so the low end can never be overrun.
         // The HIGH end always bounces — see the module header: the preview
         // treats it as the course's natural turnaround, not a second mechanism.
-        if (lift && hitLow) { speed = 0; arrived = 'deck'; }
+        if (driver) speed = 0; // a buffer stop, as the runtime's
+        else if (lift && hitLow) { speed = 0; arrived = 'deck'; }
         else { nextDirection = direction === 1 ? -1 : 1; speed = physics.DEPART_SPEED; }
       }
       if (arrived === 'station') { speed = 0; dwell = physics.DWELL_EMPTY; }
@@ -316,7 +328,7 @@ function carArc(centre: number, slot: number, extent: number, spacing: number, c
  * separately-offset body to draw. # TODO: draw the offset body too if the
  * preview ever needs to prove inversion seating rather than just ride motion.
  */
-export function coasterCarEyePoint(frame: CoasterPreviewCarFrame, seat: readonly [number, number, number] | undefined, physics: CoasterPhysics = COASTER_PHYSICS): CoasterVec3 {
+export function coasterCarEyePoint(frame: CoasterPreviewCarFrame, seat: readonly [number, number, number] | undefined, physics: RidePhysics = COASTER_PHYSICS): CoasterVec3 {
   // The car's own frame exactly as `coasterRuntime` builds it for the eye: the
   // nose, the up made square to it, and right = nose x up.
   const nose = frame.nose;

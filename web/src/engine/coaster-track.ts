@@ -23,6 +23,13 @@ export interface CoasterTrackProfile {
   railSamples: readonly CoasterVec3[];
   /** 80564 has no upstream LDraw DAT and must be proven present in its source MPD. */
   geometry: 'library' | 'embedded';
+  /**
+   * `train`: a railway mould (9V, RC/PF plastic, 4.5V/12V rails, mine-cart
+   * track) whose running line is the RAIL-TOP centreline, ridden by driven
+   * trains (`RAIL_TRAIN_PHYSICS`). Absent: a roller-coaster mould, exactly as
+   * before this field existed.
+   */
+  family?: 'train';
 }
 
 /** Covers the largest measured physical running-line seam in 10303 (2.941 LDU). */
@@ -56,6 +63,8 @@ export interface CoasterTrackRouteLdu {
   closed: boolean;
   fragmentIds: readonly string[];
   maxSegmentLengthLdu: number;
+  /** `train` when every mould of the route is a railway mould (`CoasterTrackProfile.family`); absent for a coaster route. */
+  family?: 'train';
 }
 
 export interface CoasterTrackExtraction {
@@ -351,7 +360,87 @@ const profiles = new Map<string, CoasterTrackProfile>([
   ['80562', profile('80562', line([-40, 0, 0], [40, 0, 0], 4), 'library')],
   ['80564', profile('80564', loopQuarter(), 'embedded', LOOP_SWEEP_CENTRE_YZ)],
   ['80566', profile('80566', elevatedQuarterCurve(), 'library')],
+  ...trainProfiles(),
 ]);
+
+/**
+ * Railway moulds: the running line is the RAIL-TOP centreline, measured on the
+ * resolved meshes of Studio's library (2026-09-25, `scripts/_rail_profile_measure.ts`
+ * prints every number below from the triangles):
+ *
+ * - `53401` / `2865` / `74746` straights: rail heads at z = +/-50 (53401
+ *   heads 47..53, 2865 46.75..53.75), rail top y = -16, the 16-stud connector
+ *   pitch x = +/-160 (the mesh's +/-169 is the clip tab beyond it).
+ * - `53400` / `2867` / `74747` curves: both rail heads are circles about
+ *   (x 0, z -800) - head edges at radius 747/753 and 847/853 (2867: 746.5/753.5,
+ *   846.5/854) - so the centreline is radius 800 at y -16, through (0, -16, 0),
+ *   over 22.5 degrees (sixteen close a circle; `test/rail-track.test.ts` closes
+ *   60198's 16-curve oval on these ends).
+ * - `85976` 4-wide curve (mine carts, 41130): heads about (0, -480) at radius
+ *   447/453 and 507/513, so a radius-480 centreline over 45 degrees, gauge 60.
+ *
+ * The 4.5V/12V single rails (`3228a/b/c`) are paired in `pairSingleRails`.
+ * Moulds not listed (points, crossings, 12V curves, ramps 53834/85977, the
+ * monorail) are not routed; the audit (`scripts/_rail_audit.ts`) names them.
+ */
+function trainProfiles(): Array<[string, CoasterTrackProfile]> {
+  const RAIL_TOP_Y = -16;
+  const arc = (radius: number, halfDeg: number, steps: number): CoasterVec3[] => Array.from({ length: steps + 1 }, (_, i) => {
+    const a = (-halfDeg + 2 * halfDeg * i / steps) * Math.PI / 180;
+    return [radius * Math.sin(a), RAIL_TOP_Y, radius * Math.cos(a) - radius] as const;
+  });
+  const straight = line([-160, RAIL_TOP_Y, 0], [160, RAIL_TOP_Y, 0]);
+  const curve8 = arc(800, 11.25, 16), curve48 = arc(480, 22.5, 16);
+  const train = (partId: string, samples: readonly CoasterVec3[]): [string, CoasterTrackProfile] =>
+    [partId, { ...profileFrom(partId, samples, samples, 'library'), family: 'train' }];
+  return [
+    train('53401', straight), train('2865', straight), train('74746', straight),
+    train('53400', curve8), train('2867', curve8), train('74747', curve8),
+    train('85976', curve48),
+  ];
+}
+
+/**
+ * 4.5V / 12V track is two loose rails (`3228a/b/c`, one rail each: head
+ * z +/-2, top y 0, x +/-160) on sleeper plates. A pair is two placements with
+ * parallel long axes, the same up, level, one GAUGE apart across the track -
+ * 100 LDU for train track (10277: x +/-50), 60 for mine-cart track (4204:
+ * z 380/440, the 4-wide gauge 85976 also measures) - and not offset along it;
+ * its running line is the midline at the rail top. A rail with no unique
+ * partner is left unrouted.
+ */
+const SINGLE_RAILS = new Set(['3228a', '3228b', '3228c']);
+/** A loose 4.5V/12V rail (`pairSingleRails`): track, even where it has no partner to route with. */
+export const isSingleRail = (part: string): boolean => SINGLE_RAILS.has(partStem(part));
+const RAIL_GAUGES_LDU = [100, 60], RAIL_HALF_LENGTH_LDU = 160;
+function pairSingleRails(bricks: readonly ParsedBrick[]): CoasterTrackFragment[] {
+  const rails = bricks.map((b, index) => ({ b, index })).filter(({ b }) => SINGLE_RAILS.has(stem(b.part)));
+  const axis = (b: ParsedBrick, col: number): CoasterVec3 => b.rot ? [b.rot[col]!, b.rot[3 + col]!, b.rot[6 + col]!] : [col === 0 ? 1 : 0, col === 1 ? 1 : 0, col === 2 ? 1 : 0];
+  const dot = (a: CoasterVec3, c: CoasterVec3): number => a[0] * c[0] + a[1] * c[1] + a[2] * c[2];
+  const partners = new Map<number, number[]>();
+  for (const r of rails) partners.set(r.index, []);
+  for (let i = 0; i < rails.length; i++) for (let j = i + 1; j < rails.length; j++) {
+    const a = rails[i]!.b, c = rails[j]!.b;
+    const xa = axis(a, 0), xc = axis(c, 0);
+    if (Math.abs(dot(xa, xc)) < 0.999 || dot(axis(a, 1), axis(c, 1)) < 0.999) continue;
+    const d: CoasterVec3 = [c.x - a.x, c.y - a.y, c.z - a.z];
+    const along = dot(d, xa);
+    const across = Math.hypot(d[0] - along * xa[0], d[1] - along * xa[1], d[2] - along * xa[2]);
+    if (Math.abs(along) > 2 || !RAIL_GAUGES_LDU.some(g => Math.abs(across - g) <= 2) || Math.abs(dot(d, axis(a, 1))) > 1) continue;
+    partners.get(rails[i]!.index)!.push(rails[j]!.index);
+    partners.get(rails[j]!.index)!.push(rails[i]!.index);
+  }
+  const out: CoasterTrackFragment[] = [];
+  for (const [i, list] of partners) {
+    if (list.length !== 1) continue;
+    const j = list[0]!;
+    if (j < i || partners.get(j)!.length !== 1) continue;
+    const a = bricks[i]!, c = bricks[j]!;
+    const mid: ParsedBrick = { ...a, x: (a.x + c.x) / 2, y: (a.y + c.y) / 2, z: (a.z + c.z) / 2 };
+    out.push({ id: `rail-pair:${i}+${j}`, samples: line([-RAIL_HALF_LENGTH_LDU, 0, 0], [RAIL_HALF_LENGTH_LDU, 0, 0]).map(p => transform(mid, p)) });
+  }
+  return out;
+}
 
 /**
  * An OMR/MPD source embeds its unofficial parts as `<set> - <mould>.dat`
@@ -427,11 +516,13 @@ const transform = (brick: ParsedBrick, point: CoasterVec3): CoasterVec3 => {
  * parts are ignored; no nearest-mould alias or inferred bridge is introduced.
  */
 function extractFragments(bricks: readonly ParsedBrick[], options: CoasterTrackExtractionOptions = {}): {
-  fragments: CoasterTrackFragment[]; topologyFragments: CoasterTrackFragment[]; unavailablePartIds: string[];
+  fragments: CoasterTrackFragment[]; topologyFragments: CoasterTrackFragment[]; unavailablePartIds: string[]; trainIds: Set<string>;
 } {
   const fragments: CoasterTrackFragment[] = [];
   const topologyFragments: CoasterTrackFragment[] = [];
   const unavailablePartIds: string[] = [];
+  /** Fragments cut from railway moulds (`CoasterTrackProfile.family`), and every paired single rail. */
+  const trainIds = new Set<string>();
   bricks.forEach((brick, index) => {
     const profile = coasterTrackProfile(brick.part);
     if (!profile) return;
@@ -446,6 +537,7 @@ function extractFragments(bricks: readonly ParsedBrick[], options: CoasterTrackE
     // would put the cart on the opposite side of the visible rails.
     const samples = profile.samples.map(point => transform(brick, point));
     fragments.push({ id: `${profile.partId}:${index}`, samples });
+    if (profile.family === 'train') trainIds.add(`${profile.partId}:${index}`);
     // Connector positions come from the physical running line, while terminal
     // directions come from the measured rail datum. Keeping these independent
     // is essential for ramp tips: the DAT sleeper transform is 32 LDU away
@@ -530,7 +622,14 @@ function extractFragments(bricks: readonly ParsedBrick[], options: CoasterTrackE
     fragments.splice(0, fragments.length, ...fragments.filter(keep), ...compositeFragments);
     topologyFragments.splice(0, topologyFragments.length, ...topologyFragments.filter(keep), ...compositeTopology);
   }
-  return { fragments, topologyFragments, unavailablePartIds };
+  // Paired 4.5V/12V single rails: the midline is both the running line and the
+  // topology datum (a straight's terminal direction is its own axis).
+  for (const pair of pairSingleRails(bricks)) {
+    fragments.push(pair);
+    topologyFragments.push(pair);
+    trainIds.add(pair.id);
+  }
+  return { fragments, topologyFragments, unavailablePartIds, trainIds };
 }
 
 export function extractCoasterTrackFragments(
@@ -647,7 +746,7 @@ function orderComponent(
 export function extractCoasterTrackRoutes(
   bricks: readonly ParsedBrick[], options: CoasterTrackExtractionOptions = {},
 ): CoasterTrackExtraction {
-  const { fragments, topologyFragments, unavailablePartIds } = extractFragments(bricks, options);
+  const { fragments, topologyFragments, unavailablePartIds, trainIds } = extractFragments(bricks, options);
   // Connectivity belongs to the physical rail datum. Running-centre normals
   // can differ slightly at a mirrored seam and must never erase a real join or
   // create a new one.
@@ -684,6 +783,8 @@ export function extractCoasterTrackRoutes(
       closed: ordered.closed,
       fragmentIds: ordered.ids,
       maxSegmentLengthLdu: COASTER_TRACK_MAX_SAMPLE_SPACING_LDU,
+      // A railway route: every mould in it is a railway mould (the two families never share a connector).
+      ...(ordered.ids.every(id => trainIds.has(id)) ? { family: 'train' as const } : {}),
     });
   }
   if (graph.gaps.length) warnings.push(`${graph.gaps.length} track endpoint(s) remain open; no gap was bridged.`);
