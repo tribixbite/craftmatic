@@ -26,6 +26,17 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## In flight — 2026-09-25 (agents in worktrees)
+
+- [ ] **Vehicles**: offline audit of every favourite's vehicle detection; polish
+  ground / boat / plane / ship operation; trains reuse the coaster track
+  pipeline + pure physics (DRY); GameTest ride tests; device recordings.
+- [ ] **Physics audit + spec**: gravity/units across coaster, pinball,
+  vehicles, figure walker (vs real and vs Minecraft's ~32 blocks/s^2, Froude
+  scaling with wand size); coaster pace "a touch too fast" — pace 1.4 broke
+  two 10303 tests (patch `output/pace-1.4-attempt.patch`); spec
+  `docs/physics-architecture.md` with a CI-gated staleness checker.
+
 ## Round 2026-09-25 — merged at `56a96e0f`; packs `output/device-round-2026-09-25/packs-56a96e0f/` (9, zip beside), deployed to world 924
 
 - Interactivity stage (`engine/interactivity-stage.ts`) over all 40 favourites,
