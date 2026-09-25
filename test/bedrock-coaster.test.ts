@@ -2030,6 +2030,13 @@ function routeChord(path: { points: number[][]; cumulative: number[]; length: nu
   const [front, rear] = wheelbase > 0.01 ? [at(arc + wheelbase / 2), at(arc - wheelbase / 2)] : [at(arc + 1e-4), at(arc)];
   return [0, 1, 2].map(k => front[k]! - rear[k]!);
 }
+/** The view (direction, up) of a camera rotation (yaw, pitch, roll), with the sign measured on the Pixel: +roll rolls the view left. */
+function rollFrame(v: { yaw: number; pitch: number; roll: number }): { d: number[]; u: number[] } {
+  const y = v.yaw * Math.PI / 180, p = v.pitch * Math.PI / 180, r = v.roll * Math.PI / 180;
+  const d = [-Math.sin(y) * Math.cos(p), -Math.sin(p), Math.cos(y) * Math.cos(p)];
+  const u0 = [-Math.sin(y) * Math.sin(p), Math.cos(p), Math.cos(y) * Math.sin(p)], r0 = [-Math.cos(y), 0, -Math.sin(y)];
+  return { d, u: [0, 1, 2].map(k => Math.cos(r) * u0[k]! - Math.sin(r) * r0[k]!) };
+}
 const finiteView = (view: any) => Number.isFinite(view.rotation.x) && Number.isFinite(view.rotation.y) && Number.isFinite(view.location.x);
 
 describe('the rider camera follows the track', () => {
@@ -2140,13 +2147,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('roll mode reproduces the view exactly: pitch within ±90, the rest carried by the roll', () => {
-    // Rebuild the view from (yaw, pitch, roll) with the measured sign (+roll rolls the view left).
-    const rebuild = (v: { yaw: number; pitch: number; roll: number }) => {
-      const y = v.yaw * Math.PI / 180, p = v.pitch * Math.PI / 180, r = v.roll * Math.PI / 180;
-      const d = [-Math.sin(y) * Math.cos(p), -Math.sin(p), Math.cos(y) * Math.cos(p)];
-      const u0 = [-Math.sin(y) * Math.sin(p), Math.cos(p), Math.cos(y) * Math.sin(p)], r0 = [-Math.cos(y), 0, -Math.sin(y)];
-      return { d, u: [0, 1, 2].map(k => Math.cos(r) * u0[k]! - Math.sin(r) * r0[k]!) };
-    };
+    const rebuild = rollFrame;
     let seed = 7;
     const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 * 2 - 1; };
     for (let k = 0; k < 500; k++) {
@@ -2164,7 +2165,7 @@ describe('the rider camera follows the track', () => {
     expect(apex.pitch).toBeCloseTo(0, 6);
   });
 
-  it('roll mode drives the camera with one-tick spline animations that chain end to start', () => {
+  it('roll mode drives the camera with overlapping spline animations that each start at the true pose and run one tick ahead', () => {
     class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
     (globalThis as any).LinearSpline = Spline;
     try {
@@ -2176,25 +2177,34 @@ describe('the rider camera follows the track', () => {
       expect(player.camera.setCamera).toHaveBeenCalledTimes(1);
       const plays = (player.camera as any).playAnimation.mock.calls as any[][];
       expect(plays.length).toBe(399);
-      let rolledOver = 0;
+      let rolledOver = 0, worstMiss = 0;
       for (let k = 0; k < plays.length; k++) {
         const [spline, options] = plays[k]!;
         expect(spline).toBeInstanceOf(Spline);
         expect(spline.controlPoints).toHaveLength(2);
-        expect(options.totalTimeSeconds).toBeCloseTo(0.05, 9);
+        // The engine refuses rotation keyframes 0.05 s or less apart (Pixel, 26.51).
         const [start, end] = options.animation.rotationKeyFrames;
+        expect(end.timeSeconds - start.timeSeconds).toBeGreaterThan(0.05);
+        expect(options.totalTimeSeconds).toBeCloseTo(COASTER_RIDER_VIEW.spline, 9);
+        expect(Math.abs(start.rotation.x)).toBeLessThanOrEqual(90);
         expect(Math.abs(end.rotation.x)).toBeLessThanOrEqual(90);
-        if (Math.abs(Math.abs(((end.rotation.z % 360) + 540) % 360 - 180)) < 30) rolledOver++;
+        if (Math.abs(Math.abs(((start.rotation.z % 360) + 540) % 360 - 180)) < 30) rolledOver++;
         if (k > 0) {
-          // Each animation starts exactly where the last one ended, eye and rotation.
-          const previous = plays[k - 1]!;
-          expect(start.rotation).toEqual(previous[1].animation.rotationKeyFrames[1].rotation);
-          const moved = previous[1].animation.progressKeyFrames[1].alpha === 1;
-          if (moved && options.animation.progressKeyFrames[1].alpha === 1) expect(spline.controlPoints[0]).toEqual(previous[0].controlPoints[1]);
+          // Replaced halfway: where the last animation had got to by now is its
+          // start plus half its travel, and this one starts at the true pose.
+          // Off by the change in rate only, never by a tick's lag.
+          // Compared as ORIENTATIONS: at a zenith the yaw and roll swap sides
+          // together, which is the same view written differently.
+          const [, before] = plays[k - 1]!;
+          const [s0, s1] = before.animation.rotationKeyFrames;
+          const halfway = { yaw: (s0.rotation.y + s1.rotation.y) / 2, pitch: (s0.rotation.x + s1.rotation.x) / 2, roll: (s0.rotation.z + s1.rotation.z) / 2 };
+          const got = rollFrame(halfway), now = rollFrame({ yaw: start.rotation.y, pitch: start.rotation.x, roll: start.rotation.z });
+          worstMiss = Math.max(worstMiss, angleDeg(got.d, now.d), angleDeg(got.u, now.u));
         }
       }
       // Over the top the world is drawn upside down (roll near 180), not flipped round.
       expect(rolledOver).toBeGreaterThan(5);
+      expect(worstMiss).toBeLessThan(15);
     } finally { delete (globalThis as any).LinearSpline; }
   });
 

@@ -337,7 +337,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
       const camera = coaster['camera'] as Record<string, unknown> | undefined;
       const mode = camera?.['mode'];
       if (camera && (mode === 'roll' || mode === 'rollover' || mode === 'clamp' || mode === 'over' || mode === 'off')) {
-        coasterCamera = { mode, lookYaw: num(camera['lookYaw'], 70), lookPitch: num(camera['lookPitch'], 50), ease: num(camera['ease'], 0.1), maxTurn: num(camera['maxTurn'], 40), spline: num(camera['spline'], 0.05) };
+        coasterCamera = { mode, lookYaw: num(camera['lookYaw'], 70), lookPitch: num(camera['lookPitch'], 50), ease: num(camera['ease'], 0.1), maxTurn: num(camera['maxTurn'], 40), spline: num(camera['spline'], 0.1) };
       }
       for (const [type, t] of Object.entries((coaster['types'] as Record<string, { role?: string; riders?: number; wheelbase?: number; seat?: unknown }> | undefined) ?? {})) {
         if (!t?.role) continue;

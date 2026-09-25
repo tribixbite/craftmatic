@@ -366,7 +366,7 @@ export interface CoasterRiderViewConfig {
   ease: number;
   /** Most the camera's yaw may turn in one tick, degrees (`clamp` needs it for the flip over the top). */
   maxTurn: number;
-  /** Length of each tick's camera animation in the roll modes, seconds (one tick = 0.05). */
+  /** Length of each tick's camera animation in the roll modes, seconds: more than 0.05 (the engine refuses rotation keyframes 0.05 apart); the next tick replaces it. */
   spline: number;
 }
 
@@ -379,7 +379,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.05 };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.1 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -1903,7 +1903,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // (a free camera at the eye draws the rider's own upright body around it,
   // as the pinball seat measured). `seen` is refreshed while grouping, before
   // any hold can skip a train, so a paused tick never drops the camera.
-  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.05 }, ...(config.camera || {}) };
+  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, spline: 0.1 }, ...(config.camera || {}) };
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
@@ -1935,24 +1935,35 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const eye = frame.eye, view = viewer.view;
     if ((camera.mode === 'roll' || camera.mode === 'rollover') && Spline) {
       // Roll is only reachable through a camera ANIMATION (`setCamera` takes
-      // yaw and pitch alone): each tick plays a one-tick spline from last
-      // tick's eye to this one, its rotation keyframes carrying yaw, pitch
-      // and roll from last tick's to this tick's. The free camera it needs
-      // is set once, at the first frame.
+      // yaw and pitch alone). Its rotation keyframes must be MORE than 0.05 s
+      // apart (Pixel: "Time between rotation frames must be greater than
+      // 0.05"), so a one-tick animation is refused. Each tick therefore plays
+      // a `spline`-second animation (0.1) that starts at this tick's true pose
+      // and runs on at the pose's current rate; the next tick replaces it
+      // halfway, where the camera has reached about the next true pose, so
+      // the motion is continuous with no added lag. A component that jumped
+      // (the yaw and roll swapping sides at a zenith) is not extrapolated.
+      // The free camera the animation needs is set once, at the first frame.
       const rotation = { x: view.pitch, y: view.yaw, z: view.roll };
       if (!viewer.eye) {
         rider.camera.setCamera('minecraft:free', { location: eye, rotation: { x: Math.max(-90, Math.min(90, view.pitch)), y: view.yaw } });
       } else {
-        const from = viewer.eye;
-        const moved = Math.hypot(eye.x - from.x, eye.y - from.y, eye.z - from.z) > 0.05;
+        const seconds = camera.spline > 0.05 ? camera.spline : 0.1;
+        const ahead = seconds / 0.05;
+        const from = viewer.eye, last = viewer.rotation;
+        const step = [eye.x - from.x, eye.y - from.y, eye.z - from.z];
+        const moved = Math.hypot(step[0]!, step[1]!, step[2]!) > 0.01;
         const spline = new Spline();
-        // A spline needs two distinct points (two 0.01 apart were refused on the
-        // Pixel); a car standing still holds the first with its progress at 0.
-        spline.controlPoints = moved ? [from, eye] : [eye, { x: eye.x, y: eye.y + 1, z: eye.z }];
-        const seconds = camera.spline > 0 ? camera.spline : 0.05;
+        // A spline needs two distinct points (two 0.01 apart were refused); a
+        // car standing still holds the first with its progress at 0.
+        spline.controlPoints = moved ? [eye, { x: eye.x + step[0]! * ahead, y: eye.y + step[1]! * ahead, z: eye.z + step[2]! * ahead }] : [eye, { x: eye.x, y: eye.y + 1, z: eye.z }];
+        const extrapolate = (now: number, before: number) => { const rate = now - before; return Math.abs(rate) <= 30 ? now + rate * ahead : now; };
+        const target = { x: extrapolate(rotation.x, last.x), y: extrapolate(rotation.y, last.y), z: extrapolate(rotation.z, last.z) };
+        // `roll` keeps the pitch within ±90; `rollover` asks the keyframes for more (device probe).
+        if (camera.mode === 'roll') target.x = Math.max(-90, Math.min(90, target.x));
         rider.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: {
           progressKeyFrames: [{ alpha: 0, timeSeconds: 0 }, { alpha: moved ? 1 : 0, timeSeconds: seconds }],
-          rotationKeyFrames: [{ rotation: viewer.rotation, timeSeconds: 0 }, { rotation, timeSeconds: seconds }] } });
+          rotationKeyFrames: [{ rotation, timeSeconds: 0 }, { rotation: target, timeSeconds: seconds }] } });
       }
       viewer.eye = eye; viewer.rotation = rotation;
     } else {
@@ -1990,7 +2001,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       } else if (verb === 'ease') camera.ease = Math.max(0, number(1, camera.ease));
       else if (verb === 'look') { camera.lookYaw = Math.max(0, number(1, camera.lookYaw)); camera.lookPitch = Math.max(0, number(2, camera.lookPitch)); }
       else if (verb === 'turn') camera.maxTurn = Math.max(0, number(1, camera.maxTurn));
-      else if (verb === 'spline') camera.spline = Math.max(0.01, number(1, camera.spline));
+      else if (verb === 'spline') camera.spline = Math.max(0.06, number(1, camera.spline));
       else if (verb === 'debug') cameraDebug = words[1] === '1';
       else if (verb === 'trace') traceTicks = Math.max(0, Math.min(2000, number(1, 200)));
       else if (source?.camera) {
