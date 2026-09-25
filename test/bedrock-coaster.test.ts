@@ -2153,9 +2153,26 @@ describe('the rider camera follows the track', () => {
     expect(down[2]).toBeCloseTo(1, 6);
   });
 
-  it('clamp mode (the default) looks exactly along the nose, keeps the pitch within ±90, and spreads the flip over the top across ticks', () => {
-    expect(COASTER_RIDER_VIEW.mode).toBe('clamp');
+  it('reflect mode folds the pitch back over a loop and never turns the yaw', () => {
     const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
+    const { player } = cameraRider(h.entity);
+    h.run(1); h.riders.push(player); h.run(700);
+    const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
+    const yaws = new Set(views.map(v => Math.round(((v.y % 360) + 360) % 360)));
+    // A planar loop: one heading all lap (the fabricated cart faces its motion, which never reverses here).
+    expect(yaws.size).toBe(1);
+    let top = 0, steps = 0;
+    for (let k = 1; k < views.length; k++) {
+      expect(Math.abs(views[k]!.x)).toBeLessThanOrEqual(90 + 1e-9);
+      steps = Math.max(steps, Math.abs(views[k]!.x - views[k - 1]!.x));
+      if (Math.abs(views[k]!.x) < 10 && Math.abs(views[k - 1]!.x) >= 10) top++;
+    }
+    expect(steps).toBeLessThan(25);
+    expect(top).toBeGreaterThan(2);
+  });
+
+  it('clamp mode looks exactly along the nose, keeps the pitch within ±90, and spreads the flip over the top across ticks', () => {
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'clamp' } });
     const { player } = cameraRider(h.entity);
     h.run(1); h.riders.push(player); h.run(120);
     const calls = player.camera.setCamera.mock.calls as any[][];
@@ -2336,12 +2353,56 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     expect(worstPitchStep).toBeLessThan(30);
   }, 240_000);
 
-  it('clamp mode (the default, what Bedrock accepts): exact along the nose except while turning over a loop, pitch within ±90, no yaw jump', async () => {
+  it('reflect mode (the default): never turns round — not on the overhanging drop, not in either loop — and looks along the nose wherever it can', async () => {
+    // Device report 2026-09-25: "turns about 90 degrees upon descent and does a
+    // strange sideways turn for the upside down loops". Both were `clamp`'s
+    // turn-over: 10303's drop overhangs past vertical (car pitch 97-103), so
+    // the view's yaw swung round at 40 degrees a tick there too.
+    expect(COASTER_RIDER_VIEW.mode).toBe('reflect');
+    const { scene } = await corpusRoutes(PUBLISHED_10303);
+    const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
+    const rider = cameraRider(h.lead.entity);
+    h.run(1); h.lead.riders.push(rider.player);
+    const calls = rider.player.camera.setCamera.mock.calls as any[][];
+    const path = h.route.path, cars = h.route.cars;
+    const wheelbase = h.config.types[cars.slots![0]!.type]!.wheelbase || 0;
+    const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
+    let compared = 0, pastVertical = 0, worstYawStep = 0, worstPitchStep = 0, worstOffCar = 0, worstAlong = 0;
+    for (let t = 0; t < 1400; t++) {
+      h.run(1);
+      const view = calls.at(-1)![1].rotation, previous = calls.at(-2)?.[1].rotation;
+      expect(Math.abs(view.x)).toBeLessThanOrEqual(90 + 1e-9);
+      if (h.phase() !== 'track') continue;
+      if (previous) { worstYawStep = Math.max(worstYawStep, turn(previous.y, view.y)); worstPitchStep = Math.max(worstPitchStep, Math.abs(view.x - previous.x)); }
+      // The car's own heading (the entity yaw the runtime set this tick): the view never leaves it.
+      const carYaw = h.lead.entity.tryTeleport.mock.calls.at(-1)![1].rotation.y;
+      worstOffCar = Math.max(worstOffCar, turn(carYaw, view.y));
+      const nose = routeChord(path, h.distance() + cars.extent / 2, wheelbase).map(v => v * (cars.heading || 1));
+      const length = Math.hypot(...nose);
+      if (length < 1e-9) continue;
+      compared++;
+      // Where the nose is within 90 of level the view looks along it; past
+      // vertical (loop tops, the overhang) the pitch is folded back instead.
+      const horizontalAlongYaw = -Math.sin(view.y * Math.PI / 180) * nose[0]! + Math.cos(view.y * Math.PI / 180) * nose[2]!;
+      if (horizontalAlongYaw < -0.05 * length) { pastVertical++; continue; }
+      worstAlong = Math.max(worstAlong, angleDeg(viewDirection(view), nose));
+    }
+    expect(compared).toBeGreaterThan(800);
+    expect(pastVertical).toBeGreaterThan(5); // both loop tops
+    // Measured: the yaw steps 8.7 degrees at most (a curve at speed), the car
+    // and the view agree to within the helix lean, and the pitch never jumps.
+    expect(worstYawStep).toBeLessThan(12);
+    expect(worstOffCar).toBeLessThan(15);
+    expect(worstPitchStep).toBeLessThan(30);
+    expect(worstAlong).toBeLessThan(15);
+  }, 240_000);
+
+  it('clamp mode: exact along the nose except while turning over a loop, pitch within ±90, no yaw jump', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10303);
     // The pack's own wheelbase: the camera follows the car's chord, and
     // without it the raw tangent's fragment-join piece at loop 1's apex made
     // the numbers below depend on where the ticks fell (see the loops test).
-    const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
+    const h = liftHost(scene.routes[0]!, { mode: 'clamp' }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];

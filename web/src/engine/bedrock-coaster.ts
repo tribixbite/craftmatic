@@ -355,7 +355,7 @@ export interface CoasterRuntimeConfig {
  *    the view axis, spread over a few ticks by `maxTurn`.
  *  - `off`: no camera; the player's own first person, as before.
  */
-export type CoasterRiderViewMode = 'roll' | 'rollover' | 'clamp' | 'over' | 'off';
+export type CoasterRiderViewMode = 'reflect' | 'roll' | 'rollover' | 'clamp' | 'over' | 'off';
 
 /** The camera constants the runtime reads from `config.camera`. */
 export interface CoasterRiderViewConfig {
@@ -383,7 +383,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'clamp', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false, spline: 0.1 };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'reflect', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, ratchet: false, spline: 0.1 };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -847,7 +847,11 @@ export function coasterCarAttitude(nose: readonly number[], up: readonly number[
 }
 
 /** The rider's camera for one tick: Bedrock rotation (degrees; pitch positive looks down) plus the view's direction and up. */
-export interface CoasterRiderView { yaw: number; pitch: number; roll: number; direction: number[]; up: number[] }
+export interface CoasterRiderView {
+  yaw: number; pitch: number; roll: number; direction: number[]; up: number[];
+  /** The continuous pitch before `reflect` folds it into ±90 (runs past ±90 through a loop); what the next tick unwraps against. */
+  continuousPitch?: number;
+}
 
 /**
  * The rider's camera from the car's frame and the rider's own look offset.
@@ -872,7 +876,7 @@ export interface CoasterRiderView { yaw: number; pitch: number; roll: number; di
  * Serialized into the pack like `coasterCarAttitude`: it may reference nothing
  * outside its own body.
  */
-export function coasterRiderView(nose: readonly number[], up: readonly number[], look: { yaw: number; pitch: number }, previous: { yaw: number; pitch: number; roll?: number } | null,
+export function coasterRiderView(nose: readonly number[], up: readonly number[], look: { yaw: number; pitch: number }, previous: { yaw: number; pitch: number; roll?: number; continuousPitch?: number } | null,
   mode: string, maxTurn: number): CoasterRiderView {
   const toRad = Math.PI / 180, toDeg = 180 / Math.PI;
   const nLength = Math.hypot(nose[0]!, nose[1]!, nose[2]!) || 1;
@@ -932,8 +936,21 @@ export function coasterRiderView(nose: readonly number[], up: readonly number[],
   const yr = yaw * toRad;
   const h = [-Math.sin(yr), 0, Math.cos(yr)];
   const hd = h[0]! * direction[0]! + h[2]! * direction[2]!, hu = h[0]! * viewUp[0]! + h[2]! * viewUp[2]!;
-  const pitch = near(Math.atan2(hu - direction[1]!, hd + viewUp[1]!) * toDeg, previous?.pitch);
-  return { yaw, pitch, roll: near(rollTo(yaw, pitch), previous?.roll), direction, up: viewUp };
+  const pitch = near(Math.atan2(hu - direction[1]!, hd + viewUp[1]!) * toDeg, previous ? (previous.continuousPitch ?? previous.pitch) : undefined);
+  if (mode === 'reflect') {
+    // `setCamera` refuses a pitch past ±90, so fold the continuous pitch back
+    // (a triangle wave: 100 -> 80, -120 -> -60, ±180 -> 0) and keep the yaw.
+    // The view never turns round: up a loop it pitches to the zenith and back
+    // down to level over the top, the world kept upright; down an overhanging
+    // drop it pitches to the nadir and back. Measured on 10303: the yaw moves
+    // only as the track turns (8.7 degrees in a tick at most, at speed on a
+    // curve), where `clamp` turned it over at 40 a tick past every vertical —
+    // the "90-degree turn on the descent" and the "sideways turn in the loops".
+    const w = wrap(pitch);
+    const folded = w > 90 ? 180 - w : w < -90 ? -180 - w : w;
+    return { yaw, pitch: folded, roll: 0, direction, up: viewUp, continuousPitch: pitch };
+  }
+  return { yaw, pitch, roll: near(rollTo(yaw, pitch), previous?.roll), direction, up: viewUp, continuousPitch: pitch };
 }
 
 /** The rider's look offset and the reference it is measured from. */
@@ -2040,7 +2057,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       const number = (k: number, fallback: number) => { const v = Number(words[k]); return Number.isFinite(v) ? v : fallback; };
       const source = event.sourceEntity;
       const verb = words[0];
-      if (verb === 'mode' && ['over', 'clamp', 'roll', 'rollover', 'off'].includes(words[1]!)) {
+      if (verb === 'mode' && ['reflect', 'over', 'clamp', 'roll', 'rollover', 'off'].includes(words[1]!)) {
         camera.mode = words[1] as CoasterRiderViewMode;
         for (const id of [...viewers.keys()]) releaseViewer(id);
       } else if (verb === 'ease') camera.ease = Math.max(0, number(1, camera.ease));
