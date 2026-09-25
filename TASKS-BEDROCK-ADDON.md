@@ -183,15 +183,21 @@ Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
   hinged entity of the exact parts; `scripts/interactives.js` toggles on tap or
   interact, lays/clears the doorway's collider cells, plays door sounds, keeps
   state in dynamic properties; double doors move together.
-- Favourites at `bce8bacc`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %,
-  1 SMALL (OK at 150 %), 36 SEALED (table in the design doc). Output:
-  `output/interactivity-0924/favorites-sweep-final/`, `favorites-ix.{md,json}`.
+- Device round 2026-09-24d defects (tap boxes overlapping a chair / the next
+  door / through a wall, 76417's front doors refusing to close on a player
+  outside them, 41732's raised shop threshold, "Door" on a barred gate) fixed
+  offline in `b5450028` + `d8c85e34`; re-test with the packs below.
+- Favourites at `d8c85e34`: 40/40 export, 72 doorways, 0 FAIL, 35 OK at 100 %
+  (all walked without a jump), 1 SMALL (OK at 150 %), 36 SEALED; tap-box audit
+  246 parts / 1,434 boxes / 0 problems. Output:
+  `output/interactivity-0924/favorites-sweep-d8c8/`, `favorites-ix-d8c8.{md,json}`.
 - Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
 
 Open:
-- [ ] Device round: Molang easing (`q.delta_time` in `pre_animation`), tap
-  picking of a swung-open leaf through its collision box, the interact
-  button text, sounds, `playerInteractWithEntity` firing, state after reload.
+- [ ] Device round on the rebuilt packs: `custom_hit_test` picking (pivot read
+  as the box centre), root-bone turn at a non-zero wand turn and scale at a
+  non-100 % size, the through-wall tap filter, occupant step-out, threshold
+  treads, state after reload.
 - [ ] 36 SEALED doorways: rooms the 1-block collider grid fills (any geometry
   in a cell makes it solid). Needs finer colliders (half-block or per-cell
   occupancy fraction), not a deeper doorway cut.

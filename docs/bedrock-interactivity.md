@@ -232,12 +232,16 @@ tap filter, the occupant step-out and the threshold treads.
 
 ## Measured on the favourites (2026-09-24)
 
-`bun scripts/_favorites_export_sweep.ts` at `bce8bacc`: **40/40 exported, 0
-problems**; then `bun scripts/_ix_sweep_report.ts <sweep dir> --md=...` walked every
+`bun scripts/_favorites_export_sweep.ts` at `d8c85e34` (after the device-round
+fixes): **40/40 exported, 0 problems**; then `bun scripts/_ix_sweep_report.ts <sweep dir> --md=...` walked every
 doorway at 100 % (turn 0) and at its passable size. **72 doorways, 0 FAIL**: 35
 walked through open and blocked closed at 100 %, 1 too small at 100 % (SMALL,
 kept blocked) and walked through at its 150 %, **36 SEALED**. Totals: 72 doors,
-12 cabinets, 67 windows, 11 levers, 86 turnables, 40 seats (0 gates and 0 hatches:
+12 cabinets, 67 windows, 11 levers, 84 turnables, 40 seats. `bun
+scripts/_ix_hitbox_audit.ts` over the same 40 packs: 246 parts, 1,434 tap
+boxes, **0 overlaps between parts, 0 over a seat, 0 parts without a box**. Two
+turnables could not keep a box clear and stay static (the export warns): 10261's
+turntable 3679 sits under a seat, and one of 21318's two coincident 32124s (0 gates and 0 hatches:
 the favourites have no fence gate, and their two trap doors are 92099, whose
 centred origin names no hinge).
 
