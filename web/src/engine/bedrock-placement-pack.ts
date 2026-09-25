@@ -1,4 +1,5 @@
 import { QUARTER_TURNS, colliderPairIndex, colliderPairOf, planColliderTreads, type QuarterTurn, type ReachTarget, type SourceCell, type TreadBlock, type TreadPlan } from './bedrock-collider-scale.js';
+import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 
 declare const world: any;
 declare const system: any;
@@ -373,12 +374,27 @@ export function withSizeGroups(
 /** The pair codec lives with the scaled grid (bedrock-collider-scale.ts); re-exported so callers keep one import. */
 export { colliderPairIndex, colliderPairOf };
 
-/** Run-length code: `[valueChar][countChar]` pairs, value 0..136 as char 40+v, count 1..200 as char 40+n−1. */
+/**
+ * Run-length code: `[valueChar][countChar]` pairs, count 1..200 as char
+ * 40+n−1. The value is 0 for air, else `v·136 + pair` - the collider pair
+ * index (1..136, `colliderPairIndex`) of a cell whose clearance form is
+ * variant `v` (collider-form.ts; 0 = the full-footprint collider, so a pack
+ * without clearance encodes exactly as before) - as char 40+value.
+ */
 const RUN_BASE = 40, RUN_MAX = 200;
+/** Collider pairs per variant in a run value. */
+export const RUN_PAIRS = 136;
+/** A run value's variant and pair (value > 0). */
+export const runValueOf = (value: number): { v: number; lo: number; hi: number } => {
+  const v = Math.floor((value - 1) / RUN_PAIRS);
+  const [lo, hi] = colliderPairOf(value - v * RUN_PAIRS);
+  return { v, lo, hi };
+};
 
 /**
- * Encode a grid of collider states (`craftmatic:collider[lo=…,hi=…]`) as runs
- * over `(x*height + y)*length + z`. Anything that is not a collider - air, or a
+ * Encode a grid of collider states (`craftmatic:collider[lo=…,hi=…]`, or a
+ * clearance form `craftmatic:collider_<kind><shape>[lo=…,hi=…]`) as runs over
+ * `(x*height + y)*length + z`. Anything that is not a collider - air, or a
  * scene block such as a door - is 0. Pure and small enough to ship inside the
  * pack's script config (a 60×40×60 castle is a few KB after the air runs).
  */
@@ -386,7 +402,7 @@ export function encodeColliderRuns(
   grid: { width: number; height: number; length: number; get(x: number, y: number, z: number): string },
   block: string,
 ): { runs: string; colliders: number; keptCells: number } {
-  const re = new RegExp(`^${block.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\[lo=(\\d+),hi=(\\d+)\\]$`);
+  const re = new RegExp(`^(${block.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:_[a-z]\\d+)?)\\[lo=(\\d+),hi=(\\d+)\\]$`);
   let out = '', prev = -1, count = 0, colliders = 0, keptCells = 0;
   const flush = (): void => {
     while (count > 0) {
@@ -399,7 +415,10 @@ export function encodeColliderRuns(
     const state = grid.get(x, y, z);
     let v = 0;
     const m = re.exec(state);
-    if (m) { v = colliderPairIndex(Number(m[1]), Number(m[2])); colliders++; }
+    if (m) {
+      const variant = Math.max(0, COLLIDER_KIT.variantOf(m[1]!));
+      v = variant * RUN_PAIRS + colliderPairIndex(Number(m[2]), Number(m[3])); colliders++;
+    }
     else if (state !== 'minecraft:air') keptCells++;
     if (v === prev) { count++; continue; }
     flush();
@@ -409,14 +428,14 @@ export function encodeColliderRuns(
   return { runs: out, colliders, keptCells };
 }
 
-/** Decode runs back to a flat array of pair indices (0 = air). Exported for tests. */
-export function decodeColliderRuns(runs: string): Uint8Array {
+/** Decode runs back to a flat array of run values (0 = air; a full cell's value is its pair index). Exported for tests. */
+export function decodeColliderRuns(runs: string): Uint16Array {
   const cells: number[] = [];
   for (let k = 0; k + 1 < runs.length; k += 2) {
     const v = runs.charCodeAt(k) - RUN_BASE, n = runs.charCodeAt(k + 1) - RUN_BASE + 1;
     for (let j = 0; j < n; j++) cells.push(v);
   }
-  return Uint8Array.from(cells);
+  return Uint16Array.from(cells);
 }
 
 /** The solid cells of a shipped collider grid, decoded from its runs. */
@@ -426,8 +445,8 @@ export function colliderSourceCells(c: Pick<PlacementColliders, 'width' | 'heigh
   for (let i = 0; i < cells.length; i++) {
     const v = cells[i]!;
     if (v === 0) continue;
-    const [lo, hi] = colliderPairOf(v);
-    out.push({ z: i % c.length, y: Math.floor(i / c.length) % c.height, x: Math.floor(i / (c.length * c.height)), lo, hi });
+    const cell = runValueOf(v);
+    out.push({ z: i % c.length, y: Math.floor(i / c.length) % c.height, x: Math.floor(i / (c.length * c.height)), lo: cell.lo, hi: cell.hi, ...(cell.v ? { v: cell.v } : {}) });
   }
   return out;
 }
@@ -500,7 +519,7 @@ const text = (value: string) => enc.encode(value.endsWith('\n') ? value : `${val
 
 // Serialized into each generated pack. Keep this function plain JavaScript so
 // its toString() output is a valid Bedrock script module after TS transpilation.
-function placementRuntime(config: any, openVehicleControls?: (player: any) => Promise<void>) {
+function placementRuntime(config: any, openVehicleControls: ((player: any) => Promise<void>) | undefined, kit: ColliderFormKit) {
   // Bedrock's form renderer drops a bare `%` ("100%" rendered "100" on the Pixel, 2026-09-21); the word, as playable-addon.ts's bedrockInGameText.
   const percent = (n: any) => `${n} percent`;
   const states = new Map(), previews = new Set(), histories = new Map(), held = new Set(), showing = new Set();
@@ -903,11 +922,12 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
    * world inside the footprint.
    */
   const clearColliders = (dim: any, from: any, to: any) => {
-    const step = 32, block = config.colliders.block;
+    // Every collider form (collider-form.ts), never anything else.
+    const step = 32, types = kit.VARIANTS.map((d: any) => d.id);
     let failures = 0;
     for (let x = from.x; x <= to.x; x += step) for (let y = from.y; y <= to.y; y += step) for (let z = from.z; z <= to.z; z += step) {
       const a = { x, y, z }, bb = { x: Math.min(to.x, x + step - 1), y: Math.min(to.y, y + step - 1), z: Math.min(to.z, z + step - 1) };
-      try { dim.fillBlocks(new BlockVolume(a, bb), 'minecraft:air', { blockFilter: { includeTypes: [block] } }); }
+      try { dim.fillBlocks(new BlockVolume(a, bb), 'minecraft:air', { blockFilter: { includeTypes: types } }); }
       catch (e: any) { failures++; if (failures === 1) console.warn(`BRICK_WAND_CLEAR_FAILED ${a.x},${a.y},${a.z} ${e && e.message ? e.message : e}`); }
     }
     return failures;
@@ -922,6 +942,40 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     for (let bx = 0; bx < width; bx += box) for (let by = 0; by < height; by += 320) for (let bz = 0; bz < length; bz += box) {
       out.push({ x0: bx, y0: by, z0: bz, x1: Math.min(width, bx + box) - 1, y1: Math.min(height, by + 320) - 1, z1: Math.min(length, bz + box) - 1 });
     }
+    return out;
+  };
+  /**
+   * The clearance-form cells of the shipped grid as world blocks at 100 %
+   * turned `r`, with the form each takes there: `[wx, wy, wz, form]` from the
+   * anchor. Memoised per turn (a set has a few thousand form cells).
+   */
+  const turnedFormsCache = new Map<number, any[]>();
+  const turnedForms = (r: number): any[] => {
+    const cached = turnedFormsCache.get(r);
+    if (cached) return cached;
+    const out: any[] = [];
+    const c = config.colliders, runs: string = c ? c.runs : '';
+    let cell = 0;
+    for (let k = 0; k + 1 < runs.length; k += 2) {
+      const value = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
+      const cv = value > 0 ? Math.floor((value - 1) / 136) : 0;
+      if (cv === 0) { cell += n; continue; }
+      const [lo, hi] = pairOf(value - cv * 136);
+      for (let j = 0; j < n; j++, cell++) {
+        const z = cell % c.length, y = Math.floor(cell / c.length) % c.height, x = Math.floor(cell / (c.length * c.height));
+        const at = new Map<string, any[]>();
+        kit.cellPieces(x, y, z, cv, lo, hi, c, 1, r, (wx: number, wy: number, wz: number, box: any) => {
+          const key = `${wx},${wy},${wz}`;
+          const list = at.get(key);
+          if (list) list.push(box); else at.set(key, [box]);
+        });
+        for (const [key, list] of at) {
+          const form = kit.cover(list);
+          if (form) out.push([...key.split(',').map(Number), form]);
+        }
+      }
+    }
+    turnedFormsCache.set(r, out);
     return out;
   };
   async function placeColliders(st: any, dim: any, backups: any[], progress: (what: string) => void, key: string, stale?: any) {
@@ -964,46 +1018,51 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       backups.push({ name, from });
       // Clear the box first: a smaller re-lay must not leave the old size behind.
       clearColliders(dim, from, to);
-      // Cells this pass wrote. Merging lo/hi is only right BETWEEN cells of this
-      // re-lay (below 100 % several share a block); merging with whatever the
-      // world already held would union a stale placement back in.
+      // Cells this pass wrote. Merging is only right BETWEEN cells of this
+      // re-lay (below 100 % several share a block, and at a fractional size two
+      // cell rows share a world row); merging with whatever the world already
+      // held would union a stale placement back in. Each cell's pieces come
+      // from the collider form kit (`cellPieces`: the turned cell, the columns
+      // it owns, the rows its span crosses, a clearance form's own boxes), and
+      // a block takes the form covering every piece it received (`cover`).
       const written = new Set();
+      const pieces = new Map<string, any[]>();
       let cell = 0, budget = 0;
       for (let k = 0; k + 1 < runs.length; k += 2) {
-        const v = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
-        if (v === 0) { cell += n; continue; }
-        const [lo, hi] = pairOf(v);
+        const value = runs.charCodeAt(k) - 40, n = runs.charCodeAt(k + 1) - 40 + 1;
+        if (value === 0) { cell += n; continue; }
+        const cv = Math.floor((value - 1) / 136);
+        const [lo, hi] = pairOf(value - cv * 136);
         for (let j = 0; j < n; j++, cell++) {
           const z = cell % c.length, y = Math.floor(cell / c.length) % c.height, x = Math.floor(cell / (c.length * c.height));
           const rc = cellAt(x, z);
           const [x0, x1] = cellColumns(rc.x, f);
           const [z0, z1] = cellColumns(rc.z, f);
           if (x1 < b.x0 || x0 > b.x1 || z1 < b.z0 || z0 > b.z1) continue;
-          const wy0 = (y + lo / 16) * f, wy1 = (y + hi / 16) * f;
-          for (let wy = Math.floor(wy0); wy < Math.ceil(wy1); wy++) {
-            if (wy < b.y0 || wy > b.y1) continue;
-            let l = Math.max(0, Math.min(15, Math.floor((wy0 - wy) * 16)));
-            let h = Math.max(l + 1, Math.min(16, Math.ceil((wy1 - wy) * 16)));
-            for (let wx = Math.max(x0, b.x0); wx <= Math.min(x1, b.x1); wx++) for (let wz = Math.max(z0, b.z0); wz <= Math.min(z1, b.z1); wz++) {
-              const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
-              let block: any;
-              try { block = dim.getBlock(pos); } catch {}
-              if (!block) continue;
-              let bl = l, bh = h;
-              const seen = `${pos.x},${pos.y},${pos.z}`;
-              try {
-                if (written.has(seen) && block.typeId === c.block) {
-                  const pl = Number(block.permutation.getState(c.loState)), ph = Number(block.permutation.getState(c.hiState));
-                  if (Number.isFinite(pl) && Number.isFinite(ph)) { bl = Math.min(bl, pl); bh = Math.max(bh, ph); }
-                }
-              } catch {}
-              try { block.setPermutation(BlockPermutation.resolve(c.block, { [c.loState]: bl, [c.hiState]: bh })); written.add(seen); placed++; } catch {}
-              if (++budget % 400 === 0) {
-                if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
-                await wait(1);
-              }
-            }
+          kit.cellPieces(x, y, z, cv, lo, hi, c, f, r, (wx: number, wy: number, wz: number, box: any) => {
+            if (wx < b.x0 || wx > b.x1 || wy < b.y0 || wy > b.y1 || wz < b.z0 || wz > b.z1) return;
+            const key = `${wx},${wy},${wz}`;
+            const list = pieces.get(key);
+            if (list) list.push(box); else pieces.set(key, [box]);
+          });
+          if (++budget % 2000 === 0) {
+            if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+            await wait(1);
           }
+        }
+      }
+      for (const [key, list] of pieces) {
+        const form = kit.cover(list);
+        if (!form) continue;
+        const [wx, wy, wz] = key.split(',').map(Number);
+        const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
+        let block: any;
+        try { block = dim.getBlock(pos); } catch {}
+        if (!block) continue;
+        try { block.setPermutation(BlockPermutation.resolve(kit.VARIANTS[form.v].id, { [c.loState]: form.lo, [c.hiState]: form.hi })); written.add(`${pos.x},${pos.y},${pos.z}`); placed++; } catch {}
+        if (++budget % 400 === 0) {
+          if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
+          await wait(1);
         }
       }
       for (let k = 0; k + 6 < treadPlan.length; k += 7) {
@@ -1074,6 +1133,22 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         // and reported 100 %.
         const loadResult = await dim.runCommand(`structure load ${t.identifier} ${from.x} ${from.y} ${from.z} ${st.rotation}_degrees none`);
         if (loadResult && loadResult.successCount === 0) throw new Error(`structure ${t.identifier} could not be loaded (piece ${i + 1}/${config.tiles.length}). Is the behavior pack's structures folder intact?`);
+        // A structure turned by `structure load` moves each block but keeps its
+        // states, and a clearance form's shape is part of its id (a wall pulled
+        // back to its west side would stay west after a quarter turn). So each
+        // form block of this piece is re-set, while the piece's area is loaded,
+        // to the form the turn gives it - `cellPieces`, the arithmetic of every
+        // other size. Only this pack's collider blocks are touched.
+        if (st.rotation && config.colliders) {
+          for (const [wx, wy, wz, form] of turnedForms(st.rotation)) {
+            const pos = { x: st.anchor.x + wx, y: st.anchor.y + wy, z: st.anchor.z + wz };
+            if (pos.x < from.x || pos.x > to.x || pos.y < from.y || pos.y > to.y || pos.z < from.z || pos.z > to.z) continue;
+            try {
+              const block = dim.getBlock(pos);
+              if (block && kit.variantOf(block.typeId) >= 0) block.setPermutation(BlockPermutation.resolve(kit.VARIANTS[form.v].id, { [config.colliders.loState]: form.lo, [config.colliders.hiState]: form.hi }));
+            } catch {}
+          }
+        }
         progress(i + 1, `piece ${i + 1}/${config.tiles.length} placed`);
         // Let the chunks tick with the area still alive so the block updates
         // reach every client before the area (and maybe the chunk) goes away.
@@ -1148,9 +1223,13 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
               try {
                 const b = dim.getBlock({ x: bx, y, z: bz });
                 if (!b) return null;
-                if (b.typeId === config.colliders.block) {
+                const v = kit.variantOf(b.typeId);
+                if (v >= 0) {
                   const lo = Number(b.permutation.getState(config.colliders.loState)), hi = Number(b.permutation.getState(config.colliders.hiState));
-                  return Number.isFinite(lo) && Number.isFinite(hi) ? [y + lo / 16, y + hi / 16] : [y, y + 1];
+                  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [y, y + 1];
+                  // A clearance form's vertical extent (collider-form.ts); a full collider's is lo..hi.
+                  const boxes = kit.formBoxes(v, lo, hi);
+                  return [y + Math.min(...boxes.map((q: any) => q[2])) / 16, y + Math.max(...boxes.map((q: any) => q[3])) / 16];
                 }
                 if (b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return null;
                 return [y, y + 1];
@@ -1229,7 +1308,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         try {
           if (config.colliders) {
             const block = dim.getBlock({ x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) });
-            if (block?.typeId === config.colliders.block) {
+            if (block && kit.variantOf(block.typeId) >= 0) {
               const lo = Number(block.permutation.getState(config.colliders.loState)), hi = Number(block.permutation.getState(config.colliders.hiState));
               if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi - lo >= 12) tell(p, `§eMarked seat ${k + 1} is inside a wall-height collider; stand on the chair surface and mark it again.`);
             }
@@ -1423,7 +1502,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
     preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';
-  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG${spec.vehicleControls ? ", showTimeMachineControls" : ""});\n`;
+  const script = `${controlsImport}import { world, system, StructureSaveMode, BlockPermutation, BlockVolume } from "@minecraft/server";\nimport { ActionFormData, ModalFormData } from "@minecraft/server-ui";\nconst CONFIG = ${JSON.stringify(config)};\n(${placementRuntime.toString()})(CONFIG, ${spec.vehicleControls ? "showTimeMachineControls" : "undefined"}, (${colliderFormKit.toString()})());\n`;
   const item = {
     format_version: '1.21.30',
     'minecraft:item': {

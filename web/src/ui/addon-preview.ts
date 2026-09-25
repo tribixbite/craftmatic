@@ -35,6 +35,7 @@ import { COASTER_PHYSICS, RIDE_INTERACT_TEXT, coasterRiderLook, coasterRiderView
 import { PINBALL_INTERACT_TEXT } from '@engine/bedrock-pinball.js';
 import { createPinballSim, type PinballSim } from '@engine/pinball-physics.js';
 import { SWING_SECONDS, ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeItem } from '@engine/bedrock-interactives.js';
+import { COLLIDER_KIT } from '@engine/collider-form.js';
 import {
   coasterCarEyePoint, initCoasterPreviewState, stepCoasterPreviewTick,
   type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
@@ -459,8 +460,10 @@ class AddonWalk implements AddonPreviewHandle {
       const mesh = new THREE.InstancedMesh(this.unitBox, mat, list.length);
       const m = new THREE.Matrix4(), c = new THREE.Color();
       list.forEach((b, i) => {
-        m.makeScale(1, b.y1 - b.y0, 1);
-        m.setPosition(b.x + 0.5, (b.y0 + b.y1) / 2, b.z + 0.5);
+        // A clearance form's box covers part of its column (collider-form.ts); a full block the whole column.
+        const fx0 = (b.fx0 ?? 0) / 16, fx1 = (b.fx1 ?? 16) / 16, fz0 = (b.fz0 ?? 0) / 16, fz1 = (b.fz1 ?? 16) / 16;
+        m.makeScale(fx1 - fx0, b.y1 - b.y0, fz1 - fz0);
+        m.setPosition(b.x + (fx0 + fx1) / 2, (b.y0 + b.y1) / 2, b.z + (fz0 + fz1) / 2);
         mesh.setMatrixAt(i, m);
         if (color) c.copy(color);
         else {
@@ -1089,7 +1092,7 @@ class AddonWalk implements AddonPreviewHandle {
     if (!open && this.world && item.blocking.length) {
       // Never close a door on the player: the runtime refuses the same way.
       const f = this.sizePct / 100;
-      const blocks = ixWorldBlocks(group.flatMap(i => cfg.items[i]?.blocking ?? []), this.model.dims, f, this.rotation);
+      const blocks = ixWorldBlocks(group.flatMap(i => cfg.items[i]?.blocking ?? []), this.model.dims, f, this.rotation, COLLIDER_KIT);
       const p = this.state, w = 0.3;
       for (const [key, [lo, hi]] of blocks) {
         const [x, y, z] = key.split(',').map(Number) as [number, number, number];

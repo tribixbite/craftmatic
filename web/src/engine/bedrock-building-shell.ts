@@ -36,6 +36,8 @@ import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { ldrawToRenderRotation } from './ldraw-entity-compiler.js';
 import { PACK_NAMESPACE } from './mcpack.js';
 import type { LegoEntityQuality } from './ldraw-part-prototype.js';
+import { COLLIDER_KIT } from './collider-form.js';
+import { addLayerBox, newCellLayers, type CellLayers } from './collider-clearance.js';
 
 /** The custom collider block and its two sixteenth states. */
 export const COLLIDER_BLOCK_ID = `${PACK_NAMESPACE}:collider`;
@@ -129,11 +131,15 @@ export interface ColliderGridStats {
  * air even where a wall's geometry reaches them. With no boxes at all (the
  * shell did not report them) the voxel grid is used as before.
  */
-export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, frame: SceneGridFrame, keepClear?: ReadonlySet<number>): { grid: BlockGrid; stats: ColliderGridStats } {
+export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, frame: SceneGridFrame, keepClear?: ReadonlySet<number>): { grid: BlockGrid; stats: ColliderGridStats; layers: CellLayers } {
   const out = new BlockGrid(grid.width, grid.height, grid.length);
   const lo = new Float32Array(grid.width * grid.height * grid.length).fill(1);
   const hi = new Float32Array(grid.width * grid.height * grid.length).fill(0);
   const idx = (x: number, y: number, z: number): number => (x * grid.height + y) * grid.length + z;
+  // The geometry each cell holds, as sixteen layer footprints (sixteenths, rounded outward): what
+  // clearance (collider-clearance.ts) trims a cell's collider back to. Same membership and rounding
+  // as the cell's own lo/hi below, so a cell's layers span exactly its collider's lo..hi.
+  const layers: CellLayers = new Map();
   for (const b of boxes) {
     // LDraw Y is down: the box's max y is its lowest point, so the grid span runs from max→min.
     const a = sceneGridPoint(frame, [b.min[0], b.max[1], b.min[2]]);
@@ -142,12 +148,20 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
     const z0 = Math.max(0, Math.floor(Math.min(a[2], c[2]) + 0.02)), z1 = Math.min(grid.length - 1, Math.floor(Math.max(a[2], c[2]) - 0.02));
     const yLo = Math.min(a[1], c[1]), yHi = Math.max(a[1], c[1]);
     const y0 = Math.max(0, Math.floor(yLo + 0.001)), y1 = Math.min(grid.height - 1, Math.ceil(yHi - 0.001) - 1);
+    const bx0 = Math.min(a[0], c[0]), bx1 = Math.max(a[0], c[0]), bz0 = Math.min(a[2], c[2]), bz1 = Math.max(a[2], c[2]);
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
       const i = idx(x, y, z);
       const cellLo = Math.max(0, yLo - y), cellHi = Math.min(1, yHi - y);
       if (cellHi <= cellLo) continue;
       if (cellLo < lo[i]!) lo[i] = cellLo;
       if (cellHi > hi[i]!) hi[i] = cellHi;
+      let cell = layers.get(i);
+      if (!cell) layers.set(i, cell = newCellLayers());
+      const l = Math.max(0, Math.min(15, Math.floor(cellLo * 16)));
+      addLayerBox(cell,
+        Math.max(0, Math.min(15, Math.floor((Math.max(bx0, x) - x) * 16))), Math.max(1, Math.min(16, Math.ceil((Math.min(bx1, x + 1) - x) * 16))),
+        l, Math.max(l + 1, Math.min(16, Math.ceil(cellHi * 16))),
+        Math.max(0, Math.min(15, Math.floor((Math.max(bz0, z) - z) * 16))), Math.max(1, Math.min(16, Math.ceil((Math.min(bz1, z + 1) - z) * 16))));
     }
   }
   const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0 };
@@ -172,31 +186,49 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
     out.set(x, y, z, colliderState(l, h));
     stats.colliders++;
   }
-  return { grid: out, stats };
+  // Only cells that became colliders keep their geometry (a door-cleared or scene cell is not trimmed).
+  for (const i of [...layers.keys()]) {
+    const z = i % grid.length, y = Math.floor(i / grid.length) % grid.height, x = Math.floor(i / (grid.length * grid.height));
+    if (!out.get(x, y, z).startsWith(COLLIDER_BLOCK_ID)) layers.delete(i);
+  }
+  return { grid: out, stats, layers };
 }
 
 /** The cell index `buildColliderGrid`'s `keepClear` uses: `(x·height + y)·length + z`. */
 export const colliderCellIndex = (grid: { height: number; length: number }, x: number, y: number, z: number): number => (x * grid.height + y) * grid.length + z;
 
-/** Every (lo, hi) pair with lo < hi: 136 permutations. */
-const COLLIDER_PERMUTATIONS = (): unknown[] => {
+/** A form box (sixteenths) as a Bedrock collision box: origin from the block's bottom centre, pixels. */
+const collisionBox = (b: readonly number[]): { origin: number[]; size: number[] } => ({ origin: [b[0]! - 8, b[2]!, b[4]! - 8], size: [b[1]! - b[0]!, b[3]! - b[2]!, b[5]! - b[4]!] });
+
+/** Every (lo, hi) pair with lo < hi: 136 permutations, each laying variant `v`'s boxes (collider-form.ts). */
+const COLLIDER_PERMUTATIONS = (v = 0): unknown[] => {
   const out: unknown[] = [];
   for (let l = 0; l < 16; l++) for (let h = l + 1; h <= 16; h++) {
+    const boxes = COLLIDER_KIT.formBoxes(v, l, h).map(collisionBox);
     out.push({
       condition: `q.block_state('${COLLIDER_LO_STATE}') == ${l} && q.block_state('${COLLIDER_HI_STATE}') == ${h}`,
-      components: { 'minecraft:collision_box': { origin: [-8, l, -8], size: [16, h - l, 16] } },
+      components: { 'minecraft:collision_box': boxes.length === 1 ? boxes[0] : boxes },
     });
   }
   return out;
 };
 
-/** The behaviour-pack block definition. */
-export function colliderBlockDefinition(): unknown {
+/**
+ * The behaviour-pack block definition of collider variant `v` (0: the
+ * full-footprint `craftmatic:collider`; the others are the clearance forms,
+ * collider-form.ts). A floor + wall or wall + ceiling form is two boxes, which
+ * Bedrock accepts as an array from format 1.26.0 (Microsoft Learn,
+ * minecraft:collision_box), so those blocks declare it; the others keep the
+ * format the collider has always had.
+ */
+export function colliderBlockDefinition(v = 0): unknown {
+  const variant = COLLIDER_KIT.VARIANTS[v]!;
+  const base = COLLIDER_KIT.formBoxes(v, 0, 16).map(collisionBox);
   return {
-    format_version: '1.21.40',
+    format_version: variant.kind === 0 ? '1.21.40' : '1.26.0',
     'minecraft:block': {
       description: {
-        identifier: COLLIDER_BLOCK_ID,
+        identifier: variant.id,
         menu_category: { category: 'none' },
         states: {
           [COLLIDER_LO_STATE]: { values: { min: 0, max: 15 } },
@@ -206,17 +238,22 @@ export function colliderBlockDefinition(): unknown {
       components: {
         'minecraft:geometry': 'minecraft:geometry.full_block',
         'minecraft:material_instances': { '*': { texture: 'craftmatic_collider', render_method: 'alpha_test', face_dimming: false, ambient_occlusion: false } },
-        'minecraft:collision_box': { origin: [-8, 0, -8], size: [16, 16, 16] },
+        'minecraft:collision_box': base.length === 1 ? base[0] : base,
         'minecraft:selection_box': false,
         'minecraft:light_dampening': 0,
         'minecraft:destructible_by_mining': { seconds_to_destroy: 0.5 },
         'minecraft:destructible_by_explosion': false,
         'minecraft:friction': 0.6,
       },
-      permutations: COLLIDER_PERMUTATIONS(),
+      permutations: COLLIDER_PERMUTATIONS(v),
     },
   };
 }
+
+/** Every collider block id the pack defines (43: the full form and the clearance forms), for fills and type checks. */
+export const COLLIDER_BLOCK_IDS: readonly string[] = COLLIDER_KIT.VARIANTS.map(d => d.id);
+/** The pack file name of variant `v`'s block definition. */
+export const colliderBlockFile = (v: number): string => v === 0 ? 'collider.json' : `${COLLIDER_KIT.VARIANTS[v]!.id.replace(/^.*:/, '')}.json`;
 
 /** The resource-pack `blocks.json` entry: sound and the transparent texture. */
 export const COLLIDER_BLOCKS_JSON = {

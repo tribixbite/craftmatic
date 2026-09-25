@@ -66,6 +66,7 @@
 
 import { JUMP_HEIGHT_BLOCKS, STEP_HEIGHT_BLOCKS } from './addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
+import { COLLIDER_KIT, type Box16, type ColliderForm } from './collider-form.js';
 
 // ─── Collider pairs ───────────────────────────────────────────────────────────
 
@@ -89,8 +90,13 @@ export function colliderPairOf(index: number): [number, number] {
 
 // ─── The scaled grid ─────────────────────────────────────────────────────────
 
-/** One solid source cell of the shipped grid: the box [x, x+1] × [y+lo/16, y+hi/16] × [z, z+1] in cells. */
-export interface SourceCell { x: number; y: number; z: number; lo: number; hi: number }
+/**
+ * One solid source cell of the shipped grid: the box [x, x+1] × [y+lo/16,
+ * y+hi/16] × [z, z+1] in cells, or - with `v` - a clearance form of it
+ * (collider-form.ts: a wall pulled back to its geometry; lo/hi are then the
+ * form's states, not necessarily its extent).
+ */
+export interface SourceCell { x: number; y: number; z: number; lo: number; hi: number; v?: number }
 export interface GridDims { width: number; height: number; length: number }
 /** The quarter turns a pack with blocks may take (`placementRuntime`: block packs turn in 90° steps). */
 export type QuarterTurn = 0 | 90 | 180 | 270;
@@ -157,9 +163,17 @@ export const MAX_REFUSED_REPORTED = 64;
 
 /** One world block of a scaled column, with the 100 % surface it came from. */
 export interface ColumnBlock {
+  /**
+   * The block's row and VERTICAL EXTENT (sixteenths): the whole block for the
+   * column logic here (surfaces, headroom, treads), which reads a clearance
+   * form as the full block it sits in - conservative, a partial wall counts as
+   * a wall. `form` says what the block really is.
+   */
   row: number; lo: number; hi: number;
   /** The source cell's top in sixteenths of a SOURCE block (y·16 + hi) whose scaled top set `hi`; a tread carries the floor's. */
   src16: number;
+  /** The clearance form laid here (absent: the full-footprint collider over lo..hi). */
+  form?: ColliderForm;
 }
 
 interface Column {
@@ -225,17 +239,47 @@ export class ScaledColliderGrid {
     if (i >= rotW || j >= rotL) return col;
     const s = sourceCellOf(i, j, this.dims, this.r);
     const rows = new Map<number, ColumnBlock>();
-    for (const c of this.cellsByColumn.get(s.x * this.dims.length + s.z) ?? []) {
-      const wy0 = (c.y + c.lo / 16) * this.f, wy1 = (c.y + c.hi / 16) * this.f;
-      const src16 = c.y * 16 + c.hi;
-      for (let wy = Math.floor(wy0); wy < Math.ceil(wy1); wy++) {
-        const l = Math.max(0, Math.min(15, Math.floor((wy0 - wy) * 16)));
-        const h = Math.max(l + 1, Math.min(16, Math.ceil((wy1 - wy) * 16)));
+    const pieces = new Map<number, Box16[]>();
+    const cellsHere = this.cellsByColumn.get(s.x * this.dims.length + s.z) ?? [];
+    const anyForm = cellsHere.some(c => c.v);
+    for (const c of cellsHere) {
+      if (!c.v) {
+        // A full cell: the re-lay's row arithmetic directly (what `cellPieces` computes for it, without the allocation).
+        const wy0 = (c.y + c.lo / 16) * this.f, wy1 = (c.y + c.hi / 16) * this.f;
+        const src16 = c.y * 16 + c.hi;
+        for (let wy = Math.floor(wy0); wy < Math.ceil(wy1); wy++) {
+          const l = Math.max(0, Math.min(15, Math.floor((wy0 - wy) * 16)));
+          const h = Math.max(l + 1, Math.min(16, Math.ceil((wy1 - wy) * 16)));
+          if (anyForm) {
+            const list = pieces.get(wy), b: Box16 = [0, 16, l, h, 0, 16];
+            if (list) list.push(b); else pieces.set(wy, [b]);
+          }
+          const prev = rows.get(wy);
+          if (!prev) rows.set(wy, { row: wy, lo: l, hi: h, src16 });
+          else { prev.lo = Math.min(prev.lo, l); if (h > prev.hi || (h === prev.hi && src16 > prev.src16)) { prev.hi = h; prev.src16 = src16; } }
+        }
+        continue;
+      }
+      const boxes = COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi);
+      const top = Math.max(...boxes.map(b => b[3]));
+      const src16 = c.y * 16 + top;
+      // The re-lay's own pieces (collider-form.ts `cellPieces`), this column's only.
+      COLLIDER_KIT.cellPieces(c.x, c.y, c.z, c.v ?? 0, c.lo, c.hi, this.dims, this.f, this.r, (wx, wy, wz, b) => {
+        if (wx !== x || wz !== z) return;
+        const l = b[2], h = b[3];
+        const list = pieces.get(wy);
+        if (list) list.push(b); else pieces.set(wy, [b]);
         const prev = rows.get(wy);
         // A block two cells share keeps min lo / max hi (the runtime's merge); the top's provenance follows the higher hi.
         if (!prev) rows.set(wy, { row: wy, lo: l, hi: h, src16 });
         else { prev.lo = Math.min(prev.lo, l); if (h > prev.hi || (h === prev.hi && src16 > prev.src16)) { prev.hi = h; prev.src16 = src16; } }
-      }
+      });
+    }
+    for (const [wy, list] of pieces) {
+      // Only a row a clearance form reached can be anything but full.
+      if (list.every(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) continue;
+      const form = COLLIDER_KIT.cover(list);
+      if (form && form.v !== 0) rows.get(wy)!.form = form;
     }
     col.blocks = [...rows.values()].sort((p, q) => p.row - q.row);
     return col;

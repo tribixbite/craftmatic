@@ -120,6 +120,62 @@ def check(path):
             if not cand: problems.append(f'{n}: texture {tpath!r} has no file')
         if not desc.get('materials'): problems.append(f'{n}: no materials')
     notes.append(f'{n_client} client entities, {len(geo_ids)} geometries, {len(tex_files)} textures')
+    # Custom blocks: the collider and its clearance forms (web/src/engine/collider-form.ts).
+    # A block definition Bedrock cannot parse leaves the id unknown, and every
+    # setPermutation of it then throws inside the Brick Wand's re-lay: a wall
+    # silently missing. Checked against Microsoft Learn's minecraft:collision_box
+    # rules (a box inside -8,0,-8 .. 8,24,8 pixels; an ARRAY of at most 16 boxes
+    # from format 1.26.0) and bedrock.dev's state limits (16 values a state,
+    # 65,536 permutations a block).
+    block_ids = set()
+    registered = 0
+    fmt = lambda v: tuple(int(x) for x in str(v).split('.')[:3])
+    for n in [x for x in names if '/blocks/' in x and x.endswith('.json')]:
+        d = json.loads(z.read(n).decode('utf-8-sig'))
+        blk = d.get('minecraft:block')
+        if not blk: continue
+        ident = (blk.get('description') or {}).get('identifier')
+        if not ident or not ident_ok.match(ident):
+            problems.append(f'{n}: Bedrock rejects the block identifier {ident!r}')
+            continue
+        block_ids.add(ident)
+        perms = 1
+        for sname, sdef in ((blk.get('description') or {}).get('states') or {}).items():
+            vals = sdef.get('values') if isinstance(sdef, dict) else sdef
+            count = (vals['max'] - vals['min'] + 1) if isinstance(vals, dict) else len(vals or [])
+            if count > 16: problems.append(f'{n}: state {sname!r} has {count} values (Bedrock allows 16)')
+            perms *= max(1, count)
+        registered += perms
+        if perms > 65536: problems.append(f'{n}: {perms} registered permutations (a block may have 65,536)')
+        boxes_sets = [('components', (blk.get('components') or {}).get('minecraft:collision_box'))]
+        boxes_sets += [(f'permutation {i}', (p.get('components') or {}).get('minecraft:collision_box')) for i, p in enumerate(blk.get('permutations') or [])]
+        for where, cb in boxes_sets:
+            if cb is None or isinstance(cb, bool): continue
+            boxes = cb if isinstance(cb, list) else [cb]
+            if isinstance(cb, list) and (fmt(d.get('format_version', '0')) < (1, 26, 0) or len(cb) > 16):
+                problems.append(f'{n}: {where} collision_box is an array of {len(cb)} (needs format 1.26.0+ and at most 16), format {d.get("format_version")}')
+            for b in boxes:
+                o, s = b.get('origin', [-8, 0, -8]), b.get('size', [16, 16, 16])
+                lo, hi = [-8, 0, -8], [8, 24, 8]
+                if any(o[k] < lo[k] or o[k] + s[k] > hi[k] or s[k] < 0 for k in range(3)):
+                    problems.append(f'{n}: {where} collision box {b} leaves the block')
+    if registered: notes.append(f'{len(block_ids)} custom blocks, {registered} registered permutations')
+    if registered > 65536: problems.append(f'{registered} custom block permutations (a world should stay under 65,536)')
+    # Every collider form the shipped runs reference has its block (run value = v*136 + pair).
+    for n in [x for x in names if x.endswith('scripts/placement.js')]:
+        m = re.search(r'^const CONFIG = (\{.*\});$', z.read(n).decode('utf-8'), re.M)
+        cols = json.loads(m.group(1)).get('colliders') if m else None
+        if not cols: continue
+        runs = cols.get('runs', '')
+        used = {(ord(runs[k]) - 40 - 1) // 136 for k in range(0, len(runs) - 1, 2) if ord(runs[k]) - 40 > 0}
+        ids = {0: 'craftmatic:collider'}
+        for v in used:
+            if v == 0: continue
+            kind, shape = (v - 1) // 14, (v - 1) % 14 + 1
+            ids[v] = f'craftmatic:collider_{"wfc"[kind]}{shape}'
+        for v in sorted(used):
+            if ids[v] not in block_ids: problems.append(f'the collider runs use {ids[v]!r} (variant {v}) but the pack defines no such block')
+        if len(used) > 1: notes.append(f'{len(used) - 1} collider forms in use')
     return problems, notes
 
 def main() -> int:

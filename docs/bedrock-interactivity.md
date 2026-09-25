@@ -257,6 +257,121 @@ percent or larger to pass."*). The pack warnings carry one line per set
 200 %"*), the diagnostics carry every part's opening and `passSize`, and the
 Walk add-on's legend says how many are passable at the chosen size.
 
+## Clearance: colliders pulled back to the geometry
+
+The user's brief (2026-09-25): *"at minifig = player height scale most
+hallways and rooms are too narrow or low for the player to fit … offset
+virtual boundaries by maybe 1/4 to 1/2 block … it must never be applied
+incorrectly (reducing movement space), only when certain … not just walls,
+too-low ceilings too."*
+
+Why rooms are full. A collider is one block; `buildColliderGrid` makes a cell
+a collider whenever any geometry reaches into it, and before this change its
+collision box was always the WHOLE footprint (only the height was measured,
+`lo..hi` sixteenths). A 1-stud wall is 20 LDU = 0.38 block, and where it
+straddles a cell boundary it fills two whole blocks; a minifig room is 5-8
+studs (1.9-3 blocks) wide, so its walls take most of it. That is what the 36
+SEALED doorways of the 40-set audit open onto.
+
+### What a collider may be (Bedrock, researched 2026-09-25)
+
+- A custom block's `minecraft:collision_box` may be any box inside the block:
+  origin (-8, 0, -8) to (8, 16, 8) in pixels, so narrower than a block
+  horizontally (Microsoft Learn, *Block Components - minecraft:collision_box*;
+  stable since 1.19.50). Since 1.26.0 it may also be an ARRAY of up to 16
+  boxes, stable, no experiment (same page).
+- A block state has at most 16 values; a block at most 65,536 permutations,
+  and a world *should* stay under 65,536 custom permutations in total
+  (bedrock.dev, *Block States* / *Block Permutations*). The permutation list is
+  a Molang condition per entry, so a block's cost is (registered states) x
+  (entries).
+
+So clearance ships as THINNER colliders, never missing ones. One state per
+shape would multiply the collider's 256 registered permutations by the shape
+count and its 136 condition entries by the same, so each shape is its own
+block id, each with the same `lo` / `hi` states and 136 entries
+(`craftmatic:collider` itself is unchanged, and stays the full-footprint form).
+
+### The forms
+
+A collider cell is one of (`collider-clearance.ts`, `COLLIDER_VARIANTS`):
+
+- **full** `lo..hi` over the whole footprint (the old collider, variant 0);
+- **wall** `lo..hi` over a SHAPE: a band a quarter-block multiple wide along x
+  or z - `[0,4] [0,8] [0,12] [4,16] [8,16] [12,16] [4,12]` sixteenths, 14
+  shapes, closed under the wand's quarter turns;
+- **floor + wall**: full `lo..hi` and the shape from `hi` to the top of the
+  block - a wall standing on the floor plate in the same block row;
+- **wall + ceiling**: the shape from the bottom of the block to `lo` and full
+  `lo..hi` - a wall's top under the ceiling plate in the same row.
+
+43 blocks, 5,848 condition entries in all (the old block had 136). The two
+split forms use the 1.26.0 array. `colliderCover` turns any set of boxes in a
+block into the form of least volume that CONTAINS them all; the re-lay at
+another wand size and turn, the doorway runtime, the Walk add-on, the walk
+harness and the build all use that one function (plain JavaScript, serialised
+into the runtime like `ixWorldBlocks`).
+
+### Computing the free space
+
+`buildColliderGrid` keeps, per collider cell, the part boxes clipped to it
+(sixteenths, rounded outward - the same membership and rounding as the cell's
+own `lo..hi`). Clearance runs AFTER the doorway cut (`planInteractiveColliders`
+sees only full cells, as before) and then refreshes every doorway's neighbour
+cells, which now carry their form. For each cell it proposes
+`colliderCover(its geometry)`; nothing else. So:
+
+- **a wall is pulled back to its own geometry, away from the free side** -
+  the direction comes from where the geometry is, never from a guess;
+- **floors stay**: a cell whose top is a standing surface (1.5 blocks free
+  above it in the column) may only take a form whose top sixteenth is still
+  the full footprint (a floor band or a ceiling band that IS the floor above);
+  a phantom ledge a player stood on is never taken away;
+- **ceilings**: a column whose clear height over a floor is at least a
+  sneaking player (1.5) but under a standing one (1.8) has the ceiling cell's
+  `lo` raised to 1.8 over the floor, at most 5/16, only when the cell keeps
+  at least 2/16 of collider above and its form is full; the head goes into
+  the visible ceiling slab by at most 0.3 block, never through it.
+
+### The certain test
+
+A proposal is APPLIED only when every rule holds, and each refusal is logged
+with its reason (`craftmatic-diagnostics.json`, `clearance`):
+
+1. **Subset** - the new form's boxes lie inside the old full cell: a trim
+   never turns free space solid (checked per cell, and again for every world
+   block the re-lay produces at every wand size).
+2. **Superset of the geometry** - the form contains every part box in the cell
+   (a wall trim), or it is the ceiling rule. So wherever the visible model is
+   continuous the colliders are continuous.
+3. **Not at a door** - no cell a closed leaf's box reaches (the frame's sliver
+   past the leaf, the leaf's own cells, the cells the doorway cut touched) is
+   trimmed: `door-leaf` / `door-cut`.
+4. **Floors stay** - above: `walkable-top`.
+5. **No leak** (the global check). Three worlds are flooded at quarter-block
+   resolution from outside the model with a flying, SNEAKING player 0.5 block
+   wide (narrower than the real 0.6, so a leak is found sooner): the part
+   geometry with every closed leaf, the colliders BEFORE clearance with the
+   closed doorways laid, and the colliders AFTER. A block the after-flood
+   reaches that neither other flood reaches is a leak - into a sealed vault, a
+   room behind a closed door, through a gap the model does not have. Every
+   applied trim within one block of a leak is refused (`leak`) and the check
+   runs again; if it has not converged in 8 rounds every trim is refused.
+
+With rule 2 the after-world contains the geometry world, so the flood can only
+find a leak through a bug or through the ceiling rule; with rule 5 neither
+ships.
+
+### The calculator
+
+`bun scripts/_clearance_report.ts <sweep dir> [--sizes=100,150,200,300,400]`:
+per set, the player-reachable standing area (a 0.6 x 1.8 player walked on foot
+from outside, quarter-block steps at 100 %, with doors open), the rooms that
+area reaches, and the doorway verdicts, from the pack's colliders AS SHIPPED
+and with clearance undone (every form read as the full cell it came from), at
+100 % and at each wand size. `_ix_sweep_report.ts` gives the doorway verdicts
+alone.
+
 ## Proving it offline
 
 - `test/bedrock-interactives.test.ts`: classification, hinge and swing side on

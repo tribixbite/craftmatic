@@ -7,6 +7,7 @@
  * on nothing test-runner specific.
  */
 import { INTERACTIVE_PROPERTY, interactivesScript, type InteractiveRuntimeConfig } from '../web/src/engine/bedrock-interactives.js';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 
 export interface IxHostEntity {
   id: string; typeId: string; families: string[]; location: { x: number; y: number; z: number };
@@ -19,7 +20,8 @@ export interface IxHostEntity {
 
 export function runtimeHost(cfg: InteractiveRuntimeConfig) {
   const blocks = new Map<string, { typeId: string; states: Record<string, number> }>();
-  const setCollider = (x: number, y: number, z: number, lo: number, hi: number): void => { blocks.set(`${x},${y},${z}`, { typeId: cfg.colliders.block, states: { [cfg.colliders.loState]: lo, [cfg.colliders.hiState]: hi } }); };
+  /** Lay a collider (variant `v` is a clearance form, collider-form.ts; 0 or absent: the full collider). */
+  const setCollider = (x: number, y: number, z: number, lo: number, hi: number, v = 0): void => { blocks.set(`${x},${y},${z}`, { typeId: v ? COLLIDER_KIT.VARIANTS[v]!.id : cfg.colliders.block, states: { [cfg.colliders.loState]: lo, [cfg.colliders.hiState]: hi } }); };
   const blockAt = (pos: { x: number; y: number; z: number }) => {
     const key = `${pos.x},${pos.y},${pos.z}`;
     const cur = blocks.get(key) ?? { typeId: 'minecraft:air', states: {} };

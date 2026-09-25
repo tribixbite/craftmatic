@@ -17,7 +17,8 @@
  */
 
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
-import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState } from './addon-walk.js';
+import { COLLIDER_KIT } from './collider-form.js';
+import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState, type SolidBox } from './addon-walk.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
 /** Ticks the walk gets (10 s at 20 ticks/s): a 4-block approach, a jump or two. */
@@ -37,6 +38,15 @@ const STALL_TICKS = 30;
 /** How far (blocks at 100 %) a doorway column's floor may sit from the leaf's foot, and how far past the leaf plane an approach spot must be. */
 const DOOR_FLOOR_SLACK = 1.0;
 const SIDE_CLEARANCE = 0.9;
+/**
+ * How much of a column a clearance form must leave free along its thin axis
+ * for the route to treat the column as open (blocks): the player's 0.6 and a
+ * margin, so the player fits in the free part without leaning on the
+ * neighbouring column (the route stands it at the free part's centre). A
+ * narrower free part may still be walked by a real player; the route does not
+ * count on it.
+ */
+const ROOMY_FREE = 0.7;
 
 export interface DoorwayWalkResult {
   index: number;
@@ -103,13 +113,25 @@ function settle(world: WalkWorld, x: number, y: number, z: number, maxDrop: numb
 
 /** The local surface graph over one world: columns within a window, the tops a player can stand on, and 4-connected moves between them. */
 function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: number; z1: number }, k: number) {
-  const clear = (x: number, z: number, y0: number, y1: number): boolean => world.boxesInColumn(x, z).every(b => b.y1 <= y0 + 1e-6 || b.y0 >= y1 - 1e-6);
+  /**
+   * The boxes that fill a column for the ROUTE: a clearance form's box
+   * (collider-form.ts, a wall pulled back to its geometry) that leaves at
+   * least `ROOMY_FREE` of the column free along its thin axis does not - the
+   * player's centre can stand in the free part - and it is no floor either.
+   * The per-tick player then collides with the real boxes, so the route is a
+   * guide and the physics is the judge.
+   */
+  const filling = (x: number, z: number): SolidBox[] => world.boxesInColumn(x, z).filter(b => {
+    const freeX = Math.max(b.x0 - x, x + 1 - b.x1), freeZ = Math.max(b.z0 - z, z + 1 - b.z1);
+    return !((b.z1 - b.z0 >= 1 - 1e-6 && freeX >= ROOMY_FREE - 1e-6) || (b.x1 - b.x0 >= 1 - 1e-6 && freeZ >= ROOMY_FREE - 1e-6));
+  });
+  const clear = (x: number, z: number, y0: number, y1: number): boolean => filling(x, z).every(b => b.y1 <= y0 + 1e-6 || b.y0 >= y1 - 1e-6);
   const topsCache = new Map<string, number[]>();
   const tops = (x: number, z: number): number[] => {
     const key = `${x},${z}`;
     let t = topsCache.get(key);
     if (t) return t;
-    const boxes = world.boxesInColumn(x, z);
+    const boxes = filling(x, z);
     t = [0, ...boxes.map(b => b.y1)].filter(y => clear(x, z, y, y + PLAYER_NEED)).filter(y => y > 0 || boxes.every(b => b.y0 >= PLAYER_NEED - 1e-6 || b.y1 <= 1e-6));
     topsCache.set(key, t);
     return t;
@@ -134,7 +156,25 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
     }
     return out;
   };
-  return { tops, moves };
+  /**
+   * Where a player stands in a column at floor `t`: its centre, or the centre
+   * of the part a clearance form leaves free (a wall pulled back to one side).
+   */
+  const standAt = (x: number, z: number, t: number): { x: number; z: number } => {
+    let ax = 0, bx = 1, az = 0, bz = 1;
+    for (const b of world.boxesInColumn(x, z)) {
+      if (b.y1 <= t + 1e-6 || b.y0 >= t + PLAYER_NEED - 1e-6) continue;
+      if (b.z1 - b.z0 >= 1 - 1e-6 && b.x1 - b.x0 < 1 - 1e-6) {
+        const l = b.x0 - x, r = b.x1 - x;
+        if (l >= 1 - r) bx = Math.min(bx, l); else ax = Math.max(ax, r);
+      } else if (b.x1 - b.x0 >= 1 - 1e-6 && b.z1 - b.z0 < 1 - 1e-6) {
+        const l = b.z0 - z, r = b.z1 - z;
+        if (l >= 1 - r) bz = Math.min(bz, l); else az = Math.max(az, r);
+      }
+    }
+    return { x: x + (bx > ax ? (ax + bx) / 2 : 0.5), z: z + (bz > az ? (az + bz) / 2 : 0.5) };
+  };
+  return { tops, moves, standAt };
 }
 
 type GraphNode = { x: number; z: number; t: number; prev: GraphNode | null };
@@ -161,7 +201,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   };
   const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
   // The doorway: the leaf's closed blocks at this size and turn.
-  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
+  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation, COLLIDER_KIT).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
   const centre = own.length
     ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }
     : { x: 0, y: 0, z: 0 };
@@ -211,7 +251,11 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       queue.push({ ...m, prev: node });
     }
   }
-  const spotOf = (node: GraphNode | undefined): PlayerState | undefined => node ? settle(openWorld, node.x + 0.5, node.t + 0.01, node.z + 0.5, 0.25) : undefined;
+  const spotOf = (node: GraphNode | undefined): PlayerState | undefined => {
+    if (!node) return undefined;
+    const at = og.standAt(node.x, node.z, node.t);
+    return settle(openWorld, at.x, node.t + 0.01, at.z, 0.25);
+  };
   const spots = { '-1': spotOf(near['-1']), '1': spotOf(near['1']) };
   if (!spots['-1'] || !spots['1']) {
     // One side cannot reach the doorway at all, open: the model put solid
@@ -236,7 +280,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       const node = q[h]!;
       if (node.door && node.x === b.x && node.z === b.z && Math.abs(node.t - b.t) < 1e-6) {
         const out: Array<{ x: number; y: number; z: number }> = [];
-        for (let p: GraphNode | null = node; p; p = p.prev) out.unshift({ x: p.x + 0.5, y: p.t, z: p.z + 0.5 });
+        for (let p: GraphNode | null = node; p; p = p.prev) { const at = g.standAt(p.x, p.z, p.t); out.unshift({ x: at.x, y: p.t, z: at.z }); }
         return out;
       }
       for (const m of g.moves(node.x, node.z, node.t)) {
