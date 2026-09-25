@@ -109,7 +109,8 @@ for (const set of ALL ? Object.keys(sets) : targets.length ? targets : [...FAVOU
   for (const b of bricks) {
     // The coaster moulds by the extractor's own profile table (an MPD's embedded
     // `10261 - 25061.dat` carries a stub description), everything else by description.
-    const c = coasterTrackProfile(b.part) ? 'coaster' : railClass(await describe(b.part));
+    const profile = coasterTrackProfile(b.part);
+    const c = profile && profile.family !== 'train' ? 'coaster' : railClass(await describe(b.part));
     if (!c) continue;
     row[c]++;
     if (c === 'rail') { rails.push(b); const s = partStem(b.part); row.railMoulds[s] = (row.railMoulds[s] ?? 0) + 1; }

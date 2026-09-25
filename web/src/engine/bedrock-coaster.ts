@@ -1880,8 +1880,15 @@ export function coasterRoutesFromAssemblies(tracks: CoasterTrackExtraction, asse
       const longest = Math.max(...cars.map(car => car.lengthLdu));
       const trainLength = (train?.extentLdu ?? 0) + Math.max(train?.meanPitchLdu ?? 0, longest);
       // A railway line is driven wherever the train has room to move at all; a
-      // coaster's short open track is a siding that holds a spare train.
-      if (!track.closed && (railway ? lengthLdu <= trainLength : lengthLdu < PARKED_SIDING_FACTOR * trainLength)) {
+      // coaster's short open track is a siding that holds a spare train. A
+      // railway train never becomes a coaster's second train.
+      if (railway && !track.closed && lengthLdu <= trainLength) {
+        // The set's train fills its whole display track: there is nowhere to drive it.
+        parked.push({ label: track.label, cars: cars.length, reason: `the ${round3(trainLength)}-LDU train fills its ${round3(lengthLdu)}-LDU railway line` });
+        warnings.push(`${track.label}: its ${cars.length} railway car${cars.length === 1 ? '' : 's'} stay part of the build - the ${round3(trainLength)}-LDU train fills the ${round3(lengthLdu)} LDU of open line it stands on.`);
+        return;
+      }
+      if (!railway && !track.closed && lengthLdu < PARKED_SIDING_FACTOR * trainLength) {
         const entry = { label: track.label, cars: cars.length, reason: `an open ${round3(lengthLdu)}-LDU track holding a ${round3(trainLength)}-LDU train is a siding` };
         parked.push(entry);
         sidings.push({ label: track.label, cars, points, parked: entry, stays: `${track.label}: its ${cars.length} car${cars.length === 1 ? '' : 's'} stay parked - ${round3(lengthLdu)} LDU of open track is under ${PARKED_SIDING_FACTOR} train lengths (${round3(trainLength)} LDU), a siding rather than a ride.` });
