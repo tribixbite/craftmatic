@@ -92,6 +92,92 @@ export interface GametestPlan {
   debuggerTarget?: string | undefined;
   /** A pinball machine's runtime types (`scripts/pinball.js` CONFIG), when the pack has one. */
   pinball?: GametestPinball | undefined;
+  /** The set's minifig NPCs, for the roaming test (`figures_<id>`); absent or empty: no test. */
+  figures?: GametestFigure[] | undefined;
+  /** The pack's collider block, so the roaming test can tell a wall from a floor plate. */
+  colliders?: { block: string; loState: string; hiState: string } | undefined;
+  /** How long the roaming test watches the figures, in ticks (default `GT_FIGURE_TICKS`). */
+  figureTicks?: number | undefined;
+  /**
+   * The model's arena is wider than one structure (`arenaExceeds`): the
+   * structure is capped at `GT_MAX_ARENA` and the roaming test lays the rest
+   * of the floor itself, and cleans it up. Only that test is registered then
+   * (a smoke or doors arena beside it could sit on the overflow).
+   */
+  oversized?: boolean | undefined;
+}
+
+/** One minifig NPC the roaming test follows. */
+export interface GametestFigure {
+  label: string;
+  /** Entity type (`craftmatic:<id>_fig<n>` or `craftmatic:f_<id>_fig<n>`); one type per figure. */
+  typeId: string;
+  /** Spawn point in model-local blocks (turn 0, 100 %). */
+  actor: Vec3;
+  /** The source seated it on a chair (`rideOf`): it should stay seated, not roam. */
+  seated: boolean;
+}
+
+/** Default length of the roaming test's watch: 60 s. */
+export const GT_FIGURE_TICKS = 1200;
+/** Ticks between two position samples of every figure. */
+export const GT_FIGURE_SAMPLE_TICKS = 20;
+/** How far outside the model's footprint a figure may stand before it counts as "left the model". */
+export const GT_FIGURE_AREA_MARGIN = 1;
+
+/** One position sample of a figure, world blocks, and whether it was riding a seat then. */
+export interface FigureSample extends Vec3 { riding?: boolean; clipping?: boolean }
+
+/** What one figure did over the watch (`judgeFigureTrack`). */
+export interface FigureTrackVerdict {
+  samples: number;
+  /** Horizontal distance walked, summed over samples (blocks). */
+  pathLength: number;
+  /** Largest horizontal distance from the first sample (blocks). */
+  maxExcursion: number;
+  /** Samples standing outside the footprint plus `GT_FIGURE_AREA_MARGIN`. */
+  outsideSamples: number;
+  /** Lowest feet height relative to the model's ground (the pin plane). */
+  minAboveGround: number;
+  /** Fell below the model's ground (more than half a block under the pin plane). */
+  belowGround: boolean;
+  /** Ended more than 1.5 blocks under where it started (fell off a floor). */
+  droppedStorey: boolean;
+  /** Samples whose body overlapped a collider taller than a step (furniture or a wall). */
+  clippingSamples: number;
+  ridingSamples: number;
+  /** Walked at least 2 blocks in the watch. */
+  moved: boolean;
+  endInsideWall: boolean;
+}
+
+/**
+ * Judge one figure's watch. The home area is the model's footprint (model
+ * blocks from the anchor) plus `GT_FIGURE_AREA_MARGIN`; "below the floor" is
+ * under the pin plane the model stands on. Pure, so it is unit-tested here and
+ * serialised into the device runtime unchanged.
+ */
+export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: Vec3 }, groundY: number, endInsideWall: boolean, margin: number): FigureTrackVerdict {
+  let pathLength = 0, maxExcursion = 0, outsideSamples = 0, clippingSamples = 0, ridingSamples = 0, minY = Infinity;
+  const first = track[0];
+  for (let i = 0; i < track.length; i++) {
+    const s = track[i]!;
+    if (i > 0) { const p = track[i - 1]!; pathLength += Math.sqrt((s.x - p.x) ** 2 + (s.z - p.z) ** 2); }
+    if (first) maxExcursion = Math.max(maxExcursion, Math.sqrt((s.x - first.x) ** 2 + (s.z - first.z) ** 2));
+    if (s.x < area.min.x - margin || s.x > area.max.x + margin || s.z < area.min.z - margin || s.z > area.max.z + margin) outsideSamples++;
+    if (s.clipping) clippingSamples++;
+    if (s.riding) ridingSamples++;
+    minY = Math.min(minY, s.y);
+  }
+  const last = track[track.length - 1];
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  return {
+    samples: track.length, pathLength: r2(pathLength), maxExcursion: r2(maxExcursion), outsideSamples,
+    minAboveGround: r2(Number.isFinite(minY) ? minY - groundY : 0),
+    belowGround: Number.isFinite(minY) && minY < groundY - 0.5,
+    droppedStorey: !!first && !!last && last.y < first.y - 1.5,
+    clippingSamples, ridingSamples, moved: pathLength >= 2, endInsideWall,
+  };
 }
 
 export interface GametestPinball {
@@ -195,17 +281,26 @@ export function arenaSize(dims: GametestPlan['dims']): Vec3 {
   return { x: dims.width + 2 * GT_MARGIN, y: dims.height + 3, z: dims.length + 2 * GT_MARGIN };
 }
 
+/** Is the model's arena larger than one structure can carry? */
+export function arenaExceeds(dims: GametestPlan['dims']): boolean {
+  const size = arenaSize(dims);
+  return size.x > GT_MAX_ARENA.x || size.z > GT_MAX_ARENA.z || size.y > GT_MAX_ARENA.y;
+}
+
 /**
  * The arena: smooth stone at y = 0, explicit air above (so the structure
  * clears whatever the test area held). The model is placed with its anchor at
- * relative (GT_MARGIN, 1, GT_MARGIN).
+ * relative (GT_MARGIN, 1, GT_MARGIN). A model too large for one structure is
+ * refused unless `overflow` is set; then the structure is capped at
+ * `GT_MAX_ARENA` and the test lays the remaining floor (`GametestPlan.oversized`).
  */
-export function buildArenaStructure(dims: GametestPlan['dims']): Uint8Array {
-  const size = arenaSize(dims);
-  if (size.x > GT_MAX_ARENA.x || size.z > GT_MAX_ARENA.z || size.y > GT_MAX_ARENA.y) {
-    // TODO: tile large models over several test structures (or use structureLocation + a bare floor).
-    throw new Error(`arena ${size.x}x${size.y}x${size.z} exceeds one structure (${GT_MAX_ARENA.x}x${GT_MAX_ARENA.y}x${GT_MAX_ARENA.z})`);
+export function buildArenaStructure(dims: GametestPlan['dims'], options: { overflow?: boolean } = {}): Uint8Array {
+  const full = arenaSize(dims);
+  if (arenaExceeds(dims) && !options.overflow) {
+    // TODO: tile large models over several test structures instead of laying the overflow floor at run time.
+    throw new Error(`arena ${full.x}x${full.y}x${full.z} exceeds one structure (${GT_MAX_ARENA.x}x${GT_MAX_ARENA.y}x${GT_MAX_ARENA.z})`);
   }
+  const size = { x: Math.min(full.x, GT_MAX_ARENA.x), y: Math.min(full.y, GT_MAX_ARENA.y), z: Math.min(full.z, GT_MAX_ARENA.z) };
   const grid = new BlockGrid(size.x, size.y, size.z);
   for (let x = 0; x < size.x; x++) for (let z = 0; z < size.z; z++) grid.set(x, 0, z, 'minecraft:smooth_stone');
   const tile = { name: 'arena', x: 0, y: 0, z: 0, width: size.x, height: size.y, length: size.z, ix: 0, iy: 0, iz: 0, nonAir: size.x * size.z };
@@ -248,7 +343,7 @@ interface RuntimeModules { mc: any; gt: any }
  * line `CMGT <TAG> <json>` via `console.warn` (the level the content log keeps
  * by default), then ~16 KiB of padding so the block-buffered log flushes.
  */
-export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches): void {
+export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack): void {
   const { mc, gt } = mods;
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
@@ -289,8 +384,11 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     return { y: found ? y : 0, column };
   };
 
+  const oversized = !!plan.oversized;
+  if (oversized) log('OVERSIZED', { model: plan.modelId, arena, note: 'only the figures test runs; it lays the floor past the structure itself' });
+
   /** Smoke: the framework runs, a simulated player spawns on the arena floor and walks 4 blocks. */
-  gt.registerAsync(NS, 'smoke', async (test: any) => {
+  if (!oversized) gt.registerAsync(NS, 'smoke', async (test: any) => {
     const f = floorY(test, 2, 2);
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
@@ -334,7 +432,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     dim.getEntities({ type, location: at, maxDistance }).sort((a: any, b: any) => dist2(a.location, at) - dist2(b.location, at))[0];
 
   /** Doors: place the model with its own placement code, then walk every doorway closed and open. */
-  if (plan.doorways.length) gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
+  if (plan.doorways.length && !oversized) gt.registerAsync(NS, `doors_${plan.modelId}`, async (test: any) => {
     const placed = await placeModel(test, 'doors');
     if (!placed) return;
     const { sim, anchor, dim } = placed;
@@ -405,7 +503,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
    * 0.3 s pulse that screenshots missed.
    */
   const pb = plan.pinball;
-  if (pb) gt.registerAsync(NS, `pinball_${plan.modelId}`, async (test: any) => {
+  if (pb && !oversized) gt.registerAsync(NS, `pinball_${plan.modelId}`, async (test: any) => {
     const placed = await placeModel(test, 'pinball');
     if (!placed) return;
     const { sim, anchor, dim } = placed;
@@ -460,6 +558,129 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (row.pass) test.succeed(); else test.fail('a flipper did not move on its hotbar slot');
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
 
+  /**
+   * Figures: place the model, find every minifig NPC it spawned, then sample
+   * each one's position (and whether it rides a seat, and whether its body is
+   * inside a collider taller than a step) every `GT_FIGURE_SAMPLE_TICKS` for
+   * the watch. Fails when a figure leaves the footprint, falls under the pin
+   * plane, ends inside a wall, or when fewer than half the roaming figures
+   * walked 2 blocks.
+   */
+  const figs = plan.figures ?? [];
+  const watchTicks = plan.figureTicks ?? 1200;
+  if (figs.length && judgeFigure) gt.registerAsync(NS, `figures_${plan.modelId}`, async (test: any) => {
+    // An oversized model: lay the floor (and clear the air) past the capped structure first.
+    const overflowBoxes: Array<{ floor: any[]; air: any[] }> = [];
+    if (oversized) {
+      const f0 = floorY(test, margin, margin).y;
+      const cap = { x: 64, z: 64 };
+      const boxes: Array<[number, number, number, number]> = [];
+      if (arena.x > cap.x) boxes.push([cap.x, arena.x - 1, 0, Math.min(arena.z, cap.z) - 1]);
+      if (arena.z > cap.z) boxes.push([0, arena.x - 1, cap.z, arena.z - 1]);
+      for (const [x0, x1, z0, z1] of boxes) {
+        const floor = [test.worldBlockLocation({ x: x0, y: f0, z: z0 }), test.worldBlockLocation({ x: x1, y: f0, z: z1 })];
+        const air = [test.worldBlockLocation({ x: x0, y: f0 + 1, z: z0 }), test.worldBlockLocation({ x: x1, y: f0 + arena.y, z: z1 })];
+        overflowBoxes.push({ floor, air });
+        try {
+          const d = test.getDimension();
+          d.fillBlocks(new mc.BlockVolume(air[0], air[1]), 'minecraft:air');
+          d.fillBlocks(new mc.BlockVolume(floor[0], floor[1]), 'minecraft:smooth_stone');
+        } catch (err) { log('OVERFLOW', { error: String(err && (err as Error).message || err) }); }
+      }
+      log('OVERFLOW', { boxes: overflowBoxes });
+    }
+    const placed = await placeModel(test, 'figures');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    // Out of the way: in a corner of the arena, so it neither blocks nor lures a figure much.
+    try { sim.teleport(test.worldLocation({ x: 0.5, y: 2, z: 0.5 })); } catch { /* stays */ }
+    await test.idle(40);
+    const col = plan.colliders;
+    /** Collision span [bottom, top] of the block in world row y at column (x, z); null for air. */
+    const spanAt = (x: number, y: number, z: number): number[] | null => {
+      let b: any;
+      try { b = dim.getBlock({ x, y, z }); } catch { return null; }
+      if (!b || b.isAir === true || b.isLiquid === true || b.typeId === 'minecraft:air') return null;
+      if (col && b.typeId === col.block) {
+        const lo = Number(b.permutation.getState(col.loState)), hi = Number(b.permutation.getState(col.hiState));
+        return Number.isFinite(lo) && Number.isFinite(hi) ? [y + lo / 16, y + hi / 16] : [y, y + 1];
+      }
+      return [y, y + 1];
+    };
+    /** Does a body standing at `at` overlap a span that rises more than a step above its feet (furniture, a wall)? And a wall (a span at least 12/16 thick)? */
+    const bodyCheck = (at: Vec3): { clipping: boolean; wall: boolean } => {
+      const x = Math.floor(at.x), z = Math.floor(at.z), feet = at.y;
+      let clipping = false, wall = false;
+      for (let y = Math.floor(feet); y <= Math.floor(feet + 1.6); y++) {
+        const s = spanAt(x, y, z);
+        if (!s || !(s[0]! < feet + 1.6 && s[1]! > feet + 0.6)) continue;
+        clipping = true;
+        if (s[1]! - s[0]! >= 0.75) wall = true;
+      }
+      return { clipping, wall };
+    };
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const reach = Math.max(plan.dims.width, plan.dims.length) + 6;
+    const tracked = figs.map(f => {
+      const want = add(anchor, f.actor);
+      const e = dim.getEntities({ type: f.typeId, location: centre, maxDistance: reach }).sort((a: any, b: any) => dist2(a.location, want) - dist2(b.location, want))[0];
+      return { f, e, track: [] as any[] };
+    });
+    log('FIGURES_FOUND', { model: plan.modelId, expected: figs.length, found: tracked.filter(t => t.e).length, missing: tracked.filter(t => !t.e).map(t => t.f.label) });
+    const riding = (e: any): boolean => { try { return !!e.getComponent('minecraft:riding'); } catch { return false; } };
+    for (let t = 0; t <= watchTicks; t += 20) {
+      for (const tr of tracked) {
+        if (!tr.e) continue;
+        let loc: any;
+        try { loc = tr.e.location; } catch { continue; } // removed or unloaded
+        const c = bodyCheck(loc);
+        tr.track.push({ ...round(loc), riding: riding(tr.e), clipping: c.clipping });
+      }
+      if (t < watchTicks) await test.idle(20);
+    }
+    const area = { min: anchor, max: add(anchor, { x: plan.dims.width, y: plan.dims.height, z: plan.dims.length }) };
+    const rows = tracked.map(tr => {
+      if (!tr.e || !tr.track.length) return { label: tr.f.label, seated: tr.f.seated, error: 'not found' } as any;
+      const last = tr.track[tr.track.length - 1];
+      const v = judgeFigure(tr.track, area, anchor.y, bodyCheck(last).wall, 1);
+      // Relative to the anchor so a row reads in model blocks.
+      const rel = (p: Vec3): Vec3 => round({ x: p.x - anchor.x, y: p.y - anchor.y, z: p.z - anchor.z });
+      return { label: tr.f.label, seated: tr.f.seated, start: rel(tr.track[0]), end: rel(last), ...v,
+        path: tr.track.filter((_: any, i: number) => i % 6 === 0).map((p: any) => [Math.round((p.x - anchor.x) * 10) / 10, Math.round((p.y - anchor.y) * 10) / 10, Math.round((p.z - anchor.z) * 10) / 10]) };
+    });
+    for (const r of rows) log('FIGURE', r);
+    const found = rows.filter(r => !r.error);
+    const roamers = found.filter(r => !r.seated);
+    const bad = (k: string): string[] => found.filter(r => r[k]).map(r => r.label);
+    const summary = {
+      model: plan.modelId, figures: figs.length, found: found.length, roamers: roamers.length,
+      moved: roamers.filter(r => r.moved).length, still: roamers.filter(r => !r.moved).map(r => r.label),
+      leftArea: found.filter(r => r.outsideSamples > 0).map(r => r.label), belowGround: bad('belowGround'),
+      droppedStorey: bad('droppedStorey'), endInsideWall: bad('endInsideWall'),
+      clipping: found.filter(r => r.clippingSamples > 0).map(r => `${r.label}:${r.clippingSamples}`),
+      seatedStayed: found.filter(r => r.seated && r.ridingSamples === r.samples).length, seatedInSet: found.filter(r => r.seated).length,
+      satDown: roamers.filter(r => r.ridingSamples > 0).map(r => r.label),
+      meanPath: roamers.length ? Math.round(roamers.reduce((s, r) => s + r.pathLength, 0) / roamers.length * 10) / 10 : 0,
+      watchTicks,
+    };
+    log('FIGURE_SUMMARY', summary);
+    flush();
+    // Leave nothing past the structure for the next run (GameTest clears only its own box).
+    if (oversized) {
+      try {
+        for (const e of dim.getEntities({ location: centre, maxDistance: reach + 4 })) if (plan.actorTypes.includes(e.typeId)) { try { e.remove(); } catch { /* gone */ } }
+        for (const b of overflowBoxes) dim.fillBlocks(new mc.BlockVolume(b.air[0], b.air[1]), 'minecraft:air');
+      } catch (err) { log('OVERFLOW', { cleanupError: String(err && (err as Error).message || err) }); }
+    }
+    const problems: string[] = [];
+    if (found.length < figs.length) problems.push(`${figs.length - found.length} figure(s) not found`);
+    if (summary.leftArea.length) problems.push(`left the model: ${summary.leftArea.join(', ')}`);
+    if (summary.belowGround.length) problems.push(`fell below the floor: ${summary.belowGround.join(', ')}`);
+    if (summary.endInsideWall.length) problems.push(`inside a wall: ${summary.endInsideWall.join(', ')}`);
+    if (roamers.length && summary.moved * 2 < roamers.length) problems.push(`only ${summary.moved}/${roamers.length} roaming figures moved`);
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2400 + watchTicks).tag(NS);
+
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {
     // Run 5 measured every /script subcommand at successCount 0 from the dimension;
@@ -509,7 +730,7 @@ export function gametestScript(plan: GametestPlan): string {
   const arena = arenaSize(plan.dims);
   return `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n`
     + `const PLAN = ${JSON.stringify(plan)};\n`
-    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()});\n`;
+    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()});\n`;
 }
 
 /** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */
@@ -523,6 +744,6 @@ export function gametestVariantFiles(plan: GametestPlan): Array<{ name: string; 
   const enc = new TextEncoder();
   return [
     { name: 'scripts/gametest.js', data: enc.encode(gametestScript(plan)) },
-    { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims) },
+    { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims, { overflow: !!plan.oversized }) },
   ];
 }
