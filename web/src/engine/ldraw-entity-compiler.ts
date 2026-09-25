@@ -539,6 +539,14 @@ export interface CompiledLdrawGeometry {
   /** `meshes.map(m => m.id)`, in draw order. */
   meshIds: string[];
   seatPosition: [number, number, number];
+  /**
+   * The top of the geometry over the driver's seat, blocks above the floor:
+   * the roof a rider sits ON when the model is too small to sit in. The whole
+   * model's height is not that roof - 10300's "present" model carries a
+   * 600-LDU pole at its tail, and a rider seated at the model's top floated
+   * three blocks over the car (Pixel, 2026-09-25).
+   */
+  roofAtSeatBlocks: number;
   /** Up to three passenger seats from the model's free seat moulds (entity frame, blocks, before the JSON X mirror like `seatPosition`). */
   passengerSeats: Array<[number, number, number]>;
   collisionBox: { width: number; height: number };
@@ -2395,6 +2403,14 @@ export async function compileLdrawEntityGeometry(
   const seatY = Math.max(0.3, round(cockpitUnits[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS));
   // A canopy or default cabin is a volume, not a seat: set the rider back a little so the eyes sit inside the glass.
   const seatZ = round(cockpitUnits[2] / 16 + (cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' || cockpit.source === 'steering-wheel' ? 0 : 0.35));
+  // The roof over the seat: the highest cuboid whose footprint covers the cockpit (0.3 blocks of slack), in blocks above the floor.
+  const cockpitRender = apply(A, cockpit.eyeLdu), seatSlack = 0.3 * 16 / scale;
+  let roofTop = -Infinity;
+  for (const c of renderCuboids) {
+    if (cockpitRender[0] < c.min[0] - seatSlack || cockpitRender[0] > c.max[0] + seatSlack || cockpitRender[2] < c.min[2] - seatSlack || cockpitRender[2] > c.max[2] + seatSlack) continue;
+    roofTop = Math.max(roofTop, c.max[1]);
+  }
+  const roofAtSeatBlocks = Number.isFinite(roofTop) ? round((roofTop - floorY) * scale / 16) : round(totalHeight);
   // Passenger seats measured from the model's free seat moulds, in the same frame as the driver's.
   const passengerSeats: Array<[number, number, number]> = cockpit.passengerEyesLdu.slice(0, 3).map(eye => {
     const u = toUnits(apply(A, eye));
@@ -2637,6 +2653,7 @@ export async function compileLdrawEntityGeometry(
     meshes: emittedMeshes,
     meshIds: emittedMeshes.map(m => m.id),
     seatPosition: [seatX, seatY, seatZ],
+    roofAtSeatBlocks,
     passengerSeats,
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },

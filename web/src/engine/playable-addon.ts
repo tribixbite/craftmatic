@@ -431,7 +431,7 @@ export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: 
     };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, roofAtSeat?: number): unknown {
     const scripted = isScriptedVehicle(kind, motion);
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
@@ -446,7 +446,8 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         const modelHeight = entitySize?.height ?? layout.height;
         const modelWidth = entitySize?.width ?? layout.width;
         if (modelHeight < PLAYER_HEIGHT_BLOCKS + 0.6 || modelWidth < 2.2) {
-            seatY = Math.max(seatY, Math.round((modelHeight - 0.55) * 100) / 100);
+            // ON the roof over the seat (`roofAtSeatBlocks`), not the model's top: 10300 carries a tall pole at its tail.
+            seatY = Math.max(seatY, Math.round(((roofAtSeat ?? modelHeight) - 0.55) * 100) / 100);
             seatX = 0;
         }
     } else {
@@ -2154,7 +2155,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats), emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.roofAtSeatBlocks), emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}) });
 
             // Secondary objects the compiler found beside the vehicle (see
@@ -2187,7 +2188,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats);
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.roofAtSeatBlocks);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {

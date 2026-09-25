@@ -528,6 +528,21 @@ describe('playable add-on — brick-compiled entities', () => {
     { part: '99999.dat', color: 1, x: 100, y: 0, z: 0 },
   ];
 
+  it('measures the roof over the seat, not the top of a tall pole at the tail (10300: a rider floated three blocks up)', async () => {
+    const { compileLdrawEntityGeometry } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    // A three-brick body with a windscreen at its front, and a nine-brick pole standing at its tail.
+    const car = [
+      { part: '3001.dat', color: 4, x: 0, y: 0, z: -40 }, { part: '3001.dat', color: 4, x: 0, y: 0, z: 0 }, { part: '3001.dat', color: 4, x: 0, y: 0, z: 40 },
+      { part: '3823.dat', color: 47, x: 0, y: -24, z: -30 },
+      ...Array.from({ length: 9 }, (_, k) => ({ part: '3001.dat', color: 0, x: 0, y: -24 * k, z: 80 })),
+    ];
+    const geo = await compileLdrawEntityGeometry('pole_car', 'car', car, { scale: 0.3, partGeometry: await providerFor(), facing: '-z' });
+    expect(geo.sizeBlocks.height).toBeGreaterThan(3.5);
+    // The roof over the seat is the body with its windscreen (24 + 40 LDU), not the pole's nine bricks.
+    expect(geo.roofAtSeatBlocks).toBeLessThan(1.5);
+    expect(geo.roofAtSeatBlocks).toBeGreaterThan(0.3);
+  });
+
   it('emits real-geometry meshes, one exact-colour PBR swatch per LDraw colour, an opaque material and diagnostics', async () => {
     const grid = new BlockGrid(4, 4, 4);
     grid.set(1, 1, 1, 'minecraft:red_concrete');
