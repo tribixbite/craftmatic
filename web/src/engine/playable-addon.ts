@@ -405,7 +405,7 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>): unknown {
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
@@ -438,7 +438,25 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // A brick-compiled entity is at player scale (0.2 blocks per stud); the
     // scene grid is 12x that, so its size only stands in for the grid fallback.
     const cameraSeat = { third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
-    const rideableComponent: Record<string, unknown> = seatCount <= 1
+    // Passenger seats the model itself has (its free seat moulds, ldraw-entity-compiler `passengerSeats`):
+    // the driver in seat 0, each passenger where the source put a seat; a model the rider sits ON sits them on it too.
+    const measured = (passengerSeats ?? []).map(([x, y, z]) => [x, Math.max(y, seatY), z] as [number, number, number]);
+    // No free seat mould (most LEGO cars and ships build their seats from bricks):
+    // a car or boat long enough gets passengers BEHIND the driver (the model's
+    // nose is -Z), a block apart on a car, two on a ship, never past the tail.
+    const length = entitySize?.length ?? layout.length;
+    const fallback: Array<[number, number, number]> = [];
+    if (!measured.length && seatCount <= 1 && seatPositionOverride && (kind === 'car' || kind === 'boat') && length >= 3.5) {
+        const spacing = kind === 'boat' && length >= 8 ? 2 : 1;
+        for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
+    }
+    const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
+    const rideableComponent: Record<string, unknown> = measuredPassengers.length
+        ? {
+            seat_count: 1 + measuredPassengers.length, controlling_seat: 0, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true,
+            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position, lock_rider_rotation: 0, ...cameraSeat })),
+        }
+        : seatCount <= 1
         ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0, ...cameraSeat } }
         : {
             seat_count: seatCount,
@@ -2206,7 +2224,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion), emitDriveAnimation(cid, motion, ldrawGeo), true);
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats), emitDriveAnimation(cid, motion, ldrawGeo), true);
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(motion === 'plane' || motion === 'boat' ? { scripted: true } : {}) });
 
             // Secondary objects the compiler found beside the vehicle (see
@@ -2239,7 +2257,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {

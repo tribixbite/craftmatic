@@ -539,6 +539,8 @@ export interface CompiledLdrawGeometry {
   /** `meshes.map(m => m.id)`, in draw order. */
   meshIds: string[];
   seatPosition: [number, number, number];
+  /** Up to three passenger seats from the model's free seat moulds (entity frame, blocks, before the JSON X mirror like `seatPosition`). */
+  passengerSeats: Array<[number, number, number]>;
   collisionBox: { width: number; height: number };
   /** Entity extent in blocks (render frame: width across, length nose-to-tail). */
   sizeBlocks: { width: number; height: number; length: number };
@@ -1775,7 +1777,23 @@ interface CockpitFrame { nose: NoseDirection; isXLongitudinal: boolean; forwardS
  *      axes) - eyes at its centre; a lamp or an engine glow never qualifies;
  *   6. the default forward cabin (20 % forward, 35 % up).
  */
-export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): { source: CockpitSource; eyeLdu: Vec3; detail: string; driverParts: number[] } {
+export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): { source: CockpitSource; eyeLdu: Vec3; detail: string; driverParts: number[]; passengerEyesLdu: Vec3[] } {
+  const cockpit = findDriverSeat(placed, meshes, frame);
+  // Passenger seats: every OTHER free seat mould (not the driver's, none a
+  // figure already sits on), eyes 51 LDU above it like the driver's. A seated
+  // figure stays in the model, so its seat is not offered to a player.
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  const local = (b: ParsedBrick, v: Vec3): Vec3 => { const r = apply(b.rot ?? IDENTITY, v); return [b.x + r[0], b.y + r[1], b.z + r[2]]; };
+  const torsos = groupFigures(placed, meshes).map(f => placed[f.torso]!);
+  const passengerEyesLdu = placed
+    .filter(b => isSeat(b.part, desc(b)))
+    .map(b => local(b, [0, -51, 0]))
+    .filter(eye => Math.hypot(eye[0] - cockpit.eyeLdu[0], eye[2] - cockpit.eyeLdu[2]) > 15)
+    .filter(eye => !torsos.some(t => Math.hypot(t.x - eye[0], t.z - eye[2]) < 20 && Math.abs(t.y - (eye[1] + 11)) < 40));
+  return { ...cockpit, passengerEyesLdu };
+}
+
+function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): { source: CockpitSource; eyeLdu: Vec3; detail: string; driverParts: number[] } {
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const xs = placed.map(b => b.x), zs = placed.map(b => b.z), ys = placed.map(b => b.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs), minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -1956,7 +1974,7 @@ export async function compileLdrawEntityGeometry(
   //    translucent part put the X-wing's rider under its tail: four engine
   //    glows and a service cart's lamps outvoted the one canopy.
   const cockpit = kind === 'figure' || kind === 'prop'
-    ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [] }
+    ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [], passengerEyesLdu: [] as Vec3[] }
     : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ });
   let driverFigureRemoved = 0;
   if (cockpit.driverParts.length) {
@@ -2377,6 +2395,11 @@ export async function compileLdrawEntityGeometry(
   const seatY = Math.max(0.3, round(cockpitUnits[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS));
   // A canopy or default cabin is a volume, not a seat: set the rider back a little so the eyes sit inside the glass.
   const seatZ = round(cockpitUnits[2] / 16 + (cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' || cockpit.source === 'steering-wheel' ? 0 : 0.35));
+  // Passenger seats measured from the model's free seat moulds, in the same frame as the driver's.
+  const passengerSeats: Array<[number, number, number]> = cockpit.passengerEyesLdu.slice(0, 3).map(eye => {
+    const u = toUnits(apply(A, eye));
+    return [round(u[0] / 16), Math.max(0.3, round(u[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS)), round(u[2] / 16)];
+  });
   const collisionBox = {
     width: Math.min(3.5, Math.max(0.8, Math.round(totalWidth * 0.85 * 10) / 10)),
     height: Math.min(2.5, Math.max(0.8, Math.round(totalHeight * 0.8 * 10) / 10)),
@@ -2614,6 +2637,7 @@ export async function compileLdrawEntityGeometry(
     meshes: emittedMeshes,
     meshIds: emittedMeshes.map(m => m.id),
     seatPosition: [seatX, seatY, seatZ],
+    passengerSeats,
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
     facing: nose,

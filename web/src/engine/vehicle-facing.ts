@@ -293,7 +293,13 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
   // The axis: the vote sum's dominant component when it is decisive (≥ 1.5×
   // the other), otherwise the footprint's long axis.
   let axis: 'x' | 'z';
-  if (Math.abs(sumX) >= Math.abs(sumZ) * 1.5) axis = 'x';
+  // A car or a boat moves along its LENGTH: with a decisively long footprint
+  // the axis is the long one and the votes only pick the end. 60221's diving
+  // yacht (10.7 x 5.2 blocks) sailed sideways because its standing skipper and
+  // his legs faced across the deck and outvoted the steering wheel (audit
+  // 2026-09-25). Aircraft are exempt: a wingspan can be the long side.
+  if ((kind === 'car' || kind === 'boat') && Math.max(spanX, spanZ) >= Math.min(spanX, spanZ) * 1.3) axis = spanX > spanZ ? 'x' : 'z';
+  else if (Math.abs(sumX) >= Math.abs(sumZ) * 1.5) axis = 'x';
   else if (Math.abs(sumZ) >= Math.abs(sumX) * 1.5) axis = 'z';
   else axis = longAxis;
   const component = axis === 'x' ? sumX : sumZ;

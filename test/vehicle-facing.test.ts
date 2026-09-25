@@ -132,3 +132,22 @@ describe('inferVehicleNose', () => {
     expect(d.agreement).toBeGreaterThan(0.5);
   });
 });
+
+describe('long-axis rule for cars and boats', () => {
+  it('keeps a boat nose on its long axis when a skipper standing across the deck outvotes the wheel (60221)', () => {
+    const hull = body('z', 400, 120);
+    const skipper: ParsedBrick[] = [
+      { part: '973.dat', color: 1, x: 0, y: -40, z: 40, rot: yawM90 },
+      { part: '3815.dat', color: 1, x: 0, y: -8, z: 40, rot: yawM90 },
+      { part: '3626.dat', color: 14, x: 0, y: -64, z: 40, rot: yawM90 },
+    ];
+    // Across, the skipper says +X; along, only a steering wheel at the -Z end.
+    const d = inferVehicleNose([...hull, ...skipper, { part: '3829c01.dat', color: 0, x: 0, y: -24, z: -120, rot: I }], 'boat');
+    expect(d.axis).toBe('z');
+  });
+  it('does not force an aircraft onto its long axis (a wingspan can be the long side)', () => {
+    const wings = body('x', 600, 120);
+    const pilot: ParsedBrick = { part: '973.dat', color: 1, x: 0, y: -40, z: 0, rot: I };
+    expect(inferVehicleNose([...wings, pilot, { ...pilot, part: '3815.dat', y: -8 }], 'plane').axis).toBe('z');
+  });
+});
