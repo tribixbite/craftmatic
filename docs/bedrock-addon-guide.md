@@ -2217,6 +2217,19 @@ does not probe for it. `attachToEntity` takes only a fixed attach point
 pitch and roll are client-side bone animations, so an attached camera cannot
 inherit them; not built.
 
+**Ridden on the Pixel (2026-09-25, pack `60565096`, world 924).** The drop
+faces straight ahead (on-screen readout `cam y-90 p90 | car y-90 p90` down
+the overhang), both loops roll the view (name tags at 120-150 degrees), the
+per-tick camera resumes between and after them, and drag-look reaches the
+±70 clamp and returns. One fix came from the ride: the client draws the
+train INTERPOLATED behind the server, so an animation on the server's own
+schedule ran ahead of the drawn car — at the first ride the camera sat
+inside the rider of the car ahead. Keyframe k now shows the pose of tick
+k − `animLag`; ridden at 1, 3 and 6 in one session, 3 matches the per-tick
+view (the car ahead's rider bottom-centre), 1 is still inside that rider, 6
+trails behind the train. Evidence `final-lap-lag3.jpg`, `loopride2-lag*.jpg`,
+`loopride2.mp4` in `output/coaster-camera-0924/device/`.
+
 ### The ramps' running line was on two datums (2026-09-22, `coaster-track.ts`)
 
 The residue the chord fix left — 10261 arc 79-81 climbing a block in half a
