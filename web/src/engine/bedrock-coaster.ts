@@ -1701,6 +1701,14 @@ export async function buildCoasterRideAssets(config: CoasterRuntimeConfig, route
       const eye = applyM(carFrame, add3(type.seatLdu, [0, -RIDER_EYE_ABOVE_HIPS_LDU, 0]));
       const units = mul3(eye, deps.unitsPerLdu);
       seat = [Math.abs(units[0] / 16) < 0.3 ? 0 : round3(units[0] / 16), Math.max(0.3, round3(units[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS)), round3(units[2] / 16)];
+    } else if (railTypes.has(type.typeId)) {
+      // A railway car with no posed driver (a wagon, a loco whose driver the
+      // source left out): mid height is inside a closed body and the rider's
+      // camera would see only bricks, so the driver sits on the roof line,
+      // centred, legs in the roof - the rule playable-addon.ts uses for a car
+      // too small to sit inside.
+      seat = [0, Math.max(0.3, round3(geo.sizeBlocks.height - 0.55)), 0];
+      warnings.push(`${label}: ${type.chassis} railway car has no posed driver; the player rides on its roof line.`);
     } else warnings.push(`${label}: ${type.chassis} ride car has no measured seat (no posed rider on this chassis); the player sits at the car's mid height.`);
     if (type.wheelbase === undefined) warnings.push(`${label}: ${type.chassis} ride car has no measured wheelbase; it pitches on the track's local tangent instead of the chord between its wheels.`);
     types[type.typeId] = { ...(types[type.typeId] ?? { role: 'car', riders: type.riders.length }), seat, ...(type.wheelbase !== undefined ? { wheelbase: round3(type.wheelbase) } : {}) };
