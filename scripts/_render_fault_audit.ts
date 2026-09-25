@@ -40,7 +40,10 @@ for (const file of files.sort()) {
     actors.push({ typeId: e.typeId, kind: e.kind, entry, at: placedPoint(e, model.dims, 100, 0), yawDeg: e.yaw });
   }
   const faces = worldFaces(actors);
-  const hits = visibleCoplanarHits(faces);
+  // Coaster cars all stand on the station point in the placement record; the
+  // ride runtime spaces them along the track on spawn, so car-against-car
+  // overlaps here are the record, not the game.
+  const hits = visibleCoplanarHits(faces, { planeEps: Number(args.find(a => a.startsWith('--eps='))?.slice(6) ?? 0.02) }).filter(h => !(h.a.actor !== h.b.actor && actors[h.a.actor]!.kind === 'car' && actors[h.b.actor]!.kind === 'car'));
   const sameColourArea = 0;
   const pairArea = new Map<string, { area: number; n: number; worst: CoplanarHit[] }>();
   for (const h of hits) {

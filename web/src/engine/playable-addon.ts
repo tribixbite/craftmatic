@@ -1803,7 +1803,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // manifest must declare the capability or the game ignores the MER/normal maps.
     const pbr = options.pbr ?? true;
     const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Faithful Craftmatic vehicle geometry and HD LEGO textures. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
     files.push({ name: `${bp}craftmatic-provenance.json`, data: json(provenance) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
     /** Cuboids of the BlockGrid-fallback entities, which have no `LegoGeometryDiagnostics` to carry them. */
