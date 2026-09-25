@@ -1271,10 +1271,10 @@ const timeMachineScript = (config: { typeId: string; width: number; height: numb
 
 function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; dashCooldownTicks: number; descendOn: string; descendOff: string }) {
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
-  const telemetry = { on: false };
+  const telemetry = { on: false, every: 20 };
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
-      if (ev.id === 'craftmatic:vehicle_telemetry') telemetry.on = String(ev.message || '').trim() !== 'off';
+      if (ev.id === 'craftmatic:vehicle_telemetry') { const m = String(ev.message || '').trim(); telemetry.on = m !== 'off'; telemetry.every = m === 'fast' ? 4 : 20; }
     }, { namespaces: ['craftmatic'] });
   } catch {}
   const vehiclesByType = new Map(config.vehicles.map((v: any) => [v.typeId, v]));
@@ -1446,11 +1446,14 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         try { const t = world.getTimeOfDay(); night = t >= 13000 && t < 23000; } catch {}
         if (night) { try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {} }
       }
-      // 4b. Telemetry (/scriptevent craftmatic:vehicle_telemetry on): one CMVT line a second, for measuring a real drive.
-      if (telemetry.on && tick % 20 === 0) {
+      // 4b. Telemetry (/scriptevent craftmatic:vehicle_telemetry on|fast|off): one CMVT line a second
+      //     (every 4 ticks with `fast`), with the rider's own yaw beside the vehicle's, for measuring a real drive.
+      if (telemetry.on && tick % telemetry.every === 0) {
         try {
           const l = vehicle.location, r = vehicle.getRotation?.() ?? { y: 0 };
-          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump } })}`);
+          let riderYaw = NaN;
+          try { riderYaw = Math.round(rider.getRotation().y); } catch {}
+          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), riderYaw, mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump } })}`);
         } catch {}
       }
 
@@ -1581,6 +1584,10 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     return false;
   };
   const cameraSource = { yaw: 'rider' as 'rider' | 'vehicle' };
+  // Tuning hook `/scriptevent craftmatic:vehicle_scheme <scheme|clear>`: the control scheme a
+  // native mount's rider is held in (default player_relative). TODO: settle it from the device
+  // A/B - a real car's yaw swung through 180 degrees a second on straight stick, 2026-09-25.
+  const controlScheme = { value: 'player_relative' };
   const chase = (player: any, vehicle: any, cfg: any): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
@@ -1644,11 +1651,11 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
       // the rider - "no way to turn a mounted vehicle" on touch.
       // A scripted aircraft reads the stick's left/right itself: the default (strafe) scheme leaves it in the movement vector.
       if (!t || t.typeId !== cfg.typeId) {
-        scheme(player, cfg.scripted ? 'clear' : 'set player_relative');
+        scheme(player, cfg.scripted ? 'clear' : controlScheme.value === 'clear' ? 'clear' : `set ${controlScheme.value}`);
         tracked.set(id, { typeId: cfg.typeId, chase: true });
         try { player.sendMessage('§7Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
       } else if (schemeTick % 10 === 0 && !cfg.scripted) {
-        scheme(player, 'set player_relative');
+        scheme(player, controlScheme.value === 'clear' ? 'clear' : `set ${controlScheme.value}`);
       }
       // Hotbar slot 9 is the COCKPIT view: the chase camera steps aside and the
       // rider sees from the seat (their own first person). Sneak is Dismount and
@@ -1678,6 +1685,11 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
   try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => tracked.delete(ev.playerId)); } catch {}
   try {
     system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.id === 'craftmatic:vehicle_scheme') {
+        controlScheme.value = String(ev.message || '').trim() || 'player_relative';
+        console.warn(`CMVT ${JSON.stringify({ controlScheme: controlScheme.value })}`);
+        return;
+      }
       if (ev.id !== 'craftmatic:vehicle_camera') return;
       cameraSource.yaw = String(ev.message || '').trim() === 'vehicle' ? 'vehicle' : 'rider';
       console.warn(`CMVT ${JSON.stringify({ cameraYaw: cameraSource.yaw })}`);
