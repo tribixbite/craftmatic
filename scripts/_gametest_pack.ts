@@ -190,7 +190,7 @@ if (gaitFigure) plan.gaitProbe = { typeId: gaitFigure.typeId, speeds: [0.03, 0.0
 // A Minifig Creator pack (`--creator=starter` builds): its figure type, for `creator_<id>`.
 const wandName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/minifig-wand.js`);
 if (wandName) {
-  const wandConfig = /const C=(\{.*?\});\(/s.exec(text(wandName));
+  const wandConfig = /^const C=(\{.*\});$/m.exec(text(wandName));
   if (!wandConfig) throw new Error(`${wandName}: no creator CONFIG found (the wand script changed shape)`);
   plan.creatorFigure = (JSON.parse(wandConfig[1]!) as { figureType: string }).figureType;
 }
