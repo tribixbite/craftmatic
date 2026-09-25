@@ -2112,6 +2112,48 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
             } catch (error) { console.warn(`[Craftmatic coaster] seq probe ${k}: ${error instanceof Error ? error.message : String(error)}`); }
             k++;
           }, interval);
+        } else if (verb === 'loopsim') {
+          // One animation for a whole vertical loop in front of the sender:
+          // loopsim <radius> <seconds> <handback ease s> <accel 0|1>.
+          // Positions every tick on the circle (accel 1: slow at the top, like
+          // a real train), rotations from `riderView` in `roll` mode; at the
+          // end, `setCamera` free at the exit pose (the hand-back).
+          const radius = Math.max(1, number(1, 4)), seconds = Math.max(0.3, number(2, 1.2)), handEase = Math.max(0, number(3, 0.1)), accel = number(4, 0) !== 0;
+          const yaw = source.getRotation().y, yr = yaw * Math.PI / 180;
+          const f = [-Math.sin(yr), 0, Math.cos(yr)];
+          const steps = Math.round(seconds * 20);
+          const pose = (k: number) => {
+            const u = k / steps;
+            // accel: angle(t) spends longer near the top (half-way).
+            const a = 2 * Math.PI * (accel ? u - Math.sin(2 * Math.PI * u) / (2 * Math.PI) * 0.6 : u);
+            const location = { x: at.x + f[0]! * radius * Math.sin(a), y: at.y + radius * (1 - Math.cos(a)), z: at.z + f[2]! * radius * Math.sin(a) };
+            const nose = [f[0]! * Math.cos(a), Math.sin(a), f[2]! * Math.cos(a)], up = [-f[0]! * Math.sin(a), Math.cos(a), -f[2]! * Math.sin(a)];
+            return { location, nose, up };
+          };
+          const points: any[] = [], rotations: any[] = [], progress: any[] = [];
+          let previous: any = null, arc = 0;
+          const arcs: number[] = [];
+          for (let k = 0; k <= steps; k++) {
+            const p = pose(k);
+            if (k > 0) { const q = points[k - 1]; arc += Math.hypot(p.location.x - q.x, p.location.y - q.y, p.location.z - q.z); }
+            arcs.push(arc);
+            points.push(p.location);
+            previous = riderView(p.nose, p.up, { yaw: 0, pitch: 0 }, previous, 'roll', 40);
+            rotations.push({ rotation: { x: previous.pitch, y: previous.yaw, z: previous.roll }, timeSeconds: k * seconds / steps });
+          }
+          const byIndex = words[5] === 'index';
+          for (let k = 0; k <= steps; k++) progress.push({ alpha: byIndex ? k / steps : arcs[k]! / arc, timeSeconds: k * seconds / steps });
+          source.camera.setCamera('minecraft:free', { location: points[0], rotation: { x: 0, y: yaw } });
+          system.runTimeout(() => {
+            try {
+              const spline = Spline ? new Spline() : {};
+              spline.controlPoints = points;
+              source.camera.playAnimation(spline, { totalTimeSeconds: seconds, animation: { progressKeyFrames: progress, rotationKeyFrames: rotations } });
+            } catch (error) { console.warn(`[Craftmatic coaster] loopsim: ${error instanceof Error ? error.message : String(error)}`); }
+            system.runTimeout(() => {
+              try { source.camera.setCamera('minecraft:free', { location: points[steps], rotation: { x: 0, y: yaw }, ...(handEase > 0 ? { easeOptions: { easeTime: handEase, easeType: 'Linear' } } : {}) }); } catch {}
+            }, steps);
+          }, 2);
         } else if (verb === 'attach') {
           // Does a camera attached to a car inherit its animated pitch/roll? The nearest car within 24 blocks.
           let best: any, bestDistance = 24;
