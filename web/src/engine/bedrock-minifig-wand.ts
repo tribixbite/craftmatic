@@ -369,7 +369,7 @@ function minifigWandRuntime(
   });
   system.runInterval(() => {
     const online = new Set<string>();
-    for (const p of world.getAllPlayers()) {
+    for (const p of world.getAllPlayers().filter(Boolean)) {
       online.add(p.id);
       let item: any;
       try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}

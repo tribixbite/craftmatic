@@ -1588,7 +1588,7 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
     schemeTick++;
     if (tracked.size) {
       let players: any[] = [];
-      try { players = world.getAllPlayers(); } catch {}
+      try { players = world.getAllPlayers().filter(Boolean); } catch {}
       for (const id of [...tracked.keys()]) {
         if (riding.has(id)) continue;
         const player = players.find((p: any) => p.id === id);

@@ -668,7 +668,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     // gets the tag, head turning and camera back.
     if (now % 40 === 0) {
       try {
-        for (const pl of world.getPlayers({ tags: [SEATED_TAG] })) {
+        for (const pl of world.getPlayers({ tags: [SEATED_TAG] }).filter(Boolean)) {
           if ([...games.values()].some(gm => gm.rider?.id === pl.id)) continue;
           try { pl.removeTag(SEATED_TAG); } catch {}
           try { pl.removeEffect('invisibility'); } catch {}
@@ -729,7 +729,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     if (!rider && ++game.hint % 20 === 0) {
       try {
         const c = console_.location;
-        for (const pl of world.getPlayers()) {
+        for (const pl of world.getPlayers().filter(Boolean)) {
           const l = pl.location;
           if (pl.dimension?.id && dim.id && pl.dimension.id !== dim.id) continue;
           if (Math.hypot(l.x - c.x, l.z - c.z) < 5 * Math.max(1, g.scale) && Math.abs(l.y - c.y) < 4) {

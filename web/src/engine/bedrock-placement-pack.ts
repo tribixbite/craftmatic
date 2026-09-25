@@ -765,7 +765,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   };
   const aimTick = () => {
     if (active) return;
-    for (const p of world.getAllPlayers()) {
+    for (const p of world.getAllPlayers().filter(Boolean)) {
       const st = states.get(p.id);
       if (!st || !st.aim) continue;
       const target = aimTarget(p);
@@ -774,11 +774,14 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       draw(p);
     }
   };
-  system.runInterval(() => { for (const p of world.getAllPlayers()) draw(p); }, 12);
+  // `.filter(Boolean)` everywhere: a pack that does not declare
+  // @minecraft/server-gametest sees each GameTest simulated player as
+  // `undefined` in the player lists (placement.js threw 845 times, 2026-09-24).
+  system.runInterval(() => { for (const p of world.getAllPlayers().filter(Boolean)) draw(p); }, 12);
   system.runInterval(aimTick, 4);
   system.runInterval(() => {
     const online = new Set();
-    for (const p of world.getAllPlayers()) {
+    for (const p of world.getAllPlayers().filter(Boolean)) {
       online.add(p.id);
       let item: any;
       try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}
