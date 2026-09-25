@@ -117,22 +117,29 @@ now **924** (blank, created by the user); packs are deployed into
 | 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
 | 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
 
-### Pinball input — device-proven at `d735121b` (runs 1-8, `output/device-round-2026-09-24b/pinball-device*/`)
+### Pinball — user report 3 handled at `2e249b7f` (device: world 924, 2026-09-25)
 
-- Screen taps: free camera hung from the measured head along the planned
-  heading; the rider turned by setRotation (yaw applies, pitch does NOT) with
-  head turning locked; zones 3 blocks wide, side +0.1, drawn as a CUBE with a
-  fully transparent texture (no-cube zones are never picked). Run 8: every
-  tap L/R correct top and bottom, split at centre; x < ~600 at mid-height misses.
-- Hotbar slots 1-4 / 6-9 = left / right flipper (exact, any camera; wands
-  skip players tagged `craftmatic_pinball`). Stick works in play. Jump dismounts.
-- Seated player invisible (the free camera drew their arm over the table).
-- Findings that must not be re-tested: with a free camera, a zone WITHOUT
-  cubes is only "hit" when it encloses the head; chasing the rider's yaw
-  with the seat orbits it; first person looks level (pitch ignored).
-- [ ] Far-left mid-height taps (x < ~600 of 2244): widen/lower the left zone
-  or accept. `/scriptevent craftmatic:pinball {...}` tuning hook still ships
-  (`# TODO` to remove once the defaults are final).
+Pack `output/pb0924f/11374-pinball-2e249b7f.mcaddon` in the pinball worktree
+(sha256 38f78c32e57dcdb4207891d1c60545c5ae5ce813a3366d865c9e1b14b6ed72df),
+bound in world 924. Design and measurements: the add-on guide's "Pinball:
+plunger, tap targets on the flippers, drawn ball".
+
+- Taps: each target = outline on the camera ray + invisible pick box on the
+  player's own level-view ray (the phone ignores the free camera for picking;
+  probe-measured). Hotbar slots 1-4 / 6-9 and the stick still work. Jump
+  dismounts. The seated player is invisible and the seat pad is hidden.
+- Plunger: tap to take hold, tap to fire, strength = pull (spring). The stick
+  pulled back draws it as far as it is pulled.
+- Ball drawn from properties; axis signs +1/−1 measured.
+- [ ] Rerun the pinball GameTest on `2e249b7f` with ONLY its variant bound in
+  `cmgametest` (the 2026-09-25 rerun collided with a 21360 variant).
+- [ ] A held finger: whether a phone repeats hit/interact events while a
+  finger stays down is not measured; tap-tap works either way.
+- [ ] The ball-follows-plunger offset makes the ball jump 40 LDU forward at
+  release (one tick). Cosmetic; accept or ease it.
+- [ ] `/scriptevent craftmatic:pinball` tuning hook and probe still ship
+  (`# TODO` in `pinballRuntime` to drop once the pick model is settled on a
+  second device).
 
 ### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
 
