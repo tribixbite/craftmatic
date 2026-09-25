@@ -2935,3 +2935,58 @@ favourites (`0711e753` packs plus the re-home fix) it simulates 60 s for 236
 figures. 4 are source-seated and stay seated. Of 232 roamers, 177 moved and
 0 left their area. 83 start with fewer than 4 reachable cells, and 16 fell
 from an unsupported spawn.
+
+### Round 3 (2026-09-25, after the user played): cabinet buttons, pull plunger, held item, latency
+
+User: "tap the flipper buttons (with enlarged area), ensure any held item is
+not displayed, use a pulling mechanism instead of tap…tap, more responsive".
+Evidence: `output/pb0924f/device/r3-*` in the pinball worktree.
+
+- **Cabinet buttons.** `PinballTable.buttons`: round parts outside each side
+  wall level with the flippers. 11374: per side a trans-clear 79850 4 x 4
+  dome, a white 14769 round cap and two white 4032b round plates (#1986,
+  #1608, #1987, #1988 left at u 878 w 779; #1685, #2131, #1683, #1684 right
+  at w 1461), 70 LDU below the playfield. Each side ships as its own entity,
+  pressed 8 LDU inward (`craftmatic:press`) while its flipper is up. The tap
+  targets now sit on the buttons: outline on the camera ray, pick box on the
+  level-view ray, enlarged to 4 ball radii outward / 1 inward and 6.5 along.
+  The on-flipper outlines and the plunger target are gone. Device: button
+  taps registered every time (8 / 8 in `r3-play`, 41 in the tap maps), also
+  after the pitch had drifted to 64. The press animation is small from the
+  seat and the action bar covers most of the button; GameTest proves the
+  property (each target hit presses exactly its own button: [0,1] / [1,0]).
+- **Held item.** Invisibility does not hide a held item. The hotbar now parks
+  on the free slot nearest the middle; with a full hotbar, the middle item
+  moves to a free inventory slot and is moved back on leaving (recorded on the
+  player, restored after a reload too; never dropped). Device: a stick in slot
+  5, seated → parked on slot 4, nothing drawn (`r3-31-holding` / `r3-32-seated`).
+  GameTest: `heldBefore` stick, `heldSeated` none.
+- **What the phone reports for a held or dragged finger** (measured):
+  - a press held on a target: ONE `playerInteractWithEntity` (long press)
+    about 0.5 s in, nothing repeated, nothing on release;
+  - a drag with head turning unlocked: the player's pitch every tick
+    (200 px → 18° → 61°, ~0.21°/px); the free camera stays put;
+  - the stick at the ready screen: analogue, 0 → −0.88 as the finger slides
+    down, 0 on release (contrary to the 2026-09-24 note that it only reports
+    in play).
+  So the plunger is a **pull**: while a ball waits, head turning is unlocked;
+  the pull is the pitch change since the drag began over 30° and it fires
+  once the pitch stops changing for 5 ticks (no release event exists). The
+  stick pull fires on its exact release. `setRotation`'s pitch still does
+  not take, so after a pull the pitch stays (64 in `r3-drag1`); a drag in
+  either direction pulls. Device: pull 18 → 64°, "drag release at pull
+  1.00", ball launched, head turning locked again.
+- **Latency** (`scripts/_video_tap_latency.py`, Android pointer location on,
+  60 fps recording): a quick tap reaches a visibly raised flipper in about
+  100 ms (84-101 ms over six taps) — two server ticks for the hit to arrive
+  and the property to come back. A press held 90 ms: 282-362 ms (the hit
+  fires at release). Raising the flipper inside the hit event (`flipNow`)
+  instead of on the next tick made no measurable difference (median 312 vs
+  331 ms held; ~100 ms tapped): the round trip, not the script, is the delay,
+  and a script cannot animate on the client from a touch.
+- **GameTest** `pinball_arcade_11374` on `d57ea3c2`, only its pack bound in
+  `cmgametest` (bindings saved and restored around it): PASS — held item
+  hidden, slots, both button targets (only their own flipper and button),
+  the drag pull (pull 0.13 → 1.0 over 8 ticks, ball −665 LDU up the lane).
+  An `attackEntity` hit is delivered after the call returns, so the same
+  tick reads the old angle (`sameTick` [0,0]); the next tick has it.

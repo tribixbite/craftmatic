@@ -167,29 +167,21 @@ now **924** (blank, created by the user); packs are deployed into
 | 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
 | 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
 
-### Pinball — user report 3 handled at `2e249b7f` (device: world 924, 2026-09-25)
+### Pinball — user report 4 handled at `d6ded566` (device: world 924, 2026-09-25)
 
-Pack `output/pb0924f/11374-pinball-2e249b7f.mcaddon` in the pinball worktree
-(sha256 38f78c32e57dcdb4207891d1c60545c5ae5ce813a3366d865c9e1b14b6ed72df),
-bound in world 924. Design and measurements: the add-on guide's "Pinball:
-plunger, tap targets on the flippers, drawn ball".
+Pack `output/pb0924f/11374-pinball-d6ded566.mcaddon` in the pinball worktree.
+Design and measurements: the add-on guide's pinball section, "Round 3".
 
-- Taps: each target = outline on the camera ray + invisible pick box on the
-  player's own level-view ray (the phone ignores the free camera for picking;
-  probe-measured). Hotbar slots 1-4 / 6-9 and the stick still work. Jump
-  dismounts. The seated player is invisible and the seat pad is hidden.
-- Plunger: tap to take hold, tap to fire, strength = pull (spring). The stick
-  pulled back draws it as far as it is pulled.
-- Ball drawn from properties; axis signs +1/−1 measured.
-- [ ] Rerun the pinball GameTest on `2e249b7f` with ONLY its variant bound in
-  `cmgametest` (the 2026-09-25 rerun collided with a 21360 variant).
-- [ ] A held finger: whether a phone repeats hit/interact events while a
-  finger stays down is not measured; tap-tap works either way.
-- [ ] The ball-follows-plunger offset makes the ball jump 40 LDU forward at
-  release (one tick). Cosmetic; accept or ease it.
-- [ ] `/scriptevent craftmatic:pinball` tuning hook and probe still ship
-  (`# TODO` in `pinballRuntime` to drop once the pick model is settled on a
-  second device).
+- Tap targets on the cabinet flipper buttons (enlarged pick boxes on the
+  player's view ray); buttons press in. Hotbar parks on an empty slot (held
+  item hidden). Plunger = drag (either direction) or stick pull, fires on
+  release. GameTest PASS with only its pack bound.
+- [ ] The press-in is hard to see from the seat (small, under the action
+  bar). Consider a larger stroke or a brief highlight on the outline.
+- [ ] Drag release is inferred (5 still ticks): a finger held still mid-pull
+  fires. No release event exists on touch; the stick release is exact.
+- [ ] Tap-to-flipper ~100 ms is the server round trip; no client-side path
+  found. `/scriptevent craftmatic:pinball` tuning and probe still ship (TODO).
 
 ### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
 
