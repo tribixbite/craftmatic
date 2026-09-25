@@ -534,7 +534,7 @@ literal inside a function body (`§` marks the number).
 | `BOAT.TURN_RATE` | `web/src/engine/bedrock-vehicle.ts` | 50 | degrees/s | Full rudder at `RUDDER_SPEED` and above. |
 | `BOAT.RUDDER_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 4 | blocks/s | Speed of full rudder bite. |
 | `BOAT.RUDDER_AT_REST` | `web/src/engine/bedrock-vehicle.ts` | 0.35 | fraction | Rudder bite at a standstill, so a moored boat can be pointed out. |
-| `BOAT.DRAFT` | `web/src/engine/bedrock-vehicle.ts` | 0.3 | blocks | How deep the keel sits under the water's surface. |
+| `BOAT.DRAFT` | `web/src/engine/bedrock-vehicle.ts` | 0.3 | blocks | Default keel depth under the surface; the pack gives each boat 12 % of its height, 0.3-1.2 (a 3-block yacht rode visibly high at 0.3 on the Pixel). |
 | aircraft climb | `web/src/engine/playable-addon.ts` `[AIRCRAFT_CLIMB_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: § } }` | 0.5 | Bedrock vertical velocity | ~17 blocks/s climb measured on the Pixel (1.35 climbed 206 blocks in a second). |
 | dash momentum | `web/src/engine/playable-addon.ts` `horizontal_momentum: §` | 20 | Bedrock dash | The camel's Jump boost. |
 <!-- /physics-spec:constants -->
@@ -618,7 +618,7 @@ one of these files fails the check until its row is written.
 | `FlightEvent` | type | `takeoff` / `landing` / `hard_landing` / `crash` / `stall`. |
 | `flightStep` | function | SERIALISED. One fixed-wing step (throttle, elevator, turn, stall, landing). |
 | `BOAT` | const | Every boat constant (§9); JSON-serialised into `config.boat`. |
-| `BoatParams` | type | Type of `BOAT`. |
+| `BoatParams` | type | `BOAT` as numbers (a per-type `draft` in the config overrides `DRAFT`). |
 | `BoatState`, `BoatWater` | interface | The boat's state and the probed water and shore. |
 | `BoatEvent` | type | `beached` / `boost` / `launched`. |
 | `boatStep` | function | SERIALISED. One boat step (throttle, rudder, boost, draft, beaching). |

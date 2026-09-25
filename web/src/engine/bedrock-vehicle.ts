@@ -285,7 +285,8 @@ export const BOAT = {
   LEAN_PER_TURN: 0.12, LEAN_MAX: 7, SQUAT_PER_ACCEL: 1.2, SQUAT_MAX: 6,
   STICK_X_RIGHT: -1, DEADZONE: 0.15,
 } as const;
-export type BoatParams = typeof BOAT;
+/** Every boat constant as a number (a per-type draft overrides `DRAFT`). */
+export type BoatParams = { readonly [K in keyof typeof BOAT]: number };
 
 /** One boat's state: position, heading, speed along the heading (negative = astern), the boost timers, and the attitude its animation shows. */
 export interface BoatState { x: number; y: number; z: number; yaw: number; speed: number; vy: number; afloat: boolean; boost: number; cooldown: number; pitch: number; bank: number }
@@ -364,7 +365,7 @@ export const VEHICLE_TELEMETRY_EVENT = 'craftmatic:vehicle_telemetry';
 /** What the scripted-vehicle runtime is told about the pack. */
 export interface ScriptedVehicleConfig {
   /** Every scripted vehicle type: how it moves and half its length (where its bow or nose is probed). */
-  types: Record<string, { mode: 'plane' | 'boat'; noseReach: number }>;
+  types: Record<string, { mode: 'plane' | 'boat'; noseReach: number; draft?: number }>;
   flight: FlightParams;
   boat: BoatParams;
   props: typeof FLIGHT_PROPS;
@@ -405,11 +406,11 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     return null;
   };
   /** A boat's water: the surface under it (the top of the highest water block within a block of its keel), the ground under it, land at the waterline ahead / astern. */
-  const waterAt = (dim: any, st: any, reach: number): any => {
+  const waterAt = (dim: any, st: any, reach: number, draft: number): any => {
     const rad = st.yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
     let surface: number | null = null;
     for (let by = Math.floor(st.y + 1); by >= Math.floor(st.y - 2); by--) { if (isWater(blockOf(dim, st.x, by, st.z))) { surface = by + 0.9; break; } }
-    const line = surface ?? st.y + B.DRAFT;
+    const line = surface ?? st.y + draft;
     const landAt = (d: number): boolean => { const px = st.x + fx * d, pz = st.z + fz * d; return isSolid(blockOf(dim, px, line - 0.1, pz)) || isSolid(blockOf(dim, px, line + 0.4, pz)); };
     return { surface, ground: surface === null ? groundBelow(dim, st.x, st.y + 0.5, st.z, 48) : null, shoreAhead: landAt(reach + 0.3), shoreAstern: landAt(-(reach + 0.3)) };
   };
@@ -467,8 +468,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           r = flight(st, input, { ground, groundAhead: st.onGround ? groundBelow(dim, ahead.x, st.y + 1.2, ahead.z, 3) : null, blocked: blockedAhead(dim, ahead.x, st.y, ahead.z) }, F, 0.05);
           r.state.wheel = st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0);
         } else {
-          const w = waterAt(dim, st, kind.noseReach);
-          r = boat(st, input, w, B, 0.05);
+          const w = waterAt(dim, st, kind.noseReach, kind.draft ?? B.DRAFT);
+          r = boat(st, input, w, kind.draft !== undefined ? { ...B, DRAFT: kind.draft } : B, 0.05);
           r.state.wheel = 0;
         }
         const ns = r.state;
@@ -491,10 +492,10 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             const hint = ns.onGround
               ? (ns.speed >= F.ROTATE_SPEED ? '§a[PULL BACK: TAKE OFF]§r' : ns.throttle > 0.05 ? '§e[TAKE-OFF RUN: KEEP JUMP HELD]§r' : '§7[HOLD JUMP: THROTTLE · STICK: STEER]§r')
               : ns.stalled ? '§c[STALL: STICK FORWARD]§r' : '§7[STICK BACK: CLIMB · FORWARD: DIVE · JUMP: FULL POWER]§r';
-            hud = `✈️ §e${(ns.speed * MPH).toFixed(0)} mph§r · §bALT ${alt}§r · THR ${Math.round(ns.throttle * 100)} · ${hint}`;
+            hud = `§lPLANE§r §e${(ns.speed * MPH).toFixed(0)} mph§r · §bALT ${alt}§r · THR ${Math.round(ns.throttle * 100)} · ${hint}`;
           } else {
             const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST]§r';
-            hud = `⛵ §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r · ${hint}`;
+            hud = `§lBOAT§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r · ${hint}`;
           }
           for (const rr of riders) { try { rr.onScreenDisplay?.setActionBar?.(hud); } catch { /* not a player */ } }
         }

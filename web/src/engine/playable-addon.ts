@@ -1457,11 +1457,12 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
       // 5. Action Bar Speedometer HUD with Gear, Reverse, and Multi-seat Co-Pilot
       if (tick % 4 === 0) {
         const boostReady = state.boostCooldown <= 0;
-        const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
+        // ASCII only: the Pixel's HUD font drew these emoji (and U+FE0F) as empty boxes (2026-09-25).
+        const icon = isCar ? '§lCAR§r' : isBoat ? '§lBOAT§r' : '§lHELI§r';
         const boostTag = (isCar || isBoat)
           ? (boostReady ? ' · §a[JUMP: DASH]§r' : ` · §8[DASH: ${(state.boostCooldown / 20).toFixed(1)}s]§r`)
           : (state.descending ? ' · §a[DESCENDING]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · BACK+JUMP: DESCEND · LOOK DOWN: DIVE]§r');
-        const coPilotTag = riders.length > 1 ? ` · §d[👥 ${riders.length}]§r` : '';
+        const coPilotTag = riders.length > 1 ? ` · §d[${riders.length} ABOARD]§r` : '';
         let speedText = `§e${mph.toFixed(1)} mph§r`;
         if (forwardInput < -0.1) {
           speedText = `§c[REV]§r §e-${mph > 0.5 ? mph.toFixed(1) : '0.0'} mph§r`;
@@ -2228,7 +2229,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
         else if (motion === 'plane' || motion === 'boat')
-            scriptedTypes[fullTypeId] = { mode: motion, noseReach: Math.round((ldrawGeo?.sizeBlocks.length ?? layout.length) / 2 * 100) / 100 };
+            scriptedTypes[fullTypeId] = {
+                mode: motion, noseReach: Math.round((ldrawGeo?.sizeBlocks.length ?? layout.length) / 2 * 100) / 100,
+                // A boat's keel sits deeper the bigger it is: 12 % of its height, 0.3-1.2 blocks (a 3-block yacht rode
+                // visibly high at a flat 0.3 on the Pixel; a 29-block galleon with its masts sits 1.2 deep).
+                ...(motion === 'boat' ? { draft: Math.round(Math.min(1.2, Math.max(0.3, (ldrawGeo?.sizeBlocks.height ?? layout.height) * 0.12)) * 100) / 100 } : {}),
+            };
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         if (ldrawGeo) {
