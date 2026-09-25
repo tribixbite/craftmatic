@@ -170,14 +170,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   upstream-only prints (`3626cp1t`, every `92198p*`) into their plain mould
   and the pack shipped blank heads. Fixed in `ldraw-geometry.ts` (`e09a0fa9`);
   keep that order.
-- **The prod part mirror throttles, and a throttled build is silently worse.**
-  Several parallel CLI exports got HTTP 429 from `craftmatic.click/ldraw-parts`
-  for over an hour (2026-09-25): packs lost parts to aliases and unresolved
-  AABBs, and four 10303 corpus tests failed for a reason that was not the code.
-  Build packs one at a time, read `substitutedParts` / `unresolvedParts`, and
-  when prod throttles point every process at a running dev server:
-  `CRAFTMATIC_LDRAW_MIRROR=http://localhost:4000/ldraw-parts` (or
-  `_playable_ref.ts --mirror=`).
+- **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
+  Parallel CLI exports drew the 429 above and shipped parts as aliases or
+  AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev
+  server: `CRAFTMATIC_LDRAW_MIRROR=http://localhost:4000/ldraw-parts` (every
+  process) or `_playable_ref.ts --mirror=`.
 - **Studio embedded DATs need identity AND inherited colour preserved.**
   `IsSubModel False` + `IsAssembly False` denotes a terminal mesh; `-1` means
   LDraw main colour 16. Losing either hid 10303's six loop tracks or made them
