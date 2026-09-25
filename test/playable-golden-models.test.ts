@@ -85,8 +85,21 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       // Vehicle behaviour is intact.
       const behavior = (await jsonOf(buffer, `${bp}entities/${g.cid}.json`))['minecraft:entity'];
       expect(behavior.description.identifier).toBe(`craftmatic:${g.cid}`);
-      expect(behavior.components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(0);
-      expect(behavior.components[g.kind === 'plane' ? 'minecraft:free_camera_controlled' : 'minecraft:input_ground_controlled']).toBeDefined();
+      // One seat, or the driver's first among the passengers' (a long car gets a passenger behind).
+      const seats = behavior.components['minecraft:rideable'].seats;
+      const driverSeat = Array.isArray(seats) ? seats[0] : seats;
+      expect(driverSeat.position[1]).toBeGreaterThan(0);
+      expect(behavior.components['minecraft:rideable'].seat_count).toBe(Array.isArray(seats) ? seats.length : 1);
+      // A brick car or fixed wing is scripted (scripts/vehicles.js): zero native speed, attitude properties.
+      // The time machine keeps the camel controller its DeLorean runtime drives.
+      const scripted = g.cid !== undefined && !/10300|time/i.test(g.cid);
+      if (scripted) {
+        expect(behavior.components['minecraft:free_camera_controlled']).toBeDefined();
+        expect(behavior.components['minecraft:movement'].value).toBe(0);
+        expect(Object.keys(behavior.description.properties)).toContain('craftmatic:fl_pitch');
+      } else {
+        expect(behavior.components['minecraft:input_ground_controlled']).toBeDefined();
+      }
       // Geometry is deterministic across runs.
       const again = await exportGolden(g);
       const geoA = await extractFile(buffer, `${rp}models/entity/${g.cid}.geo.json`);

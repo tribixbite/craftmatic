@@ -40,6 +40,7 @@
 import { BlockGrid } from '@craft/schem/types.js';
 import { encodeMcstructureTile } from './mcstructure-encode.js';
 import { deterministicUuid } from './mcpack.js';
+import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
 
 /** Namespace of every GameTest id, scriptevent and structure this module emits. */
 export const GT_NAMESPACE = 'craftmatic_gt';
@@ -111,6 +112,96 @@ export interface GametestSeat {
   occupied?: boolean;
 }
 
+/**
+ * A rideable vehicle the device drives (`vehicle_<id>_<n>`): spawned in the
+ * vehicle arena (`buildVehicleArena`) rather than placed with the model, so
+ * every car, boat and plane is driven over the same measured course.
+ */
+export interface GametestVehicle {
+  label: string;
+  typeId: string;
+  kind: 'car' | 'boat' | 'plane';
+  /** `minecraft:rideable.seat_count`. */
+  seats: number;
+  /** Shipped geometry size in blocks (for the spawn clearance). */
+  size: { width: number; height: number; length: number };
+  /** Moved by the pack's scripted-vehicle runtime (a fixed wing, a boat): the test drives it through that runtime's input hook. */
+  scripted?: boolean;
+}
+
+/** The vehicle arena: 64 x 64 over one structure, land on the low-z half, a pool on the high-z half. */
+export const GT_VEHICLE_ARENA = { x: 64, y: 10, z: 64 } as const;
+/**
+ * Where things are in the vehicle arena, relative to its smooth-stone floor
+ * layer (`floorY`): the land is stone up to +3 (its top face at +4); the pool
+ * holds water in +1..+2 (its surface a block under the land, so a boat meets a
+ * real shore); lane A is flat, lane B has a half-slab and then a full-block
+ * step across it.
+ */
+export const GT_VEHICLE_LAYOUT = {
+  landTop: 4, waterTop: 3, poolZ0: 34,
+  laneA: { z: 8 }, laneB: { z0: 18, z1: 26, slabX: 30, stepX: 44 },
+  boat: { x: 14, z: 50 },
+} as const;
+
+/** The vehicle arena structure (see `GT_VEHICLE_LAYOUT`). */
+export function buildVehicleArena(): Uint8Array {
+  const { x: w, y: h, z: l } = GT_VEHICLE_ARENA;
+  const L = GT_VEHICLE_LAYOUT;
+  const grid = new BlockGrid(w, h, l);
+  for (let x = 0; x < w; x++) for (let z = 0; z < l; z++) {
+    grid.set(x, 0, z, 'minecraft:smooth_stone');
+    if (z < L.poolZ0) for (let y = 1; y < L.landTop; y++) grid.set(x, y, z, 'minecraft:stone');
+    else for (let y = 1; y < L.waterTop; y++) grid.set(x, y, z, 'minecraft:water');
+  }
+  for (let z = L.laneB.z0; z <= L.laneB.z1; z++) {
+    grid.set(L.laneB.slabX, L.landTop, z, 'minecraft:smooth_stone_slab[type=bottom]');
+    for (let x = L.laneB.stepX; x < w; x++) grid.set(x, L.landTop, z, 'minecraft:stone');
+  }
+  const tile = { name: 'vehicles', x: 0, y: 0, z: 0, width: w, height: h, length: l, ix: 0, iy: 0, iz: 0, nonAir: w * l * 3 };
+  const encoded = encodeMcstructureTile(grid, tile);
+  if (encoded.unmapped.length) throw new Error(`vehicle arena blocks without a Bedrock mapping: ${encoded.unmapped.join(', ')}`);
+  return encoded.bytes;
+}
+
+/** One sample of a driven vehicle, relative to where its phase started, in the phase's own forward frame. */
+export interface VehicleSample { t: number; along: number; side: number; dy: number; yaw: number; speed?: number; ground?: boolean; water?: boolean }
+
+/**
+ * What one driving phase did: how far and how fast along the heading it
+ * started with, how far it slid sideways, how much it turned and climbed.
+ * Speeds are blocks per second from the position deltas (a ridden vehicle is
+ * client-authoritative for a real player, so `getVelocity` cannot be trusted).
+ * Pure, so the unit tests and the device share it.
+ */
+export function summariseVehiclePhase(samples: VehicleSample[], ticksPerSample: number): {
+  along: number; side: number; dy: number; minDy: number; maxDy: number; yawChange: number; maxSpeed: number; meanSpeed: number; endSpeed: number;
+} {
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  if (!samples.length) return { along: 0, side: 0, dy: 0, minDy: 0, maxDy: 0, yawChange: 0, maxSpeed: 0, meanSpeed: 0, endSpeed: 0 };
+  const last = samples[samples.length - 1]!;
+  let maxSpeed = 0, path = 0, endSpeed = 0, minDy = Infinity, maxDy = -Infinity, turned = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const s = samples[i]!;
+    minDy = Math.min(minDy, s.dy); maxDy = Math.max(maxDy, s.dy);
+    if (i === 0) continue;
+    const p = samples[i - 1]!;
+    const step = Math.hypot(s.along - p.along, s.side - p.side);
+    path += step;
+    const v = step * 20 / Math.max(1, s.t - p.t);
+    maxSpeed = Math.max(maxSpeed, v);
+    endSpeed = v;
+    // Unwrapped yaw change (a turn through the ±180 seam is not a 360 jump).
+    let d = s.yaw - p.yaw;
+    while (d > 180) d -= 360;
+    while (d < -180) d += 360;
+    turned += d;
+  }
+  const span = Math.max(1, last.t - samples[0]!.t);
+  void ticksPerSample;
+  return { along: r2(last.along), side: r2(last.side), dy: r2(last.dy), minDy: r2(minDy), maxDy: r2(maxDy), yawChange: Math.round(turned), maxSpeed: r2(maxSpeed), meanSpeed: r2(path * 20 / span), endSpeed: r2(endSpeed) };
+}
+
 export interface GametestPlan {
   /** Placement CONFIG id (`downtown_41732`), used for names. */
   modelId: string;
@@ -143,6 +234,10 @@ export interface GametestPlan {
    * (a smoke or doors arena beside it could sit on the overflow).
    */
   oversized?: boolean | undefined;
+  /** Rideable vehicles to drive in the vehicle arena (`vehicle_<id>_<n>`); absent or empty: no test. */
+  vehicles?: GametestVehicle[] | undefined;
+  /** Only the vehicle tests are registered (`--only=vehicles`): the model's own tests are left out of the run. */
+  vehiclesOnly?: boolean | undefined;
 }
 
 /**
@@ -415,8 +510,10 @@ interface RuntimeModules { mc: any; gt: any }
  * line `CMGT <TAG> <json>` via `console.warn` (the level the content log keeps
  * by default), then ~16 KiB of padding so the block-buffered log flushes.
  */
-export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack): void {
+export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack, vehicleKit?: { summarise: typeof summariseVehiclePhase; layout: typeof GT_VEHICLE_LAYOUT; inputEvent: string }): void {
   const { mc, gt } = mods;
+  // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
+  if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
   const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
@@ -460,7 +557,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   if (oversized) log('OVERSIZED', { model: plan.modelId, arena, note: 'only the figures test runs; it lays the floor past the structure itself' });
 
   /** Smoke: the framework runs, a simulated player spawns on the arena floor and walks 4 blocks. */
-  if (!oversized) gt.registerAsync(NS, 'smoke', async (test: any) => {
+  if (!oversized && !plan.vehiclesOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
     const f = floorY(test, 2, 2);
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
@@ -921,6 +1018,220 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
 
+  /**
+   * Vehicles: spawn each rideable type in the vehicle arena, seat a simulated
+   * player (the engine's rideable, as a tap does), and drive it through
+   * phases, sampling the vehicle every 2 ticks: settle (a boat's float and
+   * bob, a plane's hover), forward, coast, reverse, a held turn, the class's
+   * own Jump (a car's dash, a plane's climb, BACK + Jump descend, then hands
+   * off), a car over lane B's slab and step, a boat run at the shore, and a
+   * second rider. Every phase is one `CMGT VEHICLE_PHASE` line in the
+   * phase's own forward frame (`summariseVehiclePhase`); the verdict is
+   * `CMGT VEHICLE`.
+   */
+  const vehicles = vehicleKit ? plan.vehicles ?? [] : [];
+  vehicles.forEach((v, n) => gt.registerAsync(NS, `vehicle_${plan.modelId}_${n + 1}`, async (test: any) => {
+    const L = vehicleKit!.layout;
+    const f = floorY(test, 2, 2);
+    const dim = test.getDimension();
+    const boat = v.kind === 'boat';
+    const spawnRel = boat
+      ? { x: L.boat.x + 0.5, y: f.y + L.waterTop, z: L.boat.z + 0.5 }
+      : { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: L.laneA.z + 0.5 };
+    const toW = (rel: Vec3): Vec3 => test.worldLocation(rel);
+    /** World yaw of a test-relative direction (Bedrock: yaw 0 faces +Z, forward = (-sin, cos)). */
+    const yawOf = (fromRel: Vec3, toRel: Vec3): number => { const a = toW(fromRel), b = toW(toRel); return Math.atan2(-(b.x - a.x), b.z - a.z) * 180 / Math.PI; };
+    const row: any = { label: v.label, type: v.typeId, kind: v.kind, scripted: !!v.scripted, floorY: f.y, phases: {} };
+    let veh: any;
+    try { veh = dim.spawnEntity(v.typeId, toW(spawnRel)); } catch (err) { row.error = `spawn: ${String(err)}`; log('VEHICLE', row); flush(); test.fail(row.error); return; }
+    const yaw0 = yawOf(spawnRel, { ...spawnRel, x: spawnRel.x + 10 });
+    try { veh.setRotation({ x: 0, y: yaw0 }); } catch { /* keeps its spawn yaw */ }
+    const sim = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_drv${n}`, gameMode);
+    const riders = (): string[] => { try { return (veh.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
+    await test.idle(10);
+    // Mount: the interaction a tap makes, then the component call if it did not seat.
+    sim.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
+    await test.idle(4);
+    try { sim.lookAtEntity(veh); } catch { /* not required */ }
+    row.interactReturned = sim.interactWithEntity(veh);
+    await test.idle(10);
+    row.ridersAfterInteract = riders();
+    if (!row.ridersAfterInteract.includes(sim.name)) {
+      try { row.addRiderReturned = veh.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; }
+      await test.idle(10);
+    }
+    row.riders = riders();
+    row.mounted = row.riders.includes(sim.name);
+    if (!row.mounted) { log('VEHICLE', row); flush(); try { veh.remove(); } catch { /* gone */ } test.fail('the simulated player could not board'); return; }
+    // Point the rider along the course: a native mount drives where its RIDER faces. Measured
+    // 2026-09-25: lookAtLocation left the rider at yaw -180 (the car drove across the course),
+    // so the yaw is set directly.
+    const aim = (yaw = yaw0): void => { try { sim.setRotation({ x: 0, y: yaw }); } catch (err) { row.aimError = String(err); } };
+    aim();
+    await test.idle(10);
+
+    /**
+     * A scripted vehicle (fixed wing, boat) is driven through its runtime's
+     * input hook: measured on the Pixel (2026-09-25), a simulated player's
+     * stick never reaches `inputInfo` (every sample 0, 0). A native one (a
+     * car) is driven by the simulated player itself.
+     */
+    const drive = (x: number, y: number, jump: boolean, ticks: number): void => {
+      if (v.scripted) system.sendScriptEvent(vehicleKit!.inputEvent, JSON.stringify({ id: veh.id, x, y, jump, ticks }));
+      else if (x || y) sim.moveRelative(x, y);
+    };
+    const yawNow = (e: any): number => { try { return Math.round(e.getRotation().y * 10) / 10; } catch { return NaN; } };
+    /** Run one phase: `act(tick)` every tick, a sample every 2; summarised in the heading the phase started with. */
+    const phase = async (name: string, ticks: number, act: (t: number) => void): Promise<any> => {
+      const origin = { ...veh.location };
+      const yaw = yawNow(veh) || 0;
+      const riderYaw = yawNow(sim);
+      const rad = yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
+      const samples: VehicleSample[] = [];
+      const extra: any = {};
+      for (let t = 0; t <= ticks; t++) {
+        if (t < ticks) { try { act(t); } catch (err) { extra.actError = String(err); } }
+        if (t % 2 === 0) {
+          let loc: any, ground: boolean | undefined, water: boolean | undefined;
+          try { loc = veh.location; } catch { break; }
+          try { ground = veh.isOnGround; water = veh.isInWater; } catch { /* older API */ }
+          const dx = loc.x - origin.x, dz = loc.z - origin.z;
+          samples.push({ t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: yawNow(veh), ground, water });
+        }
+        if (t < ticks) await test.idle(1);
+      }
+      const s = vehicleKit!.summarise(samples, 2);
+      const last = samples[samples.length - 1];
+      // Where it actually went: a native mount follows its RIDER's yaw, which need not be the body's.
+      const travelYaw = last && Math.hypot(last.along, last.side) > 0.5 ? Math.round(yaw + Math.atan2(-last.side, last.along) * 180 / Math.PI) : null;
+      const out = { ...s, ticks, startYaw: Math.round(yaw), riderYaw, travelYaw, riders: riders().length, track: samples.filter((_, i) => i % 5 === 0).map(p => [p.t, p.along, p.side, p.dy, p.yaw, p.ground ? 1 : 0, p.water ? 1 : 0]), ...extra };
+      row.phases[name] = { ...s, travelYaw };
+      log('VEHICLE_PHASE', { vehicle: v.label, phase: name, ...out });
+      return out;
+    };
+    const stop = (): void => { try { sim.stopMoving(); } catch { /* idle */ } };
+    /** Back to the course start, heading +x, rider re-aimed. */
+    const reset = async (rel: Vec3 = spawnRel, yaw = yaw0): Promise<void> => {
+      stop();
+      try { veh.teleport(toW(rel), { rotation: { x: 0, y: yaw } }); } catch (err) { row.resetError = String(err); }
+      await test.idle(6);
+      aim(yaw);
+      await test.idle(14);
+    };
+    const checks: Record<string, boolean> = { mounted: row.mounted };
+    const dist = (p: any): number => Math.hypot(p?.along ?? 0, p?.side ?? 0);
+
+    await phase('settle', 40, () => {});
+    if (v.kind === 'plane' && v.scripted) {
+      // Take-off on Jump alone, then climb, turn right, and land on a little forward stick.
+      await phase('takeoff_roll', 120, (t) => { if (t === 0) drive(0, 0, true, 120); });
+      await phase('climb', 60, (t) => { if (t === 0) drive(0, -1, true, 60); });
+      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 0, false, 60); });
+      await phase('cruise', 40, () => {});
+      await phase('approach', 300, (t) => { if (t % 20 === 0) drive(0, 0.35, false, 20); });
+      await phase('rollout', 120, () => {});
+      const ph = row.phases;
+      checks.takesOff = (ph.takeoff_roll?.maxDy ?? 0) > 1;
+      checks.climbs = (ph.climb?.dy ?? 0) > 3;
+      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
+      checks.landsAndStops = (ph.rollout?.endSpeed ?? 9) < 0.5 && Math.abs(ph.rollout?.dy ?? 9) < 0.5;
+    } else if (v.kind === 'boat' && v.scripted) {
+      await phase('ahead', 80, (t) => { if (t === 0) drive(0, 1, false, 80); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('rudder_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('astern', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('boost', 60, (t) => { if (t === 0) drive(0, 1, true, 60); });
+      // Toward the shore (-z) from the middle of the pool: it must stop at the waterline, not climb out.
+      await reset({ x: L.boat.x + 0.5, y: f.y + L.waterTop, z: L.poolZ0 + 8.5 }, yawOf(spawnRel, { ...spawnRel, z: spawnRel.z - 10 }));
+      await phase('shore', 120, (t) => { if (t === 0) drive(0, 1, false, 120); });
+      await phase('back_off', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      const ph = row.phases;
+      checks.floats = Math.abs(ph.settle?.dy ?? 9) < 0.3;
+      checks.aheadMoves = (ph.ahead?.along ?? 0) > 8;
+      checks.coasts = (ph.coast?.along ?? 0) > 0.5;
+      checks.turnsRight = (ph.rudder_right?.yawChange ?? 0) > 30;
+      checks.astern = (ph.astern?.along ?? 0) < -0.5;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      checks.beaches = (ph.shore?.maxDy ?? 9) < 0.5 && (ph.shore?.endSpeed ?? 9) < 0.5;
+      checks.backsOff = (ph.back_off?.along ?? 0) < -0.3;
+    } else if (v.kind === 'car' && v.scripted) {
+      // A scripted car, through the input hook: ahead, coast, brake-to-reverse, a right turn, lane B's slab and step, a boost.
+      await phase('ahead', 60, (t) => { if (t === 0) drive(0, 1, false, 60); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('boost', 40, (t) => { if (t === 0) drive(0, 1, true, 40); });
+      const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
+      await reset(laneRel);
+      await phase('steps', 100, (t) => { if (t === 0) drive(0, 0.6, false, 100); });
+      const ph = row.phases;
+      checks.forwardMoves = (ph.ahead?.along ?? 0) > 8 && Math.abs(ph.ahead?.side ?? 9) < 0.5;
+      checks.coasts = (ph.coast?.along ?? 0) > 1;
+      checks.reverseMoves = (ph.reverse?.along ?? 0) < -0.5;
+      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      checks.climbsStep = (ph.steps?.maxDy ?? 0) >= 0.9;
+    } else {
+      // A native mount (a car, a rotorcraft): the simulated player drives it.
+      await phase('forward', 60, () => drive(0, 1, false, 1));
+      stop();
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, () => drive(0, -1, false, 1));
+      stop();
+      await phase('stop_after_reverse', 20, () => {});
+      await reset();
+      await phase('turn_left', 60, (t) => { drive(0, 1, false, 1); if (t % 2 === 0) sim.rotateBody(-6); });
+      stop();
+      await phase('turn_stop', 20, () => {});
+      await reset();
+      if (v.kind === 'car') {
+        row.jumpReturned = [] as unknown[];
+        await phase('dash', 40, (t) => { drive(0, 1, false, 1); if (t < 20) { const r = sim.jump(); if (t % 10 === 0) row.jumpReturned.push(r); } });
+        stop();
+        // Lane B: the slab, then the full step, driven along the rider's own heading.
+        const laneRel = { x: 6 + Math.ceil(v.size.length / 2), y: f.y + L.landTop, z: (L.laneB.z0 + L.laneB.z1) / 2 + 0.5 };
+        await reset(laneRel);
+        await test.idle(4);
+        await phase('steps', 120, () => drive(0, 1, false, 1));
+        stop();
+        checks.climbsStep = (row.phases.steps?.maxDy ?? 0) >= 0.9;
+      }
+      const ph = row.phases;
+      checks.forwardMoves = dist(ph.forward) > 3;
+      checks.reverseMoves = dist(ph.reverse) > 0.5 && ph.reverse.travelYaw !== null && ph.forward?.travelYaw !== null
+        // Reversing goes the OTHER way to forward: the two travel headings at least 120 degrees apart.
+        && Math.abs(((ph.reverse.travelYaw - ph.forward.travelYaw + 540) % 360) - 180) > 120;
+      checks.turns = Math.abs(ph.turn_left?.yawChange ?? 0) > 30;
+    }
+    // A second rider, where the vehicle has a second seat.
+    if (v.seats > 1) {
+      const sim2 = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_pas${n}`, gameMode);
+      await test.idle(4);
+      sim2.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
+      await test.idle(4);
+      row.passengerInteract = sim2.interactWithEntity(veh);
+      await test.idle(10);
+      row.ridersWithPassenger = riders();
+      checks.secondRider = row.ridersWithPassenger.length >= 2;
+    }
+    try { veh.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+    await test.idle(4);
+    row.ridersAfterEject = riders();
+    try { veh.remove(); } catch { /* gone */ }
+    row.checks = checks;
+    row.pass = Object.values(checks).every(Boolean);
+    log('VEHICLE', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail(`vehicle ${v.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+  }).structureName(`${NS}:vehicles_${plan.modelId}`).maxTicks(4000).tag(NS));
+
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {
     // Run 5 measured every /script subcommand at successCount 0 from the dimension;
@@ -956,6 +1267,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   }
 
   let started = false;
+  if (vehicles.length) log('VEHICLES_READY', { model: plan.modelId, vehicles: vehicles.map(v => `${v.kind}:${v.typeId}`) });
   world.afterEvents.playerSpawn.subscribe((ev: any) => {
     if (started || !ev.initialSpawn || String(ev.player.name).startsWith('cmgt_')) return;
     started = true;
@@ -970,7 +1282,7 @@ export function gametestScript(plan: GametestPlan): string {
   const arena = arenaSize(plan.dims);
   return `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n`
     + `const PLAN = ${JSON.stringify(plan)};\n`
-    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()});\n`;
+    + `(${gametestRuntime.toString()})({ mc, gt }, PLAN, ${JSON.stringify(arena)}, ${GT_MARGIN}, ${judgeWalk.toString()}, ${outcomeMatches.toString()}, ${judgeFigureTrack.toString()}, { summarise: ${summariseVehiclePhase.toString()}, layout: ${JSON.stringify(GT_VEHICLE_LAYOUT)}, inputEvent: ${JSON.stringify(FLIGHT_INPUT_EVENT)} });\n`;
 }
 
 /** `scripts/main.js` of the variant: the model's entry plus the tests (import declarations hoist). */
@@ -985,5 +1297,6 @@ export function gametestVariantFiles(plan: GametestPlan): Array<{ name: string; 
   return [
     { name: 'scripts/gametest.js', data: enc.encode(gametestScript(plan)) },
     { name: `structures/${GT_NAMESPACE}/arena_${plan.modelId}.mcstructure`, data: buildArenaStructure(plan.dims, { overflow: !!plan.oversized }) },
+    ...(plan.vehicles?.length ? [{ name: `structures/${GT_NAMESPACE}/vehicles_${plan.modelId}.mcstructure`, data: buildVehicleArena() }] : []),
   ];
 }

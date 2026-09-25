@@ -39,8 +39,8 @@
 import { parseLDrawDocument, type ParsedBrick } from './ldraw-parser.js';
 import { descriptionOf, type LdrawPartMesh } from './ldraw-part-geometry.js';
 import { peekDatText } from './ldraw-geometry.js';
-import { groupFigures, isFigurePart, snapSignedPermutation } from './ldraw-entity-compiler.js';
-import { coasterTrackProfile, type CoasterTrackExtraction } from './coaster-track.js';
+import { connectedClusters, groupFigures, isFigurePart, snapSignedPermutation } from './ldraw-entity-compiler.js';
+import { coasterTrackProfile, isSingleRail, type CoasterTrackExtraction } from './coaster-track.js';
 import type { CoasterVec3 } from './coaster-path.js';
 import { partStem } from './part-id.js';
 
@@ -76,6 +76,24 @@ export const FRAME_QUANTUM = 0.005;
 export const GRID_SNAP_EPS = 0.01;
 /** Off-grid rotations further than this from any signed permutation (about 20 degrees) are not a tilted rigid group. */
 export const FRAME_SNAP_EPS = 0.35;
+/**
+ * Railway cars (a route whose moulds are all railway track, `CoasterTrackRouteLdu.family`):
+ * the running gear is every `Train Wheel …` part (wheels and wheel bogies), a
+ * car is the WIDEST brick standing over at least two of them within this
+ * depth (the train base over its bogies; 10277's plates over its wheels), and
+ * its members reach this far above the chassis origin (a locomotive's cab
+ * roof) and this far below it (the bogies and wheels).
+ */
+export const TRAIN_GEAR_DEPTH_LDU = 88;
+export const TRAIN_CAR_HEIGHT_LDU = 400;
+/** A train chassis origin rides this far over the rail-top line at most (a base on bogies on wheels). */
+export const TRAIN_ON_ROUTE_MAX_LDU = 120;
+/** How far from the rail-top line (horizontally) a brick under the rail heads is still the track bed. */
+export const TRAIN_BED_REACH_LDU = 200;
+/** A car stands over a railway line when its chassis origin is within this of the line's vertical plane. */
+export const TRAIN_LATERAL_MAX_LDU = 30;
+/** Two running-gear units closer than this along the car are one axle group, not a wheelbase. */
+export const TRAIN_MIN_WHEELBASE_LDU = 20;
 /** Datum-to-origin measurement of a car is taken from cars on the route; this fallback is 10261/10303's 26021 (14.3). */
 const DEFAULT_ORIGIN_ABOVE_DATUM_LDU = 14.3;
 /** Datum-over-rail-top is measured from a placed straight mould; this fallback is 25059's (14). */
@@ -370,6 +388,12 @@ export const isSelfWheeledPart = (description: string): boolean => !isWheelPart(
 export const isSprocketPart = (description: string): boolean => /\b(Wedge Belt Wheel|Pulley|Sprocket)\b|^(Technic )?Gear\b/i.test(clean(description));
 /** A chain link or tread. */
 export const isChainPart = (description: string): boolean => /^Technic Chain (Link|Tread)\b/i.test(clean(description));
+/** A piece of railway track that is not a routed mould: sleepers, points, crossings, loose rails. Scenery, never a car. */
+export const isRailwayTrackPart = (description: string): boolean => /^(Train|Monorail) Track\b/i.test(clean(description));
+/** A coupling: magnets, buffer beams, hitches. Left out of a railway car's connectivity (coupled cars touch only there), then rejoined to the body it touches. */
+export const isTrainCouplerPart = (description: string): boolean => /\b(Magnet|Coupl\w*|Buffer Beam|Hitch)\b/i.test(clean(description));
+/** Railway running gear: a train wheel or a train wheel bogie (`Train Wheel with Closed Centre for Wheel Bogie`, `Train Wheel Bogie Single Axle …`). */
+export const isTrainGearPart = (description: string): boolean => /^Train Wheel\b/i.test(clean(description));
 
 // ─── Route geometry ──────────────────────────────────────────────────────────
 
@@ -518,6 +542,97 @@ export function detectCoasterAssemblies(
     wheelWorld.set(w, worldBounds(bricks[w]!, mesh(bricks[w]!)));
     (wheelsByChassis.get(best) ?? wheelsByChassis.set(best, []).get(best)!).push(w);
   }
+  // ── 1b. Railway cars ──────────────────────────────────────────────────────
+  // Only where a RAILWAY route was extracted, so a coaster set is detected
+  // exactly as before. A bogie with its wheelset describes itself "with
+  // Wheels", which would make every bogie a car of its own: here it is gear.
+  const trainChassis = new Set<number>();
+  /** A railway car's members (its connected body, the gear under it, its couplers) and its extent in the chassis frame. */
+  const trainCars = new Map<number, { members: number[]; box: Box }>();
+  if (tracks.routes.some(route => route.family === 'train')) {
+    // A railway car is a CONNECTED body: every non-figure, non-track brick
+    // that touches another, with the running gear and the couplers left out
+    // of the connectivity - wheels touch the rails, and coupled cars touch
+    // only magnet to magnet. A body with at least two gear units under it,
+    // spread along its length, is a car; its chassis (its frame) is its
+    // widest brick. The couplers then rejoin the body they touch.
+    // Running gear: train wheels and bogies, a wheelset that describes itself
+    // "with … Wheels" (4558's 12V axles), and plain wheels (4204's mine carts).
+    // Every piece of the track itself - rails, sleepers, points - is scenery.
+    const railway = (i: number): boolean => isTrackMould(i) || isRailwayTrackPart(desc(bricks[i]!)) || isSingleRail(bricks[i]!.part);
+    const gear: number[] = [];
+    bricks.forEach((b, i) => {
+      if (isFigureBrick(i) || railway(i)) return;
+      const d = desc(b);
+      if (isTrainGearPart(d) || isSelfWheeledPart(d) || isWheelPart(d)) gear.push(i);
+    });
+    const gearSet = new Set(gear);
+    // A car never reaches below the rail heads (only its wheel flanges do, and
+    // they are gear): anything whose top is at or under the rail-top line near
+    // the track is the track bed a display set builds under it (10277's 1,206
+    // plates and tiles), which would otherwise join the train to its stand.
+    const railPoints = tracks.routes.filter(route => route.family === 'train').flatMap(route => route.points);
+    const underRails = (box: Box): boolean => {
+      const cx = (box.min[0] + box.max[0]) / 2, cz = (box.min[2] + box.max[2]) / 2;
+      let nearest: V | undefined, best = TRAIN_BED_REACH_LDU;
+      for (const p of railPoints) { const h = Math.hypot(p[0] - cx, p[2] - cz); if (h < best) { best = h; nearest = p; } }
+      return !!nearest && box.min[1] >= nearest[1] - 1; // LDraw Y down: the top is at or below the rail top
+    };
+    const worldBox = new Map<number, Box>();
+    const body: number[] = [], couplers: number[] = [];
+    bricks.forEach((b, i) => {
+      if (isFigureBrick(i) || railway(i) || gearSet.has(i)) return;
+      const box = worldBounds(b, mesh(b));
+      if (underRails(box)) return;
+      worldBox.set(i, box);
+      (isTrainCouplerPart(desc(b)) ? couplers : body).push(i);
+    });
+    for (const i of gear) worldBox.set(i, worldBounds(bricks[i]!, mesh(bricks[i]!)));
+    const clusters = connectedClusters(body.map(i => worldBox.get(i)! as { min: [number, number, number]; max: [number, number, number] }), 2).map(c => c.map(k => body[k]!));
+    const clusterOf = new Map<number, number>();
+    clusters.forEach((c, k) => { for (const i of c) clusterOf.set(i, k); });
+    const clusterBox = clusters.map(c => { const box = emptyBox(); for (const i of c) { const w = worldBox.get(i)!; growBox(box, w.min); growBox(box, w.max); } return box; });
+    // Gear hangs under a body: the cluster whose footprint holds it and whose underside is within the gear depth over it.
+    const gearOf = new Map<number, number[]>();
+    for (const g of gear) {
+      const p = originOf(bricks[g]!);
+      let best = -1, bestGap = Infinity;
+      clusterBox.forEach((box, k) => {
+        if (p[0] < box.min[0] - 4 || p[0] > box.max[0] + 4 || p[2] < box.min[2] - 4 || p[2] > box.max[2] + 4) return;
+        const gap = p[1] - box.max[1]; // LDraw Y down: how far the gear hangs under the body
+        if (gap < -TRAIN_GEAR_DEPTH_LDU || gap > TRAIN_GEAR_DEPTH_LDU) return;
+        if (Math.abs(gap) < bestGap) { bestGap = Math.abs(gap); best = k; }
+      });
+      if (best >= 0) (gearOf.get(best) ?? gearOf.set(best, []).get(best)!).push(g);
+    }
+    const touching = (a: Box, b: Box): boolean => a.min[0] - 2 <= b.max[0] && a.max[0] + 2 >= b.min[0] && a.min[1] - 2 <= b.max[1] && a.max[1] + 2 >= b.min[1] && a.min[2] - 2 <= b.max[2] && a.max[2] + 2 >= b.min[2];
+    const couplerOf = new Map<number, number>();
+    for (const c of couplers) {
+      const w = worldBox.get(c)!;
+      const k = clusters.findIndex((cluster, index) => gearOf.has(index) && cluster.some(i => touching(worldBox.get(i)!, w)));
+      if (k >= 0) couplerOf.set(c, k);
+    }
+    for (const [k, units] of gearOf) {
+      // The chassis: the body's widest brick, whose long axis is the car's travel.
+      const cluster = clusters[k]!;
+      let chassis = cluster[0]!, area = -1;
+      for (const i of cluster) { const w = worldBox.get(i)!; const a = (w.max[0] - w.min[0]) * (w.max[2] - w.min[2]); if (a > area) { area = a; chassis = i; } }
+      const b = bricks[chassis]!, own = localBounds(mesh(b));
+      const travel: V = (own.max[0] - own.min[0]) >= (own.max[2] - own.min[2]) ? [1, 0, 0] : [0, 0, 1];
+      const along = units.map(g => dot(apply(transpose(rotOf(b)), sub(originOf(bricks[g]!), originOf(b))), travel));
+      if (units.length < 2 || Math.max(...along) - Math.min(...along) < TRAIN_MIN_WHEELBASE_LDU) continue;
+      const members = [...cluster, ...units, ...couplers.filter(c => couplerOf.get(c) === k)];
+      const box = emptyBox();
+      for (const i of members) { const local = boundsInFrame(bricks[i]!, mesh(bricks[i]!), rotOf(b), originOf(b)); growBox(box, local.min); growBox(box, local.max); }
+      trainChassis.add(chassis);
+      wheelsByChassis.set(chassis, units);
+      trainCars.set(chassis, { members, box });
+    }
+    // A wheeled chassis inside a railway car is part of that car, not a car of its own.
+    const claimed = new Set([...trainCars.values()].flatMap(car => car.members));
+    for (let k = selfWheeled.length - 1; k >= 0; k--) if (claimed.has(selfWheeled[k]!)) selfWheeled.splice(k, 1);
+    for (const c of [...wheelsByChassis.keys()]) if (!trainChassis.has(c) && claimed.has(c)) wheelsByChassis.delete(c);
+  }
   const chassisIndices = [
     ...selfWheeled,
     ...[...wheelsByChassis].filter(([, wheels]) => wheels.length >= 2).map(([i]) => i),
@@ -532,10 +647,14 @@ export function detectCoasterAssemblies(
     const own = localBounds(mesh(b));
     // Footprint: the chassis's own local bounds grown laterally, from just under
     // the chassis bottom up to CAR_HEIGHT above the origin (local -Y is up).
-    const footprint: Box = {
-      min: [own.min[0] - CAR_FOOTPRINT_MARGIN_LDU, -CAR_HEIGHT_LDU, own.min[2] - CAR_FOOTPRINT_MARGIN_LDU],
-      max: [own.max[0] + CAR_FOOTPRINT_MARGIN_LDU, own.max[1] + CAR_FOOTPRINT_MARGIN_LDU, own.max[2] + CAR_FOOTPRINT_MARGIN_LDU],
-    };
+    // A railway car reaches a cab roof above and its bogies and wheels below.
+    const train = trainCars.get(c);
+    const footprint: Box = train
+      ? { min: [train.box.min[0] - CAR_FOOTPRINT_MARGIN_LDU, train.box.min[1] - CAR_FOOTPRINT_MARGIN_LDU, train.box.min[2] - CAR_FOOTPRINT_MARGIN_LDU], max: [train.box.max[0] + CAR_FOOTPRINT_MARGIN_LDU, train.box.max[1] + CAR_FOOTPRINT_MARGIN_LDU, train.box.max[2] + CAR_FOOTPRINT_MARGIN_LDU] }
+      : {
+        min: [own.min[0] - CAR_FOOTPRINT_MARGIN_LDU, -CAR_HEIGHT_LDU, own.min[2] - CAR_FOOTPRINT_MARGIN_LDU],
+        max: [own.max[0] + CAR_FOOTPRINT_MARGIN_LDU, own.max[1] + CAR_FOOTPRINT_MARGIN_LDU, own.max[2] + CAR_FOOTPRINT_MARGIN_LDU],
+      };
     carLocal.set(c, { rot, origin, footprint });
   }
   const chassisSet = new Set(chassisIndices);
@@ -544,6 +663,7 @@ export function detectCoasterAssemblies(
     if (chassisSet.has(i)) { memberOf.set(i, i); return; }
     let best = -1, bestScore = Infinity;
     for (const c of chassisIndices) {
+      if (trainCars.has(c)) continue; // a railway car's members are its connected body, set below
       const { rot, origin, footprint } = carLocal.get(c)!;
       const local = apply(transpose(rot), sub(originOf(b), origin));
       if (!inBox(footprint, local)) continue;
@@ -555,6 +675,7 @@ export function detectCoasterAssemblies(
   });
   // A wheel mounted on a chassis belongs to that chassis even if another footprint scores it closer.
   for (const [c, wheels] of wheelsByChassis) if (chassisSet.has(c)) for (const w of wheels) memberOf.set(w, c);
+  for (const [c, car] of trainCars) for (const i of car.members) memberOf.set(i, c);
 
   const riderOfChassis = new Map<number, number[]>(); // chassis → figure group indices
   figureGroups.forEach((g, k) => {
@@ -562,7 +683,7 @@ export function detectCoasterAssemblies(
     for (const c of chassisIndices) {
       const { rot, origin, footprint } = carLocal.get(c)!;
       const local = apply(transpose(rot), sub(originOf(torso), origin));
-      const seatBox: Box = { min: [footprint.min[0], -CAR_HEIGHT_LDU, footprint.min[2]], max: [footprint.max[0], 10, footprint.max[2]] };
+      const seatBox: Box = trainCars.has(c) ? footprint : { min: [footprint.min[0], -CAR_HEIGHT_LDU, footprint.min[2]], max: [footprint.max[0], 10, footprint.max[2]] };
       if (inBox(seatBox, local)) { (riderOfChassis.get(c) ?? riderOfChassis.set(c, []).get(c)!).push(k); break; }
     }
   });
@@ -641,13 +762,26 @@ export function detectCoasterAssemblies(
   const originHeights: number[] = [];
   for (const car of cars) {
     let best: { route: RouteGeometry; projection: Projection } | undefined;
+    // A railway car rides a railway route (and a coaster car a coaster one), higher over its datum.
+    const train = trainChassis.has(car.chassis.index);
     for (const route of routes) {
+      const railway = tracks.routes[route.index]!.family === 'train';
+      // A railway car never rides a coaster route; a wheeled cart (4204's
+      // mine carts) may ride a railway one when it stands square over it.
+      if (train && !railway) continue;
       const projection = projectOntoPolyline(route.points, route.cumulative, car.frame.originLdu);
+      if (projection.distance > (railway ? TRAIN_ON_ROUTE_MAX_LDU : CAR_ON_ROUTE_MAX_LDU)) continue;
+      if (railway) {
+        const d = sub(car.frame.originLdu, projection.point), t = projection.tangent;
+        const lateral = Math.abs(dot(d, unit([t[2], 0, -t[0]])));
+        if (lateral > TRAIN_LATERAL_MAX_LDU || dot(d, [0, -1, 0]) <= 0) continue;
+      }
       if (!best || projection.distance < best.projection.distance) best = { route, projection };
     }
-    if (!best || best.projection.distance > CAR_ON_ROUTE_MAX_LDU) continue;
+    if (!best) continue;
     const above = dot(sub(car.frame.originLdu, best.projection.point), car.frame.upWorld);
-    originHeights.push(above);
+    // The coaster datum height (platform docking) is measured on coaster cars only.
+    if (!train) originHeights.push(above);
     car.route = {
       routeIndex: best.route.index, routeLabel: best.route.label,
       arcLdu: round(best.projection.arc), offsetLdu: round(best.projection.distance), originAboveDatumLdu: round(above),
@@ -778,7 +912,8 @@ export function detectCoasterAssemblies(
   const datumAboveRailTopLdu = measureDatumAboveRailTop(bricks, meshes);
   lifts.push(...detectPlatformLifts(bricks, meshes, routes, cars, memberOf, isFigureBrick, isTrackMould,
     options.originAboveDatumLdu ?? originAboveDatumLdu ?? DEFAULT_ORIGIN_ABOVE_DATUM_LDU, datumAboveRailTopLdu ?? DEFAULT_DATUM_ABOVE_RAIL_TOP_LDU, warnings));
-  if (!lifts.length) warnings.push('No lift detected: no chain drive under a climbing route section and no articulated platform docked at an open terminal.');
+  // A railway line has no lift to find; only a coaster route is reported.
+  if (!lifts.length && tracks.routes.some(route => route.family !== 'train')) warnings.push('No lift detected: no chain drive under a climbing route section and no articulated platform docked at an open terminal.');
 
   return { cars, trains, strays, lifts, originAboveDatumLdu, datumAboveRailTopLdu, warnings };
 }

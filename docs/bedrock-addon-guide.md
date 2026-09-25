@@ -3042,3 +3042,331 @@ Evidence: `output/pb0924f/device/r3-*` in the pinball worktree.
   the drag pull (pull 0.13 → 1.0 over 8 ticks, ball −665 LDU up the lane).
   An `attackEntity` hit is delivered after the call returns, so the same
   tick reads the old angle (`sameTick` [0,0]); the next tick has it.
+
+## Rail vehicles on the coaster engine (2026-09-25)
+
+A train is the coaster with a driver. There is ONE ride engine:
+`rideSubstep` (`engine/bedrock-coaster.ts`) is the per-substep speed step
+that the pack runtime (`coasterRuntime`, which receives it as an argument
+because it is serialised by `.toString()`) and the walk preview
+(`coaster-preview.ts`) both call. Track routing, car attitude
+(`coasterCarAttitude`), boarding, the rider camera and the placement are
+the coaster's, unchanged. What differs is data:
+
+- A railway route carries `physics: RAIL_TRAIN_PHYSICS`, whose `DRIVER`
+  block switches the step from gravity-only to driven: the rider's stick
+  (`inputInfo.getMovementVector().y`, read against the train's FIXED nose,
+  never its motion) accelerates at 3 blocks/s² to a 12 blocks/s top speed,
+  brakes at 6 against the motion, and reverses only from rest. Nobody at the
+  controls: a 6 blocks/s² park brake. No chain, no inversion floor, no
+  minimum speed, no station dwell. An open end is a buffer stop that holds
+  the whole end car on the line (`cars.endInset`), not the coaster's shuttle
+  reversal. Its cars prompt "Drive the train".
+- Without `DRIVER` the step is the shipped coaster formula in the same
+  floating-point order: bit-identical over 20,000 sampled states
+  (`test/rail-track.test.ts`), and the SHIPPED 10303/10261 runtimes replayed
+  through the refactored `coasterScript` give the same digest over 4,000
+  ticks (10303 `c3b205e9…`, 10261 `0b2f11a5…`;
+  `bun scripts/_coaster_replay.ts <pack> --rebuild`).
+
+### Track: railway moulds on the rail-top centreline
+
+`coaster-track.ts` routes railway moulds as a second profile family
+(`CoasterTrackProfile.family = 'train'`), measured on the library meshes:
+53401 / 2865 / 74746 straights (rail heads z ±50, top y −16, ends x ±160),
+53400 / 2867 / 74747 curves (both heads are circles about (0, −800): the
+centreline is R 800 over 22.5°), 85976 (R 480 over 45°, gauge 60), and loose
+4.5V/12V rails (3228a/b/c) paired one gauge apart (100; 60 for mine-cart
+track). Checks: 16 synthetic 53400s close one circle; 4559 closes a
+26-mould circuit, 4558/10001 a 20-mould one. Not routed: points, crossings,
+12V curves, the 53834/85977 ramps and the monorail — they break a line into
+open routes, and the audit names them.
+
+### Cars: a connected body over its running gear
+
+`detectCoasterAssemblies` runs a railway branch only where a railway route
+exists (a coaster set is detected exactly as before): running gear is every
+`Train Wheel …`, self-wheeled or plain wheel part; everything that is track
+(moulds, sleepers, points, loose rails) and every brick whose top is at or
+under the rail heads within 200 LDU of the line (a display's track bed) is
+scenery. The rest is clustered by contact with the gear and the couplers
+(magnets, buffer beams) left out, so coupled cars separate; a body with two
+gear units at least 20 LDU apart under it is a car, its widest brick the
+chassis frame, and it must stand square over the line (≤ 30 LDU lateral,
+≤ 120 LDU above the rail top). The pipeline keeps a train on its own track
+off the free-vehicle path (10277 is titled "Locomotive"), keeps it at
+minifig scale (`planAddonScale`: railway gauge is the minifig railway's),
+never puts the fabricated coaster cart on railway track, and leaves a train
+that fills its display line in the build.
+
+### Audit (`bun scripts/_rail_audit.ts [--all]`)
+
+None of the 40 favourites has railway track: 10261, 10303, 10341, 60380 and
+76417 carry coaster track only, the rest no rail. Over the whole index
+(10,169 sets read), 45 sets stand a train on its own railway track, 179
+have a train with no track in the source (it stays a wheeled vehicle or
+the build), 45 have track and no running gear, 19 track and train apart.
+
+| set | source | line | train found | what it does (replay host, 60 s) |
+|---|---|---|---|---|
+| 4559 Cargo Railway | IOModel2V2 | 9V circuit, 26 moulds, 8,225 LDU | 2 cars (2972 bases), 2 riders | laps at 12 blocks/s on full stick; brakes and reverses on the stick |
+| 910044 Wild West Train | IOModel2V2 | open, 8 × 53401, 2,560 LDU | loco, tender, car; driver and guard | runs 22 blocks between its buffers |
+| 10277 Crocodile Locomotive | OMR | open, 4 paired 3228c, 1,280 LDU | 1 car of 1,050 parts (the articulated loco as one body) | 2.25 blocks of play: the loco fills its display track |
+| 60052 Cargo Train | EurobricksTopic | open, 7 moulds | 4 cars | stays in the build: the 2,320-LDU train fills its 2,240-LDU line |
+| 21344 Orient Express | IOModel2V2 | open, 9 paired 3228c | 1 body of 2,138 parts | the whole train is one connected body (no coupler parts to split at) |
+| 4204 The Mine | IOModel2V2 | open, 4 paired 3228c (gauge 60) | 1 cart joined to a rock | cart welded to scenery by contact |
+| 4558 Metroliner | LDR | 12V circuit, 20 moulds | none | its 12V axles-with-wheels leave no body over two gear units |
+| 60198, 60197, 4512, 7938, 10254, 71044, 60098, 60051 … | Mecabricks / Eurobricks / some LDR | none | — | **source defect**: see below |
+
+**Mecabricks and LXF-converted sources place railway track 90° off the
+LDraw part.** Adjacent 53401/2865 straights 320 LDU apart step along the
+part's LOCAL Z in 12 of 13 MecabricksLDR and 6 of 6 EurobricksLDR sources
+with straights; the library part runs along local X (authentic LDR/OMR/
+IOModel2V2: 11 of 12 along X). So those sets' track is drawn as a ladder of
+crossways pieces in the viewer too, and nothing routes. This is a converter
+alignment row for 53400/53401 (clego), not something the router should
+guess around; `output/rail-0925/frame.ts` is the tally.
+
+Open: no device run yet (the phone was held by the free-vehicle round);
+seat for a train car with no posed rider is the compiler's mid-height
+default (inside a loco body); an articulated loco or a train with no
+coupler parts is one rigid body (fine on the straight display lines above,
+wrong on curves); the stick is only known to report while seated on a
+non-vehicle rideable during play (pinball), so a device check of the
+driven train's stick is the first thing to run.
+
+## Vehicle operation: cars, boats, planes, measured (2026-09-25)
+
+Code: `web/src/engine/bedrock-vehicle.ts` (flight and boat models, the drive
+animation, the scripted-vehicle runtime), `playable-addon.ts`
+(`behaviorEntity`, the car/rotor driver and the camera), the compiler's
+`vehicleRig` (`ldraw-entity-compiler.ts`). Constants, units and the DRY map:
+`docs/physics-architecture.md` §4.6 and §9. Evidence:
+`output/vehicle-audit-0925/` in the vehicle worktree (GameTest logs
+`gt-base/`, `gt-v2/`, `gt-v3/`; real drives `real-v2/`, `real-v3/`).
+
+### How each class is measured now
+
+- **GameTest vehicle course** (`vehicle_<id>_<n>`,
+  `bun scripts/_gametest_pack.ts <pack> --only=vehicles`): a 64 × 64 arena
+  (land, a pool a block lower, a half slab and a full step on lane B). The
+  vehicle is spawned, a simulated player boards it (`interactWithEntity`)
+  and it runs phases sampled every 2 ticks: settle, forward/ahead, coast,
+  reverse/astern, a held turn, the class's Jump, steps (car), take-off,
+  climb, turn, approach and roll-out (plane), rudder, boost, shore and back
+  off (boat), a second rider where there is a seat. One `CMGT VEHICLE_PHASE`
+  line per phase and a `CMGT VEHICLE` verdict.
+- **A simulated player's stick never reaches `inputInfo`** (every sample read
+  0, 0 while it drove, 2026-09-25), and neither `lookAtLocation` nor
+  `setRotation` aims a riding one (the camel car always drove across the
+  course, off the arena). A native mount is driven by the simulated player
+  itself; a scripted one through the runtime's hook
+  `/scriptevent craftmatic:flight_input {"x":0,"y":1,"jump":false,"ticks":40}`.
+- **Simulated speeds are not a real rider's.** GameTest drove the car at
+  43.6 blocks/s; a real rider reads the HUD. Real drives therefore log
+  telemetry: `/scriptevent craftmatic:vehicle_telemetry on` writes one
+  `CMVT {json}` content-log line per second per vehicle (position, yaw,
+  speed, the stick and Jump as the script sees them).
+
+### Before → after, per class
+
+| class | before (measured, Pixel) | after (measured, Pixel) |
+|---|---|---|
+| **Car** (was the native camel controller) | movement 1.05: a real rider at HALF stick read 44.8-65.8 mph (20-29 blocks/s), GameTest 43.6 blocks/s at full; **on a straight stick the car drove circles**: under `player_relative` the rider's yaw turned by itself ~36 degrees per 4 ticks (car yaw 69 → -125 → -36 in 2 s) in every camera mode, cockpit view included; under the game's default and `player_relative_strafe` schemes it drove straight but the stick's left/right slid it SIDEWAYS without turning it; it stopped dead on release (2.3 blocks from 43 blocks/s); no wheel motion | scripted `carStep`: 19 blocks/s (42 mph) at full stick, brake then 5 blocks/s reverse, coasts down at 2.5 blocks/s² hands off, steering that bites with speed (full lock by 5 blocks/s, fading to ~43 degrees/s at the top), Jump boost to 26 for 1.5 s, eases up one-block steps, stops at a wall, falls off an edge, crawls through water; slope pitch, body roll out of a turn, spinning and steering wheels; a passenger seat behind the driver on any car 3.5 blocks or longer. Device: see "The scripted car on the device" below |
+| **Boat** (was the camel over `minecraft:buoyant`) | floated (dy 0) but crawled at **1.6-1.8 blocks/s** on water whatever its movement; `simulate_fluid_physics` rejected by the 1.26.30 schema (a `[Json][error]` at every pack load); 60221's yacht sailed SIDEWAYS (nose voted across the deck) | scripted `boatStep`: **8.0 blocks/s** ahead, 12 on the Jump boost (3 s, then 4 s cool-down), 2.5 astern, coasts down on the water's drag (13.7 blocks from 8 blocks/s), rudder 119 degrees in 3 s at speed and a little at rest, stops at a shore (GameTest `beaches`, a real rider stopped at the pool's edge with the stick held) and backs off it; draft 12 % of its height; swell drawn as heave, roll and pitch. GameTest 9/9 checks on 60221 and 10365; a real rider's Jump boosted and did NOT dismount |
+| **Fixed wing** (was the Happy Ghast hover controller) | GameTest: a simulated Jump never climbed (0 blocks); it flew where the camera looked, hovered with no take-off speed, stall or landing | scripted `flightStep`: Jump is the throttle (cruise power by itself aloft), take-off at 10 blocks/s after about 15 blocks of run, stick back climbs (39 blocks in 3 s at full stick on the Milano), forward dives, left/right banks and turns (162 degrees in 3 s), stall below 7 blocks/s, landing and brakes to a stop. GameTest 5/5 on 76286 and 7140. A real rider: Jump held 4 s took off (speed 0 → 19.3 blocks/s, ALT 5) without dismounting, cruise 23.2 blocks/s, stick back pitched to 39 degrees, stick right turned right |
+| **Rotorcraft** | unchanged: the Happy Ghast hover (a title naming a helicopter, copter, drone...) | unchanged, plus the drive animation (nose dips with speed, banks into a turn) |
+
+### Controls (phone, keyboard, controller)
+
+The joystick is the movement stick (WASD / left stick); Jump is the touch
+Jump button (Space / A); Dismount is the touch Dismount button (Shift / the
+controller's sneak) - on every vehicle, because each keeps a controlling
+component that makes Jump an input (a plain rideable dismounts on Jump,
+pinball 2026-09-24).
+
+- **Car**: stick forward/back drives, brakes and reverses, left/right
+  steers; Jump boosts. The 10300 time machine keeps the camel controller its
+  DeLorean runtime drives (`player_relative` scheme, native dash).
+- **Boat**: stick forward/back is throttle and astern, left/right the rudder;
+  Jump boosts.
+- **Plane**: Jump is the throttle; stick back climbs (and at take-off speed
+  lifts off), forward dives, left/right banks and turns. On the ground,
+  stick back with the throttle released brakes.
+- **Helicopter**: stick to fly and turn, Jump climbs, stick back + Jump
+  descends.
+- **Stick sign, measured**: pushing the stick RIGHT reads
+  `getMovementVector().x` = -0.44 to -0.78 on the Pixel (Minecraft's +x
+  strafe is LEFT). `FLIGHT.STICK_X_RIGHT` / `BOAT.STICK_X_RIGHT` = -1.
+- **Camera**: every rider gets the script's chase camera; hotbar **slot 9**
+  swaps it for the cockpit view (the rider's own first person), any other
+  slot brings it back. A scripted vehicle's boom follows the VEHICLE's
+  heading and trails along its nose in 3D (a climbing aircraft stayed under
+  the frame's edge with a level boom), and the rider keeps the game's
+  default control scheme so the stick's left/right reaches the script as
+  input. Tuning hooks for the camel car: `/scriptevent
+  craftmatic:vehicle_scheme <scheme|clear>` and
+  `craftmatic:vehicle_camera vehicle|rider`.
+- **HUD** is ASCII: the Pixel's HUD font drew the vehicle emoji and U+FE0F
+  as empty boxes.
+
+### Wheels, seats, facing
+
+- **Road wheels** (`vehicleWheelAssemblies`): wheel and tyre placements
+  whose boxes share at least half the smaller one's volume are one wheel (a
+  rim set in along its axle still joins its tyre; twin rear wheels stay two);
+  the axle is the box's thinnest side and must be horizontal and across the
+  travel axis. 10337 `.io`: 12 placements → 6 wheels (its IOModel2V2 first pick: 10, see the traps); 42172: 8 → 4.
+- **Seats**: the model's free seat moulds (not the driver's, none a figure
+  sits on) become passenger seats; with none, a car or boat at least 3.5
+  blocks long gets passengers behind the driver (one on a car, up to three
+  on a ship, a block or two apart).
+- **Facing**: a car or boat with a decisively long footprint (≥ 1.3×) keeps
+  its nose on the long axis; the votes only choose the end.
+
+### The scripted car on the device (42172, `f06405e7`)
+
+- **GameTest** (`gt-v5/42172/device/`): 8/8 checks. Ahead 30.7 blocks in
+  3 s with 0 sideways (top 19.0 blocks/s); coasts 33.6 blocks after release
+  (15.6 blocks/s after 2 s; it rolled off the arena's edge and dropped 4.5
+  blocks, which the fall handled); reverse 5.0 blocks/s; a held right turn
+  155 degrees in 3 s; the boost to 20.8 (40 ticks from rest); lane B's slab
+  and step climbed (dy +1); a second rider seated.
+- **A real rider** (`real-v5/car-cmvt.txt`): straight stick (y 0.33 → 0.75,
+  x ≈ 0): yaw held at exactly 0 while speed rose 1.05 → 14.3 blocks/s;
+  released, it coasted 14 → 6 blocks/s over 3 s (the camel stopped dead);
+  forward-right (x -0.30 → -0.49): yaw 0 → 10 → 36 → 68, a right turn;
+  back (y -0.53): -2.6 → -3.6 blocks/s astern. Against the camel's same
+  straight drag (yaw 69 → -125 → -36), the four-scheme A/B that proved no
+  scheme could steer it is in `real-v4/scheme-ab-cmvt.txt`.
+
+### Recordings (world 924, 2026-09-25, `recordings/`)
+
+- `cm-car-0925b.mp4` (42172, scripted): 19-33 mph ahead with the chase
+  camera straight behind, 18-27 through a forward-right turn, a coast from
+  22 to 14 mph, `[REV]` at 6-7 mph, then `[BOOST]` to 45-47 mph.
+- `cm-boat-0925b.mp4` / `cm-boatlong-0925b.mp4` (60221, scripted): up to 13
+  mph sitting at the waterline, a visible lean in the turn, a stop at the
+  bank with `[SHORE AHEAD]`; a boost down the 60-block pool at 22 mph that
+  stopped at the far wall.
+- `cm-plane-0925b.mp4` (76286, scripted): take-off run to 43 mph and ALT 2
+  in about 4 s, a climb to ALT 36 by 11 s, a clear right bank of about 25
+  degrees, gentle forward pulses down to ALT 13; the 3D boom kept the ship
+  centred through the climb and the bank (the level boom of the earlier
+  `cm-plane-0925.mp4` lost it to the frame's edge).
+- A touch stick pushed to its rim reads 0.816, not 1 (a full-stick car held
+  15.5 of 19 blocks/s): every model now counts 0.8 as full (`STICK_FULL`).
+  Jump and the stick together cannot be sent over adb (one pointer), so the
+  boost-while-driving in the recordings was a stick press, a lift, a Jump
+  tap and a press again.
+
+### Vehicle audit: the 40 favourites and 21 vehicle sets
+
+`bun scripts/_vehicle_audit.ts --md --mirror=http://localhost:4000/ldraw-parts`
+(the index's first pick for each set, labelled as the LEGO tab labels it;
+`audit.json` beside the packs). Controller: `scripted` = moved by
+`scripts/vehicles.js`, `hover` = the Happy Ghast rotorcraft, `camel` = the
+native ground controller (only the 10300 time machine and grid-only cars
+now). Seats count the driver. Wheels: wheel/tyre placements / spinning
+wheel bones. The favourites were audited at `49dfc36d` and every vehicle
+row re-run at `f06405e7`; detection is the same code in both.
+
+| set | detected (controller) | nose (source, agreement) | seats | wheels / spinning | size w×h×l blocks | scale | a player would expect |
+|---|---|---|---|---|---|---|---|
+| 10261 Roller Coaster | static | | | | | 1 | coaster (its own engine) |
+| 10303 Loop Coaster | static | | | | | 1 | coaster (its own engine) |
+| 10326 Natural History Museum | static | | | | | 1 | building or scenery (static) |
+| 10337 Lamborghini Countach 5000 Quattrovalvole | car (scripted) | +x (inferred, 73%) | 2 | 12 / 10 | 2.39×1.38×4.7 | 0.28 | car |
+| 10341 NASA Artemis Space Launch System | static | | | | | 1 | static launch tower and rocket |
+| 10354 The Lord of the Rings: The Shire | static | | | | | 1 | building or scenery (static) |
+| 10365 Captain Jack Sparrow's Pirate Ship | boat (scripted) | +z (inferred, 100%) | 3 | 0 / 0 | 15.63×29.27×28.88 | 1 | ship |
+| 11371 Shopping Street | static | | | | | 1 | building or scenery (static) |
+| 11374 Arcade Pinball Machine | static | | | | | 1 | building or scenery (static) |
+| 21061 Notre-Dame de Paris | static | | | | | 1 | building or scenery (static) |
+| 21063 Neuschwanstein Castle | static | | | | | 1 | building or scenery (static) |
+| 21318 Tree House | static | | | | | 1 | building or scenery (static) |
+| 21360 Willy Wonka & the Chocolate Factory | static | | | | | 1 | building or scenery (static) |
+| 31141 Main Street | static | | | | | 1 | building or scenery (static) |
+| 41395 Friendship Bus | car (scripted) | -z (inferred, 100%) | 2 | 8 / 4 | 1.96×2.77×3.9 | 0.29 | bus |
+| 41703 Friendship Tree House | static | | | | | 1 | building or scenery (static) |
+| 41732 Downtown Flower and Design Stores | static | | | | | 1 | building or scenery (static) |
+| 42172 McLaren P1 | car (scripted) | -x (inferred, 100%) | 2 | 8 / 4 | 4.48×2.13×6.97 | 0.25 | car |
+| 42639 Andrea's Modern Mansion | static | | | | | 1 | building or scenery (static) |
+| 42652 Friendship Tree House Hangout | static | | | | | 1 | building or scenery (static) |
+| 42663 Friendship Camper Van Adventure | car (scripted) | -x (inferred, 97%) | 1 | 10 / 6 | 1.73×1.71×3.06 | 0.25 | camper van |
+| 42670 Heartlake City Apartments and Stores | static | | | | | 1 | building or scenery (static) |
+| 43267 Princess Castle & Royal Pets | static | | | | | 1 | building or scenery (static) |
+| 60380 Downtown | static | | | | | 1 | town; its cars could drive |
+| 60446 Modular Galactic Spaceship | plane (scripted) | +x (inferred, 80%) | 1 | 1 / 0 | 16.62×7.52×14.24 | 1 | spaceship |
+| 71040 Disney Castle | static | | | | | 1 | building or scenery (static) |
+| 71043 Hogwarts Castle | static | | | | | 1 | building or scenery (static) |
+| 75397 Jabba's Sail Barge | boat (scripted) | +x (inferred, 100%) | 4 | 0 / 0 | 13.56×13.47×36.67 | 1 | hover barge (flies in the film) |
+| 76269 Avengers Tower | static | | | | | 1 | building or scenery (static) |
+| 76286 The Milano Spaceship | plane (scripted) | -z (inferred, 73%) | 1 | 0 / 0 | 30×8.83×16.04 | 1 | spaceship |
+| 76417 Gringotts Wizarding Bank – Collectors' E | static | | | | | 1 | bank with a coaster |
+| 76419 Hogwarts Castle and Grounds | static | | | | | 1 | building or scenery (static) |
+| 76435 Hogwarts Castle: The Great Hall | static | | | | | 1 | building or scenery (static) |
+| 76457 Hogsmeade Village – Collectors' Edition | static | | | | | 1 | building or scenery (static) |
+| 77092 Great Deku Tree 2-in-1 | static | | | | | 1 | building or scenery (static) |
+| 80049 Dragon of the East Palace | static | | | | | 1 | building or scenery (static) |
+| 910004 Winter Chalet | static | | | | | 1 | building or scenery (static) |
+| 910032 Parisian Street | static | | | | | 1 | building or scenery (static) |
+| 910047 Medieval Seaside Market | static | | | | | 1 | market; its boats could sail |
+| 910049 Adventure in Transylvania | static | | | | | 1 | building or scenery (static) |
+| 10295 Porsche 911 Turbo & 911 Targa | car (scripted) | -z (inferred, 100%) | 2 | 10 / 4 | 2.03×1.38×4.5 | 0.27 | car (two in the set) |
+| 42143 Ferrari Daytona SP3 | car (scripted) | +z (inferred, 100%) | 1 | 13 / 7 | 3.48×2.5×7.6 | 0.25 | car |
+| 76139 1989 Batmobile | car (scripted) | -z (inferred, 100%) | 2 | 9 / 4 | 3.62×1.74×7.2 | 0.25 | car |
+| 10242 MINI Cooper | car (scripted) | -z (inferred, 99%) | 2 | 10 / 4 | 3.41×2.28×4.39 | 0.38 | car |
+| 75892 McLaren Senna | car (scripted) | -z (inferred, 100%) | 2 | 12 / 4 | 2.7×2.01×7.12 | 1 | car |
+| 42128 Heavy Duty Tow Truck | car (scripted) +1 car | -z (convention, 0%) | 2 | 36 / 6 | 2.16×2.71×7.54 | 0.25 | tow truck |
+| 60253 Ice-cream Truck | car (scripted) | -x (inferred, 93%) | 2 | 8 / 6 | 4.74×4.67×8.03 | 1 | van |
+| 10277 Crocodile Locomotive | static | | | | | 1 | locomotive (rail engine: fills its display track) |
+| 60198 Cargo Train | static | | | | | 1 | train (converted track 90 degrees off) |
+| 31109 Pirate Ship | boat (scripted) | -z (inferred, 81%) | 4 | 0 / 0 | 15.46×17.5×21.65 | 1 | ship |
+| 60266 Ocean Exploration Ship | boat (scripted) | +x (inferred, 60%) | 4 | 0 / 0 | 8.91×8.25×29.95 | 1 | ship with small boats |
+| 60221 Diving Yacht | boat (scripted) | -z (inferred, 36%) | 2 | 0 / 0 | 5.17×3.16×10.65 | 1 | yacht |
+| 6286 Skull's Eye Schooner | boat (scripted) | -z (inferred, 37%) | 4 | 0 / 0 | 10.5×22.67×33.88 | 1 | ship |
+| 70618 Destiny's Bounty | static | | | | | 1 | flying ship |
+| 60367 Passenger Airplane | plane (scripted) +6 car | -x (inferred, 100%) | 4 | 4 / 4 | 24.75×8.32×21 | 1 | airliner and airport vehicles |
+| 42066 Air Race Jet | plane (scripted) | -z (inferred, 100%) | 1 | 9 / 4 | 7.53×4.7×12.11 | 0.43 | jet |
+| 7140 X-wing Fighter | plane (scripted) | -z (inferred, 100%) | 1 | 0 / 0 | 11.63×2.96×12.71 | 1 | starfighter |
+| 75301 Luke Skywalker's X-Wing Fighter | plane (scripted) | -z (inferred, 67%) | 1 | 20 / 4 | 14.25×4.84×15.76 | 1 | starfighter |
+| 42092 Rescue Helicopter | plane (hover) | -z (inferred, 100%) | 1 | 2 / 0 | 11.77×5.37×12.15 | 0.9 | helicopter |
+| 60405 Emergency Rescue Helicopter | plane (hover) | -z (inferred, 60%) | 1 | 0 / 0 | 15.91×5.12×15.34 | 1 | helicopter |
+| 10497 Galaxy Explorer | static | | | | | 1 | spaceship |
+
+What the table says (and the open items it leaves):
+- 36 of the 61 sets are static. 30 as a player would expect: buildings,
+  scenery, 10341's launch tower and the two coasters (their own engine). 2
+  are trains (10277, 60198), below. 4 are not what a player expects: 70618
+  Destiny's Bounty and 10497 Galaxy Explorer (no vehicle word in the title),
+  and 60380's cars and 910047's boats (a vehicle inside scenery is never
+  offered).
+- 75397 Jabba's Sail Barge is a BOAT (the title's "barge"); in the film it
+  hovers. 42128's nose is `convention` (no evidence either way) and may be
+  backwards.
+- 10277 and 60198 are rail vehicles: see "Rail vehicles on the coaster
+  engine" (10277 fills its own display track; 60198's converted track sits
+  90 degrees off the LDraw part).
+- Two helicopters keep the hover controller; every car, boat and fixed wing
+  is scripted.
+
+### Traps found this round
+
+- **The prod part mirror throttles parallel exports.** Six `_playable_ref.ts`
+  runs at once got HTTP 429 for over an hour: 10337 lost 5093/5095 to AABB
+  boxes and four 10303 corpus tests failed. Build packs one at a time and
+  point every process at a dev server when prod throttles
+  (`CRAFTMATIC_LDRAW_MIRROR=http://localhost:4000/ldraw-parts`, or
+  `_playable_ref.ts --mirror=`); the 10303 tests then pass (112/112).
+- **10337's first pick (IOModel2V2) has its four 5650 rims 38 LDU off their
+  15413 tyres** (the `.io` has them seated), so the rig finds 10 wheels there
+  and 6 in the `.io`: the rims spin on their own axles, off-centre. A source
+  defect, left to the source repair.
+- **Teleporting a scripted boat into water** logs six `[Molang][error]
+  unable to find member variable .x/.y/.z` lines (the engine's splash; seen
+  only on test teleports).
+- **The favourites sweep never exercised vehicles**: it labels each pack
+  with the bare set number, which no vehicle word matches.
+  `bun scripts/_vehicle_audit.ts` labels exports `Name (set-1)` as the LEGO
+  tab does.

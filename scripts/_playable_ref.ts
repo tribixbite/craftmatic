@@ -11,6 +11,7 @@
  *          [--scale=auto|0.25|0.5|0.75|1|1.5|2|3|4]   (model scale as a multiplier of the minifig scale, engine/addon-scale.ts)
  *          [--lod=none|hull] [--lod-distance=N]   (default hull: a resident per-colour surface hull the client draws past N; engine/bedrock-lod-hull.ts)
  *          [--faces=<dir>]   (face art for heads no LDraw library prints: <part>.png per head, scripts/gen-face-art.py)
+ *          [--mirror=<url>]   (part mirror for names the local library lacks; default prod)
  *          [--figure-collision-height=N]   (experimental override for a figure NPC's minecraft:collision_box.height, default computed/clamped 1.0-1.8; device-919 roaming experiment)
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
@@ -24,7 +25,7 @@ import { extractIoModel } from '../web/src/engine/io-extractor.ts';
 import { embeddedPartTexts, parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.ts';
 import { synthesizeLSynth } from '../web/src/engine/lsynth.ts';
-import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
+import { seedDatTexts, setLDrawMirror, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { runSchemPipeline } from '../web/src/engine/schem-pipeline.ts';
 import { planResolution, planResolutionAtCell, spanOfBricks, DEFAULT_SCHEM_SETTINGS } from '../web/src/engine/schem-settings.ts';
 import { planAddonScale, type AddonScaleChoice } from '../web/src/engine/addon-scale.ts';
@@ -35,6 +36,12 @@ import { computePipelineStamp } from './pipeline-stamp.ts';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 setLDrawRoot(LDRAW_ROOT);
+// `--mirror=<url>`: the part mirror the CLI asks for a name the local library lacks (default prod,
+// https://craftmatic.click/ldraw-parts). Measured 2026-09-25: prod answered 429 under several parallel
+// exports and the packs silently lost parts to aliases; a running `bun dev:web` serves the same tree at
+// http://localhost:4000/ldraw-parts.
+const mirrorFlag = process.argv.find(a => a.startsWith('--mirror='))?.slice('--mirror='.length);
+if (mirrorFlag) setLDrawMirror(mirrorFlag);
 // The local copy of the prod part mirror, when present: a build during a prod
 // rate limit would otherwise draw post-2020 parts as older moulds or boxes.
 if (!process.env.CRAFTMATIC_LDRAW_REF && existsSync('C:/git/clego/ldraw_ref')) process.env.CRAFTMATIC_LDRAW_REF = 'C:/git/clego/ldraw_ref';

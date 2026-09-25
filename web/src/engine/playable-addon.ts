@@ -28,6 +28,7 @@ import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
+import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
@@ -378,6 +379,10 @@ export const ENTITY_FORMAT_VERSION = '1.26.30';
 export const DASH_ACTION = { cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 } as const;
 /** Aircraft component group that turns Jump into DESCEND (negative vertical velocity), and the events that toggle it. */
 export const AIRCRAFT_DESCEND_GROUP = 'craftmatic:descending';
+/** A car's `minecraft:movement` (see behaviorEntity: ~41.5 blocks/s per unit, measured on the Pixel 2026-09-25). */
+export const CAR_MOVEMENT = 0.45;
+/** Every native speed of a SCRIPTED vehicle (fixed wing, boat): zero, so only scripts/vehicles.js moves it. */
+export const SCRIPTED_NATIVE_SPEED = 0;
 /** Aircraft component group holding the normal Jump = CLIMB action; added at spawn and by `descend_off`. */
 export const AIRCRAFT_CLIMB_GROUP = 'craftmatic:climbing';
 export const AIRCRAFT_DESCEND_ON = 'craftmatic:descend_on';
@@ -404,7 +409,7 @@ function componentLayout(kind: PlayableKind, grid: BlockGrid, requestedScale = 1
     return { scale, longitudinalAxis, forwardSign, width, length, height, actorYaw };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, isTimeMachine = false, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, scriptedCar = false): unknown {
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
@@ -437,7 +442,25 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // A brick-compiled entity is at player scale (0.2 blocks per stud); the
     // scene grid is 12x that, so its size only stands in for the grid fallback.
     const cameraSeat = { third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
-    const rideableComponent: Record<string, unknown> = seatCount <= 1
+    // Passenger seats the model itself has (its free seat moulds, ldraw-entity-compiler `passengerSeats`):
+    // the driver in seat 0, each passenger where the source put a seat; a model the rider sits ON sits them on it too.
+    const measured = (passengerSeats ?? []).map(([x, y, z]) => [x, Math.max(y, seatY), z] as [number, number, number]);
+    // No free seat mould (most LEGO cars and ships build their seats from bricks):
+    // a car or boat long enough gets passengers BEHIND the driver (the model's
+    // nose is -Z), a block apart on a car, two on a ship, never past the tail.
+    const length = entitySize?.length ?? layout.length;
+    const fallback: Array<[number, number, number]> = [];
+    if (!measured.length && seatCount <= 1 && seatPositionOverride && (kind === 'car' || kind === 'boat') && length >= 3.5) {
+        const spacing = kind === 'boat' && length >= 8 ? 2 : 1;
+        for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
+    }
+    const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
+    const rideableComponent: Record<string, unknown> = measuredPassengers.length
+        ? {
+            seat_count: 1 + measuredPassengers.length, controlling_seat: 0, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true,
+            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position, lock_rider_rotation: 0, ...cameraSeat })),
+        }
+        : seatCount <= 1
         ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0, ...cameraSeat } }
         : {
             seat_count: seatCount,
@@ -485,9 +508,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // Aircraft speed is the Happy Ghast's (movement 0.3, flying_speed 0.083)
         // scaled: at 1.35 the X-wing climbed 206 blocks in about a second on the
         // Pixel (vertical velocity scales with the flying speed).
+        // A car at 1.05 was measured at 44.8-65.8 mph (20-29 blocks/s) with the
+        // stick HALF over (0.45-0.66) by a real rider, and 43.6 blocks/s at full
+        // stick in GameTest (Pixel, 2026-09-25): speed runs ~41.5 blocks/s per
+        // unit. 0.45 makes full stick ~19 blocks/s (42 mph), twice a sprinting
+        // player and faster than any horse, without leaping a block per tick.
+        // (A boat is scripted now; its value is overwritten below.)
         'minecraft:movement': isTimeMachine
             ? { value: .02, max: 6 }
-            : { value: kind === 'car' ? 1.05 : kind === 'boat' ? 1.15 : .3, max: kind === 'car' ? 1.35 : kind === 'boat' ? 1.5 : .6 },
+            : { value: kind === 'car' ? CAR_MOVEMENT : .3, max: kind === 'car' ? CAR_MOVEMENT * 1.3 : .6 },
         // Ridden vanilla mounts (horse, camel, Happy Ghast) are all tamed; the
         // `player_ride_tamed` goal that steers by rider input depends on it.
         'minecraft:is_tamed': {},
@@ -498,7 +527,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // (hold to charge, release to dash) instead of a dismount - on touch the
     // rider gets the horse-style Jump + Dismount buttons. A script impulse on a
     // client-authoritative mount was never a reliable boost.
-    if (kind === 'car') {
+    if (kind === 'car' && !scriptedCar) {
         Object.assign(common, {
             'minecraft:physics': { has_gravity: true, has_collision: true },
             'minecraft:input_ground_controlled': {},
@@ -508,24 +537,32 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:navigation.walk': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.56, jump_prevented_value: .6 },
         });
-    } else if (kind === 'boat') {
+    } else if (motion === 'plane' || motion === 'boat' || scriptedCar) {
+        // A FIXED WING or a BOAT is moved by scripts/vehicles.js
+        // (bedrock-vehicle.ts `flightStep` / `boatStep`): take-off speed, stick
+        // pitch, stall and landing; throttle, rudder, boost and beaching. The
+        // Happy Ghast rider components stay only so the seat behaves as a
+        // ridden vehicle (Jump is an input, not a dismount - a plain rideable
+        // dismounts on Jump, pinball 2026-09-24), with every native speed at
+        // zero so nothing but the script moves it; no gravity (the script owns
+        // the vertical), no body-follows-head (the script owns the heading).
+        // A boat used to be the camel controller over `minecraft:buoyant`: it
+        // floated but crawled at 1.6-1.8 blocks/s on water (Pixel GameTest,
+        // 2026-09-25).
         Object.assign(common, {
-            'minecraft:physics': { has_gravity: true, has_collision: true },
-            'minecraft:buoyant': {
-                base_buoyancy: 1.0,
-                apply_gravity: true,
-                simulate_fluid_physics: true,
-                liquid_blocks: ['minecraft:water', 'minecraft:flowing_water'],
-            },
-            'minecraft:input_ground_controlled': {},
-            'minecraft:dash_action': DASH_ACTION,
-            'minecraft:behavior.player_ride_tamed': {},
-            'minecraft:movement.basic': { max_turn: 20 },
-            'minecraft:navigation.walk': { can_path_over_water: true, avoid_damage_blocks: false },
-            'minecraft:variable_max_auto_step': { base_value: 1.25, controlled_value: 1.56, jump_prevented_value: .6 },
+            'minecraft:movement': { value: SCRIPTED_NATIVE_SPEED },
+            'minecraft:physics': { has_gravity: false, has_collision: true },
+            'minecraft:can_fly': {},
+            'minecraft:jump.static': {},
+            'minecraft:movement.hover': {},
+            'minecraft:navigation.hover': { can_path_over_water: true, avoid_damage_blocks: false },
+            'minecraft:free_camera_controlled': { strafe_speed_modifier: 0, backwards_movement_modifier: 0 },
+            'minecraft:flying_speed': { value: SCRIPTED_NATIVE_SPEED },
+            'minecraft:vertical_movement_action': { vertical_velocity: SCRIPTED_NATIVE_SPEED },
+            'minecraft:behavior.player_ride_tamed': { priority: 1 },
         });
     } else {
-        // Aircraft follow the vanilla HAPPY GHAST (bedrock-samples, format
+        // Rotorcraft follow the vanilla HAPPY GHAST (bedrock-samples, format
         // 1.26.30): `free_camera_controlled` flies where the rider looks (pitch
         // included), `vertical_movement_action` makes Jump climb, hover
         // movement/navigation keep it airborne with no gravity.
@@ -551,7 +588,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // downwards"). `vertical_movement_action` with a NEGATIVE velocity moves
     // the entity down on Jump, so the driver script swaps this group in while
     // the rider pulls the stick back and holds Jump (vehicle-driver.js).
-    const aircraftGroups = kind === 'plane' ? {
+    const aircraftGroups = kind === 'plane' && motion !== 'plane' ? {
         component_groups: {
             [AIRCRAFT_CLIMB_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: .5 } },
             [AIRCRAFT_DESCEND_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } },
@@ -564,7 +601,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
     return withSizeGroups(
-        { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, ...aircraftGroups, components: common } },
+        { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(motion === 'plane' || motion === 'boat' || scriptedCar ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
     );
@@ -1234,6 +1271,12 @@ const timeMachineScript = (config: { typeId: string; width: number; height: numb
 
 function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; dashCooldownTicks: number; descendOn: string; descendOff: string }) {
   const MPH_PER_BLOCK_TICK = 20 * 2.236936;
+  const telemetry = { on: false, every: 20 };
+  try {
+    system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.id === 'craftmatic:vehicle_telemetry') { const m = String(ev.message || '').trim(); telemetry.on = m !== 'off'; telemetry.every = m === 'fast' ? 4 : 20; }
+    }, { namespaces: ['craftmatic'] });
+  } catch {}
   const vehiclesByType = new Map(config.vehicles.map((v: any) => [v.typeId, v]));
   const states = new Map<string, any>();
   /**
@@ -1351,16 +1394,11 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         }
       }
 
-      // 2b. Reverse Gear & Dynamic Brake Lights
+      // 2b. Brake lights while reversing. Reverse itself is NATIVE: a GameTest
+      //     car reversed at ~10 blocks/s with this script reading no input at
+      //     all (Pixel, 2026-09-25), so the old script impulse only added a
+      //     second, unmeasured push on a client-authoritative mount.
       if (forwardInput < -0.1) {
-        const revSpeed = isCar ? -0.16 : isBoat ? -0.12 : -0.1;
-        try {
-          vehicle.applyImpulse?.({
-            x: (dir.x / hDir) * revSpeed,
-            y: 0,
-            z: (dir.z / hDir) * revSpeed,
-          });
-        } catch {}
         if (tick % 4 === 0) {
           try {
             const rX = vehicle.location.x - (dir.x / hDir) * 1.2;
@@ -1370,13 +1408,7 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         }
       }
 
-      // 2c. Interactive Horn on Sneak / Crouch
-      if (rider.isSneaking && tick % 14 === 0) {
-        try {
-          vehicle.dimension?.playSound?.('note.cow_bell', vehicle.location, { volume: 1.0, pitch: 1.0 });
-          vehicle.dimension?.spawnParticle?.('minecraft:note_particle', { x: vehicle.location.x, y: vehicle.location.y + 1.2, z: vehicle.location.z });
-        } catch {}
-      }
+      // (Sneak is the Dismount button on a mount, so it cannot be a horn.)
 
       // 2d. Engine Audio Loop & Dynamic Speed Pitch
       if (forwardInput > 0.1 && mph > 1.5) {
@@ -1408,19 +1440,32 @@ function vehicleDriverRuntime(config: { vehicles: Array<{ typeId: string; kind: 
         try { vehicle.dimension?.spawnParticle?.('minecraft:water_wake_particle', vehicle.location); } catch {}
       }
 
-      // 4. Headlights (automatic night vision)
+      // 4. Headlights: night vision for the rider, at NIGHT only (13000-23000 ticks of the day).
       if (tick % 20 === 0) {
-        try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {}
+        let night = false;
+        try { const t = world.getTimeOfDay(); night = t >= 13000 && t < 23000; } catch {}
+        if (night) { try { rider.addEffect?.('minecraft:night_vision', 80, { showParticles: false }); } catch {} }
+      }
+      // 4b. Telemetry (/scriptevent craftmatic:vehicle_telemetry on|fast|off): one CMVT line a second
+      //     (every 4 ticks with `fast`), with the rider's own yaw beside the vehicle's, for measuring a real drive.
+      if (telemetry.on && tick % telemetry.every === 0) {
+        try {
+          const l = vehicle.location, r = vehicle.getRotation?.() ?? { y: 0 };
+          let riderYaw = NaN;
+          try { riderYaw = Math.round(rider.getRotation().y); } catch {}
+          console.warn(`CMVT ${JSON.stringify({ type: vehicle.typeId, t: tick, x: Math.round(l.x * 100) / 100, y: Math.round(l.y * 100) / 100, z: Math.round(l.z * 100) / 100, yaw: Math.round(r.y), riderYaw, mph: Math.round(mph * 10) / 10, input: { x: Math.round(steerInput * 100) / 100, y: Math.round(forwardInput * 100) / 100, jump } })}`);
+        } catch {}
       }
 
       // 5. Action Bar Speedometer HUD with Gear, Reverse, and Multi-seat Co-Pilot
       if (tick % 4 === 0) {
         const boostReady = state.boostCooldown <= 0;
-        const icon = isCar ? '🏎️' : isBoat ? '⛵' : '✈️';
+        // ASCII only: the Pixel's HUD font drew these emoji (and U+FE0F) as empty boxes (2026-09-25).
+        const icon = isCar ? '§lCAR§r' : isBoat ? '§lBOAT§r' : '§lHELI§r';
         const boostTag = (isCar || isBoat)
           ? (boostReady ? ' · §a[JUMP: DASH]§r' : ` · §8[DASH: ${(state.boostCooldown / 20).toFixed(1)}s]§r`)
           : (state.descending ? ' · §a[DESCENDING]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · BACK+JUMP: DESCEND · LOOK DOWN: DIVE]§r');
-        const coPilotTag = riders.length > 1 ? ` · §d[👥 ${riders.length}]§r` : '';
+        const coPilotTag = riders.length > 1 ? ` · §d[${riders.length} ABOARD]§r` : '';
         let speedText = `§e${mph.toFixed(1)} mph§r`;
         if (forwardInput < -0.1) {
           speedText = `§c[REV]§r §e-${mph > 0.5 ? mph.toFixed(1) : '0.0'} mph§r`;
@@ -1511,7 +1556,11 @@ export function boomCameraPreset(cid: string, size: { width: number; height: num
  * the orbit presets) the vanilla `minecraft:third_person` preset stands in.
  */
 /** Per-vehicle camera config serialised into the pack. */
-interface VehicleCameraConfig { typeId: string; preset: string; kind: 'car' | 'plane' | 'boat'; radius: number; height: number; pivotY: number }
+interface VehicleCameraConfig {
+    typeId: string; preset: string; kind: 'car' | 'plane' | 'boat'; radius: number; height: number; pivotY: number;
+    /** Flown by scripts/aircraft.js: the camera follows the AIRCRAFT's heading and nose (its pitch property), and the rider keeps the default control scheme so the stick's left/right reaches the script as input. */
+    scripted?: boolean;
+}
 
 /**
  * Runs in the pack. Measured on the Pixel (1.26.45, 2026-09-15): a camera
@@ -1525,7 +1574,7 @@ interface VehicleCameraConfig { typeId: string; preset: string; kind: 'car' | 'p
  * climb/dive input under `free_camera_controlled`. Everything is cleared on
  * dismount. If the free camera is rejected, the vanilla third person stands in.
  */
-function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
+function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchProperty?: string }) {
   const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
   const tracked = new Map<string, { typeId: string; chase: boolean }>();
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
@@ -1534,17 +1583,39 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
     try { player.camera.setCamera('minecraft:third_person'); return true; } catch {}
     return false;
   };
+  const cameraSource = { yaw: 'rider' as 'rider' | 'vehicle' };
+  // Tuning hook `/scriptevent craftmatic:vehicle_scheme <scheme|clear>`: the control scheme a
+  // native mount's rider is held in (default player_relative). TODO: settle it from the device
+  // A/B - a real car's yaw swung through 180 degrees a second on straight stick, 2026-09-25.
+  const controlScheme = { value: 'player_relative' };
   const chase = (player: any, vehicle: any, cfg: any): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
+    // Tuning hook `/scriptevent craftmatic:vehicle_camera vehicle|rider`: a ground
+    // vehicle's chase camera behind the VEHICLE's heading instead of the rider's
+    // look. TODO: pick the default from the device A/B (a real car's yaw swung
+    // 0 -> 69 -> -125 -> -28 in three seconds of straight stick, 2026-09-25).
+    if (!cfg.scripted && cameraSource.yaw === 'vehicle') { try { yaw = vehicle.getRotation().y; } catch {} }
+    if (cfg.scripted) {
+      // A scripted aircraft: the view is the AIRCRAFT's heading and nose, not the rider's look.
+      try { yaw = vehicle.getRotation().y; } catch {}
+      try { pitch = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch { pitch = 0; }
+    }
     const rad = yaw * Math.PI / 180;
     // Bedrock yaw: 0 faces +Z, 90 faces -X; forward = (-sin, cos).
     const fx = -Math.sin(rad), fz = Math.cos(rad);
     let v: any;
     try { v = vehicle.location; } catch { return false; }
-    const location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
+    let location = { x: v.x - fx * cfg.radius, y: v.y + cfg.height, z: v.z - fz * cfg.radius };
     let facingLocation: any;
-    if (cfg.kind === 'plane') {
+    if (cfg.scripted) {
+      // A scripted vehicle: the boom trails along its NOSE in 3D, so a climbing
+      // or diving aircraft stays in frame (the level boom looked at the sky with
+      // the Milano under the frame's edge in a steep climb, Pixel 2026-09-25).
+      const prad = pitch * Math.PI / 180, cp = Math.cos(prad), sp = -Math.sin(prad);
+      location = { x: v.x - fx * cp * cfg.radius, y: v.y + cfg.pivotY + cfg.height * 0.5 - sp * cfg.radius, z: v.z - fz * cp * cfg.radius };
+      facingLocation = { x: v.x + fx * cp * cfg.radius, y: v.y + cfg.pivotY + sp * cfg.radius, z: v.z + fz * cp * cfg.radius };
+    } else if (cfg.kind === 'plane') {
       // Aircraft: the camera looks along the rider's exact yaw AND pitch, so
       // `free_camera_controlled` (flies where the camera looks) and the
       // rider's own look agree: look down = dive, look up = climb.
@@ -1585,12 +1656,25 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
       // script-driven chase camera. Before 2026-09-16 an aircraft kept the
       // orbit preset, whose drag input orbited the CAMERA and never turned
       // the rider - "no way to turn a mounted vehicle" on touch.
+      // A scripted aircraft reads the stick's left/right itself: the default (strafe) scheme leaves it in the movement vector.
       if (!t || t.typeId !== cfg.typeId) {
-        scheme(player, 'set player_relative');
+        scheme(player, cfg.scripted ? 'clear' : controlScheme.value === 'clear' ? 'clear' : `set ${controlScheme.value}`);
         tracked.set(id, { typeId: cfg.typeId, chase: true });
-      } else if (schemeTick % 10 === 0) {
-        scheme(player, 'set player_relative');
+        try { player.sendMessage('§7Hotbar slot 9: cockpit view. Any other slot: chase camera.'); } catch {}
+      } else if (schemeTick % 10 === 0 && !cfg.scripted) {
+        scheme(player, controlScheme.value === 'clear' ? 'clear' : `set ${controlScheme.value}`);
       }
+      // Hotbar slot 9 is the COCKPIT view: the chase camera steps aside and the
+      // rider sees from the seat (their own first person). Sneak is Dismount and
+      // Jump is the vehicle's, so a hotbar slot is the one free touch input.
+      let cockpit = false;
+      try { cockpit = player.selectedSlotIndex === 8; } catch {}
+      const now = tracked.get(id);
+      if (cockpit) {
+        if (now && now.chase) { try { player.camera.clear(); } catch {} now.chase = false; }
+        continue;
+      }
+      if (now) now.chase = true;
       if (!chase(player, vehicle, cfg) && !t) applyPreset(player, cfg.preset);
     }
     schemeTick++;
@@ -1606,9 +1690,21 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[] }) {
     }
   }, 1);
   try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => tracked.delete(ev.playerId)); } catch {}
+  try {
+    system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.id === 'craftmatic:vehicle_scheme') {
+        controlScheme.value = String(ev.message || '').trim() || 'player_relative';
+        console.warn(`CMVT ${JSON.stringify({ controlScheme: controlScheme.value })}`);
+        return;
+      }
+      if (ev.id !== 'craftmatic:vehicle_camera') return;
+      cameraSource.yaw = String(ev.message || '').trim() === 'vehicle' ? 'vehicle' : 'rider';
+      console.warn(`CMVT ${JSON.stringify({ cameraYaw: cameraSource.yaw })}`);
+    }, { namespaces: ['craftmatic'] });
+  } catch {}
 }
 
-const vehicleCameraScript = (config: { vehicles: VehicleCameraConfig[] }) =>
+const vehicleCameraScript = (config: { vehicles: VehicleCameraConfig[]; pitchProperty?: string }) =>
   `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)});\n`;
 
 function blockRgb(state: string): [
@@ -1855,6 +1951,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 );
             }
         }
+    };
+    /** A driven vehicle's wheel spin and body motion (bedrock-vehicle.ts): writes the animation file, returns what the client entity plays. */
+    const emitDriveAnimation = (ecid: string, motion: VehicleMotion, geo: CompiledLdrawGeometry, scripted = motion === 'plane' || motion === 'boat'): ClientAnimations => {
+        const anim = vehicleClientAnimation(ecid, motion, geo.wheelBones ?? [], scripted);
+        files.push({ name: `${rp}animations/${ecid}.animation.json`, data: json(anim.file) });
+        return anim.client;
     };
     let creatorConfig: MinifigCreatorConfig | undefined;
     if (options.minifigCreator) {
@@ -2103,6 +2205,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     let timeMachineConfig: { typeId: string; width: number; height: number; length: number } | undefined;
     const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
+    /** Fixed-wing aircraft and boats moved by scripts/vehicles.js (bedrock-vehicle.ts), with half their length for the bow probe. */
+    const scriptedTypes: ScriptedVehicleConfig['types'] = {};
     const cameraVehicles: VehicleCameraConfig[] = [];
     const unmapped = new Set<string>();
     const cameraStyle: VehicleCameraStyle = options.cameraStyle ?? 'orbit';
@@ -2143,6 +2247,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 partGeometry: options.partGeometry,
                 quality: options.entityQuality,
                 pbr,
+                // Spinning wheels and a body that leans (bedrock-vehicle.ts).
+                vehicleRig: true,
             });
             facing = ldrawGeo.facing;
         } else if (c.kind === 'car' && facing === 'auto') {
@@ -2150,15 +2256,26 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
         const layout = componentLayout(c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing);
         const componentIsTimeMachine = isTimeMachine && c.kind === 'car' && !timeMachineConfig;
+        // A fixed wing (brick-compiled) is flown by scripts/aircraft.js; a rotorcraft and a grid-only aircraft keep the hover controller.
+        const motion: VehicleMotion = ldrawGeo ? vehicleMotionOf(c.kind, c.label) : c.kind === 'plane' ? 'rotor' : c.kind;
+        // A brick-compiled car is scripted (bedrock-vehicle.ts `carStep`); the time machine and a grid-only car keep the camel.
+        const scriptedCar = !!ldrawGeo && c.kind === 'car' && !componentIsTimeMachine;
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length };
+        else if (motion === 'plane' || motion === 'boat' || scriptedCar)
+            scriptedTypes[fullTypeId] = {
+                mode: scriptedCar ? 'car' : motion === 'boat' ? 'boat' : 'plane', noseReach: Math.round((ldrawGeo?.sizeBlocks.length ?? layout.length) / 2 * 100) / 100,
+                // A boat's keel sits deeper the bigger it is: 12 % of its height, 0.3-1.2 blocks (a 3-block yacht rode
+                // visibly high at a flat 0.3 on the Pixel; a 29-block galleon with its masts sits 1.2 deep).
+                ...(motion === 'boat' ? { draft: Math.round(Math.min(1.2, Math.max(0.3, (ldrawGeo?.sizeBlocks.height ?? layout.height) * 0.12)) * 100) / 100 } : {}),
+            };
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks), undefined, true);
-            cameraVehicles.push(emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks));
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, componentIsTimeMachine, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, scriptedCar), emitDriveAnimation(cid, motion, ldrawGeo, motion === 'plane' || motion === 'boat' || scriptedCar), true);
+            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(motion === 'plane' || motion === 'boat' || scriptedCar ? { scripted: true } : {}) });
 
             // Secondary objects the compiler found beside the vehicle (see
             // EntityExtra): figures wander as minifig NPCs, a wheeled second
@@ -2179,6 +2296,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                         scale: ekind === 'figure' ? figureUnitsPerLdu : unitsPerLdu,
                         ...(extra.facingLdu ? { facing: snapFacing(extra.facingLdu) } : {}),
                         partGeometry: options.partGeometry, quality: options.entityQuality, pbr,
+                        ...(ekind === 'car' ? { vehicleRig: true } : {}),
                     });
                 } catch (e) {
                     warnings.push(`${elabel}: could not be compiled (${e instanceof Error ? e.message : String(e)}); left out.`);
@@ -2189,12 +2307,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks);
-                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined, ekind !== 'figure');
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, true);
+                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
-                    driverVehicles.push({ typeId: `${PACK_NAMESPACE}:${ecid}`, kind: 'car', label: elabel });
-                    cameraVehicles.push(emitCameraPresets(ecid, 'car', egeo.sizeBlocks));
+                    scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = { mode: 'car', noseReach: Math.round(egeo.sizeBlocks.length / 2 * 100) / 100 };
+                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);
@@ -2596,7 +2714,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, dashCooldownTicks: Math.round(DASH_ACTION.cooldown_time * 20), descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
-    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch })) });
+    if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({ types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, props: FLIGHT_PROPS, inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
     // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
     const figureTypes = Object.keys(figureBodies);
@@ -2632,13 +2751,14 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         "import './placement.js';",
         ...(driverVehicles.length ? ["import './vehicle-driver.js';"] : []),
         ...(cameraVehicles.length ? ["import './vehicle-camera.js';"] : []),
+        ...(Object.keys(scriptedTypes).length ? ["import './vehicles.js';"] : []),
         ...(creatorConfig ? ["import './minifig-wand.js';"] : []),
         ...(coasterConfig ? ["import './coaster.js';"] : []),
         ...(pinballConfig ? ["import './pinball.js';"] : []),
         ...(interactiveConfig ? ["import './interactives.js';"] : []),
         ...(figureTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes: ride to fly - push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives; Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when it is at least 1 x 2 blocks at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive - the camera stays behind you; hold Jump to charge a dash and release it for a boost; the Dismount (sneak) button gets you out. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when it is at least 1 x 2 blocks at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance };

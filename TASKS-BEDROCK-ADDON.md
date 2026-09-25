@@ -28,14 +28,50 @@ Neither surface proves Bedrock's rendering, culling, form text or ride physics
 
 ## In flight — 2026-09-25 (agents in worktrees)
 
-- [ ] **Vehicles**: offline audit of every favourite's vehicle detection; polish
-  ground / boat / plane / ship operation; trains reuse the coaster track
-  pipeline + pure physics (DRY); GameTest ride tests; device recordings.
 - [ ] **Physics audit + spec**: gravity/units across coaster, pinball,
   vehicles, figure walker (vs real and vs Minecraft's ~32 blocks/s^2, Froude
   scaling with wand size); coaster pace "a touch too fast" — pace 1.4 broke
   two 10303 tests (patch `output/pace-1.4-attempt.patch`); spec
   `docs/physics-architecture.md` with a CI-gated staleness checker.
+
+## Vehicle round — 2026-09-25 (cars, boats, planes; trains on the coaster engine)
+
+Guide: `docs/bedrock-addon-guide.md` "Vehicle operation: cars, boats, planes,
+measured" (audit table, before/after per class, controls, traps) and "Rail
+vehicles on the coaster engine"; constants in `docs/physics-architecture.md`
+§4.6/§9. Evidence under the vehicle worktree's `output/vehicle-audit-0925/`
+(GameTest `gt-base/`, `gt-v2/`, `gt-v3/`, real drives `real-v2/`, `real-v3/`,
+recordings `recordings/`, audit `final-audit/`).
+
+Re-run: `bun scripts/_vehicle_audit.ts --md --mirror=http://localhost:4000/ldraw-parts`
+(needs `bun dev:web`); device course:
+`bun scripts/_gametest_pack.ts <pack> --only=vehicles` then
+`python -u scripts/_pixel_dev_deploy.py cmgametest <variant> --mode import`
+(one variant bound); real drive: `/scriptevent craftmatic:vehicle_telemetry fast`.
+
+Open, largest first:
+- [ ] The scripted car (`carStep`) passed GameTest 8/8 and a real rider drove
+  it straight, turned it right, coasted and reversed (`gt-v5/`, `real-v5/`).
+  Still to feel on the phone: steering rate at top speed (43 degrees/s), the
+  step ease, a slope's pitch, a wall stop; the camel's tuning hooks
+  (`craftmatic:vehicle_scheme`, `vehicle_camera`) now serve only the time
+  machine and can go once 10300 is scripted too.
+- [ ] Rail GameTest cannot drive a train: a simulated player's
+  `moveRelative` never reaches `getMovementVector`. Give the coaster runtime
+  a `FLIGHT_INPUT_EVENT`-style stick override, as the scripted vehicles have.
+- [ ] Converted railway track (Mecabricks, Eurobricks LXF) is placed 90° off
+  the LDraw part: a clego converter row, not a router workaround.
+- [ ] Scripted vehicles probe the centre line only (ground under, blocks
+  ahead of the nose): a wingtip or a wide hull passes through a tree or a
+  pier. A box sweep would fix it at a script cost.
+- [ ] Classification gaps from the audit: 75397 Jabba's Sail Barge is a
+  BOAT (it hovers in the film); 70618 Destiny's Bounty and 10497 Galaxy
+  Explorer are static (no vehicle word in the title);
+  vehicles inside scenery (60380 Downtown's cars, 910047's boats) are not
+  offered; 42128's nose is `convention` (no evidence) and may drive backwards.
+- [ ] 10337's first pick (IOModel2V2) has its four 5650 rims 38 LDU off their
+  tyres (the `.io` seats them): source repair.
+- [ ] Headlights are night vision at night only; no light blocks follow a car.
 
 ## Round 2026-09-25 — merged at `56a96e0f`; packs `output/device-round-2026-09-25/packs-56a96e0f/` (9, zip beside), deployed to world 924
 

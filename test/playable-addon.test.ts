@@ -90,7 +90,8 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:dash_action']).toEqual({ cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 });
     expect(entity.format_version).toBe('1.26.30');
     expect(components['minecraft:rideable'].seats.third_person_camera_radius).toBeGreaterThanOrEqual(5);
-    expect(components['minecraft:movement'].value).toBeGreaterThan(1);
+    // ~41.5 blocks/s per unit measured on the Pixel: 0.45 is ~19 blocks/s (42 mph) at full stick.
+    expect(components['minecraft:movement'].value).toBe(0.45);
     expect(components['minecraft:movement'].value).toBeLessThan(1.4);
     expect(components['minecraft:damage_sensor'].triggers).toEqual([{ cause: 'all', deals_damage: 'no' }]);
     expect(components['minecraft:fire_immune']).toEqual({});
@@ -125,10 +126,14 @@ describe('playable Bedrock add-on',()=>{
     expect(cameraScript).toContain("controlscheme @s ${value}");
     expect(cameraScript).toContain('minecraft:free');
     expect(cameraScript).toContain('"radius":');
+    // Hotbar slot 9 swaps the chase camera for the cockpit view.
+    expect(cameraScript).toContain('selectedSlotIndex === 8');
     expect(driverScript).toContain('stallTicks');
-    expect(driverScript).toContain('revSpeed');
-    expect(driverScript).toContain('isSneaking');
-    expect(driverScript).toContain('note.cow_bell');
+    // Reverse is native (GameTest 2026-09-25); sneak is Dismount, never a horn; telemetry for measured drives.
+    expect(driverScript).not.toContain('revSpeed');
+    expect(driverScript).not.toContain('note.cow_bell');
+    expect(driverScript).toContain('craftmatic:vehicle_telemetry');
+    expect(driverScript).toContain('getTimeOfDay');
     expect(driverScript).toContain('GEAR');
     expect(driverScript).toContain('setActionBar');
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
@@ -139,7 +144,7 @@ describe('playable Bedrock add-on',()=>{
     expect(placement).toContain('"yaw":-90');
   });
 
-  it('pairs behavior and resource packs and emits buoyant watercraft controls for boats/ships', async () => {
+  it('pairs behavior and resource packs and makes a boat a scripted vehicle (the buoyant camel crawled at 1.6 blocks/s)', async () => {
     const result = await buildPlayableAddon(model(), { stem: 'Pirate Ship', vehicleMode: 'boat' });
     const buffer = ab(result.bytes);
     const entries = listZipEntries(buffer);
@@ -147,15 +152,19 @@ describe('playable Bedrock add-on',()=>{
     expect(entries).toContain('Craftmatic_pirate_ship_BP/entities/pirate_ship_pirate_ship.json');
     const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_pirate_ship_BP/entities/pirate_ship_pirate_ship.json')));
     const components = entity['minecraft:entity'].components;
-    expect(components['minecraft:buoyant']).toBeDefined();
-    expect(components['minecraft:buoyant'].base_buoyancy).toBe(1.0);
-    expect(components['minecraft:buoyant'].liquid_blocks).toContain('minecraft:water');
-    expect(components['minecraft:navigation.walk'].can_path_over_water).toBe(true);
-    expect(components['minecraft:variable_max_auto_step'].controlled_value).toBe(1.56);
-    const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_pirate_ship_BP/scripts/vehicle-driver.js'));
-    expect(driverScript).toContain('isBoat');
-    expect(driverScript).toContain('water_splash_particle');
-    expect(driverScript).toContain('water_wake_particle');
+    // No native controller moves it: the script owns position and heading, Jump stays an input.
+    expect(components['minecraft:buoyant']).toBeUndefined();
+    expect(components['minecraft:input_ground_controlled']).toBeUndefined();
+    expect(components['minecraft:movement'].value).toBe(0);
+    expect(components['minecraft:physics'].has_gravity).toBe(false);
+    expect(components['minecraft:vertical_movement_action'].vertical_velocity).toBe(0);
+    expect(Object.keys(entity['minecraft:entity'].description.properties)).toEqual(['craftmatic:fl_pitch', 'craftmatic:fl_bank', 'craftmatic:fl_wheel']);
+    const script = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_pirate_ship_BP/scripts/vehicles.js'));
+    expect(script).toContain('function boatStep');
+    expect(script).toContain('"craftmatic:pirate_ship_pirate_ship":{"mode":"boat"');
+    expect(entries).not.toContain('Craftmatic_pirate_ship_BP/scripts/vehicle-driver.js');
+    const main = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_pirate_ship_BP/scripts/main.js'));
+    expect(main).toContain("import './vehicles.js';");
   });
 
   it('auto-detects ships and boats from label keywords', async () => {

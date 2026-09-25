@@ -338,6 +338,8 @@ export async function runSchemPipeline(
     let interactionNote: string | undefined;
     /** The measured walk-through size (see `measureSceneAccess` below); undefined when no scene was discovered. */
     let access: AccessScaleRecommendation | undefined;
+    /** The title's only vehicle is a train on its own railway track (it runs on the coaster engine instead). */
+    let railOnly = false;
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
@@ -363,6 +365,23 @@ export async function runSchemPipeline(
       const source = { ...input.source, bricks: repaired.bricks };
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto');
       warnings.push(...found.warnings);
+      // A train that stands on its own railway track runs ON it (the coaster
+      // engine, driven: bedrock-coaster.ts `RAIL_TRAIN_PHYSICS`), not as a free
+      // wheeled vehicle that would take the track away with it (10277 is titled
+      // "Locomotive"). Only in auto mode: an explicit vehicle mode still wins.
+      if ((input.vehicleMode ?? 'auto') === 'auto' && found.components.length) {
+        const before = found.components.length;
+        const { extractCoasterTrackRoutes } = await import('./coaster-track.js');
+        for (let k = found.components.length - 1; k >= 0; k--) {
+          const railway = extractCoasterTrackRoutes(found.components[k]!.bricks).routes.filter(route => route.family === 'train');
+          if (!railway.length) continue;
+          warnings.push(`Rail: ${found.components[k]!.label} stands on ${railway.length} railway line${railway.length === 1 ? '' : 's'} of its own; it runs on its track as a driven train instead of a free vehicle.`);
+          found.components.splice(k, 1);
+        }
+        // Every vehicle the title found is a train on its own track: the add-on
+        // must not make the whole model a free car again from the title.
+        if (before && !found.components.length) railOnly = true;
+      }
       const movable = new Set<ParsedBrick>();
       for (const component of found.components) for (const brick of component.bricks) movable.add(brick);
       // The building's own life: figures become NPCs, seats sittable, door leaves doors.
@@ -436,6 +455,9 @@ export async function runSchemPipeline(
             // The set's own cars ARE the train; only a route without them is
             // measured from its posed riders and given the fabricated cart.
             if (route.vehicles) { coasterRoutes.push(route); continue; }
+            // A railway line with no train of the set's own on it stays scenery:
+            // a coaster cart on train track would be invented, not measured.
+            if (route.family === 'train') { warnings.push(`Rail: ${route.label} has no train of the set's own standing on it; it stays part of the build.`); continue; }
             const train = measureCoasterTrain({ points: route.points, closed: route.closed }, riderAnchors, riderMaxOffset);
             if (train) warnings.push(`Coaster: ${route.label} carries a measured train of ${train.count} cars at a ${train.spacing}-block pitch (${train.riders} posed rider${train.riders === 1 ? '' : 's'} on the track; pitches ${train.pitches.join(', ')}).`);
             coasterRoutes.push({ ...route, ...(train ? { cars: { count: train.count, spacing: train.spacing } } : {}) });
@@ -567,7 +589,7 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
   }
 
