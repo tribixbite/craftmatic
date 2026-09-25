@@ -559,7 +559,7 @@ export interface CompiledLdrawGeometry {
   /** Whole-model compiles only: every body cuboid's LDraw AABB (source frame), what a collider grid is measured from. */
   partBoxesLdu?: Array<{ min: Vec3; max: Vec3 }>;
   /** Figures only: the torso's exact horizontal facing in the SOURCE frame (x, z), and what the rig rebuilt. */
-  figure?: { facingLdu: [number, number]; synthesized: string[]; dropped: string[] };
+  figure?: { facingLdu: [number, number]; synthesized: string[]; dropped: string[]; system: FigureSystem };
   /** `vehicleRig` compiles only: the spinning road wheels (possibly none; the rig's `body` root is there either way). */
   wheelBones?: VehicleWheelBone[];
   diagnostics: LegoGeometryDiagnostics;
@@ -1895,7 +1895,7 @@ export async function compileLdrawEntityGeometry(
       const inner = await compileLdrawEntityGeometry(cid, 'figure', figure.bricks, {
         ...options, partGeometry: provider, rig: figure.rig, frame: ldrawToRenderRotation('-z'), wholeModel: true, figureSlots: figure.slots,
       });
-      inner.figure = { facingLdu: figure.facingLdu, synthesized: figure.synthesized, dropped: figure.dropped };
+      inner.figure = { facingLdu: figure.facingLdu, synthesized: figure.synthesized, dropped: figure.dropped, system: figure.system };
       inner.diagnostics.minifig = { parts: figure.bricks.length, synthesized: figure.synthesized, dropped: figure.dropped, system: figure.system, ...(figure.reanchoredLdu ? { reanchoredLdu: figure.reanchoredLdu } : {}) };
       if (figure.reanchoredLdu) {
         const o = figure.reanchoredLdu.map(v => Math.round(v * 10) / 10);

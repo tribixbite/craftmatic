@@ -249,11 +249,15 @@ export const MINIFIG_BONES: readonly RigBone[] = [
 ];
 
 /**
- * The mini-doll's bones: the same names as the minifig's (so one animation
- * file drives every figure — walk swings `arm_*`, look turns `head`), with
- * pivots at the doll's joints. The one-piece legs ride `hips`, so a doll
- * walks stiff-legged and does not bend to sit.
- * # TODO: a per-system animation set (the doll's legs swing as one at the hip).
+ * The mini-doll's bones: the minifig's names for what the two share (walk
+ * swings `arm_*`, look turns `head`), with pivots at the doll's joints, and
+ * one `legs` bone for the one-piece legs mould (`92251`, `16529`), hinged
+ * where the real doll's legs hinge on its hips: the moulds' `!HELP` "Hips
+ * Rotation point: Y=-47.4, Z=2.7" from the legs origin (76.8, -3.9 below the
+ * torso) is 29.4 / -1.2, the hips joint itself. The doll's own animations
+ * (`MINIDOLL_CLIENT_ANIMATIONS`) bend it there to sit and rock it as one
+ * piece to walk; a one-piece HIPS-and-legs mould has no hinge and stays on
+ * `hips`.
  */
 export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'body', pivotLdu: [0, 0, 0] },
@@ -263,6 +267,7 @@ export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'hand_right', parent: 'arm_right', pivotLdu: [-25.9, 29.7, -4] },
   { name: 'hand_left', parent: 'arm_left', pivotLdu: [25.9, 29.7, -4] },
   { name: 'hips', parent: 'body', pivotLdu: [0, 29.4, -1.2] },
+  { name: 'legs', parent: 'hips', pivotLdu: [0, 29.4, -1.2] },
 ];
 
 /** The big-fig's bones: body, the head on the neck, two pinned arms with hands, the legs under the coat. */
@@ -286,6 +291,8 @@ const SLOT_BONE: Record<MinifigSlot, string> = {
   hips: 'hips', hips_legs: 'hips', legs: 'hips', leg_right: 'leg_right', leg_left: 'leg_left',
   held: 'body',
 };
+/** Where a system's skeleton differs from `SLOT_BONE`: the doll's one-piece legs hinge on their own bone. */
+const SYSTEM_SLOT_BONE: Record<FigureSystem, Partial<Record<MinifigSlot, string>>> = { minifig: {}, minidoll: { legs: 'legs' }, bigfig: {} };
 
 /** The slots that stand on the floor: their lowest point is where the figure's feet are. */
 const FLOOR_SLOTS: ReadonlySet<MinifigSlot> = new Set<MinifigSlot>(['torso', 'hips', 'hips_legs', 'legs', 'leg_right', 'leg_left']);
@@ -634,7 +641,7 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   const boneOf: string[] = [];
   const dropped: string[] = [];
   const bystanders: string[] = [];
-  const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
+  const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SYSTEM_SLOT_BONE[system][slot] ?? SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
   const first = (slot: MinifigSlot): SourcePart | undefined => source.find(s => s.slot === slot);
   /** Place a source part at its slot's canon when the system has one, else keep its (re-anchored) source pose. */
   const placeCanon = (s: SourcePart, slot: MinifigSlot, bone?: string): void => {
@@ -851,7 +858,20 @@ export const MINIFIG_ANIMATION_IDS = {
   walk: 'animation.craftmatic.minifig.walk',
   look: 'animation.craftmatic.minifig.look',
   sit: 'animation.craftmatic.minifig.sit',
+  /** The mini-doll's own walk and sit (its one-piece legs on the `legs` hinge, `MINIDOLL_BONES`). */
+  dollWalk: 'animation.craftmatic.minidoll.walk',
+  dollSit: 'animation.craftmatic.minidoll.sit',
 } as const;
+
+/**
+ * The mini-doll's walk. Its legs are one moulded piece, so they cannot
+ * scissor: the doll rocks side to side on the hip hinge (the whole legs
+ * piece rolls `waddleDeg` about the walking direction, one rock per step, at
+ * the minifig's distance-locked rate) with its arms swinging as a minifig's.
+ * Sitting bends the legs forward 90 degrees at the same hinge, as the toy's
+ * legs do.
+ */
+export const MINIDOLL_GAIT = { waddleDeg: 5, armSwingDeg: 22 } as const;
 
 /**
  * The walk's gait, derived so a foot does not slide.
@@ -902,11 +922,37 @@ export const MINIFIG_ANIMATIONS = {
         leg_left: { rotation: [-90, 0, 0] },
       },
     },
+    [MINIFIG_ANIMATION_IDS.dollWalk]: {
+      loop: true,
+      bones: {
+        legs: { rotation: [0, 0, `${GAIT_PHASE} * ${MINIDOLL_GAIT.waddleDeg} * ${GAIT_AMOUNT}`] },
+        arm_right: { rotation: [`-${GAIT_PHASE} * ${MINIDOLL_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+        arm_left: { rotation: [`${GAIT_PHASE} * ${MINIDOLL_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+      },
+    },
+    [MINIFIG_ANIMATION_IDS.dollSit]: {
+      loop: true,
+      bones: { legs: { rotation: [-90, 0, 0] } },
+    },
   },
 } as const;
 
 /** The client entity's `animations` map and `scripts.animate` list for a minifig. */
-export const MINIFIG_CLIENT_ANIMATIONS = {
+/** A figure entity's client animation map and its `scripts.animate` list. */
+export interface FigureClientAnimations { animations: Record<'walk' | 'look' | 'sit', string>; animate: Array<string | Record<string, string>> }
+
+export const MINIFIG_CLIENT_ANIMATIONS: FigureClientAnimations = {
   animations: { walk: MINIFIG_ANIMATION_IDS.walk, look: MINIFIG_ANIMATION_IDS.look, sit: MINIFIG_ANIMATION_IDS.sit },
-  animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }, 'look'] as Array<string | Record<string, string>>,
+  animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }, 'look'],
 };
+
+/** The same for a mini-doll (`MINIDOLL_GAIT`): its walk and sit bend the one-piece legs at their hinge. */
+export const MINIDOLL_CLIENT_ANIMATIONS: FigureClientAnimations = {
+  animations: { walk: MINIFIG_ANIMATION_IDS.dollWalk, look: MINIFIG_ANIMATION_IDS.look, sit: MINIFIG_ANIMATION_IDS.dollSit },
+  animate: MINIFIG_CLIENT_ANIMATIONS.animate,
+};
+
+/** The client animation set for a figure of `system` (a big-fig walks as a minifig: it has two legs). */
+export function figureClientAnimations(system: FigureSystem | undefined): FigureClientAnimations {
+  return system === 'minidoll' ? MINIDOLL_CLIENT_ANIMATIONS : MINIFIG_CLIENT_ANIMATIONS;
+}

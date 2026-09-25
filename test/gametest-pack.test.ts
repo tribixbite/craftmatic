@@ -96,7 +96,9 @@ describe('figure verdicts', () => {
     expect(v).toMatchObject({ samples: 3, pathLength: 4, maxExcursion: 2.83, outsideSamples: 0, belowGround: false, droppedStorey: false, moved: true });
     const out = judgeFigureTrack([{ x: 9, y: 3, z: 1 }, { x: 11.5, y: 0, z: 1 }, { x: 12, y: -1, z: 1 }], area, 0, true, 1);
     expect(out).toMatchObject({ outsideSamples: 2, belowGround: true, droppedStorey: true, endInsideWall: true });
-    expect(judgeFigureTrack([{ x: 1, y: 0, z: 1, riding: true }, { x: 1, y: 0, z: 1.5, riding: true }], area, 0, false, 1)).toMatchObject({ moved: false, ridingSamples: 2 });
+    expect(judgeFigureTrack([{ x: 1, y: 0, z: 1, riding: true }, { x: 1, y: 0, z: 1.5, riding: true }], area, 0, false, 1)).toMatchObject({ moved: false, ridingSamples: 2, satAndStood: false });
+    // A roamer that borrowed a seat and got up again.
+    expect(judgeFigureTrack([{ x: 1, y: 0.2, z: 1 }, { x: 2, y: 0.4, z: 1, riding: true }, { x: 2, y: 0.4, z: 1, riding: true }, { x: 2.8, y: 0.2, z: 1 }], area, 0, false, 1)).toMatchObject({ ridingSamples: 2, satAndStood: true });
   });
   it('knows a model too wide for one structure, and the capped arena builds', () => {
     expect(arenaExceeds({ width: 77, height: 17, length: 15 })).toBe(true);

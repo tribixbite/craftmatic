@@ -21,6 +21,10 @@ export interface SimFigure {
   mode?: FigureHome['mode'];
   /** Its home, when it does not stand there (a figure pushed out of its area). */
   home?: { x: number; y: number; z: number };
+  /** No home record at all: a Minifig Creator figure (the runtime makes one where it stands). */
+  noHome?: boolean;
+  /** A creator figure the wand holds as a draft (`craftmatic:draft` true) until this tick. */
+  draftUntil?: number;
 }
 
 export interface SimSeat { typeId: string; at: { x: number; y: number; z: number } }
@@ -65,7 +69,8 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
   };
   const f = world.f ?? 1;
 
-  interface E { id: string; typeId: string; location: any; v: any; yaw: number; props: Map<string, unknown>; rider?: E; riding?: E; family: string; valid: boolean; body: number }
+  interface E { id: string; typeId: string; location: any; v: any; yaw: number; props: Map<string, unknown>; rider?: E; riding?: E; family: string; valid: boolean; body: number; draftUntil?: number }
+  let now = 0;
   const entities: E[] = [];
   const dim: any = {
     id: 'overworld',
@@ -90,6 +95,7 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     getRotation: () => ({ x: 0, y: e.yaw }),
     teleport: (p: any) => { e.location = { ...p }; e.v = { x: 0, y: 0, z: 0 }; },
     getDynamicProperty: (k: string) => e.props.get(k),
+    getProperty: (k: string) => (k === 'craftmatic:draft' ? now < (e.draftUntil ?? -1) : undefined),
     setDynamicProperty: (k: string, v: unknown) => e.props.set(k, v),
     getComponent: (name: string) => {
       if (name === 'minecraft:riding') return e.riding ? { entityRidingOn: wrap(e.riding) } : undefined;
@@ -106,16 +112,16 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     const props = new Map<string, unknown>();
     const hp = fig.home ?? fig.at;
     const home: FigureHome = { home: [hp.x, hp.y, hp.z], area: areaOf, ground: world.ground, f, mode: fig.mode ?? 'roam' };
-    props.set(FIGURE_HOME_PROPERTY, JSON.stringify(home));
-    entities.push({ id: `fig${k}`, typeId: fig.typeId, location: { ...fig.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props, family: 'craftmatic_figure', valid: true, body: config.bodyHeights[fig.typeId] ?? config.bodyHeight });
+    if (!fig.noHome) props.set(FIGURE_HOME_PROPERTY, JSON.stringify(home));
+    entities.push({ id: `fig${k}`, typeId: fig.typeId, location: { ...fig.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props, family: 'craftmatic_figure', valid: true, body: config.bodyHeights[fig.typeId] ?? config.bodyHeight, ...(fig.draftUntil !== undefined ? { draftUntil: fig.draftUntil } : {}) });
   }
   for (const [k, seat] of (world.seats ?? []).entries()) entities.push({ id: `seat${k}`, typeId: seat.typeId, location: { ...seat.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props: new Map(), family: 'craftmatic_seat', valid: true, body: 0.5 });
   for (const [k, leaf] of (world.leaves ?? []).entries()) entities.push({ id: `leaf${k}`, typeId: 'craftmatic:leaf', location: { ...leaf }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props: new Map(), family: 'craftmatic_interactive', valid: true, body: 0 });
   // Seated-in-set figures start on their seat.
   for (const e of entities) {
     if (e.family !== 'craftmatic_figure') continue;
-    const h = JSON.parse(String(e.props.get(FIGURE_HOME_PROPERTY))) as FigureHome;
-    if (h.mode !== 'seated') continue;
+    const raw = e.props.get(FIGURE_HOME_PROPERTY);
+    if (typeof raw !== 'string' || (JSON.parse(raw) as FigureHome).mode !== 'seated') continue;
     const seat = entities.find(x => x.family === 'craftmatic_seat' && !x.rider && (x.location.x - e.location.x) ** 2 + (x.location.z - e.location.z) ** 2 < 1.5 ** 2);
     if (seat) { seat.rider = e; e.riding = seat; }
   }
@@ -161,6 +167,7 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
       return top > -Infinity ? top : feet;
     };
     for (let t = 0; t < ticks; t++) {
+      now = t;
       interval();
       for (const [k, e] of figs.entries()) {
         if (e.riding) { e.location = { ...e.riding.location }; e.v = { x: 0, y: 0, z: 0 }; }

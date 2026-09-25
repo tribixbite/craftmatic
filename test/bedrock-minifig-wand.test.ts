@@ -211,11 +211,15 @@ describe('Bedrock minifig wand behavior host', () => {
     const placed = h.dimensions.overworld.spawnEntity(config.figureType, { x: 3, y: 64, z: 3 });
     placed.setProperty('craftmatic:draft', false);
     placed.setDynamicProperty('craftmatic:owner', h.player.id);
+    // Its figure-life home (scripts/figures.js) from before the edit.
+    placed.setDynamicProperty('craftmatic:fig', '{"home":[0,64,0],"area":[-7,-7,7,7],"ground":63.5,"f":1,"mode":"roam"}');
     const event: any = { itemStack: { typeId: config.itemId }, player: h.player, target: placed, cancel: false };
     h.subscribers.interact[0](event); await h.flush();
     expect(event.cancel).toBe(true);
     expect(placed.getProperty('craftmatic:draft')).toBe(false);
     expect(placed.events).toEqual(['craftmatic:npc_off', 'craftmatic:release']);
+    // Released: the walker re-reads its home where it now stands.
+    expect(placed.getDynamicProperty('craftmatic:fig')).toBeUndefined();
 
     placed.setDynamicProperty('craftmatic:owner', 'somebody-else');
     h.subscribers.interact[0]({ ...event, cancel: false }); await h.flush();

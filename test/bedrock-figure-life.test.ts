@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
-import { blockSpan, exploreWalkable, FIGURE_TUNING, figureLifeScript, pathTo, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
+import { blockSpan, exploreWalkable, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
 import { simulateFigureLife, type SimWorld } from '../web/src/engine/figure-life-sim.js';
 
 const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
@@ -86,6 +86,68 @@ describe('planner', () => {
   });
 });
 
+describe('spawn resolution (resolveFigureSpawn, at export)', () => {
+  const opts = { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells };
+  const inside = (w: number, l: number) => (x: number, z: number): boolean => x >= 0 && z >= 0 && x < w && z < l;
+  it('keeps a figure its own column carries, snapped onto the plate it stands on', () => {
+    const span = spansOf(room(), 0);
+    const s = resolveFigureSpawn(span, { x: 3.4, y: 0.15, z: 3.6 }, 1.8, inside(9, 7), opts);
+    expect(s.kind).toBe('kept');
+    expect([s.x, s.z]).toEqual([3.4, 3.6]);
+    expect(s.y).toBeCloseTo(3 / 16);
+  });
+  it('sets a box-art line-up figure (standing on no part, 2 blocks up) down on the ground, not onto a ledge', () => {
+    // A model base 2.4-3.1 blocks up beside the figure's column (21360's line-up); nothing under the figure.
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 3; z < 6; z++) { cells.push({ x, y: 2, z, lo: 6, hi: 16 }); cells.push({ x, y: 3, z, lo: 0, hi: 2 }); }
+    const span = spansOf(cells, 0);
+    const s = resolveFigureSpawn(span, { x: 4.4, y: 2.1, z: 2.9 }, 1.8, inside(8, 6), opts);
+    expect(s.kind).toBe('grounded');
+    expect(s.y).toBe(0);
+    expect([s.x, s.z]).toEqual([4.4, 2.9]);
+    // The placement's own lift would have left it in the air (nothing overlaps its body): it fell.
+    expect(spawnLift(span, 4.4, 2.9, 2.1, 1.8, 3)).toBe(2.1);
+  });
+  it('grounds a line-up figure far above the ground (a model standing on stray low parts)', () => {
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 6; x++) for (let z = 4; z < 6; z++) cells.push({ x, y: 5, z, lo: 0, hi: 4 });
+    const s = resolveFigureSpawn(spansOf(cells, 0), { x: 1.5, y: 5.25, z: 1.5 }, 1.8, inside(6, 6), opts);
+    expect(s.kind).toBe('grounded');
+    expect(s.y).toBe(0);
+    // Beside the base on its own level, the base itself is the nearest surface: one step across.
+    const beside = resolveFigureSpawn(spansOf(cells, 0), { x: 1.5, y: 5.25, z: 3.5 }, 1.8, inside(6, 6), opts);
+    expect(beside.kind).toBe('moved');
+    expect(beside.y).toBe(5.25);
+  });
+  it('moves a figure standing inside a solid column onto the roomy floor beside it, never onto the roof', () => {
+    // 71040's case: a floor plate at 0-0.19, a solid tower column 0-5.4 at (3, 3) where the figure stands.
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) cells.push({ x, y: 0, z, lo: 0, hi: 3 });
+    for (let y = 0; y < 5; y++) cells.push({ x: 3, y, z: 3, lo: 0, hi: 16 });
+    cells.push({ x: 3, y: 5, z: 3, lo: 0, hi: 7 });
+    const span = spansOf(cells, 0);
+    // The spawn lift puts it on the tower (5.44 blocks up), where one cell is all there is.
+    expect(spawnLift(span, 3.5, 3.5, 0.19, 1.8, 6)).toBeCloseTo(5 + 7 / 16);
+    const s = resolveFigureSpawn(span, { x: 3.5, y: 0.19, z: 3.5 }, 1.8, inside(8, 8), opts);
+    expect(s.kind).toBe('moved');
+    expect(s.y).toBeCloseTo(3 / 16);
+    expect(s.shift).toBeCloseTo(1);
+    expect(s.room).toBeGreaterThanOrEqual(FIGURE_TUNING.minRoamCells);
+    expect(spawnLift(span, s.x, s.z, s.y, 1.8, 3)).toBeCloseTo(s.y);
+  });
+  it('prefers a spot with room over a nearer one-cell ledge', () => {
+    // Figure inside a wall at (2, 2); west of it a 1-cell ledge boxed in by walls, 3 cells east an open floor.
+    const cells: SourceCell[] = [];
+    for (let y = 0; y < 4; y++) for (let z = 0; z < 5; z++) { cells.push({ x: 2, y, z, lo: 0, hi: 16 }); cells.push({ x: 0, y, z, lo: 0, hi: 16 }); }
+    for (let y = 0; y < 4; y++) { cells.push({ x: 1, y, z: 1, lo: 0, hi: 16 }); cells.push({ x: 1, y, z: 3, lo: 0, hi: 16 }); }
+    for (let x = 3; x < 8; x++) for (let z = 0; z < 5; z++) cells.push({ x, y: 0, z, lo: 0, hi: 3 });
+    const s = resolveFigureSpawn(spansOf(cells, 0), { x: 2.3, y: 0.19, z: 2.5 }, 1.8, inside(8, 5), opts);
+    expect(s.kind).toBe('moved');
+    expect(Math.floor(s.x)).toBe(3);
+    expect(s.room).toBeGreaterThanOrEqual(FIGURE_TUNING.minRoamCells);
+  });
+});
+
 describe('the serialised runtime', () => {
   const config = { figureTypes: ['craftmatic:a_fig1', 'craftmatic:a_fig2', 'craftmatic:a_fig3'], seatTypes: ['craftmatic:a_seat'], bodyHeights: {}, bodyHeight: 1.8, tuning: FIGURE_TUNING };
   it('serialises without references outside itself', () => {
@@ -113,6 +175,18 @@ describe('the serialised runtime', () => {
       expect(f.outside).toBe(0);
       expect(f.minY).toBeGreaterThan(0); // never into the pit, never off the doorway's edge
     }
+  });
+
+  it('walks a Minifig Creator figure like a set figure, but only once the wand releases its draft', () => {
+    // No home record (the wand writes none): the runtime makes one where it stands when it adopts it.
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: -3, figures: [
+      { typeId: 'craftmatic:a_minifig', at: { x: 3.5, y: 3 / 16, z: 3.5 }, noHome: true, draftUntil: 600 },
+    ] };
+    const t = simulateFigureLife(w, { ...config, figureTypes: [...config.figureTypes, 'craftmatic:a_minifig'], draftTypes: ['craftmatic:a_minifig'] }, 2400, 5)[0]!;
+    const moved = (from: number, to: number): number => t.slice(from, to).reduce((s, p, i, a) => i ? s + Math.hypot(p.x - a[i - 1]!.x, p.z - a[i - 1]!.z) : 0, 0);
+    expect(moved(0, 600)).toBe(0); // held by the wand
+    expect(moved(600, 2400)).toBeGreaterThan(3);
+    expect(t.every(p => p.x > 0 && p.x < 9 && p.z > 0 && p.z < 7 && p.y > 0)).toBe(true);
   });
 
   it('keeps a figure standing on a 1-cell plinth where it is', () => {

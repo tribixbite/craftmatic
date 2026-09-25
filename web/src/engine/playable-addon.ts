@@ -13,7 +13,7 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
-import { MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS } from './minifig-rig.js';
+import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
 import { minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
@@ -30,7 +30,7 @@ import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimatio
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
-import { figureLifeScript, FIGURE_TUNING } from './bedrock-figure-life.js';
+import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
@@ -1873,7 +1873,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const lodSkipped: Record<string, { reason: string; radiusBlocks: number; requestedSwitchDistance: number; renderCullBlocks: number; latestSwitchDistance: number; nearestCubeBlocks: number; collisionBox: CollisionBox | null; hullCuboidsNotShipped: number }> = {};
     let lodEmptyEmitted = false;
     const emitCompiledEntity = (ecid: string, geo: CompiledLdrawGeometry, behavior: unknown, animations?: ClientAnimations, lodEligible = false): void => {
-        if (animations === MINIFIG_CLIENT_ANIMATIONS) minifigsEmitted++;
+        if (animations === MINIFIG_CLIENT_ANIMATIONS || animations === MINIDOLL_CLIENT_ANIMATIONS) minifigsEmitted++;
         // Each geometry holds one LDraw colour and is textured with that
         // colour's flat swatch (box UV: `ldraw-entity-compiler.ts`).
         // A face geometry (`faceAtlas`) samples the entity's own face atlas,
@@ -2028,7 +2028,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         creatorConfig = { id, label, itemId: `${PACK_NAMESPACE}:${id}_minifig_wand`, shortAlias: `mf_${id.slice(-6)}`, figureType: figureId, library, colours, firstTranslucentColour: 43, defaults: { minifig: defaults, minidoll: defaults }, presets: options.minifigCreator.presets ?? [], worldCap: 200, savedCap: 100, pageSize: 8 };
         const properties: Record<string, unknown> = {}; for (const [slot, entries] of Object.entries(library.minifig)) { properties[`craftmatic:${slot}`] = { type: 'int', range: [0, Math.max(0, entries.length - 1)], default: 0, client_sync: true }; properties[`craftmatic:c_${slot}`] = { type: 'int', range: [0, colours.length - 1], default: 0, client_sync: true }; }
         properties['craftmatic:family'] = { type: 'int', range: [0, 0], default: 0, client_sync: true }; properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
-        const creatorBehavior = { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: figureId, is_spawnable: true, is_summonable: true, properties }, components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } }, component_groups: { 'craftmatic:npc': { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.random_stroll': { priority: 6, speed_multiplier: .8 }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .02 } } }, events: { 'craftmatic:release': { add: { component_groups: ['craftmatic:npc'] } }, 'craftmatic:npc_off': { remove: { component_groups: ['craftmatic:npc'] } } } } };
+        const creatorBehavior = { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: figureId, is_spawnable: true, is_summonable: true, properties }, components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } }, component_groups: { 'craftmatic:npc': { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .08 }, 'minecraft:behavior.random_look_around': { priority: 8 } } }, events: { 'craftmatic:release': { add: { component_groups: ['craftmatic:npc'] } }, 'craftmatic:npc_off': { remove: { component_groups: ['craftmatic:npc'] } } } } };
+        // A released creator figure walks with the set's own figures (scripts/figures.js,
+        // bedrock-figure-life.ts): no vanilla stroll, which never pathed over the
+        // collider floors and wandered off a model. The runtime skips a figure
+        // while it is a draft (`craftmatic:draft`), so editing one holds it still.
+        figureBodies[figureId] = 1.8;
         files.push({ name: `${bp}entities/${id}_minifig.json`, data: json(creatorBehavior) }, { name: `${rp}entity/${id}_minifig.entity.json`, data: json({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: figureId, materials: { default: 'entity_alphablend' }, textures, geometry, render_controllers: Object.keys(controllers), animations: MINIFIG_CLIENT_ANIMATIONS.animations, scripts: { animate: MINIFIG_CLIENT_ANIMATIONS.animate } } } }) }, { name: `${rp}animations/${id}_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) }, { name: `${rp}render_controllers/${id}_minifig.render_controllers.json`, data: json({ format_version: '1.8.0', render_controllers: controllers }) }, { name: `${bp}items/${id}_minifig_wand.json`, data: json({ format_version: '1.20.80', 'minecraft:item': { description: { identifier: `${PACK_NAMESPACE}:${id}_minifig_wand`, menu_category: { category: 'items' } }, components: { 'minecraft:icon': 'brick', 'minecraft:max_stack_size': 1 } } }) });
         addEntityName(figureId, `${label} Custom Minifig`, true);
         warnings.push(`${label}: creator library compiled ${cuboids} cuboids across ${Object.values(library.minifig).reduce((n, a) => n + a.length, 0)} selectable minifig parts. Mini-dolls are excluded because their canonical rig is unmeasured.`);
@@ -2308,7 +2313,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, false, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, true);
-                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? MINIFIG_CLIENT_ANIMATIONS : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
+                emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? figureClientAnimations(egeo.figure.system) : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = { mode: 'car', noseReach: Math.round(egeo.sizeBlocks.length / 2 * 100) / 100 };
@@ -2336,6 +2341,21 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const figureKindCounts: Record<string, number> = {};
     /** Actor index of each scene figure, so a seated one can be told which seat actor to ride. */
     const figureActorIndex = new Map<number, number>();
+    // Where each standing figure spawns, decided over the colliders this pack
+    // ships (bedrock-figure-life.ts `resolveFigureSpawn`): a figure on nothing
+    // (the box-art line-up beside the model) is set down on the surface below,
+    // one standing inside a collider column on the roomiest free column
+    // nearby, instead of falling at placement or being lifted onto a roof.
+    const figureSpanAt: SpanLookup | undefined = placementColliders ? (() => {
+        const pc = placementColliders;
+        const cells = new Map(colliderSourceCells(pc).map(c => [`${c.x},${c.y},${c.z}`, c]));
+        return (x: number, y: number, z: number): number[] | null => {
+            const c = cells.get(`${x},${y},${z}`);
+            if (c) return c.hi > c.lo ? [y + c.lo / 16, y + c.hi / 16] : null;
+            return y < 0 ? [y, y + 1] : null; // the ground under the pin plane
+        };
+    })() : undefined;
+    const spawnFixes: Array<{ label: string; spawn: FigureSpawn }> = [];
     for (const [k, fig] of (options.figures ?? []).entries()) {
         const rawFig = `${id}_fig${k + 1}`;
         const fcid = entityId(rawFig, 'f');
@@ -2350,7 +2370,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
         diagnostics[fcid] = fgeo.diagnostics;
         warnings.push(...fgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks, options.figureCollisionHeight), fgeo.figure ? MINIFIG_CLIENT_ANIMATIONS : undefined);
+        emitCompiledEntity(fcid, fgeo, figureBehavior(fcid, fgeo.sizeBlocks, options.figureCollisionHeight), fgeo.figure ? figureClientAnimations(fgeo.figure.system) : undefined);
         figureBodies[`${PACK_NAMESPACE}:${fcid}`] = figureCollisionBox(fgeo.sizeBlocks, options.figureCollisionHeight).height;
         addEntityName(`${PACK_NAMESPACE}:${fcid}`, flabel, true);
         // A rigged figure faces exactly where its torso pointed; an unrigged one the nearest axis it was compiled to.
@@ -2358,10 +2378,24 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const nose = snapFacing(fig.facingLdu);
             return yawForFacing(nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1]);
         })();
-        actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: fig.x, y: fig.y, z: fig.z, yaw });
+        let at = { x: fig.x, y: fig.y, z: fig.z };
+        if (figureSpanAt && placementColliders && fig.seatIndex === undefined) {
+            const { width, length } = placementColliders;
+            const spawn = resolveFigureSpawn(figureSpanAt, at, figureBodies[`${PACK_NAMESPACE}:${fcid}`]!,
+                (x, z) => x >= 0 && z >= 0 && x < width && z < length,
+                { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown, minRoom: FIGURE_TUNING.minRoamCells });
+            if (spawn.kind !== 'kept') spawnFixes.push({ label: flabel, spawn });
+            at = { x: spawn.x, y: spawn.y, z: spawn.z };
+        }
+        actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: at.x, y: at.y, z: at.z, yaw });
         figureActorIndex.set(k, actors.length - 1);
         extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: fig.seatIndex !== undefined ? 'minifig sitting in the build' : 'minifig standing in the build' });
         figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
+    }
+    if (spawnFixes.length) {
+        const r2 = (v: number): number => Math.round(v * 100) / 100;
+        const grounded = spawnFixes.filter(f => f.spawn.kind === 'grounded'), moved = spawnFixes.filter(f => f.spawn.kind === 'moved');
+        warnings.push(`${label}: ${grounded.length} figure${grounded.length === 1 ? '' : 's'} stood on no part (set down on the surface below: ${grounded.map(f => `${f.label.replace(`${label} `, '')} ${r2(f.spawn.drop)}`).join(', ') || 'none'}); ${moved.length} stood inside a collider column (moved to the roomiest free spot beside it: ${moved.map(f => `${f.label.replace(`${label} `, '')} ${r2(f.spawn.shift)} across, ${r2(-f.spawn.drop)} up`).join(', ') || 'none'}).`);
     }
     // Seats: one invisible rideable type shared by every chair and bench.
     const seatList = options.seats ?? [];
@@ -2721,6 +2755,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const figureTypes = Object.keys(figureBodies);
     if (figureTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
         figureTypes, bodyHeights: figureBodies, bodyHeight: 1.8,
+        ...(creatorConfig ? { draftTypes: [creatorConfig.figureType] } : {}),
         seatTypes: [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))],
         interactiveFamily: INTERACTIVE_FAMILY,
         colliders: placementColliders ? { block: placementColliders.block, loState: placementColliders.loState, hiState: placementColliders.hiState } : undefined,

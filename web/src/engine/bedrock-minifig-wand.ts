@@ -38,6 +38,7 @@ function minifigWandRuntime(
     if (!st?.editing) return;
     const edited = entity(st.draft);
     try {
+      edited?.setDynamicProperty('craftmatic:fig', undefined);
       edited?.setProperty('craftmatic:draft', false);
       edited?.setDynamicProperty('craftmatic:editing_placed', undefined);
       edited?.triggerEvent('craftmatic:release');
@@ -164,6 +165,8 @@ function minifigWandRuntime(
       playerState(p).draft = undefined;
     }
     placed.setDynamicProperty('craftmatic:owner', p.id);
+    // Its walk home is where it now stands (scripts/figures.js re-reads it on adoption).
+    placed.setDynamicProperty('craftmatic:fig', undefined);
     placed.setProperty('craftmatic:draft', false);
     placed.setDynamicProperty('craftmatic:editing_placed', undefined);
     placed.triggerEvent('craftmatic:release');

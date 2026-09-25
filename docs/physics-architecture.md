@@ -293,7 +293,16 @@ the engine's own collision, gravity and step-up carry it out. The planner
 spans, never above a 0.6-block rise or below a 0.6-block drop. Speed
 `FIGURE_TUNING.speed` 0.06 blocks/tick (1.2 blocks/s) at 100 %, × the size
 factor below 100 % (figures never grow above player size), slowed ×0.35 into
-a sharp corner. `web/src/engine/figure-life-sim.ts` runs the SERIALISED
+a sharp corner. Where each figure SPAWNS is decided at export over the same collider grid
+(`resolveFigureSpawn`, called by `playable-addon.ts`): kept when its own
+column carries it; set down on the surface below when it stood on no part
+(LEGO's box-art line-up beside the model: 21360, 42639, 43267, 77092); moved
+to the roomiest standable column within 2 cells when it stood inside a
+collider column (cost = distance + 1.5 x drop + 3 x rise, at least
+`minRoamCells` of room preferred). No collider is added for it. The placement
+runtime's own lift (`spawnLift` mirrors it) then has nothing to do; before
+this it raised such figures 1.2-2.6 blocks onto the roof above them.
+`web/src/engine/figure-life-sim.ts` runs the SERIALISED
 runtime on host against a stand-in world (per-axis blocking, 0.6 auto-step,
 a 0.4-block/tick drop to the floor, ground friction 0.546); it answers "do
 the figures roam and stay home", not Bedrock's physics. Device truth: the
@@ -831,7 +840,9 @@ one of these files fails the check until its row is written.
 | `figureLifeRuntime` | function | SERIALISED. The per-tick state machine; walks by velocity. |
 | `figureLifeScript` | function | Serialises it and the planner into `BP/scripts/figures.js`. |
 | `standFeetAt`, `exploreWalkable`, `startCell`, `refugeCell`, `pathTo`, `blockSpan` | function | SERIALISED planner over real collider spans. |
-| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell` | interface | Types. |
+| `resolveFigureSpawn`, `spawnLift` | function | Host only, at export: where a figure spawns (on the surface below a line-up figure, beside a collider column it stood in), and the placement runtime's spawn lift it replaces. |
+| `ROOM_PROBE_CELLS` | const | Cells explored to rate a spawn spot's room (64). |
+| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |
 <!-- /physics-spec:exports -->
