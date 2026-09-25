@@ -26,6 +26,43 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## IN FLIGHT — 2026-09-25 evening "work on open items" (five agents; main at `9e0f60fe`)
+
+Resume recipe for a fresh session: each agent works in its own worktree
+branch `worktree-agent-<id>` under `.claude/worktrees/` (list: `git worktree
+list`; `git log main..<branch>` shows its commits). When one reports: `git
+merge --no-edit <branch>` into main, resolve conflicts as UNIONS (the
+TASKS/docs files conflict most; `bedrock-coaster.ts` has ONE integrator
+`integrate()` built on `rideSubstep` — keep it that way), run `bun run
+typecheck`, `bun run typecheck:web`, `bun run test` (the physics spec check
+in it fails on any undocumented physics export — update
+`docs/physics-architecture.md`), then push and check `gh run list`.
+Phone sharing: lock file `output/.phone-lock` (check/write/refresh/delete only
+your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
+(`--exclusive` for a full round). GameTest only in world `cmgametest`.
+
+- [ ] Interactivity: hinge-joint detector for brick-built doors/gates/
+  mechanisms (80049, 910004, 910047, 10354, 42639, 910049, 41395); missed seats
+  (910032 x12); beds without headboard (42663); GameTest quirks 71040 D1,
+  41395 D1, 42670 D4; rerun the 40-set audit + GameTest.
+- [ ] Vehicles: classify 70618 / 10497 (ships), 75397 (hovers), vehicles in
+  scenery (60380 cars, 910047 boats), 42128 facing; swept-footprint collision;
+  GameTest drives trains (4559, 910044); real headlights; drop old car hooks.
+- [ ] Polish: remove pinball + coaster-cam tuning hooks/probes; `animLag` into
+  `COASTER_RIDER_VIEW` + spec; visible pinball button press + action bar off
+  the buttons; smooth the launch-tick ball jump; wand Undo survives reload.
+- [ ] Figures: 16 figures on non-walkable parts (21360 x7, 42639 x4 ...); seat
+  use proven on device (3-min GameTest); stalls 71040 / 31141 / 910049;
+  Minifig Creator figures on the walker; walk-cycle vs speed, mini-doll legs.
+- [ ] clego sources (no worktree; commits in C:/git/clego + craftmatic index,
+  NOT pushed): Mecabricks/LXF train track 90 degrees off; 10337 rims 38 LDU off;
+  663 uuid-schema top-level explodes (offset vs assembly); regenerate the 424
+  `convert_lxf.py` app picks; strict A/B, publish accepted, prod readback.
+- [ ] **Asked the user** (no answer yet): the loop camera locks look-around
+  for ~1.2-1.5 s per loop because only a camera ANIMATION can roll upside
+  down and a mid-animation reissue drops its rotation. Options: keep; drop
+  inversion for full look freedom; or a per-ride setting.
+
 ## Round 2026-09-25 afternoon — merged at `f5396df2`
 
 - [x] Vehicles: scripted cars / boats / fixed-wing planes (vanilla controllers
