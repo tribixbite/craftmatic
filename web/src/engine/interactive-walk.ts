@@ -154,6 +154,10 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
         if (rise > JUMP_RISE + 1e-6 || -rise > (twoWay ? JUMP_RISE + 1e-6 : MAX_DROP * k)) continue;
         const hi = Math.max(t, t0);
         if (!clear(x, z, hi, hi + PLAYER_NEED) || !clear(x0, z0, hi, hi + PLAYER_NEED)) continue;
+        // A drop falls through the neighbour column from the origin's height to its floor: that span must be
+        // free too (`ScaledColliderGrid.canMove`'s rule) - or a route steps off a roof through the ceiling below
+        // (42663's Door 1 at 200 %, once clearance gave its far side an approach).
+        if (t < t0 && !clear(x, z, t, t0 + PLAYER_NEED)) continue;
         if (!acrossFace(x0, z0, x, z, hi)) continue;
         out.push({ x, z, t });
       }
@@ -263,8 +267,12 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   for (let h = 0; h < queue.length && !(near['-1'] && near['1']); h++) {
     const node = queue[h]!;
     const s = side(node);
-    if (s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
-    if (s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
+    // An approach is a spot in FRONT of the doorway: within a jump of its floor. The corridor walk can climb a
+    // staircase to a roof over the door (42663's van at 200 %, once clearance opened its side), and a roof
+    // is not where a player stands to walk through a door.
+    const level = Math.abs(node.t - centre.y) <= JUMP_RISE * k + 1e-6;
+    if (level && s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
+    if (level && s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
     // Two-way moves only (an approach spot must be one a player can walk INTO
     // the doorway from), and only along the CORRIDOR straight through the
     // doorway: a spot reached by leaving the doorway sideways and going round
