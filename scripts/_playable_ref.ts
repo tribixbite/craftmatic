@@ -16,7 +16,7 @@
  *
  * Output defaults to output/bedrock-entity-qa/<stem>.mcaddon (gitignored).
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import { seedFaceArt } from '../web/src/engine/head-face.ts';
@@ -42,6 +42,9 @@ setLDrawRoot(LDRAW_ROOT);
 // http://localhost:4000/ldraw-parts.
 const mirrorFlag = process.argv.find(a => a.startsWith('--mirror='))?.slice('--mirror='.length);
 if (mirrorFlag) setLDrawMirror(mirrorFlag);
+// The local copy of the prod part mirror, when present: a build during a prod
+// rate limit would otherwise draw post-2020 parts as older moulds or boxes.
+if (!process.env.CRAFTMATIC_LDRAW_REF && existsSync('C:/git/clego/ldraw_ref')) process.env.CRAFTMATIC_LDRAW_REF = 'C:/git/clego/ldraw_ref';
 
 /**
  * Decode an 8-bit, non-interlaced RGB/RGBA PNG (what `gen-face-art.py` writes)
