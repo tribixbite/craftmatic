@@ -64,6 +64,8 @@ export interface PinballSimOptions {
   substeps?: number;
   /** Longest move per substep, as a fraction of the ball radius. */
   maxStepFraction?: number;
+  /** False: always `substeps` per tick (the pre-2026-09-25 cost, kept to measure against). */
+  adaptiveSubsteps?: boolean;
   wallBounce?: number;
   flipperBounce?: number;
   flipperUpSpeed?: number;   // rad/s
@@ -112,6 +114,7 @@ export function createPinballSim(table: PinballSimTable, options: PinballSimOpti
   const G = options.gravity ?? 1100;
   const SUB = options.substeps ?? 12;
   const STEP_FRACTION = options.maxStepFraction ?? 0.4;
+  const ADAPTIVE = options.adaptiveSubsteps ?? true;
   const E_WALL = options.wallBounce ?? 0.5;
   const E_FLIP = options.flipperBounce ?? 0.3;
   const UP = options.flipperUpSpeed ?? 14;
@@ -259,7 +262,7 @@ export function createPinballSim(table: PinballSimTable, options: PinballSimOpti
       while (diff < -Math.PI) diff += 2 * Math.PI;
       if (Math.abs(diff) > 1e-9) reach += UP * (f.length + f.tipRadius);
     }
-    const SUBS = Math.max(2, Math.min(SUB, Math.ceil(reach * dt / (R * STEP_FRACTION))));
+    const SUBS = ADAPTIVE ? Math.max(2, Math.min(SUB, Math.ceil(reach * dt / (R * STEP_FRACTION)))) : SUB;
     const h = dt / SUBS;
 
     for (let s = 0; s < SUBS; s++) {

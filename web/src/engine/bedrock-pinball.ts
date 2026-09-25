@@ -663,6 +663,7 @@ export const PINBALL_KEY = 'craftmatic:pinball_';
  *   {"cam":0}                  camera distance ahead of the head
  *   {"ball":"animate"|"teleport"}, {"axes":[-1,1]}  ball / plunger drawing
  *   {"perf":1}                 log script time every 100 ticks (content log)
+ *   {"cache":0}, {"fixed":1}   the old per-tick world scan / fixed 12 substeps, to measure against
  *   {"log":1}                  log every tap on a target
  *   {"probe":[[yawDeg,pitchDeg],...],"d":1.5}  spawn probe targets along
  *                              those view directions and log which is hit
@@ -710,7 +711,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
   };
   const wrapDeg = (d: number): number => ((d + 540) % 360) - 180;
 
-  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'camera' as 'camera' | 'level', pitch: 0, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false };
+  const DEFAULT_TUNE = { fwd: 0, left: 0, up: 0, reach: config.zones.reach, pick: 'camera' as 'camera' | 'level', pitch: 0, cam: 0, view: 'free' as 'first' | 'free', perf: false, log: false, cache: true, fixed: false };
   const tune: typeof DEFAULT_TUNE = { ...DEFAULT_TUNE };
   let ballMode: 'animate' | 'teleport' = config.ballMode;
   let axisSigns: number[] = [...config.axisSigns];
@@ -722,13 +723,21 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       let t: any = {};
       try { t = JSON.parse(ev.message || '{}'); } catch { return; }
       const reset = Object.keys(t).length === 0;
-      if (reset) { Object.assign(tune, DEFAULT_TUNE); ballMode = config.ballMode; axisSigns = [...config.axisSigns]; probe = null; }
+      if (reset) {
+        if (tune.fixed) for (const game of games.values()) game.sim = createSim(config.sim);
+        Object.assign(tune, DEFAULT_TUNE); ballMode = config.ballMode; axisSigns = [...config.axisSigns]; probe = null;
+      }
       for (const k of ['fwd', 'left', 'up', 'reach', 'pitch', 'cam'] as const) if (k in t) tune[k] = num(t[k], DEFAULT_TUNE[k]);
       if ('pick' in t) tune.pick = t.pick === 'level' ? 'level' : 'camera';
       // A new view mode ("first" / "free") takes effect at the next seating.
       if ('view' in t) tune.view = t.view === 'first' ? 'first' : 'free';
       if ('perf' in t) tune.perf = !!t.perf;
       if ('log' in t) tune.log = !!t.log;
+      // Measurement switches: {"cache":0} rescans the world every tick and
+      // {"fixed":1} runs 12 substeps every tick, as the runtime did before
+      // 2026-09-25 (a fresh game starts so the sim picks the setting up).
+      if ('cache' in t) tune.cache = !!t.cache;
+      if ('fixed' in t && !!t.fixed !== tune.fixed) { tune.fixed = !!t.fixed; for (const game of games.values()) game.sim = createSim(config.sim, { adaptiveSubsteps: !tune.fixed }); }
       if ('ball' in t) ballMode = t.ball === 'teleport' ? 'teleport' : 'animate';
       if (Array.isArray(t.axes) && t.axes.length === 2) axisSigns = [Math.sign(num(t.axes[0], -1)) || -1, Math.sign(num(t.axes[1], 1)) || 1];
       if ('probe' in t) probe = Array.isArray(t.probe) && t.probe.length ? { dirs: t.probe.map((p: any) => [num(p?.[0], 0), num(p?.[1], 0)]), d: num(t.d, 1.5) } : null;
@@ -826,7 +835,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
     let game = games.get(key);
     if (!game) {
       game = {
-        sim: createSim(config.sim), rider: undefined as any, flip: config.flipperTypes.map(() => NaN),
+        sim: createSim(config.sim, { adaptiveSubsteps: !tune.fixed }), rider: undefined as any, flip: config.flipperTypes.map(() => NaN),
         best: Number(console_.getDynamicProperty(KEY + 'best')) || 0, hud: 0, hint: 0,
         tapUntil: { left: -1, right: -1 }, taps: { left: 0, right: 0, plunger: 0 },
         plunger: { grabbed: false, since: 0, last: -99, repeats: 0, release: false, pull: 0, stick: 0 },
@@ -1179,7 +1188,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       let dim: any;
       try { dim = world.getDimension(dimId); } catch { continue; }
       let c = cache.get(dimId);
-      const stale = !c || now - c.at >= RESCAN || [...c.groups.values()].some(g => Object.values(g.parts).some((e: any) => !valid(e)));
+      const stale = !c || !tune.cache || now - c.at >= RESCAN || [...c.groups.values()].some(g => Object.values(g.parts).some((e: any) => !valid(e)));
       if (stale) { c = { groups: scan(dimId, dim), at: now }; cache.set(dimId, c); perf.scans++; }
       const groups = c!.groups;
       for (const [key, g] of groups) {
