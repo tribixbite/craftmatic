@@ -302,6 +302,24 @@ camera.
   simulated player as its rider. A part no standing spot reaches is listed by
   the builder and not tested.
 - `pinball_<id>` for a pinball machine.
+- `vehicle_<id>_<n>` for every rideable vehicle (`--only=vehicles` runs these
+  and the trains alone): spawned in a 64 x 64 vehicle arena (land lanes, a
+  step, a pool) and driven through the scripted-vehicle runtime's input hook
+  (`FLIGHT_INPUT_EVENT`; a simulated player's stick never reaches
+  `inputInfo`). Phases per class (car, hover craft, boat, plane), then the
+  footprint check: a 6-block log post is set with `test.setBlockType` ahead
+  of the vehicle, off its centre line by most of its half width, and the
+  vehicle must stop with its leading edge at it (`stopsAtPost`); the post is
+  removed after (the pool refilled). A hover craft also runs off the land
+  onto the pool (`floatsOverWater`).
+- `train_<id>_<n>` for every driven railway route (`physics.DRIVER` in
+  `scripts/coaster.js`): the model is placed, a simulated player boards the
+  train's car, and the train is driven through the rail runtime's stick hook
+  (the same `FLIGHT_INPUT_EVENT`, `id` = a car): parked (must not creep),
+  forward 2 s (the other way if it was placed against the buffer ahead),
+  brake to rest, reverse from rest, coast, and on an open line a run to the
+  buffer (must stop on the line). Read off the cars' `craftmatic:coaster_*`
+  dynamic properties every 2 ticks; `CMGT TRAIN_PHASE` / `CMGT TRAIN`.
 
 Each result is a `CMGT DOOR` / `PART` / `SEAT` line, and each test ends with a
 `CMGT SUMMARY` / `PARTS_SUMMARY` line. `bun scripts/_ix_audit_table.ts <sweep
