@@ -3075,8 +3075,11 @@ Evidence: `output/pb0924f/device/r3-*` in the pinball worktree.
   its own controller). The action bar is at most 26 visible characters in
   every phase (`<< Ball 2/3 12,340 >>`, `Ball 1/3 - drag to launch`, the pull
   bar), so the centred line no longer reaches the buttons; the final score
-  moved to the title. Whether the overlay draws on the phone's
-  `entity_alphablend` outline is a device check (see the tracker).
+  moved to the title. Pixel, world 924: with the stick held left the left
+  outline turned yellow and the white dome became a yellow sliver pushed
+  mostly into the cabinet wall; the bar ends clear of both buttons
+  (`output/polish-0925/device/s14-leftheld.jpg` in the polish worktree).
+  2.5x may be more travel than needed: the dome nearly disappears.
 - **No launch jump.** The sim fires from the serve point while the client
   last drew the ball on the pulled-back plunger tip (a full stroke, ~0.75
   block, behind it). The launch tick's update now starts the drawn ball where
