@@ -295,7 +295,10 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   applies its port (`lxfml_root_step.py`) only to the 73 stems in
   `dbix_root_step_accepted.json` that passed the strict A/B (2026-09-24,
   `output/generalize-0924/`). Only the refID schema has frame pairs; the uuid
-  schema's root explodes (663 sets) are offsets of unknown sense, untouched.
+  schema's root explodes (663 sets) are DISPLAY poses, not the assembly —
+  measured 2026-09-25: applying them took a 44-set trial's floating parts
+  1,034 -> 2,674, and every authentic `.io` checked (76316, 60472, 11200)
+  matches the UNapplied layout. Do not apply them.
 - **A load path may never abandon itself silently.** Every staleness guard in
   `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the

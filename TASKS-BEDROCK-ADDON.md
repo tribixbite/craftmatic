@@ -55,10 +55,19 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
 - [ ] Figures: 16 figures on non-walkable parts (21360 x7, 42639 x4 ...); seat
   use proven on device (3-min GameTest); stalls 71040 / 31141 / 910049;
   Minifig Creator figures on the walker; walk-cycle vs speed, mini-doll legs.
-- [ ] clego sources (no worktree; commits in C:/git/clego + craftmatic index,
-  NOT pushed): Mecabricks/LXF train track 90 degrees off; 10337 rims 38 LDU off;
-  663 uuid-schema top-level explodes (offset vs assembly); regenerate the 424
-  `convert_lxf.py` app picks; strict A/B, publish accepted, prod readback.
+- [ ] clego sources round (agent a2349714, clego commits `818cc7a8` `17d40022`
+  `1858beba` `69b5cc54` NOT pushed; craftmatic index `1e954010`): 113 files
+  published and R2-verified (14 Mecabricks track, 86 EurobricksLDR regens, 13
+  IOModel2V2 turned parts; backups + SHA256SUMS in
+  `output/sources-0925/backup-shipped/`). Prod readback blocked by HTTP 429:
+  `python -u output/sources-0925/prod_verify.py
+  output/sources-0925/backup-shipped/sync-list.txt <out.json>`. 10337 rims:
+  approved and being published (plus DbixConvV3/V2 siblings). uuid-schema
+  explodes: measured NOT assembly (44-set trial floating 1,034 -> 2,674) —
+  do not apply. Open: gate-rejected but visibly better files (Mecabricks 71044,
+  7938, 2126, 79111, 3677; 8 Eurobricks track sets; ~250 Eurobricks regens)
+  need a visual-A/B criterion; 75 IOModel2V2 sets the flattener refuses;
+  geograde's sunk-floor estimate misfires on cars resting on tyres only.
 - [x] Loop camera: the user chose to KEEP the look lock during loops
   (2026-09-25) — the per-loop camera animation stays; no setting needed.
 - [ ] Saga (second test phone, `192.168.1.243:5555`, device `ingot`, Android 13,
