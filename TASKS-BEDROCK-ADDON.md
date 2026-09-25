@@ -45,6 +45,10 @@ Open:
 - [ ] Open the Walk add-on in Chrome once: the preview's Z mirror and rotation
   change is typecheck- and render-verified only (door swing, pinball flippers
   and the sit overlay run through the mirrored holder).
+- [ ] 76435: figures 1 and 8 are recorded on the same spot (804 coplanar pairs,
+  5.6 block faces between them in the 40-set audit; every other favourite is
+  at or under 1.8): they fight until they walk apart. Offset a figure that
+  spawns inside another.
 - [ ] Tell the user: remove the older `Gringotts`/`Hogsmeade`-labelled packs
   (different uuids, same entity ids) from any world that has the new ones.
 
