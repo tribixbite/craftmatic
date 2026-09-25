@@ -13,6 +13,7 @@
  * Usage: bun scripts/_vehicle_audit.ts [set…] [--out DIR] [--keep] [--md]
  *   no sets: the 40 favourites plus the vehicle-heavy extras below.
  *   --keep  reuse DIR/<set>.mcaddon + DIR/<set>.json when present.
+ *   --mirror=<url>  part mirror for _playable_ref.ts (e.g. a running dev server's /ldraw-parts).
  *   --md    print the markdown table (docs/bedrock-addon-guide.md, "Vehicle audit").
  * Output: DIR/<set>.mcaddon, DIR/<set>.json (the export report), DIR/audit.json.
  */
@@ -44,6 +45,8 @@ const outIndex = argv.indexOf('--out');
 const OUT = outIndex >= 0 ? argv[outIndex + 1]! : 'output/vehicle-audit';
 const KEEP = argv.includes('--keep');
 const MD = argv.includes('--md');
+/** `--mirror=<url>`: passed to `_playable_ref.ts` (the prod part mirror throttles parallel exports). */
+const MIRROR = argv.find(a => a.startsWith('--mirror='));
 const targets = argv.filter((a, i) => !a.startsWith('--') && !(outIndex >= 0 && i === outIndex + 1));
 const sets = (JSON.parse(readFileSync(INDEX, 'utf8')) as {
   sets: Record<string, { name?: string; models?: IndexModel[]; parts?: number; catalogParts?: number }>;
@@ -93,7 +96,7 @@ for (const set of list) {
   const started = Date.now();
   if (!(KEEP && existsSync(pack) && existsSync(reportPath))) {
     // No `shell: true`: a first-pick path may contain spaces (see _favorites_export_sweep.ts).
-    const run = spawnSync('bun', ['scripts/_playable_ref.ts', file, pack, `--label=${label}`], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    const run = spawnSync('bun', ['scripts/_playable_ref.ts', file, pack, `--label=${label}`, ...(MIRROR ? [MIRROR] : [])], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
     if (run.status !== 0 || !existsSync(pack)) {
       row.error = (run.stderr || run.stdout || '').split('\n').filter(Boolean).slice(-3).join(' | ').slice(0, 400);
       row.seconds = Math.round((Date.now() - started) / 100) / 10;
