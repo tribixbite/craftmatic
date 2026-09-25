@@ -186,6 +186,10 @@ from a near-vertical nose; the pitch folded back into ±90 past vertical),
 and each inversion sent as ONE camera animation that rolls, planned by
 running the ride's own `integrate` / `carPose` ahead of the train
 (`planInversion`); it hands back the instant the ride leaves the plan.
+The prediction runs only with inverted track within reach (`planner.near`)
+and stops early, so a steep drop on a route with no loop costs the ride's
+own step alone: an 80-tick prediction on every steep tick overran the
+device's script tick on 10261 (2026-09-25) and slowed the whole ride.
 The animation trails the server's train by `animLag` ticks (3, ridden on the
 Pixel), because the client draws the train interpolated behind the server.
 `clamp` (the first shipped mode) turned the yaw over at `maxTurn` a tick past

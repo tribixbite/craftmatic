@@ -2145,11 +2145,39 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
    * within 10 ticks and ends inside the prediction.
    */
   const planInversion = (frame: any, planner: any, look: any, history: any[]) => {
-    const plan = planner.plan(frame.car, 80);
-    if (!plan || plan.poses.length < 4) return null;
+    // Cost bound (the 2026-09-25 regression: 80 predicted ticks on EVERY steep
+    // tick, ~117 substeps a tick on 10261, the device's script tick overran
+    // and the ride slowed and stuttered). Nothing is predicted unless inverted
+    // track is within reach (`planner.near`); the prediction stops at tick
+    // `LOOKOUT` when no inversion has begun, as soon as one is seen beyond
+    // tick 10, or two ticks after the one it found ends.
+    const LOOKOUT = 21;
+    if (!planner.near(frame.car, 11)) return null;
     const upY = (pose: any) => pose.up[1];
+    let seen = -1, upright = -1;
+    const plan = planner.plan(frame.car, 80, (poses: any[]) => {
+      const k = poses.length - 1, y = upY(poses[k]);
+      if (seen < 0) { if (y < -0.2) seen = k; else return poses.length >= LOOKOUT; }
+      if (seen > 10) return true;
+      if (upright < 0 && y > 0.3) upright = k;
+      return upright >= 0 && poses.length >= upright + 3;
+    });
+    if (!plan) return null;
     const first = plan.poses.findIndex((pose: any) => upY(pose) < -0.2);
-    if (first < 0 || first > 10) return null;
+    if (first < 0 || first > 10) {
+      // No inversion begins within 10 ticks. The ride follows this prediction
+      // exactly (the same arithmetic) or falls behind it (a held tick), so
+      // for the next `clear - 10` ticks the inversion still cannot begin
+      // within 10: the plan would fail identically, and waiting starts the
+      // animation on the very tick it always did, at a fraction of the cost.
+      const clear = first < 0 ? plan.poses.length : first;
+      return clear > 11 ? { wait: clear - 10 } : null;
+    }
+    if (plan.poses.length < 4) return null;
+    // From here an inversion begins within 10 ticks; a failure below is this
+    // inversion's (it runs past the prediction, or a brake may stop the
+    // train in it), so the caller waits it out on the per-tick camera.
+    const failed = { wait: 10 };
     // This inversion only (a second loop may follow in the same prediction),
     // and hand back once the car is right side up again: from there the
     // per-tick camera and the rolling view agree to within the helix's lean.
@@ -2157,17 +2185,17 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     while (last + 1 < plan.poses.length && upY(plan.poses[last + 1]) < -0.2) last++;
     let end = -1;
     for (let k = last; k < plan.poses.length; k++) if (upY(plan.poses[k]) > 0.3) { end = k; break; }
-    if (end < 0) return null;
+    if (end < 0) return failed;
     // Ticks 0..length, tick 0 being this one; an even length keeps keyframes 0.1 s apart to the end.
     let length = end + 1;
     if (length % 2) length++;
-    if (length > plan.poses.length) return null;
+    if (length > plan.poses.length) return failed;
     // Keyframe k shows the pose of tick k - animLag: this tick's pose and the
     // `animLag` before it (from the rider's history), then the plan.
     const past = history.slice(-(animLag + 1));
     while (past.length < animLag + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up });
     const poses = [...past, ...plan.poses].slice(0, length + 1);
-    if (poses.length < length + 1) return null;
+    if (poses.length < length + 1) return failed;
     const views: any[] = [];
     let previous: any = null;
     for (const pose of poses) { previous = riderView(pose.nose, pose.up, look, previous, 'roll', 40); views.push(previous); }
@@ -2177,7 +2205,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
       arcs.push(arcs[k - 1] + Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
     }
     const totalArc = arcs[arcs.length - 1];
-    if (!(totalArc > 0.1)) return null;
+    if (!(totalArc > 0.1)) return failed;
     // The eye path resampled at equal arc steps.
     const points: any[] = [];
     for (let j = 0; j < poses.length; j++) {
@@ -2248,8 +2276,12 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // The animation ends upright, at this pose; the per-tick camera takes over from it without an ease.
         viewer.view = riderView(frame.nose, frame.up, viewer.look, null, tickMode, camera.maxTurn);
       } else if (!(viewer.cooldown > ticks) && Math.abs(frame.pitch) > 20) {
-        const planned = planInversion(frame, planner, viewer.look, viewer.history);
-        if (planned) {
+        const planned: any = planInversion(frame, planner, viewer.look, viewer.history);
+        // Nothing to animate yet, proven for `wait` ticks (see `planInversion`),
+        // or an inversion that cannot be drawn whole: the per-tick camera keeps
+        // it, and the prediction is not re-run every tick.
+        if (planned && planned.wait) viewer.cooldown = ticks + planned.wait;
+        else if (planned) {
           try {
             rider.camera.playAnimation(planned.spline, planned.options);
             viewer.anim = { start: ticks, length: planned.length, centres: planned.centres };
@@ -2308,6 +2340,23 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     const ratio = length > 0 ? (distance - path.cumulative[low]) / length : 0;
     const a = route.up[low], b = route.up[low + 1];
     return [a[0] + (b[0] - a[0]) * ratio, a[1] + (b[1] - a[1]) * ratio, a[2] + (b[2] - a[2]) * ratio];
+  };
+  /**
+   * The arcs of a route's authored samples whose track up points below the
+   * horizon, computed once per route: where an inversion can be. The rider
+   * camera's plan asks for a car up below -0.2, so up y < 0 on the track is
+   * the looser (never missing) test.
+   */
+  const invertedArcs = new Map<any, number[]>();
+  const invertedArcsOf = (route: any): number[] => {
+    let arcs = invertedArcs.get(route);
+    if (!arcs) {
+      arcs = [];
+      const ups = route.up || [];
+      for (let i = 0; i < ups.length && i < route.path.cumulative.length; i++) if (ups[i][1] < 0) arcs.push(route.path.cumulative[i]);
+      invertedArcs.set(route, arcs);
+    }
+    return arcs;
   };
   const tick = () => {
     ticks++;
@@ -2854,7 +2903,34 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         // end of an open route, the lift.
         const planner = {
           centre: next,
-          plan: (car: any, horizon: number) => {
+          /**
+           * Whether inverted track lies within reach of `car` in `ticks` ticks:
+           * the camera's cheap gate before `plan`. Reach is the most the train
+           * can cover at the fastest it could go by then, never past MAX_SPEED:
+           * the highest speed any floor can lift it to (its own speed, the
+           * minimum, the chain's, the inversion floor at the apex) plus a
+           * vertical fall's gain for the whole window, since drag and rolling
+           * only slow it; plus the car's half-wheelbase and a block either
+           * way. A route that never inverts is never planned (10261's drops
+           * planned 80 ticks EVERY steep tick, 2026-09-25).
+           */
+          near: (car: any, ticks: number): boolean => {
+            const inverted = invertedArcsOf(route);
+            if (!inverted.length) return false;
+            const floorSpeed = route.loopRadius > 0 ? INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale) : 0;
+            const fastest = Math.min(MAX_SPEED, Math.max(speed, MIN_SPEED, LIFT_SPEED, floorSpeed) + GRAVITY * ticks / 20);
+            const margin = wheelbaseOf(car) / 2 + 1;
+            const reach = fastest * ticks / 20 / scale + margin;
+            const from = carArc(next, car.slot);
+            for (const arc of inverted) {
+              let ahead = (arc - from) * nextDirection;
+              if (path.closed) { ahead %= total; if (ahead < 0) ahead += total; if (ahead > total - margin) ahead -= total; }
+              if (ahead >= -margin && ahead <= reach) return true;
+            }
+            return false;
+          },
+          /** The train predicted `horizon` ticks ahead, the rider's `car` posed each tick; `stop(poses)` may end it sooner. */
+          plan: (car: any, horizon: number, stop?: (poses: any[]) => boolean) => {
             if (phase !== 'track' || train.dwell > 0 || train.holding || arrived) return null;
             // Any point a brake may stop the train at, in the direction of travel
             // (the platform, the loading bay, the deck and the wait before it).
@@ -2882,6 +2958,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
               held = pose.yaw;
               centres.push(n); poses.push(pose);
               c = n; v = clamped;
+              if (stop && stop(poses)) break;
             }
             return { centres, poses };
           },

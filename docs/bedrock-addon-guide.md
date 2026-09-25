@@ -2206,6 +2206,36 @@ the loading bay, the deck, the end of an open route): there the loop is
 drawn by `reflect` alone. 10303: both loops, 30 and 24 ticks (1.5 s and
 1.2 s), every animation played to its planned end on the host.
 
+**The prediction is gated by cost (regression fixed 2026-09-25).** As first
+shipped (`2b7e11bd`), every tick with the car pitched past 20 degrees ran an
+80-tick prediction whether or not a loop existed. On 10261 (no inversions,
+long steep drops) that was 117 ride substeps a tick on the drops against
+2.4 on the flat (host, shipped pack `243f54b1`: 4.9 ms against 0.35 ms a
+tick); on the phone the script tick overran, the ride slowed ("time slows")
+and the per-tick camera stuttered. Now: `planner.near` predicts nothing
+unless inverted track (a sample with up.y < 0) lies within reach of the
+rider's car in 11 ticks at the fastest the train could go; a prediction
+stops at tick 21 with no inversion begun, as soon as one is seen beyond tick
+10, or 2 ticks after the found one ends; and a prediction that finds
+nothing for `c` ticks skips the next `c − 10` ticks, which provably fail
+the same way (the ride follows its own prediction or falls behind it). The
+replay digests of 10261, 10303 and 42703 are bit-identical to the shipped
+runtime (`bun scripts/_coaster_replay.ts <pack> --rebuild`): same camera
+calls, same animations on the same ticks. Steep-tick substeps: 10261
+117 → 2.4, 10303 77.5 → 7.8. Tests: "loop mode on steep track with no
+inversion … predicts nothing" and "loop mode predicts only near an
+inversion" count the ride's work through the `Math` the runtime sees.
+Ridden on the Saga (2026-09-25, world 925, packs `37cdf61c`), with an A/B on
+10261: on the shipped `243f54b1` pack the 9-second chain lift (host: 180
+ticks at 3.5 blocks/s) took ~47 s of wall time, about 4 ticks a second, and
+the action bar refreshed only every ~5 s; on `37cdf61c` it took 9 s. Station
+dwells ran at full rate on both, so only the steep track lagged. 10303's
+lift-top-to-lift-top cycle took 55 s against the host's 54, both loops still
+roll, and `freezedetect` finds no frozen frame on the drop and loops. 42703's
+departure cycle took 23-25 s against the host's 23. The content logs were
+clean. Evidence: `output/coaster-lag-0925/device/` in the fix's worktree
+(the ride videos, `*-bars*.png` action-bar strips, contact sheets).
+
 **The "Experimental Creator Camera Features" experiment
 (`experiments.experimental_creator_cameras`, set in `cmgametest` with
 `scripts/_leveldat_experiments.py --creator-cameras`) changes none of this**:
