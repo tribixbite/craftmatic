@@ -95,6 +95,12 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   7938, 2126, 79111, 3677; 8 Eurobricks track sets; ~250 Eurobricks regens)
   need a visual-A/B criterion; 75 IOModel2V2 sets the flattener refuses;
   geograde's sunk-floor estimate misfires on cars resting on tyres only.
+- [ ] Source GATE REWRITE (user, 2026-09-25; agent in clego, no worktree):
+  replace the strict "no metric worse" A/B with connection-based metrics
+  (stud/anti-stud, pin, clip, track-end connectivity; interpenetration volume;
+  ground-contact floor), calibrated on a labelled set (authentic vs corrupted,
+  this round's eye-judged pairs) with held-out accuracy vs the old gate; then
+  re-run the pending rejects and publish what passes.
 - [x] Loop camera: the user chose to KEEP the look lock during loops
   (2026-09-25) — the per-loop camera animation stays; no setting needed.
 - [x] Saga (second test phone, `192.168.1.243:5555`, rooted; NEVER `stop`/
