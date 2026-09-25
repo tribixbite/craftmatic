@@ -381,6 +381,8 @@ export const DASH_ACTION = { cooldown_time: 1.5, horizontal_momentum: 20, vertic
 export const AIRCRAFT_DESCEND_GROUP = 'craftmatic:descending';
 /** A car's `minecraft:movement` (see behaviorEntity: ~41.5 blocks/s per unit, measured on the Pixel 2026-09-25). */
 export const CAR_MOVEMENT = 0.45;
+/** Every native speed of a SCRIPTED vehicle (fixed wing, boat): zero, so only scripts/vehicles.js moves it. */
+export const SCRIPTED_NATIVE_SPEED = 0;
 /** Aircraft component group holding the normal Jump = CLIMB action; added at spawn and by `descend_off`. */
 export const AIRCRAFT_CLIMB_GROUP = 'craftmatic:climbing';
 export const AIRCRAFT_DESCEND_ON = 'craftmatic:descend_on';
@@ -548,15 +550,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // floated but crawled at 1.6-1.8 blocks/s on water (Pixel GameTest,
         // 2026-09-25).
         Object.assign(common, {
-            'minecraft:movement': { value: 0 },
+            'minecraft:movement': { value: SCRIPTED_NATIVE_SPEED },
             'minecraft:physics': { has_gravity: false, has_collision: true },
             'minecraft:can_fly': {},
             'minecraft:jump.static': {},
             'minecraft:movement.hover': {},
             'minecraft:navigation.hover': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:free_camera_controlled': { strafe_speed_modifier: 0, backwards_movement_modifier: 0 },
-            'minecraft:flying_speed': { value: 0 },
-            'minecraft:vertical_movement_action': { vertical_velocity: 0 },
+            'minecraft:flying_speed': { value: SCRIPTED_NATIVE_SPEED },
+            'minecraft:vertical_movement_action': { vertical_velocity: SCRIPTED_NATIVE_SPEED },
             'minecraft:behavior.player_ride_tamed': { priority: 1 },
         });
     } else {
