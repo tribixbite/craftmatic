@@ -815,7 +815,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
    * dragged DOWN the screen (anywhere) turns the player's pitch down; the free
    * camera does not move. Measured on the Pixel (2026-09-25): a 200 px drag
    * turned the pitch 18 -> 61 degrees, about 0.21 degrees a pixel, reported
-   * every tick while the finger moves. The pull is the pitch gained since the
+   * every tick while the finger moves. The pull is the pitch change since the
    * drag began over `DRAG_FULL_DEG` (about 140 px for a full pull). No event
    * says a finger lifted, so a pull that stops changing for `DRAG_RELEASE`
    * ticks has been let go and fires.
@@ -1304,9 +1304,12 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
             const moving = Math.abs(px - d.last) > DRAG_MOVE_DEG;
             d.still = moving ? 0 : d.still + 1;
             d.last = px;
-            // Dragging up (pitch below the start) only moves the start.
-            if (px < d.base) d.base = px;
-            d.pull = Math.min(1, Math.max(0, (px - d.base) / DRAG_FULL_DEG));
+            // Either direction pulls. A script cannot put the pitch back after
+            // a shot (setRotation's pitch does not take on the phone: the
+            // reported pitch stayed at 64 after a full pull, 2026-09-25), so
+            // after a few pulls a drag DOWN runs out of room at 90 degrees;
+            // a drag up then pulls just as well.
+            d.pull = Math.min(1, Math.abs(px - d.base) / DRAG_FULL_DEG);
             if (d.pull > 0 && d.still >= DRAG_RELEASE) {
               if (tune.log) { try { console.warn(`[pinball] drag release at pull ${d.pull.toFixed(2)} (pitch ${d.base.toFixed(1)} -> ${px.toFixed(1)}) tick ${now}`); } catch {} }
               d.fire = true;
@@ -1440,7 +1443,7 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
       else if (st.phase === 'ready') {
         line = pullNow > 0
           ? `${note}§bBall ${st.ball}/${st.balls}§r plunger ${bar(pullNow)} - let go to fire`
-          : `${note}§bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} - drag down to pull the plunger, let go to fire`;
+          : `${note}§bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} - drag down (or up) to pull the plunger, let go to fire`;
       } else line = `${note}${held} §bBall ${st.ball}/${st.balls}§r ${fmt(st.score)} (best ${fmt(game.best)})`;
       try { rider.onScreenDisplay.setActionBar(line); } catch {}
     }

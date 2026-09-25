@@ -409,14 +409,15 @@ describe('pinball runtime (host simulation)', () => {
     expect(strong.locked).toEqual([1, false]);
   });
 
-  it('dragging UP only moves where the pull starts from; no drag, no shot', () => {
+  it('a drag UP pulls too (the pitch cannot be put back after a shot); no drag, no shot', () => {
     const h = seated();
-    h.run(1);
+    h.run(12);
+    expect(launched(h)).toBe(false);
     const p0 = h.player.getRotation().x;
     for (let k = 1; k <= 5; k++) { h.player.head = { x: p0 - 3 * k, y: 180 }; h.run(1); }
-    h.run(10);
-    expect(launched(h)).toBe(false);
-    expect(h.plunger.actorProps['craftmatic:pull'] ?? 0).toBe(0);
+    expect(h.plunger.actorProps['craftmatic:pull']).toBeCloseTo(0.5, 6);
+    h.run(8);
+    expect(launched(h)).toBe(true);
   });
 
   it('pulling the stick back draws the plunger as far as it is pulled, and letting go fires', () => {
