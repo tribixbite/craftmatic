@@ -1124,9 +1124,21 @@ describe('lift-extended route config', () => {
 // ─── Lift runtime ────────────────────────────────────────────────────────────
 
 /** A host whose entities are spawned from the config's own roles: cars per slot, the platform and the counterweight. */
-function liftHost(route: CoasterRoute, camera?: Partial<CoasterRiderViewConfig>) {
+/**
+ * `wheelbase` (model blocks) is what `buildCoasterRideAssets` writes into every
+ * car type of a real pack from the set's measured wheels; `coasterRuntimeConfig`
+ * alone leaves it unset, and a car without one points along the raw segment
+ * tangent instead of the chord between its wheels. A corpus test that asserts
+ * what the rider sees must pass the set's own wheelbase, or it measures a
+ * polyline artefact the shipped car never shows (see the 10303 loop tests).
+ */
+function liftHost(route: CoasterRoute, camera?: Partial<CoasterRiderViewConfig>, wheelbase?: number) {
   const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
-  const config = camera ? { ...bare, camera: { ...bare.camera!, ...camera } } : bare;
+  const withCamera = camera ? { ...bare, camera: { ...bare.camera!, ...camera } } : bare;
+  const config = wheelbase === undefined ? withCamera : {
+    ...withCamera,
+    types: Object.fromEntries(Object.entries(withCamera.types).map(([id, type]) => [id, type.role === 'car' ? { ...type, wheelbase } : type])),
+  };
   const runtimeRoute = config.routes[0]!;
   let loaded = true;
   const removed = new Set<string>();
@@ -1748,6 +1760,8 @@ const PUBLISHED_10261 = 'C:/git/clego/lego_sets/IOModel2V2/10261.ldr';
 const HAVE_CORPUS = existsSync(LDRAW_ROOT) && existsSync(PUBLISHED_10303) && existsSync(PUBLISHED_10261);
 /** 10303 and 10261 export at the minifig scale: a 53.33-LDU cell. */
 const CORPUS_FRAME = { x: 0, y: 0, z: 0, scale: 1, cellXZ: 53.333333, cellY: 53.333333 };
+/** 10303's cars ride on 24869 wheels 50 LDU apart (asserted in the first 10303 test): the wheelbase its pack ships, model blocks. */
+const WHEELBASE_10303 = 50 / 53.333333;
 
 async function corpusRoutes(file: string) {
   setLDrawRoot(LDRAW_ROOT);
@@ -1848,9 +1862,16 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
   it('turns over through BOTH loops without swivelling, and keeps its speed over every top', async () => {
     // Device report 2026-09-24: "first upside-down swivel fixed but still
     // occurs during second upside-down loop", and the train "creeps to nearly
-    // stopped" upside down. The serialized runtime, riderless, over two laps.
+    // stopped" upside down. The serialized runtime, riderless, over two laps,
+    // with the cars' own wheelbase as the pack ships it: without one the yaw
+    // is the raw segment tangent, and loop 1's apex has a 0.147-block piece at
+    // a fragment join that runs exactly along +X, 10.6 degrees off the helix's
+    // heading and flanked by two segments 6.7 degrees the other way. Whether a
+    // tick landed on it was sampling phase: pace 1.40 read 11.2 in one tick,
+    // 1.41 read 7.8, 1.60 read 9.4. The 0.94-block chord spans it; with it the
+    // worst step is 7.3-9.2 at every pace from 1.30 to 1.62 (scan 2026-09-25).
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!);
+    const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
     const route = h.route, path = route.path, cars = route.cars;
     const radius = route.loopRadius!;
     expect(radius).toBeGreaterThan(3); expect(radius).toBeLessThan(5);
@@ -1890,9 +1911,9 @@ describe.skipIf(!HAVE_CORPUS)('10303 Loop Coaster: its own three cars, its platf
           if (j > from) worstStep = Math.max(worstStep, turn(log[j - 1]!.yaw, log[j]!.yaw));
         }
         // Before: 101 degrees and up to 53 in one tick on the second loop.
-        // Now the most is the first loop's own helix lean (12 degrees) plus a
-        // one-tick 5-degree blip at its apex, where the extracted polyline
-        // jogs sideways at a fragment join (track data, not the runtime).
+        // Now the most is the first loop's own helix lean (12 degrees); the
+        // per-tick step is the track's real turning under a 0.94-block chord
+        // (at most 9.2 over the pace scan above).
         expect(range).toBeLessThan(20);
         expect(worstStep).toBeLessThan(10);
         for (let j = k; j <= end; j++) {
@@ -2272,7 +2293,7 @@ describe('the rider camera follows the track', () => {
 describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop, the curves and both loops', () => {
   it('over mode: looks along the track all lap, runs over both tops upside down, and never snaps', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!, { mode: 'over' });
+    const h = liftHost(scene.routes[0]!, { mode: 'over' }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
@@ -2302,22 +2323,25 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     expect(compared).toBeGreaterThan(800);
     // With no head turn the view is the car's nose everywhere but inside the two
     // helical loops, where the loop's ~12-degree lean is a roll a Bedrock camera
-    // cannot draw and the closest roll-free view splits it (measured: 2-11
-    // degrees over ~20 ticks a loop, 17 once at loop 2's fragment-join jog).
+    // cannot draw and the closest roll-free view splits it (measured with the
+    // cars' own wheelbase at pace sqrt(2): 11.5 at most, 20 ticks over 2 degrees).
     expect(worstAlong).toBeLessThan(20);
     expect(leaning).toBeLessThan(50);
     // Two loop tops, each seen upside down (pitch within 60 of ±180).
     expect(tops.length).toBe(2);
     expect(inverted).toBeGreaterThan(10);
-    // No snap anywhere: the yaw moves with the track's turns (16.9 at most, on a
-    // curve at speed), the pitch with its grade and loops.
+    // No snap anywhere: the yaw moves with the track's turns (11.9 at most at
+    // pace sqrt(2)), the pitch with its grade and loops (16.8).
     expect(worstYawStep).toBeLessThan(20);
     expect(worstPitchStep).toBeLessThan(30);
   }, 240_000);
 
   it('clamp mode (the default, what Bedrock accepts): exact along the nose except while turning over a loop, pitch within ±90, no yaw jump', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!);
+    // The pack's own wheelbase: the camera follows the car's chord, and
+    // without it the raw tangent's fragment-join piece at loop 1's apex made
+    // the numbers below depend on where the ticks fell (see the loops test).
+    const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
@@ -2337,10 +2361,12 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
       if (error > 0.5) { off++; worstOffLevel = Math.max(worstOffLevel, 90 - Math.abs(view.x)); worstError = Math.max(worstError, error); }
     }
     expect(compared).toBeGreaterThan(800);
-    // Off the nose only while the yaw turns over a loop's side: measured 13
-    // ticks a lap (4 per flip, 4 flips), up to 34 degrees while the view is
-    // still 41-83 degrees from level — the image turns over in 0.2 s rather
-    // than snapping, and at 32 blocks/s the loop turns on under it meanwhile.
+    // Off the nose only while the yaw turns over a loop's side: the image
+    // turns over in 0.2 s rather than snapping, and the loop turns on under it
+    // meanwhile. At pace sqrt(2), 13 ticks a lap, up to 21 degrees off, the
+    // view within 33 degrees of vertical. Over a pace scan 1.30-1.62 (which
+    // moves where the ticks fall), 11-14 ticks, at most 31 degrees off and 46
+    // from vertical: the bounds hold at any phase, not by sampling luck.
     expect(off).toBeGreaterThan(0);
     expect(off).toBeLessThan(20);
     expect(worstOffLevel).toBeLessThan(50);

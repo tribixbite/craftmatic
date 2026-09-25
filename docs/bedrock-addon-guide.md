@@ -2059,6 +2059,9 @@ slow for toy radii (3.7-block loops). Three changes, `COASTER_PHYSICS`:
 - `COASTER_RIDE_PACE` 1.6: every speed × 1.6, every acceleration × 2.56
   (gravity, rolling loss, chain accel, station brake), drag unchanged — the
   same ride, the same energy, played back faster. Dwell ticks unchanged.
+  **Superseded 2026-09-25:** 1.6 rode "a touch TOO fast"; the pace is now √2
+  (g = 2 g = 19.6) with `MAX_SPEED` = 20 × pace. The reason, the gravity audit
+  of every physics model and the host numbers: `docs/physics-architecture.md`.
 - `MAX_SPEED` 16 → 32.
 - An inversion floor: through an inversion the train keeps
   `INVERSION_MARGIN` (1.3) × sqrt(g r) × sqrt(−up.y), zero at vertical so it

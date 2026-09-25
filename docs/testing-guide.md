@@ -91,6 +91,18 @@ MODEL closes the approach (solid behind the leaf, a drop, a false door) - look
 at it before calling it a door fault; STEP means it passed at 100 % and a riser
 grew past the jump at the bigger size.
 
+**The corpus coaster tests read the PROD part mirror.** With `setLDrawRoot`
+the CLI resolver asks `https://craftmatic.click/ldraw-parts` for any part the
+2020 local library lacks, and a throttled mirror (HTTP 429) is treated as a
+miss. 30 of 10303's 354 part references are not in the local library,
+among them the rail mould `80566`; without it 10303 extracts TWO routes and
+no platform lift, and four tests in
+`test/bedrock-coaster.test.ts` / `test/coaster-assemblies.test.ts` fail with
+nothing wrong in the code (2026-09-25, after a morning of scans). Before
+reading such a failure, `curl -s -o /dev/null -w "%{http_code}"
+https://craftmatic.click/ldraw-parts/parts/26021.dat`; on 429, wait and rerun.
+# TODO: pin those parts locally so the corpus suite is offline-deterministic.
+
 ## Manual gates (Chrome + the local corpus — deliberately NOT in CI)
 
 Run these after touching the renderer, the part resolver, the LXF/alignment
