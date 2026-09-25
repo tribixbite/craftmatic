@@ -569,7 +569,9 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
           const d = (c.x + 0.5 - sl.x) ** 2 + (c.z + 0.5 - sl.z) ** 2;
           if (d < 1.6 * 1.6 && Math.abs(c.feet - sl.y) < 1.2 && d < bestD) { bestD = d; bestI = i; }
         });
-        const here = (e.location.x - sl.x) ** 2 + (e.location.z - sl.z) ** 2 < 1.6 * 1.6;
+        // Beside it on the SAME floor: on the Pixel (76269, 2026-09-25) a figure
+        // 6 blocks over a seat on the storey below "sat" through the floor.
+        const here = (e.location.x - sl.x) ** 2 + (e.location.z - sl.z) ** 2 < 1.6 * 1.6 && Math.abs(e.location.y - sl.y) < 1.2;
         if (bestI < 0 && !here) continue;
         l.seat = s;
         if (bestI < 0) { sit(l); return; }

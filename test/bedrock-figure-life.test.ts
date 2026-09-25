@@ -189,6 +189,20 @@ describe('the serialised runtime', () => {
     expect(t.every(p => p.x > 0 && p.x < 9 && p.z > 0 && p.z < 7 && p.y > 0)).toBe(true);
   });
 
+  it('never borrows a seat on the storey below it (Pixel 76269: a figure sat 6 blocks down through the floor)', () => {
+    // A 2 x 2 upper floor (4 cells: enough to roam) 3 blocks over the ground, and a free
+    // seat on the ground under its middle: within 1.6 blocks sideways of every cell.
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 2; x++) for (let z = 0; z < 2; z++) cells.push({ x, y: 3, z, lo: 0, hi: 3 });
+    const w: SimWorld = { cells, area: [0, 0, 2, 2], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 1, y: 0.6, z: 1 } }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 0.5, y: 3 + 3 / 16, z: 0.5 } }] };
+    const tuning = { ...FIGURE_TUNING, seatChance: 1 };
+    const [t] = simulateFigureLife(w, { ...config, tuning }, 3000, 13);
+    expect(t!.filter(p => p.riding)).toHaveLength(0);
+    expect(Math.min(...t!.map(p => p.y))).toBeGreaterThan(3);
+  });
+
   it('keeps a figure standing on a 1-cell plinth where it is', () => {
     const cells: SourceCell[] = [{ x: 5, y: 0, z: 5, lo: 0, hi: 16 }];
     const w: SimWorld = { cells, area: [4, 4, 7, 7], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 5.5, y: 1, z: 5.5 } }] };
