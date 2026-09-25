@@ -107,6 +107,8 @@ export interface GametestSeat {
   /** Seat actor position, model-local. */
   at: Vec3;
   window?: number;
+  /** A figure the source sat here rides it (`rideOf`): the test checks the figure is seated, not that a player can sit. */
+  occupied?: boolean;
 }
 
 export interface GametestPlan {
@@ -505,6 +507,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const spawned = dim.getEntities({ location: add(anchor, { x: plan.dims.width / 2, y: plan.dims.height / 2, z: plan.dims.length / 2 }), maxDistance: Math.max(plan.dims.width, plan.dims.length, plan.dims.height) + 4 }).filter((e: any) => plan.actorTypes.includes(e.typeId));
     log('PLACED', { test: testName, reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
     if (!reply || reply.error) { flush(); test.fail(`placement did not complete: ${reply ? reply.error : 'no reply in 1200 ticks'}`); return undefined; }
+    // Still refused after every retry: nothing was placed, so nothing below could be judged.
+    if (reply.entities === -1) { flush(); test.fail('placement kept answering "another placement is running": nothing placed'); return undefined; }
     return { sim, anchor, dim };
   };
   const nearest = (dim: any, type: string, at: Vec3, maxDistance: number): any =>
@@ -629,15 +633,22 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       if (!seat) { row.error = 'seat entity not found'; row.pass = false; results.push(row); log('SEAT', row); continue; }
       const riders = (): string[] => { try { return (seat.getComponent('minecraft:rideable')?.getRiders?.() ?? []).map((r: any) => r?.name ?? r?.typeId ?? 'undefined'); } catch (err) { return [`error: ${String(err)}`]; } };
       try {
-        sim.teleport(add(seat.location, { x: 0, y: 0.1, z: 0 }), { facingLocation: seat.location });
-        await test.idle(4);
-        sim.lookAtEntity(seat);
-        row.interactReturned = sim.interactWithEntity(seat);
-        await test.idle(20);
-        row.riders = riders();
-        row.pass = row.riders.includes(sim.name);
-        try { seat.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* nothing to eject */ }
-        await test.idle(10);
+        if (s.occupied) {
+          // A figure the source sat here rides it (10261's seat): it must still be seated.
+          row.occupied = true;
+          row.riders = riders();
+          row.pass = row.riders.some((r: string) => r !== sim.name && r !== 'undefined');
+        } else {
+          sim.teleport(add(seat.location, { x: 0, y: 0.1, z: 0 }), { facingLocation: seat.location });
+          await test.idle(4);
+          sim.lookAtEntity(seat);
+          row.interactReturned = sim.interactWithEntity(seat);
+          await test.idle(20);
+          row.riders = riders();
+          row.pass = row.riders.includes(sim.name);
+          try { seat.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* nothing to eject */ }
+          await test.idle(10);
+        }
       } catch (err) { row.error = String(err && (err as Error).message || err); row.pass = false; }
       results.push(row);
       log('SEAT', row);

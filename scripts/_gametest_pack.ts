@@ -102,10 +102,12 @@ if (cfg) {
     parts.push({ label: it.label, typeId: it.type, kind: it.kind, actor: { x: actor.x, y: actor.y, z: actor.z }, from: { x: best.at[0]!, y: best.at[1]!, z: best.at[2]! }, openAngle: it.angle, window: windowOf(windows, actor.x) });
   });
 }
-for (const a of placement.actors) {
-  if (!/_seat(_\d+)?$/.test(a.typeId.replace(/^[^:]*:/, ''))) continue;
-  seats.push({ label: a.label, typeId: a.typeId, at: { x: a.x, y: a.y, z: a.z }, window: windowOf(windows, a.x) });
-}
+placement.actors.forEach((a, k) => {
+  if (!/_seat(_\d+)?$/.test(a.typeId.replace(/^[^:]*:/, ''))) return;
+  // A figure the source sat here rides this seat (`rideOf` names the seat's actor index).
+  const occupied = placement.actors.some(f => f.rideOf === k);
+  seats.push({ label: a.label, typeId: a.typeId, at: { x: a.x, y: a.y, z: a.z }, window: windowOf(windows, a.x), ...(occupied ? { occupied } : {}) });
+});
 for (const d of doorways) d.window = windowOf(windows, d.actor.x);
 
 // A pinball machine: its types from scripts/pinball.js's CONFIG, and the seated

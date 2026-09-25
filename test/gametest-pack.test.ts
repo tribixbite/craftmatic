@@ -227,7 +227,7 @@ describe('the serialised runtime', () => {
 });
 
 /** A fake harness for the parts-and-seats test: a door-like part, a turnable, and a seat. */
-function partsHarness(opts: { toggles: boolean; seats: boolean }) {
+function partsHarness(opts: { toggles: boolean; seats: boolean; occupiedBy?: string }) {
   const origin: Vec3 = { x: 100, y: -60, z: 200 };
   const add = (a: Vec3, b: Vec3): Vec3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
   const anchor = add(origin, { x: GT_MARGIN, y: 1, z: GT_MARGIN });
@@ -240,12 +240,12 @@ function partsHarness(opts: { toggles: boolean; seats: boolean }) {
       { label: 'Window 1', typeId: 'craftmatic:demo_1_window_1', kind: 'window', actor: { x: 2, y: 1, z: 2 }, from: { x: 2.5, y: 0, z: 4.5 }, openAngle: -60 },
       { label: 'Turnable 1', typeId: 'craftmatic:demo_1_turnable_1', kind: 'turnable', actor: { x: 6, y: 1, z: 2 }, from: { x: 6.5, y: 0, z: 4.5 }, openAngle: 90 },
     ],
-    seats: [{ label: 'Seat (4079)', typeId: 'craftmatic:s_demo_1_seat', at: { x: 4, y: 0.5, z: 6 } }],
+    seats: [{ label: 'Seat (4079)', typeId: 'craftmatic:s_demo_1_seat', at: { x: 4, y: 0.5, z: 6 }, ...(opts.occupiedBy ? { occupied: true } : {}) }],
   };
   const entities = [
     ...plan.parts!.map(p => ({ typeId: p.typeId, location: add(anchor, p.actor), angle: 0, kind: p.kind, step: p.openAngle, getProperty(this: any) { return this.angle; } })),
   ];
-  const riders: string[] = [];
+  const riders: string[] = opts.occupiedBy ? [opts.occupiedBy] : [];
   const seat = { typeId: plan.seats![0]!.typeId, location: add(anchor, plan.seats![0]!.at), getComponent: () => ({ getRiders: () => riders.map(name => ({ name })), ejectRiders: () => { riders.length = 0; } }) };
   const all: any[] = [...entities, seat];
   const dim = { getEntities: (q: any) => all.filter(e => !q.type || e.typeId === q.type), runCommand: () => ({ successCount: 1 }) };
@@ -300,6 +300,13 @@ describe('the parts-and-seats test', () => {
     expect(rows.map(r => [r.label, r.pass])).toEqual([['Window 1', true], ['Turnable 1', true], ['Seat (4079)', true]]);
     expect(rows[0].angles).toEqual([0, -60, 0]);
     expect(rows[1].angles).toEqual([0, 90, 180]);
+  });
+  it('checks that a seat a figure was sat on still holds its figure, instead of mounting the player (10261)', async () => {
+    const h = partsHarness({ toggles: true, seats: false, occupiedBy: 'craftmatic:f_demo_1_fig2' });
+    await h.run('parts_demo_1');
+    expect(h.outcome).toEqual({ succeeded: true });
+    const seat = h.logs.filter(l => l.startsWith('CMGT SEAT ')).map(l => JSON.parse(l.slice('CMGT SEAT '.length)))[0];
+    expect(seat).toMatchObject({ occupied: true, riders: ['craftmatic:f_demo_1_fig2'], pass: true });
   });
   it('fails naming the parts that did not move and the seat that did not take the player', async () => {
     const h = partsHarness({ toggles: false, seats: false });
