@@ -2560,7 +2560,9 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
                 if (lowest < 0) floor = INVERSION_MARGIN * Math.sqrt(GRAVITY * route.loopRadius * scale * -lowest);
               }
               // One step for every rail vehicle (`rideSubstep`): gravity-only for a coaster, the stick for a train.
-              const moved = rideStep!(speed, direction, sum / list.length, dt, { chain: chainHere, floor, push: stick * facing, driven }, RIDE);
+              // The stick is read against the train's FIXED nose (its cars' authored heading), never its
+              // motion: a nose that turned with the motion would flip the stick's sense at every reversal.
+              const moved = rideStep!(speed, direction, sum / list.length, dt, { chain: chainHere, floor, push: stick * (cars.heading || 1), driven }, RIDE);
               speed = moved.speed;
               if (moved.direction !== direction) {
                 // Only a driven train reverses, and only from rest: a tick that

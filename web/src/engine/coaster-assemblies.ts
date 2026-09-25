@@ -912,7 +912,8 @@ export function detectCoasterAssemblies(
   const datumAboveRailTopLdu = measureDatumAboveRailTop(bricks, meshes);
   lifts.push(...detectPlatformLifts(bricks, meshes, routes, cars, memberOf, isFigureBrick, isTrackMould,
     options.originAboveDatumLdu ?? originAboveDatumLdu ?? DEFAULT_ORIGIN_ABOVE_DATUM_LDU, datumAboveRailTopLdu ?? DEFAULT_DATUM_ABOVE_RAIL_TOP_LDU, warnings));
-  if (!lifts.length) warnings.push('No lift detected: no chain drive under a climbing route section and no articulated platform docked at an open terminal.');
+  // A railway line has no lift to find; only a coaster route is reported.
+  if (!lifts.length && tracks.routes.some(route => route.family !== 'train')) warnings.push('No lift detected: no chain drive under a climbing route section and no articulated platform docked at an open terminal.');
 
   return { cars, trains, strays, lifts, originAboveDatumLdu, datumAboveRailTopLdu, warnings };
 }

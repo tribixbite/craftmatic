@@ -73,6 +73,35 @@ describe('railway track profiles (measured on the library meshes)', () => {
   });
 });
 
+describe('railway cars: the set\'s own trains found on their track (corpus-gated)', () => {
+  const corpus = 'C:/git/clego/lego_sets';
+  const detect = async (path: string) => {
+    const { detectCoasterAssemblies } = await import('../web/src/engine/coaster-assemblies.js');
+    const { createPartGeometryProvider } = await import('../web/src/engine/ldraw-part-geometry.js');
+    const { setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
+    setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
+    const bricks = parseLDrawDocument(readFileSync(`${corpus}/${path}`, 'utf8')).bricks;
+    const provider = createPartGeometryProvider();
+    const meshes = new Map<string, Awaited<ReturnType<typeof provider.getPartMesh>>>();
+    await Promise.all([...new Set(bricks.map(b => b.part))].map(async p => { meshes.set(p, await provider.getPartMesh(p)); }));
+    const tracks = extractCoasterTrackRoutes(bricks);
+    return detectCoasterAssemblies(bricks, meshes, tracks);
+  };
+  it.skipIf(!existsSync(`${corpus}/IOModel2V2/4559.ldr`))('4559 Cargo Railway: two cars on the closed 9V circuit, each on train bases', async () => {
+    const found = await detect('IOModel2V2/4559.ldr');
+    const onLine = found.cars.filter(car => car.route);
+    expect(onLine.map(car => car.chassis.part)).toEqual(['2972.dat', '2972.dat']);
+    expect(found.trains.map(t => t.carIds.length)).toEqual([2]);
+  }, 60_000);
+  it.skipIf(!existsSync(`${corpus}/IOModel2V2/910044.ldr`))('910044 Wild West Train: loco, tender and car on the open line, two with their driver and guard', async () => {
+    const found = await detect('IOModel2V2/910044.ldr');
+    const onLine = found.cars.filter(car => car.route);
+    expect(onLine).toHaveLength(3);
+    expect(onLine.filter(car => car.seats.some(seat => seat.source === 'rider'))).toHaveLength(2);
+    expect(found.trains.map(t => t.carIds.length)).toEqual([3]);
+  }, 60_000);
+});
+
 describe('rideSubstep: one ride step for coasters and trains', () => {
   /** The coaster formula exactly as `coasterRuntime` inlined it before 2026-09-25. */
   const shipped = (speed: number, grade: number, dt: number, chain: boolean, floor: number): number => {
@@ -132,5 +161,33 @@ describe('rideSubstep: one ride step for coasters and trains', () => {
     const coasting = run(1, { speed: 8, direction: 1 }, 0);
     expect(coasting.speed).toBeGreaterThan(7.2);
     expect(coasting.speed).toBeLessThan(8);
+  });
+});
+
+describe('a driven train in the pack runtime (coasterScript on the replay host)', () => {
+  it('parks unattended, goes on the stick, stops at a buffer, and reverses on the stick', async () => {
+    const { coasterRuntimeConfig, coasterScript } = await import('../web/src/engine/bedrock-coaster.js');
+    const { replayCoasterScript } = await import('../scripts/_coaster_replay.js');
+    // 40 blocks of level railway line; the replay boards a rider at tick 200
+    // and holds the stick forward to tick 600, idle to 800, back to 1000.
+    const points = Array.from({ length: 81 }, (_, i) => [i * 0.5, 0, 0] as [number, number, number]);
+    const config = coasterRuntimeConfig('craftmatic:test_train', [{ label: 'Line', points, closed: false, maxSegmentLength: 0.5, family: 'train' }]);
+    expect(config.routes[0]!.physics?.DRIVER).toBeDefined();
+    expect(config.routes[0]!.direction).toBe(0);
+    const trace: unknown[] = [];
+    replayCoasterScript(coasterScript(config), 1400, trace);
+    const distance = new Map<number, number>(), speed = new Map<number, number>();
+    for (const e of trace as unknown[][]) {
+      if (e[1] !== 'dyn' || e[2] !== 'r0c0') continue;
+      if (e[3] === 'craftmatic:coaster_distance') distance.set(e[0] as number, e[4] as number);
+      if (e[3] === 'craftmatic:coaster_speed') speed.set(e[0] as number, e[4] as number);
+    }
+    expect(speed.get(199)).toBe(0);
+    expect(distance.get(199)).toBe(distance.get(2));
+    // Placed mid-line, it has ~20 blocks to the buffer: about 3 blocks/s² of traction gets it near 10.
+    expect(Math.max(...[...speed].filter(([t]) => t > 200 && t < 600).map(([, v]) => v))).toBeGreaterThan(9);
+    expect(distance.get(599)).toBeCloseTo(40, 3);
+    expect(speed.get(599)).toBe(0);
+    expect(distance.get(999)!).toBeLessThan(distance.get(799)! - 5);
   });
 });
