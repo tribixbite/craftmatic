@@ -228,8 +228,12 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
       const ob = boxOf(other.map(i => boxes[i]!)), r = P.OAR_REACH;
       if (ob.min[0] >= min[0] - r && ob.max[0] <= max[0] + r && ob.min[2] >= min[2] - r && ob.max[2] <= max[2] + r && ob.max[1] >= min[1] && ob.max[1] <= max[1] + P.CLAIM_SLACK) riders.push(...other);
     }
+    // A car stands on its wheels: nothing of it reaches below them. A part that
+    // does touched the car on the way down to the ground (60380's brick
+    // separator lies against its side and down onto the road) and stays.
+    const standing = kind === 'car' ? cluster.filter(i => boxes[i]!.max[1] <= lowestWheel + P.CLAIM_SLACK) : cluster;
     // A boat takes its loose oars with it.
-    const members = [...new Set([...cluster, ...riders, ...(kind === 'boat' ? oars.filter(i => !claimed.has(i)) : [])])];
+    const members = [...new Set([...standing, ...riders, ...(kind === 'boat' ? oars.filter(i => !claimed.has(i)) : [])])];
     for (const i of members) claimed.add(i);
     const n = kind === 'car' ? ++cars : ++boats;
     components.push({
