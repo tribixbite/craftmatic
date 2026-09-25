@@ -419,9 +419,20 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const sim = test.spawnSimulatedPlayer({ x: 1, y: f.y + 1, z: 1 }, name, gameMode);
     log('ARENA', { test: testName, model: plan.modelId, anchor, floorY: f.y, column: f.column, arena, direction: String(test.getTestDirection()), player: name });
     await test.idle(5);
-    system.sendScriptEvent(`${NS}:place`, JSON.stringify({ player: name, x: anchor.x, y: anchor.y, z: anchor.z, rotation: 0, size: 100 }));
     let reply: any;
-    for (let t = 0; t < 1200 && !reply; t += 10) { await test.idle(10); reply = placedReplies.get(name); }
+    // The placement runtime runs one placement at a time and answers a second
+    // one at once with nothing placed (entities -1: "Another placement is
+    // running"), which is what a doors and a figures test starting together
+    // get (Pixel, 2026-09-25). Ask again until it takes.
+    for (let attempt = 0; attempt < 12; attempt++) {
+      placedReplies.delete(name);
+      system.sendScriptEvent(`${NS}:place`, JSON.stringify({ player: name, x: anchor.x, y: anchor.y, z: anchor.z, rotation: 0, size: 100 }));
+      reply = undefined;
+      for (let t = 0; t < 1200 && !reply; t += 10) { await test.idle(10); reply = placedReplies.get(name); }
+      if (!reply || reply.error || reply.entities !== -1) break;
+      log('PLACE_RETRY', { test: testName, attempt });
+      await test.idle(100);
+    }
     const dim = test.getDimension();
     const spawned = dim.getEntities({ location: add(anchor, { x: plan.dims.width / 2, y: plan.dims.height / 2, z: plan.dims.length / 2 }), maxDistance: Math.max(plan.dims.width, plan.dims.length, plan.dims.height) + 4 }).filter((e: any) => plan.actorTypes.includes(e.typeId));
     log('PLACED', { test: testName, reply: reply ?? 'timeout', actorsFound: spawned.length, actorsExpected: plan.actorTypes.length });
@@ -656,7 +667,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       model: plan.modelId, figures: figs.length, found: found.length, roamers: roamers.length,
       moved: roamers.filter(r => r.moved).length, still: roamers.filter(r => !r.moved).map(r => r.label),
       leftArea: found.filter(r => r.outsideSamples > 0).map(r => r.label), belowGround: bad('belowGround'),
-      droppedStorey: bad('droppedStorey'), endInsideWall: bad('endInsideWall'),
+      droppedStorey: bad('droppedStorey'),
+      // A seated figure sits in its bench's collider cells by design; only a standing one inside a wall is a fault.
+      endInsideWall: roamers.filter(r => r.endInsideWall && r.ridingSamples < r.samples).map(r => r.label),
       clipping: found.filter(r => r.clippingSamples > 0).map(r => `${r.label}:${r.clippingSamples}`),
       seatedStayed: found.filter(r => r.seated && r.ridingSamples === r.samples).length, seatedInSet: found.filter(r => r.seated).length,
       satDown: roamers.filter(r => r.ridingSamples > 0).map(r => r.label),
@@ -679,7 +692,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (summary.endInsideWall.length) problems.push(`inside a wall: ${summary.endInsideWall.join(', ')}`);
     if (roamers.length && summary.moved * 2 < roamers.length) problems.push(`only ${summary.moved}/${roamers.length} roaming figures moved`);
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
-  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2400 + watchTicks).tag(NS);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
 
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {

@@ -137,6 +137,15 @@ describe('the serialised runtime', () => {
     expect(r[1]!.riding).toBeLessThan(3000);
   });
 
+  it('walks a figure spawned inside a collider column into the free cell beside it, then keeps it there', () => {
+    const cells: SourceCell[] = [0, 1, 2].map(y => ({ x: 2, y, z: 2, lo: 0, hi: 16 }));
+    const w: SimWorld = { cells, area: [2, 2, 4, 3], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.4, y: 0, z: 2.5 } }] };
+    const [t] = simulateFigureLife(w, config, 800, 4);
+    const last = t![t!.length - 1]!;
+    expect(Math.floor(last.x)).toBe(3);
+    expect(t!.slice(-200).every(p => Math.hypot(p.x - last.x, p.z - last.z) < 1e-6)).toBe(true);
+  });
+
   it('never stops next to a door leaf', () => {
     const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0, leaves: [{ x: 4.5, y: 0.2, z: 6 }], figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 4.5, y: 3 / 16, z: 3.5 } }] };
     const [t] = simulateFigureLife(w, config, 4000, 5);

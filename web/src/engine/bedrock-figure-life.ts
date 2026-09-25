@@ -217,7 +217,8 @@ export function exploreWalkable(
  * of body under 0.55-0.7 blocks of headroom); the figure is then planned out
  * of that column into the first free one. Pure (serialised into the runtime).
  */
-export function startCell(spanAt: SpanLookup, x: number, z: number, feet: number, body: number, maxUp: number, maxDown: number, stand: typeof standFeetAt): { x: number; z: number; feet: number } | null {
+export function startCell(spanAt: SpanLookup, x: number, z: number, feet: number, body: number, maxUp: number, maxDown: number, stand: typeof standFeetAt,
+  allowed: (x: number, z: number, feet: number) => boolean = () => true): { x: number; z: number; feet: number } | null {
   const cx = Math.floor(x), cz = Math.floor(z);
   const own = stand(spanAt, cx, cz, feet, body, 0.3, maxDown);
   if (own !== null) return { x: cx, z: cz, feet: own };
@@ -226,7 +227,7 @@ export function startCell(spanAt: SpanLookup, x: number, z: number, feet: number
     for (let dx = -r; dx <= r; dx++) for (let dz = -r; dz <= r; dz++) {
       if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
       const f = stand(spanAt, cx + dx, cz + dz, feet, body, maxUp, maxDown);
-      if (f === null) continue;
+      if (f === null || !allowed(cx + dx, cz + dz, f)) continue;
       const d = (cx + dx + 0.5 - x) ** 2 + (cz + dz + 0.5 - z) ** 2 + (f - feet) ** 2;
       if (d < bestD) { bestD = d; best = { x: cx + dx, z: cz + dz, feet: f }; }
     }
@@ -279,6 +280,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     e: any; home: FigureHome; state: 'idle' | 'turn' | 'walk' | 'sit' | 'stay' | 'return';
     until: number; path: WalkCell[]; i: number; yaw: number; seat?: any; checkAt: number; checkPos?: any;
     stuck: number; outsideSince: number; nextSeatAt: number; cells: number;
+    /** The last plan started beside its own column (it stands in a collider); `unwedged` once it was walked out. */
+    wedged?: boolean; unwedged?: boolean; unwedging?: boolean;
   }
   const lives = new Map<string, Life>();
   let tick = 0;
@@ -357,12 +360,13 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     const e = l.e, h = l.home, loc = e.location;
     const span = spans(e.dimension);
     const body = bodyOf(l);
-    const start = planner.startCell(span, loc.x, loc.z, loc.y, body, T.maxUp, T.maxDown, planner.standFeetAt);
+    const allowed = (cx: number, cz: number, cf: number): boolean => insideArea(h, cx, cz, cf, slack);
+    const start = planner.startCell(span, loc.x, loc.z, loc.y, body, T.maxUp, T.maxDown, planner.standFeetAt, allowed);
     if (!start) return [];
-    const cells = planner.exploreWalkable(span, start, body, T.maxUp, T.maxDown,
-      (cx, cz, cf) => insideArea(h, cx, cz, cf, slack), T.maxNodes, planner.standFeetAt);
+    const cells = planner.exploreWalkable(span, start, body, T.maxUp, T.maxDown, allowed, T.maxNodes, planner.standFeetAt);
     // Planned from a neighbouring column: walk into it first (pathTo drops the start cell).
-    if (start.x === Math.floor(loc.x) && start.z === Math.floor(loc.z)) return cells;
+    l.wedged = !(start.x === Math.floor(loc.x) && start.z === Math.floor(loc.z));
+    if (!l.wedged) return cells;
     // Re-root on the figure's own column, so every path begins with the step out of it.
     const here: WalkCell = { x: Math.floor(loc.x), z: Math.floor(loc.z), feet: loc.y, steps: 0, parent: -1 };
     return [here, ...cells.map(c => ({ ...c, steps: c.steps + 1, parent: c.parent + 1 }))];
@@ -385,7 +389,12 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     const e = l.e, h = l.home;
     const cells = explore(l, 0);
     l.cells = cells.length;
-    if (cells.length < T.minRoamCells) { l.state = 'stay'; l.until = tick + 600; return; }
+    if (cells.length < T.minRoamCells) {
+      // Standing inside a collider column (a LEGO figure a hair from a cupboard):
+      // step once into the free column beside it, then stay there.
+      if (l.wedged && !l.unwedged && cells.length >= 2) { l.unwedged = true; l.unwedging = true; startPath(l, [cells[1]!], 'walk'); return; }
+      l.state = 'stay'; l.until = tick + 600; return;
+    }
     const leaves = leavesNear(e.dimension, e.location, radiusOf(h) + 3);
     const nearLeaf = (c: WalkCell): boolean => leaves.some(p => (p.x - c.x - 0.5) ** 2 + (p.z - c.z - 0.5) ** 2 < T.doorwayClearance ** 2);
     // A free seat of this pack in reach, now and then.
@@ -526,7 +535,7 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     if (dx * dx + dz * dz < 0.2 * 0.2) {
       l.i++;
       if (l.i >= l.path.length) {
-        stop(e);
+        stop(e); l.unwedging = false;
         if (l.seat) { sit(l); return; }
         setIdle(l, Math.random() < T.longIdleChance ? rand(T.longIdleMin, T.longIdleMax) : rand(T.idleMin, T.idleMax));
         return;
@@ -547,7 +556,13 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       l.checkAt = tick + 20; l.checkPos = { ...loc };
       if (moved < 0.15) {
         // Blocked by a player, another figure or a closed door: give up this stroll.
-        if (++l.stuck >= 2) { stop(e); l.seat = undefined; setIdle(l, rand(T.idleMin, T.idleMax) / 2); }
+        if (++l.stuck >= 2) {
+          stop(e); l.seat = undefined;
+          // A wedged figure that cannot walk out of its column is set down beside it.
+          if (l.unwedging) { const c = l.path[l.path.length - 1]!; try { e.teleport({ x: c.x + 0.5, y: c.feet, z: c.z + 0.5 }); } catch { /* gone */ } }
+          l.unwedging = false;
+          setIdle(l, rand(T.idleMin, T.idleMax) / 2);
+        }
       } else l.stuck = 0;
     }
   };
