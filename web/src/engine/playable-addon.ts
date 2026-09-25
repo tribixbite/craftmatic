@@ -26,7 +26,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
-import { PINBALL_ZONE_TEXTURE, buttonAssets, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
+import { BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, ballAnimation, ballProperties, consoleAssets, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, planInteractiveColliders, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
@@ -2285,11 +2285,34 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 flipperTypes[i] = typeId;
                 extraComponents.push({ id: fid, label: `${label} ${f.side} flipper`, kind: 'shell', provenance: `${f.bricks.length} source placements swung about the playfield normal` });
             }
+            // The plunger: its own entity, drawn back along the lane by `pull`.
+            let plungerType: string | undefined;
+            if (plan.plunger) {
+                const pid = entityId(`${id}_pinball_plunger`, 'p');
+                plungerType = `${PACK_NAMESPACE}:${pid}`;
+                const pgeo = await compileLdrawEntityGeometry(pid, 'prop', plan.plunger.bricks, { ...compileOpts, rig: plan.plunger.rig });
+                diagnostics[pid] = pgeo.diagnostics;
+                const panim = plungerAnimation(plungerType, plan.map, plan.plunger.strokeLdu);
+                emitCompiledEntity(pid, pgeo, pinballPropBehavior(plungerType, { width: 0.5, height: 0.3 }, plungerProperties()), { animations: { pull: panim.id }, animate: ['pull'] });
+                files.push({ name: `${rp}animations/${pid}.animation.json`, data: json(panim.file) });
+                addEntityName(plungerType, `${label} plunger`, false);
+                const pat = sceneGridPoint(frame, pgeo.originLdu);
+                actors.push({ typeId: plungerType, label: `${label} plunger`, x: pat[0], y: pat[1] + pgeo.originLiftBlocks, z: pat[2], yaw: 0, pinball: true });
+                extraComponents.push({ id: pid, label: `${label} plunger`, kind: 'shell', provenance: `${plan.plunger.bricks.length} source placements drawn back along the launch lane` });
+            }
+            // The ball: it stands on the serve point and its animation draws it
+            // where the runtime's properties say (bedrock-pinball.ts), so its
+            // culling box has to cover the whole table, not the ball.
             const bid = entityId(`${id}_pinball_ball`, 'p');
             const ballType = `${PACK_NAMESPACE}:${bid}`;
-            const bgeo = await compileLdrawEntityGeometry(bid, 'prop', [plan.ballBrick], compileOpts);
+            const bgeo = await compileLdrawEntityGeometry(bid, 'prop', [plan.ballBrick], { ...compileOpts, rig: plan.ballRig });
             diagnostics[bid] = bgeo.diagnostics;
-            emitCompiledEntity(bid, bgeo, pinballPropBehavior(ballType, { width: 0.3, height: 0.3 }));
+            const tableReach = (plan.table.grid.rows + plan.table.grid.cols) * plan.table.grid.cell * Math.hypot(...plan.map.u);
+            const ballBounds = visibleBoundsForSizeSteps({ min: [-tableReach, -tableReach, -tableReach], max: [tableReach, tableReach, tableReach] });
+            for (const g of (bgeo.value as { 'minecraft:geometry': Array<{ description: Record<string, unknown> }> })['minecraft:geometry']) Object.assign(g.description, ballBounds);
+            const banim = ballAnimation(ballType, plan.map);
+            emitCompiledEntity(bid, bgeo, pinballPropBehavior(ballType, { width: 0.3, height: 0.3 }, ballProperties()), { animations: { move: banim.id }, animate: ['move'], preAnimation: BALL_PRE_ANIMATION });
+            files.push({ name: `${rp}animations/${bid}.animation.json`, data: json(banim.file) });
             addEntityName(ballType, `${label} ball`, false);
             const bat = sceneGridPoint(frame, bgeo.originLdu);
             const ballEntityModel: [number, number, number] = [bat[0], bat[1] + bgeo.originLiftBlocks, bat[2]];
@@ -2306,25 +2329,39 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             );
             addEntityName(consoleType, `${label} - Play pinball`, false);
             actors.push({ typeId: consoleType, label: `${label} - Play pinball`, x: plan.consoleModel[0], y: plan.consoleModel[1], z: plan.consoleModel[2], yaw: plan.consoleYaw, pinball: true });
-            // The tap zones: spawned by the runtime beside a seated player's head, never placed.
+            // The tap targets: spawned by the runtime in front of a seated
+            // player's head, on the line of sight to each flipper and the
+            // plunger, never placed. Drawn as faint outlines.
+            const zoneTexture = pinballZoneTexture();
+            files.push({ name: `${rp}textures/entity/${PINBALL_ZONE_TEXTURE}.png`, data: encodePngRgba(zoneTexture.width, zoneTexture.height, zoneTexture.rgba) });
             const zid = entityId(`${id}_pinball_button`, 'p');
             const buttonType = `${PACK_NAMESPACE}:${zid}`;
-            const za = buttonAssets(buttonType);
+            const za = zoneAssets(buttonType, plan.zones.flipperBox, 'flipper');
             files.push(
                 { name: `${bp}entities/${zid}.json`, data: json(za.behavior) },
                 { name: `${rp}entity/${zid}.entity.json`, data: json(za.client) },
                 { name: `${rp}models/entity/${zid}.geo.json`, data: geoJson(za.geometry) },
-                // Fully transparent: the zone is a cube the client picks but never shows.
-                { name: `${rp}textures/entity/${PINBALL_ZONE_TEXTURE}.png`, data: encodePngRgba(2, 2, new Uint8Array(16)) },
             );
             addEntityName(buttonType, `${label} flipper button`, false);
+            let plungerButtonType: string | undefined;
+            if (plan.plunger) {
+                const qid = entityId(`${id}_pinball_plunger_button`, 'p');
+                plungerButtonType = `${PACK_NAMESPACE}:${qid}`;
+                const qa = zoneAssets(plungerButtonType, plan.zones.plungerBox, 'plunger');
+                files.push(
+                    { name: `${bp}entities/${qid}.json`, data: json(qa.behavior) },
+                    { name: `${rp}entity/${qid}.entity.json`, data: json(qa.client) },
+                    { name: `${rp}models/entity/${qid}.geo.json`, data: geoJson(qa.geometry) },
+                );
+                addEntityName(plungerButtonType, `${label} plunger button`, false);
+            }
             // The flipper spin is authored in the render frame; a mirrored frame reverses it.
             const f = SHELL_FRAME;
             const det = f[0]! * (f[4]! * f[8]! - f[5]! * f[7]!) - f[1]! * (f[3]! * f[8]! - f[5]! * f[6]!) + f[2]! * (f[3]! * f[7]! - f[4]! * f[6]!);
-            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType }, ballEntityModel, Math.sign(det) || 1, label);
+            pinballConfig = pinballRuntimeConfig(plan, { console: consoleType, ball: ballType, flippers: flipperTypes, button: buttonType, plunger: plungerType, plungerButton: plungerButtonType }, ballEntityModel, Math.sign(det) || 1, label);
             files.push({ name: `${bp}scripts/pinball.js`, data: text(pinballScript(pinballConfig)) });
             warnings.push(...plan.warnings.map(w => `Pinball: ${w}`));
-            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the left or right half of the screen, or a hotbar slot left or right of the middle, for that flipper (click or trigger on desktop / controller); a tap launches a waiting ball; the stick works too (pull back to charge the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
+            warnings.push(`Pinball: ${label} is playable - sit on the yellow pad in front of the machine ("${PINBALL_INTERACT_TEXT}"). Tap the outlined box over a flipper (or a hotbar slot left or right of the middle) to flip it; tap the yellow box over the plunger to draw it back and tap again to let go - the further it is drawn, the harder the shot. The stick works too (pull it back for the plunger). Sneak to leave. ${plan.table.bumpers.length} bumpers, ${plan.flippers.length} flippers, ${plan.table.tiltDeg.toFixed(1)} degree playfield tilt read from the model.`);
         } catch (e) {
             pinballConfig = undefined;
             warnings.push(`${label}: the pinball game could not be built (${e instanceof Error ? e.message : String(e)}); the machine ships as a static model.`);

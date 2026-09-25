@@ -84,6 +84,21 @@ export interface PinballTable {
   drainSpan: [number, number];
   /** Indices of the spare ball parts (removed from the shell; the runtime draws its own). */
   ballBricks: number[];
+  /**
+   * The PLUNGER: the Technic parts behind the served ball, in line with the
+   * launch lane (11374: the tow-ball tip that meets the ball, its liftarm rod
+   * and the cam knob out of the cabinet front). The add-on pulls them back as
+   * one entity. Empty when nothing plunger-like sits behind the serve.
+   */
+  plungerBricks: number[];
+  /** How far the plunger draws back at a full pull, LDU along +u. */
+  plungerStroke: number;
+  /**
+   * Loose accessories that are not part of the machine and would stand beside
+   * it as clutter (11374 ships a brick separator next to its spare balls; it
+   * stood in front of the seated view as an orange post).
+   */
+  looseBricks: number[];
   warnings: string[];
 }
 
@@ -133,6 +148,12 @@ const BALL_RE = /\bball\b(?!\s*joint)|sphere/i;
 /** Round parts that act as bumpers/posts when they stand in the ball's band. */
 const ROUND_RE = /round|cylinder|dome|cone/i;
 const FLAT_RE = /^(plate|tile)\b/i;
+/** Parts a plunger mechanism is built from (a spring rod, not the structure around it). */
+const PLUNGER_RE = /technic|axle|\bpin\b|liftarm|\bbeam\b|\bcam\b|\bbush\b|towball|spring|shock/i;
+/** ... but never a structural brick, plate or tile that happens to be a Technic one. */
+const STRUCTURE_RE = /brick|plate|tile|slope|panel|bracket/i;
+/** Accessories that are never part of a model. */
+const LOOSE_RE = /brick separator/i;
 
 /**
  * Read a pinball table out of a model. Returns null when the model has no
@@ -467,6 +488,28 @@ export function detectPinballTable(
   if (!fieldOk && !laneOk) warnings.push('no serve reaches the upper table on a full-charge shot');
   const chosenLaunch = launch && laneOk ? launch : fallbackLaunch;
   const playBumpers = kickers(launch && laneOk ? launch : null);
+
+  // 9. The plunger: Technic rod parts behind the served ball, in line with
+  //    the lane (within a ball's width across it), from the playfield down
+  //    to four radii under it, up to eight radii toward the player. Measured
+  //    on 11374: the 13 parts of the tow-ball tip, liftarm rod, axles, cams
+  //    and rubber pin; the lane's orange 1 x 1 Technic brick guides are
+  //    structure and stay.
+  const flipperAll = new Set(flippers.flatMap(f => f.bricks));
+  const [lu, lw] = chosenLaunch.at;
+  const plungerBricks: number[] = [];
+  bricks.forEach((b, i) => {
+    if (flipperAll.has(i) || ballBricks.includes(i)) return;
+    const d = descOf(b);
+    if (!PLUNGER_RE.test(d) || STRUCTURE_RE.test(d)) return;
+    const [pu, pw] = toPlane([b.x, b.y, b.z]);
+    const h = dot([b.x, b.y, b.z], axisN) - floorH;
+    if (Math.abs(pw - lw) > ballRadius * 1.2 || pu < lu || pu > lu + ballRadius * 8 || h < -ballRadius * 4 || h > ballRadius * 0.5) return;
+    plungerBricks.push(i);
+  });
+  debug(`plunger: ${plungerBricks.length} parts behind the serve${plungerBricks.length ? ` (${plungerBricks.map(i => partStem(bricks[i]!.part)).join(' ')})` : ''}`);
+  const looseBricks: number[] = [];
+  bricks.forEach((b, i) => { if (LOOSE_RE.test(descOf(b))) looseBricks.push(i); });
   return {
     axisU, axisW, axisN,
     tiltDeg: Math.acos(Math.min(1, Math.abs(dot(axisN, MODEL_UP)))) * 180 / Math.PI || (nominalTilt ? options.nominalTiltDeg ?? 6.5 : 0),
@@ -477,6 +520,10 @@ export function detectPinballTable(
     drainU,
     drainSpan: [flippers[0]!.pivot[1] - flippers[0]!.pivotRadius, flippers[1]!.pivot[1] + flippers[1]!.pivotRadius],
     ballBricks,
+    plungerBricks,
+    // Two studs: about what a real plunger draws back, and visible from the seat.
+    plungerStroke: 40,
+    looseBricks,
     warnings,
   };
 }

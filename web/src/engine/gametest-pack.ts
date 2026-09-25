@@ -107,6 +107,12 @@ export interface GametestPinball {
   seatedTag: string;
   /** Hotbar slot a seated player is parked on; a lower slot is the left flipper, a higher the right. */
   parkSlot: number;
+  /** The plunger's tap target, the plunger (its pull property) and the ball (its plane-offset property), when the pack has them. */
+  plungerButtonType?: string | undefined;
+  plungerType?: string | undefined;
+  pullProperty?: string | undefined;
+  ballType?: string | undefined;
+  ballUProperty?: string | undefined;
 }
 
 // ─── The placement hook (test variant only) ────────────────────────────────
@@ -450,14 +456,38 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     };
     row.left = await pulse('slot left', () => { sim.selectedSlotIndex = pb.parkSlot - 1; return sim.selectedSlotIndex; });
     row.right = await pulse('slot right', () => { sim.selectedSlotIndex = pb.parkSlot + 1; return sim.selectedSlotIndex; });
-    const zone = nearest(dim, pb.buttonType, sim.location, 12);
-    row.zoneFound = !!zone;
-    if (zone) row.zoneHit = await pulse('zone hit', () => sim.attackEntity(zone));
+    // Each flipper target: a hit must move exactly its own flipper.
+    const targets = dim.getEntities({ type: pb.buttonType, location: sim.location, maxDistance: 12 });
+    row.targetsFound = targets.length;
+    row.targetHits = [];
+    for (const t of targets) row.targetHits.push((await pulse('target hit', () => sim.attackEntity(t))).maxMove);
     const moved = (r: any, k: number): boolean => !!r && r.maxMove[k] > 5;
-    row.pass = moved(row.left, 0) && moved(row.right, 1);
+    const targetsOk = targets.length === 2 && [0, 1].every(k => row.targetHits.filter((mv: number[]) => mv[k]! > 5 && mv[1 - k]! <= 5).length === 1);
+    // The plunger: hit its target (take hold), wait, hit again (let go); the
+    // plunger's pull must rise and the ball must leave up the table (-u).
+    let plungerOk = true;
+    if (pb.plungerButtonType && pb.plungerType && pb.ballType) {
+      const target = nearest(dim, pb.plungerButtonType, sim.location, 12);
+      const plunger = nearest(dim, pb.plungerType, centre, 40);
+      const ball = nearest(dim, pb.ballType, centre, 40);
+      const prop = (e: any, k: string | undefined): number => { try { return Number(e?.getProperty(k)); } catch { return NaN; } };
+      row.plunger = { targetFound: !!target, plungerFound: !!plunger, ballFound: !!ball, pull: [] as number[], ballU: [] as number[] };
+      if (target && plunger && ball) {
+        row.plunger.grabReturned = sim.attackEntity(target);
+        for (let i = 0; i < 20; i++) { await test.idle(1); row.plunger.pull.push(Math.round(prop(plunger, pb.pullProperty) * 100) / 100); }
+        row.plunger.releaseReturned = sim.attackEntity(target);
+        for (let i = 0; i < 20; i++) { await test.idle(1); row.plunger.ballU.push(Math.round(prop(ball, pb.ballUProperty))); }
+        const maxPull = Math.max(0, ...row.plunger.pull.filter(Number.isFinite));
+        const minU = Math.min(0, ...row.plunger.ballU.filter(Number.isFinite));
+        row.plunger.maxPull = maxPull; row.plunger.minBallU = minU;
+        plungerOk = maxPull > 0.3 && minU < -50;
+      } else plungerOk = false;
+    }
+    row.targetsOk = targetsOk; row.plungerOk = plungerOk;
+    row.pass = moved(row.left, 0) && moved(row.right, 1) && targetsOk && plungerOk;
     log('PINBALL', row);
     flush();
-    if (row.pass) test.succeed(); else test.fail('a flipper did not move on its hotbar slot');
+    if (row.pass) test.succeed(); else test.fail(`pinball: slots ${moved(row.left, 0) && moved(row.right, 1)}, targets ${targetsOk}, plunger ${plungerOk}`);
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
 
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
