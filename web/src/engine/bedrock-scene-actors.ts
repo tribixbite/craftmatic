@@ -438,8 +438,9 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
     const roof = others.find(({ o }) => o.max[1] <= top + 0.5 && o.max[1] > top - 44 && o.min[0] < room.max[0] && o.max[0] > room.min[0] && o.min[2] < room.max[2] && o.max[2] > room.min[2]);
     if (roof) { no(`no head room under ${bricks[roof.j]!.part}`); continue; }
     let kind: 'bench' | 'chair' | 'bed' | undefined;
-    if (bedSize && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max && head) kind = 'bed';
-    else if (seatSize && height >= FURNITURE_HEIGHT_LDU.seat.min && height <= FURNITURE_HEIGHT_LDU.seat.max) kind = back ? 'chair' : onLegs ? 'bench' : undefined;
+    // A backrest along a long side makes it a sofa even when it is bed-sized (910032's attic sofa: its armrests read as a headboard).
+    if (bedSize && !back && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max && head) kind = 'bed';
+    else if ((seatSize || (bedSize && back)) && height >= FURNITURE_HEIGHT_LDU.seat.min && height <= FURNITURE_HEIGHT_LDU.seat.max) kind = back ? 'chair' : onLegs && seatSize ? 'bench' : undefined;
     if (!kind) { no(`${bedSize ? 'bed' : 'seat'}-sized, ${height.toFixed(0)} LDU up, ${back ? 'backrest' : 'no backrest'}, ${onLegs ? 'on legs' : 'on a solid base'}: not furniture`); continue; }
     // Facing: away from a backrest; a bed along its length from the headboard; a bench towards the table beside it.
     const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
