@@ -15,10 +15,12 @@
  *          [--kinds=shell,figure,...] [--type=<substring of typeId>]
  *          [--frame=<substring of typeId>]   aim at that actor's bounds instead of --eye/--at
  *          [--dir=x,y,z]   view direction for --frame (default 1,-0.6,1.4)
+ *          [--geo-from=<older.mcaddon>]   draw that pack's geometry under this pack's controllers
+ *                                          (an older pack with the same ids higher in the world's stack)
  */
 import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
-import { loadAddonPreviewModel, placedPoint, entitySpawnsAt } from '../web/src/ui/addon-preview-data.ts';
+import { buildAddonPreviewModel, readAddonPreviewFiles, placedPoint, entitySpawnsAt } from '../web/src/ui/addon-preview-data.ts';
 import { worldFaces, type AuditActor, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.ts';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.ts';
 
@@ -34,7 +36,18 @@ const kinds = flag('kinds')?.split(',');
 const typeFilter = flag('type');
 
 const bytes = readFileSync(file);
-const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+const files = await readAddonPreviewFiles(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+// `--geo-from=<older pack>`: what the game draws when an OLDER resource pack with the same geometry
+// identifiers sits higher in the world's stack - its geometry under this pack's controllers and textures.
+const geoFrom = flag('geo-from');
+if (geoFrom) {
+  const other = readFileSync(geoFrom);
+  const older = await readAddonPreviewFiles(other.buffer.slice(other.byteOffset, other.byteOffset + other.byteLength) as ArrayBuffer);
+  const tail = (path: string): string => path.replace(/^.*\/models\//, 'models/');
+  const olderGeo = new Map([...older.appearanceSources].filter(([n]) => /\.geo\.json$/.test(n)).map(([n, t]) => [tail(n), t]));
+  for (const [name] of files.appearanceSources) { const t = olderGeo.get(tail(name)); if (t !== undefined) files.appearanceSources.set(name, t); }
+}
+const model = buildAddonPreviewModel(files);
 if (!model.appearance) throw new Error('pack has no appearance');
 const actors: AuditActor[] = [];
 for (const e of model.entities) {
