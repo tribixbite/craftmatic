@@ -279,13 +279,16 @@ export function planPinballZones(table: PinballTable, map: PinballMap, eye: Vec3
   const uSpan = (f: typeof lf): [number, number] => [f.pivot[0] - R * 2.2, f.pivot[0] + R * 1.6];
   // A flipper's target sits on the cabinet's BUTTON for it (the user, after
   // playing 2026-09-25: "tap the flipper buttons, with enlarged area"),
-  // enlarged well beyond the button itself: 3 radii either side across, and
-  // from 3.5 radii up the table to 2.5 down it. A table without buttons
-  // keeps the target over the flipper.
+  // enlarged well beyond the button itself: 4 radii outward from the
+  // cabinet wall but only 1 inward (the plunger lane runs just inside the
+  // right wall, and a target reaching over it squeezed the plunger's to a
+  // sliver), and from 4 radii up the table to 2.5 down it. A table without
+  // buttons keeps the target over the flipper.
   const buttonRect = (side: 'left' | 'right'): PinballZoneSpec | undefined => {
     const b = table.buttons.find(x => x.side === side);
     if (!b) return undefined;
-    return { role: side, rect: [b.centre[0] - R * 3.5, b.centre[0] + R * 2.5, b.centre[1] - R * 3, b.centre[1] + R * 3], h: table.floorH + b.h };
+    const [wIn, wOut] = [b.centre[1] + b.inward * R, b.centre[1] - b.inward * R * 4];
+    return { role: side, rect: [b.centre[0] - R * 4, b.centre[0] + R * 2.5, Math.min(wIn, wOut), Math.max(wIn, wOut)], h: table.floorH + b.h };
   };
   const specs: PinballZoneSpec[] = [
     buttonRect('left') ?? { role: 'left', rect: [...uSpan(lf), lf.pivot[1] - lf.pivotRadius - R * 0.8, centreW - gap], h },
