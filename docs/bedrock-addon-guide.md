@@ -3133,6 +3133,26 @@ pinball 2026-09-24).
   straight drag (yaw 69 → -125 → -36), the four-scheme A/B that proved no
   scheme could steer it is in `real-v4/scheme-ab-cmvt.txt`.
 
+### Recordings (world 924, 2026-09-25, `recordings/`)
+
+- `cm-car-0925b.mp4` (42172, scripted): 19-33 mph ahead with the chase
+  camera straight behind, 18-27 through a forward-right turn, a coast from
+  22 to 14 mph, `[REV]` at 6-7 mph, then `[BOOST]` to 45-47 mph.
+- `cm-boat-0925b.mp4` / `cm-boatlong-0925b.mp4` (60221, scripted): up to 13
+  mph sitting at the waterline, a visible lean in the turn, a stop at the
+  bank with `[SHORE AHEAD]`; a boost down the 60-block pool at 22 mph that
+  stopped at the far wall.
+- `cm-plane-0925b.mp4` (76286, scripted): take-off run to 43 mph and ALT 2
+  in about 4 s, a climb to ALT 36 by 11 s, a clear right bank of about 25
+  degrees, gentle forward pulses down to ALT 13; the 3D boom kept the ship
+  centred through the climb and the bank (the level boom of the earlier
+  `cm-plane-0925.mp4` lost it to the frame's edge).
+- A touch stick pushed to its rim reads 0.816, not 1 (a full-stick car held
+  15.5 of 19 blocks/s): every model now counts 0.8 as full (`STICK_FULL`).
+  Jump and the stick together cannot be sent over adb (one pointer), so the
+  boost-while-driving in the recordings was a stick press, a lift, a Jump
+  tap and a press again.
+
 ### Vehicle audit: the 40 favourites and 21 vehicle sets
 
 `bun scripts/_vehicle_audit.ts --md --mirror=http://localhost:4000/ldraw-parts`

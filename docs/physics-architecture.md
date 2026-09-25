@@ -578,6 +578,7 @@ literal inside a function body (`§` marks the number).
 | `CAR.CLIMB_RATE` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s | How fast it eases up a step. |
 | `CAR.WATER_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks/s | Crawl through water. |
 | `CAR.STICK_X_RIGHT` | `web/src/engine/bedrock-vehicle.ts` | -1 | sign | Same measured sign as the aircraft's. |
+| `FLIGHT.STICK_FULL` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | stick deflection | Counts as full in all three models (`CAR`, `BOAT` the same): a touch stick pushed to its rim reads 0.816 on the Pixel, which held a car at 15.5 of its 19 blocks/s. |
 | `BOAT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Full ahead; 8.0 measured in GameTest (the buoyant camel crawled at 1.8). |
 | `BOAT.BOOST_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 12 | blocks/s | Jump boost for `BOOST_SECONDS`, then `BOOST_COOLDOWN`. |
 | `BOAT.BOOST_SECONDS` | `web/src/engine/bedrock-vehicle.ts` | 3 | s | Boost length. |

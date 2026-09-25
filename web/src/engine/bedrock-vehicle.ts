@@ -165,6 +165,8 @@ export const FLIGHT = {
   STICK_X_RIGHT: -1,
   /** Stick deflection under which an axis counts as centred. */
   DEADZONE: 0.15,
+  /** Deflection that counts as FULL: a touch stick pushed to its rim reads 0.816 on the Pixel (2026-09-25). */
+  STICK_FULL: 0.8,
 } as const;
 export type FlightParams = typeof FLIGHT;
 
@@ -184,7 +186,7 @@ export type FlightEvent = 'takeoff' | 'landing' | 'hard_landing' | 'crash' | 'st
 export function flightStep(s: FlightState, input: FlightInput, terrain: FlightTerrain, P: FlightParams, dt: number): { state: FlightState; event?: FlightEvent } {
   const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
   const toward = (v: number, target: number, rate: number): number => (v < target ? Math.min(target, v + rate) : Math.max(target, v - rate));
-  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : v);
+  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : Math.max(-1, Math.min(1, v / P.STICK_FULL)));
   const right = dz(input.rider ? input.x : 0) * P.STICK_X_RIGHT;
   // Elevator: the stick pulled BACK (y < 0) is nose up.
   const noseUp = -dz(input.rider ? input.y : 0);
@@ -283,7 +285,7 @@ export const BOAT = {
   BOOST_SECONDS: 3, BOOST_COOLDOWN: 4,
   DRAFT: 0.3, GRAVITY: 20,
   LEAN_PER_TURN: 0.12, LEAN_MAX: 7, SQUAT_PER_ACCEL: 1.2, SQUAT_MAX: 6,
-  STICK_X_RIGHT: -1, DEADZONE: 0.15,
+  STICK_X_RIGHT: -1, DEADZONE: 0.15, STICK_FULL: 0.8,
 } as const;
 /** Every boat constant as a number (a per-type draft overrides `DRAFT`). */
 export type BoatParams = { readonly [K in keyof typeof BOAT]: number };
@@ -298,7 +300,7 @@ export type BoatEvent = 'beached' | 'boost' | 'launched';
 export function boatStep(s: BoatState, input: FlightInput, water: BoatWater, P: BoatParams, dt: number): { state: BoatState; event?: BoatEvent } {
   const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
   const toward = (v: number, target: number, rate: number): number => (v < target ? Math.min(target, v + rate) : Math.max(target, v - rate));
-  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : v);
+  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : Math.max(-1, Math.min(1, v / P.STICK_FULL)));
   const right = dz(input.rider ? input.x : 0) * P.STICK_X_RIGHT;
   const throttle = dz(input.rider ? input.y : 0);
   let event: BoatEvent | undefined;
@@ -367,7 +369,7 @@ export const CAR = {
   STEER_RATE: 110, STEER_FULL_SPEED: 5, STEER_FADE: 12,
   STEP_UP: 1.05, CLIMB_RATE: 6, GRAVITY: 20, WATER_SPEED: 2,
   LEAN_PER_TURN: 0.04, LEAN_MAX: 4, SQUAT_PER_ACCEL: 0.35, SQUAT_MAX: 3,
-  STICK_X_RIGHT: -1, DEADZONE: 0.15,
+  STICK_X_RIGHT: -1, DEADZONE: 0.15, STICK_FULL: 0.8,
 } as const;
 /** Every car constant as a number. */
 export type CarParams = { readonly [K in keyof typeof CAR]: number };
@@ -382,7 +384,7 @@ export type CarEvent = 'blocked' | 'boost' | 'landed';
 export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P: CarParams, dt: number): { state: CarState; event?: CarEvent } {
   const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
   const toward = (v: number, target: number, rate: number): number => (v < target ? Math.min(target, v + rate) : Math.max(target, v - rate));
-  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : v);
+  const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : Math.max(-1, Math.min(1, v / P.STICK_FULL)));
   const right = dz(input.rider ? input.x : 0) * P.STICK_X_RIGHT;
   const throttle = dz(input.rider ? input.y : 0);
   let event: CarEvent | undefined;
