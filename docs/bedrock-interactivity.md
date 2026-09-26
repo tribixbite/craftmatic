@@ -257,6 +257,297 @@ percent or larger to pass."*). The pack warnings carry one line per set
 200 %"*), the diagnostics carry every part's opening and `passSize`, and the
 Walk add-on's legend says how many are passable at the chosen size.
 
+## Clearance: colliders pulled back to the geometry
+
+The user's brief (2026-09-25): *"at minifig = player height scale most
+hallways and rooms are too narrow or low for the player to fit … offset
+virtual boundaries by maybe 1/4 to 1/2 block … it must never be applied
+incorrectly (reducing movement space), only when certain … not just walls,
+too-low ceilings too."*
+
+Why rooms are full. A collider is one block; `buildColliderGrid` makes a cell
+a collider whenever any geometry reaches into it, and before this change its
+collision box was always the WHOLE footprint (only the height was measured,
+`lo..hi` sixteenths). A 1-stud wall is 20 LDU = 0.38 block, and where it
+straddles a cell boundary it fills two whole blocks; a minifig room is 5-8
+studs (1.9-3 blocks) wide, so its walls take most of it. That is what the 36
+SEALED doorways of the 40-set audit open onto.
+
+### What a collider may be (Bedrock, researched 2026-09-25)
+
+- A custom block's `minecraft:collision_box` may be any box inside the block:
+  origin (-8, 0, -8) to (8, 16, 8) in pixels, so narrower than a block
+  horizontally (Microsoft Learn, *Block Components - minecraft:collision_box*;
+  stable since 1.19.50). Since 1.26.0 it may also be an ARRAY of up to 16
+  boxes, stable, no experiment (same page).
+- A block state has at most 16 values; a block at most 65,536 permutations,
+  and a world *should* stay under 65,536 custom permutations in total
+  (bedrock.dev, *Block States* / *Block Permutations*). The permutation list is
+  a Molang condition per entry, so a block's cost is (registered states) x
+  (entries).
+
+So clearance ships as THINNER colliders, never missing ones. One state per
+shape would multiply the collider's 256 registered permutations by the shape
+count and its 136 condition entries by the same, so each shape is its own
+block id, each with the same `lo` / `hi` states and 136 entries
+(`craftmatic:collider` itself is unchanged, and stays the full-footprint form).
+
+### The forms
+
+A collider cell is one of (`collider-clearance.ts`, `COLLIDER_VARIANTS`):
+
+- **full** `lo..hi` over the whole footprint (the old collider, variant 0);
+- **wall** `lo..hi` over a SHAPE: a band a quarter-block multiple wide along x
+  or z - `[0,4] [0,8] [0,12] [4,16] [8,16] [12,16] [4,12]` sixteenths, 14
+  shapes, closed under the wand's quarter turns;
+- **floor + wall**: full `lo..hi` and the shape from `hi` to the top of the
+  block - a wall standing on the floor plate in the same block row;
+- **wall + ceiling**: the shape from the bottom of the block to `lo` and full
+  `lo..hi` - a wall's top under the ceiling plate in the same row.
+
+43 blocks, 5,848 condition entries in all (the old block had 136). The two
+split forms use the 1.26.0 array. `colliderCover` turns any set of boxes in a
+block into the form of least volume that CONTAINS them all; the re-lay at
+another wand size and turn, the doorway runtime, the Walk add-on, the walk
+harness and the build all use that one function (plain JavaScript, serialised
+into the runtime like `ixWorldBlocks`).
+
+### Computing the free space
+
+`buildColliderGrid` keeps, per collider cell, the part boxes clipped to it
+(sixteenths, rounded outward - the same membership and rounding as the cell's
+own `lo..hi`). Clearance runs AFTER the doorway cut (`planInteractiveColliders`
+sees only full cells, as before) and then refreshes every doorway's neighbour
+cells, which now carry their form. For each cell it proposes
+`colliderCover(its geometry)`; nothing else. So:
+
+- **a wall is pulled back to its own geometry, away from the free side** -
+  the direction comes from where the geometry is, never from a guess;
+- **floors stay**: a cell whose top is a standing surface (1.5 blocks free
+  above it in the column) may only take a form whose top sixteenth is still
+  the full footprint (a floor band or a ceiling band that IS the floor above);
+  a phantom ledge a player stood on is never taken away;
+- **ceilings**: a column whose clear height over a floor is at least a
+  sneaking player (1.5) but under a standing one (1.8) has the ceiling cell's
+  `lo` raised to 1.8 over the floor, at most 5/16, only when the cell keeps
+  at least 2/16 of collider above and its form is full; the head goes into
+  the visible ceiling slab by at most 0.3 block, never through it.
+
+### The certain test
+
+A proposal is APPLIED only when every rule holds, and each refusal is logged
+with its reason (`craftmatic-diagnostics.json`, `clearance`):
+
+1. **Subset** - the new form's boxes lie inside the old full cell: a trim
+   never turns free space solid (checked per cell, and again for every world
+   block the re-lay produces at every wand size).
+2. **Superset of the geometry** - the form contains every part box in the cell
+   (a wall trim), or it is the ceiling rule. So wherever the visible model is
+   continuous the colliders are continuous.
+3. **Not at a door** - no cell a closed leaf's mid-plane crosses, from 0.4
+   block before one end to 0.4 past the other (the frame's sliver beside the
+   leaf), is trimmed (`door-leaf`), nor any cell the doorway cut changed
+   (`door-cut`). Cells in front of and behind a leaf may be: a trim there
+   cannot open the leaf's plane (the first build protected every cell the
+   leaf's box touched, which kept the approach to 11371's doors solid).
+4. **Floors stay** - above: `walkable-top`.
+5. **No leak** (the global check). Three worlds are flooded at quarter-block
+   resolution from outside the model with a flying, SNEAKING player 0.5 block
+   wide (narrower than the real 0.6, so a leak is found sooner): the part
+   geometry with every closed leaf, the colliders BEFORE clearance with the
+   closed doorways laid, and the colliders AFTER. A block the after-flood
+   reaches that neither other flood reaches is a leak - into a sealed vault, a
+   room behind a closed door, through a gap the model does not have. Every
+   applied trim within one block of a leak is refused (`leak`) and the check
+   runs again; if it has not converged in 8 rounds every trim is refused.
+
+With rule 2 the after-world contains the geometry world, so the flood can only
+find a leak through a bug or through the ceiling rule; with rule 5 neither
+ships.
+
+### Where the forms go at another size
+
+A cell's form is laid by `cellPieces`: its boxes, turned with the cell, are
+spread over the world columns the cell owns (the re-lay's centre rule), and
+each world block takes `colliderCover` of the pieces that land in it - a block
+two cells share covers both. Below 100 % a form is widened to the full block
+(several cells share one there). A structure turned by `structure load` keeps
+block states, so at 100 % the placement re-sets every form cell of each piece
+to its turned form while the piece is loaded; the same pass lays a form the
+world cannot resolve (an older pack's definitions winning) as the full
+collider over its extent (`lay`, logged `BRICK_WAND_FORM_FALLBACK`): a wall too
+thick, never a hole. The re-lay and the doorway runtime use `lay` too.
+
+Invisible steps (`bedrock-collider-scale.ts`) are planned over the grid as it
+was before clearance, every form read as its full cell. A tread only fills a
+column the planner found standable and clear, so its never-block check holds
+in a world at least as blocked as the one the pack lays; planning on the forms
+opened columns at 300-400 % that failed the planner's fast verification, and
+its slow path took 10261 from 70 s to 190 s to export.
+
+### The calculator
+
+`bun scripts/_clearance_report.ts <after dir> --before=<before dir>
+[--sizes=100,150,200,300,400] [--sets=…] [--json=] [--md=]`, over two
+`_favorites_export_sweep.ts` directories (built without and with clearance):
+per set and size (turn 0), the standing area a 0.6 x 1.8 player reaches on
+foot from the ground around the model (a quarter-block lattice, half a block
+from 300 %; every passable doorway open; divided by the size factor squared
+so sizes compare), the flat regions ("rooms", at least one square block) that
+area reaches, and the doorway verdicts. `_ix_sweep_report.ts` gives the
+doorway verdicts alone. A region count can FALL when a wall thins enough to
+join two regions into one; the area is the number to read.
+
+### The walk harness learned the forms
+
+`interactive-walk.ts` routes over columns, then walks the per-tick player
+over the real boxes. A column a form leaves at least half free is open to the
+route; the player stands at the centre of the free part (aiming at the column
+centre ran it into the form); a move crosses a face only where both columns'
+free parts meet it (a thin wall on the boundary closed 42639's Door 1, which
+the route had run straight through); a drop must fall through a free span of
+the neighbour column (a route stepped off 42663's roof through the ceiling
+below); and an approach stands within a jump of the door's floor (a roof over
+the door is not an approach). None of these changes a verdict on the packs
+built before clearance (36 OK, 36 SEALED, 1 SMALL, as the audit found).
+
+### Results over the 40 favourites (2026-09-25, final at `f6e24774`)
+
+Before: the sweep at `bb6dcf8e` (no clearance). After: the sweep at
+`f6e24774` (clearance, the walk-harness fixes, merged with main). Clearance
+examined 61,845 collider cells holding geometry: 16,828 are filled by their
+geometry already, 32,950 were pulled back to a wall form and 179 ceilings
+raised (10,630 cubic blocks freed); refused: 10,587 standing surfaces
+(`walkable-top`), 1,106 cells the doorway cut had changed, 165 at a closed
+leaf's plane, 226 near a leak (15 sets), 0 unverifiable. The pass takes at
+most 0.94 s a set (at most 3.0 M voxels). The leaks it found were real routes -
+traced on 11371: a cell beside a closed door that the collider grid already
+left open while the geometry fills it, joined to a trimmed cell behind it -
+and each was refused.
+
+| size | standing area reached (blocks², 100 % scale) | rooms reached | doorways OK | SEALED | FAIL |
+|---|---|---|---|---|---|
+| 100 % | 17,655 → 18,670 (+5.7 %) | 617 → 642 | 36 → 38 | 36 → 34 | 0 → 0 |
+| 150 % | 18,437 → 19,355 (+5.0 %) | 681 → 735 | 38 → 41 | 34 → 31 | 0 → 0 |
+| 200 % | 20,691 → 21,873 (+5.7 %) | 1,001 → 1,050 | 39 → 42 | 33 → 28 | 0 → 0 |
+| 300 % | 20,812 → 21,938 (+5.4 %) | 945 → 971 | 32 → 36 | 32 → 27 | 0 → 0 |
+| 400 % | 20,690 → 21,785 (+5.3 %) | 920 → 990 | 26 → 29 | 32 → 28 | 0 → 0 |
+
+(The before counts at 150-400 % differ from the audit's because the walk
+harness itself changed - see "The walk harness learned the forms"; both
+columns here use the final harness.)
+
+Unsealed at 100 %: 76435's Door 1 and 80049's Gate 1 (both walked on the
+Pixel, below). 910004's Door 3 read OK in this sweep and is SEALED since
+`e68194e9`: its only level approach spot stood inside the closed leaf (see the
+device results), so the final count is 38 OK / 34 SEALED. Per set
+(forms = cells laid as a clearance form):
+
+| set | forms | reach 100 % (blocks²) | rooms reached 100 % | doorways OK / SEALED 100 % | reach 200 % | doorways OK / SEALED 200 % |
+|---|---|---|---|---|---|---|
+| 10261 | 1951 | 1825 → 1961 | 156 → 138 | 0 / 0 → 0 / 0 | 1741.8 → 1860.6 | 0 / 0 → 0 / 0 |
+| 10303 | 2193 | 851.3 → 912.4 | 61 → 60 | 0 / 0 → 0 / 0 | 903.9 → 1031.6 | 0 / 0 → 0 / 0 |
+| 10326 | 1059 | 114.1 → 144.3 | 13 → 16 | 3 / 3 → 3 / 3 | 138.2 → 176 | 3 / 3 → 3 / 3 |
+| 10337 | 214 | 20.6 → 30.8 | 0 → 0 | 0 / 0 → 0 / 0 | 39.1 → 52.1 | 0 / 0 → 0 / 0 |
+| 10341 | 1325 | 19.1 → 27.6 | 0 → 0 | 0 / 0 → 0 / 0 | 24.6 → 35.9 | 0 / 0 → 0 / 0 |
+| 10354 | 539 | 1070.1 → 1093.3 | 54 → 54 | 0 / 0 → 0 / 0 | 1310.3 → 1363.1 | 0 / 0 → 0 / 0 |
+| 10365 | 1112 | 825.6 → 832.8 | 8 → 7 | 0 / 0 → 0 / 0 | 848.3 → 866.5 | 0 / 0 → 0 / 0 |
+| 11371 | 558 | 291.8 → 303.8 | 7 → 8 | 1 / 7 → 1 / 7 | 445.4 → 457.1 | 1 / 7 → 1 / 7 |
+| 11374 | 668 | 191 → 240.7 | 0 → 2 | 0 / 0 → 0 / 0 | 288.3 → 303.5 | 0 / 0 → 0 / 0 |
+| 21061 | 712 | 75.4 → 83.3 | 5 → 4 | 0 / 0 → 0 / 0 | 83.5 → 99.3 | 0 / 0 → 0 / 0 |
+| 21063 | 696 | 29.6 → 30.6 | 3 → 4 | 0 / 0 → 0 / 0 | 35.1 → 36.5 | 0 / 0 → 0 / 0 |
+| 21318 | 919 | 480.8 → 528.9 | 16 → 16 | 0 / 3 → 0 / 3 | 488 → 539.9 | 0 / 3 → 1 / 2 |
+| 21360 | 523 | 518.1 → 527 | 0 → 0 | 0 / 0 → 0 / 0 | 560 → 560 | 0 / 0 → 0 / 0 |
+| 31141 | 330 | 130.1 → 137.4 | 8 → 11 | 4 / 1 → 4 / 1 | 153.8 → 175.2 | 4 / 0 → 4 / 0 |
+| 41395 | 253 | 139.3 → 147.4 | 11 → 11 | 0 / 2 → 0 / 2 | 164.2 → 182.8 | 0 / 2 → 0 / 2 |
+| 41703 | 482 | 410.4 → 426.8 | 9 → 11 | 1 / 0 → 1 / 0 | 516.8 → 589.3 | 1 / 0 → 1 / 0 |
+| 41732 | 606 | 415.4 → 432.2 | 5 → 9 | 5 / 1 → 5 / 1 | 438.6 → 469.6 | 5 / 1 → 5 / 1 |
+| 42172 | 908 | 193.6 → 204.6 | 3 → 5 | 0 / 0 → 0 / 0 | 205.9 → 224.8 | 0 / 0 → 0 / 0 |
+| 42639 | 747 | 506.3 → 510.3 | 0 → 0 | 1 / 1 → 1 / 1 | 516.6 → 523.1 | 1 / 1 → 1 / 1 |
+| 42652 | 306 | 229.5 → 237.3 | 7 → 8 | 1 / 0 → 1 / 0 | 285.6 → 297.7 | 1 / 0 → 1 / 0 |
+| 42663 | 151 | 99 → 191.3 | 2 → 17 | 0 / 1 → 0 / 1 | 115.3 → 130.1 | 0 / 1 → 0 / 1 |
+| 42670 | 431 | 317 → 324 | 17 → 17 | 3 / 3 → 3 / 3 | 457.5 → 474.5 | 4 / 3 → 4 / 3 |
+| 43267 | 410 | 281.5 → 285.3 | 0 → 0 | 0 / 0 → 0 / 0 | 286.7 → 290.3 | 0 / 0 → 0 / 0 |
+| 60380 | 703 | 740.3 → 780.1 | 7 → 9 | 1 / 2 → 1 / 2 | 1105.1 → 1137 | 1 / 2 → 1 / 2 |
+| 60446 | 203 | 271.3 → 273.9 | 6 → 6 | 0 / 0 → 0 / 0 | 242.6 → 251.8 | 0 / 0 → 0 / 0 |
+| 71040 | 1441 | 96.9 → 100.4 | 0 → 0 | 0 / 2 → 0 / 2 | 352.3 → 361.9 | 1 / 1 → 1 / 1 |
+| 71043 | 1724 | 757.5 → 811.8 | 57 → 58 | 0 / 0 → 0 / 0 | 817.9 → 921 | 0 / 0 → 0 / 0 |
+| 75397 | 1081 | 609.4 → 694.4 | 3 → 3 | 0 / 1 → 0 / 1 | 844.8 → 864.6 | 0 / 1 → 1 / 0 |
+| 76269 | 1888 | 779.6 → 791.1 | 11 → 11 | 2 / 1 → 2 / 1 | 828.9 → 852.5 | 2 / 1 → 2 / 1 |
+| 76286 | 491 | 612.8 → 614.9 | 3 → 3 | 0 / 0 → 0 / 0 | 616.7 → 622.8 | 0 / 0 → 0 / 0 |
+| 76417 | 1463 | 572.6 → 595.5 | 3 → 3 | 3 / 1 → 3 / 1 | 784.8 → 796.2 | 3 / 1 → 2 / 1 |
+| 76419 | 408 | 159.4 → 215.8 | 17 → 29 | 0 / 0 → 0 / 0 | 177.2 → 227.1 | 0 / 0 → 0 / 0 |
+| 76435 | 624 | 277.9 → 290.1 | 22 → 21 | 1 / 1 → 2 / 0 | 444.9 → 479.4 | 2 / 0 → 2 / 0 |
+| 76457 | 874 | 994.8 → 1024.5 | 24 → 22 | 6 / 0 → 6 / 0 | 1025.3 → 1078.3 | 6 / 0 → 6 / 0 |
+| 77092 | 1129 | 1505.3 → 1526 | 0 → 0 | 0 / 0 → 0 / 0 | 1558.4 → 1564.6 | 0 / 0 → 0 / 0 |
+| 80049 | 776 | 370.2 → 413.3 | 10 → 18 | 0 / 1 → 1 / 0 | 568.1 → 624.8 | 0 / 1 → 0 / 0 |
+| 910004 | 403 | 38.8 → 44.7 | 4 → 4 | 1 / 2 → 1 / 2 | 47.4 → 55.4 | 1 / 2 → 1 / 2 |
+| 910032 | 749 | 63.7 → 82 | 13 → 11 | 3 / 2 → 3 / 2 | 89 → 106.2 | 3 / 2 → 4 / 1 |
+| 910047 | 779 | 613.5 → 629.8 | 38 → 32 | 0 / 0 → 0 / 0 | 954.6 → 982.2 | 0 / 0 → 0 / 0 |
+| 910049 | 1121 | 156.8 → 168.4 | 14 → 14 | 0 / 1 → 0 / 1 | 185.3 → 207.6 | 0 / 1 → 1 / 0 |
+
+**Why 33 stay SEALED at 100 %** (`output/clearance-0925/sealed.ts` prints the
+cells in front of each side; read by hand, not a computed classification):
+the side with no approach is usually NOT a thick collider any more. Most
+common, the floor on that side is more than a jump from the door's own floor
+(a door hung on a raised base over open ground: 41395, 60380, 42670 Door 6,
+31141 Door 4, 41732 Door 3; 11371's shop doors sit 1.1 blocks under their
+shop floors); next, the model's own geometry fills the doorway's floor rows
+(furniture, stairs, a counter or a solid wall behind the door: 10326 Door 3,
+42663's van, 76417 Door 1, 21318); and in a few, standing surfaces the floor
+rule keeps whole (`walkable-top`: a step or bench the width of the door) close
+the corridor. What would open more, not attempted: a threshold tread for
+rises up to a jump (today only up to two 9/16 steps), and the floor rule
+narrowing a surface that is only a wall's top.
+
+### Known limits
+
+- Shapes are quarter-block bands along one axis. A 1-stud wall (6/16) against
+  a cell face leaves 8/16 of collider, not 6; a wall standing in the middle of
+  a cell off the centre band, two walls in one cell, or a corner, stay full.
+- A cell's form is one box, or a band plus one box: a cell holding a floor
+  plate, a wall AND a shelf keeps the whole footprint over the extra span.
+- Figures (`scripts/figures.js`) read a form as the full block it replaced
+  (`blockSpan`, `6e3d8725`): their planner is block-granular, so they gain
+  nothing from clearance yet (TODO in `blockSpan`).
+- The tread planner and the reach walk (`ScaledColliderGrid`) read a form as
+  its whole block: conservative, they never count on the freed space.
+- Array collision boxes (the floor + wall and wall + ceiling forms) are
+  format 1.26.0; the Pixel loaded them (below). The 100 % turned-form pass
+  (a placement turned 90/180/270) is host-tested only, not on the device.
+- `rail-track.test.ts`'s 910044 case times out at 60 s after the host's power
+  loss on 2026-09-25, at this branch's base `bb6dcf8e` as well: not clearance.
+
+### On the Pixel (GameTest, world `cmgametest`, 2026-09-25)
+
+Packs from committed trees (`8cb10287` after, `bb6dcf8e`/`e68194e9` before),
+GameTest variants by `_gametest_pack.ts`, content logs in the clearance
+worktree's `output/clearance-0925/device/logs/`. Every run: all placement
+actors found, no content-log error about a block, no `BRICK_WAND_FORM_FALLBACK`
+(every form block resolved), and every part and seat check passed.
+
+| set | before clearance | after clearance |
+|---|---|---|
+| 80049 Gate 1 | SEALED: closed blocked, open `partial` (0.68) | OK: closed blocked, open **passed** (1.03) |
+| 76435 Door 1 | SEALED: closed blocked, open `partial` (0.60) | OK: closed blocked, open **passed** (1.03) |
+| 76435 Door 2 | OK | OK (closed blocked, open passed) |
+| 41732, 6 doorways | 6/6 as predicted (earlier rounds) | 6/6 as predicted; Door 3 SEALED as predicted |
+| 76417, 3 doorways | 3/3 (earlier rounds) | 3/3: closed blocked, open passed |
+| 910004, 3 doorways | 3/3 (Door 1 OK, Doors 2-3 SEALED) | 3/3 (same) |
+
+Two faults the device found, both fixed and re-run:
+
+- **910004 Door 3 walked through CLOSED** (first after-run, `6e3d8725`). Not a
+  collider gap: the offline walk put the approach spot inside the closed
+  leaf, and Minecraft lets a body walk out of a box it already overlaps. An
+  approach now skips every column a leaf of the doorway's group fills closed
+  and must be clear with the leaves closed (`e68194e9`); Door 3 reads SEALED.
+- **80049 Gate 1's opened doorway lost its sill.** The runtime laid an opened
+  doorway's own blocks as air, clearing the static part the cut had kept (a
+  sill under a leaf hung a plate up); the walker dropped into the 1/4-block
+  pit and stopped. Own cells with a kept span are now restored (`8cb10287`);
+  the gate then walked through.
+
 ## Proving it offline
 
 - `test/bedrock-interactives.test.ts`: classification, hinge and swing side on
@@ -435,8 +726,8 @@ has no floor a player can stand on along the straight corridor through it:
 door opens onto furniture, and most of the rest open onto rooms the shipped
 COLLIDER grid has filled (a collider cell is a whole block whenever any
 geometry reaches it, and a minifig room is 2-3 blocks wide with furniture in
-it). The fix is finer colliders, not a bigger doorway cut (open in
-`TASKS-BEDROCK-ADDON.md`).
+it). Finer colliders are now in: "Clearance" above took this to 38 OK / 34
+SEALED, and says why the rest stay sealed.
 
 ### GameTest on the Pixel (cmgametest, 2026-09-25)
 

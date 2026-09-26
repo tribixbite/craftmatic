@@ -45,6 +45,8 @@ import { SIZE_EVENT_PREFIX, SIZE_STEPS } from './bedrock-placement-pack.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
 import { PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
+import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
+import { parseFormState } from './collider-clearance.js';
 
 declare const world: any;
 declare const system: any;
@@ -643,42 +645,40 @@ function turntableLoad(top: ParsedBrick, mesh: LdrawPartMesh, pivot: Vec3, axis:
 
 // ─── Collider cells ──────────────────────────────────────────────────────────
 
-/** A collider cell: `[x, y, z, lo, hi]` in the 100 % grid (lo/hi sixteenths). */
-export type IxCell = [number, number, number, number, number];
+/**
+ * A collider cell: `[x, y, z, lo, hi]` in the 100 % grid (lo/hi sixteenths),
+ * with a sixth element when the cell is a clearance form (its variant,
+ * collider-form.ts; absent or 0 = the full-footprint collider).
+ */
+export type IxCell = [number, number, number, number, number, number?];
 
 /**
  * The world blocks a set of grid cells lays at wand factor `f` and quarter
- * turn `r`, relative to the placement's anchor: `"x,y,z" -> [lo, hi]`. EXACTLY
- * the arithmetic `placeColliders` (bedrock-placement-pack.ts) uses for a
- * re-lay and the structure's own turn at 100 %: the turned cell, the world
+ * turn `r`, relative to the placement's anchor: `"x,y,z" -> [lo, hi]`, or
+ * `[lo, hi, v]` for a block that is a clearance form (collider-form.ts).
+ * EXACTLY the arithmetic `placeColliders` (bedrock-placement-pack.ts) uses for
+ * a re-lay and the structure's own turn at 100 %: the turned cell, the world
  * columns it owns (`cellColumns`: the centre rule at f >= 1, any overlap
- * below), the rows its sixteenth span crosses, and a block two cells share
- * keeps the lowest lo and highest hi. Plain JavaScript: it is serialised into
- * the pack's runtime and used by the walk preview and the tests unchanged.
+ * below), the rows its sixteenth span crosses - all in the collider form kit's
+ * `cellPieces` - and a block two cells share takes the form that covers both
+ * (for full cells: the lowest lo and highest hi). Plain JavaScript: it is
+ * serialised into the pack's runtime with the kit and used by the walk
+ * preview and the tests unchanged.
  */
-export function ixWorldBlocks(cells: ReadonlyArray<readonly number[]>, dims: { width: number; length: number }, f: number, r: number): Map<string, [number, number]> {
-  const out = new Map<string, [number, number]>();
-  const cols = (i: number): [number, number] => {
-    const a = i * f, b = (i + 1) * f;
-    if (f < 1) return [Math.floor(a), Math.max(Math.floor(a), Math.ceil(b) - 1)];
-    return [Math.ceil(a - 0.5), Math.max(Math.ceil(a - 0.5), Math.ceil(b - 0.5) - 1)];
-  };
-  const turn = (x: number, z: number): { x: number; z: number } => r === 90 ? { x: dims.length - 1 - z, z: x } : r === 180 ? { x: dims.width - 1 - x, z: dims.length - 1 - z } : r === 270 ? { x: z, z: dims.width - 1 - x } : { x, z };
+export function ixWorldBlocks(cells: ReadonlyArray<readonly (number | undefined)[]>, dims: { width: number; length: number }, f: number, r: number, kit: ColliderFormKit): Map<string, [number, number, number?]> {
+  const pieces = new Map<string, number[][]>();
   for (const c of cells) {
-    const x = c[0]!, y = c[1]!, z = c[2]!, lo = c[3]!, hi = c[4]!;
-    const rc = turn(x, z);
-    const cx = cols(rc.x), cz = cols(rc.z);
-    const wy0 = (y + lo / 16) * f, wy1 = (y + hi / 16) * f;
-    for (let wy = Math.floor(wy0); wy < Math.ceil(wy1); wy++) {
-      const l = Math.max(0, Math.min(15, Math.floor((wy0 - wy) * 16)));
-      const h = Math.max(l + 1, Math.min(16, Math.ceil((wy1 - wy) * 16)));
-      for (let wx = cx[0]; wx <= cx[1]; wx++) for (let wz = cz[0]; wz <= cz[1]; wz++) {
-        const key = `${wx},${wy},${wz}`;
-        const prev = out.get(key);
-        if (prev) { prev[0] = Math.min(prev[0], l); prev[1] = Math.max(prev[1], h); }
-        else out.set(key, [l, h]);
-      }
-    }
+    kit.cellPieces(c[0]!, c[1]!, c[2]!, c[5] || 0, c[3]!, c[4]!, dims, f, r, (wx, wy, wz, b) => {
+      const key = `${wx},${wy},${wz}`;
+      const list = pieces.get(key);
+      if (list) list.push(b); else pieces.set(key, [b]);
+    });
+  }
+  const out = new Map<string, [number, number, number?]>();
+  for (const [key, list] of pieces) {
+    const form = kit.cover(list);
+    // A full block stays `[lo, hi]`; a clearance form adds its variant.
+    if (form) out.set(key, form.v ? [form.lo, form.hi, form.v] : [form.lo, form.hi]);
   }
   return out;
 }
@@ -697,7 +697,7 @@ export interface InteractiveColliderPlan {
 }
 
 /** Cells either side (and above / below) of a leaf whose static state the runtime must know: a block at 25 % holds four cells. */
-const NEIGHBOUR_REACH = 3;
+export const NEIGHBOUR_REACH = 3;
 const LEAF_SAMPLE_FROM = 0.15, LEAF_SAMPLE_TO = 0.85;
 /** The passage: how far past the leaf (cells) it may be cut, the highest floor a player steps onto (sixteenths, the walk's 9/16 step) and the lowest ceiling in the row above head height (sixteenths). */
 const PASSAGE_REACH_CELLS = 3;
@@ -875,22 +875,38 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     blockingAll.push(blocking);
     plans.push({ blocking, neighbours: [], cleared, passageCleared, treads });
   }
-  // Neighbours from the FINAL grid (after every cut), so a double door's two
-  // leaves see each other's cells as air, never as a wall.
-  plans.forEach((plan, i) => {
-    if (!plan || !plan.blocking.length) return;
+  captureDoorwayNeighbours(grid, plans);
+  return plans;
+}
+
+/**
+ * Record each doorway's static neighbour cells (within `NEIGHBOUR_REACH` of
+ * its blocking cells) from the grid as it stands, with their form: run after
+ * every cut so a double door's two leaves see each other's cells as air, and
+ * again after clearance (collider-clearance.ts) so a trimmed neighbour is
+ * restored trimmed where it shares a world block with a leaf.
+ *
+ * A leaf's OWN cells are recorded too when the cut left part of them static
+ * (the sill under a leaf hung a plate up, the lintel over it): the runtime
+ * lays an opened doorway's own blocks from these cells, and skipping them
+ * cleared the sill when the door opened - on the Pixel (GameTest 2026-09-25,
+ * 80049's Gate 1) the walker dropped into the 1/4-block pit the offline walk,
+ * which keeps the static grid, never saw.
+ */
+export function captureDoorwayNeighbours(grid: BlockGrid, plans: ReadonlyArray<InteractiveColliderPlan | null>): void {
+  const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length;
+  for (const plan of plans) {
+    if (!plan || !plan.blocking.length) continue;
+    plan.neighbours = [];
     const xs = plan.blocking.map(c => c[0]), ys = plan.blocking.map(c => c[1]), zs = plan.blocking.map(c => c[2]);
-    const own = new Set(plan.blocking.map(c => `${c[0]},${c[1]},${c[2]}`));
     for (let x = Math.min(...xs) - NEIGHBOUR_REACH; x <= Math.max(...xs) + NEIGHBOUR_REACH; x++)
       for (let y = Math.min(...ys) - NEIGHBOUR_REACH; y <= Math.max(...ys) + NEIGHBOUR_REACH; y++)
         for (let z = Math.min(...zs) - NEIGHBOUR_REACH; z <= Math.max(...zs) + NEIGHBOUR_REACH; z++) {
-          if (!inGrid(x, y, z) || own.has(`${x},${y},${z}`)) continue;
-          const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(grid.get(x, y, z));
-          if (m && grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID)) plan.neighbours.push([x, y, z, Number(m[1]), Number(m[2])]);
+          if (!inGrid(x, y, z)) continue;
+          const form = parseFormState(grid.get(x, y, z));
+          if (form) plan.neighbours.push(form.v ? [x, y, z, form.lo, form.hi, form.v] : [x, y, z, form.lo, form.hi]);
         }
-    void i;
-  });
-  return plans;
+  }
 }
 
 /**
@@ -1307,7 +1323,7 @@ export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
  *   it survives a reload; a freshly placed part (no `ready` flag) is laid
  *   closed on the next sync pass.
  */
-function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: typeof ixWorldBlocks): void {
+function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: typeof ixWorldBlocks, kit: ColliderFormKit): void {
   const K = { index: 'craftmatic:ix', anchor: 'craftmatic:ix_anchor', rotation: 'craftmatic:ix_rotation', scale: 'craftmatic:ix_scale', open: 'craftmatic:ix_open', angle: 'craftmatic:ix_angle', ready: 'craftmatic:ix_ready' };
   const C = config.colliders;
   const byType = new Map<string, number>();
@@ -1349,11 +1365,11 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const layDoorway = (e: any, i: number, pl: any, open: boolean): boolean => {
     const it = config.items[i]!;
     if (!it.blocking.length) return true;
-    const cells: number[][] = [...it.neighbours];
+    const cells: IxCell[] = [...it.neighbours];
     if (blocksClosed(it, pl, open)) cells.push(...it.blocking);
     for (const [j, s] of siblings(e, i, pl)) if (blocksClosed(config.items[j]!, pl, isOpen(s))) cells.push(...config.items[j]!.blocking);
-    const want = worldBlocks(cells, config.dims, pl.f, pl.r);
-    const own = worldBlocks(it.blocking, config.dims, pl.f, pl.r);
+    const want = worldBlocks(cells, config.dims, pl.f, pl.r, kit);
+    const own = worldBlocks(it.blocking, config.dims, pl.f, pl.r, kit);
     let ok = true;
     for (const key of own.keys()) {
       const [x, y, z] = key.split(',').map(Number);
@@ -1361,14 +1377,16 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       let b: any;
       try { b = e.dimension.getBlock(pos); } catch { b = undefined; }
       if (!b) { ok = false; continue; }
-      const ours = b.typeId === C.block, air = b.isAir === true || b.typeId === 'minecraft:air';
+      // Any collider form is ours (collider-form.ts); the full one is `C.block`.
+      const ours = kit.variantOf(b.typeId) >= 0, air = b.isAir === true || b.typeId === 'minecraft:air';
       const st = want.get(key);
       try {
         if (st) {
           // Never overwrite a block that is not ours (the player built there).
           if (!ours && !air) continue;
-          if (ours && Number(b.permutation.getState(C.loState)) === st[0] && Number(b.permutation.getState(C.hiState)) === st[1]) continue;
-          b.setPermutation(BlockPermutation.resolve(C.block, { [C.loState]: st[0], [C.hiState]: st[1] }));
+          const id = kit.VARIANTS[st[2] || 0]!.id;
+          if (ours && b.typeId === id && Number(b.permutation.getState(C.loState)) === st[0] && Number(b.permutation.getState(C.hiState)) === st[1]) continue;
+          kit.lay(b, { v: st[2] || 0, lo: st[0], hi: st[1] }, C.loState, C.hiState, (rid: string, rst: any) => BlockPermutation.resolve(rid, rst));
         } else if (ours) b.setPermutation(BlockPermutation.resolve('minecraft:air'));
       } catch { ok = false; }
     }
@@ -1425,7 +1443,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const stepOut = (e: any, i: number, pl: any): void => {
     const it = config.items[i]!;
     if (!it.blocking.length || !it.leaf) return;
-    const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
+    const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r, kit).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
     const inside = (l: any): boolean => own.some(bk => l.x + 0.3 > bk.x && l.x - 0.3 < bk.x + 1 && l.z + 0.3 > bk.z && l.z - 0.3 < bk.z + 1 && l.y + 1.8 > bk.y && l.y < bk.top);
     const n = turnDir(pl, it.leaf.n), centre = toWorld(pl, [it.leaf.c[0]! + it.leaf.a[0]! / 2, it.leaf.c[1]!, it.leaf.c[2]! + it.leaf.a[2]! / 2]);
     for (const o of occupants(e, centre, 4 * Math.max(1, pl.f))) {
@@ -1521,7 +1539,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const PART_MARGIN = 0.75;
     const own = new Set<string>();
     for (const j of [i, ...(it.shares || [])]) {
-      for (const key of worldBlocks(config.items[j]!.blocking, config.dims, pl.f, pl.r).keys()) {
+      for (const key of worldBlocks(config.items[j]!.blocking, config.dims, pl.f, pl.r, kit).keys()) {
         const [x, y, z] = key.split(',').map(Number);
         own.add(`${pl.anchor.x + x!},${pl.anchor.y + y!},${pl.anchor.z + z!}`);
       }
@@ -1540,10 +1558,13 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
         if (own.has(key) || inPart(p)) continue;
         let b: any;
         try { b = target.dimension.getBlock(p); } catch { b = undefined; }
-        if (!b || b.typeId !== C.block) continue;
+        const v = b ? kit.variantOf(b.typeId) : -1;
+        if (v < 0) continue;
         const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
-        const y = q.y - p.y;
-        if (!Number.isFinite(lo) || !Number.isFinite(hi) || (y * 16 >= lo && y * 16 <= hi)) return false;
+        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
+        // A wall is the form's own boxes: a clearance form (a wall pulled back to its geometry) blocks only where it is.
+        const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
+        if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5])) return false;
       }
       return true;
     };
@@ -1596,7 +1617,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
 
 /** The behaviour pack's `scripts/interactives.js`. */
 export function interactivesScript(config: InteractiveRuntimeConfig): string {
-  return `import { world, system, BlockPermutation } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${interactivesRuntime.toString()})(CONFIG, ${ixWorldBlocks.toString()});\n`;
+  return `import { world, system, BlockPermutation } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${interactivesRuntime.toString()})(CONFIG, ${ixWorldBlocks.toString()}, (${colliderFormKit.toString()})());\n`;
 }
 
 export { interactivesRuntime as _interactivesRuntimeForTests };
@@ -1609,7 +1630,7 @@ export { interactivesRuntime as _interactivesRuntimeForTests };
  * the static grid's); an open one too small to pass stays closed here, as in
  * the runtime. For the walk preview and the passability test.
  */
-export function ixClosedBlocks(items: readonly InteractiveRuntimeItem[], dims: { width: number; length: number }, f: number, r: number, isOpen: (index: number) => boolean): Map<string, [number, number]> {
+export function ixClosedBlocks(items: readonly InteractiveRuntimeItem[], dims: { width: number; length: number }, f: number, r: number, isOpen: (index: number) => boolean): Map<string, [number, number, number?]> {
   const pct = Math.round(f * 100);
   const blocksAt = (i: number): boolean => {
     const it = items[i]!;
@@ -1618,11 +1639,11 @@ export function ixClosedBlocks(items: readonly InteractiveRuntimeItem[], dims: {
   };
   const closed = items.map((_, i) => i).filter(blocksAt);
   if (!closed.length) return new Map();
-  const cells: number[][] = [];
+  const cells: IxCell[] = [];
   for (const i of closed) cells.push(...items[i]!.neighbours, ...items[i]!.blocking);
-  const merged = ixWorldBlocks(cells, dims, f, r);
-  const own = ixWorldBlocks(closed.flatMap(i => items[i]!.blocking), dims, f, r);
-  const out = new Map<string, [number, number]>();
+  const merged = ixWorldBlocks(cells, dims, f, r, COLLIDER_KIT);
+  const own = ixWorldBlocks(closed.flatMap(i => items[i]!.blocking), dims, f, r, COLLIDER_KIT);
+  const out = new Map<string, [number, number, number?]>();
   for (const key of own.keys()) { const st = merged.get(key); if (st) out.set(key, st); }
   return out;
 }

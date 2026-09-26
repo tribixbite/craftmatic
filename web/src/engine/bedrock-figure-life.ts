@@ -382,6 +382,14 @@ export function pathTo(cells: WalkCell[], index: number): WalkCell[] {
 export function blockSpan(typeId: string, isAir: boolean, isLiquid: boolean, y: number, collider: { block: string } | undefined, lo: number, hi: number): number[] | null {
   if (isAir || isLiquid || typeId === 'minecraft:air') return null;
   if (collider && typeId === collider.block) return Number.isFinite(lo) && Number.isFinite(hi) && hi > lo ? [y + lo / 16, y + hi / 16] : null;
+  // A clearance form (collider-form.ts: `<block>_<w|f|c><shape>`) counts as its whole vertical extent -
+  // what the full collider it replaced spanned; the planner is block-granular and never counts on the
+  // freed part. A floor + wall form runs to the block top, a wall + ceiling form from its bottom.
+  // TODO: let figures walk the part a form frees (the planner would need sub-block cells).
+  if (collider && typeId.startsWith(`${collider.block}_`) && Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
+    const kind = typeId.charAt(collider.block.length + 1);
+    return [y + (kind === 'c' ? 0 : lo) / 16, y + (kind === 'f' ? 16 : hi) / 16];
+  }
   // Blocks a mob walks through: plants, flowers, torches, rails, signs, buttons...
   // Anchored on the whole name: `grass_block` and `mushroom_stem` are solid
   // ground (an unanchored /grass/ once made the whole flat world a hole).
@@ -466,7 +474,7 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
         if (!b) s = [y, y + 1]; // unloaded: treat as solid, never walk into it
         else {
           let lo = NaN, hi = NaN;
-          if (C && b.typeId === C.block) { lo = Number(b.permutation.getState(C.loState)); hi = Number(b.permutation.getState(C.hiState)); }
+          if (C && (b.typeId === C.block || b.typeId.startsWith(`${C.block}_`))) { lo = Number(b.permutation.getState(C.loState)); hi = Number(b.permutation.getState(C.hiState)); }
           s = planner.blockSpan(b.typeId, b.isAir === true, b.isLiquid === true, y, C, lo, hi);
         }
       } catch { s = [y, y + 1]; }

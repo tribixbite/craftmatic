@@ -29,7 +29,7 @@ for (const [name, data] of found) {
 }
 if (!cfg) throw new Error('no interactives config');
 const h = runtimeHost(cfg);
-for (const c of colliderSourceCells(placement.colliders)) h.setCollider(c.x, c.y, c.z, c.lo, c.hi);
+for (const c of colliderSourceCells(placement.colliders)) h.setCollider(c.x, c.y, c.z, c.lo, c.hi, c.v ?? 0);
 const anchor = { x: 0, y: 0, z: 0 };
 const spawned = (placement.actors as any[]).filter(a => a.interactive !== undefined).map(a => ({ a, e: h.spawn(a.interactive, anchor, 1, 0, { x: a.x, y: a.y, z: a.z }) }));
 h.sync();

@@ -17,7 +17,9 @@
  */
 
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
-import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState } from './addon-walk.js';
+import { COLLIDER_KIT } from './collider-form.js';
+import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
+import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState, type SolidBox } from './addon-walk.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
 /** Ticks the walk gets (10 s at 20 ticks/s): a 4-block approach, a jump or two. */
@@ -37,6 +39,17 @@ const STALL_TICKS = 30;
 /** How far (blocks at 100 %) a doorway column's floor may sit from the leaf's foot, and how far past the leaf plane an approach spot must be. */
 const DOOR_FLOOR_SLACK = 1.0;
 const SIDE_CLEARANCE = 0.9;
+/**
+ * How much of a column a clearance form must leave free along its thin axis
+ * for the route to treat the column as open (blocks). With half a column free
+ * the player (0.6) stands at the free part's centre leaning 0.05 into the next
+ * column; the route also refuses a move across a face a form closes
+ * (`acrossFace`), and the per-tick player is the judge. Measured over the 40
+ * favourites (2026-09-25): 0.5 with the face test, 0 FAIL; without the face
+ * test and aiming at column centres, a route ran through a door frame's thin
+ * wall and read FAIL (42639 Door 1, 76417 Door 3 at 200 %).
+ */
+const ROOMY_FREE = 0.5;
 
 export interface DoorwayWalkResult {
   index: number;
@@ -103,13 +116,25 @@ function settle(world: WalkWorld, x: number, y: number, z: number, maxDrop: numb
 
 /** The local surface graph over one world: columns within a window, the tops a player can stand on, and 4-connected moves between them. */
 function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: number; z1: number }, k: number) {
-  const clear = (x: number, z: number, y0: number, y1: number): boolean => world.boxesInColumn(x, z).every(b => b.y1 <= y0 + 1e-6 || b.y0 >= y1 - 1e-6);
+  /**
+   * The boxes that fill a column for the ROUTE: a clearance form's box
+   * (collider-form.ts, a wall pulled back to its geometry) that leaves at
+   * least `ROOMY_FREE` of the column free along its thin axis does not - the
+   * player's centre can stand in the free part - and it is no floor either.
+   * The per-tick player then collides with the real boxes, so the route is a
+   * guide and the physics is the judge.
+   */
+  const filling = (x: number, z: number): SolidBox[] => world.boxesInColumn(x, z).filter(b => {
+    const freeX = Math.max(b.x0 - x, x + 1 - b.x1), freeZ = Math.max(b.z0 - z, z + 1 - b.z1);
+    return !((b.z1 - b.z0 >= 1 - 1e-6 && freeX >= ROOMY_FREE - 1e-6) || (b.x1 - b.x0 >= 1 - 1e-6 && freeZ >= ROOMY_FREE - 1e-6));
+  });
+  const clear = (x: number, z: number, y0: number, y1: number): boolean => filling(x, z).every(b => b.y1 <= y0 + 1e-6 || b.y0 >= y1 - 1e-6);
   const topsCache = new Map<string, number[]>();
   const tops = (x: number, z: number): number[] => {
     const key = `${x},${z}`;
     let t = topsCache.get(key);
     if (t) return t;
-    const boxes = world.boxesInColumn(x, z);
+    const boxes = filling(x, z);
     t = [0, ...boxes.map(b => b.y1)].filter(y => clear(x, z, y, y + PLAYER_NEED)).filter(y => y > 0 || boxes.every(b => b.y0 >= PLAYER_NEED - 1e-6 || b.y1 <= 1e-6));
     topsCache.set(key, t);
     return t;
@@ -129,12 +154,57 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
         if (rise > JUMP_RISE + 1e-6 || -rise > (twoWay ? JUMP_RISE + 1e-6 : MAX_DROP * k)) continue;
         const hi = Math.max(t, t0);
         if (!clear(x, z, hi, hi + PLAYER_NEED) || !clear(x0, z0, hi, hi + PLAYER_NEED)) continue;
+        // A drop falls through the neighbour column from the origin's height to its floor: that span must be
+        // free too (`ScaledColliderGrid.canMove`'s rule) - or a route steps off a roof through the ceiling below
+        // (42663's Door 1 at 200 %, once clearance gave its far side an approach).
+        if (t < t0 && !clear(x, z, t, t0 + PLAYER_NEED)) continue;
+        if (!acrossFace(x0, z0, x, z, hi)) continue;
         out.push({ x, z, t });
       }
     }
     return out;
   };
-  return { tops, moves };
+  /**
+   * The part of a column a clearance form leaves free over the player's body
+   * at floor `t`: `[ax, bx]` along x and `[az, bz]` along z, column-relative
+   * (the whole column when no form stands there). The route only counts
+   * columns whose free part is at least `ROOMY_FREE` wide (`filling`).
+   */
+  const freePart = (x: number, z: number, t: number): { ax: number; bx: number; az: number; bz: number } => {
+    let ax = 0, bx = 1, az = 0, bz = 1;
+    for (const b of world.boxesInColumn(x, z)) {
+      if (b.y1 <= t + 1e-6 || b.y0 >= t + PLAYER_NEED - 1e-6) continue;
+      if (b.z1 - b.z0 >= 1 - 1e-6 && b.x1 - b.x0 < 1 - 1e-6) {
+        const l = b.x0 - x, r = b.x1 - x;
+        if (l >= 1 - r) bx = Math.min(bx, l); else ax = Math.max(ax, r);
+      } else if (b.x1 - b.x0 >= 1 - 1e-6 && b.z1 - b.z0 < 1 - 1e-6) {
+        const l = b.z0 - z, r = b.z1 - z;
+        if (l >= 1 - r) bz = Math.min(bz, l); else az = Math.max(az, r);
+      }
+    }
+    return { ax, bx, az, bz };
+  };
+  /** Where a player stands in a column at floor `t`: the centre of its free part. */
+  const standAt = (x: number, z: number, t: number): { x: number; z: number } => {
+    const f = freePart(x, z, t);
+    return { x: x + (f.bx > f.ax ? (f.ax + f.bx) / 2 : 0.5), z: z + (f.bz > f.az ? (f.az + f.bz) / 2 : 0.5) };
+  };
+  /**
+   * Whether a player can cross the face between two neighbouring columns at
+   * height `t`: a wall pulled back to the shared face (a thin wall right on
+   * the boundary) closes it however roomy each column is, and side by side
+   * the two free parts must overlap by a player's width. Without this a
+   * route ran straight through a door frame's thin wall (42639's Door 1).
+   */
+  const acrossFace = (x0: number, z0: number, x1: number, z1: number, t: number): boolean => {
+    const a = freePart(x0, z0, t), b = freePart(x1, z1, t);
+    const W = PLAYER_WIDTH_BLOCKS;
+    if (x1 > x0) return a.bx >= 1 - 1e-6 && b.ax <= 1e-6 && Math.min(a.bz, b.bz) - Math.max(a.az, b.az) >= W - 1e-6;
+    if (x1 < x0) return a.ax <= 1e-6 && b.bx >= 1 - 1e-6 && Math.min(a.bz, b.bz) - Math.max(a.az, b.az) >= W - 1e-6;
+    if (z1 > z0) return a.bz >= 1 - 1e-6 && b.az <= 1e-6 && Math.min(a.bx, b.bx) - Math.max(a.ax, b.ax) >= W - 1e-6;
+    return a.az <= 1e-6 && b.bz >= 1 - 1e-6 && Math.min(a.bx, b.bx) - Math.max(a.ax, b.ax) >= W - 1e-6;
+  };
+  return { tops, moves, standAt, freePart };
 }
 
 type GraphNode = { x: number; z: number; t: number; prev: GraphNode | null };
@@ -161,7 +231,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   };
   const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
   // The doorway: the leaf's closed blocks at this size and turn.
-  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
+  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation, COLLIDER_KIT).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
   const centre = own.length
     ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }
     : { x: 0, y: 0, z: 0 };
@@ -169,6 +239,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   const base = { index, label: item.label, sizePct, rotation, open, passableAtSize, centre, normal: n };
   if (!own.length) return { ...base, outcome: 'no-approach', directions: [] };
   const doorColumns = new Set(own.map(b => `${b.x},${b.z}`));
+  /** Every column a leaf of this doorway's group (a double door's partner too) fills while closed. */
+  const groupColumns = new Set([...group].flatMap(g => [...ixWorldBlocks(cfg.items[g]!.blocking, pack.dims, f, rotation, COLLIDER_KIT).keys()].map(key => { const [x, , z] = key.split(','); return `${x},${z}`; })));
   const R = Math.ceil(WINDOW_BLOCKS * k);
   const window = { x0: Math.floor(centre.x) - R, x1: Math.floor(centre.x) + R, z0: Math.floor(centre.z) - R, z1: Math.floor(centre.z) + R };
   const side = (node: { x: number; z: number }): number => (node.x + 0.5 - centre.x) * n.x + (node.z + 0.5 - centre.z) * n.z;
@@ -197,8 +269,15 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   for (let h = 0; h < queue.length && !(near['-1'] && near['1']); h++) {
     const node = queue[h]!;
     const s = side(node);
-    if (s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
-    if (s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
+    // An approach is a spot in FRONT of the doorway: within a jump of its floor. The corridor walk can climb a
+    // staircase to a roof over the door (42663's van at 200 %, once clearance opened its side), and a roof
+    // is not where a player stands to walk through a door.
+    // Nor is a column a leaf of the doorway fills while closed: a leaf turned off the grid spans columns
+    // along its normal, and a double door's partner stands beside it (76269's Door 2); a player put there
+    // stands inside the closed door.
+    const level = Math.abs(node.t - centre.y) <= JUMP_RISE * k + 1e-6 && !groupColumns.has(`${node.x},${node.z}`);
+    if (level && s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
+    if (level && s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
     // Two-way moves only (an approach spot must be one a player can walk INTO
     // the doorway from), and only along the CORRIDOR straight through the
     // doorway: a spot reached by leaving the doorway sideways and going round
@@ -211,7 +290,28 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       queue.push({ ...m, prev: node });
     }
   }
-  const spotOf = (node: GraphNode | undefined): PlayerState | undefined => node ? settle(openWorld, node.x + 0.5, node.t + 0.01, node.z + 0.5, 0.25) : undefined;
+  /**
+   * Where the player stands on an approach node: the first of the free part's
+   * centre, the column's centre, and the free part's two ends (a player's
+   * half-width in) whose box is clear in the open world AND with every leaf
+   * closed. A spot overlapping the closed leaf is not an approach: a player
+   * put there overlaps the door, and Minecraft lets a body walk out of a
+   * block it already overlaps - the device's simulated player walked through
+   * 910004's closed Door 3 from such a spot (GameTest 2026-09-25).
+   */
+  const closedWorld = worldFor(false);
+  const spotOf = (node: GraphNode | undefined): PlayerState | undefined => {
+    if (!node) return undefined;
+    const f = og.freePart(node.x, node.z, node.t), H = PLAYER_WIDTH_BLOCKS / 2 + 0.01;
+    const xs = [node.x + (f.ax + f.bx) / 2, node.x + 0.5, node.x + f.ax + H, node.x + f.bx - H];
+    const zs = [node.z + (f.az + f.bz) / 2, node.z + 0.5, node.z + f.az + H, node.z + f.bz - H];
+    for (const x of xs) for (const z of zs) {
+      if (!boxFree(openWorld, x, node.t + 0.01, z) || !boxFree(closedWorld, x, node.t + 0.01, z)) continue;
+      const s = settle(openWorld, x, node.t + 0.01, z, 0.25);
+      if (s && boxFree(closedWorld, s.x, s.y, s.z)) return s;
+    }
+    return undefined;
+  };
   const spots = { '-1': spotOf(near['-1']), '1': spotOf(near['1']) };
   if (!spots['-1'] || !spots['1']) {
     // One side cannot reach the doorway at all, open: the model put solid
@@ -236,7 +336,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       const node = q[h]!;
       if (node.door && node.x === b.x && node.z === b.z && Math.abs(node.t - b.t) < 1e-6) {
         const out: Array<{ x: number; y: number; z: number }> = [];
-        for (let p: GraphNode | null = node; p; p = p.prev) out.unshift({ x: p.x + 0.5, y: p.t, z: p.z + 0.5 });
+        for (let p: GraphNode | null = node; p; p = p.prev) { const at = g.standAt(p.x, p.z, p.t); out.unshift({ x: at.x, y: p.t, z: at.z }); }
         return out;
       }
       for (const m of g.moves(node.x, node.z, node.t)) {

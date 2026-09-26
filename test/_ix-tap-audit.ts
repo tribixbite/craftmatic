@@ -18,6 +18,7 @@
 import { extractMatching } from '../web/src/engine/zip-utils.js';
 import { hitGroupName, seatHitBox, worldHitBox, type HitBox, type InteractiveRuntimeConfig, type WorldHitBox } from '../web/src/engine/bedrock-interactives.js';
 import { colliderSourceCells } from '../web/src/engine/bedrock-placement-pack.js';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { runtimeHost } from './_ix-host.js';
 
 export interface TapAuditPart {
@@ -67,8 +68,12 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
   if (!cfg || !placement.actors) return { parts: [] };
   const actors = placement.actors;
   const cells = placement.colliders ? colliderSourceCells(placement.colliders as Parameters<typeof colliderSourceCells>[0]) : [];
+  // A clearance form (collider-form.ts) counts by its vertical extent here: standing spots stay conservative.
   const solid = new Map<string, [number, number]>();
-  for (const c of cells) solid.set(`${c.x},${c.y},${c.z}`, [c.lo, c.hi]);
+  for (const c of cells) {
+    const boxes = COLLIDER_KIT.formBoxes(c.v ?? 0, c.lo, c.hi);
+    solid.set(`${c.x},${c.y},${c.z}`, [Math.min(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))]);
+  }
   const parts = actors.filter(a => a.interactive !== undefined);
   const boxesOf = (a: Actor): WorldHitBox[] => {
     const g = groups.get(a.typeId)?.[hitGroupName(0, 100, false)] as { 'minecraft:custom_hit_test'?: { hitboxes?: HitBox[] } } | undefined;
@@ -99,7 +104,7 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
     const own = allBoxes[pi]!;
     const others = [...allBoxes.filter((_, j) => j !== pi).flat(), ...seatBoxes];
     const h = runtimeHost(cfg);
-    for (const [key, [lo, hi]] of solid) { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; h.setCollider(x, y, z, lo, hi); }
+    for (const c of cells) h.setCollider(c.x, c.y, c.z, c.lo, c.hi, c.v ?? 0);
     const anchor = { x: 0, y: 0, z: 0 };
     const e = h.spawn(a.interactive!, anchor, 1, 0, { x: a.x, y: a.y, z: a.z });
     h.sync();

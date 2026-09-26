@@ -59,6 +59,7 @@ import {
 } from './bedrock-collider-scale.js';
 import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
 import { PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
+import { COLLIDER_KIT, type ColliderForm } from './collider-form.js';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -96,8 +97,8 @@ const EPS = 1e-7;
 /** A solid box in the world frame (blocks from the pin); `tread` marks an invisible step the plan added. */
 export interface SolidBox {
   x0: number; y0: number; z0: number; x1: number; y1: number; z1: number;
-  /** The world block this box is (`row` = y block); the ground plane has none. */
-  block?: { x: number; row: number; z: number; lo: number; hi: number };
+  /** The world block this box is (`row` = y block; lo/hi its vertical extent, `v` its clearance form, collider-form.ts); the ground plane has none. */
+  block?: { x: number; row: number; z: number; lo: number; hi: number; v?: number };
   tread: boolean;
   ground: boolean;
 }
@@ -186,29 +187,45 @@ export class WalkWorld {
    * block here replaces the grid's block in that row (the state already
    * merges the static cells there, as the runtime writes it).
    */
-  private readonly overlay = new Map<string, Map<number, { lo: number; hi: number }>>();
+  private readonly overlay = new Map<string, Map<number, { lo: number; hi: number; form?: ColliderForm }>>();
 
-  /** Replace the laid-over blocks (keys `"x,row,z"` from the pin, the `ixWorldBlocks` convention). An empty map clears them. */
-  setOverlayBlocks(blocks: ReadonlyMap<string, readonly [number, number]>): void {
+  /**
+   * Replace the laid-over blocks (keys `"x,row,z"` from the pin, the
+   * `ixWorldBlocks` convention: `[lo, hi]` or `[lo, hi, v]` with `v` a
+   * clearance form). An empty map clears them.
+   */
+  setOverlayBlocks(blocks: ReadonlyMap<string, readonly (number | undefined)[]>): void {
     this.overlay.clear();
-    for (const [key, [lo, hi]] of blocks) {
+    for (const [key, st] of blocks) {
       const [x, row, z] = key.split(',').map(Number) as [number, number, number];
       if (!this.grid.inside(x, z)) continue;
       const col = `${x},${z}`;
       let rows = this.overlay.get(col);
       if (!rows) this.overlay.set(col, rows = new Map());
-      rows.set(row, { lo, hi });
+      const lo = st[0]!, hi = st[1]!, v = st[2] ?? 0;
+      if (!v) { rows.set(row, { lo, hi }); continue; }
+      const boxes = COLLIDER_KIT.formBoxes(v, lo, hi);
+      rows.set(row, { lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])), form: { v, lo, hi } });
     }
   }
 
-  /** A column's blocks with the overlay applied. */
-  private columnBlocks(x: number, z: number): ReadonlyArray<{ row: number; lo: number; hi: number }> {
+  /** A column's blocks with the overlay applied (lo/hi the vertical extent; `form` a clearance form). */
+  private columnBlocks(x: number, z: number): ReadonlyArray<{ row: number; lo: number; hi: number; form?: ColliderForm }> {
     const base = this.grid.column(x, z).blocks;
     const rows = this.overlay.get(`${x},${z}`);
     if (!rows) return base;
-    const out = base.filter(b => !rows.has(b.row)).map(b => ({ row: b.row, lo: b.lo, hi: b.hi }));
-    for (const [row, b] of rows) out.push({ row, lo: b.lo, hi: b.hi });
+    const out: Array<{ row: number; lo: number; hi: number; form?: ColliderForm }> = base.filter(b => !rows.has(b.row)).map(b => ({ row: b.row, lo: b.lo, hi: b.hi, ...(b.form ? { form: b.form } : {}) }));
+    for (const [row, b] of rows) out.push({ row, ...b });
     return out.sort((p, q) => p.row - q.row);
+  }
+
+  /** The solid boxes of one block: its whole footprint, or its clearance form's boxes. */
+  private blockBoxes(x: number, z: number, b: { row: number; lo: number; hi: number; form?: ColliderForm }): SolidBox[] {
+    const block = { x, row: b.row, z, lo: b.lo, hi: b.hi, ...(b.form ? { v: b.form.v } : {}) }, tread = this.isTread(x, b.row, z);
+    if (!b.form) return [{ x0: x, y0: b.row + b.lo / 16, z0: z, x1: x + 1, y1: b.row + b.hi / 16, z1: z + 1, block, tread, ground: false }];
+    return COLLIDER_KIT.formBoxes(b.form.v, b.form.lo, b.form.hi).map(q => ({
+      x0: x + q[0] / 16, y0: b.row + q[2] / 16, z0: z + q[4] / 16, x1: x + q[1] / 16, y1: b.row + q[3] / 16, z1: z + q[5] / 16, block, tread, ground: false,
+    }));
   }
 
   /** The solid boxes of one column (none outside the footprint; the ground plane is separate). Skips a block an open door has dropped. */
@@ -217,10 +234,7 @@ export class WalkWorld {
     const open = this.openDoorAt(x, z);
     return this.columnBlocks(x, z)
       .filter(b => !(open && b.row + b.lo / 16 >= open.y0 - EPS && b.row + b.hi / 16 <= open.y1 + EPS))
-      .map(b => ({
-        x0: x, y0: b.row + b.lo / 16, z0: z, x1: x + 1, y1: b.row + b.hi / 16, z1: z + 1,
-        block: { x, row: b.row, z, lo: b.lo, hi: b.hi }, tread: this.isTread(x, b.row, z), ground: false,
-      }));
+      .flatMap(b => this.blockBoxes(x, z, b));
   }
 
   /** Every solid box of the laid footprint (for drawing); a 400 % grid of a large set is tens of thousands. */
@@ -245,7 +259,7 @@ export class WalkWorld {
         if (by1 <= y0 || by0 >= y1) continue;
         // An open door drops any block of this column whose span the opening covers.
         if (open && by0 >= open.y0 - EPS && by1 <= open.y1 + EPS) continue;
-        out.push({ x0: x, y0: by0, z0: z, x1: x + 1, y1: by1, z1: z + 1, block: { x, row: b.row, z, lo: b.lo, hi: b.hi }, tread: this.isTread(x, b.row, z), ground: false });
+        out.push(...this.blockBoxes(x, z, b));
       }
     }
     for (const s of this.entitySolids) {

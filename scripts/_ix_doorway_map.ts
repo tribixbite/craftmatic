@@ -5,12 +5,16 @@
  * engine/interactive-walk.ts verdicts.
  *
  * Usage: bun scripts/_ix_doorway_map.ts <pack.mcaddon> <doorway index> [--radius=6]
- *   legend per cell (rows y0 / y0+1 / y0+2 as three characters): '#' solid,
- *   'd' closed-leaf cell, '.' air; '-' outside the footprint.
+ *   legend per cell (rows y0-2 .. y0+2 as five characters): '#' solid (12+/16
+ *   tall), '_' a low plate (to 6/16), '+' part-height, 'w' / 'f' / 'c' a
+ *   clearance form (a wall pulled back to its geometry: wall, floor + wall,
+ *   wall + ceiling; collider-form.ts), 'd' closed-leaf cell, '.' air; '-'
+ *   outside the footprint.
  */
 import { readFileSync } from 'node:fs';
 import { loadAddonPreviewModel } from '../web/src/ui/addon-preview-data.ts';
 import { ixWorldBlocks } from '../web/src/engine/bedrock-interactives.ts';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.ts';
 
 const [file, idxText] = process.argv.slice(2).filter(a => !a.startsWith('--'));
 const radius = Number(process.argv.find(a => a.startsWith('--radius='))?.slice(9) ?? 6);
@@ -19,8 +23,8 @@ const bytes = readFileSync(file);
 const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
 const cfg = model.interactives!;
 const item = cfg.items[Number(idxText)]!;
-const solid = new Map<string, [number, number]>();
-for (const c of model.cells) solid.set(`${c.x},${c.y},${c.z}`, [c.lo, c.hi]);
+const solid = new Map<string, [number, number, number]>();
+for (const c of model.cells) solid.set(`${c.x},${c.y},${c.z}`, [c.lo, c.hi, c.v ?? 0]);
 const door = new Map<string, [number, number]>();
 for (const c of item.blocking) door.set(`${c[0]},${c[1]},${c[2]}`, [c[3], c[4]]);
 const xs = item.blocking.map(c => c[0]), ys = item.blocking.map(c => c[1]), zs = item.blocking.map(c => c[2]);
@@ -34,6 +38,7 @@ const ch = (x: number, y: number, z: number): string => {
   if (door.has(k)) return 'd';
   const s = solid.get(k);
   if (!s) return '.';
+  if (s[2]) return 'wfc'[COLLIDER_KIT.VARIANTS[s[2]]!.kind]!;
   return s[1] - s[0] >= 12 ? '#' : s[1] <= 6 ? '_' : '+';
 };
 const header = [];

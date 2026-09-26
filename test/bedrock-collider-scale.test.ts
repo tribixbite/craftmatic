@@ -12,6 +12,11 @@
  * Granularity of the comparison, stated rather than hand-waved:
  *  - X and Z: whole world blocks. A collider is a full-width block, so a column
  *    is either solid or not; the expectation is an EXACT set of columns.
+ *  - Clearance forms (collider-form.ts: a wall pulled back to its own
+ *    geometry) are the exception: their boxes are mapped here from the cell's
+ *    footprint square onto the columns the cell owns, independently of the
+ *    runtime's arithmetic, and a block's expected form is the kit's `cover` of
+ *    what lands in it (the definition of a form, not its placement).
  *  - Y: sixteenths of a world block, the precision of the `[lo, hi]` pair.
  *    Because a block carries ONE pair, the strongest statement possible is
  *    that its pair equals the outward-rounded (floor lo, ceil hi) hull of the
@@ -25,28 +30,29 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { SIZE_STEPS, colliderPairOf, decodeColliderRuns, encodeColliderRuns } from '../web/src/engine/bedrock-placement-pack.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE, colliderState } from '../web/src/engine/bedrock-building-shell.js';
+import { SIZE_STEPS, decodeColliderRuns, encodeColliderRuns, runValueOf } from '../web/src/engine/bedrock-placement-pack.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_HI_STATE, COLLIDER_LO_STATE, colliderState } from '../web/src/engine/bedrock-building-shell.js';
+import { COLLIDER_KIT, type Box16 } from '../web/src/engine/collider-form.js';
 import { host } from './_placement-host.js';
 
 /** The pin the host's player uses (its `location`, floored). */
 const ANCHOR = { x: 100, y: 64, z: 200 };
 
 interface GridDims { width: number; height: number; length: number }
-/** One solid source cell: the box [x, x+1] × [y+lo/16, y+hi/16] × [z, z+1] in grid units. */
-interface SourceCell { x: number; y: number; z: number; lo: number; hi: number }
-/** A world block's collision span, in sixteenths. */
-type Pair = readonly [number, number];
+/** One solid source cell: the box [x, x+1] × [y+lo/16, y+hi/16] × [z, z+1] in grid units, or clearance form `v`. */
+interface SourceCell { x: number; y: number; z: number; lo: number; hi: number; v?: number }
+/** A world block's collision span, in sixteenths, and its clearance form (absent: the full block). */
+type Pair = readonly [number, number] | readonly [number, number, number];
 
 /** Every collider cell of a grid, decoded from the shipped run-length text. */
 function sourceCells(dims: GridDims, runs: string): SourceCell[] {
   const cells = decodeColliderRuns(runs);
   const out: SourceCell[] = [];
   for (let i = 0; i < cells.length; i++) {
-    const v = cells[i]!;
-    if (v === 0) continue;
-    const [lo, hi] = colliderPairOf(v);
-    out.push({ z: i % dims.length, y: Math.floor(i / dims.length) % dims.height, x: Math.floor(i / (dims.length * dims.height)), lo, hi });
+    const value = cells[i]!;
+    if (value === 0) continue;
+    const { v, lo, hi } = runValueOf(value);
+    out.push({ z: i % dims.length, y: Math.floor(i / dims.length) % dims.height, x: Math.floor(i / (dims.length * dims.height)), lo, hi, ...(v ? { v } : {}) });
   }
   return out;
 }
@@ -110,7 +116,33 @@ interface Expectation {
 function expectedColliders(cells: readonly SourceCell[], dims: GridDims, r: number, f: number): Expectation {
   const hull = new Map<string, Pair>();
   const exact = new Map<string, Set<number>>();
+  const formPieces = new Map<string, Box16[]>();
   for (const c of cells) {
+    if (c.v) {
+      // A clearance form: its boxes, turned with the cell, spread over the columns the cell owns.
+      const fp = turnedFootprint(c, dims, r, f);
+      const xs = columnsOver(fp.x0, fp.x1, f), zs = columnsOver(fp.z0, fp.z1, f);
+      for (const b of COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi)) {
+        // The footprint square turned: the sixteenths along the world x and z axes.
+        const [bx0, bx1, bz0, bz1] = r === 90 ? [16 - b[5], 16 - b[4], b[0], b[1]] : r === 180 ? [16 - b[1], 16 - b[0], 16 - b[5], 16 - b[4]] : r === 270 ? [b[4], b[5], 16 - b[1], 16 - b[0]] : [b[0], b[1], b[4], b[5]];
+        const spanX = f < 1 ? [xs[0]!, xs[xs.length - 1]! + 1] : [xs[0]! + bx0 / 16 * xs.length, xs[0]! + bx1 / 16 * xs.length];
+        const spanZ = f < 1 ? [zs[0]!, zs[zs.length - 1]! + 1] : [zs[0]! + bz0 / 16 * zs.length, zs[0]! + bz1 / 16 * zs.length];
+        const y0 = (c.y + b[2] / 16) * f, y1 = (c.y + b[3] / 16) * f;
+        for (const wy of blocksOver(y0, y1)) {
+          const lo = Math.max(0, Math.min(15, Math.floor((y0 - wy) * 16)));
+          const hi = Math.min(16, Math.max(lo + 1, Math.ceil((y1 - wy) * 16)));
+          for (const wx of xs) for (const wz of zs) {
+            const ax = Math.max(spanX[0]!, wx) - wx, bx = Math.min(spanX[1]!, wx + 1) - wx, az = Math.max(spanZ[0]!, wz) - wz, bz = Math.min(spanZ[1]!, wz + 1) - wz;
+            if (bx - ax <= 1e-9 || bz - az <= 1e-9) continue;
+            const key = `${wx},${wy},${wz}`;
+            const list = formPieces.get(key) ?? [];
+            list.push([Math.floor(ax * 16 + 1e-9), Math.ceil(bx * 16 - 1e-9), lo, hi, Math.floor(az * 16 + 1e-9), Math.ceil(bz * 16 - 1e-9)]);
+            formPieces.set(key, list);
+          }
+        }
+      }
+      continue;
+    }
     const fp = turnedFootprint(c, dims, r, f);
     const y0 = (c.y + c.lo / 16) * f, y1 = (c.y + c.hi / 16) * f;
     for (const wy of blocksOver(y0, y1)) {
@@ -127,8 +159,15 @@ function expectedColliders(cells: readonly SourceCell[], dims: GridDims, r: numb
       }
     }
   }
+  // A block a form reached takes the form that covers everything in it (full cells included).
+  for (const [key, list] of formPieces) {
+    const prev = hull.get(key);
+    const form = COLLIDER_KIT.cover(prev ? [...list, [0, 16, prev[0], prev[1], 0, 16]] : list)!;
+    hull.set(key, form.v ? [form.lo, form.hi, form.v] : [form.lo, form.hi]);
+    exact.delete(key);
+  }
   let hullGap = 0;
-  for (const [key, [lo, hi]] of hull) hullGap += (hi - lo) - exact.get(key)!.size;
+  for (const [key, [lo, hi]] of hull) if (exact.has(key)) hullGap += (hi - lo) - exact.get(key)!.size;
   return { hull, exact, hullGap };
 }
 
@@ -136,9 +175,11 @@ function expectedColliders(cells: readonly SourceCell[], dims: GridDims, r: numb
 function placedColliders(blocks: Map<string, any>): Map<string, Pair> {
   const out = new Map<string, Pair>();
   for (const [key, b] of blocks) {
-    if (b.typeId !== COLLIDER_BLOCK_ID) continue;
+    const v = COLLIDER_KIT.variantOf(b.typeId);
+    if (v < 0) continue;
     const [x, y, z] = key.split(',').map(Number) as [number, number, number];
-    out.set(`${x - ANCHOR.x},${y - ANCHOR.y},${z - ANCHOR.z}`, [Number(b.permutation.getState(COLLIDER_LO_STATE)), Number(b.permutation.getState(COLLIDER_HI_STATE))]);
+    const lo = Number(b.permutation.getState(COLLIDER_LO_STATE)), hi = Number(b.permutation.getState(COLLIDER_HI_STATE));
+    out.set(`${x - ANCHOR.x},${y - ANCHOR.y},${z - ANCHOR.z}`, v ? [lo, hi, v] : [lo, hi]);
   }
   return out;
 }
@@ -149,7 +190,7 @@ function diff(expected: Map<string, Pair>, actual: Map<string, Pair>, limit = 12
   for (const [key, pair] of expected) {
     const got = actual.get(key);
     if (!got) out.push(`${key}: missing wall, expected [${pair}]`);
-    else if (got[0] !== pair[0] || got[1] !== pair[1]) out.push(`${key}: expected [${pair}], got [${got}]`);
+    else if (got[0] !== pair[0] || got[1] !== pair[1] || (got[2] ?? 0) !== (pair[2] ?? 0)) out.push(`${key}: expected [${pair}], got [${got}]`);
   }
   for (const key of actual.keys()) if (!expected.has(key)) out.push(`${key}: INVISIBLE WALL, no brick here (got [${actual.get(key)}])`);
   return out.length > limit ? [...out.slice(0, limit), `… and ${out.length - limit} more`] : out;
@@ -301,7 +342,8 @@ describe('collider re-lay matches the model at every size', () => {
     // footprint; only `craftmatic:collider` may be removed.
     const { fills } = await relaySequence(dims, runs, [200], 0);
     expect(fills.length).toBeGreaterThan(0);
-    for (const f of fills) expect(f.options).toEqual({ blockFilter: { includeTypes: [COLLIDER_BLOCK_ID] } });
+    // Every collider form (collider-form.ts) and nothing else.
+    for (const f of fills) expect(f.options).toEqual({ blockFilter: { includeTypes: [...COLLIDER_BLOCK_IDS] } });
   });
 
   for (const rotation of [90, 180, 270]) {

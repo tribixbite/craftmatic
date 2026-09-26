@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'vitest';
 import { runtimeHost } from './_ix-host.js';
 import { BlockGrid } from '../src/schem/types.js';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import {
   DOORWAY_MIN_HEIGHT_LDU, INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, hitGroupName, interactiveHitboxes, interactiveNoun, placeHitBox, separateHitboxes, worldHitBox, hitBoxesOverlap, seatHitBox, type HitBox, OPEN_DEG, discoverInteractives, interactiveAnimation, interactiveBehavior, interactiveKindOf,
   interactiveRig, interactiveRuntimeItem, ixClosedBlocks, ixWorldBlocks, linkSharedDoorways, pairDoubleDoors, passSizeFor, planInteractiveColliders,
@@ -249,7 +250,7 @@ describe('ixWorldBlocks', () => {
   const asSource = (c: IxCell[]): SourceCell[] => c.map(([x, y, z, lo, hi]) => ({ x, y, z, lo, hi }));
   it('lays exactly what the collider re-lay lays, at every wand size and quarter turn', () => {
     for (const pct of SIZE_STEPS) for (const r of QUARTER_TURNS) {
-      const mine = ixWorldBlocks(cells, dims, pct / 100, r);
+      const mine = ixWorldBlocks(cells, dims, pct / 100, r, COLLIDER_KIT);
       const oracle = laidColliderBlocks(asSource(cells), dims, pct, r, []).blocks;
       const theirs = new Map(oracle.map(b => [`${b.x},${b.y},${b.z}`, [b.lo, b.hi]]));
       expect(new Map([...mine].sort()), `${pct} % turn ${r}`).toEqual(new Map([...theirs].sort()));
@@ -258,7 +259,7 @@ describe('ixWorldBlocks', () => {
   it('agrees with the walk world (ScaledColliderGrid) from 100 % up', () => {
     for (const pct of SIZE_STEPS.filter(p => p >= 100)) for (const r of QUARTER_TURNS) {
       const grid = new ScaledColliderGrid(asSource(cells), dims, pct / 100, r as QuarterTurn);
-      const mine = ixWorldBlocks(cells, dims, pct / 100, r);
+      const mine = ixWorldBlocks(cells, dims, pct / 100, r, COLLIDER_KIT);
       for (const [key, [lo, hi]] of mine) {
         const [x, y, z] = key.split(',').map(Number) as [number, number, number];
         expect(grid.blockAt(x, z, y), `${key} at ${pct}/${r}`).toMatchObject({ lo, hi });
@@ -442,7 +443,20 @@ describe('interactive entity assets', () => {
 
 describe('interactives runtime (scripts/interactives.js)', () => {
   const anchor = { x: 100, y: 64, z: 200 };
-  const keysOf = (cfg: InteractiveRuntimeConfig, i: number, f = 1, r = 0) => [...ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r).keys()].map(k => { const [x, y, z] = k.split(',').map(Number) as [number, number, number]; return `${anchor.x + x},${anchor.y + y},${anchor.z + z}`; });
+  /**
+   * An opened doorway's own blocks hold only the static part the cut kept there (a lintel over the leaf, a
+   * sill under it) - the doorway's neighbour cells laid at this size and turn - or nothing.
+   */
+  const expectOpen = (h: ReturnType<typeof runtimeHost>, cfg: InteractiveRuntimeConfig, items: number[], f = 1, r = 0): void => {
+    const statics = ixWorldBlocks(items.flatMap(i => cfg.items[i]!.neighbours), cfg.dims, f, r, COLLIDER_KIT);
+    for (const i of items) for (const key of ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r, COLLIDER_KIT).keys()) {
+      const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+      const k = `${anchor.x + x},${anchor.y + y},${anchor.z + z}`, st = statics.get(key);
+      if (!st) { expect(h.blocks.has(k), k).toBe(false); continue; }
+      expect(h.blocks.get(k)?.states, k).toEqual({ [cfg.colliders.loState]: st[0], [cfg.colliders.hiState]: st[1] });
+    }
+  };
+  const keysOf = (cfg: InteractiveRuntimeConfig, i: number, f = 1, r = 0) => [...ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r, COLLIDER_KIT).keys()].map(k => { const [x, y, z] = k.split(',').map(Number) as [number, number, number]; return `${anchor.x + x},${anchor.y + y},${anchor.z + z}`; });
   it('lays a freshly placed door closed, opens both leaves of a double door on one tap, restores the static state and plays the door sound', () => {
     const cfg = doubleDoorConfig();
     const h = runtimeHost(cfg);
@@ -456,7 +470,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(b.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     expect(a.angle).toBe(90);
     expect(b.angle).toBe(-90);
-    for (const k of [...keysOf(cfg, 0), ...keysOf(cfg, 1)]) expect(h.blocks.has(k), k).toBe(false);
+    expectOpen(h, cfg, [0, 1]);
     expect(h.sounds).toEqual(['random.door_open']);
     h.tap(b);
     for (const k of keysOf(cfg, 0)) expect(h.blocks.get(k)?.typeId).toBe(COLLIDER_BLOCK_ID);
@@ -598,7 +612,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.actorProps.get(INTERACTIVE_SIZE_PROPERTY)).toBe(2);
     expect(a.events.at(-1)).toBe(hitGroupName(90, 200, false));
     h.tap(a);
-    for (const k of closed) expect(h.blocks.has(k), k).toBe(false);
+    expectOpen(h, cfg, [0], 2, 90);
     expect(a.events.at(-1)).toBe(hitGroupName(90, 200, true));
   });
 

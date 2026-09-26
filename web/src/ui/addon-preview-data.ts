@@ -32,13 +32,14 @@ import {
   type PlacementActor, type PlacementColliders, type PlacementRotation, type PlacementTreadReport,
 } from '@engine/bedrock-placement-pack.js';
 import {
-  cellColumns, rotatedCell, scaledDims, ScaledColliderGrid, walkScaledColliders,
+  scaledDims, ScaledColliderGrid, walkScaledColliders,
   type GridDims, type QuarterTurn, type ReachResult, type SourceCell, type TreadBlock,
 } from '@engine/bedrock-collider-scale.js';
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
 import type { PinballMap, PinballRuntimeConfig } from '@engine/bedrock-pinball.js';
 import type { CoasterRiderViewConfig } from '@engine/bedrock-coaster.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
+import { COLLIDER_KIT, type Box16, type ColliderForm } from '@engine/collider-form.js';
 import type { InteractiveRuntimeConfig } from '@engine/bedrock-interactives.js';
 import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, type AddonAppearance } from './addon-appearance.js';
 
@@ -594,8 +595,12 @@ export function toggleLegend(state: LegendState, kind: LegendKind, flag: keyof L
 
 // ─── The laid grid at a size ─────────────────────────────────────────────────
 
-/** One world block of the laid grid: `[x, x+1] × [y + lo/16, y + hi/16] × [z, z+1]` from the pin. */
-export interface LaidBlock { x: number; y: number; z: number; lo: number; hi: number; tread: boolean }
+/**
+ * One world block of the laid grid: `[x, x+1] × [y + lo/16, y + hi/16] × [z, z+1]`
+ * from the pin - or, with `form`, a clearance form's boxes inside that block
+ * (collider-form.ts; `lo`/`hi` are then the form's vertical extent).
+ */
+export interface LaidBlock { x: number; y: number; z: number; lo: number; hi: number; tread: boolean; form?: ColliderForm }
 
 /** The shipped tread blocks for a size and turn (empty at 100 % and where none was needed). */
 export function treadBlocksAt(model: Pick<AddonPreviewModel, 'colliders'>, sizePct: number, rotation: QuarterTurn): TreadBlock[] {
@@ -615,23 +620,23 @@ export function treadBlocksAt(model: Pick<AddonPreviewModel, 'colliders'>, sizeP
 export function laidColliderBlocks(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, treads: readonly TreadBlock[] = []): { blocks: LaidBlock[]; dims: GridDims } {
   const f = sizePct / 100;
   const laid = scaledDims(dims, f, rotation);
-  const byKey = new Map<number, LaidBlock>();
   const key = (x: number, y: number, z: number): number => (x * laid.height + y) * laid.length + z;
+  // Every cell's pieces (the runtime's own `cellPieces`), then one covering form per block.
+  const pieces = new Map<number, { x: number; y: number; z: number; boxes: Box16[] }>();
   for (const c of cells) {
-    const rc = rotatedCell(c.x, c.z, dims, rotation);
-    const [x0, x1] = cellColumns(rc.x, f), [z0, z1] = cellColumns(rc.z, f);
-    const wy0 = (c.y + c.lo / 16) * f, wy1 = (c.y + c.hi / 16) * f;
-    for (let wy = Math.floor(wy0); wy < Math.ceil(wy1); wy++) {
-      const lo = Math.max(0, Math.min(15, Math.floor((wy0 - wy) * 16)));
-      const hi = Math.max(lo + 1, Math.min(16, Math.ceil((wy1 - wy) * 16)));
-      for (let wx = x0; wx <= x1; wx++) for (let wz = z0; wz <= z1; wz++) {
-        if (wx < 0 || wz < 0 || wx >= laid.width || wz >= laid.length || wy < 0 || wy >= laid.height) continue;
-        const k = key(wx, wy, wz);
-        const prev = byKey.get(k);
-        if (!prev) byKey.set(k, { x: wx, y: wy, z: wz, lo, hi, tread: false });
-        else { prev.lo = Math.min(prev.lo, lo); prev.hi = Math.max(prev.hi, hi); }
-      }
-    }
+    COLLIDER_KIT.cellPieces(c.x, c.y, c.z, c.v ?? 0, c.lo, c.hi, dims, f, rotation, (wx, wy, wz, box) => {
+      if (wx < 0 || wz < 0 || wx >= laid.width || wz >= laid.length || wy < 0 || wy >= laid.height) return;
+      const k = key(wx, wy, wz);
+      const at = pieces.get(k);
+      if (at) at.boxes.push(box); else pieces.set(k, { x: wx, y: wy, z: wz, boxes: [box] });
+    });
+  }
+  const byKey = new Map<number, LaidBlock>();
+  for (const [k, p] of pieces) {
+    const form = COLLIDER_KIT.cover(p.boxes);
+    if (!form) continue;
+    const boxes = COLLIDER_KIT.formBoxes(form.v, form.lo, form.hi);
+    byKey.set(k, { x: p.x, y: p.y, z: p.z, lo: Math.min(...boxes.map(q => q[2])), hi: Math.max(...boxes.map(q => q[3])), tread: false, ...(form.v ? { form } : {}) });
   }
   for (const t of treads) {
     if (t.x < 0 || t.z < 0 || t.y < 0 || t.x >= laid.width || t.z >= laid.length || t.y >= laid.height) continue;
@@ -641,8 +646,13 @@ export function laidColliderBlocks(cells: readonly SourceCell[], dims: GridDims,
   return { blocks, dims: laid };
 }
 
-/** An axis-aligned box in world blocks, the unit the preview draws and the walk engine collides with. */
-export interface LaidBox { x: number; z: number; y0: number; y1: number; tread: boolean }
+/**
+ * An axis-aligned box in world blocks, the unit the preview draws and the
+ * walk engine collides with: column `x, z`, and - for a clearance form's box -
+ * its footprint inside the column in sixteenths (`fx0..fx1`, `fz0..fz1`,
+ * absent = the whole column).
+ */
+export interface LaidBox { x: number; z: number; y0: number; y1: number; tread: boolean; fx0?: number; fx1?: number; fz0?: number; fz1?: number }
 
 /**
  * Merge a column's consecutive blocks into boxes: a full block (`lo` 0, `hi`
@@ -653,6 +663,12 @@ export function columnBoxes(blocks: readonly LaidBlock[]): LaidBox[] {
   const out: LaidBox[] = [];
   let open: LaidBox | null = null, openY = -1;
   for (const b of blocks) {
+    if (b.form) {
+      // A clearance form is drawn as its own boxes, never merged into a column.
+      for (const q of COLLIDER_KIT.formBoxes(b.form.v, b.form.lo, b.form.hi)) out.push({ x: b.x, z: b.z, y0: b.y + q[2] / 16, y1: b.y + q[3] / 16, tread: false, fx0: q[0], fx1: q[1], fz0: q[4], fz1: q[5] });
+      open = null; openY = -1;
+      continue;
+    }
     const y0 = b.y + b.lo / 16, y1 = b.y + b.hi / 16;
     if (open && !b.tread && !open.tread && open.x === b.x && open.z === b.z && b.y === openY + 1 && b.lo === 0 && b.hi === 16 && Math.abs(open.y1 - b.y) < 1e-9) {
       open.y1 = y1; openY = b.y; continue;

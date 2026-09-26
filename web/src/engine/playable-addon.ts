@@ -17,7 +17,8 @@ import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_
 import { minifigFromSpec } from './minifig-rig.js';
 import { minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, shellBehavior } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior } from './bedrock-building-shell.js';
+import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
@@ -31,7 +32,7 @@ import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
-import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
+import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -196,6 +197,12 @@ export interface PlayableAddonOptions {
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
     /** Grid cells the door pass opened (`applySceneDoors`), kept open by the shell's colliders. */
     colliderKeepClear?: ReadonlySet<number>;
+    /**
+     * Pull the shell's colliders back to its own geometry where it is certain
+     * (collider-clearance.ts; default on). Off only to measure a pack as it
+     * was before clearance.
+     */
+    colliderClearance?: boolean;
     runtimeDoorCandidates?: Array<{ x: number; y: number; z: number; requiredSize: number; lower: { id: string; states: Record<string, string | number | boolean> }; upper: { id: string; states: Record<string, string | number | boolean> } }>;
     /**
      * The export pipeline's identity (pipeline-version.ts): shown in both pack
@@ -1714,6 +1721,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     /** The moving parts' runtime (`scripts/interactives.js`) and their diagnostics; set with the shell. */
     let interactiveConfig: InteractiveRuntimeConfig | undefined;
     let interactiveReport: unknown[] | undefined;
+    /** What clearance applied and refused (collider-clearance.ts), for the diagnostics. */
+    let clearanceReport: ClearanceReport | undefined;
     /** What the doorway walk found at 100 % (`doorwayWalkSummary`), for the wand. */
     let ixWalkNote: string | undefined;
     const actors: PlacementActor[] = [];
@@ -2002,8 +2011,29 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }
             }
             const colliders = buildColliderGrid(scenery, [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], options.shell.frame, options.colliderKeepClear);
+            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame) : [];
+            if (options.colliderClearance !== false) {
+                // Clearance (collider-clearance.ts, docs/bedrock-interactivity.md):
+                // pull every wall back to its own geometry where it is certain,
+                // AFTER the doorway cut (which reasons on full cells) and with
+                // every passage leaf closed; then re-read each doorway's
+                // neighbours so a trimmed one is restored trimmed.
+                const frame = options.shell.frame;
+                const leaves: GridBox[] = compiledIx.filter(c => PASSAGE_KINDS.has(c.it.kind)).map(c => {
+                    const b = c.it.boundsLdu, ps = [0, 1].flatMap(i => [0, 1].flatMap(j => [0, 1].map(k => sceneGridPoint(frame, [i ? b.max[0] : b.min[0], j ? b.max[1] : b.min[1], k ? b.max[2] : b.min[2]]))));
+                    return { x0: Math.min(...ps.map(p => p[0])), y0: Math.min(...ps.map(p => p[1])), z0: Math.min(...ps.map(p => p[2])), x1: Math.max(...ps.map(p => p[0])), y1: Math.max(...ps.map(p => p[1])), z1: Math.max(...ps.map(p => p[2])) };
+                });
+                const leafPlanes = compiledIx.filter(c => PASSAGE_KINDS.has(c.it.kind)).map(({ it }) => {
+                    if (!it.leaf) return null;
+                    const c0 = sceneGridPoint(frame, it.leaf.corner), ca = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
+                    return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
+                });
+                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []) });
+                captureDoorwayNeighbours(colliders.grid, ixPlans);
+                const r = clearanceReport;
+                warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);
+            }
             if (compiledIx.length) {
-                const ixPlans = planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame);
                 const items: InteractiveRuntimeItem[] = compiledIx.map((c, k) => interactiveRuntimeItem(c.it, c.typeId, c.label, ixPlans[k] ?? null));
                 linkSharedDoorways(items);
                 // The hinge in the model's block frame (the walk preview swings the leaf about it; the runtime ignores it).
@@ -2054,14 +2084,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (interactiveReport) interactiveReport = interactiveReport.map((r, k) => ({ ...(r as object), ...(walks.verdicts[k] ? { walk100: walks.verdicts[k] } : {}) }));
             }
             files.push(
-                { name: `${bp}blocks/collider.json`, data: json(colliderBlockDefinition()) },
+                // The full collider and its clearance forms (collider-form.ts): one block each.
+                ...COLLIDER_BLOCK_IDS.map((_, v) => ({ name: `${bp}blocks/${colliderBlockFile(v)}`, data: json(colliderBlockDefinition(v)) })),
                 // Only `sound` belongs here: the BP block already declares
                 // `minecraft:material_instances` with this texture, which wins
                 // for a data-driven block, so RP `blocks.json`'s own `textures`
                 // key is silently ignored (dead config left in for the next
                 // editor to trust). Trim it here rather than at
                 // COLLIDER_BLOCKS_JSON's definition, which other packs/tests share.
-                { name: `${rp}blocks.json`, data: json({ format_version: COLLIDER_BLOCKS_JSON.format_version, [COLLIDER_BLOCK_ID]: { sound: COLLIDER_BLOCKS_JSON[COLLIDER_BLOCK_ID].sound } }) },
+                { name: `${rp}blocks.json`, data: json({ format_version: COLLIDER_BLOCKS_JSON.format_version, ...Object.fromEntries(COLLIDER_BLOCK_IDS.map(bid => [bid, { sound: COLLIDER_BLOCKS_JSON[COLLIDER_BLOCK_ID].sound }])) }) },
                 { name: `${rp}textures/blocks/craftmatic_collider.png`, data: transparentPng() },
             );
             Object.assign(terrainTextures, COLLIDER_TERRAIN_TEXTURE);
@@ -2575,6 +2606,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // the closed leaf lays and what the doorway cut opened.
         ...(interactiveReport ? { interactives: interactiveReport } : {}),
         ...(options.interactivityReport ? { interactivity: options.interactivityReport } : {}),
+        // Clearance (collider-clearance.ts): counts, and EVERY proposal as
+        // [x, y, z, rule (0 wall, 1 ceiling), from v, lo, hi, to v, lo, hi, refused reason or ''].
+        ...(clearanceReport ? { clearance: { ...clearanceReport, entries: clearanceReport.entries.map(e => [e.x, e.y, e.z, e.rule === 'wall' ? 0 : 1, e.from.v, e.from.lo, e.from.hi, e.to.v, e.to.lo, e.to.hi, e.refused ?? '']) } } : {}),
     }) });
     // A Bedrock entity identifier may not begin with a digit: the engine drops
     // the WHOLE definition, so the entity simply never exists in game and
