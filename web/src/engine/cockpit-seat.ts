@@ -140,6 +140,8 @@ export interface SeatPlan {
   moved: Vec3 | null;
   /** The search, when it ran: whether the evidence's cabin has a roof and sides the seat must stay under and between, candidates tried, and how many left the cabin. */
   search?: { needRoof: boolean; needSides: boolean; tried: number; outOfCabin: number } | null;
+  /** A hidden rider's eye moved out of the model into air (x, y, z); null/absent = not moved. */
+  eyeMoved?: Vec3 | null;
 }
 
 /**
@@ -224,7 +226,47 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
     // Keep the evidence's own seat unless the search found one that fits at a smaller size.
     if ((fitOf(best.steps) ?? 99) >= (fitOf(measure(seat)) ?? 99)) best = { seat, eye, steps: measure(seat), moved: null };
   }
-  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search };
+  // A rider hidden at 100 % is only its EYE there, and the eye must be in air:
+  // 42172's canopy-centre eye sat inside the body, and the cockpit view on the
+  // Saga (2026-09-26) was the dark inside of its cuboids. Move the eye to the
+  // nearest clear point (back, up, toward the centre line) when it is not.
+  let eyeMoved: Vec3 | null = null;
+  if (!best.steps[0]!.fits && eyeOverlap(boxes, best.eye) > 0) {
+    const r = EYE_CLEAR_SEARCH, n = (v: number): number => Math.round(v / SEAT_SEARCH.step);
+    let pick: { eye: Vec3; overlap: number; move: number } = { eye: best.eye, overlap: eyeOverlap(boxes, best.eye), move: 0 };
+    const xs = [...new Set([0, 0.25, 0.5, 0.75, 1].map(t => Math.round(best.eye[0] * (1 - t) * 100) / 100))];
+    // Under a roof the eye stays under one: out through it is the kart's view again.
+    const overhead = (e: Vec3): boolean => boxes.some(b => b.min[0] <= e[0] && b.max[0] >= e[0] && b.min[2] <= e[2] && b.max[2] >= e[2] && b.min[1] > e[1] + 0.05 && b.min[1] < e[1] + 2);
+    const needOverhead = overhead(best.eye);
+    for (let k = 0; k <= n(r.back); k++) for (let j = -n(r.down); j <= n(r.up); j++) for (const x of xs) {
+      const e: Vec3 = [x, Math.round((best.eye[1] + j * SEAT_SEARCH.step) * 100) / 100, Math.round((best.eye[2] + k * SEAT_SEARCH.step) * 100) / 100];
+      if (e[1] <= 0.1 || (needOverhead && !overhead(e))) continue;
+      const overlap = eyeOverlap(boxes, e), move = Math.hypot(e[0] - best.eye[0], e[1] - best.eye[1], e[2] - best.eye[2]);
+      if (overlap < pick.overlap - 1e-9 || (Math.abs(overlap - pick.overlap) <= 1e-9 && move < pick.move)) pick = { eye: e, overlap, move };
+    }
+    if (pick.move > 0) {
+      eyeMoved = [Math.round((pick.eye[0] - best.eye[0]) * 100) / 100, Math.round((pick.eye[1] - best.eye[1]) * 100) / 100, Math.round((pick.eye[2] - best.eye[2]) * 100) / 100];
+      const s2: Vec3 = [pick.eye[0], Math.round((pick.eye[1] - SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, pick.eye[2]];
+      best = { seat: s2, eye: pick.eye, steps: measure(s2), moved: best.moved };
+    }
+  }
+  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved };
+}
+
+/** How far a hidden rider's eye may move to reach air (blocks: toward the tail, up, down). */
+export const EYE_CLEAR_SEARCH = { back: 0.9, up: 0.6, down: 0.3 } as const;
+
+/** Share of a 0.2-block box around the eye that lies inside the model (0 = the camera is in air). */
+export function eyeOverlap(boxes: readonly BoxBlocks[], eye: Vec3): number {
+  const h = 0.1, n = 4;
+  const near = boxes.filter(b => b.max[0] > eye[0] - h && b.min[0] < eye[0] + h && b.max[1] > eye[1] - h && b.min[1] < eye[1] + h && b.max[2] > eye[2] - h && b.min[2] < eye[2] + h);
+  if (!near.length) return 0;
+  let inside = 0;
+  for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let l = 0; l < n; l++) {
+    const p = [eye[0] - h + (i + 0.5) * 2 * h / n, eye[1] - h + (j + 0.5) * 2 * h / n, eye[2] - h + (l + 0.5) * 2 * h / n];
+    if (near.some(b => p[0]! >= b.min[0] && p[0]! <= b.max[0] && p[1]! >= b.min[1] && p[1]! <= b.max[1] && p[2]! >= b.min[2] && p[2]! <= b.max[2])) inside++;
+  }
+  return inside / (n * n * n);
 }
 
 /**

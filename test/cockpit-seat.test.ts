@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
-import { keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { eyeOverlap, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 import { SEATED_EYE_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -239,6 +239,18 @@ describe('the seat search (a canopy is a volume, not a seat)', () => {
     expect(keepsTheView({ fits: false, head: 0.2 }, 0.32)).toBe(true);
     // A seat the body fits at 100 % is drawn there, whatever the evidence's view was.
     expect(keepsTheView({ fits: true, head: 0.05 }, 0)).toBe(true);
+  });
+
+  it('moves a hidden rider\'s eye out of the body into the cabin air, and never out through the roof', () => {
+    // 42172 on the Saga: the canopy-centre eye sat inside the body; the cockpit view was dark cuboids.
+    const boxes = [box([-1, 0, -2], [1, 0.1, 2]), box([-1, 0.1, -2], [1, 1.0, 0.3]), box([-1.2, 1.3, -2], [1.2, 1.5, 2])];
+    const plan = planSeat(boxes, [0, 0.8, 0], [0, 0.8 - SEATED_EYE_HEIGHT_BLOCKS, 0], 'seat');
+    expect(plan.fitScale).not.toBe(1);
+    expect(plan.eyeMoved).not.toBeNull();
+    expect(eyeOverlap(boxes, plan.eye)).toBe(0);
+    // Still under the roof (1.3), not over it.
+    expect(plan.eye[1]).toBeLessThan(1.3);
+    expect(plan.seat[1]).toBeCloseTo(plan.eye[1] - SEATED_EYE_HEIGHT_BLOCKS, 6);
   });
 
   it('does not draw a rider whose pelvis would stick out under the floor', () => {
