@@ -31,7 +31,7 @@ import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOv
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
-import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
+import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
@@ -2342,6 +2342,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         figureActorIndex.set(k, actors.length - 1);
         extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: fig.seatIndex !== undefined ? 'minifig sitting in the build' : 'minifig standing in the build' });
         figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
+    }
+    // Two standing figures recorded on one spot spawn inside each other (76435's 1 and 8): move the later one aside.
+    if (figureSpanAt && placementColliders) {
+        const standing = [...figureActorIndex.entries()].filter(([k]) => options.figures?.[k]?.seatIndex === undefined).map(([, a]) => a);
+        const { width, length } = placementColliders;
+        const sep = separateFigureSpawns(figureSpanAt, standing.map(a => ({ x: actors[a]!.x, y: actors[a]!.y, z: actors[a]!.z, body: figureBodies[actors[a]!.typeId] ?? 1.8 })),
+            (x, z) => x >= 0 && z >= 0 && x < width && z < length, { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown });
+        for (const i of sep.moved) Object.assign(actors[standing[i]!]!, sep.at[i]!);
+        if (sep.moved.length || sep.stuck.length) {
+            warnings.push(`${label}: ${sep.moved.length} figure${sep.moved.length === 1 ? '' : 's'} recorded inside another moved beside it (${sep.moved.map(i => actors[standing[i]!]!.label.replace(`${label} `, '')).join(', ') || 'none'})${sep.stuck.length ? `; ${sep.stuck.length} had no free spot and stay overlapping (${sep.stuck.map(i => actors[standing[i]!]!.label.replace(`${label} `, '')).join(', ')})` : ''}.`);
+        }
     }
     if (spawnFixes.length) {
         const r2 = (v: number): number => Math.round(v * 100) / 100;
