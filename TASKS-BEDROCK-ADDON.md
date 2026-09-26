@@ -36,10 +36,34 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
   face art drops the photo skin, LOD hull glass opaque, pack text no longer
   claims HD textures. Saga-verified: hatching gone, 76417 line-up grounded.
   Open:
-  - [ ] Rebuild the 14-pack round from merged main, check it on the Pixel (world
-    924): hatching gone on 76417/76457 at 2-6 blocks, dolls with legs and hair on
-    heads (41732), faces without the mottle, the far view of 76417 (hull glass
-    now opaque, `ad90f46d`, not yet seen on a device).
+  - [x] **Sent**: round 2026-09-25c, `output/device-round-2026-09-25c/craftmatic-packs-de7b56a6.zip`
+    (sha256 212598af...62c24; 14 packs + PACKS.md, built one at a time from `de7b56a6`,
+    pipeline stamp `c11e72aa` clean, same labels as `243f54b1` so all 28 header
+    uuids are unchanged). Parts lists identical to `243f54b1`; `_mcaddon_check` 14/14;
+    render-fault audit (`render-audit-summary.txt`): coplanar block faces 0.02-1.78 per
+    set (76417 46.53 -> 1.00, 42703 33.62 -> 0.32). Saga world 925 bound `--exclusive`
+    (28 entries), content log 0 errors / 0 overridden. Saga results
+    (`output/device-round-2026-09-25c/saga/`): no hatching close up, 76417 figures
+    grounded, 41732 dolls with legs and hair, 76457 faces clean and grounded,
+    10261 lift ~10-14 s (screenshot cadence), 10303 loops ridden, pinball rejoin
+    does NOT self-launch; placements undone, wands cleared.
+  - [ ] **Pixel half of 25c NOT RUN** (the lock was held by the clearance and
+    interactivity agents throughout): `python -u scripts/_pixel_dev_deploy.py 924
+    output/device-round-2026-09-25c/packs-de7b56a6/*.mcaddon --serial <pixel> --exclusive`,
+    then the checks in `output/device-round-2026-09-25c/DEVICE-BRIEF.md`. Board rides and
+    pinball with `/ride @s start_riding @e[type=craftmatic:<id>,c=1] teleport_rider`
+    (`roller_10261_coaster_vehicle_1`, `loopcoaster_10303_coaster_vehicle_1`,
+    `arcade_11374_pinball_console`); tapping them failed on the Saga.
+  - [ ] From the Saga round, unresolved: (1) 76417 renders solid at 60 blocks but
+    the WHOLE model disappears between ~62 and 75, so the far hull was never seen;
+    render-distance setting not recorded; compare with the cull rule
+    (`64 x box diagonal`) before calling it a pack fault. (2) After a `/ride`-boarded
+    10303 ride, a nausea-like distortion stayed 5+ s after dismount and cleared
+    only on Undo (`saga_loop_4.jpg` shows a green haze mid-ride). (3) Pinball
+    flipper-button travel not seen (identical frames during an 800 ms hold);
+    tapping the yellow pad never started play. (4) Scrolled form rows take the
+    tap one row up, also in the vanilla pause menu: likely adb/Saga coordinates,
+    not the pack.
   - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
     2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
   - [ ] Loose accessories floating in shells (76417: 84 figure parts outside any
@@ -57,8 +81,6 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
   substeps/tick vs 2.4) — from `2b7e11bd`. Now predicts only near an
   inversion. Saga ride: 10261 chain lift 47 s -> 9 s, 10303 cycle 55 s (host 54),
   42703 23-25 s (host 23); no frozen frames. Not re-ridden on the Pixel.
-  World 925 lost 11 bindings to that test's `--exclusive` 3-pack deploy
-  (packs still installed): redeploy the full round with `--exclusive`.
 - [ ] Collider CLEARANCE: rooms/halls/ceilings too tight for a 0.6 x 1.8
   player. Trim colliders only where provably safe (never reduce free space,
   never open to outside or through a closed leaf); ceilings too; sub-block
