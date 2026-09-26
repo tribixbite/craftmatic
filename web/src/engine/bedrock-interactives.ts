@@ -46,7 +46,7 @@ import { LDU_PER_BLOCK } from './lego-scale.js';
 import { PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
-import { parseFormState } from './collider-clearance.js';
+import { LeakFlood, parseFormState } from './collider-clearance.js';
 
 declare const world: any;
 declare const system: any;
@@ -707,6 +707,10 @@ export interface InteractiveColliderPlan {
   passageCleared: number;
   /** Half-way treads laid beside a raised threshold (a rise past the auto-step), both sides. */
   treads: number;
+  /** Collider cells of the invisible stairs up to a threshold higher than two auto-steps (`planThresholdStairs`). */
+  stairTreads: number;
+  /** Every stair considered for this doorway: the leaf column, the side, and what happened (`laid N` or the refusal). */
+  stairs: string[];
 }
 
 /** Cells either side (and above / below) of a leaf whose static state the runtime must know: a block at 25 % holds four cells. */
@@ -737,6 +741,8 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
   const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length;
   const plans: Array<InteractiveColliderPlan | null> = [];
   const blockingAll: IxCell[][] = [];
+  const stairCandidates: StairCandidate[] = [];
+  const leafColumnsAll = new Map<string, number>();
   for (const it of items) {
     if (!PASSAGE_KINDS.has(it.kind) || !it.leaf) { plans.push(null); blockingAll.push([]); continue; }
     const g = (p: Vec3): Vec3 => sceneGridPoint(frame, p);
@@ -756,6 +762,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       const cx = Math.floor(p[0]), cz = Math.floor(p[2]);
       columns.set(`${cx},${cz}`, [cx, cz]);
     }
+    for (const key of columns.keys()) leafColumnsAll.set(key, plans.length);
     const blocking: IxCell[] = [];
     let cleared = 0, passageCleared = 0, treads = 0;
     /** A static collider cell's span, or null. */
@@ -867,6 +874,9 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       // steps a player walks up without jumping.
       for (const [cx, cz] of columns.values()) for (const dir of [1, -1]) {
         const door = floorUnder(cx, cz);
+        // Every side is also a staircase candidate, planned once every doorway
+        // is cut and its single tread laid (`planThresholdStairs`).
+        stairCandidates.push({ item: plans.length, cx, cz, gn: [gn[0], gn[2]], dir, door });
         const x = Math.floor(cx + 0.5 + gn[0] * dir), z = Math.floor(cz + 0.5 + gn[2] * dir);
         if (!inGrid(x, 0, z) || columns.has(`${x},${z}`)) continue;
         let top = -Infinity;
@@ -886,10 +896,198 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       }
     }
     blockingAll.push(blocking);
-    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads });
+    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [] });
   }
+  if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll);
   captureDoorwayNeighbours(grid, plans);
   return plans;
+}
+
+/** A doorway side whose threshold is more than two auto-steps above the floor in front (see `planThresholdStairs`). */
+export interface StairCandidate {
+  /** Index into the plans. */
+  item: number;
+  /** The leaf column the stair starts beside. */
+  cx: number; cz: number;
+  /** The leaf's horizontal normal on the grid (x, z) and the side (+1 / -1). */
+  gn: [number, number]; dir: number;
+  /** The doorway's floor (grid blocks) at that column. */
+  door: number;
+}
+
+/** Longest invisible staircase in front of a raised threshold: its rise (sixteenths) and its treads. */
+export const STAIR_MAX_RISE16 = 40;
+export const STAIR_MAX_TREADS = 4;
+/** Cells (Chebyshev) a tread keeps from another doorway's leaf standing lower than the tread's top. */
+const STAIR_DOOR_CLEAR = 2;
+/** How far out (cells) a stair may look for the ground, landing included. */
+const STAIR_MAX_RUN = 8;
+/** A stair runs along a grid axis only: the leaf's normal within ~20 degrees of one (cos 20° = 0.94). */
+const STAIR_AXIS_COS = 0.94;
+/** Headroom kept clear above the doorway's floor over every tread column (a standing player, sixteenths). */
+const STAIR_HEAD16 = 29;
+/** The flood over a stair's world is skipped (the stair refused) past this many quarter-block voxels. */
+const STAIR_MAX_FLOOD_VOXELS = 64_000_000;
+
+/**
+ * Invisible stairs up to a raised threshold (clearance's "certain test" discipline).
+ *
+ * A door hung on a raised base over open ground (41395's, 60380's, 42670's
+ * Door 6: 1.3-2 blocks up) reads SEALED or ONE-WAY: the floor in front is
+ * more than a jump below the doorway's floor, so nobody can walk up to it
+ * (the single half-way tread covers only a rise of two 9/16 auto-steps). For
+ * such a side this lays a straight run of treads along the leaf's normal,
+ * each a 9/16 auto-step below the last, until the floor in front is within
+ * one step - a staircase walked up without a jump, invisible like every
+ * collider. Only when EVERY condition holds (otherwise the side keeps what it
+ * had):
+ *
+ * - the rise from the floor where the stair ends to the doorway's floor is at
+ *   most `STAIR_MAX_RISE16` and it takes at most `STAIR_MAX_TREADS` treads;
+ * - the leaf's normal is within ~20 degrees of a grid axis (a player walks
+ *   between face-sharing columns);
+ * - every tread column is AIR from its floor to a standing player's head over
+ *   the doorway's floor - a tread only fills open air on a floor, never a
+ *   hole under a floor, never a cell of the model, and leaves the head room;
+ * - no tread column is any doorway's leaf column or blocking cell (a stair is
+ *   never laid in a doorway or in a leaf's swing), nor another stair's;
+ * - **outside only**: every filled cell and the head room over it is reached
+ *   by the leak flood (`LeakFlood`: a flying, sneaking player from outside the
+ *   model) through the collider world with EVERY doorway closed. A tread can
+ *   only make walkable a space a player already reaches from outside with the
+ *   doors shut, so it never opens an enclosed room and never leads past a
+ *   closed leaf. (A raised door INSIDE a room keeps its verdict: stricter
+ *   than needed, never wrong.)
+ *
+ * Stairs are laid on the COLLIDER grid before clearance, like the doorway cut
+ * and the single tread; `stairTreads` counts the cells laid.
+ */
+export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveColliderPlan | null>, candidates: readonly StairCandidate[], leafColumns: ReadonlyMap<string, number>): void {
+  const W = grid.width, H = grid.height, L = grid.length;
+  const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L;
+  const isCollider = (x: number, y: number, z: number): boolean => inGrid(x, y, z) && grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID);
+  const spanOf = (x: number, y: number, z: number): [number, number] | null => {
+    if (!isCollider(x, y, z)) return null;
+    const f = parseFormState(grid.get(x, y, z));
+    return f ? [f.lo, f.hi] : [0, 16];
+  };
+  const blockingKeys = new Set<string>();
+  for (const plan of plans) for (const c of plan?.blocking ?? []) blockingKeys.add(`${c[0]},${c[1]},${c[2]}`);
+  /** Each doorway's floor (sixteenths): the lowest closed cell's bottom. */
+  const doorFloor16 = plans.map(plan => plan?.blocking.length ? Math.min(...plan.blocking.map(c => c[1] * 16 + c[3])) : Infinity);
+  /**
+   * A tread column within `STAIR_DOOR_CLEAR` cells of ANOTHER doorway's leaf
+   * whose floor is under the tread's top would stand in that doorway's
+   * approach (a door at street level beside a raised one): refused.
+   */
+  const nearLowerDoor = (item: number, x: number, z: number, top16: number): boolean => {
+    for (let dx = -STAIR_DOOR_CLEAR; dx <= STAIR_DOOR_CLEAR; dx++) for (let dz = -STAIR_DOOR_CLEAR; dz <= STAIR_DOOR_CLEAR; dz++) {
+      const other = leafColumns.get(`${x + dx},${z + dz}`);
+      if (other !== undefined && other !== item && doorFloor16[other]! < top16) return true;
+    }
+    return false;
+  };
+
+  // One proposal per candidate: the treads (column, floor, top in absolute sixteenths).
+  interface Tread { x: number; z: number; floor16: number; top16: number }
+  const proposals: Array<{ c: StairCandidate; treads: Tread[]; rise16: number }> = [];
+  const note = (c: StairCandidate, verdict: string): void => { plans[c.item]?.stairs.push(`${c.cx},${c.cz} side ${c.dir > 0 ? '+' : '-'}: ${verdict}`); };
+  for (const c of candidates) {
+    const [ax, az] = c.gn;
+    if (Math.max(Math.abs(ax), Math.abs(az)) < STAIR_AXIS_COS) { note(c, 'off-axis'); continue; }
+    const sx = Math.abs(ax) >= Math.abs(az) ? Math.sign(ax) * c.dir : 0, sz = sx === 0 ? Math.sign(az) * c.dir : 0;
+    const door16 = Math.round(c.door * 16), head16 = door16 + STAIR_HEAD16;
+    /** The column's floor under the doorway's floor (absolute sixteenths; 0 = the ground plane), or null when the column is not open air from that floor to the head room. */
+    const floorOf = (x: number, z: number): number | null => {
+      if (!inGrid(x, 0, z)) return null;
+      let floor16 = 0;
+      for (let y = Math.min(H - 1, Math.floor(head16 / 16)); y >= 0; y--) {
+        const s = spanOf(x, y, z);
+        if (!s) continue;
+        const top = y * 16 + s[1], bottom = y * 16 + s[0];
+        if (bottom < head16 && top > door16) return null; // something between the doorway's floor and the head room
+        if (top <= door16) { floor16 = top; break; }
+      }
+      return floor16;
+    };
+    // Walk out along the normal: level or auto-step columns are walked onto
+    // (a landing, a porch), a drop past the auto-step takes a tread 9/16 below
+    // the last, and the run ends on a floor within an auto-step of the ground
+    // plane - where a player outside stands.
+    const treads: Tread[] = [];
+    let cur = door16, why = '', runStart = door16, end = -1, oneRun = true;
+    for (let k = 1; k <= STAIR_MAX_RUN && end < 0; k++) {
+      const x = c.cx + sx * k, z = c.cz + sz * k;
+      if (leafColumns.has(`${x},${z}`)) { why = `a leaf column at step ${k}`; break; }
+      const floor16 = floorOf(x, z);
+      if (floor16 === null) { why = `not open air at step ${k}`; break; }
+      if (floor16 > cur + PASSAGE_STEP16) { why = `a rise at step ${k}`; break; }
+      if (floor16 >= cur - PASSAGE_STEP16) {
+        // A landing after treads (a planter, a porch edge) is walked onto; the steps are then not one even run.
+        if (treads.length && floor16 > PASSAGE_STEP16) oneRun = false;
+        cur = floor16;
+        if (floor16 <= PASSAGE_STEP16) end = floor16;
+        continue;
+      }
+      if (treads.length >= STAIR_MAX_TREADS) { why = `more than ${STAIR_MAX_TREADS} treads`; break; }
+      if (!treads.length) runStart = cur;
+      cur -= PASSAGE_STEP16;
+      treads.push({ x, z, floor16, top16: cur });
+    }
+    if (!treads.length) continue; // walks down to the ground already, or no stair could start here
+    if (!why && end < 0) why = 'no ground within reach';
+    if (!why && door16 - end > STAIR_MAX_RISE16) why = `rise ${door16 - end}/16 over the limit`;
+    if (why) { note(c, why); continue; }
+    // Even steps over the run when the floors allow it (a 9/16 then a 2/16 step reads as a glitch).
+    const n = treads.length, even = treads.map((_t, j) => runStart - Math.round((j + 1) * (runStart - end) / (n + 1)));
+    if (oneRun && treads.every((t, j) => even[j]! > t.floor16)) treads.forEach((t, j) => { t.top16 = even[j]!; });
+    if (treads.some(t => nearLowerDoor(c.item, t.x, t.z, t.top16))) { note(c, 'in front of another doorway'); continue; }
+    // No tread cell may be a doorway's blocking cell.
+    if (treads.some(t => { for (let y = Math.floor(t.floor16 / 16); y * 16 < t.top16; y++) if (blockingKeys.has(`${t.x},${y},${t.z}`)) return true; return false; })) { note(c, 'a doorway cell'); continue; }
+    proposals.push({ c, treads, rise16: door16 - end });
+  }
+  if (!proposals.length) return;
+
+  // Outside only: flood the collider world with every doorway closed.
+  if ((W + 2) * (H + 2) * (L + 2) * 64 > STAIR_MAX_FLOOD_VOXELS) { for (const { c } of proposals) note(c, 'unverifiable (grid too large to flood)'); return; }
+  const flood = new LeakFlood(W, H, L);
+  for (let x = 0; x < W; x++) for (let y = 0; y < H; y++) for (let z = 0; z < L; z++) {
+    const s = grid.get(x, y, z);
+    if (s === 'minecraft:air') continue;
+    const f = parseFormState(s);
+    if (!f) { flood.solid16(x, y, z, [0, 16, 0, 16, 0, 16]); continue; }
+    for (const b of COLLIDER_KIT.formBoxes(f.v, f.lo, f.hi)) flood.solid16(x, y, z, b);
+  }
+  for (const plan of plans) for (const c of plan?.blocking ?? []) flood.solid16(c[0], c[1], c[2], [0, 16, c[3], c[4], 0, 16]);
+  const reached = flood.reach();
+  const PH = H + 2, PL = L + 2;
+  const outside = (x: number, y: number, z: number): boolean => y >= 0 && y < PH && reached[((x + 1) * PH + y) * PL + (z + 1)] === 1;
+  const taken = new Set<string>();
+  for (const { c, treads, rise16 } of proposals) {
+    const cells = treads.flatMap(t => {
+      const rows: Array<[number, number, number]> = [];
+      // The rows the tread fills, from the row the flood's feet stand in on this
+      // floor (it moves in quarter blocks); the head room above is air (`floorOf`).
+      for (let y = Math.floor(Math.ceil(t.floor16 / 4) * 4 / 16); y * 16 < t.top16; y++) rows.push([t.x, y, t.z]);
+      return rows;
+    });
+    if (!cells.every(([x, y, z]) => outside(x, y, z))) { note(c, 'not outside (the flood with every door closed does not reach it)'); continue; }
+    if (cells.some(([x, y, z]) => taken.has(`${x},${y},${z}`))) { note(c, 'another stair'); continue; }
+    for (const [x, y, z] of cells) taken.add(`${x},${y},${z}`);
+    let laid = 0;
+    for (const t of treads) {
+      for (let y = Math.floor(t.floor16 / 16); y * 16 < t.top16; y++) {
+        const lo = Math.max(0, t.floor16 - y * 16), hi = Math.min(16, t.top16 - y * 16);
+        const s = spanOf(t.x, y, t.z);
+        // The floor's own span shares the bottom row: the union stays one span (they meet at `floor16`).
+        grid.set(t.x, y, t.z, colliderState(Math.min(lo, s ? s[0] : lo), Math.max(hi, s ? s[1] : hi)));
+        laid++;
+      }
+    }
+    const plan = plans[c.item];
+    if (plan) plan.stairTreads += laid;
+    note(c, `laid ${treads.length} treads over a rise of ${rise16}/16`);
+  }
 }
 
 /**
@@ -1354,9 +1552,23 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * device refused what the offline host accepted (31141's Window 2 and
    * 71040's Door 1 closing hits, 2026-09-25: the action bar is not logged).
    */
+  /** The collider cell that last cut a sight line (`sightClear`), for the refusal record. */
+  let lastWall = '';
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  /**
+   * The refusal record also carries where the eyes and the part were and the
+   * cell that cut the sight line: the device refused 31141's Window 2 and
+   * 80049's Window 3 from spots the offline host accepts (GameTest
+   * 2026-09-26), and only the device can say which wall it saw.
+   */
   const refuse = (e: any, p: any, s: string): void => {
     say(p, s);
-    try { e.setDynamicProperty('craftmatic:ix_refused', `${system.currentTick} ${s}`); } catch { /* entity gone */ }
+    let where = '';
+    try {
+      const h = p.getHeadLocation(), l = e.location;
+      where = ` | eyes ${r2(h.x)},${r2(h.y)},${r2(h.z)} part ${r2(l.x)},${r2(l.y)},${r2(l.z)}${lastWall ? ` wall ${lastWall}` : ''}`;
+    } catch { /* player or part gone */ }
+    try { e.setDynamicProperty('craftmatic:ix_refused', `${system.currentTick} ${s}${where}`); } catch { /* entity gone */ }
   };
   const itemOf = (e: any): number | undefined => {
     let i: any; try { i = e.getDynamicProperty(K.index); } catch { return undefined; }
@@ -1550,7 +1762,41 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * frame's cell) and the doorway's own closed cells are not a wall; nor is
    * the last `WALL_MARGIN` of each line.
    */
+  /** The last stretch of a sight line that is never a wall (the part's own frame, blocks). */
+  const WALL_MARGIN = 0.3;
+  /**
+   * Whether the line from `head` to `to` crosses no collider FORM box (a
+   * clearance form blocks only where it is), sampled every 0.1 block from 0.3
+   * out to `WALL_MARGIN` short of the end; `skip(cell)` names cells that are
+   * the target's own and never a wall.
+   */
+  const sightClear = (dim: any, head: any, to: any, skip: (p: any) => boolean): boolean => {
+    const d = { x: to.x - head.x, y: to.y - head.y, z: to.z - head.z }, n = Math.hypot(d.x, d.y, d.z);
+    if (n < 1e-6) return true;
+    let last = '';
+    for (let s = 0.3; s < n - WALL_MARGIN; s += 0.1) {
+      const q = { x: head.x + d.x * s / n, y: head.y + d.y * s / n, z: head.z + d.z * s / n };
+      const p = { x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) };
+      const key = `${p.x},${p.y},${p.z}`;
+      if (key === last) continue;
+      last = key;
+      if (skip(p)) continue;
+      let b: any;
+      try { b = dim.getBlock(p); } catch { b = undefined; }
+      const v = b ? kit.variantOf(b.typeId) : -1;
+      if (v < 0) continue;
+      const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
+      if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
+      const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
+      if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5])) {
+        lastWall = `${key} ${b.typeId}[${lo},${hi}]`;
+        return false;
+      }
+    }
+    return true;
+  };
   const behindWall = (player: any, target: any): boolean => {
+    lastWall = '';
     let head: any;
     try { head = player.getHeadLocation(); } catch { return false; }
     if (!head) return false;
@@ -1559,7 +1805,6 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const it = config.items[i]!;
     const boxes = placedBoxes(target, it, pl);
     if (!boxes.length) return false;
-    const WALL_MARGIN = 0.3;
     // Cells within this of a tap box are the part's own frame: a pane set back in a
     // deep frame whose cell the collider grid fills whole (76417's tower windows).
     const PART_MARGIN = 0.75;
@@ -1571,29 +1816,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       }
     }
     const inPart = (p: any): boolean => boxes.some(b => p.x + 1 > b.x0 - PART_MARGIN && p.x < b.x1 + PART_MARGIN && p.y + 1 > b.y0 - PART_MARGIN && p.y < b.y1 + PART_MARGIN && p.z + 1 > b.z0 - PART_MARGIN && p.z < b.z1 + PART_MARGIN);
-    const clear = (to: any): boolean => {
-      const d = { x: to.x - head.x, y: to.y - head.y, z: to.z - head.z }, n = Math.hypot(d.x, d.y, d.z);
-      if (n < 1e-6) return true;
-      let last = '';
-      for (let s = 0.3; s < n - WALL_MARGIN; s += 0.1) {
-        const q = { x: head.x + d.x * s / n, y: head.y + d.y * s / n, z: head.z + d.z * s / n };
-        const p = { x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) };
-        const key = `${p.x},${p.y},${p.z}`;
-        if (key === last) continue;
-        last = key;
-        if (own.has(key) || inPart(p)) continue;
-        let b: any;
-        try { b = target.dimension.getBlock(p); } catch { b = undefined; }
-        const v = b ? kit.variantOf(b.typeId) : -1;
-        if (v < 0) continue;
-        const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
-        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
-        // A wall is the form's own boxes: a clearance form (a wall pulled back to its geometry) blocks only where it is.
-        const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
-        if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5])) return false;
-      }
-      return true;
-    };
+    const clear = (to: any): boolean => sightClear(target.dimension, head, to, (p: any) => own.has(`${p.x},${p.y},${p.z}`) || inPart(p));
     for (const b of boxes) {
       const centre = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2 };
       const near = { x: Math.max(b.x0, Math.min(head.x, b.x1)), y: Math.max(b.y0, Math.min(head.y, b.y1)), z: Math.max(b.z0, Math.min(head.z, b.z1)) };
@@ -1601,9 +1824,65 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     }
     return true;
   };
+  /** The ray's entry distance into a world box, or Infinity. */
+  const rayEntry = (o: any, d: any, b: any): number => {
+    let t0 = -Infinity, t1 = Infinity;
+    for (const [oo, dd, lo, hi] of [[o.x, d.x, b.x0, b.x1], [o.y, d.y, b.y0, b.y1], [o.z, d.z, b.z0, b.z1]] as number[][]) {
+      if (Math.abs(dd!) < 1e-12) { if (oo! < lo! || oo! > hi!) return Infinity; continue; }
+      const a = (lo! - oo!) / dd!, c = (hi! - oo!) / dd!;
+      t0 = Math.max(t0, Math.min(a, c)); t1 = Math.min(t1, Math.max(a, c));
+    }
+    return t1 >= Math.max(t0, 0) ? Math.max(t0, 0) : Infinity;
+  };
+  /**
+   * A tap Bedrock handed to a part BEHIND a wall, when the player aimed past
+   * it at something in plain sight: on the Pixel a long press on 76457's Bed
+   * picked Door 4's tap box ("behind a wall") - collider walls have no
+   * selection box, so the door's box beyond the wall was the first on the
+   * ray. The nearest other moving part or seat on the player's view ray, in
+   * reach, with a clear line of sight, takes the tap instead: a part is
+   * toggled, a seat is mounted. Nothing else does: then the refusal stands.
+   */
+  const forward = (player: any, from: any): boolean => {
+    let head: any, view: any;
+    try { head = player.getHeadLocation(); view = player.getViewDirection(); } catch { return false; }
+    if (!head || !view) return false;
+    const REACH = 6;
+    let near: any[] = [];
+    try { near = from.dimension.getEntities({ location: head, maxDistance: REACH + 2 }); } catch { return false; }
+    let best: { e: any; t: number; seat: boolean } | null = null;
+    for (const e of near) {
+      if (!e || e.id === from.id) continue;
+      const i = itemOf(e), pl = i !== undefined ? placementOf(e) : undefined;
+      let seat = false;
+      try { seat = i === undefined && /_seat(_\d+)?$/.test(e.typeId || '') && !!e.getComponent('minecraft:rideable'); } catch { seat = false; }
+      if (!(i !== undefined && pl) && !seat) continue;
+      const l = e.location;
+      const boxes = seat ? [{ x0: l.x - 0.3, x1: l.x + 0.3, y0: l.y, y1: l.y + 0.6, z0: l.z - 0.3, z1: l.z + 0.3 }] : placedBoxes(e, config.items[i!]!, pl);
+      const t = Math.min(...boxes.map((b: any) => rayEntry(head, view, b)));
+      if (!(t <= REACH) || (best && t >= best.t)) continue;
+      if (seat) {
+        const c = { x: l.x, y: l.y + 0.3, z: l.z };
+        const cell = { x: Math.floor(c.x), y: Math.floor(c.y), z: Math.floor(c.z) };
+        if (!sightClear(e.dimension, head, c, (p: any) => Math.abs(p.x - cell.x) + Math.abs(p.y - cell.y) + Math.abs(p.z - cell.z) === 0)) continue;
+      } else if (behindWall(player, e)) continue;
+      best = { e, t, seat };
+    }
+    if (!best) return false;
+    if (best.seat) {
+      try { return !!best.e.getComponent('minecraft:rideable')?.addRider(player); } catch { return false; }
+    }
+    const now = system.currentTick;
+    if (now - (lastUse.get(best.e.id) ?? -100) < 6) return true;
+    lastUse.set(best.e.id, now);
+    const target = best.e;
+    system.run(() => toggle(target, player));
+    return true;
+  };
   const use = (player: any, target: any): void => {
     if (!target || !target.typeId || itemOf(target) === undefined) return;
     if (behindWall(player, target)) {
+      if (forward(player, target)) return;
       // Never refuse silently: a tap that does nothing reads as a broken part (device 2026-09-24e).
       refuse(target, player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
       return;

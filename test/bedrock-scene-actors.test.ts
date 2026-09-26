@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, settleLooseAccessories, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -573,5 +573,43 @@ describe('measureSceneAccess / recommendAccessScale', () => {
     expect(m.cell.y).toBeGreaterThan(4);
     expect(m.grid.x * m.grid.y * m.grid.z).toBeLessThanOrEqual(5_000);
     expect(m.openings).toHaveLength(1);
+  });
+});
+
+describe('the display scatter (settleLooseAccessories)', () => {
+  /** A stand-in mesh: one triangle, the given local bounds (LDraw, y down). */
+  const mesh = (description: string, min: [number, number, number], max: [number, number, number]) =>
+    ({ partId: description, resolvedAs: description, triangles: [{}], studs: [], bounds: { min, max }, unresolvedRefs: [], description }) as never;
+  const meshes = new Map<string, never>([
+    ['plate.dat', mesh('Plate 4 x 4', [-40, 0, -40], [40, 8, 40])],
+    ['goblet.dat', mesh('Minifig Goblet', [-6, -16, -6], [6, 0, 6])],
+    ['clip.dat', mesh('Plate 1 x 1 with Clip', [-10, 0, -10], [10, 8, 10])],
+  ]);
+  const brick = (part: string, x: number, y: number, z: number): ParsedBrick => ({ part, color: 0, x, y, z } as ParsedBrick);
+  const isAccessory = (_b: ParsedBrick, d: string): boolean => /^Minifig/.test(d);
+  it('sets a goblet that touches nothing down on the plate under it, leaves a held one and a figure\'s own alone', () => {
+    const plate = brick('plate.dat', 0, 0, 0); // top at y 0
+    const floating = brick('goblet.dat', 10, -20, 10); // bottom at -20: 20 LDU over the plate
+    const clip = brick('clip.dat', 200, 0, 0);
+    const held = brick('goblet.dat', 200, -0.5, 0); // its bottom within a hair of the clip's top
+    const own = brick('goblet.dat', -20, -30, -20); // a figure's goblet: excluded
+    const settled = settleLooseAccessories([plate, floating, clip, held, own], meshes, new Set([own]), isAccessory);
+    expect(settled).toEqual([{ part: 'goblet.dat', description: 'Minifig Goblet', dropLdu: 20 }]);
+    expect(floating.y).toBe(0);
+    expect(held.y).toBe(-0.5);
+    expect(own.y).toBe(-30);
+  });
+  it('sets down a row of goblets that only touch each other (76417\'s page), not held by the model', () => {
+    const plate = brick('plate.dat', 0, 0, 0);
+    const row = [brick('goblet.dat', -20, -20, 0), brick('goblet.dat', -8, -20, 0), brick('goblet.dat', 4, -20, 0)];
+    const settled = settleLooseAccessories([plate, ...row], meshes, new Set(), isAccessory);
+    expect(settled).toHaveLength(3);
+    for (const g of row) expect(g.y).toBe(0);
+  });
+  it('sets one with nothing under it down on the model\'s underside', () => {
+    const plate = brick('plate.dat', 0, 0, 0); // underside at y 8
+    const aside = brick('goblet.dat', 300, -50, 0);
+    settleLooseAccessories([plate, aside], meshes, new Set(), isAccessory);
+    expect(aside.y).toBe(8);
   });
 });

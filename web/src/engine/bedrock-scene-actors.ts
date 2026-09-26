@@ -154,6 +154,83 @@ export interface SceneActors {
   groundLdu: number;
 }
 
+/** What `settleLooseAccessories` did: each accessory it set down, and how far (LDU, down). */
+export interface SettledAccessory { part: string; description: string; dropLdu: number }
+
+/** Box-touch tolerance (LDU): a part within this of another on every axis is held by it (a bar in a clip). */
+const ACCESSORY_TOUCH_LDU = 1;
+
+/**
+ * The display scatter: figure-vocabulary parts outside every NPC that touch
+ * NOTHING (no other placement's box within `ACCESSORY_TOUCH_LDU` on every
+ * axis) are set straight down onto the first surface under them - another
+ * part's top overlapping them in plan, else the model's underside.
+ *
+ * Measured first (`_figure_parts_census.ts --support`, 76417 DbixConvV3,
+ * 2026-09-26): 84 figure parts stand outside the 13 NPCs - vault loot (22
+ * Viking helmets, fezzes, shields) and display pieces. 55 rest on a part, 9
+ * are held from the side (a harpoon in a clip, a key on a hook), and 20 touch
+ * nothing: LEGO's finished-model page lays 16 goblets in two rows and two
+ * wands in FRONT of the model, a hair and a helmet hang in the air. Those 20
+ * are what the device showed floating. Setting them down keeps every part the
+ * source placed (nothing is deleted) and changes nothing that is carried.
+ *
+ * `exclude` holds placements that must not move or count (figure bricks, the
+ * moving parts). Mutates the settled bricks' `y`. Pure otherwise.
+ */
+export function settleLooseAccessories(bricks: ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, exclude: ReadonlySet<ParsedBrick>,
+  isAccessory: (b: ParsedBrick, description: string) => boolean): SettledAccessory[] {
+  const boxOf = (b: ParsedBrick): { min: Vec3; max: Vec3 } | null => {
+    const m = meshes.get(b.part);
+    if (!m || !m.triangles.length) return null;
+    const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+    for (const cx of [m.bounds.min[0], m.bounds.max[0]]) for (const cy of [m.bounds.min[1], m.bounds.max[1]]) for (const cz of [m.bounds.min[2], m.bounds.max[2]]) {
+      const w = local(b, [cx, cy, cz]);
+      for (let i = 0; i < 3; i++) { min[i] = Math.min(min[i]!, w[i]!); max[i] = Math.max(max[i]!, w[i]!); }
+    }
+    return { min, max };
+  };
+  const boxes = new Map<ParsedBrick, { min: Vec3; max: Vec3 }>();
+  for (const b of bricks) { if (exclude.has(b)) continue; const box = boxOf(b); if (box) boxes.set(b, box); }
+  if (!boxes.size) return [];
+  // LDraw y is DOWN: the underside is the largest y.
+  const ground = Math.max(...[...boxes.values()].map(x => x.max[1]));
+  const loose = [...boxes.keys()].filter(b => isAccessory(b, meshes.get(b.part)?.description ?? ''));
+  const T = ACCESSORY_TOUCH_LDU;
+  const settled: SettledAccessory[] = [];
+  const touch = (p: { min: Vec3; max: Vec3 }, q: { min: Vec3; max: Vec3 }): boolean => [0, 1, 2].every(i => q.min[i]! <= p.max[i]! + T && q.max[i]! >= p.min[i]! - T);
+  // Held means touching the model or an accessory the model holds (a flag in a signal holder on a
+  // wall), grown to a fixpoint. Accessories that only touch EACH OTHER are not held: the page's 16
+  // goblets in front of 76417 stand in a grid 20 LDU apart, every one touching its neighbours.
+  const looseSet = new Set(loose);
+  const held = new Set<ParsedBrick>([...boxes.keys()].filter(b => !looseSet.has(b)));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const b of loose) {
+      if (held.has(b)) continue;
+      const box = boxes.get(b)!;
+      for (const o of held) if (touch(box, boxes.get(o)!)) { held.add(b); grew = true; break; }
+    }
+  }
+  for (const b of loose) {
+    if (held.has(b)) continue;
+    const box = boxes.get(b)!;
+    // The first surface under it: the highest top (smallest y) at or below its bottom that overlaps it in plan.
+    let surface = ground;
+    for (const [o, ob] of boxes) {
+      if (o === b) continue;
+      const plan = ob.min[0]! < box.max[0]! - T && ob.max[0]! > box.min[0]! + T && ob.min[2]! < box.max[2]! - T && ob.max[2]! > box.min[2]! + T;
+      if (plan && ob.min[1]! >= box.max[1]! && ob.min[1]! < surface) surface = ob.min[1]!;
+    }
+    const drop = surface - box.max[1];
+    if (!(drop > T)) continue;
+    b.y += drop;
+    box.min[1] += drop; box.max[1] += drop;
+    settled.push({ part: b.part, description: meshes.get(b.part)?.description ?? '', dropLdu: Math.round(drop * 10) / 10 });
+  }
+  return settled;
+}
+
 const IDENTITY: readonly number[] = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const apply = (m: readonly number[], v: Vec3): Vec3 => [
   m[0]! * v[0] + m[1]! * v[1] + m[2]! * v[2],

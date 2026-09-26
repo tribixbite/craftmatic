@@ -78,9 +78,19 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
   const cells = placement.colliders ? colliderSourceCells(placement.colliders as Parameters<typeof colliderSourceCells>[0]) : [];
   // A clearance form (collider-form.ts) counts by its vertical extent here: standing spots stay conservative.
   const solid = new Map<string, [number, number]>();
+  /**
+   * The top a player standing at the column CENTRE rests on: only a form box
+   * under the centre carries the feet. A wall form's band beside the centre
+   * does not - counting its top put 31141's Window 2 test spot on a wall's
+   * top rim, and on the Pixel the simulated player fell 2.8 blocks to the
+   * floor below and tapped from there, "behind a wall" (GameTest 2026-09-26).
+   */
+  const centreTop = new Map<string, number>();
   for (const c of cells) {
     const boxes = COLLIDER_KIT.formBoxes(c.v ?? 0, c.lo, c.hi);
     solid.set(`${c.x},${c.y},${c.z}`, [Math.min(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))]);
+    const under = boxes.filter(b => b[0] <= 8 && b[1] >= 8 && b[4] <= 8 && b[5] >= 8);
+    if (under.length) centreTop.set(`${c.x},${c.y},${c.z}`, Math.max(...under.map(b => b[3])));
   }
   const parts = actors.filter(a => a.interactive !== undefined);
   const boxesOf = (a: Actor, open = false): WorldHitBox[] => {
@@ -102,7 +112,7 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
   const spots: Array<[number, number, number]> = [];
   for (let x = -3; x < W + 3; x++) for (let z = -3; z < L + 3; z++) {
     const tops = new Set<number>([0]);
-    for (let y = 0; y < H; y++) { const s = solid.get(`${x},${y},${z}`); if (s) tops.add(y + s[1] / 16); }
+    for (let y = 0; y < H; y++) { const t = centreTop.get(`${x},${y},${z}`); if (t !== undefined) tops.add(y + t / 16); }
     for (const t of tops) if (!occupied(x, z, t, t + 1.8)) spots.push([x + 0.5, t, z + 0.5]);
   }
 

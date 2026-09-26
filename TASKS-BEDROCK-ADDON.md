@@ -1,1339 +1,271 @@
 # LEGO model → Bedrock add-on — tracker
 
-This file holds open work and the evidence needed to resume. Completed history
-belongs in `git log`, `docs/lego-sources-guide.md`, and
-`docs/bedrock-addon-guide.md`. Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
+Open work and the evidence a decision still needs. **Prune, don't append**:
+delete what is done; history lives in `git log` and the guides
+(`docs/bedrock-addon-guide.md`, `docs/bedrock-interactivity.md`,
+`docs/physics-architecture.md`, `docs/lego-sources-guide.md`,
+`docs/testing-guide.md`). Spec: `docs/bedrock-entity-spec-2026-09-14.md`.
+Parallel agents append ONE section each at the end of this file.
 
-## Start here — the two local surfaces
-
-Both answer questions offline, before the phone. Start them and leave them up:
+## Start here
 
 | surface | command | URL |
 |---|---|---|
-| Web app (LEGO tab, viewer, **Walk add-on**) | `bun dev:web --host` | http://localhost:4000 · LAN http://192.168.0.17:4000 |
-| Operator console (every runnable operation, one model or a filtered batch) | `bun run console` | http://localhost:4600 |
-
-Verify rather than assume: `curl -s localhost:4600/api/status` returns CPU and
-running-job counts, `curl -s localhost:4600/api/inventory` lists the operations
-(`tools/console/inventory.ts` is the cheat sheet and the one place to add one).
-
-**A killed background task does NOT free the port** — its children re-parent and
-keep serving, so a restart silently lands on 4001 and you test a second, stale
-instance. Check with
-`netstat -ano | grep LISTENING | grep -E ':(4000|4600)'` and kill the owning
-PID before restarting. This has already cost one confused round.
-
-Neither surface proves Bedrock's rendering, culling, form text or ride physics
-— those stay on the device.
-
-## URGENT — device report 2026-09-25 night (user, zip `243f54b1`; screenshots `output/device-report-0925c/`)
-
-Three worktree agents launched (merge per the IN FLIGHT recipe below):
-- [x] Rendering faults MERGED (agent-a79aac62; guide "Render faults from the
-  2026-09-25 device report"): coplanar two-colour faces pushed apart at
-  export (76417 46.5 -> 1.0 block faces; long-standing, not a regression),
-  doll legs/arms filled, "MINI WIG" is hair, feet on the body's lowest point,
-  face art drops the photo skin, LOD hull glass opaque, pack text no longer
-  claims HD textures. Saga-verified: hatching gone, 76417 line-up grounded.
-  Open:
-  - [x] **Sent**: round 2026-09-26b, `output/device-round-2026-09-26b/craftmatic-packs-fe46b5fb.zip`
-    (sha256 1c0371b03fb18ef8a4b7ca87e55208f6f117d6e1ec17ca426ad11b69278f3b66; 14 packs +
-    PACKS.md, built one at a time from `fe46b5fb` by `build.sh`, pipeline stamp `e0330b31`
-    hash `80c231255590` not dirty, same labels; all 28 header uuids equal to 26a's
-    `new-manifests.json`). `substitutedParts`/`unresolvedParts` IDENTICAL to 26a for all 14
-    (`parts-compare.txt`). `_mcaddon_check` 14/14 (with the dismount-hint gate; the 26a
-    76457 pack fails it). Render audit identical to 26a for all 14. LOD hulls now ship only
-    in 10326, 11374, 910004 (26a: nine packs).
-    Deploy: Pixel 924 (import) and Saga 925 (root dev), both `--exclusive`, 14 BP + 14 RP.
-    The Saga's first deploy died mid-push when the host adb daemon dropped (cause not found;
-    `saga/deploy-log-attempt1-adb-daemon-died.txt`); the re-run completed. Saga stale files
-    left in dev folders (not deleted): `*_shell_lod.geo.json` + `craftmatic_lod_empty.geo.json`
-    in 10261/41732/42703/76417/76457 RP, 10303 RP (`shell_lod` + 4 `fig8` files) and BP
-    (`fig8.json`), 10365 RP (`boat_lod` + `lod_empty`). Pixel bound folders hold no stale hull.
-    Device results, PASS on both phones (`pixel/`, `saga/` beside the zip):
-    content log 0 errors / 0 overridden, re-read after play; the log is block-buffered and
-    stops at world load, so it was flushed by re-opening the world, and the play-time lines
-    (Pixel 03:41-03:51, Saga 04:09-04:11) are only `[Sound][verbose]`.
-    76457 street to Door 1 (z 2006.80, y -59.00, past the old z 2007.3 stop) and Door 2
-    (x 2016.0, z 2005.5) on foot (`e0*`); seat hint "Sneak to stand up" (`b02`/`b03`);
-    wand preview gone after a slot switch and after preview-then-Undo, only vanilla mobs
-    within 60 blocks (`w0*`, `u0*`); 10261 lift 3.5 blocks/s for ~9 s, circuit 39 s, no
-    freeze (`ride*_speeds_*.png`); 10261 Undo leaves nothing (`r1*`). Wands cleared by id,
-    selected slot restored, both phones at the Play screen, creative as found.
-    26a's open rim note (x 15 column, Door 2 landing guard): reaching Door 2 by strafing
-    from Door 1 across that column did not stop on either phone; a straight walk from the
-    street at x 15 was not tried.
-  - [ ] Seat tap targets: on the Pixel a long-press on 76457's Bed selected Door 4 ("behind
-    a wall"), and a front tap on 910004 Door 4 selected Window 3; `/ride` and a press from
-    above worked. A seat/door behind another part's tap box.
-  - [ ] Saga follow-up leftovers: a car's huge "Track 1 Car 2" name tag crosses the loop
-    view; standing up from pinball re-selects the wand slot and pops its form. Stale Saga
-    dev-pack files: see round 26b above. Three 42703 interactive entities (lid 1, doors 1-2) remain in Saga world 925 from an
-    earlier session.
-  - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
-    2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
-  - [ ] Loose accessories floating in shells (76417: 84 figure parts outside any
-    NPC, 22 Viking helmets): a display-scatter rule for unsupported figure
-    vocabulary, measured with `_figure_parts_census.ts` before changing anything.
-  - [ ] Open the Walk add-on in Chrome once: the preview's Z mirror and rotation
-    change is typecheck- and render-verified only (door swing, pinball flippers
-    and the sit overlay run through the mirrored holder).
-  - [ ] 76435: figures 1 and 8 are recorded on the same spot (804 coplanar pairs,
-    5.6 block faces between them in the 40-set audit; every other favourite is
-    at or under 1.8): they fight until they walk apart. Offset a figure that
-    spawns inside another.
-- [x] REGRESSION coaster camera FIXED (`37cdf61c`, merged): the loop camera
-  predicted 80 ticks on every tick the car pitched > 20 degrees (10261: 117
-  substeps/tick vs 2.4) — from `2b7e11bd`. Now predicts only near an
-  inversion. Saga ride: 10261 chain lift 47 s -> 9 s, 10303 cycle 55 s (host 54),
-  42703 23-25 s (host 23); no frozen frames. Pixel 10261 lift 11-12 s (round 26a).
-
-## IN FLIGHT — 2026-09-25 evening "work on open items" (five agents; main at `9e0f60fe`)
-
-Resume recipe for a fresh session: each agent works in its own worktree
-branch `worktree-agent-<id>` under `.claude/worktrees/` (list: `git worktree
-list`; `git log main..<branch>` shows its commits). When one reports: `git
-merge --no-edit <branch>` into main, resolve conflicts as UNIONS (the
-TASKS/docs files conflict most; `bedrock-coaster.ts` has ONE integrator
-`integrate()` built on `rideSubstep` — keep it that way), run `bun run
-typecheck`, `bun run typecheck:web`, `bun run test` (the physics spec check
-in it fails on any undocumented physics export — update
-`docs/physics-architecture.md`), then push and check `gh run list`.
-Phone sharing: lock file `output/.phone-lock` (check/write/refresh/delete only
-your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
-(`--exclusive` for a full round). GameTest only in world `cmgametest`.
-
-- [ ] Interactivity MERGED (`329ac47d`: brick-built hinges, furniture seats and
-  beds, one-way doorways). Device round 26a proved 910004's brick-built Door 4
-  and the 76457 Bed / 41732 chair seats on both phones. What stays open is in
-  docs/bedrock-interactivity.md ("Not found", "Not verified on a device").
-- [ ] Vehicles round 2 MERGED (see "Vehicle round 2" below). Open: turning
-  barge ~14 ms/tick; a real rider's stick on a train unmeasured; 910047 rowing
-  boat facing is a guess; 10303's balloon-seller tricycle stays rideable (user
-  approved 2026-09-25).
-- [ ] Pinball: hint, pad start and a flipper flash + flip seen on both phones
-  (round 26a); the rejoin no-self-launch passed on the Saga (25c). Not seen on a
-  device: the cabinet button's 1.5x inward travel (Saga screenshots too slow;
-  the Pixel recording showed a tint), launch-tick smoothing.
-- [ ] clego sources round (agent a2349714, clego commits `818cc7a8` `17d40022`
-  `1858beba` `69b5cc54` NOT pushed; craftmatic index `1e954010`): 113 files
-  published and R2-verified (14 Mecabricks track, 86 EurobricksLDR regens, 13
-  IOModel2V2 turned parts; backups + SHA256SUMS in
-  `output/sources-0925/backup-shipped/`). Prod VERIFIED 2026-09-25: all 147 published files by hash
-  (`output/sources-0925/prod-verify-all.json`) and the index `327b8c99dfd1`
-  at `/lego-models-index.json`. 10337 rims
-  PUBLISHED (IOModel2V2 `1274199a`, DbixConvV3 `9ad2d8f8`; V2 was never off).
-  Learned-row audit: 11 learned `dbix_part_align` rows encoded a `.io`'s private
-  embedded frame and were dropped (`_DROP_DEFAULT`, clego `bee8e945`; evidence
-  `output/sources-0925/learned-audit/`); 33 files published (craftmatic
-  `268b2ea3`). Open: RELEARN `dbix_part_align.json` with the embedded-origin
-  correction applied (drops only cover rows measured wrong); clego commits
-  `80c14ba8` `bee8e945` `14e00945` also unpushed. uuid-schema
-  explodes: measured NOT assembly (44-set trial floating 1,034 -> 2,674) —
-  do not apply. Open: 75 IOModel2V2 sets the flattener refuses.
-- [ ] Clearance (agent ac6403ba, branch `worktree-agent-ac6403baf65250006`,
-  merged with main at `f6e24774`): colliders pulled back to the walls' own
-  geometry as 43 form blocks, applied only past the certain test
-  (docs/bedrock-interactivity.md "Clearance"). 40 favourites at 100 %: reach
-  17,655 -> 18,669 blocks², doorways 36 OK / 36 SEALED -> 38 / 34, 0 FAIL at
-  every size; Pixel GameTest: 80049 Gate 1 and 76435 Door 1 walked open and
-  blocked closed (SEALED before), 41732 / 76417 / 910004 as predicted.
-  Evidence `output/clearance-0925/` in that worktree. Round 26a walked it on
-  both phones (upright through 76457 and 41732 doorways; one invisible edge in
-  front of 76457 Doors 1-2 on the Pixel, above). Open: the 100 %
-  turned-form pass on the device; figures read a form as its full block (the
-  planner is block-granular); a threshold tread for rises up to a jump would
-  unseal the raised-base doors (41395, 60380, 42670 D6, 31141 D4, 41732 D3,
-  11371's shops).
-- [ ] Source gate v2 + pick policy (clego pushed; craftmatic app change in this
-  tree, NOT deployed). Docs: clego `GEOGRADE.md` "Gate v2" and "Pick policy",
-  `docs/lego-sources-guide.md` section 11.
-  **Deploy the app change first.** Prod code ignores `pick` until craftmatic's
-  `lego-sources.ts` step 4 ships. Until then two prod picks are wrong on the new
-  index: 60052 shows the staged-capture Eurobricks file and 75398 the duo `.io`.
-  Check after deploy: `bun scripts/_index_picks.ts web/public/lego-models-index.json`
-  should give 60052 -> `EurobricksTopicLDR/60052.ldr` and 75398 ->
-  `IOModel2V2/75398.ldr`.
-  State: 516 + 8 files published and prod-verified; index `50330d1d2080`; 61
-  sets carry `pick: 1`. Evidence is under `output/gate-v2/`: `publish*/`
-  (backups and SHA256SUMS), `picks/` (scores, dry run, renders).
-  Open:
-  (1) 14 Eurobricks regens were eye-rejected
-  (`output/gate-v2/labels/visual_verdicts.json`).
-  (2) No track-end table for 12V/4.5V track, 9V points or the 32087 crossing
-  (`geograde/connect.py` `TRACK_END_TABLE` TODO).
-  (3) Scores cover multi-file sets only. After any source round, re-score the
-  touched files and re-stamp the flags:
-  `CLEGO_LDRAW_LIB=upstream python -u geograde/pick_score.py <paths.txt>
-  geograde/pick_scores.jsonl 16` (paths relative to lego_sets), then
-  `python discovery/patch_index_entries.py <paths.txt> --picks`.
-  (4) 7751's flagged pick is not clearly better on the render (stacked ships).
-  Next gate round: `CLEGO_LDRAW_LIB=upstream python -u geograde/gate_v2.py ab
-  <paths.txt> <after_root> <out> --geo <ab.json> 8`, then
-  `python -u scripts/_render_ab_pairs.py <out>/gate_v2.json <dir> --verdict unsure`.
-- [x] Loop camera: the user chose to KEEP the look lock during loops
-  (2026-09-25) — the per-loop camera animation stays; no setting needed.
-- [x] Saga (second test phone, `192.168.1.243:5555`, rooted; NEVER `stop`/
-  `start`): Minecraft 26.52 (Play-updated; Pixel is 26.51), external storage,
-  content log on, test world "925" binds the 14 `243f54b1` packs (0 errors).
-  Deploy: `python -u scripts/_pixel_dev_deploy.py 925 <packs> --serial
-  192.168.1.243:5555 --exclusive` (root dev mode). Lock `output/.saga-lock`.
-  Each deploy leaves a ~7 MB `/data/local/tmp/craftmatic-deploy-*` stage.
-- [x] Vehicles: scripted cars / boats / fixed-wing planes (vanilla controllers
-  measured and rejected on the Pixel); trains run on the coaster's
-  `rideSubstep` (DRY; coasters replay identically). Audit table in
-  docs/bedrock-addon-guide.md "Vehicle operation ... measured"
-  (`scripts/_vehicle_audit.ts`). Its open items were closed by "Vehicle
-  round 2" below; what remains is listed there.
-- [x] Physics: gravity audited (coaster 2 g at pace sqrt(2), pinball 0.65x
-  real, Minecraft 16/32 blocks/s^2); spec `docs/physics-architecture.md` gated
-  by `test/physics-spec.test.ts`. Merge note: the camera's pure `integrate`
-  and the trains' `rideStep` are ONE integrator now (`coasterRuntime`).
-- [x] Pinball round 3: tap targets on the cabinet's flipper buttons, held item
-  hidden (empty-slot park / safe swap), drag or stick-pull plunger, ~100 ms
-  tap-to-flipper (round-trip floor).
-- [x] Coaster camera round 2 ridden on the Pixel (`60565096`): drop faces
-  ahead, loops roll via one camera animation (120-150 degrees seen in the
-  ride; full 180 proven by a probe), hand-back clean, `animLag` 3 ticks.
-- [x] Polish `708e6e67` (worktree agent-afca97ce): pinball + coaster tuning
-  hooks removed, `COASTER_RIDER_VIEW.animLag` 3 (spec row), pinball press
-  readable (button travel + yellow flash on button and outline; action
-  bar <= 26 chars; game-over score in the title), no ball jump on launch
-  (host-proved only), wand Undo persists across reload. Device (world 924,
-  2026-09-25, `output/polish-0925/device/` in that worktree): outline flash
-  and short bar seen (`s14-leftheld.jpg`, `s13-s14-leftbutton.jpg`); placed
-  11374, force-stop + relaunch, Undo -> "Undo complete.", 0 pinball/shell/
-  zone entities left (`s20`-`s22`); content log 0 errors in both sessions.
-- [x] **Sent**: `output/device-round-2026-09-25b/craftmatic-packs-243f54b1.zip`
-  (14 packs + PACKS.md, sha256 79bd1f70...). World 924 binds EXACTLY these 14
-  (`_pixel_dev_deploy.py --exclusive`; 24 -> 14 bindings), 0 content-log
-  errors, 0 "overridden" warnings.
-- [x] Tests/builds read clego's `ldraw_ref/` before prod (`CRAFTMATIC_LDRAW_REF`).
-
-## Vehicle round 2 — 2026-09-25 evening (`260accca`..`1939e916`, vehicle worktree)
-
-Guide: `docs/bedrock-addon-guide.md` "Vehicle operation ... measured" →
-"Second round (2026-09-25 evening): the open items closed" (classification,
-swept footprint, hover, headlights, time machine, trains, the device tables)
-and "Rail vehicles on the coaster engine" (train GameTest); physics in
-`docs/physics-architecture.md` §4.1a/§4.6/§9/§11. Evidence under the vehicle
-worktree's `output/vehicle-0925b/` (`audit-all/` 64-set audit, `packs*/`,
-`gt*/` variants, `device/` logs + recordings, `sil/` scene-vehicle
-silhouettes, `favsweep/` 40/40).
-
-Re-run: `bun scripts/_vehicle_audit.ts [sets] --out DIR --md` (reads clego's
-`ldraw_ref/`); device course `bun scripts/_gametest_pack.ts <pack>
---only=vehicles` (vehicles AND trains) then `python -u
-scripts/_pixel_dev_deploy.py cmgametest <variant> --mode import --exclusive`;
-real drive `/scriptevent craftmatic:vehicle_telemetry on` (CMVT rows carry
-`msPerTick`, `sweepChecks`, `hit`, `light`).
-
-Closed and device-proved this round: 70618/10497 planes (craft word + wings),
-75397 hover (GameTest PASS incl. over_water), scene vehicles (60380, 910047,
-42639, 60198, 4559, 10303), 42128 nose (-z, headlights), swept footprint
-(post off the centre line: 42172, 4559 truck, 10300, 75397, 60221 PASS;
-10300 stopped at a log in 924 with `[BLOCKED]`), headlights (light block ahead
-at night, `[LIGHTS]`), time machine scripted (camel + hooks removed), trains
-in GameTest (4559 circuit, 910044 open line PASS).
-
-Also device-proved after fixes found on the device: 76286 PASS 7/7 on the
-circling course (`1939e916`; its tail had struck the runway), 10300 rider on
-the roof (was 3 blocks up: a pole at its tail), an empty car brakes (~59
-blocks from 91 mph, was a 200-block coast and a fall through unloaded
-terrain), barge straight-line cost 5 ms (was 19; leading boundary only).
-
-Open, largest first:
-- [ ] A turning 36-block barge still costs ~14 ms a tick (472 footprint
-  checks; straight 68 checks, 5 ms). # TODO in the guide: probe a turn only
-  where the swept arc exceeds a block.
-- [ ] The McLaren corner test in 924 was void (two bound McLaren packs drove
-  the car); 924 binds only the current one since round 26a: redo it.
-- [ ] A REAL rider's stick on a driven train is unmeasured (GameTest drives
-  through the hook; placing a railway set in 924 needs the wand form).
-- [ ] The scripted car on the phone: steering rate at top speed (43
-  degrees/s), a slope's pitch, a wall stop felt by a real rider (the log stop
-  is recorded; slopes are not).
-- [ ] 910047's rowing boat has no nose evidence (`convention`); 10303's
-  balloon tricycle is now a rideable car (the finder's call: it stands on 3
-  wheels) - confirm a player wants it.
-- [ ] Converted railway track (Mecabricks, Eurobricks LXF) is placed 90° off
-  the LDraw part: a clego converter row, not a router workaround.
-- [ ] 10337's first pick (IOModel2V2) has its four 5650 rims 38 LDU off their
-  tyres (the `.io` seats them): source repair.
-
-## Round 2026-09-25 — merged at `56a96e0f`; packs `output/device-round-2026-09-25/packs-56a96e0f/` (9, zip beside), deployed to world 924
-
-- Interactivity stage (`engine/interactivity-stage.ts`) over all 40 favourites,
-  table in `docs/bedrock-interactivity.md` "The 40-set audit": GameTest on the
-  Pixel 61/63 doorways + 269/270 parts/seats as predicted.
-  Round 2026-09-25b (worktree agent-a16b23711dfda615c, see "Interactivity
-  round" below): brick-built hinge detector, seats/mattresses, ONE-WAY
-  doorways, route-following GameTest walks. Open: drawers/garage doors unseen
-  on the device; the items listed under "Interactivity round" Open.
-- Pinball: rider camera at the head, plunger entity (pull amount = strength),
-  flipper outlines + hit boxes on the player's own ray (the phone picks along
-  the PLAYER view, not the camera), script time 3.39 -> 1.71 ms/tick. Open:
-  rerun its GameTest alone in `cmgametest`; held-finger repeat.
-- Coaster rider camera: `loop` mode (reflect per tick, one rolling animation
-  per inversion) built and host-proved; the device ride of the final pack is open.
-- Minifig AI: figure round 2 (figures worktree, `output/fig-close/`; guide
-  "Figure life" -> "Where a figure spawns", "Gait, measured", "Round 2 on the
-  Pixel"). Device-proved in `cmgametest`: 0 fall at spawn (21360 was 7),
-  71040 2/2 move, 31141 4/6, 910049 7/8 and 0 in a wall, figures sit AND
-  stand up (76269 x3, 910049 x1), Minifig Creator figures use the walker.
-  Open:
-  - [ ] Look at a walking figure after the gait fix (3.88 units/block, full
-    swing): one recording of a straight walk; mini-doll walk/sit on the device
-    (42663 or 41395 have dolls).
-  - [ ] Figures that stay: 31141 1 and 5, 910049 7, 76269 3/6/7 have 1-4
-    reachable cells - rooms the 1-block collider grid fills (the same cause
-    as the 36 SEALED doorways; finer colliders).
-  - [ ] Shell and colliders are laid in the grid frame, figures in the
-    underside frame (guide "Colliders and figures are in two different
-    frames"): a baseplate off a cell boundary is drawn into the terrain and
-    clipped from the colliders.
-  - [ ] Figure walk phase at sizes below 100 % (shorter legs, same rate).
-  - [ ] Creator figure geometry: every head/hair geometry re-declares the
-    `armor_offset.default_neck` locator (content-log error per geometry,
-    harmless so far).
-
-## Round — 2026-09-24 evening (user's 7 questions)
-
-- [x] **Generalization audit** (2026-09-24): explode M.R^T bug exists nowhere
-  else (every other bone reader is column-major). Finished-model-page
-  assembly ported to clego (`lxfml_root_step.py`, applied per
-  `dbix_root_step_accepted.json`): census 397/2,322 DBIX LXFMLs (359 sets)
-  move parts; 395 regenerated, 73 passed the strict A/B and a severity check,
-  **71 indexed files / 69 sets PUBLISHED** (prod 71/71 by hash, no pick changed;
-  list + sha `output/generalize-0924/accepted-sha256.txt`, backups
-  `backup-shipped/`). Element fallback ported to craftmatic's LXF reader
-  (`web/public/ldd-element-map.json`, `gen-ldd-element-map.py`). clego
-  `_part_family.description()` skipped the `0 FILE` header fix. Identity-row
-  override not needed in clego (learned table wins).
-  Open: uuid-schema top-level explodes (663 sets) undecided; partial-apply
-  (figures only) for rejects like 76269; the 424 `convert_lxf.py` app picks
-  (Studio rows in the wrong direction, no learned table) deserve their own
-  regen + A/B; DbixConvV2 / DbixLDR not regenerated; corpus-wide element
-  fallback count unmeasured; element rows lacking a design id can beat an
-  existing `<design>.dat`.
-- [x] **clego de-sync**: local master was a signature-only rewrite (trailers ->
-  em dash) of the remote's 249 commits (same trees; remote tip tree ==
-  local `9743994e`) plus 309 newer. Remote master backed up as
-  `backup/master-pre-signature-rewrite` (7f951c67), then force-pushed with a
-  lease -> `f6944a2a`. Side branches `learned-reader-gate-b` and
-  `probe/callout-partid-feasibility` were NOT pushed: their remote copies hold
-  35,111 data files the local rewrite stripped, so a push would lose data.
-  The remote's default branch is `learned-reader-gate-b` (user's call to change).
-- [x] **Doors + interactivity** merged (`1628e9ee`); design + per-set table in
-  `docs/bedrock-interactivity.md`, section "Interactivity round" below.
-  Favourites: 72 doors / 67 windows / 12 cupboard doors / 11 levers / 86
-  turnables / 40 seats; passability 35 OK, 1 too small at 100 %, 36 SEALED
-  (the collider grid fills minifig rooms solid - finer colliders are the fix).
-- [x] **Accurate faces** merged (`744c7968`) and PUBLISHED: 1,190 DbixConvV3
-  files carry printed heads (route 1, real LDraw prints) or a
-  `0 !CRAFTMATIC HEAD_PRINT 3626pb<N>` meta line (route 2 id), prod
-  byte-identical; grades unchanged (the 9 severity rises were stale window
-  grades - old and new files grade identically). Photo face art
-  (`gen-face-art.py`, BrickLink images) ships ONLY in packs built here with
-  `--faces=<dir>` - redistributing it is the user's licence call. Coverage:
-  corpus 35 % print-exact, 80 % with photos; 986 head placements have no
-  source (mostly mini-doll heads and elements newer than Studio's table).
-- [x] **Device rounds `8346fb29` / `1e33902c`**: doors work on the phone (76417 front doors, 41732 doors 4/5, 76457 doors 2-5 + gate, 90-degree placement); faces, pinball, 10303 loops verified; zip `output/device-round-2026-09-24e/craftmatic-packs-1e33902c.zip` sent. Open: 76457 seat floats ~3.75 blocks above its chair, window 1 ignores a direct tap, Door 1 (9.4 degrees off grid) never swings; taps engage within ~2 blocks only.
-- [x] **GameTest on the Pixel works** (docs/testing-guide.md "In-game automated
-  tests (GameTest)"; `web/src/engine/gametest-pack.ts`, `scripts/_gametest_pack.ts`,
-  `scripts/_leveldat_experiments.py`). Test world `cmgametest` (Beta APIs set by
-  editing level.dat in place over adb; never world 924). Tests must live INSIDE
-  the model's pack copy (`<stem>-gametest.mcaddon`); results are `CMGT` lines in
-  the content log. 41732: 6/6 doorways as the offline walk predicts. Simulated
-  `interactWithEntity` raises NO `playerInteractWithEntity` (use `attackEntity`
-  -> `entityHitEntity`); seats mount by interact. Profiler/debugger commands
-  are unavailable on the phone. Found the right-flipper half-turn (`71c98317`).
-  Next: fold every door/seat/coaster check into GameTest instead of tap runs.
-- Pack hand-over is now ONE zip (memory `feedback-share-as-zip`).
-- [x] **Coaster rider camera, round 2 (2026-09-25)** (guide: "The rider's camera
-  follows the track" → "Round 2"). Default `loop`: per tick `reflect` (yaw from
-  the car's axle, pitch folded into ±90 — no turn on 10303's overhanging drop,
-  no sideways swing), and each inversion as ONE predicted camera animation that
-  rolls upside down (device-proved as a `loopsim` probe; per-tick animations
-  draw no rotation, with or without the Experimental Creator Camera Features
-  experiment, which adds nothing needed). Host: both 10303 loops animated,
-  every plan played to its end.
-  Open:
-  - [x] RIDDEN on the Pixel 2026-09-25 (world 924, pack `60565096`, three laps
-    recorded, `output/coaster-camera-0924/device/final-lap-lag3.jpg`,
-    `loopride2.mp4`): the drop faces straight ahead (readout cam y-90 p90 =
-    car y-90 p90), both loops roll the view, drag-look ±70 works outside
-    loops. Found and fixed: the animation must trail the server by the
-    client's entity lag (`animLag`, 3 ticks; 0-1 put the camera inside the
-    car ahead's rider, 6 behind its own train). World 924 restored.
-  - `cmgametest` now has `experimental_creator_cameras` on (permanent) and a
-    10303 probe pack bound; level.dat backup
-    `output/coaster-camera-0924/leveldat/cmgametest-level.dat.orig` (worktree).
-- Pack updates: importing a new .mcaddon does NOT repoint a world's active
-  pack (device runs: world 922 kept 83614b39 active after 980f54fd was
-  imported). Remove + add in the world's pack settings, or deploy into
-  `development_*_packs` over adb (`scripts/_pixel_dev_deploy.py`).
-
-## Active round — 2026-09-24: device report 2 (pinball, coasters, figures, Gringotts)
-
-The user's second device report (`output/device-round-2026-09-24b/screenshots/1-5.jpg`)
-listed 12 items. Status per item, then what is still open. Work was split
-across worktree agents (coaster, figures, Gringotts) and merged into main;
-pinball was done in main and tested on the Pixel through a subagent.
-
-**Storage is EXTERNAL and always was** (user, 2026-09-24). An early agent
-listed `…/com.mojang/{logs,behavior_packs}` while Minecraft was running, saw
-no file for today and no pack folders, and concluded "private storage" — WRONG;
-the same listing an hour later showed today's ContentLog (20 KB) and every
-pack. Treat an empty listing of a folder the running game writes as stale, not
-absent: re-list (or force-stop first) before concluding anything. QA world is
-now **924** (blank, created by the user); packs are deployed into
-`development_*_packs` and bound over adb by `scripts/_pixel_dev_deploy.py`.
-`/sdcard/Download` holds `pinball-rec1..5.mp4` and `000-pinball-*.mcaddon`
-(agents may not delete; the user can clear them).
-
-| # | report item | status |
-|---|---|---|
-| 1 | pinball: nothing moves, touch awkward, camera closer | flippers/ball/zones never LOADED (`minecraft:pushable`, dropped in format 1.26.30) — fixed `980f54fd`, gated in `_mcaddon_check.py`. Device-proven: ball launches and rolls smoothly, flippers swing UP on the correct side, seat lift frames the table. Tap-to-flip: see pinball below. Camera closer (0.1 L out, 0.8 L up). |
-| 2 | second-loop swivel | fixed `d98d2b23` (yaw from the axle, up follows the loop); host-proved only |
-| 3 | coasters ~50 % slow | 1.6 rode on the Pixel and was "a touch TOO fast" (2026-09-25); now `COASTER_RIDE_PACE` √2 (g = 19.6 = 2 g), `MAX_SPEED` 20 × pace, inversion speed floor; √2 host-proved only. Why √2 and the gravity audit: `docs/physics-architecture.md` |
-| 4 | faces missing | REAL faces 2026-09-24 (`2a7bf784`, `c203b22c`): decorated heads become their printed LDraw part (`ldd-print-map.json`) and a print is a TEXTURE on a decal cube; heads no library prints can carry BrickLink-photo face art (`--faces`). 76417 15/15 faced with art (2/15 without), 42703 3/6. Default face is the fallback. See the guide's "Accurate faces". |
-| 5 | partial hair | `preserveSurface` for headwear + head carving; `descriptionOf` skipped `0 FILE` headers |
-| 6 | mermaid legs | mini-doll rig (`FigureSystem`), tail re-placed at the legs joint |
-| 7 | invisible walls | colliders from part boxes (voxel grid was half a block off) |
-| 8 | doors | 45-degree leaves stay LEGO geometry; a frame-filling door ENTITY is open |
-| 9 | Hagrid missing body | big-fig rig; torso re-anchor moved to the SOURCE step (`repairFigureTorsos`). On the regenerated 76417 Harry AND Hagrid ride the vault cart (LEGO's final page); the car kept only `seats[0]` and dropped Hagrid - now every seated rider stays (`8b164e73`). Evidence `figures-after2-76417-cart-riders.png` in the figures worktree's output. |
-| 10 | floating railing | 21229 fences take their Studio sibling's (30056) row |
-| 11 | olive goblins | NOT a fault: BrickLink hp448 = Light Nougat head 3626pb3484 + hair 68498pb01 (Light Nougat ears); 68498pb02 (olive) is Dark Brown only, not in 76417. Goblins at the teller desks: LEGO's final page leaves the desks empty — needs an explicit rule. |
-| 12 | other | dragon + "gold keys" (its spines) now placed from the finished-model page; 16 goblets + loose-parts bag still lie in front |
-
-### Pinball — user report 4 handled at `d6ded566` (device: world 924, 2026-09-25)
-
-Pack `output/pb0924f/11374-pinball-d6ded566.mcaddon` in the pinball worktree.
-Design and measurements: the add-on guide's pinball section, "Round 3".
-
-- Tap targets on the cabinet flipper buttons (enlarged pick boxes on the
-  player's view ray); buttons press in. Hotbar parks on an empty slot (held
-  item hidden). Plunger = drag (either direction) or stick pull, fires on
-  release. GameTest PASS with only its pack bound.
-- [ ] Drag release is inferred (5 still ticks): a finger held still mid-pull
-  fires. No release event exists on touch; the stick release is exact.
-- [ ] Tap-to-flipper ~100 ms is the server round trip; no client-side path
-  found.
-
-### Packs (clean worktree `C:/git/craftmatic-pack-83614b39`, detached at the commit)
-
-`bun scripts/_playable_ref.ts <source> <out> --label=...`; sources = index first
-picks (`76417` `DbixConvV3/76417.ldr` d3a02437401c, `42703` `DbixConvV3/42703.ldr`
-a92737f37b9c, `10303` `IOModel2V2/10303.ldr` df3b47c3c9f2, `10261`
-`LDR/10261 Roller Coaster.mpd` c2c7b07ad35d, `11374` `DbixConvV3/11374.ldr`).
-**Sent: `output/device-round-2026-09-24b/packs-d735121b/`** (5 packs + `PACKS.md`
-with sha256), all `_mcaddon_check` OK, every coaster on the set's own cars;
-40/40 favourites export clean at the merged code (`favorites-sweep-0924c`).
-
-### Published 2026-09-24
-
-- `DbixConvV3/76417.ldr` -> `d3a02437401c` (finished-model page; sev 0.29 ->
-  0.23), index patched in clego (`f6944a2a`) and craftmatic (`83fc9ded`), prod
-  readback matches. Previous bytes: `output/gringotts-fix-0924/backup-shipped/`.
-  Recipe: `_lxfml_assemble.ts <lxfml> <out> --root-step` then `_lxfml_to_ldr.ts`.
-- clego `main` is NOT pushed: the remote is ahead (non-fast-forward); merging it is the user's call.
-
-### Open
-
-- [ ] Device round: all five packs (coaster swivel/pace, figures, Gringotts colliders/doors, pinball input).
-- [ ] Coaster pace √2 on the Pixel (10303, 10261): 11.6 % slower than the 1.6 the user found "a touch too fast". Record the verdict in `docs/physics-architecture.md` §10-11. Physics TODOs there: the ceiling and drag are not Froude-scaled above 100 % (at 400 % the train crosses loop tops on the inversion floor); pinball gravity ignores the tilt.
-- [ ] Device round for the moving parts (see "Interactivity round" below): the
-  bank front doors are now LEGO door entities that fill their frame.
-- [ ] Goblins at the teller desks: only by an explicit rule.
-- [ ] 16 goblets + loose-parts bag in front of 76417 (sub-build explode 369).
-- [ ] 18838 / 40066 identity-row overrides are vote-backed only.
-- [ ] Faces, publication: 1,197 regenerated DbixConvV3 files (1,196 head-patched + 76417) in
-  `output/faces-0924/publish2/DbixConvV3/`, listed with sha256/12 and the
-  geograde A/B in `output/faces-0924/PUBLISH2.md` - the user publishes them.
-  (`publish/` is SUPERSEDED: it named identity heads `3626cpb<N>.dat`, which
-  geograde counts as missing; publish2 keeps the plain mould + a
-  `0 !CRAFTMATIC HEAD_PRINT` line.)
-- [ ] Faces, device: the decal (per-face UV, `entity_alphatest`, 4 texels/LDU) is
-  unverified on Bedrock - check orientation (goblin wrinkles, 92198p27's lopsided
-  smile) and that the alpha test cuts the skin out. Packs:
-  `output/faces-0924/packs/{76417-faces,76417-prints,42703-prints}.mcaddon`.
-- [ ] Faces, route 2 in the product: face art only reaches offline builds
-  (`_playable_ref.ts --faces`). Shipping it means publishing BrickLink-derived
-  art (a licence question for the user) and teaching the web export to fetch it.
-- [ ] Faces, gaps: 986 decorated head placements (604 prints) have no source at
-  all - 505 mini-doll (no BL id form), 536 with no BL item in Studio's tables
-  (newer than its Jul 2025 data; LEGO's CDN has every element render, 3/4 view).
-  Undecorated heads (statues: 76417's gold/grey busts) still get the default face.
-- [ ] Mini-doll walk (legs never swing); Hulk-class big-figs unmeasured.
-- [ ] Author an LDraw part for 77083 (bull bar) so 42703's cars get lap bars.
-- [ ] craftmatic LXF path lacks clego's element (itemNos) fallback (it now reads itemNos for HEADS only).
-- [ ] 42703's mermaid display dolls hover (stand parts 35678/35680/6330 have no LDraw part).
-- [ ] Coaster loop-1 apex: a one-tick 5-degree twitch from a sideways step in the extracted track.
-
-## Interactivity round — 2026-09-24 (doors, windows, hatches, levers, turnables, seats)
-
-Design and rules: `docs/bedrock-interactivity.md`. Offline-proven only.
-- Every door leaf (any angle), gate, trap door, opening window/shutter/pane,
-  cupboard door, lever and turnable of a brick-accurate building is its own
-  hinged entity of the exact parts; `scripts/interactives.js` toggles on tap or
-  interact, lays/clears the doorway's collider cells, plays door sounds, keeps
-  state in dynamic properties; double doors (hinged at opposite jambs) move
-  together.
-- Device round 2026-09-24e (packs 1e33902c) confirmed 76417's front doors and
-  through-wall filter, 41732's doors 4/5 and "5 of 6", 76457's Doors 2-5, Gate 1
-  and a 90-degree Door 3. Its 76457 defects are fixed offline (this round):
-  the stool by Window 3 gets its own seat (`brickBuiltStools`; the "floating"
-  seat was the upstairs chair above it, correct); Door 1 was paired with Door 2
-  (`pairDoubleDoors` now); the tap filter is a line of sight to the tap boxes,
-  not the view ray, and says when it refuses; the wand menu says to stand
-  within about 3 blocks (`INTERACTIVE_REACH_NOTE`). Window 1 is 5 blocks up:
-  out of reach from the street, taps accepted from the room behind it offline.
-- 2026-09-25 extension (automated pipeline over the 40 favourites): ONE
-  interactivity stage (`engine/interactivity-stage.ts`) with a per-set report
-  of every candidate (found / static + rule / rides / owned / unhandled) in the
-  pack diagnostics; new classes: drawers, chest lids, garage roller doors and
-  sliding doors (slides), brick-built benches, chairs, sofas and beds;
-  `~Moved to` moulds classify by their target; decorative rotors stay static;
-  double doors pair by jambs or blocked paths. The 40-set table (found /
-  missed / found more / doorways / GameTest) is in docs/bedrock-interactivity.md
-  "The 40-set audit"; visual audit JSONs in `output/interactivity-0924/audit-visual/`.
-- Favourites at `7867a80f`: 40/40 export, 73 doorways, 0 FAIL, 36 OK at 100 %,
-  1 SMALL, 36 SEALED; 233 parts / 1,512 tap boxes / 0 problems; 227 parts take
-  a tap within 3 blocks; 0 unhandled candidates. Output:
-  `output/interactivity-0924/audit-7867/`, `favorites-ix-7867.{md,json}`,
-  `audit-table-final.md`.
-- GameTest on the Pixel (cmgametest, 37 testable sets): doorways 61/63 as
-  the offline walk predicts, parts+seats 269/270, pinball pass
-  (`output/gametest/ix-7867/`, re-run of 7 sets on `4ee514b5` in `ix-4ee5/`).
-  Fixed from it: lids/windows/cupboards never closed past a player; the three
-  tests now queue their placements.
-- Device packs + what to tap: `output/interactivity-0924/packs-<commit>/PACKS.md`.
-
-Open:
-- [ ] Device round on the rebuilt 76457 pack: sit on the stool by Window 3;
-  Door 1 swings on its own; Window 1 from the room behind it. Unproven:
-  `custom_hit_test` pivot as the box centre, root-bone scale at a non-100 %
-  size, occupant step-out, threshold treads, the SLIDE direction of drawers
-  and roller doors (derived), lids' swing.
-- [ ] GameTest 2026-09-26 (doc "GameTest on the Pixel"; driver + logs in
-  `output/gametest/ix-final/`, packs `output/ix-final/sweep-m/`): doorways
-  69/71, parts+seats 306/308. Open: 910047 Door 1/2 (brick-built plank gate)
-  walker falls off its 1-block threshold ledge (offline OK); 31141 Window 2 and
-  80049 Window 3 refused on the device as "behind a wall" from the spot the
-  host accepts (`refused` field; TODO in `_gametest_pack.ts`); 71040 not
-  re-run on the merged build (the driver now checks world slot 3); 42670
-  Door 4 passes only by progress (walker ends on the street).
-- [ ] Brick-built hinges (`engine/brick-hinges.ts`, doc "Brick-built doors,
-  gates and mechanisms"): found 80049 x2, 910004 x2, 910047 x3, 76435, 71043
-  x2 doors/gates, 41395 x2 wings, 11371 x2 hinged panels. Still missed:
-  10354's round door, 42639's garage gate, 910049's iron gate (no joint line
-  splits them off: trace with `_ix_hinges.ts --all`); mechanisms on pins or
-  axles (a windmill vs a cart wheel vs a lift linkage: no rule; only
-  turntables move); flaps, lids and shutters on clips (all false in review).
-- [ ] Seats: ~11 non-furniture "chairs"/"stools"/"bed" added by the 910032
-  rules in other favourites (10261, 31141, 41703, 42639 x2, 60380 x2, 76457,
-  77092, 80049 x2), plus 21063's bed and 76419's extra seats (.io sources,
-  not in the seat regression); 910032's 4th bar stool; 42670's sofa,
-  armchair, stools; 11371's bracket armchair; 71043 hall benches.
-- [ ] 29 SEALED doorways of 83 at 100 % (9 more are ONE-WAY: walked out, a drop back in over the jump), sweep `output/ix-final/walk.json`: rooms the 1-block collider grid fills (any geometry
-  in a cell makes it solid). Needs finer colliders (half-block or per-cell
-  occupancy fraction), not a deeper doorway cut.
-- [ ] STEP at big sizes: a doorstep that grows past the 1.25-block jump (31141
-  at 200 %, 76417's front doors at 300 %); the tread planner does not reach it.
-- [ ] Symmetric-origin moulds stay static (40066 arch, 92099 trap door, 4346
-  box door, 38320 pane); gears excluded; doors on DRIVEN vehicles are part of
-  the vehicle entity.
-
-## Previous round — 2026-09-22, the set's own cars and a working elevator
-
-**Current pack, device acceptance NOT yet run:**
-`output/bedrock-entity-qa/10261-mpd-fixed.mcaddon`, 731,388 bytes, SHA256
-`f70a977bc0be506ea116f44f5a6c174c1b1ec34c77c89f9a38d381111d025ba5`, built at
-`ce50c838` from `C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd`.
-**6 own ride cars + 8 figures + 2 trains** — it replaces the 18:03 pack the
-user installed in world 922, which had 1 fabricated grey cart and 0 figures.
-Rebuild any set with
-`bun scripts/_playable_ref.ts <source> <out>.mcaddon --label="..."`.
-Gates at `ce50c838`: `bun run test` 2,191 passed / 26 skipped exit 0, both
-typechecks, `build:web` clean.
-**Commit before building a pack** — the name carries the pipeline stamp.
-
-**A pack's own `COASTER.txt` says which cart it has**: "The set's own cars are
-the ride" vs "The grey Ride Cart". Read it before blaming the device — it is
-the cheapest possible check that an export detected the set's cars.
-
-### The previous pack PASSED on the device (world 921, 2026-09-21 night)
-
-Evidence `output/bedrock-entity-qa/round921/` (133 files). Log gate 0 Actor /
-0 Molang / 0 Scripting. The colour shimmer is GONE (six frames 0.4 blocks apart
-near a surface: one flat colour, no hatching). The ride passed every point:
-runs riderless, gravity profile 7.5/7.5/4.2/2.7/0.8/2.4/2.5/2.5 blocks/s,
-station brake and dwell, **the "Ride the coaster" prompt appeared and tapping it
-boarded** (no `/ride`), 70+ s carry, three cars visibly separated, Undo removed
-everything. Riders sit in their car with hair; standalone figures within ~15 %
-of the player. Size row read `Size 100 → 150 (recommended)`.
-User's standing verdict on close-up: **better but not yet "near-picture
-accurate"** — at 2-5 blocks round track tubes are stair-stepped and 2x2 round
-bricks read as squares. That is the voxel cell; 1 LDU costs 316k cuboids.
-
-### What has landed since that pack (all committed, none device-verified)
-
-- **The set's own cars ride** (`ab2aebf9`, `47a4495a`). Cars, riders, platform
-  and counterweight leave the shell; one entity type per distinct car body;
-  each rider is a bone in its car, hidden while a player occupies the seat.
-  A route with no detected car keeps the fabricated cart.
-- **The elevator closes the circuit** (`47a4495a`). State machine track ->
-  lifting -> delivered -> track, counterweight opposite, same
-  unloaded-chunk/refused-teleport/quiet-retire guarantees as the cart. 10303
-  cycles every 1,112 ticks in host simulation with the rider retained.
-- **10261 runs on the same code**: closed 244.7-block circuit, 3 of 6 cars
-  riding, siding train parked by the short-route rule, chain lift holding
-  2.5 blocks/s. `coaster-track.ts` now strips a leading `<set> - ` from
-  embedded stems, without which its first-choice index source extracts NOTHING.
-- **Model no longer vanishes** (`b3ec0c02`, `9831d222`, `54ed4805`). Bedrock
-  culls an actor by its COLLISION BOX: a 0.1 x 0.1 shell culled at 64 blocks,
-  which is why the device saw it disappear at 70. The box now sizes from the
-  model (10303 draws to 176) and the LOD hull, being the same actor, is planned
-  against that cull instead of shipping unreachable geometry.
-- **Invisible steps where scaling outgrew a jump** (`9831d222`). Reach on foot,
-  bare -> with treads: chalet 0.25 -> 2.0 at every size; coaster 0 -> 5.58 at
-  150 % and 5.56 restored at 400 %; Himeji 0.19 -> 4.0 (4.5 at 400 %); micro
-  Hogwarts 0 -> 2.0. Verified so reachable-before is a subset of
-  reachable-after; 100 % output byte-identical.
-- **Every in-game `%` is spelt "percent"** (`b3ec0c02`, `9831d222`) — Bedrock's
-  form renderer deletes a bare percent sign.
-
-### Device verdict 2026-09-22: both coasters ride; the four defects are FIXED
-
-The user rode BOTH sets: 10261 "nearly flawless", 10303 "nearly perfect".
-Screenshots in the session images dir. All four reported defects are fixed in
-`680936ba` and `64dd5ecd`, NONE device-verified yet:
-
-1. Slow drops were the per-tick step clamped to one authored sample spacing
-   (7.5 blocks/s on a 1x 10303), not friction. Ticks now SUBSTEP, each substep
-   still within the spacing: drops 10303 peak 8.9 -> 16.0, mean 7.3 -> 10.2
-   blocks/s; 10261 peak 7.5 -> 13.0.
-2. Cars see-sawed because each pitched on the tangent at its own centre. They
-   ride the chord between wheel contacts now (50 LDU wheelbase, measured).
-   Worst adjacent-car pitch 10303 66 -> 38 deg, median 7.3 -> 2.1.
-3. The lift hand-off was NOT wrong: parallel transport carried the loops'
-   torsion forward, leaving cars 61-84 deg banked, and delivery unwound roll
-   0 -> -117 deg in one tick. Up vectors are gravity-up within 60 deg of
-   upright, the smoothed curve normal when banked further inside a tight
-   vertical curve, <= 20 deg/block. Hand-off now reads 0.0 both sides.
-4. A player cannot roll, so a seat offset along the car's up vector threw the
-   rider OUTSIDE an inversion. The entity now sits where the rider's head
-   belongs and the body is drawn back on the rails through synced properties:
-   eye 1.57 blocks BELOW the rails at both 10303 apexes (was 1.55 above), and
-   every offset is exactly 0 on upright track.
-5. Second trains dispatch at half a lap. 10261's is the siding's own three
-   cars; **10303's is a second COPY of its own three — the set has no spare.**
-
-Then the residue: the cars still tipped, and it was track data, the same
-two-datum fault as the 80564 loops. `26559`/`26560`/`26561`/`34738` put their
-SLOPED ends' running line 3.9 LDU below the rail top instead of 18.6 above.
-Rebuilt on a measured rail-top table: vertices turning >25 deg went 10303
-10 -> 0 (sharpest 64.6 -> 23.5) and 10261 20 -> 0; 10261's worst car-pair pitch
-38.8 -> 26.1 deg. 10303's three rotated 26559 pull-outs are REAL 7.6-8.9 deg
-kinks and were left, with an explicit stitcher overlap tolerance.
-
-### Two QA surfaces now exist — use them before the phone
-
-Documented in `docs/testing-guide.md`; `tools/console/README.md` for the first.
-- **`bun run console`** (port 4600): every operation with its real arguments,
-  over one model or a filtered batch, exporting results with their filter.
-  `tools/console/inventory.ts` is the cheat sheet AND the single place to add
-  an operation.
-- **LEGO tab -> "Walk add-on"**: first-person walk over a built pack, colliding
-  against the exact blocks it ships, with a key counting
-  figures/seats/doors/track/vehicles/colliders/treads and a
-  reachable/unreachable overlay.
-Neither proves Bedrock's rendering, cull, form text, ride physics or memory.
-
-Next steps for them, none urgent (the 2026-09-23 walk upgrade closed the
-door-row, moving-car and figure-marker items):
-- [ ] Console: window filtering must go through the census op (the index's
-  `defects` strings never carry "window"); browser and device operations are
-  wired but never exercised; `_pixel_perf.sh ref` takes no label.
-- [ ] Walk: `world.simulated()`/`compareReach` (BFS-vs-player divergence) is
-  still not on the HUD. Left as `// TODO:` in code by the walk upgrade: the
-  second train renders parked, the platform lift is an analogue of the
-  runtime's path splice, car pitch/roll bank is not animated. (Moving parts
-  now swing about their real hinge and redraw their colliders; only the old
-  vanilla-door leaves of a coloured-block pack still swing about their origin.)
-- [ ] Walk cost: the `three` chunk grew 532.6 -> 554.1 kB when the walk
-  landed (`CapsuleGeometry`/`Box3Helper`/`GridHelper`); re-measure after the
-  2026-09-23 upgrade.
-
-### Fixed 2026-09-22 evening: the grey cart was a SOURCE-SHAPE bug (`ce50c838`)
-
-The user's world-922 pack showed one grey cart and no minifigs. Cause was not
-the ride code: that pack was built from `LDR/10261 Roller Coaster.mpd` (the
-index's FIRST pick for the set) while every green test and every earlier device
-round used `IOModel2V2/10261.ldr`. An MPD embeds its parts as
-`<set> - <mould>.dat` sections, so the placed id was `10261 - 26021` and the
-embedded description line a stub (`0 26021`) where the library says
-`Train Base 4 x 5 Roller Coaster`. Only `coaster-track.ts` stripped that
-prefix; **eight other detectors kept their own normaliser**. Both matches fail
-OPEN, so detection found nothing and the exporter fabricated a cart — no error
-anywhere. `partStem()` (`web/src/engine/part-id.ts`) is now the single
-normaliser and a stub description falls back to the library mould.
-**697 of 6,375 corpus sources (10.9 %) have this shape**, so any set whose
-first pick is an MPD was degraded the same way.
-
-### Source-directive coverage — 2026-09-23 (`74d0911d`, `ba446503`, `e43bdc58`)
-
-The reader acted on 2 of the 74 line-type-0 directives the corpus contains;
-the rest were comments to it. What the sweep of 69,867 LDraw + 9,357 LXFML
-files found, and what changed, is in the commits. The permanent tools:
-
-- `web/src/engine/ldraw-directives.ts` — every LDraw directive, its effect
-  (geometry / colour / structure / view / metadata), whether the reader acts
-  on it, and the corpus count. `viaExpansion: true` means "described by a meta
-  we ignore, but written out as ordinary geometry we do read" (LSynth, LDCad
-  flex, MLCad hoses) — NOT a gap.
-- `web/src/engine/lxfml-schema.ts` — the same for LXFML elements and
-  attributes, plus `LXFML_ELEMENT_PREFIXES` for the `EBT_SCENE_PREFS_*` family.
-- `bun scripts/_converter_coverage_audit.ts [--class X] [--json out] [--no-archives]`
-  — walks every source file INCLUDING `.lxf`/`.io` archives and exits 1 on a
-  directive missing from those tables. **0 unknown** today; 28 known
-  model-affecting gaps across 4,225 sets. Takes ~180 s with archives, ~90 s
-  without.
-- `test/ldraw-directives.test.ts` — 23 tests pinning each behaviour.
-- `node scripts/_shoot_set.mjs <set> <out.png> [waitMs]` — load a set in the
-  LEGO tab at localhost:4000 and screenshot the viewer (needs `bun dev:web`).
-- `node scripts/_shoot_addon_walk.mjs <pack.mcaddon> <out.png> [layers]` —
-  open a built pack in the in-app walk, set the legend layers (e.g.
-  `model,collider`), fly out, screenshot.
-
-**Three readings the corpus overturned — do not redo these.**
-`0 MLCAD SKIP_BEGIN` reads as "content the file excludes"; honouring it deletes
-40,862 parts, because all 231 blocks in the corpus expand a `MLCAD FLEXHOSE`,
-`RUBBER_BELT` or `SPRING` and the block IS the hose. Skipping is gated on
-`IMPLEMENTED_GENERATORS` in `ldraw-parser.ts`, which is empty.
-`0 MLCAD HIDE` looks like parts we lose; 1,235 of 1,627 land on an origin a
-visible part already occupies (the archive sweep raised the footprint to 181
-sets / 3,492 lines, same shape). Still skipped, on purpose.
-`0 BUFEXCHG RETRIEVE` reads as a rollback to a saved LENGTH; the saved state
-can be longer, and truncating made OMR/358-1 come out at 219 parts instead of
-249. It restores a snapshot.
-
-### Coaster track: engine and shipped files both fixed (2026-09-23)
-
-Landed in `e2d65180` / `021b2bbd`; the cause and the two agreeing derivations
-are in those commit messages and in CLAUDE.md's "Studio ships TWO LDraw mapping
-tables" gotcha. What remains open is below.
-
-Engine-path results, for regression comparison: 42703 **1 closed route,
-220.3 studs, all 12 pieces** (24 endpoint gaps min 0.00 / median 0.01 / max
-0.74 LDU); 31142 **closed, 202.6**; 76417 **one 154.8-stud run, all 9**, open
-at both ends by design; 60421/60501 95.5 open → 239.9 closed; 60228 51.9 →
-118.7.
-
-- [ ] **30 placements (16 design ids) in the rebuilt 76417 still have no
-  alignment row** (down from 98 once the material rows and stickers were
-  handled); `_lxfml_to_ldr.ts` prints this per file. None is track. Unexamined.
-- [ ] **258 of the 263 added rows are unvalidated.** Only the five coaster
-  moulds are proven (by route closure). The GEO gate is blind to the rest — its
-  54 ground-truth sets contain zero placements of any added id (65.73 %
-  weighted before and after, 0 per-set differences) — so they were A/B'd on
-  connectivity over the 20,213 placements / 3,457 LXFML files they touch:
-  **better 3, worse 2, unchanged 20, mean -0.10 points**. Neutral, not
-  positive. Shipped because a Studio-authored row beats no row on priors and
-  the shapes are conservative, but do not quote them as verified.
-  Harness: `scratchpad/ab_partmap.ts` (takes HEAD's part map as argv[1]).
-- [ ] **Explain the two regressions** — `11512_pothos (b model)` -1.9 points
-  and `11512_step ##a` -1.1. Both are botanicals where leaves barely touch, so
-  connectivity is a weak signal, but neither has been looked at.
-- [ ] **478 lxfv56 rows for ids already on the MEASURED table** (~133k corpus
-  placements) were deliberately left alone. Deciding between them needs a GEO
-  comparison on sets that actually use them.
-- [ ] **233 other `bl_*` rows** (156 have an upstream same-number part) need
-  the same per-part frame measurement 80566 got before they can be used. Run
-  `bun scripts/_coaster_frame_measure.ts` — it is the derivation behind
-  `FRAME_ALIASES`.
-
-The investigation's probes are now tracked tools, not scratch:
-`_coaster_track_gaps.ts` (per-join gap of any source's track),
-`_coaster_mould_chain.ts` (mould census + which moulds form a 1-wide run),
-`_coaster_frame_measure.ts` (measure a `bl_*` part's frame offset), alongside
-the existing `_coaster_route_probe.ts` and `_coaster_mould_audit.ts` (the
-latter gates alias gaps and exits 1 on one).
-
-#### Regression gate for this round
-
-`bun scripts/_favorites_export_sweep.ts --out output/bedrock-entity-qa/post-directive-sweep`
-**40/40 exported, 0 problems**, coarsening unchanged against the recorded
-baseline (42172 69 %, 77092 42 %, 10261 38 %, 10303 36 %). That is expected
-rather than lucky: NO favourite source carries any of the changed directives,
-so the sweep proves nothing broke rather than proving the fixes landed. The
-fixes reach 14 other index first picks, 42097 and 10131 worst.
-
-Walked `post-directive-sweep/76417.mcaddon` in the browser
-(`node scripts/_shoot_addon_walk.mjs`): 54,700 cuboids / 17 entities, 12
-minifigs, 8 doors with 4 vanilla at size, 3,388 collider cells. The legend's
-"75 the preview could not read" is the two entities that do not spawn at that
-size, not a pack defect.
-
-#### Open gaps, largest first (from the audit's `--json`)
-
-None is a bug in what we DO read; each is a feature of the source we do not
-carry, and each was measured before being written down. Sets counted over the
-whole corpus, not first picks.
-
-- [ ] **Prints** — `Part@decoration` 3,874 sets, plus `PartVariant` (506) and
-  `Part@variantID` (746), which are the SAME thing: the decoration catalogue
-  for a part, keyed by 7-digit element id. LDraw has no print layer, but the
-  Bedrock entity path already gives each material its own texture, so a
-  decoration could ride in as a swatch. Largest remaining gap by set count.
-- [ ] **Stickers** — `Sticker` 1,757 sets, `StickerAttributes` 283. A sticker
-  `<Part>` carries a 7-digit element id with no LDraw mould, so it already
-  resolves to nothing and adds no geometry; what is missing is its APPEARANCE
-  on the part it is stuck to (`stuckToPartRef` + `anchor`).
-- [ ] **Flex path** — `Bone@index`/`position`/`rotation`, 847 sets. A flex part
-  carries a bone chain (10314 gives designID 75216 thirty-four bones) and the
-  reader uses bone 0. That places the WHOLE element undeformed at the right
-  anchor — 27965 is a 432 LDU cable — so the mass and the anchor are right and
-  only the path is lost. Deforming it needs the mould cut into segments and
-  skinned; nothing supplies that mapping. `partType="flex"` is 0.15 % of
-  placements (2,371 of 1,562,110), so this is small and awkward, not urgent.
-- [ ] **Second shell colour** — `Part@materials` comma list. 81.6 % of those
-  lists repeat the same colour (minifig arms and legs list one material per
-  shell and both match), so the first entry is exact there. The real gap is
-  the other 18.4 %: ~10,050 placements corpus-wide.
-- [ ] **`MLCAD HIDE`** (LDraw side) — 181 sets, 3,492 lines, deliberately
-  skipped; see the note above. Revisit only with device evidence that a set is
-  missing a part.
-
-Reach today: the LXFML reader serves 271 `LXF` + 162 `EurobricksLDD` first
-picks. `DbixConvV3` (1,713 first picks) is converted from LXFML by the clego
-checkout, so the same gaps there need fixing in THAT repo.
-
-### Open
-
-- [ ] **Re-test 10261 in world 922 with `10261-mpd-fixed.mcaddon`** — the pack
-  the user rode there was the broken one. Expect 6 LEGO cars in two 3-car
-  trains, the second leaving the bay once the first is 121.8 blocks (half of
-  243.6) ahead, and 8 minifigs.
-- [ ] **Sweep the 697 embedded-part sources for other silent losses.** Figures,
-  doors, chairs, vehicle facing and the voxelizer skip-lists all used the same
-  broken id match, so those sets may have been exporting degraded packs too.
-  Cheapest probe: export one and diff its entity list against the `.ldr` pick.
-- [ ] **Device round for everything since the last one.** Unverified: the
-  faster drops (16 blocks/s rider retention — only 7.5 is device-proved), the
-  wheelbase ride, gravity-up at the lift hand-off, the rider-inside-loop body
-  offset (it relies on Bedrock applying an animated root-bone `position` in the
-  geometry's axis convention — zero on upright track, so if the body sits off
-  the rails inside a loop that SIGN is the first suspect), the second trains,
-  the ramp datum fix, the treads, and the 176-block draw distance.
-  Settled offline since the last round: the 10303 station IS reachable on foot,
-  bare, at 100 % — the earlier `/tp` was unnecessary.
-- [ ] **10261 has never been device-tested at all** — its chain ride is
-  host-simulation only.
-- [ ] Close-up fidelity is still short of the user's bar, but one measured
-  cause is now FIXED (`0913f4f7`): the planner scored a coarsened cylinder as a
-  perfect box, so round parts were always coarsened first. 10303's shell now
-  puts 22 parts at the coarsest 8 LDU instead of 40, at the same budget.
-  Remaining levers, in measured order:
-  1. **Budget — MEASURED, and deliberately not taken.** 10303 wants 139,409
-     cuboids at its requested 2 LDU against a 43,976 budget; 10261 wants
-     219,272 against 44,696; 42172 wants 223,809 against 48,716 (the worst, at
-     69 % of placements coarsened). Exporting at `high` instead of `balanced`:
-     10261 fidelity 0.8964 -> 0.9108 with placements at the coarsest 8 LDU
-     1,120 -> 712, and 42172 0.8813 -> 0.9038 with 1,371 -> 324 — for 2x the
-     pack cuboids (57.8k -> 97.7k, 46.6k -> 95.6k), i.e. ~4-5 simultaneous
-     packs instead of ~8. **Not changed**: the user asked to restore close-up
-     quality *while keeping* the memory reduction, and this spends exactly the
-     memory. The UI already offers `high`/`ultra` per export
-     (`schem-settings-panel.ts`, default `balanced`) if a one-off is wanted.
-     Only the SHELL budget ever binds — figures use ~500 of 24,572 and door
-     leaves 61 of 49,144, so there is no per-entity waste to reclaim.
-  2. **Rotated-cuboid facets for round profiles — measured and half-built
-     (`b4612548`).** `web/src/engine/ldraw-round-facets.ts` fits a part to a
-     disc-swept-along-an-axis profile and measures the fan's IoU;
-     `bun scripts/_round_facet_yield.ts <model>` prints the per-part verdict.
-     Why it matters: round parts are 19.6 % of 10303's cuboids and **44.4 % of
-     10261's** (one part, `6143` x530, is 76,850 cuboids = a third of the
-     model). Facets do not compete with the finest grain, they dominate the
-     COARSE rungs the budget forces round parts onto — 3941 is 26 cuboids at
-     0.919 at 4 LDU and 5 at 0.919 at 8 LDU, against **4 at 0.929** as facets.
-     194 of 239 round placements in 10303 qualify.
-     **What is left: emitting them.** Nothing is wired in, so exports are
-     unchanged. The constraints, read out of `ldraw-entity-compiler.ts` so the
-     next attempt does not rediscover them:
-     - `worldBoxes` and `renderCuboids` are built STRICTLY IN PARALLEL inside
-       `instantiate` (one push each per prototype cuboid) and `forCull` indexes
-       one by the other, so a facet path may not simply drop a part's cuboids —
-       it must emit one worldBox per facet box or the indices desynchronise.
-     - `mergeAlignedCuboids` would merge a rotated box with its neighbours, and
-       `cullHiddenCuboidsWithinBudget` samples occupancy from the UNROTATED
-       min/max when `aligned` is true. Facets must therefore not be `aligned`.
-     - But `aligned: false` already means "unrotated box stored at the brick's
-       pivot, placed by that bone's rotation", which is a different thing from
-       "box carrying its own cube rotation". `studCuboids` dodges all of this by
-       appending AFTER the cull and merge with no `aligned` field at all; the
-       facet path most likely wants the same treatment, which then needs the
-       part's occlusion volume still represented in `worldBoxes` so that stud
-       exposure and culling of NEIGHBOURING parts stay correct.
-     - Only `aligned` placements need facets (a signed-permutation matrix maps
-       the profile axis to a cardinal axis exactly). A cylinder is rotationally
-       symmetric, so the fan's absolute angle about that axis does not matter —
-       the placement's in-plane rotation can be ignored rather than composed.
-     - Facets are grain-INDEPENDENT, so a round part renders round even when the
-       planner coarsened it. Teaching `planPartGrains` to re-spend the saving is
-       a second step; without it the pack simply lands under budget.
-  3. The stud facet ladder (4->3->1) and the 25 % stud cap: 71043 fits balanced
-     at 46.2k but its 8,720 studs drop to 1 facet.
-  Measure with `bun scripts/_round_part_fidelity.ts` (true per-part IoU per
-  grain) and the `grainPlan` block in any export's diagnostics.
-- [ ] Both 10303 lift docks are SNAPPED (travel 1,884.9 LDU, 0.7 degrees off
-  vertical) rather than the pure-axis 1,857.8, so the car lands on track at
-  both ends. Reported in the pack warnings; revisit if it reads wrong in game.
-- [ ] **8 of 38 favourites ship as SEVERAL sub-builds laid out side by side,
-  not assembled** — measured with `bun scripts/_source_connectivity.ts`,
-  counting a piece holding 5 %+ of the model as a sub-build:
-  60446 51.4 % largest / 3 sub-builds, 76417 59.4 % / 2 (FIXED 2026-09-23:
-  91.3 %, assembled from its own `<Explode>` frames), 10354 72.5 % / 2,
-  77092 73.6 % / 2, 42652 86.7 % / 2, 76269 89.6 % / 2, 42639 90.5 % / 2,
-  42663 90.7 % / 2. (71043 is an `.lxf`; the LDraw reader returns nothing for
-  it, so it is UNMEASURED rather than 0 %.) 76417 is the case the device
-  confirmed: the white bank (2,867 parts) and the dark rock vault (1,511) stand
-  115 studs apart at the same height, each ~46 studs tall, where the box art
-  shows one ~90-stud tower. NOTHING in LEGO's own instruction file carries a
-  placement transform for them — see the memory note, which lists every element
-  checked so it is not re-searched.
-  Deriving the join by contact-maximisation was tried and FAILED
-  (`bun scripts/_assembly_mate.ts`): 2,240 offsets make contact, the best
-  scores 36 contact cells over a 46x46-stud footprint and ties with the next, a
-  0 % margin. AABB occupancy is too coarse. A real attempt needs stud and
-  anti-stud geometry, and possibly rotation — which is the physical-validity
-  work ROADMAP.md already names as the moat, and 8 affected favourites justify
-  it over hand-fitting one transform.
-- [ ] **The "loose in the SOURCE" warning fires on 39 of 40 favourites, so it
-  carries no signal.** `connectedClusters` (ldraw-entity-compiler.ts) unions
-  AABBs within 4 LDU; on 76417 it reports 1,832 placements in 72 pieces "will
-  look like floating pieces in game", but geograde grades that same source
-  float=24 (0.5 %) with BIG=0 and rates it the BEST of the set's three sources.
-  The two agree on the geometry — geograde's zero-tolerance `split0` is
-  1,806p — and differ only in tolerance, so the add-on is almost certainly
-  over-reporting. Decide it by looking at one of these models in game before
-  changing a threshold; totals per set are in
-  `output/bedrock-entity-qa/favorites-sweep-v2/summary.json`.
-- [ ] Counterweight detection is a heuristic (`COUNTERWEIGHT_LATERAL_MAX_LDU`
-  480, axis parallel within cos 25 degrees).
-- [ ] Two 64.6 degree zigzags at the mirrored 26559 start-start joins: a
-  +/-1.1 LDU wobble from `measuredRamp`'s flat controls carrying a 0.9 endpoint
-  slope. Pre-existing ramp-profile question, not a fold.
-- [ ] `mainVehicleOnly` exports get no walk-through measurement (the scene block
-  is skipped); grid sources cannot have one. Deliberate.
-- [ ] A device round could try `%%` on one string; if Bedrock's form renderer
-  honours it, `bedrockInGameText()` is the only change.
-
-## Closed 2026-09-21: 10303 track repair, publication and the first rideable
-
-Kept only because a later round could re-open one of these; the full story is in
-`git log` and `docs/bedrock-addon-guide.md`.
-
-- Six invisible `80564` loop quarters, the `43753` hair and the `x346` teeth
-  were all fixed by ONE parser change (`caff7cff`): Studio DATs marked
-  `IsSubModel False` / `IsAssembly False` are terminal meshes, and inherited
-  colour `-1` normalises to LDraw 16. The repaired source is published — prod
-  serves `df3b47c3…` and the index entry matches (75397 likewise, `b552734a…`).
-  The user has since granted STANDING approval for scoped R2 publication and
-  index corrections; publish with `--only <path>`, verify on the PLAIN url.
-- The ride was device-proved on 2026-09-21 (377 s rider retention, shuttle
-  reversal, clean log gate) and again on world 921. `x346` maps to `41669`
-  (byte-identical mesh); `28710` and `30426` stay unmapped, honestly.
-- The "missing top track piece" is not missing: 10303's lift is a brick-built
-  platform parked at the base. The vertical `25059` stack is the
-  COUNTERWEIGHT's guide — never route a car on it.
-- **Still open from that round:** a same-UUID pack upgrade needs the ACTIVE
-  folder overwritten (a UI deactivate/re-activate does NOT repoint a pinned
-  uuid, and `adb push` cannot create a directory under `Android/data` while
-  still reporting success). The user has since cleared every pack except the
-  base Craftmatic one and made a flat blank world `921`, so a fresh import
-  should be clean — check for a duplicate uuid folder before importing anyway.
-
-## Prior round — deployed verification and playable accuracy
-
-User explicitly authorizes pushing and deployed-site verification; wireless
-ADB needs no USB or root for pack import. Feature commit `490a5746` and door
-elevation follow-up `e25af6e4` were pushed to `origin/main`. Validation commit
-`e5a2b936` is pushed through merge `0ab7f1eb` (preserving the scheduled source
-refresh); CI `35603541570` and deployment `35603541576` passed. Production creator export
-and desktop/mobile browser checks passed; actual Minecraft acceptance is open.
-No tags, destructive history rewrite, world deletion, or app-data reset.
-Do not promote a model merely because an aggregate metric improves.
-
-Current lanes (serialize staging/commits through the main agent):
-
-- [ ] Verify creator UI, persistence, geometry and lifecycle in Minecraft;
-  starter library/runtime/web/CLI implementation is deployed. Owner: `creator`.
-- [ ] Verify scaled door replacement and manual seats in Minecraft. Broader
-  furniture and custom brick-built openings remain open; 21060 has no detected
-  semantic leaf, so do not advertise a 400% working-door preset.
-- [ ] Work from the completed 39-set source/freshness audit at
-  `docs/set-quality-audit-2026-09-21.md`; rendering/export/in-game coverage is
-  separate from the now-confirmed production source hashes.
-- [ ] Recover device acceptance over wireless ADB. Creator import is verified
-  (2026-09-21): with Minecraft foreground, the explicit content-URI VIEW
-  command below created fresh `Creator—Pl` behavior/resource folders at 12:58.
-  Their manifests identify `Creator — Playable` and matching UUIDs
-  `6cfa2e48-350d-478d-8fb0-4713d9c5ac9f` /
-  `94bd65f4-7693-4e29-9fd6-5d39fbe6abdd`, version `[2,694,28785]`.
-  No world was opened or changed. Activation and in-world acceptance remain
-  open; do not restart the device/framework or alter existing worlds.
-
-Current integration gates (offline implementation ready; device acceptance open):
-
-- Creator library/UI/compiler use shared origin `[0,72,0]`, explicit paired
-  moulds, optional None and fixed print layers. Actual archive coordinates,
-  base-vs-print controllers and requested paired moulds pass regression tests.
-  Runtime device acceptance remains open; earlier starter packs are provisional.
-- Root owns creator runtime integration: 13 behavior-host tests now exercise
-  code colour IDs, strict atomic import, renamed saves, cross-dimension caps,
-  cleanup, busy retry, hotbar opening and interrupted-edit reload recovery.
-- `door_implementation` owns placement doors/manual seats. Offline
-  tests cover actual Bedrock permutations, size recommendation, rotation and
-  persisted seat anchors; actual device acceptance remains required.
-- Working ADB binary: `C:/Android/Sdk/platform-tools/adb.exe`; wireless serial
-  `192.168.0.122:5555`. A missing agent PATH is not a transport failure.
-- Current committed pack `output/bedrock-entity-qa/creator-wand-490a5746.mcaddon`
-  SHA256 `f9b624e7ca7a3605caf5622e51b540e76303e3aac81e7c8974a2bfe4f28a38b7`:
-  459 library cuboids, no unresolved parts; structural validator passes.
-  Phone Download now also contains these committed bytes under
-  `000-creator-wand-490a5746.mcaddon`. Verified import command (with Minecraft
-  foreground): `C:/Android/Sdk/platform-tools/adb.exe -s 192.168.0.122:5555
-  shell am start -n com.mojang.minecraftpe/.MainActivity -a
-  android.intent.action.VIEW -d
-  content://com.android.externalstorage.documents/document/primary%3ADownload%2F000-creator-wand-490a5746.mcaddon
-  -t application/octet-stream --grant-read-uri-permission`. Android reports
-  delivery to the existing top-most Minecraft activity; verify installed pack
-  folders/manifests, rather than treating that exit code alone as success.
-- Isolated Chrome CDP: `http://127.0.0.1:9227`, last PID 37936; verify before
-  reuse. Run `.mjs` probes with Node, not Bun's broken CDP WebSocket path.
-  Probe accepts `PROBE_CDP_URL`. A returned exec `session_id` means running.
-- Production creator evidence: `output/minifig-browser-check-creator-20260921-prod-diagnostics/`.
-  Actual downloaded `Browser.mcaddon` passes archive validation (3 client
-  entities, 37 geometries, 66 textures); all 23 diagnostic entities report zero
-  unresolved/AABB/print/substitution fallbacks. Backpack code round-trip passes,
-  desktop 1400×950 and mobile 390×844 popovers fit. Latest harness passed with
-  zero page errors; URL-level logs retain 50 HTTP 404s, 37 HTTP 503s and 67
-  aborted requests despite the successful export. Investigate network overhead
-  separately; do not claim the site is free of request errors.
-- Fresh 39-set audit uses `bestIndexedModel`, not `models[0]`: 11 PASS /
-  28 DEFECTIVE. Twelve picks differ from first-entry ordering; the older
-  local-index labels are 14 verified / 25 defective, with stale passes on
-  10326/42172/910032.
-  Production 10303 selected IOModel2V2, rendered 3,808 bricks, and reported
-  nine missing pieces across 43753/80564/x346. All 39 production selected files
-  returned HTTP 200 and matched graded local SHA256; deployed/local indexes
-  also match. Evidence: `selected39-production-freshness.md` under the root below.
-- Exact-byte repair evidence under `output/pipeline-2026-09-21/`: 75397
-  figures 8→2; 76286 2→1; 76435 3→0; 80049 10→7, other measured metrics
-  unchanged. 75397 fixed front/iso/left views and figure closeups are accepted
-  (`75397-{before,after}-reviewed/`): detached gold arms/hands are reattached
-  with the asymmetric pose preserved. 75397 is now applied and published with exact
-  original backup in `75397-apply-backup/`; candidate full SHA256 is
-  `b552734a27a762898b9bb7492a1d4b26ac79a0376948259bf7f5c56df4a9e140`.
-  User explicitly approved the single public R2 replacement. Scoped publisher
-  `--only MecabricksLDR/75397.ldr --no-index` returned `ok=1 fail=0`; canonical
-  live GET matches the full repaired SHA (`75397-cdn-readback.ldr`). Production
-  index is byte-unchanged at `64c4746e…9191a` (`75397-postpublish-index.json`),
-  intentionally retaining the old hash/8-defect warning until controlled index
-  regeneration/publication. Production browser load passes (3,973 bricks;
-  same-origin browser fetch matches exact SHA and repair marker), evidence
-  `75397-prod-postpublish-20260921/`. Viewer correctly warns about the stale
-  index hash; this warning is expected, not a failed model load.
-  76286 also passed fixed front/iso/left and closeup
-  review (`76286-{before,after}-reviewed/`): only 41879b headwear moves 2.25 LDU
-  down, other poses/ship unchanged. Candidate SHA256
-  `51faf5b8e717bb01b0b855c20f53b3e9081a160d407c9e587ff0adf43522d5b3`
-  is NOT applied. 76435/80049 visual gates remain. 42639/42663 show
-  no improvement; 76269 rejected because float rises 45→50 (big 35→40).
-- Full board and both legacy A/B jobs completed. Isolated candidate index
-  `output/corpus-improvements-2026-09-20/candidate-index.json` was built:
-  20,764 entries, 8,936 verified / 11,828 defective; investigate four dropped
-  stale grades and ranking changes before adoption. Live index untouched.
-- Latest integrated test run: **1,803 passed / 26 skipped**, exit 0, log
-  `output/pipeline-2026-09-21/integrated-test.log`. Root/web typechecks and web
-  build pass. Agent full runs had four external-service null failures; the
-  root rerun passed them without changing those tests. Final affected suite
-  55/55 and both typechecks passed. Follow-up fractional door-elevation fix
-  has 31 focused tests and both typechecks passing: keep local Y fractional
-  until after wand scaling, then quantize in world space.
-- Door leaf geometry is separate and retained until its corresponding vanilla
-  door is actually installed; support/clearance failure keeps the leaf visible.
-  Runtime host covers small→usable→small, rotation, fallback and Undo. 21060
-  has no recognized semantic leaf; its 4× terrace is reachable offline, but
-  no working interior door or 400% preset is claimed.
-
-Read next: sources guide §6b, §8b–8e, §9, §10; add-on guide's final sections.
-Evidence root: `output/corpus-improvements-2026-09-20/`.
-
-- [ ] Visually review exact-byte figure candidates before applying; use the
-  completed cohort A/B only for nominations (`corpus-repairs/README.md`).
-  Original Mecabricks trial: 1,037 touched, figure defects 3,166→380, but
-  per-file overlap/sunk regressions and needless pose changes prohibit broad
-  application. Slot-owner instability fixed in clego `bb1adb01`; fresh trials
-  are rerun-stable on all 1,020 Mecabricks and 644 DbixV3 touched outputs.
-  Window trial: 299 files / 1,985 panes, all rerun-stable. Completed legacy
-  A/B nominates 251 window and 345 Mecabricks files, but lacks full hash
-  provenance; do not apply from those counts alone. The resumable helper is at
-  clego `4d2dbad7` (five focused tests pass): it rehashes queued inputs before
-  and after grading, requires an exact checkpoint key and complete finite
-  metrics, records only successful pairs, and isolates torn suffixes. A future
-  retry must use a **new** output name, which creates
-  `<out>.progress.jsonl`, for example from `C:/git/clego` in PowerShell:
-  `$env:CLEGO_LDRAW_LIB='upstream'; python -B -u geograde/_ab_dirs.py C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-touched.txt C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/trials/window-dbixv2 C:/git/craftmatic/output/corpus-improvements-2026-09-20/corpus-repairs/window-dbixv2-ab-resume.json 2`.
-  Substitute the Mecabricks touched list/trial root and a new Mecabricks output
-  name for that cohort. Final A/B only nominates candidates; targeted hardened
-  regrade and visual review remain required before any corpus apply/publication.
-  Accept only improved, nonregressing, pose-reviewed files, with exact backups
-  and before/after hashes. No archive recovery on these generated classes.
-  `figure-preserve-proof-ab.json` is exploratory (earlier build, limited
-  metrics, no hashes), not final v3 acceptance. Regrade provisional candidates
-  with complete finite metrics and exact before/after byte provenance.
-- [ ] Review the completed upstream board and **candidate** index.
-  Board: 20,764 sources; selected sets 5,871 PASS / 4,298 DEFECTIVE,
-  zero ERROR. Candidate has four dropped stale grades to investigate.
-  Before any rerun inspect process command lines; never create two writers.
-  After accepted corpus changes, resume grading so content hashes invalidate
-  changed rows. From `C:/git/clego`, with `CLEGO_LDRAW_LIB=upstream`:
-  `python -B -u geograde/scoreboard.py --full --grade --all-entries --report --workers 16 --out-dir C:/git/craftmatic/output/corpus-improvements-2026-09-20/board`
-  then
-  `python build_model_index.py --scoreboard C:/git/craftmatic/output/corpus-improvements-2026-09-20/board/scoreboard_full.json --out C:/git/craftmatic/output/corpus-improvements-2026-09-20/candidate-index.json`.
-  Inspect errors, missing/stale grades, indexed hash coverage, and pick changes
-  before adopting it. Do not fresh-date old measurements.
-- [ ] Review eventual publication plan separately. Content-bound receipts,
-  immutable upload snapshots, interrupted-tail recovery, preflight receipt
-  coverage, and explicit legacy readback migration are implemented. Status has
-  20,764 indexed sources, zero content-certified receipts, and 20,704 legacy-only
-  paths. `sync_models_r2.py --verify-legacy --dry-run` only lists candidates;
-  `--verify-legacy` compares full remote/local SHA256 without any PUT and writes
-  observed-readback receipts. All 33 mocked tests pass (`35858706`); no real
-  migration/publication run. It does not certify everlasting CDN/origin state.
-- [ ] Missing-torso placement remains gated. `beam.build(..., recover_torsos=True)`
-  is experimental/default OFF (`85ddc410`). Inventory recovery works, but
-  70100 globally reallocates unrelated parts and leaves an exploded figure.
-  Controls 31045/75031/8533 retain scores; zero scalar figure defects is not
-  acceptance evidence. A post-allocation arm-anchor prototype avoids global
-  re-layout but adds sunk hips on 40300. Next: unique opposite-arm pair,
-  bounded spacing/support, floor-aware hips/legs, abstain on ambiguity, wider
-  visual A/B. Evidence `torso-reader/`, `torso-reader-final/`,
-  `torso-reader-local-anchor/`. No trial reader model promoted.
-- [ ] Reconcile final evidence, rerun affected checks, update guides, and commit
-  own changes. Preserve user-owned dirty files below.
-
-Implemented locally: window gate ≥2 and all-alternative grading
-(`e5f20b21`), per-row time/SHA256 index freshness (`7d74c064`), MPD-local
-repairs (`f540c89b`), strict publisher/race/hash checks (`c8bd5ce6`,
-`d7e52f0a`, `60076051`). MPD 40746 accepted on disk: figure 10→6,
-window 1→0, other metrics unchanged; source SHA256
-`b1fafa93b2a2c7216b5c138988d6521af600a9bddb72c22a33ab9a343ef2dce2`.
-40809 remains evidence-only because floating parts rise 10→11; see `mpd/`.
-MPD repair is section-local, not cross-submodel matching; repeated definitions
-also preclude archive inventory recovery.
-
-Eight exact no-op overrides were removed in clego `4d2dbad7`. Isolated
-before/after indexes are byte-identical at SHA256
-`6553ef921a12a9e8d55e1af0120d0f29712899d8ff32e3cdadcca981841c9fd0`
-(10,169 sets / 20,764 entries); candidate summaries are isolated from the live
-summary, and the ten conversion-target plus six visual-choice overrides remain.
-The focused index tests pass 6/6; the live index and tracked summary were not
-changed. Evidence: `overrides/REPORT.md`.
-
-Transient all-candidate-503 subpart recovery is committed (`4a658505`). Offline
-fault injection reproduced a partial, non-empty assembled parent that repair
-correctly did not re-probe in the same throttle window but then falsely stayed
-cached across the next load. The load reset now invalidates the transient child
-and assembled ancestors, and the affected load reports the subpart gap. This
-proves the mechanism and recovery, not that the historical two lost 10303
-instances had this cause—the production trace lacks failed stems/dependencies.
-
-Measured alignment enrichment is committed (`293ea949`): 34 previously
-unmeasured rows now have actual-mesh bounds, recursive upstream-before-Studio
-resolution retained; 12 additional rows rejected, 1,839/1,839 bounded.
-80911 already had a bound and was rejected; the former missing-bound claim
-was stale. Controlled LOD pack invariants are covered by `7a2d582d`, not a
-device performance acceptance.
-
-Latest completed checks after `4a658505`: `bun run test` exit 0, 1,764 passed /
-26 skipped (118 files passed / 1 skipped); both `bun run typecheck` and
-`bun run typecheck:web` pass; focused part-cache suite 16/16 passes. Integrated
-log: `output/corpus-improvements-2026-09-20/integration/bun-test-after-4a658505.log`.
-Combined clego figure/window/reader/index tests 160 passed; publisher 33 passed.
-Recheck after concurrent code changes.
-
-## Repository and publication boundaries
-
-Craftmatic began at `741f6700`. Clego refs after fetch were 544 ahead / 249
-behind; the older 511-commit/630 MB snapshot-growth
-figure is historical. Ask before rewriting history. Do not recommit large
-scoreboard/index snapshots; this round's board is isolated under output.
-The full grade journal and `scoreboard_extra.json` are inputs, not disposable
-reports. Before untracking snapshots, provide checksum-backed recovery and
-prove a clean-clone rebuild with all consumers. Preserve the curated
-`lego_sets/ReconV8/_indexed.json` allow-list; no untracking occurred this round.
-
-Five pre-existing dirty clego files are NOT owned by this round:
-`mecabricks_align.json`, `geograde/mb_fix_report.json`,
-`geograde/mb_fix_report_MecabricksSearchLDR.json`,
-`discovery/eb_ldd_sample_grades.json`, `recon_v7_work/pdfpick_cache.json`.
-Never stage them with feature work. `lego_sets/` is ignored: preserve local
-byte snapshots; do not force-add the corpus. No local corpus apply is live
-until separately authorized publication.
-
-Last recorded deployed index: `64c4746eb7e7`, 9,066 verified / 11,698
-defective entries, 5,652 verified primaries, zero ungraded. These are historical
-pre-round measurements, not the result of the running board. Previous window
-republishing and beam wiring are complete; do not repeat stale §9.8 commands.
-
-Sandbox shell startup fails `CreateProcessWithLogonW failed: 2`; scoped elevated
-PowerShell works. Use explicit shell and `login:false`.
-
-## Device work — current state
-
-The user cleaned the phone on 2026-09-21: **every behavior and resource pack
-except the base Craftmatic one was deleted, and a new FLAT BLANK world `921`
-was created** for QA. Use world 921. No reboot, no framework restart, no data
-clear, no world deletion, and **no recursive delete anywhere** (the user
-objected to one being attempted). Back up any device file before overwriting,
-with sha256, under `output/bedrock-entity-qa/device-backups/`.
-
-Working recipe, all measured:
-- `C:/Android/Sdk/platform-tools/adb.exe -s 192.168.0.122:5555`. `error: closed`
-  and `device offline` fire constantly — reconnect and retry; it is not a device
-  failure. Wrap every call.
-- Import with the content-URI VIEW intent while Minecraft is in the foreground,
-  then verify by reading the INSTALLED folder's `manifest.json`, never the exit
-  code. Check for a folder already carrying the pack's uuid FIRST.
-- Gate a round on `grep -cE '\[Molang\]\[error\]'` over the newest content log
-  in `…/files/games/com.mojang/logs/`. Nothing of this class reaches logcat, and
-  the log can stop flushing mid-round — force-stop and relaunch to rotate it.
-- `input motionevent DOWN/UP` does NOT activate in-game form buttons; a held
-  press (`input swipe x y x y 150`) does. Main-menu buttons take motionevent.
-- Git Bash mangles a device path ARGUMENT (`adb pull /sdcard/...`): use
-  `MSYS_NO_PATHCONV=1` or PowerShell. Inside `adb shell "…"` it is fine.
-- Screenshots: downscale below 2000 px and 4 MB before reading.
-
-Pixel `192.168.0.122:5555`; Minecraft 1.26.51. Latest report:
-`output/corpus-improvements-2026-09-20/device/REPORT.md`.
-World 919's original three pack versions and blank's original h0.95 version
-were byte/SHA256-restored; test actors removed with a coordinate-bounded
-selector, camera cleared, player returned to 826/−60/87, app at Play/Worlds.
-
-- [ ] Controlled crowded LOD A/B: three roots 20–25 blocks from camera measured
-  near/full p90 33.40 ms versus far/hull 16.74 ms (62 frames each). Moving the
-  camera changes screen coverage, so this is a transition observation, not an
-  isolated LOD effect. Repeat full/hull with identical actors/camera and longer
-  alternating samples. Active definitions 80,210; drawn 71,884 versus 3,160.
-  Existing `--lod=hull --lod-distance=1024` versus `--lod-distance=1` isolates
-  the representation at one near camera while keeping resident geometry equal;
-  pack invariant test and version-selection recipe are in the add-on guide.
-- [ ] 76435 detached roofline objects at 400%: distinguish source extras from
-  polished/parked parts. Source is exploded (42 clusters); IO/76435.io has
-  70 clusters and no IOModel2V2 replacement exists.
-- [ ] Remove only the confirmed obsolete inactive pack folders via file manager
-  when approved/identifiable: 3 round + 14 ceiling + WinterChal(1),
-  Titanic102(1), Colosseum1(1), TajMahal10(1) were recorded previously.
-  Inventory again before removal; some counts may overlap. ADB removal was
-  denied. Do not remove active packs or user worlds.
-- [ ] Device visuals for 71043/76435 source repairs; pack archive checks do not
-  establish rendered content quality. Dense 71043/31201 exports need Ultra detail.
-- [ ] Human/device input gates: look-down dive under chase camera; joystick
-  steering; X-wing walk cycle / first-person cockpit; sitting thigh sign;
-  doors/lights omitted at 200% confirmed only by dialog text; door tapping
-  (1/7) and museum “no room within three blocks”; figure home/edge restraint.
-  ADB look swipes did not work, /rotate absent, /tp dismounts riders.
-  Historical single-pointer/SELinux findings may differ on the now-rooted phone.
-
-## Other corpus and renderer backlog
-
-- [ ] Remaining figure residue after this round: HuntArchiveLDR (52 picks,
-  25 affected; old mean 13.4 defects/affected pick), decorated Mecabricks torsos
-  (47 unresolved refs / 256 placements in 55/2,002 arm-bearing files), and
-  posed wrists. Map decorated 973j/973aq identities without misclassifying 2550
-  monkey body; do not canonicalize intentional arm poses.
-- [ ] Windows: hand-authored EurobricksLDR (8 off-frame placements / 1 of 43
-  picks) needs explicit policy/visual review; .io requires an archive/client
-  path; cross-submodel MPD pairs unsupported. Fix DBIX's wrong learned constant
-  offsets upstream so regeneration cannot undo a seating pass.
-- [ ] Override hygiene: re-audit eight formerly no-op rows and ten conv:1
-  targets against the candidate index and actual frontend ranking before
-  removing them. Six near-identical visual calls remain reviewable:
-  71425, 71441, 71481, 72035, 80117, 72045; 71439/71440 were rejected.
-  Evidence `clego/geograde/rerank_visual_2026-09-20.json`.
-- [ ] `io_part_count` inflation demotes authentic .io in 390/406 sets. Do NOT
-  fix the count alone: model.ldr's bl_* refs and Studio's omitted
-  !LDRAW_ORG Unofficial_Part header still need renderer support.
-- [ ] Class-B residual: 108 different stems / 4,795 placements need actual
-  geometry aliases. Exact reframes already browser-verified (60118:6,
-  21061:80), not merely unit-tested.
-- [ ] Four rotation abstentions: 35186×81, 4526×14, 35473×5, 5443×2.
-  Strict LXF cohort remains ~41% Technic / ~65% System; flex synthesis and
-  equivalent-pose scoring are open (`output/lxf-gt/strict-hybrid_xml_first.json`).
-- [x] Missing moulds, researched 2026-09-21: **`x346` is now mapped to `41669`**
-  (LEGO internal design id vs LDraw's number; the mesh 10303 embeds is
-  byte-identical to `41669.dat`), covering ~450 placements in ~92 corpus files.
-  `28710` has no BrickLink or LDraw catalogue entry at all and its only corpus
-  use is ONE placement in 76286 replicated across five pipeline-stage copies —
-  reads like a stray token, not a mould. `30426` is a cloth/cape element
-  (Rebrickable calls it "Special Mantle"), 22 refs across ~20 distinct sets,
-  almost all under `_MecabricksLDR_prev/`; LDraw ships no rigid equivalent, so
-  it stays unmapped rather than guessed. Do not invent geometry for either.
-- [ ] 76419's microfigure auto-scales 2×, but its four-part torso group is not
-  an NPC. (Mini-dolls are rigged on their own skeleton with a `legs` hinge.)
-- [ ] Grader false-positive work: wheel/tyre, hand/weapon, axle/hole encased
-  overlaps; inspect pairs before treating the old 52-file overlap tail as bad.
-  Deliberate gaps: cone on torso neck and uncalibrated medium-leg band.
-- [ ] Creator pack: properties load on the device since the `[0, 1]` range fix
-  (2026-09-25) and the NPC walks (GameTest `creator_<id>`). Emitted
-  geometry/print checks and phone save/load/edit/reload by hand remain
-  release gates; see `docs/minifig-creator-wand.md`.
-- [ ] Source compact-layout quality flag: staged DBIX instruction layouts can
-  remain spread despite arm repair; proposed density threshold ~0.3 parts/stud²
-  needs validation, not automatic promotion.
-- [~] **The world-block mirror is being REMOVED (user decision, 2026-09-22).**
-  It was never just the grid: LDraw is Y-down right-handed and the project
-  converted by negating Y alone, which is a REFLECTION, so every model rendered
-  mirrored. Measured on 10261's printed `3069bp82`: `det(instance matrix)`
-  -0.9996 and **932 of 932 glyph triangles reversed** from the printed side.
-  The user saw it as `COASTER` reading backwards against the box art.
-  Mirrored today: viewer, GLB/OBJ/STL/3MF (an STL prints chiral-wrong with
-  inward normals), the block grid, .schem/.litematic/.mcstructure, the shell,
-  and the add-on preview — all mutually consistent. Chirally CORRECT: Bedrock
-  vehicle/figure entities (det +1, Pixel-proven) and the LXF import since
-  2026-09-17. `SHELL_FRAME = -I` is a COMPENSATION that exists only to land on
-  the mirrored grid.
-  Watch for the double-flip trap: before 2026-09-17 the LXF parser was itself
-  mirrored and the viewer cancelled it, so LXF sets looked RIGHT while every
-  other source looked wrong. Any source whose text reads correctly today is
-  therefore suspect, not correct.
-  The fix is `diag(1,-1,-1)` everywhere (the convention `FRAME_SIGN` and
-  `ldrawToRenderRotation('+z')` already use). It is breaking: every previously
-  exported pack or schematic becomes mirror-inconsistent with builds already
-  placed in worlds, and **every Pixel-verified ride round was verified in the
-  mirrored frame and needs re-verification**.
-- [ ] Beds/brick-built chairs undetected; door sizing/straddled-cell duplication
-  and <¾-scale leaf height; 910047 sparse fill 17%; repeated-part budget
-  (76240 70695×184); Tumbler 32-LDU grain reads 14.5 wide versus 11.5 true;
-  figure hair/stud height 2.03 blocks; unused _chase/_boom presets.
-- [ ] Retain rollback snapshots until trusted, including the 41 MB pre-window
-  `clego/geograde/_window_round/before_bytes/`; do not delete during validation.
-
-## Closed architectural routes — do not reopen without new evidence
-
-Entity-per-part instancing and a resident master part library are NO-GO;
-Bedrock actor overhead (31–48 kB each), lack of geometry-instance transforms,
-and multi-placement-per-block occupancy defeat them. Detailed corrections and
-measurements are in the add-on guide, not a proposal to repeat these trials.
-Cuboid merging has only 0.1% left; textures ≤0.85 MB; chunk overhead 2.6%.
-split0 union repair creates false positives on authentic .io.
-Measured device guardrails: resident ceiling 487,856 (budget 480k), roughly
-50–100k visible cuboids for 60fps / 150k for 30fps; 6,000 entities leaked 142 MB.
-Culling 100–400%, collider clear, and Milano grounding 100/200/400% are verified.
+| Web app (LEGO tab, viewer, **Walk add-on**) | `bun dev:web --host` | http://localhost:4000 |
+| Operator console (every runnable operation) | `bun run console` | http://localhost:4600 |
+
+A killed background server does NOT free its port (children re-parent):
+`netstat -ano | grep LISTENING | grep -E ':(4000|4600)'`, kill the owner PID
+before restarting. Neither surface proves Bedrock rendering, culling, form
+text or ride physics — those stay on the device.
+
+Gates before any pack round: `bun run typecheck`, `bun run typecheck:web`,
+`bun run test`, `python scripts/_mcaddon_check.py <pack>`,
+`bun scripts/_favorites_export_sweep.ts --out output/<new dir>`,
+`bun scripts/_ix_passability.ts <dir>/*.mcaddon --sizes=100,150,200,300,400 --rotations=0,90`
+(0 FAIL). Build packs ONE AT A TIME from a COMMITTED tree with the round's
+labels (the uuid follows the label; recipe `output/device-round-2026-09-26c/build.sh`
+in the polish worktree, labels in `C:/git/craftmatic/output/device-round-2026-09-26b/new-manifests.txt`).
+
+## Phones
+
+- **Pixel 8 Pro** (`adb devices -l`; mDNS serial `adb-39141FDJG007G5-…`,
+  lock `C:/git/craftmatic/output/.phone-lock`), Minecraft 26.51, not rooted:
+  world **924** (QA, import mode), **cmgametest** (GameTest; runner
+  `output/gametest-0926/_gt_device_run.py <set>…` in the polish worktree).
+- **Saga** (`192.168.1.243:5555`, rooted, lock `C:/git/craftmatic/output/.saga-lock`),
+  Minecraft 26.52: world **925** (root dev mode). **NEVER `stop`/`start`,
+  `setprop ctl.restart` or any framework restart; no reboot; no clearing app
+  data** (either phone). Taps: long press, `input swipe x y x y 300`.
+- Deploy: `python -u scripts/_pixel_dev_deploy.py <world> <packs…> [--serial S]
+  [--exclusive] [--prune-stale]`. `--exclusive` only with the FULL round
+  list. `--prune-stale` (dev mode, i.e. the Saga) lists the files a replaced
+  dev folder holds that the new build does not ship into the backup dir, then
+  `rm`s each one and `rmdir`s emptied dirs — never recursive.
+- Cleaned 2026-09-26 (lists: `output/phone-cleanup-0926/` in the polish
+  worktree): Pixel 287 files (imported `.mcaddon` copies in Download, our
+  recordings in Download and Movies, UI dumps and screenshots); Saga 44,706
+  files (14 `/data/local/tmp/craftmatic-deploy-*` staging dirs, 18 stale
+  LOD/`fig8` files in the dev packs, 4 recordings). Left on purpose: the
+  Pixel's `screen-2026*.mp4` (Android's recorder; may be the user's), web-app
+  downloads (`*-1_*.mcaddon`, `.mcpack`, `.schem`), `Download/craftmatic-pack-backup-0924/`
+  (empty folders), older imported pack folders under `behavior_packs`
+  (adb cannot delete there without root); another agent's staging dir in use.
+- Second pass (after round 26c): Pixel 20 more `000-*.mcaddon` imports; Saga
+  16,277 files in 6 staging dirs (4 left by the creator-wand agent, 2 of this
+  round). `/data/local/tmp` holds no `craftmatic-deploy-*` now. Left: the
+  Gabby agent's 5 `000-*gabby*` imports on the Pixel (possibly in use).
+- Saga world 925 still holds three 42703 interactive entities (lid 1, doors
+  1-2) from an earlier session, and a creator-wand draft figure the Minifig
+  Creator wand spawned when its slot was selected (the creator pack is no
+  longer bound, so it will not load): remove with `/kill` by type when next
+  in-world. The player's hotbar is empty (the creator wand item went with its
+  pack's binding).
+
+## Round 2026-09-26c (polish worktree `agent-a55b8131b17a9ef8f`)
+
+Commits: `dfd19552` stairs + `--prune-stale`, `14a0a08c` tap forwarding +
+refusal record, `f275ff02` ride-car name tags + pinball stand-up,
+`6a82f8d0`/`3f5ca815` figure separation + display scatter, `bb37618f`
+GameTest tester position, merged with main at `da9dcbad`. **Sent**:
+`output/device-round-2026-09-26c/craftmatic-packs-da9dcbad.zip` (sha256
+01217bdd613b049ed3713eeeeafaee974b54dcef84ad89094425af253818a8c7; 14 packs +
+PACKS.md, built one at a time from `da9dcbad`, same labels and uuids as 26b,
+`_mcaddon_check` 14/14, parts identical to 26b). Saga 925: dev
+`--exclusive --prune-stale` (the creator pack's binding dropped; 0 stale
+files), content log 0 errors / 0 overridden after a world load. Pixel 924:
+import `--exclusive`, 14 + 14 bound; world not opened.
+
+Device results:
+- Saga, pinball stand-up (packs at `3f5ca815`): 11374 placed with the wand,
+  seated by `/ride`, stood up; the wand slot came back selected and NO wand
+  form opened (`output/polish-0926/saga/s16`, `s18`); Undo removed it.
+- Pixel GameTest (`cmgametest`, variants of the `6a82f8d0` packs,
+  `output/gametest-0926/logs/`): doorways as predicted 910047 3/3 (the plank
+  gate walked this time), 41395 2/2 (Door 2 OK on its stairs), 60380 2/2
+  (Door 3 OK), 31141 5/5, 42670 6/7 (Door 4 predicted blocked open, the
+  device walked it: better than predicted); parts+seats 910047 4/4, 41395
+  6/6, 60380 25/25, 42670 4/4, 31141 9/10.
+- 31141 Window 2 explained: the tester stood 2.88 blocks off its spot
+  (`stoodAt1` 20.5, 0.31, 5.54 vs spot 20.5, 3, 4.5): it fell off the ledge
+  spot on teleport and hit from the floor below, where a wall really is in
+  the way (the refusal's cutting cell 226,-55,308 is a full collider). Not a
+  line-of-sight disagreement. Next: choose tap spots with room around them.
+- 80049 did not run twice: the runner opened world 924, which now sorts
+  first on the Play screen (the runner's tile check matched the wrong tile).
+  Next: make `_gt_device_run.py` find the `cmgametest` tile by name.
+- Not seen on a device: the ride-car name tag (needs 10261 placed and
+  ridden), tap forwarding by a real finger, the display scatter, stairs by a
+  real player.
+
+## Open — interactivity
+
+- [ ] **SEALED doorways, what is left** (28 of 83 at 100 % after the stairs;
+  docs/bedrock-interactivity.md "Stairs up to a raised threshold"). Next, in
+  measured order: diagonal stairs (two columns per step) for the off-axis
+  leaves (11371's shops, 31141 Door 4, 60380 Door 2); an interior-side stair
+  test that accepts a closed room's own flood region instead of "outside
+  only"; the rest open onto furniture or walls (`output/clearance-0925/sealed.ts`
+  in the clearance worktree prints what stands in front of each side).
+  Stairs are not seen on a device yet beyond the GameTest runs below.
+- [ ] **GameTest tap spots on ledges**: 31141 Window 2's tester fell 2.88
+  blocks off its spot before hitting (see round 26c): the harness, not the
+  runtime's line of sight. Next: `_gametest_pack.ts` prefers spots with
+  standable neighbours at the same height; then re-run 31141 and 80049
+  (80049 needs the runner to find `cmgametest` by name).
+- [ ] 910047 Door 1/2 (plank gate) walked as predicted in round 26c after
+  failing on 26b's run: the simulated walk is flaky on its 1-block ledge; one
+  more pass decides.
+- [ ] **Tap occlusion**: 910004 Door 4 tapped from the front toggled Window 3
+  (Window 3's box first on the ray; no refusal, so no forwarding). Next: the
+  tap audit could flag boxes that occlude another part's box from its
+  approach spots.
+- [ ] **Seat precision**: ~11 non-furniture "chairs/stools/beds" from the
+  brick-built furniture rules (10261 1, 31141 1, 41703 1, 42639 2, 60380 2,
+  76457 1, 77092 1, 80049 2; crops `output/ix-seats/shots/r*.png`/`t*.png` in
+  worktree `agent-a16b2371…` do not mark the seat). Next: re-render each find
+  with the seat marked, then a rule (candidate: standing room in front of the
+  seat at its floor).
+- [ ] Brick-built hinges still missed: 10354's round door, 42639's garage
+  gate, 910049's iron gate (`_ix_hinges.ts --all`); mechanisms on pins/axles
+  have no rule. STEP at big sizes (a doorstep past the jump at 200-400 %).
+- [ ] Device-unproven: `custom_hit_test` by a real finger, slide direction of
+  drawers/roller doors, root-bone scale off 100 %, occupant step-out, the
+  100 % turned-form pass, tap forwarding (docs/bedrock-interactivity.md "Not
+  verified on a device").
+
+## Open — figures
+
+- [ ] Display scatter (`settleLooseAccessories`) and figure separation
+  (`separateFigureSpawns`) are host-tested only. 76417: 84 loose figure parts,
+  20 touching nothing are set down (`_figure_parts_census.ts <src> --support`).
+  76435 is not in the device round.
+- [ ] Look at a walking figure after the gait fix (one straight-walk
+  recording); mini-doll walk/sit on a device (42663 or 41395). Mini-doll rig
+  code is owned by the mini-doll agent.
+- [ ] Figures that stay (31141 1 and 5, 910049 7, 76269 3/6/7): 1-4 reachable
+  cells; the planner is block-granular and reads a clearance form as its full
+  block (`blockSpan` TODO).
+- [ ] Colliders are laid in the grid frame, figures in the underside frame:
+  a baseplate off a cell boundary is drawn into the terrain.
+- [ ] Figure walk phase below 100 % (shorter legs, same rate).
+- [ ] Creator figure geometry re-declares `armor_offset.default_neck` per
+  head/hair geometry (content-log error, harmless so far) — creator agent.
+- [ ] 42703's mermaid display dolls hover (stand parts 35678/35680/6330 have
+  no LDraw part); goblins at 76417's teller desks only by an explicit rule.
+
+## Open — vehicles, coasters, pinball
+
+- [ ] Turning 36-block barge ~14 ms/tick (472 footprint checks). TODO in the
+  guide: probe a turn only where the swept arc exceeds a block.
+- [ ] McLaren corner test in 924 was void (two bound McLaren packs): redo.
+- [ ] A real rider's stick on a driven train; the scripted car on the phone:
+  steering at top speed (43 deg/s), slope pitch, a wall stop felt by a rider.
+- [ ] 910047's rowing boat facing is a convention guess; converted railway
+  track (Mecabricks, Eurobricks LXF) is placed 90 degrees off the LDraw part
+  (a clego converter row).
+- [ ] Coasters: pace √2 verdict on the Pixel (record in
+  docs/physics-architecture.md §10-11); ceiling/drag not Froude-scaled above
+  100 %; loop-1 apex one-tick 5-degree twitch; two 64.6-degree zigzags at the
+  mirrored 26559 joins; lift docks snapped (1,884.9 vs 1,857.8 LDU);
+  counterweight detection is a heuristic; lap bars for 42703 need an LDraw
+  part for 77083.
+- [ ] Pinball: cabinet button's 1.5x inward travel and launch-tick smoothing
+  not seen on a device; drag release inferred (5 still ticks); tap-to-flipper
+  ~100 ms is the server round trip.
+- [ ] Minifig creator wand: `bedrock-minifig-wand.ts` has the same held-wand
+  logic the pinball stand-up fix changed in the placement wand (a seated
+  player clears `held`): creator agent's file.
+
+## Open — rendering and export
+
+- [ ] Stair-step striping on curved parts (42703 arches, round columns) at 2
+  LDU: geometry; only a finer grain or merged steps change it.
+- [ ] Close-up fidelity: rotated-cuboid facets for round parts are measured
+  and half-built (`ldraw-round-facets.ts`, `_round_facet_yield.ts`), not
+  emitted (constraints in `ldraw-entity-compiler.ts`: `worldBoxes` and
+  `renderCuboids` are parallel; facets must not be `aligned`). Budget `high`
+  was measured and not taken (2x memory).
+- [ ] Cull above 100 %: the LOD plan caps at ~72 blocks (`TODO(cull)`); 200-400 % unmeasured.
+- [ ] Walk preview: `world.simulated()`/`compareReach` not on the HUD; second
+  train renders parked; car bank not animated; `three` chunk cost re-measure.
+  The Z-mirror/rotation fix is verified in Chrome (2026-09-26: 76457 Door 1
+  in its frame, closed and swung open, walked through; 11374 pinball ball
+  launched 680 LDU; `output/polish-0926/walk-*.png`).
+- [ ] 8 of 38 favourites ship as side-by-side sub-builds (60446, 10354, 77092,
+  42652, 76269, 42639, 42663; `_source_connectivity.ts`); contact-maximising
+  assembly failed (`_assembly_mate.ts`) — needs stud/anti-stud geometry.
+- [ ] "Loose in the SOURCE" warning fires on 39 of 40 favourites (4 LDU AABB
+  tolerance vs geograde's); decide by looking at one in game.
+- [ ] Faces on the device: decal orientation and alpha cut unverified; route 2
+  face art is offline-only (licence question for the user); 986 decorated
+  heads have no source.
+
+## Open — sources and corpus (clego)
+
+- [ ] Deploy the app change first: prod ignores the index's `pick` until
+  `lego-sources.ts` step 4 ships (60052 and 75398 wrong on prod). Check with
+  `bun scripts/_index_picks.ts web/public/lego-models-index.json`.
+- [ ] Gate v2: 14 Eurobricks regens eye-rejected; no track-end table for
+  12V/4.5V/9V points/32087; scores cover multi-file sets only (re-score recipe
+  in clego `GEOGRADE.md` "Pick policy"); 7751's pick unclear.
+- [ ] RELEARN `dbix_part_align.json` with the embedded-origin correction; clego
+  commits `80c14ba8` `bee8e945` `14e00945` `818cc7a8` `17d40022` `1858beba`
+  `69b5cc54` unpushed; 75 IOModel2V2 sets the flattener refuses.
+- [ ] Alignment rows: 258 of 263 added rows unvalidated (connectivity A/B
+  neutral); 11512 pothos/step regressions unexplained; 478 lxfv56 rows on the
+  measured table undecided; 233 other `bl_*` rows need frame measurement
+  (`_coaster_frame_measure.ts`); 30 placements in 76417 without a row.
+- [ ] Converter gaps (none is a reader bug): prints (`Part@decoration`, 3,874
+  sets), stickers (1,757), flex paths (847), second shell colour (~10k
+  placements), `MLCAD HIDE` (deliberately skipped).
+- [ ] 697 embedded-part (`<set> - <mould>.dat`) sources: sweep for silent
+  losses (export one, diff its entity list against the `.ldr` pick).
+- [ ] uuid-schema explodes are display poses: do NOT apply. Partial apply
+  (figures only) for rejects like 76269; 424 `convert_lxf.py` picks deserve a
+  regen + A/B; DbixConvV2/DbixLDR not regenerated.
+- [ ] Corpus backlog: HuntArchiveLDR figure residue, decorated Mecabricks
+  torsos, windows on hand-authored EurobricksLDR, override hygiene (71425,
+  71441, 71481, 72035, 80117, 72045), `io_part_count` inflation, class-B 108
+  stems, four rotation abstentions, missing-torso placement (gated),
+  compact-layout flag, candidate index review, publication plan review.
+  Evidence `output/corpus-improvements-2026-09-20/`.
+- [ ] The world-block mirror removal (`diag(1,-1,-1)` everywhere) is a
+  breaking change the user decided on 2026-09-22; not started.
+
+## Backlog, lower priority (each still open)
+
+- [ ] Crowded LOD A/B with identical actors and camera (`--lod=hull
+  --lod-distance=1024` vs `=1`); the earlier near/far numbers mixed screen
+  coverage into the comparison.
+- [ ] 76435 detached roofline objects at 400 %: source extras vs parked parts
+  (no IOModel2V2 replacement); device visuals for the 71043/76435 repairs.
+- [ ] Human-only input gates: look-down dive under the chase camera, joystick
+  steering, X-wing walk cycle and cockpit, sitting thigh sign, doors/lights
+  omitted at 200 %, figure home restraint.
+- [ ] Creator pack release gates: emitted geometry/print checks and phone
+  save/load/edit/reload by hand (`docs/minifig-creator-wand.md`).
+- [ ] Console: window filtering must go through the census op; browser and
+  device operations never exercised; `_pixel_perf.sh ref` takes no label.
+- [ ] 76419's microfigure auto-scales 2x but its torso group is not an NPC;
+  grader false positives (wheel/tyre, hand/weapon, axle/hole overlaps).
+- [ ] Door sizing/straddled-cell duplication and <3/4-scale leaf height;
+  910047 sparse fill 17 %; repeated-part budget (76240 70695 x184); Tumbler
+  32-LDU grain 14.5 wide vs 11.5; unused `_chase`/`_boom` presets.
+- [ ] Try `%%` in one form string on a device (if it renders, only
+  `bedrockInGameText()` changes). `mainVehicleOnly` exports get no walk
+  measurement (deliberate).
+- [ ] Keep rollback snapshots until trusted (clego
+  `geograde/_window_round/before_bytes/`, 41 MB).
+
+## Closed routes — do not reopen without new evidence
+
+Entity-per-part instancing and a resident master part library are NO-GO
+(31-48 kB per actor, no instance transforms). `MLCAD SKIP_BEGIN` is the hose;
+`MLCAD HIDE` parts are alternates; `BUFEXCHG RETRIEVE` restores a snapshot.
+split0 union repair makes false positives on authentic `.io`. Device
+guardrails: resident ceiling 487,856 cuboids (budget 480k), ~50-100k visible
+for 60 fps; every actor stops drawing at ~72 blocks on 26.51/26.52.
 
 ## Hard rules and entry points
 
@@ -1341,17 +273,14 @@ Culling 100–400%, collider clear, and Milano grounding 100/200/400% are verifi
 2. getPartDims only as an explicit, diagnosed AABB fallback.
 3. No Minecraft block colours on the entity path.
 4. Diagnose every part/print/transparency/pose/cluster/figure/door degradation.
-5. Do not change world blocks, rideability, DeLorean behavior, or BlockGrid fallback
-   to fix entity rendering.
+5. Do not change world blocks, rideability, DeLorean behaviour, or BlockGrid
+   fallback to fix entity rendering.
 6. Compile each unique part once; instance it; preserve exact source transforms.
 
-Chain: lego.ts → schem-export.ts scale plan → schem-pipeline worker →
-playable-components / bedrock-scene-actors → playable-addon →
-placement assets/colliders. CLI:
-`bun scripts/_playable_ref.ts <model> [out] --label=… [--quality=…] [--main-only] [--buildings=bricks|blocks] [--scale=auto|0.25..4]`;
-`bun scripts/_minifig_ref.ts --label=Knight --torso=973:4 …`;
-`python scripts/lxf_gt_eval.py --all --variants shipped`.
-Use a vehicle-readable label (“X-wing Starfighter 7140”, not “XWing 7140”).
+Chain: lego.ts → schem-export.ts → schem-pipeline worker →
+playable-components / bedrock-scene-actors → playable-addon → placement
+assets/colliders. CLI: `bun scripts/_playable_ref.ts <model> [out] --label=…
+[--quality=…] [--faces=<dir>]`.
 
 ## Minifig wand (2026-09-26)
 
@@ -1362,7 +291,7 @@ add-on guide "Minifig Creator wand on the phones". The wand works by hand on the
 Saga end to end; open items:
 - [ ] Run GameTest `creator_wand_<id>` on the Pixel (`cmgametest`): variant
   built at `output/minifig-wand-0926/gametest-6a77244b/minifig-creator-gametest.mcaddon`
-  (bind it ALONE: `685fa7cc…` is bound there now). Not run: the Pixel lock was held.
+  (bind it ALONE: the polish round's 31141 GameTest variant is bound there now). Not run: the Pixel lock was held.
 - [ ] Pixel by hand: the same function list on the Pixel's screen (form width,
   preview spot at 45 degrees), and a figure code pasted into the Name/code form.
 - [ ] A released (walk) creator figure walking after the new place flow on a
@@ -1370,5 +299,5 @@ Saga end to end; open items:
 - [ ] `look` animation turns set-figure heads off their bodies (seen on the
   Saga on `minifig_fig1`); dropped for the creator only. `TODO(figures)`.
 - [ ] `_minifig_ref.ts` packs are named "(unstamped)" in Minecraft's pack list.
-- [ ] Creator pack `027c2c03…` stays bound in Saga world 925 (the Hogsmeade
-  test seat, all creator figures, the reference NPC and the wand were removed).
+- Creator pack `027c2c03…` unbound from Saga world 925 by round 26c's
+  `--exclusive` deploy; its dev folder stays installed.

@@ -324,8 +324,8 @@ export async function runSchemPipeline(
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
-    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
-    const { isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
+    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
+    const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
@@ -405,6 +405,11 @@ export async function runSchemPipeline(
         const scene = await discoverSceneActors(source.bricks.filter(b => !movable.has(b)), partProvider);
         // Figures posed off upright stay in the geometry; say so rather than dropping them silently.
         warnings.push(...scene.warnings);
+        // The display scatter: figure accessories outside every NPC that touch nothing (the
+        // finished-model page's goblets and wands in front of 76417) are set down on the surface under them.
+        const settled = settleLooseAccessories(source.bricks.filter(b => !movable.has(b)), scene.meshes, new Set([...scene.figureBricks, ...scene.doorBricks]),
+          (b, description) => isFigurePart(b.part, description));
+        if (settled.length) warnings.push(`Display scatter: ${settled.length} loose figure accessor${settled.length === 1 ? 'y' : 'ies'} touching nothing set down on the surface below (${[...new Set(settled.map(s => s.part.replace(/\.dat$/i, '')))].join(', ')}; up to ${Math.max(...settled.map(s => s.dropLdu))} LDU).`);
         // The size at which a player can actually walk through this model, over
         // the same placements the scene was found in (the vehicles are movable
         // and the figures standing in a doorway are not a wall). Costs

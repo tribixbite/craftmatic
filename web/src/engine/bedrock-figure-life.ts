@@ -367,6 +367,56 @@ export function resolveFigureSpawn(
   return { x: at.x, y: at.y, z: at.z, kind: 'kept', drop: 0, shift: 0, room: 0 };
 }
 
+/** Two standing figures closer than this (blocks, horizontally) share a body: one is moved. A figure's box is 0.6 wide. */
+export const FIGURE_MIN_SEPARATION = 0.6;
+
+/**
+ * Figures a source records on ONE spot spawn inside each other and fight
+ * until they walk apart (76435's figures 1 and 8: 804 coplanar face pairs in
+ * the 2026-09-25 render audit). In order, every figure whose feet stand
+ * within `FIGURE_MIN_SEPARATION` of an earlier one (and within a body's
+ * height of it) is moved to the nearest standable spot - a column centre
+ * within `radius` cells that `standFeetAt` carries within `maxUp` / `maxDown`
+ * of its feet - clear of every other figure; the rest stay exactly where they
+ * are. When no such spot exists the figure stays (reported, not dropped).
+ * Returns the new positions and which were moved. Pure; host only, at export.
+ */
+export function separateFigureSpawns(
+  spanAt: SpanLookup, figures: ReadonlyArray<{ x: number; y: number; z: number; body: number }>,
+  allowed: (x: number, z: number) => boolean,
+  opts: { maxUp: number; maxDown: number; radius?: number },
+): { at: Array<{ x: number; y: number; z: number }>; moved: number[]; stuck: number[] } {
+  const radius = opts.radius ?? 2;
+  const at = figures.map(f => ({ x: f.x, y: f.y, z: f.z }));
+  const moved: number[] = [], stuck: number[] = [];
+  const clash = (p: { x: number; y: number; z: number }, body: number, skip: number, upTo: number): boolean => {
+    for (let j = 0; j < upTo; j++) {
+      if (j === skip) continue;
+      const q = at[j]!;
+      if (Math.hypot(p.x - q.x, p.z - q.z) < FIGURE_MIN_SEPARATION - 1e-9 && Math.abs(p.y - q.y) < Math.max(body, figures[j]!.body)) return true;
+    }
+    return false;
+  };
+  for (let i = 1; i < figures.length; i++) {
+    const f = figures[i]!;
+    if (!clash(at[i]!, f.body, i, i)) continue;
+    const cx = Math.floor(f.x), cz = Math.floor(f.z);
+    let best: { x: number; y: number; z: number } | null = null, bestCost = Infinity;
+    for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) {
+      const x = cx + dx, z = cz + dz;
+      if (!allowed(x, z)) continue;
+      const feet = standFeetAt(spanAt, x, z, f.y, f.body, opts.maxUp, opts.maxDown);
+      if (feet === null) continue;
+      const p = { x: x + 0.5, y: feet, z: z + 0.5 };
+      if (clash(p, f.body, i, figures.length)) continue;
+      const cost = Math.hypot(p.x - f.x, p.z - f.z) + 3 * Math.abs(feet - f.y);
+      if (cost < bestCost) { best = p; bestCost = cost; }
+    }
+    if (best) { at[i] = best; moved.push(i); } else stuck.push(i);
+  }
+  return { at, moved, stuck };
+}
+
 /** The cells from the start to `cells[index]`, start excluded. Pure. */
 export function pathTo(cells: WalkCell[], index: number): WalkCell[] {
   const out: WalkCell[] = [];

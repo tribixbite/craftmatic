@@ -166,6 +166,29 @@ describe('the ghost never outlives an Undo or the wand', () => {
     expect(live(h)[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 10, y: 71, z: 20 }, { rotation: { x: 0, y: 0 } });
   });
 
+  it('standing up from pinball with the wand slot re-selected does not reopen the wand menu (Saga, 2026-09-26)', async () => {
+    const h = host(spec);
+    const hold = h.intervals.get(5)!;
+    let inHand: { typeId: string } | undefined = { typeId: h.assets.itemId };
+    const tags = new Set<string>();
+    h.player.hasTag = (t: string) => tags.has(t);
+    h.player.getComponent = (name: string) => name === 'minecraft:inventory' ? { container: { getItem: () => inHand } } : undefined;
+    hold(); await h.flush(); // selecting the wand opens it once
+    const opened = h.buttons.length;
+    expect(opened).toBeGreaterThan(0);
+    // Seated at the pinball table: the hotbar is parked on an empty slot.
+    tags.add('craftmatic_pinball'); inHand = undefined;
+    hold(); await h.flush();
+    // Standing up: the pinball runtime puts back the wand's slot and removes the tag.
+    tags.delete('craftmatic_pinball'); inHand = { typeId: h.assets.itemId };
+    hold(); await h.flush();
+    expect(h.buttons.length).toBe(opened);
+    // Putting the wand away and selecting it again still opens it.
+    inHand = { typeId: 'minecraft:stick' }; hold(); await h.flush();
+    inHand = { typeId: h.assets.itemId }; hold(); await h.flush();
+    expect(h.buttons.length).toBeGreaterThan(opened);
+  });
+
   it('a ghost the id lookup misses is still removed by its tag', async () => {
     const h = host(spec);
     const draw = h.intervals.get(12)!;
