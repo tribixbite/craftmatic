@@ -2093,7 +2093,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     type: c.typeId, kind: c.it.kind, part: c.it.part, label: c.label, parts: c.it.bricks.length, angleDeg: items[k]!.angle,
                     offGridDeg: c.it.offGridDeg, ...(items[k]!.opening ? { openingBlocks: items[k]!.opening } : {}),
                     ...(items[k]!.passSize !== undefined ? { passSize: items[k]!.passSize } : {}),
-                    blockingCells: items[k]!.blocking.length, cleared: ixPlans[k]?.cleared ?? 0, passageCleared: ixPlans[k]?.passageCleared ?? 0, thresholdTreads: ixPlans[k]?.treads ?? 0, hitboxes: { closed: c.hit.closed.length, open: c.hit.open.length },
+                    blockingCells: items[k]!.blocking.length, cleared: ixPlans[k]?.cleared ?? 0, passageCleared: ixPlans[k]?.passageCleared ?? 0, thresholdTreads: ixPlans[k]?.treads ?? 0, stairTreads: ixPlans[k]?.stairTreads ?? 0, stairs: ixPlans[k]?.stairs ?? [], hitboxes: { closed: c.hit.closed.length, open: c.hit.open.length },
                     ...(c.it.sweep ? { sweepHits: c.it.sweep } : {}),
                 }));
                 warnings.push(interactiveSummary(label, items));

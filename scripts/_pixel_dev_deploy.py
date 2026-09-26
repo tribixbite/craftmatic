@@ -6,7 +6,7 @@ Usage (run with ``python -u`` so progress is not block-buffered):
 
     python -u scripts/_pixel_dev_deploy.py <world name> <pack.mcaddon>... \
         [--mode auto|dev|import] [--root | --no-root] [--serial SERIAL] \
-        [--shots-dir DIR] [--no-launch] [--dry-run] [--exclusive]
+        [--shots-dir DIR] [--no-launch] [--dry-run] [--exclusive] [--prune-stale]
 
 Two install routes:
 
@@ -16,8 +16,11 @@ Two install routes:
            Needs root (see "Root mode" below) or a device where the adb shell
            uid can create files under games/com.mojang. Existing dev folders
            are backed up to the backup dir first and overwritten in place;
-           nothing on the device is deleted, so files a new build no longer
-           ships are LEFT BEHIND and reported as stale.
+           by default nothing on the device is deleted, so files a new build
+           no longer ships are LEFT BEHIND and reported as stale;
+           ``--prune-stale`` lists them into the backup dir and then deletes
+           them one file at a time (``rm`` per file, then ``rmdir`` of the
+           directories that emptied — never a recursive delete).
 ``import`` Push each .mcaddon to ``/sdcard/Download/000-<stem>.mcaddon`` and hand
            it to Minecraft with a content-URI VIEW intent (Minecraft's own
            import, which writes regular ``behavior_packs``/``resource_packs``
@@ -624,6 +627,46 @@ def deploy_dev_root(
     return stale_report
 
 
+def stale_dirs(files: list[str]) -> list[str]:
+    """Every ancestor directory of ``files`` (relative paths), deepest first.
+
+    These are the directories a prune may leave empty; ``rmdir`` is tried on
+    each and simply fails on one that still holds a file the build ships.
+    """
+    dirs: set[str] = set()
+    for rel in files:
+        parts = rel.split("/")[:-1]
+        for depth in range(1, len(parts) + 1):
+            dirs.add("/".join(parts[:depth]))
+    return sorted(dirs, key=lambda d: (-d.count("/"), d))
+
+
+def prune_stale(adb: Adb, stale_report: dict[str, list[str]]) -> dict[str, list[str]]:
+    """Delete every stale file ONE BY ONE (``rm`` per file, never recursive).
+
+    ``stale_report`` maps a pack folder on the device to the files it holds
+    that the new build does not ship (see ``deploy_dev``/``deploy_dev_root``;
+    both back the folder up before this runs). After the files, each ancestor
+    directory is ``rmdir``-ed deepest first, which removes only EMPTY
+    directories. Returns the files that are still present afterwards (an
+    unrooted adb shell cannot delete under ``games/com.mojang``).
+    """
+    left: dict[str, list[str]] = {}
+    for device_dir, files in stale_report.items():
+        for rel in files:
+            path = f"{device_dir}/{rel}"
+            print(f"  prune {path}")
+            adb.fs(f"rm -f {shlex.quote(path)}", check=False, mutating=True)
+        for rel_dir in stale_dirs(files):
+            adb.fs(f"rmdir {shlex.quote(f'{device_dir}/{rel_dir}')} 2>/dev/null; true", check=False, mutating=True)
+        if adb.dry_run:
+            continue
+        remaining = sorted(set(files) & list_device_files(adb, device_dir))
+        if remaining:
+            left[device_dir] = remaining
+    return left
+
+
 def deploy_import(
     adb: Adb, mcaddons: list[Path], packs: list[PackInfo], mc_root: str, shots_dir: Path | None
 ) -> dict[str, str]:
@@ -778,6 +821,12 @@ def main() -> int:
     parser.add_argument("--no-launch", action="store_true", help="leave Minecraft stopped after binding")
     parser.add_argument("--dry-run", action="store_true", help="read the device and plan, write nothing")
     parser.add_argument("--exclusive", action="store_true", help="bind ONLY these packs (drop every other binding; they stay installed)")
+    parser.add_argument(
+        "--prune-stale",
+        action="store_true",
+        help="dev mode: after installing, delete each file a replaced dev folder holds that the new build "
+        "does not ship (listed first, backed up with the folder, rm per file, never recursive)",
+    )
     args = parser.parse_args()
 
     adb = Adb(args.serial, args.dry_run)
@@ -858,6 +907,16 @@ def main() -> int:
     else:
         installed_where = deploy_import(adb, mcaddons, packs, mc_root, args.shots_dir)
 
+    stale_left: dict[str, list[str]] = {}
+    if args.prune_stale and stale_report:
+        # The list goes to disk BEFORE anything is deleted, beside the backups of those folders.
+        listing = "".join(f"{d}/{f}\n" for d, files in stale_report.items() for f in files)
+        (backup_dir / "stale-files-pruned.txt").write_bytes(listing.encode("utf-8"))
+        print(f"pruning {listing.count(chr(10))} stale files (list: {backup_dir / 'stale-files-pruned.txt'})")
+        stale_left = prune_stale(adb, stale_report)
+    elif args.prune_stale and mode != "dev":
+        print("--prune-stale applies to dev mode only; import mode writes new folders and leaves none stale")
+
     # World JSON may only be edited while Minecraft is stopped.
     print("force-stopping Minecraft before binding")
     adb.shell(f"am force-stop {MC_PACKAGE}", mutating=True)
@@ -886,6 +945,8 @@ def main() -> int:
         ],
         "bindings": final,
         "stale_device_files": stale_report,
+        "stale_pruned": bool(args.prune_stale and stale_report),
+        "stale_left_after_prune": stale_left,
     }
     (backup_dir / "deploy-record.json").write_bytes(json_bytes(record))
 
@@ -899,7 +960,11 @@ def main() -> int:
     for kind in ("behavior", "resource"):
         print(f"world_{kind}_packs.json now:\n{fmt_bindings(final[kind])}")
     for device_dir, files in stale_report.items():
-        print(f"  STALE (left on device, not in new build) {device_dir}: {len(files)} files, e.g. {files[:5]}")
+        if args.prune_stale:
+            left = stale_left.get(device_dir, [])
+            print(f"  STALE pruned {device_dir}: {len(files) - len(left)} of {len(files)} deleted" + (f", LEFT {left[:5]}" if left else ""))
+        else:
+            print(f"  STALE (left on device, not in new build; --prune-stale deletes) {device_dir}: {len(files)} files, e.g. {files[:5]}")
     if staging_used:
         print(f"  staging dir kept on device: {staging}")
     print(f"record: {backup_dir / 'deploy-record.json'}")
