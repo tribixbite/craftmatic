@@ -231,21 +231,24 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   // Saga (2026-09-26) was the dark inside of its cuboids. Move the eye to the
   // nearest clear point (back, up, toward the centre line) when it is not.
   let eyeMoved: Vec3 | null = null;
-  if (!best.steps[0]!.fits && eyeOverlap(boxes, best.eye) > 0) {
+  // The camera is the SEAT's eye (seat + the seated eye height), which for a
+  // canopy is 0.35 behind the glass centre the evidence named.
+  const camera: Vec3 = [best.seat[0], Math.round((best.seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, best.seat[2]];
+  if (!best.steps[0]!.fits && eyeOverlap(boxes, camera) > 0) {
     const r = EYE_CLEAR_SEARCH, n = (v: number): number => Math.round(v / SEAT_SEARCH.step);
-    let pick: { eye: Vec3; overlap: number; move: number } = { eye: best.eye, overlap: eyeOverlap(boxes, best.eye), move: 0 };
-    const xs = [...new Set([0, 0.25, 0.5, 0.75, 1].map(t => Math.round(best.eye[0] * (1 - t) * 100) / 100))];
+    let pick: { eye: Vec3; overlap: number; move: number } = { eye: camera, overlap: eyeOverlap(boxes, camera), move: 0 };
+    const xs = [...new Set([0, 0.25, 0.5, 0.75, 1].map(t => Math.round(camera[0] * (1 - t) * 100) / 100))];
     // Under a roof the eye stays under one: out through it is the kart's view again.
     const overhead = (e: Vec3): boolean => boxes.some(b => b.min[0] <= e[0] && b.max[0] >= e[0] && b.min[2] <= e[2] && b.max[2] >= e[2] && b.min[1] > e[1] + 0.05 && b.min[1] < e[1] + 2);
-    const needOverhead = overhead(best.eye);
+    const needOverhead = overhead(camera);
     for (let k = 0; k <= n(r.back); k++) for (let j = -n(r.down); j <= n(r.up); j++) for (const x of xs) {
-      const e: Vec3 = [x, Math.round((best.eye[1] + j * SEAT_SEARCH.step) * 100) / 100, Math.round((best.eye[2] + k * SEAT_SEARCH.step) * 100) / 100];
+      const e: Vec3 = [x, Math.round((camera[1] + j * SEAT_SEARCH.step) * 100) / 100, Math.round((camera[2] + k * SEAT_SEARCH.step) * 100) / 100];
       if (e[1] <= 0.1 || (needOverhead && !overhead(e))) continue;
-      const overlap = eyeOverlap(boxes, e), move = Math.hypot(e[0] - best.eye[0], e[1] - best.eye[1], e[2] - best.eye[2]);
+      const overlap = eyeOverlap(boxes, e), move = Math.hypot(e[0] - camera[0], e[1] - camera[1], e[2] - camera[2]);
       if (overlap < pick.overlap - 1e-9 || (Math.abs(overlap - pick.overlap) <= 1e-9 && move < pick.move)) pick = { eye: e, overlap, move };
     }
     if (pick.move > 0) {
-      eyeMoved = [Math.round((pick.eye[0] - best.eye[0]) * 100) / 100, Math.round((pick.eye[1] - best.eye[1]) * 100) / 100, Math.round((pick.eye[2] - best.eye[2]) * 100) / 100];
+      eyeMoved = [Math.round((pick.eye[0] - camera[0]) * 100) / 100, Math.round((pick.eye[1] - camera[1]) * 100) / 100, Math.round((pick.eye[2] - camera[2]) * 100) / 100];
       const s2: Vec3 = [pick.eye[0], Math.round((pick.eye[1] - SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, pick.eye[2]];
       best = { seat: s2, eye: pick.eye, steps: measure(s2), moved: best.moved };
     }
