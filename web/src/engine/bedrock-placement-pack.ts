@@ -292,11 +292,18 @@ const CAMERA_RADIUS_MAX = 64;
 const clampCameraRadius = (v: number): number =>
   Math.min(CAMERA_RADIUS_MAX, Math.max(CAMERA_RADIUS_MIN, v));
 
-/** A `minecraft:rideable` component with every seat position (and camera radius) scaled by `f`. */
-function scaleRideable(rideable: Record<string, unknown>, f: number): Record<string, unknown> {
+/**
+ * A `minecraft:rideable` component with every seat position (and camera
+ * radius) scaled by `f`. `seatAt` overrides how a position scales (a vehicle
+ * whose rider is hidden at `f` keeps the rider's EYE on the scaled driver's
+ * eye, cockpit-seat.ts `seatPositionAt`); by default it scales about the origin.
+ */
+function scaleRideable(rideable: Record<string, unknown>, f: number, seatAt?: SeatAtSize): Record<string, unknown> {
   const scaleSeat = (seat: Record<string, unknown>): Record<string, unknown> => ({
     ...seat,
-    ...(Array.isArray(seat.position) ? { position: (seat.position as number[]).map(v => round3(v * f)) } : {}),
+    ...(Array.isArray(seat.position)
+      ? { position: seatAt ? seatAt(seat.position as [number, number, number], f) : (seat.position as number[]).map(v => round3(v * f)) }
+      : {}),
     ...(typeof seat.third_person_camera_radius === 'number'
       ? { third_person_camera_radius: clampCameraRadius(round3(seat.third_person_camera_radius * f)) }
       : {}),
@@ -325,7 +332,12 @@ function scaleRideable(rideable: Record<string, unknown>, f: number): Record<str
  */
 export interface SizeGroupOptions {
   playerSized?: boolean;
+  /** A seat's position at wand factor `f` (a vehicle's rider seat, cockpit-seat.ts); default: scaled about the origin. */
+  seatAt?: SeatAtSize;
 }
+
+/** Where a seat authored at `position` (100 %) goes at wand factor `f`. */
+export type SeatAtSize = (position: [number, number, number], f: number) => [number, number, number];
 
 /** The size factor a player-sized entity takes at wand factor `f`: never above 1. */
 export const figureSizeFactor = (f: number): number => Math.min(1, f);
@@ -361,7 +373,7 @@ export function withSizeGroups(
     groups[name] = {
       'minecraft:scale': { value: f },
       'minecraft:collision_box': { width: round3(collision.width * f), height: round3(collision.height * f) },
-      ...(rideable ? { 'minecraft:rideable': scaleRideable(rideable, f) } : {}),
+      ...(rideable ? { 'minecraft:rideable': scaleRideable(rideable, f, options.seatAt) } : {}),
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
   }

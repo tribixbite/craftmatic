@@ -627,7 +627,9 @@ round settles them.
     `minecraft:entity_spawned`, swapped by `descend_on`/`descend_off`); the base has none.
   - **An unscaled player cannot sit inside a model shorter than itself**: the 0.38× Mini's
     cockpit seat put the rider through the flank at y −61 (ground −60). A model under
-    2.0 blocks seats the rider on it (seat y ≥ height − 0.55).
+    2.0 blocks seats the rider on it (seat y ≥ height − 0.55). **Superseded 2026-09-26**: the
+    rider sits in the driver's seat and is hidden where the body does not fit ("Where the
+    player sits", below).
   - **Figures with a 0.9 × 2.0 collision box could not path out of the rooms the 0.6 × 1.8
     player walks**: 6 of 7 chalet figures never moved until `/tp`'d to open ground. Boxes are
     now capped at the player's, and a figure spawned in a full collider cell is lifted to the

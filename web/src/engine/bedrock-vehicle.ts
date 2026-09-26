@@ -948,7 +948,19 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           } else ns.lastEventTick = st.lastEventTick;
           ns.lastEvent = r.event;
         } else { ns.lastEvent = undefined; ns.lastEventTick = st.lastEventTick; }
-        if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, hit: r.hit ?? null, rider: !!driver, light: ns.light ?? null, night: isNight, sweepChecks, msPerTick: busyTicks ? Math.round(busyMs / busyTicks * 100) / 100 : 0 })}`);
+        // Where the rider's eye and feet are, relative to the vehicle's origin in its own frame
+        // (right, up, forward): measures the seated eye height the seat plan assumes (cockpit-seat.ts).
+        let riderAt: Record<string, number> | null = null;
+        if (telemetry && tick % 20 === 0 && driver) {
+          try {
+            const at = e.location, head = driver.getHeadLocation(), feet = driver.location;
+            const yr = (e.getRotation().y) * Math.PI / 180, cx = Math.cos(yr), sx = Math.sin(yr);
+            const local = (p: any): [number, number] => { const dx = p.x - at.x, dz = p.z - at.z; return [Math.round((dx * cx + dz * sx) * 100) / 100, Math.round((-dx * sx + dz * cx) * 100) / 100]; };
+            const [hx, hz] = local(head), [fx2, fz2] = local(feet);
+            riderAt = { eyeX: hx, eyeY: Math.round((head.y - at.y) * 100) / 100, eyeZ: hz, feetX: fx2, feetY: Math.round((feet.y - at.y) * 100) / 100, feetZ: fz2 };
+          } catch { riderAt = null; }
+        }
+        if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, riderAt, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, hit: r.hit ?? null, rider: !!driver, light: ns.light ?? null, night: isNight, sweepChecks, msPerTick: busyTicks ? Math.round(busyMs / busyTicks * 100) / 100 : 0 })}`);
         if (driver && tick % 4 === 0) {
           let hud: string;
           if (kind.mode === 'plane') {

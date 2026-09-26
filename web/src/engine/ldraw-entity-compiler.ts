@@ -56,6 +56,7 @@ export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BL
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
+import { planSeat, type SeatPlan } from './cockpit-seat.js';
 import { separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
@@ -404,6 +405,8 @@ export interface LegoGeometryDiagnostics {
   studFacets: number;
   /** Where the driver's EYES are (model units) and which evidence chose it (findCockpit, best first). */
   cockpit: { source: CockpitSource; units: [number, number, number]; detail: string };
+  /** Vehicles only: whether a seated player fits the driver's seat, per wand size (cockpit-seat.ts). */
+  seatPlan?: SeatPlan;
   /** Parts of the seated driver figure left out of the geometry because the player sits there. */
   driverFigureRemoved: number;
   /** Separate objects found beside the vehicle and classified (figures and secondary vehicles are offered as their own entities). */
@@ -555,6 +558,8 @@ export interface CompiledLdrawGeometry {
    * three blocks over the car (Pixel, 2026-09-25).
    */
   roofAtSeatBlocks: number;
+  /** Vehicles only: the driver's seat measured against a player-sized body (cockpit-seat.ts). */
+  seatPlan?: SeatPlan;
   /** Up to three passenger seats from the model's free seat moulds (entity frame, blocks, before the JSON X mirror like `seatPosition`). */
   passengerSeats: Array<[number, number, number]>;
   collisionBox: { width: number; height: number };
@@ -2450,6 +2455,18 @@ export async function compileLdrawEntityGeometry(
     const u = toUnits(apply(A, eye));
     return [round(u[0] / 16), Math.max(0.3, round(u[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS)), round(u[2] / 16)];
   });
+  // Does a player-sized body fit that seat, and from which wand size (cockpit-seat.ts)?
+  // Measured on every body box (a rotated part's box is its OBB's bounds), in the seat's own frame.
+  const seatPlan: SeatPlan | undefined = kind === 'figure' || kind === 'prop' ? undefined : (() => {
+    const boxes = worldBoxes.map(wb => {
+      const r = aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v)));
+      const lo = toUnits(r.min), hi = toUnits(r.max);
+      return { min: [lo[0] / 16, lo[1] / 16, lo[2] / 16] as Vec3, max: [hi[0] / 16, hi[1] / 16, hi[2] / 16] as Vec3 };
+    });
+    const eyeY = round(cockpitUnits[1] / 16);
+    return planSeat(boxes, [round(cockpitUnits[0] / 16), eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - SEATED_EYE_HEIGHT_BLOCKS), seatZ],
+      cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : 'volume');
+  })();
   const collisionBox = {
     width: Math.min(3.5, Math.max(0.8, Math.round(totalWidth * 0.85 * 10) / 10)),
     height: Math.min(2.5, Math.max(0.8, Math.round(totalHeight * 0.8 * 10) / 10)),
@@ -2675,6 +2692,7 @@ export async function compileLdrawEntityGeometry(
     substitutedParts: report.substitutions,
     studFacets,
     cockpit: { source: cockpit.source, units: [round(cockpitUnits[0]), round(cockpitUnits[1]), round(cockpitUnits[2])], detail: cockpit.detail },
+    ...(seatPlan ? { seatPlan } : {}),
     driverFigureRemoved,
     extras: extras.map(e => ({ role: e.role, placements: e.sourceIndices.length, reason: e.reason })),
     leveled: level.rotation ? { angleDeg: round(level.angleDeg), alignedBefore: level.alignedBefore, alignedAfter: level.alignedAfter } : null,
@@ -2717,6 +2735,7 @@ export async function compileLdrawEntityGeometry(
     meshes: emittedMeshes,
     meshIds: emittedMeshes.map(m => m.id),
     seatPosition: [seatX, seatY, seatZ],
+    ...(seatPlan ? { seatPlan } : {}),
     roofAtSeatBlocks,
     passengerSeats,
     collisionBox,
