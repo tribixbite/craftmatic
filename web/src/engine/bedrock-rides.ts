@@ -79,6 +79,8 @@ export const RIDE = {
   LIFT_FLOOR_REACH_LDU: 40,
   /** Storeys are at least this far apart, LDU (3 bricks). */
   LIFT_MIN_STOREY_LDU: 72,
+  /** A lift serves at most this many storeys (more is a tower's frame, not a dollhouse). */
+  LIFT_MAX_STOPS: 6,
   /** A storey has at least this many floor parts at the shaft's sides. */
   LIFT_MIN_FLOOR_PARTS: 3,
   /** Floor parts at one level: heights within this, LDU. */
@@ -125,9 +127,15 @@ export function isSlideDescription(description: string): boolean {
   return /^Slide\s/i.test(stripped(description));
 }
 
-/** A slim upright part a lift car can run on. */
+/**
+ * A slim upright part a lift car can run on: a solid support column or pillar.
+ * Frame members are NOT guides - Technic beams (10303's coaster frame), girder
+ * and lattice supports (10341's launch tower) read as "lifts" in the
+ * favourites sweep (2026-09-26) and are excluded.
+ */
 export function isLiftGuideDescription(description: string): boolean {
-  return /^(Support|Pillar|Column|Pole|Bar|Technic Beam|Technic Axle|Lamp Post|Antenna)\b/i.test(stripped(description));
+  const d = stripped(description);
+  return /^(Support|Pillar|Column)\b/i.test(d) && !/\b(Girder|Lattice|Truss|Crane|Triangular)\b/i.test(d);
 }
 
 interface Box { min: Vec3; max: Vec3 }
@@ -346,6 +354,7 @@ export function findLifts(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<st
     const carFloor = carBox.max[1];
     const stops = floors.map(f => ({ y: f.y, exit: f.exit }));
     stops.sort((a, b) => b.y - a.y);
+    if (stops.length > RIDE.LIFT_MAX_STOPS) { trace?.(`${stops.length} stops: a tower, not a dollhouse lift`); continue; }
     trace?.(`car ${car.length} parts, floor ${carFloor}; levels ${levels.map(l => `${l.y}x${l.n}`).join(' ')}; stops ${stops.map(s => s.y).join(' ')}`);
     if (stops.length < 2) continue;
     // The car starts at the storey nearest where the source stands it; it keeps

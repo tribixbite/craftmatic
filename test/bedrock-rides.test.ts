@@ -93,6 +93,9 @@ describe('lifts', () => {
     // Exits step past the shaft into the room at +X.
     for (const e of lift.exitsLdu!) expect(e[0]).toBeGreaterThan(480);
     expect(isLiftGuideDescription('Support  2 x  2 x 13 with  5 Pegholes')).toBe(true);
+    // Frame members are not guides (10303's Technic beams, 10341's girder tower: sweep 2026-09-26).
+    expect(isLiftGuideDescription('Technic Beam 11')).toBe(false);
+    expect(isLiftGuideDescription('Support  2 x  2 x 10 Girder Triangular  3 Sections with Axlehole')).toBe(false);
   });
 
   it('a single post is not a shaft', () => {
