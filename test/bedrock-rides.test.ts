@@ -98,6 +98,17 @@ describe('lifts', () => {
     expect(isLiftGuideDescription('Support  2 x  2 x 10 Girder Triangular  3 Sections with Axlehole')).toBe(false);
   });
 
+  it('a rider in a solid car sits high enough that the eye clears its top', () => {
+    const { bricks, meshes } = dollhouse();
+    // Stack the car four bricks higher over its centre: a solid cat head, as 10788's.
+    for (const y of [-480, -504, -528, -552]) bricks.push(brick('3002.dat', 420, y, 20));
+    const lift = findLifts(bricks, meshes)[0]!;
+    const carTop = -552;
+    // At the start stop the seat stands so the eye (seat - LIFT_RIDER_EYE_LDU) is just over the top.
+    const seatY = lift.pathLdu[lift.startStop!]![1];
+    expect(seatY - RIDE.LIFT_RIDER_EYE_LDU).toBeCloseTo(carTop - RIDE.LIFT_EYE_CLEAR_LDU, 5);
+  });
+
   it('a single post is not a shaft', () => {
     const { bricks, meshes } = dollhouse();
     expect(findLifts(bricks.filter((b, i) => !(b.part === '91176.dat' && i === 1)), meshes)).toEqual([]);

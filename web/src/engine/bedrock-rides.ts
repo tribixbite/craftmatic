@@ -85,6 +85,10 @@ export const RIDE = {
   LIFT_MIN_FLOOR_PARTS: 3,
   /** Floor parts at one level: heights within this, LDU. */
   LIFT_LEVEL_TOL_LDU: 4,
+  /** A seated rider's eye over the seat entity, LDU at 100 % (1.62 - 0.3 blocks x 53.33). */
+  LIFT_RIDER_EYE_LDU: 70,
+  /** A rider's eye clears the top of a solid car by this, LDU. */
+  LIFT_EYE_CLEAR_LDU: 6,
   /** A rider steps off this far past the shaft's edge, LDU (past a 20-LDU side wall into the room). */
   LIFT_EXIT_STEP_LDU: 50,
   /** Speed of the car, blocks/s at 100 %. */
@@ -352,6 +356,13 @@ export function findLifts(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<st
     }
     const cx = (carBox.min[0] + carBox.max[0]) / 2, cz = (carBox.min[2] + carBox.max[2]) / 2;
     const carFloor = carBox.max[1];
+    // Where the rider sits: on the car's floor when there is head room over it
+    // inside the car, else high enough that the rider's EYE clears the car's
+    // top. 10788's cat car is solid bricks, and a rider on its floor saw only
+    // wall colour for the whole ride (Pixel, 2026-09-26).
+    const headroomLdu = RIDE.LIFT_RIDER_EYE_LDU + RIDE.TOUCH_LDU;
+    const column = cb.some(b => cx > b.min[0] && cx < b.max[0] && cz > b.min[2] && cz < b.max[2] && b.min[1] < carFloor - RIDE.TOUCH_LDU && b.max[1] > carFloor - headroomLdu);
+    const seatRiseLdu = column ? (carFloor - carBox.min[1]) - RIDE.LIFT_RIDER_EYE_LDU + RIDE.LIFT_EYE_CLEAR_LDU : 0;
     const stops = floors.map(f => ({ y: f.y, exit: f.exit }));
     stops.sort((a, b) => b.y - a.y);
     if (stops.length > RIDE.LIFT_MAX_STOPS) { trace?.(`${stops.length} stops: a tower, not a dollhouse lift`); continue; }
@@ -365,7 +376,8 @@ export function findLifts(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<st
     out.push({
       kind: 'lift', label: 'Lift', part: shaft[0]!.part.replace(/\.dat$/i, ''),
       // The seat stands on the car's own floor, which keeps its height over each storey.
-      pathLdu: stops.map(s => [cx, s.y + (carFloor - stops[start]!.y), cz] as Vec3),
+      // TODO(rides): the rise is set at 100 %; the rider does not grow with the wand, so above 100 % its eye is back inside a solid car.
+      pathLdu: stops.map(s => [cx, s.y + (carFloor - stops[start]!.y) - Math.max(0, seatRiseLdu), cz] as Vec3),
       exitsLdu: stops.map(s => s.exit),
       startStop: start < 0 ? 0 : start,
       carBricks: car,
