@@ -1372,3 +1372,35 @@ Saga end to end; open items:
 - [ ] `_minifig_ref.ts` packs are named "(unstamped)" in Minecraft's pack list.
 - [ ] Creator pack `027c2c03…` stays bound in Saga world 925 (the Hogsmeade
   test seat, all creator figures, the reference NPC and the wand were removed).
+
+## Mini-doll faces and bodies (2026-09-26)
+
+Dolls worktree `agent-a04a934e6ea2fce73`; craftmatic `3a1b1f45`, `d272ef5b`,
+`b038d2f0`, `04308020` (+ docs); clego `c246a71d` (converter + patch tool),
+`f0b0d857` (13 sources published, R2 + prod read back). Account: add-on guide
+"Mini-doll faces and whole bodies". Evidence `output/dolls-0926/`: census
+`census-before.*` / `census-after.*`, source line-ups `src-r2/lineups/`,
+doll art sheet `face-measure/doll-art-sheet.png`, packs `packs-<commit>/`,
+face art dir `output/faces-art-0926/` (minifig art of 0924b + 28 doll heads).
+Rebuild the art: `python -u scripts/gen-face-art.py output/faces-art-0926 <sources…>`.
+Open:
+- [ ] Device: close-ups of doll faces and bodies, a doll walking and sitting,
+  before/after pairs (41732, 42703 against round 26b's packs). See the
+  device notes below this list for what was and was not done.
+- [ ] Hair with no LDraw mould, so 7 distinct dolls are bald: `79989` (hair
+  and hat, 41732), `53117` (hair and fire helmet, 42670), `35620` (long wavy
+  hair with side braid, 41703); 41703's boy's `36060` hair is placed ~750 LDU
+  away by the LXFML itself; 41703's beekeeper hat `69938` IS an LDraw part but
+  the doll patch carries doll moulds only (extend it to headwear at a doll
+  head). 41395 (Mecabricks) has no heads, two dolls no legs, hair 71 LDU off.
+- [ ] Microdolls (41732's two children, `69969`/`65224`) and babies (42670)
+  stay geometry: a head 68 LDU above a `doll_body` is outside the grouping
+  reach and the rig has no micro-doll canon. Gabby's MerCat (`4040` head,
+  `65213` microdoll mermaid body: no LDraw part) likewise.
+- [ ] Torso and leg PRINTS: LDraw has printed doll legs (`100937p04` =
+  41732's `101347c01pr0179`) and torsos; the converter prints heads only.
+- [ ] 41732's doll art (LEGO's 2023 renders) fits worst (IoU 0.94-0.96): far
+  cheeks carry shading patches; consider the default doll face below IoU 0.955.
+- [ ] craftmatic `web/public/lego-models-index.json` lags clego's (the Gabby
+  round's and this round's entries): refresh it from clego after merging.
+- [ ] In-app `.lxf` path: `FIGURE_TURN` (the 5828 hair) is converter-only.

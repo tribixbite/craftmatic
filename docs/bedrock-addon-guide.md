@@ -3986,3 +3986,94 @@ Not proved on a device: a released figure walking after a place (the
 `creator_<id>` GameTest proved it on the Pixel on 2026-09-25, before this
 round), the `creator_wand_<id>` GameTest itself (the Pixel was locked by
 another agent), the Pixel's own screen, and a figure code pasted by hand.
+
+## Mini-doll faces and whole bodies (2026-09-26)
+
+The user's ask was "all princess faces and whole bodies": every mini-doll
+(Friends, Disney Princess, Gabby's Dollhouse) with its own face and a complete
+body. Population: the doll favourites 41395 41703 41732 42639 42652 42663 42670
+43267, plus 42703 and the Gabby sets 10796 10797 10788 10786 11204 - 52 doll
+placements, 45 distinct dolls. Evidence root `output/dolls-0926/`.
+
+### Census (`bun scripts/_figure_parts_census.ts <sources> --dolls --faces=<dir> --json=<out>`)
+
+Per doll: head part and print id, which face the pack draws
+(`ldraw-print`, `art`, `default:*`), and every body slot as `source`,
+`synthesized` or `missing`; loose doll parts with their nearest anchor; totals
+per placement AND per distinct doll. Before -> after, per DISTINCT doll (42 before, 45 after:
+the restored heads and colours tell apart dolls that read as one before;
+51 -> 52 placements, the extra one 42639's male doll, whose head was dropped):
+
+| slot | before | after |
+|---|---|---|
+| face | 18 LDraw print, 20 plain head with no print id, 4 no head | 19 print, 24 art (local builds) / default doll face, 2 synthesised head (default face) |
+| legs | 20 synthesised (the source had none) | 2 synthesised (41395's Mecabricks source) |
+| arms | 1 missing, 1 synthesised | all source |
+| torso | 2 synthesised | all source |
+| head | 4 missing | 2 synthesised (41395) |
+| hair | 8 missing | 7 missing (hair moulds with no LDraw part, see open items) |
+
+Most of the gap was in the SOURCES, not the rig: the DBIX conversions dropped
+the doll moulds LDD numbers anew (`output/dolls-0926/doll-unresolved-designs.json`):
+the male head 28649 (52 sets), the back-pocket trousers 35582/35641 (37 + 26
+sets), the girl torso and arms 35678-35680 (38 sets; 42703's stump doll had no
+torso), skirts, shorts. And the 2023 thin-hinge legs 1015151 were dropped
+SILENTLY: an unresolved design id of a million or more is counted as a sticker.
+
+### Sources (clego `c246a71d`, published `f0b0d857`)
+
+- `reconvert_dbix.DOLL_ROWS` maps each dropped mould to the LDraw sub-part the
+  LDraw composite of the same Rebrickable number uses (`16925` = `92253` legs +
+  `92248` hips; `100811` = `1006030` + `2758` stump + `92245`); identity rows,
+  because a doll part takes `dbix_figure_align`'s SLOT correction. Four
+  NEAREST rows (109803, 1013035, 105316, 65224) take the closest mould.
+- `dbix_align.FIGURE_TURN`: Studio's `5828` doll hair is modelled facing
+  backwards (bounds z -29..18.6); its curls hung over 42703's and Gabby's faces.
+- `dbix_doll_patch.py` carries only doll lines into published files: aligned
+  by part SEQUENCE (a polished file's parked dolls are followed), missing doll
+  placements inserted, colour-16 doll placements recoloured (41732's arms and
+  heads rendered grey), HEAD_PRINT lines added, the 5828 turn applied. Every
+  changed line was checked to be a doll line.
+- Gate v2 rejected 7 of 13: each added doll part reads as a new unconnected
+  component (dolls have no stud connections); figure defects fell to 0 in 9.
+  Published on the eye check of before/after doll line-ups
+  (`scripts/_doll_lineup_ab.py`, `output/dolls-0926/src-r2/lineups/`).
+
+### Faces
+
+- Print ids: a doll head no library prints carries Rebrickable's id
+  (`0 !CRAFTMATIC HEAD_PRINT 92198pr0147`; BrickLink numbers doll prints as
+  unrelated items). `gen-ldd-print-map.py` writes 449 such `n:` rows.
+- Art (local builds, `--faces=`): `scripts/doll_face_art.py` fits the LDraw
+  head mesh to LEGO's three-quarter element render (Rebrickable serves it by
+  element id; silhouette IoU 0.94-0.97, yaw 39-48, pitch 28-40), reads the face
+  off the fitted surface, fits a quadratic SHADED skin and keeps only the print,
+  mirrors the far half from the near eye where the photo saw it at a grazing
+  angle, and cleans speckle. Sheet: `output/dolls-0926/face-measure/doll-art-sheet.png`.
+  Stated limits: the far eye is reconstructed by mirroring (an asymmetric print
+  comes out symmetric there), 41732's 2023 renders fit worst (IoU 0.94-0.96)
+  and their faces are the weakest, and gold on nougat skin is lost.
+- The DEFAULT doll face (no print, no art) is a texture drawn where 38 LDraw
+  doll prints put their features (`_doll_face_measure.ts`: eyes 0.22 of the
+  width off centre at 0.48 of the height, mouth at 0.82), reported as
+  `faceTextures.default`, never as the doll's own face.
+- Doll art spans the head's whole FRONT (`faceArtRect`): the 80 %-width body
+  rectangle a minifig uses stops above a doll's mouth. A doll head's art skips
+  the photo-skin pass (it is already cut; the pass punched out the irises).
+- A doll's face decal is TILED over its round front (2 LDU columns, split where
+  the head's compiled front steps), each tile proud of the cuboids under it.
+
+### Bodies (`minifig-rig.ts`)
+
+- Measured on the library (`scripts/_doll_proportions.ts`): the woman/girl/boy
+  canon holds; the MAN (`92242`/`1011355` torso) has his head at 36.2, arms at
+  +-12.5, hips 27.9, legs 75.3 (`92240c01`); thin-hinge hips (`1015152`) carry
+  their legs 46.4 below them, not 47.4. `minidollCanon` picks the canon by
+  torso and hips; `minidollBones` puts the pivots there.
+- A doll missing an arm gets it in its other arm's colour (a `2758` stump is
+  kept as the limb difference LEGO moulds); a doll that lost its head gets the
+  plain doll head (the man's for a man) in its arms' skin tone.
+- BrickLink `MINI WIG` copies group with their doll (`isFigurePart`); a SEATED
+  doll's legs (soles 48 LDU forward) stay with her (`SEATED_DOLL_LEGS_REACH`).
+- The head turns at the NECK (-19.2 / -19.8), not at the head mould's origin,
+  which is the top of the crown: `look` swung the chin across the torso.

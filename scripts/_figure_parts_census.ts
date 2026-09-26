@@ -44,7 +44,7 @@ const JSON_OUT = opt('json');
 const files = argv.filter(a => !a.startsWith('--'));
 
 /** Which face a head gets in a pack: its LDraw print, seeded art for its print id, or the default face. */
-type FaceSource = 'ldraw-print' | 'art' | 'default:no-print-id' | 'default:no-art' | 'no-head';
+type FaceSource = 'ldraw-print' | 'art' | 'default:no-print-id' | 'default:no-art' | 'default:synth-head' | 'no-head';
 /** A body slot's state after assembly. */
 type SlotState = 'source' | 'synthesized' | 'missing' | 'n/a';
 
@@ -86,7 +86,7 @@ function dollRow(set: string, figure: number, bricks: ParsedBrick[], meshes: Map
   const legsPresent = has('legs') || has('hips_legs') || has('leg_right') || has('leg_left');
   const slots: DollRow['slots'] = {
     hair: hairSrc || (a?.slots.includes('headwear') ?? false) ? 'source' : 'missing',
-    head: state(has('head'), false),
+    head: state(has('head'), synth.has('head')),
     torso: state(has('torso'), synth.has('torso')),
     arm_right: state(has('arm_right'), synth.has('right arm')),
     arm_left: state(has('arm_left'), synth.has('left arm')),
@@ -94,7 +94,9 @@ function dollRow(set: string, figure: number, bricks: ParsedBrick[], meshes: Map
     legs: state(legsPresent, synth.has('legs')),
   };
   const held = a ? a.bricks.filter((_, i) => a!.slots[i] === 'held' && a!.rig.boneOf[i] !== 'body').map(b => stem(b.part)) : [];
-  const head = headSrc ? { part: stem(headSrc.part), color: headSrc.color, print: headSrc.headPrint ?? null, face: faceSourceOf(headSrc, meshes.get(headSrc.part)) } : null;
+  const head = headSrc ? { part: stem(headSrc.part), color: headSrc.color, print: headSrc.headPrint ?? null, face: faceSourceOf(headSrc, meshes.get(headSrc.part)) }
+    // A head the rig supplied wears the default doll face.
+    : synth.has('head') ? { part: 'synth', color: -1, print: null, face: 'default:synth-head' as FaceSource } : null;
   const torso = torsoSrc ? { part: stem(torsoSrc.part), color: torsoSrc.color, synthesized: false } : a ? { part: 'synth', color: -1, synthesized: true } : null;
   const key = `${head ? `${head.part}/${head.print ?? '-'}/${head.color}` : 'nohead'}|${torso ? `${torso.part}/${torso.color}` : '-'}|${hairSrc ? `${stem(hairSrc.part)}/${hairSrc.color}` : '-'}`;
   return { set, figure, posed, head, torso, slots, held, bystanders: a?.bystanders.map(stem) ?? [], synthesized: [...synth], key };
