@@ -384,7 +384,19 @@ with its reason (`craftmatic-diagnostics.json`, `clearance`):
    Door 2 and 0.8 over its foot (the landing guard), so at x 15.0-15.9 the
    edge is still ~0.7 block proud of the stand. The stand itself is real
    geometry and blocks the straight line to Doors 1-2: they are reached
-   around its east end (x 16.5) or over it.
+   around its east end (x 16.5) or over it. Saga (26.52): the player walked
+   past z 2007.3 onto the stand (z 2005.30).
+
+   Over the 40 favourites (sweeps at `e7398be3` and `e0330b31`,
+   `_clearance_report.ts --sizes=100,200`): reach at 100 % 18,681.5 ->
+   19,774.4 blocks² (+5.8 %), at 200 % 21,915.9 -> 21,930.4; doorways OK 41 /
+   SEALED 29 at 100 % and 51 / 22 at 200 %, unchanged in every set; FAIL 0;
+   `_ix_passability.ts` 0 FAIL at 100/200 %, turns 0/90. Where a set's reach
+   FELL, it fell by less than the rim area removed (10261 at 100 %: -87
+   blocks² of reach, 230 blocks² of phantom top narrowed; 42663: -9 vs 18;
+   the rest at most -1.5 % at 200 %): the standing spots lost are the phantom
+   rims themselves, which the reach walk had counted. Room counts fall because
+   rims were counted as rooms.
 5. **No leak** (the global check). Three worlds are flooded at quarter-block
    resolution from outside the model with a flying, SNEAKING player 0.5 block
    wide (narrower than the real 0.6, so a leak is found sooner): the part

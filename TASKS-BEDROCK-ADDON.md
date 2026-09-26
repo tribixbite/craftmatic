@@ -55,26 +55,24 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
     up; 10261 chain lift 9 s (Saga) / 11-12 s (Pixel) at 3.5 blocks/s, no stutter; 11374
     hint text right, pad starts play, flipper flashes and flips. Placements undone, wands
     cleared, both phones left at the Play screen.
-  - [ ] **76457 invisible edge (Pixel)**: walking from the street toward Doors 1 and 2 the
-    player stops at z ~2007.3 (placement pin ~2000), jumping does not clear it; Door 1's
-    room was reachable only by teleporting in (`pixel/h28_pos`..`h40_pos`, `h24_view`).
-    Locate it in the Walk add-on / `_clearance_report.ts` before touching colliders.
-  - [ ] Seat dismount hint shows the raw key `action.hint.exit.craftmatic:<set>_seat`
-    (Saga, 76457 and 41732): the RP `en_US.lang` has no such line. Add one per seat
-    entity (and manual seat) in the lang writer.
+  - [x] **76457 invisible edge** FIXED in branch `worktree-agent-a196a2e2ff5e15aec`
+    (`8e1036c8`, not merged): the sweet stand's top-row colliders kept a 0.4-0.7 block
+    phantom rim (rule 4 `walkable-top`); rule 4 now narrows a wall's top over open air
+    (docs/bedrock-interactivity.md "Clearance" rule 4; 40 favourites: reach +5.8 %, doorway
+    verdicts unchanged, 0 FAIL). Saga: walked past z 2007.3 onto
+    the stand, z 2005.30 (`output/fix-26a/saga/a10_walked`, `a11_pos` in that worktree).
+    Open: the x 15 column keeps its rim (landing guard, Door 2); not re-walked on the Pixel.
+  - [x] Dismount hint FIXED (`f0baa33f`): `action.hint.exit.<id>` for every rideable,
+    `_mcaddon_check.py` gates it. Saga: 76457 Bed reads "Sneak to stand up" (`b02_ride`).
+  - [x] Ghost after Undo FIXED (`ea86ef75`): Undo, Hide and a wand release end the
+    preview; ghosts swept by tag. Saga: preview shown, Undo, site empty 12 s later
+    (`c02`..`c07`); wand release removes it (`d02`, `d03`). 10261 itself not re-placed.
+  - [x] Cull: LOD plan capped at the measured ~72-block ceiling (`e0330b31`); large shell
+    hulls dropped (76457, 10261 shipped none; their stale `*_shell_lod.geo.json` remain
+    in the Saga's dev RP folders). Needle kept; 200-400 % unmeasured (`TODO(cull)`).
   - [ ] Seat tap targets: on the Pixel a long-press on 76457's Bed selected Door 4 ("behind
     a wall"), and a front tap on 910004 Door 4 selected Window 3; `/ride` and a press from
     above worked. A seat/door behind another part's tap box.
-  - [ ] Saga: after undoing 10261 a white see-through placement preview stayed beside the
-    player (`saga/c4_undone.jpg`); not checked whether it cleared with the wand.
-  - [ ] Pixel/Saga cull, MEASURED (Pixel 26.51, render 192, sim 8, dithering on;
-    `pixel/cull_a.png`, `cull_b.png`, `d0NN.jpg`): every actor stops drawing at 71-72
-    blocks — 76417 shell root drawn 71.4 / gone 72.4 (it vanishes at d=71 while its own
-    upper-floor figures still draw), door 71.3 / 72.3, vanilla armor stand 70.6 / 71.6,
-    figure 73.8 drawn / gone at d=72; all gone at 75-140. Same as the Saga (71.5-73). The
-    shell's tall collision box buys NO draw distance on either phone: the fit's ~135-block
-    prediction is wrong for 26.5x. Resolve `TODO(cull)` in `bedrock-building-shell.ts`
-    (the LOD hull must switch under ~70 blocks to be seen at all).
   - [ ] Saga follow-up leftovers: a car's huge "Track 1 Car 2" name tag crosses the loop
     view; standing up from pinball re-selects the wand slot and pops its form. The Saga's
     10303 dev packs hold 5 stale `loopcoaster_10303_fig8` files (deploy report; not deleted).
