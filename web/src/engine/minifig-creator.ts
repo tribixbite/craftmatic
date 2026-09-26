@@ -10,8 +10,9 @@
 import {
   CREATOR_SLOTS, FIGURE_CODE_SLOT_KEYS, FIGURE_CODE_VERSION, OPTIONAL_SLOTS,
   type CreatorFamily, type CreatorSlot, type FigureCode, type MinifigLibraryEntry,
-  type MinifigLibrarySpec,
+  type MinifigLibrarySpec, type CreatorPose, POSE_PROPERTY,
 } from './minifig-creator-types.js';
+import COLOUR_NAMES from '../../public/ldraw-color-names.json' with { type: 'json' };
 
 const FAMILY_CODE: Record<CreatorFamily, string> = { minifig: 'm', minidoll: 'd' };
 const CODE_FAMILY: Record<string, CreatorFamily | undefined> = { m: 'minifig', d: 'minidoll' };
@@ -113,3 +114,67 @@ export function minifigCreatorLibrary(tier: 'starter'): MinifigLibrarySpec {
 
 /** True only for the one tier that is currently backed by an actual catalogue. */
 export function isSupportedCreatorTier(tier: string): tier is 'starter' { return tier === 'starter'; }
+
+/**
+ * The poses the wand offers, in `craftmatic:pose` index order (index 0 is the
+ * rig's own standing/walking look and adds nothing). Limb rotations are
+ * x-only: the rig's `sit` animation proves -90 swings a leg forward, and an
+ * arm hangs from its shoulder pivot the same way (-90 points it ahead, -170
+ * holds it up). `Sitting` bends both legs forward and lowers the whole figure
+ * by the hip height minus half the leg depth, so the bent legs rest on the
+ * ground: hips pivot 44 LDU below the torso top and feet 72, the leg mould is
+ * 20 LDU deep about its hinge, so 72 - 44 - 10 = 18 LDU.
+ */
+export const CREATOR_POSES: readonly CreatorPose[] = [
+  { name: 'Standing', bones: {} },
+  { name: 'Waving', bones: { arm_right: { rotation: ['-155 + math.sin(query.life_time * 360) * 15', 0, 0] } } },
+  { name: 'Pointing', bones: { arm_right: { rotation: [-90, 0, 0] } } },
+  { name: 'Arms up', bones: { arm_right: { rotation: [-170, 0, 0] }, arm_left: { rotation: [-170, 0, 0] } } },
+  { name: 'Holding out', bones: { arm_right: { rotation: [-60, 0, 0] }, arm_left: { rotation: [-60, 0, 0] } } },
+  { name: 'Sitting', still: true, bones: { leg_right: { rotation: [-90, 0, 0] }, leg_left: { rotation: [-90, 0, 0] }, body: { positionLdu: [0, -18, 0] } } },
+];
+
+/** The LDraw name of a colour (`web/public/ldraw-color-names.json`), or `Colour <id>` when it has none. */
+export function ldrawColourName(id: number): string {
+  return (COLOUR_NAMES as Record<string, string>)[String(id)] ?? `Colour ${id}`;
+}
+
+/** The client-side pose layer for a creator entity (`CREATOR_POSES`), for `scripts.animate` and the RP animation file. */
+export interface CreatorPoseAnimations {
+  /** `scripts`-level short names to animation ids. */
+  animations: Record<string, string>;
+  /** `scripts.animate` entries, each gated on `craftmatic:pose`. */
+  animate: Array<Record<string, string>>;
+  /** The `animations/<id>_minifig_pose.animation.json` document. */
+  file: { format_version: string; animations: Record<string, unknown> };
+}
+
+/**
+ * Emit one looping animation per non-trivial pose, gated on the pose property.
+ * A still pose (sitting) is also gated off while the figure rides a seat: the
+ * rig's own `sit` already bends the legs there, and both together fold them
+ * 180 degrees. `positionLdu` is a Bedrock-frame (y up) offset in LDU, turned
+ * into geometry units with the pack's figure scale.
+ */
+export function creatorPoseAnimations(id: string, unitsPerLdu: number): CreatorPoseAnimations {
+  const animations: Record<string, string> = {};
+  const animate: Array<Record<string, string>> = [];
+  const file: CreatorPoseAnimations['file'] = { format_version: '1.8.0', animations: {} };
+  const round = (v: number): number => Math.round(v * 1e4) / 1e4;
+  CREATOR_POSES.forEach((pose, k) => {
+    if (!Object.keys(pose.bones).length) return;
+    const key = `mf_pose_${k}`;
+    const animationId = `animation.craftmatic.${id}_mf_pose_${k}`;
+    animations[key] = animationId;
+    animate.push({ [key]: `q.property('${POSE_PROPERTY}') == ${k}${pose.still ? ' && !query.is_riding' : ''}` });
+    const bones: Record<string, unknown> = {};
+    for (const [bone, b] of Object.entries(pose.bones)) {
+      bones[bone] = {
+        ...(b.rotation ? { rotation: b.rotation } : {}),
+        ...(b.positionLdu ? { position: b.positionLdu.map(v => round(v * unitsPerLdu)) } : {}),
+      };
+    }
+    file.animations[animationId] = { loop: true, bones };
+  });
+  return { animations, animate, file };
+}

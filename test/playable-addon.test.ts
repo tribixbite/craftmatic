@@ -7,7 +7,7 @@ import { packIdentity } from '../web/src/engine/mcpack.js';
 import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceProvenance } from '../web/src/engine/pipeline-version.js';
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
-import { minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
+import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
 
@@ -74,6 +74,53 @@ describe('playable Bedrock add-on',()=>{
     const empty = JSON.parse(new TextDecoder().decode(await extractFile(zip, 'Craftmatic_nonecreator_RP/models/entity/nonecreator_mf_empty.geo.json')));
     expect(empty['minecraft:geometry'][0].bones.map((b: { name: string }) => b.name)).toContain('hand_left');
   });
+  it('draws creator parts opaque, studs in the slot colour, named swatch colours, poses, and one neck pivot', async () => {
+    // A head with a top stud and a torso: flat colour-16 triangles plus one stud each.
+    const provider = { getPartMesh: async (part: string) => ({ partId: part, resolvedAs: part, description: part.startsWith('3626') ? 'Minifig Head' : 'Minifig Torso', triangles: [{ a: [0, 0, 0], b: [20, 0, 0], c: [0, 24, 0], color: 16 }, { a: [0, 0, 4], b: [20, 0, 4], c: [0, 24, 4], color: 16 }], studs: [{ center: [10, 0, 2], up: [0, -1, 0], radius: 6, height: 4 }], bounds: { min: [0, 0, 0], max: [20, 24, 4] }, unresolvedRefs: [] }), report: () => ({ unresolved: [], printFallbacks: [], substitutions: [] }) };
+    const library = minifigCreatorLibrary('starter');
+    library.slots.minifig = { torso: [{ part: '973', label: 'Torso', group: 'Core' }], head: [{ part: '3626c', label: 'Head', group: 'Core' }], hair: [{ part: '3901', label: 'Hair', group: 'Hair' }] };
+    library.colours = [4, 14, 47];
+    const pack = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Looks', minifigCreator: library, partGeometry: provider });
+    const zip = ab(pack.bytes), entries = listZipEntries(zip);
+    const read = async (name: string) => JSON.parse(new TextDecoder().decode(await extractFile(zip, name)));
+    // The stud is the part's own (inherited) colour, not the colour the library was compiled in: no print layer.
+    const controllers = (await read('Craftmatic_looks_RP/render_controllers/looks_minifig.render_controllers.json')).render_controllers as Record<string, any>;
+    // The only fixed-colour layer left is the plain head's drawn face, in dark ink on the default
+    // yellow skin (compiled in red, the face came out WHITE and the stud a red layer).
+    expect(Object.keys(controllers).filter(k => k.includes('_print_'))).toEqual(['controller.render.craftmatic.looks_mf_head_0_print_0']);
+    const client = (await read('Craftmatic_looks_RP/entity/looks_minifig.entity.json'))['minecraft:client_entity'].description;
+    expect(client.textures.print_head_0_0).toBe('textures/entity/craftmatic_swatch_0');
+    // Opaque colours use `entity`, the translucent one the blend material, per colour index.
+    expect(client.materials).toEqual({ default: 'entity', blend: 'entity_alphablend' });
+    const torso = controllers['controller.render.craftmatic.looks_mf_torso'];
+    expect(torso.arrays.materials['Array.mat']).toEqual(['Material.default', 'Material.default', 'Material.blend']);
+    expect(torso.materials).toEqual([{ '*': "Array.mat[q.property('craftmatic:c_torso')]" }]);
+    // Every geometry agrees on every bone's pivot, the bones-only empty one included:
+    // Bedrock derives `armor_offset.default_neck` from the head bone and logs an error per disagreement.
+    const pivots = new Map<string, string>();
+    for (const name of entries.filter(e => /Craftmatic_looks_RP\/models\/entity\/looks_mf_.*\.geo\.json$/.test(e))) {
+      for (const g of (await read(name))['minecraft:geometry']) for (const b of g.bones) {
+        if (!['body', 'head'].includes(b.name)) continue;
+        const key = JSON.stringify(b.pivot);
+        expect(pivots.get(b.name) ?? key, `${name} ${b.name}`).toBe(key);
+        pivots.set(b.name, key);
+      }
+    }
+    expect(JSON.parse(pivots.get('head')!)[1]).toBeGreaterThan(0);
+    // Named colours with their swatch icon; poses as a property, an animation file and gated animate entries.
+    const wand = new TextDecoder().decode(await extractFile(zip, 'Craftmatic_looks_BP/scripts/minifig-wand.js'));
+    const config = JSON.parse(/const C=(.*);\n/.exec(wand)![1]!);
+    expect(config.colours.map((c: [number, string, string]) => c[1])).toEqual(['Red', 'Yellow', 'Trans Clear']);
+    for (const [, , icon] of config.colours) expect(entries).toContain(`Craftmatic_looks_RP/${icon}.png`);
+    expect(config.poses.map((p: [string, boolean]) => p[0])).toEqual(CREATOR_POSES.map(p => p.name));
+    const behaviour = await read('Craftmatic_looks_BP/entities/looks_minifig.json');
+    expect(behaviour['minecraft:entity'].description.properties['craftmatic:pose']).toEqual({ type: 'int', range: [0, CREATOR_POSES.length - 1], default: 0, client_sync: true });
+    const poseFile = await read('Craftmatic_looks_RP/animations/looks_minifig_pose.animation.json');
+    const sitting = CREATOR_POSES.findIndex(p => p.name === 'Sitting');
+    expect(poseFile.animations[`animation.craftmatic.looks_mf_pose_${sitting}`].bones.body.position[1]).toBeLessThan(0);
+    expect(client.scripts.animate).toContainEqual({ [`mf_pose_${sitting}`]: `q.property('craftmatic:pose') == ${sitting} && !query.is_riding` });
+  });
+
   it('moves the selected whole model without leaving a stationary duplicate', async () => {
     const result = await buildPlayableAddon(model(), { stem: 'Roadster', vehicleMode: 'car' });
     const entries = listZipEntries(ab(result.bytes));

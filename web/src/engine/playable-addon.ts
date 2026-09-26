@@ -16,7 +16,8 @@ import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendat
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
 import { minifigWandScript } from './bedrock-minifig-wand.js';
-import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
+import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
+import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
@@ -1892,32 +1893,48 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const source = options.minifigCreator.slots.minifig;
         const library: MinifigCreatorConfig['library'] = { minifig: {}, minidoll: {} };
         const geometry: Record<string, string> = {}, controllers: Record<string, unknown> = {}, printTextures: Record<string, string> = {};
+        const colourIds = options.minifigCreator.colours ?? MINIFIG_CREATOR_COLOURS;
+        const colourMaterials = colourIds.map(color => resolveLdrawEntityMaterial(color));
+        // Opaque colours draw with `entity`, translucent ones with `entity_alphablend`.
+        // One blend material for the whole figure (the old default) let every
+        // part show through every other on the device - the torso's neck through
+        // the face, the print through the back - and dropped whole parts from
+        // the picture a few blocks off (Saga, 2026-09-26).
+        const materialOf = (m: { alpha: number }): string => (m.alpha < 1 ? 'Material.blend' : 'Material.default');
+        const slotMaterials = colourMaterials.map(materialOf);
         const emptyGeometryId = `geometry.${PACK_NAMESPACE}.${id}_mf_empty`;
         geometry.empty = emptyGeometryId;
-        files.push({ name: `${rp}models/entity/${id}_mf_empty.geo.json`, data: geoJson({ format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: emptyGeometryId, texture_width: 1, texture_height: 1, visible_bounds_width: 1, visible_bounds_height: 1, visible_bounds_offset: [0, 0, 0] }, bones: MINIFIG_BONES.map(b => ({ name: b.name, ...(b.parent ? { parent: b.parent } : {}), pivot: [0, 0, 0] })) }] }) });
+        // The slot a library part is compiled in is placed in the slot's
+        // DEFAULT colour, so what a placement colour still decides (a plain
+        // head's drawn face: dark ink on a light skin) matches the default figure.
+        const defaultColours: Partial<Record<CreatorSlot, number>> = { torso: 4, arms: 4, head: 14, hands: 14, hips: 1, legs: 1 };
+        /** Every rig bone's pivot as the compiled geometries place it; the empty geometry repeats them. */
+        const bonePivots = new Map<string, number[]>();
         let cuboids = 0;
         for (const [slot, entries] of Object.entries(source) as Array<[CreatorSlot, NonNullable<typeof source[CreatorSlot]>]>) {
             const optional = slot === 'hair' || slot === 'held_right' || slot === 'held_left' || slot === 'back';
             const emitted: Array<[string, string, string]> = optional ? [['', 'None', '']] : [];
             if (optional) geometry[`${slot}_0`] = emptyGeometryId;
+            const c = defaultColours[slot] ?? 0;
             for (let index = 0; index < entries.length; index++) {
                 const entry = entries[index]!;
-                const spec = slot === 'torso' ? { torso: { part: entry.part, color: 4 } }
-                    : slot === 'head' ? { torso: { part: '973', color: 4 }, head: { part: entry.part, color: 4 } }
-                    : slot === 'hair' ? { torso: { part: '973', color: 4 }, hair: { part: entry.part, color: 4 } }
-                    : slot === 'hips' ? { torso: { part: '973', color: 4 }, hips: { part: entry.part, color: 4 } }
-                    : slot === 'legs' ? (() => { if (entry.part !== '3816') throw new Error(`Creator legs require an explicit known pair; unsupported base ${entry.part}.`); return { torso: { part: '973', color: 4 }, legs: { right: '3816', left: '3817', color: 4 } }; })()
-                    : slot === 'arms' ? (() => { if (entry.part !== '3818') throw new Error(`Creator arms require an explicit known pair; unsupported base ${entry.part}.`); return { torso: { part: '973', color: 4 }, arms: { right: '3818', left: '3819', color: 4 } }; })()
-                    : slot === 'hands' ? { torso: { part: '973', color: 4 }, hands: { part: entry.part, color: 4 } }
-                    : slot === 'held_right' ? { torso: { part: '973', color: 4 }, heldRight: { part: entry.part, color: 4 } }
-                    : slot === 'held_left' ? { torso: { part: '973', color: 4 }, heldLeft: { part: entry.part, color: 4 } }
-                    : { torso: { part: '973', color: 4 }, cape: { part: entry.part, color: 4 } };
+                const spec = slot === 'torso' ? { torso: { part: entry.part, color: c } }
+                    : slot === 'head' ? { torso: { part: '973', color: 4 }, head: { part: entry.part, color: c } }
+                    : slot === 'hair' ? { torso: { part: '973', color: 4 }, hair: { part: entry.part, color: c } }
+                    : slot === 'hips' ? { torso: { part: '973', color: 4 }, hips: { part: entry.part, color: c } }
+                    : slot === 'legs' ? (() => { if (entry.part !== '3816') throw new Error(`Creator legs require an explicit known pair; unsupported base ${entry.part}.`); return { torso: { part: '973', color: 4 }, legs: { right: '3816', left: '3817', color: c } }; })()
+                    : slot === 'arms' ? (() => { if (entry.part !== '3818') throw new Error(`Creator arms require an explicit known pair; unsupported base ${entry.part}.`); return { torso: { part: '973', color: 4 }, arms: { right: '3818', left: '3819', color: c } }; })()
+                    : slot === 'hands' ? { torso: { part: '973', color: 4 }, hands: { part: entry.part, color: c } }
+                    : slot === 'held_right' ? { torso: { part: '973', color: 4 }, heldRight: { part: entry.part, color: c } }
+                    : slot === 'held_left' ? { torso: { part: '973', color: 4 }, heldLeft: { part: entry.part, color: c } }
+                    : { torso: { part: '973', color: 4 }, cape: { part: entry.part, color: c } };
                 const assembled = minifigFromSpec(spec as Parameters<typeof minifigFromSpec>[0]);
                 const wanted = slot === 'torso' ? 'torso' : slot === 'head' ? 'head' : slot === 'hair' ? 'headwear' : slot === 'back' ? 'back' : slot.startsWith('held') ? 'held' : slot;
-                const bricks = assembled.bricks.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_')));
+                const inSlot = (i: number): boolean => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_'));
+                const bricks = assembled.bricks.filter((_, i) => inSlot(i));
                 if (!bricks.length) { warnings.push(`${entry.part}: no ${slot} geometry was produced; omitted from creator library.`); continue; }
                 const cid = `${id}_mf_${slot}_${index}`;
-                const geo = await compileLdrawEntityGeometry(cid, 'figure', bricks, { scale: figureUnitsPerLdu, partGeometry: options.partGeometry, quality: options.minifigCreator.quality ?? options.entityQuality, rig: { bones: assembled.rig.bones, boneOf: assembled.rig.boneOf.filter((_, i) => assembled.slots[i] === wanted || (wanted === 'arms' && assembled.slots[i]!.startsWith('arm_')) || (wanted === 'hands' && assembled.slots[i]!.startsWith('hand_')) || (wanted === 'legs' && assembled.slots[i]!.startsWith('leg_'))) }, wholeModel: true, pbr,
+                const geo = await compileLdrawEntityGeometry(cid, 'figure', bricks, { scale: figureUnitsPerLdu, partGeometry: options.partGeometry, quality: options.minifigCreator.quality ?? options.entityQuality, rig: { bones: assembled.rig.bones, boneOf: assembled.rig.boneOf.filter((_, i) => inSlot(i)) }, wholeModel: true, pbr,
                     // Canonical minifig feet are y=72 LDU. Every library slot
                     // shares that origin; never recenter a head at its own floor.
                     originLdu: [0, 72, 0], inheritMaterialId: true, faceTextures: false });
@@ -1927,6 +1944,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     warnings.push(`${entry.part}: rejected from creator library; ${printMeshes.length} fixed print layers exceed the ${MAX_PRINT_LAYERS}-layer limit.`);
                     continue;
                 }
+                for (const g of (geo.value as { 'minecraft:geometry': Array<{ bones: Array<{ name: string; pivot?: number[] }> }> })['minecraft:geometry'])
+                    for (const b of g.bones) if (b.pivot && !bonePivots.has(b.name)) bonePivots.set(b.name, b.pivot);
                 files.push({ name: `${rp}models/entity/${cid}.geo.json`, data: geoJson(geo.value) });
                 const mesh = geo.meshes.find(candidate => candidate.material.colorId === 16); if (!mesh) { warnings.push(`${entry.part}: no inherited-colour base mesh was produced; omitted from creator library.`); continue; }
                 const key = `${slot}_${emitted.length}`; geometry[key] = mesh.id;
@@ -1940,20 +1959,45 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     const textureName = legoMaterialSwatchName(print.material);
                     printTextures[textureKey] = `textures/entity/${textureName}`;
                     if (!emittedSwatches.has(textureName)) { emittedSwatches.add(textureName); const swatch = generateLegoMaterialSwatch(print.material, { pbr, textureName }); files.push({ name: `${rp}textures/entity/${textureName}.png`, data: swatch.colorPng }); }
-                    controllers[`controller.render.${PACK_NAMESPACE}.${id}_mf_${slot}_${emitted.length}_print_${layer}`] = { arrays: { geometries: { 'Array.p': ['Geometry.empty', `Geometry.${printKey}`] } }, geometry: `Array.p[q.property('craftmatic:${slot}') == ${emitted.length}]`, materials: [{ '*': 'Material.default' }], textures: [`Texture.${textureKey}`] };
+                    controllers[`controller.render.${PACK_NAMESPACE}.${id}_mf_${slot}_${emitted.length}_print_${layer}`] = { arrays: { geometries: { 'Array.p': ['Geometry.empty', `Geometry.${printKey}`] } }, geometry: `Array.p[q.property('craftmatic:${slot}') == ${emitted.length}]`, materials: [{ '*': materialOf(print.material) }], textures: [`Texture.${textureKey}`] };
                 }
                 emitted.push([entry.part, entry.label ?? entry.part, entry.group ?? 'Other']);
             }
             library.minifig[slot] = emitted;
-            if (emitted.length) controllers[`controller.render.${PACK_NAMESPACE}.${id}_mf_${slot}`] = { arrays: { geometries: { 'Array.g': emitted.map((_, i) => `Geometry.${slot}_${i}`) }, textures: { 'Array.swatch': (options.minifigCreator.colours ?? MINIFIG_CREATOR_COLOURS).map((_, i) => `Texture.sw_${i}`) } }, geometry: `Array.g[q.property('craftmatic:${slot}')]`, textures: [`Array.swatch[q.property('craftmatic:c_${slot}')]`], materials: [{ '*': 'Material.default' }] };
+            if (emitted.length) controllers[`controller.render.${PACK_NAMESPACE}.${id}_mf_${slot}`] = {
+                arrays: {
+                    geometries: { 'Array.g': emitted.map((_, i) => `Geometry.${slot}_${i}`) },
+                    textures: { 'Array.swatch': colourIds.map((_, i) => `Texture.sw_${i}`) },
+                    materials: { 'Array.mat': slotMaterials },
+                },
+                geometry: `Array.g[q.property('craftmatic:${slot}')]`,
+                textures: [`Array.swatch[q.property('craftmatic:c_${slot}')]`],
+                materials: [{ '*': `Array.mat[q.property('craftmatic:c_${slot}')]` }],
+            };
         }
-        const colours = (options.minifigCreator.colours ?? MINIFIG_CREATOR_COLOURS).map(color => [color, `Colour ${color}`] as [number, string]);
-        const textures: Record<string, string> = { ...printTextures }; for (let i = 0; i < colours.length; i++) { const material = resolveLdrawEntityMaterial(colours[i]![0]); const name = legoMaterialSwatchName(material); textures[`sw_${i}`] = `textures/entity/${name}`; if (!emittedSwatches.has(name)) { emittedSwatches.add(name); const swatch = generateLegoMaterialSwatch(material, { pbr, textureName: name }); files.push({ name: `${rp}textures/entity/${name}.png`, data: swatch.colorPng }); } }
-        const defaults: Record<string, number> = { 'craftmatic:family': 0 };
-        const defaultColours: Partial<Record<CreatorSlot, number>> = { torso: 4, arms: 4, head: 14, hands: 14, hips: 1, legs: 1 };
+        // The empty geometry (index 0 of an optional slot, and every print layer
+        // when its part is not chosen) carries the rig's bones at the SAME pivots
+        // as every compiled part. Bedrock derives `armor_offset.default_neck` from
+        // a geometry's `head` bone; with the empty one's head at the origin, every
+        // head and hair geometry logged "model already has a locator … that
+        // doesn't exactly match" (one content-log error each, Pixel and Saga).
+        files.push({ name: `${rp}models/entity/${id}_mf_empty.geo.json`, data: geoJson({ format_version: '1.12.0', 'minecraft:geometry': [{ description: { identifier: emptyGeometryId, texture_width: 1, texture_height: 1, visible_bounds_width: 1, visible_bounds_height: 1, visible_bounds_offset: [0, 0, 0] }, bones: MINIFIG_BONES.map(b => ({ name: b.name, ...(b.parent ? { parent: b.parent } : {}), pivot: bonePivots.get(b.name) ?? [0, 0, 0] })) }] }) });
+        const swatchIcons: string[] = [];
+        const textures: Record<string, string> = { ...printTextures };
+        for (let i = 0; i < colourIds.length; i++) {
+            const name = legoMaterialSwatchName(colourMaterials[i]!);
+            textures[`sw_${i}`] = `textures/entity/${name}`;
+            swatchIcons.push(`textures/entity/${name}`);
+            if (!emittedSwatches.has(name)) { emittedSwatches.add(name); const swatch = generateLegoMaterialSwatch(colourMaterials[i]!, { pbr, textureName: name }); files.push({ name: `${rp}textures/entity/${name}.png`, data: swatch.colorPng }); }
+        }
+        // Named colours with their swatch as the button icon: the wand's colour
+        // list read "Colour 0 … Colour 378" on the device.
+        const colours = colourIds.map((color, i) => [color, bedrockInGameText(ldrawColourName(color)), swatchIcons[i]!] as [number, string, string]);
+        const firstTranslucent = colourMaterials.findIndex(m => m.alpha < 1);
+        const defaults: Record<string, number> = { 'craftmatic:family': 0, [POSE_PROPERTY]: 0 };
         for (const slot of Object.keys(library.minifig) as CreatorSlot[]) { defaults[`craftmatic:${slot}`] = 0; defaults[`craftmatic:c_${slot}`] = Math.max(0, colours.findIndex(([color]) => color === (defaultColours[slot] ?? 0))); }
         const figureId = `${PACK_NAMESPACE}:${entityId(`${id}_minifig`, 'f')}`;
-        creatorConfig = { id, label, itemId: `${PACK_NAMESPACE}:${id}_minifig_wand`, shortAlias: `mf_${id.slice(-6)}`, figureType: figureId, library, colours, firstTranslucentColour: 43, defaults: { minifig: defaults, minidoll: defaults }, presets: options.minifigCreator.presets ?? [], worldCap: 200, savedCap: 100, pageSize: 8 };
+        creatorConfig = { id, label, itemId: `${PACK_NAMESPACE}:${id}_minifig_wand`, shortAlias: `mf_${id.slice(-6)}`, figureType: figureId, library, colours, firstTranslucentColour: firstTranslucent < 0 ? colours.length : firstTranslucent, defaults: { minifig: defaults, minidoll: defaults }, presets: options.minifigCreator.presets ?? [], worldCap: 200, savedCap: 100, pageSize: 8, poses: CREATOR_POSES.map(p => [bedrockInGameText(p.name), !!p.still]) };
         // An int property's range must be WIDER than one value: Bedrock refuses
         // `[0, 0]` ("range max is less than range min", Pixel 2026-09-25) and with
         // it the entity's WHOLE property component, so every `q.property` failed
@@ -1962,13 +2006,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         const intRange = (count: number): [number, number] => [0, Math.max(1, count - 1)];
         const properties: Record<string, unknown> = {}; for (const [slot, entries] of Object.entries(library.minifig)) { properties[`craftmatic:${slot}`] = { type: 'int', range: intRange(entries.length), default: 0, client_sync: true }; properties[`craftmatic:c_${slot}`] = { type: 'int', range: intRange(colours.length), default: 0, client_sync: true }; }
         properties['craftmatic:family'] = { type: 'int', range: intRange(1), default: 0, client_sync: true }; properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
+        properties[POSE_PROPERTY] = { type: 'int', range: intRange(CREATOR_POSES.length), default: 0, client_sync: true };
         const creatorBehavior = { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: figureId, is_spawnable: true, is_summonable: true, properties }, components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } }, component_groups: { 'craftmatic:npc': { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .08 }, 'minecraft:behavior.random_look_around': { priority: 8 } } }, events: { 'craftmatic:release': { add: { component_groups: ['craftmatic:npc'] } }, 'craftmatic:npc_off': { remove: { component_groups: ['craftmatic:npc'] } } } } };
         // A released creator figure walks with the set's own figures (scripts/figures.js,
         // bedrock-figure-life.ts): no vanilla stroll, which never pathed over the
         // collider floors and wandered off a model. The runtime skips a figure
         // while it is a draft (`craftmatic:draft`), so editing one holds it still.
         figureBodies[figureId] = 1.8;
-        files.push({ name: `${bp}entities/${id}_minifig.json`, data: json(creatorBehavior) }, { name: `${rp}entity/${id}_minifig.entity.json`, data: json({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: figureId, materials: { default: 'entity_alphablend' }, textures, geometry, render_controllers: Object.keys(controllers), animations: MINIFIG_CLIENT_ANIMATIONS.animations, scripts: { animate: MINIFIG_CLIENT_ANIMATIONS.animate } } } }) }, { name: `${rp}animations/${id}_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) }, { name: `${rp}render_controllers/${id}_minifig.render_controllers.json`, data: json({ format_version: '1.8.0', render_controllers: controllers }) }, { name: `${bp}items/${id}_minifig_wand.json`, data: json({ format_version: '1.20.80', 'minecraft:item': { description: { identifier: `${PACK_NAMESPACE}:${id}_minifig_wand`, menu_category: { category: 'items' } }, components: { 'minecraft:icon': 'brick', 'minecraft:max_stack_size': 1 } } }) });
+        // Poses layer over the rig's own walk/look/sit, each gated on `craftmatic:pose`.
+        const pose = creatorPoseAnimations(id, figureUnitsPerLdu);
+        files.push({ name: `${bp}entities/${id}_minifig.json`, data: json(creatorBehavior) }, { name: `${rp}entity/${id}_minifig.entity.json`, data: json({ format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: figureId, materials: { default: 'entity', blend: 'entity_alphablend' }, textures, geometry, render_controllers: Object.keys(controllers), animations: { ...MINIFIG_CLIENT_ANIMATIONS.animations, ...pose.animations }, scripts: { animate: [...MINIFIG_CLIENT_ANIMATIONS.animate, ...pose.animate] } } } }) }, { name: `${rp}animations/${id}_minifig.animation.json`, data: json(MINIFIG_ANIMATIONS) }, { name: `${rp}animations/${id}_minifig_pose.animation.json`, data: json(pose.file) }, { name: `${rp}render_controllers/${id}_minifig.render_controllers.json`, data: json({ format_version: '1.8.0', render_controllers: controllers }) }, { name: `${bp}items/${id}_minifig_wand.json`, data: json({ format_version: '1.20.80', 'minecraft:item': { description: { identifier: `${PACK_NAMESPACE}:${id}_minifig_wand`, menu_category: { category: 'items' } }, components: { 'minecraft:icon': 'brick', 'minecraft:max_stack_size': 1 } } }) });
         addEntityName(figureId, `${label} Custom Minifig`, true);
         warnings.push(`${label}: creator library compiled ${cuboids} cuboids across ${Object.values(library.minifig).reduce((n, a) => n + a.length, 0)} selectable minifig parts. Mini-dolls are excluded because their canonical rig is unmeasured.`);
     }
