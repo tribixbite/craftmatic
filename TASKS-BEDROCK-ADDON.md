@@ -113,10 +113,8 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   `GEOGRADE.md` "Gate v2" and `docs/lego-sources-guide.md` §11. The held-out
   split scores 0.981 with 0 false accepts, against 0.758 with 9 for the strict
   gate. 508 files over 462 sets were published and R2-verified 516/516 plus the
-  index (`output/gate-v2/publish/r2dev-verify.json`). Open:
-  (1) Prod readback: `cd output/gate-v2/publish && python -u
-  ../../sources-0925/prod_verify.py verify-list.txt prod-verify.json` (backs off
-  on 429).
+  index (`output/gate-v2/publish/r2dev-verify.json`), prod 516/516 and index
+  `e696bfd87e72` at craftmatic.click (`prod-verify.json`). Open:
   (2) Seven IOModel2V2 picks (10326-noprint, 42152, 42212, 75339-dp-cp-noprint,
   75389, 75398, 75413-dp) rest on a stale PASS: the current grader says
   DEFECTIVE for the shipped bytes too (the same unknown/figure/window counts).
