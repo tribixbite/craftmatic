@@ -313,9 +313,22 @@ doll art sheet `face-measure/doll-art-sheet.png`, packs `packs-<commit>/`,
 face art dir `output/faces-art-0926/` (minifig art of 0924b + 28 doll heads).
 Rebuild the art: `python -u scripts/gen-face-art.py output/faces-art-0926 <sources…>`.
 Open:
-- [ ] Device: close-ups of doll faces and bodies, a doll walking and sitting,
-  before/after pairs (41732, 42703 against round 26b's packs). See the
-  device notes below this list for what was and was not done.
+- [x] Saga (world 925, 18:13-18:43, lock taken and released): the four packs
+  of `packs-c0737b89` (41732, 42703 in place over round 26c's; 43267, 11204
+  new) deployed without `--exclusive`; content log 0 errors / 0 overridden.
+  Evidence `output/dolls-0926/saga/`. Figure NUMBERS changed between the old
+  and new packs (the stump doll now anchors first), so a true pair is matched
+  by doll: `pair_42703_pink-pr0147_before-after.jpg` (blank face -> her own
+  face, stars and lips), `pair_41732_fig2_before-after.jpg`. All five
+  princesses of 43267 and mermaid Gabby have faces, hair, tails
+  (`after_43267_*`, `after_11204_fig1.jpg`); 41732 fig1 and 43267 fig5 are
+  bald (no LDraw hair mould, below). Walk: a doll walked off with its head on
+  (`walk_*`). Sit: `/ride` seated `princess_43267_fig5` (`sit_1.jpg`, legs
+  forward seen from the front). Everything summoned was killed; Play screen.
+- [ ] Device, not captured: a side view of a seated doll's 90-degree hip bend,
+  a mid-stride arm swing, and the Pixel. The deploy's staging dir
+  `/data/local/tmp/craftmatic-deploy-20260926-182514-46336` stays on the Saga
+  (the script keeps it; removing it is file by file).
 - [ ] Hair with no LDraw mould, so 7 distinct dolls are bald: `79989` (hair
   and hat, 41732), `53117` (hair and fire helmet, 42670), `35620` (long wavy
   hair with side braid, 41703); 41703's boy's `36060` hair is placed ~750 LDU

@@ -4077,3 +4077,14 @@ SILENTLY: an unresolved design id of a million or more is counted as a sticker.
   doll's legs (soles 48 LDU forward) stay with her (`SEATED_DOLL_LEGS_REACH`).
 - The head turns at the NECK (-19.2 / -19.8), not at the head mould's origin,
   which is the top of the crown: `look` swung the chin across the torso.
+
+### On the Saga (2026-09-26, world 925, `packs-c0737b89`)
+
+Deployed in place over round 26c; content log clean. The pink-haired
+mermaid of 42703 (`92198pr0147`, no LDraw print) went from a blank face to
+her own (photo art); 41732's dolls lost their grey (colour-16) heads and arms;
+all five 43267 princesses and mermaid Gabby have faces, hair and tails. A doll
+walked with its head on its body; `/ride` seated one. Not captured: the seated
+bend from the side, an arm swing mid-stride, the Pixel. Evidence
+`output/dolls-0926/saga/` (pairs are matched by DOLL: figure numbers moved
+when the stump doll gained its torso).
