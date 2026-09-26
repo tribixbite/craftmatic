@@ -3586,6 +3586,101 @@ four gaps are closed, see "Second round" below):
 - Two helicopters keep the native hover controller; every car (the time
   machine included), hover craft, boat and fixed wing is scripted.
 
+### Where the player sits (2026-09-26)
+
+Code: `web/src/engine/cockpit-seat.ts` (the seated body, the fit, the seat
+search, the clear eye), `findCockpit` in `ldraw-entity-compiler.ts` (the
+evidence), `behaviorEntity` in `playable-addon.ts` (the rideable seats),
+`vehicle-camera.js` (hiding a rider). Tests: `test/cockpit-seat.test.ts`.
+Census: `bun scripts/_vehicle_audit.ts <sets> --seats` (evidence
+`output/vehicle-seat-0926/` in the vehicle-seat worktree: `before/`,
+`final3/`, `shots/`).
+
+**What was wrong, measured on the Saga (26.52):**
+- **Every compiled vehicle's seat was mirrored along its length.** The
+  compiler measures seats in its render frame (nose toward -Z); a
+  `minecraft:rideable` seat's +Z is the way the entity faces. The X-wing's
+  pilot seat (render z +1.71, behind the middle) sat the player in the air
+  over its NOSE at 150 %, and 42172's rider telemetry read its eye 1.64
+  blocks ahead of the car's origin for a seat meant 1.64 behind. Seat z now
+  flips on the way into the rideable (x does not: the geometry's JSON X
+  mirror and the entity's half turn cancel).
+- **The "kart" rule sat 16 of 43 rideables ON the roof.** A model under 2.4
+  blocks tall or 2.2 wide (every display car shrunk to its real length, and
+  the 1x Senna) put the hips at `roofAtSeat - 0.55`: outside the car, the
+  first-person view looking down on its roof. Removed.
+- **A riding player's eye is 1.12 above its seat, not 1.25.** Telemetry
+  (`riderAt` in `CMVT`): head 0.82 and feet -0.70 over the vehicle for a
+  seat at -0.30. Vehicle seats use `RIDER_EYE_ABOVE_SEAT`; the coaster still
+  uses the old 1.25 (`TODO(seat-eye)`).
+- **A clear engine cylinder is not glass.** 42172's largest translucent
+  parts were its "Technic Engine Cylinder Head" pistons, so the driver sat in
+  the engine bay and the cockpit view was the inside of the engine.
+  `NOT_GLASS` (engine, lamp, lens, gem, flame, balloon, ...) now keeps such
+  parts out of the translucent-canopy rule.
+- **`size_100` took the rideable away.** It only removed the other size
+  groups, and removing a group removes its components even where the base
+  declares them: the X-wing sized 150 % then 100 % answered "The selected
+  entity is not rideable." 100 % is a group like every other step.
+
+**The rule now, per vehicle** (general, from the parts):
+1. The driver's eye comes from the source (`findCockpit`: a seated figure,
+   a seat mould, a steering wheel, a canopy mould, glass, else a default
+   cabin). The seat is that eye less 1.12.
+2. A canopy, glass or default-cabin seat is a VOLUME: the search moves it up
+   to 0.9 back and 0.2-0.4 up or down, toward the centre line, to where the
+   body fits at the smallest size, staying under the evidence's roof,
+   between its sides, on something, and off the last 6 % of the model. A
+   steering-wheel seat may rise half a block (a helm is steered standing). A
+   seated figure or seat mould is the seat and never moves.
+3. At every wand size the rider's EYE stays on the scaled driver's eye
+   (`seatPositionAt`), because the model scales and the player does not.
+4. At each size the seated body (head 0.47 cube; torso and arms 0.9 wide,
+   0.55 tall above the pelvis) is measured against the model: it FITS when
+   at most 8 % of the head and 20 % of the torso lie inside, and the pelvis
+   is not under the floor. The rider is drawn at the sizes it fits
+   (`riderVisibleSizes`) and made invisible at every other size by
+   vehicle-camera.js, so no body sticks through a roof or a flank.
+5. A hidden rider is only its eye: if the eye is inside the model or cannot
+   see ahead through air or glass, it moves to the nearest point that can,
+   never out through a roof it started under.
+
+**Census** (43 rideables in 34 sets; `final3/seats.md`): the rider is drawn
+in the driver's seat at 100 % in 22 (minifig-scale vehicles whose figure,
+seat or cabin the player fits: 10365, 31109, 6286, 60266, 75397, 10497,
+60198's two, 60380's truck, 60367 and four of its airport vehicles,
+910047's boat and cart, 60405, the 10303 tricycle, 75892; two shrunk
+display cars, 42172 and 10242; and 60221, whose helm is wrong, below);
+hidden at 100 % and drawn from 150-400 % in 19 (the other display cars
+10300, 10337, 10295, 42143, 76139, 42128 and its tow dolly, 41395, 42663;
+the X-wings 7140 and 75301; 70618, 60446, 42066, 42639's car, 60253, 4559
+and two airport vehicles); hidden at every size in 2 (76286, 42092).
+Before: 16 on the roof or clamped above the cockpit, and every seat mirrored
+along the length.
+
+**On the device (Saga, world 925, packs `0a563bbc`):** 42172 at 100 %: the
+player's head shows in the cabin through the side window, facing the nose,
+and the cockpit view looks out through the windscreen (`shots/saga-91`,
+`-92`). 7140 at 150 %: the player sits in the cockpit (`saga-82`, `-83`)
+and the cockpit view is through the canopy frame over the nose (`saga-81`);
+at 100 % the rider is hidden and the view is from the cockpit over the nose
+(`saga-84`, `-85`). 10365: the rider sits where the source's seated figure
+sat, but that figure is at the BOW (`saga-a2`; see below). 60221: the helm's
+steering wheel is the set's small underwater scooter's, and the rider sits
+under the yacht on the ground (`saga-95`; see below).
+
+**Not solved:**
+- 60221's steering wheel (`3828`) belongs to an accessory built into the same
+  entity, not the yacht's helm; the rider sits by it, under the hull.
+- A ship's driver is the FRONT-most seated figure when no steering wheel is
+  found (right for a car); 10365's is a figure at the bow. A boat should take
+  the aft-most (its helm), and a ship's wheel is not a recognised steering
+  part.
+- The Milano and 42092 never fit: their canopy / default-cabin eye lies in
+  the hull at every size.
+- An invisible rider still shows what it holds (the invisibility effect); the
+  chase camera then shows the vehicle without a driver.
+
 ### Traps found this round
 
 - **The prod part mirror throttles parallel exports.** Six `_playable_ref.ts`
