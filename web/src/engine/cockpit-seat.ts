@@ -14,11 +14,11 @@
  * Until 2026-09-26 such a rider was sat ON the roof, like a kart
  * (`roofAtSeatBlocks − 0.55`): the body no longer clipped, but the player was
  * outside the car and the first-person view looked down on its roof. Now the
- * player always sits at the driver's seat. Where the body does not fit at the
- * size the vehicle was placed, the rider is made INVISIBLE while riding
- * (vehicle-camera.js) and the seat is anchored at the driver's EYE, so the
- * first-person view is still the driver's; from the wand size where the body
- * fits (`fitScale`), the rider is drawn in the seat, anchored at the hips.
+ * player always sits at the driver's seat, its EYE on the driver's eye at
+ * every wand size, so the first-person view is the driver's. Where the body
+ * does not fit at the size the vehicle was placed, the rider is made
+ * INVISIBLE while riding (vehicle-camera.js); at a size where it fits
+ * (`riderVisibleSizes`), the rider is drawn in the seat.
  *
  * Everything here is in the ENTITY frame the rideable seats use: blocks, Y up
  * from the model's floor, the nose toward −Z, before the JSON X mirror.
@@ -94,10 +94,13 @@ export const riderFits = (o: { head: number; torso: number }): boolean => o.head
  */
 export const SEAT_FLOOR_SLACK = 0.15;
 
-/** Anything reaching above the eye over the seat's column (a roof, a canopy's glass)? */
+/** Share of the model's length at either end a searched seat may not enter. */
+export const SEAT_END_MARGIN = 0.06;
+
+/** Anything reaching above the eye straight over the seat (a roof, a canopy's glass)? */
 function roofed(boxes: readonly BoxBlocks[], seat: Vec3): boolean {
   const eyeY = seat[1] + SEATED_EYE_HEIGHT_BLOCKS;
-  return boxes.some(b => b.min[0] <= seat[0] + 0.1 && b.max[0] >= seat[0] - 0.1 && b.min[2] <= seat[2] + 0.1 && b.max[2] >= seat[2] - 0.1 && b.max[1] > eyeY + 0.05 && b.min[1] < eyeY + 3);
+  return boxes.some(b => b.min[0] <= seat[0] && b.max[0] >= seat[0] && b.min[2] <= seat[2] && b.max[2] >= seat[2] && b.max[1] > eyeY + 0.05 && b.min[1] < eyeY + 3);
 }
 
 /** Model beside the torso on both sides within reach (a door, a flank, a gunwale)? */
@@ -124,7 +127,12 @@ export interface SeatPlan {
    * matters.
    */
   seat: Vec3;
-  /** Smallest of `SEAT_FIT_STEPS` at which the seated body fits; null when it fits at none (up to 400 %). */
+  /**
+   * Smallest of `SEAT_FIT_STEPS` at which the seated body fits; null when it
+   * fits at none (up to 400 %). Not a threshold: a bigger model can also bring
+   * a lap-high dashboard or the floor up into a relatively smaller rider, so
+   * each step decides for itself (`riderVisibleAt`, `riderVisibleSizes`).
+   */
   fitScale: number | null;
   /** The measured overlap at each step, for the diagnostics. */
   steps: Array<{ f: number; head: number; torso: number; fits: boolean }>;
@@ -154,12 +162,29 @@ export const SEAT_SEARCH = {
   step: 0.1,
 } as const;
 
+/**
+ * A searched seat whose rider is still hidden at 100 % is judged by what its
+ * EYE sees: never trade the evidence's view for one with more of the model in
+ * the head (a 1989 Batmobile candidate fit from 300 % with 73 % of the head
+ * inside the body, against 32 % at the canopy).
+ */
+export function keepsTheView(at100: { fits: boolean; head: number }, evidenceHead: number): boolean {
+  return at100.fits || at100.head <= evidenceHead + 1e-9;
+}
+
 /** The evidence a seat came from, as far as the search cares. */
 export type SeatEvidence = 'seat' | 'steering' | 'volume';
 
 /** Measure a driver's seat against the model's boxes (entity frame, blocks). */
 export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evidence: SeatEvidence = 'seat'): SeatPlan {
-  const measure = (s: Vec3): SeatPlan['steps'] => SEAT_FIT_STEPS.map(f => { const o = riderOverlap(boxes, s, f); return { f, ...o, fits: riderFits(o) && s[1] + SEAT_FLOOR_SLACK / f >= 0 }; });
+  // At wand factor f the seat is `seatPositionAt(s, f)`, i.e. in the model's
+  // own (unscaled) frame the eye stays put and the unscaled body hangs 1.25/f
+  // under it.
+  const measure = (s: Vec3): SeatPlan['steps'] => SEAT_FIT_STEPS.map(f => {
+    const at: Vec3 = [s[0], s[1] + SEATED_EYE_HEIGHT_BLOCKS - SEATED_EYE_HEIGHT_BLOCKS / f, s[2]];
+    const o = riderOverlap(boxes, at, f);
+    return { f, ...o, fits: riderFits(o) && at[1] * f + SEAT_FLOOR_SLACK >= 0 };
+  });
   const fitOf = (steps: SeatPlan['steps']): number | null => steps.find(s => s.fits)?.f ?? null;
   let best = { seat, eye, steps: measure(seat), moved: null as Vec3 | null };
   let search: SeatPlan['search'] = null;
@@ -177,11 +202,12 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
     // on something (a 0.25x Ferrari's search otherwise walked out onto the
     // engine deck at the tail, where open air "fits" anyone).
     const needRoof = roofed(boxes, seat), needSides = sided(boxes, seat);
-    // Nor into the last 15 % at either end: no driver sits on a bumper (the
+    // Nor into the last 6 % at either end: no driver sits on a bumper (the
     // same Ferrari's canopy evidence lay aft, and the search reached 0.24
-    // blocks from its tail).
+    // blocks, 3 %, from its tail). 15 % shut a cab-forward van's driver out of
+    // its own cab (60253's helm is 7 % from the nose).
     const zs = boxes.flatMap(b => [b.min[2], b.max[2]]);
-    const z0 = Math.min(...zs), z1 = Math.max(...zs), endMargin = (z1 - z0) * 0.15;
+    const z0 = Math.min(...zs), z1 = Math.max(...zs), endMargin = (z1 - z0) * SEAT_END_MARGIN;
     const inCabin = (c: Vec3): boolean => c[2] >= z0 + endMargin && c[2] <= z1 - endMargin && supported(boxes, c) && (!needRoof || roofed(boxes, c)) && (!needSides || sided(boxes, c));
     search = { needRoof, needSides, tried: 0, outOfCabin: 0 };
     const xs = [...new Set([0, 0.25, 0.5, 0.75, 1].map(t => Math.round(seat[0] * (1 - t) * 100) / 100))];
@@ -191,10 +217,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       search.tried++;
       if ((dz || dy || x !== seat[0]) && !inCabin(s)) { search.outOfCabin++; continue; }
       const steps = measure(s);
-      // A rider still hidden at 100 % there sees from its eye: never trade the
-      // evidence's view for one with more of the model in the head (a 1989
-      // Batmobile candidate fit from 300 % with 73 % of the head in the body).
-      if (!steps[0]!.fits && steps[0]!.head > evidenceHead + 1e-9) continue;
+      if (!keepsTheView(steps[0]!, evidenceHead)) continue;
       const r = rank(steps, Math.hypot(dz, dy, x - seat[0]));
       if (better(r, bestRank)) { bestRank = r; best = { seat: s, eye: [s[0], Math.round((s[1] + SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, s[2]], steps, moved: [Math.round((s[0] - seat[0]) * 100) / 100, Math.round(dy * 100) / 100, Math.round(dz * 100) / 100] }; }
     }
@@ -204,28 +227,31 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search };
 }
 
-/** Whether the rider's body is drawn at wand factor `f`: only where it fits. */
-export function riderVisibleAt(plan: Pick<SeatPlan, 'fitScale'>, f: number): boolean {
-  return plan.fitScale !== null && f >= plan.fitScale - 1e-9;
+/**
+ * Whether the rider's body is drawn at wand factor `f`: only at a measured
+ * step where it fits. Below 100 % (the 25-75 % steps) it is never drawn: the
+ * model is smaller than the one it was measured at.
+ */
+export function riderVisibleAt(plan: Pick<SeatPlan, 'steps'>, f: number): boolean {
+  return plan.steps.some(s => s.fits && Math.abs(s.f - f) < 1e-6);
 }
 
 /**
- * The size factor from which vehicle-camera.js stops hiding a rider
- * (`riderVisibleFrom`): the fit scale, or `NEVER_VISIBLE` when the body fits
- * at no size up to 400 % (JSON has no Infinity).
+ * The wand size factors at which vehicle-camera.js shows the rider (every
+ * other size hides it). No plan (a grid-only vehicle): always shown, `null`.
  */
-export const NEVER_VISIBLE = 99;
-export const riderVisibleFrom = (plan: Pick<SeatPlan, 'fitScale'> | undefined): number => plan ? plan.fitScale ?? NEVER_VISIBLE : 0;
+export const riderVisibleSizes = (plan: Pick<SeatPlan, 'steps'> | undefined): number[] | null =>
+  plan ? plan.steps.filter(s => s.fits).map(s => s.f) : null;
 
 /**
- * A seat's position at wand factor `f`. Visible: the whole seat scales with
- * the model, so the hips stay on the scaled seat pan (the eye sits lower
- * against a bigger windscreen, as a person's does in a bigger car). Hidden:
- * the EYE stays on the scaled driver's eye, so the first-person view is the
- * driver's at every size, and the unseen body goes where it may.
+ * A seat's position at wand factor `f`: the rider's EYE stays on the scaled
+ * driver's eye (the seat was derived from that eye, less the seated eye
+ * height), because the model scales and the player does not. At 400 % a
+ * quarter-scale car is a minifig-scale car and the player sits where its
+ * minifig driver would, eye to eye; scaling the whole seat instead kept a
+ * quarter-scale seat under the floor at every size.
  */
-export function seatPositionAt(position: Vec3, f: number, visible: boolean): Vec3 {
+export function seatPositionAt(position: Vec3, f: number): Vec3 {
   const r3 = (v: number): number => Math.round(v * 1000) / 1000;
-  if (visible) return [r3(position[0] * f), r3(position[1] * f), r3(position[2] * f)];
   return [r3(position[0] * f), r3((position[1] + SEATED_EYE_HEIGHT_BLOCKS) * f - SEATED_EYE_HEIGHT_BLOCKS), r3(position[2] * f)];
 }

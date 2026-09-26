@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
-import { planSeat, riderOverlap, riderVisibleAt, riderVisibleFrom, seatPositionAt, NEVER_VISIBLE, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 import { SEATED_EYE_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -43,30 +43,32 @@ describe('riderOverlap / planSeat', () => {
   });
 
   it('finds the smallest wand size at which the body fits (the model scales, the player does not)', () => {
-    // A quarter-size cabin: 0.55 blocks inside, seat 0.05 over the floor.
-    const small = cabin(0.3, 0.55);
+    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor.
+    const small = [box([-0.5, 0, -2], [0.5, 0.03, 2]), box([-0.5, 0, -2], [-0.3, 0.55, 2]), box([0.3, 0, -2], [0.5, 0.55, 2]), box([-0.5, 0.55, -2], [0.5, 0.6, 2])];
     const eye: Vec3 = [0, 0.3, 0];
-    const plan = planSeat(small, eye, [0, 0.05, 0]);
+    const plan = planSeat(small, eye, [0, eye[1] - SEATED_EYE_HEIGHT_BLOCKS, 0]);
     expect(plan.steps.map(s => s.f)).toEqual([1, 1.5, 2, 3, 4]);
     expect(plan.steps[0]!.fits).toBe(false);
-    expect(plan.fitScale).toBe(3);
+    // At 400 % it is a minifig-scale cabin (eye 1.2 blocks up, roof at 2.2).
+    expect(plan.fitScale).toBe(4);
     expect(riderVisibleAt(plan, 1)).toBe(false);
-    expect(riderVisibleAt(plan, 2)).toBe(false);
-    expect(riderVisibleAt(plan, 3)).toBe(true);
-    expect(riderVisibleFrom(plan)).toBe(3);
-    expect(riderVisibleFrom({ fitScale: null })).toBe(NEVER_VISIBLE);
-    expect(riderVisibleFrom(undefined)).toBe(0);
+    expect(riderVisibleAt(plan, 3)).toBe(false);
+    expect(riderVisibleAt(plan, 4)).toBe(true);
+    expect(riderVisibleSizes(plan)).toEqual([4]);
+    expect(riderVisibleSizes(undefined)).toBeNull();
+    // Below 100 % the model is smaller than it was measured at: never drawn.
+    expect(riderVisibleAt(plan, 0.5)).toBe(false);
   });
 
-  it('scales a drawn rider by the hips and keeps a hidden rider\'s EYE on the driver\'s eye', () => {
+  it('keeps the rider\'s EYE on the scaled driver\'s eye at every size (the model scales, the player does not)', () => {
     const seat: Vec3 = [0.4, -0.3, 1.6];
-    // Drawn: the whole seat scales with the model.
-    expect(seatPositionAt(seat, 2, true)).toEqual([0.8, -0.6, 3.2]);
-    // Hidden: eye = seat + 1.25 scales, the body hangs 1.25 under it.
-    const hidden = seatPositionAt(seat, 2, false);
-    expect(hidden[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 2, 6);
-    expect(hidden[0]).toBeCloseTo(0.8);
-    expect(hidden[2]).toBeCloseTo(3.2);
+    const at2 = seatPositionAt(seat, 2);
+    expect(at2[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 2, 6);
+    expect(at2[0]).toBeCloseTo(0.8);
+    expect(at2[2]).toBeCloseTo(3.2);
+    // A quarter-scale seat under the floor is a minifig-scale seat above it at 400 %.
+    expect(seatPositionAt([0, -0.84, 0], 4)[1]).toBeCloseTo((0.41) * 4 - SEATED_EYE_HEIGHT_BLOCKS, 6);
+    expect(seatPositionAt([0, -0.84, 0], 4)[1]).toBeGreaterThan(0);
   });
 });
 
@@ -120,7 +122,7 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     const seat = (Array.isArray(seats) ? seats[0] : seats).position as number[];
     // Eye 51 LDU above the seat mould (at 8 LDU over the plate, the plate 28 LDU over the wheels. bottom), less the seated eye height.
     expect(seat[1]).toBeCloseTo((28 + 8 + 51) / 53.333 - SEATED_EYE_HEIGHT_BLOCKS, 1);
-    expect(camera).toContain('"riderVisibleFrom":1');
+    expect(camera).toContain('"riderVisibleSizes":[1,1.5,2');
   });
 
   it('at quarter scale the seat stays in the cockpit (not on the roof) and the rider is hidden until it fits', async () => {
@@ -132,22 +134,25 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     // (seat + 1.25) is now the driver's, under the roof.
     expect(seat[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeLessThan(roof);
     expect(seat[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((28 + 8 + 51) * 0.25 / 53.333, 1);
-    const from = Number(/"riderVisibleFrom":([\d.]+)/.exec(camera)?.[1]);
+    const sizes = JSON.parse(/"riderVisibleSizes":(\[[^\]]*\])/.exec(camera)?.[1] ?? 'null') as number[];
+    const from = sizes.length ? sizes[0]! : 99;
     expect(from).toBeGreaterThan(1);
     // The camera script hides a rider below that size and lets go of the effect after.
     expect(camera).toMatch(/addEffect\(["']invisibility/);
     expect(camera).toMatch(/removeEffect\(["']invisibility/);
-    // Size groups: below the fit size the eye is anchored; at the fit size the hips are.
+    // Size groups: the eye stays on the scaled driver's eye; at 400 % this quarter-scale
+    // car is the minifig-scale one, and the body fits there.
     const groups = entity.component_groups;
     const at = (pct: number): number[] => { const s = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats; return (Array.isArray(s) ? s[0] : s).position; };
-    expect(at(200)[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo(from <= 2 ? (seat[1]) * 2 + SEATED_EYE_HEIGHT_BLOCKS : (seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 2, 2);
-    const fitPct = Math.round(from * 100);
-    if (from <= 4) expect(at(fitPct)[1]).toBeCloseTo(seat[1] * from, 2);
+    expect(at(200)[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 2, 2);
+    expect(at(400)[1]).toBeGreaterThan(0);
+    expect(from).toBeLessThanOrEqual(4);
   });
 
   it('hides a rider while the car is too small for them and shows them again at the size that fits (vehicle-camera.js)', async () => {
     const { camera } = await build(0.25);
-    const from = Number(/"riderVisibleFrom":([\d.]+)/.exec(camera)?.[1]);
+    const sizes = JSON.parse(/"riderVisibleSizes":(\[[^\]]*\])/.exec(camera)?.[1] ?? 'null') as number[];
+    const from = sizes.length ? sizes[0]! : 99;
     let scale = 1;
     let riders: unknown[] = [];
     const effects: string[] = [];
@@ -215,14 +220,31 @@ describe('the seat search (a canopy is a volume, not a seat)', () => {
     const seat: Vec3 = [0, 0, 0];
     const plan = planSeat(boxes, [0, SEATED_EYE_HEIGHT_BLOCKS, 0], seat, 'volume');
     // Without the cabin rule the search reaches z 0.9, over the open deck, and "fits".
-    expect(plan.seat[2]).toBeLessThan(0.5);
-    expect(plan.fitScale).not.toBe(1);
+    expect(plan.seat[2]).toBeLessThanOrEqual(0.5);
+  });
+
+  it('never moves a seat into the last 6 % of the model (no driver sits on a bumper)', () => {
+    // A 4.1-block floor and a waist-high block over the evidence seat up to z 1.95: the
+    // body is clear of it only from z ~2.03, within 0.07 of the tail (margin 0.25).
+    const boxes = [box([-1, 0, -2], [1, 0.1, 2.1]), box([-1, 0.1, 0.5], [1, 1.0, 1.95])];
+    const plan = planSeat(boxes, [0, 1.35, 1.2], [0, 0.1, 1.2], 'volume');
+    expect(plan.moved).toBeNull();
+    expect(plan.seat[2]).toBe(1.2);
+  });
+
+  it('keeps a still-hidden rider\'s eye out of the model rather than trade it for a bigger fit size', () => {
+    // 1989 Batmobile (census 2026-09-26): the canopy seat had 32 % of the head in the body at 100 %;
+    // a seat 0.9 back fit from 300 % with 73 %. Hidden at 100 % either way, so the view decides.
+    expect(keepsTheView({ fits: false, head: 0.73 }, 0.32)).toBe(false);
+    expect(keepsTheView({ fits: false, head: 0.2 }, 0.32)).toBe(true);
+    // A seat the body fits at 100 % is drawn there, whatever the evidence's view was.
+    expect(keepsTheView({ fits: true, head: 0.05 }, 0)).toBe(true);
   });
 
   it('does not draw a rider whose pelvis would stick out under the floor', () => {
     const open: BoxBlocks[] = [];
-    // The seat scales with the model, so a seat under the floor stays under it at every size.
-    expect(planSeat(open, [0, 0.98, 0], [0, -0.27, 0]).fitScale).toBeNull();
+    // Hips 0.27 under the floor at 100 %; from 150 % the scaled eye lifts them clear.
+    expect(planSeat(open, [0, 0.98, 0], [0, -0.27, 0]).fitScale).toBe(1.5);
     expect(planSeat(open, [0, 1.14, 0], [0, -0.11, 0]).fitScale).toBe(1);
   });
 });
