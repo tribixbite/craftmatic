@@ -885,6 +885,13 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
  * every cut so a double door's two leaves see each other's cells as air, and
  * again after clearance (collider-clearance.ts) so a trimmed neighbour is
  * restored trimmed where it shares a world block with a leaf.
+ *
+ * A leaf's OWN cells are recorded too when the cut left part of them static
+ * (the sill under a leaf hung a plate up, the lintel over it): the runtime
+ * lays an opened doorway's own blocks from these cells, and skipping them
+ * cleared the sill when the door opened - on the Pixel (GameTest 2026-09-25,
+ * 80049's Gate 1) the walker dropped into the 1/4-block pit the offline walk,
+ * which keeps the static grid, never saw.
  */
 export function captureDoorwayNeighbours(grid: BlockGrid, plans: ReadonlyArray<InteractiveColliderPlan | null>): void {
   const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length;
@@ -892,11 +899,10 @@ export function captureDoorwayNeighbours(grid: BlockGrid, plans: ReadonlyArray<I
     if (!plan || !plan.blocking.length) continue;
     plan.neighbours = [];
     const xs = plan.blocking.map(c => c[0]), ys = plan.blocking.map(c => c[1]), zs = plan.blocking.map(c => c[2]);
-    const own = new Set(plan.blocking.map(c => `${c[0]},${c[1]},${c[2]}`));
     for (let x = Math.min(...xs) - NEIGHBOUR_REACH; x <= Math.max(...xs) + NEIGHBOUR_REACH; x++)
       for (let y = Math.min(...ys) - NEIGHBOUR_REACH; y <= Math.max(...ys) + NEIGHBOUR_REACH; y++)
         for (let z = Math.min(...zs) - NEIGHBOUR_REACH; z <= Math.max(...zs) + NEIGHBOUR_REACH; z++) {
-          if (!inGrid(x, y, z) || own.has(`${x},${y},${z}`)) continue;
+          if (!inGrid(x, y, z)) continue;
           const form = parseFormState(grid.get(x, y, z));
           if (form) plan.neighbours.push(form.v ? [x, y, z, form.lo, form.hi, form.v] : [x, y, z, form.lo, form.hi]);
         }

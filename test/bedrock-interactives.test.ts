@@ -443,6 +443,19 @@ describe('interactive entity assets', () => {
 
 describe('interactives runtime (scripts/interactives.js)', () => {
   const anchor = { x: 100, y: 64, z: 200 };
+  /**
+   * An opened doorway's own blocks hold only the static part the cut kept there (a lintel over the leaf, a
+   * sill under it) - the doorway's neighbour cells laid at this size and turn - or nothing.
+   */
+  const expectOpen = (h: ReturnType<typeof runtimeHost>, cfg: InteractiveRuntimeConfig, items: number[], f = 1, r = 0): void => {
+    const statics = ixWorldBlocks(items.flatMap(i => cfg.items[i]!.neighbours), cfg.dims, f, r, COLLIDER_KIT);
+    for (const i of items) for (const key of ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r, COLLIDER_KIT).keys()) {
+      const [x, y, z] = key.split(',').map(Number) as [number, number, number];
+      const k = `${anchor.x + x},${anchor.y + y},${anchor.z + z}`, st = statics.get(key);
+      if (!st) { expect(h.blocks.has(k), k).toBe(false); continue; }
+      expect(h.blocks.get(k)?.states, k).toEqual({ [cfg.colliders.loState]: st[0], [cfg.colliders.hiState]: st[1] });
+    }
+  };
   const keysOf = (cfg: InteractiveRuntimeConfig, i: number, f = 1, r = 0) => [...ixWorldBlocks(cfg.items[i]!.blocking, cfg.dims, f, r, COLLIDER_KIT).keys()].map(k => { const [x, y, z] = k.split(',').map(Number) as [number, number, number]; return `${anchor.x + x},${anchor.y + y},${anchor.z + z}`; });
   it('lays a freshly placed door closed, opens both leaves of a double door on one tap, restores the static state and plays the door sound', () => {
     const cfg = doubleDoorConfig();
@@ -457,7 +470,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(b.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     expect(a.angle).toBe(90);
     expect(b.angle).toBe(-90);
-    for (const k of [...keysOf(cfg, 0), ...keysOf(cfg, 1)]) expect(h.blocks.has(k), k).toBe(false);
+    expectOpen(h, cfg, [0, 1]);
     expect(h.sounds).toEqual(['random.door_open']);
     h.tap(b);
     for (const k of keysOf(cfg, 0)) expect(h.blocks.get(k)?.typeId).toBe(COLLIDER_BLOCK_ID);
@@ -599,7 +612,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.actorProps.get(INTERACTIVE_SIZE_PROPERTY)).toBe(2);
     expect(a.events.at(-1)).toBe(hitGroupName(90, 200, false));
     h.tap(a);
-    for (const k of closed) expect(h.blocks.has(k), k).toBe(false);
+    expectOpen(h, cfg, [0], 2, 90);
     expect(a.events.at(-1)).toBe(hitGroupName(90, 200, true));
   });
 
