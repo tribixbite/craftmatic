@@ -311,6 +311,15 @@ camera.
 - `creator_<id>`, when the pack has a Minifig Creator: a creator figure
   spawned as a wand draft must hold still for 100 ticks, then walk at least
   2 blocks once released and stay within 8 blocks of the release point.
+- `creator_wand_<id>`, same packs: the wand's own operations (the functions
+  its form buttons call, `globalThis.craftmaticMinifigWand`) for a simulated
+  player: draft beside it and holding still, part/colour/pose/name edits, a
+  figure code round trip, save/load/delete and Undo of the delete, Undo of an
+  edit, place to stand still (must not move), Undo of that place, place to
+  walk (must walk 2 blocks), pick up (must hold still), remove and Undo of the
+  removal. One `CMGT CREATOR_WAND` row names every step's result. A form
+  answer, a real seat and a world reload are not covered (host tests cover
+  the reload sweep).
 - `gait_<id>` with `--gait-probe`: the walk-cycle probe. One standing figure's
   BP entity gets two server-side animation controllers that report every
   whole unit of `query.modified_distance_moved` and the bucket of

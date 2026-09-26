@@ -2193,7 +2193,12 @@ export async function compileLdrawEntityGeometry(
           });
         }
       }
-      for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material, bone, aligned });
+      // A stud is the part's own colour: under `inheritMaterialId` that is the
+      // inherited 16, like the part's own colour-16 cuboids. Taking the
+      // placement colour made every creator head's top stud a fixed red print
+      // layer (the library is compiled in a placeholder colour; Saga 2026-09-26).
+      const studMaterial = options.inheritMaterialId ? resolveLdrawEntityMaterial(16) : material;
+      for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material: studMaterial, bone, aligned });
     });
 
     // Headwear carves the head: a head cell that shares space with its hair

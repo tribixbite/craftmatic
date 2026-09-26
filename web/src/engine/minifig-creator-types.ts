@@ -12,7 +12,7 @@
  * client-synced integer entity properties (a part index and a colour index
  * per slot, a family, a draft flag) read by render controllers through
  * `q.property()`. Bedrock allows 32 properties per entity type; the table
- * below uses 22.
+ * below uses 23 (10 part + 10 colour + family, draft and pose).
  */
 
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
@@ -46,8 +46,33 @@ export const FAMILY_PROPERTY = 'craftmatic:family';
 export const DRAFT_PROPERTY = 'craftmatic:draft';
 /** Entity DYNAMIC property (string): the `player.id` who owns the draft / placed the figure. */
 export const OWNER_DYNAMIC_PROPERTY = 'craftmatic:owner';
+/** Entity property: the figure's pose, an index into `CREATOR_POSES` (0 = standing). */
+export const POSE_PROPERTY = 'craftmatic:pose';
 /** Total entity properties the creator entity declares; Bedrock's limit is 32 per type. */
-export const CREATOR_PROPERTY_COUNT = CREATOR_SLOTS.length * 2 + 2;
+export const CREATOR_PROPERTY_COUNT = CREATOR_SLOTS.length * 2 + 3;
+
+/**
+ * Entity DYNAMIC property (string): what a placed figure does once the wand
+ * lets it go. `walk`: the figure-life walker adopts it (scripts/figures.js,
+ * roaming home where it stands); `stay`: it stands where it was put, holding
+ * its pose; `seat`: it sits on the seat it was put on. `stay` and `seat` are
+ * written as the walker's `seated` home, which the walker never walks.
+ */
+export const MODE_DYNAMIC_PROPERTY = 'craftmatic:mf_mode';
+export type CreatorMode = 'walk' | 'stay' | 'seat';
+
+/**
+ * A pose a creator figure can hold, as bone rotations/offsets (degrees and
+ * geometry units) layered over the rig's own animations. x-rotation only on
+ * limbs: the minifig's `sit` animation already proves -90 on `leg_*` swings a
+ * limb FORWARD, and an arm hangs from its pivot the same way.
+ */
+export interface CreatorPose {
+  name: string;
+  bones: Record<string, { rotation?: [number | string, number | string, number | string]; positionLdu?: [number, number, number] }>;
+  /** A pose that only reads standing still (sitting on the ground): placing it makes the figure stay. */
+  still?: boolean;
+}
 
 /** Entity events: `release` adds the NPC component group, `npc_off` removes it again for editing in place. */
 export const RELEASE_EVENT = 'craftmatic:release';
@@ -145,8 +170,10 @@ export interface MinifigCreatorConfig {
   figureType: string;
   /** Per family, per slot: `[part, label, group]` in property-index order (index 0 of an optional slot is `['', 'None', '']`). */
   library: Record<CreatorFamily, Partial<Record<CreatorSlot, Array<[part: string, label: string, group: string]>>>>;
-  /** `[colorId, name]` in property-index order. */
-  colours: Array<[id: number, name: string]>;
+  /** `[colorId, name, icon]` in property-index order; `icon` is the swatch texture path for a form button. */
+  colours: Array<[id: number, name: string, icon?: string]>;
+  /** Pose names in `craftmatic:pose` index order (`CREATOR_POSES`), with whether each is a still pose. */
+  poses?: Array<[name: string, still: boolean]>;
   firstTranslucentColour: number;
   /** Default property values per family (the pack's default figure). */
   defaults: Record<CreatorFamily, Record<string, number>>;

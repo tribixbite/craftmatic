@@ -285,6 +285,15 @@ export interface GametestPlan {
    * while it is a draft and walk (scripts/figures.js) once it is not.
    */
   creatorFigure?: string | undefined;
+  /**
+   * The Minifig Creator wand's operations (`creator_wand_<id>`): the
+   * `globalThis` key the wand runtime publishes them under
+   * (`MINIFIG_WAND_API_GLOBAL`), the player dynamic property its saved
+   * figures live in, and how many parts each slot's library holds. A
+   * simulated player cannot answer a form, so the test calls the same
+   * functions the form buttons call.
+   */
+  creatorWand?: { api: string; savedKey: string; slotSizes: Record<string, number> } | undefined;
   /** Driven trains on the model's own railway track (`train_<id>_<n>`); absent or empty: no test. */
   trains?: GametestTrain[] | undefined;
 }
@@ -617,7 +626,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
   if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
   if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [], trains: [] };
-  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined };
+  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined, creatorWand: undefined };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
   /** Ticks a doorway walk gives each leg of the offline route (`GametestDoorway.via`) before moving on. */
@@ -1185,6 +1194,116 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (minY < -0.6) problems.push(`it dropped ${-minY} blocks`);
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + (plan.figureTicks ?? 1200)).tag(NS);
+
+  /**
+   * The Minifig Creator WAND, through the operations its form buttons call
+   * (`bedrock-minifig-wand.ts`, published on `globalThis`): a simulated
+   * player's draft appears beside it and holds still; part, colour, pose and
+   * name edits land; a figure code and a saved figure round-trip; Undo puts
+   * a look back; a figure placed to stand still stays, one placed to walk
+   * walks; picking one up holds it; removing it and undoing brings it back as
+   * it was. A world reload is not scriptable here (the host test covers the
+   * reload sweep) and neither is a real seat (the arena has none).
+   */
+  const wandPlan = plan.creatorWand;
+  if (creatorType && wandPlan) gt.registerAsync(NS, `creator_wand_${plan.modelId}`, async (test: any) => {
+    const api = (globalThis as any)[wandPlan.api];
+    if (!api) { log('CREATOR_WAND', { model: plan.modelId, error: 'no wand API on globalThis' }); flush(); test.fail('the wand published no API'); return; }
+    const f0 = floorY(test, margin, margin).y;
+    const sim = test.spawnSimulatedPlayer({ x: margin + 4, y: f0 + 1, z: margin + 4 }, `cmgt_wand${Math.floor(Math.random() * 1e6)}`, gameMode);
+    await test.idle(10);
+    const results: Record<string, unknown> = {};
+    const problems: string[] = [];
+    const check = (name: string, ok: boolean, detail: unknown): void => { results[name] = ok ? 'ok' : detail; if (!ok) problems.push(`${name}: ${JSON.stringify(detail)}`); };
+    const step = async (name: string, fn: () => Promise<void> | void): Promise<void> => {
+      try { await fn(); } catch (err) { check(name, false, `threw ${String(err)}`); }
+    };
+    const path = (track: any[]): number => track.reduce((sum: number, p: any, i: number) => i ? sum + Math.hypot(p.x - track[i - 1].x, p.z - track[i - 1].z) : 0, 0);
+    const watch = async (e: any, ticks: number): Promise<number> => {
+      const track: any[] = [];
+      for (let t = 0; t <= ticks; t += 10) { try { track.push({ ...e.location }); } catch { break; } if (t < ticks) await test.idle(10); }
+      return Math.round(path(track) * 100) / 100;
+    };
+    const live = (e: any): boolean => { try { return !!e && e.isValid !== false && !!world.getEntity(e.id); } catch { return false; } };
+    // A slot with a real second part to switch to (the starter library: heads, hair, held items).
+    const slot = Object.keys(wandPlan.slotSizes).find(s => wandPlan.slotSizes[s]! >= 2) ?? 'torso';
+    let draft: any, placed: any;
+    await step('draft', () => {
+      draft = api.draft(sim);
+      const d = Math.hypot(draft.location.x - sim.location.x, draft.location.z - sim.location.z);
+      check('draft', draft.typeId === creatorType && draft.getProperty('craftmatic:draft') === true && d > 1.1 && d < 5, { typeId: draft.typeId, distance: Math.round(d * 100) / 100 });
+    });
+    if (!draft) { log('CREATOR_WAND', { model: plan.modelId, results }); flush(); test.fail(problems.join('; ')); return; }
+    await step('edits', () => {
+      api.setPart(sim, slot, 1); api.setColour(sim, slot, 1); api.setPose(sim, 1); api.setName(sim, 'GT Knight');
+      const got = { part: draft.getProperty(`craftmatic:${slot}`), colour: draft.getProperty(`craftmatic:c_${slot}`), pose: draft.getProperty('craftmatic:pose'), name: draft.nameTag };
+      check('edits', got.part === 1 && got.colour === 1 && got.pose === 1 && got.name === 'GT Knight', got);
+    });
+    await step('draftHolds', async () => { const moved = await watch(draft, 60); check('draftHolds', moved <= 0.2, { moved }); });
+    await step('code', () => {
+      const code = api.code(sim);
+      api.setPart(sim, slot, 0);
+      api.applyCode(sim, code);
+      check('code', draft.getProperty(`craftmatic:${slot}`) === 1 && code.startsWith('mf1|m|'), { code, part: draft.getProperty(`craftmatic:${slot}`) });
+    });
+    await step('saveLoad', () => {
+      sim.setDynamicProperty(wandPlan.savedKey, undefined);
+      const before = api.saved(sim).length;
+      const saved = api.save(sim, 'GT Saved');
+      api.setPart(sim, slot, 0);
+      const loaded = api.load(sim, before);
+      const part = draft.getProperty(`craftmatic:${slot}`);
+      api.deleteSaved(sim, before);
+      const afterDelete = api.saved(sim).length;
+      api.undo(sim); // the delete
+      const restored = api.saved(sim).length;
+      api.deleteSaved(sim, before);
+      check('saveLoad', saved && loaded && part === 1 && afterDelete === before && restored === before + 1, { saved, loaded, part, before, afterDelete, restored });
+    });
+    await step('undo', () => {
+      api.setColour(sim, slot, 0);
+      const label = api.undo(sim);
+      check('undo', draft.getProperty(`craftmatic:c_${slot}`) === 1, { label, colour: draft.getProperty(`craftmatic:c_${slot}`) });
+    });
+    await step('placeStay', async () => {
+      placed = api.place(sim, 'here', 'stay');
+      const moved = await watch(placed, 100);
+      check('placeStay', !!placed && placed.getProperty('craftmatic:draft') === false && placed.getDynamicProperty('craftmatic:mf_mode') === 'stay' && moved <= 0.2, { moved, mode: placed?.getDynamicProperty('craftmatic:mf_mode') });
+    });
+    await step('undoPlace', () => {
+      const label = api.undo(sim);
+      const s = api.state(sim);
+      check('undoPlace', placed.getProperty('craftmatic:draft') === true && s.draft === placed.id && !s.editing, { label, state: s });
+    });
+    await step('placeWalk', async () => {
+      api.setPose(sim, 0);
+      placed = api.place(sim, 'here', 'walk');
+      const moved = await watch(placed, 600);
+      check('placeWalk', !!placed && moved >= 2, { moved });
+    });
+    await step('pickUp', async () => {
+      const ok = api.pickUp(sim, placed);
+      const moved = await watch(placed, 60);
+      const s = api.state(sim);
+      check('pickUp', ok && placed.getProperty('craftmatic:draft') === true && s.editing && moved <= 0.3, { ok, moved, state: s });
+    });
+    let removedId = '', removedName = '';
+    await step('remove', () => {
+      removedId = placed.id; removedName = placed.nameTag;
+      const ok = api.remove(sim);
+      check('remove', ok && !live(placed), { ok, alive: live(placed) });
+    });
+    await step('undoRemove', () => {
+      api.undo(sim);
+      const back = [...test.getDimension().getEntities({ type: creatorType })].find((e: any) => e.id !== removedId && e.getProperty('craftmatic:draft') === false && e.nameTag === removedName);
+      check('undoRemove', !!back && back.getProperty(`craftmatic:${slot}`) === 1, { found: !!back, part: back?.getProperty(`craftmatic:${slot}`) });
+    });
+    log('CREATOR_WAND', { model: plan.modelId, slot, results });
+    flush();
+    for (const e of [...test.getDimension().getEntities({ type: creatorType })]) { try { e.remove(); } catch { /* gone */ } }
+    try { sim.setDynamicProperty(wandPlan.savedKey, undefined); } catch { /* not stored */ }
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000).tag(NS);
 
   /**
    * The walk-cycle probe: how many units of `query.modified_distance_moved`

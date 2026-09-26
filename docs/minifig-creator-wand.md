@@ -17,6 +17,15 @@ their slot-tinted swatches; per-colour opaque/transparent/PBR material routing
 remains a device-validation follow-up. Busy prints over six fixed layers are
 rejected with an exporter diagnostic.
 
+Device status (2026-09-26, Saga): the wand works by hand end to end - see the
+add-on guide's "Minifig Creator wand on the phones" for what was fixed and what
+each function did on the device. The shipped flow differs from §2 below: the
+main menu is Parts and colours / Pose / Place / My figures / Undo / Name and
+figure code / Discard; a placed figure walks or stands still; a figure can sit
+on a seat in view; Undo covers edits, placing, removing and saved-figure
+deletion; the operations are published on `globalThis` for the GameTest
+`creator_wand_<id>`.
+
 The implementation currently offers paged slots/colours, naming and portable
 codes, saved figures, aimed placement/copies, and editing owned NPCs. The larger
 library tiers, group/search filters, presets and behaviour-choice screens below

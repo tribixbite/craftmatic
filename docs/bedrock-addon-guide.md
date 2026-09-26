@@ -3907,3 +3907,84 @@ Typing into the Saga's chat over adb drops and reorders characters and the
 first character lands at the END of the field: type one character at a time,
 then move the `/` to the front (`scripts/_saga_chat.sh`; check the field in a
 screenshot before sending, it is still not always right).
+
+## Minifig Creator wand on the phones (2026-09-26)
+
+The creator's properties first loaded on the device on 2026-09-25, so this
+was the first round in which the wand's forms could be used by hand (Saga,
+world 925, `bun scripts/_minifig_ref.ts --creator=starter --label="Minifig
+Creator"`; evidence `output/minifig-wand-0926/` in the wand worktree:
+`saga/` = the committed build before any fix, `saga2..4/` = the fixes).
+
+What was wrong on the device, each fixed at the root with a host test that
+fails without it:
+
+- **The draft spawned at the player's feet**, inside the camera: the preview
+  of every edit was invisible. It now stands 3.2 ahead / 3.2 to the right of
+  the view (45 degrees: a phone form covers about 35 degrees either side of
+  centre), facing the player, and comes back there when the wand opens.
+- **Every part drew with `entity_alphablend`.** The torso's neck showed
+  through the face, the torso print through the back, and a figure's body
+  dropped out of the picture a few blocks off. The client entity now has
+  `entity` for opaque colours and `entity_alphablend` only for the
+  translucent ones, chosen per colour index (`Array.mat`).
+- **The library's placeholder compile colour leaked**: every head carried a
+  red top stud (a stud took the PLACEMENT colour, so it became a fixed-colour
+  "print" layer) and a plain head's drawn face was WHITE ink (chosen against
+  a red skin). Studs now inherit colour 16 under `inheritMaterialId`
+  (`ldraw-entity-compiler.ts`), and each slot's parts compile in that slot's
+  default colour.
+- **`armor_offset.default_neck`**: Bedrock derives that locator from a
+  geometry's `head` bone. The bones-only empty geometry (index 0 of an
+  optional slot, and every unchosen print layer) had its bones at the
+  origin, so every head and hair geometry logged "model already has a locator
+  … that doesn't exactly match". The empty geometry now repeats the compiled
+  pivots; the Saga content log for a load of the pack has no error at all.
+- **Colours read "Colour 0 … Colour 378"**: now the LDraw names
+  (`ldraw-color-names.json`) with the swatch PNG as the button icon.
+- **A 15-button main menu** that needed scrolling for everything but the
+  head: now Parts and colours / Pose / Place / My figures first (the four a
+  Saga shows unscrolled), then Undo, Name and figure code, Discard.
+- **The screen after a choice read the old part** ("Now: Plain torso" after
+  choosing the printed one): `setProperty` lands at the END of the tick, so
+  the next screen waits one tick.
+- **Using the wand on a placed figure silently deleted the unsaved draft**;
+  it now asks ("Edit this figure?" / "Keep my draft").
+- **A draft left in the world survived a reload**: the start-up sweep ran
+  before the chunk round the player loaded. Drafts are also swept on
+  `entityLoad`, sparing any online player's current draft or edit.
+- **A failed place closed the wand** with only a chat line; it now returns to
+  the Place screen. A place's chat note no longer repeats on the next screen.
+- **"Sit on the seat I look at" never found a seat**: a set's seat is a thin
+  invisible box and a touch screen has no crosshair, so the exact view ray
+  missed. The nearest free seat within 25 degrees of the view and 8 blocks is
+  taken when the ray misses; on the Saga the figure then sat on a 76457 seat.
+- **The rig's `look` animation turned the creator head 60-90 degrees off the
+  body** (face on the side, torso print square on) for a draft with no look
+  target. It is dropped from the creator entity. The pack's reference NPC
+  (`minifig_fig1`, the ordinary set-figure path) showed the same turned head
+  on the Saga: `TODO(figures)` - measure the look animation's sign against the
+  Z-mirrored geometry frame; every set figure uses it.
+
+New functions (the wand had none of these): **poses** (`craftmatic:pose`,
+Standing / Waving / Pointing / Arms up / Holding out / Sitting, client
+animations gated on the property; Sitting never walks), **place to walk or
+to stand still** (a still figure gets the walker's `seated` home, so
+`scripts/figures.js` never walks it), **sit on a seat**, **pick up / move /
+remove a placed figure**, and **Undo** for every edit, place, removal and
+saved-figure deletion (20 steps, this session). The operations are plain
+functions published on `globalThis.craftmaticMinifigWand`; the forms call
+them, and so does the GameTest `creator_wand_<id>` (a simulated player cannot
+answer a form).
+
+Device results, Saga (world 925, build `6a77244b`): open from the hotbar and
+by long-press use; draft beside the view; head, torso, colour, name edits
+land and show; poses draw (Arms up); place to stand still holds 15 s;
+place-at-aim; sit on a seat; sneak-use places a walking copy; pick up a
+placed figure (edit title and Done); remove with confirmation; Undo brings the
+removed figure back; save, reload the world, load (saved list and placed
+figures survive the reload); delete a saved figure; content log clean.
+Not proved on a device: a released figure walking after a place (the
+`creator_<id>` GameTest proved it on the Pixel on 2026-09-25, before this
+round), the `creator_wand_<id>` GameTest itself (the Pixel was locked by
+another agent), the Pixel's own screen, and a figure code pasted by hand.
