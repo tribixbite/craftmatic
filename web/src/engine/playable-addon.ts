@@ -261,6 +261,36 @@ const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
 /** Pack JSON: `bedrockJsonText` keeps declared float values as float literals. */
 const json = (v: unknown) => text(bedrockJsonText(v, 2));
+
+/**
+ * The dismount hint of every rideable entity a behaviour pack declares, as
+ * `.lang` lines. While a player rides an entity with `minecraft:rideable`,
+ * Bedrock shows the translation of `action.hint.exit.<identifier>` (the full
+ * `namespace:name`, as vanilla's `action.hint.exit.horse` and CubeCraft's
+ * `action.hint.exit.cubecraft:sitting.entity`); with no line for it the RAW
+ * key is drawn under the hotbar - the Saga showed
+ * `action.hint.exit.craftmatic:hogsmeade_76457_seat` on 76457's Bed and
+ * 41732's chairs (device round 2026-09-26a). Read from the emitted behaviour
+ * files rather than listed by hand at each call site, so no rideable - seat,
+ * bed, car, coaster car, pinball console, a later one - can ship without it.
+ */
+export function rideableExitHintLines(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): string[] {
+    const dec = new TextDecoder();
+    const lines: string[] = [];
+    const seen = new Set<string>();
+    for (const f of files) {
+        if (!f.name.startsWith(`${bpPrefix}entities/`) || !f.name.endsWith('.json')) continue;
+        const src = dec.decode(f.data);
+        if (!src.includes('"minecraft:rideable"')) continue;
+        const id = (JSON.parse(src) as { 'minecraft:entity'?: { description?: { identifier?: string } } })['minecraft:entity']?.description?.identifier;
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        // A seat, a bed and the pinball console are sat on; everything else is ridden.
+        const sat = /_seat(_\d+)?$|_bed(_\d+)?$|_chair|_bench|pinball_console$/.test(id);
+        lines.push(`action.hint.exit.${id}=${sat ? 'Sneak to stand up' : 'Sneak to get off'}`);
+    }
+    return lines;
+}
 /**
  * Geometry serializer: MINIFIED, unlike every other file in the pack.
  *
@@ -2705,6 +2735,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (e.spawnable) langLines.push(`item.spawn_egg.entity.${e.identifier}.name=${e.label} Spawn Egg`);
     }
     if (interactiveConfig) langLines.push(...interactiveLangLines());
+    // Every rideable's dismount hint (seats, beds, cars, coaster cars, the pinball console), or the raw key shows.
+    langLines.push(...rideableExitHintLines(files, bp));
     files.push(
         { name: `${rp}texts/languages.json`, data: json(['en_US']) },
         { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },

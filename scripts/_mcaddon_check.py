@@ -69,6 +69,7 @@ def check(path):
     # seat were rejected while the 13 prefixed entities loaded normally.
     ident_ok = re.compile(r'^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$')
     n_server = 0
+    rideables = []
     for n in [x for x in names if '/entities/' in x and x.endswith('.json')]:
         d = json.loads(z.read(n).decode('utf-8-sig'))
         ident = ((d.get('minecraft:entity') or {}).get('description') or {}).get('identifier')
@@ -87,6 +88,8 @@ def check(path):
             for dropped in DROPPED_COMPONENTS:
                 if dropped in comps:
                     problems.append(f'{n}: {where} uses {dropped!r}, which format 1.26.30 dropped (the entity fails to load)')
+            if 'minecraft:rideable' in comps and ident not in rideables:
+                rideables.append(ident)
         # An int/float actor property whose range is not wider than one value:
         # Bedrock refuses it ("range max is less than range min" for [0, 0],
         # Pixel 2026-09-25) and with it the entity's WHOLE property component,
@@ -97,6 +100,19 @@ def check(path):
             if prop.get('type') in ('int', 'float') and isinstance(rng, list) and len(rng) == 2 and not rng[1] > rng[0]:
                 problems.append(f'{n}: property {pname!r} range {rng} is not wider than one value (Bedrock drops every property of the entity)')
     notes.append(f'{n_server} server entities')
+    # Every rideable needs its dismount hint in EVERY language file the pack
+    # ships: while a player rides it Bedrock draws `action.hint.exit.<identifier>`
+    # translated, or the raw key when the .lang has no such line (the Saga showed
+    # `action.hint.exit.craftmatic:hogsmeade_76457_seat`, device round 2026-09-26a).
+    langs = [x for x in names if re.search(r'/texts/[^/]+\.lang$', x)]
+    if rideables and not langs:
+        problems.append(f'{len(rideables)} rideable entities but no texts/*.lang (every dismount hint shows its raw key)')
+    for lf in langs:
+        keys = {ln.split('=', 1)[0].strip() for ln in z.read(lf).decode('utf-8-sig').splitlines() if '=' in ln and not ln.lstrip().startswith('#')}
+        missing = [r for r in rideables if f'action.hint.exit.{r}' not in keys]
+        if missing:
+            problems.append(f'{lf}: no action.hint.exit line for {len(missing)} rideable entit{"y" if len(missing) == 1 else "ies"} ({", ".join(missing[:4])}{", ..." if len(missing) > 4 else ""}): the raw key shows while riding')
+    if rideables: notes.append(f'{len(rideables)} rideable entities, dismount hints checked in {len(langs)} language file(s)')
     # geometries the pack defines
     geo_ids = set()
     for n in [x for x in names if x.endswith('.geo.json')]:

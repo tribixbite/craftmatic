@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
-import { buildPlayableAddon, measureCoasterTrain, COASTER_SAME_CAR_ARC } from '../web/src/engine/playable-addon.js';
+import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, COASTER_SAME_CAR_ARC } from '../web/src/engine/playable-addon.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
 import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceProvenance } from '../web/src/engine/pipeline-version.js';
@@ -214,6 +214,34 @@ describe('playable Bedrock add-on',()=>{
     // The computer screen is is_spawnable: false — a name, but no spawn egg.
     expect(lang).toContain('entity.craftmatic:glass_car_control_screen.name=Glass Car Control Screen');
     expect(lang).not.toContain('spawn_egg.entity.craftmatic:glass_car_control_screen');
+  });
+
+  it('gives every rideable entity its dismount hint in every language file, so the raw action.hint.exit key never shows (Saga, round 2026-09-26a)', async () => {
+    const vehicle = new BlockGrid(3, 1, 1);
+    vehicle.set(0, 0, 0, 'minecraft:stone');
+    const result = await buildPlayableAddon(new BlockGrid(1, 1, 1), { stem: 'Glass Car', components: [{
+      id: 'car', label: 'Glass Car', kind: 'car', grid: vehicle, provenance: 'test source',
+    }] });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer), dec = new TextDecoder();
+    const rideable: string[] = [];
+    for (const name of entries.filter(n => /_BP\/entities\/.*\.json$/.test(n))) {
+      const src = dec.decode(await extractFile(buffer, name));
+      if (src.includes('"minecraft:rideable"')) rideable.push(JSON.parse(src)['minecraft:entity'].description.identifier);
+    }
+    expect(rideable).toContain('craftmatic:glass_car_car');
+    const langs = entries.filter(n => /_RP\/texts\/[^/]+\.lang$/.test(n));
+    expect(langs.length).toBeGreaterThan(0);
+    for (const l of langs) {
+      const lang = dec.decode(await extractFile(buffer, l));
+      for (const id of rideable) expect(lang, `${l}: ${id}`).toMatch(new RegExp(`^action\\.hint\\.exit\\.${id.replace(':', '\\:')}=\\S`, 'm'));
+    }
+    // Seats, beds and the pinball console read "stand up"; a car, a boat, a coaster car "get off".
+    const file = (id: string) => ({ name: 'P_BP/entities/x.json', data: new TextEncoder().encode(JSON.stringify({ 'minecraft:entity': { description: { identifier: id }, components: { 'minecraft:rideable': {} } } })) });
+    expect(rideableExitHintLines([file('craftmatic:hogsmeade_76457_seat'), file('craftmatic:arcade_11374_pinball_console'), file('craftmatic:roller_10261_coaster_vehicle_1'), file('craftmatic:hogsmeade_76457_seat')], 'P_BP/')).toEqual([
+      'action.hint.exit.craftmatic:hogsmeade_76457_seat=Sneak to stand up',
+      'action.hint.exit.craftmatic:arcade_11374_pinball_console=Sneak to stand up',
+      'action.hint.exit.craftmatic:roller_10261_coaster_vehicle_1=Sneak to get off',
+    ]);
   });
 
   it('keeps component scale aligned to the scene and turns an X-long car onto entity forward', async () => {
