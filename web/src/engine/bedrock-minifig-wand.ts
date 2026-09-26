@@ -99,14 +99,15 @@ function minifigWandRuntime(
    * Where the draft is shown: ahead and to the RIGHT of the view. A phone draws
    * every form over the middle of the screen, and a draft straight ahead (or at
    * the player's feet, where it used to spawn) is hidden behind it: on the Saga
-   * the form spans about 35 degrees either side of centre, and 2.5 ahead, 2.5
-   * right is 45 degrees. Nearer spots are tried when that one is blocked.
+   * the form spans about 35 degrees either side of centre, and 3.2 ahead, 3.2
+   * right is 45 degrees (at 2.5/2.5 the figure's feet were below the screen
+   * edge). Nearer spots are tried when that one is blocked.
    */
   const previewSpot = (p: any) => {
     const yaw = yawOf(p) * rad;
     const fx = -Math.sin(yaw), fz = Math.cos(yaw), rx = -Math.cos(yaw), rz = -Math.sin(yaw);
     const l = p.location;
-    for (const [f, r] of [[2.5, 2.5], [2.5, 1.5], [2, 0], [1.2, 0]] as Array<[number, number]>) {
+    for (const [f, r] of [[3.2, 3.2], [2.5, 2.5], [2.5, 1.5], [2, 0], [1.2, 0]] as Array<[number, number]>) {
       const at = { x: l.x + fx * f + rx * r, y: l.y, z: l.z + fz * f + rz * r };
       if (open2(p.dimension, at.x, at.y, at.z) && open2(p.dimension, at.x, at.y + 1, at.z)) return at;
     }
@@ -533,8 +534,14 @@ function minifigWandRuntime(
   };
   const partName = (e: any, slot: string) => slots[slot]?.[Number(e.getProperty(`craftmatic:${slot}`) || 0)]?.[1] || 'None';
   const colourName = (e: any, slot: string) => C.colours[Number(e.getProperty(`craftmatic:c_${slot}`) || 0)]?.[1] || '';
+  /**
+   * Run an edit, then the next screen ONE TICK later: Bedrock applies
+   * `setProperty` at the end of the tick, so a screen built at once still
+   * read the old part ("Now: Plain torso" after choosing the printed one, Saga).
+   */
   const guard = async (p: any, action: () => any, then: () => any) => {
     try { action(); } catch (error) { tell(p, error); }
+    await new Promise<void>((resolve) => system.runTimeout(resolve, 1));
     return then();
   };
 
@@ -746,17 +753,25 @@ function minifigWandRuntime(
   });
   // Sweep leaked drafts after a script or world reload; placed figures are preserved,
   // and one interrupted while being edited goes back to its life.
+  // A figure only exists for the script once its chunk loads, and at script
+  // start the chunks round the player usually have not: on the Saga a draft
+  // left at the player's feet survived the reload sweep and stood there
+  // afterwards (2026-09-26). So each figure is also checked as it LOADS; one
+  // that is some online player's current draft or edit is left alone.
+  const sweep = (e: any) => {
+    try {
+      if (e?.typeId !== C.figureType || !e.getProperty(DRAFT)) return;
+      for (const s of state.values()) if (s.draft === e.id) return;
+      if (e.getDynamicProperty(EDITING)) release(e, modeOf(e));
+      else e.remove();
+    } catch { /* it went away */ }
+  };
   system.run(() => {
     for (const id of ['overworld', 'nether', 'the_end']) {
-      try {
-        for (const e of world.getDimension(id).getEntities({ type: C.figureType })) {
-          if (!e.getProperty(DRAFT)) continue;
-          if (e.getDynamicProperty(EDITING)) release(e, modeOf(e));
-          else e.remove();
-        }
-      } catch { /* no such dimension */ }
+      try { for (const e of world.getDimension(id).getEntities({ type: C.figureType })) sweep(e); } catch { /* no such dimension */ }
     }
   });
+  world.afterEvents.entityLoad?.subscribe((ev: any) => sweep(ev.entity));
   system.runInterval(() => {
     const online = new Set<string>();
     for (const p of world.getAllPlayers().filter(Boolean)) {

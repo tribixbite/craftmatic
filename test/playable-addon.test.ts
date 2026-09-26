@@ -119,6 +119,9 @@ describe('playable Bedrock add-on',()=>{
     const sitting = CREATOR_POSES.findIndex(p => p.name === 'Sitting');
     expect(poseFile.animations[`animation.craftmatic.looks_mf_pose_${sitting}`].bones.body.position[1]).toBeLessThan(0);
     expect(client.scripts.animate).toContainEqual({ [`mf_pose_${sitting}`]: `q.property('craftmatic:pose') == ${sitting} && !query.is_riding` });
+    // No head-look layer: it turned the head off the body on the device.
+    expect(client.scripts.animate).not.toContain('look');
+    expect(client.animations.look).toBeUndefined();
   });
 
   it('moves the selected whole model without leaving a stationary duplicate', async () => {

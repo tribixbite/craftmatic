@@ -35,12 +35,14 @@ const pick = (label: string): Answer => (form) => {
 const close: Answer = { canceled: true };
 const values = (...formValues: unknown[]): Answer => ({ formValues });
 
-function host(answers: Answer[] = [], runtimeConfig: any = config) {
+function host(answers: Answer[] = [], runtimeConfig: any = config, opts: { deferProperties?: boolean } = {}) {
+  /** Bedrock applies `setProperty` at the end of the tick: queued here until the next timeout. */
+  const pending: Array<() => void> = [];
   let nextId = 1;
   const entities = new Map<string, any>();
   const forms: Form[] = [];
   const messages: string[] = [];
-  const subscribers = { itemUse: [] as Function[], leave: [] as Function[], interact: [] as Function[], spawn: [] as Function[] };
+  const subscribers = { itemUse: [] as Function[], leave: [] as Function[], interact: [] as Function[], spawn: [] as Function[], load: [] as Function[] };
   const intervals: Function[] = [];
   const solid = new Set<string>();
   class Entity {
@@ -57,7 +59,7 @@ function host(answers: Answer[] = [], runtimeConfig: any = config) {
     components: Record<string, any> = {};
     constructor(dimension: any, location: any, typeId?: string) { this.dimension = dimension; this.location = { ...location }; if (typeId) this.typeId = typeId; entities.set(this.id, this); }
     getProperty(key: string) { return this.properties.get(key); }
-    setProperty(key: string, value: unknown) { this.properties.set(key, value); }
+    setProperty(key: string, value: unknown) { if (opts.deferProperties) pending.push(() => this.properties.set(key, value)); else this.properties.set(key, value); }
     getDynamicProperty(key: string) { return this.dynamic.get(key); }
     setDynamicProperty(key: string, value: unknown) { if (value === undefined) this.dynamic.delete(key); else this.dynamic.set(key, value); }
     triggerEvent(name: string) { this.events.push(name); }
@@ -108,13 +110,14 @@ function host(answers: Answer[] = [], runtimeConfig: any = config) {
       itemUse: { subscribe: (fn: Function) => subscribers.itemUse.push(fn) },
       playerLeave: { subscribe: (fn: Function) => subscribers.leave.push(fn) },
       playerSpawn: { subscribe: (fn: Function) => subscribers.spawn.push(fn) },
+      entityLoad: { subscribe: (fn: Function) => subscribers.load.push(fn) },
     },
     beforeEvents: { playerInteractWithEntity: { subscribe: (fn: Function) => subscribers.interact.push(fn) } },
     getEntity: (id: string) => entities.get(id), getDimension: (id: string) => dimensions[id], getAllPlayers: () => [player],
   };
   const system: any = {
     currentTick: 0,
-    run(fn: Function) { fn(); }, runTimeout(fn: Function) { fn(); },
+    run(fn: Function) { fn(); }, runTimeout(fn: Function) { for (const apply of pending.splice(0)) apply(); fn(); },
     runInterval(fn: Function) { intervals.push(fn); },
   };
   const source = minifigWandScript(runtimeConfig).replace(/^import .*;\n/gm, '');
@@ -169,24 +172,39 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(h.entities.has(disposable.id)).toBe(false);
   });
 
+  it('sweeps a leaked draft when its chunk loads after the script started, but not a live one', async () => {
+    const h = host([close]);
+    await h.use();
+    const [live] = h.figures();
+    const leaked = h.dimensions.overworld.spawnEntity(config.figureType, { x: 9, y: 64, z: 9 });
+    leaked.setProperty('craftmatic:draft', true);
+    const edited = h.dimensions.overworld.spawnEntity(config.figureType, { x: 7, y: 64, z: 7 });
+    edited.setProperty('craftmatic:draft', true);
+    edited.setDynamicProperty('craftmatic:editing_placed', true);
+    for (const e of [live, leaked, edited]) h.subscribers.load[0]!({ entity: e });
+    expect(h.entities.has(live.id)).toBe(true);
+    expect(h.entities.has(leaked.id)).toBe(false);
+    expect(edited.getProperty('craftmatic:draft')).toBe(false);
+  });
+
   it('shows the draft ahead and to the right of the view, facing the player, never at the feet', async () => {
     const h = host([close]);
     await h.use();
     const [draft] = h.figures();
     // Yaw 0 looks along +z; the player's right is -x (Minecraft: east is on the left facing south).
-    expect(draft.location.z - h.player.location.z).toBeCloseTo(2.5);
-    expect(draft.location.x - h.player.location.x).toBeCloseTo(-2.5);
+    expect(draft.location.z - h.player.location.z).toBeCloseTo(3.2);
+    expect(draft.location.x - h.player.location.x).toBeCloseTo(-3.2);
     const toPlayer = Math.atan2(-(h.player.location.x - draft.location.x), h.player.location.z - draft.location.z) * 180 / Math.PI;
     expect(draft.rotation.y).toBeCloseTo(toPlayer);
   });
 
   it('falls back to a nearer spot when the preferred one is walled in', async () => {
     const h = host([close]);
-    h.solid.add('-2,64,3'); // the block 2.5 ahead / 2.5 right of (0.5, 64, 0.5)
+    h.solid.add('-3,64,3'); // the block 3.2 ahead / 3.2 right of (0.5, 64, 0.5)
     await h.use();
     const [draft] = h.figures();
     expect(Math.hypot(draft.location.x - h.player.location.x, draft.location.z - h.player.location.z)).toBeGreaterThan(1);
-    expect(`${Math.floor(draft.location.x)},${Math.floor(draft.location.y)},${Math.floor(draft.location.z)}`).not.toBe('-2,64,3');
+    expect(`${Math.floor(draft.location.x)},${Math.floor(draft.location.y)},${Math.floor(draft.location.z)}`).not.toBe('-3,64,3');
   });
 
   it('keeps the main menu to five buttons a phone shows unscrolled, with plain glyphs and no bare percent', async () => {
@@ -215,6 +233,14 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(colourForm.buttons).toEqual(['> Red', 'Yellow', 'Back']);
     expect(colourForm.icons.slice(0, 2)).toEqual(['textures/entity/craftmatic_swatch_4', 'textures/entity/craftmatic_swatch_14']);
     expect(h.api().code(h.player)).toContain('to=973:14');
+  });
+
+  it('builds the next screen after the edit has landed (properties apply at the end of the tick)', async () => {
+    const h = host([pick('Parts and colours'), pick('Torso'), pick('Printed torso'), close, close, close], config, { deferProperties: true });
+    await h.use();
+    const after = h.forms.filter((f) => f.title === 'Torso')[1]!;
+    expect(after.body).toContain('Now: Printed torso');
+    expect(after.buttons).toContain('> Printed torso');
   });
 
   it('maps later part and colour pages back to absolute property indices', async () => {

@@ -1231,7 +1231,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     await step('draft', () => {
       draft = api.draft(sim);
       const d = Math.hypot(draft.location.x - sim.location.x, draft.location.z - sim.location.z);
-      check('draft', draft.typeId === creatorType && draft.getProperty('craftmatic:draft') === true && d > 1.1 && d < 4.2, { typeId: draft.typeId, distance: Math.round(d * 100) / 100 });
+      check('draft', draft.typeId === creatorType && draft.getProperty('craftmatic:draft') === true && d > 1.1 && d < 5, { typeId: draft.typeId, distance: Math.round(d * 100) / 100 });
     });
     if (!draft) { log('CREATOR_WAND', { model: plan.modelId, results }); flush(); test.fail(problems.join('; ')); return; }
     await step('edits', () => {
