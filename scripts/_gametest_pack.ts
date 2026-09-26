@@ -78,7 +78,15 @@ if (cfg) {
     // did - legs at column centres pulled 10326 Door 4's walker off its stoop (Pixel 2026-09-25b).
     const pts = [start, ...way.slice(1, -1), end];
     const steps = pts.slice(1).some((p, k) => Math.abs(p.y - pts[k]!.y) > 0.6);
-    const via = steps ? way.slice(1, -1).map(p => ({ x: p.x, y: p.y, z: p.z })) : [];
+    // Or one whose straight line leaves the route's columns: 910047's gate stands on a narrow
+    // threshold platform and its diagonal start-to-end line walked off the edge (Pixel 2026-09-25b).
+    const cols = new Set(way.map(p => `${Math.floor(p.x)},${Math.floor(p.z)}`));
+    let offRoute = false;
+    for (let s = 0; s <= 1.0001 && !offRoute; s += 0.05) {
+      const x = start.x + (end.x - start.x) * s, z = start.z + (end.z - start.z) * s;
+      if (!cols.has(`${Math.floor(x)},${Math.floor(z)}`)) offRoute = true;
+    }
+    const via = steps || offRoute ? way.slice(1, -1).map(p => ({ x: p.x, y: p.y, z: p.z })) : [];
     doorways.push({
       label: it.label, typeId: it.type, actor: { x: actor.x, y: actor.y, z: actor.z },
       start, end, ...(via.length ? { via } : {}),
