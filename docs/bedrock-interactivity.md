@@ -411,71 +411,80 @@ below); and an approach stands within a jump of the door's floor (a roof over
 the door is not an approach). None of these changes a verdict on the packs
 built before clearance (36 OK, 36 SEALED, 1 SMALL, as the audit found).
 
-### Results over the 40 favourites (2026-09-25, `ebb87187`)
+### Results over the 40 favourites (2026-09-25, final at `f6e24774`)
 
-Clearance examined 62,006 collider cells holding geometry: 16,845 are filled
-by their geometry already, 33,070 were pulled back to a wall form and 183
-ceilings raised (10,659 cubic blocks freed); refused: 10,611 standing surfaces
+Before: the sweep at `bb6dcf8e` (no clearance). After: the sweep at
+`f6e24774` (clearance, the walk-harness fixes, merged with main). Clearance
+examined 61,845 collider cells holding geometry: 16,828 are filled by their
+geometry already, 32,950 were pulled back to a wall form and 179 ceilings
+raised (10,630 cubic blocks freed); refused: 10,587 standing surfaces
 (`walkable-top`), 1,106 cells the doorway cut had changed, 165 at a closed
 leaf's plane, 226 near a leak (15 sets), 0 unverifiable. The pass takes at
-most 1.05 s a set (at most 3.0 M voxels). The leaks it found were real routes -
+most 0.94 s a set (at most 3.0 M voxels). The leaks it found were real routes -
 traced on 11371: a cell beside a closed door that the collider grid already
 left open while the geometry fills it, joined to a trimmed cell behind it -
 and each was refused.
 
 | size | standing area reached (blocks², 100 % scale) | rooms reached | doorways OK | SEALED | FAIL |
 |---|---|---|---|---|---|
-| 100 % | 17,655 → 18,669 (+5.7 %) | 617 → 650 | 36 → 39 | 36 → 33 | 0 → 0 |
-| 150 % | 18,437 → 19,623 (+6.4 %) | 681 → 773 | 39 → 42 | 33 → 29 | 0 → 0 |
-| 200 % | 20,691 → 22,310 (+7.8 %) | 1,001 → 1,162 | 40 → 44 | 32 → 26 | 0 → 0 |
-| 300 % | 20,812 → 22,190 (+6.6 %) | 945 → 1,042 | 36 → 39 | 29 → 23 | 0 → 0 |
-| 400 % | 20,690 → 22,860 (+10.5 %) | 920 → 1,226 | 30 → 32 | 29 → 23 | 0 → 0 |
+| 100 % | 17,655 → 18,670 (+5.7 %) | 617 → 642 | 36 → 38 | 36 → 34 | 0 → 0 |
+| 150 % | 18,437 → 19,355 (+5.0 %) | 681 → 735 | 38 → 41 | 34 → 31 | 0 → 0 |
+| 200 % | 20,691 → 21,873 (+5.7 %) | 1,001 → 1,050 | 39 → 42 | 33 → 28 | 0 → 0 |
+| 300 % | 20,812 → 21,938 (+5.4 %) | 945 → 971 | 32 → 36 | 32 → 27 | 0 → 0 |
+| 400 % | 20,690 → 21,785 (+5.3 %) | 920 → 990 | 26 → 29 | 32 → 28 | 0 → 0 |
 
-Unsealed at 100 %: 76435's Door 1, 80049's Gate 1, 910004's Door 3. Per set
+(The before counts at 150-400 % differ from the audit's because the walk
+harness itself changed - see "The walk harness learned the forms"; both
+columns here use the final harness.)
+
+Unsealed at 100 %: 76435's Door 1 and 80049's Gate 1 (both walked on the
+Pixel, below). 910004's Door 3 read OK in this sweep and is SEALED since
+`e68194e9`: its only level approach spot stood inside the closed leaf (see the
+device results), so the final count is 38 OK / 34 SEALED. Per set
 (forms = cells laid as a clearance form):
 
 | set | forms | reach 100 % (blocks²) | rooms reached 100 % | doorways OK / SEALED 100 % | reach 200 % | doorways OK / SEALED 200 % |
 |---|---|---|---|---|---|---|
-| 10261 | 1951 | 1825 → 1961 | 156 → 138 | 0 / 0 → 0 / 0 | 1741.8 → 1826.7 | 0 / 0 → 0 / 0 |
-| 10303 | 2217 | 851.3 → 913.6 | 61 → 61 | 0 / 0 → 0 / 0 | 903.9 → 1038 | 0 / 0 → 0 / 0 |
-| 10326 | 1059 | 114.1 → 144.3 | 13 → 16 | 3 / 3 → 3 / 3 | 138.2 → 278.9 | 3 / 3 → 3 / 3 |
+| 10261 | 1951 | 1825 → 1961 | 156 → 138 | 0 / 0 → 0 / 0 | 1741.8 → 1860.6 | 0 / 0 → 0 / 0 |
+| 10303 | 2193 | 851.3 → 912.4 | 61 → 60 | 0 / 0 → 0 / 0 | 903.9 → 1031.6 | 0 / 0 → 0 / 0 |
+| 10326 | 1059 | 114.1 → 144.3 | 13 → 16 | 3 / 3 → 3 / 3 | 138.2 → 176 | 3 / 3 → 3 / 3 |
 | 10337 | 214 | 20.6 → 30.8 | 0 → 0 | 0 / 0 → 0 / 0 | 39.1 → 52.1 | 0 / 0 → 0 / 0 |
-| 10341 | 1328 | 19.1 → 27.6 | 0 → 0 | 0 / 0 → 0 / 0 | 24.6 → 35.9 | 0 / 0 → 0 / 0 |
-| 10354 | 539 | 1070.1 → 1093.3 | 54 → 54 | 0 / 0 → 0 / 0 | 1310.3 → 1363.2 | 0 / 0 → 0 / 0 |
-| 10365 | 1112 | 825.6 → 832.8 | 8 → 7 | 0 / 0 → 0 / 0 | 848.3 → 867.3 | 0 / 0 → 0 / 0 |
-| 11371 | 558 | 291.8 → 303.8 | 7 → 8 | 1 / 7 → 1 / 7 | 445.4 → 457.1 | 2 / 6 → 2 / 6 |
-| 11374 | 668 | 191 → 240.7 | 0 → 2 | 0 / 0 → 0 / 0 | 288.3 → 303.6 | 0 / 0 → 0 / 0 |
+| 10341 | 1325 | 19.1 → 27.6 | 0 → 0 | 0 / 0 → 0 / 0 | 24.6 → 35.9 | 0 / 0 → 0 / 0 |
+| 10354 | 539 | 1070.1 → 1093.3 | 54 → 54 | 0 / 0 → 0 / 0 | 1310.3 → 1363.1 | 0 / 0 → 0 / 0 |
+| 10365 | 1112 | 825.6 → 832.8 | 8 → 7 | 0 / 0 → 0 / 0 | 848.3 → 866.5 | 0 / 0 → 0 / 0 |
+| 11371 | 558 | 291.8 → 303.8 | 7 → 8 | 1 / 7 → 1 / 7 | 445.4 → 457.1 | 1 / 7 → 1 / 7 |
+| 11374 | 668 | 191 → 240.7 | 0 → 2 | 0 / 0 → 0 / 0 | 288.3 → 303.5 | 0 / 0 → 0 / 0 |
 | 21061 | 712 | 75.4 → 83.3 | 5 → 4 | 0 / 0 → 0 / 0 | 83.5 → 99.3 | 0 / 0 → 0 / 0 |
-| 21063 | 696 | 29.6 → 30.6 | 3 → 4 | 0 / 0 → 0 / 0 | 35.1 → 37.3 | 0 / 0 → 0 / 0 |
-| 21318 | 919 | 480.8 → 528.9 | 16 → 16 | 0 / 3 → 0 / 3 | 488 → 540.5 | 0 / 3 → 1 / 2 |
+| 21063 | 696 | 29.6 → 30.6 | 3 → 4 | 0 / 0 → 0 / 0 | 35.1 → 36.5 | 0 / 0 → 0 / 0 |
+| 21318 | 919 | 480.8 → 528.9 | 16 → 16 | 0 / 3 → 0 / 3 | 488 → 539.9 | 0 / 3 → 1 / 2 |
 | 21360 | 523 | 518.1 → 527 | 0 → 0 | 0 / 0 → 0 / 0 | 560 → 560 | 0 / 0 → 0 / 0 |
-| 31141 | 330 | 130.1 → 137.4 | 8 → 11 | 4 / 1 → 4 / 1 | 153.8 → 175.9 | 4 / 0 → 4 / 0 |
-| 41395 | 253 | 139.3 → 147.4 | 11 → 11 | 0 / 2 → 0 / 2 | 164.2 → 176.5 | 0 / 2 → 0 / 2 |
-| 41703 | 482 | 410.4 → 426.8 | 9 → 11 | 1 / 0 → 1 / 0 | 516.8 → 593.4 | 1 / 0 → 1 / 0 |
-| 41732 | 606 | 415.4 → 432.2 | 5 → 9 | 5 / 1 → 5 / 1 | 438.6 → 473.1 | 5 / 1 → 5 / 1 |
-| 42172 | 908 | 193.6 → 204.6 | 3 → 5 | 0 / 0 → 0 / 0 | 205.9 → 231.4 | 0 / 0 → 0 / 0 |
-| 42639 | 776 | 506.3 → 510.3 | 0 → 0 | 1 / 1 → 1 / 1 | 516.6 → 523.1 | 1 / 1 → 1 / 1 |
-| 42652 | 306 | 229.5 → 237.3 | 7 → 8 | 1 / 0 → 1 / 0 | 285.6 → 301.1 | 1 / 0 → 1 / 0 |
-| 42663 | 151 | 99 → 191.3 | 2 → 17 | 0 / 1 → 0 / 1 | 115.3 → 213.6 | 0 / 1 → 0 / 1 |
-| 42670 | 429 | 317 → 325.9 | 17 → 17 | 3 / 3 → 3 / 3 | 457.5 → 474.7 | 4 / 3 → 4 / 3 |
-| 43267 | 410 | 281.5 → 285.3 | 0 → 0 | 0 / 0 → 0 / 0 | 286.7 → 290.9 | 0 / 0 → 0 / 0 |
-| 60380 | 733 | 740.3 → 763.8 | 7 → 9 | 1 / 2 → 1 / 2 | 1105.1 → 1133.4 | 1 / 2 → 1 / 2 |
-| 60446 | 203 | 271.3 → 273.9 | 6 → 6 | 0 / 0 → 0 / 0 | 242.6 → 252.3 | 0 / 0 → 0 / 0 |
+| 31141 | 330 | 130.1 → 137.4 | 8 → 11 | 4 / 1 → 4 / 1 | 153.8 → 175.2 | 4 / 0 → 4 / 0 |
+| 41395 | 253 | 139.3 → 147.4 | 11 → 11 | 0 / 2 → 0 / 2 | 164.2 → 182.8 | 0 / 2 → 0 / 2 |
+| 41703 | 482 | 410.4 → 426.8 | 9 → 11 | 1 / 0 → 1 / 0 | 516.8 → 589.3 | 1 / 0 → 1 / 0 |
+| 41732 | 606 | 415.4 → 432.2 | 5 → 9 | 5 / 1 → 5 / 1 | 438.6 → 469.6 | 5 / 1 → 5 / 1 |
+| 42172 | 908 | 193.6 → 204.6 | 3 → 5 | 0 / 0 → 0 / 0 | 205.9 → 224.8 | 0 / 0 → 0 / 0 |
+| 42639 | 747 | 506.3 → 510.3 | 0 → 0 | 1 / 1 → 1 / 1 | 516.6 → 523.1 | 1 / 1 → 1 / 1 |
+| 42652 | 306 | 229.5 → 237.3 | 7 → 8 | 1 / 0 → 1 / 0 | 285.6 → 297.7 | 1 / 0 → 1 / 0 |
+| 42663 | 151 | 99 → 191.3 | 2 → 17 | 0 / 1 → 0 / 1 | 115.3 → 130.1 | 0 / 1 → 0 / 1 |
+| 42670 | 431 | 317 → 324 | 17 → 17 | 3 / 3 → 3 / 3 | 457.5 → 474.5 | 4 / 3 → 4 / 3 |
+| 43267 | 410 | 281.5 → 285.3 | 0 → 0 | 0 / 0 → 0 / 0 | 286.7 → 290.3 | 0 / 0 → 0 / 0 |
+| 60380 | 703 | 740.3 → 780.1 | 7 → 9 | 1 / 2 → 1 / 2 | 1105.1 → 1137 | 1 / 2 → 1 / 2 |
+| 60446 | 203 | 271.3 → 273.9 | 6 → 6 | 0 / 0 → 0 / 0 | 242.6 → 251.8 | 0 / 0 → 0 / 0 |
 | 71040 | 1441 | 96.9 → 100.4 | 0 → 0 | 0 / 2 → 0 / 2 | 352.3 → 361.9 | 1 / 1 → 1 / 1 |
-| 71043 | 1724 | 757.5 → 811.8 | 57 → 58 | 0 / 0 → 0 / 0 | 817.9 → 930.5 | 0 / 0 → 0 / 0 |
-| 75397 | 1081 | 609.4 → 694.4 | 3 → 3 | 0 / 1 → 0 / 1 | 844.8 → 865.1 | 0 / 1 → 1 / 0 |
-| 76269 | 1888 | 779.6 → 791.1 | 11 → 11 | 2 / 1 → 2 / 1 | 828.9 → 853.8 | 2 / 1 → 2 / 1 |
+| 71043 | 1724 | 757.5 → 811.8 | 57 → 58 | 0 / 0 → 0 / 0 | 817.9 → 921 | 0 / 0 → 0 / 0 |
+| 75397 | 1081 | 609.4 → 694.4 | 3 → 3 | 0 / 1 → 0 / 1 | 844.8 → 864.6 | 0 / 1 → 1 / 0 |
+| 76269 | 1888 | 779.6 → 791.1 | 11 → 11 | 2 / 1 → 2 / 1 | 828.9 → 852.5 | 2 / 1 → 2 / 1 |
 | 76286 | 491 | 612.8 → 614.9 | 3 → 3 | 0 / 0 → 0 / 0 | 616.7 → 622.8 | 0 / 0 → 0 / 0 |
-| 76417 | 1464 | 572.6 → 595.5 | 3 → 3 | 3 / 1 → 3 / 1 | 784.8 → 797.3 | 3 / 1 → 3 / 1 |
-| 76419 | 408 | 159.4 → 215.8 | 17 → 29 | 0 / 0 → 0 / 0 | 177.2 → 232.7 | 0 / 0 → 0 / 0 |
-| 76435 | 624 | 277.9 → 290.1 | 22 → 21 | 1 / 1 → 2 / 0 | 444.9 → 479.5 | 2 / 0 → 2 / 0 |
-| 76457 | 874 | 994.8 → 1024.5 | 24 → 23 | 6 / 0 → 6 / 0 | 1025.3 → 1085.1 | 6 / 0 → 6 / 0 |
-| 77092 | 1129 | 1505.3 → 1526 | 0 → 0 | 0 / 0 → 0 / 0 | 1558.4 → 1566.4 | 0 / 0 → 0 / 0 |
-| 80049 | 776 | 370.2 → 407.6 | 10 → 15 | 0 / 1 → 1 / 0 | 568.1 → 809.8 | 0 / 1 → 0 / 0 |
-| 910004 | 403 | 38.8 → 44.7 | 4 → 4 | 1 / 2 → 2 / 1 | 47.4 → 77.5 | 1 / 2 → 1 / 1 |
-| 910032 | 749 | 63.7 → 82 | 13 → 11 | 3 / 2 → 3 / 2 | 89 → 117.4 | 3 / 2 → 4 / 1 |
-| 910047 | 814 | 613.5 → 647.9 | 38 → 41 | 0 / 0 → 0 / 0 | 954.6 → 1001.6 | 0 / 0 → 0 / 0 |
-| 910049 | 1121 | 156.8 → 168.4 | 14 → 14 | 0 / 1 → 0 / 1 | 185.3 → 209 | 0 / 1 → 1 / 0 |
+| 76417 | 1463 | 572.6 → 595.5 | 3 → 3 | 3 / 1 → 3 / 1 | 784.8 → 796.2 | 3 / 1 → 2 / 1 |
+| 76419 | 408 | 159.4 → 215.8 | 17 → 29 | 0 / 0 → 0 / 0 | 177.2 → 227.1 | 0 / 0 → 0 / 0 |
+| 76435 | 624 | 277.9 → 290.1 | 22 → 21 | 1 / 1 → 2 / 0 | 444.9 → 479.4 | 2 / 0 → 2 / 0 |
+| 76457 | 874 | 994.8 → 1024.5 | 24 → 22 | 6 / 0 → 6 / 0 | 1025.3 → 1078.3 | 6 / 0 → 6 / 0 |
+| 77092 | 1129 | 1505.3 → 1526 | 0 → 0 | 0 / 0 → 0 / 0 | 1558.4 → 1564.6 | 0 / 0 → 0 / 0 |
+| 80049 | 776 | 370.2 → 413.3 | 10 → 18 | 0 / 1 → 1 / 0 | 568.1 → 624.8 | 0 / 1 → 0 / 0 |
+| 910004 | 403 | 38.8 → 44.7 | 4 → 4 | 1 / 2 → 1 / 2 | 47.4 → 55.4 | 1 / 2 → 1 / 2 |
+| 910032 | 749 | 63.7 → 82 | 13 → 11 | 3 / 2 → 3 / 2 | 89 → 106.2 | 3 / 2 → 4 / 1 |
+| 910047 | 779 | 613.5 → 629.8 | 38 → 32 | 0 / 0 → 0 / 0 | 954.6 → 982.2 | 0 / 0 → 0 / 0 |
+| 910049 | 1121 | 156.8 → 168.4 | 14 → 14 | 0 / 1 → 0 / 1 | 185.3 → 207.6 | 0 / 1 → 1 / 0 |
 
 **Why 33 stay SEALED at 100 %** (`output/clearance-0925/sealed.ts` prints the
 cells in front of each side; read by hand, not a computed classification):
@@ -498,12 +507,46 @@ narrowing a surface that is only a wall's top.
   a cell off the centre band, two walls in one cell, or a corner, stay full.
 - A cell's form is one box, or a band plus one box: a cell holding a floor
   plate, a wall AND a shelf keeps the whole footprint over the extra span.
-- Figures (`scripts/figures.js`) still read a form block as a whole block:
-  their planner is block-granular, so they gain nothing yet (TODO).
+- Figures (`scripts/figures.js`) read a form as the full block it replaced
+  (`blockSpan`, `6e3d8725`): their planner is block-granular, so they gain
+  nothing from clearance yet (TODO in `blockSpan`).
 - The tread planner and the reach walk (`ScaledColliderGrid`) read a form as
   its whole block: conservative, they never count on the freed space.
 - Array collision boxes (the floor + wall and wall + ceiling forms) are
-  format 1.26.0; see the device results below for what the Pixel showed.
+  format 1.26.0; the Pixel loaded them (below). The 100 % turned-form pass
+  (a placement turned 90/180/270) is host-tested only, not on the device.
+- `rail-track.test.ts`'s 910044 case times out at 60 s after the host's power
+  loss on 2026-09-25, at this branch's base `bb6dcf8e` as well: not clearance.
+
+### On the Pixel (GameTest, world `cmgametest`, 2026-09-25)
+
+Packs from committed trees (`8cb10287` after, `bb6dcf8e`/`e68194e9` before),
+GameTest variants by `_gametest_pack.ts`, content logs in the clearance
+worktree's `output/clearance-0925/device/logs/`. Every run: all placement
+actors found, no content-log error about a block, no `BRICK_WAND_FORM_FALLBACK`
+(every form block resolved), and every part and seat check passed.
+
+| set | before clearance | after clearance |
+|---|---|---|
+| 80049 Gate 1 | SEALED: closed blocked, open `partial` (0.68) | OK: closed blocked, open **passed** (1.03) |
+| 76435 Door 1 | SEALED: closed blocked, open `partial` (0.60) | OK: closed blocked, open **passed** (1.03) |
+| 76435 Door 2 | OK | OK (closed blocked, open passed) |
+| 41732, 6 doorways | 6/6 as predicted (earlier rounds) | 6/6 as predicted; Door 3 SEALED as predicted |
+| 76417, 3 doorways | 3/3 (earlier rounds) | 3/3: closed blocked, open passed |
+| 910004, 3 doorways | 3/3 (Door 1 OK, Doors 2-3 SEALED) | 3/3 (same) |
+
+Two faults the device found, both fixed and re-run:
+
+- **910004 Door 3 walked through CLOSED** (first after-run, `6e3d8725`). Not a
+  collider gap: the offline walk put the approach spot inside the closed
+  leaf, and Minecraft lets a body walk out of a box it already overlaps. An
+  approach now skips every column a leaf of the doorway's group fills closed
+  and must be clear with the leaves closed (`e68194e9`); Door 3 reads SEALED.
+- **80049 Gate 1's opened doorway lost its sill.** The runtime laid an opened
+  doorway's own blocks as air, clearing the static part the cut had kept (a
+  sill under a leaf hung a plate up); the walker dropped into the 1/4-block
+  pit and stopped. Own cells with a kept span are now restored (`8cb10287`);
+  the gate then walked through.
 
 ## Proving it offline
 
@@ -683,7 +726,7 @@ has no floor a player can stand on along the straight corridor through it:
 door opens onto furniture, and most of the rest open onto rooms the shipped
 COLLIDER grid has filled (a collider cell is a whole block whenever any
 geometry reaches it, and a minifig room is 2-3 blocks wide with furniture in
-it). Finer colliders are now in: "Clearance" above took this to 39 OK / 33
+it). Finer colliders are now in: "Clearance" above took this to 38 OK / 34
 SEALED, and says why the rest stay sealed.
 
 ### GameTest on the Pixel (cmgametest, 2026-09-25)

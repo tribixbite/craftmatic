@@ -109,17 +109,17 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   explodes: measured NOT assembly (44-set trial floating 1,034 -> 2,674) —
   do not apply. Open: 75 IOModel2V2 sets the flattener refuses.
 - [ ] Clearance (agent ac6403ba, branch `worktree-agent-ac6403baf65250006`,
-  commits `ebb87187` `d1a6412e` `929c4a96`): colliders pulled back to the
-  walls' own geometry as 43 form blocks, applied only past the certain test
+  merged with main at `f6e24774`): colliders pulled back to the walls' own
+  geometry as 43 form blocks, applied only past the certain test
   (docs/bedrock-interactivity.md "Clearance"). 40 favourites at 100 %: reach
-  17,655 -> 18,669 blocks², doorways 36 OK / 36 SEALED -> 39 / 33, 0 FAIL at
-  every size. Evidence `output/clearance-0925/` in that worktree (sweeps
-  `before/` `after/`, `calc-final.md`, device packs + GameTest variants).
-  Open: device proof of the array collision boxes (floor + wall, wall +
-  ceiling forms, format 1.26.0) and of the 100 % turned-form pass; figures
-  (`figures.js`) still read a form as a whole block; a threshold tread for
-  rises up to a jump would unseal the raised-base doors (41395, 60380,
-  42670 D6, 31141 D4, 41732 D3, 11371's shops).
+  17,655 -> 18,669 blocks², doorways 36 OK / 36 SEALED -> 38 / 34, 0 FAIL at
+  every size; Pixel GameTest: 80049 Gate 1 and 76435 Door 1 walked open and
+  blocked closed (SEALED before), 41732 / 76417 / 910004 as predicted.
+  Evidence `output/clearance-0925/` in that worktree. Open: the 100 %
+  turned-form pass on the device; figures read a form as its full block (the
+  planner is block-granular); a threshold tread for rises up to a jump would
+  unseal the raised-base doors (41395, 60380, 42670 D6, 31141 D4, 41732 D3,
+  11371's shops).
 - [ ] Source gate v2 — connections, not contact (clego `e470b81e` code+docs,
   `898324d5` index; both UNPUSHED). Design, calibration and results are in clego
   `GEOGRADE.md` "Gate v2" and `docs/lego-sources-guide.md` §11. The held-out
