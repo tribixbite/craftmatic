@@ -35,6 +35,19 @@ describe('planAddonScale', () => {
     expect(hasMinifigCue([brick('97301.dat', 0), brick('3001.dat', 0)])).toBe(false);
   });
 
+  it('a mini-doll is minifig-scale evidence: a Gabby ship is not shrunk as a display boat', () => {
+    expect(hasMinifigCue([brick('92198.dat', 0)])).toBe(true);
+    expect(hasMinifigCue([brick('92198p18.dat', 0)])).toBe(true);
+    expect(hasMinifigCue([brick('1006334.dat', 0)])).toBe(true);
+    expect(hasMinifigCue([brick('92248.dat', 0)])).toBe(true);
+    // A longer id sharing the prefix is not a mini-doll part.
+    expect(hasMinifigCue([brick('922480.dat', 0)])).toBe(false);
+    const plan = planAddonScale([...rowOf('3001.dat', 1000), brick('92198.dat', 100)], 'auto', "Gabby & MerCat's Ship & Spa (10786-1)");
+    expect(plan.scale).toBe(1);
+    expect(plan.cue).toBe('minifig');
+    expect(plan.reason).toMatch(/mini-doll/);
+  });
+
   it('shrinks a figure-less display car to a real car length, never below the floor', () => {
     // 25 studs of origins + a stud each side = 540 LDU ≈ 10.1 blocks at 1×.
     const car = planAddonScale(rowOf('3001.dat', 500), 'auto', 'Mini Cooper (10242)');
