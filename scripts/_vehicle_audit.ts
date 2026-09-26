@@ -17,13 +17,14 @@
  *   --md    print the markdown table (docs/bedrock-addon-guide.md, "Vehicle audit").
  *   --seats print the seat table (docs/bedrock-addon-guide.md, "Where the player sits"): the
  *           cockpit evidence, the driver's eye, the shipped seat, its offset from the cockpit
- *           seat (eye - 1.25) and the wand size from which a player's body fits (cockpit-seat.ts).
+ *           seat (eye - RIDER_EYE_ABOVE_SEAT) and the wand size from which a player's body fits (cockpit-seat.ts).
  * Output: DIR/<set>.mcaddon, DIR/<set>.json (the export report), DIR/audit.json.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
+import { RIDER_EYE_ABOVE_SEAT } from '../web/src/engine/cockpit-seat.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
 const CORPUS = 'C:/git/clego/lego_sets';
@@ -211,7 +212,8 @@ export function markdownTable(all: AuditRow[]): string {
 /**
  * Where the player sits in every rideable: the cockpit evidence and the
  * driver's eye (blocks, entity frame), the seat the pack ships, how far that
- * seat is from the cockpit seat (the eye less the seated eye height 1.25),
+ * seat is from the cockpit seat (the eye less `RIDER_EYE_ABOVE_SEAT`; the
+ * shipped seat is in the entity frame, nose +Z, so its z is flipped back),
  * and from which wand size the seated body fits (null: at none up to 400 %).
  */
 export function seatTable(all: AuditRow[]): string {
@@ -225,7 +227,7 @@ export function seatTable(all: AuditRow[]): string {
       const seat = v.seatPositions[0] ?? v.seat;
       const eye = v.cockpitEye;
       const plan = v.seatPlan as { fitScale: number | null; steps: Array<{ f: number; head: number; torso: number }> } | null;
-      const off = seat && eye ? [seat[0]! - eye[0], seat[1]! - (eye[1] - 1.25), seat[2]! - eye[2]].map(f2).join(', ') : '?';
+      const off = seat && eye ? [seat[0]! - eye[0], seat[1]! - (eye[1] - RIDER_EYE_ABOVE_SEAT), -seat[2]! - eye[2]].map(f2).join(', ') : '?';
       const fits = plan ? (plan.fitScale === null ? 'never (to 400 %)' : `${plan.fitScale * 100} %`) : '?';
       const at100 = plan?.steps.find(s => s.f === 1);
       const rider = plan ? (plan.fitScale === 1 ? 'drawn in the seat' : 'hidden at 100 %, eye at the driver\'s') + (at100 ? ` (head ${Math.round(at100.head * 100)} %, torso ${Math.round(at100.torso * 100)} % inside)` : '') : '?';
