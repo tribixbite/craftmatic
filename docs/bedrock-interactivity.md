@@ -192,6 +192,13 @@ quality) with:
   doorway's own closed cells are not a wall, nor is the last 0.3 block of a
   line. A refused tap says *"The door 1 is behind a wall from here - step in
   front of it"*: a tap that does nothing reads as a broken part.
+  Before refusing, the tap goes to what the player aimed at in plain sight
+  (2026-09-26): the nearest other moving part or seat on the player's VIEW
+  ray, in reach, with a clear line of sight, is toggled or mounted instead.
+  On the Pixel a long press on 76457's Bed picked Door 4's box beyond a wall
+  (walls have no selection box, so that box was first on the ray) and was
+  refused. The refusal record (`craftmatic:ix_refused`) carries the eyes, the
+  part's position and the collider cell that cut the line, for the GameTest.
 - **Reach**: Minecraft hands a tap on an entity to the script only within
   the player's reach - about 3 blocks on the Pixel (device 2026-09-24e: a door
   from 6.5 blocks and a turned door from 3.5 did nothing). Nothing reaches the
@@ -542,9 +549,50 @@ shop floors); next, the model's own geometry fills the doorway's floor rows
 (furniture, stairs, a counter or a solid wall behind the door: 10326 Door 3,
 42663's van, 76417 Door 1, 21318); and in a few, standing surfaces the floor
 rule keeps whole (`walkable-top`: a step or bench the width of the door) close
-the corridor. What would open more, not attempted: a threshold tread for
-rises up to a jump (today only up to two 9/16 steps), and the floor rule
-narrowing a surface that is only a wall's top.
+the corridor. The floor rule now narrows a surface that is only a wall's top
+(rule 4's exception), and raised thresholds get stairs (below).
+
+### Stairs up to a raised threshold (2026-09-26)
+
+A door on a raised base over open ground read SEALED or ONE-WAY: the single
+half-way tread covers two 9/16 auto-steps only. `planThresholdStairs`
+(`bedrock-interactives.ts`, run in `planInteractiveColliders` once every
+doorway is cut) walks out from each leaf column along the leaf's normal: a
+level or auto-step column is walked onto (a landing, a planter), a drop past
+the auto-step takes a tread 9/16 under the last, and the run ends on a floor
+within an auto-step of the ground plane; one even run is re-spaced into equal
+steps. It is laid only past a certain test, and every stair considered is
+reported with its verdict in the pack diagnostics (`stairs`, `stairTreads`):
+
+- the leaf's normal within ~20 degrees of a grid axis (`off-axis`: a
+  diagonal door - 11371's shops, 31141 Door 4, 60380 Door 2 - keeps its
+  verdict; a diagonal stair would need two columns per step);
+- at most 4 treads (`STAIR_MAX_TREADS`) over at most 2.5 blocks
+  (`STAIR_MAX_RISE16`) from the ground to the doorway's floor, within 8
+  columns;
+- every tread column open air from its floor to a standing player's head over
+  the doorway's floor (`not open air`), never a doorway cell, never within 2
+  cells of another doorway standing lower than the tread (`in front of another
+  doorway`);
+- **outside only**: every filled cell is reached by the leak flood
+  (`LeakFlood`, a flying sneaking player from outside) through the collider
+  world with every door closed (`not outside`). A tread can only make walkable
+  a space a player already reaches from outside with the doors shut, so it
+  never opens an enclosed room and never leads past a closed leaf. A raised
+  door inside a room keeps its verdict: stricter than needed, never wrong.
+
+Over the 40 favourites (sweep at `dfd19552` against `e0330b31`,
+`output/polish-0926/` in the polish worktree; `_ix_passability.ts` at
+100-400 %, turns 0 and 90; `_clearance_report.ts`): at 100 % OK 41 -> 43,
+ONE-WAY 8 -> 7, SEALED 29 -> 28, FAIL 0; at 200 % OK 51 -> 53, SEALED 22 ->
+20; at 400 % OK 38 -> 40, SEALED 18 -> 17; reach +9.7 blocks² at 100 %,
++22.2 at 200 %. Changed: 41395 Door 2 and 60380 Door 3 ONE-WAY -> OK at
+every size; 42670 Door 6 SEALED -> ONE-WAY at every size (stairs on one side;
+the other stays unwalked); 42670 Door 3 SEALED
+-> ONE-WAY at 200 %, OK at 400 %/90; 41395 Door 1 at 300-400 % from no
+approach either way to walked out (ONE-WAY). No doorway got worse. The rest
+stay SEALED for other reasons: an interior side full of furniture or a wall,
+an upper floor with no floor under the stair, or a diagonal leaf.
 
 ### Known limits
 
