@@ -174,13 +174,18 @@ describe('figure systems: the mini-doll rig', () => {
     const m = await meshesFor(src);
     expect(figureAnchor(src, m)).toEqual({ index: 0, system: 'minidoll', headless: true });
     const a = assembleMinifig(src, m);
-    expect(a.synthesized).toEqual(['torso']);
+    // The torso the source lost, and the regular right arm that came with it
+    // (LEGO's `100811` torso has one arm and the `2758` stump).
+    expect(a.synthesized).toEqual(['torso', 'right arm']);
     const torso = bySlot(a, 'torso')[0]!;
     expect(torso.part).toBe('92241');
     expect(torso.color).toBe(78); // the arm's colour
     expect(a.torso.position.map(v => Math.round(v * 10) / 10)).toEqual([820, -76.8, -26.1]);
-    expect(pos(bySlot(a, 'legs')[0]!)).toEqual([0, 76.8, -3.9]);
+    // Thin-hinge hips (`1015152`): the legs hang 46.4 below them, not the thick hinge's 47.4.
+    expect(pos(bySlot(a, 'legs')[0]!)).toEqual([0, 75.8, -3.9]);
     expect(bySlot(a, 'arm_left')[0]!.part).toBe('2758');
+    expect(bySlot(a, 'arm_right')[0]!.part).toBe('92245');
+    expect(pos(bySlot(a, 'arm_right')[0]!)).toEqual([-11, 0, 0]);
     // No orphan: nothing in the group was left as a bystander.
     expect(a.bystanders).toEqual([]);
   });
@@ -207,9 +212,13 @@ describe('figure systems: the 2026-09-25 device report (missing legs, floating h
     expect(pos(legs)).toEqual([0, 76.8, -3.9]);
   });
 
-  it('keeps a doll\'s one real arm as built (42703\'s stump) and supplies both when both are gone', async () => {
+  it('gives a one-armed doll its other arm in its arm\'s colour, keeps a stump, and supplies both when both are gone', async () => {
     const one = assembleMinifig(headlessDoll(), await meshesFor(headlessDoll()));
-    expect(one.synthesized).toEqual(['torso']);
+    expect(one.synthesized).toEqual(['torso', 'right arm']);
+    const oneArm = [at('1006030', 15, 0, -77, 0), at('92244', 92, 11, -77, 0), at('92198', 92, 0, -110.2, 0), at('92248', 322, 0, -47.6, 1.2), at('92251', 322, 0, 0, -2.7)];
+    const o = assembleMinifig(oneArm, await meshesFor(oneArm));
+    expect(o.synthesized).toEqual(['right arm']);
+    expect(bySlot(o, 'arm_right')[0]).toMatchObject({ part: '92245', color: 92 });
     const armless = [at('1006030', 78, 0, -77, 0), at('92198', 78, 0, -110.2, 0), at('92248', 322, 0, -47.6, 1.2), at('92251', 322, 0, 0, -2.7)];
     const a = assembleMinifig(armless, await meshesFor(armless));
     expect(a.synthesized).toEqual(['right arm', 'left arm']);
@@ -401,7 +410,9 @@ describe('figure systems: faces and hair through the compiler', () => {
     expect(big.sizeBlocks.height).toBeGreaterThan(2.0);
     const doll = await compileLdrawEntityGeometry('doll', 'figure', mermaid(), { partGeometry: provider(), quality: { studFacets: 1 } });
     expect(doll.diagnostics.minifig?.system).toBe('minidoll');
-    expect(doll.diagnostics.defaultFaces).toBe(1);
+    // A plain doll head wears the default DOLL face, a texture, not the minifig cuboid face.
+    expect(doll.diagnostics.defaultFaces).toBe(0);
+    expect(doll.diagnostics.faceTextures).toMatchObject({ printed: 0, art: 0, default: 1 });
     expect(doll.warnings.some(w => /rebuilt around/.test(w))).toBe(false);
   });
 });

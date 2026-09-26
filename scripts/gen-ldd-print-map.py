@@ -42,7 +42,9 @@ Output (flat, one row per key, so `validateTable` in lxf-parser.ts reads it
 like the other LDD tables):
   { "e:<elementId>": "<printed>.dat", "d:<decorationId>": "<printed>.dat",
     "n:<elementId>": "3626pb<N>" }
-`n:` rows give a minifig head that has NO LDraw print its BrickLink print id.
+`n:` rows give a head that has NO LDraw print its print id: a minifig head's
+BrickLink id (`3626pb<N>`), a mini-doll head's Rebrickable id (`92198pr<N>`,
+`28649pr<N>` for the male mould).
 The converters keep the PLAIN mould (drawable by every reader and by clego's
 grader) and write the id on a `0 !CRAFTMATIC HEAD_PRINT <id>` line before it;
 face art keys on it (`head-face.ts`, `gen-face-art.py`).
@@ -77,12 +79,22 @@ LIBRARIES = {
 }
 # Printed head files: minifig heads (3626b/3626c/3626p… and the 28621 mould)
 # and mini-doll heads (92198).
-PRINTED_HEAD = re.compile(r'^(3626[bc]?p|28621p|92198p)[0-9a-z]+$')
-BASE_MOULD = {'minifig': '3626c', 'minidoll': '92198'}
+PRINTED_HEAD = re.compile(r'^(3626[bc]?p|28621p|92198p|92240p)[0-9a-z]+$')
+# The plain mould each printed head is framed against: a mini-doll FEMALE head
+# (92198) and the MALE one (92240, LDD 28649), which LDraw keeps apart.
+BASE_MOULD = {'minifig': '3626c', 'minidoll': '92198', 'minidoll_male': '92240'}
+# A mini-doll head's print id when LDraw has no print: Rebrickable's part number
+# (`92198pr0147`, `28649pr0444`). BrickLink catalogues each doll print under
+# its own unrelated item number (93212, 57511, 106075), so unlike a minifig
+# head (`3626pb<N>`) it has no id derivable from the mould; Rebrickable's
+# `elements.csv` names every doll-head element's print.
+DOLL_PRINT_ID = re.compile(r'^(92198|28649)pr[0-9a-z]+$')
 FRAME_TOL_LDU = 0.6
 
 
 def family_of(stem: str) -> str:
+    if stem.startswith('92240'):
+        return 'minidoll_male'
     return 'minidoll' if stem.startswith('92198') else 'minifig'
 
 
@@ -255,6 +267,10 @@ def main() -> int:
                 rows[f'n:{el}'] = f'3626pb{m.group(1)}'
                 via['name'] += 1
                 break
+        # A mini-doll head no library prints: its Rebrickable print id.
+        if f'n:{el}' not in rows and DOLL_PRINT_ID.match(el_rb.get(el, '').lower()):
+            rows[f'n:{el}'] = el_rb[el].lower()
+            via['doll-name'] += 1
     print(f'element rows: {sum(1 for k in rows if k.startswith("e:"))} printed, '
           f'{sum(1 for k in rows if k.startswith("n:"))} identity-only ({dict(via)})')
 
@@ -280,7 +296,7 @@ def main() -> int:
 
 def corpus_head_pairs(cache: str | None) -> list[tuple[list[str], str]]:
     """(element ids, decoration id) for every decorated head brick in the corpus."""
-    heads = {'3626', '28650', '92198', '28621'}
+    heads = {'3626', '28650', '92198', '28621', '28649', '92240'}
     out = []
     if cache:
         for stem, bdes, pdes, items, brief, pdecs, mat in json.load(open(cache, encoding='utf-8'))['rows']:

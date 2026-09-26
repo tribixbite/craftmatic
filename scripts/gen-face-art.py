@@ -28,10 +28,20 @@ This is ROUTE 2 of docs/bedrock-addon-guide.md's "Faces": the photos are
 BrickLink's catalogue images, so the art is for local builds and is not
 redistributed by this repo. Nothing in the web app fetches it.
 
+MINI-DOLL heads (`HEAD_PRINT 92198pr<N>` / `28649pr<N>`, Rebrickable's print
+ids: BrickLink numbers doll prints as unrelated items) take a different route,
+`doll_face_art.py`: LEGO's own three-quarter render of the element (Rebrickable
+serves it by element id, found through clego's `elements.csv`) is unwarped onto
+the head mould's face by fitting the LDraw mesh to the photo's silhouette. The
+art covers the doll head's whole front, which is what head-face.ts maps it onto
+for a doll head.
+
 Usage: python scripts/gen-face-art.py <out-dir> <model.ldr|.mpd>... [--sleep 1.0]
        (reads every HEAD_PRINT id, and the older `3626cpb<N>.dat` names)
-Writes `<dir>/3626pb<N>.png` (face art is keyed by print id).
+Writes `<dir>/3626pb<N>.png` and `<dir>/92198pr<N>.png` (face art is keyed by
+print id), and `<dir>/doll-fits.json` (each doll photo's silhouette fit).
 """
+import csv
 import json
 import re
 import sys
@@ -46,6 +56,9 @@ CLEGO = Path('C:/') / 'git' / 'clego'
 STUDIO_DATA = [CLEGO / 'extracted' / e / 'app' / 'data' for e in ('studio_earlyaccess', 'studio_release')]
 # The HEAD_PRINT meta line, and the older identity part name (still accepted).
 HEAD_NAME = re.compile(r'^0\s+!CRAFTMATIC\s+HEAD_PRINT\s+3626[bc]?pb(\d+)\b|\b3626cpb(\d+)\.dat\b', re.I | re.M)
+# A mini-doll head's print id (Rebrickable): the female mould 92198, the male 28649 (LDraw 92240).
+DOLL_HEAD = re.compile(r'^0\s+!CRAFTMATIC\s+HEAD_PRINT\s+((92198|28649)pr[0-9a-z]+)\b', re.I | re.M)
+DOLL_MOULD = {'92198': '92198', '28649': '92240'}
 ART_WIDTH = 128
 
 
@@ -169,9 +182,12 @@ def main(argv: list[str]) -> int:
     out = Path(args[0])
     (out / 'raw').mkdir(parents=True, exist_ok=True)
     heads: set[str] = set()
+    dolls: set[str] = set()
     for model in args[1:]:
-        for m in HEAD_NAME.finditer(Path(model).read_text(encoding='latin-1')):
+        text = Path(model).read_text(encoding='latin-1')
+        for m in HEAD_NAME.finditer(text):
             heads.add(m.group(1) or m.group(2))
+        dolls.update(m.group(1).lower() for m in DOLL_HEAD.finditer(text))
     colours = bl_colours()
     made = missing = 0
     for n in sorted(heads, key=int):
@@ -190,8 +206,50 @@ def main(argv: list[str]) -> int:
         art.save(out / f'3626pb{n}.png')
         made += 1
         print(f'{bl}: {art.size[0]}x{art.size[1]}')
-    print(f'{made} face art written to {out}, {missing} without')
+    d_made, d_missing = doll_heads(sorted(dolls), out, pause)
+    print(f'{made + d_made} face art written to {out} ({d_made} mini-doll), {missing + d_missing} without')
     return 0
+
+
+def doll_elements() -> dict[str, list[str]]:
+    """Rebrickable part number (`92198pr0147`) -> the LEGO element ids that carry it."""
+    out: dict[str, list[str]] = {}
+    with open(CLEGO / 'elements.csv', newline='', encoding='utf-8', errors='replace') as f:
+        for r in csv.DictReader(f):
+            if r['part_num'].lower().startswith(('92198pr', '28649pr')):
+                out.setdefault(r['part_num'].lower(), []).append(r['element_id'])
+    return out
+
+
+def doll_heads(ids: list[str], out: Path, pause: float) -> tuple[int, int]:
+    """Doll face art for each print id from LEGO's element render (`doll_face_art.py`)."""
+    if not ids:
+        return 0, 0
+    from doll_face_art import doll_art
+    elements = doll_elements()
+    fits: dict[str, dict] = {}
+    made = missing = 0
+    for pid in ids:
+        mould = DOLL_MOULD[pid[:5]]
+        art, info = None, {'error': 'no element render'}
+        for el in elements.get(pid, []):
+            raw = out / 'raw' / f'{pid}-{el}.jpg'
+            if not fetch(f'https://cdn.rebrickable.com/media/parts/elements/{el}.jpg', raw, pause):
+                continue
+            art, info = doll_art(raw, mould)
+            info['element'] = el
+            if art is not None:
+                break
+        fits[pid] = info
+        if art is None:
+            print(f'{pid}: no art ({info.get("error")})')
+            missing += 1
+            continue
+        art.save(out / f'{pid}.png')
+        made += 1
+        print(f'{pid}: {art.size[0]}x{art.size[1]} fit {info}')
+    (out / 'doll-fits.json').write_text(json.dumps(fits, indent=1, sort_keys=True), encoding='utf-8')
+    return made, missing
 
 
 if __name__ == '__main__':

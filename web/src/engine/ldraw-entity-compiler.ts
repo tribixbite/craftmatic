@@ -45,9 +45,9 @@ import {
 import { resolveLdrawEntityMaterial, type LdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { encodePngRgba } from './lego-resource-pack.js';
-import { faceArtImage, orientFace, packFaceAtlas, rasterizeHeadFace, type BedrockFaceName, type FaceImage } from './head-face.js';
+import { defaultDollFace, faceArtImage, isDollHead, orientFace, packFaceAtlas, rasterizeHeadFace, type BedrockFaceName, type FaceImage } from './head-face.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { mouldFamilyId, assembleMinifig, classifyMiniDollPart, classifyMinifigPart, figureAnchor, figureSystemOfTorso, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, classifyMiniDollPart, classifyMinifigPart, figureAnchor, figureSystemOfTorso, MINIDOLL_CANON, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -98,6 +98,11 @@ export function isFigurePart(part: string, description: string): boolean {
   if (/^(Figure|Friends|Duplo Figure|Technic Figure)\b/i.test(d)) return true;
   // Big-fig moulds: Studio's `Torso Large, …` / `Arm Large with Pin, …` and LDraw's `Bigfig …`.
   if (/^(Torso Large|Arm Large|Bigfig)\b/i.test(d)) return true;
+  // BrickLink's mini-doll copies (`Mini Doll, Hair …`, `MINI WIG NO. 3`): the
+  // doll vocabulary names them, the prefixes above do not. Ungrouped, 42639's
+  // two wigs were left in the shell 4.4 LDU off their dolls' heads, past the
+  // 4 LDU "worn on the head" catch, and both dolls walked bald (2026-09-26).
+  if (classifyMiniDollPart(part, description) !== null) return true;
   // `mouldFamilyId` follows LDraw's `~Moved to <id>` retirement stubs, whose
   // description names no part at all. Without it `981`/`982` (the arms the
   // `.io`-derived museum places) match nothing and every figure loses both arms.
@@ -463,7 +468,7 @@ export interface LegoGeometryDiagnostics {
    * caller seeded for a head no library prints. `atlas` is the entity's face
    * texture size in texels ([0, 0] when none).
    */
-  faceTextures?: { printed: number; art: number; atlas: [number, number] };
+  faceTextures?: { printed: number; art: number; default: number; atlas: [number, number] };
   /**
    * Head cuboid fragments removed under a figure's headwear (`carveHeads`):
    * a head cell that shares space with its hair would otherwise show through
@@ -853,44 +858,113 @@ export function faceDecals(proto: CompiledPartPrototype, skin: LdrawEntityMateri
   return out;
 }
 
-/** A head whose face is a texture: its re-coloured prototype and the decal that carries the print. */
+/** A head whose face is a texture: its re-coloured prototype and the decal(s) that carry the print. */
 interface TexturedHeadFace {
   proto: CompiledPartPrototype;
-  /** Part-local decal box, proud of the head's front-most cuboid. */
-  decal: PartCuboid;
-  oriented: NonNullable<ReturnType<typeof orientFace>>;
-  source: 'printed' | 'art';
+  /**
+   * Part-local decal boxes, each proud of the head's cuboids under it, with
+   * its piece of the print laid out for the cube face it looks out of. One for
+   * a minifig head; a mini-doll head's face is TILED (`tileFaceDecals`).
+   */
+  tiles: Array<{ decal: PartCuboid; oriented: NonNullable<ReturnType<typeof orientFace>> }>;
+  /** `default`: a plain doll head given the default doll face (`defaultDollFace`), not its own. */
+  source: 'printed' | 'art' | 'default';
+}
+
+/** The side of a doll-face decal tile (LDU): about one compiled head cell. */
+const FACE_TILE_LDU = 2;
+
+/**
+ * A face image cut into TILES that each sit proud of the head's own cuboids
+ * UNDER them, instead of one flat decal in front of the head's front-most
+ * cuboid. A mini-doll head is round in both directions - its front falls back
+ * ~6 LDU from the nose to the cheeks and ~5 to the chin - so one flat decal
+ * floated off the cheeks and chin and showed as a mask from any angle but
+ * dead ahead. Tiles are FACE_TILE_LDU columns, split where the head's front
+ * steps (runs of equal depth are merged), and only tiles with ink are kept.
+ */
+function tileFaceDecals(image: FaceImage, cuboids: readonly PartCuboid[]): Array<{ decal: PartCuboid; sub: FaceImage }> {
+  const { rect } = image;
+  const sx = image.width / (rect.x1 - rect.x0), sy = image.height / (rect.y1 - rect.y0);
+  const out: Array<{ decal: PartCuboid; sub: FaceImage }> = [];
+  const cols = Math.ceil((rect.x1 - rect.x0) / FACE_TILE_LDU - 1e-9), rows = Math.ceil((rect.y1 - rect.y0) / FACE_TILE_LDU - 1e-9);
+  const texel = (ldu: number, scale: number, max: number): number => Math.max(0, Math.min(max, Math.round(ldu * scale)));
+  for (let c = 0; c < cols; c++) {
+    const x0 = rect.x0 + c * FACE_TILE_LDU, x1 = Math.min(rect.x1, x0 + FACE_TILE_LDU);
+    const tx0 = texel(x0 - rect.x0, sx, image.width), tx1 = texel(x1 - rect.x0, sx, image.width);
+    let run: { ty0: number; ty1: number; front: number } | null = null;
+    const flush = (): void => {
+      if (!run) return;
+      const w = tx1 - tx0, h = run.ty1 - run.ty0;
+      const rgba = new Uint8Array(Math.max(0, w * h * 4));
+      let ink = false;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const s = ((run.ty0 + y) * image.width + tx0 + x) * 4, o = (y * w + x) * 4;
+        rgba[o] = image.rgba[s]!; rgba[o + 1] = image.rgba[s + 1]!; rgba[o + 2] = image.rgba[s + 2]!; rgba[o + 3] = image.rgba[s + 3]!;
+        if (image.rgba[s + 3]! >= 128) ink = true;
+      }
+      if (ink && w > 0 && h > 0) {
+        const r = { x0: rect.x0 + tx0 / sx, x1: rect.x0 + tx1 / sx, y0: rect.y0 + run.ty0 / sy, y1: rect.y0 + run.ty1 / sy };
+        out.push({
+          decal: { min: [r.x0, r.y0, run.front - DECAL_PROUD_LDU], max: [r.x1, r.y1, run.front + DECAL_EMBED_LDU], color: 16 },
+          sub: { width: w, height: h, rgba, rect: r },
+        });
+      }
+      run = null;
+    };
+    for (let r = 0; r < rows; r++) {
+      const y0 = rect.y0 + r * FACE_TILE_LDU, y1 = Math.min(rect.y1, y0 + FACE_TILE_LDU);
+      const ty0 = texel(y0 - rect.y0, sy, image.height), ty1 = texel(y1 - rect.y0, sy, image.height);
+      let front = Infinity;
+      for (const q of cuboids) if (q.max[0] > x0 && q.min[0] < x1 && q.max[1] > y0 && q.min[1] < y1) front = Math.min(front, q.min[2]);
+      if (!Number.isFinite(front) || ty1 <= ty0) { flush(); continue; }
+      if (run && Math.abs(run.front - front) < 1e-6 && run.ty1 === ty0) { run.ty1 = ty1; continue; }
+      flush();
+      run = { ty0, ty1, front };
+    }
+    flush();
+  }
+  return out;
 }
 
 /**
  * A head's face as a TEXTURE (`head-face.ts`): a printed LDraw head's own
- * artwork, else face art seeded for this part name; null when neither exists
- * or the face does not look along a horizontal axis (then the caller falls
- * back to the cuboid print or the default face).
+ * artwork, else face art seeded for its print id, else - for a plain
+ * MINI-DOLL head - the default doll face; null when none applies or the face
+ * does not look along a horizontal axis (then the caller falls back to the
+ * cuboid print or the default minifig face).
  *
  * `frame` takes part-local directions to the render frame (A·R for an aligned
  * part, A for a rotated one, whose cube is authored unrotated in its bone).
  * The print's cuboids on the FRONT half take the head's own colour - the
  * decal draws that print sharper - while a back print (a dual-sided head's
- * second face) keeps its cuboids.
+ * second face) keeps its cuboids. A doll head's face is tiled over its curved
+ * front (`tileFaceDecals`); a minifig head's is one decal.
  */
 function texturedHeadFace(part: string, mesh: LdrawPartMesh, proto: CompiledPartPrototype, frame: Mat3, headPrint?: string): TexturedHeadFace | null {
   if (!proto.cuboids.length) return null;
   const printed = rasterizeHeadFace(mesh);
-  const image: FaceImage | null = printed ?? faceArtImage(part, mesh, headPrint);
+  const art = printed ? null : faceArtImage(part, mesh, headPrint);
+  const doll = isDollHead(part, mesh);
+  const fallback = !printed && !art && doll && mesh.triangles.length > 0 && mesh.triangles.every(t => t.color === 16) ? defaultDollFace(part, mesh) : null;
+  const image: FaceImage | null = printed ?? art ?? fallback;
   if (!image) return null;
   const dir = (v: Vec3): Vec3 => apply(frame, v);
-  const oriented = orientFace(image, dir([0, 0, -1]), dir([1, 0, 0]), dir([0, 1, 0]));
-  if (!oriented) return null;
+  const lay = (img: FaceImage): ReturnType<typeof orientFace> => orientFace(img, dir([0, 0, -1]), dir([1, 0, 0]), dir([0, 1, 0]));
   const midZ = (proto.boundsLdu.min[2] + proto.boundsLdu.max[2]) / 2;
   const front = Math.min(...proto.cuboids.map(c => c.min[2]));
   const cuboids = proto.cuboids.map(c => (c.color !== 16 && (c.min[2] + c.max[2]) / 2 < midZ ? { ...c, color: 16 } : c));
-  const decal: PartCuboid = {
-    min: [image.rect.x0, image.rect.y0, front - DECAL_PROUD_LDU],
-    max: [image.rect.x1, image.rect.y1, front + DECAL_EMBED_LDU],
-    color: 16,
-  };
-  return { proto: { ...proto, cuboids }, decal, oriented, source: printed ? 'printed' : 'art' };
+  const pieces = doll
+    ? tileFaceDecals(image, proto.cuboids)
+    : [{ decal: { min: [image.rect.x0, image.rect.y0, front - DECAL_PROUD_LDU] as Vec3, max: [image.rect.x1, image.rect.y1, front + DECAL_EMBED_LDU] as Vec3, color: 16 }, sub: image }];
+  const tiles: TexturedHeadFace['tiles'] = [];
+  for (const piece of pieces) {
+    const oriented = lay(piece.sub);
+    if (!oriented) return null;
+    tiles.push({ decal: piece.decal, oriented });
+  }
+  if (!tiles.length) return null;
+  return { proto: { ...proto, cuboids }, tiles, source: printed ? 'printed' : art ? 'art' : 'default' };
 }
 
 /** Axis-aligned box difference `box − cut`: up to six boxes, slivers dropped. */
@@ -1315,6 +1389,14 @@ export const isHeadPart = (part: string, description: string): boolean =>
  */
 export const HELD_BELOW_LDU = 48;
 
+/**
+ * How far in front of its torso a doll's legs may sit and still be its own:
+ * the hips joint is 29.4 LDU below the torso and the legs 47.5 long from it
+ * (`MINIDOLL_CANON`), so a seated doll's soles are ~48 forward; 60 keeps a
+ * neighbour's legs (dolls stand 80 LDU apart) out.
+ */
+const SEATED_DOLL_LEGS_REACH = 60;
+
 const GROUP_REACH: Record<FigureSystem, { radius: number; above: number; below: number }> = {
   minifig: { radius: 40, above: 48, below: 80 },
   minidoll: { radius: 40, above: 48, below: 100 },
@@ -1353,11 +1435,17 @@ export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPar
     // the figure's knees, set the entity's floor under the soles and walked
     // off with the figure (2026-09-25).
     const accessory = classifyMinifigPart(b.part, desc(b)) === 'held' && classifyMiniDollPart(b.part, desc(b)) === null;
+    const dollLegs = classifyMiniDollPart(b.part, desc(b)) === 'doll_leg';
     let best = -1, bestD = Infinity;
     torsos.forEach((t, k) => {
       const [dx, dy, dz] = inTorsoFrame(bricks[t]!, b);
       const reach = reachOf[k]!;
-      if (Math.hypot(dx, dz) > reach.radius || dy < -reach.above || dy > (accessory ? Math.min(reach.below, HELD_BELOW_LDU) : reach.below)) return;
+      // A SEATED doll's one-piece legs: their origin is the sole, so bending
+      // them 90 degrees at the hips swings it SEATED_DOLL_LEGS_REACH forward at
+      // hip height (41703's seated boy: legs at 48 LDU in front of his torso,
+      // left in the shell while the rig gave him plain trousers).
+      const radius = dollLegs && reachOf[k] === GROUP_REACH.minidoll && dy >= 0 && dy <= MINIDOLL_CANON.hips!.position[1] + 20 ? SEATED_DOLL_LEGS_REACH : reach.radius;
+      if (Math.hypot(dx, dz) > radius || dy < -reach.above || dy > (accessory ? Math.min(reach.below, HELD_BELOW_LDU) : reach.below)) return;
       const d = Math.hypot(dx, dz) + Math.abs(dy) * 0.25;
       if (d < bestD) { bestD = d; best = k; }
     });
@@ -2075,7 +2163,7 @@ export async function compileLdrawEntityGeometry(
     let rotatedBoneCount = 0;
     let unresolvedCount = 0;
     let defaultFaces = 0;
-    let facePrinted = 0, faceArtCount = 0;
+    let facePrinted = 0, faceArtCount = 0, faceDefault = 0;
     /** Face decals (render frame), kept apart from `renderCuboids` so no carve, cull or merge touches them. */
     const faceDecalCuboids: RenderCuboid[] = [];
     /** `renderCuboids` index range each placement's body cuboids occupy (for the head carve). */
@@ -2140,7 +2228,7 @@ export async function compileLdrawEntityGeometry(
         if (face) {
           proto = face.proto;
           faceDecal = face;
-          if (face.source === 'printed') facePrinted++; else faceArtCount++;
+          if (face.source === 'printed') facePrinted++; else if (face.source === 'art') faceArtCount++; else faceDefault++;
         } else if (isPlainHead(b.part, mesh)) {
           const decals = faceDecals(proto, material);
           if (decals.length) { proto = { ...proto, cuboids: [...proto.cuboids, ...decals] }; defaultFaces++; }
@@ -2172,20 +2260,21 @@ export async function compileLdrawEntityGeometry(
         }
       }
       if (faceDecal) {
-        // The decal goes through the same transform as the head's own cuboids.
-        const { decal, oriented } = faceDecal;
-        if (aligned) {
-          const world = aabbOfCorners(cornersOf(decal.min, decal.max).map(v => { const r = apply(R, v); return [r[0] + t[0], r[1] + t[1], r[2] + t[2]] as Vec3; }));
-          const rb = aabbOfCorners(cornersOf(world.min, world.max).map(v => apply(A, v)));
-          faceDecalCuboids.push({ ...rb, material, bone, aligned: true, face: oriented });
-        } else {
-          const at = apply(A, t);
-          const local = aabbOfCorners(cornersOf(decal.min, decal.max).map(v => apply(A, v)));
-          faceDecalCuboids.push({
-            min: [local.min[0] + at[0], local.min[1] + at[1], local.min[2] + at[2]],
-            max: [local.max[0] + at[0], local.max[1] + at[1], local.max[2] + at[2]],
-            material, bone, aligned: false, face: oriented,
-          });
+        // Each decal goes through the same transform as the head's own cuboids.
+        for (const { decal, oriented } of faceDecal.tiles) {
+          if (aligned) {
+            const world = aabbOfCorners(cornersOf(decal.min, decal.max).map(v => { const r = apply(R, v); return [r[0] + t[0], r[1] + t[1], r[2] + t[2]] as Vec3; }));
+            const rb = aabbOfCorners(cornersOf(world.min, world.max).map(v => apply(A, v)));
+            faceDecalCuboids.push({ ...rb, material, bone, aligned: true, face: oriented });
+          } else {
+            const at = apply(A, t);
+            const local = aabbOfCorners(cornersOf(decal.min, decal.max).map(v => apply(A, v)));
+            faceDecalCuboids.push({
+              min: [local.min[0] + at[0], local.min[1] + at[1], local.min[2] + at[2]],
+              max: [local.max[0] + at[0], local.max[1] + at[1], local.max[2] + at[2]],
+              material, bone, aligned: false, face: oriented,
+            });
+          }
         }
       }
       for (const s of proto.studs) studCandidates.push({ brick: brickIndex, s, R, t, material, bone, aligned });
@@ -2225,7 +2314,7 @@ export async function compileLdrawEntityGeometry(
       // The planning pass: only the world boxes and stud candidates are needed
       // (for the stud reserve), so the cull and the merge are skipped.
       const cullPlan: HiddenCullPlan = { hidden: new Set(), cellLdu: 0, requestedCellLdu: 0, gridCells: 0, coarsened: false, skipped: false };
-      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount };
+      return { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: 0, cullPlan, mergedCubes: 0, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault };
     }
 
     // Buried cuboids cost budget and draw calls for nothing: cull them. The
@@ -2243,7 +2332,7 @@ export async function compileLdrawEntityGeometry(
     // Lossless: same-colour face-adjacent body boxes become one (see mergeAlignedCuboids).
     const mergedResult = mergeAlignedCuboids(visibleCuboids);
 
-    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount };
+    return { renderCuboids: mergedResult.cuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, unresolvedCount, hiddenCubesCulled: hidden.size, cullPlan, mergedCubes: mergedResult.merged, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault };
   };
 
   // 5. Exposed studs: a stud whose top is inside another part's box is covered.
@@ -2334,7 +2423,7 @@ export async function compileLdrawEntityGeometry(
   } else if (grainPlan.partsCoarsened) {
     warnings.push(`${cid}: ${grainPlan.placementsCoarsened} placement${grainPlan.placementsCoarsened === 1 ? '' : 's'} of ${grainPlan.partsCoarsened} part${grainPlan.partsCoarsened === 1 ? '' : 's'} compiled coarser than ${grainPlan.requestedMicrocellLdu} LDU to fit the ${quality.maxModelCubes}-cuboid budget (silhouette fidelity ${grainPlan.fidelity} against ${grainPlan.fidelityAtRequested} at full grain); the other ${grainPlan.placementsAtGrain[grainPlan.requestedMicrocellLdu] ?? 0} keep ${grainPlan.requestedMicrocellLdu} LDU.`);
   }
-  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount } = built;
+  const { renderCuboids, worldBoxes, studCandidates, bones, aabbFallback, rotatedBoneCount, hiddenCubesCulled, cullPlan, mergedCubes, heaviestParts, defaultFaces, headCubesCarved, faceDecalCuboids, facePrinted, faceArtCount, faceDefault } = built;
   if (cullPlan.skipped) {
     warnings.push(`${cid}: buried-cuboid culling was skipped - the model spans ${Math.round(Math.cbrt(cullPlan.gridCells))} cells a side even at ${cullPlan.cellLdu} LDU, over the ${CULL_GRID_CELL_BUDGET / 1_000_000} M-cell occupancy budget; a few hundred never-visible cuboids ship with it.`);
   }
@@ -2685,7 +2774,7 @@ export async function compileLdrawEntityGeometry(
     orphans,
     hiddenCubesCulled,
     defaultFaces,
-    ...(faceDecalCuboids.length ? { faceTextures: { printed: facePrinted, art: faceArtCount, atlas: faceAtlasSize } } : {}),
+    ...(faceDecalCuboids.length ? { faceTextures: { printed: facePrinted, art: faceArtCount, default: faceDefault, atlas: faceAtlasSize } } : {}),
     headCubesCarved,
     hiddenCull: { cellLdu: cullPlan.cellLdu, requestedCellLdu: cullPlan.requestedCellLdu, gridCells: cullPlan.gridCells, coarsened: cullPlan.coarsened, skipped: cullPlan.skipped },
     mergedCubes,

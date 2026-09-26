@@ -270,6 +270,73 @@ export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'legs', parent: 'hips', pivotLdu: [0, 29.4, -1.2] },
 ];
 
+/**
+ * The MAN mini-doll (`92242` / `1011355` torso, `92240` head): the same joints
+ * on a longer, wider torso. LDraw's own `92240c01` "Male Template" puts the
+ * head 36.2 above the torso (the woman's 33.2 + 3.0), the hips 27.9 below
+ * (29.4 - 1.5) and the legs 75.3; `92815` / `73441` pin the arms at ±12.5.
+ * Measured by `scripts/_doll_proportions.ts`: on the woman's canon the man's
+ * head sat 3 LDU into his torso, his arms 1.5 inside his shoulders and his
+ * legs 1.5 LDU low.
+ */
+export const MINIDOLL_MAN_CANON: SystemCanon = {
+  ...MINIDOLL_CANON,
+  head: { position: [0, -36.2, 0], rotation: IDENTITY },
+  arm_right: { position: [-12.5, 0, 0], rotation: IDENTITY },
+  arm_left: { position: [12.5, 0, 0], rotation: IDENTITY },
+  hand_right: { position: [-27.4, 29.7, -4], rotation: IDENTITY },
+  hand_left: { position: [27.4, 29.7, -4], rotation: IDENTITY },
+  hips: { position: [0, 27.9, -1.2], rotation: IDENTITY },
+  hips_legs: { position: [0, 27.9, -1.2], rotation: IDENTITY },
+  legs: { position: [0, 75.3, -3.9], rotation: IDENTITY },
+};
+
+/**
+ * The legs' step below THIN-hinge hips (`1015152`, the 2023 moulds): 46.4
+ * against the thick `92248`'s 47.4 (39 of the library's 53 thin-hinge
+ * hips-and-legs composites; the rest differ by 0.5 in z only). On the thick
+ * step a thin-hinge doll's legs hung 1 LDU below its hips.
+ */
+export const MINIDOLL_THIN_HINGE_LEGS_RISE = 1.0;
+
+/**
+ * The mini-doll canon for this torso and hips: the man's for a man torso,
+ * the thin hinge's legs for thin-hinge hips, the woman's/girl's/boy's
+ * (`MINIDOLL_CANON`, all measured alike) otherwise.
+ */
+export function minidollCanon(torsoDescription: string, hipsDescription = ''): SystemCanon {
+  const base = /\bMan Torso\b/i.test(stripAlias(torsoDescription)) ? MINIDOLL_MAN_CANON : MINIDOLL_CANON;
+  if (!/Thin Hinge/i.test(hipsDescription)) return base;
+  const legs = base.legs!;
+  return { ...base, legs: { position: [legs.position[0], legs.position[1] - MINIDOLL_THIN_HINGE_LEGS_RISE, legs.position[2]], rotation: legs.rotation } };
+}
+
+/** A mini-doll skeleton with its joints at `canon`'s (the man's and the thin hinge's differ from `MINIDOLL_BONES`). */
+export function minidollBones(canon: SystemCanon): RigBone[] {
+  const at = (slot: MinifigSlot, fallback: Vec3): Vec3 => canon[slot]?.position ?? fallback;
+  return MINIDOLL_BONES.map(b => {
+    switch (b.name) {
+      case 'head': return { ...b, pivotLdu: at('head', b.pivotLdu) };
+      case 'arm_right': return { ...b, pivotLdu: at('arm_right', b.pivotLdu) };
+      case 'arm_left': return { ...b, pivotLdu: at('arm_left', b.pivotLdu) };
+      case 'hand_right': return { ...b, pivotLdu: at('hand_right', b.pivotLdu) };
+      case 'hand_left': return { ...b, pivotLdu: at('hand_left', b.pivotLdu) };
+      case 'hips': case 'legs': return { ...b, pivotLdu: at('hips', b.pivotLdu) };
+      default: return b;
+    }
+  });
+}
+
+/**
+ * LDraw skin tones a mini-doll comes in (Light Nougat, Nougat, Medium Nougat,
+ * Medium Brown, Reddish Brown, Dark Brown, Dark Tan, Warm Tan): a doll's arms
+ * are moulded in its skin and printed with sleeves, so an arm in one of these
+ * gives a lost head its colour.
+ */
+const DOLL_SKINS: ReadonlySet<number> = new Set([78, 92, 84, 86, 70, 308, 28, 450]);
+/** Light Nougat, the commonest doll skin, when nothing in the figure gives the skin away. */
+const DOLL_DEFAULT_SKIN = 78;
+
 /** The big-fig's bones: body, the head on the neck, two pinned arms with hands, the legs under the coat. */
 export const BIGFIG_BONES: readonly RigBone[] = [
   { name: 'body', pivotLdu: [0, 0, 0] },
@@ -555,7 +622,11 @@ function consensusOrigin(canon: SystemCanon, source: SourcePart[]): { offset: Ve
  * Right Arm, `92244` Female Left Arm - each authored at its doll joint, so the
  * `MINIDOLL_CANON` offsets place them.
  */
-export const MINIDOLL_DEFAULT_PARTS = { hips: '92248', legs: '92251', arm_right: '92245', arm_left: '92244' } as const;
+export const MINIDOLL_DEFAULT_PARTS = {
+  hips: '92248', legs: '92251', arm_right: '92245', arm_left: '92244',
+  /** The man's arms (`92815`) and the plain heads, for a doll that lost its own. */
+  arm_right_man: '92247', arm_left_man: '92246', head: '92198', head_man: '92240',
+} as const;
 
 const DEFAULT_TORSO: Record<FigureSystem, string> = { minifig: MINIFIG_DEFAULT_PARTS.torso, minidoll: '92241', bigfig: MINIFIG_DEFAULT_PARTS.torso };
 
@@ -614,7 +685,9 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   }
   const torso = parts[torsoIndex]!;
   const system = root.system;
-  const canon = SYSTEM_CANON[system];
+  // A mini-doll's joints depend on its torso (man or not) and hips (thin hinge or thick).
+  const hipsPart = system === 'minidoll' ? parts.find(b => classifyMiniDollPart(b.part, desc(b)) === 'doll_hips') : undefined;
+  const canon = system === 'minidoll' ? minidollCanon(desc(torso), hipsPart ? desc(hipsPart) : '') : SYSTEM_CANON[system];
   const classified = parts.map((b, i) => ({ brick: b, slot: i === torsoIndex ? 'torso' as MinifigSlot : classifyFigurePart(system, b.part, desc(b)) }));
   // A second torso in the group (a doll's torso caught beside a minifig's) is foreign, not a second body.
   for (const c of classified) if (c.slot === 'torso' && c.brick !== torso) c.slot = null;
@@ -680,6 +753,15 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   push(placeAt(torso.part, torsoColor, canon.torso!.position, canon.torso!.rotation), 'torso');
   if (headSrc) placeCanon(headSrc, 'head');
   else if (system === 'minifig') { synthesized.push('head'); push(placeAt(MINIFIG_DEFAULT_PARTS.head, skin, MINIFIG_CANON.head.position, MINIFIG_CANON.head.rotation), 'head'); }
+  else if (system === 'minidoll') {
+    // A doll the source lost the head of (41395's Mecabricks dolls have none)
+    // gets the plain doll head - the man's mould on a man torso - in the skin
+    // its arms give away; it then wears the default doll face.
+    const armSkin = [first('arm_right'), first('arm_left')].map(a => a?.brick.color).find(c => c !== undefined && DOLL_SKINS.has(c));
+    const man = canon === MINIDOLL_MAN_CANON || canon.head!.position[1] === MINIDOLL_MAN_CANON.head!.position[1];
+    synthesized.push('head');
+    push(placeAt(man ? MINIDOLL_DEFAULT_PARTS.head_man : MINIDOLL_DEFAULT_PARTS.head, armSkin ?? DOLL_DEFAULT_SKIN, canon.head!.position, canon.head!.rotation), 'head');
+  }
 
   if (system === 'minifig') {
     // Short legs and other one-piece leg moulds keep their mould (they cannot
@@ -705,9 +787,10 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
     // only - their leg element has no LDraw mapping) walked as a torso on a
     // belt. Give it the plain doll moulds in the colours it gives away.
     if (system === 'minidoll' && !compositeSrc && !legsSrc && !legR && !legL) {
-      if (!hipsSrc) { synthesized.push('hips'); push(placeAt(MINIDOLL_DEFAULT_PARTS.hips, hipsColor, MINIDOLL_CANON.hips!.position, MINIDOLL_CANON.hips!.rotation), 'hips'); }
+      if (!hipsSrc) { synthesized.push('hips'); push(placeAt(MINIDOLL_DEFAULT_PARTS.hips, hipsColor, canon.hips!.position, canon.hips!.rotation), 'hips'); }
       synthesized.push('legs');
-      push(placeAt(MINIDOLL_DEFAULT_PARTS.legs, legColor, MINIDOLL_CANON.legs!.position, MINIDOLL_CANON.legs!.rotation), 'legs');
+      // Thick-hinge plain legs on thin-hinge hips would hang 1 LDU low: the canon's legs follow the hips' hinge.
+      push(placeAt(MINIDOLL_DEFAULT_PARTS.legs, legColor, canon.legs!.position, canon.legs!.rotation), 'legs');
     }
   }
   // A torso "with Integral Arms" or wing arms has no arm sockets: no arms, no hands.
@@ -719,8 +802,19 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
     if (integralArms && !arm) continue;
     if (arm) placeCanon(arm, armSlot);
     else if (system === 'minifig') { synthesized.push(`${side} arm`); push(placeAt(MINIFIG_DEFAULT_PARTS[armSlot], torsoColor, MINIFIG_CANON[armSlot].position, MINIFIG_CANON[armSlot].rotation), armSlot); }
-    // A doll with ONE arm may be built that way (42703's stump); one with none lost both.
-    else if (system === 'minidoll' && !first('arm_right') && !first('arm_left')) { synthesized.push(`${side} arm`); push(placeAt(MINIDOLL_DEFAULT_PARTS[armSlot], torsoColor, MINIDOLL_CANON[armSlot]!.position, MINIDOLL_CANON[armSlot]!.rotation), armSlot); }
+    // A doll missing an arm gets it, in its other arm's colour (both are
+    // moulded in its skin and printed with the sleeve), else its torso's. The
+    // one limb difference LEGO moulds - the `2758` stump of the `100811` torso
+    // - is an ARM in the source, on its side, so it is never "missing"; the
+    // regular arm beside it is (every conversion before 2026-09-26 dropped
+    // it with its torso), and is filled here.
+    else if (system === 'minidoll') {
+      const other = first(side === 'right' ? 'arm_left' : 'arm_right');
+      const colour = other && !/Stump/i.test(other.desc) ? other.brick.color : torsoColor;
+      const man = canon.arm_right!.position[0] === MINIDOLL_MAN_CANON.arm_right!.position[0];
+      synthesized.push(`${side} arm`);
+      push(placeAt(man ? MINIDOLL_DEFAULT_PARTS[`${armSlot}_man`] : MINIDOLL_DEFAULT_PARTS[armSlot], colour, canon[armSlot]!.position, canon[armSlot]!.rotation), armSlot);
+    }
     if (hand) {
       if (system === 'bigfig' && arm) {
         // A separate big-fig hand keeps its source offset from its arm, in the arm's frame.
@@ -804,7 +898,7 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   const facingLdu: [number, number] = h > 0.5 ? [f[0] / h, f[2] / h] : [0, -1];
   return {
     bricks: out, slots, synthesized, dropped, bystanders, facingLdu, system, feetY,
-    rig: { bones: [...SYSTEM_BONES[system]], boneOf },
+    rig: { bones: system === 'minidoll' ? minidollBones(canon) : [...SYSTEM_BONES[system]], boneOf },
     torso: { position: torsoPosition, rotation: [...Rt] },
     ...(moved ? { reanchoredLdu: anchor.offset } : {}),
   };

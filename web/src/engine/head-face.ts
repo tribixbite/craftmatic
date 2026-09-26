@@ -26,6 +26,7 @@
  */
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
 import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
+import { classifyMiniDollPart } from './minifig-rig.js';
 
 /** Texels per LDU of face. A minifig head is 26 LDU wide: 104 texels. */
 export const FACE_PX_PER_LDU = 4;
@@ -185,15 +186,32 @@ export const faceKey = (part: string): string => {
   return m ? `3626${m[1]}${m[2]}` : stem;
 };
 
+/** A mini-doll head (the female 92198 or male 92240 mould, printed or not), by its description. */
+export const isDollHead = (part: string, mesh: LdrawPartMesh): boolean => classifyMiniDollPart(part, mesh.description) === 'doll_head';
+
+/**
+ * The rectangle a head's face ART spans: a minifig head's BODY (`headBodyRect`,
+ * stud and neck dropped), a mini-doll head's whole FRONT. A doll head narrows
+ * to its chin, so the 80 %-width rows stop at 75 % of its height and the mouth
+ * (measured at 82 %, `_doll_face_measure.ts`) fell outside - and the doll art
+ * (`scripts/doll_face_art.py`) is made over the whole front for that reason.
+ */
+export function faceArtRect(part: string, mesh: LdrawPartMesh): FaceImage['rect'] {
+  if (!isDollHead(part, mesh)) return headBodyRect(mesh);
+  const b = mesh.bounds;
+  return { x0: b.min[0], x1: b.max[0], y0: b.min[1], y1: b.max[1] };
+}
+
 /**
  * Face art for this head, by its print id (`headPrint`) and else by its part
  * name (the 2026-09-24 identity names, `3626cpb3484.dat`), resampled onto the
- * head's body rectangle at `FACE_PX_PER_LDU`; null when none was seeded.
+ * head's face-art rectangle (`faceArtRect`) at `FACE_PX_PER_LDU`; null when
+ * none was seeded.
  */
 export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: string): FaceImage | null {
   const art = (headPrint ? faceArt.get(faceKey(headPrint)) : undefined) ?? faceArt.get(faceKey(part));
   if (!art) return null;
-  const rect = headBodyRect(mesh);
+  const rect = faceArtRect(part, mesh);
   const width = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));
   const height = Math.max(1, Math.round((rect.y1 - rect.y0) * FACE_PX_PER_LDU));
   const rgba = new Uint8Array(width * height * 4);
@@ -211,6 +229,83 @@ export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: stri
     }
   }
   return { width, height, rgba, rect };
+}
+
+// ─── The default mini-doll face ──────────────────────────────────────────────
+
+/**
+ * Where a mini-doll print puts its features, as fractions of the head's whole
+ * front (`faceArtRect`): the medians of 38 LDraw doll prints (`92198p*`,
+ * `92240p*`) measured by `scripts/_doll_face_measure.ts` - eyes 0.22 of the
+ * width either side of the centre at 0.48 of the height, the mouth at 0.82.
+ * Shapes (sclera, iris, lash line, brow, smile) follow those prints' common
+ * drawing, sized inside the measured eye blob (0.28 x 0.19, lashes included)
+ * and mouth (0.31 x 0.12).
+ */
+export const MINIDOLL_DEFAULT_FACE = {
+  eyeDx: 0.22, eyeY: 0.48, browY: 0.36, mouthY: 0.81,
+  scleraRx: 0.095, scleraRy: 0.07, irisR: 0.062, pupilR: 0.028, browHalf: 0.1, mouthHalf: 0.085,
+  /** Dark brown iris, near-black lash and brow, rose lips - the commonest doll-print colours. */
+  iris: [92, 58, 34] as const, lash: [27, 27, 27] as const, brow: [59, 35, 20] as const, lips: [184, 70, 79] as const, white: [250, 250, 250] as const,
+} as const;
+
+/**
+ * The DEFAULT face of a plain mini-doll head (no LDraw print and no seeded
+ * art): drawn as a texture over the head's whole front, in the proportions of
+ * the real prints (`MINIDOLL_DEFAULT_FACE`), so a doll whose print no source
+ * names still looks like a doll rather than a minifig face scaled onto it. It
+ * is a DEFAULT, reported as such (`faceTextures.default`), never presented as
+ * the doll's own face.
+ */
+export function defaultDollFace(part: string, mesh: LdrawPartMesh): FaceImage {
+  const rect = faceArtRect(part, mesh);
+  const W = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));
+  const H = Math.max(1, Math.round((rect.y1 - rect.y0) * FACE_PX_PER_LDU));
+  const rgba = new Uint8Array(W * H * 4);
+  const F = MINIDOLL_DEFAULT_FACE;
+  const put = (x: number, y: number, c: readonly [number, number, number]): void => {
+    const xi = Math.round(x), yi = Math.round(y);
+    if (xi < 0 || yi < 0 || xi >= W || yi >= H) return;
+    const o = (yi * W + xi) * 4;
+    rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = 255;
+  };
+  const ellipse = (cx: number, cy: number, rx: number, ry: number, c: readonly [number, number, number]): void => {
+    for (let y = Math.floor(cy - ry); y <= Math.ceil(cy + ry); y++)
+      for (let x = Math.floor(cx - rx); x <= Math.ceil(cx + rx); x++)
+        if (((x + 0.5 - cx) / rx) ** 2 + ((y + 0.5 - cy) / ry) ** 2 <= 1) put(x, y, c);
+  };
+  /** A stroke along a parametric curve, `thick` texels wide. */
+  const stroke = (at: (t: number) => [number, number], thick: number, c: readonly [number, number, number]): void => {
+    for (let i = 0; i <= 64; i++) {
+      const [x, y] = at(i / 64);
+      for (let dy = -thick / 2; dy < thick / 2; dy += 0.5) for (let dx = -thick / 2; dx < thick / 2; dx += 0.5) put(x + dx, y + dy, c);
+    }
+  };
+  for (const side of [-1, 1] as const) {
+    const cx = W * (0.5 + side * F.eyeDx), cy = H * F.eyeY;
+    const rx = W * F.scleraRx, ry = H * F.scleraRy;
+    ellipse(cx, cy, rx, ry, F.white);
+    ellipse(cx, cy + ry * 0.15, W * F.irisR, W * F.irisR, F.iris);
+    ellipse(cx, cy + ry * 0.15, W * F.pupilR, W * F.pupilR, F.lash);
+    ellipse(cx - side * W * 0.022, cy - ry * 0.25, Math.max(0.8, W * 0.012), Math.max(0.8, W * 0.012), F.white);
+    // Upper lash line: the top of the sclera, flicked outward at the far corner.
+    stroke(t => {
+      const a = Math.PI * (1 + t);
+      return [cx + rx * 1.05 * Math.cos(a), cy + ry * 1.05 * Math.sin(a)];
+    }, 2, F.lash);
+    stroke(t => [cx + side * rx * (1 + 0.35 * t), cy - ry * (0.2 + 0.5 * t)], 1.5, F.lash);
+    // Brow: a shallow arch over the eye.
+    stroke(t => {
+      const u = t * 2 - 1;
+      return [cx + u * W * F.browHalf, H * F.browY - (1 - u * u) * H * 0.025];
+    }, 2, F.brow);
+  }
+  // Mouth: a closed smile.
+  stroke(t => {
+    const u = t * 2 - 1;
+    return [W * 0.5 + u * W * F.mouthHalf, H * F.mouthY + (1 - u * u) * H * 0.03];
+  }, 2, F.lips);
+  return { width: W, height: H, rgba, rect };
 }
 
 /**
