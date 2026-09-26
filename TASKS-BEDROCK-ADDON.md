@@ -246,3 +246,23 @@ Chain: lego.ts → schem-export.ts → schem-pipeline worker →
 playable-components / bedrock-scene-actors → playable-addon → placement
 assets/colliders. CLI: `bun scripts/_playable_ref.ts <model> [out] --label=…
 [--quality=…] [--faces=<dir>]`.
+
+## Minifig wand (2026-09-26)
+
+Wand worktree `agent-a548028d7bb28a5d5`, commits `1d001960`, `f2a86ea5`,
+`6a77244b` (+ the docs commit). Device evidence `output/minifig-wand-0926/`
+there (Saga world 925; `saga/` before, `saga2..4/` after). Findings and fixes:
+add-on guide "Minifig Creator wand on the phones". The wand works by hand on the
+Saga end to end; open items:
+- [ ] Run GameTest `creator_wand_<id>` on the Pixel (`cmgametest`): variant
+  built at `output/minifig-wand-0926/gametest-6a77244b/minifig-creator-gametest.mcaddon`
+  (bind it ALONE: `685fa7cc…` is bound there now). Not run: the Pixel lock was held.
+- [ ] Pixel by hand: the same function list on the Pixel's screen (form width,
+  preview spot at 45 degrees), and a figure code pasted into the Name/code form.
+- [ ] A released (walk) creator figure walking after the new place flow on a
+  device (walk was device-proved by `creator_<id>` on 2026-09-25 only).
+- [ ] `look` animation turns set-figure heads off their bodies (seen on the
+  Saga on `minifig_fig1`); dropped for the creator only. `TODO(figures)`.
+- [ ] `_minifig_ref.ts` packs are named "(unstamped)" in Minecraft's pack list.
+- [ ] Creator pack `027c2c03…` stays bound in Saga world 925 (the Hogsmeade
+  test seat, all creator figures, the reference NPC and the wand were removed).
