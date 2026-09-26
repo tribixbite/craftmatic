@@ -480,6 +480,14 @@ Open:
   `custom_hit_test` pivot as the box centre, root-bone scale at a non-100 %
   size, occupant step-out, threshold treads, the SLIDE direction of drawers
   and roller doors (derived), lids' swing.
+- [ ] GameTest 2026-09-26 (doc "GameTest on the Pixel"; driver + logs in
+  `output/gametest/ix-final/`, packs `output/ix-final/sweep-m/`): doorways
+  69/71, parts+seats 306/308. Open: 910047 Door 1/2 (brick-built plank gate)
+  walker falls off its 1-block threshold ledge (offline OK); 31141 Window 2 and
+  80049 Window 3 refused on the device as "behind a wall" from the spot the
+  host accepts (`refused` field; TODO in `_gametest_pack.ts`); 71040 not
+  re-run on the merged build (the driver now checks world slot 3); 42670
+  Door 4 passes only by progress (walker ends on the street).
 - [ ] Brick-built hinges (`engine/brick-hinges.ts`, doc "Brick-built doors,
   gates and mechanisms"): found 80049 x2, 910004 x2, 910047 x3, 76435, 71043
   x2 doors/gates, 41395 x2 wings, 11371 x2 hinged panels. Still missed:
