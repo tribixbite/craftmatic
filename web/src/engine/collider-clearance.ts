@@ -14,7 +14,11 @@
  *   1. SUBSET      the form lies inside the old full cell (never less free space);
  *   2. SUPERSET    it contains the cell's geometry (a wall trim), or it is the ceiling rule;
  *   3. DOOR        no closed leaf reaches the cell and the doorway cut left it as built;
- *   4. FLOOR       a cell whose top is a standing surface keeps its top sixteenth full;
+ *   4. FLOOR       a cell whose top is a standing surface keeps its top sixteenth full,
+ *                  unless that surface is only a WALL's top whose phantom rim overhangs
+ *                  open air (`wallTopRim`: a wall band rising from the cell below, every
+ *                  freed strip open sideways to a neighbour column with nothing in it
+ *                  from the strip's floor to a standing player's head over the top);
  *   5. NO LEAK     flooding the model from outside with a flying, sneaking,
  *                  0.5-wide player reaches no block with the trims that neither
  *                  the colliders before them nor the part geometry itself let
@@ -111,6 +115,11 @@ export interface ClearanceReport {
   /** Cells with geometry the pass looked at, and those whose geometry fills them (nothing to trim). */
   cells: number;
   alreadyTight: number;
+  /**
+   * Standing surfaces rule 4 let through because they are only a wall's top
+   * over open air (`wallTopRim`), before the leak check (which may still refuse some).
+   */
+  wallTops: number;
   applied: { wall: number; ceiling: number };
   refused: Record<ClearanceRefusal, number>;
   /** Block volume freed (blocks cubed at 100 %). */
@@ -139,6 +148,15 @@ const PLAYER_VOX_W = 2;
 const PLAYER_VOX_H = 6;
 const MAX_LEAK_ROUNDS = 8;
 const LEAKS_REPORTED = 40;
+/**
+ * A wall's top is a doorway's LANDING (never narrowed by rule 4's exception)
+ * when it is within this many blocks of a closed leaf, horizontally, and its
+ * top within `LANDING_RISE` of the leaf's foot: where a player steps out of a
+ * door. Two blocks is the passability walk's approach reach at 100 % plus a
+ * margin; the rise is the jump.
+ */
+const LANDING_REACH = 2;
+const LANDING_RISE = 1.25;
 /** How far past each end of a closed leaf (blocks) its protected cells reach: a frame's sliver. */
 const LEAF_END_REACH = 0.4;
 /** Above this many voxels the leak check is not run and every trim is refused (`unverifiable`). */
@@ -182,7 +200,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -238,6 +256,85 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     return Infinity;
   };
 
+  /** Closed doorway cells by column (`"x,z"`), as `[row, lo, hi]`: solid in the rim test's neighbour check. */
+  const closedByColumn = new Map<string, Array<[number, number, number]>>();
+  for (const c of closedCells) {
+    const key = `${c[0]},${c[2]}`;
+    let list = closedByColumn.get(key);
+    if (!list) closedByColumn.set(key, list = []);
+    list.push([c[1]!, c[3]!, c[4]!]);
+  }
+
+  /**
+   * Rule 4's one exception: a standing surface that is only a WALL's top, whose
+   * phantom rim (the part of the full top the wall band does not reach)
+   * overhangs open air. Then narrowing it to the band takes away nothing but
+   * phantom footing - the invisible edge a player met 0.4-0.7 block in front
+   * of 76457's sweet stand (device round 2026-09-26a), where rule 4 kept every
+   * full-footprint top cell of the stand whole. It holds when ALL of:
+   *
+   * - the proposal is a plain wall band (kind 0) over the cell's whole span
+   *   from its bottom (`lo` 0) - a floor + wall or wall + ceiling form, a
+   *   roof slope's shape, never qualifies;
+   * - the cell below has geometry in its top sixteenth under the band: the
+   *   wall continues down through the row boundary (a plate lying on the
+   *   ground, or a floor, is not a wall's top - floors stay, as before);
+   * - every freed strip opens SIDEWAYS onto a neighbour column that holds no
+   *   collider (as built, the cut and every closed doorway laid) anywhere from
+   *   the strip's floor - the highest geometry under the strip, the ground
+   *   plane when none - up to a standing player's head over the top. So the
+   *   rim was a shelf over open air: nothing a player stands on beside it is
+   *   lost (a surface there would be in that span), and the freed strip is
+   *   open to that column over its whole height, so it is no new pit.
+   *
+   * - it is no doorway's landing (`LANDING_REACH`, `LANDING_RISE`): a rim
+   *   outside a door, within a jump of its foot, is where a player steps out.
+   *
+   * The leak check (rule 5) still runs over every trim this lets through.
+   */
+  const wallTopRim = (x: number, y: number, z: number, to: ColliderForm, built: ColliderForm): boolean => {
+    const d = COLLIDER_KIT.VARIANTS[to.v]!;
+    if (d.kind !== 0 || built.lo !== 0 || to.lo !== 0 || y === 0) return false;
+    const q = COLLIDER_KIT.SHAPES[d.shape]!; // [x0, x1, z0, z1] sixteenths
+    const below = layers.get(idx(x, y - 1, z));
+    const k = 4 * 15;
+    if (!below || below[k] === EMPTY_LAYER) return false;
+    if (!(below[k]! < q[1] && below[k + 1]! > q[0] && below[k + 2]! < q[3] && below[k + 3]! > q[2])) return false;
+    const strips: Array<{ nx: number; nz: number; s: readonly [number, number, number, number] }> = [];
+    if (q[0] > 0) strips.push({ nx: x - 1, nz: z, s: [0, q[0], 0, 16] });
+    if (q[1] < 16) strips.push({ nx: x + 1, nz: z, s: [q[1], 16, 0, 16] });
+    if (q[2] > 0) strips.push({ nx: x, nz: z - 1, s: [0, 16, 0, q[2]] });
+    if (q[3] < 16) strips.push({ nx: x, nz: z + 1, s: [0, 16, q[3], 16] });
+    if (!strips.length) return false;
+    const top16 = y * 16 + built.hi;
+    // Not a doorway's landing: within `LANDING_REACH` blocks of a closed leaf and within a jump of its
+    // floor, the rim is where a player steps out of the door. 31141's Doors 3 and 5 open onto such a
+    // rim over the street; trimmed, the only level spot outside them was gone (they read ONE-WAY).
+    for (const b of leaves) {
+      const dx = Math.max(0, b.x0 - (x + 1), x - b.x1), dz = Math.max(0, b.z0 - (z + 1), z - b.z1);
+      if (Math.hypot(dx, dz) <= LANDING_REACH && Math.abs(top16 / 16 - b.y0) <= LANDING_RISE) return false;
+    }
+    for (const { nx, nz, s } of strips) {
+      // The strip's floor: the highest GEOMETRY under it (a trim only lowers a form to its geometry, so
+      // this is the lowest the floor can be - the widest span to check), or a kept scene block.
+      let floor16 = 0;
+      for (let yy = y - 1; yy >= 0 && !floor16; yy--) {
+        const a = layers.get(idx(x, yy, z));
+        const s0 = grid.get(x, yy, z);
+        const boxes = a ? layerBoxes(a) : s0 !== 'minecraft:air' && !parseFormState(s0) ? [[0, 16, 0, 16, 0, 16] as Box16] : [];
+        for (const b of boxes) if (b[0] < s[1] && b[1] > s[0] && b[4] < s[3] && b[5] > s[2]) floor16 = Math.max(floor16, yy * 16 + b[3]);
+      }
+      // The neighbour column: nothing solid between that floor and a standing player's head over the top.
+      if (nx < 0 || nz < 0 || nx >= W || nz >= L) continue; // outside the model: open ground
+      const span0 = floor16, span1 = top16 + STAND_NEED16;
+      for (let yy = Math.max(0, Math.floor(span0 / 16)); yy < H && yy * 16 < span1; yy++) {
+        for (const b of boxesAt(nx, yy, nz)) if (yy * 16 + b[3] > span0 && yy * 16 + b[2] < span1) return false;
+      }
+      for (const [row, lo, hi] of closedByColumn.get(`${nx},${nz}`) ?? []) if (row * 16 + hi > span0 && row * 16 + lo < span1) return false;
+    }
+    return true;
+  };
+
   // ── Wall proposals.
   type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm };
   const proposals: Proposal[] = [];
@@ -259,10 +356,13 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     if (leafCells.has(i)) { refuse(p, 'door-leaf'); continue; }
     // 1, 2. Subset of the old cell, superset of the geometry (by construction; asserted).
     if (!formWithin(to, built) || !formContains(to, geometry)) throw new Error(`clearance: cover of cell ${x},${y},${z} is not between its geometry and its full cell`);
-    // 4. A standing surface on top keeps its top sixteenth full.
+    // 4. A standing surface on top keeps its top sixteenth full - unless it is only a wall's top over open air.
     if (headroomAbove(x, z, y * 16 + built.hi) >= SNEAK_NEED16) {
       const top = COLLIDER_KIT.formBoxes(to.v, to.lo, to.hi).filter(b => b[3] === built.hi);
-      if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) { refuse(p, 'walkable-top'); continue; }
+      if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
+        if (!wallTopRim(x, y, z, to, built)) { refuse(p, 'walkable-top'); continue; }
+        report.wallTops++;
+      }
     }
     proposals.push(p);
     proposedAt.set(i, p);

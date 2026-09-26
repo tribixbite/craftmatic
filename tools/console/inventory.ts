@@ -177,6 +177,28 @@ export const OPERATIONS: readonly Operation[] = [
     docs: ['docs/bedrock-addon-guide.md'],
     notes: 'A .mcaddon is read as shipped (its CONFIG colliders); a source is built through the pipeline at auto scale. Pick packs from the "Packs" selection tab.',
   },
+  {
+    id: 'walk-line',
+    group: 'Pack validation',
+    title: 'Walk a straight line (where does the player stop?)',
+    answers: 'Walking -z across a built pack\'s shipped colliders at several x, jumping when blocked: where does the per-tick player stop? The offline form of a device report "the player stops at an invisible edge at z = …".',
+    entry: 'scripts/_walk_line.ts',
+    runtime: 'bun', cwd: 'craftmatic', input: 'model', accepts: ['mcaddon'], batch: 'per-item',
+    args: [{ item: true }, { opt: 'x' }, { opt: 'from' }, { opt: 'to' }, { opt: 'size' }, { opt: 'turn' }, { opt: 'open' }],
+    options: [
+      { key: 'x', flag: 'x', render: 'eq', type: 'string', help: 'x positions (model blocks from the pin), comma-separated.' },
+      { key: 'from', flag: 'from', render: 'eq', type: 'string', help: 'Start z (default 9.5).' },
+      { key: 'to', flag: 'to', render: 'eq', type: 'string', help: 'Goal z (default 3.9).' },
+      { key: 'size', flag: 'size', render: 'eq', type: 'string', help: 'Wand size in % (default 100).' },
+      { key: 'turn', flag: 'turn', render: 'eq', type: 'string', help: 'Quarter turn (default 0).' },
+      { key: 'open', flag: 'open', render: 'eq', type: 'string', help: 'Door labels to open, comma-separated (default: all closed).' },
+    ],
+    parse: { kind: 'none' }, columns: [],
+    evidence: {},
+    duration: '~5 s',
+    docs: ['docs/bedrock-interactivity.md'],
+    notes: 'Device coordinates minus the placement origin give model blocks (turn 0).',
+  },
 
   // ───────────────────── Placement & accuracy grading ─────────────────────
   {

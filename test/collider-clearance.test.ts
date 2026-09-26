@@ -249,6 +249,73 @@ describe('applyColliderClearance', () => {
     expect(s.form(1, 0, 0)).toEqual({ v: 0, lo: 0, hi: 3 });
     expect(r.refused['walkable-top']).toBe(1);
   });
+
+  /**
+   * 76457's sweet stand in front of Doors 1-2 (device round 2026-09-26a): a
+   * display ~2 blocks tall whose top row holds geometry only along the -z half
+   * of its cell (z 6.0-6.5), standing on a floor + wall cell, with the street
+   * (a plate) on +z. Rule 4 kept that top cell whole as a standing surface, so
+   * its collider stood half a block proud of the display from the knee to over
+   * the head: the Pixel player stopped at z 7.3 and no jump cleared it.
+   */
+  const sweetStand = (neighbourShelf: boolean) => {
+    const s = scene(3, 4, 4);
+    for (let x = 0; x < 3; x++) {
+      s.solid(x, 0, 3, [[0, 16, 1, 4, 0, 16]]); // the street: a plate
+      s.solid(x, 0, 2, [[0, 16, 1, 9, 0, 16], [0, 16, 9, 16, 0, 4]]); // the stand's base: a floor and its front wall
+      s.solid(x, 1, 2, [[0, 16, 0, 15, 0, 8]]); // the stand's top row: geometry on its -z half only
+    }
+    // A shelf in the street column at the stand top's height: a surface the full top led onto.
+    if (neighbourShelf) for (let x = 0; x < 3; x++) s.solid(x, 1, 3, [[0, 16, 12, 14, 0, 16]]);
+    return s;
+  };
+  /** How far along -z a player walking from the street gets (feet z), at x = 1.5. */
+  const walkIn = (grid: BlockGrid): number => {
+    const cells = colliderSourceCells({ width: 3, height: 4, length: 4, runs: encodeColliderRuns(grid, 'craftmatic:collider').runs });
+    const world = new WalkWorld({ cells, dims: { width: 3, height: 4, length: 4 }, sizePct: 100, rotation: 0, treads: 'none' });
+    let st: PlayerState = { x: 1.5, y: 0.25, z: 3.7, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 };
+    let jump = false, minZ = Infinity;
+    for (let t = 0; t < 200; t++) {
+      const r = tickPlayer(world, st, { move: { x: 0, z: -1 }, jump, sneak: false });
+      st = r.state; jump = r.collided.z && st.onGround; minZ = Math.min(minZ, st.z);
+    }
+    return minZ;
+  };
+
+  it('narrows a standing surface that is only a wall\'s top over open air: the player meets the geometry, not a phantom rim', () => {
+    const s = sweetStand(false);
+    // Without the rule's exception the top row stays whole and the player stops a full cell out (z 3.3).
+    expect(walkIn(s.grid)).toBeGreaterThan(3.25);
+    const r = applyColliderClearance(s.input());
+    for (let x = 0; x < 3; x++) {
+      const f = s.form(x, 1, 2)!;
+      expect(K.formBoxes(f.v, f.lo, f.hi)).toEqual([[0, 16, 0, 15, 0, 8]]);
+      expect(formContains(f, layerBoxes(s.layers.get(s.idx(x, 1, 2))!))).toBe(true);
+    }
+    expect(r.wallTops).toBe(3);
+    expect(r.refused['walkable-top']).toBe(0);
+    // Up the base's floor, to the display's own face at z 2.5 (+ half a player).
+    expect(walkIn(s.grid)).toBeLessThan(2.85);
+  });
+
+  it('keeps the wall\'s top whole when its rim leads onto a surface beside it, or when it is a floor on the ground', () => {
+    const shelf = sweetStand(true);
+    const r = applyColliderClearance(shelf.input());
+    for (let x = 0; x < 3; x++) expect(shelf.form(x, 1, 2)).toEqual({ v: 0, lo: 0, hi: 15 });
+    expect(r.wallTops).toBe(0);
+    expect(r.refused['walkable-top']).toBe(3);
+    // A rim that is a doorway's landing (a closed leaf 1.5 blocks away whose foot is within a jump of the
+    // rim's top) keeps its full top: 31141's upper doors open onto such rims and read ONE-WAY without it.
+    const landing = sweetStand(false);
+    const leaf = { x0: 0.5, y0: 1.25, z0: 0.2, x1: 2.5, y1: 3.75, z1: 0.3 };
+    applyColliderClearance(landing.input({ leaves: [leaf], leafPlanes: [null] }));
+    for (let x = 0; x < 3; x++) expect(landing.form(x, 1, 2)).toEqual({ v: 0, lo: 0, hi: 15 });
+    // A band with no wall under it (the top row alone, standing on air) is not a wall's top either.
+    const s = scene(3, 4, 4);
+    s.solid(1, 1, 2, [[0, 16, 0, 15, 0, 8]]);
+    applyColliderClearance(s.input());
+    expect(s.form(1, 1, 2)).toEqual({ v: 0, lo: 0, hi: 15 });
+  });
 });
 
 describe('figures read a form as the full collider it replaced (bedrock-figure-life.ts blockSpan)', () => {

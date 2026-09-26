@@ -326,7 +326,8 @@ cells, which now carry their form. For each cell it proposes
 - **floors stay**: a cell whose top is a standing surface (1.5 blocks free
   above it in the column) may only take a form whose top sixteenth is still
   the full footprint (a floor band or a ceiling band that IS the floor above);
-  a phantom ledge a player stood on is never taken away;
+  a phantom ledge a player stood on is never taken away - with ONE
+  exception, a surface that is **only a wall's top over open air** (below);
 - **ceilings**: a column whose clear height over a floor is at least a
   sneaking player (1.5) but under a standing one (1.8) has the ceiling cell's
   `lo` raised to 1.8 over the floor, at most 5/16, only when the cell keeps
@@ -350,7 +351,40 @@ with its reason (`craftmatic-diagnostics.json`, `clearance`):
    (`door-cut`). Cells in front of and behind a leaf may be: a trim there
    cannot open the leaf's plane (the first build protected every cell the
    leaf's box touched, which kept the approach to 11371's doors solid).
-4. **Floors stay** - above: `walkable-top`.
+4. **Floors stay** - above: `walkable-top`. The exception (`wallTopRim`,
+   2026-09-26): the top cell of a WALL may be narrowed to the wall when all of
+   these hold, counted as `wallTops` in the report:
+   - the proposal is a plain wall band (kind 0) from the cell's bottom, and the
+     cell below has geometry in its top sixteenth under the band - the wall
+     rises through the row boundary (a plate on the ground, a floor, a roof
+     slope's floor + wall form never qualify);
+   - every freed strip opens sideways onto a neighbour column with NO collider
+     (as built, the cut and every closed doorway laid) from the strip's floor
+     (the highest geometry under it; the lowest the floor can be) up to a
+     standing player's head over the top: the rim was a shelf over open air,
+     so no surface beside it is lost and the strip is no new pit;
+   - it is no doorway's landing: not within 2 blocks of a closed leaf with its
+     top within a jump (1.25) of the leaf's foot. Without this guard 31141's
+     Doors 3 and 5 read ONE-WAY (their only level spot outside was such a rim).
+
+   Why: device round 2026-09-26a, 76457. The Pixel player walking from the
+   street to Doors 1-2 stopped at z 7.3 (pin 2000) and no jump cleared it.
+   In front of those doors stands the set's sweet stand, a 2x8 plate
+   (`3034`) turned 16 degrees carrying about 25 parts up to 2.03 blocks (bricks
+   1932-1956 of `DbixConvV3/76457.ldr`). Its top row (y 1.0-1.94) holds
+   geometry only over z 6.0-6.6 of the z 6 cells, but rule 4 kept each of
+   those cells whole: the collider face stood at z 7.0, 0.4-0.7 block in front
+   of the stand from the knee to over the head. An OLD fault - in the 25c pack
+   the whole column was solid 0.06-1.94 - which clearance had halved (row 0)
+   and refused in row 1 as `walkable-top`. With the exception the rim is at the
+   stand (z 6.5): `bun scripts/_walk_line.ts <pack>` stops the 26a pack at
+   z 7.30 for x 13.8-15.0 (the device's reading) and walks the fixed one onto
+   the stand and up to the closed Door 1 (z 4.30 at x 14.6); all six doorways
+   stay OK. The column at x 15 keeps its rim: it lies within 2 blocks of
+   Door 2 and 0.8 over its foot (the landing guard), so at x 15.0-15.9 the
+   edge is still ~0.7 block proud of the stand. The stand itself is real
+   geometry and blocks the straight line to Doors 1-2: they are reached
+   around its east end (x 16.5) or over it.
 5. **No leak** (the global check). Three worlds are flooded at quarter-block
    resolution from outside the model with a flying, SNEAKING player 0.5 block
    wide (narrower than the real 0.6, so a leak is found sooner): the part
