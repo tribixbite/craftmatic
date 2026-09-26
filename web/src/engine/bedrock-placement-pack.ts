@@ -883,10 +883,14 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     const online = new Set();
     for (const p of world.getAllPlayers().filter(Boolean)) {
       online.add(p.id);
+      // A seated pinball player taps hotbar slots as flippers (bedrock-pinball.ts):
+      // not a wand, and the wand's held state WAITS. Standing up puts back the
+      // slot the player held when they sat down; had the seat cleared `held`,
+      // that re-selected wand opened its menu over the table (Saga, 2026-09-26).
+      if (p.hasTag?.('craftmatic_pinball')) continue;
       let item: any;
       try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}
-      // A seated pinball player taps hotbar slots as flippers (bedrock-pinball.ts): not a wand.
-      if (item?.typeId === config.itemId && !p.hasTag?.('craftmatic_pinball')) {
+      if (item?.typeId === config.itemId) {
         if (!held.has(p.id)) { held.add(p.id); system.run(() => menu(p).catch((e: any) => tell(p, e.message || String(e)))); }
       } else if (held.has(p.id)) {
         // The wand put away (another slot, dropped, cleared): the preview goes with it.
@@ -1297,7 +1301,10 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
             if (feet - q.y <= budget + 1e-9) spawnY = feet;
           }
           const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
-          entity.nameTag = actor.label;
+          // A ride's cars, lift and counterweight carry no name tag: Bedrock draws a
+          // looked-at entity's tag, and a rider looking ahead through a loop had
+          // "Track 1 Car 2" across the view (Saga, 2026-09-26).
+          if (actor.coasterRouteIndex === undefined) entity.nameTag = actor.label;
           // A moving part keeps yaw 0: its rig's root turns it (the interactives
           // runtime sets the turn), so its world-aligned tap boxes stay true.
           entity.setRotation({ x: 0, y: actor.interactive !== undefined ? 0 : (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;

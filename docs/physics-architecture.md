@@ -936,6 +936,8 @@ one of these files fails the check until its row is written.
 | `standFeetAt`, `exploreWalkable`, `startCell`, `refugeCell`, `pathTo`, `blockSpan` | function | SERIALISED planner over real collider spans. |
 | `resolveFigureSpawn`, `spawnLift` | function | Host only, at export: where a figure spawns (on the surface below a line-up figure, beside a collider column it stood in), and the placement runtime's spawn lift it replaces. |
 | `ROOM_PROBE_CELLS` | const | Cells explored to rate a spawn spot's room (64). |
+| `separateFigureSpawns` | function | Host only, at export: a standing figure a source recorded within `FIGURE_MIN_SEPARATION` of another is moved to the nearest standable column clear of every figure (76435's figures 1 and 8). |
+| `FIGURE_MIN_SEPARATION` | const | 0.6 blocks: a figure's box width; closer than this two standing figures share a body. |
 | `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |

@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
-import { blockSpan, exploreWalkable, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
+import { blockSpan, exploreWalkable, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
 import { simulateFigureLife, type SimWorld } from '../web/src/engine/figure-life-sim.js';
 
 const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
@@ -272,5 +272,26 @@ describe('the serialised runtime', () => {
     const [t] = simulateFigureLife(w, config, 600, 2);
     const last = t![t!.length - 1]!;
     expect(last.x).toBeLessThanOrEqual(6.5);
+  });
+});
+
+describe('figures recorded on one spot (separateFigureSpawns, at export)', () => {
+  const opts = { maxUp: FIGURE_TUNING.maxUp, maxDown: FIGURE_TUNING.maxDown };
+  const inside = (w: number, l: number) => (x: number, z: number): boolean => x >= 0 && z >= 0 && x < w && z < l;
+  it('moves the later of two coincident figures to the nearest free standable column and leaves the others alone', () => {
+    const span = spansOf(room(), 0);
+    const figs = [{ x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 5.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }];
+    const r = separateFigureSpawns(span, figs, inside(9, 7), opts);
+    expect(r.moved).toEqual([2]);
+    expect(r.at[0]).toEqual({ x: 3.5, y: 3 / 16, z: 3.5 });
+    expect(r.at[1]).toEqual({ x: 5.5, y: 3 / 16, z: 3.5 });
+    const p = r.at[2]!;
+    expect(Math.hypot(p.x - 3.5, p.z - 3.5)).toBeCloseTo(1);
+    expect(p.y).toBeCloseTo(3 / 16);
+  });
+  it('leaves figures a body apart, or one floor above another, where they are', () => {
+    const span = spansOf(room(), 0);
+    const figs = [{ x: 3.5, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 4.2, y: 3 / 16, z: 3.5, body: 1.8 }, { x: 3.5, y: 4, z: 3.5, body: 1.8 }];
+    expect(separateFigureSpawns(span, figs, inside(9, 7), opts).moved).toEqual([]);
   });
 });
