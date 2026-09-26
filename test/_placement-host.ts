@@ -33,7 +33,7 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   let loaded = false;
   const makeEntity = (id: string, typeId: string) => {
     const properties = new Map<string, unknown>();
-    return { id, typeId, nameTag: '', dimension: { id: 'overworld' }, events: [] as string[], teleport: vi.fn(), setRotation: vi.fn(), remove: vi.fn(), triggerEvent(ev: string) { this.events.push(ev); }, getComponent: () => undefined,
+    return { id, typeId, nameTag: '', dimension: { id: 'overworld' }, events: [] as string[], tags: [] as string[], addTag(t: string) { this.tags.push(t); return true; }, teleport: vi.fn(), setRotation: vi.fn(), remove: vi.fn(), triggerEvent(ev: string) { this.events.push(ev); }, getComponent: () => undefined,
       setDynamicProperty: (key: string, value: unknown) => properties.set(key, value), getDynamicProperty: (key: string) => properties.get(key) };
   };
   const dimension: any = { id: 'overworld', heightRange: { min: -64, max: 320 }, spawnParticle: vi.fn(),
@@ -86,5 +86,5 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'BlockVolume', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory', World: 'world' }, BlockPermutation, BlockVolume, Form, Form);
   const flush = async (turns = 400) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const open = async (...r: any[]) => { responses.push(...r); use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
-  return { assets, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, playerProperties, setHit: (h: any) => { hit = h; }, blocks, fills };
+  return { assets, world, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, playerProperties, setHit: (h: any) => { hit = h; }, blocks, fills };
 }

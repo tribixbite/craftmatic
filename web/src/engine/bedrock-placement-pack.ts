@@ -769,10 +769,32 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
   // centre with yaw = the wand rotation and the size group applied (see
   // bedrock-preview-entity.ts).
   const ghosts = new Map<string, { id: string; size: number }>();
+  // Every ghost carries its player's tag, so one the id lookup misses (the id
+  // gone stale, the lookup throwing) is still found and removed by a sweep.
+  const ghostTag = (playerId: string) => `cmg_${config.shortAlias}_${String(playerId).replaceAll('-', '').slice(0, 8)}`;
   const removeGhost = (playerId: string) => {
     const g = ghosts.get(playerId); ghosts.delete(playerId);
     if (!g) return;
     try { world.getEntity(g.id)?.remove(); } catch {}
+  };
+  /** Remove the player's ghost by id AND every ghost carrying their tag in their dimension. */
+  const sweepGhost = (p: any) => {
+    removeGhost(p.id);
+    if (!config.preview) return;
+    try { for (const e of p.dimension.getEntities({ type: config.preview.typeId, tags: [ghostTag(p.id)] }) || []) { try { e.remove(); } catch {} } } catch {}
+  };
+  /**
+   * The preview ends: no ghost, no aim, nothing to redraw. Undo and putting the
+   * wand away both end it (device round 2026-09-26a: a white see-through ghost
+   * stood beside the Saga player after undoing 10261 - a preview state set
+   * before the Undo survived it, and the ghost came back the moment the Undo
+   * finished). The pin, rotation and size are kept for the next preview.
+   */
+  const endPreview = (p: any) => {
+    previews.delete(p.id);
+    const st = states.get(p.id);
+    if (st) st.aim = false;
+    sweepGhost(p);
   };
   const syncGhost = (p: any, st: any, visible: boolean) => {
     if (!config.preview) return;
@@ -784,6 +806,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     if (ghost && ghost.dimension?.id !== p.dimension.id) { removeGhost(p.id); ghost = undefined; entry = undefined; }
     if (!ghost) {
       try { ghost = p.dimension.spawnEntity(config.preview.typeId, at); entry = { id: ghost.id, size: 100 }; ghosts.set(p.id, entry); } catch { return; }
+      try { ghost.addTag?.(ghostTag(p.id)); } catch {}
     }
     if (entry && entry.size !== st.size) {
       entry.size = st.size;
@@ -865,7 +888,11 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       // A seated pinball player taps hotbar slots as flippers (bedrock-pinball.ts): not a wand.
       if (item?.typeId === config.itemId && !p.hasTag?.('craftmatic_pinball')) {
         if (!held.has(p.id)) { held.add(p.id); system.run(() => menu(p).catch((e: any) => tell(p, e.message || String(e)))); }
-      } else held.delete(p.id);
+      } else if (held.has(p.id)) {
+        // The wand put away (another slot, dropped, cleared): the preview goes with it.
+        held.delete(p.id);
+        endPreview(p);
+      }
     }
     for (const id of held) if (!online.has(id)) held.delete(id);
   }, 5);
@@ -1116,7 +1143,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     const dPlace = dims(st);
     const bounds = { dimension: dim.id, from: { ...st.anchor }, to: { x: st.anchor.x + dPlace.width - 1, y: st.anchor.y + dPlace.height - 1, z: st.anchor.z + dPlace.length - 1 } };
     const previous = historyOf(p);
-    removeGhost(p.id);
+    sweepGhost(p);
     const scripted = st.size !== 100 && config.tiles.length > 0;
     // Live progress on the action bar (the chat log scrolls away); one chat
     // line at the start and one at the end.
@@ -1381,6 +1408,8 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
   async function undo(p: any) {
     if (active) return tell(p, 'Wait for placement to finish or cancel it first.');
     const h = historyOf(p); if (!h) return tell(p, 'Nothing to undo.');
+    // An Undo ends any preview: without this a ghost shown before it came back when it finished.
+    endPreview(p);
     active = { player: p.id, cancelled: false };
     try {
       const dim = world.getDimension(h.dimension);
@@ -1471,10 +1500,10 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       st.rotation = fineTurn ? (st.rotation + turnStep) % 360 : rotations[(rotations.indexOf(st.rotation) + 1) % 4];
       if (st.anchor) previews.add(p.id); return menu(p);
     }
-    if (r.selection === 4) { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size. Switch away from the wand and back to rotate, resize or place." : "Full-size preview fixed at the pin. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Switch away from the wand and back to rotate or place."); }
+    if (r.selection === 4) { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }
     if (r.selection === 5) return confirmPlace(p);
     if (r.selection === 6) return undo(p);
-    if (r.selection === 7) { previews.delete(p.id); st.aim = false; removeGhost(p.id); return tell(p, 'Preview hidden.'); }
+    if (r.selection === 7) { endPreview(p); return tell(p, 'Preview hidden.'); }
     if (r.selection === 8) return lighting(p);
     if (r.selection === 9) {
       st.aim = !st.aim;

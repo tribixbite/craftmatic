@@ -1,5 +1,6 @@
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { buildPlacementPackAssets } from '../web/src/engine/bedrock-placement-pack.js';
+import { host } from './_placement-host.js';
 
 /**
  * The wand's ghost preview and progress bar, driven through the serialized
@@ -99,4 +100,83 @@ it('spawns a ghost at the rotated footprint centre, turns it with the rotation, 
   // Placement cleared the preview: nothing is respawned afterwards.
   drawPreview();
   expect(spawned.filter(s => s.typeId === 'craftmatic:ghosted_preview')).toHaveLength(2);
+});
+
+/**
+ * Device round 2026-09-26a (Saga, 10261): after an Undo a white see-through
+ * ghost stood beside the player. A preview shown before the Undo survived it -
+ * the Undo only hid the ghost while it ran - and the next redraw spawned it
+ * again. Undo and putting the wand away now END the preview, and removal also
+ * sweeps by the player's ghost tag, so a ghost whose id lookup fails is not orphaned.
+ */
+describe('the ghost never outlives an Undo or the wand', () => {
+  const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 3 };
+  const spec = { stem: 'ghosted', label: 'Ghosted', width: 4, height: 2, length: 2, tiles: [tile], actors: [], preview: { typeId: 'craftmatic:ghosted_preview' }, settleTicks: 1, finalHoldTicks: 1 };
+  const ghosts = (h: ReturnType<typeof host>) => h.spawned.filter(s => s.typeId === 'craftmatic:ghosted_preview');
+  /** Live ghosts: spawned and not removed. */
+  const live = (h: ReturnType<typeof host>) => ghosts(h).filter(s => !s.entity.remove.mock.calls.length);
+
+  it('an Undo removes a ghost shown before it, and the next redraw does not bring it back', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!;
+    await h.open({ selection: 1 }, { canceled: true }); // pin at the feet
+    await h.open({ selection: 5 }, { selection: 0 }); // place
+    await h.flush(400);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Ghosted.'));
+    // Look at the preview again after placing (the Saga's sequence), then Undo.
+    await h.open({ selection: 4 });
+    draw();
+    expect(live(h)).toHaveLength(1);
+    await h.open({ selection: 6 });
+    await h.flush(400);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Undo complete'));
+    expect(live(h)).toHaveLength(0);
+    draw(); draw();
+    expect(live(h)).toHaveLength(0);
+    expect(ghosts(h)).toHaveLength(1); // nothing respawned
+  });
+
+  it('putting the wand away removes the ghost and stops following the aim; the pin is kept', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!, aim = h.intervals.get(4)!, hold = h.intervals.get(5)!;
+    let inHand: { typeId: string } | undefined = { typeId: h.assets.itemId };
+    h.player.getComponent = (name: string) => name === 'minecraft:inventory' ? { container: { getItem: () => inHand } } : undefined;
+    hold(); await h.flush(); // selecting the wand opens it (its menu is cancelled here)
+    h.setHit({ block: { location: { x: 10, y: 70, z: 20 } }, face: 'Up' });
+    await h.open({ selection: 9 }); // follow my aim
+    aim(); draw();
+    expect(live(h)).toHaveLength(1);
+    const ghost = live(h)[0]!.entity;
+    expect(ghost.tags).toEqual([`cmg_${h.assets.shortAlias}_player`]);
+    inHand = { typeId: 'minecraft:stick' };
+    hold();
+    expect(live(h)).toHaveLength(0);
+    // It stays gone, and the aim no longer moves a preview.
+    const teleports = ghost.teleport.mock.calls.length;
+    h.setHit({ block: { location: { x: 40, y: 70, z: 40 } }, face: 'Up' });
+    aim(); draw();
+    expect(live(h)).toHaveLength(0);
+    expect(ghost.teleport.mock.calls.length).toBe(teleports);
+    // Selecting the wand again and asking for the preview shows it at the kept pin.
+    inHand = { typeId: h.assets.itemId };
+    hold(); await h.flush();
+    await h.open({ selection: 4 });
+    draw();
+    expect(live(h)).toHaveLength(1);
+    expect(live(h)[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 10, y: 71, z: 20 }, { rotation: { x: 0, y: 0 } });
+  });
+
+  it('a ghost the id lookup misses is still removed by its tag', async () => {
+    const h = host(spec);
+    const draw = h.intervals.get(12)!;
+    await h.open({ selection: 1 }, { canceled: true });
+    draw();
+    const g = live(h)[0]!.entity;
+    // The id no longer resolves (as a stale id does), but the entity is still in the world with its tag.
+    h.world.getEntity = () => undefined;
+    h.player.dimension.getEntities = (q: { type?: string; tags?: string[] }) =>
+      ghosts(h).map(s => s.entity).filter((e: any) => !e.remove.mock.calls.length && (!q.type || e.typeId === q.type) && (q.tags ?? []).every((t: string) => e.tags.includes(t)));
+    await h.open({ selection: 7 }); // hide preview
+    expect(g.remove).toHaveBeenCalled();
+  });
 });
