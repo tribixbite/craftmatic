@@ -404,6 +404,11 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
 - The wand's size changes `minecraft:scale`, the collision box and the seats
   (`bedrock-placement-pack.ts`); the speeds are the same at every size, the
   footprint and probes scale with it.
+- Seats are not physics but ride with it: a compiled vehicle's seat is the
+  driver's eye from the source less the measured 1.12, written in the entity
+  frame (nose +Z), eye-anchored at every wand size, and the rider is made
+  invisible at sizes where the body does not fit (`cockpit-seat.ts`;
+  add-on guide "Where the player sits").
 
 Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint and
 headlight helpers, the animation, and the serialised runtime on a fake world:

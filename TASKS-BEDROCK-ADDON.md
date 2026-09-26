@@ -354,6 +354,28 @@ Open:
   come out symmetric there) and a seam or a shading patch remains on about a
   third of the 28 heads (`face-measure/doll-art-sheet.png`); 28649pr0016 fits
   at pitch -20 and reads wrong. Gold on nougat skin is lost.
-- [ ] craftmatic `web/public/lego-models-index.json` lags clego's (the Gabby
-  round's and this round's entries): refresh it from clego after merging.
 - [ ] In-app `.lxf` path: `FIGURE_TURN` (the 5828 hair) is converter-only.
+
+## Vehicle seating (2026-09-26)
+
+Branch `worktree-agent-a3eeb9448f0bdd149` (commits `0587f1db`..`ba56b2ee`,
+merge of main `4875bb35`); not pushed. Guide: docs/bedrock-addon-guide.md
+"Where the player sits". Evidence: the worktree's `output/vehicle-seat-0926/`
+(`before/`, `final3/seats.md`, `shots/saga-*.png`, packs `packs-0a563bbc/`).
+
+- [x] Saga world 925 (packs `0a563bbc`): 42172 rider in the cabin at 100 %
+  with a windscreen view; 7140 hidden at 100 %, in the cockpit at 150 %;
+  summoned vehicles removed, left at the Play screen. Six staging dirs
+  `/data/local/tmp/craftmatic-deploy-20260926-17*`/`-18*` left (~7 MB each).
+- [ ] Pixel world 924: the same four packs + a GameTest drive
+  (`bun scripts/_gametest_pack.ts <pack> --only=vehicles`, world
+  `cmgametest`) to confirm seating did not change driving. Not run: the
+  Pixel was locked by the Gabby agent for the whole session.
+- [ ] 60221: its "steering wheel" (3828) belongs to an accessory in the same
+  entity; the rider sits under the yacht on the ground.
+- [ ] Boats: with no steering wheel the FRONT-most seated figure drives (10365
+  seats the player at the bow); a boat should take the aft-most, and a ship's
+  wheel should count as steering.
+- [ ] 76286, 42092: the eye lies in the hull at every size (never drawn).
+- [ ] `TODO(seat-eye)`: the coaster still uses the 1.25 eye height.
+

@@ -292,11 +292,18 @@ const CAMERA_RADIUS_MAX = 64;
 const clampCameraRadius = (v: number): number =>
   Math.min(CAMERA_RADIUS_MAX, Math.max(CAMERA_RADIUS_MIN, v));
 
-/** A `minecraft:rideable` component with every seat position (and camera radius) scaled by `f`. */
-function scaleRideable(rideable: Record<string, unknown>, f: number): Record<string, unknown> {
+/**
+ * A `minecraft:rideable` component with every seat position (and camera
+ * radius) scaled by `f`. `seatAt` overrides how a position scales (a vehicle
+ * whose rider is hidden at `f` keeps the rider's EYE on the scaled driver's
+ * eye, cockpit-seat.ts `seatPositionAt`); by default it scales about the origin.
+ */
+function scaleRideable(rideable: Record<string, unknown>, f: number, seatAt?: SeatAtSize): Record<string, unknown> {
   const scaleSeat = (seat: Record<string, unknown>): Record<string, unknown> => ({
     ...seat,
-    ...(Array.isArray(seat.position) ? { position: (seat.position as number[]).map(v => round3(v * f)) } : {}),
+    ...(Array.isArray(seat.position)
+      ? { position: seatAt ? seatAt(seat.position as [number, number, number], f) : (seat.position as number[]).map(v => round3(v * f)) }
+      : {}),
     ...(typeof seat.third_person_camera_radius === 'number'
       ? { third_person_camera_radius: clampCameraRadius(round3(seat.third_person_camera_radius * f)) }
       : {}),
@@ -325,7 +332,12 @@ function scaleRideable(rideable: Record<string, unknown>, f: number): Record<str
  */
 export interface SizeGroupOptions {
   playerSized?: boolean;
+  /** A seat's position at wand factor `f` (a vehicle's rider seat, cockpit-seat.ts); default: scaled about the origin. */
+  seatAt?: SeatAtSize;
 }
+
+/** Where a seat authored at `position` (100 %) goes at wand factor `f`. */
+export type SeatAtSize = (position: [number, number, number], f: number) => [number, number, number];
 
 /** The size factor a player-sized entity takes at wand factor `f`: never above 1. */
 export const figureSizeFactor = (f: number): number => Math.min(1, f);
@@ -353,19 +365,23 @@ export function withSizeGroups(
   const e = b['minecraft:entity'];
   const groups: Record<string, unknown> = { ...((e.component_groups as Record<string, unknown> | undefined) ?? {}) };
   const events: Record<string, unknown> = { ...((e.events as Record<string, unknown> | undefined) ?? {}) };
-  const names = SIZE_STEPS.filter(p => p !== 100).map(p => `${SIZE_EVENT_PREFIX}${p}`);
+  // Every step, 100 % included, is a group holding that step's values.
+  // Removing a component group removes its components outright, even ones the
+  // base `components` also declare (measured, see the add-on guide): a
+  // `size_100` that only removed the others took the vehicle's
+  // `minecraft:rideable` with them, and the X-wing sized 150 % -> 100 % on the
+  // Saga (2026-09-26) answered "The selected entity is not rideable."
+  const names = SIZE_STEPS.map(p => `${SIZE_EVENT_PREFIX}${p}`);
   for (const pct of SIZE_STEPS) {
-    if (pct === 100) continue;
     const name = `${SIZE_EVENT_PREFIX}${pct}`;
     const f = options.playerSized ? figureSizeFactor(pct / 100) : pct / 100;
     groups[name] = {
       'minecraft:scale': { value: f },
       'minecraft:collision_box': { width: round3(collision.width * f), height: round3(collision.height * f) },
-      ...(rideable ? { 'minecraft:rideable': scaleRideable(rideable, f) } : {}),
+      ...(rideable ? { 'minecraft:rideable': scaleRideable(rideable, f, options.seatAt) } : {}),
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
   }
-  events[`${SIZE_EVENT_PREFIX}100`] = { remove: { component_groups: names } };
   return { ...b, 'minecraft:entity': { ...e, component_groups: groups, events } };
 }
 

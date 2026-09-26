@@ -11,7 +11,8 @@ import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-pre
 import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
-import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
+import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
+import { riderVisibleSizes, seatPositionAt, type SeatPlan } from './cockpit-seat.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
@@ -469,25 +470,18 @@ export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: 
     };
 }
 
-function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, roofAtSeat?: number): unknown {
+function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneScale?: number, longitudinalAxis?: 'x' | 'z', facing: VehicleFacing = 'auto', seatAnchor?: {x:number;y:number;z:number}, seatCount = 1, seatPositionOverride?: [number, number, number], collisionBoxOverride?: { width: number; height: number }, entitySize?: { width: number; height: number; length: number }, motion: VehicleMotion = kind === 'plane' ? 'rotor' : kind, passengerSeats?: Array<[number, number, number]>, seatPlan?: SeatPlan): unknown {
     const scripted = isScriptedVehicle(kind, motion);
     const layout = componentLayout(kind, grid, sceneScale, longitudinalAxis, facing);
     let seatX: number, seatY: number, seatZ: number;
     if (seatPositionOverride) {
-        [seatX, seatY, seatZ] = seatPositionOverride;
-        // A model scaled below the player (a 0.38x Mini Cooper is 2.25 blocks tall
-        // and 1.9 wide) cannot hold an unscaled 1.8-block rider: the compiler's
-        // cockpit seat put the player's arm and shoes through the car's flank on
-        // the Pixel (rounds 2026-09-17 and b; the seat's driver-side offset is the
-        // flank). Seat such a rider ON the model, centred, legs in the roof line,
-        // like a kart: the model must clear the seated player's shoulders (~2.4).
-        const modelHeight = entitySize?.height ?? layout.height;
-        const modelWidth = entitySize?.width ?? layout.width;
-        if (modelHeight < PLAYER_HEIGHT_BLOCKS + 0.6 || modelWidth < 2.2) {
-            // ON the roof over the seat (`roofAtSeatBlocks`), not the model's top: 10300 carries a tall pole at its tail.
-            seatY = Math.max(seatY, Math.round(((roofAtSeat ?? modelHeight) - 0.55) * 100) / 100);
-            seatX = 0;
-        }
+        // The driver's seat the compiler measured from the model (cockpit-seat.ts):
+        // the player sits there at every size. Where a player-sized body does not
+        // fit at 100 % (a display car shrunk to its real length, 2.1 blocks tall),
+        // the seat is anchored at the driver's EYE and vehicle-camera.js hides the
+        // rider; until 2026-09-26 such a rider was sat on the ROOF like a kart
+        // (Pixel rounds 2026-09-17 b/c), outside the car, looking down on it.
+        [seatX, seatY, seatZ] = seatPlan ? seatPlan.seat : seatPositionOverride;
     } else {
         const seat = seatAnchor ?? { x: .5, y: .45, z: .5 };
         const ox = (seat.x - .5) * grid.width * layout.scale, oz = (seat.z - .5) * grid.length * layout.scale;
@@ -506,7 +500,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     const cameraSeat = { third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
     // Passenger seats the model itself has (its free seat moulds, ldraw-entity-compiler `passengerSeats`):
     // the driver in seat 0, each passenger where the source put a seat; a model the rider sits ON sits them on it too.
-    const measured = (passengerSeats ?? []).map(([x, y, z]) => [x, Math.max(y, seatY), z] as [number, number, number]);
+    const measured = (passengerSeats ?? []).map(([x, y, z]) => [x, y, z] as [number, number, number]);
     // No free seat mould (most LEGO cars and ships build their seats from bricks):
     // a car or boat long enough gets passengers BEHIND the driver (the model's
     // nose is -Z), a block apart on a car, two on a ship, never past the tail.
@@ -517,13 +511,21 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
     }
     const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
+    // A compiled model's seats are measured in its RENDER frame (nose toward -Z);
+    // a rideable seat is in the ENTITY frame, whose +Z is the way the entity
+    // faces - its nose. Measured on the Saga (2026-09-26): 42172's seat at z
+    // +1.64 put the rider's eye 1.64 blocks AHEAD of the car's origin
+    // (telemetry `riderAt`), and the X-wing's pilot seat at +1.71 sat the
+    // player over its nose, in front of the canopy. X needs no change (the
+    // geometry's JSON X mirror and the entity's half turn cancel).
+    const toEntity = (p: [number, number, number]): [number, number, number] => seatPositionOverride ? [p[0], p[1], p[2] === 0 ? 0 : -p[2]] : p;
     const rideableComponent: Record<string, unknown> = measuredPassengers.length
         ? {
             seat_count: 1 + measuredPassengers.length, controlling_seat: 0, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true,
-            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position, lock_rider_rotation: 0, ...cameraSeat })),
+            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position: toEntity(position), lock_rider_rotation: 0, ...cameraSeat })),
         }
         : seatCount <= 1
-        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0, ...cameraSeat } }
+        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: toEntity([seatX, seatY, seatZ]), lock_rider_rotation: 0, ...cameraSeat } }
         : {
             seat_count: seatCount,
             controlling_seat: 0,
@@ -537,14 +539,14 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
                 const passX = layout.longitudinalAxis === 'x' ? seatX : seatX + latOffset;
                 const passZ = layout.longitudinalAxis === 'x' ? seatZ - latOffset : seatZ;
                 const seatList: Array<Record<string, unknown>> = [
-                    { min_rider_count: 0, max_rider_count: 1, position: [driverX, seatY, driverZ], lock_rider_rotation: 0, ...cameraSeat },
-                    { min_rider_count: 1, max_rider_count: 2, position: [passX, seatY, passZ], lock_rider_rotation: 0, ...cameraSeat },
+                    { min_rider_count: 0, max_rider_count: 1, position: toEntity([driverX, seatY, driverZ]), lock_rider_rotation: 0, ...cameraSeat },
+                    { min_rider_count: 1, max_rider_count: 2, position: toEntity([passX, seatY, passZ]), lock_rider_rotation: 0, ...cameraSeat },
                 ];
                 if (seatCount >= 4) {
                     const backZOffset = Math.min(1.2, Math.max(0.6, layout.length * 0.25));
                     seatList.push(
-                        { min_rider_count: 2, max_rider_count: 3, position: [driverX, seatY, driverZ + backZOffset], lock_rider_rotation: 0, ...cameraSeat },
-                        { min_rider_count: 3, max_rider_count: 4, position: [passX, seatY, passZ + backZOffset], lock_rider_rotation: 0, ...cameraSeat },
+                        { min_rider_count: 2, max_rider_count: 3, position: toEntity([driverX, seatY, driverZ + backZOffset]), lock_rider_rotation: 0, ...cameraSeat },
+                        { min_rider_count: 3, max_rider_count: 4, position: toEntity([passX, seatY, passZ + backZOffset]), lock_rider_rotation: 0, ...cameraSeat },
                     );
                 }
                 return seatList;
@@ -645,10 +647,12 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         },
     } : {};
     // In-game size steps (bedrock-placement-pack.ts): scale, collision box and the seats together.
+    // At each wand size the rider's eye stays on the scaled driver's eye (cockpit-seat.ts).
     return withSizeGroups(
         { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true, ...(scripted ? { properties: flightProperties() } : {}) }, ...aircraftGroups, components: common } },
         common['minecraft:collision_box'] as { width: number; height: number },
         rideableComponent,
+        seatPlan ? { seatAt: seatPositionAt } : {},
     );
 }
 /**
@@ -1501,6 +1505,13 @@ interface VehicleCameraConfig {
     typeId: string; preset: string; kind: 'car' | 'plane' | 'boat'; radius: number; height: number; pivotY: number;
     /** Flown by scripts/aircraft.js: the camera follows the AIRCRAFT's heading and nose (its pitch property), and the rider keeps the default control scheme so the stick's left/right reaches the script as input. */
     scripted?: boolean;
+    /**
+     * The wand size factors at which a player's body fits the driver's seat
+     * (cockpit-seat.ts `riderVisibleSizes`): at any other size every player
+     * aboard is made invisible, so the body does not stick through the roof
+     * and flanks while the eye is the driver's. null/absent = always drawn.
+     */
+    riderVisibleSizes?: number[] | null;
 }
 
 /**
@@ -1573,6 +1584,11 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     try { player.runCommandAsync?.(`controlscheme @s ${value}`)?.catch?.(() => {}); } catch {}
   };
   let schemeTick = 0;
+  // Riders this script made invisible (a body that does not fit the seat at the vehicle's size).
+  const hidden = new Set<string>();
+  const sizeOf = (vehicle: any): number => {
+    try { const s = Number(vehicle.getComponent('minecraft:scale')?.value); return Number.isFinite(s) && s > 0 ? s : 1; } catch { return 1; }
+  };
   system.runInterval(() => {
     const riding = new Map<string, { player: any; vehicle: any; cfg: any }>();
     for (const d of dimensions()) {
@@ -1601,6 +1617,15 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
       } else if (schemeTick % 10 === 0 && !cfg.scripted) {
         scheme(player, `set ${NATIVE_SCHEME}`);
       }
+      // A body that does not fit the driver's seat at this size is hidden; the eye stays the driver's.
+      const size = sizeOf(vehicle);
+      if (Array.isArray(cfg.riderVisibleSizes) && !cfg.riderVisibleSizes.some((v: number) => Math.abs(v - size) < 0.01)) {
+        if (!hidden.has(id) || schemeTick % 20 === 0) { try { player.addEffect('invisibility', 60, { amplifier: 0, showParticles: false }); } catch {} }
+        hidden.add(id);
+      } else if (hidden.has(id)) {
+        try { player.removeEffect('invisibility'); } catch {}
+        hidden.delete(id);
+      }
       // Hotbar slot 9 is the COCKPIT view: the chase camera steps aside and the
       // rider sees from the seat (their own first person). Sneak is Dismount and
       // Jump is the vehicle's, so a hotbar slot is the one free touch input.
@@ -1622,6 +1647,8 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
         if (riding.has(id)) continue;
         const player = players.find((p: any) => p.id === id);
         if (player) { try { player.camera.clear(); } catch {} scheme(player, 'clear'); }
+        if (player && hidden.has(id)) { try { player.removeEffect('invisibility'); } catch {} }
+        hidden.delete(id);
         tracked.delete(id);
       }
     }
@@ -2283,8 +2310,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.roofAtSeatBlocks), emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
-            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}) });
+            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan), emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
+            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), riderVisibleSizes: riderVisibleSizes(ldrawGeo.seatPlan) });
 
             // Secondary objects the compiler found beside the vehicle (see
             // EntityExtra): figures wander as minifig NPCs, a wheeled second
@@ -2316,12 +2343,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 if (ekind === 'figure') figureBodies[`${PACK_NAMESPACE}:${ecid}`] = figureCollisionBox(egeo.sizeBlocks, options.figureCollisionHeight).height;
                 const behavior = ekind === 'figure' ? figureBehavior(ecid, egeo.sizeBlocks, options.figureCollisionHeight)
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
-                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.roofAtSeatBlocks);
+                    : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.seatPlan);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? figureClientAnimations(egeo.figure.system) : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks);
-                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true });
+                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, riderVisibleSizes: riderVisibleSizes(egeo.seatPlan) });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);

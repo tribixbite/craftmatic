@@ -688,7 +688,8 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(result.diagnostics.senna_car).toBeDefined();
     expect(result.warnings.some(w => /bounding box/.test(w))).toBe(true);
     const behavior = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_senna_BP/entities/senna_car.json')));
-    expect(behavior['minecraft:entity'].components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(0);
+    // The driver's eye (seat + 1.25) is above the floor; a seat under it is a hidden rider's (cockpit-seat.ts).
+    expect(behavior['minecraft:entity'].components['minecraft:rideable'].seats.position[1] + 1.25).toBeGreaterThan(0);
   });
 
   it('can be exported without PBR assets for classic rendering', async () => {

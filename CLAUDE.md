@@ -251,6 +251,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   250 blocks, Pixel 2026-09-25). Hold still instead (`scriptedVehicleRuntime`).
   The same limit ends a GameTest: a vehicle flown ~100 blocks from the arena
   stops being readable ("Entity being invalid"), so keep test courses near.
+- **A `minecraft:rideable` seat's +Z is the entity's NOSE; the compiler's
+  render frame has the nose at -Z.** Every compiled vehicle seat was mirrored
+  along its length until 2026-09-26 (the X-wing's pilot sat over its nose);
+  `behaviorEntity` flips z. A riding player's eye is 1.12 above its seat
+  (measured), and removing a component group removes its components even where
+  the base declares them (a `size_100` that only removed groups left vehicles
+  unrideable). Seats: `cockpit-seat.ts`, add-on guide "Where the player sits".
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`

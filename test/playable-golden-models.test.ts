@@ -88,7 +88,12 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       // One seat, or the driver's first among the passengers' (a long car gets a passenger behind).
       const seats = behavior.components['minecraft:rideable'].seats;
       const driverSeat = Array.isArray(seats) ? seats[0] : seats;
-      expect(driverSeat.position[1]).toBeGreaterThan(0);
+      // The driver's EYE (seat + 1.25) is inside the model: never on its roof (the kart rule, gone
+      // 2026-09-26). A seat below the floor is a hidden rider's, anchored at the eye (cockpit-seat.ts).
+      expect(driverSeat.position[1] + 1.25).toBeGreaterThan(0);
+      // The seat plan is in the render frame (nose -Z); the rideable seat in the entity frame,
+      // whose +Z is the nose: z flips (Saga 2026-09-26, the X-wing's pilot sat over its nose).
+      expect(driverSeat.position).toEqual([d.seatPlan.seat[0], d.seatPlan.seat[1], d.seatPlan.seat[2] === 0 ? 0 : -d.seatPlan.seat[2]]);
       expect(behavior.components['minecraft:rideable'].seat_count).toBe(Array.isArray(seats) ? seats.length : 1);
       // Every brick car and fixed wing is scripted (scripts/vehicles.js): zero native speed, attitude
       // properties - the 10300 time machine too since 2026-09-25 (its time circuits set its top speed).

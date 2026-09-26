@@ -51,12 +51,21 @@ describe('withSizeGroups', () => {
       'minecraft:scale': { value: 0.5 }, 'minecraft:collision_box': { width: 1, height: 0.75 },
       'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.25, 0.5, -1], third_person_camera_radius: 4 }, { position: [-0.25, 0.5, -1] }] },
     });
-    expect(e.component_groups['craftmatic:size_100']).toBeUndefined();
+    // 100 % is a group too: removing a group removes its components even where the
+    // base declares them, so a size_100 that only removed the others left a vehicle
+    // with no rideable (Saga 2026-09-26: "The selected entity is not rideable").
+    expect(e.component_groups['craftmatic:size_100']).toEqual({
+      'minecraft:scale': { value: 1 }, 'minecraft:collision_box': { width: 2, height: 1.5 },
+      'minecraft:rideable': { seat_count: 2, seats: [{ position: [0.5, 1, -2], third_person_camera_radius: 8 }, { position: [-0.5, 1, -2] }] },
+    });
     expect(e.events['craftmatic:size_200']).toEqual({
-      remove: { component_groups: SIZE_STEPS.filter(p => p !== 100 && p !== 200).map(p => `craftmatic:size_${p}`) },
+      remove: { component_groups: SIZE_STEPS.filter(p => p !== 200).map(p => `craftmatic:size_${p}`) },
       add: { component_groups: ['craftmatic:size_200'] },
     });
-    expect(e.events['craftmatic:size_100']).toEqual({ remove: { component_groups: SIZE_STEPS.filter(p => p !== 100).map(p => `craftmatic:size_${p}`) } });
+    expect(e.events['craftmatic:size_100']).toEqual({
+      remove: { component_groups: SIZE_STEPS.filter(p => p !== 100).map(p => `craftmatic:size_${p}`) },
+      add: { component_groups: ['craftmatic:size_100'] },
+    });
     // A single-seat rideable (an object, not an array) scales too.
     const single = withSizeGroups(base, { width: 1, height: 1 }, { seats: { position: [0, -0.3, 0] } }) as any;
     expect(single['minecraft:entity'].component_groups['craftmatic:size_400']['minecraft:rideable']).toEqual({ seats: { position: [0, -1.2, 0] } });

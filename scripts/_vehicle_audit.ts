@@ -10,17 +10,21 @@
  * no vehicle word matches, so it never exercises the vehicle path at all —
  * this is the sweep that does.
  *
- * Usage: bun scripts/_vehicle_audit.ts [set…] [--out DIR] [--keep] [--md]
+ * Usage: bun scripts/_vehicle_audit.ts [set…] [--out DIR] [--keep] [--md] [--seats]
  *   no sets: the 40 favourites plus the vehicle-heavy extras below.
  *   --keep  reuse DIR/<set>.mcaddon + DIR/<set>.json when present.
  *   --mirror=<url>  part mirror for _playable_ref.ts (e.g. a running dev server's /ldraw-parts).
  *   --md    print the markdown table (docs/bedrock-addon-guide.md, "Vehicle audit").
+ *   --seats print the seat table (docs/bedrock-addon-guide.md, "Where the player sits"): the
+ *           cockpit evidence, the driver's eye, the shipped seat, its offset from the cockpit
+ *           seat (eye - RIDER_EYE_ABOVE_SEAT) and the wand size from which a player's body fits (cockpit-seat.ts).
  * Output: DIR/<set>.mcaddon, DIR/<set>.json (the export report), DIR/audit.json.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
+import { RIDER_EYE_ABOVE_SEAT } from '../web/src/engine/cockpit-seat.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
 const CORPUS = 'C:/git/clego/lego_sets';
@@ -45,6 +49,7 @@ const outIndex = argv.indexOf('--out');
 const OUT = outIndex >= 0 ? argv[outIndex + 1]! : 'output/vehicle-audit';
 const KEEP = argv.includes('--keep');
 const MD = argv.includes('--md');
+const SEATS = argv.includes('--seats');
 /** `--mirror=<url>`: passed to `_playable_ref.ts` (the prod part mirror throttles parallel exports). */
 const MIRROR = argv.find(a => a.startsWith('--mirror='));
 const targets = argv.filter((a, i) => !a.startsWith('--') && !(outIndex >= 0 && i === outIndex + 1));
@@ -63,6 +68,12 @@ export interface VehicleRow {
   nose: string | null; noseSource: string | null; agreement: number | null; votes: string[];
   seats: number; seat: number[] | null;
   cockpit: string | null;
+  /** The driver's EYE the compiler found (blocks, entity frame before the JSON X mirror) and the evidence detail. */
+  cockpitEye: [number, number, number] | null; cockpitDetail: string | null;
+  /** Every seat position the pack ships (driver first). */
+  seatPositions: number[][];
+  /** The compiler's seat plan (`seatPlan` diagnostics), when the pack carries one. */
+  seatPlan: unknown;
   /** Wheel/tyre placements the compiler found, and how many became spinning wheel bones. */
   wheels: number | null; wheelBones: number | null;
   collision: { width: number; height: number } | null;
@@ -125,6 +136,7 @@ for (const set of list) {
 writeFileSync(`${OUT}/audit.json`, JSON.stringify({ rows }, null, 1));
 console.log(`\nwrote ${OUT}/audit.json (${rows.filter(r => r.ok).length}/${rows.length} exported)`);
 if (MD) console.log(`\n${markdownTable(rows)}`);
+if (SEATS) console.log(`\n${seatTable(rows)}`);
 
 /** Every rideable (`craftmatic_vehicle`) entity in a pack, with the diagnostics the pack ships for it. */
 async function packVehicles(bytes: Buffer, diagnostics: Record<string, any>): Promise<VehicleRow[]> {
@@ -163,6 +175,10 @@ async function packVehicles(bytes: Buffer, diagnostics: Record<string, any>): Pr
       votes: (d?.facing?.votes ?? []).map((v: any) => v.signal),
       seats: ride.seat_count ?? seats.length, seat: seats[0]?.position ?? null,
       cockpit: d?.cockpit?.source ?? null,
+      cockpitEye: Array.isArray(d?.cockpit?.units) ? d.cockpit.units.map((u: number) => r2(u / 16)) as [number, number, number] : null,
+      cockpitDetail: d?.cockpit?.detail ?? null,
+      seatPositions: seats.map((s: any) => s?.position ?? null),
+      seatPlan: d?.seatPlan ?? null,
       wheels: d?.wheels?.placements ?? null, wheelBones: d?.wheels?.bones?.length ?? null,
       collision: c['minecraft:collision_box'] ?? null, size,
       movement: c['minecraft:movement']?.value ?? null,
@@ -189,6 +205,34 @@ export function markdownTable(all: AuditRow[]): string {
     const v = r.vehicles[0]!;
     const extra = r.vehicles.length > 1 ? ` +${r.vehicles.length - 1} extra ${[...new Set(r.vehicles.slice(1).map(x => x.kind))].join('/')}` : '';
     lines.push(`| ${r.set} ${r.name} | ${v.kind}${extra} | ${v.nose ?? '?'} (${v.noseSource ?? '?'}, ${v.agreement === null ? '?' : Math.round(v.agreement * 100) + '%'}) | ${v.seats} | ${v.wheels ?? '-'} / ${v.wheelBones ?? '-'} | ${v.size ? `${v.size.width}×${v.size.height}×${v.size.length}` : '?'} | ${v.collision ? `${v.collision.width}×${v.collision.height}` : '?'} | ${v.cameraRadius ?? '?'} | ${r.scale ?? ''} |`);
+  }
+  return lines.join('\n');
+}
+
+/**
+ * Where the player sits in every rideable: the cockpit evidence and the
+ * driver's eye (blocks, entity frame), the seat the pack ships, how far that
+ * seat is from the cockpit seat (the eye less `RIDER_EYE_ABOVE_SEAT`; the
+ * shipped seat is in the entity frame, nose +Z, so its z is flipped back),
+ * and from which wand size the seated body fits (null: at none up to 400 %).
+ */
+export function seatTable(all: AuditRow[]): string {
+  const f2 = (v: number): string => (Math.round(v * 100) / 100).toString();
+  const lines = [
+    '| set | entity | kind | scale | cockpit (evidence) | eye x,y,z | seat shipped | offset from cockpit seat | body fits from | rider |',
+    '|---|---|---|---|---|---|---|---|---|---|',
+  ];
+  for (const r of all) {
+    for (const v of r.vehicles) {
+      const seat = v.seatPositions[0] ?? v.seat;
+      const eye = v.cockpitEye;
+      const plan = v.seatPlan as { fitScale: number | null; steps: Array<{ f: number; head: number; torso: number }> } | null;
+      const off = seat && eye ? [seat[0]! - eye[0], seat[1]! - (eye[1] - RIDER_EYE_ABOVE_SEAT), -seat[2]! - eye[2]].map(f2).join(', ') : '?';
+      const fits = plan ? (plan.fitScale === null ? 'never (to 400 %)' : `${plan.fitScale * 100} %`) : '?';
+      const at100 = plan?.steps.find(s => s.f === 1);
+      const rider = plan ? (plan.fitScale === 1 ? 'drawn in the seat' : 'hidden at 100 %, eye at the driver\'s') + (at100 ? ` (head ${Math.round(at100.head * 100)} %, torso ${Math.round(at100.torso * 100)} % inside)` : '') : '?';
+      lines.push(`| ${r.set} | ${v.entity} | ${v.kind} | ${r.scale ?? ''} | ${v.cockpit ?? '?'} | ${eye ? eye.map(f2).join(', ') : '?'} | ${seat ? seat.map(f2).join(', ') : '?'} | ${off} | ${fits} | ${rider} |`);
+    }
   }
   return lines.join('\n');
 }
