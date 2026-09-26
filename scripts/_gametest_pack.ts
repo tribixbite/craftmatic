@@ -120,7 +120,14 @@ if (cfg) {
     // Only when no spot does both is an opening-only spot used (the test then reports the close).
     const opens = (audit?.spots ?? []).filter(sp => sp.ok);
     const both = opens.filter(sp => sp.closes);
-    const spots = both.length ? both : opens;
+    // Only a DOORWAY part (it has closed cells) uses the both-ways spot clear of its leaf. For a
+    // window the device's line-of-sight filter refused the both-ways spot's hits ("behind a wall")
+    // on 31141's and 42652's Window 2 and 80049's Window 3 (Pixel 2026-09-26, `refused` field),
+    // where the nearest accepted spot of the earlier rounds had passed all three.
+    // TODO: find why the device's line of sight differs from the host's there (eye height on a
+    // part-block floor?) and use one rule for both.
+    const doorwayPart = it.blocking.length > 0;
+    const spots = doorwayPart && both.length ? both : opens;
     if (!actor || !spots.length) { console.log(`  ${it.label}: ${actor ? 'no standing spot the tap audit accepted' : 'no actor'}; not tested`); return; }
     if (!both.length) console.log(`  ${it.label}: no spot closes it again after opening; testing from an opening-only spot`);
     const d2 = (sp: { at: number[] }): number => (sp.at[0]! - actor.x) ** 2 + (sp.at[2]! - actor.z) ** 2 + (sp.at[1]! - actor.y) ** 2;
@@ -128,8 +135,11 @@ if (cfg) {
     // overlaps its slab (the runtime's occupancy test, `obstructed`), and a simulated player lands
     // a few hundredths off its teleport target. 71040's Door 1 spot stood 1.2 blocks from the
     // actor but 0.46 from the hinge end, and the closing hit was refused (Pixel 2026-09-25).
-    const lf = (it as { leaf?: { c: number[]; a: number[]; u: number[]; t: number } }).leaf;
+    const lf = doorwayPart ? (it as { leaf?: { c: number[]; a: number[]; u: number[]; t: number } }).leaf : undefined;
     const clearOfLeaf = (sp: { at: number[] }): boolean => {
+      // A window, lid or cupboard shuts past a player beside it (only a doorway checks occupancy):
+      // its nearest accepted spot is the one that passed on the device before any clearance rule.
+      if (!doorwayPart) return true;
       if (!lf) return Math.hypot(sp.at[0]! - actor.x, sp.at[2]! - actor.z) >= 1.2;
       const need = 0.3 + lf.t / 2 + LEAF_MARGIN_BLOCKS;
       for (let s = 0; s <= 1.0001; s += 0.05) for (let t = 0; t <= 1.0001; t += 0.05) {
