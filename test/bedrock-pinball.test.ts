@@ -269,6 +269,13 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.player.setRotation.mock.calls.at(-1)![0].x).toBeCloseTo(Math.atan2(5, 7) * 180 / Math.PI, 6);
   });
 
+  it('the serialised script names no module constant (they do not exist once the runtime is a string)', async () => {
+    const mod = await import('../web/src/engine/bedrock-pinball.js');
+    const script = pinballScript(seated().cfg);
+    const leaked = Object.keys(mod).filter(name => /^[A-Z][A-Z0-9_]+$/.test(name) && new RegExp(`\\b${name}\\b`).test(script));
+    expect(leaked).toEqual([]);
+  });
+
   it('puts a target ON each flipper and on the plunger: the line of sight to each part crosses its own box, within reach', () => {
     const h = seated();
     const head = h.player.getHeadLocation();

@@ -53,17 +53,18 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
     then the checks in `output/device-round-2026-09-25c/DEVICE-BRIEF.md`. Board rides and
     pinball with `/ride @s start_riding @e[type=craftmatic:<id>,c=1] teleport_rider`
     (`roller_10261_coaster_vehicle_1`, `loopcoaster_10303_coaster_vehicle_1`,
-    `arcade_11374_pinball_console`); tapping them failed on the Saga.
-  - [ ] From the Saga round, unresolved: (1) 76417 renders solid at 60 blocks but
-    the WHOLE model disappears between ~62 and 75, so the far hull was never seen;
-    render-distance setting not recorded; compare with the cull rule
-    (`64 x box diagonal`) before calling it a pack fault. (2) After a `/ride`-boarded
-    10303 ride, a nausea-like distortion stayed 5+ s after dismount and cleared
-    only on Undo (`saga_loop_4.jpg` shows a green haze mid-ride). (3) Pinball
-    flipper-button travel not seen (identical frames during an 800 ms hold);
-    tapping the yellow pad never started play. (4) Scrolled form rows take the
-    tap one row up, also in the vanilla pause menu: likely adb/Saga coordinates,
-    not the pack.
+    `arcade_11374_pinball_console`), or long-press them (a short tap only shows the
+    interact button).
+  - [ ] Saga follow-up (`output/saga-followup-0925/`): pad, car boarding, flipper
+    press and the 10303 "haze" are NOT pack faults (long press / the button starts
+    play and boards; the press is a ~2-frame pulse per flip; the haze is Bedrock's
+    `enable_dithering_mobs` fading actors near the camera, no effect is applied).
+    Hint now says "press Play pinball (or hold the yellow pad)". OPEN: on the Saga
+    (26.52) EVERY actor - shell, door, figure, vanilla pigs - stops drawing at
+    71.5-73 blocks regardless of box size (render 192, sim 8 chunks), so the
+    needle's longer reach is unproven: re-measure on the Pixel (26.51). Also: a
+    car's huge "Track 1 Car 2" name tag crosses the loop view; standing up from
+    pinball re-selects the wand slot and pops its form.
   - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
     2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
   - [ ] Loose accessories floating in shells (76417: 84 figure parts outside any

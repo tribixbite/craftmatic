@@ -284,6 +284,14 @@ export const COLLIDER_TERRAIN_TEXTURE = { craftmatic_collider: { textures: 'text
  * scale it with the model (`withSizeGroups`), so the cull distance scales
  * too: a 400 % placement is drawn four times as far, a 25 % one keeps the floor.
  *
+ * TODO(cull): the LONGER reach a tall needle buys is extrapolated from the
+ * three-point fit above, never measured. On the Saga (Minecraft 26.52,
+ * 2026-09-26) the 76417 shell (needle 2.115, predicted ~135 blocks), a door
+ * (0.25 x 2.5), a figure and vanilla pigs all stopped drawing TOGETHER between
+ * 71.5 and 73 blocks, with render distance 192 and simulation distance 8
+ * chunks: there the box size set nothing. Re-measure on the Pixel (26.51)
+ * before relying on the needle; `output/saga-followup-0925/`.
+ *
  * TODO(playable-addon.ts, not this file): pass `sgeo.sizeBlocks` as the
  * second argument of `shellBehavior` so the box derives from the model;
  * until then `SHELL_FALLBACK_EXTENT_BLOCKS` (10303's height, the largest set

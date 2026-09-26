@@ -1409,7 +1409,11 @@ function pinballRuntime(config: PinballRuntimeConfig, createSim: typeof createPi
           const l = p.location;
           if (p.dimension?.id && dim.id && p.dimension.id !== dim.id) continue;
           if (Math.hypot(l.x - c.x, l.z - c.z) < 5 * Math.max(1, g.scale) && Math.abs(l.y - c.y) < 4) {
-            p.onScreenDisplay.setActionBar(`§e${config.label}§r - tap the yellow pad to play pinball`);
+            // A short tap on the pad only raises the interact button (vanilla
+            // rideable behaviour); the button or a long press seats the player
+            // (Saga 2026-09-26). Bare "tap the pad" sent a tester back and forth.
+            // A literal: this runtime is serialised, so PINBALL_INTERACT_TEXT does not exist in it.
+            p.onScreenDisplay.setActionBar(`§e${config.label}§r - press Play pinball (or hold the yellow pad)`);
           }
         }
       } catch {}
