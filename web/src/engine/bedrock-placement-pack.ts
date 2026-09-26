@@ -365,9 +365,14 @@ export function withSizeGroups(
   const e = b['minecraft:entity'];
   const groups: Record<string, unknown> = { ...((e.component_groups as Record<string, unknown> | undefined) ?? {}) };
   const events: Record<string, unknown> = { ...((e.events as Record<string, unknown> | undefined) ?? {}) };
-  const names = SIZE_STEPS.filter(p => p !== 100).map(p => `${SIZE_EVENT_PREFIX}${p}`);
+  // Every step, 100 % included, is a group holding that step's values.
+  // Removing a component group removes its components outright, even ones the
+  // base `components` also declare (measured, see the add-on guide): a
+  // `size_100` that only removed the others took the vehicle's
+  // `minecraft:rideable` with them, and the X-wing sized 150 % -> 100 % on the
+  // Saga (2026-09-26) answered "The selected entity is not rideable."
+  const names = SIZE_STEPS.map(p => `${SIZE_EVENT_PREFIX}${p}`);
   for (const pct of SIZE_STEPS) {
-    if (pct === 100) continue;
     const name = `${SIZE_EVENT_PREFIX}${pct}`;
     const f = options.playerSized ? figureSizeFactor(pct / 100) : pct / 100;
     groups[name] = {
@@ -377,7 +382,6 @@ export function withSizeGroups(
     };
     events[name] = { remove: { component_groups: names.filter(n => n !== name) }, add: { component_groups: [name] } };
   }
-  events[`${SIZE_EVENT_PREFIX}100`] = { remove: { component_groups: names } };
   return { ...b, 'minecraft:entity': { ...e, component_groups: groups, events } };
 }
 
