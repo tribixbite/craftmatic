@@ -106,6 +106,24 @@ CURATED_ROWS: dict[str, list] = {
     '68498': ['93230.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
 }
 
+# Mini-doll moulds LDD numbers anew that neither Studio table maps (the same
+# rows as clego reconvert_dbix.py DOLL_ROWS, 2026-09-26): each LDD sub-part is
+# read off the LDraw composite Rebrickable names its assembly after (`16925` =
+# `92253` + `92248`, `92456`/`73141` = torso + `92244` left (+x) + `92245`
+# right, `100811` = `1006030` + `2758` stump + `92245`, `92815` = `92242` +
+# `92246` + `92247`). Identity rows: the doll SLOT correction
+# (`MINIDOLL_SLOT_CORRECTION`, lxf-parser.ts) places every doll part. NEAREST
+# rows take the closest mould of the slot (no LDraw part exists).
+# TODO: author LDraw parts for 109803, 1013035, 105316 and 65224.
+DOLL_ROWS = {
+    '28649': '92240', '35582': '92253', '35641': '92253', '35570': '92253', '1015151': '1022965',
+    '35678': '1006030', '35679': '92244', '35680': '92245', '38552': '92242', '28996': '92246', '28997': '92247',
+    '38551': '11391', '35626': '92250', '35621': '92250', '35630': '92252', '35613': '92252', '21636': '92252',
+    '35556': '11202', '18343': '92251', '1016246': '1022968', '37811': '15680', '1019261': '1023000',
+    '109803': '59595', '1013035': '92250', '105316': '11202', '65224': '69969',   # the last four NEAREST
+}
+CURATED_ROWS.update({lego: [f'{ldraw}.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0] for lego, ldraw in DOLL_ROWS.items()})
+
 BL_UPSTREAM_ROWS: dict[str, list] = {
     '80566': ['80566.dat', 9.2, -3.2, -0.4, 0.0, 1.0, 0.0, 0.0],
 }

@@ -325,10 +325,11 @@ export interface LxfPartRecord {
 /**
  * LDD head designs and the figure system each belongs to: a minifig head
  * (`3626`, and the 2019 `28621` mould) or a mini-doll head (`28650`, LDraw
- * `92198`). Only these are ever swapped for a printed part.
+ * `92198`; the MALE doll head `28649`, LDraw `92240`). Only these are ever
+ * swapped for a printed part.
  */
 export const HEAD_DESIGNS: Readonly<Record<string, 'minifig' | 'minidoll'>> = {
-  '3626': 'minifig', '28621': 'minifig', '28650': 'minidoll', '92198': 'minidoll',
+  '3626': 'minifig', '28621': 'minifig', '28650': 'minidoll', '92198': 'minidoll', '28649': 'minidoll', '92240': 'minidoll',
 };
 
 /** `1029859;A` -> 1029859; else the first `Part@decoration` token's id; else ''. */
@@ -365,17 +366,18 @@ export type PrintedHead =
 export function printedHeadFor(rec: LxfPartRecord, printMap: LxfPrintTable | undefined): PrintedHead | null {
   const kind = HEAD_DESIGNS[rec.designID];
   if (!kind || !printMap || printMap.state !== 'ok') return null;
-  const system = (file: string): 'minifig' | 'minidoll' => (file.startsWith('92198') ? 'minidoll' : 'minifig');
+  const system = (file: string): 'minifig' | 'minidoll' => (/^(92198|92240|28649)/.test(file) ? 'minidoll' : 'minifig');
   const prints = [
     ...(rec.elementIds ?? []).map(e => printMap.entries[`e:${e}`]),
     rec.decorationId ? printMap.entries[`d:${rec.decorationId}`] : undefined,
   ];
   for (const file of prints) if (file && /\.dat$/i.test(file) && system(file) === kind) return { file, kind: 'print' };
-  // Identity rows name minifig prints only (BrickLink gives a doll head no mould prefix).
-  if (kind !== 'minifig') return null;
+  // Identity rows: a minifig print's BrickLink id (`3626pb<N>`), a mini-doll's
+  // Rebrickable id (`92198pr<N>`, `28649pr<N>`; BrickLink numbers doll prints
+  // as unrelated items), each only for a head of its own system.
   for (const e of rec.elementIds ?? []) {
     const id = printMap.entries[`n:${e}`];
-    if (id) return { kind: 'identity', printId: id.toLowerCase().replace(/\.dat$/, '').replace(/^(?:3626[bc]?|28621)(pb?)/, '3626$1') };
+    if (id && system(id) === kind) return { kind: 'identity', printId: id.toLowerCase().replace(/\.dat$/, '').replace(/^(?:3626[bc]?|28621)(pb?)/, '3626$1') };
   }
   return null;
 }

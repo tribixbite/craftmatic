@@ -155,6 +155,8 @@ const PRINTS: LxfPrintTable = validateTable({
   'd:1022396': '3626cp1t.dat',
   'e:6416668': '92198p18.dat',
   'n:6454427': '3626pb3484',
+  'n:6581621': '92198pr0147',
+  'n:6350024': '28649pr0263',
   'e:9999999': '92198p18.dat',
   bogus: 12,
 }, 'test', validatePrintRow) as LxfPrintTable;
@@ -185,6 +187,11 @@ describe('printed heads from the LXFML element and decoration ids', () => {
     expect(printedHeadFor(rec('3626', ['9999999'], '1'), PRINTS)).toBeNull();
     expect(printedHeadFor(rec('3001', ['6405179'], '1022396'), PRINTS)).toBeNull();
     expect(HEAD_DESIGNS['28650']).toBe('minidoll');
+    // A mini-doll head no library prints carries its Rebrickable print id (the male mould 28649 too);
+    // a doll id on a minifig head is refused like a doll print.
+    expect(printedHeadFor(rec('28650', ['6581621'], '1082827'), PRINTS)).toEqual({ kind: 'identity', printId: '92198pr0147' });
+    expect(printedHeadFor(rec('28649', ['6350024'], '1'), PRINTS)).toEqual({ kind: 'identity', printId: '28649pr0263' });
+    expect(printedHeadFor(rec('3626', ['6581621'], '1'), PRINTS)).toBeNull();
   });
 
   it('swaps only the FILE: the head keeps the plain mould\'s placement, and says what it could not resolve', () => {
