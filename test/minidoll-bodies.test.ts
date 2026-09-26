@@ -75,8 +75,9 @@ describe('mini-doll bodies: the joints the library measures', () => {
     expect(pos(bySlot(a, 'arm_right')[0]!)).toEqual([-12.5, 0, 0]);
     expect(pos(bySlot(a, 'hips')[0]!)).toEqual([0, 27.9, -1.2]);
     expect(pos(bySlot(a, 'legs')[0]!)).toEqual([0, 75.3, -3.9]);
-    // The skeleton follows: the head turns at the man's neck, the arms swing at his shoulders.
-    expect(a.rig.bones.find(b => b.name === 'head')!.pivotLdu).toEqual([0, -36.2, 0]);
+    // The skeleton follows: the head turns at the man's NECK (his torso's top, not the crown the
+    // head mould's origin is at), the arms swing at his shoulders.
+    expect(a.rig.bones.find(b => b.name === 'head')!.pivotLdu).toEqual([0, -19.8, 0]);
     expect(a.rig.bones.find(b => b.name === 'arm_left')!.pivotLdu).toEqual([12.5, 0, 0]);
     expect(a.rig.bones.find(b => b.name === 'legs')!.pivotLdu).toEqual([0, 27.9, -1.2]);
   });

@@ -259,9 +259,21 @@ export const MINIFIG_BONES: readonly RigBone[] = [
  * piece to walk; a one-piece HIPS-and-legs mould has no hinge and stays on
  * `hips`.
  */
+/**
+ * Where a doll's head turns: its NECK, the top of the torso (`1006030`,
+ * `1011297`: y -19.3; the older `92241`: -18.3). A doll head's LDraw origin is
+ * the top of its crown (`92198` bounds y 0..26.5 below it), so turning the
+ * head about its own origin - the minifig rule, whose head origin IS its neck
+ * - swung the chin across the torso whenever a doll looked up, down or aside:
+ * the head came off the body. The man's torso (`92242`, `1011355`) tops out at
+ * -19.8.
+ */
+export const MINIDOLL_NECK_Y = -19.2;
+export const MINIDOLL_MAN_NECK_Y = -19.8;
+
 export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'body', pivotLdu: [0, 0, 0] },
-  { name: 'head', parent: 'body', pivotLdu: [0, -33.2, 0] },
+  { name: 'head', parent: 'body', pivotLdu: [0, MINIDOLL_NECK_Y, 0] },
   { name: 'arm_right', parent: 'body', pivotLdu: [-11, 0, 0] },
   { name: 'arm_left', parent: 'body', pivotLdu: [11, 0, 0] },
   { name: 'hand_right', parent: 'arm_right', pivotLdu: [-25.9, 29.7, -4] },
@@ -316,7 +328,7 @@ export function minidollBones(canon: SystemCanon): RigBone[] {
   const at = (slot: MinifigSlot, fallback: Vec3): Vec3 => canon[slot]?.position ?? fallback;
   return MINIDOLL_BONES.map(b => {
     switch (b.name) {
-      case 'head': return { ...b, pivotLdu: at('head', b.pivotLdu) };
+      case 'head': return { ...b, pivotLdu: [0, canon.head!.position[1] === MINIDOLL_MAN_CANON.head!.position[1] ? MINIDOLL_MAN_NECK_Y : MINIDOLL_NECK_Y, 0] };
       case 'arm_right': return { ...b, pivotLdu: at('arm_right', b.pivotLdu) };
       case 'arm_left': return { ...b, pivotLdu: at('arm_left', b.pivotLdu) };
       case 'hand_right': return { ...b, pivotLdu: at('hand_right', b.pivotLdu) };
