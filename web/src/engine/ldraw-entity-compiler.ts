@@ -56,7 +56,7 @@ export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BL
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
-import { planSeat, type SeatPlan } from './cockpit-seat.js';
+import { planSeat, RIDER_EYE_ABOVE_SEAT, type SeatPlan } from './cockpit-seat.js';
 import { separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
@@ -2466,10 +2466,10 @@ export async function compileLdrawEntityGeometry(
     const boxes = worldBoxes.map(wb => {
       const r = aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v)));
       const lo = toUnits(r.min), hi = toUnits(r.max);
-      return { min: [lo[0] / 16, lo[1] / 16, lo[2] / 16] as Vec3, max: [hi[0] / 16, hi[1] / 16, hi[2] / 16] as Vec3 };
+      return { min: [lo[0] / 16, lo[1] / 16, lo[2] / 16] as Vec3, max: [hi[0] / 16, hi[1] / 16, hi[2] / 16] as Vec3, glass: resolveLdrawEntityMaterial(placed[wb.brick]?.color ?? 16).alpha < 1 };
     });
     const eyeY = round(cockpitUnits[1] / 16);
-    return planSeat(boxes, [round(cockpitUnits[0] / 16), eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - SEATED_EYE_HEIGHT_BLOCKS), seatZ],
+    return planSeat(boxes, [round(cockpitUnits[0] / 16), eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
       cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : 'volume');
   })();
   const collisionBox = {

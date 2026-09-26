@@ -23,17 +23,29 @@
  * Everything here is in the ENTITY frame the rideable seats use: blocks, Y up
  * from the model's floor, the nose toward −Z, before the JSON X mirror.
  */
-import { SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 
 export type Vec3 = [number, number, number];
-export interface BoxBlocks { min: Vec3; max: Vec3 }
+/** A model box (entity frame, blocks). `glass`: a translucent part, seen through (the eye and the view ignore it). */
+export interface BoxBlocks { min: Vec3; max: Vec3; glass?: boolean }
+
+/**
+ * A riding player's eye above its seat position, MEASURED: on the Saga
+ * (26.52, 2026-09-26) a player on 42172's seat at y -0.3 read
+ * `getHeadLocation()` 0.82 and `location` -0.7 over the vehicle's origin, so
+ * the eye is 1.12 above the seat and the feet 0.4 under it. The shared
+ * `SEATED_EYE_HEIGHT_BLOCKS` (1.25, lego-scale.ts) was a guess the coaster's
+ * seats still use.
+ * TODO(seat-eye): move the coaster and the compiler's other seats to the
+ * measured value once a coaster rider's eye is checked against it.
+ */
+export const RIDER_EYE_ABOVE_SEAT = 1.12;
 
 /**
  * The seated player's body, relative to its seat position (the rider's
  * origin), in blocks. The player model is 32 px tall at 0.9375 (1.875
  * blocks): the head a 0.47-block cube, the torso 0.47 wide and 0.7 tall,
  * each arm 0.23 wide beside it (0.94 across the shoulders), arms reaching a
- * little forward in the riding pose. The eye is `SEATED_EYE_HEIGHT_BLOCKS`
+ * little forward in the riding pose. The eye is `RIDER_EYE_ABOVE_SEAT`
  * above the seat, a quarter of the head below its top. The legs and the
  * pelvis are not probed: the legs go under a dashboard or into a footwell
  * that is usually modelled solid, the pelvis sinks into the cushion (a
@@ -42,8 +54,8 @@ export interface BoxBlocks { min: Vec3; max: Vec3 }
  * nobody sees either there.
  */
 export const SEATED_RIDER_PROBES: ReadonlyArray<{ name: 'head' | 'torso'; min: Vec3; max: Vec3 }> = [
-  { name: 'head', min: [-0.235, SEATED_EYE_HEIGHT_BLOCKS - 0.25, -0.235], max: [0.235, SEATED_EYE_HEIGHT_BLOCKS + 0.22, 0.235] },
-  { name: 'torso', min: [-0.45, SEATED_EYE_HEIGHT_BLOCKS - 0.8, -0.3], max: [0.45, SEATED_EYE_HEIGHT_BLOCKS - 0.25, 0.15] },
+  { name: 'head', min: [-0.235, RIDER_EYE_ABOVE_SEAT - 0.25, -0.235], max: [0.235, RIDER_EYE_ABOVE_SEAT + 0.22, 0.235] },
+  { name: 'torso', min: [-0.45, RIDER_EYE_ABOVE_SEAT - 0.8, -0.3], max: [0.45, RIDER_EYE_ABOVE_SEAT - 0.25, 0.15] },
 ];
 
 /**
@@ -99,7 +111,7 @@ export const SEAT_END_MARGIN = 0.06;
 
 /** Anything reaching above the eye straight over the seat (a roof, a canopy's glass)? */
 function roofed(boxes: readonly BoxBlocks[], seat: Vec3): boolean {
-  const eyeY = seat[1] + SEATED_EYE_HEIGHT_BLOCKS;
+  const eyeY = seat[1] + RIDER_EYE_ABOVE_SEAT;
   return boxes.some(b => b.min[0] <= seat[0] && b.max[0] >= seat[0] && b.min[2] <= seat[2] && b.max[2] >= seat[2] && b.max[1] > eyeY + 0.05 && b.min[1] < eyeY + 3);
 }
 
@@ -183,7 +195,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   // own (unscaled) frame the eye stays put and the unscaled body hangs 1.25/f
   // under it.
   const measure = (s: Vec3): SeatPlan['steps'] => SEAT_FIT_STEPS.map(f => {
-    const at: Vec3 = [s[0], s[1] + SEATED_EYE_HEIGHT_BLOCKS - SEATED_EYE_HEIGHT_BLOCKS / f, s[2]];
+    const at: Vec3 = [s[0], s[1] + RIDER_EYE_ABOVE_SEAT - RIDER_EYE_ABOVE_SEAT / f, s[2]];
     const o = riderOverlap(boxes, at, f);
     return { f, ...o, fits: riderFits(o) && at[1] * f + SEAT_FLOOR_SLACK >= 0 };
   });
@@ -221,7 +233,7 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       const steps = measure(s);
       if (!keepsTheView(steps[0]!, evidenceHead)) continue;
       const r = rank(steps, Math.hypot(dz, dy, x - seat[0]));
-      if (better(r, bestRank)) { bestRank = r; best = { seat: s, eye: [s[0], Math.round((s[1] + SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, s[2]], steps, moved: [Math.round((s[0] - seat[0]) * 100) / 100, Math.round(dy * 100) / 100, Math.round(dz * 100) / 100] }; }
+      if (better(r, bestRank)) { bestRank = r; best = { seat: s, eye: [s[0], Math.round((s[1] + RIDER_EYE_ABOVE_SEAT) * 100) / 100, s[2]], steps, moved: [Math.round((s[0] - seat[0]) * 100) / 100, Math.round(dy * 100) / 100, Math.round(dz * 100) / 100] }; }
     }
     // Keep the evidence's own seat unless the search found one that fits at a smaller size.
     if ((fitOf(best.steps) ?? 99) >= (fitOf(measure(seat)) ?? 99)) best = { seat, eye, steps: measure(seat), moved: null };
@@ -233,10 +245,10 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   let eyeMoved: Vec3 | null = null;
   // The camera is the SEAT's eye (seat + the seated eye height), which for a
   // canopy is 0.35 behind the glass centre the evidence named.
-  const camera: Vec3 = [best.seat[0], Math.round((best.seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, best.seat[2]];
-  if (!best.steps[0]!.fits && eyeOverlap(boxes, camera) > 0) {
+  const camera: Vec3 = [best.seat[0], Math.round((best.seat[1] + RIDER_EYE_ABOVE_SEAT) * 100) / 100, best.seat[2]];
+  if (!best.steps[0]!.fits && (eyeOverlap(boxes, camera) > 0 || !forwardClear(boxes, camera))) {
     const r = EYE_CLEAR_SEARCH, n = (v: number): number => Math.round(v / SEAT_SEARCH.step);
-    let pick: { eye: Vec3; overlap: number; move: number } = { eye: camera, overlap: eyeOverlap(boxes, camera), move: 0 };
+    let pick: { eye: Vec3; overlap: number; blocked: number; move: number } = { eye: camera, overlap: eyeOverlap(boxes, camera), blocked: forwardClear(boxes, camera) ? 0 : 1, move: 0 };
     const xs = [...new Set([0, 0.25, 0.5, 0.75, 1].map(t => Math.round(camera[0] * (1 - t) * 100) / 100))];
     // Under a roof the eye stays under one: out through it is the kart's view again.
     const overhead = (e: Vec3): boolean => boxes.some(b => b.min[0] <= e[0] && b.max[0] >= e[0] && b.min[2] <= e[2] && b.max[2] >= e[2] && b.min[1] > e[1] + 0.05 && b.min[1] < e[1] + 2);
@@ -244,16 +256,27 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
     for (let k = 0; k <= n(r.back); k++) for (let j = -n(r.down); j <= n(r.up); j++) for (const x of xs) {
       const e: Vec3 = [x, Math.round((camera[1] + j * SEAT_SEARCH.step) * 100) / 100, Math.round((camera[2] + k * SEAT_SEARCH.step) * 100) / 100];
       if (e[1] <= 0.1 || (needOverhead && !overhead(e))) continue;
-      const overlap = eyeOverlap(boxes, e), move = Math.hypot(e[0] - camera[0], e[1] - camera[1], e[2] - camera[2]);
-      if (overlap < pick.overlap - 1e-9 || (Math.abs(overlap - pick.overlap) <= 1e-9 && move < pick.move)) pick = { eye: e, overlap, move };
+      const overlap = eyeOverlap(boxes, e), blocked = forwardClear(boxes, e) ? 0 : 1, move = Math.hypot(e[0] - camera[0], e[1] - camera[1], e[2] - camera[2]);
+      // In air first, then a view out ahead (over the dashboard, through the windscreen), then the least move.
+      const same = Math.abs(overlap - pick.overlap) <= 1e-9;
+      if (overlap < pick.overlap - 1e-9 || (same && blocked < pick.blocked) || (same && blocked === pick.blocked && move < pick.move)) pick = { eye: e, overlap, blocked, move };
     }
     if (pick.move > 0) {
       eyeMoved = [Math.round((pick.eye[0] - camera[0]) * 100) / 100, Math.round((pick.eye[1] - camera[1]) * 100) / 100, Math.round((pick.eye[2] - camera[2]) * 100) / 100];
-      const s2: Vec3 = [pick.eye[0], Math.round((pick.eye[1] - SEATED_EYE_HEIGHT_BLOCKS) * 100) / 100, pick.eye[2]];
+      const s2: Vec3 = [pick.eye[0], Math.round((pick.eye[1] - RIDER_EYE_ABOVE_SEAT) * 100) / 100, pick.eye[2]];
       best = { seat: s2, eye: pick.eye, steps: measure(s2), moved: best.moved };
     }
   }
   return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved };
+}
+
+/**
+ * Whether the view straight ahead of an eye (toward the nose, -Z) leaves the
+ * model through air or glass only: at eye height and 0.1 above it, no opaque
+ * box in front of the eye before the model's nose.
+ */
+export function forwardClear(boxes: readonly BoxBlocks[], eye: Vec3): boolean {
+  return ![0, 0.1].some(dy => boxes.some(b => !b.glass && b.min[0] <= eye[0] && b.max[0] >= eye[0] && b.min[1] <= eye[1] + dy && b.max[1] >= eye[1] + dy && b.max[2] < eye[2] - 0.1));
 }
 
 /** How far a hidden rider's eye may move to reach air (blocks: toward the tail, up, down). */
@@ -262,7 +285,7 @@ export const EYE_CLEAR_SEARCH = { back: 0.9, up: 0.6, down: 0.3 } as const;
 /** Share of a 0.2-block box around the eye that lies inside the model (0 = the camera is in air). */
 export function eyeOverlap(boxes: readonly BoxBlocks[], eye: Vec3): number {
   const h = 0.1, n = 4;
-  const near = boxes.filter(b => b.max[0] > eye[0] - h && b.min[0] < eye[0] + h && b.max[1] > eye[1] - h && b.min[1] < eye[1] + h && b.max[2] > eye[2] - h && b.min[2] < eye[2] + h);
+  const near = boxes.filter(b => !b.glass && b.max[0] > eye[0] - h && b.min[0] < eye[0] + h && b.max[1] > eye[1] - h && b.min[1] < eye[1] + h && b.max[2] > eye[2] - h && b.min[2] < eye[2] + h);
   if (!near.length) return 0;
   let inside = 0;
   for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) for (let l = 0; l < n; l++) {
@@ -298,5 +321,5 @@ export const riderVisibleSizes = (plan: Pick<SeatPlan, 'steps'> | undefined): nu
  */
 export function seatPositionAt(position: Vec3, f: number): Vec3 {
   const r3 = (v: number): number => Math.round(v * 1000) / 1000;
-  return [r3(position[0] * f), r3((position[1] + SEATED_EYE_HEIGHT_BLOCKS) * f - SEATED_EYE_HEIGHT_BLOCKS), r3(position[2] * f)];
+  return [r3(position[0] * f), r3((position[1] + RIDER_EYE_ABOVE_SEAT) * f - RIDER_EYE_ABOVE_SEAT), r3(position[2] * f)];
 }

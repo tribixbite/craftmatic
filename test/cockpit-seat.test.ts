@@ -11,8 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
-import { eyeOverlap, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
-import { SEATED_EYE_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
+import { RIDER_EYE_ABOVE_SEAT, eyeOverlap, forwardClear, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -46,7 +45,7 @@ describe('riderOverlap / planSeat', () => {
     // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor.
     const small = [box([-0.5, 0, -2], [0.5, 0.03, 2]), box([-0.5, 0, -2], [-0.3, 0.55, 2]), box([0.3, 0, -2], [0.5, 0.55, 2]), box([-0.5, 0.55, -2], [0.5, 0.6, 2])];
     const eye: Vec3 = [0, 0.3, 0];
-    const plan = planSeat(small, eye, [0, eye[1] - SEATED_EYE_HEIGHT_BLOCKS, 0]);
+    const plan = planSeat(small, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0]);
     expect(plan.steps.map(s => s.f)).toEqual([1, 1.5, 2, 3, 4]);
     expect(plan.steps[0]!.fits).toBe(false);
     // At 400 % it is a minifig-scale cabin (eye 1.2 blocks up, roof at 2.2).
@@ -63,12 +62,12 @@ describe('riderOverlap / planSeat', () => {
   it('keeps the rider\'s EYE on the scaled driver\'s eye at every size (the model scales, the player does not)', () => {
     const seat: Vec3 = [0.4, -0.3, 1.6];
     const at2 = seatPositionAt(seat, 2);
-    expect(at2[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 2, 6);
+    expect(at2[1] + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((seat[1] + RIDER_EYE_ABOVE_SEAT) * 2, 6);
     expect(at2[0]).toBeCloseTo(0.8);
     expect(at2[2]).toBeCloseTo(3.2);
     // A quarter-scale seat under the floor is a minifig-scale seat above it at 400 %.
-    expect(seatPositionAt([0, -0.84, 0], 4)[1]).toBeCloseTo((0.41) * 4 - SEATED_EYE_HEIGHT_BLOCKS, 6);
-    expect(seatPositionAt([0, -0.84, 0], 4)[1]).toBeGreaterThan(0);
+    expect(seatPositionAt([0, 0.41 - RIDER_EYE_ABOVE_SEAT, 0], 4)[1]).toBeCloseTo((0.41) * 4 - RIDER_EYE_ABOVE_SEAT, 6);
+    expect(seatPositionAt([0, 0.41 - RIDER_EYE_ABOVE_SEAT, 0], 4)[1]).toBeGreaterThan(0);
   });
 });
 
@@ -121,7 +120,7 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     const seats = entity.components['minecraft:rideable'].seats;
     const seat = (Array.isArray(seats) ? seats[0] : seats).position as number[];
     // Eye 51 LDU above the seat mould (at 8 LDU over the plate, the plate 28 LDU over the wheels. bottom), less the seated eye height.
-    expect(seat[1]).toBeCloseTo((28 + 8 + 51) / 53.333 - SEATED_EYE_HEIGHT_BLOCKS, 1);
+    expect(seat[1]).toBeCloseTo((28 + 8 + 51) / 53.333 - RIDER_EYE_ABOVE_SEAT, 1);
     expect(camera).toContain('"riderVisibleSizes":[1,1.5,2');
   });
 
@@ -132,8 +131,8 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     const roof = (28 + 128) * 0.25 / 53.333;
     // The kart rule would have put the hips at roof - 0.55 or higher; the eye
     // (seat + 1.25) is now the driver's, under the roof.
-    expect(seat[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeLessThan(roof);
-    expect(seat[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((28 + 8 + 51) * 0.25 / 53.333, 1);
+    expect(seat[1] + RIDER_EYE_ABOVE_SEAT).toBeLessThan(roof);
+    expect(seat[1] + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((28 + 8 + 51) * 0.25 / 53.333, 1);
     const sizes = JSON.parse(/"riderVisibleSizes":(\[[^\]]*\])/.exec(camera)?.[1] ?? 'null') as number[];
     const from = sizes.length ? sizes[0]! : 99;
     expect(from).toBeGreaterThan(1);
@@ -144,7 +143,7 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     // car is the minifig-scale one, and the body fits there.
     const groups = entity.component_groups;
     const at = (pct: number): number[] => { const s = groups[`craftmatic:size_${pct}`]['minecraft:rideable'].seats; return (Array.isArray(s) ? s[0] : s).position; };
-    expect(at(200)[1] + SEATED_EYE_HEIGHT_BLOCKS).toBeCloseTo((seat[1] + SEATED_EYE_HEIGHT_BLOCKS) * 2, 2);
+    expect(at(200)[1] + RIDER_EYE_ABOVE_SEAT).toBeCloseTo((seat[1] + RIDER_EYE_ABOVE_SEAT) * 2, 2);
     expect(at(400)[1]).toBeGreaterThan(0);
     expect(from).toBeLessThanOrEqual(4);
   });
@@ -198,7 +197,7 @@ describe('the seat search (a canopy is a volume, not a seat)', () => {
     // A cabin 1.9 wide, roof at 2.1, with a dashboard filling everything forward of z = 0.2.
     const boxes = [...cabin(0.95, 2.1), box([-0.95, 0, -2], [0.95, 1.2, 0.2])];
     const eye: Vec3 = [0.3, 1.3, 0.1];
-    const seat: Vec3 = [0.3, eye[1] - SEATED_EYE_HEIGHT_BLOCKS, 0.1];
+    const seat: Vec3 = [0.3, eye[1] - RIDER_EYE_ABOVE_SEAT, 0.1];
     const volume = planSeat(boxes, eye, seat, 'volume');
     expect(volume.fitScale).toBe(1);
     expect(volume.moved).not.toBeNull();
@@ -218,7 +217,7 @@ describe('the seat search (a canopy is a volume, not a seat)', () => {
       box([-1.2, 1.2, -1], [1.2, 1.5, 0.5]),
     ];
     const seat: Vec3 = [0, 0, 0];
-    const plan = planSeat(boxes, [0, SEATED_EYE_HEIGHT_BLOCKS, 0], seat, 'volume');
+    const plan = planSeat(boxes, [0, RIDER_EYE_ABOVE_SEAT, 0], seat, 'volume');
     // Without the cabin rule the search reaches z 0.9, over the open deck, and "fits".
     expect(plan.seat[2]).toBeLessThanOrEqual(0.5);
   });
@@ -244,13 +243,32 @@ describe('the seat search (a canopy is a volume, not a seat)', () => {
   it('moves a hidden rider\'s eye out of the body into the cabin air, and never out through the roof', () => {
     // 42172 on the Saga: the canopy-centre eye sat inside the body; the cockpit view was dark cuboids.
     const boxes = [box([-1, 0, -2], [1, 0.1, 2]), box([-1, 0.1, -2], [1, 1.0, 0.3]), box([-1.2, 1.3, -2], [1.2, 1.5, 2])];
-    const plan = planSeat(boxes, [0, 0.8, 0], [0, 0.8 - SEATED_EYE_HEIGHT_BLOCKS, 0], 'seat');
+    const plan = planSeat(boxes, [0, 0.8, 0], [0, 0.8 - RIDER_EYE_ABOVE_SEAT, 0], 'seat');
     expect(plan.fitScale).not.toBe(1);
     expect(plan.eyeMoved).not.toBeNull();
     expect(eyeOverlap(boxes, plan.eye)).toBe(0);
     // Still under the roof (1.3), not over it.
     expect(plan.eye[1]).toBeLessThan(1.3);
-    expect(plan.seat[1]).toBeCloseTo(plan.eye[1] - SEATED_EYE_HEIGHT_BLOCKS, 6);
+    expect(plan.seat[1]).toBeCloseTo(plan.eye[1] - RIDER_EYE_ABOVE_SEAT, 6);
+  });
+
+  it('gives a hidden rider a view out ahead: over the dashboard, through glass', () => {
+    // A dashboard up to 1.0 in front (z < -0.3), a sloped windscreen whose bounding box fills the cabin
+    // ahead (glass), a roof at 1.6. The eye at 0.8 looks into the dash; at 1.1+ it looks out.
+    const boxes: BoxBlocks[] = [
+      box([-1, 0, -2], [1, 0.1, 2]), box([-1, 0.1, -2], [1, 1.0, -0.3]),
+      { min: [-1, 1.0, -1.2], max: [1, 1.6, 0.2], glass: true }, box([-1.2, 1.6, -2], [1.2, 1.8, 2]),
+      // Something the body cannot fit past at any size: a bar through the torso.
+      box([-1, 0.2, -0.3], [1, 0.5, 0.3]),
+    ];
+    expect(forwardClear(boxes, [0, 0.8, 0])).toBe(false);
+    expect(forwardClear(boxes, [0, 1.2, 0])).toBe(true);
+    const plan = planSeat(boxes, [0, 0.8, 0], [0, 0.8 - RIDER_EYE_ABOVE_SEAT, 0], 'seat');
+    expect(plan.eyeMoved).not.toBeNull();
+    expect(forwardClear(boxes, plan.eye)).toBe(true);
+    // The glass's box does not count as solid for the eye.
+    expect(eyeOverlap(boxes, plan.eye)).toBe(0);
+    expect(plan.eye[1]).toBeLessThan(1.6);
   });
 
   it('does not draw a rider whose pelvis would stick out under the floor', () => {
