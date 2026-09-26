@@ -25,6 +25,7 @@ import { auditPackTaps } from '../test/_ix-tap-audit.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 import { packVersionAt } from '../web/src/engine/pipeline-version.ts';
 import { PROP_BALL_U, PROP_FLIP, PROP_PRESS, PROP_PULL } from '../web/src/engine/bedrock-pinball.ts';
+import { MINIFIG_WAND_API_GLOBAL } from '../web/src/engine/bedrock-minifig-wand.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
@@ -258,7 +259,14 @@ const wandName = [...entries.keys()].find(n => n === `${bpFolder}/scripts/minifi
 if (wandName) {
   const wandConfig = /^const C=(\{.*\});$/m.exec(text(wandName));
   if (!wandConfig) throw new Error(`${wandName}: no creator CONFIG found (the wand script changed shape)`);
-  plan.creatorFigure = (JSON.parse(wandConfig[1]!) as { figureType: string }).figureType;
+  const creator = JSON.parse(wandConfig[1]!) as { id: string; figureType: string; library: { minifig: Record<string, unknown[]> } };
+  plan.creatorFigure = creator.figureType;
+  // `creator_wand_<id>`: the wand's own operations, by the global it publishes them under.
+  plan.creatorWand = {
+    api: MINIFIG_WAND_API_GLOBAL,
+    savedKey: `craftmatic:${creator.id}:saved`,
+    slotSizes: Object.fromEntries(Object.entries(creator.library.minifig).map(([slot, list]) => [slot, list.length])),
+  };
 }
 
 // Both test packs carry the BUILD time as their version, so every rebuild re-imports.
