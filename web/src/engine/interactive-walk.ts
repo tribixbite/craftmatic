@@ -204,7 +204,7 @@ function surfaceGraph(world: WalkWorld, window: { x0: number; x1: number; z0: nu
     if (z1 > z0) return a.bz >= 1 - 1e-6 && b.az <= 1e-6 && Math.min(a.bx, b.bx) - Math.max(a.ax, b.ax) >= W - 1e-6;
     return a.az <= 1e-6 && b.bz >= 1 - 1e-6 && Math.min(a.bx, b.bx) - Math.max(a.ax, b.ax) >= W - 1e-6;
   };
-  return { tops, moves, standAt };
+  return { tops, moves, standAt, freePart };
 }
 
 type GraphNode = { x: number; z: number; t: number; prev: GraphNode | null };
@@ -239,6 +239,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   const base = { index, label: item.label, sizePct, rotation, open, passableAtSize, centre, normal: n };
   if (!own.length) return { ...base, outcome: 'no-approach', directions: [] };
   const doorColumns = new Set(own.map(b => `${b.x},${b.z}`));
+  /** Every column a leaf of this doorway's group (a double door's partner too) fills while closed. */
+  const groupColumns = new Set([...group].flatMap(g => [...ixWorldBlocks(cfg.items[g]!.blocking, pack.dims, f, rotation, COLLIDER_KIT).keys()].map(key => { const [x, , z] = key.split(','); return `${x},${z}`; })));
   const R = Math.ceil(WINDOW_BLOCKS * k);
   const window = { x0: Math.floor(centre.x) - R, x1: Math.floor(centre.x) + R, z0: Math.floor(centre.z) - R, z1: Math.floor(centre.z) + R };
   const side = (node: { x: number; z: number }): number => (node.x + 0.5 - centre.x) * n.x + (node.z + 0.5 - centre.z) * n.z;
@@ -270,7 +272,10 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     // An approach is a spot in FRONT of the doorway: within a jump of its floor. The corridor walk can climb a
     // staircase to a roof over the door (42663's van at 200 %, once clearance opened its side), and a roof
     // is not where a player stands to walk through a door.
-    const level = Math.abs(node.t - centre.y) <= JUMP_RISE * k + 1e-6;
+    // Nor is a column a leaf of the doorway fills while closed: a leaf turned off the grid spans columns
+    // along its normal, and a double door's partner stands beside it (76269's Door 2); a player put there
+    // stands inside the closed door.
+    const level = Math.abs(node.t - centre.y) <= JUMP_RISE * k + 1e-6 && !groupColumns.has(`${node.x},${node.z}`);
     if (level && s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
     if (level && s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
     // Two-way moves only (an approach spot must be one a player can walk INTO
@@ -285,10 +290,27 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       queue.push({ ...m, prev: node });
     }
   }
+  /**
+   * Where the player stands on an approach node: the first of the free part's
+   * centre, the column's centre, and the free part's two ends (a player's
+   * half-width in) whose box is clear in the open world AND with every leaf
+   * closed. A spot overlapping the closed leaf is not an approach: a player
+   * put there overlaps the door, and Minecraft lets a body walk out of a
+   * block it already overlaps - the device's simulated player walked through
+   * 910004's closed Door 3 from such a spot (GameTest 2026-09-25).
+   */
+  const closedWorld = worldFor(false);
   const spotOf = (node: GraphNode | undefined): PlayerState | undefined => {
     if (!node) return undefined;
-    const at = og.standAt(node.x, node.z, node.t);
-    return settle(openWorld, at.x, node.t + 0.01, at.z, 0.25);
+    const f = og.freePart(node.x, node.z, node.t), H = PLAYER_WIDTH_BLOCKS / 2 + 0.01;
+    const xs = [node.x + (f.ax + f.bx) / 2, node.x + 0.5, node.x + f.ax + H, node.x + f.bx - H];
+    const zs = [node.z + (f.az + f.bz) / 2, node.z + 0.5, node.z + f.az + H, node.z + f.bz - H];
+    for (const x of xs) for (const z of zs) {
+      if (!boxFree(openWorld, x, node.t + 0.01, z) || !boxFree(closedWorld, x, node.t + 0.01, z)) continue;
+      const s = settle(openWorld, x, node.t + 0.01, z, 0.25);
+      if (s && boxFree(closedWorld, s.x, s.y, s.z)) return s;
+    }
+    return undefined;
   };
   const spots = { '-1': spotOf(near['-1']), '1': spotOf(near['1']) };
   if (!spots['-1'] || !spots['1']) {
