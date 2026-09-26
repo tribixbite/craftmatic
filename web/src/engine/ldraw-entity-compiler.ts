@@ -113,6 +113,12 @@ export const isTorso = (part: string, description: string): boolean =>
   figureSystemOfTorso(part, description) !== null || TORSO_PARTS.test(figureId(part)) || /_torso$/.test(cleanPartId(part));
 export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 const isSteering = (part: string, description: string): boolean => STEERING_PARTS.has(baseMould(part)) || /^(Minifig )?Steering\b/i.test(description.replace(/^[~=_]+\s*/, ''));
+/**
+ * Translucent parts that are never a vehicle's glass, by description: engine
+ * pistons, lamps and lenses, gems, flames, energy effects, balloons, plants.
+ * The "largest translucent part" cockpit rule reads glass by size alone.
+ */
+export const NOT_GLASS = /\b(Engine|Cylinder|Piston|Light|Lamp|Lens|Jewel|Gem|Crystal|Flame|Fire|Lightsaber|Energy|Effect|Balloon|Bubble|Plant|Flower|Leaf|Leaves|Antenna|Minifig|Bottle|Cup|Ice|Dish|Cone|Bar)\b/i;
 const isCanopyMould = (part: string, description: string): boolean => CANOPY_PARTS.has(baseMould(part)) || /^(Windscreen|Canopy|Cockpit|Windshield)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 
 /** Technic pins and axles buried inside the model: geometry weight without silhouette. */
@@ -1883,6 +1889,11 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
   if (canopy) return { source: 'canopy-parts', eyeLdu: canopy.centre, detail: `${cleanPartId(canopy.brick.part)} at ${Math.round(canopy.brick.x)}, ${Math.round(canopy.brick.y)}, ${Math.round(canopy.brick.z)}`, driverParts: [] };
   const glass = largest(placed.filter(b => {
     if (resolveLdrawEntityMaterial(b.color).alpha >= 1) return false;
+    // Clear parts that are not glass: 42172's trans-clear "Technic Engine
+    // Cylinder Head" pistons won this rule and seated the driver in the engine
+    // bay behind the cockpit (Saga 2026-09-26: the cockpit view was the dark
+    // inside of the engine).
+    if (NOT_GLASS.test(desc(b).replace(/^[~=_]+\s*/, ''))) return false;
     const c = boundsCentre(b);
     return !!c && [...c.size].sort((p, q) => q - p)[1]! >= 30;
   }));

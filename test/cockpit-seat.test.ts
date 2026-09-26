@@ -192,6 +192,28 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
   });
 });
 
+describe('the cockpit evidence', () => {
+  it('never reads a clear engine cylinder as glass (42172 seated its driver in the engine bay)', async () => {
+    const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const mesh = (description: string, size: number) => ({
+      partId: description, resolvedAs: description, studs: [], unresolvedRefs: [], description,
+      triangles: [{ a: [0, 0, 0], b: [size, 0, 0], c: [0, -size, size], color: 16 }],
+      bounds: { min: [0, -size, 0], max: [size, 0, size] },
+    }) as never;
+    const meshes = new Map([['cyl.dat', mesh('Technic Engine Cylinder Head with Bottom Slots', 60)], ['body.dat', mesh('Brick 2 x 4', 40)]]);
+    const placed = [
+      { part: 'body.dat', color: 4, x: -200, y: 0, z: 0 }, { part: 'body.dat', color: 4, x: 200, y: 0, z: 0 },
+      // The clear cylinders sit behind the middle; the nose is -x.
+      { part: 'cyl.dat', color: 47, x: 100, y: -40, z: 0 },
+    ];
+    const cockpit = findCockpit(placed as never, meshes, { nose: '-x', isXLongitudinal: true, forwardSign: -1, spanX: 400, spanZ: 40 });
+    expect(cockpit.source).toBe('default-cabin');
+    // The same part in a glass description is still glass.
+    const glassMeshes = new Map([['cyl.dat', mesh('Glass for Window 1 x 4 x 3', 60)], ['body.dat', mesh('Brick 2 x 4', 40)]]);
+    expect(findCockpit(placed as never, glassMeshes, { nose: '-x', isXLongitudinal: true, forwardSign: -1, spanX: 400, spanZ: 40 }).source).toBe('translucent-canopy');
+  });
+});
+
 describe('the seat search (a canopy is a volume, not a seat)', () => {
   it('moves a windscreen-centre seat back to where the body fits, and never moves a seat mould', () => {
     // A cabin 1.9 wide, roof at 2.1, with a dashboard filling everything forward of z = 0.2.
