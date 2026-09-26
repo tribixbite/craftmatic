@@ -207,7 +207,10 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   bounds** (`cull ≈ 64 × max(1, box diagonal)` blocks). A 0.1×0.1 shell box made
   every model vanish at 64 blocks; the box is now sized from the model extent in
   `bedrock-building-shell.ts`. The LOD hull is the SAME actor, so its switch must
-  sit under that cull or it can never be seen.
+  sit under that cull or it can never be seen. **On 26.51/26.52 a bigger box
+  buys nothing past ~72 blocks**: every actor (the 2.1-block-needle 76417
+  shell, doors, figures, vanilla mobs) stopped drawing at 71-73 blocks on both
+  the Pixel and the Saga (round 2026-09-26a, `output/device-round-2026-09-26a/pixel/cull_*.png`).
 - **Doors, windows, hatches, levers and turnables are hinged ENTITIES of the
   exact parts** (`engine/bedrock-interactives.ts`, design in
   `docs/bedrock-interactivity.md`); vanilla doors survive only in the

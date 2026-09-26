@@ -36,35 +36,50 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
   face art drops the photo skin, LOD hull glass opaque, pack text no longer
   claims HD textures. Saga-verified: hatching gone, 76417 line-up grounded.
   Open:
-  - [x] **Sent**: round 2026-09-25c, `output/device-round-2026-09-25c/craftmatic-packs-de7b56a6.zip`
-    (sha256 212598af...62c24; 14 packs + PACKS.md, built one at a time from `de7b56a6`,
-    pipeline stamp `c11e72aa` clean, same labels as `243f54b1` so all 28 header
-    uuids are unchanged). Parts lists identical to `243f54b1`; `_mcaddon_check` 14/14;
-    render-fault audit (`render-audit-summary.txt`): coplanar block faces 0.02-1.78 per
-    set (76417 46.53 -> 1.00, 42703 33.62 -> 0.32). Saga world 925 bound `--exclusive`
-    (28 entries), content log 0 errors / 0 overridden. Saga results
-    (`output/device-round-2026-09-25c/saga/`): no hatching close up, 76417 figures
-    grounded, 41732 dolls with legs and hair, 76457 faces clean and grounded,
-    10261 lift ~10-14 s (screenshot cadence), 10303 loops ridden, pinball rejoin
-    does NOT self-launch; placements undone, wands cleared.
-  - [ ] **Pixel half of 25c NOT RUN** (the lock was held by the clearance and
-    interactivity agents throughout): `python -u scripts/_pixel_dev_deploy.py 924
-    output/device-round-2026-09-25c/packs-de7b56a6/*.mcaddon --serial <pixel> --exclusive`,
-    then the checks in `output/device-round-2026-09-25c/DEVICE-BRIEF.md`. Board rides and
-    pinball with `/ride @s start_riding @e[type=craftmatic:<id>,c=1] teleport_rider`
-    (`roller_10261_coaster_vehicle_1`, `loopcoaster_10303_coaster_vehicle_1`,
-    `arcade_11374_pinball_console`), or long-press them (a short tap only shows the
-    interact button).
-  - [ ] Saga follow-up (`output/saga-followup-0925/`): pad, car boarding, flipper
-    press and the 10303 "haze" are NOT pack faults (long press / the button starts
-    play and boards; the press is a ~2-frame pulse per flip; the haze is Bedrock's
-    `enable_dithering_mobs` fading actors near the camera, no effect is applied).
-    Hint now says "press Play pinball (or hold the yellow pad)". OPEN: on the Saga
-    (26.52) EVERY actor - shell, door, figure, vanilla pigs - stops drawing at
-    71.5-73 blocks regardless of box size (render 192, sim 8 chunks), so the
-    needle's longer reach is unproven: re-measure on the Pixel (26.51). Also: a
-    car's huge "Track 1 Car 2" name tag crosses the loop view; standing up from
-    pinball re-selects the wand slot and pops its form.
+  - [x] **Sent**: round 2026-09-26a, `output/device-round-2026-09-26a/craftmatic-packs-d9173d61.zip`
+    (sha256 c8abea892b2bb641704a0423e6adaedbde6c0b504c4c3157fb593cfc22c907ce; 14 packs +
+    PACKS.md, built one at a time from `d9173d61` by `build.sh`, pipeline hash
+    `e089bef8f0c5` not dirty, same labels, all 28 header uuids equal to 25c's
+    `old-manifests.json`). `substitutedParts`/`unresolvedParts` IDENTICAL to 25c for all
+    14 (`parts-compare.txt`; the local `UnOfficial/parts/s` lookup changed nothing here:
+    these builds read `ldraw_ref/` either way). `_mcaddon_check` 14/14. Render audit
+    (`render-audit-summary.txt`) unchanged except 42703 0.32 -> 0.84 block faces (parked
+    cars 2-3 vs the shell, shell +73 cubes from the same 765 parts; cause not traced),
+    910004 0.68 -> 0.89 (the new brick-built door actors), 76417 1.00 -> 1.08.
+    Both phones `--exclusive` (Pixel 924 and Saga 925: 14 BP + 14 RP; the Pixel's stale
+    McLaren binding is gone), content log 0 errors / 0 overridden at start and end on both
+    (each log stopped flushing mid-session: Pixel after 01:41, Saga after 01:19).
+    Device results (`pixel/`, `saga/` beside the zip; per-check PASS on both unless noted):
+    clearance walks upright, no crouch, through 76457 Doors 2/3/4/5 and 41732 Doors 2/5;
+    910004 brick-built Door 4 opens and closes; 76457 Bed and 41732 chair seat and stand
+    up; 10261 chain lift 9 s (Saga) / 11-12 s (Pixel) at 3.5 blocks/s, no stutter; 11374
+    hint text right, pad starts play, flipper flashes and flips. Placements undone, wands
+    cleared, both phones left at the Play screen.
+  - [ ] **76457 invisible edge (Pixel)**: walking from the street toward Doors 1 and 2 the
+    player stops at z ~2007.3 (placement pin ~2000), jumping does not clear it; Door 1's
+    room was reachable only by teleporting in (`pixel/h28_pos`..`h40_pos`, `h24_view`).
+    Locate it in the Walk add-on / `_clearance_report.ts` before touching colliders.
+  - [ ] Seat dismount hint shows the raw key `action.hint.exit.craftmatic:<set>_seat`
+    (Saga, 76457 and 41732): the RP `en_US.lang` has no such line. Add one per seat
+    entity (and manual seat) in the lang writer.
+  - [ ] Seat tap targets: on the Pixel a long-press on 76457's Bed selected Door 4 ("behind
+    a wall"), and a front tap on 910004 Door 4 selected Window 3; `/ride` and a press from
+    above worked. A seat/door behind another part's tap box.
+  - [ ] Saga: after undoing 10261 a white see-through placement preview stayed beside the
+    player (`saga/c4_undone.jpg`); not checked whether it cleared with the wand.
+  - [ ] Pixel/Saga cull, MEASURED (Pixel 26.51, render 192, sim 8, dithering on;
+    `pixel/cull_a.png`, `cull_b.png`, `d0NN.jpg`): every actor stops drawing at 71-72
+    blocks — 76417 shell root drawn 71.4 / gone 72.4 (it vanishes at d=71 while its own
+    upper-floor figures still draw), door 71.3 / 72.3, vanilla armor stand 70.6 / 71.6,
+    figure 73.8 drawn / gone at d=72; all gone at 75-140. Same as the Saga (71.5-73). The
+    shell's tall collision box buys NO draw distance on either phone: the fit's ~135-block
+    prediction is wrong for 26.5x. Resolve `TODO(cull)` in `bedrock-building-shell.ts`
+    (the LOD hull must switch under ~70 blocks to be seen at all).
+  - [ ] Saga follow-up leftovers: a car's huge "Track 1 Car 2" name tag crosses the loop
+    view; standing up from pinball re-selects the wand slot and pops its form. The Saga's
+    10303 dev packs hold 5 stale `loopcoaster_10303_fig8` files (deploy report; not deleted).
+    Three 42703 interactive entities (lid 1, doors 1-2) remain in Saga world 925 from an
+    earlier session.
   - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
     2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
   - [ ] Loose accessories floating in shells (76417: 84 figure parts outside any
@@ -81,11 +96,7 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
   predicted 80 ticks on every tick the car pitched > 20 degrees (10261: 117
   substeps/tick vs 2.4) — from `2b7e11bd`. Now predicts only near an
   inversion. Saga ride: 10261 chain lift 47 s -> 9 s, 10303 cycle 55 s (host 54),
-  42703 23-25 s (host 23); no frozen frames. Not re-ridden on the Pixel.
-- [ ] Collider CLEARANCE: rooms/halls/ceilings too tight for a 0.6 x 1.8
-  player. Trim colliders only where provably safe (never reduce free space,
-  never open to outside or through a closed leaf); ceilings too; sub-block
-  collision boxes if Bedrock allows; per-set calculator; 36 SEALED baseline.
+  42703 23-25 s (host 23); no frozen frames. Pixel 10261 lift 11-12 s (round 26a).
 
 ## IN FLIGHT — 2026-09-25 evening "work on open items" (five agents; main at `9e0f60fe`)
 
@@ -102,19 +113,18 @@ Phone sharing: lock file `output/.phone-lock` (check/write/refresh/delete only
 your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
 (`--exclusive` for a full round). GameTest only in world `cmgametest`.
 
-- [ ] Interactivity: hinge-joint detector for brick-built doors/gates/
-  mechanisms (80049, 910004, 910047, 10354, 42639, 910049, 41395); missed seats
-  (910032 x12); beds without headboard (42663); GameTest quirks 71040 D1,
-  41395 D1, 42670 D4; rerun the 40-set audit + GameTest.
+- [ ] Interactivity MERGED (`329ac47d`: brick-built hinges, furniture seats and
+  beds, one-way doorways). Device round 26a proved 910004's brick-built Door 4
+  and the 76457 Bed / 41732 chair seats on both phones. What stays open is in
+  docs/bedrock-interactivity.md ("Not found", "Not verified on a device").
 - [ ] Vehicles round 2 MERGED (see "Vehicle round 2" below). Open: turning
   barge ~14 ms/tick; a real rider's stick on a train unmeasured; 910047 rowing
   boat facing is a guess; 10303's balloon-seller tricycle stays rideable (user
-  approved 2026-09-25); world 924 still binds the old "McLaren P1 42172" pack
-  (unbind on the next `--exclusive` round).
-- [ ] Pinball, device-check in the next round: button travel now 1.5x (2.5x
-  slid into the cabinet wall); the drag pull arms only after the seated pitch
-  settles (`DRAG_SETTLE` 20 ticks), so a reopened world no longer launches by
-  itself (host test); watch the launch-tick smoothing on the phone.
+  approved 2026-09-25).
+- [ ] Pinball: hint, pad start and a flipper flash + flip seen on both phones
+  (round 26a); the rejoin no-self-launch passed on the Saga (25c). Not seen on a
+  device: the cabinet button's 1.5x inward travel (Saga screenshots too slow;
+  the Pixel recording showed a tint), launch-tick smoothing.
 - [ ] clego sources round (agent a2349714, clego commits `818cc7a8` `17d40022`
   `1858beba` `69b5cc54` NOT pushed; craftmatic index `1e954010`): 113 files
   published and R2-verified (14 Mecabricks track, 86 EurobricksLDR regens, 13
@@ -138,7 +148,9 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   17,655 -> 18,669 blocks², doorways 36 OK / 36 SEALED -> 38 / 34, 0 FAIL at
   every size; Pixel GameTest: 80049 Gate 1 and 76435 Door 1 walked open and
   blocked closed (SEALED before), 41732 / 76417 / 910004 as predicted.
-  Evidence `output/clearance-0925/` in that worktree. Open: the 100 %
+  Evidence `output/clearance-0925/` in that worktree. Round 26a walked it on
+  both phones (upright through 76457 and 41732 doorways; one invisible edge in
+  front of 76457 Doors 1-2 on the Pixel, above). Open: the 100 %
   turned-form pass on the device; figures read a form as its full block (the
   planner is block-granular); a threshold tread for rises up to a jump would
   unseal the raised-base doors (41395, 60380, 42670 D6, 31141 D4, 41732 D3,
@@ -244,11 +256,8 @@ Open, largest first:
 - [ ] A turning 36-block barge still costs ~14 ms a tick (472 footprint
   checks; straight 68 checks, 5 ms). # TODO in the guide: probe a turn only
   where the swept arc exceeds a block.
-- [ ] World 924 still binds an OLDER McLaren pack (`243f54b1`, label
-  "McLaren P1 42172", uuid e176df2e) beside the current one: two scripts
-  drive `craftmatic:mclarenp1_42172_car` there (two CMVT rows a tick; its
-  corner test in 924 was void). Unbind it the next time 924 is re-bound
-  `--exclusive`.
+- [ ] The McLaren corner test in 924 was void (two bound McLaren packs drove
+  the car); 924 binds only the current one since round 26a: redo it.
 - [ ] A REAL rider's stick on a driven train is unmeasured (GameTest drives
   through the hook; placing a railway set in 924 needs the wand form).
 - [ ] The scripted car on the phone: steering rate at top speed (43
