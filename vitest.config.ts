@@ -6,6 +6,9 @@ import { existsSync } from 'fs';
 // machine has it: tests needing post-2020 parts then read the disk instead of
 // the network (ldraw-geometry.ts `probeMirror`, `CRAFTMATIC_LDRAW_REF`).
 const LDRAW_REF = process.env.CRAFTMATIC_LDRAW_REF ?? 'C:/git/clego/ldraw_ref';
+// The mirror's answers cached on disk (ldraw-geometry.ts `mirrorCacheRead`):
+// a corpus test then asks the network for a part once, not on every run.
+const LDRAW_MIRROR_CACHE = process.env.CRAFTMATIC_LDRAW_MIRROR_CACHE ?? path.resolve(__dirname, 'output/ldraw-mirror-cache');
 
 // Live-network integration tests hit real external APIs (OSM Overpass,
 // Nominatim, Parcl, the LDraw OMR). They're valuable but FLAKY — an upstream
@@ -32,7 +35,10 @@ export default defineConfig({
     },
   },
   test: {
-    env: existsSync(LDRAW_REF) ? { CRAFTMATIC_LDRAW_REF: LDRAW_REF } : {},
+    // The mirror stays ON: 10303's tests need parts only the mirror serves
+    // (`ldraw_ref/` is not a complete copy; measured 2026-09-26). Its answers are
+    // cached on disk, so each part costs the network once.
+    env: { ...(existsSync(LDRAW_REF) ? { CRAFTMATIC_LDRAW_REF: LDRAW_REF } : {}), CRAFTMATIC_LDRAW_MIRROR_CACHE: LDRAW_MIRROR_CACHE },
     include: ['test/**/*.test.ts'],
     exclude: [
       ...configDefaults.exclude,

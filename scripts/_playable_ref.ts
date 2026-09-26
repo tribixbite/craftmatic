@@ -45,6 +45,8 @@ if (mirrorFlag) setLDrawMirror(mirrorFlag);
 // The local copy of the prod part mirror, when present: a build during a prod
 // rate limit would otherwise draw post-2020 parts as older moulds or boxes.
 if (!process.env.CRAFTMATIC_LDRAW_REF && existsSync('C:/git/clego/ldraw_ref')) process.env.CRAFTMATIC_LDRAW_REF = 'C:/git/clego/ldraw_ref';
+// The mirror's answers cached on disk, so a rebuild does not re-ask the network (ldraw-geometry.ts).
+process.env.CRAFTMATIC_LDRAW_MIRROR_CACHE ??= 'output/ldraw-mirror-cache';
 
 /**
  * Decode an 8-bit, non-interlaced RGB/RGBA PNG (what `gen-face-art.py` writes)

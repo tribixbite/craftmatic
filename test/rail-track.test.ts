@@ -90,8 +90,13 @@ describe('railway cars: the set\'s own trains found on their track (corpus-gated
   const detect = async (path: string) => {
     const { detectCoasterAssemblies } = await import('../web/src/engine/coaster-assemblies.js');
     const { createPartGeometryProvider } = await import('../web/src/engine/ldraw-part-geometry.js');
-    const { setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
+    const { setLDrawMirror, setLDrawRoot } = await import('../web/src/engine/ldraw-geometry.js');
     setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
+    // Offline: train bases, wheels and track are all in the local library, and
+    // the prod mirror's `p/` fallback answered 503 to a 318-part burst (2026-09-26),
+    // which put 50-60 s of retries into this test. Printed torsos the local
+    // library lacks become boxes, which detection does not read.
+    setLDrawMirror(null);
     const bricks = parseLDrawDocument(readFileSync(`${corpus}/${path}`, 'utf8')).bricks;
     const provider = createPartGeometryProvider();
     const meshes = new Map<string, Awaited<ReturnType<typeof provider.getPartMesh>>>();

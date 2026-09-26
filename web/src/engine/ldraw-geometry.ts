@@ -162,7 +162,10 @@ export function seedDatTexts(entries: Iterable<readonly [string, string | null]>
 // test run or a sweep - when prod throttles: it answered HTTP 429 for over an hour
 // on 2026-09-25 under parallel exports, and every corpus test that needs a part
 // the local library lacks then failed for a reason that was not the code.
-let LDRAW_MIRROR: string | null = (typeof process !== 'undefined' && process.env?.CRAFTMATIC_LDRAW_MIRROR?.replace(/\/$/, '')) || 'https://craftmatic.click/ldraw-parts';
+// `off` disables it for a process that must not touch the network. (Not the
+// test default: `ldraw_ref/` lacks parts the mirror serves, which 10303 needs.)
+const MIRROR_ENV = typeof process !== 'undefined' ? process.env?.CRAFTMATIC_LDRAW_MIRROR?.replace(/\/$/, '') : undefined;
+let LDRAW_MIRROR: string | null = MIRROR_ENV === 'off' ? null : MIRROR_ENV || 'https://craftmatic.click/ldraw-parts';
 
 /** Point the CLI fallback at another mirror, or `null` to stay offline (tests). */
 export function setLDrawMirror(base: string | null): void {
@@ -238,16 +241,73 @@ async function probeMirror(key: string): Promise<string | null> {
     }
   }
   for (const rel of rels) {
+    const cached = await mirrorCacheRead(rel);
+    if (cached === MIRROR_MISS) continue;
+    if (cached !== null) return cached;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const r = await fetch(`${LDRAW_MIRROR}/${rel}`, { signal: AbortSignal.timeout(15000) });
-        if (r.ok) return await r.text();
-        if (r.status === 404 || r.status === 410) break;
+        const r = await withMirrorSlot(() => fetch(`${LDRAW_MIRROR}/${rel}`, { signal: AbortSignal.timeout(15000) }));
+        if (r.ok) { const text = await r.text(); await mirrorCacheWrite(rel, text); return text; }
+        if (r.status === 404 || r.status === 410) { await mirrorCacheWrite(rel, MIRROR_MISS); break; }
       } catch { /* retry once */ }
       await new Promise(res => setTimeout(res, 1000));
     }
   }
   return null;
+}
+
+/**
+ * At most `MIRROR_CONCURRENCY` mirror requests in flight. A model's first
+ * load asks for every part at once (910044: 318 parts, up to three paths
+ * each), and a burst that size had requests stalled to the 15 s timeout
+ * although each one alone answers a 404 in ~0.5 s (2026-09-25: the rail test
+ * took 62 s in mesh loading and timed out at 60 s).
+ */
+const MIRROR_CONCURRENCY = 6;
+let mirrorActive = 0;
+const mirrorQueue: Array<() => void> = [];
+async function withMirrorSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (mirrorActive >= MIRROR_CONCURRENCY) await new Promise<void>(res => mirrorQueue.push(res));
+  mirrorActive++;
+  try { return await run(); } finally { mirrorActive--; mirrorQueue.shift()?.(); }
+}
+
+/**
+ * An on-disk copy of the mirror's answers (Node only, when
+ * `CRAFTMATIC_LDRAW_MIRROR_CACHE` names a directory; vitest.config.ts and
+ * `_playable_ref.ts` set it to `output/ldraw-mirror-cache`), so a test or
+ * build asks the network for a part once, not on every run. A hit is stored
+ * as the file at its mirror path; a definitive 404/410 as `<path>.miss`,
+ * trusted for `MIRROR_MISS_TTL_MS` so a part published upstream later is
+ * found again. Transport errors and throttles are never cached.
+ */
+const MIRROR_MISS = '\u0000miss';
+const MIRROR_MISS_TTL_MS = 7 * 24 * 3600 * 1000;
+function mirrorCacheDir(): string | null {
+  if (!useFilesystem || typeof process === 'undefined') return null;
+  return process.env?.['CRAFTMATIC_LDRAW_MIRROR_CACHE']?.replace(/[\\/]$/, '') || null;
+}
+async function mirrorCacheRead(rel: string): Promise<string | null> {
+  const dir = mirrorCacheDir();
+  if (!dir) return null;
+  const { readFileSync, existsSync, statSync } = await import('node:fs');
+  try {
+    const hit = `${dir}/${rel}`;
+    if (existsSync(hit)) return readFileSync(hit, 'utf-8');
+    const miss = `${hit}.miss`;
+    if (existsSync(miss) && Date.now() - statSync(miss).mtimeMs < MIRROR_MISS_TTL_MS) return MIRROR_MISS;
+  } catch { /* an unreadable cache is only a cache miss */ }
+  return null;
+}
+async function mirrorCacheWrite(rel: string, text: string): Promise<void> {
+  const dir = mirrorCacheDir();
+  if (!dir) return;
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const path = `${dir}/${rel}${text === MIRROR_MISS ? '.miss' : ''}`;
+  try {
+    mkdirSync(path.slice(0, path.lastIndexOf('/')), { recursive: true });
+    writeFileSync(path, text === MIRROR_MISS ? '' : text, 'utf-8');
+  } catch { /* the cache is best effort */ }
 }
 
 async function fetchDatText(id: string): Promise<string | null> {
