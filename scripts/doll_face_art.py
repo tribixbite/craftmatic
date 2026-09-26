@@ -62,6 +62,8 @@ INK_DISTANCE = 45              # RGB distance from the skin that makes a texel i
 MIN_FIT_IOU = 0.85             # a worse silhouette fit is not this mould in this pose: no art
 SPECKLE_MIN = 3                # ink blobs smaller than this (texels) are photo noise
 HUE_INK = 0.05                 # chromaticity distance from the skin that makes LIGHT ink a print, not a highlight
+PRINT_SATURATION = 60          # channel spread (max - min) a light texel needs to be a coloured print, not a highlight
+CROWN_ROWS = 0.26              # share of the head's height, from the top, where no doll prints ink
 FILL_NEIGHBOURS = 5            # a non-ink texel with this many ink neighbours (of 8) is a hole in a feature
 # A texel seen less squarely than MIRROR_BELOW takes its mirror image when that was seen at MIRROR_FROM or better.
 MIRROR_BELOW, MIRROR_FROM = 0.45, 0.6
@@ -144,7 +146,29 @@ def _mould(stem: str):
         nearer = zz < depth[yy, xx]
         depth[yy[nearer], xx[nearer]] = zz[nearer]
         normal[yy[nearer], xx[nearer]] = n
+    # The per-triangle normals of LDraw primitives (the crown's torus, slivers
+    # between strips) are not the SURFACE's: a few point sideways, so the
+    # nearest-surface texels under them read as unseen and punched holes in the
+    # near eye that the far-side mirror then filled with the other side's
+    # smear (41732's heads). The facing test uses the smooth normal of the
+    # depth field itself - its gradient, box-blurred - which every primitive agrees on.
+    normal = _surface_normals(depth)
     return tris, lo, hi, depth, normal
+
+
+def _surface_normals(depth: np.ndarray) -> np.ndarray:
+    """Unit normals toward the face-on viewer (-Z) from a depth map's own gradient, 5x5 box-smoothed."""
+    from scipy import ndimage
+    valid = np.isfinite(depth)
+    filled = depth.copy()
+    if (~valid).any():
+        idx = ndimage.distance_transform_edt(~valid, return_distances=False, return_indices=True)
+        filled = depth[tuple(idx)]
+    filled = ndimage.uniform_filter(filled, size=5)
+    dz_dy, dz_dx = np.gradient(filled, 1.0 / FACE_PX_PER_LDU)
+    n = np.stack([dz_dx, dz_dy, -np.ones_like(filled)], axis=-1)
+    n /= np.linalg.norm(n, axis=-1, keepdims=True)
+    return n
 
 
 def _rot(yaw: float, pitch: float) -> np.ndarray:
@@ -313,12 +337,19 @@ def _ink(art: np.ndarray) -> np.ndarray:
         # differs from the skin's (42703's gold cheek stars, 41732's pink
         # lips); a studio highlight is lighter skin of the same hue and goes.
         chroma = lambda c: c / np.maximum(1.0, c.sum(axis=-1, keepdims=True))
-        hue_off = np.sqrt(((chroma(rgb.astype(float)) - chroma(skin)) ** 2).sum(axis=2)) > HUE_INK
+        # A glossy highlight is lighter AND paler than the skin (it shifts the
+        # chromaticity toward grey): only a SATURATED colour counts as print.
+        saturated = (rgb.max(axis=2) - rgb.min(axis=2)) > PRINT_SATURATION
+        hue_off = (np.sqrt(((chroma(rgb.astype(float)) - chroma(skin)) ** 2).sum(axis=2)) > HUE_INK) & saturated
         keep = dark | (ink & ~dark & (_dilate(dark, 2) | hue_off))
     r = max(2, art.shape[1] // 26)
     padded = np.pad(opaque, r, constant_values=False)
     inner = ~_dilate(~padded, r)[r:-r, r:-r]
     keep &= inner
+    # Nothing is printed on a doll's crown: the brows sit at 0.36 of the head's
+    # height (`_doll_face_measure.ts`) and the hair covers what is above. What
+    # the photo shows there is the neck stud's rim and the gloss, so it goes.
+    keep[: int(art.shape[0] * CROWN_ROWS)] = False
     # Speckle: a photo's JPEG ringing and anti-aliased edges leave single ink
     # texels and one-texel holes, which the device draws as a dotted, mottled
     # face. Ink blobs under SPECKLE_MIN texels go; a hole ringed by ink
@@ -353,7 +384,12 @@ def doll_art(photo_path: Path, mould_stem: str) -> tuple[Image.Image | None, dic
     if mould is None:
         return None, {'error': f'no mesh for {mould_stem}'}
     photo = np.asarray(Image.open(photo_path).convert('RGB')).astype(np.int32)
-    sil = ~(photo.min(axis=2) > BACKGROUND_MIN)
+    # The silhouette is the head's OUTLINE, holes filled: a glossy highlight or
+    # an eye white is as bright as the background, and read as background it
+    # left holes in the near eye and the forehead (41732's renders) that the
+    # far-side mirror then filled with the other cheek.
+    from scipy import ndimage
+    sil = ndimage.binary_fill_holes(~(photo.min(axis=2) > BACKGROUND_MIN))
     if sil.sum() < 500:
         return None, {'error': 'no head in the photo'}
     iou, yaw, pitch, s, tx, ty, persp = _fit(_triangles(f'{mould_stem}.dat', studs=True), sil)
