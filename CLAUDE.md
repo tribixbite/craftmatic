@@ -346,6 +346,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   measured 2026-09-25: applying them took a 44-set trial's floating parts
   1,034 -> 2,674, and every authentic `.io` checked (76316, 60472, 11200)
   matches the UNapplied layout. Do not apply them.
+- **A mini-doll is minifig-scale evidence, and "Ship & Spa" is a scene.**
+  Without the mini-doll cue (`addon-scale.ts`) every Friends/Gabby set read
+  "no minifig" and a vehicle word in its title shrank the whole set as a
+  display vehicle (10786: 0.49x, props dropped). A title joining a vehicle to
+  a place (`isVehicleAndPlaceLabel`) is a scene whose boat/car is found in it.
+- **Slides and lifts are rides** (`engine/bedrock-rides.ts`): a seat carried
+  along a WORLD path the placement wrote (`PlacementActor.ridePath`). A new
+  ride kind adds a path, never its own teleport loop.
 - **A load path may never abandon itself silently.** Every staleness guard in
   `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the
