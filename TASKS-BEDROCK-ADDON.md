@@ -107,8 +107,8 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   41395 D1, 42670 D4; rerun the 40-set audit + GameTest.
 - [ ] Vehicles round 2 MERGED (see "Vehicle round 2" below). Open: turning
   barge ~14 ms/tick; a real rider's stick on a train unmeasured; 910047 rowing
-  boat facing is a guess; ASK the user whether 10303's balloon-seller tricycle
-  should be rideable; world 924 still binds the old "McLaren P1 42172" pack
+  boat facing is a guess; 10303's balloon-seller tricycle stays rideable (user
+  approved 2026-09-25); world 924 still binds the old "McLaren P1 42172" pack
   (unbind on the next `--exclusive` round).
 - [ ] Pinball, device-check in the next round: button travel now 1.5x (2.5x
   slid into the cabinet wall); the drag pull arms only after the seated pitch
