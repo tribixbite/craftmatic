@@ -145,6 +145,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   every classifier — which is why they fell out of their figures into the
   building shell (2026-09-24). `descriptionOf` skips the header; anything
   else that reads a part's first line must too.
+- **Mini-dolls lost parts in the CONVERSION, not the rig.** LDD renumbered the
+  doll moulds (28649 male head, 35582 trousers, 35678-35680 girl torso and
+  arms) and no table mapped them, so 52 sets had headless or torso-less dolls;
+  clego `DOLL_ROWS` maps them now, and an unresolved LDD id of a million or
+  more is counted as a STICKER, silently (1015151, the 2023 legs). A doll
+  head's LDraw origin is its CROWN (turn it at the neck), a doll print's id is
+  Rebrickable's `92198pr<N>`, and a doll's mould is re-measured against LDraw's
+  composites (`_doll_proportions.ts`) before any canon changes.
 - **A "posed rider aboard" count is CARS with riders, and a car used to keep
   only `seats[0]`.** The regenerated 76417 seats Harry and Hagrid in one
   cart; Hagrid's bricks left the shell as car members and were emitted

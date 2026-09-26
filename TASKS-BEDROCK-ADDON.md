@@ -1397,8 +1397,16 @@ Open:
   stay geometry: a head 68 LDU above a `doll_body` is outside the grouping
   reach and the rig has no micro-doll canon. Gabby's MerCat (`4040` head,
   `65213` microdoll mermaid body: no LDraw part) likewise.
-- [ ] Torso and leg PRINTS: LDraw has printed doll legs (`100937p04` =
-  41732's `101347c01pr0179`) and torsos; the converter prints heads only.
+- [ ] Torso PRINTS (the most visible gap): 39 of the 43 doll torsos in these
+  13 sets have no printed LDraw file (Rebrickable keyword match), so the dolls
+  wear bare skin-coloured torsos. Options: torso art from LEGO's element renders
+  (the head route, on the torso front), or the garment's colour. Leg prints:
+  LDraw has some (`100937p04` = 41732's `101347c01pr0179`); the converter
+  prints heads only.
+- [ ] Two dolls spawn overlapping in 41732 (fig2/fig3: +34 coplanar pairs
+  between the two NPCs, from the SOURCE now giving both their legs - the old
+  code on the new sources shows the same 178) and 43267 (fig1/fig5): NPC spawns
+  are not separated from each other (`resolveFigureSpawn`).
 - [ ] 41732's doll art (LEGO's 2023 renders) fits worst (IoU 0.94-0.96): far
   cheeks carry shading patches; consider the default doll face below IoU 0.955.
 - [ ] craftmatic `web/public/lego-models-index.json` lags clego's (the Gabby
