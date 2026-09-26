@@ -202,4 +202,38 @@ describe('a driven train in the pack runtime (coasterScript on the replay host)'
     expect(speed.get(599)).toBe(0);
     expect(distance.get(999)!).toBeLessThan(distance.get(799)! - 5);
   });
+  it('takes the stick hook (FLIGHT_INPUT_EVENT) with nobody aboard, for one car or every train, and parks when it ends', async () => {
+    const { coasterRuntimeConfig, coasterScript } = await import('../web/src/engine/bedrock-coaster.js');
+    const { FLIGHT_INPUT_EVENT } = await import('../web/src/engine/bedrock-vehicle.js');
+    const { replayCoasterScript } = await import('../scripts/_coaster_replay.js');
+    const points = Array.from({ length: 81 }, (_, i) => [i * 0.5, 0, 0] as [number, number, number]);
+    const config = coasterRuntimeConfig('craftmatic:test_train', [{ label: 'Line', points, closed: false, maxSegmentLength: 0.5, family: 'train' }]);
+    expect(config.inputEvent).toBe(FLIGHT_INPUT_EVENT);
+    const run = (events: Array<{ tick: number; id: string; message: string }>) => {
+      const trace: unknown[] = [];
+      replayCoasterScript(coasterScript(config), 400, trace, { rider: false, events });
+      const distance = new Map<number, number>();
+      for (const e of trace as unknown[][]) if (e[1] === 'dyn' && e[2] === 'r0c0' && e[3] === 'craftmatic:coaster_distance') distance.set(e[0] as number, e[4] as number);
+      return distance;
+    };
+    // No event: nobody drives it and it stays put.
+    const idle = run([]);
+    expect(idle.get(399)).toBe(idle.get(2));
+    // Two seconds of full stick on its own car id, then released: it moved, and the park brake holds it after.
+    const driven = run([{ tick: 100, id: FLIGHT_INPUT_EVENT, message: JSON.stringify({ id: 'r0c0', y: 1, ticks: 40 }) }]);
+    expect(driven.get(99)).toBe(driven.get(2));
+    expect(Math.abs(driven.get(140)! - driven.get(99)!)).toBeGreaterThan(2);
+    expect(driven.get(399)).toBe(driven.get(300));
+    // No id: every train takes it.
+    const all = run([{ tick: 100, id: FLIGHT_INPUT_EVENT, message: JSON.stringify({ y: -1, ticks: 40 }) }]);
+    expect(Math.abs(all.get(140)! - all.get(99)!)).toBeGreaterThan(2);
+    // Another car's id: not this train.
+    const other = run([{ tick: 100, id: FLIGHT_INPUT_EVENT, message: JSON.stringify({ id: 'someone-else', y: 1, ticks: 40 }) }]);
+    expect(other.get(399)).toBe(other.get(2));
+  });
+  it('leaves a coaster (no railway route) without the hook, so its script and CONFIG are unchanged', async () => {
+    const { coasterRuntimeConfig } = await import('../web/src/engine/bedrock-coaster.js');
+    const line = Array.from({ length: 41 }, (_, i) => [i * 0.5, i * 0.1, 0] as [number, number, number]);
+    expect(coasterRuntimeConfig('craftmatic:test_cart', [{ label: 'Shuttle', points: line, closed: false, maxSegmentLength: 0.6 }]).inputEvent).toBeUndefined();
+  });
 });

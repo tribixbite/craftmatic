@@ -223,6 +223,12 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   The "Experimental Creator Camera Features" experiment changes none of this.
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".
+- **An unloaded block is not air.** `dim.getBlock` returns `undefined` outside
+  the loaded/simulated area; a runtime that reads that as "no ground" lets an
+  entity fall through the world (an empty scripted car coasted off and fell
+  250 blocks, Pixel 2026-09-25). Hold still instead (`scriptedVehicleRuntime`).
+  The same limit ends a GameTest: a vehicle flown ~100 blocks from the arena
+  stops being readable ("Entity being invalid"), so keep test courses near.
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`
@@ -243,7 +249,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   <pack.mcaddon>...`** — Minecraft storage is external, but `games/com.mojang/**`
   is `drwxr-s---`: adb can OVERWRITE existing files (the world's
   `world_*_packs.json`) yet cannot create or move anything, so development-pack
-  installs need root. The script imports each pack through the VIEW intent,
+  installs need root. On a ROOTED phone (the Saga, `192.168.1.243:5555`,
+  auto-detected by `su -c id`) the script stages under `/data/local/tmp`,
+  `cp -r`s into `development_*_packs` in place and restores the app's owner,
+  mode and SELinux label read LIVE (the app uid changes on reinstall); on
+  the Saga a plain `input tap` is ignored, use `input swipe x y x y 90`. The script imports each pack through the VIEW intent,
   then force-stops Minecraft and rebinds the world to the new versions in
   place (verified with `exec-out cat`; an `adb pull` right after the rewrite
   can return 0 bytes). A listing of a folder the running game writes can be
@@ -295,6 +305,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   the block top). A trim ships only past the certain test (subset, superset
   of the geometry, not at a leaf's plane, floors keep their top, the leak
   flood); judge it with `_clearance_report.ts`, never by eye.
+- **Reading a built pack's geometry: ONE rotation convention and a Z mirror.**
+  JSON angles turn JSON coordinates by `Rz(−rz)·Ry(ry)·Rx(−rx)` and the world
+  is the JSON frame mirrored in Z (`pivotRotation`/`worldFaces` in
+  `engine/bedrock-geometry-faces.ts`). The Walk preview and the LOD hull each
+  had another convention until 2026-09-25 (parts at the wrong angle, doors two
+  blocks off their doorways). Anything new that reads `.geo.json` calls these.
+- **Two colours on one plane hatch on the device.** Every entity passes
+  `separateCoplanarFaces` at export (winner pushed out 1/107 block);
+  `bun scripts/_render_fault_audit.ts <pack>` counts what is left and
+  `bun scripts/_pack_render.ts` renders a pack offline. BrickLink names hair
+  `MINI WIG …`: hair on either rig, never a held item.
 - **An LXFML's top-level `<Step>` is the finished-model page.** Its DIRECT
   `<Explode>` children place every sub-build and figure (76417: bank, dragon,
   cart, 13 figures); explodes inside nested sub-builds are diagrams. Nested

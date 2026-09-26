@@ -90,16 +90,12 @@ describe.skipIf(!HAVE_CORPUS)('playable add-on golden models', () => {
       const driverSeat = Array.isArray(seats) ? seats[0] : seats;
       expect(driverSeat.position[1]).toBeGreaterThan(0);
       expect(behavior.components['minecraft:rideable'].seat_count).toBe(Array.isArray(seats) ? seats.length : 1);
-      // A brick car or fixed wing is scripted (scripts/vehicles.js): zero native speed, attitude properties.
-      // The time machine keeps the camel controller its DeLorean runtime drives.
-      const scripted = g.cid !== undefined && !/10300|time/i.test(g.cid);
-      if (scripted) {
-        expect(behavior.components['minecraft:free_camera_controlled']).toBeDefined();
-        expect(behavior.components['minecraft:movement'].value).toBe(0);
-        expect(Object.keys(behavior.description.properties)).toContain('craftmatic:fl_pitch');
-      } else {
-        expect(behavior.components['minecraft:input_ground_controlled']).toBeDefined();
-      }
+      // Every brick car and fixed wing is scripted (scripts/vehicles.js): zero native speed, attitude
+      // properties - the 10300 time machine too since 2026-09-25 (its time circuits set its top speed).
+      expect(behavior.components['minecraft:free_camera_controlled']).toBeDefined();
+      expect(behavior.components['minecraft:movement'].value).toBe(0);
+      expect(behavior.components['minecraft:input_ground_controlled']).toBeUndefined();
+      expect(Object.keys(behavior.description.properties)).toContain('craftmatic:fl_pitch');
       // Geometry is deterministic across runs.
       const again = await exportGolden(g);
       const geoA = await extractFile(buffer, `${rp}models/entity/${g.cid}.geo.json`);

@@ -26,6 +26,44 @@ PID before restarting. This has already cost one confused round.
 Neither surface proves Bedrock's rendering, culling, form text or ride physics
 — those stay on the device.
 
+## URGENT — device report 2026-09-25 night (user, zip `243f54b1`; screenshots `output/device-report-0925c/`)
+
+Three worktree agents launched (merge per the IN FLIGHT recipe below):
+- [x] Rendering faults MERGED (agent-a79aac62; guide "Render faults from the
+  2026-09-25 device report"): coplanar two-colour faces pushed apart at
+  export (76417 46.5 -> 1.0 block faces; long-standing, not a regression),
+  doll legs/arms filled, "MINI WIG" is hair, feet on the body's lowest point,
+  face art drops the photo skin, LOD hull glass opaque, pack text no longer
+  claims HD textures. Saga-verified: hatching gone, 76417 line-up grounded.
+  Open:
+  - [ ] Rebuild the 14-pack round from merged main, check it on the Pixel (world
+    924): hatching gone on 76417/76457 at 2-6 blocks, dolls with legs and hair on
+    heads (41732), faces without the mottle, the far view of 76417 (hull glass
+    now opaque, `ad90f46d`, not yet seen on a device).
+  - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
+    2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
+  - [ ] Loose accessories floating in shells (76417: 84 figure parts outside any
+    NPC, 22 Viking helmets): a display-scatter rule for unsupported figure
+    vocabulary, measured with `_figure_parts_census.ts` before changing anything.
+  - [ ] Open the Walk add-on in Chrome once: the preview's Z mirror and rotation
+    change is typecheck- and render-verified only (door swing, pinball flippers
+    and the sit overlay run through the mirrored holder).
+  - [ ] 76435: figures 1 and 8 are recorded on the same spot (804 coplanar pairs,
+    5.6 block faces between them in the 40-set audit; every other favourite is
+    at or under 1.8): they fight until they walk apart. Offset a figure that
+    spawns inside another.
+- [x] REGRESSION coaster camera FIXED (`37cdf61c`, merged): the loop camera
+  predicted 80 ticks on every tick the car pitched > 20 degrees (10261: 117
+  substeps/tick vs 2.4) — from `2b7e11bd`. Now predicts only near an
+  inversion. Saga ride: 10261 chain lift 47 s -> 9 s, 10303 cycle 55 s (host 54),
+  42703 23-25 s (host 23); no frozen frames. Not re-ridden on the Pixel.
+  World 925 lost 11 bindings to that test's `--exclusive` 3-pack deploy
+  (packs still installed): redeploy the full round with `--exclusive`.
+- [ ] Collider CLEARANCE: rooms/halls/ceilings too tight for a 0.6 x 1.8
+  player. Trim colliders only where provably safe (never reduce free space,
+  never open to outside or through a closed leaf); ceilings too; sub-block
+  collision boxes if Bedrock allows; per-set calculator; 36 SEALED baseline.
+
 ## IN FLIGHT — 2026-09-25 evening "work on open items" (five agents; main at `9e0f60fe`)
 
 Resume recipe for a fresh session: each agent works in its own worktree
@@ -45,9 +83,11 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   mechanisms (80049, 910004, 910047, 10354, 42639, 910049, 41395); missed seats
   (910032 x12); beds without headboard (42663); GameTest quirks 71040 D1,
   41395 D1, 42670 D4; rerun the 40-set audit + GameTest.
-- [ ] Vehicles: classify 70618 / 10497 (ships), 75397 (hovers), vehicles in
-  scenery (60380 cars, 910047 boats), 42128 facing; swept-footprint collision;
-  GameTest drives trains (4559, 910044); real headlights; drop old car hooks.
+- [ ] Vehicles round 2 MERGED (see "Vehicle round 2" below). Open: turning
+  barge ~14 ms/tick; a real rider's stick on a train unmeasured; 910047 rowing
+  boat facing is a guess; ASK the user whether 10303's balloon-seller tricycle
+  should be rideable; world 924 still binds the old "McLaren P1 42172" pack
+  (unbind on the next `--exclusive` round).
 - [ ] Pinball, device-check in the next round: button travel now 1.5x (2.5x
   slid into the cabinet wall); the drag pull arms only after the seated pitch
   settles (`DRAG_SETTLE` 20 ticks), so a reopened world no longer launches by
@@ -56,15 +96,18 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   `1858beba` `69b5cc54` NOT pushed; craftmatic index `1e954010`): 113 files
   published and R2-verified (14 Mecabricks track, 86 EurobricksLDR regens, 13
   IOModel2V2 turned parts; backups + SHA256SUMS in
-  `output/sources-0925/backup-shipped/`). Prod readback blocked by HTTP 429:
-  `python -u output/sources-0925/prod_verify.py
-  output/sources-0925/backup-shipped/sync-list.txt <out.json>`. 10337 rims:
-  approved and being published (plus DbixConvV3/V2 siblings). uuid-schema
+  `output/sources-0925/backup-shipped/`). Prod VERIFIED 2026-09-25: all 147 published files by hash
+  (`output/sources-0925/prod-verify-all.json`) and the index `327b8c99dfd1`
+  at `/lego-models-index.json`. 10337 rims
+  PUBLISHED (IOModel2V2 `1274199a`, DbixConvV3 `9ad2d8f8`; V2 was never off).
+  Learned-row audit: 11 learned `dbix_part_align` rows encoded a `.io`'s private
+  embedded frame and were dropped (`_DROP_DEFAULT`, clego `bee8e945`; evidence
+  `output/sources-0925/learned-audit/`); 33 files published (craftmatic
+  `268b2ea3`). Open: RELEARN `dbix_part_align.json` with the embedded-origin
+  correction applied (drops only cover rows measured wrong); clego commits
+  `80c14ba8` `bee8e945` `14e00945` also unpushed. uuid-schema
   explodes: measured NOT assembly (44-set trial floating 1,034 -> 2,674) —
-  do not apply. Open: gate-rejected but visibly better files (Mecabricks 71044,
-  7938, 2126, 79111, 3677; 8 Eurobricks track sets; ~250 Eurobricks regens)
-  need a visual-A/B criterion; 75 IOModel2V2 sets the flattener refuses;
-  geograde's sunk-floor estimate misfires on cars resting on tyres only.
+  do not apply. Open: 75 IOModel2V2 sets the flattener refuses.
 - [ ] Clearance (agent ac6403ba, branch `worktree-agent-ac6403baf65250006`,
   commits `ebb87187` `d1a6412e` `929c4a96`): colliders pulled back to the
   walls' own geometry as 43 form blocks, applied only past the certain test
@@ -77,31 +120,44 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   (`figures.js`) still read a form as a whole block; a threshold tread for
   rises up to a jump would unseal the raised-base doors (41395, 60380,
   42670 D6, 31141 D4, 41732 D3, 11371's shops).
+- [ ] Source gate v2 — connections, not contact (clego `e470b81e` code+docs,
+  `898324d5` index; both UNPUSHED). Design, calibration and results are in clego
+  `GEOGRADE.md` "Gate v2" and `docs/lego-sources-guide.md` §11. The held-out
+  split scores 0.981 with 0 false accepts, against 0.758 with 9 for the strict
+  gate. 508 files over 462 sets were published and R2-verified 516/516 plus the
+  index (`output/gate-v2/publish/r2dev-verify.json`), prod 516/516 and index
+  `e696bfd87e72` at craftmatic.click (`prod-verify.json`). Open:
+  (1) Seven IOModel2V2 picks (10326-noprint, 42152, 42212, 75339-dp-cp-noprint,
+  75389, 75398, 75413-dp) rest on a stale PASS: the current grader says
+  DEFECTIVE for the shipped bytes too (the same unknown/figure/window counts).
+  Their turned-part splices are held in `output/sources-0925/io-trial2/spliced3/`.
+  Publishing them moves the pick to raw `IO/*.io` files with inflated part
+  counts, so decide the pick policy first.
+  (2) 60052's track regeneration is held (`output/sources-0925/eb-track2/raw/`): a
+  longer part list breaks `MIN_PLACEMENT_RETENTION` against the verified
+  hand-built Topic LDraw.
+  (3) 14 Eurobricks regens were eye-rejected
+  (`output/gate-v2/labels/visual_verdicts.json`): Bionicle/Hero Factory builds
+  under half connector coverage.
+  (4) No track-end table yet for 12V/4.5V track, 9V points or the 32087 crossing
+  (`geograde/connect.py` `TRACK_END_TABLE` TODO).
+  Next round: `CLEGO_LDRAW_LIB=upstream python -u geograde/gate_v2.py ab
+  <paths.txt> <after_root> <out> --geo <ab.json> 8`, then
+  `python -u scripts/_render_ab_pairs.py <out>/gate_v2.json <dir> --verdict unsure`.
 - [x] Loop camera: the user chose to KEEP the look lock during loops
   (2026-09-25) — the per-loop camera animation stays; no setting needed.
-- [ ] Saga (second test phone, `192.168.1.243:5555`, device `ingot`, Android 13,
-  Magisk root; NEVER `stop`/`start` on it): Minecraft 1.26.51.1 installed from
-  the Pixel's APKs (`output/saga-setup/apk/`, sha256 in `SHA256SUMS.txt`),
-  recorded as installed by Play. BLOCKED on the user: Play licence check needs a
-  Google account signed in on the Saga (it has none), then launch Minecraft and
-  sign in to Microsoft. After that: storage External, content log file + UI,
-  then add a root/dev mode to `_pixel_dev_deploy.py` — push to
-  `/data/local/tmp/<new>`, `su -c cp -r` into `development_*_packs`, then chown
-  to the app uid (read with `stat -c %U`, e.g. `u0_a267:ext_data_rw`), chmod
-  dirs 2750 / files 660, `chcon -R` to the parent's label (`ls -dZ`; toybox has
-  no `--reference`); detect internal vs external root. Pass `--serial`.
-
-## Round 2026-09-25 afternoon — merged at `f5396df2`
-
+- [x] Saga (second test phone, `192.168.1.243:5555`, rooted; NEVER `stop`/
+  `start`): Minecraft 26.52 (Play-updated; Pixel is 26.51), external storage,
+  content log on, test world "925" binds the 14 `243f54b1` packs (0 errors).
+  Deploy: `python -u scripts/_pixel_dev_deploy.py 925 <packs> --serial
+  192.168.1.243:5555 --exclusive` (root dev mode). Lock `output/.saga-lock`.
+  Each deploy leaves a ~7 MB `/data/local/tmp/craftmatic-deploy-*` stage.
 - [x] Vehicles: scripted cars / boats / fixed-wing planes (vanilla controllers
   measured and rejected on the Pixel); trains run on the coaster's
   `rideSubstep` (DRY; coasters replay identically). Audit table in
   docs/bedrock-addon-guide.md "Vehicle operation ... measured"
-  (`scripts/_vehicle_audit.ts`). Open: misclassified 70618 / 10497 / 75397,
-  vehicles inside scenery (60380 cars, 910047 boats) never offered, 42128
-  facing unknown, rough collision (centre line + nose only), GameTest cannot
-  drive trains, Mecabricks/LXF train track 90 degrees off (clego), 10337 rims
-  38 LDU off their tyres (source), headlights.
+  (`scripts/_vehicle_audit.ts`). Its open items were closed by "Vehicle
+  round 2" below; what remains is listed there.
 - [x] Physics: gravity audited (coaster 2 g at pace sqrt(2), pinball 0.65x
   real, Minecraft 16/32 blocks/s^2); spec `docs/physics-architecture.md` gated
   by `test/physics-spec.test.ts`. Merge note: the camera's pure `integrate`
@@ -127,44 +183,59 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   errors, 0 "overridden" warnings.
 - [x] Tests/builds read clego's `ldraw_ref/` before prod (`CRAFTMATIC_LDRAW_REF`).
 
-## Vehicle round — 2026-09-25 (cars, boats, planes; trains on the coaster engine)
+## Vehicle round 2 — 2026-09-25 evening (`260accca`..`1939e916`, vehicle worktree)
 
-Guide: `docs/bedrock-addon-guide.md` "Vehicle operation: cars, boats, planes,
-measured" (audit table, before/after per class, controls, traps) and "Rail
-vehicles on the coaster engine"; constants in `docs/physics-architecture.md`
-§4.6/§9. Evidence under the vehicle worktree's `output/vehicle-audit-0925/`
-(GameTest `gt-base/`, `gt-v2/`, `gt-v3/`, real drives `real-v2/`, `real-v3/`,
-recordings `recordings/`, audit `final-audit/`).
+Guide: `docs/bedrock-addon-guide.md` "Vehicle operation ... measured" →
+"Second round (2026-09-25 evening): the open items closed" (classification,
+swept footprint, hover, headlights, time machine, trains, the device tables)
+and "Rail vehicles on the coaster engine" (train GameTest); physics in
+`docs/physics-architecture.md` §4.1a/§4.6/§9/§11. Evidence under the vehicle
+worktree's `output/vehicle-0925b/` (`audit-all/` 64-set audit, `packs*/`,
+`gt*/` variants, `device/` logs + recordings, `sil/` scene-vehicle
+silhouettes, `favsweep/` 40/40).
 
-Re-run: `bun scripts/_vehicle_audit.ts --md --mirror=http://localhost:4000/ldraw-parts`
-(needs `bun dev:web`); device course:
-`bun scripts/_gametest_pack.ts <pack> --only=vehicles` then
-`python -u scripts/_pixel_dev_deploy.py cmgametest <variant> --mode import`
-(one variant bound); real drive: `/scriptevent craftmatic:vehicle_telemetry fast`.
+Re-run: `bun scripts/_vehicle_audit.ts [sets] --out DIR --md` (reads clego's
+`ldraw_ref/`); device course `bun scripts/_gametest_pack.ts <pack>
+--only=vehicles` (vehicles AND trains) then `python -u
+scripts/_pixel_dev_deploy.py cmgametest <variant> --mode import --exclusive`;
+real drive `/scriptevent craftmatic:vehicle_telemetry on` (CMVT rows carry
+`msPerTick`, `sweepChecks`, `hit`, `light`).
+
+Closed and device-proved this round: 70618/10497 planes (craft word + wings),
+75397 hover (GameTest PASS incl. over_water), scene vehicles (60380, 910047,
+42639, 60198, 4559, 10303), 42128 nose (-z, headlights), swept footprint
+(post off the centre line: 42172, 4559 truck, 10300, 75397, 60221 PASS;
+10300 stopped at a log in 924 with `[BLOCKED]`), headlights (light block ahead
+at night, `[LIGHTS]`), time machine scripted (camel + hooks removed), trains
+in GameTest (4559 circuit, 910044 open line PASS).
+
+Also device-proved after fixes found on the device: 76286 PASS 7/7 on the
+circling course (`1939e916`; its tail had struck the runway), 10300 rider on
+the roof (was 3 blocks up: a pole at its tail), an empty car brakes (~59
+blocks from 91 mph, was a 200-block coast and a fall through unloaded
+terrain), barge straight-line cost 5 ms (was 19; leading boundary only).
 
 Open, largest first:
-- [ ] The scripted car (`carStep`) passed GameTest 8/8 and a real rider drove
-  it straight, turned it right, coasted and reversed (`gt-v5/`, `real-v5/`).
-  Still to feel on the phone: steering rate at top speed (43 degrees/s), the
-  step ease, a slope's pitch, a wall stop; the camel's tuning hooks
-  (`craftmatic:vehicle_scheme`, `vehicle_camera`) now serve only the time
-  machine and can go once 10300 is scripted too.
-- [ ] Rail GameTest cannot drive a train: a simulated player's
-  `moveRelative` never reaches `getMovementVector`. Give the coaster runtime
-  a `FLIGHT_INPUT_EVENT`-style stick override, as the scripted vehicles have.
+- [ ] A turning 36-block barge still costs ~14 ms a tick (472 footprint
+  checks; straight 68 checks, 5 ms). # TODO in the guide: probe a turn only
+  where the swept arc exceeds a block.
+- [ ] World 924 still binds an OLDER McLaren pack (`243f54b1`, label
+  "McLaren P1 42172", uuid e176df2e) beside the current one: two scripts
+  drive `craftmatic:mclarenp1_42172_car` there (two CMVT rows a tick; its
+  corner test in 924 was void). Unbind it the next time 924 is re-bound
+  `--exclusive`.
+- [ ] A REAL rider's stick on a driven train is unmeasured (GameTest drives
+  through the hook; placing a railway set in 924 needs the wand form).
+- [ ] The scripted car on the phone: steering rate at top speed (43
+  degrees/s), a slope's pitch, a wall stop felt by a real rider (the log stop
+  is recorded; slopes are not).
+- [ ] 910047's rowing boat has no nose evidence (`convention`); 10303's
+  balloon tricycle is now a rideable car (the finder's call: it stands on 3
+  wheels) - confirm a player wants it.
 - [ ] Converted railway track (Mecabricks, Eurobricks LXF) is placed 90° off
   the LDraw part: a clego converter row, not a router workaround.
-- [ ] Scripted vehicles probe the centre line only (ground under, blocks
-  ahead of the nose): a wingtip or a wide hull passes through a tree or a
-  pier. A box sweep would fix it at a script cost.
-- [ ] Classification gaps from the audit: 75397 Jabba's Sail Barge is a
-  BOAT (it hovers in the film); 70618 Destiny's Bounty and 10497 Galaxy
-  Explorer are static (no vehicle word in the title);
-  vehicles inside scenery (60380 Downtown's cars, 910047's boats) are not
-  offered; 42128's nose is `convention` (no evidence) and may drive backwards.
 - [ ] 10337's first pick (IOModel2V2) has its four 5650 rims 38 LDU off their
   tyres (the `.io` seats them): source repair.
-- [ ] Headlights are night vision at night only; no light blocks follow a car.
 
 ## Round 2026-09-25 — merged at `56a96e0f`; packs `output/device-round-2026-09-25/packs-56a96e0f/` (9, zip beside), deployed to world 924
 

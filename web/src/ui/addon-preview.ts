@@ -26,6 +26,19 @@
 
 import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
+import { pivotRotation } from '@engine/bedrock-geometry-faces.js';
+
+/**
+ * A geometry rotation (JSON degrees) about `pivot` as a three.js matrix: the
+ * shared `pivotRotation` (bedrock-geometry-faces.ts), which accounts for the X
+ * mirror the compiler writes the angles under. The preview used
+ * `Euler(rx, -ry, -rz, 'ZYX')` until 2026-09-25 and drew every part turned
+ * about X or Y at the wrong angle (76417's roof tiles stood out of the walls).
+ */
+function bedrockTurn(rx: number, ry: number, rz: number, px: number, py: number, pz: number): THREE.Matrix4 {
+  const a = pivotRotation([rx, ry, rz], [px, py, pz]);
+  return new THREE.Matrix4().set(a[0]!, a[1]!, a[2]!, a[3]!, a[4]!, a[5]!, a[6]!, a[7]!, a[8]!, a[9]!, a[10]!, a[11]!, 0, 0, 0, 1);
+}
 import {
   buildWalkWorld, PLAYER_HEIGHT, spawnState, tickPlayer, TICKS_PER_SECOND,
   type EntitySolid, type PlayerState, type PointReach, type WalkInput, type WalkWorld,
@@ -519,19 +532,12 @@ class AddonWalk implements AddonPreviewHandle {
         if (!bone || seen.has(name)) { done.set(name, m); return m; }
         seen.add(name);
         const parent = bone.parent ? resolve(bone.parent, seen) : new THREE.Matrix4();
-        // Bedrock turns a bone about its pivot; its rotation is degrees XYZ and
-        // Y/Z are negated against three.js' handedness, as the geometry writer
-        // emits them (see eulerZYX in ldraw-entity-compiler).
+        // Bedrock turns a bone about its pivot (`bedrockTurn`).
         const [px, py, pz] = bone.pivot;
         const add = overlay?.get(name);
         const [brx, bry, brz] = bone.rotation ?? [0, 0, 0];
         const rx = brx + (add?.[0] ?? 0), ry = bry + (add?.[1] ?? 0), rz = brz + (add?.[2] ?? 0);
-        const local = new THREE.Matrix4();
-        if (rx || ry || rz) {
-          local.makeTranslation(px, py, pz)
-            .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx * deg, -ry * deg, -rz * deg, 'ZYX')))
-            .multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
-        }
+        const local = rx || ry || rz ? bedrockTurn(rx, ry, rz, px, py, pz) : new THREE.Matrix4();
         const world = parent.clone().multiply(local);
         done.set(name, world);
         return world;
@@ -565,9 +571,14 @@ class AddonWalk implements AddonPreviewHandle {
       const holder = new THREE.Group();
       holder.position.set(at.x, at.y, at.z);
       holder.rotation.y = yaw;
-      holder.scale.setScalar(f / 16);
+      // Geometry JSON → world is a Z mirror (`worldFaces`, bedrock-geometry-faces.ts):
+      // without it every door, figure and seat stood mirrored across its actor's
+      // origin, a door two blocks in front of its doorway.
+      holder.scale.set(f / 16, f / 16, -f / 16);
 
       for (const chunk of entry.groups) {
+        // The LOD hull draws only past its switch distance; the walk shows the close-up model.
+        if (chunk.far) continue;
         const cubes = activeRider === null ? chunk.cubes : chunk.cubes.filter(c => {
           const rider = /^rider_(\d+)$/.exec(c.bone);
           return !rider || Number(rider[1]) === activeRider;
@@ -592,9 +603,7 @@ class AddonWalk implements AddonPreviewHandle {
           cube.setPosition(ox + sx / 2, oy + sy / 2, oz + sz / 2);
           if (c.rotation && c.pivot) {
             const [rx, ry, rz] = c.rotation, [px, py, pz] = c.pivot;
-            spin.makeTranslation(px, py, pz)
-              .multiply(new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(rx * deg, -ry * deg, -rz * deg, 'ZYX')))
-              .multiply(new THREE.Matrix4().makeTranslation(-px, -py, -pz));
+            spin.copy(bedrockTurn(rx, ry, rz, px, py, pz));
             cube.premultiply(spin);
           }
           m.copy(bones.get(c.bone) ?? new THREE.Matrix4()).multiply(cube);

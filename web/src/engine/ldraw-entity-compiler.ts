@@ -47,7 +47,7 @@ import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { encodePngRgba } from './lego-resource-pack.js';
 import { faceArtImage, orientFace, packFaceAtlas, rasterizeHeadFace, type BedrockFaceName, type FaceImage } from './head-face.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { mouldFamilyId, assembleMinifig, classifyMiniDollPart, figureAnchor, figureSystemOfTorso, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, classifyMiniDollPart, classifyMinifigPart, figureAnchor, figureSystemOfTorso, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -56,6 +56,7 @@ export { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK, LDU_PER_MINIFIG, PLAYER_HEIGHT_BL
 import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
 import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
+import { separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
  * Canopy / windscreen moulds — used for COCKPIT DETECTION only. Whether a
@@ -479,6 +480,13 @@ export interface LegoGeometryDiagnostics {
   hiddenCull: Omit<HiddenCullPlan, 'hidden'>;
   /** Body cuboids absorbed by a same-colour face-adjacent neighbour (`mergeAlignedCuboids`, lossless). */
   mergedCubes: number;
+  /**
+   * Different-colour faces that shared a plane (z-fight hatching on the
+   * device) and how they were separated (`separateCoplanarFaces`,
+   * bedrock-geometry-faces.ts): pairs and area found, faces pushed out, pairs
+   * left. Absent on a geometry compiled before 2026-09-25.
+   */
+  coplanar?: CoplanarSeparation;
   /** The parts that cost the most cuboids in total (prototype cuboids × placements), heaviest first. */
   heaviestParts: Array<{ part: string; placements: number; cubesEach: number; microcellLdu: number; cubes: number }>;
   /** Which LDraw end became the nose, with every vote that decided it (`vehicle-facing.ts`). */
@@ -539,6 +547,14 @@ export interface CompiledLdrawGeometry {
   /** `meshes.map(m => m.id)`, in draw order. */
   meshIds: string[];
   seatPosition: [number, number, number];
+  /**
+   * The top of the geometry over the driver's seat, blocks above the floor:
+   * the roof a rider sits ON when the model is too small to sit in. The whole
+   * model's height is not that roof - 10300's "present" model carries a
+   * 600-LDU pole at its tail, and a rider seated at the model's top floated
+   * three blocks over the car (Pixel, 2026-09-25).
+   */
+  roofAtSeatBlocks: number;
   /** Up to three passenger seats from the model's free seat moulds (entity frame, blocks, before the JSON X mirror like `seatPosition`). */
   passengerSeats: Array<[number, number, number]>;
   collisionBox: { width: number; height: number };
@@ -1291,6 +1307,14 @@ export const isHeadPart = (part: string, description: string): boolean =>
  * is the part a converter most often leaves at a raw origin (76417's `37777`
  * sits 70 LDU below its own shoulders), so its reach is wider still.
  */
+/**
+ * The lowest (torso frame, LDU, Y down) a loose accessory's origin may sit and
+ * still join a figure: a minifig hand is 26.6 below the torso origin
+ * (`MINIFIG_CANON`), its hips 32, its knees about 54, its soles 72. 48 keeps a
+ * sword or broom held low and leaves an item on the floor to the scenery.
+ */
+export const HELD_BELOW_LDU = 48;
+
 const GROUP_REACH: Record<FigureSystem, { radius: number; above: number; below: number }> = {
   minifig: { radius: 40, above: 48, below: 80 },
   minidoll: { radius: 40, above: 48, below: 100 },
@@ -1323,11 +1347,17 @@ export function groupFigures(bricks: ParsedBrick[], meshes: Map<string, LdrawPar
   const reachOf = torsos.map(t => GROUP_REACH[figureSystemOfTorso(bricks[t]!.part, desc(bricks[t]!)) ?? 'minifig']);
   bricks.forEach((b, i) => {
     if (torsoSet.has(i) || !isFigurePart(b.part, desc(b))) return;
+    // A loose accessory (a wand, a tool, a cup) is carried only from hand
+    // height: one lying at the figure's feet is the scenery's. 76457 places a
+    // second wand at every figure's feet; grouped, it hung from the hand at
+    // the figure's knees, set the entity's floor under the soles and walked
+    // off with the figure (2026-09-25).
+    const accessory = classifyMinifigPart(b.part, desc(b)) === 'held' && classifyMiniDollPart(b.part, desc(b)) === null;
     let best = -1, bestD = Infinity;
     torsos.forEach((t, k) => {
       const [dx, dy, dz] = inTorsoFrame(bricks[t]!, b);
       const reach = reachOf[k]!;
-      if (Math.hypot(dx, dz) > reach.radius || dy < -reach.above || dy > reach.below) return;
+      if (Math.hypot(dx, dz) > reach.radius || dy < -reach.above || dy > (accessory ? Math.min(reach.below, HELD_BELOW_LDU) : reach.below)) return;
       const d = Math.hypot(dx, dz) + Math.abs(dy) * 0.25;
       if (d < bestD) { bestD = d; best = k; }
     });
@@ -2363,7 +2393,19 @@ export async function compileLdrawEntityGeometry(
 
   // 6. Recentre: true geometric bounds in the render frame (floor at y = 0).
   const all = renderCuboids.length ? aabbOfCorners(renderCuboids.flatMap(c => [c.min, c.max])) : { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
-  const automaticOrigin: Vec3 = [(all.min[0] + all.max[0]) / 2, all.min[1], (all.min[2] + all.max[2]) / 2];
+  // A rigged figure stands on its FEET: its actor is placed at the source
+  // figure's feet (bedrock-scene-actors `floorLdu`), so the geometry's y = 0
+  // must be the lowest cube of its body, not of what it holds. A broom, wand
+  // or tool a figure is grouped with can hang below its soles (76457: nine of
+  // twelve figures carried an item 2.7 units under their feet), and taking the
+  // floor from it stood the whole figure that far above every floor.
+  const heldBone = (name: string): boolean => {
+    for (let b: string | undefined = name, guard = 0; b && guard < 32; b = bones.get(b)?.parent, guard++) if (b === 'hand_right' || b === 'hand_left') return true;
+    return false;
+  };
+  const bodyCubes = options.rig ? renderCuboids.filter(c => !heldBone(c.bone)) : [];
+  const floorOf = bodyCubes.length ? Math.min(...bodyCubes.map(c => c.min[1])) : all.min[1];
+  const automaticOrigin: Vec3 = [(all.min[0] + all.max[0]) / 2, floorOf, (all.min[2] + all.max[2]) / 2];
   const [midX, floorY, midZ] = options.originLdu ? apply(A, options.originLdu) : automaticOrigin;
   const totalWidth = (all.max[0] - all.min[0]) * scale / 16;
   const totalHeight = (all.max[1] - all.min[1]) * scale / 16;
@@ -2395,6 +2437,14 @@ export async function compileLdrawEntityGeometry(
   const seatY = Math.max(0.3, round(cockpitUnits[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS));
   // A canopy or default cabin is a volume, not a seat: set the rider back a little so the eyes sit inside the glass.
   const seatZ = round(cockpitUnits[2] / 16 + (cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' || cockpit.source === 'steering-wheel' ? 0 : 0.35));
+  // The roof over the seat: the highest cuboid whose footprint covers the cockpit (0.3 blocks of slack), in blocks above the floor.
+  const cockpitRender = apply(A, cockpit.eyeLdu), seatSlack = 0.3 * 16 / scale;
+  let roofTop = -Infinity;
+  for (const c of renderCuboids) {
+    if (cockpitRender[0] < c.min[0] - seatSlack || cockpitRender[0] > c.max[0] + seatSlack || cockpitRender[2] < c.min[2] - seatSlack || cockpitRender[2] > c.max[2] + seatSlack) continue;
+    roofTop = Math.max(roofTop, c.max[1]);
+  }
+  const roofAtSeatBlocks = Number.isFinite(roofTop) ? round((roofTop - floorY) * scale / 16) : round(totalHeight);
   // Passenger seats measured from the model's free seat moulds, in the same frame as the driver's.
   const passengerSeats: Array<[number, number, number]> = cockpit.passengerEyesLdu.slice(0, 3).map(eye => {
     const u = toUnits(apply(A, eye));
@@ -2527,6 +2577,35 @@ export async function compileLdrawEntityGeometry(
   // Opaque colours first, then the translucent ones: alpha-blended geometry
   // draws last, exactly as it did when there was one canopy mesh.
   const ordered = [...groups.values()].sort((a, b) => Number(a.translucent) - Number(b.translucent));
+  // Two parts the source sinks into each other, or lays flush on the same
+  // plane, leave faces of different colours on ONE plane; the device cannot
+  // order them and draws the hatching and strobing a user reported on every
+  // model (2026-09-25: 76417's shell 10,672 such pairs, 80 block faces).
+  // Push each pair's winning face out, in the JSON cubes themselves (their
+  // origin/size arrays are shared with the wrappers below).
+  const coplanarEntry: GeoEntryLike = {
+    groups: ordered.map(g => ({
+      ldrawColor: g.material.colorId, alpha: g.material.alpha,
+      cubes: g.items.map(it => ({ bone: it.bone, origin: it.cube.origin, size: it.cube.size, ...(it.cube.rotation && it.cube.pivot ? { rotation: it.cube.rotation, pivot: it.cube.pivot } : {}) })),
+    })),
+    bones: [...bones.keys()].map(name => { const b = jsonBone(name); return { name: b.name, pivot: b.pivot, ...(b.rotation ? { rotation: b.rotation } : {}), ...(b.parent ? { parent: b.parent } : {}) }; }),
+  };
+  // The face decals (emitted below) are never moved, but a fringe or visor on
+  // their plane must be pushed in front of them, so they take part as a group.
+  if (faceDecalCuboids.length) {
+    coplanarEntry.groups.push({
+      ldrawColor: null, alpha: 1, texture: { path: 'faces' },
+      cubes: faceDecalCuboids.map(d => {
+        const lo = toUnits(d.min), hi = toUnits(d.max);
+        return {
+          bone: d.bone, origin: [round(-hi[0]), round(lo[1]), round(lo[2])], size: [round(hi[0] - lo[0]), round(hi[1] - lo[1]), round(hi[2] - lo[2])],
+          faceUv: { face: d.face!.face, uv: [0, 0], size: [1, 1] },
+        };
+      }),
+    });
+  }
+  const coplanar = separateCoplanarFaces(coplanarEntry);
+  if (coplanar.pairsLeft) warnings.push(`${cid}: ${coplanar.pairsLeft} different-colour face pair${coplanar.pairsLeft === 1 ? '' : 's'} still share a plane after separation (may hatch on the device).`);
   for (const group of ordered) {
     for (let offset = 0; offset < group.items.length; offset += chunk) {
       const meshId = `geometry.${PACK_NAMESPACE}.${cid}_mesh_${emittedMeshes.length}`;
@@ -2610,6 +2689,7 @@ export async function compileLdrawEntityGeometry(
     headCubesCarved,
     hiddenCull: { cellLdu: cullPlan.cellLdu, requestedCellLdu: cullPlan.requestedCellLdu, gridCells: cullPlan.gridCells, coarsened: cullPlan.coarsened, skipped: cullPlan.skipped },
     mergedCubes,
+    coplanar,
     heaviestParts,
     facing,
     ...(vehicleRig ? { wheels: { placements: wheelPlacements, bones: wheelBones.map(w => ({ name: w.name, radiusBlocks: w.radiusBlocks, parts: w.parts, end: w.end })), rejected: wheelsRejected } } : {}),
@@ -2637,6 +2717,7 @@ export async function compileLdrawEntityGeometry(
     meshes: emittedMeshes,
     meshIds: emittedMeshes.map(m => m.id),
     seatPosition: [seatX, seatY, seatZ],
+    roofAtSeatBlocks,
     passengerSeats,
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
