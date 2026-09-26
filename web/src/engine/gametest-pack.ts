@@ -849,10 +849,17 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         row.hit1 = sim.attackEntity(e);
         await test.idle(20);
         const a1 = angleOf(e);
+        // After the first hit too: did the part's swing (or the ledge) move the tester before the second?
+        row.stoodAt1 = round({ x: sim.location.x - anchor.x, y: sim.location.y - anchor.y, z: sim.location.z - anchor.z });
         row.hit2 = sim.attackEntity(e);
         await test.idle(20);
         const a2 = angleOf(e);
         row.angles = [a0, a1, a2];
+        // Where the simulated player actually stood (model-local): on the Pixel 31141's Window 2
+        // tester fell 2.8 blocks off its ledge spot and hit from the floor below (2026-09-26).
+        const standAt = { x: sim.location.x - anchor.x, y: sim.location.y - anchor.y, z: sim.location.z - anchor.z };
+        row.stoodAt = round(standAt);
+        row.offSpot = Math.round(Math.hypot(standAt.x - p.from.x, standAt.y - p.from.y, standAt.z - p.from.z) * 100) / 100;
         // Why the runtime refused a hit, when it did (`refuse` in scripts/interactives.js).
         try { const why = e.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
         row.hitEvents = events.hit - before.hit;
