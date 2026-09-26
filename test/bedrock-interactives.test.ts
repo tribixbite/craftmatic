@@ -497,6 +497,28 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
   });
 
+  it('hands a tap Bedrock gave to a part behind a wall to the seat the player aimed at in plain sight (76457 Bed vs Door 4, Pixel 2026-09-26)', () => {
+    const cfg = doubleDoorConfig();
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
+    h.sync();
+    for (const x of [102, 103, 104]) for (const y of [65, 66, 67]) h.setCollider(x, y, 202, 0, 16);
+    const riders: unknown[] = [];
+    const seat = { id: 's1', typeId: 'craftmatic:hogsmeade_76457_seat_2', families: ['craftmatic_seat'], location: { x: 103.5, y: 65, z: 200.8 }, dimension: a.dimension,
+      getDynamicProperty: () => undefined, getComponent: (n: string) => (n === 'minecraft:rideable' ? { addRider: (p: unknown) => { riders.push(p); return true; } } : undefined) };
+    h.entities.push(seat as never);
+    // Looking down at the seat in front of the wall; Bedrock's pick went on to the door beyond the wall.
+    h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103.5, y: 65.3, z: 200.8 });
+    h.tap(a);
+    expect(riders).toEqual([h.player]);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBeUndefined();
+    // With no seat on the view ray the refusal stands.
+    h.entities.pop();
+    h.tap(a);
+    expect(h.lastBar()).toMatch(/door 1 is behind a wall from here/);
+  });
+
   it('judges a tap by the line of sight to the part, not by where the camera looks (a touch tap), and not by the cell the part itself pokes into', () => {
     const cfg = doubleDoorConfig();
     cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
@@ -676,14 +698,12 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
     const big = verdictOf(walkThroughDoorway(pack, 0, 200, 0, true), walkThroughDoorway(pack, 0, 200, 0, false));
     expect(big).toBe('OK');
   });
-  it('walks out of a doorway two blocks over the ground (ONE-WAY), never back in, and never through it closed', async () => {
-    // A bus door: the floor inside (z < 5) and under the doorway is two rows deep, the
-    // wall stands on it, and outside (z > 5) there is only the ground two blocks down.
-    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
-    const g = new BlockGrid(12, 7, 10);
-    for (let x = 0; x < 12; x++) for (let z = 0; z <= 5; z++) for (const y of [0, 1]) g.set(x, y, z, colliderState(0, 16));
-    for (let x = 0; x < 12; x++) for (let y = 2; y <= 5; y++) g.set(x, y, 5, colliderState(0, 16));
-    const leaf = leafAt(3.25, 1.5, 5.5, 2.6, 2);
+  /** A bus door: the floor inside (z < 5) and under the doorway is `rows` deep, the wall stands on it, and outside (z > 5) only the ground `rows` blocks down. */
+  async function busDoor(rows: number) {
+    const g = new BlockGrid(12, rows + 5, 10);
+    for (let x = 0; x < 12; x++) for (let z = 0; z <= 5; z++) for (let y = 0; y < rows; y++) g.set(x, y, z, colliderState(0, 16));
+    for (let x = 0; x < 12; x++) for (let y = rows; y <= rows + 3; y++) g.set(x, y, 5, colliderState(0, 16));
+    const leaf = leafAt(3.25, 1.5, 5.5, 2.6, rows);
     const [plan] = planInteractiveColliders(g, [leaf], frame);
     const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize: 100, normal: [0, 0, 1] as [number, number, number] };
     const cells: SourceCell[] = [];
@@ -692,7 +712,21 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
       if (m) cells.push({ x, y, z, lo: Number(m[1]), hi: Number(m[2]) });
     }
     const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Bus', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item], turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
-    const pack = { cells, dims: cfg.dims, interactives: cfg };
+    return { plan: plan!, pack: { cells, dims: cfg.dims, interactives: cfg } };
+  }
+  it('lays invisible stairs up to a doorway two blocks over open ground, so it walks both ways (was ONE-WAY)', async () => {
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const { plan, pack } = await busDoor(2);
+    expect(plan.stairTreads).toBeGreaterThan(0);
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    expect(open.outcome).toBe('passed');
+    expect(closed.outcome).not.toBe('passed');
+    expect(verdictOf(open, closed)).toBe('OK');
+  });
+  it('walks out of a doorway far over the ground (ONE-WAY: past the stair limit), never back in, and never through it closed', async () => {
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const { plan, pack } = await busDoor(3);
+    expect(plan.stairTreads, plan.stairs.join("; ")).toBe(0);
     const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
     expect(open.outcome).toBe('passed');
     expect(open.oneWay).toBeDefined();

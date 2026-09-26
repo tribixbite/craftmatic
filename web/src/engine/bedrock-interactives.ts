@@ -1549,9 +1549,23 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * device refused what the offline host accepted (31141's Window 2 and
    * 71040's Door 1 closing hits, 2026-09-25: the action bar is not logged).
    */
+  /** The collider cell that last cut a sight line (`sightClear`), for the refusal record. */
+  let lastWall = '';
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  /**
+   * The refusal record also carries where the eyes and the part were and the
+   * cell that cut the sight line: the device refused 31141's Window 2 and
+   * 80049's Window 3 from spots the offline host accepts (GameTest
+   * 2026-09-26), and only the device can say which wall it saw.
+   */
   const refuse = (e: any, p: any, s: string): void => {
     say(p, s);
-    try { e.setDynamicProperty('craftmatic:ix_refused', `${system.currentTick} ${s}`); } catch { /* entity gone */ }
+    let where = '';
+    try {
+      const h = p.getHeadLocation(), l = e.location;
+      where = ` | eyes ${r2(h.x)},${r2(h.y)},${r2(h.z)} part ${r2(l.x)},${r2(l.y)},${r2(l.z)}${lastWall ? ` wall ${lastWall}` : ''}`;
+    } catch { /* player or part gone */ }
+    try { e.setDynamicProperty('craftmatic:ix_refused', `${system.currentTick} ${s}${where}`); } catch { /* entity gone */ }
   };
   const itemOf = (e: any): number | undefined => {
     let i: any; try { i = e.getDynamicProperty(K.index); } catch { return undefined; }
@@ -1745,7 +1759,41 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    * frame's cell) and the doorway's own closed cells are not a wall; nor is
    * the last `WALL_MARGIN` of each line.
    */
+  /** The last stretch of a sight line that is never a wall (the part's own frame, blocks). */
+  const WALL_MARGIN = 0.3;
+  /**
+   * Whether the line from `head` to `to` crosses no collider FORM box (a
+   * clearance form blocks only where it is), sampled every 0.1 block from 0.3
+   * out to `WALL_MARGIN` short of the end; `skip(cell)` names cells that are
+   * the target's own and never a wall.
+   */
+  const sightClear = (dim: any, head: any, to: any, skip: (p: any) => boolean): boolean => {
+    const d = { x: to.x - head.x, y: to.y - head.y, z: to.z - head.z }, n = Math.hypot(d.x, d.y, d.z);
+    if (n < 1e-6) return true;
+    let last = '';
+    for (let s = 0.3; s < n - WALL_MARGIN; s += 0.1) {
+      const q = { x: head.x + d.x * s / n, y: head.y + d.y * s / n, z: head.z + d.z * s / n };
+      const p = { x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) };
+      const key = `${p.x},${p.y},${p.z}`;
+      if (key === last) continue;
+      last = key;
+      if (skip(p)) continue;
+      let b: any;
+      try { b = dim.getBlock(p); } catch { b = undefined; }
+      const v = b ? kit.variantOf(b.typeId) : -1;
+      if (v < 0) continue;
+      const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
+      if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
+      const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
+      if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5])) {
+        lastWall = `${key} ${b.typeId}[${lo},${hi}]`;
+        return false;
+      }
+    }
+    return true;
+  };
   const behindWall = (player: any, target: any): boolean => {
+    lastWall = '';
     let head: any;
     try { head = player.getHeadLocation(); } catch { return false; }
     if (!head) return false;
@@ -1754,7 +1802,6 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const it = config.items[i]!;
     const boxes = placedBoxes(target, it, pl);
     if (!boxes.length) return false;
-    const WALL_MARGIN = 0.3;
     // Cells within this of a tap box are the part's own frame: a pane set back in a
     // deep frame whose cell the collider grid fills whole (76417's tower windows).
     const PART_MARGIN = 0.75;
@@ -1766,29 +1813,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       }
     }
     const inPart = (p: any): boolean => boxes.some(b => p.x + 1 > b.x0 - PART_MARGIN && p.x < b.x1 + PART_MARGIN && p.y + 1 > b.y0 - PART_MARGIN && p.y < b.y1 + PART_MARGIN && p.z + 1 > b.z0 - PART_MARGIN && p.z < b.z1 + PART_MARGIN);
-    const clear = (to: any): boolean => {
-      const d = { x: to.x - head.x, y: to.y - head.y, z: to.z - head.z }, n = Math.hypot(d.x, d.y, d.z);
-      if (n < 1e-6) return true;
-      let last = '';
-      for (let s = 0.3; s < n - WALL_MARGIN; s += 0.1) {
-        const q = { x: head.x + d.x * s / n, y: head.y + d.y * s / n, z: head.z + d.z * s / n };
-        const p = { x: Math.floor(q.x), y: Math.floor(q.y), z: Math.floor(q.z) };
-        const key = `${p.x},${p.y},${p.z}`;
-        if (key === last) continue;
-        last = key;
-        if (own.has(key) || inPart(p)) continue;
-        let b: any;
-        try { b = target.dimension.getBlock(p); } catch { b = undefined; }
-        const v = b ? kit.variantOf(b.typeId) : -1;
-        if (v < 0) continue;
-        const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
-        if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
-        // A wall is the form's own boxes: a clearance form (a wall pulled back to its geometry) blocks only where it is.
-        const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
-        if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5])) return false;
-      }
-      return true;
-    };
+    const clear = (to: any): boolean => sightClear(target.dimension, head, to, (p: any) => own.has(`${p.x},${p.y},${p.z}`) || inPart(p));
     for (const b of boxes) {
       const centre = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2 };
       const near = { x: Math.max(b.x0, Math.min(head.x, b.x1)), y: Math.max(b.y0, Math.min(head.y, b.y1)), z: Math.max(b.z0, Math.min(head.z, b.z1)) };
@@ -1796,9 +1821,65 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     }
     return true;
   };
+  /** The ray's entry distance into a world box, or Infinity. */
+  const rayEntry = (o: any, d: any, b: any): number => {
+    let t0 = -Infinity, t1 = Infinity;
+    for (const [oo, dd, lo, hi] of [[o.x, d.x, b.x0, b.x1], [o.y, d.y, b.y0, b.y1], [o.z, d.z, b.z0, b.z1]] as number[][]) {
+      if (Math.abs(dd!) < 1e-12) { if (oo! < lo! || oo! > hi!) return Infinity; continue; }
+      const a = (lo! - oo!) / dd!, c = (hi! - oo!) / dd!;
+      t0 = Math.max(t0, Math.min(a, c)); t1 = Math.min(t1, Math.max(a, c));
+    }
+    return t1 >= Math.max(t0, 0) ? Math.max(t0, 0) : Infinity;
+  };
+  /**
+   * A tap Bedrock handed to a part BEHIND a wall, when the player aimed past
+   * it at something in plain sight: on the Pixel a long press on 76457's Bed
+   * picked Door 4's tap box ("behind a wall") - collider walls have no
+   * selection box, so the door's box beyond the wall was the first on the
+   * ray. The nearest other moving part or seat on the player's view ray, in
+   * reach, with a clear line of sight, takes the tap instead: a part is
+   * toggled, a seat is mounted. Nothing else does: then the refusal stands.
+   */
+  const forward = (player: any, from: any): boolean => {
+    let head: any, view: any;
+    try { head = player.getHeadLocation(); view = player.getViewDirection(); } catch { return false; }
+    if (!head || !view) return false;
+    const REACH = 6;
+    let near: any[] = [];
+    try { near = from.dimension.getEntities({ location: head, maxDistance: REACH + 2 }); } catch { return false; }
+    let best: { e: any; t: number; seat: boolean } | null = null;
+    for (const e of near) {
+      if (!e || e.id === from.id) continue;
+      const i = itemOf(e), pl = i !== undefined ? placementOf(e) : undefined;
+      let seat = false;
+      try { seat = i === undefined && /_seat(_\d+)?$/.test(e.typeId || '') && !!e.getComponent('minecraft:rideable'); } catch { seat = false; }
+      if (!(i !== undefined && pl) && !seat) continue;
+      const l = e.location;
+      const boxes = seat ? [{ x0: l.x - 0.3, x1: l.x + 0.3, y0: l.y, y1: l.y + 0.6, z0: l.z - 0.3, z1: l.z + 0.3 }] : placedBoxes(e, config.items[i!]!, pl);
+      const t = Math.min(...boxes.map((b: any) => rayEntry(head, view, b)));
+      if (!(t <= REACH) || (best && t >= best.t)) continue;
+      if (seat) {
+        const c = { x: l.x, y: l.y + 0.3, z: l.z };
+        const cell = { x: Math.floor(c.x), y: Math.floor(c.y), z: Math.floor(c.z) };
+        if (!sightClear(e.dimension, head, c, (p: any) => Math.abs(p.x - cell.x) + Math.abs(p.y - cell.y) + Math.abs(p.z - cell.z) === 0)) continue;
+      } else if (behindWall(player, e)) continue;
+      best = { e, t, seat };
+    }
+    if (!best) return false;
+    if (best.seat) {
+      try { return !!best.e.getComponent('minecraft:rideable')?.addRider(player); } catch { return false; }
+    }
+    const now = system.currentTick;
+    if (now - (lastUse.get(best.e.id) ?? -100) < 6) return true;
+    lastUse.set(best.e.id, now);
+    const target = best.e;
+    system.run(() => toggle(target, player));
+    return true;
+  };
   const use = (player: any, target: any): void => {
     if (!target || !target.typeId || itemOf(target) === undefined) return;
     if (behindWall(player, target)) {
+      if (forward(player, target)) return;
       // Never refuse silently: a tap that does nothing reads as a broken part (device 2026-09-24e).
       refuse(target, player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
       return;
