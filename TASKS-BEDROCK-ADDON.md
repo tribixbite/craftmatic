@@ -96,9 +96,9 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   `1858beba` `69b5cc54` NOT pushed; craftmatic index `1e954010`): 113 files
   published and R2-verified (14 Mecabricks track, 86 EurobricksLDR regens, 13
   IOModel2V2 turned parts; backups + SHA256SUMS in
-  `output/sources-0925/backup-shipped/`). Prod readback blocked by HTTP 429:
-  `python -u output/sources-0925/prod_verify.py
-  output/sources-0925/backup-shipped/sync-list.txt <out.json>`. 10337 rims
+  `output/sources-0925/backup-shipped/`). Prod VERIFIED 2026-09-25: all 147 published files by hash
+  (`output/sources-0925/prod-verify-all.json`) and the index `327b8c99dfd1`
+  at `/lego-models-index.json`. 10337 rims
   PUBLISHED (IOModel2V2 `1274199a`, DbixConvV3 `9ad2d8f8`; V2 was never off).
   Learned-row audit: 11 learned `dbix_part_align` rows encoded a `.io`'s private
   embedded frame and were dropped (`_DROP_DEFAULT`, clego `bee8e945`; evidence
