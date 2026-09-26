@@ -87,6 +87,15 @@ def check(path):
             for dropped in DROPPED_COMPONENTS:
                 if dropped in comps:
                     problems.append(f'{n}: {where} uses {dropped!r}, which format 1.26.30 dropped (the entity fails to load)')
+        # An int/float actor property whose range is not wider than one value:
+        # Bedrock refuses it ("range max is less than range min" for [0, 0],
+        # Pixel 2026-09-25) and with it the entity's WHOLE property component,
+        # so every q.property errors and setProperty throws (the Minifig
+        # Creator's figure shipped like that).
+        for pname, prop in ((ent.get('description') or {}).get('properties') or {}).items():
+            rng = prop.get('range') if isinstance(prop, dict) else None
+            if prop.get('type') in ('int', 'float') and isinstance(rng, list) and len(rng) == 2 and not rng[1] > rng[0]:
+                problems.append(f'{n}: property {pname!r} range {rng} is not wider than one value (Bedrock drops every property of the entity)')
     notes.append(f'{n_server} server entities')
     # geometries the pack defines
     geo_ids = set()

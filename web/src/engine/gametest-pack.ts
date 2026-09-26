@@ -128,13 +128,35 @@ export interface GametestSeat {
 export interface GametestVehicle {
   label: string;
   typeId: string;
-  kind: 'car' | 'boat' | 'plane';
+  /** `hover`: a hover craft (family `hover`), driven over the land lane AND the pool. */
+  kind: 'car' | 'boat' | 'plane' | 'hover';
   /** `minecraft:rideable.seat_count`. */
   seats: number;
   /** Shipped geometry size in blocks (for the spawn clearance). */
   size: { width: number; height: number; length: number };
   /** Moved by the pack's scripted-vehicle runtime (a fixed wing, a boat): the test drives it through that runtime's input hook. */
   scripted?: boolean;
+}
+
+/**
+ * A driven train (`train_<id>_<n>`): the model is placed with its own
+ * placement code (the train stands on its own railway track in it), a
+ * simulated player boards a car and the train is driven through the rail
+ * runtime's stick hook (`CoasterRuntimeConfig.inputEvent`, the same
+ * `FLIGHT_INPUT_EVENT` the scripted vehicles take).
+ */
+export interface GametestTrain {
+  label: string;
+  /** Route index in `scripts/coaster.js` CONFIG. */
+  route: number;
+  /** Entity types of this route's cars. */
+  carTypes: string[];
+  closed: boolean;
+  /** Route length, model blocks (the arc `craftmatic:coaster_distance` runs over). */
+  length: number;
+  /** A car's placement position, model-local (to find the train after placement). */
+  at: Vec3;
+  window?: number;
 }
 
 /** The vehicle arena: 64 x 64 over one structure, land on the low-z half, a pool on the high-z half. */
@@ -244,8 +266,75 @@ export interface GametestPlan {
   oversized?: boolean | undefined;
   /** Rideable vehicles to drive in the vehicle arena (`vehicle_<id>_<n>`); absent or empty: no test. */
   vehicles?: GametestVehicle[] | undefined;
-  /** Only the vehicle tests are registered (`--only=vehicles`): the model's own tests are left out of the run. */
+  /** Only the vehicle and train tests are registered (`--only=vehicles`): the model's own tests are left out of the run. */
   vehiclesOnly?: boolean | undefined;
+  /** Only the figures test is registered (`--only=figures`): a long watch without the doors and seats tests beside it. */
+  figuresOnly?: boolean | undefined;
+  /**
+   * The walk-cycle probe (`gait_<id>`, `--gait-probe`): one figure of this
+   * type, its BP entity patched with `gaitProbeController`, is pushed in a
+   * straight line at each speed (blocks per tick) and every whole unit of
+   * `query.modified_distance_moved` it crosses is counted against the
+   * distance it covered: the units-per-block the walk animation's phase rate
+   * (`MINIFIG_GAIT`) is derived from.
+   */
+  gaitProbe?: { typeId: string; speeds: number[] } | undefined;
+  /**
+   * The pack's Minifig Creator figure type (`creator_<id>`): one is spawned as
+   * a wand draft, then released as the wand releases it, and must stand still
+   * while it is a draft and walk (scripts/figures.js) once it is not.
+   */
+  creatorFigure?: string | undefined;
+  /** Driven trains on the model's own railway track (`train_<id>_<n>`); absent or empty: no test. */
+  trains?: GametestTrain[] | undefined;
+}
+
+/** The server-side animation controller the gait probe adds to one figure's BP entity. */
+export const GAIT_PROBE_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe';
+/** The script event the probe's controller sends on every whole unit of `query.modified_distance_moved`. */
+export const GAIT_PROBE_EVENT = 'craftmatic_gt:gait';
+/**
+ * Two states flipping on the parity of `floor(query.modified_distance_moved)`;
+ * each entry runs `/scriptevent`, which the probe test pairs with the
+ * entity's position. A behaviour-pack controller evaluates on the server.
+ */
+export function gaitProbeController(): unknown {
+  const state = (parity: number, other: string): unknown => ({
+    transitions: [{ [other]: `math.mod(math.floor(query.modified_distance_moved), 2) != ${parity}` }],
+    on_entry: [`/scriptevent ${GAIT_PROBE_EVENT} u`],
+  });
+  // `query.modified_move_speed` in steps of 1/GAIT_SPEED_STEPS: a chain of
+  // states, each stepping to its neighbour while the value is past its edge
+  // (one step a tick, so a steady value is reached within a few ticks), and
+  // each entry reports its bucket.
+  const speedStates: Record<string, unknown> = {};
+  for (let k = 0; k <= GAIT_SPEED_BUCKETS; k++) {
+    const transitions: unknown[] = [];
+    if (k < GAIT_SPEED_BUCKETS) transitions.push({ [`s${k + 1}`]: `query.modified_move_speed >= ${(k + 1) / GAIT_SPEED_STEPS}` });
+    if (k > 0) transitions.push({ [`s${k - 1}`]: `query.modified_move_speed < ${k / GAIT_SPEED_STEPS}` });
+    speedStates[`s${k}`] = { transitions, on_entry: [`/scriptevent ${GAIT_PROBE_SPEED_EVENT} ${k}`] };
+  }
+  return { format_version: '1.10.0', animation_controllers: {
+    [GAIT_PROBE_CONTROLLER_ID]: { initial_state: 'even', states: { even: state(0, 'odd'), odd: state(1, 'even') } },
+    [GAIT_PROBE_SPEED_CONTROLLER_ID]: { initial_state: 's0', states: speedStates },
+  } };
+}
+
+/** The probe's second controller: `query.modified_move_speed` in buckets of 1/GAIT_SPEED_STEPS. */
+export const GAIT_PROBE_SPEED_CONTROLLER_ID = 'controller.animation.craftmatic.gait_probe_speed';
+/** Its script event; the message is the bucket index. */
+export const GAIT_PROBE_SPEED_EVENT = 'craftmatic_gt:gaitspeed';
+/** Buckets per unit of `query.modified_move_speed`, and the highest bucket (values up to 1.5). */
+export const GAIT_SPEED_STEPS = 40;
+export const GAIT_SPEED_BUCKETS = 60;
+
+/** A copy of a BP entity definition that also runs the gait probe controller. */
+export function withGaitProbe(entity: any): any {
+  const e = JSON.parse(JSON.stringify(entity));
+  const d = e['minecraft:entity'].description;
+  d.animations = { ...(d.animations ?? {}), cm_gait: GAIT_PROBE_CONTROLLER_ID, cm_gait_speed: GAIT_PROBE_SPEED_CONTROLLER_ID };
+  d.scripts = { ...(d.scripts ?? {}), animate: [...(d.scripts?.animate ?? []), 'cm_gait', 'cm_gait_speed'] };
+  return e;
 }
 
 /**
@@ -310,6 +399,8 @@ export interface FigureTrackVerdict {
   /** Samples whose body overlapped a collider taller than a step (furniture or a wall). */
   clippingSamples: number;
   ridingSamples: number;
+  /** A roamer that sat on a seat and later stood up again (a riding sample, then a standing one). */
+  satAndStood: boolean;
   /** Walked at least 2 blocks in the watch. */
   moved: boolean;
   endInsideWall: boolean;
@@ -322,7 +413,7 @@ export interface FigureTrackVerdict {
  * serialised into the device runtime unchanged.
  */
 export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: Vec3 }, groundY: number, endInsideWall: boolean, margin: number): FigureTrackVerdict {
-  let pathLength = 0, maxExcursion = 0, outsideSamples = 0, clippingSamples = 0, ridingSamples = 0, minY = Infinity;
+  let pathLength = 0, maxExcursion = 0, outsideSamples = 0, clippingSamples = 0, ridingSamples = 0, minY = Infinity, satAndStood = false;
   const first = track[0];
   for (let i = 0; i < track.length; i++) {
     const s = track[i]!;
@@ -331,6 +422,7 @@ export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: 
     if (s.x < area.min.x - margin || s.x > area.max.x + margin || s.z < area.min.z - margin || s.z > area.max.z + margin) outsideSamples++;
     if (s.clipping) clippingSamples++;
     if (s.riding) ridingSamples++;
+    if (i > 0 && track[i - 1]!.riding && !s.riding) satAndStood = true;
     minY = Math.min(minY, s.y);
   }
   const last = track[track.length - 1];
@@ -340,7 +432,7 @@ export function judgeFigureTrack(track: FigureSample[], area: { min: Vec3; max: 
     minAboveGround: r2(Number.isFinite(minY) ? minY - groundY : 0),
     belowGround: Number.isFinite(minY) && minY < groundY - 0.5,
     droppedStorey: !!first && !!last && last.y < first.y - 1.5,
-    clippingSamples, ridingSamples, moved: pathLength >= 2, endInsideWall,
+    clippingSamples, ridingSamples, satAndStood, moved: pathLength >= 2, endInsideWall,
   };
 }
 
@@ -524,10 +616,14 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   const { mc, gt } = mods;
   // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
   if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
+  if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [], trains: [] };
+  if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
   /** Ticks a doorway walk gives each leg of the offline route (`GametestDoorway.via`) before moving on. */
   const LEG_TICKS = 30;
+  /** `GAIT_PROBE_EVENT` (the runtime is serialised: it cannot import it). */
+  const gaitEvent = `${NS}:gait`;
   const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
   const flush = (): void => { const pad = 'x'.repeat(1000); for (let i = 0; i < 18; i++) console.warn(`CMGT_PAD ${i} ${pad}`); };
   const placedReplies = new Map<string, any>();
@@ -569,7 +665,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   if (oversized) log('OVERSIZED', { model: plan.modelId, arena, note: 'only the figures test runs; it lays the floor past the structure itself' });
 
   /** Smoke: the framework runs, a simulated player spawns on the arena floor and walks 4 blocks. */
-  if (!oversized && !plan.vehiclesOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
+  if (!oversized && !plan.vehiclesOnly && !plan.figuresOnly) gt.registerAsync(NS, 'smoke', async (test: any) => {
     const f = floorY(test, 2, 2);
     const sim = test.spawnSimulatedPlayer({ x: 2, y: f.y + 1, z: 2 }, 'cmgt_smoke', gameMode);
     await test.idle(10);
@@ -1008,7 +1104,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       const v = judgeFigure(tr.track, area, anchor.y, bodyCheck(last).wall, 1);
       // Relative to the anchor so a row reads in model blocks.
       const rel = (p: Vec3): Vec3 => round({ x: p.x - anchor.x, y: p.y - anchor.y, z: p.z - anchor.z });
-      return { label: tr.f.label, seated: tr.f.seated, start: rel(tr.track[0]), end: rel(last), ...v,
+      // Where the pack put it against where it was first seen (40 ticks later): a fall at placement.
+      const spawnDrop = Math.round((anchor.y + tr.f.actor.y - tr.track[0].y) * 100) / 100;
+      return { label: tr.f.label, seated: tr.f.seated, start: rel(tr.track[0]), end: rel(last), spawnDrop, ...v,
         path: tr.track.filter((_: any, i: number) => i % 6 === 0).map((p: any) => [Math.round((p.x - anchor.x) * 10) / 10, Math.round((p.y - anchor.y) * 10) / 10, Math.round((p.z - anchor.z) * 10) / 10]) };
     });
     for (const r of rows) log('FIGURE', r);
@@ -1025,6 +1123,9 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       clipping: found.filter(r => r.clippingSamples > 0).map(r => `${r.label}:${r.clippingSamples}`),
       seatedStayed: found.filter(r => r.seated && r.ridingSamples === r.samples).length, seatedInSet: found.filter(r => r.seated).length,
       satDown: roamers.filter(r => r.ridingSamples > 0).map(r => r.label),
+      satAndStood: roamers.filter(r => r.satAndStood).map(r => r.label),
+      // Standing figures that dropped more than a step between spawning and the first sample.
+      fellAtSpawn: roamers.filter(r => r.spawnDrop > 0.6).map(r => `${r.label}:${r.spawnDrop}`),
       meanPath: roamers.length ? Math.round(roamers.reduce((s, r) => s + r.pathLength, 0) / roamers.length * 10) / 10 : 0,
       watchTicks,
     };
@@ -1045,6 +1146,107 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     if (roamers.length && summary.moved * 2 < roamers.length) problems.push(`only ${summary.moved}/${roamers.length} roaming figures moved`);
     if (problems.length) test.fail(problems.join('; ')); else test.succeed();
   }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(5400 + watchTicks).tag(NS);
+
+  /**
+   * The Minifig Creator's figure: spawned as a draft (the wand's
+   * `craftmatic:draft`), watched for 100 ticks, released (draft off +
+   * `craftmatic:release`, what the wand's Place does), then watched for the
+   * figures test's length. A draft must not move; a released figure must walk
+   * at least 2 blocks and stay within the walker's radius of where it was let go.
+   */
+  const creatorType = plan.creatorFigure;
+  if (creatorType) gt.registerAsync(NS, `creator_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const at = test.worldLocation({ x: margin + 5.5, y: f0 + 1, z: margin + 5.5 });
+    const e = dim.spawnEntity(creatorType, at);
+    try { e.setProperty('craftmatic:draft', true); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const path = (track: any[]): number => track.reduce((sum: number, p: any, i: number) => i ? sum + Math.hypot(p.x - track[i - 1].x, p.z - track[i - 1].z) : 0, 0);
+    const held: any[] = [];
+    for (let t = 0; t <= 100; t += 10) { held.push({ ...e.location }); if (t < 100) await test.idle(10); }
+    const released = { ...e.location };
+    try { e.setProperty('craftmatic:draft', false); e.triggerEvent('craftmatic:release'); } catch (err) { log('CREATOR', { error: String(err) }); }
+    const walk: any[] = [];
+    const ticks = plan.figureTicks ?? 1200;
+    for (let t = 0; t <= ticks; t += 20) { try { walk.push({ ...e.location }); } catch { break; } if (t < ticks) await test.idle(20); }
+    const r2 = (v: number): number => Math.round(v * 100) / 100;
+    const heldPath = r2(path(held)), walkPath = r2(path(walk));
+    const maxExcursion = r2(Math.max(...walk.map(p => Math.hypot(p.x - released.x, p.z - released.z))));
+    const minY = r2(Math.min(...walk.map(p => p.y)) - released.y);
+    let home: unknown = null;
+    try { home = JSON.parse(String(e.getDynamicProperty('craftmatic:fig'))); } catch { /* none written */ }
+    log('CREATOR', { model: plan.modelId, typeId: creatorType, heldPath, walkPath, maxExcursion, minY, home });
+    flush();
+    try { e.remove(); } catch { /* gone */ }
+    const problems: string[] = [];
+    if (heldPath > 0.2) problems.push(`the draft moved ${heldPath} blocks`);
+    if (walkPath < 2) problems.push(`the released figure walked only ${walkPath} blocks`);
+    if (maxExcursion > 8) problems.push(`it strayed ${maxExcursion} blocks from where it was released`);
+    if (minY < -0.6) problems.push(`it dropped ${-minY} blocks`);
+    if (problems.length) test.fail(problems.join('; ')); else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(2000 + (plan.figureTicks ?? 1200)).tag(NS);
+
+  /**
+   * The walk-cycle probe: how many units of `query.modified_distance_moved`
+   * a figure covers per block at a figure's walking speeds. One figure is
+   * spawned on the empty arena floor (a `seated` home so scripts/figures.js
+   * leaves it alone), pushed along +x / -x by velocity exactly as the
+   * walker pushes it, and every unit its controller reports is counted.
+   */
+  const gaitPlan = plan.gaitProbe;
+  if (gaitPlan) gt.registerAsync(NS, `gait_${plan.modelId}`, async (test: any) => {
+    const f0 = floorY(test, margin, margin).y;
+    const dim = test.getDimension();
+    const lane = Math.max(4, Math.min(arena.x - 2 * margin - 2, 14));
+    const start = test.worldLocation({ x: margin + 1, y: f0 + 1, z: margin + 2.5 });
+    const e = dim.spawnEntity(gaitPlan.typeId, start);
+    try { e.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [start.x, start.y, start.z], area: [start.x - 1, start.z - 1, start.x + lane + 1, start.z + 1], ground: start.y, f: 1, mode: 'seated' })); } catch { /* the runtime then adopts it as a roamer */ }
+    const units: Array<{ t: number }> = [];
+    /** The last `query.modified_move_speed` bucket the speed controller entered. */
+    let speedBucket = 0;
+    const sub = system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.sourceEntity?.id !== e.id) return;
+      if (ev.id === gaitEvent) units.push({ t: system.currentTick });
+      else if (ev.id === `${NS}:gaitspeed`) speedBucket = Number(ev.message);
+    }, { namespaces: [NS] });
+    await test.idle(20);
+    const rows: any[] = [];
+    let dir = 1;
+    // Back and forth along the lane until GAIT_BLOCKS are covered at each speed:
+    // a count of whole units is +-1 per pass, so the error shrinks with the distance.
+    const GAIT_BLOCKS = 24;
+    for (const speed of gaitPlan.speeds) {
+      let blocks = 0, seen = 0, ticksPushed = 0;
+      /** Buckets read in the second half of every pass (the steady walk), as a histogram. */
+      const moveSpeed: Record<number, number> = {};
+      for (let pass = 0; pass < 16 && blocks < GAIT_BLOCKS; pass++) {
+        const ticks = Math.round(lane / speed);
+        const from = { ...e.location }, t0 = system.currentTick, n0 = units.length;
+        for (let t = 0; t < ticks; t++) {
+          try { const v = e.getVelocity(); e.applyImpulse({ x: dir * speed - v.x, y: 0, z: -v.z }); } catch { break; }
+          await test.idle(1);
+          if (t >= ticks / 2) moveSpeed[speedBucket] = (moveSpeed[speedBucket] ?? 0) + 1;
+        }
+        const to = { ...e.location }, t1 = system.currentTick;
+        try { const v = e.getVelocity(); e.applyImpulse({ x: -v.x, y: 0, z: -v.z }); } catch { /* gone */ }
+        await test.idle(20);
+        // Units reached while it was pushed (the stop's slide after t1 is left out).
+        seen += units.slice(n0).filter(u => u.t <= t1).length;
+        blocks += Math.hypot(to.x - from.x, to.z - from.z);
+        ticksPushed += t1 - t0;
+        dir = -dir;
+      }
+      // modified_move_speed while walking steadily: bucket k is [k/40, (k+1)/40).
+      const modifiedMoveSpeed = Object.fromEntries(Object.entries(moveSpeed).map(([k, n]) => [(Number(k) / 40).toFixed(3), n]));
+      rows.push({ speed, ticks: ticksPushed, blocks: Math.round(blocks * 100) / 100, measuredSpeed: Math.round(blocks / Math.max(1, ticksPushed) * 1e4) / 1e4, units: seen, unitsPerBlock: blocks > 0 ? Math.round(seen / blocks * 1000) / 1000 : null, modifiedMoveSpeed });
+    }
+    try { system.afterEvents.scriptEventReceive.unsubscribe(sub); } catch { /* older API */ }
+    try { e.remove(); } catch { /* gone */ }
+    log('GAIT', { model: plan.modelId, typeId: gaitPlan.typeId, rows });
+    flush();
+    if (rows.every(r => !r.units)) test.fail('the gait controller reported no distance units (query.modified_distance_moved not evaluated on the server?)');
+    else test.succeed();
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(12000).tag(NS);
 
   /**
    * Vehicles: spawn each rideable type in the vehicle arena, seat a simulated
@@ -1109,9 +1311,17 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       else if (x || y) sim.moveRelative(x, y);
     };
     const yawNow = (e: any): number => { try { return Math.round(e.getRotation().y * 10) / 10; } catch { return NaN; } };
-    /** Run one phase: `act(tick)` every tick, a sample every 2; summarised in the heading the phase started with. */
-    const phase = async (name: string, ticks: number, act: (t: number) => void): Promise<any> => {
-      const origin = { ...veh.location };
+    /**
+     * Run one phase: `act(tick)` every tick, a sample every 2; summarised in
+     * the heading the phase started with. `until(sample)` ends it early. A
+     * vehicle that stops being readable (it flew out of the simulated area:
+     * the Milano on the Pixel, 2026-09-25, "Entity being invalid") ends the
+     * phase and every later one, and the verdict fails `staysInReach`.
+     */
+    const phase = async (name: string, ticks: number, act: (t: number) => void, until?: (s: VehicleSample) => boolean): Promise<any> => {
+      let origin: any;
+      try { origin = { ...veh.location }; } catch (err) { row.lost = row.lost ?? { phase: name, error: String(err) }; }
+      if (row.lost) { log('VEHICLE_PHASE', { vehicle: v.label, phase: name, skipped: `vehicle lost in ${row.lost.phase}` }); return {}; }
       const yaw = yawNow(veh) || 0;
       const riderYaw = yawNow(sim);
       const rad = yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
@@ -1121,10 +1331,12 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         if (t < ticks) { try { act(t); } catch (err) { extra.actError = String(err); } }
         if (t % 2 === 0) {
           let loc: any, ground: boolean | undefined, water: boolean | undefined;
-          try { loc = veh.location; } catch { break; }
+          try { loc = veh.location; } catch (err) { row.lost = { phase: name, tick: t, error: String(err) }; break; }
           try { ground = veh.isOnGround; water = veh.isInWater; } catch { /* older API */ }
           const dx = loc.x - origin.x, dz = loc.z - origin.z;
-          samples.push({ t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: yawNow(veh), ground, water });
+          const sample: VehicleSample = { t, along: Math.round((dx * fx + dz * fz) * 100) / 100, side: Math.round((dx * fz - dz * fx) * 100) / 100, dy: Math.round((loc.y - origin.y) * 100) / 100, yaw: yawNow(veh), ground, water };
+          samples.push(sample);
+          if (until && until(sample)) { extra.endedAt = t; break; }
         }
         if (t < ticks) await test.idle(1);
       }
@@ -1148,21 +1360,51 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     };
     const checks: Record<string, boolean> = { mounted: row.mounted };
     const dist = (p: any): number => Math.hypot(p?.along ?? 0, p?.side ?? 0);
+    /**
+     * The swept footprint (bedrock-vehicle.ts `sweepFootprint`): a 6-block log
+     * post stands ahead of the vehicle, off its centre line by most of its half
+     * width - where the old centre-line probes never looked (a wingtip, a wide
+     * hull, a car's corner went through trees and piers). The vehicle must stop
+     * at the post, not pass it. The post is removed (the pool refilled) after.
+     */
+    const postPhase = async (startRel: Vec3, yaw: number, water: boolean): Promise<void> => {
+      const halfW = Math.max(0.3, v.size.width / 2), halfL = v.size.length / 2;
+      const offset = Math.max(0, Math.min(halfW - 0.35, halfW * 0.85));
+      const postX = Math.floor(startRel.x + halfL + 5), postZ = Math.floor(startRel.z + offset);
+      const baseY = water ? f.y + 1 : f.y + L.landTop;
+      const cells: Vec3[] = [];
+      for (let dy = 0; dy < 6; dy++) cells.push({ x: postX, y: baseY + dy, z: postZ });
+      for (const p of cells) { try { test.setBlockType('minecraft:oak_log', p); } catch (err) { row.postError = String(err); } }
+      await reset(startRel, yaw);
+      await phase('post', 80, (t) => { if (t === 0) drive(0, v.kind === 'plane' ? 0 : 0.6, v.kind === 'plane', 80); });
+      const clearAlong = Math.round((postX - startRel.x - halfL) * 100) / 100;
+      row.post = { x: postX, z: postZ, offset: Math.round(offset * 100) / 100, clearAlong };
+      for (const p of cells) { try { test.setBlockType(water && p.y < f.y + L.waterTop ? 'minecraft:water' : 'minecraft:air', p); } catch { /* left */ } }
+      const along = row.phases.post?.along ?? 0;
+      // It moved toward the post and stopped with its leading edge at it (half a block of slack for the tick it stopped on).
+      checks.stopsAtPost = along > 1 && along < clearAlong + 0.5;
+    };
 
     await phase('settle', 40, () => {});
     if (v.kind === 'plane' && v.scripted) {
-      // Take-off on Jump alone, then climb, turn right, and land on a little forward stick.
-      await phase('takeoff_roll', 120, (t) => { if (t === 0) drive(0, 0, true, 120); });
-      await phase('climb', 60, (t) => { if (t === 0) drive(0, -1, true, 60); });
+      // Take-off on Jump alone (the roll ends once it is 1.5 blocks up), a short
+      // climb, then circling right - the turn, a half-stick cruise and a
+      // descending approach - so it lands within reach of the arena. Flown
+      // straight, the Milano was 110 blocks out by the climb and stopped being
+      // readable (Pixel GameTest, 2026-09-25).
+      await phase('takeoff_roll', 120, (t) => { if (t === 0) drive(0, 0, true, 120); }, s => s.dy > 1.5);
+      await phase('climb', 30, (t) => { if (t === 0) drive(0, -1, true, 30); });
       await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 0, false, 60); });
-      await phase('cruise', 40, () => {});
-      await phase('approach', 300, (t) => { if (t % 20 === 0) drive(0, 0.35, false, 20); });
+      await phase('cruise', 40, (t) => { if (t === 0) drive(-0.5, 0, false, 40); });
+      await phase('approach', 300, (t) => { if (t % 20 === 0) drive(-0.5, 0.35, false, 20); });
       await phase('rollout', 120, () => {});
       const ph = row.phases;
       checks.takesOff = (ph.takeoff_roll?.maxDy ?? 0) > 1;
       checks.climbs = (ph.climb?.dy ?? 0) > 3;
       checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
       checks.landsAndStops = (ph.rollout?.endSpeed ?? 9) < 0.5 && Math.abs(ph.rollout?.dy ?? 9) < 0.5;
+      // A wingtip on the take-off run.
+      await postPhase(spawnRel, yaw0, false);
     } else if (v.kind === 'boat' && v.scripted) {
       await phase('ahead', 80, (t) => { if (t === 0) drive(0, 1, false, 80); });
       await phase('coast', 40, () => {});
@@ -1185,6 +1427,31 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
       checks.beaches = (ph.shore?.maxDy ?? 9) < 0.5 && (ph.shore?.endSpeed ?? 9) < 0.5;
       checks.backsOff = (ph.back_off?.along ?? 0) < -0.3;
+      // A pier post alongside the hull.
+      await postPhase(spawnRel, yaw0, true);
+    } else if (v.kind === 'hover' && v.scripted) {
+      // A hover craft: the car's course, then off the land and over the pool.
+      await phase('ahead', 60, (t) => { if (t === 0) drive(0, 1, false, 60); });
+      await phase('coast', 40, () => {});
+      await reset();
+      await phase('reverse', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await reset();
+      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 1, false, 60); });
+      await reset();
+      await phase('boost', 40, (t) => { if (t === 0) drive(0, 1, true, 40); });
+      await postPhase(spawnRel, yaw0, false);
+      // Toward the pool (+z) from the land's edge: it floats down a block onto the water and keeps going.
+      const shoreRel = { x: spawnRel.x, y: f.y + L.landTop, z: L.poolZ0 - 1.5 - Math.ceil(v.size.length / 2) };
+      await reset(shoreRel, yawOf(shoreRel, { ...shoreRel, z: shoreRel.z + 10 }));
+      await phase('over_water', 100, (t) => { if (t === 0) drive(0, 0.6, false, 100); });
+      const ph = row.phases;
+      checks.forwardMoves = (ph.ahead?.along ?? 0) > 6 && Math.abs(ph.ahead?.side ?? 9) < 0.5;
+      checks.coasts = (ph.coast?.along ?? 0) > 1;
+      checks.reverseMoves = (ph.reverse?.along ?? 0) < -0.5;
+      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 20;
+      checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
+      // Over the water: a block lower (the pool's surface is under the land's), never sunk, still moving.
+      checks.floatsOverWater = (ph.over_water?.along ?? 0) > 6 && (ph.over_water?.minDy ?? -9) > -1.6;
     } else if (v.kind === 'car' && v.scripted) {
       // A scripted car, through the input hook: ahead, coast, brake-to-reverse, a right turn, lane B's slab and step, a boost.
       await phase('ahead', 60, (t) => { if (t === 0) drive(0, 1, false, 60); });
@@ -1205,6 +1472,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
       checks.boosts = (ph.boost?.maxSpeed ?? 0) > (ph.ahead?.maxSpeed ?? 0) + 1;
       checks.climbsStep = (ph.steps?.maxDy ?? 0) >= 0.9;
+      // A tree at the car's corner.
+      await postPhase(spawnRel, yaw0, false);
     } else {
       // A native mount (a car, a rotorcraft): the simulated player drives it.
       await phase('forward', 60, () => drive(0, 1, false, 1));
@@ -1239,7 +1508,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       checks.turns = Math.abs(ph.turn_left?.yawChange ?? 0) > 30;
     }
     // A second rider, where the vehicle has a second seat.
-    if (v.seats > 1) {
+    if (v.seats > 1 && !row.lost) {
       const sim2 = test.spawnSimulatedPlayer({ x: spawnRel.x, y: f.y + L.landTop, z: boat ? L.poolZ0 - 2 : spawnRel.z - 3 }, `cmgt_pas${n}`, gameMode);
       await test.idle(4);
       sim2.teleport(add(veh.location, { x: 0, y: 0.2, z: 0 }), { facingLocation: veh.location });
@@ -1253,12 +1522,115 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     await test.idle(4);
     row.ridersAfterEject = riders();
     try { veh.remove(); } catch { /* gone */ }
+    // A vehicle that stopped being readable (out of the simulated area) fails here, naming the phase.
+    checks.staysInReach = !row.lost;
     row.checks = checks;
     row.pass = Object.values(checks).every(Boolean);
     log('VEHICLE', row);
     flush();
     if (row.pass) test.succeed(); else test.fail(`vehicle ${v.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
   }).structureName(`${NS}:vehicles_${plan.modelId}`).maxTicks(4000).tag(NS));
+
+  /**
+   * Trains: place the model (its train stands on its own railway track), seat
+   * a simulated player in the train's lead car and drive it through the rail
+   * runtime's stick hook (a simulated player's stick never reaches
+   * `inputInfo`). Phases, read off the cars' `craftmatic:coaster_distance` /
+   * `_speed` dynamic properties every 2 ticks: parked (no stick: it must not
+   * creep), forward (full stick), brake (stick back until it stops), reverse
+   * (stick back from rest: the other way), and for an open line a run to the
+   * buffer stop (it must stop on the line, not run off it). One `CMGT
+   * TRAIN_PHASE` line per phase, the verdict `CMGT TRAIN`.
+   */
+  const trainList = vehicleKit ? plan.trains ?? [] : [];
+  // A model wider than one structure (4559's circuit is 64 wide) still runs its
+  // train: the placement stands partly on the flat world beside the arena, and
+  // the train only needs its own track, which the placement lays.
+  trainList.forEach((tr, n) => {
+    gt.registerAsync(NS, `train_${plan.modelId}_${n + 1}`, async (test: any) => {
+      const placed = await placeModel(test, `train${n + 1}`, windows[windowIndexOf(tr)]!.x0);
+      if (!placed) return;
+      const { sim, anchor, dim } = placed;
+      await test.idle(40);
+      const row: any = { label: tr.label, route: tr.route, closed: tr.closed, length: tr.length, phases: {} };
+      const near = add(anchor, tr.at);
+      let cars: any[] = [];
+      for (const type of tr.carTypes) { try { cars.push(...dim.getEntities({ type, location: near, maxDistance: Math.max(plan.dims.width, plan.dims.length) + 4 })); } catch { /* none */ } }
+      cars = cars.filter((c: any) => { try { return Number(c.getDynamicProperty('craftmatic:coaster_route')) === tr.route; } catch { return false; } });
+      row.cars = cars.length;
+      if (!cars.length) { log('TRAIN', row); flush(); test.fail('no car of the train found after placement'); return; }
+      const lead = cars[0];
+      const read = (): { d: number; v: number; dir: number } => {
+        try { return { d: Number(lead.getDynamicProperty('craftmatic:coaster_distance')), v: Number(lead.getDynamicProperty('craftmatic:coaster_speed')), dir: Number(lead.getDynamicProperty('craftmatic:coaster_direction')) }; }
+        catch { return { d: NaN, v: NaN, dir: NaN }; }
+      };
+      // Board the lead car as a tap does (the rideable's own interaction), else through the component.
+      sim.teleport(add(lead.location, { x: 0, y: 0.3, z: 0 }), { facingLocation: lead.location });
+      await test.idle(4);
+      try { sim.lookAtEntity(lead); } catch { /* not required */ }
+      row.interactReturned = sim.interactWithEntity(lead);
+      await test.idle(10);
+      const riders = (): number => { try { return lead.getComponent('minecraft:rideable')?.getRiders?.().length ?? 0; } catch { return 0; } };
+      if (!riders()) { try { row.addRiderReturned = lead.getComponent('minecraft:rideable').addRider(sim); } catch (err) { row.addRiderReturned = `error: ${String(err)}`; } await test.idle(10); }
+      row.mounted = riders() > 0;
+      const stick = (y: number, ticks: number): void => { system.sendScriptEvent(vehicleKit!.inputEvent, JSON.stringify({ id: lead.id, y, ticks })); };
+      /** Signed arc advance between two distances (a circuit wraps at its length). */
+      const advance = (a: number, b: number): number => { let d = b - a; if (tr.closed && tr.length > 0) { d = ((d % tr.length) + tr.length) % tr.length; if (d > tr.length / 2) d -= tr.length; } return d; };
+      const phase = async (name: string, ticks: number, act: (t: number) => void): Promise<any> => {
+        const start = read();
+        let travelled = 0, maxSpeed = 0, prev = start.d, stoppedAt = -1, moving = false;
+        const track: number[][] = [];
+        for (let t = 0; t <= ticks; t++) {
+          if (t < ticks) act(t);
+          if (t % 2 === 0) {
+            const s = read();
+            if (Number.isFinite(s.d) && Number.isFinite(prev)) travelled += advance(prev, s.d);
+            prev = s.d;
+            if (Number.isFinite(s.v)) {
+              maxSpeed = Math.max(maxSpeed, s.v);
+              // The FIRST time it comes to rest after moving (it may go on the other way after).
+              if (s.v > 0.05) moving = true; else if ((moving || t === 0) && stoppedAt < 0 && t > 0) stoppedAt = t;
+            }
+            if (t % 10 === 0) track.push([t, Math.round(s.d * 100) / 100, Math.round(s.v * 100) / 100, s.dir]);
+          }
+          if (t < ticks) await test.idle(1);
+        }
+        const end = read();
+        const out = { travelled: Math.round(travelled * 100) / 100, maxSpeed: Math.round(maxSpeed * 100) / 100, endSpeed: Math.round(end.v * 100) / 100, stoppedAt, startDir: start.dir, endDir: end.dir, riders: riders() };
+        row.phases[name] = out;
+        log('TRAIN_PHASE', { train: tr.label, phase: name, ...out, track });
+        return out;
+      };
+      await phase('parked', 40, () => {});
+      // 2 s of full stick: about 6 blocks at the rail's 3 blocks/s² - short of a
+      // buffer from the platform. A train placed against its buffer goes the other way.
+      let push = 1;
+      let forward = await phase('forward', 40, (t) => { if (t === 0) stick(push, 40); });
+      if (Math.abs(forward.travelled) < 0.5) { push = -1; forward = await phase('forward_other', 40, (t) => { if (t === 0) stick(push, 40); }); row.phases.forward = forward; }
+      await phase('brake', 60, (t) => { if (t === 0) stick(-push, 60); });
+      await phase('reverse', 60, (t) => { if (t === 0) stick(-push, 60); });
+      await phase('coast', 40, (t) => { if (t === 0) stick(0, 40); });
+      if (!tr.closed) await phase('to_buffer', 400, (t) => { if (t === 0) stick(push, 400); });
+      const ph = row.phases;
+      const checks: Record<string, boolean> = {
+        mounted: row.mounted,
+        parks: Math.abs(ph.parked.travelled) < 0.05,
+        drives: Math.abs(ph.forward.travelled) > 3 && ph.forward.maxSpeed > 4,
+        // Stick back against the motion: it comes to rest (before it may go on the other way).
+        brakesToStop: ph.brake.stoppedAt >= 0,
+        // On the held stick back from rest it goes the other way.
+        reverses: Math.sign(ph.reverse.travelled) === -Math.sign(ph.forward.travelled) && Math.abs(ph.reverse.travelled) > 0.5,
+      };
+      // An open line: it runs to the buffer and stops there, on the line (the arc inside its ends).
+      if (!tr.closed) { const s = read(); checks.stopsAtBuffer = ph.to_buffer.endSpeed < 0.05 && ph.to_buffer.stoppedAt >= 0 && s.d > 0 && s.d < tr.length; }
+      try { lead.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+      row.checks = checks;
+      row.pass = Object.values(checks).every(Boolean);
+      log('TRAIN', row);
+      flush();
+      if (row.pass) test.succeed(); else test.fail(`train ${tr.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+    }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3600).tag(NS);
+  });
 
   /** Creator-tooling probe: which /script subcommands a script may run on this device. */
   async function probe(target: string | undefined): Promise<void> {
@@ -1295,7 +1667,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   }
 
   let started = false;
-  if (vehicles.length) log('VEHICLES_READY', { model: plan.modelId, vehicles: vehicles.map(v => `${v.kind}:${v.typeId}`) });
+  if (vehicles.length || trainList.length) log('VEHICLES_READY', { model: plan.modelId, vehicles: vehicles.map(v => `${v.kind}:${v.typeId}`), trains: trainList.map(t => t.label) });
   world.afterEvents.playerSpawn.subscribe((ev: any) => {
     if (started || !ev.initialSpawn || String(ev.player.name).startsWith('cmgt_')) return;
     started = true;

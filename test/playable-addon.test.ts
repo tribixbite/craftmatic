@@ -41,6 +41,19 @@ describe('playable Bedrock add-on',()=>{
     expect(entries).toContain('Craftmatic_creator_BP/scripts/minifig-wand.js');
     const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/entities/creator_minifig.json')));
     expect(entity['minecraft:entity'].description.properties['craftmatic:torso'].client_sync).toBe(true);
+    // Bedrock drops the whole property component over one [0, 0] range (Pixel 2026-09-25: the
+    // slots with a single entry and `craftmatic:family`), and the wand could then set nothing.
+    for (const [name, prop] of Object.entries(entity['minecraft:entity'].description.properties as Record<string, { type: string; range?: number[] }>)) {
+      if (prop.type === 'int') expect(prop.range![1]! > prop.range![0]!, name).toBe(true);
+    }
+    // A released creator figure walks with the scripted walker, not vanilla's stroll (bedrock-figure-life.ts).
+    expect(JSON.stringify(entity)).not.toContain('random_stroll');
+    expect(entries).toContain('Craftmatic_creator_BP/scripts/figures.js');
+    const figuresJs = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/scripts/figures.js'));
+    const figuresConfig = JSON.parse(/const CONFIG = (.*);\n/.exec(figuresJs)![1]!) as { figureTypes: string[]; draftTypes: string[] };
+    expect(figuresConfig.figureTypes).toContain(entity['minecraft:entity'].description.identifier);
+    expect(figuresConfig.draftTypes).toEqual([entity['minecraft:entity'].description.identifier]);
+    expect(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_BP/scripts/main.js'))).toContain("import './figures.js';");
     const controller = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_creator_RP/render_controllers/creator_minifig.render_controllers.json'));
     expect(controller).toContain("q.property('craftmatic:torso')");
     expect(controller).toContain('Array.swatch');
@@ -85,14 +98,13 @@ describe('playable Bedrock add-on',()=>{
     expect(manifest.header.description).toContain(`Place with ${result.functionCommand};`);
     const entity=JSON.parse(new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/entities/batmobile_batmobile.json')));
     const components=entity['minecraft:entity'].components;
-    expect(components['minecraft:input_ground_controlled']).toEqual({});
-    // Native camel-style dash on the Jump button (so Jump is a boost, not a dismount).
-    expect(components['minecraft:dash_action']).toEqual({ cooldown_time: 1.5, horizontal_momentum: 20, vertical_momentum: 0.6 });
+    // A grid-only car is scripted too since 2026-09-25 (no camel left): zero native speed, the attitude properties.
+    expect(components['minecraft:input_ground_controlled']).toBeUndefined();
+    expect(components['minecraft:dash_action']).toBeUndefined();
+    expect(Object.keys(entity['minecraft:entity'].description.properties)).toContain('craftmatic:fl_pitch');
     expect(entity.format_version).toBe('1.26.30');
     expect(components['minecraft:rideable'].seats.third_person_camera_radius).toBeGreaterThanOrEqual(5);
-    // ~41.5 blocks/s per unit measured on the Pixel: 0.45 is ~19 blocks/s (42 mph) at full stick.
-    expect(components['minecraft:movement'].value).toBe(0.45);
-    expect(components['minecraft:movement'].value).toBeLessThan(1.4);
+    expect(components['minecraft:movement'].value).toBe(0);
     expect(components['minecraft:damage_sensor'].triggers).toEqual([{ cause: 'all', deals_damage: 'no' }]);
     expect(components['minecraft:fire_immune']).toEqual({});
     expect(components['minecraft:rideable'].seats.position[1]).toBeGreaterThan(0);
@@ -101,19 +113,19 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:rideable'].seats.position[1]).toBeCloseTo(1.26);
     expect(components['minecraft:rideable'].seats.position[2]).toBeCloseTo(.264);
     expect(components['minecraft:rideable'].seats.lock_rider_rotation).toBe(0);
-    expect(components['minecraft:variable_max_auto_step']).toEqual({
-      base_value: 1.25,
-      controlled_value: 1.56,
-      jump_prevented_value: .6,
-    });
-    expect(entries).toContain('Craftmatic_batmobile_BP/scripts/vehicle-driver.js');
+    expect(components['minecraft:variable_max_auto_step']).toBeUndefined();
+    // scripts/vehicles.js drives it (carStep, the swept footprint, headlights); the rotorcraft-only driver script is not shipped.
+    expect(entries).not.toContain('Craftmatic_batmobile_BP/scripts/vehicle-driver.js');
     const mainScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/main.js'));
-    expect(mainScript).toContain("import './vehicle-driver.js';");
-    const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicle-driver.js'));
-    expect(driverScript).toContain('craftmatic:batmobile_batmobile');
-    expect(driverScript).toContain('boostCooldown');
-    expect(driverScript).toContain('JUMP: DASH');
-    expect(driverScript).toContain('"dashCooldownTicks":30');
+    expect(mainScript).toContain("import './vehicles.js';");
+    const vehiclesScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicles.js'));
+    expect(vehiclesScript).toContain('"craftmatic:batmobile_batmobile":{"mode":"car"');
+    expect(vehiclesScript).toContain('"halfWidth":');
+    expect(vehiclesScript).toContain('function sweepFootprint');
+    expect(vehiclesScript).toContain('craftmatic:vehicle_telemetry');
+    expect(vehiclesScript).toContain('getTimeOfDay');
+    expect(vehiclesScript).toContain('setActionBar');
+    expect(vehiclesScript).not.toContain('night_vision');
     // Both chase presets ship; the joystick steers under player_relative; orbit is the default.
     const chase = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/cameras/presets/batmobile_batmobile_chase.json')));
     expect(chase['minecraft:camera_preset']).toMatchObject({ inherit_from: 'minecraft:follow_orbit', control_scheme: 'player_relative' });
@@ -121,21 +133,15 @@ describe('playable Bedrock add-on',()=>{
     expect(boom['minecraft:camera_preset']).toMatchObject({ inherit_from: 'minecraft:fixed_boom', control_scheme: 'player_relative' });
     const cameraScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_batmobile_BP/scripts/vehicle-camera.js'));
     expect(cameraScript).toContain('"preset":"craftmatic:batmobile_batmobile_chase"');
-    // Ground vehicles: joystick steering via the control scheme, and a free chase camera behind the rider's yaw.
+    // A scripted car: the chase camera follows the VEHICLE's heading; the camel's tuning hooks are gone.
     expect(cameraScript).toContain('"kind":"car"');
-    expect(cameraScript).toContain("controlscheme @s ${value}");
+    expect(cameraScript).toContain('"scripted":true');
     expect(cameraScript).toContain('minecraft:free');
     expect(cameraScript).toContain('"radius":');
+    expect(cameraScript).not.toContain('craftmatic:vehicle_scheme');
+    expect(cameraScript).not.toContain('craftmatic:vehicle_camera');
     // Hotbar slot 9 swaps the chase camera for the cockpit view.
     expect(cameraScript).toContain('selectedSlotIndex === 8');
-    expect(driverScript).toContain('stallTicks');
-    // Reverse is native (GameTest 2026-09-25); sneak is Dismount, never a horn; telemetry for measured drives.
-    expect(driverScript).not.toContain('revSpeed');
-    expect(driverScript).not.toContain('note.cow_bell');
-    expect(driverScript).toContain('craftmatic:vehicle_telemetry');
-    expect(driverScript).toContain('getTimeOfDay');
-    expect(driverScript).toContain('GEAR');
-    expect(driverScript).toContain('setActionBar');
     const fn=new TextDecoder().decode(await extractFile(buffer,'Craftmatic_batmobile_BP/functions/craftmatic/batmobile.mcfunction'));
     expect(fn).toContain('give @s craftmatic:batmobile_brick_wand');
     expect(fn).not.toContain('summon ');
@@ -348,72 +354,88 @@ describe('playable Bedrock add-on',()=>{
     expect(script).toContain("(vehicle.nameTag||vehicle.typeId)+' @ '");
   });
 
-  it('adds configurable 10300 time circuits with slow forward acceleration', async () => {
+  it('adds configurable 10300 time circuits to a SCRIPTED car (the camel is gone)', async () => {
     const result = await buildPlayableAddon(model(), { stem: 'BackToThe-10300', label: 'Back to the Future Time Machine', vehicleMode: 'car' });
     const buffer = ab(result.bytes), entries = listZipEntries(buffer);
     expect(entries).toContain('Craftmatic_backtothe_10300_BP/scripts/time-machine.js');
-    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/entities/backtothe_10300_backtothe_10300.json')))['minecraft:entity'].components;
-    expect(entity['minecraft:movement']).toEqual({ value: .02, max: 6 });
+    const entity = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/entities/backtothe_10300_backtothe_10300.json')))['minecraft:entity'];
+    expect(entity.components['minecraft:movement']).toEqual({ value: 0 });
+    expect(entity.components['minecraft:input_ground_controlled']).toBeUndefined();
+    expect(Object.keys(entity.description.properties)).toContain('craftmatic:fl_pitch');
+    const vehicles = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/scripts/vehicles.js'));
+    expect(vehicles).toContain('"craftmatic:backtothe_10300_backtothe_10300":{"mode":"car"');
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/scripts/placement.js'));
     expect(placement).toContain('import { showTimeMachineControls } from "./time-machine.js"');
     expect(placement).toContain('"vehicleControls":true');
     const script = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_backtothe_10300_BP/scripts/time-machine.js'));
     expect(script).toContain('MPH_PER_BLOCK_TICK = 20 * 2.236936');
-    expect(script).toContain('ACCEL_MPH_PER_SECOND = 6');
-    expect(script).toContain('BRAKE_MPH_PER_SECOND = 60');
+    expect(script).toContain('"topSpeedProperty":"craftmatic:top_speed"');
+    expect(script).toContain('"hudProperty":"craftmatic:vehicle_hud"');
     expect(script).toContain('e.typeId === config.typeId');
-    expect(script).toContain("getMovementVector()?.y");
+    expect(script).not.toContain('applyImpulse');
+    expect(script).not.toContain('night_vision');
     expect(script).toContain('slider("Teleport speed (mph) · mph = blocks/sec × 2.236936"');
     expect(script).toContain('destination vehicle-height clearance is obstructed');
     expect(script).toContain('vehicle.tryTeleport');
     expect(script).toContain('rideable?.addRider?.(rider)');
-    expect(script).toContain('time circuit disarmed');
+    expect(script).toContain('TIME CIRCUIT OFF');
     expect(script).toContain('minecraft:sonic_explosion');
     const named = await buildPlayableAddon(model(), { stem: 'custom-delorean', label: 'DeLorean', vehicleMode: 'car' });
+    const namedEntries = listZipEntries(ab(named.bytes));
+    expect(namedEntries).toContain('Craftmatic_custom_delorean_BP/scripts/time-machine.js');
     const namedEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(named.bytes), 'Craftmatic_custom_delorean_BP/entities/custom_delorean_custom_delorean.json')))['minecraft:entity'].components;
-    expect(namedEntity['minecraft:movement']).toEqual({ value: .02, max: 6 });
+    expect(namedEntity['minecraft:movement']).toEqual({ value: 0 });
   });
 
-  it('ramps through drag, brakes, and performs one exact armed time jump', async () => {
+  it('raises the scripted car top speed to the armed speed and makes one exact time jump when it gets there', async () => {
     const result = await buildPlayableAddon(model(), { stem: 'BackToThe-10300', label: 'Back to the Future Time Machine', vehicleMode: 'car' });
     let script = new TextDecoder().decode(await extractFile(ab(result.bytes), 'Craftmatic_backtothe_10300_BP/scripts/time-machine.js'));
     script = script.replace(/^import .*;$/gm, '').replace('export { showTimeMachineControls };', 'return showTimeMachineControls;');
     let interval: (() => void) | undefined;
     const commands: string[] = [], teleports: Array<{x:number;y:number;z:number}> = [], dynamic = new Map<string, unknown>();
-    let movementY = 1, velocity = { x: 0, y: 0, z: 0 };
     const player: any = { id: 'player', typeId: 'minecraft:player', location: { x: 0, y: 70, z: 0 },
-      inputInfo: { getMovementVector: () => ({ x: 0, y: movementY }) }, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: vi.fn() } };
+      inputInfo: { getMovementVector: () => ({ x: 0, y: 1 }) }, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: vi.fn() } };
     const rideable = { getRiders: () => [player], addRider: vi.fn(() => true) };
     const dimension: any = { heightRange: { min: -64, max: 320 },
       getEntities: ({ type }: any) => type === 'craftmatic:backtothe_10300_backtothe_10300' ? [vehicle] : [],
       getBlock: () => ({ typeId: 'minecraft:air' }), runCommand: (command: string) => { commands.push(command); return { successCount: 1 }; } };
+    // scripts/vehicles.js moves the car by teleports along its heading (yaw 0 = +z); here the test does, `speed` blocks/s.
+    let speed = 0;
     const vehicle: any = { id: 'car', typeId: 'craftmatic:backtothe_10300_backtothe_10300', dimension, location: { x: 0, y: 70, z: 0 },
-      getComponent: (id: string) => id === 'minecraft:rideable' ? rideable : undefined, getVelocity: () => ({ ...velocity }), getViewDirection: () => ({ x: 0, y: 0, z: 1 }),
-      applyImpulse: (v: any) => { velocity = { x: velocity.x + v.x, y: velocity.y + v.y, z: velocity.z + v.z }; }, clearVelocity: () => { velocity = { x: 0, y: 0, z: 0 }; },
+      getComponent: (id: string) => id === 'minecraft:rideable' ? rideable : undefined,
       getRotation: () => ({ x: 0, y: 0 }), tryTeleport: (p: any) => { teleports.push({ ...p }); vehicle.location = { ...p }; return true; },
       getDynamicProperty: (key: string) => dynamic.get(key), setDynamicProperty: (key: string, value: unknown) => dynamic.set(key, value) };
+    const drive = (): void => { vehicle.location = { ...vehicle.location, z: vehicle.location.z + speed * 2 / 20 }; interval!(); };
     player.dimension = dimension;
     let formValues = [10, 80, 20, 150];
     class Form { title() { return this; } textField() { return this; } slider() { return this; } async show() { return { canceled: false, formValues }; } }
     const world = { getDimension: (id: string) => { if (id !== 'overworld') throw new Error('missing'); return dimension; } };
     const system = { runInterval: (fn: () => void) => { interval = fn; }, runTimeout: (fn: () => void) => fn() };
     const show = new Function('world', 'system', 'ModalFormData', script)(world, system, Form);
+    // Circuit off: the car tops out just past 88 mph, and the HUD says the circuit is off.
+    drive();
+    expect(dynamic.get('craftmatic:top_speed')).toBeCloseTo(88 * 1.03 / 2.236936, 5);
+    expect(dynamic.get('craftmatic:vehicle_hud')).toContain('TIME CIRCUIT OFF');
     await show(player);
     expect(dynamic.get('craftmatic:time_armed')).toBe(true);
     expect(commands.some(c => c.startsWith('tickingarea add '))).toBe(true);
-    interval!();
-    expect(Math.hypot(velocity.x, velocity.z) * 20 * 2.236936).toBeLessThan(2);
-    for (let i = 0; i < 500 && !teleports.length; i++) { velocity.x *= .3; velocity.z *= .3; interval!(); await Promise.resolve(); }
+    // Armed at 150 mph: the top speed follows it, and the HUD shows it armed.
+    drive();
+    expect(dynamic.get('craftmatic:top_speed')).toBeCloseTo(150 * 1.03 / 2.236936, 5);
+    expect(dynamic.get('craftmatic:vehicle_hud')).toContain('ARMED 150 MPH');
+    // Below the armed speed nothing happens; at it, exactly one jump.
+    for (speed = 0; speed < 66; speed += 2) { drive(); await Promise.resolve(); }
+    expect(teleports).toHaveLength(0);
+    for (let i = 0; i < 20 && !teleports.length; i++) { speed = 68; drive(); await Promise.resolve(); }
     expect(teleports).toEqual([{ x: 10, y: 80, z: 20 }]);
     expect(dynamic.get('craftmatic:time_armed')).toBe(false);
-    for (let i = 0; i < 40; i++) { velocity.x *= .7; velocity.z *= .7; interval!(); await Promise.resolve(); }
+    // The jump itself (a 10-block move in 2 ticks) is a teleport, not a speed: no second jump.
+    for (let i = 0; i < 40; i++) { drive(); await Promise.resolve(); }
     expect(teleports).toHaveLength(1);
     await show(player);
-    for (let i = 0; i < 500; i++) { velocity = { x: 0, y: 0, z: 0 }; interval!(); await Promise.resolve(); }
+    speed = 0;
+    for (let i = 0; i < 500; i++) { drive(); await Promise.resolve(); }
     expect(teleports).toHaveLength(1);
-    movementY = 0;
-    for (let i = 0; i < 60; i++) { velocity.x *= .7; velocity.z *= .7; interval!(); }
-    expect(Math.hypot(velocity.x, velocity.z) * 20 * 2.236936).toBeLessThan(1);
     expect(commands.some(c => c.startsWith('tickingarea remove '))).toBe(true);
     const adds = commands.filter(c => c.startsWith('tickingarea add ')).length;
     formValues = [1e100, 80, 20, 88];
@@ -482,14 +504,17 @@ describe('playable Bedrock add-on',()=>{
     expect(rideable.seats[0].position[0]).not.toEqual(rideable.seats[1].position[0]);
   });
 
-  it('includes engine sound audio loop and co-pilot HUD in vehicle-driver.js', async () => {
-    const result = await buildPlayableAddon(model(), { stem: 'Supercar', vehicleMode: 'car' });
-    const buffer = ab(result.bytes);
-    const driverScript = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_supercar_BP/scripts/vehicle-driver.js'));
-    expect(driverScript).toContain('minecart.base');
-    expect(driverScript).toContain('enginePitch');
+  it('keeps vehicle-driver.js for the rotorcraft alone: rotor sound, co-pilot HUD, descend', async () => {
+    const heli = await buildPlayableAddon(model(), { stem: 'Rescue Helicopter', label: 'Rescue Helicopter', vehicleMode: 'plane' });
+    const driverScript = new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_BP/scripts/vehicle-driver.js'));
     expect(driverScript).toContain('elytra.loop');
-    expect(driverScript).toContain('coPilotTag');
+    expect(driverScript).toContain('ABOARD');
+    expect(driverScript).toContain('descendOn');
+    expect(driverScript).not.toContain('night_vision');
+    expect(driverScript).not.toContain('GEAR');
+    // A car has no native controller left, so no driver script ships with it.
+    const car = await buildPlayableAddon(model(), { stem: 'Supercar', vehicleMode: 'car' });
+    expect(listZipEntries(ab(car.bytes))).not.toContain('Craftmatic_supercar_BP/scripts/vehicle-driver.js');
   });
 });
 
@@ -515,6 +540,21 @@ describe('playable add-on — brick-compiled entities', () => {
     { part: '3823.dat', color: 47, x: 0, y: -24, z: 30 },
     { part: '99999.dat', color: 1, x: 100, y: 0, z: 0 },
   ];
+
+  it('measures the roof over the seat, not the top of a tall pole at the tail (10300: a rider floated three blocks up)', async () => {
+    const { compileLdrawEntityGeometry } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    // A three-brick body with a windscreen at its front, and a nine-brick pole standing at its tail.
+    const car = [
+      { part: '3001.dat', color: 4, x: 0, y: 0, z: -40 }, { part: '3001.dat', color: 4, x: 0, y: 0, z: 0 }, { part: '3001.dat', color: 4, x: 0, y: 0, z: 40 },
+      { part: '3823.dat', color: 47, x: 0, y: -24, z: -30 },
+      ...Array.from({ length: 9 }, (_, k) => ({ part: '3001.dat', color: 0, x: 0, y: -24 * k, z: 80 })),
+    ];
+    const geo = await compileLdrawEntityGeometry('pole_car', 'car', car, { scale: 0.3, partGeometry: await providerFor(), facing: '-z' });
+    expect(geo.sizeBlocks.height).toBeGreaterThan(3.5);
+    // The roof over the seat is the body with its windscreen (24 + 40 LDU), not the pole's nine bricks.
+    expect(geo.roofAtSeatBlocks).toBeLessThan(1.5);
+    expect(geo.roofAtSeatBlocks).toBeGreaterThan(0.3);
+  });
 
   it('emits real-geometry meshes, one exact-colour PBR swatch per LDraw colour, an opaque material and diagnostics', async () => {
     const grid = new BlockGrid(4, 4, 4);

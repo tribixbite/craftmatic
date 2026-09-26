@@ -2156,12 +2156,14 @@ is made invisible while the camera is theirs (as the pinball seat); camera and
 invisibility are released on dismount and kept through a paused tick. A car
 standing still uses the plain eased camera in every mode.
 
-`/scriptevent craftmatic:coaster_cam <words>` retunes a live pack: `mode
-clamp|roll|rollover|over|off`, `ease`, `look <yaw> <pitch>`, `turn`, `lag`,
-`ratchet 0|1`, `debug 1` (per-tick readout on the action bar), `trace <ticks>`
-(content log; that log stops growing early in a session, so prefer `debug`),
-and the probes `rot`, `roll`, `seq`, `attach`, `clear`. `# TODO` remove the
-hook once the defaults are final. The walk preview rides with the same
+The measurements in this section came from a `/scriptevent
+craftmatic:coaster_cam` tuning hook (`mode`, `ease`, `look`, `turn`, `lag`,
+`alag`, `ratchet`, a `debug` action-bar readout, a `trace` log, and the probes
+`rot`, `roll`, `seq`, `loopsim`, `attach`, `clear`). It was REMOVED on
+2026-09-25 once the defaults had been ridden; every value, `animLag`
+included, is now a field of `COASTER_RIDER_VIEW`. To measure again, restore
+the hook from history (search the log of `bedrock-coaster.ts` for
+`coaster_cam`). The walk preview rides with the same
 functions (drag = head turn) and now honours a route's fixed direction and the
 cars' authored heading, which it ignored before (it ran 10303 the wrong way).
 
@@ -2203,6 +2205,36 @@ refused teleport). The plan stops where any brake could engage (the station,
 the loading bay, the deck, the end of an open route): there the loop is
 drawn by `reflect` alone. 10303: both loops, 30 and 24 ticks (1.5 s and
 1.2 s), every animation played to its planned end on the host.
+
+**The prediction is gated by cost (regression fixed 2026-09-25).** As first
+shipped (`2b7e11bd`), every tick with the car pitched past 20 degrees ran an
+80-tick prediction whether or not a loop existed. On 10261 (no inversions,
+long steep drops) that was 117 ride substeps a tick on the drops against
+2.4 on the flat (host, shipped pack `243f54b1`: 4.9 ms against 0.35 ms a
+tick); on the phone the script tick overran, the ride slowed ("time slows")
+and the per-tick camera stuttered. Now: `planner.near` predicts nothing
+unless inverted track (a sample with up.y < 0) lies within reach of the
+rider's car in 11 ticks at the fastest the train could go; a prediction
+stops at tick 21 with no inversion begun, as soon as one is seen beyond tick
+10, or 2 ticks after the found one ends; and a prediction that finds
+nothing for `c` ticks skips the next `c − 10` ticks, which provably fail
+the same way (the ride follows its own prediction or falls behind it). The
+replay digests of 10261, 10303 and 42703 are bit-identical to the shipped
+runtime (`bun scripts/_coaster_replay.ts <pack> --rebuild`): same camera
+calls, same animations on the same ticks. Steep-tick substeps: 10261
+117 → 2.4, 10303 77.5 → 7.8. Tests: "loop mode on steep track with no
+inversion … predicts nothing" and "loop mode predicts only near an
+inversion" count the ride's work through the `Math` the runtime sees.
+Ridden on the Saga (2026-09-25, world 925, packs `37cdf61c`), with an A/B on
+10261: on the shipped `243f54b1` pack the 9-second chain lift (host: 180
+ticks at 3.5 blocks/s) took ~47 s of wall time, about 4 ticks a second, and
+the action bar refreshed only every ~5 s; on `37cdf61c` it took 9 s. Station
+dwells ran at full rate on both, so only the steep track lagged. 10303's
+lift-top-to-lift-top cycle took 55 s against the host's 54, both loops still
+roll, and `freezedetect` finds no frozen frame on the drop and loops. 42703's
+departure cycle took 23-25 s against the host's 23. The content logs were
+clean. Evidence: `output/coaster-lag-0925/device/` in the fix's worktree
+(the ride videos, `*-bars*.png` action-bar strips, contact sheets).
 
 **The "Experimental Creator Camera Features" experiment
 (`experiments.experimental_creator_cameras`, set in `cmgametest` with
@@ -2961,21 +2993,88 @@ measured to work on mobs on the Pixel. The vanilla behaviour that stays is
   is set down once on the standable column within 3 cells whose floor is
   largest. The first version searched 2 cells for the nearest one, and the
   chalet's figure 7 picked a cell behind the house wall.
-- **Unsupported homes.** Some sources stand a figure on a part that the
-  collider grid does not carry, such as a display row or a balcony rail. The
-  figure falls at spawn. If its home column has nothing to stand on, the
-  floor it landed on becomes its home, once, and the home record is
-  rewritten. Before this, it was put back in the air every 10 s and fell
-  again. Across the 40 favourites, the census found 16 figures in 5 sets
-  whose spawn point had no support, with 7 in 21360 and 4 in 42639. The
-  cause is spawn and collider coverage, not the AI, and is still open.
-- **Gait.** The walk phase rate comes from the leg: 0.525 blocks from hip to
-  sole, a ±35° swing, and `modified_distance_moved` at about 4 units per
-  block, which gives 74.72°/unit. The old vanilla 38.17 made the feet cover
-  half the ground the body did. The swing fades with `modified_move_speed`.
-  On the Pixel recording (`cm-figures-76457.mp4`) the legs visibly cycle
-  while walking. The 4 units/block reading is not yet measured. A mini-doll's
-  one-piece legs still ride `hips`, so a doll walks stiff-legged.
+- **Where a figure spawns is decided at export** (`resolveFigureSpawn`,
+  called from `playable-addon.ts` over the collider grid the pack ships; no
+  collider is added for it). The 2026-09-25 census found 16 figures in 5
+  favourites that fell at placement (7 in 21360, 4 in 42639, 3 in 43267,
+  1 in 77092, and 10261's one was a census artefact: a SEATED figure counted
+  at its lifted spawn). `bun scripts/_figure_support_audit.ts <source>` lists
+  the parts under every source figure's feet and whose they are: all 15 real
+  cases stand on NO part. They are LEGO's box-art line-up of figures on the
+  table beside the model, at the level of the model's base, and the model's
+  underside is lower than that table (a few parts hang below the base, so the
+  pin plane is 2-5 blocks under the line-up). No plate, tile, fence or thin
+  floor was missing from the grid. A second class came out of the same data:
+  every figure the placement's spawn lift raised more than a step (71040,
+  31141, 42639, 77092, 43267, 910049; 1.2-2.6 blocks) stood INSIDE a 1-block
+  collider column (a wall, a counter, the base it stood against) and was put
+  on the roof above it, with 2-6 cells to walk; 71040's two figures "never
+  moved" for that reason. The export now keeps a figure its own column
+  carries (a step up, a hair down, snapped to the collider top), sets a figure
+  that stands on nothing down on the surface below it in its own column, and
+  moves one standing inside a column to the roomiest standable column within
+  2 cells (cost = distance + 1.5 x drop + 3 x rise; at least `minRoamCells` of
+  room preferred). The pack's warnings list each figure it grounded or moved.
+  Census over the same packs: dropped 16 -> 0, lifted onto a roof 0, 71040
+  2/2 move, 31141 4/6, 910049 7/8; collider runs byte-identical and
+  `_ix_passability` identical on the 8 affected sets. The runtime's re-home
+  (a home nothing supports becomes the floor it landed on) stays as the
+  backstop for other sizes.
+- **Colliders and figures are in two different frames** (found while pinning
+  the resolver). The shell and its colliders are laid with `sceneGridPoint`
+  (the voxel grid's frame), figures with `sceneFloorPoint` (up from the
+  model's underside). Where the underside is off a cell boundary the two
+  differ by up to half a cell: `test/schem-pipeline.test.ts`'s baseplate is
+  drawn from -0.15 to 0 (under the pin plane, so the collider grid clips it
+  out) while its figure was placed 0.15 up, above the drawn plate. The
+  resolver snaps every supported figure onto the collider top it stands on,
+  which is also the drawn surface; the sunk baseplate itself is untouched.
+  # TODO(shell owner): lay the shell and colliders from the underside too,
+  so a baseplate is not drawn into the terrain and dropped from the colliders.
+- **Seats on another storey.** On the Pixel (76269, 3-minute watch) three
+  figures sat down and got up again, but two took a seat on another floor
+  (6 blocks down, 6.7 up): the "already beside the seat" test measured only
+  horizontal distance. It now also needs the seat within 1.2 blocks of the
+  figure's height (`test/bedrock-figure-life.test.ts`, red before the fix).
+- **Minifig Creator figures walk too.** The creator's figure type is in
+  `scripts/figures.js` (`draftTypes`); its npc group has no `random_stroll`.
+  While the wand holds it as a draft (`craftmatic:draft`) the runtime leaves
+  it alone; the wand clears its home record on release, so it is re-adopted
+  with a home where it now stands. Device (GameTest `creator_<id>`): held
+  still as a draft (0 blocks), walked 13-14 blocks once released, stayed
+  within 4.9-6.2 blocks of the release point, home record written. That run
+  also found the creator figure had NEVER had its properties on the device:
+  Bedrock refused `craftmatic:family` and single-entry slots' `[0, 0]` int
+  ranges ("range max is less than range min") and with them the whole
+  property component, so every `q.property` errored and the wand's
+  `setProperty` threw. Ranges are now at least `[0, 1]` and
+  `scripts/_mcaddon_check.py` fails any range not wider than one value.
+- **Mini-dolls** hinge their one-piece legs (`92251`, `16529`) on their own
+  `legs` bone at the hips joint (29.4, -1.2 below the torso: the moulds'
+  `!HELP` hip rotation point). `MINIDOLL_CLIENT_ANIMATIONS`: the walk rocks
+  the legs 5 degrees side to side per step (one moulded piece cannot scissor)
+  with the arms swinging, and the sit bends the legs 90 degrees at the hinge,
+  as the toy's do. Not yet seen on the device.
+- **Gait, measured.** The walk phase rate comes from the leg: 0.525 blocks
+  from hip to sole and a ±35° swing give a 1.2045-block cycle. The GameTest
+  gait probe (`--gait-probe`: a server-side animation controller on one
+  figure reports every whole unit of `query.modified_distance_moved` and the
+  bucket of `query.modified_move_speed`, while the figure is pushed exactly
+  as the walker pushes it, about 25 blocks per speed) measured on the Pixel:
+  **3.88 units per block** at 0.021 and 0.042 blocks/tick (96 and 97 units),
+  3.76 at 0.083, and `modified_move_speed` = 3.9 x blocks/tick. The rate
+  (`MINIFIG_GAIT.degPerUnit`) is now 77.03 degrees per unit (was 74.72 from
+  a guessed 4). The larger error was the swing AMOUNT: `modified_move_speed
+  x 4` was 0.65 at the walker's real speed, so the legs swung 23 of 35
+  degrees and the feet covered 68 % of the ground (33 % at 50 % size). The
+  swing is now full from 0.01 blocks/tick (`GAIT_FULL_SWING_SPEED` 0.04) and
+  only fades at a start and a stop. The same probe showed the walker's real
+  ground speed: asking 0.06 blocks/tick by impulse gives **0.0415** (0.83
+  blocks/s; 0.03 gives 0.0207, 0.12 gives 0.0833). The feel was left alone;
+  the animation is locked to distance, so the speed does not change the
+  sliding. Not yet checked by eye on a recording after the fix.
+  # TODO: a figure below 100 % has shorter legs in the world, so its phase
+  should turn 1/size faster; the client has no measured size query yet.
 
 **Measured on the Pixel** (GameTest `figures_<id>`, 60 s, 100 %, in the
 `cmgametest` arena; logs in the figures worktree's `output/figure-ai/device/`):
@@ -2999,7 +3098,23 @@ path. For 41732 and 76457 its "moved" counts matched the device: 6/7 and
 favourites (`0711e753` packs plus the re-home fix) it simulates 60 s for 236
 figures. 4 are source-seated and stay seated. Of 232 roamers, 177 moved and
 0 left their area. 83 start with fewer than 4 reachable cells, and 16 fell
-from an unsupported spawn.
+from an unsupported spawn. With the export-time spawn (packs from the
+figures worktree's `output/fig-close/sweep40/`, current runtime): of the same
+232 roamers **216 moved**, **14** start with fewer than 4 cells, **0 fell**,
+0 left their area, and 5 borrowed a seat within the 60 s.
+
+**Round 2 on the Pixel** (2026-09-25 afternoon, `figures`-only GameTest
+variants in `cmgametest`, packs from `1e18ef68`; logs in the figures
+worktree's `output/fig-close/device/`):
+
+| set | before | after |
+|---|---|---|
+| 71040 Disney Castle | none moved, one ended in a wall | 2/2 moved (12.7, 13.9 blocks), 0 in a wall, 0 left |
+| 31141 Main Street | 2/6 moved | 4/6 moved; figures 1 and 5 stay in upper rooms the 1-block collider grid leaves 4 cells of |
+| 910049 Transylvania (3 min) | one figure ended in a wall | 7/8 moved, 0 in a wall; figure 1 sat on its floor's bench for 31 s and got up; figure 7 stays (2 cells) |
+| 21360 Willy Wonka | 7 of the line-up fell at placement | 0 fell (`fellAtSpawn` empty), 9/9 moved, 0 left |
+| 76269 Avengers Tower (3 min) | no figure had sat on the device | first run: 3 sat and stood up (27, 36, 22 samples), two of them on a seat on another storey; after the fix (`1e18ef68`): figure 16 sat 40 samples on its own floor (1.4 against 1.6) and stood up, no seat taken across a floor, 17/20 moved, 0 left, 0 in a wall |
+| creator probe (`_minifig_ref.ts --creator=starter`) | vanilla `random_stroll` | the `creator_<id>` test passed: a draft holds still, a released figure walks |
 
 ### Round 3 (2026-09-25, after the user played): cabinet buttons, pull plunger, held item, latency
 
@@ -3055,6 +3170,35 @@ Evidence: `output/pb0924f/device/r3-*` in the pinball worktree.
   the drag pull (pull 0.13 → 1.0 over 8 ticks, ball −665 LDU up the lane).
   An `attackEntity` hit is delivered after the call returns, so the same
   tick reads the old angle (`sameTick` [0,0]); the next tick has it.
+
+### Round 4 (2026-09-25): tuning hooks out, a readable press, no launch jump
+
+- **Tuning hooks removed.** `/scriptevent craftmatic:pinball` (offsets,
+  reach, pick model, camera, view, ball mode, axes, perf/log, cache/fixed,
+  camlock/predict/dragpull) and its probe targets are gone; the runtime
+  hard-codes the measured defaults (level-view pick boxes at the rider's
+  pitch, camera on the head, free camera, cached scan, adaptive substeps,
+  in-event flip, head turning unlocked only while a ball waits). The ball's
+  `teleport` mode survives only as `PinballRuntimeConfig.ballMode` (tests).
+- **The press is readable.** A cabinet button is drawn pressed
+  `PINBALL_BUTTON_TRAVEL` (2.5) times its measured 8 LDU stroke, and it and
+  its tap target's outline flash warm yellow while the flipper is up: the
+  render controller's `overlay_color` reads `craftmatic:press`
+  (`pressFlashOverlay`; the outline zone now declares that property and ships
+  its own controller). The action bar is at most 26 visible characters in
+  every phase (`<< Ball 2/3 12,340 >>`, `Ball 1/3 - drag to launch`, the pull
+  bar), so the centred line no longer reaches the buttons; the final score
+  moved to the title. Pixel, world 924: with the stick held left the left
+  outline turned yellow and the white dome became a yellow sliver pushed
+  mostly into the cabinet wall; the bar ends clear of both buttons
+  (`output/polish-0925/device/s14-leftheld.jpg` in the polish worktree).
+  2.5x may be more travel than needed: the dome nearly disappears.
+- **No launch jump.** The sim fires from the serve point while the client
+  last drew the ball on the pulled-back plunger tip (a full stroke, ~0.75
+  block, behind it). The launch tick's update now starts the drawn ball where
+  it was drawn, with the velocity that reaches the next update's position in
+  one tick (host test: the drawn path meets the next update within 1.5 LDU;
+  before, the ball jumped the whole 40 LDU stroke in one frame).
 
 ## Rail vehicles on the coaster engine (2026-09-25)
 
@@ -3140,13 +3284,22 @@ crossways pieces in the viewer too, and nothing routes. This is a converter
 alignment row for 53400/53401 (clego), not something the router should
 guess around; `output/rail-0925/frame.ts` is the tally.
 
-Open: no device run yet (the phone was held by the free-vehicle round);
-seat for a train car with no posed rider is the compiler's mid-height
-default (inside a loco body); an articulated loco or a train with no
-coupler parts is one rigid body (fine on the straight display lines above,
-wrong on curves); the stick is only known to report while seated on a
-non-vehicle rideable during play (pinball), so a device check of the
-driven train's stick is the first thing to run.
+**On the device (GameTest `train_<id>_<n>`, Pixel, 2026-09-25, packs at
+`260accca`):** 4559's circuit and 910044's open line both PASS. A simulated
+player boarded the lead car (`interactWithEntity`), the stick hook drove it:
+forward 2 s 5.23 blocks at 5.2 blocks/s (the rail's 3 blocks/s²), stick back
+brought it to rest after 18 ticks and then drove it the other way (4559 27.7
+blocks up to 12 blocks/s; 910044 12.5), and 910044 ran to its buffer and
+stopped there on the line (tick 84 of 400). Parked with nobody driving, it
+did not creep. Evidence: the vehicle worktree's
+`output/vehicle-0925b/device/gt-4559/`, `gt-910044/`.
+
+Open: a REAL rider's stick on a train is still unmeasured (the GameTest
+drives through the hook; placing a railway set in world 924 needs the
+wand's form); seat for a train car with no posed rider is the compiler's
+mid-height default (inside a loco body); an articulated loco or a train with
+no coupler parts is one rigid body (fine on the straight display lines
+above, wrong on curves).
 
 ## Vehicle operation: cars, boats, planes, measured (2026-09-25)
 
@@ -3199,8 +3352,11 @@ component that makes Jump an input (a plain rideable dismounts on Jump,
 pinball 2026-09-24).
 
 - **Car**: stick forward/back drives, brakes and reverses, left/right
-  steers; Jump boosts. The 10300 time machine keeps the camel controller its
-  DeLorean runtime drives (`player_relative` scheme, native dash).
+  steers; Jump boosts. The 10300 time machine is a scripted car too (since
+  the second round, 2026-09-25): its time circuits set its top speed just
+  past the armed jump speed and show the circuit on the HUD.
+- **Hover craft** (a title in `HOVER_WORDS`: 75397's sail barge, a
+  speeder): driven like a car, floating a block over land and water alike.
 - **Boat**: stick forward/back is throttle and astern, left/right the rudder;
   Jump boosts.
 - **Plane**: Jump is the throttle; stick back climbs (and at take-off speed
@@ -3217,9 +3373,11 @@ pinball 2026-09-24).
   heading and trails along its nose in 3D (a climbing aircraft stayed under
   the frame's edge with a level boom), and the rider keeps the game's
   default control scheme so the stick's left/right reaches the script as
-  input. Tuning hooks for the camel car: `/scriptevent
-  craftmatic:vehicle_scheme <scheme|clear>` and
-  `craftmatic:vehicle_camera vehicle|rider`.
+  input. The camel car's tuning hooks (`craftmatic:vehicle_scheme`,
+  `vehicle_camera`) were removed with the camel; only a rotorcraft still
+  rides natively (held in `player_relative`).
+- **Lights**: at night a light block runs ahead of the nose of any driven
+  car, hover craft or boat (no more night vision); the HUD shows `[LIGHTS]`.
 - **HUD** is ASCII: the Pixel's HUD font drew the vehicle emoji and U+FE0F
   as empty boxes.
 
@@ -3287,7 +3445,7 @@ row re-run at `f06405e7`; detection is the same code in both.
 | set | detected (controller) | nose (source, agreement) | seats | wheels / spinning | size w×h×l blocks | scale | a player would expect |
 |---|---|---|---|---|---|---|---|
 | 10261 Roller Coaster | static | | | | | 1 | coaster (its own engine) |
-| 10303 Loop Coaster | static | | | | | 1 | coaster (its own engine) |
+| 10303 Loop Coaster | car (scripted, in the scene) | +x (inferred, 100%) | 1 | 3 / 3 | 1.88×3.42×3.55 | 1 | coaster (its own engine); the balloon seller's tricycle rides |
 | 10326 Natural History Museum | static | | | | | 1 | building or scenery (static) |
 | 10337 Lamborghini Countach 5000 Quattrovalvole | car (scripted) | +x (inferred, 73%) | 2 | 12 / 10 | 2.39×1.38×4.7 | 0.28 | car |
 | 10341 NASA Artemis Space Launch System | static | | | | | 1 | static launch tower and rocket |
@@ -3304,16 +3462,16 @@ row re-run at `f06405e7`; detection is the same code in both.
 | 41703 Friendship Tree House | static | | | | | 1 | building or scenery (static) |
 | 41732 Downtown Flower and Design Stores | static | | | | | 1 | building or scenery (static) |
 | 42172 McLaren P1 | car (scripted) | -x (inferred, 100%) | 2 | 8 / 4 | 4.48×2.13×6.97 | 0.25 | car |
-| 42639 Andrea's Modern Mansion | static | | | | | 1 | building or scenery (static) |
+| 42639 Andrea's Modern Mansion | car (scripted, in the scene) | -z (inferred, 67%) | 2 | 8 / 4 | 3.94×1.96×5.7 | 1 | mansion; its car drives |
 | 42652 Friendship Tree House Hangout | static | | | | | 1 | building or scenery (static) |
 | 42663 Friendship Camper Van Adventure | car (scripted) | -x (inferred, 97%) | 1 | 10 / 6 | 1.73×1.71×3.06 | 0.25 | camper van |
 | 42670 Heartlake City Apartments and Stores | static | | | | | 1 | building or scenery (static) |
 | 43267 Princess Castle & Royal Pets | static | | | | | 1 | building or scenery (static) |
-| 60380 Downtown | static | | | | | 1 | town; its cars could drive |
+| 60380 Downtown | car (scripted, in the scene) | -z (inferred, 94%) | 2 | 4 / 4 | 3.26×2.68×3.94 | 1 | town; its food truck drives |
 | 60446 Modular Galactic Spaceship | plane (scripted) | +x (inferred, 80%) | 1 | 1 / 0 | 16.62×7.52×14.24 | 1 | spaceship |
 | 71040 Disney Castle | static | | | | | 1 | building or scenery (static) |
 | 71043 Hogwarts Castle | static | | | | | 1 | building or scenery (static) |
-| 75397 Jabba's Sail Barge | boat (scripted) | +x (inferred, 100%) | 4 | 0 / 0 | 13.56×13.47×36.67 | 1 | hover barge (flies in the film) |
+| 75397 Jabba's Sail Barge | hover (scripted) | +x (inferred, 100%) | 4 | 0 / 0 | 13.56×13.47×36.67 | 1 | hover barge (flies in the film) |
 | 76269 Avengers Tower | static | | | | | 1 | building or scenery (static) |
 | 76286 The Milano Spaceship | plane (scripted) | -z (inferred, 73%) | 1 | 0 / 0 | 30×8.83×16.04 | 1 | spaceship |
 | 76417 Gringotts Wizarding Bank – Collectors' E | static | | | | | 1 | bank with a coaster |
@@ -3324,45 +3482,53 @@ row re-run at `f06405e7`; detection is the same code in both.
 | 80049 Dragon of the East Palace | static | | | | | 1 | building or scenery (static) |
 | 910004 Winter Chalet | static | | | | | 1 | building or scenery (static) |
 | 910032 Parisian Street | static | | | | | 1 | building or scenery (static) |
-| 910047 Medieval Seaside Market | static | | | | | 1 | market; its boats could sail |
+| 910047 Medieval Seaside Market | boat (scripted, in the scene) +1 car | -x (convention, 0%) | 4 | 0 / 0 | 2.7×2.62×6.83 | 1 | market; its rowing boat sails, its cart drives |
 | 910049 Adventure in Transylvania | static | | | | | 1 | building or scenery (static) |
 | 10295 Porsche 911 Turbo & 911 Targa | car (scripted) | -z (inferred, 100%) | 2 | 10 / 4 | 2.03×1.38×4.5 | 0.27 | car (two in the set) |
 | 42143 Ferrari Daytona SP3 | car (scripted) | +z (inferred, 100%) | 1 | 13 / 7 | 3.48×2.5×7.6 | 0.25 | car |
 | 76139 1989 Batmobile | car (scripted) | -z (inferred, 100%) | 2 | 9 / 4 | 3.62×1.74×7.2 | 0.25 | car |
 | 10242 MINI Cooper | car (scripted) | -z (inferred, 99%) | 2 | 10 / 4 | 3.41×2.28×4.39 | 0.38 | car |
 | 75892 McLaren Senna | car (scripted) | -z (inferred, 100%) | 2 | 12 / 4 | 2.7×2.01×7.12 | 1 | car |
-| 42128 Heavy Duty Tow Truck | car (scripted) +1 car | -z (convention, 0%) | 2 | 36 / 6 | 2.16×2.71×7.54 | 0.25 | tow truck |
+| 42128 Heavy Duty Tow Truck | car (scripted) +1 car | -z (inferred, 69%: clear headlights at -z) | 2 | 36 / 6 | 2.16×2.71×7.54 | 0.25 | tow truck |
 | 60253 Ice-cream Truck | car (scripted) | -x (inferred, 93%) | 2 | 8 / 6 | 4.74×4.67×8.03 | 1 | van |
 | 10277 Crocodile Locomotive | static | | | | | 1 | locomotive (rail engine: fills its display track) |
-| 60198 Cargo Train | static | | | | | 1 | train (converted track 90 degrees off) |
+| 60198 Cargo Train | car (scripted, in the scene) +1 car | +x (inferred, 100%) | 2 | 8 / 4 | 3.28×3.22×7.29 | 1 | train (converted track 90 degrees off); its truck and forklift drive |
 | 31109 Pirate Ship | boat (scripted) | -z (inferred, 81%) | 4 | 0 / 0 | 15.46×17.5×21.65 | 1 | ship |
 | 60266 Ocean Exploration Ship | boat (scripted) | +x (inferred, 60%) | 4 | 0 / 0 | 8.91×8.25×29.95 | 1 | ship with small boats |
 | 60221 Diving Yacht | boat (scripted) | -z (inferred, 36%) | 2 | 0 / 0 | 5.17×3.16×10.65 | 1 | yacht |
 | 6286 Skull's Eye Schooner | boat (scripted) | -z (inferred, 37%) | 4 | 0 / 0 | 10.5×22.67×33.88 | 1 | ship |
-| 70618 Destiny's Bounty | static | | | | | 1 | flying ship |
+| 70618 Destiny's Bounty | plane (scripted; craft word, wings) | -x (inferred, 97%) | 1 | 0 / 0 | 9.86×21.17×27.15 | 1 | flying ship |
 | 60367 Passenger Airplane | plane (scripted) +6 car | -x (inferred, 100%) | 4 | 4 / 4 | 24.75×8.32×21 | 1 | airliner and airport vehicles |
 | 42066 Air Race Jet | plane (scripted) | -z (inferred, 100%) | 1 | 9 / 4 | 7.53×4.7×12.11 | 0.43 | jet |
 | 7140 X-wing Fighter | plane (scripted) | -z (inferred, 100%) | 1 | 0 / 0 | 11.63×2.96×12.71 | 1 | starfighter |
 | 75301 Luke Skywalker's X-Wing Fighter | plane (scripted) | -z (inferred, 67%) | 1 | 20 / 4 | 14.25×4.84×15.76 | 1 | starfighter |
 | 42092 Rescue Helicopter | plane (hover) | -z (inferred, 100%) | 1 | 2 / 0 | 11.77×5.37×12.15 | 0.9 | helicopter |
 | 60405 Emergency Rescue Helicopter | plane (hover) | -z (inferred, 60%) | 1 | 0 / 0 | 15.91×5.12×15.34 | 1 | helicopter |
-| 10497 Galaxy Explorer | static | | | | | 1 | spaceship |
+| 10497 Galaxy Explorer | plane (scripted; craft word, wings) | -z (inferred, 100%) | 1 | 12 / 4 | 15.04×6.39×24.9 | 1 | spaceship |
+| 10300 Back to the Future Time Machine | car (scripted) | -x (inferred, 100%) | 2 | 8 / 4 | 1.99×3.12×4.69 | 0.26 | time machine |
+| 4559 Cargo Railway | car (scripted, in the scene) + driven train | +z (inferred, 100%) | 2 | 12 / 6 | 2.64×3.5×5.1 | 1 | train on its circuit; its truck drives |
+| 910044 Wild West Train | static + driven train | | | | | 1 | train on its line |
 
-What the table says (and the open items it leaves):
-- 36 of the 61 sets are static. 30 as a player would expect: buildings,
-  scenery, 10341's launch tower and the two coasters (their own engine). 2
-  are trains (10277, 60198), below. 4 are not what a player expects: 70618
-  Destiny's Bounty and 10497 Galaxy Explorer (no vehicle word in the title),
-  and 60380's cars and 910047's boats (a vehicle inside scenery is never
-  offered).
-- 75397 Jabba's Sail Barge is a BOAT (the title's "barge"); in the film it
-  hovers. 42128's nose is `convention` (no evidence either way) and may be
-  backwards.
-- 10277 and 60198 are rail vehicles: see "Rail vehicles on the coaster
-  engine" (10277 fills its own display track; 60198's converted track sits
-  90 degrees off the LDraw part).
-- Two helicopters keep the hover controller; every car, boat and fixed wing
-  is scripted.
+What the table says (re-run 2026-09-25 evening at `7eb68d47` over 64 sets,
+`output/vehicle-0925b/audit-all/` in the vehicle worktree; the first round's
+four gaps are closed, see "Second round" below):
+- 30 of the 64 sets are static, every one as a player would expect:
+  buildings, scenery, 10341's launch tower, the two coasters (their own
+  engine) and 10277 (its loco fills its display track). 910044's train and
+  4559's train run on their own track as driven trains (not in this table:
+  they are coaster types, not `craftmatic_vehicle`).
+- Vehicles now found INSIDE scenes: 60380's food truck, 910047's rowing boat
+  and hand cart, 42639's car, 60198's truck and forklift, 4559's truck and
+  10303's balloon-seller tricycle. No favourite building gained a false one
+  (the finder's verdict on every object it judged is in the export warnings,
+  `Scene vehicles: …`).
+- 70618 and 10497 are planes: a craft word in the title, wings in the parts.
+  75397 is a hover craft. 42128's nose is inferred (-z, 69 %) from its clear
+  headlights; every other nose in the table is unchanged from the first round.
+- 910047's rowing boat has no nose evidence (`convention`): it is nearly
+  symmetric end to end.
+- Two helicopters keep the native hover controller; every car (the time
+  machine included), hover craft, boat and fixed wing is scripted.
 
 ### Traps found this round
 
@@ -3382,4 +3548,306 @@ What the table says (and the open items it leaves):
 - **The favourites sweep never exercised vehicles**: it labels each pack
   with the bare set number, which no vehicle word matches.
   `bun scripts/_vehicle_audit.ts` labels exports `Name (set-1)` as the LEGO
+  tab does. (Since the second round the sweep DOES reach the scene-vehicle
+  finder: a bare number is not a vehicle title, so 60380 and 910047 export
+  their vehicles in the sweep too.)
+
+### Second round (2026-09-25 evening): the open items closed
+
+Code at `260accca`..`7eb68d47`. Evidence under the vehicle worktree's
+`output/vehicle-0925b/` (packs `packs/`, the 64-set audit `audit-all/`,
+GameTest variants `gt/`, device logs and recordings `device/`, scene-vehicle
+silhouettes `sil/`).
+
+**Classification.**
+- *Craft words.* A title with "explorer", "bounty", "voyager", "lander" or
+  "orbiter" (not "bounty hunter") names a vehicle whose KIND the parts
+  decide (`vehicleKindFromParts`: wings → plane, a hull/oars → boat, road
+  wheels → car). Over the index's 10,169 titles the two words that matter
+  here occur in 52 titles, every one a vehicle bar the bounty-hunter figure
+  packs. 70618: 30 wing placements, 2 boat → plane, nose -x (97 %). 10497:
+  35 wing, 12 wheel placements → plane, nose -z (100 %). A craft title whose
+  parts say nothing stays static with a warning naming the counts.
+- *Hover.* `HOVER_WORDS` (hover…, sail barge, (land)speeder, podracer,
+  repulsor, air cushion) makes a vehicle a hover craft whatever its kind;
+  75397 keeps its boat geometry (the hull, four seats) and floats.
+- *Vehicles inside scenes* (`engine/scene-vehicles.ts`, run only when the
+  title names no vehicle): the lowest layer's flat parts are set aside as
+  ground, the rest split into separate objects on the compiler's own contact
+  rule, a flat floor patch that lies inside ONE small object's footprint is
+  glued back to it (a boat's keel plates), an object claims the wheels and
+  parts lying wholly inside its box, and it is a car when it stands on ≥ 3
+  wheel positions (or 2 with a steering wheel or seat), a boat with ≥ 2 oars
+  or a hull/rudder/sail part; ≥ 6 studs long, ≤ 25 % of the scene, no track
+  or ride-car part. A car keeps nothing that reaches below its wheels (60380's
+  brick separator lay against its side). Measured over the 32 static
+  favourites + 4559/60198/910044: 60380 food truck (53 placements), 910047
+  rowing boat (76 + 3 aboard) and hand cart (90), 42639 car (131), 10303
+  balloon tricycle (48), 4559 truck (91), 60198 truck and forklift; no false
+  find in a building (a 4-stud barrow in 41703 is rejected as too small, a
+  coaster car as the rail engine's). Silhouettes: `sil/`.
+- *42128's nose:* a new facing vote, `headlights`: clear round lamps in the
+  outer quarter of one end (a clear lens stacked on a coloured one is part of
+  that lamp). 42128: four at -z, none at +z → -z, 69 % with its tail lights
+  (+z) against the wheel-count vote. Its radiator grille (six `2412` tiles at
+  z −639) and the tow boom at +z agree. No other nose in the 64-set audit
+  changed.
+
+**Collision (the swept footprint).** See `docs/physics-architecture.md`
+§4.6. Host proof on the serialised runtime (`test/bedrock-vehicle.test.ts`):
+a 7-block car driving past a trunk 1.5 blocks off its centre line stops
+with its nose at the trunk's face (the same car with a zero half width, i.e.
+the old centre-line probe, drives through to x > 14); a taxiing aircraft
+stops on a post at its wingtip; a car rests ON a collider plate floor at
+2/16 of a block, not a block above it. The device course's new `post`
+phase is the same test in Bedrock (results below).
+
+**Hover craft.** `carStep` on `HOVER`; host: off the land and over water it
+rides `RIDE_HEIGHT` above the surface and never sinks. GameTest adds an
+`over_water` phase.
+
+**Headlights.** One light block ahead of the nose at night (host: placed,
+moved cell by cell, removed on dismount; none by day). Cost is measured on
+the device by the `msPerTick` field of the telemetry (below).
+
+**Time machine.** A scripted car; its circuits set the top speed through
+`VEHICLE_DYNAMIC.topSpeed` (88 mph × 1.03 → 40.5 blocks/s; 150 mph armed →
+69 blocks/s) and the HUD line; the jump fires once when the measured speed
+along its heading reaches the armed speed (host test with the real script).
+The camel components, `CAR_MOVEMENT`, `DASH_ACTION` and the
+`vehicle_scheme` / `vehicle_camera` hooks are gone; `vehicle-driver.js` now
+ships only with a rotorcraft.
+
+**Trains in GameTest.** The rail runtime takes the same stick hook
+(`CoasterRuntimeConfig.inputEvent` = `FLIGHT_INPUT_EVENT`; host test: parked
+without it, driven by it for one car id or every train, park-braked after).
+`train_<id>_<n>` places the model, boards the lead car and drives it; both
+trains pass on the Pixel ("Rail vehicles on the coaster engine" above).
+
+**On the device (Pixel 8 Pro, 2026-09-25).** GameTest, one variant bound in
+`cmgametest` at a time (`device/gt-<set>/`, packs at `260accca`):
+
+| set | verdict | the new checks |
+|---|---|---|
+| 42172 McLaren P1 | PASS 9/9 | post 1.89 off the centre line: stopped at along 4.46 (its nose at the post: 4.52) |
+| 4559 truck (in the scene) | PASS 9/9 | post 0.97 off: 4.41 / 4.45 |
+| 10300 time machine | PASS 9/9 | post 0.65 off: 4.60 / 4.66; 18 Molang errors from its spark particle (removed at `b470d467`) |
+| 75397 sail barge (hover) | PASS 9/9 | post 5.76 off: 4.66 / 4.67; `over_water` 34.65 blocks off the land and over the pool, lowest −1.12 (the pool is a block under the land), never sunk |
+| 60221 yacht | PASS 11/11 | post 2.2 off: 4.18 / 4.18 |
+| 76286 Milano | FAIL at `260accca`, PASS 7/7 at `1939e916` | the post held (4.98 / 4.98) but it never took off: its 16-block body tilted about its centre at the 12-degree rotation put the tail band into the runway, and every take-off roll stopped. Fixed at `301a579d` (the band tilts about its low end; host test); the reruns are below |
+| 4559 / 910044 trains | PASS | see the rail section |
+
+Real rides in world 924 (`device/recordings/`, `cmvt-summary-924.txt`):
+- **Headlights** (42172 and 10300 at night): `[LIGHTS]` on the HUD and a
+  light block on the ground ahead of the nose, moving with the car. The
+  runtime's own time (`msPerTick` in the telemetry) was 2.4-5.4 ms a tick
+  driving and 1.0-2.9 idle for the McLaren with its light, 3.5-5.8 for the
+  time machine: the light costs one block write per cell crossed.
+- **Collision** (10300 at night into a 1 x 1 log post off its centre line):
+  it stopped at the post's face with `[BLOCKED: BACK UP]` (hit at the post)
+  and reversed away. The McLaren run could not test this: world 924 still
+  binds an OLDER McLaren pack (`243f54b1`, built under the label "McLaren
+  P1 42172", so it is a different pack uuid), whose script drives the same
+  entity type without the footprint; the log shows two CMVT lines a tick.
+  Left bound (924's bindings are kept).
+- **Colliders count**: the barge's first attempt stopped against another
+  placed model's invisible `craftmatic:collider` blocks - the shell's walls
+  now stop a vehicle, as they stop a player.
+- **Hover**: the barge held y −59 over the grass and over a pond and back,
+  never sinking, HUD `HOVER`. Its cost at `260accca` was the finding of the
+  round: 13.7-28.7 ms a tick driving (456-912 footprint checks: the whole
+  100-block perimeter at four heights, twice or more per tick when turning).
+  `301a579d` probes only the leading boundary; the rerun is below.
+- **Time machine**: a scripted car at 91 mph (its 40.5 blocks/s top speed)
+  with `[TIME CIRCUIT OFF]`, steering with the stick. Its rider sat 3
+  blocks above the car: the "present" model carries a 600-LDU pole of
+  Technic axles and a whip at its tail, and a model shrunk below player
+  size seated its rider on the model's TOP. Fixed at `71312684`: the rider
+  sits on the roof over the seat (`roofAtSeatBlocks`; 10300's seat 2.57 →
+  0.30 blocks).
+
+Second device session, packs at `b470d467` (`device/gt3-*`, `clip5-75397/`,
+`clip6-10300/`):
+- **The barge's cost** with only the leading boundary probed (`301a579d`):
+  driving straight 68 footprint checks and 2.4-7.0 ms a tick (median 5.2;
+  was 456 checks and 13.7-28.7 ms); turning 472 checks, 6.1-15.7 ms (median
+  14: a turn swings half of a 100-block perimeter); idle ~2.2 ms. The time
+  machine driving straight: 12-36 checks, 1.7-4.5 ms (median 2.9, was
+  3.6-8.7). # TODO: a turning barge still costs ~14 ms a tick; if that
+  shows as lag on the phone, probe a turn at 1-block spacing along the
+  rotation only where the swept arc exceeds a block.
+- **75397 GameTest PASS** again (over_water 34.65 blocks, lowest −1.14);
+  **10300 PASS** with 0 Molang errors (the spark particle is gone); in 924 it
+  held over 60 mph for 16 s with no error line of any kind.
+- **76286 Milano**: the tail fix worked - the take-off roll left the ground
+  (up 8.2 blocks, 27 blocks/s) - but flown straight it was 110 blocks out by
+  its climb, stopped being readable ("Entity being invalid", outside the
+  simulated area) and the test threw before its verdict. The course now
+  ends the roll once airborne and circles right (`1939e916`); a vehicle
+  that stops being readable ends the course with `staysInReach` false.
+- **An empty car coasted off**: the time machine, got out of at 91 mph,
+  coasted ~200 blocks, ran into terrain that was not loaded and fell 250
+  blocks through it. Now an empty car brakes (`CAR.BRAKE`), and no scripted
+  vehicle moves where the block under it or at its nose is unloaded
+  (`1939e916`, host tests).
+
+Third device session, packs at `1939e916` (`device/gt4-76286/`,
+`clip7-10300/`, `recordings/cmv-clip7-10300.mp4`):
+- **76286 Milano PASS 7/7** on the circling course: off the ground after a
+  27.8-block roll (18.7 blocks/s), +16 blocks in the 1.5 s climb, a 162-degree
+  right turn, a descending circle to a landing, then the post (4.98 / 4.98);
+  `staysInReach` true, no script error.
+- **10300**: the rider now sits ON the car (only the head shows over the roof
+  from behind; before, the whole body floated 3 blocks up). Got out of at 91
+  mph, the empty car braked at ~14 blocks/s² and stopped ~59 blocks on, on
+  the grass at y −60 (session 2: ~200 blocks and a fall to −317).
+  2.4-3.7 ms a tick driving, 0 Molang errors. (The telemetry rows after the
+  dismount reached only the on-screen log, not the file.)
   tab does.
+
+## Render faults from the 2026-09-25 device report, measured offline
+
+The user reported, on the 14-pack round `243f54b1`: tearing and strobing on
+every model, missing legs and arms, floating hair and figures, mangled faces,
+no detail, and Gringotts' upper level translucent. Evidence and tools:
+`output/render-faults-0925/` in the fixing worktree (agent a79aac62); Saga
+screenshots in its `saga/` folder.
+
+### Offline tools
+
+- `bun scripts/_render_fault_audit.ts <pack|dir> [--explain=N] [--eps=U]`:
+  every pair of drawn faces with the same outward normal on one plane
+  (within `--eps` model units, default 0.02), overlapping by a positive area,
+  in different colours, per actor and between actors drawn together. A face
+  pressed flat against another cube's opposite face is buried and not counted
+  (`buriedFaceTest`). Coaster cars are all recorded on the station point, so
+  car-against-car pairs are skipped.
+- `bun scripts/_pack_render.ts <pack> --out=<png> [--eye --at | --frame=<type re>]
+  [--far] [--geo-from=<older pack>]`: a z-buffered software render of a
+  pack's own geometry, swatches and face atlases, in the WORLD frame. `--far`
+  draws the LOD hull; `--geo-from` draws an older pack's geometry under this
+  pack's controllers (two packs with the same ids stacked in one world).
+- `bun scripts/_figure_parts_census.ts <source>`: every NPC figure's parts with
+  their rig slot and what the rig synthesised, and the figure parts left in
+  the scenery.
+
+### One rotation convention, and the world is the JSON frame mirrored in Z
+
+The compiler writes a render-frame turn `M = Rz(c)·Ry(b)·Rx(a)` as JSON
+`(−a, −b, c)` with every X coordinate mirrored. In the JSON's own coordinates
+that turn is **`Rz(−rz)·Ry(ry)·Rx(−rx)`** of the JSON angles
+(`pivotRotation`, `engine/bedrock-geometry-faces.ts`), and the game's world is
+those coordinates **mirrored in Z** (then the actor's yaw, then its
+position). Two consumers had other conventions: the Walk add-on preview
+applied `Euler(rx, −ry, −rz)` to unmirrored JSON coordinates (every part turned
+about X or Y stood out of 76417's walls at the wrong angle, and every door,
+figure and seat sat mirrored across its actor's origin, a door two blocks in
+front of its doorway), and the LOD hull applied `Rz(rz)·Ry(ry)·Rx(rx)`. Both
+now call `pivotRotation`; the preview holder scales Z by −1. Verified by
+rendering 76417 (roofs flush, doors in their doorways) and by host tests; the
+preview itself was not re-opened in a browser.
+
+### 1-2. Hatching, tearing, strobing: coplanar faces of two colours
+
+Two parts the source sinks into each other or lays flush on one plane leave
+faces of different colours on one plane; the depth test cannot order them.
+Measured on the round's packs (visible pairs / block faces of overlap):
+76417 4,766 / 46.5, 76457 3,920 / 17.4, 10365 2,278 / 33.3, 42703 5,216 /
+33.6, 11374 7,712 / 27.4. **Not a regression**: the same geometry measures the
+same in round `1e33902c` and in the 2026-09-22 sweep; 76417 doubled on
+2026-09-24 when its source became the assembled LXFML.
+
+Fix: `separateCoplanarFaces` runs on every compiled entity before chunking.
+Each pair's WINNING face is pushed out by `COPLANAR_SEPARATION_UNITS` (0.15
+units, 1/107 block): the smaller face (the tile or print sunk into a surface),
+then the smaller cube, then opaque over translucent; a face decal never moves
+and whatever shares its plane goes in front; buried pairs are left alone.
+Diagnostics: `coplanar {pairsFound, areaFound, facesGrown, pairsLeft}` per
+entity. After (`b6c1c882`): 76417 264 / 1.0, 76457 214 / 0.98, 10365 121 /
+1.0, 42703 42 / 0.32, 11374 571 / 1.78.
+
+**What it does not fix**: the horizontal striping under 42703's arches and
+on round columns (Saga, `saga/after-42703-arch-b6c1c882.jpg`) is the stair-step
+of a curved part at the 2 LDU grain, drawn with face shading. It is geometry,
+it is in the offline render too, and the audit does not count it.
+
+### 3. Missing legs and arms
+
+The figures themselves are complete in 76457 (legs, hips, arms, hands). What
+is missing is in the SOURCE: 41732 has three mini-dolls with hips and no legs
+(the leg element has no LDraw mapping) and the rig synthesised legs only for a
+minifig. `assembleMinifig` now gives a doll without legs `92251` in its hips'
+colour, and a doll with NO arm the two plain arms (`MINIDOLL_DEFAULT_PARTS`); a
+doll with one arm (42703's stump) is left as built. Goblins' short legs are
+`41879` on the hips bone: correct, not missing.
+
+### 4. Floating hair
+
+BrickLink names hair `MINI WIG, NO. 366` (its `bl_` copies) and `MINI WIG
+NO. 13` (official files). Neither matched a hair pattern, so a doll carried its
+hair in its HAND (41732 x3, 42703) - hair floating beside the figure. It is now
+hair on both rigs. Still open: loose accessories the source leaves in the
+air (76417's display scatter: 84 figure parts outside any NPC, 22 Viking
+helmets and 7 fezzes among them) stay in the shell where the source put them
+(Saga, `saga/after-76417-figures-b6c1c882.jpg`: a hat and a hair piece in
+mid-air beside the line-up).
+
+### 5. Faces
+
+Photo face art (`--faces`, BrickLink cut-outs) kept the photo's own lit and
+shaded skin over the head's swatch, through a ragged mask: a mottle of two
+skins around the features. `faceArtImage` now drops texels within
+`PHOTO_SKIN_TOLERANCE` (56) of the photo's dominant skin (`photoSkinColour`),
+so the head's own colour shows and only ink is drawn. Art that is not a face
+on skin (under 64 texels, or no single colour a quarter of it) is kept whole.
+Face art has shipped since round `8346fb29` (2026-09-24).
+
+### 6. Detail, and the texture-pack question
+
+There is no texture pack to install and none to remove for detail: every pack
+ships ONE flat 16x16 swatch per LEGO colour (plus 16x16 MER and normal maps for
+PBR), and printed heads are its only images. The owl, printed tiles and
+stickers are their moulds' shapes in flat colour. The resource pack's manifest
+used to say "HD LEGO textures", which is why the question came up; it now says
+what it ships.
+
+An OLDER pack can override a newer one: rounds before `243f54b1` labelled
+76417 `Gringotts` and 76457 `Hogsmeade`, so their packs carry different uuids
+(`6fd3b8ff…`/`6afa018a…` for 76417) but the SAME entity and geometry ids
+(`craftmatic:gringotts_76417_shell`, `geometry.craftmatic.gringotts_76417_shell_mesh_N`).
+If both are active in one world, the one higher in the stack wins per id, and a
+mix (older geometry under newer controllers) is possible. Remove the older
+versions from the world's Behavior and Resource Packs; a pack merely installed
+and not active in the world changes nothing.
+
+### 7. Floating figures
+
+Two causes, both measured. (a) A figure's geometry stood on its lowest cube,
+and 76457 places a second wand at every figure's feet, grouped into the figure
+and hung from its hand: the whole figure stood 2.73 units (0.17 block) above
+the floor. A loose accessory now joins a figure only from hand height
+(`HELD_BELOW_LDU` 48, torso frame), and a rigged entity's floor is its body's
+lowest cube, not what it holds. (b) The 243f54b1 packs lifted a figure standing
+inside a collider column onto its top at spawn (76417 figures 9-11: 1.2-1.5
+blocks); round 2 of the figures work (`4872d616`, merged after that round)
+decides the spawn at export. Saga, `b6c1c882`: the 76417 line-up stands on the
+ground.
+
+### 8. The translucent upper level
+
+At a distance the LOD hull draws 76417, and its glass cells showed the hull's
+hollow inside through the skylight (`--far` render: a translucent sheet over
+the upper floor with loose blocks visible through it, as in the user's
+screenshot). The hull now never lets a translucent colour take a cell with
+anything opaque in it, and draws every hull colour opaque (`ad90f46d`). Not
+seen on a device yet.
+
+### Device check (Saga, world 925, `b6c1c882`)
+
+Deployed with `_pixel_dev_deploy.py --serial 192.168.1.243:5555 --exclusive`
+(14/14 bound, 0 content-log errors). 42703's arch before/after and 76417's bank
+level: no diagonal hatching; the arch's stair-step striping remains (above).
+Typing into the Saga's chat over adb drops and reorders characters and the
+first character lands at the END of the field: type one character at a time,
+then move the `/` to the front (`scripts/_saga_chat.sh`; check the field in a
+screenshot before sending, it is still not always right).

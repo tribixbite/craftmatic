@@ -12,6 +12,7 @@ import {
 } from '../web/src/engine/minifig-rig.js';
 import { compileLdrawEntityGeometry, faceDecals, figureRole, groupFigures, isFigurePart, isTorso } from '../web/src/engine/ldraw-entity-compiler.js';
 import { discoverSceneActors } from '../web/src/engine/bedrock-scene-actors.js';
+import { worldFaces } from '../web/src/engine/bedrock-geometry-faces.js';
 import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.js';
 import { compilePartPrototype, resolveEntityQuality } from '../web/src/engine/ldraw-part-prototype.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
@@ -62,6 +63,12 @@ const LIBRARY: Record<string, string> = {
   '37783': part('Arm Large with Pin, Right', [-22, 20, -9, 27, -9, 14], '0 FILE 37783.dat'),
   '37784': part('Minifigure, Hair Shaggy and Long with Beard', [-27, 27, -12, 39, -23, 23], '0 FILE 37784.dat'),
   '27150': part('Minifig Umbrella Folded', [-4, 4, -44, 4, -4, 4]),
+  // BrickLink's hair names (2026-09-25): a doll's in a `bl_` copy, a minifig's official file.
+  'bl_2645': part('MINI WIG, NO. 366', [-22, 22, -12, 44, -29, 18], '0 FILE bl_2645.dat'),
+  '93217': part('MINI WIG NO. 13 (Needs Work)', [-16, 16, -10, 8, -16, 16]),
+  '92251': part('Figure Friends Legs with Cropped Trousers', [-18.8, 18.8, -54.8, 0, -9.7, 13.7]),
+  '36752a': part('Minifig Tool Wand', [-1, 1, -2, 30, -1, 1]),
+  '98765': part('Minifig Tool Pole', [-1, 1, -10, 70, -1, 1]),
   // The goblins' hair with its ears, Studio-private too.
   '93230p04': part('Minifigure, Hair Swept Back with Pointed Light Nougat Ears Pattern', [-16.7, 16.6, -10, 22.5, -13.9, 21.2], '0 FILE 93230p04.dat'),
   // A building brick, so a scene has a floor.
@@ -148,7 +155,9 @@ describe('figure systems: the mini-doll rig', () => {
     // rig puts it 47.4 below them, where `16529`'s own `!HELP` says its hips pivot is.
     expect(one('legs').part).toBe('16529');
     expect(pos(one('legs'))).toEqual([0, 76.8, -3.9]);
-    expect(a.rig.boneOf[a.bricks.indexOf(one('legs'))]).toBe('hips');
+    // The one-piece legs hinge on their own bone at the hips joint (the doll's sit and walk bend it there).
+    expect(a.rig.boneOf[a.bricks.indexOf(one('legs'))]).toBe('legs');
+    expect(MINIDOLL_BONES.find(b => b.name === 'legs')).toEqual({ name: 'legs', parent: 'hips', pivotLdu: [0, 29.4, -1.2] });
     // Hair keeps its offset from the head; the microphone sits in the canonical right hand.
     const hair = one('headwear');
     expect(hair.x).toBeCloseTo(0, 1); expect(hair.y).toBeCloseTo(-33.3, 1); expect(hair.z).toBeCloseTo(-3, 1);
@@ -174,6 +183,73 @@ describe('figure systems: the mini-doll rig', () => {
     expect(bySlot(a, 'arm_left')[0]!.part).toBe('2758');
     // No orphan: nothing in the group was left as a bystander.
     expect(a.bystanders).toEqual([]);
+  });
+});
+
+describe('figure systems: the 2026-09-25 device report (missing legs, floating hair, floating figures)', () => {
+  it('reads a `MINI WIG` as hair on either system: a doll\'s is not carried in its hand, a minifig\'s is not dropped', async () => {
+    const m = await meshesFor([at('bl_2645', 6, 0, 0, 0), at('93217', 6, 0, 0, 0)]);
+    expect(classifyFigurePart('minidoll', 'bl_2645', m.get('bl_2645')!.description)).toBe('headwear');
+    expect(classifyFigurePart('minifig', '93217', m.get('93217')!.description)).toBe('headwear');
+    // 41732's doll: torso, head, arms, hips, and its wig at the head.
+    const doll = [
+      at('1006030', 78, 0, -77, 0), at('92244', 78, 11, -77, 0), at('92245', 78, -11, -77, 0),
+      at('92198', 78, 0, -110.2, 0), at('92248', 322, 0, -47.6, 1.2), at('bl_2645', 6, 0, -110.2, 0),
+    ];
+    const a = assembleMinifig(doll, await meshesFor(doll));
+    expect(bySlot(a, 'held')).toHaveLength(0);
+    expect(bySlot(a, 'headwear').map(b => b.part)).toEqual(['bl_2645']);
+    // The source lost the legs: the plain doll legs complete it, in the hips' colour.
+    expect(a.synthesized).toEqual(['legs']);
+    const legs = bySlot(a, 'legs')[0]!;
+    expect(legs.part).toBe('92251');
+    expect(legs.color).toBe(322);
+    expect(pos(legs)).toEqual([0, 76.8, -3.9]);
+  });
+
+  it('keeps a doll\'s one real arm as built (42703\'s stump) and supplies both when both are gone', async () => {
+    const one = assembleMinifig(headlessDoll(), await meshesFor(headlessDoll()));
+    expect(one.synthesized).toEqual(['torso']);
+    const armless = [at('1006030', 78, 0, -77, 0), at('92198', 78, 0, -110.2, 0), at('92248', 322, 0, -47.6, 1.2), at('92251', 322, 0, 0, -2.7)];
+    const a = assembleMinifig(armless, await meshesFor(armless));
+    expect(a.synthesized).toEqual(['right arm', 'left arm']);
+    expect(bySlot(a, 'arm_right')[0]!.part).toBe('92245');
+    expect(bySlot(a, 'arm_left')[0]!.part).toBe('92244');
+  });
+
+  it('leaves a wand lying at a figure\'s feet to the scenery, and keeps the one in its hand', async () => {
+    const fig = [
+      at('973', 4, 0, -72, 0), at('3815', 4, 0, -40, 0), at('3816', 4, 0, -28, 0), at('3817', 4, 0, -28, 0),
+      at('3818', 4, -15.5, -63, 0), at('3819', 4, 15.5, -63, 0), at('3820', 78, -23.9, -45.4, -10.3), at('3820', 78, 23.9, -45.4, -10.3),
+      at('3626c', 78, 0, -96, 0),
+      at('36752a', 0, -23.9, -45.4, -12), // in the right hand
+      at('36752a', 0, -6, -2, 12), // on the floor between the feet (76457's second wand)
+    ];
+    const groups = groupFigures(fig, await meshesFor(fig));
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.parts).toContain(9);
+    expect(groups[0]!.parts).not.toContain(10);
+  });
+
+  it('stands a figure on its soles, not on an item hanging below them', async () => {
+    const fig = [
+      at('973', 4, 0, -72, 0), at('3815', 4, 0, -40, 0), at('3816', 4, 0, -28, 0), at('3817', 4, 0, -28, 0),
+      at('3818', 4, -15.5, -63, 0), at('3819', 4, 15.5, -63, 0), at('3820', 78, -23.9, -45.4, -10.3), at('3820', 78, 23.9, -45.4, -10.3),
+      at('3626c', 78, 0, -96, 0),
+      at('98765', 29, -23.9, -45.4, -12), // a pole gripped at the top, hanging 70 LDU: its foot under the soles
+    ];
+    const a = assembleMinifig(fig, await meshesFor(fig));
+    const r = await compileLdrawEntityGeometry('fig', 'figure', a.bricks, { partGeometry: provider(), rig: a.rig });
+    type J = { name: string; parent?: string; pivot: [number, number, number]; rotation?: [number, number, number]; cubes?: Array<{ origin: [number, number, number]; size: [number, number, number] }> };
+    const geo = (r.value as { 'minecraft:geometry': Array<{ bones: J[] }> })['minecraft:geometry'];
+    // World heights, through the bone rotations (a held item rides a turned bone).
+    const bones = new Map<string, J>();
+    for (const g of geo) for (const b of g.bones) if (!bones.has(b.name) || b.cubes?.length) bones.set(b.name, { ...bones.get(b.name), ...b });
+    const entry = { bones: [...bones.values()], groups: [{ ldrawColor: 0, alpha: 1, cubes: [...bones.values()].flatMap(b => (b.cubes ?? []).map(c => ({ bone: b.name, origin: c.origin, size: c.size }))) }] };
+    const faces = worldFaces([{ typeId: 'fig', kind: 'figure', entry, at: { x: 0, y: 0, z: 0 }, yawDeg: 0 }]);
+    const lowest = (pick: (bone: string) => boolean): number => Math.min(...faces.filter(f => pick(entry.groups[0]!.cubes[f.cube]!.bone)).flatMap(f => f.corners.map(c => c[1])));
+    expect(lowest(b => b === 'leg_right' || b === 'leg_left')).toBeCloseTo(0, 1);
+    expect(lowest(() => true)).toBeLessThan(-0.5); // the umbrella's tip, below the floor
   });
 });
 

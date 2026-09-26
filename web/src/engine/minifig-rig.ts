@@ -249,11 +249,15 @@ export const MINIFIG_BONES: readonly RigBone[] = [
 ];
 
 /**
- * The mini-doll's bones: the same names as the minifig's (so one animation
- * file drives every figure — walk swings `arm_*`, look turns `head`), with
- * pivots at the doll's joints. The one-piece legs ride `hips`, so a doll
- * walks stiff-legged and does not bend to sit.
- * # TODO: a per-system animation set (the doll's legs swing as one at the hip).
+ * The mini-doll's bones: the minifig's names for what the two share (walk
+ * swings `arm_*`, look turns `head`), with pivots at the doll's joints, and
+ * one `legs` bone for the one-piece legs mould (`92251`, `16529`), hinged
+ * where the real doll's legs hinge on its hips: the moulds' `!HELP` "Hips
+ * Rotation point: Y=-47.4, Z=2.7" from the legs origin (76.8, -3.9 below the
+ * torso) is 29.4 / -1.2, the hips joint itself. The doll's own animations
+ * (`MINIDOLL_CLIENT_ANIMATIONS`) bend it there to sit and rock it as one
+ * piece to walk; a one-piece HIPS-and-legs mould has no hinge and stays on
+ * `hips`.
  */
 export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'body', pivotLdu: [0, 0, 0] },
@@ -263,6 +267,7 @@ export const MINIDOLL_BONES: readonly RigBone[] = [
   { name: 'hand_right', parent: 'arm_right', pivotLdu: [-25.9, 29.7, -4] },
   { name: 'hand_left', parent: 'arm_left', pivotLdu: [25.9, 29.7, -4] },
   { name: 'hips', parent: 'body', pivotLdu: [0, 29.4, -1.2] },
+  { name: 'legs', parent: 'hips', pivotLdu: [0, 29.4, -1.2] },
 ];
 
 /** The big-fig's bones: body, the head on the neck, two pinned arms with hands, the legs under the coat. */
@@ -286,6 +291,8 @@ const SLOT_BONE: Record<MinifigSlot, string> = {
   hips: 'hips', hips_legs: 'hips', legs: 'hips', leg_right: 'leg_right', leg_left: 'leg_left',
   held: 'body',
 };
+/** Where a system's skeleton differs from `SLOT_BONE`: the doll's one-piece legs hinge on their own bone. */
+const SYSTEM_SLOT_BONE: Record<FigureSystem, Partial<Record<MinifigSlot, string>>> = { minifig: {}, minidoll: { legs: 'legs' }, bigfig: {} };
 
 /** The slots that stand on the floor: their lowest point is where the figure's feet are. */
 const FLOOR_SLOTS: ReadonlySet<MinifigSlot> = new Set<MinifigSlot>(['torso', 'hips', 'hips_legs', 'legs', 'leg_right', 'leg_left']);
@@ -360,6 +367,9 @@ export function classifyMinifigPart(part: string, description: string): MinifigS
   if (/^Minifig Head\b/i.test(d) || /^(3626|3625|3624)(?![0-9])/.test(id) || /_head$/.test(cleanId(part))) return 'head';
   // `Headgear` is BrickLink's word (`Minifigure, Headgear Hat …`), folded in by `normaliseFigureDescription`.
   if (/^Minifig (Hair|Hat|Headgear|Helmet|Cap|Hood|Crown|Mask|Bandana|Beard|Visor|Headdress|Turban|Wig|Tiara)\b/i.test(d)) return 'headwear';
+  // BrickLink's generic hair name (`MINI WIG NO. 13`, `MINI WIG, NO. 366`) is a
+  // minifig's hair on a minifig and a doll's on a doll (`classifyMiniDollPart`).
+  if (/^Mini ?Wig\b/i.test(d)) return 'headwear';
   if (/^(3901|3624|3833|2446|30370|4485|4498|2447|3878|30367|30369|59363|85975|93553|62810)(?![0-9])/.test(id)) return 'headwear';
   if (/^Minifig (Cape|Backpack|Airtank|Epaulette|Armou?r|Neckwear|Wings?|Skirt|Tail|Jetpack|Quiver|Scabbard)\b/i.test(d)) return 'back';
   if (/^(3838|2524|4524|50231|2526|30375)(?![0-9])/.test(id)) return 'back';
@@ -418,7 +428,9 @@ const MINIDOLL_PATTERNS: ReadonlyArray<readonly [MiniDollSlot, RegExp]> = [
   ['doll_hips', /^Figure Friends Hips\b/i],
   ['doll_leg', /^Figure Friends Legs?\b/i],
   ['doll_arm', /^Figure Friends ((Female|Male) )?(Left|Right) Arm\b/i],
-  ['doll_hair', /^(Figure Friends Hair\b(?! ?(Brush|Comb|Dryer|Decoration))|Mini ?Doll,? (Hair|Wig)\b)/i],
+  // BrickLink's own copies (`bl_2645.dat`) name a doll's hair `MINI WIG, NO. 366`:
+  // unnamed here it was `held` and rode in the doll's hand (41732, 42703).
+  ['doll_hair', /^(Figure Friends Hair\b(?! ?(Brush|Comb|Dryer|Decoration))|Mini ?(Doll,? )?(Hair|Wig)\b)/i],
 ];
 
 /**
@@ -492,7 +504,8 @@ export function classifyFigurePart(system: FigureSystem, part: string, descripti
     if (slot === null) return null;
     return slot === 'headwear' || slot === 'held' || slot === 'back' ? slot : null;
   }
-  if (doll !== null) return null;
+  // A `MINI WIG` is hair on either system; every other doll mould is foreign to a minifig.
+  if (doll !== null && !(doll === 'doll_hair' && /^Mini ?Wig\b/i.test(stripAlias(description)))) return null;
   return classifyMinifigPart(part, description);
 }
 
@@ -535,6 +548,15 @@ function consensusOrigin(canon: SystemCanon, source: SourcePart[]): { offset: Ve
 }
 
 /** The torso mould synthesised for a figure whose source has none (official library parts). */
+/**
+ * Plain mini-doll moulds for a body part the source lacks (`assembleMinifig`
+ * supplies them the way `MINIFIG_DEFAULT_PARTS` completes a minifig): `92248`
+ * Figure Friends Hips, `92251` Legs with Cropped Trousers, `92245` Female
+ * Right Arm, `92244` Female Left Arm - each authored at its doll joint, so the
+ * `MINIDOLL_CANON` offsets place them.
+ */
+export const MINIDOLL_DEFAULT_PARTS = { hips: '92248', legs: '92251', arm_right: '92245', arm_left: '92244' } as const;
+
 const DEFAULT_TORSO: Record<FigureSystem, string> = { minifig: MINIFIG_DEFAULT_PARTS.torso, minidoll: '92241', bigfig: MINIFIG_DEFAULT_PARTS.torso };
 
 /**
@@ -634,7 +656,7 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
   const boneOf: string[] = [];
   const dropped: string[] = [];
   const bystanders: string[] = [];
-  const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
+  const push = (brick: ParsedBrick, slot: MinifigSlot, bone = SYSTEM_SLOT_BONE[system][slot] ?? SLOT_BONE[slot]): void => { out.push(brick); slots.push(slot); boneOf.push(bone); };
   const first = (slot: MinifigSlot): SourcePart | undefined => source.find(s => s.slot === slot);
   /** Place a source part at its slot's canon when the system has one, else keep its (re-anchored) source pose. */
   const placeCanon = (s: SourcePart, slot: MinifigSlot, bone?: string): void => {
@@ -674,12 +696,19 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
     }
   } else {
     // A doll's hips and one-piece legs, or a hips-and-skirt composite, at the
-    // doll canon; a big-fig body carries its legs. Nothing is synthesised: the
-    // rig has no default doll or big-fig moulds.
+    // doll canon; a big-fig body carries its legs.
     if (hipsSrc) placeCanon(hipsSrc, 'hips');
     if (compositeSrc) placeCanon(compositeSrc, 'hips_legs');
     if (legsSrc) placeCanon(legsSrc, 'legs');
     for (const leg of [legR, legL]) if (leg) placeCanon(leg, leg.slot);
+    // A doll whose source lost its legs (41732: three of seven dolls are hips
+    // only - their leg element has no LDraw mapping) walked as a torso on a
+    // belt. Give it the plain doll moulds in the colours it gives away.
+    if (system === 'minidoll' && !compositeSrc && !legsSrc && !legR && !legL) {
+      if (!hipsSrc) { synthesized.push('hips'); push(placeAt(MINIDOLL_DEFAULT_PARTS.hips, hipsColor, MINIDOLL_CANON.hips!.position, MINIDOLL_CANON.hips!.rotation), 'hips'); }
+      synthesized.push('legs');
+      push(placeAt(MINIDOLL_DEFAULT_PARTS.legs, legColor, MINIDOLL_CANON.legs!.position, MINIDOLL_CANON.legs!.rotation), 'legs');
+    }
   }
   // A torso "with Integral Arms" or wing arms has no arm sockets: no arms, no hands.
   const torsoDesc = stripAlias(desc(torso));
@@ -690,6 +719,8 @@ export function assembleMinifig(sourceParts: ParsedBrick[], meshes: Map<string, 
     if (integralArms && !arm) continue;
     if (arm) placeCanon(arm, armSlot);
     else if (system === 'minifig') { synthesized.push(`${side} arm`); push(placeAt(MINIFIG_DEFAULT_PARTS[armSlot], torsoColor, MINIFIG_CANON[armSlot].position, MINIFIG_CANON[armSlot].rotation), armSlot); }
+    // A doll with ONE arm may be built that way (42703's stump); one with none lost both.
+    else if (system === 'minidoll' && !first('arm_right') && !first('arm_left')) { synthesized.push(`${side} arm`); push(placeAt(MINIDOLL_DEFAULT_PARTS[armSlot], torsoColor, MINIDOLL_CANON[armSlot]!.position, MINIDOLL_CANON[armSlot]!.rotation), armSlot); }
     if (hand) {
       if (system === 'bigfig' && arm) {
         // A separate big-fig hand keeps its source offset from its arm, in the arm's frame.
@@ -851,7 +882,20 @@ export const MINIFIG_ANIMATION_IDS = {
   walk: 'animation.craftmatic.minifig.walk',
   look: 'animation.craftmatic.minifig.look',
   sit: 'animation.craftmatic.minifig.sit',
+  /** The mini-doll's own walk and sit (its one-piece legs on the `legs` hinge, `MINIDOLL_BONES`). */
+  dollWalk: 'animation.craftmatic.minidoll.walk',
+  dollSit: 'animation.craftmatic.minidoll.sit',
 } as const;
+
+/**
+ * The mini-doll's walk. Its legs are one moulded piece, so they cannot
+ * scissor: the doll rocks side to side on the hip hinge (the whole legs
+ * piece rolls `waddleDeg` about the walking direction, one rock per step, at
+ * the minifig's distance-locked rate) with its arms swinging as a minifig's.
+ * Sitting bends the legs forward 90 degrees at the same hinge, as the toy's
+ * legs do.
+ */
+export const MINIDOLL_GAIT = { waddleDeg: 5, armSwingDeg: 22 } as const;
 
 /**
  * The walk's gait, derived so a foot does not slide.
@@ -859,23 +903,35 @@ export const MINIFIG_ANIMATION_IDS = {
  * A leg of length L (hip pivot to sole: 72 - 44 = 28 LDU = 0.525 blocks at the
  * 96 LDU = 1.8 block scale) swung ±A carries its foot 2·L·sin A per step and
  * 4·L·sin A per full cycle (two steps). `query.modified_distance_moved` is the
- * engine's limb-swing position, which advances ~4 units per block at walking
- * speed (the vanilla `× 38.17` humanoid cycles every 9.4 units = 2.4 blocks;
- * vanilla wheels turn `× -30` per unit, a 3-block circumference). So the
- * phase rate is 360 / (4 · 4·L·sin A) degrees per unit. The old walk used the
- * vanilla 38.17 with a 0.525-block leg: its feet covered half the ground the
- * body did - the "sliding" figure. `modified_move_speed` (the limb-swing
- * amount, ~4 × blocks per tick) fades the swing in and out.
- * TODO: confirm the ~4 units/block reading against a device recording at a known speed.
+ * engine's limb-swing position; the phase rate is 360 / (u · 4·L·sin A)
+ * degrees per unit, u being its units per block.
+ *
+ * MEASURED on the Pixel 8 Pro (GameTest `gait_<id>`, a server-side animation
+ * controller counting whole units while a figure is pushed exactly as the
+ * walker pushes it, ~25 blocks per speed, 2026-09-25): u = 3.88 at 0.021 and
+ * 0.042 blocks/tick (96 and 97 units), 3.76 at 0.083 (the limb swing's
+ * start-up lag, counted once per pass, weighs more on the short fast passes).
+ * The earlier guess of 4 was 3 % fast.
+ *
+ * The same probe measured `query.modified_move_speed` = 3.9 x blocks per tick
+ * (0.075-0.1 at 0.021, 0.15-0.175 at 0.042, 0.325-0.35 at 0.083): the old
+ * swing amount `modified_move_speed x 4` was 0.65 at the walker's real 100 %
+ * speed (0.042 blocks/tick, not the 0.06 it asks for) and 0.33 at 50 %, so the
+ * legs swung 23 and 11 degrees against a phase rate derived for 35: the feet
+ * covered 68 % and 33 % of the ground - the sliding. `GAIT_FULL_SWING_SPEED`
+ * now reaches the full swing at 0.01 blocks/tick (a 25 % figure's walk) and
+ * only fades it in and out at a start and a stop.
  */
 export const MINIFIG_GAIT = (() => {
   const legBlocks = (MINIFIG_FEET_Y - 44) / 96 * 1.8;
-  const legSwingDeg = 35, armSwingDeg = 28, unitsPerBlock = 4;
+  const legSwingDeg = 35, armSwingDeg = 28, unitsPerBlock = 3.88;
   const cycleBlocks = 4 * legBlocks * Math.sin(legSwingDeg * Math.PI / 180);
-  return { legBlocks, legSwingDeg, armSwingDeg, cycleBlocks, degPerUnit: Math.round(360 / (unitsPerBlock * cycleBlocks) * 100) / 100 };
+  return { legBlocks, legSwingDeg, armSwingDeg, unitsPerBlock, cycleBlocks, degPerUnit: Math.round(360 / (unitsPerBlock * cycleBlocks) * 100) / 100 };
 })();
+/** `query.modified_move_speed` at which the walk swings fully: 0.04 = 0.01 blocks/tick at the measured 3.9 per block. */
+export const GAIT_FULL_SWING_SPEED = 0.04;
 const GAIT_PHASE = `math.cos(query.modified_distance_moved * ${MINIFIG_GAIT.degPerUnit})`;
-const GAIT_AMOUNT = 'math.clamp(query.modified_move_speed * 4.0, 0.0, 1.0) * query.is_moving';
+const GAIT_AMOUNT = `math.clamp(query.modified_move_speed / ${GAIT_FULL_SWING_SPEED}, 0.0, 1.0) * query.is_moving`;
 
 export const MINIFIG_ANIMATIONS = {
   format_version: '1.8.0',
@@ -902,11 +958,37 @@ export const MINIFIG_ANIMATIONS = {
         leg_left: { rotation: [-90, 0, 0] },
       },
     },
+    [MINIFIG_ANIMATION_IDS.dollWalk]: {
+      loop: true,
+      bones: {
+        legs: { rotation: [0, 0, `${GAIT_PHASE} * ${MINIDOLL_GAIT.waddleDeg} * ${GAIT_AMOUNT}`] },
+        arm_right: { rotation: [`-${GAIT_PHASE} * ${MINIDOLL_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+        arm_left: { rotation: [`${GAIT_PHASE} * ${MINIDOLL_GAIT.armSwingDeg} * ${GAIT_AMOUNT}`, 0, 0] },
+      },
+    },
+    [MINIFIG_ANIMATION_IDS.dollSit]: {
+      loop: true,
+      bones: { legs: { rotation: [-90, 0, 0] } },
+    },
   },
 } as const;
 
 /** The client entity's `animations` map and `scripts.animate` list for a minifig. */
-export const MINIFIG_CLIENT_ANIMATIONS = {
+/** A figure entity's client animation map and its `scripts.animate` list. */
+export interface FigureClientAnimations { animations: Record<'walk' | 'look' | 'sit', string>; animate: Array<string | Record<string, string>> }
+
+export const MINIFIG_CLIENT_ANIMATIONS: FigureClientAnimations = {
   animations: { walk: MINIFIG_ANIMATION_IDS.walk, look: MINIFIG_ANIMATION_IDS.look, sit: MINIFIG_ANIMATION_IDS.sit },
-  animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }, 'look'] as Array<string | Record<string, string>>,
+  animate: [{ walk: '!query.is_riding' }, { sit: 'query.is_riding' }, 'look'],
 };
+
+/** The same for a mini-doll (`MINIDOLL_GAIT`): its walk and sit bend the one-piece legs at their hinge. */
+export const MINIDOLL_CLIENT_ANIMATIONS: FigureClientAnimations = {
+  animations: { walk: MINIFIG_ANIMATION_IDS.dollWalk, look: MINIFIG_ANIMATION_IDS.look, sit: MINIFIG_ANIMATION_IDS.dollSit },
+  animate: MINIFIG_CLIENT_ANIMATIONS.animate,
+};
+
+/** The client animation set for a figure of `system` (a big-fig walks as a minifig: it has two legs). */
+export function figureClientAnimations(system: FigureSystem | undefined): FigureClientAnimations {
+  return system === 'minidoll' ? MINIDOLL_CLIENT_ANIMATIONS : MINIFIG_CLIENT_ANIMATIONS;
+}

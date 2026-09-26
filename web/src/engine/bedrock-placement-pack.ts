@@ -590,6 +590,53 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     try { p.setDynamicProperty?.(seatStoreKey, JSON.stringify({ anchors: (st.manualSeats || []).slice(0, manualSeatCap), entityIds: (st.manualSeatIds || []).slice(0, manualSeatCap) })); }
     catch (e: any) { tell(p, `§eMarked seats cannot persist for this player (${e?.message || e}). They still last until this script reloads.`); }
   };
+  // ── The Undo record survives a reload and a restart ──
+  // `histories` is this script's memory and a world reload empties it, which
+  // left agents cleaning a placement up by hand (2026-09-25). So the record
+  // (the dimension, the block snapshots, the spawned entity ids, the box it
+  // covered and the tag every spawned entity carries) is also written to the
+  // PLAYER's dynamic properties, which the world saves with the player, and
+  // the snapshots are saved into the WORLD (StructureSaveMode.World), not
+  // memory. A string property holds at most 32,767 characters, so the JSON is
+  // split over numbered keys: `<key>` = "<count>:<chunk 0>", `<key>:<i>` = chunk i.
+  const undoKey = `craftmatic:${config.id}:undo`, UNDO_CHUNK = 30000, UNDO_MAX_CHUNKS = 64;
+  const undoChunks = (p: any): number => {
+    try { const head = String(p.getDynamicProperty?.(undoKey) ?? ''); const n = Number(head.slice(0, head.indexOf(':'))); return Number.isInteger(n) && n > 0 ? Math.min(n, UNDO_MAX_CHUNKS) : 0; } catch { return 0; }
+  };
+  const clearHistory = (p: any) => {
+    const n = undoChunks(p);
+    try { p.setDynamicProperty?.(undoKey, undefined); } catch {}
+    for (let i = 1; i < n; i++) try { p.setDynamicProperty?.(`${undoKey}:${i}`, undefined); } catch {}
+  };
+  const saveHistory = (p: any, h: any) => {
+    const text = JSON.stringify({ v: 1, dimension: h.dimension, backups: h.backups, entities: h.entities, bounds: h.bounds, tag: h.tag });
+    const n = Math.max(1, Math.ceil(text.length / UNDO_CHUNK));
+    if (n > UNDO_MAX_CHUNKS) { tell(p, `§eThis placement's Undo record is too large to keep across a reload (${text.length} characters); Undo works until the world closes.`); clearHistory(p); return; }
+    try {
+      clearHistory(p);
+      p.setDynamicProperty?.(undoKey, `${n}:${text.slice(0, UNDO_CHUNK)}`);
+      for (let i = 1; i < n; i++) p.setDynamicProperty?.(`${undoKey}:${i}`, text.slice(i * UNDO_CHUNK, (i + 1) * UNDO_CHUNK));
+    } catch (e: any) { tell(p, `§eUndo cannot persist for this player (${e?.message || e}); it works until the world closes.`); }
+  };
+  const loadHistory = (p: any) => {
+    const n = undoChunks(p);
+    if (!n) return undefined;
+    try {
+      const head = String(p.getDynamicProperty?.(undoKey));
+      let text = head.slice(head.indexOf(':') + 1);
+      for (let i = 1; i < n; i++) text += String(p.getDynamicProperty?.(`${undoKey}:${i}`) ?? '');
+      const h = JSON.parse(text);
+      if (!h || h.v !== 1 || typeof h.dimension !== 'string' || !Array.isArray(h.backups) || !Array.isArray(h.entities)) return undefined;
+      return { dimension: h.dimension, backups: h.backups, entities: h.entities, bounds: h.bounds, tag: h.tag };
+    } catch { return undefined; }
+  };
+  /** This player's last placement: the script's memory, else the record a previous session saved. */
+  const historyOf = (p: any) => {
+    if (!histories.has(p.id)) { const saved = loadHistory(p); if (saved) histories.set(p.id, saved); }
+    return histories.get(p.id);
+  };
+  const setHistory = (p: any, h: any) => { histories.set(p.id, h); saveHistory(p, h); };
+  const dropHistory = (p: any) => { histories.delete(p.id); clearHistory(p); };
   const removeManualSeatEntities = (st: any) => {
     for (const id of st.manualSeatIds || []) try { world.getEntity(id)?.remove(); } catch {}
     st.manualSeatIds = [];
@@ -913,7 +960,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       const from = { x: st.anchor.x + b.x0, y: st.anchor.y + b.y0, z: st.anchor.z + b.z0 }, to = { x: st.anchor.x + b.x1, y: st.anchor.y + b.y1, z: st.anchor.z + b.z1 };
       await load(dim, from, to);
       const name = `craftmatic:${key}_c${bi}`;
-      world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.Memory });
+      world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.World });
       backups.push({ name, from });
       // Clear the box first: a smaller re-lay must not leave the old size behind.
       clearColliders(dim, from, to);
@@ -989,11 +1036,14 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     const st = { ...state(p), anchor: { ...state(p).anchor } }, dim = p.dimension;
     validate(p, st); active = { player: p.id, cancelled: false }; previews.delete(p.id); state(p).aim = false;
     const key = `${config.id}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`, backups: any[] = [], entities: string[] = [], failedActors: string[] = [], spawned: any[] = [];
+    // Every entity this placement spawns carries this tag, so an Undo after a
+    // reload finds them by tag in whatever chunks it loads, not only by an id.
+    const tag = `cmu_${config.shortAlias}_${p.id.replaceAll('-', '').slice(0, 8)}_${Date.now().toString(36)}`;
     // The world box this placement covers, remembered so the NEXT one can clear
     // the colliders it leaves behind (they are invisible; see placeColliders).
     const dPlace = dims(st);
     const bounds = { dimension: dim.id, from: { ...st.anchor }, to: { x: st.anchor.x + dPlace.width - 1, y: st.anchor.y + dPlace.height - 1, z: st.anchor.z + dPlace.length - 1 } };
-    const previous = histories.get(p.id);
+    const previous = historyOf(p);
     removeGhost(p.id);
     const scripted = st.size !== 100 && config.tiles.length > 0;
     // Live progress on the action bar (the chat log scrolls away); one chat
@@ -1017,7 +1067,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
         progress(i, `loading area for piece ${i + 1}/${config.tiles.length}`);
         await load(dim, from, to);
         if (active.cancelled) throw new Error('Canceled. Use Undo to restore any changed area.');
-        world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.Memory });
+        world.structureManager.createFromWorld(name, dim, from, to, { includeEntities: false, saveMode: StructureSaveMode.World });
         backups.push({ name, from });
         // A failed `structure load` (unknown structure, bad rotation) reports
         // successCount 0 without throwing; treated as success it placed nothing
@@ -1123,6 +1173,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           // A moving part keeps yaw 0: its rig's root turns it (the interactives
           // runtime sets the turn), so its world-aligned tap boxes stay true.
           entity.setRotation({ x: 0, y: actor.interactive !== undefined ? 0 : (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
+          try { entity.addTag?.(tag); } catch {}
           if (/_fig[0-9]+$/.test(actor.typeId)) {
             // The figure's home record (bedrock-figure-life.ts FigureHome): where it
             // stands, the placement's world box, the pin plane and the size, so
@@ -1188,6 +1239,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
           entity.setRotation({ x: 0, y: (seat.yaw || 0) + st.rotation });
           if (st.size !== 100) entity.triggerEvent(sizeEvent(st.size));
           entities.push(entity.id);
+          try { entity.addTag?.(tag); } catch {}
           st.manualSeatIds.push(entity.id);
         } catch (e: any) { failedActors.push(`marked seat ${k + 1}`); tell(p, `§eMarked seat ${k + 1} could not be spawned (${e?.message || e}).`); }
         await wait(settle);
@@ -1206,9 +1258,12 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
       // re-place duplicated figures, mould seats and user-marked brick chairs.
       if (previous) {
         for (const id of previous.entities) try { world.getEntity(id)?.remove(); } catch {}
+        // A record from an earlier session: its entities may not have been
+        // loaded by id; any of them in loaded chunks go by the placement's tag.
+        if (previous.tag) try { for (const e of world.getDimension(previous.dimension).getEntities({ tags: [previous.tag] }) || []) try { e.remove(); } catch {} } catch {}
         for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
       }
-      histories.set(p.id, { dimension: dim.id, backups, entities, bounds });
+      setHistory(p, { dimension: dim.id, backups, entities, bounds, tag });
       progress(total, 'done');
       await wait(hold);
       const stepsDone = stepsAdded ? ` ${stepsAdded} invisible step${stepsAdded === 1 ? '' : 's'} added where its risers grew past a jump.` : '';
@@ -1216,7 +1271,7 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
     } catch (e: any) {
       if (backups.length || entities.length) {
         if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
-        histories.set(p.id, { dimension: dim.id, backups, entities, bounds });
+        setHistory(p, { dimension: dim.id, backups, entities, bounds, tag });
       }
       tell(p, `§cPlacement stopped: ${e.message || e}`);
     }
@@ -1224,13 +1279,47 @@ function placementRuntime(config: any, openVehicleControls?: (player: any) => Pr
   }
   async function undo(p: any) {
     if (active) return tell(p, 'Wait for placement to finish or cancel it first.');
-    const h = histories.get(p.id); if (!h) return tell(p, 'Nothing to undo in this play session.');
+    const h = historyOf(p); if (!h) return tell(p, 'Nothing to undo.');
     active = { player: p.id, cancelled: false };
     try {
       const dim = world.getDimension(h.dimension);
-      for (const id of h.entities) try { world.getEntity(id)?.remove(); } catch {}
-      for (const b of h.backups) { const structure = world.structureManager.get(b.name); if (!structure) continue; const to = { x: b.from.x + structure.size.x - 1, y: b.from.y + structure.size.y - 1, z: b.from.z + structure.size.z - 1 }; await load(dim, b.from, to); world.structureManager.place(b.name, dim, b.from, { includeEntities: false, includeBlocks: true }); world.structureManager.delete(b.name); await wait(1); }
-      histories.delete(p.id); tell(p, '§aUndo complete.');
+      // Entities first, by id where they are loaded; the rest are found by the
+      // placement's tag as each area loads below (a reload leaves the chunks
+      // unloaded until then, and world.getEntity sees only loaded ones).
+      const missing = new Set<string>();
+      for (const id of h.entities) {
+        let e: any;
+        try { e = world.getEntity(id); } catch {}
+        if (e) { try { e.remove(); } catch {} } else missing.add(id);
+      }
+      const sweep = () => {
+        if (!h.tag || !missing.size) return;
+        let found: any[] = [];
+        try { found = dim.getEntities({ tags: [h.tag] }) || []; } catch {}
+        for (const e of found) { missing.delete(e.id); try { e.remove(); } catch {} }
+      };
+      for (const b of h.backups) {
+        const structure = world.structureManager.get(b.name);
+        if (!structure) continue;
+        const to = { x: b.from.x + structure.size.x - 1, y: b.from.y + structure.size.y - 1, z: b.from.z + structure.size.z - 1 };
+        await load(dim, b.from, to);
+        world.structureManager.place(b.name, dim, b.from, { includeEntities: false, includeBlocks: true });
+        world.structureManager.delete(b.name);
+        sweep();
+        await wait(1);
+      }
+      // Entities outside every snapshot (an entity-only pack, or one standing
+      // past the blocks): load the placement's box a piece at a time and sweep.
+      if (missing.size && h.tag && h.bounds && h.bounds.from && h.bounds.to) {
+        const f = h.bounds.from, t = h.bounds.to;
+        for (const box of placementBoxes(t.x - f.x + 1, t.y - f.y + 1, t.z - f.z + 1)) {
+          if (!missing.size) break;
+          await load(dim, { x: f.x + box.x0, y: f.y + box.y0, z: f.z + box.z0 }, { x: f.x + box.x1, y: f.y + box.y1, z: f.z + box.z1 });
+          sweep();
+        }
+      }
+      dropHistory(p);
+      tell(p, missing.size ? `§aUndo complete§r (${missing.size} entit${missing.size === 1 ? 'y was' : 'ies were'} not found - already removed, or outside the placement's box).` : '§aUndo complete.');
     } catch (e: any) { tell(p, `Undo stopped: ${e.message || e}`); }
     finally { await unload(); active = undefined; }
   }

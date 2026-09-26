@@ -70,6 +70,8 @@ const DRIVER_PARTS: Array<{ re: RegExp; weight: number; label: string }> = [
 
 /** Trans-Red: tail lights. Only ever at the rear of a road vehicle. */
 const TAIL_LIGHT_COLOURS = new Set([36]);
+/** Trans-Clear: headlights, when they are lamps (round) at one end. */
+const HEAD_LIGHT_COLOURS = new Set([47]);
 const isTranslucentColour = (c: number): boolean => (c >= 33 && c <= 47) || c === 52 || c === 54 || c === 111 || c === 32 || c === 57;
 
 /**
@@ -221,6 +223,25 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
     // 3. Tail lights: trans-red sits at the rear. Vote away from their centroid.
     const tails = bricks.filter(b => TAIL_LIGHT_COLOURS.has(b.color));
     if (tails.length >= 2) centroidVote(tails, 'tail lights', 2, -1, 0.1, `${tails.length} trans-red placements`);
+    // 3b. Headlights: clear lamps (a round tile, plate or dish in trans-clear)
+    //     at one END of the vehicle - its outer quarter along the long axis.
+    //     42128's tow truck had no seat, steering wheel or glass to read and
+    //     voted to a tie (tail lights against its wheel count); its four clear
+    //     round tiles sit 622 LDU forward of centre, over the cab.
+    if (span > 0) {
+      // A clear lens stacked on a coloured one (42128's Mecabricks source puts clear, red and orange
+      // round tiles at one spot of its tail lamps) is part of that lamp, not a headlight.
+      const coloured = bricks.filter(b => isTranslucentColour(b.color) && !HEAD_LIGHT_COLOURS.has(b.color));
+      const lamps = bricks.filter(b => HEAD_LIGHT_COLOURS.has(b.color) && isRoundGlowPart(b.part, options.meshes?.get(b.part)?.description) && Math.abs(along(b)) >= span * 0.25
+        && !coloured.some(c => Math.hypot(c.x - b.x, c.z - b.z) < 2 && Math.abs(c.y - b.y) <= 24));
+      const neg = lamps.filter(b => along(b) < 0).length, pos = lamps.length - neg;
+      // Lamps at both ends are indicators or a light bar, not a heading.
+      if (lamps.length >= 2 && Math.min(neg, pos) * 3 <= Math.max(neg, pos)) {
+        const sign = pos > neg ? 1 : -1;
+        const w = 2.5;
+        votes.push({ signal: 'headlights', ...axisVec(sign * w), weight: w, detail: `${Math.max(neg, pos)} clear lamp placement${Math.max(neg, pos) === 1 ? '' : 's'} at the ${sign > 0 ? '+' : '-'}${longAxis} end (${Math.min(neg, pos)} at the other)` });
+      }
+    }
     // 4. Wheels: the end with more, or larger, wheels is the rear (a dragster's
     //    slicks, the Tumbler's four rear tyres). Symmetric wheelbases abstain.
     if (options.isWheel && span > 0) {

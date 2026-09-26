@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CANON, MINIFIG_CLIENT_ANIMATIONS, MINIFIG_FEET_Y,
+  GAIT_FULL_SWING_SPEED, MINIDOLL_BONES, MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_GAIT, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CANON, MINIFIG_CLIENT_ANIMATIONS, MINIFIG_FEET_Y, figureClientAnimations,
   assembleMinifig, classifyMinifigPart, minifigFromSpec,
 } from '../web/src/engine/minifig-rig.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
@@ -221,10 +221,31 @@ describe('the rig through the entity compiler', () => {
     expect(geo.facing).toBe('-z');
   });
 
-  it('ships walk, look and sit animations that only touch rig bones', () => {
+  it('locks the walk cycle to the measured distance units and swings fully at the walker\'s real speed', () => {
+    // One full cycle carries a planted foot 4·L·sin(A); the phase must turn 360 degrees over it.
+    const perBlock = MINIFIG_GAIT.unitsPerBlock * MINIFIG_GAIT.degPerUnit;
+    expect(perBlock * MINIFIG_GAIT.cycleBlocks).toBeCloseTo(360, 0);
+    // Pixel 2026-09-25: the walker at 100 % moves 0.0415 blocks/tick, 25 % of that at 25 % size,
+    // and modified_move_speed reads 3.9 x blocks/tick: both swing the legs fully.
+    for (const blocksPerTick of [0.0415, 0.0415 / 4]) expect(3.9 * blocksPerTick / GAIT_FULL_SWING_SPEED).toBeGreaterThanOrEqual(1);
+    const leg = (MINIFIG_ANIMATIONS.animations as any)['animation.craftmatic.minifig.walk'].bones.leg_right.rotation[0] as string;
+    expect(leg).toContain(`query.modified_distance_moved * ${MINIFIG_GAIT.degPerUnit}`);
+    expect(leg).toContain(`query.modified_move_speed / ${GAIT_FULL_SWING_SPEED}`);
+  });
+
+  it('ships walk, look and sit animations that only touch rig bones, per figure system', () => {
     const anims = MINIFIG_ANIMATIONS.animations as Record<string, { bones: Record<string, unknown> }>;
-    const rigNames = new Set(MINIFIG_BONES.map(b => b.name));
-    for (const a of Object.values(anims)) for (const bone of Object.keys(a.bones)) expect(rigNames.has(bone)).toBe(true);
-    expect(MINIFIG_CLIENT_ANIMATIONS.animate).toContainEqual({ walk: '!query.is_riding' });
+    for (const [set, bones] of [[MINIFIG_CLIENT_ANIMATIONS, MINIFIG_BONES], [MINIDOLL_CLIENT_ANIMATIONS, MINIDOLL_BONES]] as const) {
+      const rigNames = new Set(bones.map(b => b.name));
+      for (const id of Object.values(set.animations)) {
+        expect(anims[id], id).toBeDefined();
+        for (const bone of Object.keys(anims[id]!.bones)) expect(rigNames.has(bone), `${id} ${bone}`).toBe(true);
+      }
+      expect(set.animate).toContainEqual({ walk: '!query.is_riding' });
+    }
+    // A doll bends its one-piece legs at the hip to sit; a minifig its two legs.
+    expect(anims[MINIDOLL_CLIENT_ANIMATIONS.animations.sit]!.bones).toEqual({ legs: { rotation: [-90, 0, 0] } });
+    expect(figureClientAnimations('minidoll')).toBe(MINIDOLL_CLIENT_ANIMATIONS);
+    expect(figureClientAnimations('bigfig')).toBe(MINIFIG_CLIENT_ANIMATIONS);
   });
 });

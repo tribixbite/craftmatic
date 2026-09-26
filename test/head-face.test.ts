@@ -6,7 +6,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  clearFaceArt, faceArtImage, headBodyRect, orientFace, packFaceAtlas, rasterizeHeadFace, seedFaceArt,
+  clearFaceArt, faceArtImage, headBodyRect, orientFace, packFaceAtlas, photoSkinColour, rasterizeHeadFace, seedFaceArt,
   type FaceImage,
 } from '../web/src/engine/head-face.js';
 import {
@@ -86,6 +86,23 @@ describe('head-face: face art', () => {
     expect(texel(img, 10, 10)).toEqual([200, 0, 0, 255]);
     expect(texel(img, 90, 10)[3]).toBe(0);
     expect(faceArtImage('3626cpb9999', headMesh())).toBeNull();
+  });
+
+  it('drops a photo\'s own skin, so the head\'s swatch shows there instead of a mottle (Pixel 2026-09-25)', () => {
+    // A 16 x 16 cut-out: shaded skin everywhere, two dark eyes, a transparent corner.
+    const w = 16, rgba = new Uint8Array(w * w * 4);
+    for (let y = 0; y < w; y++) for (let x = 0; x < w; x++) {
+      const o = (y * w + x) * 4, shade = (x + y) % 3 * 8;
+      const eye = y >= 5 && y <= 6 && (x === 4 || x === 11);
+      const corner = x < 2 && y < 2;
+      rgba.set(eye ? [20, 15, 10, 255] : [214 - shade, 170 - shade, 130 - shade, corner ? 0 : 255], o);
+    }
+    seedFaceArt([['3626pb7777', { width: w, height: w, rgba }]]);
+    const img = faceArtImage('3626c.dat', headMesh(), '3626pb7777')!;
+    const alphaOf = (sx: number, sy: number): number => texel(img, Math.floor((sx + 0.5) / w * img.width), Math.floor((sy + 0.5) / w * img.height))[3]!;
+    expect(alphaOf(4, 5)).toBe(255); // an eye is ink
+    expect(alphaOf(8, 12)).toBe(0); // the cheek is the head's own colour now
+    expect(photoSkinColour({ width: w, height: w, rgba })!.map(Math.round)).toEqual([206, 162, 122]);
   });
 
   it('refuses art whose pixels do not match its size', () => {

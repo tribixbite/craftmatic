@@ -1562,3 +1562,83 @@ instances, and zero missing parts (also recovering hair `43753` and two
 backed up in `10303-apply-backup/`. Publication status and ride-path acceptance
 remain in `TASKS-BEDROCK-ADDON.md`; geometry recovery does not prove a rideable
 closed circuit.
+
+### 11. The source A/B gate grades CONNECTIONS, not contact (2026-09-25)
+
+A regenerated source replaces the shipped file only if clego's A/B gate accepts
+it. The strict gate accepted only when no geograde counter rose. It rewarded
+interpenetration, because a scrambled file whose parts sit inside each other has
+no gap to float across. As a result it rejected:
+
+* every train-track repair (the track stops intersecting the train);
+* ~250 Eurobricks regenerations that render better;
+* 158 turned-part fixes it could not see at all.
+
+Gate v2 (`clego/geograde/connect.py` + `gate_v2.py`, full account in clego
+`GEOGRADE.md` "Gate v2") counts real connections from LDCad's shadow library:
+
+* studs into anti-studs, pins and axles into holes, bars into clips, and hinge
+  fingers;
+* track end to track end, with a written-out end table for 74746/74747/53401,
+  whose shadow ends the upstream library re-split away.
+
+It scores `components + open track ends/2 + interpenetration volume/512 LDU^3 +
+identity defects` and accepts a drop beyond a noise margin that scales with the
+placements that actually changed. It abstains (renders go to an eye) when the
+model is under 16 connector parts, or when under half its connector parts
+connect on both sides.
+
+**Calibrated on labels it never saw.** There were 781 before/after pairs over 61
+distinct sets:
+
+* authentic OMR/Studio/curated builds, deliberately damaged (turned, shifted,
+  sunk, scattered, track turned 90 degrees, 3-part splices, neutral jitter);
+* the round's eye-judged pairs.
+
+Split by set number, the held-out half (372 pairs / 30 sets) scores **0.981 with
+0 false accepts, against 0.758 and 9 for the strict gate**. The eye-judged pairs
+go from 4 to 19 of 19 distinct sets. Two supplied labels were wrong on the
+render:
+
+* 10313's "known-bad regression" seats its 48-petal ring;
+* `LDR/60051`'s "authentic" build has its track turned and its train exploded.
+
+Evidence: `output/gate-v2/` (`calib/` pairs, grades, `eval_final.json`;
+`visual/` pair renders; `labels/visual_verdicts.json` the eye verdicts).
+
+Two tools for later rounds:
+
+* `scripts/_render_ab_pairs.py <gate_v2.json> <out> --verdict unsure` renders
+  before|after pairs through the real viewer (`_lego-probe.mjs`, dev server on
+  :4000), composed under 2000 px.
+* `clego/discovery/patch_index_entries.py <paths.txt>` patches ONLY the named
+  files' entries (n, steps, hash, lineage, fresh geograde grade) in both index
+  copies, with build_model_index's own helpers. No full regeneration.
+
+**First use (published 2026-09-25).** The 563 rows the strict gate rejected in
+the round were re-graded. **508 files over 462 distinct sets were published**:
+
+* 318 Eurobricks regenerations, 22 of them accepted by eye from gate-unsure rows;
+* 7 Eurobricks and 7 Mecabricks track repairs;
+* 176 IOModel2V2 turned-part splices.
+
+Of those turned-part splices' changed placements, 1,704 of 1,867 go from zero
+connections to connected.
+
+Checks:
+
+* Renders confirmed 15 of 17 sampled accepts. The two misses were 13 parts or
+  fewer, which set the 16-part abstention.
+* The shipped bytes are backed up in `output/gate-v2/publish/backup-shipped/`.
+* R2 was verified 516/516 plus the index.
+
+Picks (`scripts/_index_picks.ts`): 60050 moves to its repaired file and 10169 to
+its LXF. Eight files were restored to their shipped bytes because publishing
+moved a pick for reasons outside the gate:
+
+* seven IOModel2V2 files resting on a stale PASS, whose picks fell to inflated
+  or other-variant raw `.io` files;
+* 60052, whose longer part list broke the retention rule and lost its verified
+  hand-built Topic LDraw pick.
+
+Held back: 14 eye rejects, the gate's 22 rejects and 7896.

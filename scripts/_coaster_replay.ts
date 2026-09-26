@@ -26,8 +26,12 @@ import { coasterScript, type CoasterRuntimeConfig } from '../web/src/engine/bedr
 
 export interface ReplayResult { digest: string; events: number; ticks: number; routes: number; cars: number; final: Array<{ id: string; distance: unknown; speed: unknown; direction: unknown }> }
 
-/** Run a coaster.js text for `ticks` ticks on the mock host and digest what it did. */
-export function replayCoasterScript(script: string, ticks = 3000, trace?: unknown[]): ReplayResult {
+/**
+ * Run a coaster.js text for `ticks` ticks on the mock host and digest what it did.
+ * `options.events` delivers `/scriptevent`s at given ticks (the stick hook a GameTest
+ * drives a train with); `options.rider: false` never boards the scripted rider.
+ */
+export function replayCoasterScript(script: string, ticks = 3000, trace?: unknown[], options: { events?: Array<{ tick: number; id: string; message: string }>; rider?: boolean } = {}): ReplayResult {
   const configMatch = /^const CONFIG = (\{.*\});$/m.exec(script);
   if (!configMatch) throw new Error('coaster.js: no `const CONFIG = {...};` line');
   const config = JSON.parse(configMatch[1]!) as { typeId: string; routes: any[]; types: Record<string, { role: string }> };
@@ -76,13 +80,15 @@ export function replayCoasterScript(script: string, ticks = 3000, trace?: unknow
   };
   const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? entities : [] }), getAllPlayers: () => [rider], getPlayers: () => [rider] };
   let tick = () => {};
-  const system = { runInterval: (cb: () => void) => { tick = cb; }, runTimeout: () => 0, afterEvents: { scriptEventReceive: { subscribe: () => undefined } } };
+  const subscribers: Array<(ev: unknown) => void> = [];
+  const system = { runInterval: (cb: () => void) => { tick = cb; }, runTimeout: () => 0, afterEvents: { scriptEventReceive: { subscribe: (fn: (ev: unknown) => void) => { subscribers.push(fn); } } } };
   class LinearSpline { controlPoints: unknown[] = []; }
   const body = script.replace(/^import .*;\n/, '');
   new Function('world', 'system', 'LinearSpline', body)(world, system, LinearSpline);
   const car0 = entities[0];
   for (tickNo = 1; tickNo <= ticks; tickNo++) {
-    if (tickNo === 200 && car0) car0.riders.push(rider);
+    if (tickNo === 200 && car0 && options.rider !== false) car0.riders.push(rider);
+    for (const ev of options.events ?? []) if (ev.tick === tickNo) for (const fn of subscribers) fn({ id: ev.id, message: ev.message });
     // The stick: forward for 20 s, idle 10 s, back 10 s, idle (only a driver route reads it).
     stick = tickNo < 600 ? { x: 0, y: 1 } : tickNo < 800 ? { x: 0, y: 0 } : tickNo < 1000 ? { x: 0, y: -1 } : { x: 0, y: 0 };
     if (tickNo === 2400 && car0) car0.riders.length = 0;

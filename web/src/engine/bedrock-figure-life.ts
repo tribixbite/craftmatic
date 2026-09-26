@@ -129,6 +129,13 @@ export interface FigureLifeConfig {
   /** Body height a figure needs clear, world blocks at 100 % (its collision box), per type; `bodyHeight` otherwise. */
   bodyHeights: Record<string, number>;
   bodyHeight: number;
+  /**
+   * Types whose entities carry the Minifig Creator's `craftmatic:draft`
+   * property: while it is true the figure is being dressed or edited by the
+   * wand, and the runtime leaves it alone (it is re-adopted, with a new home
+   * where it stands, once the wand releases it).
+   */
+  draftTypes?: string[] | undefined;
   tuning: FigureTuning;
 }
 
@@ -257,6 +264,109 @@ export function refugeCell(spanAt: SpanLookup, x: number, z: number, feet: numbe
   return best;
 }
 
+/**
+ * Where the placement runtime puts a figure it spawns (bedrock-placement-pack.ts,
+ * the `_fig` branch of the spawn loop, which carries its own copy): the body is
+ * raised past every span it overlaps, span by span, and kept there when the
+ * total rise is within `budget` blocks; otherwise it stays at `feet`.
+ * Pure (host only: the export and the census predict the device spawn with it).
+ */
+export function spawnLift(spanAt: SpanLookup, x: number, z: number, feet: number, body: number, budget: number): number {
+  const bx = Math.floor(x), bz = Math.floor(z);
+  let f = feet;
+  for (let guard = 0; guard < 64; guard++) {
+    let lifted = false;
+    for (let y = Math.floor(f); y <= Math.floor(f + body - 1e-9); y++) {
+      const s = spanAt(bx, y, bz);
+      if (s && s[0]! < f + body - 1e-9 && s[1]! > f + 1e-9) { f = s[1]!; lifted = true; break; }
+    }
+    if (!lifted) break;
+  }
+  return f - feet <= budget + 1e-9 ? f : feet;
+}
+
+/** What `resolveFigureSpawn` did with one figure. */
+export interface FigureSpawn {
+  /** Feet position to spawn at, world blocks. */
+  x: number; y: number; z: number;
+  /**
+   * `kept`: its own column carries it (at most a step up, a hair down);
+   * `grounded`: nothing under its feet, set down on the nearest surface
+   * below in its own column; `moved`: its own column is blocked (it stood
+   * inside a collider), set on the standable column nearby with the most room.
+   */
+  kind: 'kept' | 'grounded' | 'moved';
+  /** Blocks it was lowered (positive) or raised (negative). */
+  drop: number;
+  /** Horizontal distance it was moved, blocks. */
+  shift: number;
+  /** Reachable cells from the chosen spot (capped at `ROOM_PROBE_CELLS`). */
+  room: number;
+}
+
+/** Cells explored to rate a spawn candidate's room (enough to tell a floor from a ledge). */
+export const ROOM_PROBE_CELLS = 64;
+
+/**
+ * Where a figure should stand when it is spawned, decided at export over the
+ * collider grid the pack ships, so the placement's spawn lift has nothing to
+ * do. Measured 2026-09-25 over the 40 favourites (`_figure_support_audit.ts`,
+ * `_figure_roam_census.ts`): the 16 figures that fell at placement stood on
+ * NO part at all - LEGO's box-art line-up of figures on the table beside the
+ * model (21360, 42639, 43267, 77092), with the model's own base above or
+ * beside them - and every figure the spawn lift raised more than a step
+ * (71040, 31141, 42639, 77092: 1.2-2.6 blocks) stood INSIDE a collider column
+ * (a 1-block cell holding a wall, a counter, the base it stood against) and
+ * was put on the roof above it, where it had 2-6 cells to walk.
+ *
+ *  1. Its own column carries it within `maxUp` above / 0.25 below: kept.
+ *  2. Otherwise every column within `radius` cells (its own included) where a
+ *     body stands within `maxUp` above / `maxDrop` below its feet is rated by
+ *     its room (cells reachable from it, `ROOM_PROBE_CELLS` at most), and the
+ *     cheapest one with at least `minRoom` wins, else the cheapest of all:
+ *     cost = distance + 1.5 x drop + 3 x rise. Its own column wins at equal
+ *     cost, and keeps the source's exact x/z.
+ *  3. Otherwise the highest standable top anywhere below it in its own column
+ *     (a line-up far above the ground: 43267's model stands 5 blocks up on a
+ *     few stray low parts): grounded.
+ *  4. Nothing at all: kept where it is (the runtime's wedge and refuge logic).
+ *
+ * `allowed(x, z)` bounds the columns (the placement footprint). No collider
+ * is added: a figure never stands on anything the player cannot. Pure.
+ */
+export function resolveFigureSpawn(
+  spanAt: SpanLookup, at: { x: number; y: number; z: number }, body: number,
+  allowed: (x: number, z: number) => boolean,
+  opts: { maxUp: number; maxDown: number; minRoom: number; radius?: number; maxDrop?: number },
+): FigureSpawn {
+  const radius = opts.radius ?? 2, maxDrop = opts.maxDrop ?? 3;
+  const cx = Math.floor(at.x), cz = Math.floor(at.z);
+  const own = standFeetAt(spanAt, cx, cz, at.y, body, opts.maxUp, 0.25);
+  const roomOf = (x: number, z: number, feet: number): number => exploreWalkable(spanAt, { x, z, feet }, body, opts.maxUp, opts.maxDown,
+    (ax, az) => allowed(ax, az), ROOM_PROBE_CELLS, standFeetAt).length;
+  if (own !== null) return { x: at.x, y: own, z: at.z, kind: 'kept', drop: at.y - own, shift: 0, room: roomOf(cx, cz, own) };
+  let best: FigureSpawn | null = null, bestCost = Infinity, bestRoomy = false;
+  for (let dx = -radius; dx <= radius; dx++) for (let dz = -radius; dz <= radius; dz++) {
+    const x = cx + dx, z = cz + dz;
+    if ((dx || dz) && !allowed(x, z)) continue;
+    const f = standFeetAt(spanAt, x, z, at.y, body, opts.maxUp, maxDrop);
+    if (f === null) continue;
+    const self = !dx && !dz;
+    const px = self ? at.x : x + 0.5, pz = self ? at.z : z + 0.5;
+    const shift = Math.hypot(px - at.x, pz - at.z);
+    const cost = shift + 1.5 * Math.max(0, at.y - f) + 3 * Math.max(0, f - at.y) - (self ? 1e-6 : 0);
+    const room = roomOf(x, z, f), roomy = room >= opts.minRoom;
+    if ((roomy && !bestRoomy) || (roomy === bestRoomy && cost < bestCost)) {
+      best = { x: px, y: f, z: pz, kind: self ? 'grounded' : 'moved', drop: at.y - f, shift, room };
+      bestCost = cost; bestRoomy = roomy;
+    }
+  }
+  if (best) return best;
+  const below = standFeetAt(spanAt, cx, cz, at.y, body, 0, at.y + 1);
+  if (below !== null) return { x: at.x, y: below, z: at.z, kind: 'grounded', drop: at.y - below, shift: 0, room: roomOf(cx, cz, below) };
+  return { x: at.x, y: at.y, z: at.z, kind: 'kept', drop: 0, shift: 0, room: 0 };
+}
+
 /** The cells from the start to `cells[index]`, start excluded. Pure. */
 export function pathTo(cells: WalkCell[], index: number): WalkCell[] {
   const out: WalkCell[] = [];
@@ -299,6 +409,12 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
   const { world, system } = mc;
   const T = config.tuning;
   const types = new Set(config.figureTypes);
+  const draftTypes = new Set(config.draftTypes ?? []);
+  /** A creator figure the wand is dressing or editing (`craftmatic:draft`): not this runtime's to move. */
+  const isDraft = (e: any): boolean => {
+    if (!draftTypes.has(e.typeId)) return false;
+    try { return e.getProperty('craftmatic:draft') === true; } catch { return false; }
+  };
   interface Life {
     e: any; home: FigureHome; state: 'idle' | 'turn' | 'walk' | 'sit' | 'stay' | 'return';
     until: number; path: WalkCell[]; i: number; yaw: number; seat?: any; checkAt: number; checkPos?: any;
@@ -453,7 +569,9 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
           const d = (c.x + 0.5 - sl.x) ** 2 + (c.z + 0.5 - sl.z) ** 2;
           if (d < 1.6 * 1.6 && Math.abs(c.feet - sl.y) < 1.2 && d < bestD) { bestD = d; bestI = i; }
         });
-        const here = (e.location.x - sl.x) ** 2 + (e.location.z - sl.z) ** 2 < 1.6 * 1.6;
+        // Beside it on the SAME floor: on the Pixel (76269, 2026-09-25) a figure
+        // 6 blocks over a seat on the storey below "sat" through the floor.
+        const here = (e.location.x - sl.x) ** 2 + (e.location.z - sl.z) ** 2 < 1.6 * 1.6 && Math.abs(e.location.y - sl.y) < 1.2;
         if (bestI < 0 && !here) continue;
         l.seat = s;
         if (bestI < 0) { sit(l); return; }
@@ -628,7 +746,7 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       let found: any[] = [];
       try { found = world.getDimension(id).getEntities({ families: ['craftmatic_figure'] }); } catch { continue; }
       for (const e of found) {
-        if (!types.has(e.typeId) || lives.has(e.id)) continue;
+        if (!types.has(e.typeId) || lives.has(e.id) || isDraft(e)) continue;
         const home = readHome(e);
         if (!home) continue;
         let yaw = 0;
@@ -645,6 +763,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       let valid = false;
       try { valid = l.e.isValid; } catch { valid = false; }
       if (!valid) { lives.delete(id); continue; }
+      // Picked up by the Minifig Creator wand: let go (re-adopted after its release).
+      if (tick % 10 === 0 && isDraft(l.e)) { lives.delete(id); continue; }
       try { step(l); } catch (err) {
         // Once per figure, to the content log: a fault here must not be silent.
         if (!(l as any).faulted) { (l as any).faulted = true; console.warn(`[craftmatic figures] ${l.e.typeId}: ${String(err && (err as Error).stack || err)}`); }

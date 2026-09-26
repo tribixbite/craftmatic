@@ -68,6 +68,7 @@
 
 import type { CompiledMesh } from './ldraw-entity-compiler.js';
 import type { LdrawEntityMaterial } from './ldraw-entity-materials.js';
+import { apply, pivotRotation } from './bedrock-geometry-faces.js';
 
 /** Model units in one block, the unit a geometry cube's origin/size is in. */
 export const UNITS_PER_BLOCK = 16;
@@ -148,16 +149,16 @@ export interface BuildLodHullOptions {
   chunkCubes?: number;
 }
 
-const DEG = Math.PI / 180;
 
-/** Rotate a point by an XYZ Euler triple in degrees, the order a Bedrock geometry applies. */
+/**
+ * Rotate a point (JSON coordinates, relative to the pivot) by a geometry's
+ * rotation triple in degrees, with the ONE convention `pivotRotation` defines
+ * (bedrock-geometry-faces.ts). This used to apply `Rz(rz)·Ry(ry)·Rx(rx)` to the
+ * JSON angles, which ignores the X mirror the compiler writes them under: every
+ * part turned about X or Z landed on the wrong side of its pivot in the hull.
+ */
 function rotate(p: Vec3, r: readonly number[]): Vec3 {
-  const rx = (r[0] ?? 0) * DEG, ry = (r[1] ?? 0) * DEG, rz = (r[2] ?? 0) * DEG;
-  let [x, y, z] = p;
-  let t = y * Math.cos(rx) - z * Math.sin(rx); z = y * Math.sin(rx) + z * Math.cos(rx); y = t;
-  t = x * Math.cos(ry) + z * Math.sin(ry); z = -x * Math.sin(ry) + z * Math.cos(ry); x = t;
-  t = x * Math.cos(rz) - y * Math.sin(rz); y = x * Math.sin(rz) + y * Math.cos(rz); x = t;
-  return [x, y, z];
+  return apply(pivotRotation([r[0] ?? 0, r[1] ?? 0, r[2] ?? 0], [0, 0, 0]), p);
 }
 
 interface Aabb { min: Vec3; max: Vec3 }
@@ -353,12 +354,20 @@ export function buildLodHull(entityId: string, input: LodHullInput, options: Bui
   const owner = new Int32Array(solid.length).fill(-1);
   const best = new Float32Array(solid.length);
   const volume = new Float32Array(solid.length);
-  colours.forEach(([colorId], ci) => {
+  // Any OPAQUE volume in a cell beats every translucent one: a glass pane is a
+  // thin hollow shell whose clipped volume can outweigh the roof it sits in, and
+  // a translucent hull cell shows the hull's own inside - 76417's whole upper
+  // floor read as a sheet of glass at distance (Pixel 2026-09-25, "the upper
+  // level is translucent"). Glass keeps the cells where nothing opaque is.
+  const translucentAt = (ci: number): boolean => colours[ci]![1].translucent;
+  colours.forEach(([colorId, info], ci) => {
     volume.fill(0);
     claimVolumes(grid, boxes.filter(b => b.colorId === colorId), volume);
     for (let i = 0; i < volume.length; i++) {
       if (!surface[i] || !volume[i]) continue;
-      if (owner[i] < 0 || volume[i]! > best[i]!) { owner[i] = ci; best[i] = volume[i]!; }
+      const held = owner[i]!;
+      if (held >= 0 && info.translucent && !translucentAt(held)) continue;
+      if (held < 0 || (translucentAt(held) && !info.translucent) || volume[i]! > best[i]!) { owner[i] = ci; best[i] = volume[i]!; }
     }
   });
 
@@ -389,7 +398,10 @@ export function buildLodHull(entityId: string, input: LodHullInput, options: Bui
     cuboids += cubes.length;
     for (let offset = 0; offset < cubes.length; offset += chunk) {
       const id = `geometry.craftmatic.${entityId}_lod_${meshes.length}`;
-      meshes.push({ id, material: info.material, translucent: info.translucent, cuboids: Math.min(chunk, cubes.length - offset) });
+      // Drawn OPAQUE even for a glass colour: the hull is a hollow skin, and
+      // through a blended cell the far side sees the skin's own inside - a
+      // roof of glass over nothing (76417 at distance, Pixel 2026-09-25).
+      meshes.push({ id, material: info.material, translucent: false, cuboids: Math.min(chunk, cubes.length - offset) });
       geometries.push({
         // The culling box is the full model's: the hull covers the same volume,
         // and a chunk of it can sit anywhere inside that volume.
