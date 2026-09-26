@@ -215,7 +215,11 @@ export function faceArtImage(part: string, mesh: LdrawPartMesh, headPrint?: stri
   const width = Math.max(1, Math.round((rect.x1 - rect.x0) * FACE_PX_PER_LDU));
   const height = Math.max(1, Math.round((rect.y1 - rect.y0) * FACE_PX_PER_LDU));
   const rgba = new Uint8Array(width * height * 4);
-  const skin = photoSkinColour(art);
+  // A doll's art (`scripts/doll_face_art.py`) is already cut to its print
+  // against a fitted, SHADED skin; what is left is all ink, so the most common
+  // opaque colour is a feature (an iris, a brow), not skin, and dropping it
+  // punched holes through the eyes - the mottle a user would see.
+  const skin = isDollHead(part, mesh) ? null : photoSkinColour(art);
   for (let y = 0; y < height; y++) {
     const sy = Math.min(art.height - 1, Math.floor(((y + 0.5) / height) * art.height));
     for (let x = 0; x < width; x++) {

@@ -54,9 +54,15 @@ FACE_PX_PER_LDU = 4            # head-face.ts FACE_PX_PER_LDU
 BACKGROUND_MIN = 232           # a photo pixel whose every channel is above this is background
 YAWS = np.radians(np.arange(-66, 67, 3))
 PITCHES = np.radians(np.arange(-52, 53, 4))
+# Camera perspective, 1 / distance in LDU: LEGO's 2023 renders (41732's heads)
+# are pinhole shots close enough to foreshorten the far cheek; 0 is orthographic.
+PERSPECTIVES = (0.0, 0.006, 0.012, 0.02)
 MIN_FACING = 0.12              # |cos| of the angle between a texel's normal and the camera, below which it is not read
 INK_DISTANCE = 45              # RGB distance from the skin that makes a texel ink (as gen-face-art.py)
 MIN_FIT_IOU = 0.85             # a worse silhouette fit is not this mould in this pose: no art
+SPECKLE_MIN = 3                # ink blobs smaller than this (texels) are photo noise
+HUE_INK = 0.05                 # chromaticity distance from the skin that makes LIGHT ink a print, not a highlight
+FILL_NEIGHBOURS = 5            # a non-ink texel with this many ink neighbours (of 8) is a hole in a feature
 # A texel seen less squarely than MIRROR_BELOW takes its mirror image when that was seen at MIRROR_FROM or better.
 MIRROR_BELOW, MIRROR_FROM = 0.45, 0.6
 # Half the distance between a doll's eyes, as a share of the head's width (median of 38 LDraw doll prints).
@@ -146,30 +152,36 @@ def _rot(yaw: float, pitch: float) -> np.ndarray:
     return np.array([[1, 0, 0], [0, cp, -sp], [0, sp, cp]]) @ np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
 
 
+def _project(Q: np.ndarray, persp: float) -> np.ndarray:
+    """Camera-frame points (x, y, depth) to the image plane: a pinhole `persp` = 1 / distance (LDU^-1), 0 = orthographic."""
+    return Q[:, :2] / (1.0 + persp * Q[:, 2:3])
+
+
 def _fit(tris, sil: np.ndarray):
     V = np.concatenate(tris)
     ys, xs = np.where(sil)
     px0, px1, py1 = xs.min(), xs.max(), ys.max()
     best = None
-    for yaw in YAWS:
-        for pitch in PITCHES:
-            R = _rot(yaw, pitch)
-            Q = V @ R.T
-            s = (px1 - px0) / (Q[:, 0].max() - Q[:, 0].min())
-            tx, ty = px0 - s * Q[:, 0].min(), py1 - s * Q[:, 1].max()   # width-scaled, aligned on the chin
-            img = Image.new('1', (sil.shape[1], sil.shape[0]), 0)
-            d = ImageDraw.Draw(img)
-            for tri in tris:
-                q = tri @ R.T
-                d.polygon([(s * p[0] + tx, s * p[1] + ty) for p in q], fill=1)
-            m = np.asarray(img, bool)
-            iou = (m & sil).sum() / max(1, (m | sil).sum())
-            if best is None or iou > best[0]:
-                best = (iou, yaw, pitch, s, tx, ty)
+    for persp in PERSPECTIVES:
+        for yaw in YAWS:
+            for pitch in PITCHES:
+                R = _rot(yaw, pitch)
+                Q = _project(V @ R.T, persp)
+                s = (px1 - px0) / (Q[:, 0].max() - Q[:, 0].min())
+                tx, ty = px0 - s * Q[:, 0].min(), py1 - s * Q[:, 1].max()   # width-scaled, aligned on the chin
+                img = Image.new('1', (sil.shape[1], sil.shape[0]), 0)
+                d = ImageDraw.Draw(img)
+                for tri in tris:
+                    q = _project(tri @ R.T, persp)
+                    d.polygon([(s * p[0] + tx, s * p[1] + ty) for p in q], fill=1)
+                m = np.asarray(img, bool)
+                iou = (m & sil).sum() / max(1, (m | sil).sum())
+                if best is None or iou > best[0]:
+                    best = (iou, yaw, pitch, s, tx, ty, persp)
     return best
 
 
-def _sample(photo, sil, mould, yaw, pitch, s, tx, ty) -> tuple[np.ndarray, np.ndarray]:
+def _sample(photo, sil, mould, yaw, pitch, s, tx, ty, persp=0.0) -> tuple[np.ndarray, np.ndarray]:
     """The face-on art read off the photo, and how squarely each texel faced the camera (0 = unseen)."""
     _, lo, _, depth, normal = mould
     H, W = depth.shape
@@ -177,7 +189,7 @@ def _sample(photo, sil, mould, yaw, pitch, s, tx, ty) -> tuple[np.ndarray, np.nd
     ys, xs = np.nonzero(np.isfinite(depth))
     P = np.stack([lo[0] + (xs + 0.5) / FACE_PX_PER_LDU, lo[1] + (ys + 0.5) / FACE_PX_PER_LDU, depth[ys, xs]], axis=1)
     facing = -(normal[ys, xs] @ R.T)[:, 2]
-    Q = P @ R.T
+    Q = _project(P @ R.T, persp)
     u = np.rint(s * Q[:, 0] + tx).astype(int)
     v = np.rint(s * Q[:, 1] + ty).astype(int)
     ok = (facing >= MIN_FACING) & (u >= 0) & (v >= 0) & (u < photo.shape[1]) & (v < photo.shape[0])
@@ -297,12 +309,34 @@ def _ink(art: np.ndarray) -> np.ndarray:
         keep = ink
     else:
         dark = ink & (lum < skin_lum)
-        keep = dark | (ink & ~dark & _dilate(dark, 2))
+        # Light ink is kept beside dark ink (eye whites, teeth) or when its HUE
+        # differs from the skin's (42703's gold cheek stars, 41732's pink
+        # lips); a studio highlight is lighter skin of the same hue and goes.
+        chroma = lambda c: c / np.maximum(1.0, c.sum(axis=-1, keepdims=True))
+        hue_off = np.sqrt(((chroma(rgb.astype(float)) - chroma(skin)) ** 2).sum(axis=2)) > HUE_INK
+        keep = dark | (ink & ~dark & (_dilate(dark, 2) | hue_off))
     r = max(2, art.shape[1] // 26)
     padded = np.pad(opaque, r, constant_values=False)
     inner = ~_dilate(~padded, r)[r:-r, r:-r]
+    keep &= inner
+    # Speckle: a photo's JPEG ringing and anti-aliased edges leave single ink
+    # texels and one-texel holes, which the device draws as a dotted, mottled
+    # face. Ink blobs under SPECKLE_MIN texels go; a hole ringed by ink
+    # (FILL_NEIGHBOURS of its 8 neighbours) is filled with their mean colour.
+    from scipy import ndimage
+    lab, n = ndimage.label(keep, structure=np.ones((3, 3)))
+    if n:
+        sizes = ndimage.sum(keep, lab, range(1, n + 1))
+        keep &= np.isin(lab, np.nonzero(sizes >= SPECKLE_MIN)[0] + 1)
+    k = keep.astype(np.int32)
+    neighbours = sum(np.roll(np.roll(k, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx)
+    holes = ~keep & opaque & (neighbours >= FILL_NEIGHBOURS)
     out = art.copy()
-    out[..., 3] = np.where(keep & inner, 255, 0).astype(np.uint8)
+    if holes.any():
+        rgbk = art[..., :3].astype(np.int64) * k[..., None]
+        total = sum(np.roll(np.roll(rgbk, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dy or dx)
+        out[holes, :3] = (total[holes] / neighbours[holes][:, None]).astype(np.uint8)
+    out[..., 3] = np.where(keep | holes, 255, 0).astype(np.uint8)
     return out
 
 
@@ -322,8 +356,8 @@ def doll_art(photo_path: Path, mould_stem: str) -> tuple[Image.Image | None, dic
     sil = ~(photo.min(axis=2) > BACKGROUND_MIN)
     if sil.sum() < 500:
         return None, {'error': 'no head in the photo'}
-    iou, yaw, pitch, s, tx, ty = _fit(_triangles(f'{mould_stem}.dat', studs=True), sil)
-    info = {'iou': round(float(iou), 3), 'pitch': round(math.degrees(pitch), 1)}
+    iou, yaw, pitch, s, tx, ty, persp = _fit(_triangles(f'{mould_stem}.dat', studs=True), sil)
+    info = {'iou': round(float(iou), 3), 'pitch': round(math.degrees(pitch), 1), 'perspective': persp}
     if iou < MIN_FIT_IOU:
         return None, {**info, 'error': 'silhouette does not fit the mould'}
     # The silhouette cannot tell yaw from -yaw; the print can: the face centre
@@ -334,9 +368,9 @@ def doll_art(photo_path: Path, mould_stem: str) -> tuple[Image.Image | None, dic
     centre = np.array([(lo[0] + hi[0]) / 2, lo[1] + (cy + 0.5) / FACE_PX_PER_LDU, depth[cy, cx]])
     side = _face_side(photo, sil)
     sil_x = float(np.nonzero(sil)[1].mean())
-    projected = lambda y: s * (_rot(y, pitch) @ centre)[0] + tx - sil_x
+    projected = lambda y: s * _project((_rot(y, pitch) @ centre)[None, :], persp)[0, 0] + tx - sil_x
     yaw = yaw if projected(yaw) * side >= projected(-yaw) * side else -yaw
-    art, seen = _sample(photo, sil, mould, yaw, pitch, s, tx, ty)
+    art, seen = _sample(photo, sil, mould, yaw, pitch, s, tx, ty, persp)
     art, mirrored = _mirror_far_side(art, seen)
     info.update(yaw=round(math.degrees(yaw), 1), mirrored=round(mirrored, 3), symmetry=round(_symmetry(_ink(art)), 3))
     return Image.fromarray(_ink(art), 'RGBA'), info
