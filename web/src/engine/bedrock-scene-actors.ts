@@ -198,14 +198,23 @@ export function settleLooseAccessories(bricks: ParsedBrick[], meshes: ReadonlyMa
   const loose = [...boxes.keys()].filter(b => isAccessory(b, meshes.get(b.part)?.description ?? ''));
   const T = ACCESSORY_TOUCH_LDU;
   const settled: SettledAccessory[] = [];
-  for (const b of loose) {
-    const box = boxes.get(b)!;
-    let touches = false;
-    for (const [o, ob] of boxes) {
-      if (o === b) continue;
-      if ([0, 1, 2].every(i => ob.min[i]! <= box.max[i]! + T && ob.max[i]! >= box.min[i]! - T)) { touches = true; break; }
+  const touch = (p: { min: Vec3; max: Vec3 }, q: { min: Vec3; max: Vec3 }): boolean => [0, 1, 2].every(i => q.min[i]! <= p.max[i]! + T && q.max[i]! >= p.min[i]! - T);
+  // Held means touching the model or an accessory the model holds (a flag in a signal holder on a
+  // wall), grown to a fixpoint. Accessories that only touch EACH OTHER are not held: the page's 16
+  // goblets in front of 76417 stand in a grid 20 LDU apart, every one touching its neighbours.
+  const looseSet = new Set(loose);
+  const held = new Set<ParsedBrick>([...boxes.keys()].filter(b => !looseSet.has(b)));
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const b of loose) {
+      if (held.has(b)) continue;
+      const box = boxes.get(b)!;
+      for (const o of held) if (touch(box, boxes.get(o)!)) { held.add(b); grew = true; break; }
     }
-    if (touches) continue;
+  }
+  for (const b of loose) {
+    if (held.has(b)) continue;
+    const box = boxes.get(b)!;
     // The first surface under it: the highest top (smallest y) at or below its bottom that overlaps it in plan.
     let surface = ground;
     for (const [o, ob] of boxes) {

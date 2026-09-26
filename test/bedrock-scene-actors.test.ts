@@ -599,6 +599,13 @@ describe('the display scatter (settleLooseAccessories)', () => {
     expect(held.y).toBe(-0.5);
     expect(own.y).toBe(-30);
   });
+  it('sets down a row of goblets that only touch each other (76417\'s page), not held by the model', () => {
+    const plate = brick('plate.dat', 0, 0, 0);
+    const row = [brick('goblet.dat', -20, -20, 0), brick('goblet.dat', -8, -20, 0), brick('goblet.dat', 4, -20, 0)];
+    const settled = settleLooseAccessories([plate, ...row], meshes, new Set(), isAccessory);
+    expect(settled).toHaveLength(3);
+    for (const g of row) expect(g.y).toBe(0);
+  });
   it('sets one with nothing under it down on the model\'s underside', () => {
     const plate = brick('plate.dat', 0, 0, 0); // underside at y 8
     const aside = brick('goblet.dat', 300, -50, 0);
