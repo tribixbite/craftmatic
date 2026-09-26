@@ -51,16 +51,52 @@ in the polish worktree, labels in `C:/git/craftmatic/output/device-round-2026-09
   downloads (`*-1_*.mcaddon`, `.mcpack`, `.schem`), `Download/craftmatic-pack-backup-0924/`
   (empty folders), older imported pack folders under `behavior_packs`
   (adb cannot delete there without root); another agent's staging dir in use.
+- Second pass (after round 26c): Pixel 20 more `000-*.mcaddon` imports; Saga
+  16,277 files in 6 staging dirs (4 left by the creator-wand agent, 2 of this
+  round). `/data/local/tmp` holds no `craftmatic-deploy-*` now. Left: the
+  Gabby agent's 5 `000-*gabby*` imports on the Pixel (possibly in use).
 - Saga world 925 still holds three 42703 interactive entities (lid 1, doors
-  1-2) from an earlier session: remove with `/kill` by type when next in-world.
+  1-2) from an earlier session, and a creator-wand draft figure the Minifig
+  Creator wand spawned when its slot was selected (the creator pack is no
+  longer bound, so it will not load): remove with `/kill` by type when next
+  in-world. The player's hotbar is empty (the creator wand item went with its
+  pack's binding).
 
 ## Round 2026-09-26c (polish worktree `agent-a55b8131b17a9ef8f`)
 
 Commits: `dfd19552` stairs + `--prune-stale`, `14a0a08c` tap forwarding +
 refusal record, `f275ff02` ride-car name tags + pinball stand-up,
-`6a82f8d0` figure separation + display scatter. Packs:
-`output/device-round-2026-09-26c/packs/` (14, same labels and uuids as 26b).
-DEVICE RESULTS: see "Device results 26c" below.
+`6a82f8d0`/`3f5ca815` figure separation + display scatter, `bb37618f`
+GameTest tester position, merged with main at `da9dcbad`. **Sent**:
+`output/device-round-2026-09-26c/craftmatic-packs-da9dcbad.zip` (sha256
+01217bdd613b049ed3713eeeeafaee974b54dcef84ad89094425af253818a8c7; 14 packs +
+PACKS.md, built one at a time from `da9dcbad`, same labels and uuids as 26b,
+`_mcaddon_check` 14/14, parts identical to 26b). Saga 925: dev
+`--exclusive --prune-stale` (the creator pack's binding dropped; 0 stale
+files), content log 0 errors / 0 overridden after a world load. Pixel 924:
+import `--exclusive`, 14 + 14 bound; world not opened.
+
+Device results:
+- Saga, pinball stand-up (packs at `3f5ca815`): 11374 placed with the wand,
+  seated by `/ride`, stood up; the wand slot came back selected and NO wand
+  form opened (`output/polish-0926/saga/s16`, `s18`); Undo removed it.
+- Pixel GameTest (`cmgametest`, variants of the `6a82f8d0` packs,
+  `output/gametest-0926/logs/`): doorways as predicted 910047 3/3 (the plank
+  gate walked this time), 41395 2/2 (Door 2 OK on its stairs), 60380 2/2
+  (Door 3 OK), 31141 5/5, 42670 6/7 (Door 4 predicted blocked open, the
+  device walked it: better than predicted); parts+seats 910047 4/4, 41395
+  6/6, 60380 25/25, 42670 4/4, 31141 9/10.
+- 31141 Window 2 explained: the tester stood 2.88 blocks off its spot
+  (`stoodAt1` 20.5, 0.31, 5.54 vs spot 20.5, 3, 4.5): it fell off the ledge
+  spot on teleport and hit from the floor below, where a wall really is in
+  the way (the refusal's cutting cell 226,-55,308 is a full collider). Not a
+  line-of-sight disagreement. Next: choose tap spots with room around them.
+- 80049 did not run twice: the runner opened world 924, which now sorts
+  first on the Play screen (the runner's tile check matched the wrong tile).
+  Next: make `_gt_device_run.py` find the `cmgametest` tile by name.
+- Not seen on a device: the ride-car name tag (needs 10261 placed and
+  ridden), tap forwarding by a real finger, the display scatter, stairs by a
+  real player.
 
 ## Open — interactivity
 
@@ -72,15 +108,14 @@ DEVICE RESULTS: see "Device results 26c" below.
   only"; the rest open onto furniture or walls (`output/clearance-0925/sealed.ts`
   in the clearance worktree prints what stands in front of each side).
   Stairs are not seen on a device yet beyond the GameTest runs below.
-- [ ] **31141 Window 2 / 80049 Window 3 "behind a wall" on the device** from
-  spots the host accepts. The refusal record now carries eyes, part position
-  and the cutting collider cell; read it from the next GameTest `PART` line
-  (`refused` field) and compare with `bun scripts/_ix_host_trace.ts <pack>
-  <label> <feet>`. TODO in `scripts/_gametest_pack.ts`.
-- [ ] **910047 Door 1/2 (plank gate)**: offline OK; the GameTest's simulated
-  player drifts off the 1-block threshold ledge (a harness walk, not a player
-  fault). Next: walk level legs with `lookAt` + `moveRelative` instead of
-  `moveToLocation`, or accept it as a harness limit.
+- [ ] **GameTest tap spots on ledges**: 31141 Window 2's tester fell 2.88
+  blocks off its spot before hitting (see round 26c): the harness, not the
+  runtime's line of sight. Next: `_gametest_pack.ts` prefers spots with
+  standable neighbours at the same height; then re-run 31141 and 80049
+  (80049 needs the runner to find `cmgametest` by name).
+- [ ] 910047 Door 1/2 (plank gate) walked as predicted in round 26c after
+  failing on 26b's run: the simulated walk is flaky on its 1-block ledge; one
+  more pass decides.
 - [ ] **Tap occlusion**: 910004 Door 4 tapped from the front toggled Window 3
   (Window 3's box first on the ray; no refusal, so no forwarding). Next: the
   tap audit could flag boxes that occlude another part's box from its
@@ -256,7 +291,7 @@ add-on guide "Minifig Creator wand on the phones". The wand works by hand on the
 Saga end to end; open items:
 - [ ] Run GameTest `creator_wand_<id>` on the Pixel (`cmgametest`): variant
   built at `output/minifig-wand-0926/gametest-6a77244b/minifig-creator-gametest.mcaddon`
-  (bind it ALONE: `685fa7cc…` is bound there now). Not run: the Pixel lock was held.
+  (bind it ALONE: the polish round's 31141 GameTest variant is bound there now). Not run: the Pixel lock was held.
 - [ ] Pixel by hand: the same function list on the Pixel's screen (form width,
   preview spot at 45 degrees), and a figure code pasted into the Name/code form.
 - [ ] A released (walk) creator figure walking after the new place flow on a
@@ -264,5 +299,5 @@ Saga end to end; open items:
 - [ ] `look` animation turns set-figure heads off their bodies (seen on the
   Saga on `minifig_fig1`); dropped for the creator only. `TODO(figures)`.
 - [ ] `_minifig_ref.ts` packs are named "(unstamped)" in Minecraft's pack list.
-- [ ] Creator pack `027c2c03…` stays bound in Saga world 925 (the Hogsmeade
-  test seat, all creator figures, the reference NPC and the wand were removed).
+- Creator pack `027c2c03…` unbound from Saga world 925 by round 26c's
+  `--exclusive` deploy; its dev folder stays installed.
