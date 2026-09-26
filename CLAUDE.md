@@ -164,7 +164,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (`CRAFTMATIC_LDRAW_REF`, set by `vitest.config.ts` and `_playable_ref.ts`
   when the folder exists). Prod rate-limited this machine (HTTP 429) for 90+
   minutes on 2026-09-25 and every test needing a post-2020 part failed; a
-  pack built then would have drawn those parts as older moulds.
+  pack built then would have drawn those parts as older moulds. **Everything
+  the mirror serves is also local**, so with `ldraw_ref/` present the suite
+  runs OFFLINE (`CRAFTMATIC_LDRAW_MIRROR=off`). If a test only passes with the
+  network, the local LOOKUP is wrong, not the library: on 2026-09-26 it skipped
+  Studio's `UnOfficial/parts/s/` and a null mirror skipped `ldraw_ref/`.
 - **A CLI build must ask the mirror for the EXACT part before a local alias.**
   The local library is the 2020 Studio snapshot; its alias ladder turned
   upstream-only prints (`3626cp1t`, every `92198p*`) into their plain mould

@@ -35,10 +35,12 @@ export default defineConfig({
     },
   },
   test: {
-    // The mirror stays ON: 10303's tests need parts only the mirror serves
-    // (`ldraw_ref/` is not a complete copy; measured 2026-09-26). Its answers are
-    // cached on disk, so each part costs the network once.
-    env: { ...(existsSync(LDRAW_REF) ? { CRAFTMATIC_LDRAW_REF: LDRAW_REF } : {}), CRAFTMATIC_LDRAW_MIRROR_CACHE: LDRAW_MIRROR_CACHE },
+    // With the local copy present the suite is OFFLINE: everything the mirror
+    // serves is on this machine (Studio's library + `ldraw_ref/`), so no test
+    // waits on prod. The 10303 tests "needed" the mirror only because the local
+    // lookup skipped `UnOfficial/parts/s/` and a null mirror skipped `ldraw_ref/`
+    // (both fixed 2026-09-26). Without the copy (CI), answers are cached on disk.
+    env: { ...(existsSync(LDRAW_REF) ? { CRAFTMATIC_LDRAW_REF: LDRAW_REF, CRAFTMATIC_LDRAW_MIRROR: process.env.CRAFTMATIC_LDRAW_MIRROR ?? 'off' } : {}), CRAFTMATIC_LDRAW_MIRROR_CACHE: LDRAW_MIRROR_CACHE },
     include: ['test/**/*.test.ts'],
     exclude: [
       ...configDefaults.exclude,

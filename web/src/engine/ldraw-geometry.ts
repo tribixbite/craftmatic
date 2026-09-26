@@ -162,8 +162,8 @@ export function seedDatTexts(entries: Iterable<readonly [string, string | null]>
 // test run or a sweep - when prod throttles: it answered HTTP 429 for over an hour
 // on 2026-09-25 under parallel exports, and every corpus test that needs a part
 // the local library lacks then failed for a reason that was not the code.
-// `off` disables it for a process that must not touch the network. (Not the
-// test default: `ldraw_ref/` lacks parts the mirror serves, which 10303 needs.)
+// `off` disables the network step (the local `CRAFTMATIC_LDRAW_REF` copy is
+// still read); vitest.config.ts sets it whenever that copy exists.
 const MIRROR_ENV = typeof process !== 'undefined' ? process.env?.CRAFTMATIC_LDRAW_MIRROR?.replace(/\/$/, '') : undefined;
 let LDRAW_MIRROR: string | null = MIRROR_ENV === 'off' ? null : MIRROR_ENV || 'https://craftmatic.click/ldraw-parts';
 
@@ -189,11 +189,15 @@ export function datSubstitutionFor(id: string): string | undefined {
 function libraryRelPaths(key: string): string[] {
   const stem = key.split('/').pop()!;
   const paths: string[] = [];
+  // Studio's UnOfficial tree has its own `parts/s/` (25059s03, 3626texpole,
+  // 64867s00 ...). Without it every unofficial subpart missed locally and went
+  // to the prod mirror, which serves the same files (2026-09-26): 10303's
+  // corpus tests then could not run offline.
   if (key.includes('/')) {
-    if (key.startsWith('s/')) paths.push(`parts/${key}.dat`);
+    if (key.startsWith('s/')) paths.push(`parts/${key}.dat`, `UnOfficial/parts/${key}.dat`);
     else paths.push(`p/${key}.dat`, `UnOfficial/p/${key}.dat`);
   }
-  paths.push(`parts/${stem}.dat`, `p/${stem}.dat`, `parts/s/${stem}.dat`, `UnOfficial/parts/${stem}.dat`, `UnOfficial/p/${stem}.dat`);
+  paths.push(`parts/${stem}.dat`, `p/${stem}.dat`, `parts/s/${stem}.dat`, `UnOfficial/parts/${stem}.dat`, `UnOfficial/p/${stem}.dat`, `UnOfficial/parts/s/${stem}.dat`);
   return paths;
 }
 
@@ -220,7 +224,6 @@ async function probeLibrary(key: string): Promise<string | null> {
  * the CLI is one-shot, and a hole is reported in the diagnostics either way.
  */
 async function probeMirror(key: string): Promise<string | null> {
-  if (!LDRAW_MIRROR) return null;
   const stem = key.split('/').pop()!;
   const rels = key.includes('/')
     ? (key.startsWith('s/') ? [`parts/${key}.dat`] : [`p/${key}.dat`])
@@ -240,6 +243,9 @@ async function probeMirror(key: string): Promise<string | null> {
       }
     }
   }
+  // Only the NETWORK is off without a mirror: the local copy above is read
+  // either way (an early return here once skipped it, 2026-09-26).
+  if (!LDRAW_MIRROR) return null;
   for (const rel of rels) {
     const cached = await mirrorCacheRead(rel);
     if (cached === MIRROR_MISS) continue;
