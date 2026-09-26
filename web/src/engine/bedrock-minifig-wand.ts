@@ -378,21 +378,41 @@ function minifigWandRuntime(
     return { x: b.x + dx + 0.5, y: b.y + dy, z: b.z + dz + 0.5 };
   };
   /** The nearest rideable with a free seat on the player's line of sight (any pack's seat, a boat, a minecart). */
+  /** A rideable with a free place on it (a set's seat, a boat, a minecart), not a figure or a player. */
+  const freeSeat = (t: any, except: any): boolean => {
+    if (!t || t.id === except?.id || t.typeId === C.figureType || t.typeId === 'minecraft:player') return false;
+    let ride: any;
+    try { ride = t.getComponent('minecraft:rideable'); } catch { return false; }
+    if (!ride) return false;
+    let riders: any[] = [];
+    try { riders = ride.getRiders?.() ?? []; } catch { /* treat as free */ }
+    return riders.length < (Number(ride.seatCount) || 1);
+  };
+  /**
+   * The free seat the player looks at: one the view ray hits, else the one
+   * nearest the view direction within 25 degrees and 8 blocks. A touch screen
+   * has no crosshair, and a set's seat is a thin, invisible box: on the Saga
+   * the exact ray never found the seat the player was looking at (2026-09-26).
+   */
   const seatInView = (p: any, except: any) => {
     let hits: any[] = [];
-    try { hits = p.getEntitiesFromViewDirection?.({ maxDistance: 8 }) ?? []; } catch { return undefined; }
-    for (const hit of hits) {
-      const t = hit?.entity;
-      if (!t || t.id === except?.id || t.typeId === C.figureType || t.typeId === 'minecraft:player') continue;
-      let ride: any;
-      try { ride = t.getComponent('minecraft:rideable'); } catch { continue; }
-      if (!ride) continue;
-      let riders: any[] = [];
-      try { riders = ride.getRiders?.() ?? []; } catch { /* treat as free */ }
-      if (riders.length >= (Number(ride.seatCount) || 1)) continue;
-      return t;
+    try { hits = p.getEntitiesFromViewDirection?.({ maxDistance: 8 }) ?? []; } catch { /* no ray */ }
+    for (const hit of hits) if (freeSeat(hit?.entity, except)) return hit.entity;
+    let view: any;
+    try { view = p.getViewDirection(); } catch { return undefined; }
+    const eye = (() => { try { return p.getHeadLocation(); } catch { return p.location; } })();
+    let near: any[] = [];
+    try { near = p.dimension.getEntities({ location: p.location, maxDistance: 8 }); } catch { return undefined; }
+    let best: any, bestCos = Math.cos(25 * rad);
+    for (const t of near) {
+      if (!freeSeat(t, except)) continue;
+      const dx = t.location.x - eye.x, dy = t.location.y - eye.y, dz = t.location.z - eye.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 1e-6) continue;
+      const cos = (dx * view.x + dy * view.y + dz * view.z) / d;
+      if (cos > bestCos) { bestCos = cos; best = t; }
     }
-    return undefined;
+    return best;
   };
 
   /**
@@ -461,6 +481,8 @@ function minifigWandRuntime(
     s.note = seat ? (seated ? `${name} sits on the seat.` : `${name} stands by the seat.`)
       : `${name} ${wanted === 'walk' ? 'walks about' : 'stands here'}${still && mode === 'walk' ? ' (a sitting pose stays put)' : ''}.`;
     tell(p, s.note);
+    // Said in chat; no wand screen follows a place, so it must not linger into the next one.
+    s.note = undefined;
     return e;
   };
   /** Remove the figure being dressed: the draft is discarded, an edited figure deleted. Undo brings it back. */
@@ -623,8 +645,11 @@ function minifigWandRuntime(
   }
   async function modeMenu(p: any, where: 'here' | 'aim' | 'copy'): Promise<unknown> {
     const m = menu(where === 'copy' ? 'Place a copy' : where === 'aim' ? 'Put it where you look' : 'Place it here', 'What should it do there?');
-    m.add('Walk around', () => { place(p, where, 'walk'); return where === 'copy' ? mainMenu(p) : undefined; });
-    m.add('Stand still', () => { place(p, where, 'stay'); return where === 'copy' ? mainMenu(p) : undefined; });
+    // A place that did not happen (no block in view, the cap) comes back to the Place
+    // screen: on the Saga it closed the wand with only a chat line to say why.
+    const go = (mode: 'walk' | 'stay') => (place(p, where, mode) ? (where === 'copy' ? mainMenu(p) : undefined) : placeMenu(p));
+    m.add('Walk around', () => go('walk'));
+    m.add('Stand still', () => go('stay'));
     m.add('Back', () => placeMenu(p));
     return m.run(p, () => placeMenu(p));
   }

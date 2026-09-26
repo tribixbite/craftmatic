@@ -325,6 +325,15 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(sat.getDynamicProperty('craftmatic:mf_mode')).toBe('stay');
   });
 
+  it('returns to the Place screen when there is no block in view to place on', async () => {
+    const h = host([pick('Place'), pick('Place it where I look'), pick('Stand still'), close, close]);
+    h.player.getBlockFromViewDirection = () => undefined;
+    await h.use();
+    expect(h.messages).toContain('Look at a block within 96 blocks.');
+    expect(h.forms.map((f) => f.title).slice(-3)).toEqual(['Put it where you look', 'Place', 'Minifig Creator']);
+    expect(h.figures()[0].getProperty('craftmatic:draft')).toBe(true);
+  });
+
   it('sits the figure on a free seat in view, with its home on the seat', async () => {
     const h = host([pick('Place'), pick('Sit on the seat')]);
     const seat = new h.Entity(h.dimensions.overworld, { x: 4, y: 64, z: 4 }, 'craftmatic:set_seat');
@@ -336,6 +345,24 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(riders).toEqual([fig]);
     expect(fig.getDynamicProperty('craftmatic:mf_mode')).toBe('seat');
     expect(JSON.parse(fig.getDynamicProperty('craftmatic:fig')).home).toEqual([4, 64, 4]);
+  });
+
+  it('finds the seat nearest the view direction when the view ray misses it (touch has no crosshair)', async () => {
+    const h = host([pick('Place'), pick('Sit on the seat')]);
+    const make = (at: any) => {
+      const seat = new h.Entity(h.dimensions.overworld, at, 'craftmatic:set_seat');
+      const riders: any[] = [];
+      seat.components['minecraft:rideable'] = { seatCount: 1, getRiders: () => riders, addRider: (e: any) => { riders.push(e); return true; } };
+      return { seat, riders };
+    };
+    const ahead = make({ x: 0.5, y: 64, z: 4.5 });   // 10 degrees below the view, straight ahead
+    const aside = make({ x: 5.5, y: 64, z: 1.5 });   // well off to the side
+    h.player.getViewDirection = () => ({ x: 0, y: -0.2, z: 1 });
+    h.player.getHeadLocation = () => ({ x: 0.5, y: 65.6, z: 0.5 });
+    h.dimensions.overworld.getEntities = ((all: any) => (q: any) => (q?.maxDistance ? [...h.entities.values()] : all(q)))(h.dimensions.overworld.getEntities);
+    await h.use();
+    expect(ahead.riders).toHaveLength(1);
+    expect(aside.riders).toHaveLength(0);
   });
 
   it('asks before discarding, and Undo brings the draft back as it was', async () => {
