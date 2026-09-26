@@ -239,6 +239,7 @@ export function findSceneVehicles(bricks: ParsedBrick[], meshes: Map<string, Ldr
     components.push({
       id: `${kind}_${n}`, label: kind === 'car' ? `Car ${n}` : `Boat ${n}`, kind, bricks: members.map(i => bricks[i]!),
       provenance: `vehicle standing in the scene: ${members.length} placements that ${reason}`,
+      fromScene: true,
     });
   }
   return { components, candidates };

@@ -343,6 +343,8 @@ export async function runSchemPipeline(
     let runtimeDoors: import('./bedrock-scene-actors.js').RuntimeDoorCandidate[] = [];
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
+    // Slides and lifts (bedrock-rides.ts): paths in grid coordinates, the lift car's own bricks.
+    let rides: { frame: NonNullable<typeof sourceOrigin>; items: Array<{ kind: 'slide' | 'lift'; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> } | undefined;
     /** The moving parts (bedrock-interactives.ts): their own hinged entities on the shell's frame. Brick-accurate buildings only. */
     let interactives: { items: import('./bedrock-interactives.js').SceneInteractive[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     /** Every interactivity candidate and its verdict (engine/interactivity-stage.ts), for the diagnostics. */
@@ -483,6 +485,20 @@ export async function runSchemPipeline(
             for (const b of plan.moved) movable.add(b);
             pinball = { plan, frame };
           }
+          // A playground slide rides its chute; a dollhouse lift carries its car
+          // between floors (bedrock-rides.ts). A lift's car leaves the shell and
+          // moves as its own entity; a slide stays in the shell and is ridden.
+          {
+            const { findSlides, findLifts } = await import('./bedrock-rides.js');
+            const rideBricks = source.bricks.filter(b => !movable.has(b));
+            const found = [...findSlides(rideBricks, scene.meshes), ...findLifts(rideBricks, scene.meshes, scene.figureBricks)];
+            if (found.length) {
+              const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, scene.groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
+              rides = { frame, items: found.map(r => ({ kind: r.kind, label: r.label, path: r.pathLdu.map(grid3), ...(r.exitsLdu ? { exits: r.exitsLdu.map(grid3) } : {}), ...(r.startStop !== undefined ? { startStop: r.startStop } : {}), ...(r.carBricks ? { carBricks: r.carBricks } : {}) })) };
+              for (const r of found) for (const b of r.carBricks ?? []) movable.add(b);
+              warnings.push(`Rides: ${found.map(r => r.kind === 'slide' ? `slide ${r.part} (${r.pathLdu.length} points)` : `lift on ${r.part} (${r.pathLdu.length} stops, car of ${r.carBricks?.length ?? 0} parts)`).join('; ')}.`);
+            }
+          }
           // A figure's feet and a seat's surface are grounded on the model's
           // UNDERSIDE (`scene.groundLdu`, the pin plane the shell and the
           // colliders stand on), not on the voxel grid's row-0 bottom: the
@@ -600,7 +616,7 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
   }
 

@@ -36,6 +36,15 @@ export interface PlacementActor {
    * and size, and the interactives runtime lays the doorway from them.
    */
   interactive?: number;
+  /**
+   * A ride's index in `scripts/rides.js` (bedrock-rides.ts), on its seat and a
+   * lift's car. The seat also carries its path (and a lift's floor exits) in
+   * model grid coordinates; the placement writes them turned and sized into
+   * the world, so the runtime only follows world points.
+   */
+  ride?: number;
+  ridePath?: Array<[number, number, number]>;
+  rideExits?: Array<[number, number, number]>;
 }
 
 /**
@@ -1337,6 +1346,16 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
             entity.setDynamicProperty('craftmatic:ix_anchor', { x: st.anchor.x, y: st.anchor.y, z: st.anchor.z });
             entity.setDynamicProperty('craftmatic:ix_rotation', st.rotation);
             entity.setDynamicProperty('craftmatic:ix_scale', factor(st));
+          }
+          if (actor.ride !== undefined) {
+            // A slide or lift (bedrock-rides.ts): its path and exits in WORLD points at this turn and size.
+            try {
+              entity.setDynamicProperty('craftmatic:ride', actor.ride);
+              entity.setDynamicProperty('craftmatic:ride_scale', factor(st));
+              const toWorld = (pts: any) => JSON.stringify((pts || []).map((v: any) => { const w = worldPoint(st, { x: v[0], y: v[1], z: v[2] }); return { x: w.x, y: w.y, z: w.z }; }));
+              if (actor.ridePath) entity.setDynamicProperty('craftmatic:ride_path', toWorld(actor.ridePath));
+              if (actor.rideExits) entity.setDynamicProperty('craftmatic:ride_exits', toWorld(actor.rideExits));
+            } catch {}
           }
           if (st.size !== 100) { try { entity.triggerEvent(sizeEvent(st.size)); } catch (e: any) { tell(p, `§e${actor.label} could not take size ${percent(st.size)} (${e && e.message ? e.message : e}); it stands at 100 percent.`); } }
           progress(done0 + j + 1, `${actor.label} placed`);

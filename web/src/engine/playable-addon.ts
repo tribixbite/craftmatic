@@ -27,6 +27,7 @@ import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMP
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { buildCoasterRideAssets, coasterDiagnostics, coasterRuntimeConfig, type CoasterRideAssets, type CoasterRoute } from './bedrock-coaster.js';
+import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedrock-rides.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
@@ -42,6 +43,8 @@ export interface PlayableGridComponent {
     kind: PlayableKind;
     grid: BlockGrid;
     provenance: string;
+    /** Found standing in a scene: the compiler keeps the loose props its cluster carries. */
+    fromScene?: boolean;
     /** Convert this independently voxelized grid back to stationary-scene blocks. */
     sceneScale?: number;
     /** Longitudinal source axis; its sign is intentionally not inferred. */
@@ -106,6 +109,12 @@ export interface PlayableAddonOptions {
     coasterRoutes?: CoasterRoute[];
     /** A LEGO pinball machine read from the model (bedrock-pinball.ts): flippers, ball and console become a playable game. */
     pinball?: { plan: PinballPlan; frame: SceneGridFrame };
+    /**
+     * Slides and lifts (bedrock-rides.ts), in grid coordinates: a ride seat at
+     * each start, a lift's car compiled from its own bricks on `frame`, and
+     * `scripts/rides.js`.
+     */
+    rides?: { frame: SceneGridFrame; items: Array<{ kind: RideKind; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> };
     /**
      * Brick-accurate building: the scenery's placements (figures and door
      * leaves already taken out) compiled as one static entity over invisible
@@ -757,6 +766,26 @@ function seatBehavior(id: string): unknown {
     // the build, so the -0.3 offset under the pan is not scaled above 100 %: the
     // seat entity itself is spawned at the SCALED pan (`worldPoint`), and the
     // rider sits 0.3 blocks under it at every size.
+    } } }, { width: 0.5, height: 0.5 }, rideable, { playerSized: true });
+}
+/**
+ * A ride's seat (bedrock-rides.ts): the invisible seat's shape, for PLAYERS
+ * only and in its own family, so a strolling figure never takes the slide
+ * (figures sit on `craftmatic_seat`). The runtime moves it along the ride.
+ */
+function rideSeatBehavior(id: string): unknown {
+    const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 0 } };
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_ride'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 20, max: 20 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': { width: 0.5, height: 0.5 },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+        'minecraft:pushable_by_block': {},
+        'minecraft:rideable': rideable,
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
     } } }, { width: 0.5, height: 0.5 }, rideable, { playerSized: true });
 }
 function seatClient(id: string): unknown {
@@ -2210,6 +2239,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 pbr,
                 // Spinning wheels and a body that leans (bedrock-vehicle.ts).
                 vehicleRig: true,
+                attachLooseProps: c.fromScene === true,
             });
             facing = ldrawGeo.facing;
         } else if (c.kind === 'car' && facing === 'auto') {
@@ -2558,6 +2588,51 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             actors[figActor]!.rideOf = seatActorStart + fig.seatIndex;
         }
     }
+    // Slides and lifts (bedrock-rides.ts): a ride seat at each ride's start,
+    // a lift's car as its own entity of its exact bricks, and scripts/rides.js.
+    let ridesConfig: RideRuntimeConfig | undefined;
+    if (options.rides?.items.length) {
+        const rideSeatId = entityId(`${id}_ride`, 'r');
+        const rideSeatType = `${PACK_NAMESPACE}:${rideSeatId}`;
+        files.push(
+            { name: `${bp}entities/${rideSeatId}.json`, data: json(rideSeatBehavior(rideSeatId)) },
+            { name: `${rp}entity/${rideSeatId}.entity.json`, data: json(seatClient(rideSeatId)) },
+        );
+        if (!(manualSeatId || seatList.length)) files.push(
+            { name: `${rp}models/entity/craftmatic_seat.geo.json`, data: geoJson(SEAT_GEOMETRY) },
+            { name: `${rp}textures/entity/craftmatic_seat.png`, data: transparentPng() },
+        );
+        addEntityName(rideSeatType, `${label} Ride`, true);
+        const rideList: RideRuntimeConfig['rides'] = [];
+        for (const [i, r] of options.rides.items.entries()) {
+            let carType: string | undefined;
+            if (r.kind === 'lift' && r.carBricks?.length) {
+                const carId = entityId(`${id}_lift_car_${i + 1}`, 'l');
+                try {
+                    options.onProgress?.(`compiling ${label} lift car`, 78);
+                    const geo = await compileLdrawEntityGeometry(carId, 'prop', r.carBricks, { scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
+                        quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, originAboveModel: true });
+                    diagnostics[carId] = geo.diagnostics;
+                    carType = `${PACK_NAMESPACE}:${carId}`;
+                    emitCompiledEntity(carId, geo, pinballPropBehavior(carType, { width: 0.5, height: 0.3 }));
+                    addEntityName(carType, `${label} lift car`, false);
+                    const at = sceneGridPoint(options.rides.frame, geo.originLdu);
+                    actors.push({ typeId: carType, label: `${label} lift car`, x: at[0], y: at[1] + geo.originLiftBlocks, z: at[2], yaw: 0, ride: i });
+                    extraComponents.push({ id: carId, label: `${label} lift car`, kind: 'prop', provenance: `the set's own lift car: ${r.carBricks.length} source placements between ${r.path.length} floors` });
+                } catch (e) {
+                    carType = undefined;
+                    warnings.push(`${label}: the lift car could not be compiled (${e instanceof Error ? e.message : String(e)}); the lift carries the rider alone.`);
+                }
+            }
+            rideList.push({ kind: r.kind, ...(carType ? { carType } : {}), ...(r.startStop !== undefined ? { startStop: r.startStop } : {}) });
+            const start = r.kind === 'lift' ? r.path[r.startStop ?? 0]! : r.path[0]!;
+            const rideLabel = r.kind === 'slide' ? `${label} slide` : `${label} lift`;
+            actors.push({ typeId: rideSeatType, label: rideLabel, x: start[0], y: start[1], z: start[2], yaw: 0, ride: i, ridePath: r.path, ...(r.exits ? { rideExits: r.exits } : {}) });
+            extraComponents.push({ id: `${rideSeatId}_${i + 1}`, label: rideLabel, kind: 'seat', provenance: r.kind === 'slide' ? `slide: sit at the top to slide down its chute (${r.path.length} points)` : `lift: sit in the car to ride to the next floor (${r.path.length} stops)` });
+        }
+        ridesConfig = { seatType: rideSeatType, rides: rideList, constants: RIDE };
+        warnings.push(`${label}: rides - ${rideList.filter(r => r.kind === 'slide').length} slide(s) and ${rideList.filter(r => r.kind === 'lift').length} lift(s); sit on one to ride it.`);
+    }
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
     const screenId = entityId(rawScreenId, 's');
     if (screens.length) {
@@ -2713,6 +2788,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
     })) });
     if (interactiveConfig) files.push({ name: `${bp}scripts/interactives.js`, data: text(interactivesScript(interactiveConfig)) });
+    if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });
     // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
     const figureTypes = Object.keys(figureBodies);
     if (figureTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
@@ -2755,6 +2831,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(coasterConfig ? ["import './coaster.js';"] : []),
         ...(pinballConfig ? ["import './pinball.js';"] : []),
         ...(interactiveConfig ? ["import './interactives.js';"] : []),
+        ...(ridesConfig ? ["import './rides.js';"] : []),
         ...(figureTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when it is at least 1 x 2 blocks at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });

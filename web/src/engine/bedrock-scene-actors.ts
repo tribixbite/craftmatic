@@ -196,7 +196,13 @@ function worldBounds(b: ParsedBrick, mesh: LdrawPartMesh): { min: Vec3; max: Vec
  */
 export function isFurnitureSeat(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
-  return /^(Minifig |Fabuland |Duplo )?(Chair|Bench|Stool|Toilet|Throne|Sofa|Couch|Armchair)\b/i.test(d) && !/\b(Holder|Sticker|Pattern)\b/i.test(d);
+  // A playground swing (67075: `Friends Swing Seat` upstream, `Friends Swing 2 x 6 x 5 1/3` in Studio; 10796) is a seat too.
+  return (/^(Minifig |Fabuland |Duplo )?(Chair|Bench|Stool|Toilet|Throne|Sofa|Couch|Armchair)\b/i.test(d) || isSwingSeat(d)) && !/\b(Holder|Sticker|Pattern)\b/i.test(d);
+}
+
+/** A hanging swing seat: its pan is the seat UNDER the bar it hangs from (`seatPanLocalY`'s `hanging`). */
+export function isSwingSeat(description: string): boolean {
+  return /^(Friends |Minifig )?Swing\b(?! Arm)/i.test(description.replace(/^[~=_]+\s*/, ''));
 }
 
 /**
@@ -206,10 +212,13 @@ export function isFurnitureSeat(description: string): boolean {
  * LDU over its pan); the pan is what a line down the middle meets first.
  * Falls back to the box top when the line meets nothing (an open frame).
  */
-export function seatPanLocalY(mesh: LdrawPartMesh): number {
+export function seatPanLocalY(mesh: LdrawPartMesh, hanging = false): number {
   const { min, max } = mesh.bounds;
   const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
   let best = Infinity;
+  // Every face the centre line meets, for a hanging seat: its pan is the face just
+  // above the LOWEST one (the seat's own underside), not the bar at the top.
+  const hits: number[] = [];
   for (const t of mesh.triangles) {
     // Barycentric test of (cx, cz) against the triangle's XZ projection.
     const x1 = t.b[0] - t.a[0], z1 = t.b[2] - t.a[2], x2 = t.c[0] - t.a[0], z2 = t.c[2] - t.a[2];
@@ -220,6 +229,12 @@ export function seatPanLocalY(mesh: LdrawPartMesh): number {
     if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) continue;
     const y = t.a[1] + u * (t.b[1] - t.a[1]) + v * (t.c[1] - t.a[1]);
     if (y < best) best = y;
+    if (hanging) hits.push(y);
+  }
+  if (hanging && hits.length) {
+    // Distinct depths (a face split into triangles meets the line more than once), deepest first.
+    const levels = [...new Set(hits.map(h => Math.round(h * 2) / 2))].sort((a, b) => b - a);
+    return levels.length >= 2 ? levels[1]! : levels[0]!;
   }
   return Number.isFinite(best) ? best : min[1];
 }
@@ -781,7 +796,7 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
     const bm = meshes.get(b.part);
     const surface = isMouldSeat || !bm || !bm.triangles.length
       ? local(b, [0, -8, 0])
-      : local(b, [(bm.bounds.min[0] + bm.bounds.max[0]) / 2, seatPanLocalY(bm), (bm.bounds.min[2] + bm.bounds.max[2]) / 2]);
+      : local(b, [(bm.bounds.min[0] + bm.bounds.max[0]) / 2, seatPanLocalY(bm, isSwingSeat(classedDesc(b))), (bm.bounds.min[2] + bm.bounds.max[2]) / 2]);
     const facing = horizontal(b, [0, 0, -1]) ?? [0, -1];
     // The figure's torso, or the head standing in for a lost one (`figureAnchor`), at the head's offset.
     const sitter = figures.find(f => f.seatIndex === undefined && (() => {

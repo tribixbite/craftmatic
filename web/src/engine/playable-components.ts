@@ -13,6 +13,8 @@ export interface PlayableBrickComponent {
   bricks: ParsedBrick[];
   /** Why this exact subset, rather than the complete set, was selected. */
   provenance: string;
+  /** Found standing in a scene (scene-vehicles.ts), not the whole model or its title. */
+  fromScene?: boolean;
   bounds?: { min: [number, number, number]; max: [number, number, number] };
   /** Longitudinal source axis inferred from the car's measured horizontal bounds. */
   longitudinalAxis?: 'x' | 'z';
@@ -37,7 +39,17 @@ const SCENERY_WORDS = /\b(garage|airport|hangar|museum|station|batcave|shadowbox
 export const CRAFT_WORDS = /\b(explorer|bounty|voyager|lander|orbiter)\b(?! hunter)/i;
 /** Any title word that fixes a kind by itself (the car, plane, boat and hover lists). */
 const TITLE_KIND_WORDS = new RegExp(`${CAR_WORDS.source}|${PLANE_WORDS.source}|${BOAT_WORDS.source}|${HOVER_WORDS.source}`, 'i');
-export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label) || BOAT_WORDS.test(label) || HOVER_WORDS.test(label) || CRAFT_WORDS.test(label));
+/**
+ * A PLACE a title can pair with its vehicle: "Gabby & MerCat's Ship & Spa"
+ * (10786) is a ship AND a spa - two builds - and reading it as one boat put
+ * the spa on the hull and left six props out (2026-09-26). Only a title that
+ * JOINS the two ("&", "and") is a scene; "Beach Buggy" alone stays a car.
+ */
+const PAIRED_PLACE_WORDS = /\b(spa|salon|dock|pier|harbou?r|marina|beach|house|shop|store|caf[eé]|playground|park|camp|base|garden|pool|kitchen|bakery|clinic|room)\b/i;
+const JOINED = /\s(&|and)\s/i;
+/** True when the title joins a vehicle to a place (`PAIRED_PLACE_WORDS`): a scene of two builds, not one craft. */
+export const isVehicleAndPlaceLabel = (label: string): boolean => JOINED.test(label) && PAIRED_PLACE_WORDS.test(label);
+export const isWholeVehicleLabel = (label: string): boolean => !SCENERY_WORDS.test(label) && !isVehicleAndPlaceLabel(label) && (CAR_WORDS.test(label) || PLANE_WORDS.test(label) || BOAT_WORDS.test(label) || HOVER_WORDS.test(label) || CRAFT_WORDS.test(label));
 
 /**
  * The kind of a craft from its parts, for a title that names no kind (a
