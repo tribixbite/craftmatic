@@ -271,6 +271,26 @@ describe('indexedTryOrder — verified promotion over a graded-defective pick', 
       .toMatch(/lxf_conv is a script conversion/);
   });
 
+  it('puts the gate-v2 pick first, over every rule, and says why', () => {
+    const models = two({ asm: 'defective', sev: 4.15, defects: ['overlap'], pick: 1 },
+                       { asm: 'verified', sev: 0.2 });
+    expect(indexedTryOrder(models)).toEqual([0, 1]);   // verified promotion undone by the pick
+    expect(tryOrderReason(models)).toMatch(/dbix_conv_v3 is better built than dbix_conv_v2/);
+    const flipped = two({ asm: 'verified', sev: 0.2 }, { asm: 'defective', sev: 4.15, pick: 1 });
+    expect(indexedTryOrder(flipped)).toEqual([1, 0]);
+    expect(tryOrderReason(flipped)).toMatch(/better built than dbix_conv_v3 by the connection audit/);
+    const inflated = [M('io', 'IO/x.io', { n: 9755 }), M('io_model2_v2', 'IOModel2V2/x.ldr', { n: 1144 }),
+      M('dbix_conv_v3', 'DbixConvV3/x.ldr', { n: 1133, pick: 1 })];
+    expect(indexedTryOrder(inflated, 1140)).toEqual([2, 1, 0]);
+  });
+
+  it('lets a suffixed catalog set keep its own variant over the base set pick', () => {
+    const models = [M('omr', 'OMR/1234-1.mpd', { pick: 1 }), M('omr', 'OMR/1234-2.mpd')];
+    const idx: LegoModelsIndex = { generated: 't', sets: { '1234': { name: 'x', year: '1', parts: 0, models } } };
+    expect(bestIndexedModel(idx, '1234-1')?.path).toBe('OMR/1234-1.mpd');
+    expect(bestIndexedModel(idx, '1234-2')?.path).toBe('OMR/1234-2.mpd');
+  });
+
   it('promotes an authentic assembled model when incumbent has massively inflated piece count', () => {
     // Mimicking 10300 DeLorean (1872 catalog parts, 9866 in raw .io tray, 1906 in assembled io_model2_v2)
     const models = [

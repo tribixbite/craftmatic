@@ -143,28 +143,30 @@ your own). Deploy: `python -u scripts/_pixel_dev_deploy.py 924 <packs>`
   planner is block-granular); a threshold tread for rises up to a jump would
   unseal the raised-base doors (41395, 60380, 42670 D6, 31141 D4, 41732 D3,
   11371's shops).
-- [ ] Source gate v2 — connections, not contact (clego `e470b81e` code+docs,
-  `898324d5` index; both UNPUSHED). Design, calibration and results are in clego
-  `GEOGRADE.md` "Gate v2" and `docs/lego-sources-guide.md` §11. The held-out
-  split scores 0.981 with 0 false accepts, against 0.758 with 9 for the strict
-  gate. 508 files over 462 sets were published and R2-verified 516/516 plus the
-  index (`output/gate-v2/publish/r2dev-verify.json`), prod 516/516 and index
-  `e696bfd87e72` at craftmatic.click (`prod-verify.json`). Open:
-  (1) Seven IOModel2V2 picks (10326-noprint, 42152, 42212, 75339-dp-cp-noprint,
-  75389, 75398, 75413-dp) rest on a stale PASS: the current grader says
-  DEFECTIVE for the shipped bytes too (the same unknown/figure/window counts).
-  Their turned-part splices are held in `output/sources-0925/io-trial2/spliced3/`.
-  Publishing them moves the pick to raw `IO/*.io` files with inflated part
-  counts, so decide the pick policy first.
-  (2) 60052's track regeneration is held (`output/sources-0925/eb-track2/raw/`): a
-  longer part list breaks `MIN_PLACEMENT_RETENTION` against the verified
-  hand-built Topic LDraw.
-  (3) 14 Eurobricks regens were eye-rejected
-  (`output/gate-v2/labels/visual_verdicts.json`): Bionicle/Hero Factory builds
-  under half connector coverage.
-  (4) No track-end table yet for 12V/4.5V track, 9V points or the 32087 crossing
+- [ ] Source gate v2 + pick policy (clego pushed; craftmatic app change in this
+  tree, NOT deployed). Docs: clego `GEOGRADE.md` "Gate v2" and "Pick policy",
+  `docs/lego-sources-guide.md` section 11.
+  **Deploy the app change first.** Prod code ignores `pick` until craftmatic's
+  `lego-sources.ts` step 4 ships. Until then two prod picks are wrong on the new
+  index: 60052 shows the staged-capture Eurobricks file and 75398 the duo `.io`.
+  Check after deploy: `bun scripts/_index_picks.ts web/public/lego-models-index.json`
+  should give 60052 -> `EurobricksTopicLDR/60052.ldr` and 75398 ->
+  `IOModel2V2/75398.ldr`.
+  State: 516 + 8 files published and prod-verified; index `50330d1d2080`; 61
+  sets carry `pick: 1`. Evidence is under `output/gate-v2/`: `publish*/`
+  (backups and SHA256SUMS), `picks/` (scores, dry run, renders).
+  Open:
+  (1) 14 Eurobricks regens were eye-rejected
+  (`output/gate-v2/labels/visual_verdicts.json`).
+  (2) No track-end table for 12V/4.5V track, 9V points or the 32087 crossing
   (`geograde/connect.py` `TRACK_END_TABLE` TODO).
-  Next round: `CLEGO_LDRAW_LIB=upstream python -u geograde/gate_v2.py ab
+  (3) Scores cover multi-file sets only. After any source round, re-score the
+  touched files and re-stamp the flags:
+  `CLEGO_LDRAW_LIB=upstream python -u geograde/pick_score.py <paths.txt>
+  geograde/pick_scores.jsonl 16` (paths relative to lego_sets), then
+  `python discovery/patch_index_entries.py <paths.txt> --picks`.
+  (4) 7751's flagged pick is not clearly better on the render (stacked ships).
+  Next gate round: `CLEGO_LDRAW_LIB=upstream python -u geograde/gate_v2.py ab
   <paths.txt> <after_root> <out> --geo <ab.json> 8`, then
   `python -u scripts/_render_ab_pairs.py <out>/gate_v2.json <dir> --verdict unsure`.
 - [x] Loop camera: the user chose to KEEP the look lock during loops

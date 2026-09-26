@@ -42,6 +42,13 @@ export interface IndexModel {
   lineage?: string;
   /** sha256/12 of the file bytes: content identity for the diagnostic bundle. */
   hash?: string;
+  /** 1 = clego's gate-v2 pick policy chose THIS entry as the set's auto-pick
+   *  (`geograde/pick_policy.py`: the best connection-based build score among
+   *  entries that pass the part-count, lost-part and unknown-part rules, and
+   *  beating the rules' own pick by more than cross-file noise). Stamped only
+   *  where it differs from what the rules below would choose; at most one
+   *  entry per set. Absent everywhere = the rules alone decide. */
+  pick?: 1;
 }
 export interface IndexSetEntry { name: string; year: string; parts: number; models: IndexModel[] }
 export interface LegoModelsIndex {
@@ -70,7 +77,10 @@ export function lookupIndexModels(idx: LegoModelsIndex, setNum: string): IndexMo
   if (suffixed) {
     const want = setNum.toLowerCase();
     const hits = entry.models.filter(m => m.path.toLowerCase().includes(want));
-    if (hits.length > 0) return [...hits, ...entry.models.filter(m => !hits.includes(m))];
+    // The gate-v2 `pick` chooses among the BASE set's files; a suffixed set
+    // that has its own variant loads that variant, so the flag is dropped here.
+    const unpicked = (m: IndexModel): IndexModel => (m.pick ? { ...m, pick: undefined } : m);
+    if (hits.length > 0) return [...hits, ...entry.models.filter(m => !hits.includes(m))].map(unpicked);
   }
   return entry.models;
 }
@@ -184,6 +194,16 @@ function resolveTryOrder(models: IndexModel[], catalogParts?: number): { order: 
     reason = `${inc.src} is graded defective (${why}),`
       + ` so ${models[promoted]!.src} — which passed the same audit — was tried first`;
     order = [promoted, ...order.filter(i => i !== promoted)];
+  }
+  // 4. gate-v2 pick: a measured connection score outranks the pass/fail stamp
+  //    the rules above read. The index stamps it only where it disagrees with
+  //    them, so an index without `pick` behaves exactly as before.
+  const picked = models.findIndex(m => m.pick === 1);
+  if (picked >= 0 && order[0] !== picked) {
+    const inc = models[order[0]!]!;
+    reason = `${models[picked]!.src} is better built than ${inc.src} by the connection audit`
+      + ' (studs, pins and clips joined; parts in place), so it was tried first';
+    order = [picked, ...order.filter(i => i !== picked)];
   }
   return { order, reason };
 }

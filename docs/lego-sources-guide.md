@@ -1642,3 +1642,39 @@ moved a pick for reasons outside the gate:
   hand-built Topic LDraw pick.
 
 Held back: 14 eye rejects, the gate's 22 rejects and 7896.
+
+**The app pick follows the build score (2026-09-26).** The app's auto-pick
+used to trust geograde's PASS/DEFECTIVE stamp. A stale PASS let seven
+IOModel2V2 repairs hand their picks to raw `.io` files, including 75398's
+R2-D2 + C-3PO duo for the C-3PO set. clego's `geograde/pick_policy.py` now
+ranks each set's files by the gate-v2 build score and stamps `pick: 1` on its
+choice where that differs from the app's rules. `lego-sources.ts`
+`resolveTryOrder` honours the flag first (step 4), except for a suffixed
+catalog set, which still loads its own variant. The score and its rules:
+
+* **Eligibility:** a file must place a sane share of the catalog count, stay
+  within the app's 2.2x index bound, lose no parts and carry no unknown parts
+  beyond its source class.
+* **Hand-built preference:** a verified hand-built file stays the pick unless a
+  conversion beats it by twice the measured cross-file noise.
+* **Noise margin:** 10 % of connector parts, from 1,373 same-build pairs.
+* **Eviction:** only raw `.io` double, scaled or staging files are evicted
+  outright.
+
+Every rule was checked on renders (`output/gate-v2/picks/`), and the rules that
+failed there were narrowed. One example: evicting on "unknown parts" swapped
+31141, 910047 and 910049 to worse conversions, because the viewer draws parts
+geograde's local library lacks.
+
+Applied to 4,712 multi-file sets, **61 sets got a flag**: 33 keep a hand-built
+file, 24 are clearly better built, and 4 are `.io` evictions. Against prod's
+previous index, 65 picks change. The six extra are held IOModel2V2 sets moving
+to their raw IO file, which renders equal or cleaner.
+
+The seven held IOModel2V2 repairs and 60052's track regeneration are published.
+Under the flags, 60052 keeps its hand-built Topic LDraw and 75398 its repaired
+IOModel2V2. Details and commands are in clego `GEOGRADE.md` "Pick policy".
+
+**Until this app change deploys**, prod's code ignores `pick`, and two sets
+show the old rules' choice on the new index: 60052 (the staged-capture
+Eurobricks file) and 75398 (the duo `.io`).
