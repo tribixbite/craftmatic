@@ -511,13 +511,21 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
     }
     const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
+    // A compiled model's seats are measured in its RENDER frame (nose toward -Z);
+    // a rideable seat is in the ENTITY frame, whose +Z is the way the entity
+    // faces - its nose. Measured on the Saga (2026-09-26): 42172's seat at z
+    // +1.64 put the rider's eye 1.64 blocks AHEAD of the car's origin
+    // (telemetry `riderAt`), and the X-wing's pilot seat at +1.71 sat the
+    // player over its nose, in front of the canopy. X needs no change (the
+    // geometry's JSON X mirror and the entity's half turn cancel).
+    const toEntity = (p: [number, number, number]): [number, number, number] => seatPositionOverride ? [p[0], p[1], p[2] === 0 ? 0 : -p[2]] : p;
     const rideableComponent: Record<string, unknown> = measuredPassengers.length
         ? {
             seat_count: 1 + measuredPassengers.length, controlling_seat: 0, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true,
-            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position, lock_rider_rotation: 0, ...cameraSeat })),
+            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position: toEntity(position), lock_rider_rotation: 0, ...cameraSeat })),
         }
         : seatCount <= 1
-        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [seatX, seatY, seatZ], lock_rider_rotation: 0, ...cameraSeat } }
+        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: toEntity([seatX, seatY, seatZ]), lock_rider_rotation: 0, ...cameraSeat } }
         : {
             seat_count: seatCount,
             controlling_seat: 0,
@@ -531,14 +539,14 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
                 const passX = layout.longitudinalAxis === 'x' ? seatX : seatX + latOffset;
                 const passZ = layout.longitudinalAxis === 'x' ? seatZ - latOffset : seatZ;
                 const seatList: Array<Record<string, unknown>> = [
-                    { min_rider_count: 0, max_rider_count: 1, position: [driverX, seatY, driverZ], lock_rider_rotation: 0, ...cameraSeat },
-                    { min_rider_count: 1, max_rider_count: 2, position: [passX, seatY, passZ], lock_rider_rotation: 0, ...cameraSeat },
+                    { min_rider_count: 0, max_rider_count: 1, position: toEntity([driverX, seatY, driverZ]), lock_rider_rotation: 0, ...cameraSeat },
+                    { min_rider_count: 1, max_rider_count: 2, position: toEntity([passX, seatY, passZ]), lock_rider_rotation: 0, ...cameraSeat },
                 ];
                 if (seatCount >= 4) {
                     const backZOffset = Math.min(1.2, Math.max(0.6, layout.length * 0.25));
                     seatList.push(
-                        { min_rider_count: 2, max_rider_count: 3, position: [driverX, seatY, driverZ + backZOffset], lock_rider_rotation: 0, ...cameraSeat },
-                        { min_rider_count: 3, max_rider_count: 4, position: [passX, seatY, passZ + backZOffset], lock_rider_rotation: 0, ...cameraSeat },
+                        { min_rider_count: 2, max_rider_count: 3, position: toEntity([driverX, seatY, driverZ + backZOffset]), lock_rider_rotation: 0, ...cameraSeat },
+                        { min_rider_count: 3, max_rider_count: 4, position: toEntity([passX, seatY, passZ + backZOffset]), lock_rider_rotation: 0, ...cameraSeat },
                     );
                 }
                 return seatList;
