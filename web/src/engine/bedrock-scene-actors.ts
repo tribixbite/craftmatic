@@ -224,10 +224,26 @@ export function seatPanLocalY(mesh: LdrawPartMesh): number {
   return Number.isFinite(best) ? best : min[1];
 }
 
-/** A 2 x 2 tile (flat top, a stool's seat): `Tile 2 x 2`, round, grooved or with studs on edge. */
+/**
+ * A stool's seat: a 2 x 2 tile (`Tile 2 x 2`, round, grooved or with studs on
+ * edge), or a steering wheel laid flat - the round 2 x 2 disc builders put on
+ * a bar stool (910032's four black stools at the cafe counter, each on two
+ * 1 x 1 round plates). The footprint, thickness and upright checks in
+ * `brickBuiltStools` keep a wheel mounted on a dashboard out.
+ */
 export function isStoolTop(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
+  if (/^(Car\s+)?Steering\s+Wheel\b/i.test(d)) return !/\b(Sticker|Holder)\b/i.test(d);
   return /^Tile\s+2\s*x\s*2\b/i.test(d) && !/\b(Sticker|Pattern|Inverted|Corner|Hinge|Swivel)\b/i.test(d);
+}
+
+/**
+ * An inverted dome, dish or bowl: under a stool's seat tile it is a toilet bowl (910032's bathroom: a
+ * `Tile 2 x 2 Round with Hole` on a `Dome 2 x 2 Inverted`), so the seat faces away from its cistern.
+ */
+export function isToiletBowl(description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  return /^(Dome|Dish|Bowl)\b/i.test(d) && /\bInverted\b/i.test(d) && !/\b(Sticker|Pattern)\b/i.test(d);
 }
 
 /** How high a brick-built stool's seat may stand over its floor, LDU: a plate (a pouf) to a brick and a third (4079's pan is 16). */
@@ -267,26 +283,29 @@ export function brickBuiltStools(bricks: readonly ParsedBrick[], sourceMeshes: R
     const w = box.max[0] - box.min[0], d = box.max[2] - box.min[2];
     if (w > 44 || d > 44 || w < 36 || d < 36) return no(`footprint ${w.toFixed(0)} x ${d.toFixed(0)}`);
     const cx = (box.min[0] + box.max[0]) / 2, cz = (box.min[2] + box.max[2]) / 2;
-    const pan = b.y; // a tile's origin is its top face
+    // A tile's origin is its top face; any other seat top (a steering wheel) is read from its bounds.
+    const isTile = /^Tile\b/i.test(m.description.replace(/^[~=_]+\s*/, ''));
+    const pan = isTile ? b.y : box.min[1];
+    if (box.max[1] - pan > 20) return no(`${(box.max[1] - pan).toFixed(0)} LDU thick: not a seat top`);
     const near = (j: number, pad: number): boolean => {
       const o = boxes[j]!;
       return o.min[0] < box.max[0] + pad && o.max[0] > box.min[0] - pad && o.min[2] < box.max[2] + pad && o.max[2] > box.min[2] - pad;
     };
-    // Nothing else at the seat's height touching it.
+    // Nothing else at the seat's height touching it. (910032's fourth bar stool touches the counter's side at
+    // its seat height and is lost here: letting a round top touch was measured to admit round tiles set into
+    // counters and floors in four other favourites.)
     for (let j = 0; j < bricks.length; j++) {
       if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
       if (Math.abs(boxes[j]!.min[1] - pan) <= 2 && near(j, 1)) return no(`surface continues into ${bricks[j]!.part}`);
     }
-    // Head room: two bricks clear over the seat's middle.
-    for (let j = 0; j < bricks.length; j++) {
-      if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
-      const o = boxes[j]!;
-      if (o.max[1] <= pan + 0.5 && o.max[1] > pan - 48 && o.min[0] < cx + 14 && o.max[0] > cx - 14 && o.min[2] < cz + 14 && o.max[2] > cz - 14) return no(`no head room under ${bricks[j]!.part}`);
-    }
     // Down the column to the floor.
-    let bottom = box.max[1], floor = NaN;
+    let bottom = box.max[1], floor = NaN, bowl = false;
     for (let step = 0; step < 6 && Number.isNaN(floor); step++) {
-      const under = boxes.map((_, j) => j).filter(j => j !== i && boxes[j] && !skip.has(bricks[j]!) && Math.abs(boxes[j]!.min[1] - bottom) <= 1.5
+      // A few LDU of slack either way under the part above: an open-stud round plate's library mesh ends 5 LDU
+      // short of its own bottom (85861's bounds are 3 LDU tall), so a column of them read as floating (910032's
+      // cafe stools); a toilet seat's round tile sits 4 LDU down inside its inverted dome (910032's bathroom).
+      const under = boxes.map((_, j) => j).filter(j => j !== i && boxes[j] && !skip.has(bricks[j]!) && boxes[j]!.min[1] - bottom >= -6 && boxes[j]!.min[1] - bottom <= 6
+        && boxes[j]!.max[1] > bottom + 1
         && boxes[j]!.min[0] <= cx && boxes[j]!.max[0] >= cx && boxes[j]!.min[2] <= cz && boxes[j]!.max[2] >= cz);
       if (!under.length) {
         // The column's foot is on the model's underside (within a plate of it): it stands on the ground.
@@ -298,6 +317,7 @@ export function brickBuiltStools(bricks: readonly ParsedBrick[], sourceMeshes: R
       // A tile lying straight on a wide part is floor decoration, not a stool.
       if (wide && step === 0) return no('lies flat on the floor');
       if (wide) { floor = bottom; break; }
+      if (step === 0) bowl = under.some(j => isToiletBowl(meshes.get(bricks[j]!.part)?.description ?? ''));
       const col = under[0]!;
       // A layer where other parts stand flush beside the column: that layer's top is the floor.
       const flush = boxes.some((o, j) => j !== col && j !== i && o && !skip.has(bricks[j]!) && Math.abs(o.min[1] - boxes[col]!.min[1]) <= 1.5 && !under.includes(j) && near(j, 2));
@@ -306,16 +326,33 @@ export function brickBuiltStools(bricks: readonly ParsedBrick[], sourceMeshes: R
     }
     if (Number.isNaN(floor)) return no('column never reaches a floor');
     const height = floor - pan;
-    if (height < STOOL_HEIGHT_LDU.min || height > STOOL_HEIGHT_LDU.max) return no(`seat ${height.toFixed(1)} LDU over its floor`);
-    // Face the nearest higher part beside it (a table), else the model's front.
+    // A seat top that is not a tile must stand on something: a steering wheel lying on the floor is the foot
+    // of 910032's painter's easel, not a stool.
+    if (!isTile && floor - box.max[1] < 4) return no('lies on the floor');
+    // Half an LDU of slack: Studio's positions are not exact (910032's bar stools stand 32.000004 up).
+    if (height < STOOL_HEIGHT_LDU.min - 0.5 || height > STOOL_HEIGHT_LDU.max + 0.5) return no(`seat ${height.toFixed(1)} LDU over its floor`);
+    // Face the nearest higher part beside it (a table), else the model's front. A toilet faces away from it
+    // (its cistern on the wall behind).
     let facing: [number, number] = [0, -1], best = Infinity;
     for (let j = 0; j < bricks.length; j++) {
       const o = boxes[j];
       if (j === i || !o || skip.has(bricks[j]!) || !(o.min[1] < pan - 8 && o.min[1] > pan - 48) || !near(j, 24)) continue;
       const ox = (o.min[0] + o.max[0]) / 2 - cx, oz = (o.min[2] + o.max[2]) / 2 - cz, dist = Math.hypot(ox, oz);
-      if (dist > 1 && dist < best) { best = dist; facing = [ox / dist, oz / dist]; }
+      if (dist > 1 && dist < best) { best = dist; facing = bowl ? [-ox / dist, -oz / dist] : [ox / dist, oz / dist]; }
     }
-    trace?.(b, 'stool');
+    // Head room: two bricks clear over the seat's middle - over the half away from the table it faces when
+    // it has one, since a bar stool stands with its front half under the counter's edge (910032's cafe).
+    const room = { x0: cx - 14, x1: cx + 14, z0: cz - 14, z1: cz + 14 };
+    if (Number.isFinite(best) && !bowl) {
+      if (Math.abs(facing[0]) >= Math.abs(facing[1])) { if (facing[0] > 0) room.x1 = cx; else room.x0 = cx; }
+      else if (facing[1] > 0) room.z1 = cz; else room.z0 = cz;
+    }
+    for (let j = 0; j < bricks.length; j++) {
+      if (j === i || !boxes[j] || skip.has(bricks[j]!)) continue;
+      const o = boxes[j]!;
+      if (o.max[1] <= pan + 0.5 && o.max[1] > pan - 48 && o.min[0] < room.x1 && o.max[0] > room.x0 && o.min[2] < room.z1 && o.max[2] > room.z0) return no(`no head room under ${bricks[j]!.part}`);
+    }
+    trace?.(b, bowl ? 'stool (a toilet: its seat is on an inverted bowl)' : 'stool');
     out.push({ part: 'stool', brick: b, surfaceLdu: [cx, pan, cz], facingLdu: facing });
   });
   return out;
@@ -330,15 +367,35 @@ export const FURNITURE_SIZES = {
 export const FURNITURE_HEIGHT_LDU = { seat: { min: 12, max: 32 }, bed: { min: 8, max: 24 } } as const;
 
 /**
+ * How far a placement is turned about the vertical off the model's grid,
+ * degrees (0-45): 910032's green armchair by the coffee table is turned 14°.
+ */
+function offGridYawDeg(rot: readonly number[] | undefined): number {
+  const m = rot ?? IDENTITY;
+  const deg = Math.abs(Math.atan2(m[6]!, m[0]!) * 180 / Math.PI) % 90;
+  return Math.min(deg, 90 - deg);
+}
+
+type Box = { min: Vec3; max: Vec3 };
+
+/**
  * Brick-built benches, chairs, sofas and beds: the seat is a flat surface of
  * plates or tiles (one part or several side by side at one height) of seat or
- * bed size, standing 12-32 LDU over its floor (8-32 for a bed) with a
- * minifig's head room over its middle and no counter continuing it. It is
+ * bed size, standing 12-32 LDU over its floor (8-24 for a bed) with a
+ * minifig's head room over its middle and no counter continuing it. A plate
+ * or tile with something resting on half its top is not a surface anyone
+ * sits on (the 1 x 1 plate an armrest stands on beside a cushion). It is
+ *   - a CHAIR or SOFA when a backrest rises 20-60 LDU along one long side
+ *     (either side of a square seat) and it faces away from it. The backrest
+ *     is measured to the top of what is stacked on the part beside the seat
+ *     (a 1 x 4 brick, two plates and a curved brick: 910032's sofas), so a
+ *     wall, whose stack rises past 60, is not one - except for a seat with
+ *     armrests at both ends set against it (910032's cafe sofa),
  *   - a BENCH when it stands on legs (what holds it up covers under 70 % of
  *     its footprint),
- *   - a CHAIR or SOFA when a backrest rises 20-60 LDU along one long side
- *     (it faces away from it),
- *   - a BED when it is bed-sized, 8-24 LDU up, with a headboard rising 16-60 LDU across 80 % of one short end.
+ *   - a BED when it is bed-sized, 8-24 LDU up, with a headboard rising 16-60
+ *     LDU across 80 % of one short end, or when it is a MATTRESS: see
+ *     `isMattress`.
  * A long bench or sofa seats one per two studs, up to three. The 2 x 2 stool
  * has its own rule (`brickBuiltStools`). What this cannot see: a seat whose
  * surface is a slope or a brick top, or one hidden inside a closed wall.
@@ -351,12 +408,88 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
   });
   let ground = -Infinity;
   boxes.forEach(o => { if (o && o.max[1] > ground) ground = o.max[1]; });
+  const overlapArea = (o: Box, bb: Box): number =>
+    Math.max(0, Math.min(o.max[0], bb.max[0]) - Math.max(o.min[0], bb.min[0])) * Math.max(0, Math.min(o.max[2], bb.max[2]) - Math.max(o.min[2], bb.min[2]));
+  // What rests on each part's top face: its bottom within 1.5 LDU of that top, overlapping it.
+  const byBottom = new Map<number, number[]>();
+  boxes.forEach((o, j) => { if (!o) return; const k = Math.round(o.max[1]); const l = byBottom.get(k) ?? []; l.push(j); byBottom.set(k, l); });
+  const restingOn = (i: number): number[] => {
+    const o = boxes[i]!, out: number[] = [];
+    for (let k = Math.round(o.min[1] - 1.5); k <= Math.round(o.min[1] + 1.5); k++) {
+      for (const j of byBottom.get(k) ?? []) if (j !== i && Math.abs(boxes[j]!.max[1] - o.min[1]) <= 1.5 && boxes[j]!.min[1] < o.min[1] - 1 && overlapArea(boxes[j]!, o) > 1) out.push(j);
+    }
+    return out;
+  };
+  // The top of everything stacked on a part (a backrest of a brick, two plates and a curved brick), LDraw y.
+  const stackTopMemo = new Map<number, number>();
+  const stackTop = (i: number): number => {
+    const known = stackTopMemo.get(i);
+    if (known !== undefined) return known;
+    stackTopMemo.set(i, boxes[i]!.min[1]); // guards a malformed cycle
+    let t = boxes[i]!.min[1];
+    for (const j of restingOn(i)) t = Math.min(t, stackTop(j));
+    stackTopMemo.set(i, t);
+    return t;
+  };
+  // Something resting on half its top: a footing (the 1 x 1 plate under an armrest, 910032), not a surface
+  // anyone sits on, and not a counter a seat continues into.
+  const covered = (i: number): boolean => {
+    const o = boxes[i]!;
+    return restingOn(i).reduce((n, j) => n + overlapArea(boxes[j]!, o), 0) >= 0.5 * (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]);
+  };
+  /**
+   * A mattress with no headboard (42663's three camper beds: a red, a yellow and a dark-blue pair of tiles
+   * side by side on tan plates, each with a white pillow): an elongated surface of ONE colour, with a pillow
+   * (a part rising at most 16 LDU) at exactly one short end, at least 1.8 times as long as wide,
+   * standing clear of everything beside it - nothing touching its sides reaches its height - on parts of
+   * other colours. A tiled floor or a counter continues into its neighbours at its height (rejected before
+   * this is asked) and a one-colour step or ledge sits on its own colour.
+   */
+  const isMattress = (members: number[], bb: Box, others: Array<{ o: Box; j: number }>): string => {
+    const colour = bricks[members[0]!]!.color;
+    if (members.some(i => bricks[i]!.color !== colour)) return 'more than one colour';
+    const ex = bb.max[0] - bb.min[0], ez = bb.max[2] - bb.min[2];
+    if (Math.max(ex, ez) < 1.8 * Math.min(ex, ez)) return 'not elongated';
+    const top = bb.min[1], bottom = bb.max[1];
+    const long = ex >= ez ? 0 : 2;
+    let under = 0, underOwn = 0;
+    const pillowEnds = new Set<'min' | 'max'>();
+    for (const { o, j } of others) {
+      const beside = o.min[0] < bb.max[0] + 2 && o.max[0] > bb.min[0] - 2 && o.min[2] < bb.max[2] + 2 && o.max[2] > bb.min[2] - 2;
+      if (!beside) continue;
+      if (o.min[1] < top + 2 && o.max[1] > top - 60) {
+        // Only a pillow may: a part at ONE short end rising no more than 16 LDU (42663's white curved slopes).
+        const end = o.min[long]! >= bb.max[long]! - 2 ? 'max' : o.max[long]! <= bb.min[long]! + 2 ? 'min' : undefined;
+        if (!end || top - o.min[1] > 16) return `${bricks[j]!.part} beside it reaches its height`;
+        pillowEnds.add(end);
+        if (pillowEnds.size > 1) return 'raised at both ends';
+        continue;
+      }
+      if (Math.abs(o.min[1] - bottom) <= 1.5) { const a = overlapArea(o, bb); under += a; if (bricks[j]!.color === colour) underOwn += a; }
+    }
+    if (!pillowEnds.size) return 'no pillow at either end'; // a bare raised tile is a mat, a lid or a roof panel (41395, 41732, 42639)
+    return under <= 0 ? 'nothing under it' : underOwn >= 0.5 * under ? 'on its own colour' : '';
+  };
+  const isFlatPart = (i: number): boolean => /^(Tile|Plate)\b/i.test((meshes.get(bricks[i]!.part)?.description ?? '').replace(/^[~=_]+\s*/, ''));
   const flat = (i: number): boolean => {
     const b = bricks[i]!, m = meshes.get(b.part), o = boxes[i];
-    if (!m || !o || tiltDegOf(b.rot) > 3) return false;
+    if (!m || !o) return false;
     const d = m.description.replace(/^[~=_]+\s*/, '');
-    if (!/^(Tile|Plate)\b/i.test(d) || /\b(Sticker|Inverted|Hinge|Swivel|Round Corner|with Hole|Grille)\b/i.test(d)) return false;
-    return o.max[1] - o.min[1] <= 10 && Math.max(o.max[0] - o.min[0], o.max[2] - o.min[2]) <= FURNITURE_SIZES.bed.maxLong;
+    // An inverted tile laid upside down shows its flat face up: 42663's three camper mattresses are
+    // `Tile 2 x 2 Inverted` pairs placed flipped.
+    const flipped = /\bInverted\b/i.test(d) && /^Tile\b/i.test(d) && tiltDegOf(b.rot) > 177;
+    if (tiltDegOf(b.rot) > 3 && !flipped) return false;
+    if (!/^(Tile|Plate)\b/i.test(d) || /\b(Sticker|Hinge|Swivel|Round Corner|with Hole|Grille)\b/i.test(d) || (/\bInverted\b/i.test(d) && !flipped)) return false;
+    if (o.max[1] - o.min[1] > 10 || Math.max(o.max[0] - o.min[0], o.max[2] - o.min[2]) > FURNITURE_SIZES.bed.maxLong) return false;
+    // Its footprint is no bigger than its name says: `Plate 1 x 1 Round with 3 Leaves` spans 36 LDU of leaves,
+    // and a clip, a handle or a bar sticking out is no part of a seat either (910049's flower beds read as chairs).
+    const nominal = /\b(\d+)\s*x\s*(\d+)\b/i.exec(d);
+    if (nominal) {
+      const lx = m.bounds.max[0] - m.bounds.min[0], lz = m.bounds.max[2] - m.bounds.min[2];
+      const a = Number(nominal[1]) * 20 + 2, c = Number(nominal[2]) * 20 + 2;
+      if (Math.max(lx, lz) > Math.max(a, c) || Math.min(lx, lz) > Math.min(a, c)) return false;
+    }
+    return !covered(i);
   };
   const cand = boxes.map((_, i) => i).filter(flat);
   // Same-height surfaces side by side are one surface (a two-tile mattress, a sofa seat of two plates).
@@ -373,27 +506,47 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
   const comps = new Map<number, number[]>();
   for (const i of cand) { const r = find(i); const l = comps.get(r) ?? []; l.push(i); comps.set(r, l); }
   const out: SceneSeat[] = [];
-  const overlapArea = (o: { min: Vec3; max: Vec3 }, bb: { min: Vec3; max: Vec3 }): number =>
-    Math.max(0, Math.min(o.max[0], bb.max[0]) - Math.max(o.min[0], bb.min[0])) * Math.max(0, Math.min(o.max[2], bb.max[2]) - Math.max(o.min[2], bb.min[2]));
   for (const members of comps.values()) {
     const set = new Set(members);
     const first = bricks[members[0]!]!;
     const no = (why: string): void => { trace?.(first, why); };
     const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
-    let area = 0;
-    for (const i of members) { const o = boxes[i]!; for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, o.min[k]!); max[k] = Math.max(max[k]!, o.max[k]!); } area += (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]); }
+    for (const i of members) { const o = boxes[i]!; for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, o.min[k]!); max[k] = Math.max(max[k]!, o.max[k]!); } }
     const bb = { min, max };
-    const ex = max[0] - min[0], ez = max[2] - min[2], w = Math.min(ex, ez), l = Math.max(ex, ez);
+    const ex = max[0] - min[0], ez = max[2] - min[2];
+    // Size and fill in the surface's own frame: a seat turned off the grid (910032's armchair, 14°) has a
+    // world box wider than itself. Members share the first one's turn; anything else is measured on the grid.
+    const yaw = offGridYawDeg(first.rot);
+    let w = Math.min(ex, ez), l = Math.max(ex, ez), area = 0, frameArea = ex * ez;
+    let turned: [number, number] | undefined; // the surface's own x axis when it is turned off the grid
+    if (yaw > 3 && members.every(i => Math.abs(offGridYawDeg(bricks[i]!.rot) - yaw) < 2)) {
+      const r = first.rot ?? IDENTITY, len = Math.hypot(r[0]!, r[6]!) || 1, ux = r[0]! / len, uz = r[6]! / len;
+      turned = [ux, uz];
+      let u0 = Infinity, u1 = -Infinity, v0 = Infinity, v1 = -Infinity;
+      for (const i of members) {
+        const mb = meshes.get(bricks[i]!.part)!.bounds;
+        for (const cx of [mb.min[0], mb.max[0]]) for (const cz of [mb.min[2], mb.max[2]]) {
+          const p = local(bricks[i]!, [cx, 0, cz]);
+          const u = p[0] * ux + p[2] * uz, v = -p[0] * uz + p[2] * ux;
+          u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v);
+        }
+        area += (mb.max[0] - mb.min[0]) * (mb.max[2] - mb.min[2]);
+      }
+      w = Math.min(u1 - u0, v1 - v0); l = Math.max(u1 - u0, v1 - v0); frameArea = (u1 - u0) * (v1 - v0);
+    } else {
+      for (const i of members) { const o = boxes[i]!; area += (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]); }
+    }
     const S = FURNITURE_SIZES;
     const seatSize = w >= S.seat.minWide && w <= S.seat.maxWide && l >= S.seat.minLong && l <= S.seat.maxLong;
     const bedSize = w >= S.bed.minWide && w <= S.bed.maxWide && l >= S.bed.minLong && l <= S.bed.maxLong;
     if (!seatSize && !bedSize) continue;
-    if (area < 0.8 * ex * ez) { no('not a rectangle of tiles'); continue; }
+    if (area < 0.8 * frameArea) { no('not a rectangle of tiles'); continue; }
     const top = min[1], bottom = max[1];
-    const others = boxes.map((o, j) => ({ o, j })).filter(({ o, j }) => o && !set.has(j)) as Array<{ o: { min: Vec3; max: Vec3 }; j: number }>;
-    const touching = (o: { min: Vec3; max: Vec3 }, pad: number): boolean => o.min[0] < max[0] + pad && o.max[0] > min[0] - pad && o.min[2] < max[2] + pad && o.max[2] > min[2] - pad;
+    const others = boxes.map((o, j) => ({ o, j })).filter(({ o, j }) => o && !set.has(j)) as Array<{ o: Box; j: number }>;
+    const touching = (o: Box, pad: number): boolean => o.min[0] < max[0] + pad && o.max[0] > min[0] - pad && o.min[2] < max[2] + pad && o.max[2] > min[2] - pad;
     // A counter or a shelf: the surface continues into something else at its height.
-    const cont = others.find(({ o }) => Math.abs(o.min[1] - top) <= 2 && touching(o, 1));
+    // A plate or tile under an armrest does not count; a brick with more wall on it does (a counter, a sill).
+    const cont = others.find(({ o, j }) => Math.abs(o.min[1] - top) <= 2 && touching(o, 1) && !(isFlatPart(j) && covered(j)));
     if (cont) { no(`surface continues into ${bricks[cont.j]!.part}`); continue; }
     // The floor: the nearest part below reaching well past the surface, or the model's underside.
     let floor = Infinity;
@@ -401,53 +554,139 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
       if (o.min[1] < bottom - 1 || o.min[1] > top + 60 || !touching(o, -1)) continue;
       // A floor reaches well past the surface along BOTH horizontal axes: a 1 x 6 plate under a 1 x 4 tile is a coaster support's foot (10303), not a floor.
       const wide = (o.min[0] < min[0] - 16 || o.max[0] > max[0] + 16) && (o.min[2] < min[2] - 16 || o.max[2] > max[2] + 16);
-      if (wide && o.min[1] < floor) floor = o.min[1];
+      // Nor is the piece's own base a floor: a 3 x 3 plate under half (over 40 %) of the cushion, carrying the armrests
+      // too, is under 2.5 times the seat's area (910032's sofas stood "8 LDU up" on theirs).
+      const ownBase = overlapArea(o, bb) >= 0.4 * ex * ez && (o.max[0] - o.min[0]) * (o.max[2] - o.min[2]) < 2.5 * ex * ez;
+      if (wide && !ownBase && o.min[1] < floor) floor = o.min[1];
     }
     if (!Number.isFinite(floor)) { if (ground - top <= 40) floor = ground; else { no('no floor under it'); continue; } }
     const height = floor - top;
     const supports = others.filter(({ o }) => touching(o, -1) && o.min[1] >= bottom - 1 && o.max[1] <= floor + 1);
     const supportArea = supports.reduce((n, { o }) => n + overlapArea(o, bb), 0);
     const onLegs = supports.length > 0 && supportArea < 0.7 * ex * ez;
-    // Sides: which horizontal axis is the long one, and what rises beside each side.
-    const longX = ex >= ez;
-    const rising = (side: 'min' | 'max', along: 'long' | 'short', minRise: number): number => {
-      // The run of parts touching that side (within 2 LDU) that rise 20-60 LDU above the seat from about its level.
-      const axis = (along === 'long') === longX ? 2 : 0; // the axis across that side
+    /**
+     * What rises beside one side of the surface (`axis` is the axis across that side): the share of the
+     * side's length covered by parts touching it (within 2 LDU) that reach down to about the seat and
+     * whose stack rises `minRise`-60 LDU over it (`rest`, its parts in `parts`), or past 60 (`wall`).
+     * Without `stacks` only the part itself counts (armrests and headboards: read that way, a stack of
+     * plates under a coaster's track read as a headboard).
+     */
+    const rising = (axis: 0 | 2, side: 'min' | 'max', minRise: number, stacks = true): { rest: number; wall: number; parts: number[]; classic: number } => {
       const runAxis = axis === 0 ? 2 : 0;
-      let cover = 0;
-      for (const { o } of others) {
-        const edge = side === 'min' ? min[axis]! : max[axis]!;
-        const adj = side === 'min' ? Math.abs(o.max[axis]! - edge) <= 2 || (o.min[axis]! < edge && o.max[axis]! > edge) : Math.abs(o.min[axis]! - edge) <= 2 || (o.min[axis]! < edge && o.max[axis]! > edge);
-        if (!adj) continue;
+      const edge = side === 'min' ? min[axis]! : max[axis]!;
+      let rest = 0, wall = 0, classicRun = 0;
+      const parts: number[] = [];
+      for (const { o, j } of others) {
+        const adj = (side === 'min' ? Math.abs(o.max[axis]! - edge) <= 2 : Math.abs(o.min[axis]! - edge) <= 2) || (o.min[axis]! < edge && o.max[axis]! > edge);
+        if (!adj || o.max[1] < top - 4) continue;
         const rise = top - o.min[1];
-        if (rise < minRise || rise > 60 || o.max[1] < top - 4) continue;
-        cover += Math.max(0, Math.min(o.max[runAxis]!, max[runAxis]!) - Math.max(o.min[runAxis]!, min[runAxis]!));
+        if (rise < 2) continue; // at or under the seat: a neighbouring floor tile, the seat's own base
+        const run = Math.max(0, Math.min(o.max[runAxis]!, max[runAxis]!) - Math.max(o.min[runAxis]!, min[runAxis]!));
+        if (run <= 0) continue; // in line with the side but beyond its ends
+        // A turned seat is a turned piece of furniture: its backrest is turned with it, and a wall or a
+        // flag on the grid beside a turned tile is not one (41703, 76269).
+        if (turned && Math.abs(offGridYawDeg(bricks[j]!.rot) - yaw) > 2) continue;
+        // A single part rising 20-60 LDU along a long side is the original backrest rule and stays as it was
+        // (10261's park bench has an L-shaped panel for a back). Every newer reading - a stack, a square
+        // seat's other axis, a turned seat - also needs the part to be one stud thick: a 2 x 3 brick or a
+        // 2 x 2 round brick beside a plate is a cupboard or a post (31141, 60380). Measured in its own frame.
+        const pm = meshes.get(bricks[j]!.part)!.bounds;
+        const thin = Math.min(pm.max[0] - pm.min[0], pm.max[2] - pm.min[2]) <= 26;
+        const classic = (axis === acrossLong || !stacks) && !turned; // !stacks: the ends (armrests, headboards), read as before
+        if (rise >= minRise && rise <= 60 && (classic || thin)) { rest += run; if (classic) classicRun += run; parts.push(j); continue; }
+        if (!thin) continue;
+        // Stacks are read beside a surface two studs deep only: a one-stud ledge between stacked bricks is a
+        // roof ridge or a sill far more often than a seat (910032's dormer ridge tile).
+        if (w < 36 || !stacks) continue;
+        const stacked = top - stackTop(j);
+        if (stacked >= minRise && stacked <= 60) { rest += run; parts.push(j); }
+        else if (stacked > 60) wall += run;
       }
-      return cover / (runAxis === 0 ? ex : ez);
+      const span = runAxis === 0 ? ex : ez;
+      return { rest: Math.min(1, rest / span), wall: Math.min(1, wall / span), parts, classic: Math.min(1, classicRun / span) };
     };
-    const back = (['min', 'max'] as const).find(side => rising(side, 'long', 20) >= 0.5);
-    const head = (['min', 'max'] as const).find(side => rising(side, 'short', 16) >= 0.8);
+    // Which axis runs along the surface's length; a square seat may have its back on either.
+    const longX = ex >= ez;
+    const acrossLong: 0 | 2 = longX ? 2 : 0, acrossShort: 0 | 2 = longX ? 0 : 2;
+    const backAxes: Array<0 | 2> = Math.abs(ex - ez) <= 8 ? [acrossLong, acrossShort] : [acrossLong];
+    // A backrest is a rising side whose opposite side is open: on a square armchair the two armrests rise
+    // on one axis and the backrest alone on the other (910032's turned armchair read its armrest as its back).
+    let back: { axis: 0 | 2; side: 'min' | 'max'; parts: number[] } | undefined, backScore = 0;
+    for (const axis of backAxes) {
+      const pair = { min: rising(axis, 'min', 20), max: rising(axis, 'max', 20) };
+      for (const side of ['min', 'max'] as const) {
+        const r = pair[side], opposite = pair[side === 'min' ? 'max' : 'min'];
+        // Read the original way (one part along a long side) half the side is enough; a backrest found only
+        // by the newer readings must span 80 % of it (a pin or a post beside a 2 x 2 plate is not a back: 60380).
+        const score = r.rest < (r.classic >= 0.5 ? 0.5 : 0.8) ? 0 : r.rest + (opposite.rest < 0.5 ? 1 : 0);
+        if (score > backScore + 1e-9) { back = { axis, side, parts: r.parts }; backScore = score; }
+      }
+    }
+    const ends = (['min', 'max'] as const).map(side => rising(acrossShort, side, 16, false));
+    const headSide = (['min', 'max'] as const).find((_, k) => ends[k]!.rest >= 0.8);
+    // A sofa against a wall: armrests at both ends and a wall along a long side (910032's cafe sofa).
+    const armed = ends.every(e => e.rest >= 0.8);
+    // Two studs deep: a one-stud ledge between two bricks against a wall is a planter or a doorstep (910032).
+    const wallSide = !back && armed && w >= 36 && w <= S.seat.maxWide ?(['min', 'max'] as const).find(side => rising(acrossLong, side, 20).wall >= 0.8) : undefined;
+    const rest = back ?? (wallSide ? { axis: acrossLong, side: wallSide } : undefined);
     // A minifig's head room: over the middle, or over the half by the backrest
     // (a dining chair is tucked under its table's edge, 910032).
     const sh = Math.max(0, Math.min(6, (w - 8) / 2));
     const room = { min: [min[0] + sh, 0, min[2] + sh] as Vec3, max: [max[0] - sh, 0, max[2] - sh] as Vec3 };
-    if (back) {
-      const axis = longX ? 2 : 0, mid = (min[axis]! + max[axis]!) / 2;
-      if (back === 'min') room.max[axis] = mid; else room.min[axis] = mid;
+    if (rest) {
+      const mid = (min[rest.axis]! + max[rest.axis]!) / 2;
+      if (rest.side === 'min') room.max[rest.axis] = mid; else room.min[rest.axis] = mid;
     }
-    const roof = others.find(({ o }) => o.max[1] <= top + 0.5 && o.max[1] > top - 44 && o.min[0] < room.max[0] && o.max[0] > room.min[0] && o.min[2] < room.max[2] && o.max[2] > room.min[2]);
+    // The backrest and what is stacked on it are over nobody's head, even where a seat turned off the
+    // grid puts their world boxes over its own (910032's 14° armchair).
+    const backrest = new Set<number>();
+    const addStack = (j: number): void => { if (backrest.has(j)) return; backrest.add(j); for (const k of restingOn(j)) if (top - boxes[k]!.min[1] <= 60) addStack(k); };
+    // Only a turned seat needs this; beside a seat on the grid a stack that reaches over it is a roof (910032's dormer).
+    if (turned) for (const j of back?.parts ?? []) addStack(j);
+    // ...and a part set into one of them (the tile on a curved brick's top lies inside the brick's box).
+    for (const j of [...backrest]) {
+      const o = boxes[j]!;
+      for (const { o: k, j: kj } of others) if (k.min[1] >= o.min[1] - 1.5 && k.max[1] <= o.max[1] + 1.5 && overlapArea(k, o) > 1) backrest.add(kj);
+    }
+    const roof = others.find(({ o, j }) => !backrest.has(j) && o.max[1] <= top + 0.5 && o.max[1] > top - 44 && o.min[0] < room.max[0] && o.max[0] > room.min[0] && o.min[2] < room.max[2] && o.max[2] > room.min[2]);
     if (roof) { no(`no head room under ${bricks[roof.j]!.part}`); continue; }
+    // Knee room: a sitter's legs go over the half away from the backrest, so nothing may stand on it or hang
+    // within 16 LDU over it across half its area (a table's edge may; a window standing on the far half of a
+    // ledge may not: 910032's balcony window box read as a bench facing its window).
+    if (rest) {
+      const knee = { min: [...room.min] as Vec3, max: [...room.max] as Vec3 };
+      const mid = (min[rest.axis]! + max[rest.axis]!) / 2;
+      if (rest.side === 'min') { knee.min[rest.axis] = mid; knee.max[rest.axis] = max[rest.axis]! - sh; } else { knee.max[rest.axis] = mid; knee.min[rest.axis] = min[rest.axis]! + sh; }
+      const kneeArea = Math.max(0, knee.max[0] - knee.min[0]) * Math.max(0, knee.max[2] - knee.min[2]);
+      const kneeBox = { min: knee.min, max: knee.max };
+      const blocked = others.reduce((n, { o, j }) => !backrest.has(j) && o.max[1] <= top + 0.5 && o.max[1] > top - 16 ? n + overlapArea(o, kneeBox) : n, 0);
+      if (kneeArea > 0 && blocked >= 0.5 * kneeArea) { no('no knee room: something stands on its front half'); continue; }
+    }
     let kind: 'bench' | 'chair' | 'bed' | undefined;
-    // A backrest along a long side makes it a sofa even when it is bed-sized (910032's attic sofa: its armrests read as a headboard).
-    if (bedSize && !back && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max && head) kind = 'bed';
-    else if ((seatSize || (bedSize && back)) && height >= FURNITURE_HEIGHT_LDU.seat.min && height <= FURNITURE_HEIGHT_LDU.seat.max) kind = back ? 'chair' : onLegs && seatSize ? 'bench' : undefined;
-    if (!kind) { no(`${bedSize ? 'bed' : 'seat'}-sized, ${height.toFixed(0)} LDU up, ${back ? 'backrest' : 'no backrest'}, ${onLegs ? 'on legs' : 'on a solid base'}: not furniture`); continue; }
+    let mattressWhy = '';
+    const seatHeight = height >= FURNITURE_HEIGHT_LDU.seat.min - 0.5 && height <= FURNITURE_HEIGHT_LDU.seat.max + 0.5;
+    // A backrest along a long side makes it a sofa even when it is bed-sized (910032's attic sofa: its armrests
+    // read as a headboard) - unless only ONE end rises: a bed with its headboard against a side panel (42639).
+    if (bedSize && (!rest || !armed) && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max && headSide) kind = 'bed';
+    else if ((seatSize || (bedSize && rest)) && seatHeight) kind = rest ? 'chair' : onLegs && seatSize ? 'bench' : undefined;
+    if (!kind && bedSize && !rest && height >= FURNITURE_HEIGHT_LDU.bed.min && height <= FURNITURE_HEIGHT_LDU.bed.max) {
+      const why = isMattress(members, bb, others);
+      if (!why) kind = 'bed'; else mattressWhy = `; not a mattress: ${why}`;
+    }
+    if (!kind) { no(`${bedSize ? 'bed' : 'seat'}-sized ${w.toFixed(0)} x ${l.toFixed(0)}, ${height.toFixed(0)} LDU up, ${back ? 'backrest' : 'no backrest'}, ends ${ends.map(e => e.rest.toFixed(2)).join('/')}, ${onLegs ? 'on legs' : 'on a solid base'}${mattressWhy}: not furniture`); continue; }
     // Facing: away from a backrest; a bed along its length from the headboard; a bench towards the table beside it.
     const cx = (min[0] + max[0]) / 2, cz = (min[2] + max[2]) / 2;
-    const acrossAxis = longX ? 2 : 0;
     let facing: [number, number] = [0, -1];
-    if (kind === 'chair' && back) facing = acrossAxis === 0 ? [back === 'min' ? 1 : -1, 0] : [0, back === 'min' ? 1 : -1];
-    else if (kind === 'bed' && head) facing = longX ? [head === 'min' ? 1 : -1, 0] : [0, head === 'min' ? 1 : -1];
+    if (kind === 'chair' && back && turned) {
+      // A turned seat faces away from its backrest along its own axis: the grid side the backrest was read
+      // on is only the nearest of four.
+      let bx = 0, bz = 0;
+      for (const j of back.parts) { bx += (boxes[j]!.min[0] + boxes[j]!.max[0]) / 2; bz += (boxes[j]!.min[2] + boxes[j]!.max[2]) / 2; }
+      const dx = cx - bx / back.parts.length, dz = cz - bz / back.parts.length;
+      const [ux, uz] = turned, du = dx * ux + dz * uz, dv = -dx * uz + dz * ux;
+      facing = Math.abs(du) >= Math.abs(dv) ? [Math.sign(du) * ux, Math.sign(du) * uz] : [-Math.sign(dv) * uz, Math.sign(dv) * ux];
+    } else if (kind === 'chair' && rest) facing = rest.axis === 0 ? [rest.side === 'min' ? 1 : -1, 0] : [0, rest.side === 'min' ? 1 : -1];
+    else if (kind === 'bed' && headSide) facing = longX ? [headSide === 'min' ? 1 : -1, 0] : [0, headSide === 'min' ? 1 : -1];
     else {
       let best = Infinity;
       for (const { o } of others) {
@@ -456,13 +695,16 @@ export function brickBuiltFurniture(bricks: readonly ParsedBrick[], sourceMeshes
         if (dist > 1 && dist < best) { best = dist; facing = [ox / dist, oz / dist]; }
       }
     }
-    const n = kind === 'bed' ? 1 : Math.max(1, Math.min(3, Math.floor(l / 40)));
+    // Seats sit along the side the backrest is on (a square seat's back may be on its short axis).
+    const alongX = rest ? rest.axis === 2 : longX;
+    const run = alongX ? ex : ez;
+    const n = kind === 'bed' ? 1 : Math.max(1, Math.min(3, Math.floor(run / 40 + 0.05))) // + 0.05: a turned or Studio-scaled part measures 79.99;
     for (let k = 0; k < n; k++) {
       const t = (k + 0.5) / n;
-      const p: Vec3 = longX ? [min[0] + ex * t, top, cz] : [cx, top, min[2] + ez * t];
+      const p: Vec3 = alongX ? [min[0] + ex * t, top, cz] : [cx, top, min[2] + ez * t];
       out.push({ part: kind, brick: first, surfaceLdu: p, facingLdu: facing });
     }
-    trace?.(first, `${kind} x${n}`);
+    trace?.(first, `${kind} x${n} (${w.toFixed(0)} x ${l.toFixed(0)}, ${height.toFixed(0)} LDU up${wallSide ? ', against a wall' : ''}${back ? `, backrest ${back.parts.map(j => bricks[j]!.part.replace(/\.dat$/i, '')).join('+')}` : ''})`);
   }
   return out;
 }

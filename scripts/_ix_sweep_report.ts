@@ -24,7 +24,7 @@ interface Row {
   at100: Record<Verdict, number>; atPassSize: Record<Verdict, number>;
   never: number; failures: string[]; smallest: number[];
 }
-const zero = (): Record<Verdict, number> => ({ OK: 0, SMALL: 0, FAIL: 0, 'NO-APPROACH': 0, SEALED: 0, STEP: 0 });
+const zero = (): Record<Verdict, number> => ({ OK: 0, 'ONE-WAY': 0, SMALL: 0, FAIL: 0, 'NO-APPROACH': 0, SEALED: 0, STEP: 0 });
 const rows: Row[] = [];
 for (const name of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) {
   const bytes = readFileSync(join(dir, name));

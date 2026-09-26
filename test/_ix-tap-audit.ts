@@ -30,8 +30,16 @@ export interface TapAuditPart {
   /** Tap boxes no standing spot reaches at all (too high, buried in colliders or behind another part). */
   unreachedBoxes: number;
   boxes: number;
-  /** With `trace`: every reachable spot (feet) and whether the tap there was accepted. */
-  spots?: Array<{ at: [number, number, number]; ok: boolean }>;
+  /**
+   * Of the accepted spots, those from which the part also CLOSES again: the
+   * second tap, aimed at the OPEN part's tap boxes, is accepted too. From a
+   * spot that sees only the closed leaf, the open one can stand behind a wall
+   * and the runtime's line-of-sight filter refuses the closing tap (71040's
+   * Door 1 on the Pixel, GameTest 2026-09-25). A turnable only counts steps.
+   */
+  closable: number;
+  /** With `trace`: every reachable spot (feet), whether the tap there was accepted, and whether the part closed again from it. */
+  spots?: Array<{ at: [number, number, number]; ok: boolean; closes: boolean }>;
 }
 
 export interface TapAudit { parts: TapAuditPart[] }
@@ -75,8 +83,8 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
     solid.set(`${c.x},${c.y},${c.z}`, [Math.min(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))]);
   }
   const parts = actors.filter(a => a.interactive !== undefined);
-  const boxesOf = (a: Actor): WorldHitBox[] => {
-    const g = groups.get(a.typeId)?.[hitGroupName(0, 100, false)] as { 'minecraft:custom_hit_test'?: { hitboxes?: HitBox[] } } | undefined;
+  const boxesOf = (a: Actor, open = false): WorldHitBox[] => {
+    const g = groups.get(a.typeId)?.[hitGroupName(0, 100, open)] as { 'minecraft:custom_hit_test'?: { hitboxes?: HitBox[] } } | undefined;
     return (g?.['minecraft:custom_hit_test']?.hitboxes ?? []).map(b => worldHitBox([a.x, a.y, a.z], b));
   };
   const seatBoxes = actors.filter(a => /_seat(_\d+)?$/.test(a.typeId.replace(/^[^:]*:/, ''))).map(a => seatHitBox([a.x, a.y, a.z]));
@@ -102,44 +110,66 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
   for (let pi = 0; pi < parts.length; pi++) {
     const a = parts[pi]!;
     const own = allBoxes[pi]!;
+    const ownOpen = boxesOf(a, true);
     const others = [...allBoxes.filter((_, j) => j !== pi).flat(), ...seatBoxes];
-    const h = runtimeHost(cfg);
-    for (const c of cells) h.setCollider(c.x, c.y, c.z, c.lo, c.hi, c.v ?? 0);
-    const anchor = { x: 0, y: 0, z: 0 };
-    const e = h.spawn(a.interactive!, anchor, 1, 0, { x: a.x, y: a.y, z: a.z });
-    h.sync();
-    let reachable = 0, accepted = 0;
-    const reached = new Set<number>();
-    const trace: Array<{ at: [number, number, number]; ok: boolean }> = [];
-    for (const [sx, sy, sz] of spots) {
-      const eye = [sx, sy + 1.62, sz];
-      let spotReach = false, spotOk = false;
-      own.forEach((b, bi) => {
-        if (spotOk) return;
+    /** A fresh host with this part spawned closed (after a refused closing tap the old one is left open). */
+    const fresh = (): { h: ReturnType<typeof runtimeHost>; e: ReturnType<ReturnType<typeof runtimeHost>['spawn']> } => {
+      const h = runtimeHost(cfg!);
+      // Each cell's exact collider form (clearance), not its min/max span.
+      for (const c of cells) h.setCollider(c.x, c.y, c.z, c.lo, c.hi, c.v ?? 0);
+      const e = h.spawn(a.interactive!, { x: 0, y: 0, z: 0 }, 1, 0, { x: a.x, y: a.y, z: a.z });
+      h.sync();
+      return { h, e };
+    };
+    let { h, e } = fresh();
+    /** The first box of `list` in reach from `eye` with nothing else on the ray in front of it, and where to aim. */
+    const aimable = (eye: number[], list: WorldHitBox[]): { bi: number; c: number[] } | null => {
+      for (let bi = 0; bi < list.length; bi++) {
+        const b = list[bi]!;
         const c = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2, (b.z0 + b.z1) / 2];
         const v = [c[0]! - eye[0]!, c[1]! - eye[1]!, c[2]! - eye[2]!], n = Math.hypot(v[0]!, v[1]!, v[2]!);
-        if (n > reach + 0.5) return;
+        if (n > reach + 0.5) continue;
         const d = v.map(q => q / n);
         const tHit = rayBox(eye, d, b);
-        if (tHit > reach) return;
-        if (others.some(o => rayBox(eye, d, o) < tHit - 1e-6)) return;
+        if (tHit > reach || others.some(o => rayBox(eye, d, o) < tHit - 1e-6)) continue;
+        return { bi, c };
+      }
+      return null;
+    };
+    let reachable = 0, accepted = 0, closable = 0;
+    const reached = new Set<number>();
+    const trace: Array<{ at: [number, number, number]; ok: boolean; closes: boolean }> = [];
+    for (const [sx, sy, sz] of spots) {
+      const eye = [sx, sy + 1.62, sz];
+      let spotReach = false, spotOk = false, closes = false;
+      own.forEach((b, bi) => {
+        if (spotOk) return;
+        const hit = aimable(eye, [b]);
+        if (!hit) return;
         spotReach = true; reached.add(bi);
         const before = e.getDynamicProperty('craftmatic:ix_open') === true;
         const angleBefore = Number(e.getDynamicProperty('craftmatic:ix_angle') ?? 0);
-        h.aim({ x: eye[0]!, y: eye[1]!, z: eye[2]! }, { x: c[0]!, y: c[1]!, z: c[2]! });
+        h.aim({ x: eye[0]!, y: eye[1]!, z: eye[2]! }, { x: hit.c[0]!, y: hit.c[1]!, z: hit.c[2]! });
         h.tap(e);
         const after = e.getDynamicProperty('craftmatic:ix_open') === true;
         const angleAfter = Number(e.getDynamicProperty('craftmatic:ix_angle') ?? 0);
-        if (after !== before || angleAfter !== angleBefore) {
-          spotOk = true;
-          // Put it back (a door closes again from the same spot; a turnable's angle is only counted).
-          if (after !== before) h.tap(e);
+        if (after === before && angleAfter === angleBefore) return;
+        spotOk = true;
+        if (after === before) { closes = true; return; } // a turnable steps; there is nothing to close
+        // Close it again from the same spot, aimed at the OPEN part's boxes (what a player sees now).
+        const back = aimable(eye, ownOpen);
+        if (back) {
+          h.aim({ x: eye[0]!, y: eye[1]!, z: eye[2]! }, { x: back.c[0]!, y: back.c[1]!, z: back.c[2]! });
+          h.tap(e);
+          closes = (e.getDynamicProperty('craftmatic:ix_open') === true) === before;
         }
+        if (!closes) ({ h, e } = fresh());
       });
-      if (spotReach) { reachable++; trace.push({ at: [sx, sy, sz], ok: spotOk }); }
+      if (spotReach) { reachable++; trace.push({ at: [sx, sy, sz], ok: spotOk, closes: spotOk && closes }); }
       if (spotOk) accepted++;
+      if (spotOk && closes) closable++;
     }
-    out.push({ label: a.label, reachable, accepted, unreachedBoxes: own.length - reached.size, boxes: own.length, ...(opts.trace ? { spots: trace } : {}) });
+    out.push({ label: a.label, reachable, accepted, closable, unreachedBoxes: own.length - reached.size, boxes: own.length, ...(opts.trace ? { spots: trace } : {}) });
   }
   return { parts: out };
 }

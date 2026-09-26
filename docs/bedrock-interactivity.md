@@ -633,6 +633,94 @@ over its whole surface. The favourites' counts and the misses are in the
 40-set table below; `bun scripts/_seat_scan.ts <ldr> --why` says why each
 surface is or is not furniture.
 
+Round 2026-09-25b (910032's 12 missed seats, 42663's headboard-less beds),
+each rule from a crop render of the miss (`output/ix-seats/shots/`):
+- a part with something resting on half its top (the plate under an armrest)
+  is not a seat surface; a backrest is measured to the top of its STACK
+  (brick, plates, curved brick) for a seat two studs deep; a base under 2.5 x
+  the seat's area is the seat's own body, not its floor; a turned seat is
+  measured in its own frame, with only backrest parts turned with it;
+- a square seat's back may be on either axis (a booth), and armrests at both
+  ends with a wall along a long side make a sofa;
+- stools: a steering-wheel top counts, the column walk allows a few LDU of
+  gap (an open-stud round plate's mesh is 3 LDU), half an LDU of height
+  tolerance; a toilet (`isToiletBowl`: an inverted dome or dish) faces away
+  from its cistern;
+- a MATTRESS without a headboard (`isMattress`): one colour, at least 1.8 x as
+  long as wide, nothing beside it at its height but a pillow at exactly one
+  short end (at most 16 LDU), mostly on parts of another colour; flipped
+  `Tile … Inverted` pairs count as a surface (42663's camper beds). Without
+  the pillow rule it added 7 false beds (roof panels, mats).
+910032 8 -> 26 seats (sofas, armchairs, booths, 3 of 4 bar stools, the
+toilet, stools); 42663 0 -> 3 beds; 42670 0 -> 1 bed. Still missed: 910032's
+4th bar stool (its wheel touches the counter at seat height), 42670's sofa,
+armchair and stools, 11371's armchair (its seat is a bracket; the old find
+was the plate under the armrest). The same rules add about 11 seats that are
+NOT furniture in other favourites (10261 1, 31141 1, 41703 1, 42639 2, 60380
+2, 76457 1, 77092 1, 80049 2; seen in renders): small 2 x 2 "chairs" are the
+open precision problem.
+
+## Brick-built doors, gates and mechanisms
+
+A door built from plates and tiles on two clips, or a bus's side wall on
+hinge bricks, has no description to read; what it has is a JOINT.
+`engine/brick-hinges.ts` (driven by the interactivity stage after the
+moulded rules, the same cap, entity, animation, collider and tap-box path):
+
+1. **Joints from LDCad.** `scripts/gen-hinge-joint-snaps.py` resolves every
+   TURNING connector of the joint families (finger hinges, clips, round pins,
+   bars, holes, axles, turntable rings; from stud primitives only a hollow
+   stud's hole) into `engine/hinge-joint-snaps.ts` (1,272 parts, packed). Two
+   placements whose connectors mate on one line (finger to finger of one
+   group, a clip on a 4 LDU bar, a male cylinder in a female one of its
+   radius) are a joint; an axle in an axle hole is a joint that does not turn.
+   LDCad lays a snap's sections from its position toward its local -Y.
+2. **Rigid connections**: a stud inside another part's box, a stud-group
+   part's top under another's bottom, a small part embedded in another, every
+   non-turning joint - all only between parts SQUARE to each other (a leaf
+   the source left ajar stands on the floor's studs but is not on them).
+3. **Cut a joint line**: every turning joint on one line at once (a door hangs
+   on two hinges). The side that comes away small is what moves; a lone bar
+   held only by the leaf's clips is the pivot (910004).
+4. **Class by shape, checked by a sweep.** Every class was tightened by a
+   visual review of what it found (each assembly rendered red in its grey
+   surroundings, `bun scripts/_ix_hinges.ts --list=<picks> --crops=<dir>`
+   then `_shoot_set.mjs`): 135 candidates became 14.
+   - A PANEL (its parts cover half its outline face on) beside a vertical line,
+     standing on a floor, at most 3.5 x as tall as wide: a **door** (a lintel
+     over it) or **gate** (none) - a doorway like a moulded one. Under a lintel
+     but off the floor, or too tall: a **door leaf** / **hinged panel**
+     (swings, collider kept).
+   - A **wing**: a thick section of 12+ parts on hinge bricks or plates that
+     swings OUT into free air (at most 2 percent of it in the model a quarter
+     turn out, at least 25 percent turned in): 41395's bus sides read 0/27 and
+     0/46; a coaster's lattice deck (0/19, 6/10) and a stair railing (8/44) do
+     not.
+   - Lids and flaps only on a hinge proper; a level hinge set at an angle is an
+     angle joint (a roof, a ramp).
+   - Rejected by rule, each seen in the review: a bar in a bar tube or hollow
+     stud (railings, ladders, lamp posts - 10341's tower read as twenty lids),
+     assemblies mostly of Technic parts (a mechanism's insides), leaves of
+     struts (low cover), a mirror or sign on its clip (in the air, no lintel),
+     small flaps on clips (roof wedges, pipes, signs).
+   - A **mechanism** that turns a step per tap only on a turntable. On a pin or
+     an axle the review found a cart's wheel, a davit and a lift's linkage and
+     no windmill; nothing yet tells them apart, so none moves.
+
+Every joint line is reported with its verdict (`interactivity.hinges` in the
+pack diagnostics: lines, verdicts, what moved and its noun);
+`bun scripts/_ix_hinges.ts <ldr> --all` lists them with the reason.
+
+Over the favourites (first picks, LDraw): 80049 2 doors (the teal double
+door on clips), 910004 2 doors (the patchwork door), 910047 2 doors (the
+plank gate) + 1 upstairs door, 76435 1 gate (the stud-covered slab door),
+41395 2 wings, 11371 2 hinged panels (window columns on a tower's hinges).
+Not found: 10354's round door (its hinge 3830/3831 joins two floor
+modules; the round leaf is not on a joint the table knows), 42639's garage
+gate and 910049's iron gate (no joint line splits them off), cranes, lifts,
+drawbridges and windmills (no turntable joint in the favourites; on axles, see
+above).
+
 ## Not verified on a device
 
 Device round 2026-09-24d (packs at 8346fb29): doors render as LEGO, open and
@@ -651,10 +739,10 @@ the box centre), how a sliding part (drawer, garage door) LOOKS as it slides
 (the direction is derived), the root-bone scale at a non-100 % size, the
 occupant step-out and the threshold treads.
 
-## The 40-set audit (2026-09-25)
+## The 40-set audit (2026-09-26)
 
 Every favourite set, exported from its index first pick through the one
-interactivity stage (`bun scripts/_favorites_export_sweep.ts` at `7867a80f`),
+interactivity stage (`bun scripts/_favorites_export_sweep.ts` at `46aea7ea`, main merged),
 against what a person saw in renders of the same source (four agents, 4-18
 views each, `output/interactivity-0924/audit-visual/<set>.json`; sightings
 marked low-confidence are listed there but not counted here). **found** is
@@ -669,56 +757,57 @@ recommended size. **GameTest** is the in-game run on the Pixel.
 
 | set | found | seen in renders (brick-built) | missed | found more | doorways walked | GameTest |
 |---|---|---|---|---|---|---|
-| 10261 | 4 container, 4 seat, 1 lever | 3 seat, 1 mechanism | 1 mechanism | 4 container, 1 seat, 1 lever | no doorways | parts+seats 9/9, figures 5/7 moved |
+| 10261 | 4 container, 4 seat, 1 bed, 1 lever | 3 seat, 1 mechanism | 1 mechanism | 4 container, 1 seat, 1 bed, 1 lever | no doorways | parts+seats 10/10, figures 5/7 moved |
 | 10303 | 2 seat, 4 turnable | 3 seat, 1 mechanism (1) | 1 seat, 1 mechanism | 4 turnable | no doorways | parts+seats 6/6, figures 7/8 moved |
-| 10326 | 6 door, 1 window, 1 seat, 2 lever, 1 turnable | 3 door, 1 seat (1), 1 turnable (1), 1 mechanism (1) | 1 mechanism | 3 door, 1 window, 2 lever | 3/6 at 100 % | doors 4/4, parts+seats 7/7, figures 6/7 moved |
+| 10326 | 6 door, 1 window, 1 seat, 2 lever, 1 turnable | 3 door, 1 seat (1), 1 turnable (1), 1 mechanism (1) | 1 mechanism | 3 door, 1 window, 2 lever | 3/6 at 100 % | doors 4/4, parts+seats 7/7, figures 7/7 moved |
 | 10337 | 1 turnable | 2 door (2), 1 hatch (1), 2 seat (2) | 2 door, 1 hatch, 2 seat | 1 turnable | no doorways | not run |
 | 10341 | 1 turnable | 1 mechanism (1) | 1 mechanism | 1 turnable | no doorways | parts+seats 1/1 |
 | 10354 | 2 window, 3 container | 1 door (1), 1 mechanism (1) | 1 door, 1 mechanism | 2 window, 3 container | no doorways | parts+seats 5/5, figures 8/9 moved |
 | 10365 | 1 container, 2 seat, 1 turnable | 10 mechanism (1) | 10 mechanism | 1 container, 2 seat, 1 turnable | no doorways | parts+seats 3/3, figures 6/8 moved |
-| 11371 | 8 door, 2 window, 3 seat, 1 lever | 5 door, 1 container (1) | 1 container | 3 door, 2 window, 3 seat, 1 lever | 1/8 at 100 % | doors 7/7, parts+seats 7/7, figures 5/7 moved |
+| 11371 | 8 door, 2 window, 2 seat, 1 lever, 2 mechanism | 5 door, 1 container (1) | 1 container | 3 door, 2 window, 2 seat, 1 lever, 2 mechanism | 1/8 at 100 % | doors 7/7, parts+seats 8/8, figures 7/7 moved |
 | 11374 | - | 5 lever (2), 2 turnable, 3 mechanism (3) | 5 lever, 2 turnable, 3 mechanism | - | no doorways | pinball pass |
 | 21061 | - | 3 door (3) | 3 door | - | no doorways | not run |
-| 21063 | - | 1 gate (1) | 1 gate | - | no doorways | not run |
+| 21063 | 1 bed | 1 gate (1) | 1 gate | 1 bed | no doorways | parts+seats 1/1 |
 | 21318 | 3 door, 1 turnable | 2 door, 4 seat (4), 1 lever (1), 1 mechanism (1) | 4 seat, 1 lever, 1 mechanism | 1 door, 1 turnable | 0/3 at 100 % | doors 2/2, parts+seats 1/1, figures 3/4 moved |
 | 21360 | 4 seat, 1 turnable | 3 seat (3), 2 mechanism (2) | 2 mechanism | 1 seat, 1 turnable | no doorways | parts+seats 5/5, figures 9/9 moved |
-| 31141 | 5 door, 2 window, 3 seat, 3 lever, 1 turnable | 3 door, 5 seat (3), 2 turnable | 2 seat, 1 turnable | 2 door, 2 window, 3 lever | 4/5 at 100 % | doors 5/5, parts+seats 9/9, figures 2/6 moved |
-| 41395 | 2 door, 1 window, 1 container, 1 lever, 1 turnable | 3 door (2), 1 turnable, 2 mechanism (1) | 1 door, 2 mechanism | 1 window, 1 container, 1 lever | 0/2 at 100 % | doors 1/2, parts+seats 4/4, figures 3/3 moved (failed: Door 1) |
-| 41703 | 1 door, 8 window, 1 container, 5 seat, 1 lever | 1 door, 1 window, 1 container, 1 seat, 2 turnable, 2 mechanism (1) | 2 turnable, 2 mechanism | 7 window, 4 seat, 1 lever | 1/1 at 100 % | doors 1/1, parts+seats 15/15, figures 3/4 moved |
-| 41732 | 6 door, 2 window, 9 seat | 2 door, 2 container (2), 8 seat (5) | 2 container | 4 door, 2 window, 1 seat | 5/6 at 100 % | doors 6/6, parts+seats 11/11, figures 6/7 moved |
+| 31141 | 5 door, 2 window, 4 seat, 3 lever, 1 turnable | 3 door, 5 seat (3), 2 turnable | 1 seat, 1 turnable | 2 door, 2 window, 3 lever | 4/5 at 100 % | doors 5/5, parts+seats 9/10, figures 4/6 moved (failed: Window 2) |
+| 41395 | 2 door, 1 window, 1 container, 1 lever, 1 turnable, 2 mechanism | 3 door (2), 1 turnable, 2 mechanism (1) | 1 door | 1 window, 1 container, 1 lever | 0/2 at 100 % | doors 2/2, parts+seats 6/6, figures 3/3 moved |
+| 41703 | 1 door, 8 window, 1 container, 3 seat, 1 bed, 1 lever | 1 door, 1 window, 1 container, 1 seat, 2 turnable, 2 mechanism (1) | 2 turnable, 2 mechanism | 7 window, 2 seat, 1 bed, 1 lever | 1/1 at 100 % | doors 1/1, parts+seats 14/14, figures 3/4 moved |
+| 41732 | 6 door, 2 window, 10 seat | 2 door, 2 container (2), 8 seat (5) | 2 container | 4 door, 2 window, 2 seat | 5/6 at 100 % | doors 6/6, parts+seats 12/12, figures 6/7 moved |
 | 42172 | 1 turnable | 2 door (2), 1 turnable, 1 mechanism (1) | 2 door, 1 mechanism | - | no doorways | parts+seats 1/1 |
-| 42639 | 2 door, 3 seat, 1 turnable | 1 door, 1 gate (1), 2 container (2), 2 seat (2), 3 bed (3) | 1 gate, 2 container, 3 bed | 1 door, 1 seat, 1 turnable | 1/2 at 100 % | doors 2/2, parts+seats 4/4, figures 6/8 moved |
+| 42639 | 2 door, 5 seat | 1 door, 1 gate (1), 2 container (2), 2 seat (2), 3 bed (3) | 1 gate, 2 container, 3 bed | 1 door, 3 seat | 1/2 at 100 % | doors 2/2, parts+seats 6/6, figures 6/8 moved |
 | 42652 | 1 door, 4 window, 1 lever, 1 turnable | 2 door (1), 2 seat (2), 1 bed (1), 1 mechanism | 1 door, 2 seat, 1 bed, 1 mechanism | 4 window, 1 lever, 1 turnable | 1/1 at 100 % | doors 1/1, parts+seats 6/6, figures 4/4 moved |
-| 42663 | 1 door, 1 window, 2 container, 1 turnable | 1 door, 2 seat, 3 bed (3), 2 mechanism (2) | 2 seat, 3 bed, 2 mechanism | 1 window, 2 container, 1 turnable | 0/1 at 100 % | doors 1/1, parts+seats 4/4, figures 2/3 moved |
-| 42670 | 7 door, 2 container, 1 lever | 3 door, 1 gate, 6 seat (4), 1 mechanism | 1 gate, 6 seat, 1 mechanism | 4 door, 2 container, 1 lever | 3/7 at 100 % | doors 4/5, parts+seats 5/5, figures 4/7 moved (failed: Door 4) |
+| 42663 | 1 door, 1 window, 2 container, 3 bed, 1 turnable | 1 door, 2 seat, 3 bed (3), 2 mechanism (2) | 2 seat, 2 mechanism | 1 window, 2 container, 1 turnable | 0/1 at 100 % | doors 1/1, parts+seats 7/7, figures 2/3 moved |
+| 42670 | 7 door, 2 container, 1 bed, 1 lever | 3 door, 1 gate, 6 seat (4), 1 mechanism | 1 gate, 6 seat, 1 mechanism | 4 door, 2 container, 1 bed, 1 lever | 3/7 at 100 % | doors 5/5, parts+seats 6/6, figures 6/7 moved |
 | 43267 | 2 container, 5 seat, 1 turnable | 3 container (1), 1 bed (1), 1 mechanism | 1 container, 1 bed, 1 mechanism | 5 seat, 1 turnable | no doorways | parts+seats 8/8, figures 4/5 moved |
-| 60380 | 3 door, 13 window, 2 container, 8 seat, 2 turnable | 3 door, 7 seat (7), 3 mechanism (2) | 3 mechanism | 13 window, 2 container, 1 seat, 2 turnable | 1/3 at 100 % | doors 2/2, parts+seats 26/26, figures 11/14 moved |
-| 60446 | 4 seat | 4 hatch (2), 2 seat, 1 mechanism | 4 hatch, 1 mechanism | 2 seat | no doorways | parts+seats 4/4, figures 1/3 moved |
-| 71040 | 2 door, 2 container, 1 seat, 5 turnable | 3 door, 1 window, 1 container (1), 1 bed (1), 1 lever, 1 mechanism (1) | 1 door, 1 window, 1 bed, 1 lever, 1 mechanism | 1 container, 1 seat, 5 turnable | 0/2 at 100 % | doors 1/1, parts+seats 8/9, figures 0/2 moved, 1 in a wall (failed: Door 1) |
-| 71043 | 9 turnable | 1 door, 4 seat (4), 1 bed (1), 2 mechanism (2) | 1 door, 4 seat, 1 bed, 2 mechanism | 9 turnable | no doorways | parts+seats 9/9, figures 3/4 moved |
-| 75397 | 1 door, 3 container, 1 seat, 5 turnable | 2 turnable, 4 mechanism (4) | 4 mechanism | 1 door, 3 container, 1 seat, 3 turnable | 0/1 at 100 % | doors 1/1, parts+seats 6/6, figures 5/6 moved |
-| 76269 | 3 door, 12 window, 3 container, 10 seat | 1 door, 1 mechanism (1) | 1 mechanism | 2 door, 12 window, 3 container, 10 seat | 2/3 at 100 % | doors 3/3, parts+seats 25/25, figures 13/20 moved |
+| 60380 | 3 door, 13 window, 10 seat, 1 turnable | 3 door, 7 seat (7), 3 mechanism (2) | 3 mechanism | 13 window, 3 seat, 1 turnable | 1/3 at 100 % | doors 2/2, parts+seats 28/28, figures 11/14 moved |
+| 60446 | 2 seat | 4 hatch (2), 2 seat, 1 mechanism | 4 hatch, 1 mechanism | - | no doorways | parts+seats 2/2, figures 1/3 moved |
+| 71040 | 2 door, 2 container, 1 seat, 5 turnable | 3 door, 1 window, 1 container (1), 1 bed (1), 1 lever, 1 mechanism (1) | 1 door, 1 window, 1 bed, 1 lever, 1 mechanism | 1 container, 1 seat, 5 turnable | 0/2 at 100 % | doors 1/1, parts+seats 9/9, figures 0/2 moved, 1 in a wall |
+| 71043 | 2 door, 9 turnable | 1 door, 4 seat (4), 1 bed (1), 2 mechanism (2) | 4 seat, 1 bed, 2 mechanism | 1 door, 9 turnable | 0/2 at 100 % | parts+seats 11/11, figures 3/4 moved |
+| 75397 | 1 door, 3 container, 1 seat, 5 turnable | 2 turnable, 4 mechanism (4) | 4 mechanism | 1 door, 3 container, 1 seat, 3 turnable | 0/1 at 100 % | doors 1/1, parts+seats 7/7, figures 5/6 moved |
+| 76269 | 3 door, 12 window, 3 container, 10 seat | 1 door, 1 mechanism (1) | 1 mechanism | 2 door, 12 window, 3 container, 10 seat | 2/3 at 100 % | doors 3/3, parts+seats 25/25, figures 15/20 moved |
 | 76286 | - | 1 hatch, 2 seat (2), 2 mechanism (2) | 1 hatch, 2 seat, 2 mechanism | - | no doorways | figures 4/4 moved |
-| 76417 | 4 door, 4 window, 1 container, 1 seat, 2 bed | 4 door, 3 container, 1 seat (1), 1 lever, 1 mechanism (1) | 2 container, 1 lever, 1 mechanism | 4 window, 2 bed | 3/4 at 100 % | doors 3/3, parts+seats 9/9, figures 9/11 moved |
-| 76419 | 1 seat | 2 gate (2), 1 mechanism (1) | 2 gate, 1 mechanism | 1 seat | no doorways | parts+seats 1/1 |
-| 76435 | 2 door, 7 seat | 3 door (1), 1 seat | 1 door | 6 seat | 1/2 at 100 % | doors 2/2, parts+seats 7/7, figures 8/10 moved |
-| 76457 | 6 door, 3 window, 7 seat, 1 bed, 2 turnable | 6 door, 1 gate (1), 1 window, 3 container, 3 seat (1), 1 bed (1) | 1 gate, 3 container | 2 window, 4 seat, 2 turnable | 6/6 at 100 % | doors 6/6, parts+seats 13/13, figures 11/12 moved |
-| 77092 | 1 container | 1 door (1), 1 container, 1 bed (1), 1 mechanism | 1 door, 1 bed, 1 mechanism | - | no doorways | parts+seats 1/1, figures 2/4 moved |
-| 80049 | 1 door, 4 window, 2 seat | 2 door (2), 4 seat (4), 1 bed (1) | 1 door, 2 seat, 1 bed | 4 window | 0/1 at 100 % | doors 1/1, parts+seats 6/6, figures 7/8 moved |
-| 910004 | 3 door, 8 window, 2 container, 9 seat | 7 door (1), 4 window, 7 seat (1), 4 bed (4), 1 mechanism | 4 door, 4 bed, 1 mechanism | 4 window, 2 container, 2 seat | 1/3 at 100 % | doors 3/3, parts+seats 19/19, figures 3/4 moved |
-| 910032 | 5 door, 4 seat, 4 bed, 10 turnable | 6 door, 1 gate (1), 6 window, 3 container (3), 16 seat (12), 1 bed (1) | 1 door, 1 gate, 6 window, 3 container, 12 seat | 3 bed, 10 turnable | 3/5 at 100 % | doors 5/5, parts+seats 18/18, figures 4/7 moved |
-| 910047 | 1 container, 2 seat | 1 gate (1), 3 container, 1 seat (1), 1 bed (1), 5 mechanism (4) | 1 gate, 2 container, 1 bed, 5 mechanism | 1 seat | no doorways | parts+seats 3/3, figures 6/9 moved |
-| 910049 | 1 door, 1 seat, 1 turnable | 1 gate (1), 1 mechanism (1) | 1 gate, 1 mechanism | 1 door, 1 seat, 1 turnable | 0/1 at 100 % | parts+seats 3/3, figures 6/8 moved, 1 in a wall |
+| 76417 | 4 door, 4 window, 1 container, 1 seat | 4 door, 3 container, 1 seat (1), 1 lever, 1 mechanism (1) | 2 container, 1 lever, 1 mechanism | 4 window | 3/4 at 100 % | doors 3/3, parts+seats 7/7, figures 9/11 moved |
+| 76419 | 4 seat | 2 gate (2), 1 mechanism (1) | 2 gate, 1 mechanism | 4 seat | no doorways | parts+seats 4/4 |
+| 76435 | 2 door, 1 gate, 7 seat | 3 door (1), 1 seat | 1 door | 1 gate, 6 seat | 2/3 at 100 % | doors 3/3, parts+seats 7/7, figures 8/10 moved |
+| 76457 | 6 door, 3 window, 8 seat, 1 bed, 2 turnable | 6 door, 1 gate (1), 1 window, 3 container, 3 seat (1), 1 bed (1) | 1 gate, 3 container | 2 window, 5 seat, 2 turnable | 6/6 at 100 % | doors 6/6, parts+seats 14/14, figures 11/12 moved |
+| 77092 | 1 container, 1 seat | 1 door (1), 1 container, 1 bed (1), 1 mechanism | 1 door, 1 bed, 1 mechanism | 1 seat | no doorways | parts+seats 2/2, figures 2/4 moved |
+| 80049 | 3 door, 4 window, 4 seat | 2 door (2), 4 seat (4), 1 bed (1) | 1 bed | 1 door, 4 window | 0/3 at 100 %, 2 at its size | doors 3/3, parts+seats 7/8, figures 8/8 moved (failed: Window 3) |
+| 910004 | 5 door, 8 window, 2 container, 9 seat | 7 door (1), 4 window, 7 seat (1), 4 bed (4), 1 mechanism | 2 door, 4 bed, 1 mechanism | 4 window, 2 container, 2 seat | 1/5 at 100 % | doors 5/5, parts+seats 19/19, figures 2/4 moved |
+| 910032 | 5 door, 23 seat, 3 bed, 10 turnable | 6 door, 1 gate (1), 6 window, 3 container (3), 16 seat (12), 1 bed (1) | 1 door, 1 gate, 6 window, 3 container | 7 seat, 2 bed, 10 turnable | 3/5 at 100 % | doors 5/5, parts+seats 35/35, figures 4/7 moved, 1 in a wall |
+| 910047 | 3 door, 1 container, 3 seat | 1 gate (1), 3 container, 1 seat (1), 1 bed (1), 5 mechanism (4) | 1 gate, 2 container, 1 bed, 5 mechanism | 3 door, 2 seat | 3/3 at 100 % | doors 1/3, parts+seats 4/4, figures 7/8 moved (failed: Door 1, Door 2) |
+| 910049 | 1 door, 1 seat, 1 turnable | 1 gate (1), 1 mechanism (1) | 1 gate, 1 mechanism | 1 door, 1 seat, 1 turnable | 0/1 at 100 % | parts+seats 3/3, figures 6/8 moved |
 
-Totals over the 40 packs: 40/40 export and validate; 73 doorways, 0 FAIL, 36
-walked through at 100 %, 1 at its passable size, 36 SEALED; 233 moving parts,
-1,512 tap boxes, 0 overlaps, 0 over a seat, 0 without a box; the tap probe
-finds 227 parts that take a tap from a standing spot within 3 blocks, 3 that
-refuse every one (10337's and 75397's turnable inside a closed body, 10365's
-chest lid in the hold) and 3 no standing spot reaches (21318's and 75397's
-turnable, 75397's drawer). The stage reports 0 unhandled candidates: every
-part whose description names a movable thing is found, static with a
-reason, carried, or owned by another entity.
+Totals over the 40 packs (`output/ix-final/sweep-m/`): 40/40 export and
+validate (`_mcaddon_check`); 83 doorways, 0 FAIL: 40 walked through at 100 %,
+9 ONE-WAY (walked out, the step back in is over the jump), 3 SMALL, 2
+NO-APPROACH, 29 SEALED (`output/ix-final/walk-m.json`); 243 moving parts,
+1,580 tap boxes, 0 overlaps, 0 over a seat; the tap probe: 3 parts refuse
+every tap (10337's and 75397's turnable inside a closed body, 10365's chest
+lid in the hold), 0 open without closing again from a spot that opened them,
+3 out of reach (21318's, 75397's and 910032's turnables). Main's scene
+vehicles now own 60380's car (its two car doors and steering wheel) and a
+turnable of 42639; they left this stage's count with it.
 
 SEALED means the doorway opens (the leaf swings, its cells clear) but one side
 has no floor a player can stand on along the straight corridor through it:
@@ -729,41 +818,53 @@ geometry reaches it, and a minifig room is 2-3 blocks wide with furniture in
 it). Finer colliders are now in: "Clearance" above took this to 38 OK / 34
 SEALED, and says why the rest stay sealed.
 
-### GameTest on the Pixel (cmgametest, 2026-09-25)
+### GameTest on the Pixel (cmgametest, 2026-09-26)
 
-37 sets ran (21061, 21063 and 10337 have nothing to test); logs in
-`output/gametest/ix-7867/logs/` and, for the seven re-run on the fixed build
-`4ee514b5`, `output/gametest/ix-4ee5/logs/`. **Doorways 61/63 as the offline
-walk predicts; parts and seats 269/270; pinball pass.** Every seat mounted
-(a seat a figure was sat on holds its figure). The first run found one real
-fault, fixed in `4ee514b5`: a window, lid or cupboard door never closed
-again when the player stood at it, because the runtime's "never close on
-someone" test covered every leaf; only a doorway checks now. What is left:
+All 40 sets through `output/gametest/ix-final/_gt_device_run.py` (one test
+variant bound at a time; 10337 and 21061 have nothing to test). Seven sets
+a fix touched were re-run on the merged build (`2972c608` variants of the
+`46aea7ea` packs: 10326, 42670, 31141, 42652, 80049 in run 4; 11371, 910047
+in run 3); the other 31 are the first run's (`fc38d81a` packs). 71040's
+re-run could not open the world (a featured-server tile pushed `cmgametest`
+to slot 3, which the driver does not check), so its row is the first run's.
+Logs: `output/gametest/ix-final/logs/` (first-run copies of the re-run sets
+in `logs-run1/`), summary `device-summary.json`. **Doorways 69/71 as the
+offline walk predicts; parts and seats 306/308; pinball pass.** Every seat
+mounted, the brick-built finds included (80049's, 910004's and 910047's
+doors and 76435's gate walked as predicted except below; 41395's two wings,
+11371's two hinged panels and 71043's two doors toggle on a hit).
 
-- **71040 Door 1** opens on a hit and does not close on the second, from
-  the spot the test chose. The tap audit picks the spot from the CLOSED tap
-  boxes; from there the open leaf is behind a wall, so the line-of-sight
-  filter refuses the second tap. A player walks round; the test should pick
-  a spot that sees both states (TODO in `_gametest_pack.ts`).
-- **41395 Door 1**: the offline walk calls it SEALED; on the device the
-  player walked through it open (and not closed). The offline collider walk
-  is pessimistic here - the device is the better answer.
-- **42670 Door 4**: offline OK; on the device the walker FELL off the
-  approach both closed and open (it ended on the arena floor). Not yet
-  looked at: the doorway is up a step or on a platform the test's walk line
-  runs off.
-- **Figures** (the minifig-AI stage, not this one): 176 of 232 roaming
-  figures moved; 71040's two never moved (one inside a wall), 31141 moved 2
-  of 6, 910049 has one figure ending inside a wall.
+Closed since the last round:
+- **71040 Door 1** toggles open and closed (first run, `fc38d81a`): the tap audit now taps a second
+  time at the OPEN boxes and the test stands at a spot that does both, clear
+  of the closed leaf (the old spot was 0.46 block from its hinge end).
+- **41395 Door 1/2** read ONE-WAY offline (the bus floor is over the jump
+  from the road) and walk out on the device as predicted.
+- **42670 Door 4** passes: the walk follows the offline route leg by leg and
+  jumps the 1.25-block rise. The walker ends on the street at progress 0.76,
+  so this pass is by the progress rule, not a clean crossing into the room.
+- **10326 Door 2/4, 11371 Door 3/4**: through, then off a drop beyond, now
+  judged through (they were "fell").
+
+Still differing:
+- **910047 Door 1/2** (the brick-built plank gate): offline OK; the device
+  walker falls off the narrow threshold closed and open (progress 0.32 and
+  0.73, ending on the arena floor). The straight line stays in the route's
+  columns, so the leg-by-leg walk does not apply; the simulated player drifts
+  off a 1-block ledge.
+- **42652 Window 2** passes again from the nearest accepted spot (run 4); the
+  both-ways spot, now kept for doorway parts only, was refused on it.
+- **31141 Window 2, 80049 Window 3**: the runtime refuses the hit as "behind
+  a wall from here" (the new `craftmatic:ix_refused` field), from the spot
+  the offline host accepts and that passed in the 2026-09-25 round.
+  Unexplained (TODO in `_gametest_pack.ts`); a player standing in front of
+  the window is not refused offline.
 
 ### Why the misses
 
-- **Brick-built doors and gates** (10354's round hobbit door, 80049's teal
-  double doors, 910004's patchwork door, 910047's plank gate, 42639's garage
-  gate, 910049's iron gate, 41395's glass side wings): assembled from plates
-  and tiles on hinge bricks or clips. No rule finds a leaf that is not one
-  part; it needs a hinge-joint detector (find the clip/hinge pair, take the
-  connected slab on its free side). Not attempted.
+- **Brick-built doors and gates**: see "Brick-built doors, gates and
+  mechanisms" above (found 14; 10354's round door, 42639's garage gate and
+  910049's iron gate still missed).
 - **Micro-scale sets** (21061, 21063, 76419): their "doors" and "gates" are
   carved recesses a few studs tall; nothing a minifig-scale player could use.
 - **Vehicles' own parts** (10337's and 42172's butterfly doors, engine
@@ -773,12 +874,11 @@ someone" test covered every leaf; only a doorway checks now. What is left:
   no generic mechanism rule. The pinball's flippers, buttons and plunger
   (11374) are the pinball engine's; a coaster's cars and lift (10261, 10303)
   the coaster engine's.
-- **Seats** the furniture rule does not match (910032's 12, 42670's 6,
-  71043's hall benches). Where looked at (910032): dining chairs whose seat
-  tile sits under the table top, sofas on solid bases with no backrest the
-  rule reads. The ride cars' seats are the cars'.
-- **Beds**: a mattress with no headboard (42663's three camper beds), and
-  910004's four, whose build the bed rule does not match (not inspected).
+- **Seats**: see "Brick-built seats" above (910032 8 -> 26, round
+  2026-09-25b); still missed: 910032's 4th bar stool, 42670's sofa, armchair
+  and stools, 71043's hall benches. The ride cars' seats are the cars'.
+- **Beds**: 42663's three camper mattresses are found (`isMattress`);
+  910004's four still are not (not inspected).
 - **Containers**: brick-built cupboards and wardrobes, and 30150's one-piece
   "Adventurers Chest", which has no lid part.
 - **Windows**: of 910032's French windows and shutters, the moulded ones the

@@ -136,7 +136,9 @@ describe('walk verdicts', () => {
     expect(judgeWalk(s, e, { x: 0.3, y: 0, z: 1.9 }).outcome).toBe('passed');
     expect(judgeWalk(s, e, { x: 0, y: 0, z: 0.4 }).outcome).toBe('blocked');
     expect(judgeWalk(s, e, { x: 0, y: 0, z: 1.2 }).outcome).toBe('partial');
-    expect(judgeWalk(s, e, { x: 0, y: -3.2, z: 1.9 }).outcome).toBe('fell');
+    expect(judgeWalk(s, e, { x: 0, y: -3.2, z: 0.9 }).outcome).toBe('fell');
+    // Through (progress 0.95) and then off a drop beyond: through.
+    expect(judgeWalk(s, e, { x: 0, y: -3.2, z: 1.9 }).outcome).toBe('passed');
     expect(outcomeMatches('sealed', 'fell')).toBe(true);
     expect(outcomeMatches('passed', 'fell')).toBe(false);
   });

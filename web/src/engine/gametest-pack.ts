@@ -72,6 +72,14 @@ export interface GametestDoorway {
   /** Feet position on the approach side and the far side, from the offline walk. */
   start: Vec3;
   end: Vec3;
+  /**
+   * The offline walk's route between them (column centres, feet height), which
+   * the device walker follows leg by leg. Walked straight from start to end, a
+   * route that turns along a stoop walks off its edge: 42670's Door 4 walker
+   * fell to the arena floor closed and open (Pixel 2026-09-25) where the
+   * offline walk, following its route, passed.
+   */
+  via?: Vec3[];
   /** Offline predictions (`interactive-walk.ts`) for the same start/end. */
   expectClosed: WalkOutcome;
   expectOpen: WalkOutcome;
@@ -581,7 +589,9 @@ export function judgeWalk(start: Vec3, end: Vec3, at: Vec3): { outcome: 'passed'
   const dx = end.x - start.x, dz = end.z - start.z, len2 = dx * dx + dz * dz;
   const progress = len2 > 0 ? ((at.x - start.x) * dx + (at.z - start.z) * dz) / len2 : 0;
   const rounded = Math.round(progress * 100) / 100;
-  if (at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
+  // Through the doorway and on (three quarters of the way to the far spot) is through, even if
+  // the walker then stepped off a drop beyond it (10326 Door 2, a ONE-WAY doorway, Pixel 2026-09-25b).
+  if (progress < 0.75 && at.y < Math.min(start.y, end.y) - 1) return { outcome: 'fell', progress: rounded };
   return { outcome: progress >= 0.75 ? 'passed' : progress < 0.5 ? 'blocked' : 'partial', progress: rounded };
 }
 
@@ -610,6 +620,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
   if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
+  /** Ticks a doorway walk gives each leg of the offline route (`GametestDoorway.via`) before moving on. */
+  const LEG_TICKS = 30;
   /** `GAIT_PROBE_EVENT` (the runtime is serialised: it cannot import it). */
   const gaitEvent = `${NS}:gait`;
   const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
@@ -738,10 +750,23 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const { sim, anchor, dim } = placed;
     await test.idle(40); // two interactives sync passes: closed doorways get their colliders
 
-    const walk = async (startW: Vec3, endW: Vec3): Promise<{ outcome: string; progress: number; at: Vec3 }> => {
-      sim.teleport(startW, { facingLocation: endW });
+    const walk = async (startW: Vec3, endW: Vec3, viaW: Vec3[] = []): Promise<{ outcome: string; progress: number; at: Vec3 }> => {
+      sim.teleport(startW, { facingLocation: viaW[0] ?? endW });
       await test.idle(4);
-      sim.moveToLocation(test.relativeLocation(endW)); // relative, like every SimulatedPlayer move
+      // Leg by leg along the offline route (`via`), then on to the end; a leg gives up after
+      // `LEG_TICKS` (a closed leaf stops the walker at the first leg past it).
+      for (const p of viaW) {
+        sim.moveToLocation(test.relativeLocation(p)); // relative, like every SimulatedPlayer move
+        // A leg that rises past the auto-step is a jump (the offline walk jumps when a move is
+        // clipped; 42670's Door 4 sits 1.25 blocks over the ground in front of it).
+        const rises = p.y - sim.location.y > 0.6;
+        for (let t = 0; t < LEG_TICKS; t += 2) {
+          await test.idle(2);
+          if (Math.hypot(sim.location.x - p.x, sim.location.z - p.z) < 0.35) break;
+          if (rises && t % 8 === 2 && p.y - sim.location.y > 0.6) sim.jump();
+        }
+      }
+      sim.moveToLocation(test.relativeLocation(endW));
       await test.idle(60);
       sim.stopMoving();
       const at = { ...sim.location };
@@ -752,7 +777,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     for (const d of doorways) {
       const leafAt = add(anchor, d.actor);
       const leaf = nearest(dim, d.typeId, leafAt, 4);
-      const startW = add(anchor, d.start), endW = add(anchor, d.end);
+      const startW = add(anchor, d.start), endW = add(anchor, d.end), viaW = (d.via ?? []).map(p => add(anchor, p));
       const row: any = { label: d.label, offline: d.offlineVerdict, expectClosed: d.expectClosed, expectOpen: d.expectOpen };
       if (!leaf) { row.error = 'leaf entity not found'; results.push(row); log('DOOR', row); continue; }
       try {
@@ -762,7 +787,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         const initial = angleOf(leaf);
         if (initial !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); row.resetFrom = initial; }
         row.angleClosed = angleOf(leaf);
-        row.closed = await walk(startW, endW);
+        row.closed = await walk(startW, endW, viaW);
         await face();
         const before = { ...events };
         row.interactReturned = sim.interactWithEntity(leaf);
@@ -776,7 +801,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
           row.angleAfterAttack = angleOf(leaf);
           row.hitEvents = events.hit - before.hit;
         }
-        row.open = await walk(startW, endW);
+        row.open = await walk(startW, endW, viaW);
+        try { const why = leaf.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
         row.pass = matches(d.expectClosed, row.closed.outcome) && matches(d.expectOpen, row.open.outcome);
         // Leave it closed for the next doorway (its partner may be next).
         if (angleOf(leaf) !== 0) { await face(); sim.attackEntity(leaf); await test.idle(20); }
@@ -792,7 +818,7 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     flush();
     if (failed.length) test.fail(`${failed.length}/${results.length} doorways differ from the offline walk: ${failed.map(r => r.label).join(', ')}`);
     else test.succeed();
-  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + doorways.length * 400).tag(NS);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(3000 + doorways.length * (400 + 2 * LEG_TICKS * Math.max(0, ...doorways.map(d => d.via?.length ?? 0)))).tag(NS);
 
   /**
    * Parts and seats: every moving part without a doorway walk is hit twice
@@ -827,6 +853,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         await test.idle(20);
         const a2 = angleOf(e);
         row.angles = [a0, a1, a2];
+        // Why the runtime refused a hit, when it did (`refuse` in scripts/interactives.js).
+        try { const why = e.getDynamicProperty('craftmatic:ix_refused'); if (why) row.refused = why; } catch { /* older pack */ }
         row.hitEvents = events.hit - before.hit;
         row.pass = p.kind === 'turnable'
           ? typeof a0 === 'number' && near(a1, a0 + p.openAngle) && near(a2, a0 + 2 * p.openAngle)

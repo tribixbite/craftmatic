@@ -258,6 +258,8 @@ export interface SceneInteractive {
   hit?: InteractiveHitboxes;
   /** Degrees each sign of the swing was obstructed in the sweep (samples inside other parts), for diagnostics. */
   sweep?: { chosen: number; other: number };
+  /** A BRICK-BUILT assembly on a joint (`brick-hinges.ts`): what it is and what it hangs on, for the report. */
+  builtFrom?: string;
 }
 
 export interface InteractiveDiscovery {
@@ -539,13 +541,21 @@ export function discoverInteractives(bricks: readonly ParsedBrick[], sourceMeshe
       sweep: { chosen: sign > 0 ? plus : minus, other: sign > 0 ? minus : plus },
     });
   }
-  // The cap: doorways first, then mechanisms, then cabinets and windows.
+  const capped = capInteractives(found, options.max ?? MAX_INTERACTIVES);
+  return { items: capped.items, skipped: [...skipped, ...capped.skipped], warnings: [...warnings, ...capped.warnings] };
+}
+
+/**
+ * The cap on shipped moving parts: doorways first, then mechanisms, then
+ * cabinets and windows; within a rank, the order found. What is over the cap
+ * stays static in the building, and says so.
+ */
+export function capInteractives(found: readonly SceneInteractive[], cap: number): { items: SceneInteractive[]; skipped: InteractiveDiscovery['skipped']; warnings: string[] } {
   const rank: Record<InteractiveKind, number> = { door: 0, gate: 0, hatch: 1, turnable: 2, lever: 2, cabinet: 3, lid: 3, drawer: 3, window: 4 };
-  const cap = options.max ?? MAX_INTERACTIVES;
   const ordered = found.map((it, i) => ({ it, i })).sort((a, b) => rank[a.it.kind] - rank[b.it.kind] || a.i - b.i);
   const items = ordered.slice(0, cap).sort((a, b) => a.i - b.i).map(o => o.it);
-  for (const { it } of ordered.slice(cap)) skipped.push({ part: it.part, kind: it.kind, reason: `over the ${cap}-part cap (it stays static in the building)` });
-  if (ordered.length > cap) warnings.push(`${ordered.length - cap} interactive part${ordered.length - cap === 1 ? '' : 's'} over the ${cap}-part cap stay static (doorways are kept first).`);
+  const skipped = ordered.slice(cap).map(({ it }) => ({ part: it.part, kind: it.kind, reason: `over the ${cap}-part cap (it stays static in the building)` }));
+  const warnings = ordered.length > cap ? [`${ordered.length - cap} interactive part${ordered.length - cap === 1 ? '' : 's'} over the ${cap}-part cap stay static (doorways are kept first).`] : [];
   return { items, skipped, warnings };
 }
 
@@ -979,6 +989,9 @@ export function interactiveAnimation(typeId: string, rateDegPerSecond: number, s
  * Barred" read as "door 1" on the device), a short leaf a cupboard.
  */
 export function interactiveNoun(it: Pick<SceneInteractive, 'kind' | 'description'>): string {
+  // A brick-built assembly names itself (`brick-hinges.ts`): "Brick-built drop-down flap (…)" is a Drop-down flap.
+  const built = /^Brick-built ([a-z -]+?) \(/i.exec(it.description);
+  if (built) return `${built[1]![0]!.toUpperCase()}${built[1]!.slice(1)}`;
   if (it.kind === 'gate' || (it.kind === 'door' && /\b(Barred|Bars|Gate|Portcullis)\b/i.test(it.description))) return 'Gate';
   if (it.kind === 'cabinet') return 'Cupboard';
   if (it.kind === 'door' && /^Roller Door\b/i.test(it.description.replace(/^[~=_]+\s*/, ''))) return 'Garage door';
@@ -1332,6 +1345,16 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
   const synced = new Set<string>();
   const percent = (n: number): string => `${n} percent`;
   const say = (p: any, s: string): void => { try { p.onScreenDisplay.setActionBar(s); } catch { /* player left */ } };
+  /**
+   * A refused tap: tell the player, and keep the reason on the part
+   * (`craftmatic:ix_refused`, "<tick> <text>") so a GameTest can log WHY a
+   * device refused what the offline host accepted (31141's Window 2 and
+   * 71040's Door 1 closing hits, 2026-09-25: the action bar is not logged).
+   */
+  const refuse = (e: any, p: any, s: string): void => {
+    say(p, s);
+    try { e.setDynamicProperty('craftmatic:ix_refused', `${system.currentTick} ${s}`); } catch { /* entity gone */ }
+  };
   const itemOf = (e: any): number | undefined => {
     let i: any; try { i = e.getDynamicProperty(K.index); } catch { return undefined; }
     if (typeof i === 'number' && config.items[i] && config.items[i]!.type === e.typeId) return i;
@@ -1481,12 +1504,12 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     const open = !isOpen(e);
     // A double door's leaves move together: the tapped one and its other leaf at this placement.
     const group: Array<{ e: any; i: number }> = [{ e, i }, ...[...siblings(e, i, pl, 'pairs')].map(([j, s]) => ({ e: s, i: j }))];
-    if (!open && group.some(g => obstructed(g.e, g.i, pl))) { say(player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
+    if (!open && group.some(g => obstructed(g.e, g.i, pl))) { refuse(e, player, `Something is standing in the ${it.label.toLowerCase()} - step out to close it.`); return; }
     const before = group.map(g => isOpen(g.e));
     for (const g of group) { try { g.e.setDynamicProperty(K.open, open); } catch { /* keep going */ } }
     if (!group.every(g => layDoorway(g.e, g.i, pl, open))) {
       group.forEach((g, k) => { try { g.e.setDynamicProperty(K.open, before[k]); } catch { /* keep going */ } layDoorway(g.e, g.i, pl, before[k]!); });
-      say(player, `The ${it.label.toLowerCase()} is not loaded - come closer.`);
+      refuse(e, player, `The ${it.label.toLowerCase()} is not loaded - come closer.`);
       return;
     }
     for (const g of group) { setAngle(g.e, open ? config.items[g.i]!.angle : 0); place(g.e, pl, open); }
@@ -1579,7 +1602,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     if (!target || !target.typeId || itemOf(target) === undefined) return;
     if (behindWall(player, target)) {
       // Never refuse silently: a tap that does nothing reads as a broken part (device 2026-09-24e).
-      say(player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
+      refuse(target, player, `The ${config.items[itemOf(target)!]!.label.toLowerCase()} is behind a wall from here - step in front of it.`);
       return;
     }
     const now = system.currentTick;

@@ -66,10 +66,12 @@ export interface DoorwayWalkResult {
    */
   outcome: 'passed' | 'blocked' | 'no-approach' | 'sealed';
   /** Both directions tried; `passed` when either direction got through. */
-  directions: Array<{ from: -1 | 1; outcome: 'passed' | 'blocked' | 'no-approach'; reason?: 'no-path' | 'no-spot' | 'physics'; ticks: number; crossed: number; jumps?: number; start?: { x: number; y: number; z: number }; end?: { x: number; y: number; z: number } }>;
+  directions: Array<{ from: -1 | 1; outcome: 'passed' | 'blocked' | 'no-approach'; reason?: 'no-path' | 'no-spot' | 'physics' | 'one-way'; ticks: number; crossed: number; jumps?: number; start?: { x: number; y: number; z: number }; end?: { x: number; y: number; z: number } }>;
   /** The doorway's centre in world blocks from the pin, and the walk's normal. */
   centre: { x: number; y: number; z: number };
   normal: { x: number; z: number };
+  /** The side (along `normal`) a player only DROPS into from the doorway: walked out, never back in past the jump. */
+  oneWay?: -1 | 1;
 }
 
 /** Optional debugging record: each direction's route (column centres) and the player's feet per tick. */
@@ -290,6 +292,31 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       queue.push({ ...m, prev: node });
     }
   }
+  // A side no two-way move reaches may still be reached by stepping DOWN out of
+  // the doorway (a bus door over the road, a stoop over the street): a player
+  // walks out there but cannot climb back past the jump. That side is found
+  // with one-way moves (drops within `MAX_DROP`) and the doorway is walked
+  // only from the other side (`oneWay`). The device walked 41395's Door 1 out
+  // of the bus (GameTest 2026-09-25) where the offline walk had called it sealed.
+  let oneWay: -1 | 1 | undefined;
+  if (!!near['-1'] !== !!near['1']) {
+    const missing: '-1' | '1' = near['-1'] ? '1' : '-1';
+    const seen = new Set(starts.map(nodeKey));
+    const q = [...starts];
+    for (let h = 0; h < q.length; h++) {
+      const node = q[h]!;
+      const s = side(node);
+      if (missing === '-1' ? s <= -SIDE_CLEARANCE * k : s >= SIDE_CLEARANCE * k) { near[missing] = node; oneWay = Number(missing) as -1 | 1; break; }
+      for (const m of og.moves(node.x, node.z, node.t)) {
+        // Outward only, down or level: a rise on the way out would be a two-way move the first pass had.
+        if (Math.abs(lateral({ x: m.x + 0.5, z: m.z + 0.5 })) > halfSpan || m.t > node.t + 1e-6) continue;
+        const key = nodeKey(m);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        q.push({ ...m, prev: node });
+      }
+    }
+  }
   /**
    * Where the player stands on an approach node: the first of the free part's
    * centre, the column's centre, and the free part's two ends (a player's
@@ -354,6 +381,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     const start = spots[String(from) as '-1' | '1']!, goal = spots[String(-from) as '-1' | '1']!;
     const a = near[String(from) as '-1' | '1']!, b = near[String(-from) as '-1' | '1']!;
     const along = (p: { x: number; z: number }): number => ((p.x - centre.x) * n.x + (p.z - centre.z) * n.z) * -from;
+    // From the side a player only drops into, the way back in is over the jump: not walked.
+    if (oneWay === from) { directions.push({ from, outcome: 'blocked', reason: 'one-way', ticks: 0, crossed: r2(along(start)), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) } }); continue; }
     const way = route(a, b);
     if (!way) { directions.push({ from, outcome: 'blocked', reason: 'no-path', ticks: 0, crossed: r2(along(start)), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) } }); continue; }
     // Follow the route's column centres with the per-tick player, then the goal itself.
@@ -380,22 +409,26 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     directions.push({ from, outcome: passed ? 'passed' : 'blocked', ...(passed ? {} : { reason: 'physics' as const }), ticks, jumps, crossed: r2(best), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) }, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) } });
   }
   const outcome = directions.some(d => d.outcome === 'passed') ? 'passed' : directions.some(d => d.outcome === 'blocked') ? 'blocked' : 'no-approach';
-  return { ...base, outcome, directions };
+  return { ...base, outcome, directions, ...(oneWay ? { oneWay } : {}) };
 }
 
-export type Verdict = 'OK' | 'SMALL' | 'FAIL' | 'NO-APPROACH' | 'SEALED' | 'STEP';
+export type Verdict = 'OK' | 'ONE-WAY' | 'SMALL' | 'FAIL' | 'NO-APPROACH' | 'SEALED' | 'STEP';
 /**
  * The verdict for one doorway at one size and turn, from its open and closed
  * walks; `okAt100` says whether the same doorway passed at 100 % (a doorway
  * that passes there but has no approach at a bigger size lost it to a riser
  * that grew past the jump: STEP, the access recommendation's "doors versus
- * stairs" tension, not a door fault).
+ * stairs" tension, not a door fault). ONE-WAY: walked through from one side,
+ * where the other is reached only by stepping down past the jump (a bus door
+ * over the road): a player walks out and cannot climb back in there.
  */
 export function verdictOf(open: DoorwayWalkResult, closed: DoorwayWalkResult, okAt100 = false): Verdict {
   if (closed.outcome === 'passed') return 'FAIL';
   if (open.outcome === 'sealed') return okAt100 && open.sizePct > 100 ? 'STEP' : 'SEALED';
   if (open.outcome === 'no-approach' || closed.outcome === 'no-approach') return 'NO-APPROACH';
-  if (open.passableAtSize) return open.outcome === 'passed' ? 'OK' : 'FAIL';
+  // A one-way doorway walked from its only approach and not through is sealed, not failed:
+  // there is no second side to try (71043's microscale landing door at 150 percent).
+  if (open.passableAtSize) return open.outcome === 'passed' ? (open.oneWay ? 'ONE-WAY' : 'OK') : open.oneWay ? 'SEALED' : 'FAIL';
   return open.outcome === 'passed' ? 'FAIL' : 'SMALL';
 }
 
@@ -418,6 +451,8 @@ export function doorwayWalkSummary(pack: DoorwayWalkPack): { verdicts: Array<Ver
   const ok = verdicts.filter(v => v === 'OK').length;
   const labels = (v: Verdict): string[] => items.filter((_, i) => verdicts[i] === v).map(it => it.label);
   const parts = [`Doorways a player walks through at 100 percent over this pack's own blocks: ${ok} of ${doorways}.`];
+  const oneWay = labels('ONE-WAY');
+  if (oneWay.length) parts.push(`${oneWay.join(', ')}: walk out through ${oneWay.length === 1 ? 'it' : 'them'}, but the step back in is higher than a jump.`);
   const sealed = labels('SEALED');
   if (sealed.length) parts.push(`${sealed.join(', ')} open${sealed.length === 1 ? 's' : ''} onto the model's own solid geometry or a drop: it swings, but there is nowhere to walk.`);
   const small = items.filter((_, i) => verdicts[i] === 'SMALL');

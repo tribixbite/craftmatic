@@ -34,6 +34,11 @@ const CLASS_OF: Record<string, string> = {
 };
 const STAGE_TO: Record<string, string> = { door: 'door', gate: 'gate', window: 'window', hatch: 'hatch', cabinet: 'container', drawer: 'container', lid: 'container', seat: 'seat', bed: 'bed', lever: 'lever', turnable: 'turnable' };
 const ORDER = ['door', 'gate', 'window', 'hatch', 'container', 'seat', 'bed', 'lever', 'turnable', 'mechanism'];
+/** A brick-built assembly's noun (`HingeLineReport.noun`) onto the visual audit's classes. */
+const BUILT_TO: Record<string, string> = {
+  door: 'door', 'door leaf': 'door', gate: 'gate', shutter: 'window', flap: 'window', lid: 'container',
+  'drop-down flap': 'mechanism', 'hinged section': 'mechanism', 'hinged panel': 'mechanism', mechanism: 'mechanism',
+};
 
 interface Row { set: string; found: Record<string, number>; seen: Record<string, number>; seenBrick: Record<string, number>; missed: Record<string, number>; more: Record<string, number>; statics: string[]; walk: string; gametest: string }
 const rows: Row[] = [];
@@ -45,6 +50,16 @@ for (const f of readdirSync(dir).filter(n => n.endsWith('.mcaddon')).sort()) {
   const report: InteractivityReport | null = name ? JSON.parse(new TextDecoder().decode(await extractFile(buf, name))).interactivity ?? null : null;
   const found: Record<string, number> = {};
   for (const [k, n] of Object.entries(report?.found ?? {})) found[STAGE_TO[k] ?? k] = (found[STAGE_TO[k] ?? k] ?? 0) + (n ?? 0);
+  // A BRICK-BUILT assembly (brick-hinges.ts) counts as what it is called, not as its
+  // entity kind: a hinged section is a `cabinet` entity but a mechanism in the renders.
+  for (const m of report?.hinges?.moved ?? []) {
+    if (!m.kind || !m.noun) continue;
+    const from = STAGE_TO[m.kind] ?? m.kind, to = BUILT_TO[m.noun] ?? from;
+    if (from === to) continue;
+    found[from] = (found[from] ?? 1) - 1;
+    if (!found[from]) delete found[from];
+    found[to] = (found[to] ?? 0) + 1;
+  }
   const seen: Record<string, number> = {}, seenBrick: Record<string, number> = {};
   const vf = join(visualDir, `${set}.json`);
   if (existsSync(vf)) {

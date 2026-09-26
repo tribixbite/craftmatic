@@ -277,14 +277,14 @@ function wallGrid(wallZ = 5, depth = 1): BlockGrid {
 }
 /** The grid frame at minifig scale, origin at LDraw 0: grid (x, y, z) = LDraw (x, -y, -z) / C. */
 const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
-/** A door leaf standing on the floor (grid y 1) at grid x `x0`..`x0 + width`, mid-plane at grid z `zc`. */
-function leafAt(x0: number, width: number, zc: number, height = 2.6): SceneInteractive {
-  const corner: Vec3 = [x0 * C, -C, -zc * C];
+/** A door leaf standing on the floor (grid y `floor`, 1 by default) at grid x `x0`..`x0 + width`, mid-plane at grid z `zc`. */
+function leafAt(x0: number, width: number, zc: number, height = 2.6, floor = 1): SceneInteractive {
+  const corner: Vec3 = [x0 * C, -floor * C, -zc * C];
   return {
     kind: 'door', part: 'test', description: 'Door', bricks: [], pivotLdu: corner, axisLdu: [0, 1, 0], angleDeg: 90,
     leaf: { corner, along: [width * C, 0, 0], up: [0, -height * C, 0], normal: [0, 0, 1], thicknessLdu: 6 },
-    anchorLdu: [(x0 + width / 2) * C, -C, -zc * C],
-    boundsLdu: { min: [x0 * C, -(1 + height) * C, -zc * C - 3], max: [(x0 + width) * C, -C, -zc * C + 3] },
+    anchorLdu: [(x0 + width / 2) * C, -floor * C, -zc * C],
+    boundsLdu: { min: [x0 * C, -(floor + height) * C, -zc * C - 3], max: [(x0 + width) * C, -floor * C, -zc * C + 3] },
     openingLdu: { width: width * C, height: height * C }, offGridDeg: 0,
   };
 }
@@ -676,6 +676,32 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
     const big = verdictOf(walkThroughDoorway(pack, 0, 200, 0, true), walkThroughDoorway(pack, 0, 200, 0, false));
     expect(big).toBe('OK');
   });
+  it('walks out of a doorway two blocks over the ground (ONE-WAY), never back in, and never through it closed', async () => {
+    // A bus door: the floor inside (z < 5) and under the doorway is two rows deep, the
+    // wall stands on it, and outside (z > 5) there is only the ground two blocks down.
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    const g = new BlockGrid(12, 7, 10);
+    for (let x = 0; x < 12; x++) for (let z = 0; z <= 5; z++) for (const y of [0, 1]) g.set(x, y, z, colliderState(0, 16));
+    for (let x = 0; x < 12; x++) for (let y = 2; y <= 5; y++) g.set(x, y, 5, colliderState(0, 16));
+    const leaf = leafAt(3.25, 1.5, 5.5, 2.6, 2);
+    const [plan] = planInteractiveColliders(g, [leaf], frame);
+    const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize: 100, normal: [0, 0, 1] as [number, number, number] };
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < g.width; x++) for (let y = 0; y < g.height; y++) for (let z = 0; z < g.length; z++) {
+      const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(g.get(x, y, z));
+      if (m) cells.push({ x, y, z, lo: Number(m[1]), hi: Number(m[2]) });
+    }
+    const cfg: InteractiveRuntimeConfig = { family: INTERACTIVE_FAMILY, property: INTERACTIVE_PROPERTY, label: 'Bus', dims: { width: g.width, height: g.height, length: g.length }, colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE }, items: [item], turnProperty: INTERACTIVE_TURN_PROPERTY, sizeProperty: INTERACTIVE_SIZE_PROPERTY };
+    const pack = { cells, dims: cfg.dims, interactives: cfg };
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    expect(open.outcome).toBe('passed');
+    expect(open.oneWay).toBeDefined();
+    // Walked from the floor side only; from the ground side the step back in is over the jump.
+    expect(open.directions.find(d => d.from === open.oneWay)).toMatchObject({ outcome: 'blocked', reason: 'one-way' });
+    expect(open.directions.find(d => d.from !== open.oneWay)?.outcome).toBe('passed');
+    expect(closed.outcome).not.toBe('passed');
+    expect(verdictOf(open, closed)).toBe('ONE-WAY');
+  });
 });
 
 describe('tap boxes (minecraft:custom_hit_test)', () => {
@@ -789,6 +815,33 @@ describe('furniture seats', () => {
     expect(d.map(s2 => s2.part)).toEqual(['bed']);
   });
 
+  it('reads a backrest built as a stack (910032 sofas) and a headboard-less mattress with a pillow (42663), and not a bare raised tile', async () => {
+    const { brickBuiltFurniture } = await import('../web/src/engine/bedrock-scene-actors.js');
+    const meshes = new Map<string, LdrawPartMesh>([
+      ['floor.dat', mesh('floor', 'Plate 16 x 16', [-160, 0, -160], [160, 8, 160])],
+      ['t24.dat', mesh('t24', 'Tile  2 x  4', [-20, 0, -40], [20, 8, 40])],
+      ['b24.dat', mesh('b24', 'Brick  2 x  4', [-20, 0, -40], [20, 24, 40])],
+      ['b14.dat', mesh('b14', 'Brick  1 x  4', [-10, 0, -40], [10, 24, 40])],
+      ['p14.dat', mesh('p14', 'Plate  1 x  4', [-10, 0, -40], [10, 8, 40])],
+      ['p26.dat', mesh('p26', 'Plate  2 x  6', [-20, 0, -60], [20, 8, 60])],
+      ['pillow.dat', mesh('pillow', 'Slope Brick Curved  2 x  2 Inverted', [-20, 0, -20], [20, 16, 20])],
+    ]);
+    const floor = brick('floor.dat', 0, 0, 0);
+    // A 2 x 4 cushion 32 LDU up on a 2 x 4 brick; beside its +X side a 1 x 4 brick (rising 16) with a plate on it (24).
+    const sofa = [brick('t24.dat', 0, -32, 0), brick('b24.dat', 0, -24, 0), brick('b14.dat', 30, -48, 0)];
+    expect(brickBuiltFurniture([floor, ...sofa], meshes, new Set())).toHaveLength(0);
+    const found = brickBuiltFurniture([floor, ...sofa, brick('p14.dat', 30, -56, 0)], meshes, new Set());
+    expect(found.map(s2 => s2.part)).toEqual(['chair', 'chair']);
+    expect(found[0]!.facingLdu).toEqual([-1, 0]);
+    // A red 2 x 4 mattress on a tan 2 x 6 plate with a white 2 x 2 pillow at one end, nothing else near it.
+    const base = brick('p26.dat', 0, -8, 0, I, 19), mattress = brick('t24.dat', 0, -16, -20, I, 4);
+    const pillow = brick('pillow.dat', 0, -24, 40, I, 15);
+    expect(brickBuiltFurniture([floor, base, mattress, pillow], meshes, new Set()).map(s2 => s2.part)).toEqual(['bed']);
+    // The same tile with no pillow is a mat or a lid, and a tile of its base's own colour is a step.
+    expect(brickBuiltFurniture([floor, base, mattress], meshes, new Set())).toHaveLength(0);
+    expect(brickBuiltFurniture([floor, base, brick('t24.dat', 0, -16, -20, I, 19), pillow], meshes, new Set())).toHaveLength(0);
+  });
+
   it('finds a brick-built stool (a 2 x 2 tile on a narrow column), and not a tile lying on the floor or part of a counter', async () => {
     const { brickBuiltStools, isStoolTop } = await import('../web/src/engine/bedrock-scene-actors.js');
     expect(isStoolTop('Tile  2 x  2 with Studs on Edge')).toBe(true);
@@ -816,6 +869,35 @@ describe('furniture seats', () => {
     expect(brickBuiltStools([floor, stoolFoot, stoolTop, brick('3001.dat', 60, -16, 0)], meshes, new Set())).toHaveLength(0);
     // No head room: something two plates over it.
     expect(brickBuiltStools([floor, stoolFoot, stoolTop, brick('3001.dat', 0, -56, 0)], meshes, new Set())).toHaveLength(0);
+  });
+
+  it('seats a steering-wheel bar stool and a toilet (facing away from its cistern), and not a wheel lying on the floor', async () => {
+    const { brickBuiltStools, isStoolTop, isToiletBowl } = await import('../web/src/engine/bedrock-scene-actors.js');
+    expect(isStoolTop('Car Steering Wheel 2D')).toBe(true);
+    expect(isToiletBowl('Dome  2 x  2 Inverted with Stud and Tube')).toBe(true);
+    expect(isToiletBowl('Brick  2 x  2 Round')).toBe(false);
+    const meshes = new Map<string, LdrawPartMesh>([
+      ['3958.dat', mesh('3958', 'Plate  6 x  6', [-60, 0, -60], [60, 8, 60])],
+      ['wheel.dat', mesh('wheel', 'Car Steering Wheel 2D', [-20, 0, -20], [20, 16, 20])],
+      // 85861's library mesh is 3 LDU tall, not a plate's 8: a column of them has gaps.
+      ['85861.dat', mesh('85861', 'Plate  1 x  1 Round with Open Stud', [-10, 0, -10], [10, 3, 10])],
+      ['seat.dat', mesh('seat', 'Tile  2 x  2 Round with Hole', [-20, 0, -20], [20, 8, 20])],
+      ['dome.dat', mesh('dome', 'Dome  2 x  2 Inverted with Stud and Tube', [-20, 0, -20], [20, 24, 20])],
+      ['3004.dat', mesh('3004', 'Brick  1 x  2', [-10, 0, -20], [10, 32, 20])],
+    ]);
+    // 910032's bar stool: a wheel on two open-stud round plates on a floor plate.
+    const floor = brick('3958.dat', 0, -16, 0);
+    const stool = [brick('wheel.dat', 0, -48, 0), brick('85861.dat', 0, -32, 0), brick('85861.dat', 0, -24, 0)];
+    const s = brickBuiltStools([floor, ...stool], meshes, new Set());
+    expect(s).toHaveLength(1);
+    expect(s[0]!.surfaceLdu[1]).toBe(-48);
+    // A wheel lying on the floor is not a seat (910032's easel foot).
+    expect(brickBuiltStools([floor, brick('wheel.dat', 0, -32, 0)], meshes, new Set())).toHaveLength(0);
+    // A toilet: a round tile set 4 LDU into an inverted dome, a cistern on the wall at +X; it faces -X.
+    const loo = [brick('3958.dat', 0, 0, 0), brick('seat.dat', 0, -32, 0), brick('dome.dat', 0, -28, 0), brick('3004.dat', 30, -72, 0)];
+    const t = brickBuiltStools(loo, meshes, new Set());
+    expect(t).toHaveLength(1);
+    expect(t[0]!.facingLdu[0]).toBeLessThan(-0.9);
   });
 });
 

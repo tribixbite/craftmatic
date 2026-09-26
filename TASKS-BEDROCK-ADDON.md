@@ -264,11 +264,10 @@ Open, largest first:
 - Interactivity stage (`engine/interactivity-stage.ts`) over all 40 favourites,
   table in `docs/bedrock-interactivity.md` "The 40-set audit": GameTest on the
   Pixel 61/63 doorways + 269/270 parts/seats as predicted.
-  Open: brick-built doors/gates/mechanisms (80049, 910004, 910047, 10354,
-  42639, 910049, 41395) need a hinge-joint detector; missed seats (910032 x12);
-  beds without headboard (42663); 71040 Door 1 test stand spot; 41395 Door 1
-  offline too pessimistic; 42670 Door 4 approach; drawers/garage doors
-  unseen on the device.
+  Round 2026-09-25b (worktree agent-a16b23711dfda615c, see "Interactivity
+  round" below): brick-built hinge detector, seats/mattresses, ONE-WAY
+  doorways, route-following GameTest walks. Open: drawers/garage doors unseen
+  on the device; the items listed under "Interactivity round" Open.
 - Pinball: rider camera at the head, plunger entity (pull amount = strength),
   flipper outlines + hit boxes on the player's own ray (the phone picks along
   the PLAYER view, not the camera), script time 3.39 -> 1.71 ms/tick. Open:
@@ -515,18 +514,27 @@ Open:
   `custom_hit_test` pivot as the box centre, root-bone scale at a non-100 %
   size, occupant step-out, threshold treads, the SLIDE direction of drawers
   and roller doors (derived), lids' swing.
-- [ ] GameTest leftovers: 71040 Door 1's closing hit is refused (the test's
-  spot sees only the closed leaf: TODO in `_gametest_pack.ts`); 41395 Door 1
-  offline SEALED but walkable on the device; 42670 Door 4 walker falls off
-  the approach (look at it).
-- [ ] Brick-built doors and gates (80049, 910004, 910047, 10354, 42639,
-  910049, 41395): need a hinge-joint detector (clip/hinge pair + the slab on
-  its free side). Mechanisms (cranes, winches, lifts, drawbridges): no rule.
-- [ ] Brick-built seats and beds the furniture rule misses (910032 12 seats,
-  42670 6, 71043 hall benches, 42663 camper beds without headboards, 910004
-  beds) and its unverified finds (read from columns, not seen in game; 31141's
-  roof "stool" is probably a chimney cap).
-- [ ] 36 SEALED doorways: rooms the 1-block collider grid fills (any geometry
+- [ ] GameTest 2026-09-26 (doc "GameTest on the Pixel"; driver + logs in
+  `output/gametest/ix-final/`, packs `output/ix-final/sweep-m/`): doorways
+  69/71, parts+seats 306/308. Open: 910047 Door 1/2 (brick-built plank gate)
+  walker falls off its 1-block threshold ledge (offline OK); 31141 Window 2 and
+  80049 Window 3 refused on the device as "behind a wall" from the spot the
+  host accepts (`refused` field; TODO in `_gametest_pack.ts`); 71040 not
+  re-run on the merged build (the driver now checks world slot 3); 42670
+  Door 4 passes only by progress (walker ends on the street).
+- [ ] Brick-built hinges (`engine/brick-hinges.ts`, doc "Brick-built doors,
+  gates and mechanisms"): found 80049 x2, 910004 x2, 910047 x3, 76435, 71043
+  x2 doors/gates, 41395 x2 wings, 11371 x2 hinged panels. Still missed:
+  10354's round door, 42639's garage gate, 910049's iron gate (no joint line
+  splits them off: trace with `_ix_hinges.ts --all`); mechanisms on pins or
+  axles (a windmill vs a cart wheel vs a lift linkage: no rule; only
+  turntables move); flaps, lids and shutters on clips (all false in review).
+- [ ] Seats: ~11 non-furniture "chairs"/"stools"/"bed" added by the 910032
+  rules in other favourites (10261, 31141, 41703, 42639 x2, 60380 x2, 76457,
+  77092, 80049 x2), plus 21063's bed and 76419's extra seats (.io sources,
+  not in the seat regression); 910032's 4th bar stool; 42670's sofa,
+  armchair, stools; 11371's bracket armchair; 71043 hall benches.
+- [ ] 29 SEALED doorways of 83 at 100 % (9 more are ONE-WAY: walked out, a drop back in over the jump), sweep `output/ix-final/walk.json`: rooms the 1-block collider grid fills (any geometry
   in a cell makes it solid). Needs finer colliders (half-block or per-cell
   occupancy fraction), not a deeper doorway cut.
 - [ ] STEP at big sizes: a doorstep that grows past the 1.25-block jump (31141
