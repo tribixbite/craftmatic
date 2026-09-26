@@ -211,6 +211,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   buys nothing past ~72 blocks**: every actor (the 2.1-block-needle 76417
   shell, doors, figures, vanilla mobs) stopped drawing at 71-73 blocks on both
   the Pixel and the Saga (round 2026-09-26a, `output/device-round-2026-09-26a/pixel/cull_*.png`).
+  The LOD plan caps the cull at `ACTOR_DRAW_CEILING_BLOCKS` (70), so a large
+  shell's hull is dropped rather than planned at ~120 where nothing draws; the
+  needle is kept (harmless; 200-400 % unmeasured, `TODO(cull)`).
+- **Every rideable needs `action.hint.exit.<namespace>:<name>` in every
+  `.lang`**, or the raw key shows under the hotbar while riding (Saga, 76457's
+  Bed). Written from the emitted behaviour files (`rideableExitHintLines`);
+  `scripts/_mcaddon_check.py` gates it.
 - **Doors, windows, hatches, levers and turnables are hinged ENTITIES of the
   exact parts** (`engine/bedrock-interactives.ts`, design in
   `docs/bedrock-interactivity.md`); vanilla doors survive only in the
@@ -310,8 +317,9 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   checking `typeId === 'craftmatic:collider'` misses 42 of them, and reading a
   form's `hi` as its top is wrong for a floor + wall form (its wall runs to
   the block top). A trim ships only past the certain test (subset, superset
-  of the geometry, not at a leaf's plane, floors keep their top, the leak
-  flood); judge it with `_clearance_report.ts`, never by eye.
+  of the geometry, not at a leaf's plane, floors keep their top - except a
+  wall's top whose rim overhangs open air and is no door's landing - the leak
+  flood); judge it with `_clearance_report.ts` and `_walk_line.ts`, never by eye.
 - **Reading a built pack's geometry: ONE rotation convention and a Z mirror.**
   JSON angles turn JSON coordinates by `Rz(−rz)·Ry(ry)·Rx(−rx)` and the world
   is the JSON frame mirrored in Z (`pivotRotation`/`worldFaces` in

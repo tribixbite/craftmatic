@@ -1783,6 +1783,59 @@ can never be reached. `planLodSwitch` derives the switch from the entity's own
 cull and SKIPS the hull when nothing fits, rather than shipping geometry no
 camera can see — for a while 10303 was carrying 760 such cuboids.
 
+#### On 26.51 / 26.52 no actor draws past ~72 blocks, whatever its box (round 2026-09-26a)
+
+Measured on both phones with the needle in place (Pixel 26.51 and Saga 26.52;
+render distance 192, simulation distance 8 chunks, Pixel dithering on): the
+76417 shell (needle 0.1 x 2.115, 135 blocks by the fit) drawn at 71.4 and gone
+at 72.4, a door (0.25 x 2.5, fit 160) 71.3 / 72.3, a vanilla armor stand
+70.6 / 71.6, a figure gone by 72; everything near the model gone at 75-140; the
+Saga 71.5-73 (`output/device-round-2026-09-26a/pixel/cull_a.png`, `cull_b.png`,
+`output/saga-followup-0925/`). The whole model and its actors vanish in the
+same step, so this is a distance limit on actors, not the per-box cull the fit
+describes; the fit still describes the SMALL end (a 0.1 box shell at ~64).
+The two older observations of an actor drawn farther - the Milano at 92-128
+(09-19) and figures at 100 (09-21) - were on earlier builds and measured to
+the model, not the actor; neither is reproduced.
+
+What follows from it, and what changed:
+
+- **The LOD plan uses the ceiling.** `entityRenderCullBlocks` is
+  `min(64 x diagonal, ACTOR_DRAW_CEILING_BLOCKS = 70)` (the lowest measured
+  "gone", rounded down). The 76417 shell's needle had planned its hull switch
+  near 120 blocks - 50 past the last distance anything draws - so its hull
+  cuboids were resident and never drawn. Now the switch can be at most 54
+  (70 minus the 16-block margin), which puts a large shell's camera closer
+  than the 32 blocks at which the 1-block hull is acceptable, so a large
+  shell's hull is DROPPED (the existing rule), and a small model or vehicle
+  switches at 54 at the latest. Moving the switch under 72 for a large shell
+  would show the hull as a blob at point-blank range, which the earlier round
+  rejected.
+- **The needle stays.** At 100 % it buys nothing, but it costs nothing (0.1
+  wide, above the roof, intercepts no taps), and the size groups scale it with
+  the wand: whether a 200-400 % box lifts the ceiling is unmeasured
+  (`TODO(cull)` in `bedrock-building-shell.ts`). `actorCullDistance` reports the
+  capped value; `actorCullFit` is the fit the needle is sized for.
+- **What it means in play.** A placed model and every actor of it pop out
+  together at ~72 blocks, as vanilla mobs do; the collider blocks (terrain)
+  keep drawing nothing, being invisible. There is no pack-side lever for this
+  known today.
+
+#### Every rideable needs its dismount hint (round 2026-09-26a)
+
+While a player rides an entity with `minecraft:rideable`, Bedrock draws the
+translation of `action.hint.exit.<namespace>:<name>` under the hotbar - the
+full identifier, as vanilla's `action.hint.exit.horse` and third-party packs'
+`action.hint.exit.cubecraft:sitting.entity`. A pack whose `.lang` has no such
+line shows the raw key: the Saga showed
+`action.hint.exit.craftmatic:hogsmeade_76457_seat` on 76457's Bed and 41732's
+chairs. `rideableExitHintLines` (`playable-addon.ts`) now writes one line per
+rideable the behaviour pack declares, read from the emitted entity files
+(seats, beds, the pinball console: "Sneak to stand up"; cars, boats, planes,
+coaster cars: "Sneak to get off"), into every language file shipped (today
+only `en_US`). `scripts/_mcaddon_check.py` fails a pack whose rideable lacks
+the line in any `texts/*.lang`; every pack of round 26a fails it.
+
 #### Bedrock's form renderer deletes a bare `%` (2026-09-22)
 
 The wand's size button rendered `100%` as `100`, and the walk-through reason
@@ -2653,9 +2706,10 @@ wand's re-lay sets after the collider runs of each box (`placeColliders`).
   diagonal|)` blocks (Pixel 8 Pro, 2026-09-21). `shellCollisionBox(extent)` is a
   0.1-wide needle tall enough for four times the model's largest dimension
   (10303: 176 blocks, a 5-block model: 64, 400 %: 704, 25 %: 64), standing above
-  the roof. `playable-addon.ts` must pass `sgeo.sizeBlocks` to `shellBehavior`
-  (until then a 44-block extent is assumed) and re-derive its LOD switch from
-  `actorCullDistance` instead of 64.
+  the roof; `playable-addon.ts` passes `sgeo.sizeBlocks`. Since round
+  2026-09-26a the needle is known to buy nothing past ~72 blocks at 100 %, and
+  the LOD plan uses that ceiling (see "On 26.51 / 26.52 no actor draws past
+  ~72 blocks").
 
 ## Figures on the device (2026-09-24): faces, hair, big-figs, mini-dolls
 

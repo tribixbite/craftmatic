@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, buildColliderGrid, colliderBlockDefinition, colliderCellIndex, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, colliderBlockDefinition, colliderCellIndex, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { compileLdrawEntityGeometry } from '../web/src/engine/ldraw-entity-compiler.js';
@@ -88,26 +89,32 @@ describe('buildColliderGrid', () => {
  */
 describe('the shell collision box and its cull distance', () => {
   const box = (largest: number) => shellCollisionBox({ width: largest, height: largest / 2, length: largest / 3 });
-  const cull = (largest: number, f = 1) => Math.round(actorCullDistance(box(largest), f));
+  const fit = (largest: number, f = 1) => Math.round(actorCullFit(box(largest), f));
 
-  it('is a needle whose cull distance is four times the largest dimension, never under the 64-block floor', () => {
-    // A small vehicle-sized model (5 blocks) keeps the floor; 10303 (44 blocks tall) is drawn to 176;
-    // a 100-block castle to 400. The old 0.1 × 0.1 box gave 64 for every model.
+  it('is a needle sized so the box fit is four times the largest dimension, never under the 64-block floor', () => {
+    // A small vehicle-sized model (5 blocks) keeps the floor; 10303 (44 blocks tall) fits 176;
+    // a 100-block castle 400. The old 0.1 × 0.1 box gave 64 for every model.
     expect(box(5).width).toBe(SHELL_BOX_WIDTH);
-    expect(cull(5)).toBe(ACTOR_CULL_FLOOR_BLOCKS);
-    expect(cull(44)).toBe(176);
-    expect(cull(100)).toBe(400);
+    expect(fit(5)).toBe(ACTOR_CULL_FLOOR_BLOCKS);
+    expect(fit(44)).toBe(176);
+    expect(fit(100)).toBe(400);
     expect(box(44).height).toBeCloseTo(2.75, 1);
-    expect(actorCullDistance({ width: 0.1, height: 0.1 })).toBe(64);
-    // The measured figures (0.6 × 1.8): drawn at 100, gone by 168 on the device.
-    const figures = actorCullDistance({ width: 0.6, height: 1.8 });
-    expect(figures).toBeGreaterThan(100);
-    expect(figures).toBeLessThan(168);
+    expect(actorCullFit({ width: 0.1, height: 0.1 })).toBe(64);
   });
 
-  it('scales with the wand size, so a 400 % placement is drawn four times as far and a 25 % one keeps the floor', () => {
-    expect(cull(44, 4)).toBe(704);
-    expect(cull(44, 0.25)).toBe(ACTOR_CULL_FLOOR_BLOCKS);
+  it('draws no actor past the ceiling measured on 26.51/26.52, whatever its box (round 2026-09-26a)', () => {
+    // The 76417 needle (2.115, fit 135), a door (0.25 × 2.5, fit 160) and a figure all vanished at 71-73 blocks.
+    expect(actorCullDistance({ width: SHELL_BOX_WIDTH, height: 2.115 })).toBe(ACTOR_DRAW_CEILING_BLOCKS);
+    expect(actorCullDistance({ width: 0.25, height: 2.5 })).toBe(ACTOR_DRAW_CEILING_BLOCKS);
+    expect(actorCullDistance({ width: 0.6, height: 1.8 })).toBe(ACTOR_DRAW_CEILING_BLOCKS);
+    expect(ACTOR_DRAW_CEILING_BLOCKS).toBeLessThan(71.6); // the earliest "gone" measured (a vanilla armor stand)
+    // Under the ceiling the fit still answers (a small box keeps the 64-block floor).
+    expect(actorCullDistance({ width: 0.1, height: 0.1 })).toBe(64);
+  });
+
+  it('scales the box with the wand size (fit x4 at 400 %, the floor at 25 %)', () => {
+    expect(fit(44, 4)).toBe(704);
+    expect(fit(44, 0.25)).toBe(ACTOR_CULL_FLOOR_BLOCKS);
     const behavior = shellBehavior('shell', { width: 30, height: 44, length: 20 }) as { 'minecraft:entity': { components: Record<string, any>; component_groups: Record<string, any> } };
     const e = behavior['minecraft:entity'];
     expect(e.components['minecraft:collision_box']).toEqual(box(44));
@@ -116,8 +123,8 @@ describe('the shell collision box and its cull distance', () => {
       expect(g.width).toBeCloseTo(SHELL_BOX_WIDTH * pct / 100, 3);
       expect(g.height).toBeCloseTo(box(44).height * pct / 100, 2);
     }
-    // Without an extent (the pipeline not yet passing sgeo.sizeBlocks) the fallback still lifts the cull off the floor.
-    expect(actorCullDistance((shellBehavior('shell') as any)['minecraft:entity'].components['minecraft:collision_box'])).toBeCloseTo(176, 0);
+    // Without an extent the fallback (10303's height) still sizes the needle off the floor.
+    expect(actorCullFit((shellBehavior('shell') as any)['minecraft:entity'].components['minecraft:collision_box'])).toBeCloseTo(176, 0);
   });
 });
 

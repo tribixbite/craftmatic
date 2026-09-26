@@ -63,7 +63,9 @@
  * were still drawn at 100. The switch this morning was 146.3 (96 + 50.3 reach),
  * so its 760 hull cuboids were resident and never drawn once. `planLodSwitch`
  * now derives the switch from the cull and drops the hull when the actor culls
- * before the hull could be anything but a blob in plain sight.
+ * before the hull could be anything but a blob in plain sight. On 26.51/26.52
+ * no actor draws past ~72 blocks whatever its box (`ACTOR_DRAW_CEILING_BLOCKS`),
+ * so a shell's needle box buys the hull nothing either.
  */
 
 import type { CompiledMesh } from './ldraw-entity-compiler.js';
@@ -455,14 +457,31 @@ export const RENDER_CULL_BLOCKS_PER_UNIT = 64;
 export const RENDER_CULL_MIN_UNITS = 1;
 
 /**
+ * The farthest ANY actor was drawn on the current clients, whatever its
+ * collision box: device round 2026-09-26a measured it on both phones (Pixel,
+ * Minecraft 26.51, render distance 192, simulation 8 chunks, dithering on;
+ * Saga, 26.52, 192 / 8). The 76417 shell (a 2.1-block needle, 135 blocks by
+ * the fit above) was drawn at 71.4 and gone at 72.4, a door (0.25 x 2.5, fit
+ * 160) 71.3 / 72.3, a vanilla armor stand 70.6 / 71.6, a figure gone by 72;
+ * the Saga 71.5-73 (`output/device-round-2026-09-26a/pixel/cull_a.png`,
+ * `output/saga-followup-0925/`). The box sets nothing past this, so the fit is
+ * an upper bound and this is the planning limit: the lowest measured "gone"
+ * rounded down. Older observations of an actor drawn farther (the 09-19
+ * Milano at 92-128, the 09-21 figures at 100) were on earlier builds, with
+ * distance taken to the model rather than the actor, and are not reproduced.
+ */
+export const ACTOR_DRAW_CEILING_BLOCKS = 70;
+
+/**
  * Camera-to-root distance past which the client stops drawing an actor with
- * this collision box at 100 %. The size groups scale the box with the model
+ * this collision box at 100 %: the box fit, never past the measured ceiling
+ * (`ACTOR_DRAW_CEILING_BLOCKS`). The size groups scale the box with the model
  * (a 25 % shell has a 0.025 box), which changes nothing under the clamp for a
  * shell and shortens a vehicle's cull; the plan is made at 100 %.
  */
 export function entityRenderCullBlocks(box: CollisionBox | undefined): number {
   const width = Math.max(0, box?.width ?? 0), height = Math.max(0, box?.height ?? 0);
-  return RENDER_CULL_BLOCKS_PER_UNIT * Math.max(RENDER_CULL_MIN_UNITS, Math.hypot(width, height, width));
+  return Math.min(ACTOR_DRAW_CEILING_BLOCKS, RENDER_CULL_BLOCKS_PER_UNIT * Math.max(RENDER_CULL_MIN_UNITS, Math.hypot(width, height, width)));
 }
 
 /**
@@ -540,8 +559,11 @@ const round1 = (v: number): number => Math.round(v * 10) / 10;
  *
  * 10303 (reach 50.3, box 0.1): requested 146.3, cull 64, latest 48, so the
  * camera would be 2.3 blocks INSIDE the model's reach at the switch — the hull
- * is dropped and its 760 cuboids are not shipped. A vehicle with a 3.5 x 2.5
- * box culls at 358, so its requested switch stands.
+ * is dropped and its 760 cuboids are not shipped. Since round 2026-09-26a the
+ * cull is capped at the measured `ACTOR_DRAW_CEILING_BLOCKS` (70): the 76417
+ * shell's needle had planned a switch near 120 that no camera could see, and
+ * now its hull is dropped the same way; a vehicle (3.5 x 2.5 box, fit 358,
+ * reach ~5) switches at 54 instead of its requested 101.
  */
 export function planLodSwitch(input: LodSwitchInput): LodSwitchDecision {
   const requestedSwitchDistance = round1(input.lodDistance + input.radiusBlocks);

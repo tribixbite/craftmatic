@@ -3,7 +3,7 @@
  * shell of an entity's FINAL emitted cube list, switched in by camera distance.
  */
 import { describe, expect, it } from 'vitest';
-import { buildLodHull, entityRenderCullBlocks, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, UNITS_PER_BLOCK } from '../web/src/engine/bedrock-lod-hull.js';
+import { ACTOR_DRAW_CEILING_BLOCKS, buildLodHull, entityRenderCullBlocks, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, UNITS_PER_BLOCK } from '../web/src/engine/bedrock-lod-hull.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import { bedrockInGameText, buildPlayableAddon, DEFAULT_LOD_DISTANCE, DEVICE_CUBOID_BUDGET, type PlayableAddonOptions } from '../web/src/engine/playable-addon.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
@@ -221,16 +221,24 @@ describe('LOD hull geometry', () => {
 // ─── The actor's render cull, and the switch that has to sit under it ─────────
 
 describe('the render cull and the LOD switch', () => {
-  it('draws an actor to 64 blocks per unit of collision-box diagonal, never under 64', () => {
-    // The three device observations the constant fits (round921 + 09-19):
-    // a 0.1 shell culls at 64, a 0.6 x 1.8 figure at ~127, a metre-scale
-    // vehicle box far past 128.
+  it('draws an actor to 64 blocks per unit of collision-box diagonal, never under 64, and never past the measured ceiling', () => {
+    // Under the ceiling the fit answers: a 0.1 shell culls at 64 (round921).
     expect(entityRenderCullBlocks({ width: 0.1, height: 0.1 })).toBe(64);
     expect(entityRenderCullBlocks(undefined)).toBe(64);
-    expect(entityRenderCullBlocks({ width: 0.6, height: 1.8 })).toBeCloseTo(64 * Math.hypot(0.6, 1.8, 0.6), 6);
-    expect(entityRenderCullBlocks({ width: 0.6, height: 1.8 })).toBeGreaterThan(100);
-    expect(entityRenderCullBlocks({ width: 0.6, height: 1.8 })).toBeLessThan(168);
-    expect(entityRenderCullBlocks({ width: 3.5, height: 2.5 })).toBeGreaterThan(300);
+    // Round 2026-09-26a, both phones (26.51 / 26.52): a figure (0.6 x 1.8, fit 127), a door (0.25 x 2.5,
+    // fit 160), the 76417 needle (fit 135) and a vehicle-sized box all stop at the same ~72 blocks.
+    for (const box of [{ width: 0.6, height: 1.8 }, { width: 0.25, height: 2.5 }, { width: 0.1, height: 2.115 }, { width: 3.5, height: 2.5 }]) {
+      expect(entityRenderCullBlocks(box)).toBe(ACTOR_DRAW_CEILING_BLOCKS);
+    }
+    expect(ACTOR_DRAW_CEILING_BLOCKS).toBeGreaterThan(64);
+    expect(ACTOR_DRAW_CEILING_BLOCKS).toBeLessThan(71.6);
+  });
+
+  it('drops the 76417 shell hull its needle had planned at ~120 blocks, where no actor is drawn (round 2026-09-26a)', () => {
+    // Needle 0.1 x 2.115: the fit put its cull at 135 and its switch near 120; the device drew nothing past 72.
+    const plan = planLodSwitch({ lodDistance: 96, radiusBlocks: 30, collisionBox: { width: 0.1, height: 2.115 } });
+    expect(plan.renderCullBlocks).toBe(ACTOR_DRAW_CEILING_BLOCKS);
+    expect(plan.ship).toBe(false);
   });
 
   it('drops the hull for 10303: a 0.1-box shell with a 50.3-block reach culls at 64, so no switch is both under the cull and far enough from the cubes', () => {
@@ -246,15 +254,18 @@ describe('the render cull and the LOD switch', () => {
     expect(plan.reason).toMatch(/0\.1 x 0\.1/);
   });
 
-  it('keeps the requested switch for a vehicle whose box draws it far past the switch', () => {
+  it('caps a vehicle switch one chunk under the measured ceiling, however large its box', () => {
     const plan = planLodSwitch({ lodDistance: 96, radiusBlocks: 12, collisionBox: { width: 3.5, height: 2.5 } });
     expect(plan.ship).toBe(true);
     if (!plan.ship) throw new Error('unreachable');
-    expect(plan.switchDistance).toBe(108);
-    expect(plan.switchSource).toBe('requested');
-    expect(plan.nearestCubeBlocks).toBe(96);
-    expect(plan.hullWindowBlocks).toBeCloseTo(plan.renderCullBlocks - 108, 6);
-    expect(plan.hullWindowBlocks).toBeGreaterThan(200);
+    expect(plan.switchDistance).toBe(ACTOR_DRAW_CEILING_BLOCKS - LOD_CULL_MARGIN_BLOCKS);
+    expect(plan.switchSource).toBe('render-cull');
+    expect(plan.nearestCubeBlocks).toBe(ACTOR_DRAW_CEILING_BLOCKS - LOD_CULL_MARGIN_BLOCKS - 12);
+    expect(plan.hullWindowBlocks).toBe(LOD_CULL_MARGIN_BLOCKS);
+    // A requested switch under the cap stands as asked.
+    const near = planLodSwitch({ lodDistance: 40, radiusBlocks: 5, collisionBox: { width: 3.5, height: 2.5 } });
+    expect(near.ship && near.switchDistance).toBe(45);
+    expect(near.ship && near.switchSource).toBe('requested');
   });
 
   it('caps the switch one chunk under the cull for a small shell, down to the 32-block floor, and drops it below', () => {

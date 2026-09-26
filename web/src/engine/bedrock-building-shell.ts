@@ -38,6 +38,7 @@ import { PACK_NAMESPACE } from './mcpack.js';
 import type { LegoEntityQuality } from './ldraw-part-prototype.js';
 import { COLLIDER_KIT } from './collider-form.js';
 import { addLayerBox, newCellLayers, type CellLayers } from './collider-clearance.js';
+import { ACTOR_DRAW_CEILING_BLOCKS } from './bedrock-lod-hull.js';
 
 /** The custom collider block and its two sixteenth states. */
 export const COLLIDER_BLOCK_ID = `${PACK_NAMESPACE}:collider`;
@@ -284,26 +285,38 @@ export const COLLIDER_TERRAIN_TEXTURE = { craftmatic_collider: { textures: 'text
  * scale it with the model (`withSizeGroups`), so the cull distance scales
  * too: a 400 % placement is drawn four times as far, a 25 % one keeps the floor.
  *
- * TODO(cull): the LONGER reach a tall needle buys is extrapolated from the
- * three-point fit above, never measured. On the Saga (Minecraft 26.52,
- * 2026-09-26) the 76417 shell (needle 2.115, predicted ~135 blocks), a door
- * (0.25 x 2.5), a figure and vanilla pigs all stopped drawing TOGETHER between
- * 71.5 and 73 blocks, with render distance 192 and simulation distance 8
- * chunks: there the box size set nothing. Re-measure on the Pixel (26.51)
- * before relying on the needle; `output/saga-followup-0925/`.
+ * MEASURED, round 2026-09-26a: at 100 % the needle buys NO draw distance. On
+ * both phones (Pixel 26.51, Saga 26.52; render distance 192, simulation 8
+ * chunks) the 76417 shell (needle 2.115, 135 blocks by the fit), a door
+ * (0.25 x 2.5), a figure and vanilla mobs all stopped drawing together at
+ * 71-73 blocks. `actorCullDistance` is therefore capped at the measured
+ * `ACTOR_DRAW_CEILING_BLOCKS` (bedrock-lod-hull.ts), which the LOD plan uses.
+ * The needle is KEPT: it costs nothing (no taps, over the roof), and whether a
+ * box scaled past 100 % by the size groups lifts the ceiling is unmeasured.
  *
- * TODO(playable-addon.ts, not this file): pass `sgeo.sizeBlocks` as the
- * second argument of `shellBehavior` so the box derives from the model;
- * until then `SHELL_FALLBACK_EXTENT_BLOCKS` (10303's height, the largest set
- * measured) stands in.
+ * TODO(cull): measure a 200 % and a 400 % placement's shell on a phone (the
+ * needle's box scaled 2x/4x): if it is also gone at ~72, drop the needle for
+ * a plain small box and `SHELL_CULL_PER_MODEL_BLOCK` with it.
+ *
+ * `playable-addon.ts` passes the compiled `sizeBlocks`; the fallback extent
+ * (10303's height) is for a caller that has none.
  */
 export const ACTOR_CULL_FLOOR_BLOCKS = 64;
 export const SHELL_CULL_PER_MODEL_BLOCK = 4;
 export const SHELL_BOX_WIDTH = 0.1;
 export const SHELL_FALLBACK_EXTENT_BLOCKS = 44;
 
-/** The distance at which Bedrock stops drawing an actor with this collision box at wand factor `f` (the measured fit above). */
+/**
+ * The distance at which Bedrock stops drawing an actor with this collision box
+ * at wand factor `f`: the fit above, never past the ceiling measured on
+ * 26.51/26.52 (`ACTOR_DRAW_CEILING_BLOCKS`; above 100 % the ceiling is assumed,
+ * see TODO(cull)).
+ */
 export function actorCullDistance(box: { width: number; height: number }, f = 1): number {
+  return Math.min(ACTOR_DRAW_CEILING_BLOCKS, actorCullFit(box, f));
+}
+/** The box fit alone (no ceiling): what the needle is sized for. */
+export function actorCullFit(box: { width: number; height: number }, f = 1): number {
   return ACTOR_CULL_FLOOR_BLOCKS * Math.max(1, f * Math.hypot(box.width, box.width, box.height));
 }
 
