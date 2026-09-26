@@ -36,47 +36,39 @@ Three worktree agents launched (merge per the IN FLIGHT recipe below):
   face art drops the photo skin, LOD hull glass opaque, pack text no longer
   claims HD textures. Saga-verified: hatching gone, 76417 line-up grounded.
   Open:
-  - [x] **Sent**: round 2026-09-26a, `output/device-round-2026-09-26a/craftmatic-packs-d9173d61.zip`
-    (sha256 c8abea892b2bb641704a0423e6adaedbde6c0b504c4c3157fb593cfc22c907ce; 14 packs +
-    PACKS.md, built one at a time from `d9173d61` by `build.sh`, pipeline hash
-    `e089bef8f0c5` not dirty, same labels, all 28 header uuids equal to 25c's
-    `old-manifests.json`). `substitutedParts`/`unresolvedParts` IDENTICAL to 25c for all
-    14 (`parts-compare.txt`; the local `UnOfficial/parts/s` lookup changed nothing here:
-    these builds read `ldraw_ref/` either way). `_mcaddon_check` 14/14. Render audit
-    (`render-audit-summary.txt`) unchanged except 42703 0.32 -> 0.84 block faces (parked
-    cars 2-3 vs the shell, shell +73 cubes from the same 765 parts; cause not traced),
-    910004 0.68 -> 0.89 (the new brick-built door actors), 76417 1.00 -> 1.08.
-    Both phones `--exclusive` (Pixel 924 and Saga 925: 14 BP + 14 RP; the Pixel's stale
-    McLaren binding is gone), content log 0 errors / 0 overridden at start and end on both
-    (each log stopped flushing mid-session: Pixel after 01:41, Saga after 01:19).
-    Device results (`pixel/`, `saga/` beside the zip; per-check PASS on both unless noted):
-    clearance walks upright, no crouch, through 76457 Doors 2/3/4/5 and 41732 Doors 2/5;
-    910004 brick-built Door 4 opens and closes; 76457 Bed and 41732 chair seat and stand
-    up; 10261 chain lift 9 s (Saga) / 11-12 s (Pixel) at 3.5 blocks/s, no stutter; 11374
-    hint text right, pad starts play, flipper flashes and flips. Placements undone, wands
-    cleared, both phones left at the Play screen.
-  - [x] **76457 invisible edge** FIXED in branch `worktree-agent-a196a2e2ff5e15aec`
-    (`8e1036c8`, not merged): the sweet stand's top-row colliders kept a 0.4-0.7 block
-    phantom rim (rule 4 `walkable-top`); rule 4 now narrows a wall's top over open air
-    (docs/bedrock-interactivity.md "Clearance" rule 4; 40 favourites: reach +5.8 %, doorway
-    verdicts unchanged, 0 FAIL). Saga: walked past z 2007.3 onto
-    the stand, z 2005.30 (`output/fix-26a/saga/a10_walked`, `a11_pos` in that worktree).
-    Open: the x 15 column keeps its rim (landing guard, Door 2); not re-walked on the Pixel.
-  - [x] Dismount hint FIXED (`f0baa33f`): `action.hint.exit.<id>` for every rideable,
-    `_mcaddon_check.py` gates it. Saga: 76457 Bed reads "Sneak to stand up" (`b02_ride`).
-  - [x] Ghost after Undo FIXED (`ea86ef75`): Undo, Hide and a wand release end the
-    preview; ghosts swept by tag. Saga: preview shown, Undo, site empty 12 s later
-    (`c02`..`c07`); wand release removes it (`d02`, `d03`). 10261 itself not re-placed.
-  - [x] Cull: LOD plan capped at the measured ~72-block ceiling (`e0330b31`); large shell
-    hulls dropped (76457, 10261 shipped none; their stale `*_shell_lod.geo.json` remain
-    in the Saga's dev RP folders). Needle kept; 200-400 % unmeasured (`TODO(cull)`).
+  - [x] **Sent**: round 2026-09-26b, `output/device-round-2026-09-26b/craftmatic-packs-fe46b5fb.zip`
+    (sha256 1c0371b03fb18ef8a4b7ca87e55208f6f117d6e1ec17ca426ad11b69278f3b66; 14 packs +
+    PACKS.md, built one at a time from `fe46b5fb` by `build.sh`, pipeline stamp `e0330b31`
+    hash `80c231255590` not dirty, same labels; all 28 header uuids equal to 26a's
+    `new-manifests.json`). `substitutedParts`/`unresolvedParts` IDENTICAL to 26a for all 14
+    (`parts-compare.txt`). `_mcaddon_check` 14/14 (with the dismount-hint gate; the 26a
+    76457 pack fails it). Render audit identical to 26a for all 14. LOD hulls now ship only
+    in 10326, 11374, 910004 (26a: nine packs).
+    Deploy: Pixel 924 (import) and Saga 925 (root dev), both `--exclusive`, 14 BP + 14 RP.
+    The Saga's first deploy died mid-push when the host adb daemon dropped (cause not found;
+    `saga/deploy-log-attempt1-adb-daemon-died.txt`); the re-run completed. Saga stale files
+    left in dev folders (not deleted): `*_shell_lod.geo.json` + `craftmatic_lod_empty.geo.json`
+    in 10261/41732/42703/76417/76457 RP, 10303 RP (`shell_lod` + 4 `fig8` files) and BP
+    (`fig8.json`), 10365 RP (`boat_lod` + `lod_empty`). Pixel bound folders hold no stale hull.
+    Device results, PASS on both phones (`pixel/`, `saga/` beside the zip):
+    content log 0 errors / 0 overridden, re-read after play; the log is block-buffered and
+    stops at world load, so it was flushed by re-opening the world, and the play-time lines
+    (Pixel 03:41-03:51, Saga 04:09-04:11) are only `[Sound][verbose]`.
+    76457 street to Door 1 (z 2006.80, y -59.00, past the old z 2007.3 stop) and Door 2
+    (x 2016.0, z 2005.5) on foot (`e0*`); seat hint "Sneak to stand up" (`b02`/`b03`);
+    wand preview gone after a slot switch and after preview-then-Undo, only vanilla mobs
+    within 60 blocks (`w0*`, `u0*`); 10261 lift 3.5 blocks/s for ~9 s, circuit 39 s, no
+    freeze (`ride*_speeds_*.png`); 10261 Undo leaves nothing (`r1*`). Wands cleared by id,
+    selected slot restored, both phones at the Play screen, creative as found.
+    26a's open rim note (x 15 column, Door 2 landing guard): reaching Door 2 by strafing
+    from Door 1 across that column did not stop on either phone; a straight walk from the
+    street at x 15 was not tried.
   - [ ] Seat tap targets: on the Pixel a long-press on 76457's Bed selected Door 4 ("behind
     a wall"), and a front tap on 910004 Door 4 selected Window 3; `/ride` and a press from
     above worked. A seat/door behind another part's tap box.
   - [ ] Saga follow-up leftovers: a car's huge "Track 1 Car 2" name tag crosses the loop
-    view; standing up from pinball re-selects the wand slot and pops its form. The Saga's
-    10303 dev packs hold 5 stale `loopcoaster_10303_fig8` files (deploy report; not deleted).
-    Three 42703 interactive entities (lid 1, doors 1-2) remain in Saga world 925 from an
+    view; standing up from pinball re-selects the wand slot and pops its form. Stale Saga
+    dev-pack files: see round 26b above. Three 42703 interactive entities (lid 1, doors 1-2) remain in Saga world 925 from an
     earlier session.
   - [ ] Stair-step striping on curved parts (42703's arches, round columns) at the
     2 LDU grain: geometry, not z-fighting; only a finer grain or merged steps change it.
