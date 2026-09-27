@@ -47,7 +47,7 @@ import { SWATCH_SIZE } from './ldraw-entity-atlas.js';
 import { encodePngRgba } from './lego-resource-pack.js';
 import { defaultDollFace, faceArtImage, isDollHead, orientFace, packFaceAtlas, rasterizeHeadFace, type BedrockFaceName, type FaceImage } from './head-face.js';
 import { inferVehicleNose, type FacingDecision, type NoseDirection } from './vehicle-facing.js';
-import { mouldFamilyId, assembleMinifig, classifyMiniDollPart, classifyMinifigPart, figureAnchor, figureSystemOfTorso, MINIDOLL_CANON, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
+import { mouldFamilyId, assembleMinifig, classifyFigurePart, classifyMiniDollPart, seatedFigure, classifyMinifigPart, figureAnchor, figureSystemOfTorso, MINIDOLL_CANON, normaliseFigureDescription, type EntityRig, type FigureSystem, type MinifigSlot } from './minifig-rig.js';
 
 const PACK_NAMESPACE = 'craftmatic';
 
@@ -57,6 +57,8 @@ import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js
 import { visibleBoundsForSizeSteps } from './bedrock-placement-pack.js';
 import { partStem } from './part-id.js';
 import { planSeat, RIDER_EYE_ABOVE_SEAT, type SeatPlan } from './cockpit-seat.js';
+import { isShipWheel, isSteeringWheel } from './steering-parts.js';
+export { isShipWheel, isSteeringWheel } from './steering-parts.js';
 import { separateCoplanarFaces, type CoplanarSeparation, type GeoEntryLike } from './bedrock-geometry-faces.js';
 
 /**
@@ -72,8 +74,6 @@ const CANOPY_PARTS = new Set([
 
 /** Seats the driver sits ON (steering wheels are ranked separately: the driver sits behind them). */
 const SEAT_PARTS = new Set(['4079', '4079b', '33176', '58888', '14520']);
-/** Steering wheels and steering stands: the driver sits ~30 LDU behind, eyes ~20 LDU above the wheel. */
-const STEERING_PARTS = new Set(['3829', '3829c01', '73081']);
 /** Minifig torsos: the anchor of a figure (a figure is torso + head + legs, everything else is dressing). */
 const TORSO_PARTS = /^(973|3814|76382)(?![0-9])/;
 /** Every part a minifig is built from, by id family - used when a description is unavailable. */
@@ -117,27 +117,8 @@ export function isFigurePart(part: string, description: string): boolean {
 export const isTorso = (part: string, description: string): boolean =>
   figureSystemOfTorso(part, description) !== null || TORSO_PARTS.test(figureId(part)) || /_torso$/.test(cleanPartId(part));
 export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
-const isSteering = (part: string, description: string): boolean => STEERING_PARTS.has(baseMould(part)) || /^(Minifig )?Steering\b/i.test(description.replace(/^[~=_]+\s*/, ''));
-/**
- * A steering wheel a figure drives by: a car's wheel, stand, or holder WITH
- * its wheel, the brick with a wheel moulded on, a tractor's (LDraw's names
- * and BrickLink's `Vehicle, Steering …`). A Technic steering wheel is not
- * one: it steers a Technic-scale model, whose seat is no minifig's (42172's
- * `2819`).
- */
-export function isSteeringWheel(part: string, description: string): boolean {
-  const d = description.replace(/^[~=_]+\s*/, '');
-  if (STEERING_PARTS.has(baseMould(part))) return true;
-  if (/^Technic\b/i.test(d)) return false;
-  // A 5 x 5 wheel (67811) is a decorative turnable (10303's and 10326's), not a minifig's wheel.
-  if (/Steering Wheel\s+([3-9]|\d{2,})\s*x/i.test(d)) return false;
-  if (/^Car Steering Wheel Holder\b/i.test(d)) return /\(Complete\)|with .*Steering Wheel/i.test(d);
-  return /^((Car|Minifig|Tractor Chassis|Vehicle,) )?Steering (Wheel|Stand)\b/i.test(d) || /^Minifig Brick\b.*\bwith Steering Wheel\b/i.test(d);
-}
-/** A ship's wheel (`4790`, `52395`, the Duplo helm): the helm a boat is steered from, by id or description. */
-export function isShipWheel(part: string, description: string): boolean {
-  return /^(4790|52395|4658)(?![0-9])/.test(cleanPartId(part)) || /^(Boat,? )?Ship'?s? Wheel\b|Boat Helm \/ Ship's Wheel$/i.test(description.replace(/^[~=_]+\s*/, ''));
-}
+/** A steering wheel or a ship's wheel: what a vehicle is steered by (steering-parts.ts). */
+const isSteering = (part: string, description: string): boolean => isSteeringWheel(part, description) || isShipWheel(part, description);
 /**
  * Translucent parts that are never a vehicle's glass, by description: engine
  * pistons, lamps and lenses, gems, flames, energy effects, balloons, plants.
@@ -1943,7 +1924,27 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
 
 // ─── Cockpit ──────────────────────────────────────────────────────────────────
 
-interface CockpitFrame { nose: NoseDirection; isXLongitudinal: boolean; forwardSign: number; spanX: number; spanZ: number }
+interface CockpitFrame {
+  nose: NoseDirection; isXLongitudinal: boolean; forwardSign: number; spanX: number; spanZ: number;
+  /** A boat is driven from its stern (the helm, the tiller); a car or an aircraft from its front. Default car. */
+  kind?: 'car' | 'plane' | 'boat';
+}
+
+/**
+ * How far (LDU, horizontal) a figure or a seat mould may be from a steering
+ * wheel and still be the one at it: a seated minifig's torso is 30 LDU behind
+ * its wheel, a standing helmsman's about as far; 80 is two studs of slack
+ * without reaching the next row of seats.
+ */
+export const DRIVER_REACH_LDU = 80;
+
+/**
+ * A helmsman at a ship's wheel stands AFT of it (the convention on a real
+ * ship, and the only side a model's quarterdeck leaves room for), his eye
+ * this far behind and above the hub, LDU: a standing minifig's eye is 85 over
+ * its feet and a helm's hub about 50.
+ */
+export const HELM_EYE_LDU = { aft: 30, up: 35 } as const;
 
 /**
  * Where the driver's EYES are, from the best evidence available, in order:
@@ -2003,36 +2004,76 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
   const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
   const along = (b: ParsedBrick): number => frame.isXLongitudinal ? (b.x - cx) * frame.forwardSign : (b.z - cz) * frame.forwardSign;
   const local = (b: ParsedBrick, v: Vec3): Vec3 => { const r = apply(b.rot ?? IDENTITY, v); return [b.x + r[0], b.y + r[1], b.z + r[2]]; };
+  // A boat is driven from its stern, a car or an aircraft from its front: the end a driver is taken from when nothing else says.
+  const boat = frame.kind === 'boat';
+  const driverEnd = <T>(list: T[], key: (t: T) => number): T => list.reduce((a, b) => (boat ? key(b) < key(a) : key(b) > key(a)) ? b : a);
+  const flat = (a: { x: number; z: number }, b: { x: number; z: number }): number => Math.hypot(a.x - b.x, a.z - b.z);
 
-  // 1. Seated figure.
+  // A boat's driver is never under its hull: 60221's diving yacht carries its
+  // small underwater scooter (steering stand and all) stowed UNDER the hull, in
+  // the same entity, and its wheel seated the player under the yacht. The
+  // keel is the bottom of the largest part (the hull), LDraw Y down.
+  let keelY = Infinity;
+  if (boat) {
+    let biggest = -1;
+    for (const b of placed) {
+      const m = meshes.get(b.part);
+      if (!m || !m.triangles.length) continue;
+      const box = aabbOfCorners(cornersOf(m.bounds.min, m.bounds.max).map(v => local(b, v)));
+      const volume = (box.max[0] - box.min[0]) * (box.max[1] - box.min[1]) * (box.max[2] - box.min[2]);
+      if (volume > biggest) { biggest = volume; keelY = box.max[1]; }
+    }
+  }
+  const aboveKeel = (eye: Vec3): boolean => eye[1] < keelY;
+
+  // The helmsman's eye at a wheel: behind a steering wheel (its local +Z, 30
+  // LDU, eyes 20 over it); aft of a ship's wheel, standing (`HELM_EYE_LDU`).
+  const aft = frame.isXLongitudinal ? [-frame.forwardSign, 0] : [0, -frame.forwardSign];
+  const wheelEye = (w: ParsedBrick): Vec3 => isShipWheel(w.part, desc(w))
+    ? [w.x + aft[0]! * HELM_EYE_LDU.aft, w.y - HELM_EYE_LDU.up, w.z + aft[1]! * HELM_EYE_LDU.aft]
+    : local(w, [0, -20, 30]);
+  const wheels = placed.filter(b => isSteering(b.part, desc(b)) && aboveKeel(wheelEye(b)));
+
+  // 1. A figure in the vehicle: a whole one (a bust - 10365's figurehead - is
+  //    decoration), inside the footprint, feet above the floor. With a wheel,
+  //    only the figure AT it drives; a wheel nobody is at is the driver's
+  //    place itself (a passenger figure does not take the controls). With no
+  //    wheel, a figure the source SAT down before one standing, at the driving end.
   const figures = groupFigures(placed, meshes);
   const insideX0 = minX + frame.spanX * 0.08, insideX1 = maxX - frame.spanX * 0.08, insideZ0 = minZ + frame.spanZ * 0.08, insideZ1 = maxZ - frame.spanZ * 0.08;
-  const seatedFigures = figures.filter(f => { const t = placed[f.torso]!; return t.x >= insideX0 && t.x <= insideX1 && t.z >= insideZ0 && t.z <= insideZ1 && t.y + 72 < maxY - 8; });
-  const wheels = placed.filter(b => isSteering(b.part, desc(b)));
-  if (seatedFigures.length) {
-    let driver = seatedFigures[0]!;
-    if (wheels.length) {
-      const d = (f: { torso: number }): number => Math.min(...wheels.map(w => Math.hypot(w.x - placed[f.torso]!.x, w.y - placed[f.torso]!.y, w.z - placed[f.torso]!.z)));
-      driver = seatedFigures.reduce((a, b) => d(b) < d(a) ? b : a);
-    } else {
-      driver = seatedFigures.reduce((a, b) => along(placed[b.torso]!) > along(placed[a.torso]!) ? b : a);
-    }
-    const torso = placed[driver.torso]!;
-    return { source: 'seated-figure', eyeLdu: local(torso, [0, -11, 0]), detail: `${seatedFigures.length} seated figure${seatedFigures.length === 1 ? '' : 's'}; driver torso ${cleanPartId(torso.part)} at ${Math.round(torso.x)}, ${Math.round(torso.y)}, ${Math.round(torso.z)}`, driverParts: driver.parts, evidenceParts: driver.parts };
+  const legged = (f: { parts: number[] }): boolean => {
+    const system = figureAnchor(f.parts.map(i => placed[i]!), meshes)?.system ?? 'minifig';
+    return f.parts.some(i => { const slot = classifyFigurePart(system, placed[i]!.part, desc(placed[i]!)); return slot === 'hips' || slot === 'hips_legs' || slot === 'legs' || slot === 'leg_right' || slot === 'leg_left'; });
+  };
+  const seatedFigures = figures.filter(f => { const t = placed[f.torso]!; return t.x >= insideX0 && t.x <= insideX1 && t.z >= insideZ0 && t.z <= insideZ1 && t.y + 72 < maxY - 8 && legged(f) && aboveKeel([t.x, t.y, t.z]); });
+  const reach = (b: { x: number; z: number }): number => wheels.length ? Math.min(...wheels.map(w => flat(w, b))) : Infinity;
+  const figureDriver = wheels.length
+    ? seatedFigures.filter(f => reach(placed[f.torso]!) <= DRIVER_REACH_LDU).reduce<typeof seatedFigures[number] | undefined>((a, b) => !a || reach(placed[b.torso]!) < reach(placed[a.torso]!) ? b : a, undefined)
+    : seatedFigures.length ? (() => {
+      const sitting = seatedFigures.filter(f => seatedFigure(f.parts.map(i => placed[i]!), meshes));
+      return driverEnd(sitting.length ? sitting : seatedFigures, f => along(placed[f.torso]!));
+    })() : undefined;
+  if (figureDriver) {
+    const torso = placed[figureDriver.torso]!;
+    return { source: 'seated-figure', eyeLdu: local(torso, [0, -11, 0]), detail: `${seatedFigures.length} seated figure${seatedFigures.length === 1 ? '' : 's'}; driver torso ${cleanPartId(torso.part)} at ${Math.round(torso.x)}, ${Math.round(torso.y)}, ${Math.round(torso.z)}`, driverParts: figureDriver.parts, evidenceParts: figureDriver.parts };
   }
-  // 2. Seat moulds.
-  const seats = placed.filter(b => isSeat(b.part, desc(b)));
-  if (seats.length) {
-    const nearestWheel = (b: ParsedBrick): number => Math.min(...wheels.map(w => Math.hypot(w.x - b.x, w.z - b.z)));
-    const seat = wheels.length
-      ? seats.reduce((a, b) => nearestWheel(b) < nearestWheel(a) ? b : a)
-      : seats.reduce((a, b) => along(b) > along(a) ? b : a);
+  // 2. Seat moulds: the one nearest a wheel, else - with no wheel - the one at the driving end.
+  //    A ship's wheel is steered STANDING, so a seat mould away from the helm
+  //    (10365's cabin chairs, 2.6 blocks aft of it) is not its helmsman's; a
+  //    car's steering wheel keeps its nearest seat however far (75397's pilot
+  //    seat is 6 blocks from its wheel, and the wheel's own spot is solid).
+  const seats = placed.filter(b => isSeat(b.part, desc(b)) && aboveKeel(local(b, [0, -51, 0])));
+  const helmOnly = wheels.length > 0 && wheels.every(w => isShipWheel(w.part, desc(w)));
+  const seat = wheels.length
+    ? seats.filter(b => !helmOnly || reach(b) <= DRIVER_REACH_LDU).reduce<ParsedBrick | undefined>((a, b) => !a || reach(b) < reach(a) ? b : a, undefined)
+    : seats.length ? driverEnd(seats, along) : undefined;
+  if (seat) {
     return { source: 'seat-parts', eyeLdu: local(seat, [0, -51, 0]), detail: `${seats.length} seat${seats.length === 1 ? '' : 's'}; ${cleanPartId(seat.part)} at ${Math.round(seat.x)}, ${Math.round(seat.y)}, ${Math.round(seat.z)}`, driverParts: [], evidenceParts: [placed.indexOf(seat)] };
   }
-  // 3. Steering wheel.
+  // 3. A steering wheel or a ship's wheel nobody sits at: the driver's place is at it.
   if (wheels.length) {
-    const w = wheels.reduce((a, b) => along(b) > along(a) ? b : a);
-    return { source: 'steering-wheel', eyeLdu: local(w, [0, -20, 30]), detail: `${cleanPartId(w.part)} at ${Math.round(w.x)}, ${Math.round(w.y)}, ${Math.round(w.z)}`, driverParts: [], evidenceParts: [placed.indexOf(w)] };
+    const w = driverEnd(wheels, along);
+    return { source: 'steering-wheel', eyeLdu: wheelEye(w), detail: `${cleanPartId(w.part)} at ${Math.round(w.x)}, ${Math.round(w.y)}, ${Math.round(w.z)}`, driverParts: [], evidenceParts: [placed.indexOf(w)] };
   }
   // 4-5. Glass: the largest canopy mould, else the largest translucent part that is big enough to be glass.
   const boundsCentre = (b: ParsedBrick): { centre: Vec3; size: Vec3; volume: number } | null => {
@@ -2183,7 +2224,7 @@ export async function compileLdrawEntityGeometry(
   //    glows and a service cart's lamps outvoted the one canopy.
   const cockpit = kind === 'figure' || kind === 'prop'
     ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [], evidenceParts: [], passengerEyesLdu: [] as Vec3[], passengerParts: [] }
-    : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ });
+    : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ, kind });
   // Which INPUT placements the seats were read from, before the driver's figure leaves `placed`.
   const seatEvidence: SeatEvidence = {
     driver: cockpit.evidenceParts.map(i => placedIdx[i]!),

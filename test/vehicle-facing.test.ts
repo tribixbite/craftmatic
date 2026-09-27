@@ -151,3 +151,25 @@ describe('long-axis rule for cars and boats', () => {
     expect(inferVehicleNose([...wings, pilot, { ...pilot, part: '3815.dat', y: -8 }], 'plane').axis).toBe('z');
   });
 });
+
+describe('boats', () => {
+  it('points a sailing ship away from its helm, reads its clear lamps as stern lanterns, and its pointed end as the bow', () => {
+    // A hull along z: wide (160) from z -120 to +200, narrowing to a 40-wide bow at z -200.
+    const hull: ParsedBrick[] = [];
+    for (let z = -120; z <= 200; z += 40) for (let x = -80; x <= 80; x += 40) hull.push({ part: '3001.dat', color: 6, x, y: 0, z, rot: I });
+    for (let z = -200; z < -120; z += 40) for (const x of [-20, 20]) hull.push({ part: '3001.dat', color: 6, x, y: 0, z, rot: I });
+    // The helm on the quarterdeck and two clear lanterns at the stern (+z).
+    const helm: ParsedBrick = { part: '4790b.dat', color: 6, x: 0, y: -60, z: 140, rot: I };
+    const lanterns: ParsedBrick[] = [{ part: '3062b.dat', color: 47, x: -60, y: -80, z: 200, rot: I }, { part: '3062b.dat', color: 47, x: 60, y: -80, z: 200, rot: I }];
+    const meshes = new Map<string, LdrawPartMesh | null>([
+      ['3062b.dat', { ...mesh('3062b', [[-10, 0, -10], [10, 0, -10], [10, 0, 10], [-10, 0, 10]]), description: 'Brick  1 x  1 Round with Hollow Stud' }],
+      ['4790b.dat', { ...mesh('4790b', [[-50, 0, -50], [50, 0, -50], [50, 0, 50], [-50, 0, 50]]), description: 'Boat Ship Wheel' }],
+    ]);
+    const decision = inferVehicleNose([...hull, helm, ...lanterns], 'boat', { meshes });
+    expect(decision.nose).toBe('-z');
+    expect(decision.votes.map(v => v.signal)).toEqual(expect.arrayContaining(['helm', 'narrow end z']));
+    expect(decision.votes.map(v => v.signal)).not.toContain('headlights');
+    // The same lamps on a car are headlights and point it the other way.
+    expect(inferVehicleNose([...hull, ...lanterns], 'car', { meshes }).nose).toBe('+z');
+  });
+});

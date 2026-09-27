@@ -24,21 +24,17 @@
  * from the model's floor, the nose toward −Z, before the JSON X mirror.
  */
 
+import { SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
+
 export type Vec3 = [number, number, number];
 /** A model box (entity frame, blocks). `glass`: a translucent part, seen through (the eye and the view ignore it). */
 export interface BoxBlocks { min: Vec3; max: Vec3; glass?: boolean }
 
 /**
- * A riding player's eye above its seat position, MEASURED: on the Saga
- * (26.52, 2026-09-26) a player on 42172's seat at y -0.3 read
- * `getHeadLocation()` 0.82 and `location` -0.7 over the vehicle's origin, so
- * the eye is 1.12 above the seat and the feet 0.4 under it. The shared
- * `SEATED_EYE_HEIGHT_BLOCKS` (1.25, lego-scale.ts) was a guess the coaster's
- * seats still use.
- * TODO(seat-eye): move the coaster and the compiler's other seats to the
- * measured value once a coaster rider's eye is checked against it.
+ * A riding player's eye above its seat position: the measured 1.12
+ * (`SEATED_EYE_HEIGHT_BLOCKS`, lego-scale.ts), the one value every seat uses.
  */
-export const RIDER_EYE_ABOVE_SEAT = 1.12;
+export const RIDER_EYE_ABOVE_SEAT = SEATED_EYE_HEIGHT_BLOCKS;
 
 /**
  * The seated player's body, relative to its seat position (the rider's
@@ -73,7 +69,13 @@ export const SEAT_FIT_STEPS = [1, 1.5, 2, 3, 4] as const;
 /** Sampling pitch inside a probe, blocks. */
 const SAMPLE_STEP = 0.05;
 
-/** Share of each probe (at `seat`, the model scaled by `f` about its origin) that lies inside any box. */
+/**
+ * Share of each probe (at `seat`, the model scaled by `f` about its origin)
+ * that lies inside any OPAQUE box. Glass is a shell the rider is seen
+ * through, not a solid: a canopy mould's cuboids fill the space under it,
+ * and counting them kept 76286's pilot out of the Milano's cockpit at every
+ * size (head and torso 38 % "inside" its canopy; 0 % and 8 % without it).
+ */
 export function riderOverlap(boxes: readonly BoxBlocks[], seat: Vec3, f = 1): { head: number; torso: number } {
   const out = { head: 0, torso: 0 };
   for (const probe of SEATED_RIDER_PROBES) {
@@ -81,7 +83,7 @@ export function riderOverlap(boxes: readonly BoxBlocks[], seat: Vec3, f = 1): { 
     // probe shrunk by 1/f in the model's own frame, which is the same thing.
     const lo: Vec3 = [0, 0, 0], hi: Vec3 = [0, 0, 0];
     for (let k = 0; k < 3; k++) { lo[k] = seat[k]! + probe.min[k]! / f; hi[k] = seat[k]! + probe.max[k]! / f; }
-    const near = boxes.filter(b => b.max[0] > lo[0] && b.min[0] < hi[0] && b.max[1] > lo[1] && b.min[1] < hi[1] && b.max[2] > lo[2] && b.min[2] < hi[2]);
+    const near = boxes.filter(b => !b.glass && b.max[0] > lo[0] && b.min[0] < hi[0] && b.max[1] > lo[1] && b.min[1] < hi[1] && b.max[2] > lo[2] && b.min[2] < hi[2]);
     const n = [0, 1, 2].map(k => Math.max(1, Math.round((probe.max[k]! - probe.min[k]!) / SAMPLE_STEP)));
     let inside = 0, total = 0;
     for (let i = 0; i < n[0]!; i++) for (let j = 0; j < n[1]!; j++) for (let l = 0; l < n[2]!; l++) {

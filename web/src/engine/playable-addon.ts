@@ -516,11 +516,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // No free seat mould (most LEGO cars and ships build their seats from bricks):
     // a car or boat long enough gets passengers BEHIND the driver (the model's
     // nose is -Z), a block apart on a car, two on a ship, never past the tail.
+    // A boat's driver is at its stern (the helm, ldraw-entity-compiler
+    // `findDriverSeat`), so where there is no room behind, its passengers go
+    // AHEAD of the helm instead, never past the bow (31109 lost two to that).
     const length = entitySize?.length ?? layout.length;
     const fallback: Array<[number, number, number]> = [];
     if (!measured.length && seatCount <= 1 && seatPositionOverride && (kind === 'car' || kind === 'boat') && length >= 3.5) {
         const spacing = kind === 'boat' && length >= 8 ? 2 : 1;
         for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
+        if (kind === 'boat') for (let k = 1; fallback.length < 3 && seatZ - k * spacing >= -length / 2 + 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ - k * spacing) * 100) / 100]);
     }
     const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
     // A compiled model's seats are measured in its RENDER frame (nose toward -Z);
@@ -774,8 +778,9 @@ function vehicleSeatReport(label: string, entity: string, kind: string, bricks: 
 /**
  * The invisible seat: a chair or bench in the build becomes something the
  * player can sit on. No gravity, no collision, unhurt; the rider's origin sits
- * 0.3 blocks under the seat surface so a seated minifig-scale player's eyes
- * (0.96 blocks over the pan) land where the compiler puts a rider's.
+ * 0.3 blocks under the seat surface so a seated player's eyes (1.12 over the
+ * seat position, 0.82 over the pan) land where a seated minifig's are (43 LDU,
+ * 0.81 blocks over the pan).
  */
 function seatBehavior(id: string): unknown {
     const rideable = { seat_count: 1, family_types: ['player', 'craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } };
