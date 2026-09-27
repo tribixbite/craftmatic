@@ -69,12 +69,38 @@ player; fetch files for newly released sets; find sources for missing
 LDraw parts incl. the Gabby mini-doll pieces. Three agents launched:
 - Seating: craftmatic worktree branch `worktree-agent-a123ff9c…`, evidence
   `output/seat-audit-0927/` there; merge into main after its gates.
-- New releases: clego `discovery/new_releases_2026-09-27.{json,md}`
-  (downloads + converts only; publish + index patch left to the main session).
-- Missing parts: clego `discovery/missing_parts_2026-09-27.{json,md}`
-  (mapping rows + reconversions; publish left to the main session).
-If a session resumes with no agent running, read those files and continue
-from what they record.
+If a session resumes with no agent running, merge the seating branch after
+its gates (see its `output/seat-audit-0927/audit.md`).
+
+New releases and missing parts are DONE and published (clego `6e075c84`,
+`c636ea03`, `b82659bb`; craftmatic `fe46a79e`): 8 new sets indexed (40900 DBIX;
+30730 30733 30736 40777 6565181 910061 952502 Mecabricks fan files), 14
+DbixConvV3 doll/City files repaired (53117 fire-helmet hair -> Studio
+`bl_53117pb02`, 69938 beekeeper hat printed `p01`/`p02`, doll headgear seated
+on the stud, dropped parts carried). R2 + prod read back by sha256, index
+`be4a63123f87`. Reports: clego `discovery/new_releases_2026-09-27.md`,
+`discovery/missing_parts_2026-09-27.md`. Open from them:
+- [ ] 208 sourceless 2026 sets have no digital model on any channel checked
+  (promos, magazine gifts, polybags, books, Duplo...); re-run
+  `python discovery/refresh_local.py --check` weekly. clego `sets.csv` is 220
+  rows behind Rebrickable (not refreshed).
+- [ ] `MecabricksLDR/71052-3.ldr` (BIONICLE Cosplayer, Series 29) is on disk
+  but NOT indexed: the index keys a set by the stem before `-`, so it would
+  stand for the whole series. Needs a per-figure key scheme.
+- [ ] Mecabricks downloads use `POST /api/workshop/model/load`, which their
+  robots.txt disallows (same endpoint as every earlier harvest). Decide.
+- [ ] Still no geometry (no mould found after Studio release + early-access,
+  `ldraw_ref`, today's `ldrawunf.zip`, library.ldraw.org, Mecabricks CDN,
+  Rebrickable, Brickset): Gabby cats 65213, 102297, 3862, 5690-5692, 7415,
+  107527; doll hair 79989 (alt design 106161), 35620 (12 sets); 65224
+  (stand-in 69969); 102722/5607 (Ursula), 7872/7842 (doll neckwear), 6330
+  (plush pillow, 10 sets). Torso prints not surveyed this round.
+- [ ] Corpus-wide: 182 ids (>=1,576 placements, 380 sets) dropped by published
+  DBIX files now resolve: `dbix_doll_patch.py --carry` or regenerate. 28 ids
+  (269 placements) have a Studio identity row to an existing `bl_*` file
+  (49663, 69971, 5990, 5326...) - each needs a frame check before mapping.
+- [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
+  (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
 ## Round 2026-09-26d (main checkout, `9b6118c5`)
 
