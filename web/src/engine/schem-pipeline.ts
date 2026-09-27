@@ -523,20 +523,28 @@ export async function runSchemPipeline(
           // grid put the chalet's figures at y -0.15 - one plate under the pin
           // plane, and inside the grass at 400 % (2026-09-21). Doors keep
           // `sceneGridPoint`: they are cut into the block grid itself.
+          // A seat that left with a ride car or a coaster (its mould is a car's
+          // part, or its sitter is a car's rider) is that car's, not a fixed
+          // seat standing where the car was parked.
+          const riderOf = (i: number): boolean => scene.figures.some(f => f.seatIndex === i && f.bricks.some(b => riderBricks.has(b)));
+          const keptSeats = scene.seats.map((s, i) => ({ s, i })).filter(({ s, i }) => !(s.brick && movable.has(s.brick)) && !riderOf(i));
+          const seatIndexOf = new Map(keptSeats.map(({ i }, k) => [i, k]));
+          const sceneSeats = keptSeats.map(({ s }) => s);
           for (const f of scene.figures) {
             // A figure seated in a ride car (upright in a station, 10261) rides
             // in that car's entity, not as a wandering NPC.
             if (f.bricks.some(b => riderBricks.has(b))) continue;
             const p = sceneFloorPoint(frame, scene.groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
-            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
+            const seatIndex = f.seatIndex !== undefined ? seatIndexOf.get(f.seatIndex) : undefined;
+            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(seatIndex !== undefined ? { seatIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);
           }
           // A source-seated figure gives its seat up to a player who comes to it (bedrock-figure-life.ts), so it `yields`.
-          scene.seats.forEach((s, i) => {
+          keptSeats.forEach(({ s, i }) => {
             const sitter = scene.figures.find(f => f.seatIndex === i);
             census.sceneSeats.push({ ...(s.brick ? { brick: s.brick } : {}), part: s.part, surfaceLdu: s.surfaceLdu, ...(sitter ? { occupant: { label: 'a figure the source seated there', bricks: new Set(sitter.bricks), yields: true } } : {}) });
           });
-          for (const s of scene.seats) {
+          for (const s of sceneSeats) {
             const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: s.part === 'bed' ? 'Bed' : `Seat (${s.part})` });
           }
@@ -555,7 +563,7 @@ export async function runSchemPipeline(
             if (pinball) for (const brick of pinball.plan.moved) if (!owned.has(brick)) owned.set(brick, 'part of the pinball table');
             for (const brick of movable) if (!owned.has(brick)) owned.set(brick, 'part of a ride car or its riders');
             const stage = interactivityStage({
-              bricks: source.bricks, meshes: scene.meshes, owned, seats: scene.seats,
+              bricks: source.bricks, meshes: scene.meshes, owned, seats: sceneSeats,
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
             });
             interactivityReport = stage.report;

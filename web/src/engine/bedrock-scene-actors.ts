@@ -36,7 +36,7 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import { classifiedDescription, createPartGeometryProvider, withClassifiedDescriptions, type LdrawPartMesh, type PartGeometryProvider, type Vec3 } from './ldraw-part-geometry.js';
 import { figureRole, groupFigures, isSeat, cleanPartId } from './ldraw-entity-compiler.js';
-import { assembleMinifig, figureAnchor } from './minifig-rig.js';
+import { assembleMinifig, figureAnchor, SEAT_BELOW_TORSO_LDU, seatedFigure } from './minifig-rig.js';
 import type { BlockGrid } from '@craft/schem/types.js';
 import { LDU_PER_BLOCK, PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 import { toBedrockBlock } from './bedrock-blocks.js';
@@ -337,6 +337,13 @@ export function isToiletBowl(description: string): boolean {
   const d = description.replace(/^[~=_]+\s*/, '');
   return /^(Dome|Dish|Bowl)\b/i.test(d) && /\bInverted\b/i.test(d) && !/\b(Sticker|Pattern)\b/i.test(d);
 }
+
+/**
+ * How close a seat must be to a sitting figure's hips (LDU) to be the one it
+ * sits on: a stool top or a bench surface is read from its tiles, the hips
+ * from the torso, and they agree within a plate and a half-stud.
+ */
+export const FIGURE_SEAT_MATCH_LDU = { across: 20, up: 16 } as const;
 
 /** How high a brick-built stool's seat may stand over its floor, LDU: a plate (a pouf) to a brick and a third (4079's pan is 16). */
 export const STOOL_HEIGHT_LDU = { min: 6, max: 32 } as const;
@@ -891,6 +898,23 @@ export async function discoverSceneActors(bricks: ParsedBrick[], provider: PartG
   for (const seat of [...brickBuiltStools(bricks, meshes, figureBricks), ...brickBuiltFurniture(bricks, meshes, figureBricks)]) {
     if (seats.some(s => Math.hypot(s.surfaceLdu[0] - seat.surfaceLdu[0], s.surfaceLdu[2] - seat.surfaceLdu[2]) < 20 && Math.abs(s.surfaceLdu[1] - seat.surfaceLdu[1]) < 24)) continue;
     seats.push(seat);
+  }
+  // A figure the source SAT DOWN (legs bent at the hip) proves a seat under
+  // its hips, whatever it sits on: a brick bench the rules above found (it
+  // takes that one), or bricks they cannot read as furniture (a ledge, a wall
+  // top, a sofa built sideways). It rides that seat as a mould's sitter does,
+  // and gives it up to a player (bedrock-figure-life.ts). No such figure, no
+  // seat: this adds nothing on geometry nobody sat on.
+  for (const f of figures) {
+    if (f.seatIndex !== undefined) continue;
+    const seated = seatedFigure(f.bricks, meshes);
+    if (!seated) continue;
+    const surface = local(seated.torso, [0, SEAT_BELOW_TORSO_LDU[seated.system], 0]);
+    const found = seats.findIndex((s, i) => !figures.some(g => g.seatIndex === i)
+      && Math.hypot(s.surfaceLdu[0] - surface[0], s.surfaceLdu[2] - surface[2]) < FIGURE_SEAT_MATCH_LDU.across && Math.abs(s.surfaceLdu[1] - surface[1]) < FIGURE_SEAT_MATCH_LDU.up);
+    if (found < 0) seats.push({ part: 'figure seat', surfaceLdu: surface, facingLdu: f.facingLdu });
+    f.seated = true;
+    f.seatIndex = found >= 0 ? found : seats.length - 1;
   }
 
   // Door leaves, and the frames they hang in.
