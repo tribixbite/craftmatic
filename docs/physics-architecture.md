@@ -420,6 +420,21 @@ course `vehicle_<id>_<n>` (with a post off the centre line inside the
 footprint, and a hover craft's run over the pool) and train test
 `train_<id>_<n>` (`web/src/engine/gametest-pack.ts`, `test/gametest-pack.test.ts`).
 
+### 4.7 Slides and lifts — `web/src/engine/bedrock-rides.ts`
+
+KINEMATIC, not dynamic: a ride carries its seat (and the player riding it,
+as the coaster carries its riders, by `tryTeleport` of the ridden entity)
+along a polyline the placement wrote in world coordinates. A slide speeds up
+from `RIDE.SLIDE_V0` by `RIDE.SLIDE_ACCEL` to `RIDE.SLIDE_VMAX` - no friction
+or gravity model, a playground chute is short and a constant pull reads as
+sliding - and sets the rider down at the run-out; a lift moves its car and
+seat one storey at `RIDE.LIFT_SPEED`. Speeds are blocks per second at 100 %
+and multiply by the wand factor, so a ride takes the same time at every size
+(a length scale without Froude scaling, like the figure walk). The path is
+measured at export (the chute's top surface; the lift's storeys), never
+simulated. Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
+and the serialised runtime on a fake world).
+
 ## 5. Serialised runtimes: the rules
 
 Each device runtime is a function turned into the pack's script text with
@@ -686,6 +701,11 @@ literal inside a function body (`§` marks the number).
 | `HEADLIGHTS.DUSK` | `web/src/engine/bedrock-vehicle.ts` | 12500 | time of day | Minecraft sunset; night until `DAWN` 23500. |
 | `TIME_MACHINE.TOP_MARGIN` | `web/src/engine/playable-addon.ts` | 1.03 | × | The time machine's top speed is 3 % past its jump speed (88 mph: 40.5 blocks/s), so a full stick reaches it. |
 | `TIME_MACHINE.TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 10 | blocks per 2 ticks | A longer move is a teleport, not speed: 100 blocks/s, past the 150 mph slider's 67. |
+| `RIDE.SLIDE_V0` | `web/src/engine/bedrock-rides.ts` | 2 | blocks/s | A slide rider leaves the top at a walk, so the start reads as a push-off. |
+| `RIDE.SLIDE_ACCEL` | `web/src/engine/bedrock-rides.ts` | 6 | blocks/s² | Reaches `SLIDE_VMAX` in 1 s: a 6-brick playground chute is over in about a second, as a real one is. |
+| `RIDE.SLIDE_VMAX` | `web/src/engine/bedrock-rides.ts` | 8 | blocks/s | Under a sprint (5.6) plus a jump's carry; fast enough to feel, slow enough to see the chute pass. |
+| `RIDE.SLIDE_RETURN_TICKS` | `web/src/engine/bedrock-rides.ts` | 10 | ticks | The seat waits half a second at the foot, so the rider is clear before it returns to the top. |
+| `RIDE.LIFT_SPEED` | `web/src/engine/bedrock-rides.ts` | 1.5 | blocks/s | A storey of a minifig dollhouse (8 bricks, 3.6 blocks) in about 2.4 s: a lift, not a launch. |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
@@ -946,6 +966,18 @@ one of these files fails the check until its row is written.
 | `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/bedrock-rides.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `RIDE` | const | Every ride number: detection thresholds (LDU) and the speeds (§4.7, §9). |
+| `RideKind`, `SceneRide`, `RideRuntimeConfig` | type, interface | A ride's kind, its measured path / car / stops, and the runtime's config. |
+| `isSlideDescription`, `isLiftGuideDescription` | function | Library-description tests for a slide mould and a lift guide. |
+| `slidePathLdu`, `findSlides` | function | Host only: a slide's running line from its top surface. |
+| `findLifts` | function | Host only: a shaft of guides, its car and a stop per storey. |
+| `_ridesRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`ridesRuntime`) that carries a seated player along a ride. |
+| `ridesScript` | function | Serialises it into `BP/scripts/rides.js`. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/figure-life-sim.ts -->

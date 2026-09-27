@@ -1678,3 +1678,25 @@ IOModel2V2. Details and commands are in clego `GEOGRADE.md` "Pick policy".
 **Until this app change deploys**, prod's code ignores `pick`, and two sets
 show the old rules' choice on the new index: 60052 (the staged-capture
 Eurobricks file) and 75398 (the duo `.io`).
+
+### 12. Two-colour shortcut families and bl_-only rows (2026-09-26)
+
+Two DBIX converter rules, found on Gabby's Dollhouse 10786 (clego `5efac7c4`):
+
+* **A two-material element that LDraw draws as a colour-shortcut family**
+  (the 16 x 8 floating boat hull `28925c01`..`c06`, whose deck subpart is
+  fixed-colour) takes the family member whose fixed colour is one of its
+  materials, coloured with the other material. Both Studio tables map LDD 28925
+  to `28925c01`, and the converter coloured it with the FIRST material, the
+  top's: 10786 drew a purple hull under a grey deck. It is now `28925c06` in
+  white (`dbix_shortcut_colour.py` reads the family from the library; no table).
+* **An `ldraw.xml` row naming a file no library ships** (24184, the mini-doll
+  life jacket) falls back to Studio's `bl_*` copy at its `ldraw_lxfv56.xml`
+  offset, instead of a bounding box in every reader.
+
+Published as line splices into the shipped bytes (the shared converter also
+carried another agent's uncommitted rows), with the LEGOID colours the
+committed converter already writes for 10788/10797/11204. Gate v2 grades these
+"no improvement" - connections are identical, and it cannot see colour - so
+they were accepted by eye on before/after renders
+(`output/gabby-0926/src-fix/`, eye verdicts in `eye-verdicts.json`).

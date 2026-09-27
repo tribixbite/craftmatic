@@ -4003,6 +4003,69 @@ first character lands at the END of the field: type one character at a time,
 then move the `/` to the front (`scripts/_saga_chat.sh`; check the field in a
 screenshot before sending, it is still not always right).
 
+## Gabby's Dollhouse: slides, a lift, a ship beside its spa (2026-09-26)
+
+The five Gabby's Dollhouse sets (10796 Kitty Care Ear, 10797 Party Room, 10788
+Dollhouse, 10786 Ship & Spa, 11204 Aquarium Adventure; LEGO 4+) were the first
+mini-doll sets through the pipeline. What they needed, all general rules:
+
+- **A mini-doll is minifig-scale evidence** (`addon-scale.ts`
+  `MINIDOLL_BODY_PARTS`: 92198 head and its prints, 92248 hips, the torsos).
+  Every one read "no minifig" before; 10786's title word "Ship" then shrank the
+  whole set to a 0.49x display boat. All five now export at 1x.
+- **A title that joins a vehicle to a place is a scene** (`playable-components.ts`
+  `isVehicleAndPlaceLabel`: "Ship & Spa", "Car and Garage" - `&`/`and` plus a
+  place word). 10786's ship is found in the scene by its hull
+  (`scene-vehicles.ts`), rides as the scripted boat, and the spa stays in the
+  shell. A scene vehicle keeps the loose props on its deck
+  (`attachLooseProps`): before, a detached prop was exported nowhere.
+- **Slides and lifts ride** (`engine/bedrock-rides.ts`, `scripts/rides.js`;
+  physics spec section 4.7). Every part described `Slide ...` is a slide: its
+  running line is read from the part's top surface (4-LDU cells, banded by
+  height), an invisible ride seat stands at the top, and sitting on it carries
+  the player down (2 -> 8 blocks/s) and off at a 24-LDU run-out; the seat then
+  returns. A lift is a shaft of at least two tall slim guides (`Support`,
+  pillars, beams; >= 192 LDU) with a car covering their footprint, and a stop
+  per storey that meets the shaft (plates/tiles at its side, merged per
+  72 LDU). The car is its own entity of its exact bricks; sitting in it carries
+  car and rider to the next storey (up to the top, then down, 1.5 blocks/s) and
+  sets the rider on that floor beside the shaft. The placement writes each
+  ride's path and exits in WORLD points (`PlacementActor.ride*`), so the
+  runtime only follows points. Found: a slide in all five sets; 10788's lift
+  (three `Support 2 x 2 x 13` guides, 12-part car, 4 storeys). 10788's rooms
+  above the ground floor are not reachable on foot at any size (clearance
+  report: 2 of 23 rooms at 100 %); the lift is the way up.
+- **A playground swing is a seat** (`isSwingSeat`: Studio names 67075
+  `Friends Swing 2 x 6 x 5 1/3`); its pan is the seat under the bar, not the
+  bar (`seatPanLocalY(mesh, hanging)`).
+- **A canopy on its handle bar opens like a lid** (18990, 11204's bubble dome).
+
+Sources: the DbixConvV3 file is each set's pick (10788 verified; the others are
+staged captures laid out in a row, not exploded). Published this round (clego
+`5efac7c4`, `698cd61a`): 10786's hull (`28925c01` in its top colour, a purple
+hull under a grey deck -> `28925c06` in white, as on the box) and life jacket
+(`24184.dat`, which no library ships -> `bl_24184.dat`), and LEGOID colours for
+10788/10797/11204 (coral seaweed, satin trans-pink domes, a seahorse drew as
+colour 16).
+
+Not in any library, so not in any pack (report, do not invent): the cats'
+micro-doll bodies (65213 MerCat, 102297 Pandy Paws, 5690-5692 kittens and
+cupcakes) and Pandy's head 3862; MerCat's head 4040 is drawn but stands alone.
+Gabby's legs (LDD 35641/35613/35621) were dropped by the converter until the
+mini-doll round (clego `f0b0d857`) republished all five with whole dolls.
+
+**On the devices** (`output/gabby-0926/{pixel,saga}/REPORT.md` in the round's
+worktree; content log 0 errors / 0 overridden in every session): all five
+place; 10788's lift carried the rider up, up and down with clean dismounts
+(Saga) and moved up and down (Pixel); slides ran on 10796, 10797 and 10788;
+10786's boat boards and reports AGROUND on grass. With the seat on 10788's
+solid car floor the rider saw only wall colour for the whole ride; the seat now
+rises so the eye clears the car's top (`ebb20563`), and the Pixel then saw the
+room. Boarding a ride from chat is `/ride @s start_riding @e[type=<pack>_ride,c=1]`
+(`c=1` takes the NEAREST ride seat: 10788's slide and lift share the type).
+Not seen working: 11204's dome and chest lids (no tap found their hit boxes),
+the swing, the carts, 10797's turntable and stool, the drawers.
+
 ## Minifig Creator wand on the phones (2026-09-26)
 
 The creator's properties first loaded on the device on 2026-09-25, so this

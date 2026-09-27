@@ -16,7 +16,8 @@
  * always agree.
  *
  * `auto` picks from evidence in the model:
- *   • a minifig (torso / hips / legs) → 1×: the set is built around the figure;
+ *   • a minifig (torso / hips / legs) or a mini-doll (head / hips / torso) →
+ *     1×: the set is built around the figure;
  *   • a microfigure (85863, 48 LDU with its base) and no minifig → 2×: the
  *     microscale set's own figure stands player height (76419 Hogwarts, 21034);
  *   • a vehicle by its title, no figure → shrink so its longest side is the
@@ -59,6 +60,16 @@ const EXTENT_PAD_LDU = 20;
 
 /** Minifig body moulds: a torso, hips or legs in the model means it is built at minifig scale. */
 const MINIFIG_BODY_PARTS = /^(?:973|3814|76382|3815|3816|3817|970)(?![0-9])/;
+/**
+ * Mini-doll (Friends / Disney / Gabby's Dollhouse) body moulds: the head
+ * (`92198`, every print `92198p…`), the hips (`92248`) and the torsos LDraw
+ * and the DBIX converter name (`92456`, `92241`, `11408`, `1006334`). A
+ * mini-doll stands ~4.5 bricks, within a tenth of a minifig, so it is the
+ * same 1× evidence. Without it Gabby's Dollhouse read "no minifig": 10786's
+ * ship was shrunk to a 0.49× "display boat" and the Kitty Care set's
+ * figure lost its scale cue (2026-09-26).
+ */
+const MINIDOLL_BODY_PARTS = /^(?:92198|92248|92456|92241|11408|1006334)(?![0-9])/;
 
 export type AddonScaleCue = 'minifig' | 'microfig' | 'vehicle' | 'none' | 'explicit';
 
@@ -101,7 +112,12 @@ function mouldId(part: string): string {
 
 /** True when the model carries a minifig body part (it is built at minifig scale). */
 export function hasMinifigCue(bricks: readonly ParsedBrick[]): boolean {
-  return bricks.some(b => MINIFIG_BODY_PARTS.test(mouldId(b.part)) || /_torso$/i.test(b.part));
+  return bricks.some(b => MINIFIG_BODY_PARTS.test(mouldId(b.part)) || /_torso$/i.test(b.part)) || hasMinidollCue(bricks);
+}
+
+/** True when the model carries a mini-doll body part (Friends-style figure, built at minifig scale). */
+export function hasMinidollCue(bricks: readonly ParsedBrick[]): boolean {
+  return bricks.some(b => MINIDOLL_BODY_PARTS.test(mouldId(b.part)));
 }
 
 /** True when the model carries a microfigure (it is a microscale build). */
@@ -132,7 +148,9 @@ export function planAddonScale(bricks: readonly ParsedBrick[], choice: AddonScal
   if (hasMinifigCue(bricks)) {
     return {
       choice: 'auto', scale: 1, lduPerBlock: LDU_PER_BLOCK, cue: 'minifig', sizeBlocks: sizeAt(extent, 1),
-      reason: 'minifig scale (1×): the set has a minifig, so its figures stand player height and its doors fit them',
+      reason: hasMinidollCue(bricks) && !bricks.some(b => MINIFIG_BODY_PARTS.test(mouldId(b.part)))
+        ? 'minifig scale (1×): the set has a mini-doll (within a tenth of a minifig\'s height), so its figures stand player height and its doors fit them'
+        : 'minifig scale (1×): the set has a minifig, so its figures stand player height and its doors fit them',
     };
   }
   if (hasMicrofigCue(bricks)) {

@@ -991,3 +991,16 @@ Still differing:
   roof tile on 1 x 2 bricks is probably a chimney cap with a seat on it; the
   remaining brick-built seats and beds were read from their columns, not
   checked in the game.
+
+## Gabby's Dollhouse additions (2026-09-26)
+
+- **Swings** are seats (`isSwingSeat`), sat on the seat under the bar.
+- **A canopy hinged on its handle bar** (`Windscreen ... Canopy ... Handle`,
+  18990) is a `lid`; a vehicle's canopy stays its vehicle's.
+- **Slides and lifts** are rides, not interactives: `engine/bedrock-rides.ts`
+  (docs/bedrock-addon-guide.md "Gabby's Dollhouse"). A lift closes the
+  "lifts" gap in "Why the misses" for the dollhouse shape only (two or more
+  tall slim guides and a car covering them); cranes, winches and drawbridges
+  are still missed.
+- None of the five sets has a doorway: dollhouses are open-fronted
+  (`_ix_passability.ts`: 0 doorways, 0 FAIL).

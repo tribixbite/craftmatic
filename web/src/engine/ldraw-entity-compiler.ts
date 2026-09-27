@@ -601,6 +601,8 @@ export interface CompiledLdrawGeometry {
 
 export interface CompileLdrawEntityOptions {
   scale?: number;
+  /** A scene vehicle keeps the loose props its cluster carries (`prepareEntityPlacements`). */
+  attachLooseProps?: boolean;
   facing?: VehicleFacing;
   userSeatAnchor?: { x: number; y: number; z: number };
   /** Defaults to a provider over the shared `.dat` cache (`ldraw-geometry.ts`). */
@@ -1642,7 +1644,14 @@ export async function prepareWholeModel(bricks: ParsedBrick[], provider: PartGeo
   };
 }
 
-export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBrick[], provider: PartGeometryProvider): Promise<PreparedEntityPlacements> {
+/**
+ * `attachLooseProps`: a vehicle found IN A SCENE (scene-vehicles.ts) keeps the
+ * loose things its cluster carries - a barrel on the deck, a crab on the
+ * gunwale - instead of detaching them as display props: the scene chose the
+ * members, and a detached prop is exported nowhere (10786's boat dropped two
+ * with five parts, 2026-09-26). A whole-vehicle model still loses its stand.
+ */
+export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBrick[], provider: PartGeometryProvider, placementOptions: { attachLooseProps?: boolean } = {}): Promise<PreparedEntityPlacements> {
   const level = levelModel(bricks);
   bricks = level.bricks;
 
@@ -1734,7 +1743,8 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
     if (byFigure.size && rest.length <= 4 + byFigure.size * 2) {
       // A figure (or a few standing together) with what it holds / stands on.
       for (const parts of byFigure.values()) figureExtra(parts);
-      if (rest.length) extras.push(makeExtra(rest, 'prop', `${rest.length} part${rest.length === 1 ? '' : 's'} beside a figure`));
+      if (rest.length && placementOptions.attachLooseProps) attach(rest);
+      else if (rest.length) extras.push(makeExtra(rest, 'prop', `${rest.length} part${rest.length === 1 ? '' : 's'} beside a figure`));
       return;
     }
     if (cluster.length <= 3 && inPrimaryBox) { attach(cluster); return; } // a floating source defect inside the body
@@ -1742,6 +1752,8 @@ export async function prepareEntityPlacements(kind: EntityKind, bricks: ParsedBr
     for (const parts of byFigure.values()) figureExtra(parts);
     if (rest.length >= 12 && (wheelCount >= 2 || seatCount >= 1 || rest.length >= primary.length * 0.15)) {
       extras.push(makeExtra(rest, 'vehicle', wheelCount >= 2 ? `${wheelCount} wheels` : seatCount ? `${seatCount} seat${seatCount === 1 ? '' : 's'}` : `${rest.length} parts`));
+    } else if (rest.length && placementOptions.attachLooseProps) {
+      attach(rest);
     } else if (rest.length) {
       extras.push(makeExtra(rest, 'prop', `${rest.length} part${rest.length === 1 ? '' : 's'}, no wheels or seat`));
     }
@@ -2051,7 +2063,7 @@ export async function compileLdrawEntityGeometry(
   // a display stand) and apply the display-stand rules - prepareEntityPlacements.
   const prepared = options.wholeModel || options.rig
     ? await prepareWholeModel(bricks, provider)
-    : await prepareEntityPlacements(kind, bricks, provider);
+    : await prepareEntityPlacements(kind, bricks, provider, { attachLooseProps: options.attachLooseProps });
   const { level, meshes, displayDropped, detached, extras, strandedRepaired, standContinued, orphans } = prepared;
   bricks = level.bricks;
   let placed = prepared.placed;

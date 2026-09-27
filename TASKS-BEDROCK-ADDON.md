@@ -379,3 +379,49 @@ merge of main `4875bb35`); not pushed. Guide: docs/bedrock-addon-guide.md
 - [ ] 76286, 42092: the eye lies in the hull at every size (never drawn).
 - [ ] `TODO(seat-eye)`: the coaster still uses the 1.25 eye height.
 
+
+## Gabby sets (2026-09-26)
+
+10796 Kitty Care Ear, 10797 Party Room, 10788 Dollhouse, 10786 Ship & Spa, 11204
+Aquarium Adventure. Worktree `agent-afae0705` (branch `worktree-agent-afae0705e4b49f559`);
+evidence `output/gabby-0926/` there. Guide: docs/bedrock-addon-guide.md "Gabby's Dollhouse".
+
+- [x] Sources: DbixConvV3 is every set's pick (renders `sheets/`, box art `boxart/`).
+  Published (clego `5efac7c4` converter, `698cd61a` index; R2 + prod sha readback
+  `src-fix/readback.json`): 10786 hull 28925c06 white/purple + life jacket bl_24184,
+  LEGOID colours for 10788/10797/11204. The mini-doll round (`f0b0d857`) then
+  republished all five with whole dolls on top; the worktree index is clego's copy.
+- [x] Code (`8c14c181`, `c345c0de`, `ebb20563`): mini-doll scale cue; "Ship & Spa"
+  is a scene; scene vehicles keep deck props; slides and lifts ride
+  (`bedrock-rides.ts`, `scripts/rides.js`); swings are seats; a canopy on its
+  handle is a lid. Favourites sweep vs `28a5baf0` (`sweep-base/`,
+  `sweep-after2/`): 40/40 OK; changes: slides in 41395, 41703, 42652 (2);
+  10261's 18990 canopy is a lid; 910047's boat and car keep 3 props they
+  dropped; two false lifts (10303, 10341) fixed in `c345c0de` (re-swept
+  `sweep-after3/`: no lift).
+- [x] Packs `output/gabby-0926/packs-ebb20563/` + `gabby-packs-5d58c67e.zip`
+  (sha256 5d58c67ea02475fcad293049151842d4e36a37a6d3a972ae6a2a62b328201a88).
+  `_mcaddon_check` 5/5; render audit <= 0.35 block faces; no substituted,
+  unresolved or bbox parts; no coarsening.
+- [x] Device, content log 0 errors / 0 overridden in every session. Pixel 924
+  (`pixel/REPORT.md`): all five placed; 10796 slide ran to the foot; 10788 lift
+  moved up and down (r2); on ebb20563 the view during the lift ride is no longer a
+  solid wall colour (r3), but that ride set the rider only 0.7 blocks higher. Saga 925 (`saga/REPORT.md`, packs 18837c0c): 10788 lift up, up, down with
+  clean dismounts; 10797 slide; 10786 boat boards (aground on grass, as expected).
+  Saga r2 (ebb20563): deployed, content log 0/0; its `/ride ... c=1` took the
+  nearest ride seat, which was 10788's slide ("Wheee!"), and it ran.
+- [ ] Not seen working on a device: 11204's bubble dome and chest (taps did not
+  find the dome's hit box on either phone), the swing seat, the carts, 10797's
+  turntable and stool, the drawers. Pixel r3: re-boarding the lift from the
+  same spot re-seated the parked car without a trip (host sim
+  `lift_sim.ts` cycles every ride; not explained).
+- [ ] 10788: the car found is the upper cat-eared assembly (2456/3002/15068 at
+  y -424..-592); the pink box at the shaft's foot may be the real car - check the
+  instructions. Above 100 % a solid car's rider is inside it again
+  (`TODO(rides)`).
+- [ ] The cats have no LDraw bodies (65213, 102297, 5690-5692, 3862): MerCat's head
+  4040 stands alone; do not invent geometry.
+- [ ] 10796/10797/10786/11204 are staged captures: builds stand in a row.
+- [ ] Prod serves the old index until craftmatic deploys; the five files are live.
+- [ ] clego `dbix_reconvert_summary.json` carries uncommitted entries from this
+  round's trial reconversions (shared file, left as is).

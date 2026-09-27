@@ -113,6 +113,9 @@ export function interactiveKindOf(description: string): InteractiveKind | null {
   // A container's hinged lid (a treasure chest's, a coffin's, a crate's) and a cupboard's drawer.
   if (/^(Container|Minifig Coffin|Container Minifig Coffin)\b.*\bLid\b/i.test(d) || /^CHEST LID\b/i.test(d)) return 'lid';
   if (/^Container\b.*\bDrawer\b/i.test(d) && !/\bDrawers\b/i.test(d)) return 'drawer';
+  // A canopy hinged on its own handle bar (18990: 11204's bubble dome on its
+  // clip) lifts like a lid; a vehicle's canopy stays its vehicle's.
+  if (/^Windscreen\b.*\bCanopy\b.*\b(Handle|Bar)\b/i.test(d)) return 'lid';
   // A garage roller door's segments (grouped into one door that slides up) and a sliding door leaf.
   if (/^Roller Door\b/i.test(d)) return 'door';
   if (/^Door\b.*\bSliding\b/i.test(d) || /^Door Sliding\b/i.test(d)) return 'door';
