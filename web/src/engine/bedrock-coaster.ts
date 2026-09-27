@@ -519,8 +519,8 @@ export const COASTER_PHYSICS = {
    * and after it arrives (ticks), and the clearance (model blocks) the train
    * must keep past the deck before it goes back down. */
   PLATFORM_SPEED: 2.5 * COASTER_RIDE_PACE, PLATFORM_DWELL: 30, PLATFORM_CLEARANCE: 1,
-  /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
-  RIDER_EYE: 1.25,
+  /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`, measured 1.12). */
+  RIDER_EYE: SEATED_EYE_HEIGHT_BLOCKS,
   /** How horizontal a car's AXLE must be (its horizontal fraction) before the
    * heading at right angles to it may set the yaw; below it (a car on its
    * side) the last yaw is held. See `coasterCarAttitude`. */
@@ -2086,7 +2086,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const DWELL_EMPTY = PHYSICS.DWELL_EMPTY ?? 100, DWELL_LOADED = PHYSICS.DWELL_LOADED ?? 60, BOARD_TICKS = PHYSICS.BOARD_TICKS ?? 40;
   const PLATFORM_SPEED = PHYSICS.PLATFORM_SPEED ?? 2.5, PLATFORM_DWELL = PHYSICS.PLATFORM_DWELL ?? 30, PLATFORM_CLEARANCE = PHYSICS.PLATFORM_CLEARANCE ?? 1;
   /** A seated player's eye above the seat, world blocks (`SEATED_EYE_HEIGHT_BLOCKS`). */
-  const RIDER_EYE = PHYSICS.RIDER_EYE ?? 1.25;
+  const RIDER_EYE = PHYSICS.RIDER_EYE ?? 1.12;
   // How horizontal a car's axle must be before its heading may set the yaw (`coasterCarAttitude`).
   const YAW_HOLD_HORIZONTAL = PHYSICS.YAW_HOLD_HORIZONTAL ?? 0.20;
   /** Declared range of the body-offset properties, model units. */

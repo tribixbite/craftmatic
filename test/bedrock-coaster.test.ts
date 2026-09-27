@@ -15,7 +15,7 @@ import type { LdrawPartMesh, Vec3 } from '../web/src/engine/ldraw-part-geometry.
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.js';
 import { sceneGridPoint } from '../web/src/engine/bedrock-scene-actors.js';
-import { BEDROCK_UNITS_PER_LDU } from '../web/src/engine/lego-scale.js';
+import { BEDROCK_UNITS_PER_LDU, SEATED_EYE_HEIGHT_BLOCKS as EYE } from '../web/src/engine/lego-scale.js';
 import { buildCoasterFrames, buildCoasterPath } from '../web/src/engine/coaster-path.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { BlockGrid } from '../src/schem/types.js';
@@ -297,7 +297,7 @@ describe('serialized coaster runtime', () => {
     }
   });
   it('carries the rider\'s head through the car\'s pitch and draws the bricks back on the track', () => {
-    // On the 39-degree climb the seat and eye (1.25 blocks) tilt back with the
+    // On the 39-degree climb the seat and eye (EYE, 1.12 blocks) tilt back with the
     // car: the entity sits behind and below the datum by exactly that, and the
     // body offset returns the bricks to the rails. On the level run all three
     // offsets are zero, byte for byte the device-proved placement.
@@ -318,9 +318,9 @@ describe('serialized coaster runtime', () => {
       } else if (d.x > 100 + STATION_RUN + 2) {
         climbing++;
         const tilt = Math.asin(CLIMB_GRADE);
-        // Eye 1.25 up the car's up vector (which leans back by the climb angle) versus 1.25 straight up.
-        expect(p.x - d.x).toBeCloseTo(-1.25 * Math.sin(tilt), 3);
-        expect(p.y - d.y).toBeCloseTo(1.25 * (Math.cos(tilt) - 1), 3);
+        // The eye up the car's up vector (which leans back by the climb angle) versus straight up.
+        expect(p.x - d.x).toBeCloseTo(-EYE * Math.sin(tilt), 3);
+        expect(p.y - d.y).toBeCloseTo(EYE * (Math.cos(tilt) - 1), 3);
         expect(bx[k]).toBeCloseTo(0, 6);
       }
     }
@@ -394,7 +394,7 @@ describe('serialized coaster runtime', () => {
     // 99 ticks parked at the foot of the climb, then the station drive push,
     // after which the chain takes over at its own speed. The bricks (datums)
     // climb the track; the entity carries the rider's head, which on a
-    // vertical car lies 1.25 blocks to the car's up side, and no further.
+    // vertical car lies EYE (1.12) blocks to the car's up side, and no further.
     const datums = h.datums();
     expect(datums[0]!.x).toBeCloseTo(100, 6); expect(datums[0]!.y).toBeCloseTo(64, 6); expect(datums[0]!.z).toBeCloseTo(200, 6);
     expect(datums[98]!.y).toBeCloseTo(64, 6);
@@ -404,8 +404,8 @@ describe('serialized coaster runtime', () => {
     expect(datums[100]!.y).toBeCloseTo(64 + DEPART_SPEED / 20 + LIFT_SPEED / 20, 3);
     for (let k = 0; k < datums.length; k++) {
       expect(datums[k]!.x).toBeCloseTo(100, 6);
-      expect(Math.hypot(h.positions[k]!.x - datums[k]!.x, h.positions[k]!.z - datums[k]!.z)).toBeCloseTo(1.25, 6);
-      expect(h.positions[k]!.y - datums[k]!.y).toBeCloseTo(-1.25, 6);
+      expect(Math.hypot(h.positions[k]!.x - datums[k]!.x, h.positions[k]!.z - datums[k]!.z)).toBeCloseTo(EYE, 6);
+      expect(h.positions[k]!.y - datums[k]!.y).toBeCloseTo(-EYE, 6);
     }
     h.run(20);
     const speeds = h.arcSpeeds().slice(-10);
@@ -1627,14 +1627,15 @@ describe('car orientation', () => {
     const datum = h.datums()[0]!;
     expect(datum.y).toBeGreaterThan(83.9);
     expect(datum.y).toBeLessThanOrEqual(84 + 1e-9);
-    // Inverted, the seat and the eye (0.35 + 1.25) hang BELOW the rails; the
-    // upright seat then puts the entity 1.6 lower still, so the eye lands 1.6
-    // under the rails instead of 1.6 above them.
+    // Inverted, the seat and the eye (0.35 + EYE) hang BELOW the rails; the
+    // upright seat then puts the entity that much lower still, so the eye lands
+    // 0.35 + EYE under the rails instead of above them.
     // A tick past the apex the car has turned ~6 degrees on, so the eye's
-    // 1.6 blocks lean that far off vertical: 3.2 x cos 6° below, 0.17 across.
+    // lever leans that far off vertical: 2 (0.35 + EYE) x cos 6° below, 0.17 across.
     const entity = h.positions[0]!;
-    expect(entity.y).toBeCloseTo(datum.y - 2 * 1.6, 1);
-    expect(entity.y).toBeLessThan(datum.y - 3.15);
+    const lever = 0.35 + EYE;
+    expect(entity.y).toBeCloseTo(datum.y - 2 * lever, 1);
+    expect(entity.y).toBeLessThan(datum.y - 2 * lever * Math.cos(6 * Math.PI / 180) + 0.03);
     expect(Math.hypot(entity.x - datum.x, entity.z - datum.z)).toBeLessThan(0.25);
     expect(cartUpY(h)).toBeLessThan(-0.9);
     // Player rotation stays upright, as before.
