@@ -42,6 +42,8 @@ export interface SimWorld {
   leaves?: Array<{ x: number; y: number; z: number }>;
   /** A player standing still somewhere, or none. */
   player?: { x: number; y: number; z: number };
+  /** The tick the player walks away (is gone from the world); default: stays the whole run. */
+  playerLeavesAt?: number;
   f?: number;
 }
 
@@ -128,7 +130,7 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
   const players = world.player ? [{ id: 'p', name: 'player', location: world.player, dimension: dim }] : [];
   let interval: (() => void) | undefined;
   const mc = {
-    world: { getAllPlayers: () => players, getDimension: () => dim },
+    world: { getAllPlayers: () => (world.playerLeavesAt !== undefined && now >= world.playerLeavesAt ? [] : players), getDimension: () => dim },
     system: { runInterval: (fn: () => void) => { interval = fn; } },
   };
   const script = figureLifeScript({ ...config, interactiveFamily: 'craftmatic_interactive', colliders: COLLIDER });

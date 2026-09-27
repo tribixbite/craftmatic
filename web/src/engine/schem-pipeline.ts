@@ -531,9 +531,10 @@ export async function runSchemPipeline(
             figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);
           }
+          // A source-seated figure gives its seat up to a player who comes to it (bedrock-figure-life.ts), so it `yields`.
           scene.seats.forEach((s, i) => {
             const sitter = scene.figures.find(f => f.seatIndex === i);
-            census.sceneSeats.push({ ...(s.brick ? { brick: s.brick } : {}), part: s.part, surfaceLdu: s.surfaceLdu, ...(sitter ? { occupant: { label: 'a figure the source seated there', bricks: new Set(sitter.bricks), yields: false } } : {}) });
+            census.sceneSeats.push({ ...(s.brick ? { brick: s.brick } : {}), part: s.part, surfaceLdu: s.surfaceLdu, ...(sitter ? { occupant: { label: 'a figure the source seated there', bricks: new Set(sitter.bricks), yields: true } } : {}) });
           });
           for (const s of scene.seats) {
             const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);

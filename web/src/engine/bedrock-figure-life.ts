@@ -31,7 +31,10 @@
  *  - RETURN: pushed or knocked out of the area, it plans back in; if no path
  *    exists within 10 s it is put back home.
  *  - STAY: a figure the source seated (`rideOf`) stays on its seat (and is
- *    re-seated if it is knocked off); a figure whose floor offers fewer than
+ *    re-seated if it is knocked off) - except that it gives the seat to a
+ *    player who comes to it, standing up beside it, and takes it back once
+ *    the player has gone: every chair in the build is the player's to sit
+ *    on; a figure whose floor offers fewer than
  *    `minRoamCells` reachable cells (a display plinth, a cramped nook) stays
  *    where it stands and only looks about.
  *
@@ -94,7 +97,7 @@ export interface FigureTuning {
   /** Sitting time, ticks. */
   sitMin: number;
   sitMax: number;
-  /** A player this close (blocks) to a figure's borrowed seat makes it stand up. */
+  /** A player this close (blocks) to the seat a figure sits on (borrowed or its own) makes it stand up. */
   yieldSeatDistance: number;
   /** A player this close turns an idle figure's body towards them. */
   facePlayerDistance: number;
@@ -729,14 +732,25 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       return;
     }
     if (h.mode === 'seated') {
-      // Stay on the source's seat; after a knock-off, take it back when it is free.
-      if (!riding(e) && tick >= l.until) {
+      // The source's seat is the PLAYER's too: a player who comes to it is
+      // given it (the figure stands up beside it), and the figure takes it
+      // back once it is free and nobody is at it. After a knock-off, the same.
+      if (riding(e)) {
+        let seat: any;
+        try { seat = e.getComponent('minecraft:riding')?.entityRidingOn; } catch { seat = undefined; }
+        if (seat && config.seatTypes.includes(seat.typeId) && nearestPlayer(seat.location, e.dimension, T.yieldSeatDistance)) {
+          try { seat.getComponent('minecraft:rideable')?.ejectRider(e); } catch { /* seat gone */ }
+          l.until = tick + 100;
+        }
+        return;
+      }
+      if (tick >= l.until) {
         l.until = tick + 100;
         try {
           const seats = e.dimension.getEntities({ location: { x: h.home[0], y: h.home[1], z: h.home[2] }, maxDistance: 1.5 })
             .filter((s: any) => config.seatTypes.includes(s.typeId));
           const r = seats[0]?.getComponent('minecraft:rideable');
-          if (r && (r.getRiders?.() ?? []).length === 0) r.addRider(e);
+          if (r && (r.getRiders?.() ?? []).length === 0 && !nearestPlayer(seats[0].location, e.dimension, T.yieldSeatDistance)) r.addRider(e);
         } catch { /* try later */ }
       }
       return;

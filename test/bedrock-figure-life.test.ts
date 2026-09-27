@@ -225,6 +225,19 @@ describe('the serialised runtime', () => {
     expect(r[1]!.riding).toBeLessThan(3000);
   });
 
+  it('gives a source-seated figure\'s seat to a player who comes to it, and takes it back after the player leaves', () => {
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated' }],
+      // The player stands beside the chair for 600 ticks, then walks away.
+      player: { x: 3.5, y: 3 / 16, z: 2.5 }, playerLeavesAt: 600 };
+    const [t] = simulateFigureLife(w, config, 1200, 5);
+    // Up within a tick of the player arriving, and off the seat while the player is there.
+    expect(t!.slice(2, 600).every(p => !p.riding)).toBe(true);
+    // Back on its seat within the 100-tick retry once the player has gone.
+    expect(t!.slice(720).every(p => p.riding)).toBe(true);
+  });
+
   it('walks a figure spawned inside a collider column into the free cell beside it, then keeps it there', () => {
     const cells: SourceCell[] = [0, 1, 2].map(y => ({ x: 2, y, z: 2, lo: 0, hi: 16 }));
     const w: SimWorld = { cells, area: [2, 2, 4, 3], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.4, y: 0, z: 2.5 } }] };
