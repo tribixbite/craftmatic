@@ -3954,8 +3954,20 @@ colour 16).
 Not in any library, so not in any pack (report, do not invent): the cats'
 micro-doll bodies (65213 MerCat, 102297 Pandy Paws, 5690-5692 kittens and
 cupcakes) and Pandy's head 3862; MerCat's head 4040 is drawn but stands alone.
-Gabby's legs (LDD 35641/35613/35621) were dropped by the converter; the rig
-supplies standard mini-doll legs.
+Gabby's legs (LDD 35641/35613/35621) were dropped by the converter until the
+mini-doll round (clego `f0b0d857`) republished all five with whole dolls.
+
+**On the devices** (`output/gabby-0926/{pixel,saga}/REPORT.md` in the round's
+worktree; content log 0 errors / 0 overridden in every session): all five
+place; 10788's lift carried the rider up, up and down with clean dismounts
+(Saga) and moved up and down (Pixel); slides ran on 10796, 10797 and 10788;
+10786's boat boards and reports AGROUND on grass. With the seat on 10788's
+solid car floor the rider saw only wall colour for the whole ride; the seat now
+rises so the eye clears the car's top (`ebb20563`), and the Pixel then saw the
+room. Boarding a ride from chat is `/ride @s start_riding @e[type=<pack>_ride,c=1]`
+(`c=1` takes the NEAREST ride seat: 10788's slide and lift share the type).
+Not seen working: 11204's dome and chest lids (no tap found their hit boxes),
+the swing, the carts, 10797's turntable and stool, the drawers.
 
 ## Minifig Creator wand on the phones (2026-09-26)
 
