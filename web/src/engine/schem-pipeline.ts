@@ -33,6 +33,7 @@ import { BlockGrid } from '@craft/schem/types.js';
 import type { BlockEntity } from '@craft/types/index.js';
 import type { PackProvenance, PipelineStamp, SourceProvenance } from './pipeline-version.js';
 import type { AccessScaleRecommendation } from './bedrock-scene-actors.js';
+import type { SeatCensus, SeatCensusContext } from './seat-census.js';
 
 /**
  * `mcpack` is the Bedrock Edition target: a behavior pack of `.mcstructure`
@@ -175,6 +176,11 @@ export interface McpackSummary {
    * the pack's own `craftmatic-diagnostics.json`.
    */
   access?: AccessScaleRecommendation;
+  /**
+   * `.mcaddon`: every place in the source a figure is meant to sit and what
+   * the pack gives the player there (engine/seat-census.ts).
+   */
+  seatCensus?: SeatCensus;
 }
 
 export type SchemWorkerOutput =
@@ -353,6 +359,8 @@ export async function runSchemPipeline(
     // Cells the door pass opens; the shell's colliders keep them open (bedrock-building-shell.ts `keepClear`).
     const doorClearedCells = new Set<number>();
     const leafActors: Array<{ bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin>; maxSizeExclusive: number; doorCandidateIndex: number; hideAt100: boolean; door: import('./bedrock-scene-actors.js').SceneDoor }> = [];
+    /** What the seat census (seat-census.ts) reads from the stages below: the source, the scene's seats and every other owner of a placement. */
+    const census: { source?: { bricks: ParsedBrick[]; meshes: Map<string, LdrawPartMesh | null> }; sceneSeats: Array<SeatCensusContext['sceneSeats'][number]>; owners: Array<SeatCensusContext['owners'][number]> } = { sceneSeats: [], owners: [] };
     if (input.source.kind === 'bricks') {
       // A figure torso a converter left at a raw origin is moved to its
       // limbs BEFORE anything reads the placements, so the vehicle finder,
@@ -365,6 +373,7 @@ export async function runSchemPipeline(
       const repaired = repairFigureTorsos(input.source.bricks, sourceMeshes);
       if (repaired.repairs.length) warnings.push(`${repaired.repairs.length} figure torso${repaired.repairs.length === 1 ? '' : 's'} the source placed away from the figure's own limbs and head ${repaired.repairs.length === 1 ? 'was' : 'were'} moved to them: ${describeTorsoRepairs(repaired.repairs)} (a converted torso with no alignment row sits at its raw origin).`);
       const source = { ...input.source, bricks: repaired.bricks };
+      census.source = { bricks: source.bricks, meshes: sourceMeshes };
       const found = discoverPlayableComponents(source.bricks, label, input.vehicleMode ?? 'auto', part => sourceMeshes.get(part)?.description ?? '');
       warnings.push(...found.warnings);
       // A scene (a title naming no vehicle): the cars on its street and the
@@ -445,6 +454,7 @@ export async function runSchemPipeline(
             warnings.push(...own.warnings.map(warning => `Coaster: ${warning}`));
             for (const i of own.movedIndices) movable.add(sceneBricks[i]!);
             for (const i of own.riderIndices) riderBricks.add(sceneBricks[i]!);
+            census.owners.push({ label: 'coaster', use: 'coaster', bricks: new Set([...own.movedIndices].map(i => sceneBricks[i]!)), reason: "a ride car of the set's own coaster, or a rider in it" });
             for (const route of own.routes) {
               if (!route.vehicles) continue;
               const riders = route.vehicles.filter(car => car.rider.length).length;
@@ -489,6 +499,7 @@ export async function runSchemPipeline(
             const plan = planPinball(sceneBricks, pinTable, scene.meshes, p => sceneGridPoint(frame, p));
             for (const b of plan.moved) movable.add(b);
             pinball = { plan, frame };
+            census.owners.push({ label: 'pinball', use: 'none', bricks: new Set(plan.moved), reason: 'part of the pinball table' });
           }
           // A playground slide rides its chute; a dollhouse lift carries its car
           // between floors (bedrock-rides.ts). A lift's car leaves the shell and
@@ -501,6 +512,7 @@ export async function runSchemPipeline(
               const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, scene.groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
               rides = { frame, items: found.map(r => ({ kind: r.kind, label: r.label, path: r.pathLdu.map(grid3), ...(r.exitsLdu ? { exits: r.exitsLdu.map(grid3) } : {}), ...(r.startStop !== undefined ? { startStop: r.startStop } : {}), ...(r.carBricks ? { carBricks: r.carBricks } : {}) })) };
               for (const r of found) for (const b of r.carBricks ?? []) movable.add(b);
+              for (const r of found) if (r.carBricks?.length) census.owners.push({ label: r.label, use: 'ride', bricks: new Set(r.carBricks), reason: `the car of a ${r.kind}` });
               warnings.push(`Rides: ${found.map(r => r.kind === 'slide' ? `slide ${r.part} (${r.pathLdu.length} points)` : `lift on ${r.part} (${r.pathLdu.length} stops, car of ${r.carBricks?.length ?? 0} parts)`).join('; ')}.`);
             }
           }
@@ -519,6 +531,10 @@ export async function runSchemPipeline(
             figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(f.seatIndex !== undefined ? { seatIndex: f.seatIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);
           }
+          scene.seats.forEach((s, i) => {
+            const sitter = scene.figures.find(f => f.seatIndex === i);
+            census.sceneSeats.push({ ...(s.brick ? { brick: s.brick } : {}), part: s.part, surfaceLdu: s.surfaceLdu, ...(sitter ? { occupant: { label: 'a figure the source seated there', bricks: new Set(sitter.bricks), yields: false } } : {}) });
+          });
           for (const s of scene.seats) {
             const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: s.part === 'bed' ? 'Bed' : `Seat (${s.part})` });
@@ -542,6 +558,7 @@ export async function runSchemPipeline(
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
             });
             interactivityReport = stage.report;
+            for (const it of stage.items) census.owners.push({ label: it.kind, use: 'none', bricks: new Set(it.bricks), reason: `moves with a ${it.kind}` });
             if (stage.items.length) {
               interactives = { items: stage.items, frame };
               for (const it of stage.items) for (const b of it.bricks) doorLeaves.add(b);
@@ -622,7 +639,14 @@ export async function runSchemPipeline(
       }
     }
     const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
-    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}) } };
+    // The seat census: every place the source sits a figure, and what the pack made of it.
+    let seatCensus: SeatCensus | undefined;
+    if (census.source) {
+      const { findSeatPlaces, takeSeatCensus, describeSeatCensus } = await import('./seat-census.js');
+      seatCensus = takeSeatCensus(findSeatPlaces(census.source.bricks, census.source.meshes), { vehicles: pack.vehicleSeats, sceneSeats: census.sceneSeats, owners: census.owners });
+      if (seatCensus.rows.length) warnings.push(describeSeatCensus(label, seatCensus));
+    }
+    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}), ...(seatCensus ? { seatCensus } : {}) } };
   }
 
   if (input.format === 'mcpack') {

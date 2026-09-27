@@ -280,6 +280,8 @@ console.log(JSON.stringify({
   access: diagnostics?.access ?? null,
   lod: diagnostics?.lod ?? null,
   coaster: diagnostics?.coaster ?? null,
+  // Every place the source sits a figure and what the pack gives the player there (engine/seat-census.ts).
+  seats: result.mcpack?.seatCensus ?? null,
   packBudget: diagnostics?.pack ?? null,
   geoFiles: entries.filter(e => /\.geo\.json$/.test(e)),
   textureSets: entries.filter(e => /\.texture_set\.json$/.test(e)),

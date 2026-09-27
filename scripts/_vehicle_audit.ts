@@ -25,17 +25,12 @@ import { spawnSync } from 'node:child_process';
 import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources.ts';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { RIDER_EYE_ABOVE_SEAT } from '../web/src/engine/cockpit-seat.ts';
+import { FAVOURITES } from './favourite-sets.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
 const CORPUS = 'C:/git/clego/lego_sets';
 
-export const FAVOURITES = [
-  '10261', '10303', '10326', '10337', '10341', '10354', '10365', '11371', '11374',
-  '21061', '21063', '21318', '21360', '31141', '41395', '41703', '41732', '42172',
-  '42639', '42652', '42663', '42670', '43267', '60380', '60446', '71040', '71043',
-  '75397', '76269', '76286', '76417', '76419', '76435', '76457', '77092', '80049',
-  '910004', '910032', '910047', '910049',
-];
+export { FAVOURITES };
 /** Vehicle-heavy sets beside the favourites: cars, trucks, trains, boats, ships, planes, helicopters, a spaceship. */
 export const VEHICLE_EXTRAS = [
   '10295', '42143', '76139', '10242', '75892', '42128', '60253',

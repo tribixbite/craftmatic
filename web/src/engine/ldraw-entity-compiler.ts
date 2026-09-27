@@ -119,6 +119,26 @@ export const isTorso = (part: string, description: string): boolean =>
 export const isSeat = (part: string, description: string): boolean => SEAT_PARTS.has(baseMould(part)) || /^(Minifig )?(Seat|Chair|Bench)\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 const isSteering = (part: string, description: string): boolean => STEERING_PARTS.has(baseMould(part)) || /^(Minifig )?Steering\b/i.test(description.replace(/^[~=_]+\s*/, ''));
 /**
+ * A steering wheel a figure drives by: a car's wheel, stand, or holder WITH
+ * its wheel, the brick with a wheel moulded on, a tractor's (LDraw's names
+ * and BrickLink's `Vehicle, Steering …`). A Technic steering wheel is not
+ * one: it steers a Technic-scale model, whose seat is no minifig's (42172's
+ * `2819`).
+ */
+export function isSteeringWheel(part: string, description: string): boolean {
+  const d = description.replace(/^[~=_]+\s*/, '');
+  if (STEERING_PARTS.has(baseMould(part))) return true;
+  if (/^Technic\b/i.test(d)) return false;
+  // A 5 x 5 wheel (67811) is a decorative turnable (10303's and 10326's), not a minifig's wheel.
+  if (/Steering Wheel\s+([3-9]|\d{2,})\s*x/i.test(d)) return false;
+  if (/^Car Steering Wheel Holder\b/i.test(d)) return /\(Complete\)|with .*Steering Wheel/i.test(d);
+  return /^((Car|Minifig|Tractor Chassis|Vehicle,) )?Steering (Wheel|Stand)\b/i.test(d) || /^Minifig Brick\b.*\bwith Steering Wheel\b/i.test(d);
+}
+/** A ship's wheel (`4790`, `52395`, the Duplo helm): the helm a boat is steered from, by id or description. */
+export function isShipWheel(part: string, description: string): boolean {
+  return /^(4790|52395|4658)(?![0-9])/.test(cleanPartId(part)) || /^(Boat,? )?Ship'?s? Wheel\b|Boat Helm \/ Ship's Wheel$/i.test(description.replace(/^[~=_]+\s*/, ''));
+}
+/**
  * Translucent parts that are never a vehicle's glass, by description: engine
  * pistons, lamps and lenses, gems, flames, energy effects, balloons, plants.
  * The "largest translucent part" cockpit rule reads glass by size alone.
@@ -573,6 +593,8 @@ export interface CompiledLdrawGeometry {
   seatPlan?: SeatPlan;
   /** Up to three passenger seats from the model's free seat moulds (entity frame, blocks, before the JSON X mirror like `seatPosition`). */
   passengerSeats: Array<[number, number, number]>;
+  /** The INPUT placements the driver's seat and each passenger seat were read from (the seat census, seat-census.ts). */
+  seatEvidence: SeatEvidence;
   collisionBox: { width: number; height: number };
   /** Entity extent in blocks (render frame: width across, length nose-to-tail). */
   sizeBlocks: { width: number; height: number; length: number };
@@ -1266,6 +1288,26 @@ export interface EntityExtra {
   figureParts: number;
 }
 
+/** Most passenger seats a vehicle offers beside its driver's. */
+export const MAX_PASSENGER_SEATS = 3;
+
+/**
+ * Indices into a compile's INPUT bricks: what the driver's seat and each
+ * passenger seat were read from, and where the driver sits (its seat pan) in
+ * the INPUT frame - the seat census's cockpit place when no part names it.
+ */
+export interface SeatEvidence { driver: number[]; passengers: number[][]; driverPointLdu: Vec3 }
+
+/** A seated minifig's eye above the pan it sits on, LDU (the seat-mould rule: eye 51 over the mould origin, pan 8 over it). */
+export const SEATED_EYE_ABOVE_PAN_LDU = 43;
+
+/** A point of the LEVELLED frame back in the frame the model was given (`levelModel` turned it by `rotation` about `centre`). */
+export function unlevelPoint(pose: { rotation: readonly number[]; centre: Vec3 } | null, p: Vec3): Vec3 {
+  if (!pose) return p;
+  const q = apply(transpose(pose.rotation), [p[0] - pose.centre[0], p[1] - pose.centre[1], p[2] - pose.centre[2]]);
+  return [q[0] + pose.centre[0], q[1] + pose.centre[1], q[2] + pose.centre[2]];
+}
+
 export type CockpitSource = 'seated-figure' | 'seat-parts' | 'steering-wheel' | 'canopy-parts' | 'translucent-canopy' | 'default-cabin';
 
 export interface PreparedEntityPlacements {
@@ -1918,7 +1960,7 @@ interface CockpitFrame { nose: NoseDirection; isXLongitudinal: boolean; forwardS
  *      axes) - eyes at its centre; a lamp or an engine glow never qualifies;
  *   6. the default forward cabin (20 % forward, 35 % up).
  */
-export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): { source: CockpitSource; eyeLdu: Vec3; detail: string; driverParts: number[]; passengerEyesLdu: Vec3[] } {
+export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): Cockpit {
   const cockpit = findDriverSeat(placed, meshes, frame);
   // Passenger seats: every OTHER free seat mould (not the driver's, none a
   // figure already sits on), eyes 51 LDU above it like the driver's. A seated
@@ -1926,15 +1968,35 @@ export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPart
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const local = (b: ParsedBrick, v: Vec3): Vec3 => { const r = apply(b.rot ?? IDENTITY, v); return [b.x + r[0], b.y + r[1], b.z + r[2]]; };
   const torsos = groupFigures(placed, meshes).map(f => placed[f.torso]!);
-  const passengerEyesLdu = placed
-    .filter(b => isSeat(b.part, desc(b)))
-    .map(b => local(b, [0, -51, 0]))
-    .filter(eye => Math.hypot(eye[0] - cockpit.eyeLdu[0], eye[2] - cockpit.eyeLdu[2]) > 15)
-    .filter(eye => !torsos.some(t => Math.hypot(t.x - eye[0], t.z - eye[2]) < 20 && Math.abs(t.y - (eye[1] + 11)) < 40));
-  return { ...cockpit, passengerEyesLdu };
+  const passengers = placed
+    .map((b, i) => ({ i, b }))
+    .filter(({ b }) => isSeat(b.part, desc(b)))
+    .map(({ i, b }) => ({ i, eye: local(b, [0, -51, 0]) }))
+    .filter(({ eye }) => Math.hypot(eye[0] - cockpit.eyeLdu[0], eye[2] - cockpit.eyeLdu[2]) > 15)
+    .filter(({ eye }) => !torsos.some(t => Math.hypot(t.x - eye[0], t.z - eye[2]) < 20 && Math.abs(t.y - (eye[1] + 11)) < 40));
+  return { ...cockpit, passengerEyesLdu: passengers.map(p => p.eye), passengerParts: passengers.map(p => p.i) };
 }
 
-function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): { source: CockpitSource; eyeLdu: Vec3; detail: string; driverParts: number[] } {
+/**
+ * A vehicle's driver and passenger seats as `findCockpit` found them. The
+ * `…Parts` are indices into the placements it was given: the evidence each
+ * seat was read from (the driver figure's parts, the seat mould, the steering
+ * wheel, the glass), so a census can say which source part became which seat.
+ */
+export interface Cockpit {
+  source: CockpitSource;
+  eyeLdu: Vec3;
+  detail: string;
+  /** The seated driver figure's parts: they leave the geometry, the player sits in their place. */
+  driverParts: number[];
+  /** The placement(s) the driver's seat was read from (the figure's torso and parts, a seat mould, a wheel, the glass); empty for the default cabin. */
+  evidenceParts: number[];
+  passengerEyesLdu: Vec3[];
+  /** Parallel to `passengerEyesLdu`: the free seat mould each passenger seat was read from. */
+  passengerParts: number[];
+}
+
+function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh | null>, frame: CockpitFrame): Omit<Cockpit, 'passengerEyesLdu' | 'passengerParts'> {
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const xs = placed.map(b => b.x), zs = placed.map(b => b.z), ys = placed.map(b => b.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs), minY = Math.min(...ys), maxY = Math.max(...ys);
@@ -1956,7 +2018,7 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
       driver = seatedFigures.reduce((a, b) => along(placed[b.torso]!) > along(placed[a.torso]!) ? b : a);
     }
     const torso = placed[driver.torso]!;
-    return { source: 'seated-figure', eyeLdu: local(torso, [0, -11, 0]), detail: `${seatedFigures.length} seated figure${seatedFigures.length === 1 ? '' : 's'}; driver torso ${cleanPartId(torso.part)} at ${Math.round(torso.x)}, ${Math.round(torso.y)}, ${Math.round(torso.z)}`, driverParts: driver.parts };
+    return { source: 'seated-figure', eyeLdu: local(torso, [0, -11, 0]), detail: `${seatedFigures.length} seated figure${seatedFigures.length === 1 ? '' : 's'}; driver torso ${cleanPartId(torso.part)} at ${Math.round(torso.x)}, ${Math.round(torso.y)}, ${Math.round(torso.z)}`, driverParts: driver.parts, evidenceParts: driver.parts };
   }
   // 2. Seat moulds.
   const seats = placed.filter(b => isSeat(b.part, desc(b)));
@@ -1965,12 +2027,12 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
     const seat = wheels.length
       ? seats.reduce((a, b) => nearestWheel(b) < nearestWheel(a) ? b : a)
       : seats.reduce((a, b) => along(b) > along(a) ? b : a);
-    return { source: 'seat-parts', eyeLdu: local(seat, [0, -51, 0]), detail: `${seats.length} seat${seats.length === 1 ? '' : 's'}; ${cleanPartId(seat.part)} at ${Math.round(seat.x)}, ${Math.round(seat.y)}, ${Math.round(seat.z)}`, driverParts: [] };
+    return { source: 'seat-parts', eyeLdu: local(seat, [0, -51, 0]), detail: `${seats.length} seat${seats.length === 1 ? '' : 's'}; ${cleanPartId(seat.part)} at ${Math.round(seat.x)}, ${Math.round(seat.y)}, ${Math.round(seat.z)}`, driverParts: [], evidenceParts: [placed.indexOf(seat)] };
   }
   // 3. Steering wheel.
   if (wheels.length) {
     const w = wheels.reduce((a, b) => along(b) > along(a) ? b : a);
-    return { source: 'steering-wheel', eyeLdu: local(w, [0, -20, 30]), detail: `${cleanPartId(w.part)} at ${Math.round(w.x)}, ${Math.round(w.y)}, ${Math.round(w.z)}`, driverParts: [] };
+    return { source: 'steering-wheel', eyeLdu: local(w, [0, -20, 30]), detail: `${cleanPartId(w.part)} at ${Math.round(w.x)}, ${Math.round(w.y)}, ${Math.round(w.z)}`, driverParts: [], evidenceParts: [placed.indexOf(w)] };
   }
   // 4-5. Glass: the largest canopy mould, else the largest translucent part that is big enough to be glass.
   const boundsCentre = (b: ParsedBrick): { centre: Vec3; size: Vec3; volume: number } | null => {
@@ -1986,7 +2048,7 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
     return best;
   };
   const canopy = largest(placed.filter(b => isCanopyMould(b.part, desc(b))));
-  if (canopy) return { source: 'canopy-parts', eyeLdu: canopy.centre, detail: `${cleanPartId(canopy.brick.part)} at ${Math.round(canopy.brick.x)}, ${Math.round(canopy.brick.y)}, ${Math.round(canopy.brick.z)}`, driverParts: [] };
+  if (canopy) return { source: 'canopy-parts', eyeLdu: canopy.centre, detail: `${cleanPartId(canopy.brick.part)} at ${Math.round(canopy.brick.x)}, ${Math.round(canopy.brick.y)}, ${Math.round(canopy.brick.z)}`, driverParts: [], evidenceParts: [placed.indexOf(canopy.brick)] };
   const glass = largest(placed.filter(b => {
     if (resolveLdrawEntityMaterial(b.color).alpha >= 1) return false;
     // Clear parts that are not glass: 42172's trans-clear "Technic Engine
@@ -1997,12 +2059,12 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
     const c = boundsCentre(b);
     return !!c && [...c.size].sort((p, q) => q - p)[1]! >= 30;
   }));
-  if (glass) return { source: 'translucent-canopy', eyeLdu: glass.centre, detail: `${cleanPartId(glass.brick.part)} at ${Math.round(glass.brick.x)}, ${Math.round(glass.brick.y)}, ${Math.round(glass.brick.z)}`, driverParts: [] };
+  if (glass) return { source: 'translucent-canopy', eyeLdu: glass.centre, detail: `${cleanPartId(glass.brick.part)} at ${Math.round(glass.brick.x)}, ${Math.round(glass.brick.y)}, ${Math.round(glass.brick.z)}`, driverParts: [], evidenceParts: [placed.indexOf(glass.brick)] };
   // 6. Default forward cabin.
   const eye: Vec3 = frame.isXLongitudinal
     ? [cx + frame.forwardSign * frame.spanX * 0.2, minY + (maxY - minY) * 0.35, cz]
     : [cx, minY + (maxY - minY) * 0.35, cz + frame.forwardSign * frame.spanZ * 0.2];
-  return { source: 'default-cabin', eyeLdu: eye, detail: 'no figure, seat, steering wheel or glass found', driverParts: [] };
+  return { source: 'default-cabin', eyeLdu: eye, detail: 'no figure, seat, steering wheel or glass found', driverParts: [], evidenceParts: [] };
 }
 
 export async function compileLdrawEntityGeometry(
@@ -2120,8 +2182,14 @@ export async function compileLdrawEntityGeometry(
   //    translucent part put the X-wing's rider under its tail: four engine
   //    glows and a service cart's lamps outvoted the one canopy.
   const cockpit = kind === 'figure' || kind === 'prop'
-    ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [], passengerEyesLdu: [] as Vec3[] }
+    ? { source: 'default-cabin' as const, eyeLdu: [0, 0, 0] as Vec3, detail: `${kind}: no rider`, driverParts: [], evidenceParts: [], passengerEyesLdu: [] as Vec3[], passengerParts: [] }
     : findCockpit(placed, meshes, { nose, isXLongitudinal, forwardSign, spanX, spanZ });
+  // Which INPUT placements the seats were read from, before the driver's figure leaves `placed`.
+  const seatEvidence: SeatEvidence = {
+    driver: cockpit.evidenceParts.map(i => placedIdx[i]!),
+    passengers: cockpit.passengerParts.slice(0, MAX_PASSENGER_SEATS).map(i => [placedIdx[i]!]),
+    driverPointLdu: unlevelPoint(level.rotation ? { rotation: level.rotation, centre: level.centre } : null, [cockpit.eyeLdu[0], cockpit.eyeLdu[1] + SEATED_EYE_ABOVE_PAN_LDU, cockpit.eyeLdu[2]]),
+  };
   let driverFigureRemoved = 0;
   if (cockpit.driverParts.length) {
     const drop = new Set(cockpit.driverParts);
@@ -2568,7 +2636,7 @@ export async function compileLdrawEntityGeometry(
   }
   const roofAtSeatBlocks = Number.isFinite(roofTop) ? round((roofTop - floorY) * scale / 16) : round(totalHeight);
   // Passenger seats measured from the model's free seat moulds, in the same frame as the driver's.
-  const passengerSeats: Array<[number, number, number]> = cockpit.passengerEyesLdu.slice(0, 3).map(eye => {
+  const passengerSeats: Array<[number, number, number]> = cockpit.passengerEyesLdu.slice(0, MAX_PASSENGER_SEATS).map(eye => {
     const u = toUnits(apply(A, eye));
     return [round(u[0] / 16), Math.max(0.3, round(u[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS)), round(u[2] / 16)];
   });
@@ -2855,6 +2923,7 @@ export async function compileLdrawEntityGeometry(
     ...(seatPlan ? { seatPlan } : {}),
     roofAtSeatBlocks,
     passengerSeats,
+    seatEvidence,
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
     facing: nose,
