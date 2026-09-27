@@ -62,6 +62,20 @@ the creator pack is `bun scripts/_minifig_ref.ts <out> --creator=starter "--labe
   no target once the creator pack was bound again (its load sweep removes
   drafts), so it is gone or in an unloaded chunk.
 
+## In flight (2026-09-27)
+
+User ask: every minifig-fitting vehicle seat/cockpit/seat usable by the
+player; fetch files for newly released sets; find sources for missing
+LDraw parts incl. the Gabby mini-doll pieces. Three agents launched:
+- Seating: craftmatic worktree branch `worktree-agent-a123ff9c…`, evidence
+  `output/seat-audit-0927/` there; merge into main after its gates.
+- New releases: clego `discovery/new_releases_2026-09-27.{json,md}`
+  (downloads + converts only; publish + index patch left to the main session).
+- Missing parts: clego `discovery/missing_parts_2026-09-27.{json,md}`
+  (mapping rows + reconversions; publish left to the main session).
+If a session resumes with no agent running, read those files and continue
+from what they record.
+
 ## Round 2026-09-26d (main checkout, `9b6118c5`)
 
 **Sent**: `output/device-round-2026-09-26d/craftmatic-packs-9b6118c5.zip`
