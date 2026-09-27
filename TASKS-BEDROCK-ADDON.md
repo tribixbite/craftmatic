@@ -24,8 +24,10 @@ Gates before any pack round: `bun run typecheck`, `bun run typecheck:web`,
 `bun scripts/_favorites_export_sweep.ts --out output/<new dir>`,
 `bun scripts/_ix_passability.ts <dir>/*.mcaddon --sizes=100,150,200,300,400 --rotations=0,90`
 (0 FAIL). Build packs ONE AT A TIME from a COMMITTED tree with the round's
-labels (the uuid follows the label; recipe `output/device-round-2026-09-26c/build.sh`
-in the polish worktree, labels in `C:/git/craftmatic/output/device-round-2026-09-26b/new-manifests.txt`).
+labels (the uuid follows the label; recipe `output/device-round-2026-09-26d/build.sh`
+in the main checkout, 19 sets; the 14 round labels are in
+`output/device-round-2026-09-26b/new-manifests.txt`, the Gabby five use `Name (set-1)`;
+the creator pack is `bun scripts/_minifig_ref.ts <out> --creator=starter "--label=Minifig Creator"`).
 
 ## Phones
 
@@ -42,61 +44,69 @@ in the polish worktree, labels in `C:/git/craftmatic/output/device-round-2026-09
   list. `--prune-stale` (dev mode, i.e. the Saga) lists the files a replaced
   dev folder holds that the new build does not ship into the backup dir, then
   `rm`s each one and `rmdir`s emptied dirs — never recursive.
-- Cleaned 2026-09-26 (lists: `output/phone-cleanup-0926/` in the polish
-  worktree): Pixel 287 files (imported `.mcaddon` copies in Download, our
-  recordings in Download and Movies, UI dumps and screenshots); Saga 44,706
-  files (14 `/data/local/tmp/craftmatic-deploy-*` staging dirs, 18 stale
-  LOD/`fig8` files in the dev packs, 4 recordings). Left on purpose: the
-  Pixel's `screen-2026*.mp4` (Android's recorder; may be the user's), web-app
-  downloads (`*-1_*.mcaddon`, `.mcpack`, `.schem`), `Download/craftmatic-pack-backup-0924/`
-  (empty folders), older imported pack folders under `behavior_packs`
-  (adb cannot delete there without root); another agent's staging dir in use.
-- Second pass (after round 26c): Pixel 20 more `000-*.mcaddon` imports; Saga
-  16,277 files in 6 staging dirs (4 left by the creator-wand agent, 2 of this
-  round). `/data/local/tmp` holds no `craftmatic-deploy-*` now. Left: the
-  Gabby agent's 5 `000-*gabby*` imports on the Pixel (possibly in use).
+- Content log: it is written in 4 KB blocks, so the LAST world load's tail is
+  still in the game's buffer when you read it at the Play screen (both phones'
+  logs ended mid-line at 73,728 bytes, 2026-09-26). Open and close the world
+  once more, then read: the load before is then complete on disk.
+- Phone clean-up history: `output/phone-cleanup-0926/` in the polish worktree.
+  Left on purpose: the Pixel's `screen-2026*.mp4` (may be the user's), web-app
+  downloads, `Download/craftmatic-pack-backup-0924/`, older imported pack
+  folders under `behavior_packs` (adb cannot delete there without root).
+  Round 26d deleted its own 20 `000-*.mcaddon` imports on the Pixel and its
+  own Saga staging dir (10,317 files, file by file). 9 other
+  `/data/local/tmp/craftmatic-deploy-2026092[6]-17*..19*` dirs from the
+  wand, dolls, vehicle-seat and Gabby agents remain on the Saga.
 - Saga world 925 still holds three 42703 interactive entities (lid 1, doors
-  1-2) from an earlier session, and a creator-wand draft figure the Minifig
-  Creator wand spawned when its slot was selected (the creator pack is no
-  longer bound, so it will not load): remove with `/kill` by type when next
-  in-world. The player's hotbar is empty (the creator wand item went with its
-  pack's binding).
+  1-2) from an earlier session (not touched in 26d). The creator-wand draft:
+  `/kill @e[type=craftmatic:minifig_minifig]` and `…minifig_preview` found
+  no target once the creator pack was bound again (its load sweep removes
+  drafts), so it is gone or in an unloaded chunk.
 
-## Round 2026-09-26c (polish worktree `agent-a55b8131b17a9ef8f`)
+## Round 2026-09-26d (main checkout, `9b6118c5`)
 
-Commits: `dfd19552` stairs + `--prune-stale`, `14a0a08c` tap forwarding +
-refusal record, `f275ff02` ride-car name tags + pinball stand-up,
-`6a82f8d0`/`3f5ca815` figure separation + display scatter, `bb37618f`
-GameTest tester position, merged with main at `da9dcbad`. **Sent**:
-`output/device-round-2026-09-26c/craftmatic-packs-da9dcbad.zip` (sha256
-01217bdd613b049ed3713eeeeafaee974b54dcef84ad89094425af253818a8c7; 14 packs +
-PACKS.md, built one at a time from `da9dcbad`, same labels and uuids as 26b,
-`_mcaddon_check` 14/14, parts identical to 26b). Saga 925: dev
-`--exclusive --prune-stale` (the creator pack's binding dropped; 0 stale
-files), content log 0 errors / 0 overridden after a world load. Pixel 924:
-import `--exclusive`, 14 + 14 bound; world not opened.
+**Sent**: `output/device-round-2026-09-26d/craftmatic-packs-9b6118c5.zip`
+(sha256 10ab1b08be07e86aa8da4cfb83b7ae8c6c471409b9efa7ed16f1f3b23fb1932f;
+19 set packs + `minifig-creator.mcaddon` + PACKS.md). Built one at a time
+from the clean `9b6118c5` (stamp `f1212596d08a`, clean), `--faces=output/faces-art-0926`
+(local-only photo art). All 40 header uuids equal their references
+(`uuid-proof.tsv`: 26b manifests for the 14, the Gabby agent's `packs-ebb20563`
+for the five, the wand agent's pack for the creator). `_mcaddon_check` 20/20.
+Parts vs 26c identical for 12 of 14; 10261 gains `lid_1` (18990 canopy, one
+part out of the shell); 41732 and 42703 are the republished doll sources
+(+1 part each, art faces 0->6 and 0->3). Gabby five: parts identical to
+`ebb20563`, each gains Gabby's art face (0924b had no doll art). Render audit
+equal to the references except 41732 (0.34 -> 0.39 block faces: fig2 x fig3
+overlap, 34 pairs, the known doll-spawn overlap). Evidence in the round folder:
+`check.txt`, `render-audit-summary.txt`, `saga/`, `pixel/`, deploy logs.
 
-Device results:
-- Saga, pinball stand-up (packs at `3f5ca815`): 11374 placed with the wand,
-  seated by `/ride`, stood up; the wand slot came back selected and NO wand
-  form opened (`output/polish-0926/saga/s16`, `s18`); Undo removed it.
-- Pixel GameTest (`cmgametest`, variants of the `6a82f8d0` packs,
-  `output/gametest-0926/logs/`): doorways as predicted 910047 3/3 (the plank
-  gate walked this time), 41395 2/2 (Door 2 OK on its stairs), 60380 2/2
-  (Door 3 OK), 31141 5/5, 42670 6/7 (Door 4 predicted blocked open, the
-  device walked it: better than predicted); parts+seats 910047 4/4, 41395
-  6/6, 60380 25/25, 42670 4/4, 31141 9/10.
-- 31141 Window 2 explained: the tester stood 2.88 blocks off its spot
-  (`stoodAt1` 20.5, 0.31, 5.54 vs spot 20.5, 3, 4.5): it fell off the ledge
-  spot on teleport and hit from the floor below, where a wall really is in
-  the way (the refusal's cutting cell 226,-55,308 is a full collider). Not a
-  line-of-sight disagreement. Next: choose tap spots with room around them.
-- 80049 did not run twice: the runner opened world 924, which now sorts
-  first on the Play screen (the runner's tile check matched the wrong tile).
-  Next: make `_gt_device_run.py` find the `cmgametest` tile by name.
-- Not seen on a device: the ride-car name tag (needs 10261 placed and
-  ridden), tap forwarding by a real finger, the display scatter, stairs by a
-  real player.
+Deployed `--exclusive` over all 20 (Saga 925 dev + `--prune-stale`: 4 stale
+10786 RP files deleted; Pixel 924 import). Content log 0 errors / 0
+overridden on both, every load complete on disk. Results (both phones unless
+noted):
+- Dolls: 41732 fig2/fig6 and 42703 fig1/fig2 have faces, hair and legs
+  (`saga/s10`, `s11`, `pixel/p08-dolls-row-crop`).
+- 42172 at 100 %: head in the cabin (side camera `saga/s19`, `pixel/p12`),
+  slot 9 looks out through the windscreen (`saga/s16`, `pixel/p11`).
+- 7140 at 150 %: rider in the cockpit under the canopy (`saga/s22b`,
+  `s24`, `pixel/p13`); first person through the canopy frame (`s23`, `p14`).
+- 10788 lift: stop 2 -> 3, set down on the top floor beside the shaft
+  (position readouts: Saga 3064,-50,2981 = exit 3; Pixel 3249,-50,3028 =
+  exit 3). The car does not visibly move in a fixed-camera burst
+  (`saga/s43-10788-lift-sheet`, `pixel/p16`). Slide: top to foot on both
+  (`saga/s49`, `pixel/p17`).
+- 10786 on a `/fill` pool: floats, boards, drives (Saga 10 mph, 7 blocks;
+  Pixel 13 mph), not aground (`saga/s52-56`, `pixel/p19-22`). Pool refilled
+  with dirt and grass.
+- 11204 bubble dome: FOUND by a tap from ~3 blocks (label "lid 2", Open /
+  close) and opens and closes on both (`saga/s62-64`, `pixel/p26-31`).
+- Minifig Creator: open, draft beside the view, pose (Waving on the Saga,
+  Arms up on the Pixel), place standing still, Undo returns it to the draft,
+  Discard (`saga/s66-70`, `pixel/p33-37`).
+- Everything placed was undone, wands cleared, both phones at the Play screen.
+
+Not seen on a device yet: the ride-car name tag (10261 placed and ridden),
+tap forwarding by a real finger, the display scatter, stairs by a real
+player, 11204's chest lid, a lift ride that shows the car moving.
 
 ## Open — interactivity
 
