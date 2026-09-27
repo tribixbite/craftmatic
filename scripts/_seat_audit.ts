@@ -83,7 +83,32 @@ console.log(`\nwrote ${OUT}/audit.json and ${OUT}/audit.md`);
 
 function readBefore(dir: string): SeatAuditRow[] | null {
   const path = `${dir}/audit.json`;
-  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as { rows: SeatAuditRow[] }).rows : null;
+  if (!existsSync(path)) return null;
+  const rows = (JSON.parse(readFileSync(path, 'utf8')) as { rows: SeatAuditRow[] }).rows;
+  for (const r of rows) if (r.census && !r.census.excluded) r.census = withExclusions(r.census);
+  return rows;
+}
+
+/**
+ * A census taken before `excluded` existed, measured with today's ruler: a
+ * steering or ship's wheel a turnable owns is moved out of the rows, and a
+ * place made only of such rows is dropped (seat-census.ts `takeSeatCensus`
+ * does this as it judges). Counts are recomputed from what is left.
+ */
+function withExclusions(census: SeatCensus): SeatCensus {
+  const isDecor = (row: SeatCensus['rows'][number]): boolean => (row.kind === 'steering' || row.kind === 'helm') && /^turnable:/.test(row.detail);
+  const excluded = census.rows.filter(isDecor).map(row => ({ kind: row.kind, part: row.part, pointLdu: row.pointLdu, detail: row.detail }));
+  const kept = census.rows.filter(row => !isDecor(row));
+  const keptPlaces = [...new Set(kept.map(row => row.place))].sort((a, b) => a - b);
+  const renumber = new Map(keptPlaces.map((p, k) => [p, k]));
+  const places = keptPlaces.map(p => census.places[p]!);
+  const rows = kept.map(row => ({ ...row, place: renumber.get(row.place)! }));
+  const tally = (list: ReadonlyArray<{ use: SeatUse }>): Record<SeatUse, number> => {
+    const t = Object.fromEntries(USES.map(u => [u, 0])) as Record<SeatUse, number>;
+    for (const x of list) t[x.use]++;
+    return t;
+  };
+  return { rows, places, counts: { raw: tally(rows), distinct: tally(places) }, excluded };
 }
 
 /** Totals over every set: distinct places and parts, by use. */
