@@ -302,15 +302,16 @@ Saga end to end; open items:
 - [ ] Run GameTest `creator_wand_<id>` on the Pixel (`cmgametest`): variant
   built at `output/minifig-wand-0926/gametest-6a77244b/minifig-creator-gametest.mcaddon`
   (bind it ALONE: the polish round's 31141 GameTest variant is bound there now). Not run: the Pixel lock was held.
-- [ ] Pixel by hand: the same function list on the Pixel's screen (form width,
-  preview spot at 45 degrees), and a figure code pasted into the Name/code form.
+- [ ] Pixel by hand: a figure code pasted into the Name/code form (open, draft
+  beside the view, pose, place standing, Undo, Discard seen on the Pixel in
+  round 26d, `output/device-round-2026-09-26d/pixel/p33-37`).
 - [ ] A released (walk) creator figure walking after the new place flow on a
   device (walk was device-proved by `creator_<id>` on 2026-09-25 only).
 - [ ] `look` animation turns set-figure heads off their bodies (seen on the
   Saga on `minifig_fig1`); dropped for the creator only. `TODO(figures)`.
 - [ ] `_minifig_ref.ts` packs are named "(unstamped)" in Minecraft's pack list.
-- Creator pack `027c2c03…` unbound from Saga world 925 by round 26c's
-  `--exclusive` deploy; its dev folder stays installed.
+- Creator pack `027c2c03…` is bound again in Saga 925 and Pixel 924 (round
+  26d ships it beside the set packs).
 
 ## Mini-doll faces and bodies (2026-09-26)
 
@@ -336,7 +337,7 @@ Open:
   (`walk_*`). Sit: `/ride` seated `princess_43267_fig5` (`sit_1.jpg`, legs
   forward seen from the front). Everything summoned was killed; Play screen.
 - [ ] Device, not captured: a side view of a seated doll's 90-degree hip bend,
-  a mid-stride arm swing, and the Pixel. The deploy's staging dir
+  a mid-stride arm swing (faces, hair, legs seen on the Pixel in round 26d). The deploy's staging dir
   `/data/local/tmp/craftmatic-deploy-20260926-182514-46336` stays on the Saga
   (the script keeps it; removing it is file by file).
 - [ ] Hair with no LDraw mould, so 7 distinct dolls are bald: `79989` (hair
@@ -358,8 +359,10 @@ Open:
 - [ ] Two dolls spawned overlapping in 41732 (fig2/fig3: +34 coplanar pairs
   between the two NPCs, from the SOURCE now giving both their legs - the old
   code on the new sources shows the same 178) and 43267 (fig1/fig5). Main's
-  `separateFigureSpawns` (`6a82f8d0`, merged after these packs were built)
-  should separate them: re-run `_render_fault_audit.ts` on a rebuild.
+  `separateFigureSpawns` (`6a82f8d0`) did NOT separate 41732's pair: the
+  round 26d rebuild on `9b6118c5` still has fig2 x fig3 at 34 pairs
+  (`output/device-round-2026-09-26d/render-audit.txt`). Next: why the pair is
+  not seen as one figure inside another.
 - [ ] Doll art: the far half is mirrored from the near eye (asymmetric prints
   come out symmetric there) and a seam or a shading patch remains on about a
   third of the 28 heads (`face-measure/doll-art-sheet.png`); 28649pr0016 fits
@@ -377,10 +380,10 @@ merge of main `4875bb35`); not pushed. Guide: docs/bedrock-addon-guide.md
   with a windscreen view; 7140 hidden at 100 %, in the cockpit at 150 %;
   summoned vehicles removed, left at the Play screen. Six staging dirs
   `/data/local/tmp/craftmatic-deploy-20260926-17*`/`-18*` left (~7 MB each).
-- [ ] Pixel world 924: the same four packs + a GameTest drive
-  (`bun scripts/_gametest_pack.ts <pack> --only=vehicles`, world
-  `cmgametest`) to confirm seating did not change driving. Not run: the
-  Pixel was locked by the Gabby agent for the whole session.
+- [ ] GameTest drive on the Pixel (`bun scripts/_gametest_pack.ts <pack>
+  --only=vehicles`, world `cmgametest`) to confirm seating did not change
+  driving. Seating itself was seen by hand on the Pixel in round 26d (42172
+  cabin + windscreen, 7140 at 150 %).
 - [ ] 60221: its "steering wheel" (3828) belongs to an accessory in the same
   entity; the rider sits under the yacht on the ground.
 - [ ] Boats: with no steering wheel the FRONT-most seated figure drives (10365
@@ -420,9 +423,9 @@ evidence `output/gabby-0926/` there. Guide: docs/bedrock-addon-guide.md "Gabby's
   clean dismounts; 10797 slide; 10786 boat boards (aground on grass, as expected).
   Saga r2 (ebb20563): deployed, content log 0/0; its `/ride ... c=1` took the
   nearest ride seat, which was 10788's slide ("Wheee!"), and it ran.
-- [ ] Not seen working on a device: 11204's bubble dome and chest (taps did not
-  find the dome's hit box on either phone), the swing seat, the carts, 10797's
-  turntable and stool, the drawers. Pixel r3: re-boarding the lift from the
+- [ ] Not seen working on a device: 11204's chest, the swing seat, the carts,
+  10797's turntable and stool, the drawers. (11204's dome opens and closes by a
+  tap from ~3 blocks on both phones, round 26d.) Pixel r3: re-boarding the lift from the
   same spot re-seated the parked car without a trip (host sim
   `lift_sim.ts` cycles every ride; not explained).
 - [ ] 10788: the car found is the upper cat-eared assembly (2456/3002/15068 at
