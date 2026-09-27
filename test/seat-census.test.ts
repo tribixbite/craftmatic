@@ -116,4 +116,11 @@ describe('seat census', () => {
     expect(yields.counts.distinct).toMatchObject({ seat: 1, occupied: 0 });
     expect(yields.places[0]!.detail).toMatch(/gives it up to a player/);
   });
+
+  it('keeps a steering wheel mounted to turn on its own out of the places, and lists it', () => {
+    const wheel: ParsedBrick = { part: '3829c01.dat', color: 0, x: 0, y: -200, z: 0 };
+    const census = takeSeatCensus(findSeatPlaces([wheel], MESHES), { vehicles: [], sceneSeats: [], owners: [{ label: 'turnable', use: 'none', bricks: new Set([wheel]), reason: 'moves with a turnable', decoration: true }] });
+    expect(census.places).toHaveLength(0);
+    expect(census.excluded).toEqual([expect.objectContaining({ kind: 'steering', part: '3829c01' })]);
+  });
 });

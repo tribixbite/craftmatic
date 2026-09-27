@@ -143,6 +143,10 @@ function markdown(all: readonly SeatAuditRow[], before: SeatAuditRow[] | null): 
     if (!r.census) continue;
     r.census.places.forEach((p, k) => lines.push(`| ${r.set} | ${k + 1} | ${p.parts.join(', ')} (${p.kinds.join(', ')}) | ${p.use} | ${p.detail.replace(/\|/g, '/')} | ${p.pointLdu.join(', ')} |`));
   }
+  // Seat-named parts the census kept out of the places (decoration), listed so nothing disappears silently.
+  const excluded = all.flatMap(r => (r.census?.excluded ?? []).map(e => ({ set: r.set, ...e })));
+  lines.push('', `## Excluded: seat-named parts that are not a place to sit (${excluded.length})`, '', '| set | part (kind) | why | point LDU |', '|---|---|---|---|');
+  for (const e of excluded) lines.push(`| ${e.set} | ${e.part} (${e.kind}) | ${e.detail} | ${e.pointLdu.join(', ')} |`);
   // Why the not-usable places are not usable, grouped.
   const reasons = new Map<string, { places: number; sets: Set<string> }>();
   for (const r of all) for (const p of r.census?.places ?? []) {

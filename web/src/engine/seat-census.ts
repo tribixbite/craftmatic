@@ -27,7 +27,8 @@
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
 import { classifiedDescription } from './ldraw-part-geometry.js';
-import { cleanPartId, groupFigures, isSeat, isShipWheel, isSteeringWheel } from './ldraw-entity-compiler.js';
+import { cleanPartId, groupFigures, isSeat } from './ldraw-entity-compiler.js';
+import { isShipWheel, isSteeringWheel } from './steering-parts.js';
 import { SEAT_BELOW_TORSO_LDU, seatedFigure } from './minifig-rig.js';
 import { isFurnitureSeat } from './bedrock-scene-actors.js';
 
@@ -130,7 +131,7 @@ export interface SeatCensusContext {
   /** The scene's invisible seats (bedrock-scene-actors `SceneSeat`) and who rides each one. */
   sceneSeats: ReadonlyArray<SceneSeatReport>;
   /** Other owners of placements: coaster cars and their riders, ride cars, moving parts, the pinball table, figures. */
-  owners: ReadonlyArray<{ label: string; use: 'coaster' | 'ride' | 'none'; bricks: ReadonlySet<ParsedBrick>; reason: string }>;
+  owners: ReadonlyArray<{ label: string; use: 'coaster' | 'ride' | 'none'; bricks: ReadonlySet<ParsedBrick>; reason: string; /** A moving part that turns on its own (a turnable): a wheel in it steers nothing. */ decoration?: boolean }>;
 }
 
 /** What the player can do at a place. */
@@ -156,6 +157,13 @@ export interface SeatCensus {
   places: SeatCensusPlace[];
   /** Raw (per part) and distinct (per place) counts by use. */
   counts: { raw: Record<SeatUse, number>; distinct: Record<SeatUse, number> };
+  /**
+   * Parts named like a seat that are not a place to sit, and why: a steering
+   * wheel or ship's wheel the build mounts as a turnable on a wall or a post
+   * (10303's and 76457's 5 x 5 wheels, 910032's ten, 71040's helm) - kept
+   * out of `places` so decoration does not read as a missed seat.
+   */
+  excluded: Array<{ kind: SeatPlaceKind; part: string; pointLdu: [number, number, number]; detail: string }>;
 }
 
 /** Two rows closer than this (LDU, horizontal and vertical) are one place: a seated driver 0-10 LDU over its seat mould, 30 behind its wheel. */
@@ -166,9 +174,15 @@ export function takeSeatCensus(places: readonly SeatPlace[], context: SeatCensus
   const rows: Array<Omit<SeatCensusRow, 'place'>> = [];
   const r1 = (v: number): number => Math.round(v * 10) / 10;
   const matchedScene = new Set<number>();
+  const excluded: SeatCensus['excluded'] = [];
   for (const place of places) {
+    const pointLdu: [number, number, number] = [r1(place.pointLdu[0]), r1(place.pointLdu[1]), r1(place.pointLdu[2])];
+    // A wheel that turns on its own (an interactive turnable) is steering nothing: decoration.
+    const turnable = (place.kind === 'steering' || place.kind === 'helm') && place.brick
+      ? context.owners.find(o => o.decoration && o.bricks.has(place.brick!)) : undefined;
+    if (turnable) { excluded.push({ kind: place.kind, part: place.part, pointLdu, detail: `${turnable.label}: mounted to turn on its own, no vehicle around it` }); continue; }
     const verdict = judge(place, context, matchedScene);
-    rows.push({ kind: place.kind, part: place.part, description: place.description, pointLdu: [r1(place.pointLdu[0]), r1(place.pointLdu[1]), r1(place.pointLdu[2])], ...verdict });
+    rows.push({ kind: place.kind, part: place.part, description: place.description, pointLdu, ...verdict });
   }
   // Brick-built seats have no mould: the scene's own seats that no part above named.
   context.sceneSeats.forEach((seat, i) => {
@@ -204,7 +218,7 @@ export function takeSeatCensus(places: readonly SeatPlace[], context: SeatCensus
     for (const x of list) t[x.use]++;
     return t;
   };
-  return { rows: out, places: placesOut, counts: { raw: tally(out), distinct: tally(placesOut) } };
+  return { rows: out, places: placesOut, counts: { raw: tally(out), distinct: tally(placesOut) }, excluded };
 }
 
 function judge(place: SeatPlace, context: SeatCensusContext, matchedScene: Set<number>): { use: SeatUse; detail: string } {

@@ -567,7 +567,7 @@ export async function runSchemPipeline(
               seatPoints: seats.map(s => [s.x, s.y, s.z] as [number, number, number]), toGrid: p => sceneGridPoint(frame, p),
             });
             interactivityReport = stage.report;
-            for (const it of stage.items) census.owners.push({ label: it.kind, use: 'none', bricks: new Set(it.bricks), reason: `moves with a ${it.kind}` });
+            for (const it of stage.items) census.owners.push({ label: it.kind, use: 'none', bricks: new Set(it.bricks), reason: `moves with a ${it.kind}`, ...(it.kind === 'turnable' ? { decoration: true } : {}) });
             if (stage.items.length) {
               interactives = { items: stage.items, frame };
               for (const it of stage.items) for (const b of it.bricks) doorLeaves.add(b);
