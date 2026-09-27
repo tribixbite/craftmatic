@@ -104,6 +104,19 @@ SUBSTITUTE_DENYLIST = {'77083'}
 
 CURATED_ROWS: dict[str, list] = {
     '68498': ['93230.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+    # 53117 "Hair Combo, Hair with Hat, Side Bangs and Bun with Molded White
+    # Fire Helmet": no upstream LDraw file, tracker file (ldrawunf.zip
+    # 2026-09-27) or Mecabricks geometry. Studio's own `ldraw_lxfv56.xml` row
+    # names `bl_53117pb02.dat` (BrickLink 53117pb02) at IDENTITY, materials
+    # ":0,1:0" (helmet fixed White in the mesh); every corpus use has a White
+    # helmet (42670, 60271, 60280, 60320). The file ships in Studio's
+    # UnOfficial library and on the prod R2 mirror (HTTP 200, 2026-09-27),
+    # which is the exception to "bl_* names are not copied" above. Same row
+    # as clego reconvert_dbix.py CURATED_ROWS (2026-09-27).
+    # TODO(doll-headgear): on a mini-doll head this sits 2.29 LDU sunk (no
+    # MINIDOLL_SLOT_CORRECTION for non-doll headgear in lxf-parser.ts; clego's
+    # converter seats it with reconvert_dbix.seat_doll_headgear).
+    '53117': ['bl_53117pb02.dat', 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0],
 }
 
 # Mini-doll moulds LDD numbers anew that neither Studio table maps (the same
