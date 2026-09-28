@@ -1966,6 +1966,10 @@ export function findCockpit(placed: ParsedBrick[], meshes: Map<string, LdrawPart
   // Passenger seats: every OTHER free seat mould (not the driver's, none a
   // figure already sits on), eyes 51 LDU above it like the driver's. A seated
   // figure stays in the model, so its seat is not offered to a player.
+  // TODO(seat-passenger-figures): a passenger figure could leave the geometry
+  // and ride its own seat as a figure entity that yields to a player (as scene
+  // seats do, bedrock-figure-life.ts); needs the vehicle runtime to keep the
+  // player in seat 0 when figures board first. Seen on 60446 (one figure).
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
   const local = (b: ParsedBrick, v: Vec3): Vec3 => { const r = apply(b.rot ?? IDENTITY, v); return [b.x + r[0], b.y + r[1], b.z + r[2]]; };
   const torsos = groupFigures(placed, meshes).map(f => placed[f.torso]!);

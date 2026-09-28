@@ -77,7 +77,12 @@ export function findSeatPlaces(bricks: readonly ParsedBrick[], meshes: ReadonlyM
     const kind = seatPartKind(b.part, d);
     if (!kind) continue;
     // A seat mould's pan is a plate over its origin (4079); a wheel's driver sits 30 LDU behind it, the hips ~23 under its hub.
-    const point: Vec3 = kind === 'seat-mould' ? local(b, [0, -8, 0]) : kind === 'steering' ? local(b, [0, 23, 30]) : [b.x, b.y, b.z];
+    let point: Vec3 = kind === 'seat-mould' ? local(b, [0, -8, 0]) : kind === 'steering' ? local(b, [0, 23, 30]) : [b.x, b.y, b.z];
+    // A wheel on its own stand (41395's 3828 on 3829) is ONE place: the second part takes the first's point.
+    if (kind === 'steering' || kind === 'helm') {
+      const stand = out.find(o => (o.kind === 'steering' || o.kind === 'helm') && o.brick && Math.hypot(o.brick.x - b.x, o.brick.y - b.y, o.brick.z - b.z) <= WHEEL_ON_STAND_LDU);
+      if (stand) point = stand.pointLdu;
+    }
     out.push({ kind, part: cleanPartId(b.part), description: strip(d), brick: b, pointLdu: point });
   }
   for (const group of groupFigures(bricks as ParsedBrick[], meshes as Map<string, LdrawPartMesh | null>)) {
@@ -165,6 +170,9 @@ export interface SeatCensus {
    */
   excluded: Array<{ kind: SeatPlaceKind; part: string; pointLdu: [number, number, number]; detail: string }>;
 }
+
+/** A steering wheel this close (LDU, part origins) to another steering part is mounted on it: one place. */
+export const WHEEL_ON_STAND_LDU = 40;
 
 /** Two rows closer than this (LDU, horizontal and vertical) are one place: a seated driver 0-10 LDU over its seat mould, 30 behind its wheel. */
 export const SAME_PLACE_LDU = { across: 28, up: 30 } as const;

@@ -689,7 +689,7 @@ export const SEATED_LEG_BEND_DEG = 50;
 export const SEAT_BELOW_TORSO_LDU: Record<FigureSystem, number> = { minifig: 32, minidoll: 29.4, bigfig: 0 };
 
 /**
- * Whether a figure group SITS: a separate leg (or a mini-doll's one-piece
+ * Whether a figure group SITS: every separate leg (or a mini-doll's one-piece
  * legs) turned at least `SEATED_LEG_BEND_DEG` from its torso. A figure whose
  * legs are moulded to its hips (`hips_legs`), a big-fig, and a bust with no
  * legs (a ship's figurehead) cannot say, and do not.
@@ -699,11 +699,14 @@ export function seatedFigure(parts: readonly ParsedBrick[], meshes: ReadonlyMap<
   if (!anchor || anchor.headless || anchor.system === 'bigfig') return null;
   const torso = parts[anchor.index]!;
   const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
-  let bend = 0;
+  // EVERY leg must be bent: a sitter bends both, a figure posed in flight or
+  // mid-stride bends one (76269's flying hero read as sitting on one leg).
+  const bends: number[] = [];
   for (const b of parts) {
     const slot = classifyFigurePart(anchor.system, b.part, desc(b));
-    if (slot === 'leg_right' || slot === 'leg_left' || slot === 'legs') bend = Math.max(bend, axisAngleDeg(torso.rot, b.rot));
+    if (slot === 'leg_right' || slot === 'leg_left' || slot === 'legs') bends.push(axisAngleDeg(torso.rot, b.rot));
   }
+  const bend = bends.length ? Math.min(...bends) : 0;
   return bend >= SEATED_LEG_BEND_DEG ? { torso, system: anchor.system, bendDeg: Math.round(bend) } : null;
 }
 

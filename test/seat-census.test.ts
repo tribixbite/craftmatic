@@ -63,6 +63,9 @@ describe('seated figures', () => {
     expect(sitting?.system).toBe('minifig');
     expect(sitting?.bendDeg).toBe(90);
     expect(seatedFigure(figure([0, -72, 0], false), MESHES)).toBeNull();
+    // One leg bent (a figure posed in flight, 76269's) is not sitting.
+    const oneLeg = figure([0, -72, 0], true).map(b => b.part === '3817.dat' ? { ...b, rot: undefined } : b);
+    expect(seatedFigure(oneLeg, MESHES)).toBeNull();
     // A bust (a torso and a head, no legs: a ship's figurehead) does not sit.
     expect(seatedFigure(figure([0, -72, 0], true).slice(0, 2), MESHES)).toBeNull();
   });
@@ -115,6 +118,14 @@ describe('seat census', () => {
     const yields = takeSeatCensus(places, { vehicles: [], owners: [], sceneSeats: [{ brick: chair, part: '4079', surfaceLdu: [0, -40, 0], occupant: { ...occupant, yields: true } }] });
     expect(yields.counts.distinct).toMatchObject({ seat: 1, occupied: 0 });
     expect(yields.places[0]!.detail).toMatch(/gives it up to a player/);
+  });
+
+  it('counts a wheel on its own stand as one place', () => {
+    const stand: ParsedBrick = { part: '3829c01.dat', color: 0, x: 0, y: -40, z: 0 };
+    const wheel: ParsedBrick = { part: '3829c01.dat', color: 0, x: 0, y: -58, z: -10, rot: [1, 0, 0, 0, 0.6, 0.8, 0, -0.8, 0.6] };
+    const census = takeSeatCensus(findSeatPlaces([stand, wheel], MESHES), { vehicles: [], sceneSeats: [], owners: [] });
+    expect(census.rows).toHaveLength(2);
+    expect(census.places).toHaveLength(1);
   });
 
   it('keeps a steering wheel mounted to turn on its own out of the places, and lists it', () => {
