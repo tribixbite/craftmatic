@@ -227,9 +227,9 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
    *    than half the other cannot be the hull (a helicopter's tail boom is
    *    asymmetric across the short axis and would vote there).
    */
-  const narrowEnd = (weight: number): void => {
+  const narrowEnd = (weight: number, axes: ReadonlyArray<'x' | 'z'> = ['x', 'z']): void => {
     if (n < 8) return;
-    for (const axis of ['x', 'z'] as const) {
+    for (const axis of axes) {
       const aSpan = axis === 'x' ? spanX : spanZ;
       if (aSpan <= 0 || aSpan < (axis === 'x' ? spanZ : spanX) * 0.5) continue;
       const pos = (b: ParsedBrick): number => axis === 'x' ? b.x - cx : b.z - cz;
@@ -253,7 +253,9 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
   const helms = kind === 'boat' ? bricks.filter(b => isShipWheel(b.part, options.meshes?.get(b.part)?.description ?? '')) : [];
   if (kind === 'boat') {
     if (helms.length) centroidVote(helms, 'helm', 3, -1, 0.1, `${helms.length} ship's wheel${helms.length === 1 ? '' : 's'}`);
-    narrowEnd(2);
+    // Along the hull only: a boat does not sail sideways (10786's scene boat,
+    // no other evidence, read its narrower beam end as a bow across the hull).
+    narrowEnd(2, [longAxis]);
   }
 
   if (kind === 'car' || kind === 'boat') {
