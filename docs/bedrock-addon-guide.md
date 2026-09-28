@@ -3611,8 +3611,8 @@ Census: `bun scripts/_vehicle_audit.ts <sets> --seats` (evidence
   first-person view looking down on its roof. Removed.
 - **A riding player's eye is 1.12 above its seat, not 1.25.** Telemetry
   (`riderAt` in `CMVT`): head 0.82 and feet -0.70 over the vehicle for a
-  seat at -0.30. Vehicle seats use `RIDER_EYE_ABOVE_SEAT`; the coaster still
-  uses the old 1.25 (`TODO(seat-eye)`).
+  seat at -0.30. Every seat reads `SEATED_EYE_HEIGHT_BLOCKS` (1.12,
+  lego-scale.ts): vehicles, passengers and the coaster (since 2026-09-27).
 - **A clear engine cylinder is not glass.** 42172's largest translucent
   parts were its "Technic Engine Cylinder Head" pistons, so the driver sat in
   the engine bay and the cockpit view was the inside of the engine.
@@ -3669,17 +3669,39 @@ sat, but that figure is at the BOW (`saga-a2`; see below). 60221: the helm's
 steering wheel is the set's small underwater scooter's, and the rider sits
 under the yacht on the ground (`saga-95`; see below).
 
+**Round 2 (2026-09-27, the seat census):** every place a figure sits is
+now counted from the source and judged against the pack
+(`engine/seat-census.ts`, `bun scripts/_seat_audit.ts`; the export report's
+`seats`). Rules added:
+- **The driver sits where the vehicle is steered from.** A ship's wheel
+  (`4790`, `52395`) steers like a car's wheel (`steering-parts.ts`); the
+  helmsman stands aft of it (`HELM_EYE_LDU`). With a wheel, only a figure
+  within `DRIVER_REACH_LDU` (80) of it drives; a wheel nobody is at is the
+  driver's place. A bust (10365's figurehead) never drives. With no wheel, a
+  figure the source sat down wins over one standing, at the driving end: a
+  boat's STERN, a car's or aircraft's front.
+- **Never under the hull:** a boat's evidence below its largest part's bottom
+  is ignored (60221's stowed scooter wheel: the rider now sits on deck, 0.99
+  up, not 0.14 under the yacht).
+- **Boats face bow-first:** a ship's wheel votes the nose away from it, the
+  pointed end votes as the bow, and clear lamps on a boat with a helm are
+  stern lanterns. 10365 sailed stern-first; it now faces -z, rider at the helm.
+- **Glass is a shell** in the fit test: 76286's pilot fits the Milano from
+  100 % (was never).
+- **A source-seated figure gives its seat to a player** who comes within 2.5
+  blocks and takes it back after (bedrock-figure-life.ts), and a figure the
+  source SAT DOWN (every leg bent) on no seat mould proves a seat at its hips.
+
 **Not solved:**
-- 60221's steering wheel (`3828`) belongs to an accessory built into the same
-  entity, not the yacht's helm; the rider sits by it, under the hull.
-- A ship's driver is the FRONT-most seated figure when no steering wheel is
-  found (right for a car); 10365's is a figure at the bow. A boat should take
-  the aft-most (its helm), and a ship's wheel is not a recognised steering
-  part.
-- The Milano and 42092 never fit: their canopy / default-cabin eye lies in
-  the hull at every size.
+- 42092: the default cabin never fits (head 46 %, torso 27 % at 100 %); the
+  rider stays hidden, eye only.
+- A passenger FIGURE in a vehicle stays in its geometry and its seat is not
+  offered (60446, `TODO(seat-passenger-figures)`).
+- 75397's steering wheel (`30663`) is 6 blocks from the seat mould that
+  drives; the wheel's own spot is solid, so the seat keeps it.
 - An invisible rider still shows what it holds (the invisibility effect); the
   chase camera then shows the vehicle without a driver.
+- None of round 2 is seen on a device yet.
 
 ### Traps found this round
 

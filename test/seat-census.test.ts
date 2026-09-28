@@ -133,5 +133,9 @@ describe('seat census', () => {
     const census = takeSeatCensus(findSeatPlaces([wheel], MESHES), { vehicles: [], sceneSeats: [], owners: [{ label: 'turnable', use: 'none', bricks: new Set([wheel]), reason: 'moves with a turnable', decoration: true }] });
     expect(census.places).toHaveLength(0);
     expect(census.excluded).toEqual([expect.objectContaining({ kind: 'steering', part: '3829c01' })]);
+    // The same wheel as a stool's top is that stool (910032).
+    const stool = takeSeatCensus(findSeatPlaces([wheel], MESHES), { vehicles: [], sceneSeats: [{ brick: wheel, part: 'stool', surfaceLdu: [0, -200, 0] }], owners: [{ label: 'turnable', use: 'none', bricks: new Set([wheel]), reason: 'moves with a turnable', decoration: true }] });
+    expect(stool.excluded).toHaveLength(0);
+    expect(stool.counts.distinct.seat).toBe(1);
   });
 });

@@ -186,7 +186,8 @@ export function takeSeatCensus(places: readonly SeatPlace[], context: SeatCensus
   for (const place of places) {
     const pointLdu: [number, number, number] = [r1(place.pointLdu[0]), r1(place.pointLdu[1]), r1(place.pointLdu[2])];
     // A wheel that turns on its own (an interactive turnable) is steering nothing: decoration.
-    const turnable = (place.kind === 'steering' || place.kind === 'helm') && place.brick
+    // A wheel that is itself a seat's top (910032's stools) is that seat, whatever else it does.
+    const turnable = (place.kind === 'steering' || place.kind === 'helm') && place.brick && !context.sceneSeats.some(s => s.brick === place.brick)
       ? context.owners.find(o => o.decoration && o.bricks.has(place.brick!)) : undefined;
     if (turnable) { excluded.push({ kind: place.kind, part: place.part, pointLdu, detail: `${turnable.label}: mounted to turn on its own, no vehicle around it` }); continue; }
     const verdict = judge(place, context, matchedScene);
