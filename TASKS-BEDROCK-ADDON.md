@@ -432,9 +432,23 @@ sits at the wheel, a source-seated figure proves a seat and yields it to a
 player within 2.5 blocks, one measured eye height 1.12 (coaster included),
 boats face bow-first, a boat's driver is never under its hull (60221 on
 deck), 76286's pilot fits from 100 %.
-- [ ] Not seen on a device: every rule above. Next device round: 10365 at
-  the helm facing the bow, 60221 on deck, 76286 at 100 %, a seated NPC
-  standing up for the player (31141 or 10261), coaster eye at 1.12.
+- [x] Round 2026-09-28a (`ed25bf51`, both phones, content log 0/0; zip
+  `output/device-round-2026-09-28a/craftmatic-packs-ed25bf51.zip`, sha256
+  1801142e...; evidence `saga/`, `pixel/` there): 10365 rider at the helm by
+  the stern lanterns, drives bow-first; 76286 pilot drawn in the cockpit at
+  100 %; a seated 10261 kiosk figure stands up when the player comes within
+  2.5 blocks and the player sits; 10261 close-up at 2-5 blocks shows no
+  stripes or missing faces.
+- [ ] 10365 floats ~3 blocks above a `/fill` pool on both phones, the display
+  stand's legs hanging clear of the water (`saga/s08-10365-side.png`).
+- [ ] 76286 first person (slot 9) shows the cockpit interior and a grey
+  ceiling, not a view out of the canopy; its chase camera showed the plane's
+  FRONT (rider or camera faces backwards?).
+- [ ] 60221 rider is at deck height but at the hull's side edge (seat x 1.09);
+  looking down from the eye shows water.
+- [ ] 10261 kiosk figure had not retaken its seat ~20 s after the player left
+  (the runtime retries every 100 ticks): watch longer, then read the code.
+- [ ] Not checked on a device: a coaster ride at eye 1.12; a 76457 NPC.
 - [ ] Left: 60446's second figure stays in the vehicle geometry (no
   passenger seat, `TODO(seat-passenger-figures)`); 75397's second steering
   spot is not a seat. 42092 (Technic, 0.9 scale) keeps the eye in the hull
