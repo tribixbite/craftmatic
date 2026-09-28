@@ -19,5 +19,11 @@ export const PLAYER_HEIGHT_BLOCKS = 1.8;
 export const LDU_PER_BLOCK = LDU_PER_MINIFIG / PLAYER_HEIGHT_BLOCKS;
 /** Bedrock geometry units (16 per block) per LDU: 0.3. */
 export const BEDROCK_UNITS_PER_LDU = 16 / LDU_PER_BLOCK;
-/** Player eye height above the seat position while riding (seated pose). */
-export const SEATED_EYE_HEIGHT_BLOCKS = 1.25;
+/**
+ * A riding player's eye above its seat position, MEASURED: on the Saga
+ * (26.52, 2026-09-26) a player on 42172's seat at y -0.3 read
+ * `getHeadLocation()` 0.82 and `location` -0.7 over the vehicle's origin, so
+ * the eye is 1.12 above the seat and the feet 0.4 under it. It was a guess of
+ * 1.25 until then; every seat (vehicles, passengers, coaster cars) reads this.
+ */
+export const SEATED_EYE_HEIGHT_BLOCKS = 1.12;

@@ -192,6 +192,15 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
   });
 });
 
+describe('glass is a shell', () => {
+  it('does not count a canopy\'s translucent cuboids against the rider (76286\'s pilot)', () => {
+    // A canopy filling the space around the head and chest, as a curved canopy mould's cuboids do.
+    const canopy: BoxBlocks = { min: [-0.6, 0.3, -0.6], max: [0.6, 1.6, 0.6], glass: true };
+    expect(riderOverlap([canopy], [0, 0, 0])).toEqual({ head: 0, torso: 0 });
+    expect(riderOverlap([{ ...canopy, glass: false }], [0, 0, 0]).head).toBeGreaterThan(0.9);
+  });
+});
+
 describe('the cockpit evidence', () => {
   it('never reads a clear engine cylinder as glass (42172 seated its driver in the engine bay)', async () => {
     const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
@@ -211,6 +220,65 @@ describe('the cockpit evidence', () => {
     // The same part in a glass description is still glass.
     const glassMeshes = new Map([['cyl.dat', mesh('Glass for Window 1 x 4 x 3', 60)], ['body.dat', mesh('Brick 2 x 4', 40)]]);
     expect(findCockpit(placed as never, glassMeshes, { nose: '-x', isXLongitudinal: true, forwardSign: -1, spanX: 400, spanZ: 40 }).source).toBe('translucent-canopy');
+  });
+
+  // A hull 400 long along x (nose -x), a figure kit, a steering stand and a ship's wheel.
+  const boxMesh = (description: string, min: [number, number, number], max: [number, number, number]) => ({
+    partId: description, resolvedAs: description, studs: [], unresolvedRefs: [], description,
+    triangles: [{ a: min, b: max, c: [min[0], max[1], max[2]], color: 16 }], bounds: { min, max },
+  }) as never;
+  const KIT = new Map([
+    ['hull.dat', boxMesh('Boat Hull 8 x 20', [-200, 0, -40], [200, 60, 40])],
+    ['deck.dat', boxMesh('Plate  2 x  4', [-40, 0, -20], [40, 8, 20])],
+    ['973.dat', boxMesh('Minifig Torso', [-19, -12, -10], [19, 32, 10])],
+    ['3626c.dat', boxMesh('Minifig Head with Closed Hollow Stud', [-13, 0, -13], [13, 24, 13])],
+    ['3815.dat', boxMesh('Minifig Hips', [-18, -11, -10], [18, 21, 10])],
+    ['3816.dat', boxMesh('Minifig Leg Right', [-19.5, -9, -11], [-1.5, 28, 9])],
+    ['3817.dat', boxMesh('Minifig Leg Left', [1.5, -9, -11], [19.5, 28, 9])],
+    ['3829c01.dat', boxMesh('Car Steering Stand and Wheel (Complete)', [-10, -20, -10], [10, 0, 10])],
+    ['4790b.dat', boxMesh('Boat Ship Wheel', [-52, 0, -52], [52, 40, 52])],
+  ]);
+  const SIT = [1, 0, 0, 0, 0, -1, 0, 1, 0];
+  /** A minifig with its torso origin at (x, y, z); `bust`: torso and head only (a figurehead). */
+  const fig = (x: number, y: number, z: number, opts: { sitting?: boolean; bust?: boolean } = {}) => [
+    { part: '973.dat', color: 4, x, y, z }, { part: '3626c.dat', color: 14, x, y: y - 24, z },
+    ...(opts.bust ? [] : [
+      { part: '3815.dat', color: 1, x, y: y + 32, z },
+      { part: '3816.dat', color: 1, x, y: y + 44, z, ...(opts.sitting ? { rot: SIT } : {}) },
+      { part: '3817.dat', color: 1, x, y: y + 44, z, ...(opts.sitting ? { rot: SIT } : {}) },
+    ]),
+  ];
+  const hull = [{ part: 'hull.dat', color: 4, x: 0, y: 0, z: 0 }, { part: 'deck.dat', color: 4, x: -210, y: -150, z: 0 }, { part: 'deck.dat', color: 4, x: 210, y: -150, z: 0 }, { part: 'deck.dat', color: 4, x: 0, y: -150, z: 40 }, { part: 'deck.dat', color: 4, x: 0, y: -150, z: -40 }];
+  const frame = { nose: '-x' as const, isXLongitudinal: true, forwardSign: -1, spanX: 420, spanZ: 80 };
+
+  it('drives a boat from its ship\'s wheel, standing aft of it; a figurehead (a bust) never drives', async () => {
+    const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const placed = [...hull, ...fig(-150, -120, 0, { bust: true }), { part: '4790b.dat', color: 6, x: 120, y: -60, z: 0 }];
+    const cockpit = findCockpit(placed as never, KIT, { ...frame, kind: 'boat' });
+    expect(cockpit.source).toBe('steering-wheel');
+    // Aft of the wheel (+x on a -x nose) by 30, 35 over its hub.
+    expect(cockpit.eyeLdu).toEqual([150, -95, 0]);
+    expect(cockpit.driverParts).toEqual([]);
+  });
+
+  it('seats a boat\'s driver at the stern when nothing steers it, and never under its hull', async () => {
+    const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    // Two seated figures on deck; a steering stand stowed UNDER the hull (60221's scooter).
+    const placed = [...hull, ...fig(-120, -120, 0, { sitting: true }), ...fig(120, -120, 0, { sitting: true }), { part: '3829c01.dat', color: 0, x: 0, y: 100, z: 0 }];
+    const boat = findCockpit(placed as never, KIT, { ...frame, kind: 'boat' });
+    expect(boat.source).toBe('seated-figure');
+    expect(boat.detail).toMatch(/torso 973 at 120,/);
+    // The same model as a car: the stand is not under a hull there, and a figure far from it is a passenger.
+    const car = findCockpit(placed as never, KIT, { ...frame, kind: 'car' });
+    expect(car.source).toBe('steering-wheel');
+  });
+
+  it('gives a car\'s controls to the figure at the wheel, not the one in the back', async () => {
+    const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const placed = [...hull, { part: '3829c01.dat', color: 0, x: -100, y: -80, z: 0 }, ...fig(-70, -120, 0, { sitting: true }), ...fig(140, -120, 0, { sitting: true })];
+    const cockpit = findCockpit(placed as never, KIT, { ...frame, kind: 'car' });
+    expect(cockpit.source).toBe('seated-figure');
+    expect(cockpit.detail).toMatch(/torso 973 at -70,/);
   });
 });
 

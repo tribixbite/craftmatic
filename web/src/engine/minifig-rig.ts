@@ -664,6 +664,52 @@ export function figureAnchor(parts: ParsedBrick[], meshes: Map<string, LdrawPart
   return hasLower ? { index: headIndex, system, headless: true } : null;
 }
 
+/** Degrees between two placements' up axes (the rotation's Y column), 0-180. */
+export function axisAngleDeg(a: readonly number[] | undefined, b: readonly number[] | undefined): number {
+  const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+  const p = a ?? I, q = b ?? I;
+  const u = [p[1]!, p[4]!, p[7]!], v = [q[1]!, q[4]!, q[7]!];
+  const n = (Math.hypot(u[0]!, u[1]!, u[2]!) * Math.hypot(v[0]!, v[1]!, v[2]!)) || 1;
+  const cos = Math.max(-1, Math.min(1, (u[0]! * v[0]! + u[1]! * v[1]! + u[2]! * v[2]!) / n));
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
+/**
+ * A leg turned this far from its torso sits: a sitting figure's legs turn 90
+ * degrees at the hip, a walking stride swings them about 30.
+ */
+export const SEATED_LEG_BEND_DEG = 50;
+
+/**
+ * How far below the torso origin a seated figure's seat surface lies, LDU:
+ * the hip joint (a minifig's hips 32 under its torso origin, the compiler's
+ * seat-mould rule `eye = pan - 43`; a mini-doll's 29.4). A big-fig's body is
+ * one mould and cannot sit.
+ */
+export const SEAT_BELOW_TORSO_LDU: Record<FigureSystem, number> = { minifig: 32, minidoll: 29.4, bigfig: 0 };
+
+/**
+ * Whether a figure group SITS: every separate leg (or a mini-doll's one-piece
+ * legs) turned at least `SEATED_LEG_BEND_DEG` from its torso. A figure whose
+ * legs are moulded to its hips (`hips_legs`), a big-fig, and a bust with no
+ * legs (a ship's figurehead) cannot say, and do not.
+ */
+export function seatedFigure(parts: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>): { torso: ParsedBrick; system: FigureSystem; bendDeg: number } | null {
+  const anchor = figureAnchor(parts as ParsedBrick[], meshes as Map<string, LdrawPartMesh | null>);
+  if (!anchor || anchor.headless || anchor.system === 'bigfig') return null;
+  const torso = parts[anchor.index]!;
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  // EVERY leg must be bent: a sitter bends both, a figure posed in flight or
+  // mid-stride bends one (76269's flying hero read as sitting on one leg).
+  const bends: number[] = [];
+  for (const b of parts) {
+    const slot = classifyFigurePart(anchor.system, b.part, desc(b));
+    if (slot === 'leg_right' || slot === 'leg_left' || slot === 'legs') bends.push(axisAngleDeg(torso.rot, b.rot));
+  }
+  const bend = bends.length ? Math.min(...bends) : 0;
+  return bend >= SEATED_LEG_BEND_DEG ? { torso, system: anchor.system, bendDeg: Math.round(bend) } : null;
+}
+
 /**
  * Assemble the figure a torso group describes. `sourceParts` are the group's
  * placements in the SOURCE frame (world LDraw); the torso must be among them,

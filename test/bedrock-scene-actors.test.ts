@@ -78,6 +78,24 @@ describe('discoverSceneActors', () => {
     expect(scene.doors[0]!.maxLdu).toEqual([1280, 0, 3]);
   });
 
+  it('makes a seat where the source sat a figure down on bricks no rule reads as furniture, and nowhere a figure stands', async () => {
+    // Legs turned 90 degrees at the hip: sitting. Torso at y -8, so the hips (the seat) are at y 24.
+    const SIT = [1, 0, 0, 0, 0, -1, 0, 1, 0];
+    const sitting = (x: number): ParsedBrick[] => figure(x, 0).map(b => /381[67]/.test(b.part) ? { ...b, rot: SIT } : b);
+    const bricks: ParsedBrick[] = [
+      ...sitting(0), { part: '3001.dat', color: 4, x: 0, y: 48, z: 0, rot: I },    // on a plain brick: a figure-proven seat
+      ...sitting(600), { part: '4079.dat', color: 0, x: 600, y: 32, z: 0, rot: I }, // on a seat mould: it takes the mould
+      ...figure(1200, 0), { part: '3001.dat', color: 4, x: 1200, y: 88, z: 0, rot: I }, // standing: no seat
+    ];
+    const scene = await discoverSceneActors(bricks, provider());
+    expect(scene.seats.map(s => s.part).sort()).toEqual(['4079', 'figure seat']);
+    const proven = scene.seats.findIndex(s => s.part === 'figure seat');
+    expect(scene.seats[proven]!.surfaceLdu).toEqual([0, 24, 0]);
+    expect(scene.figures.find(f => f.bricks[0]!.x === 0)!.seatIndex).toBe(proven);
+    expect(scene.figures.find(f => f.bricks[0]!.x === 600)!.seatIndex).toBe(scene.seats.findIndex(s => s.part === '4079'));
+    expect(scene.figures.find(f => f.bricks[0]!.x === 1200)!.seated).toBe(false);
+  });
+
   /**
    * 10303's drop-track rider, the exact source matrices: the torso is pitched
    * nose-down (spine along +X, face toward LDraw +Y = straight down), the

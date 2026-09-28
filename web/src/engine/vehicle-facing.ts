@@ -21,6 +21,7 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import type { PlayableKind } from './playable-components.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
 import { partStem } from './part-id.js';
+import { isShipWheel } from './steering-parts.js';
 
 export type NoseDirection = '+x' | '-x' | '+z' | '-z';
 
@@ -219,6 +220,44 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
     }
   }
 
+  /**
+   * 6. Narrow end: the nose is slimmer than the tail - an aircraft's fins,
+   *    wings and engines; a boat's pointed bow against its transom. Tested on
+   *    BOTH axes: a wide-winged ship's hull is its short axis. An axis shorter
+   *    than half the other cannot be the hull (a helicopter's tail boom is
+   *    asymmetric across the short axis and would vote there).
+   */
+  const narrowEnd = (weight: number, axes: ReadonlyArray<'x' | 'z'> = ['x', 'z']): void => {
+    if (n < 8) return;
+    for (const axis of axes) {
+      const aSpan = axis === 'x' ? spanX : spanZ;
+      if (aSpan <= 0 || aSpan < (axis === 'x' ? spanZ : spanX) * 0.5) continue;
+      const pos = (b: ParsedBrick): number => axis === 'x' ? b.x - cx : b.z - cz;
+      const outer = (sign: number): number => {
+        const sel = bricks.filter(b => sign * pos(b) > aSpan * 0.3);
+        if (!sel.length) return 0;
+        const t = sel.map(b => axis === 'x' ? b.z : b.x);
+        return Math.max(...t) - Math.min(...t);
+      };
+      const wNeg = outer(-1), wPos = outer(1);
+      if (wNeg > 0 && wPos > 0 && Math.max(wNeg, wPos) / Math.min(wNeg, wPos) >= 1.3) {
+        const s = wNeg < wPos ? -weight : weight;
+        votes.push({ signal: `narrow end ${axis}`, x: axis === 'x' ? s : 0, z: axis === 'z' ? s : 0, weight, detail: `outer width ${Math.round(wNeg)} vs ${Math.round(wPos)} LDU across ${axis}` });
+      }
+    }
+  };
+  // A ship's wheel: a boat is steered from aft of its middle (the quarterdeck,
+  // the wheelhouse), so the nose is away from it; and its clear lamps are then
+  // stern lanterns, not headlights. 10365's lanterns and cabin seats voted its
+  // stern ahead and it sailed backwards, the player seated at the figurehead.
+  const helms = kind === 'boat' ? bricks.filter(b => isShipWheel(b.part, options.meshes?.get(b.part)?.description ?? '')) : [];
+  if (kind === 'boat') {
+    if (helms.length) centroidVote(helms, 'helm', 3, -1, 0.1, `${helms.length} ship's wheel${helms.length === 1 ? '' : 's'}`);
+    // Along the hull only: a boat does not sail sideways (10786's scene boat,
+    // no other evidence, read its narrower beam end as a bow across the hull).
+    narrowEnd(2, [longAxis]);
+  }
+
   if (kind === 'car' || kind === 'boat') {
     // 3. Tail lights: trans-red sits at the rear. Vote away from their centroid.
     const tails = bricks.filter(b => TAIL_LIGHT_COLOURS.has(b.color));
@@ -228,7 +267,7 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
     //     42128's tow truck had no seat, steering wheel or glass to read and
     //     voted to a tie (tail lights against its wheel count); its four clear
     //     round tiles sit 622 LDU forward of centre, over the cab.
-    if (span > 0) {
+    if (span > 0 && !helms.length) {
       // A clear lens stacked on a coloured one (42128's Mecabricks source puts clear, red and orange
       // round tiles at one spot of its tail lamps) is part of that lamp, not a headlight.
       const coloured = bricks.filter(b => isTranslucentColour(b.color) && !HEAD_LIGHT_COLOURS.has(b.color));
@@ -281,28 +320,7 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
     //     Weaker than the exhausts: the Milano's cockpit sits AFT of centre.
     const canopy = bricks.filter(b => isTranslucentColour(b.color) && isGlassPart(b.part, options.meshes?.get(b.part)));
     if (canopy.length >= 1) centroidVote(canopy, 'canopy position', 1.5, 1, 0.08, `${canopy.length} glass placements`);
-    // 6. Narrow end: the nose is slimmer than the tail (fins, wings, engines).
-    //    Tested on BOTH axes - a wide-winged ship's hull is its short axis.
-    //    An axis shorter than half the other cannot be the hull (a helicopter's
-    //    tail boom is asymmetric across the short axis and would vote there).
-    if (n >= 8) {
-      for (const axis of ['x', 'z'] as const) {
-        const aSpan = axis === 'x' ? spanX : spanZ;
-        if (aSpan <= 0 || aSpan < (axis === 'x' ? spanZ : spanX) * 0.5) continue;
-        const pos = (b: ParsedBrick): number => axis === 'x' ? b.x - cx : b.z - cz;
-        const outer = (sign: number): number => {
-          const sel = bricks.filter(b => sign * pos(b) > aSpan * 0.3);
-          if (!sel.length) return 0;
-          const t = sel.map(b => axis === 'x' ? b.z : b.x);
-          return Math.max(...t) - Math.min(...t);
-        };
-        const wNeg = outer(-1), wPos = outer(1);
-        if (wNeg > 0 && wPos > 0 && Math.max(wNeg, wPos) / Math.min(wNeg, wPos) >= 1.3) {
-          const w = 1, s = wNeg < wPos ? -w : w;
-          votes.push({ signal: `narrow end ${axis}`, x: axis === 'x' ? s : 0, z: axis === 'z' ? s : 0, weight: w, detail: `outer width ${Math.round(wNeg)} vs ${Math.round(wPos)} LDU across ${axis}` });
-        }
-      }
-    }
+    narrowEnd(1);
   }
 
   const sumX = votes.reduce((a, v) => a + v.x, 0), sumZ = votes.reduce((a, v) => a + v.z, 0);

@@ -554,7 +554,7 @@ literal inside a function body (`§` marks the number).
 | `PLAYER_HEIGHT_BLOCKS` | `web/src/engine/lego-scale.ts` | 1.8 | blocks | Minecraft player height; the minifig maps onto it. |
 | `LDU_PER_BLOCK` | `web/src/engine/lego-scale.ts` | 53.33 | LDU/block | 96 / 1.8: the one LEGO-to-Minecraft scale at 100 %. |
 | `BEDROCK_UNITS_PER_LDU` | `web/src/engine/lego-scale.ts` | 0.3 | geometry units/LDU | 16 units a block / 53.33. |
-| `SEATED_EYE_HEIGHT_BLOCKS` | `web/src/engine/lego-scale.ts` | 1.25 | blocks | A riding player's eye above the seat. |
+| `SEATED_EYE_HEIGHT_BLOCKS` | `web/src/engine/lego-scale.ts` | 1.12 | blocks | A riding player's eye above the seat, measured on the Saga (26.52): `getHeadLocation()` 1.12 over the seat position. |
 | `COASTER_RIDE_PACE` | `web/src/engine/bedrock-coaster.ts` | 1.41421 | × real time | Effective gravity exactly 2 g: inside Minecraft's 1.63-3.27 g band, Froude-exact for a half-size loop; the user's reports bracketed it between 1.0 ("50 % slow") and 1.6 ("a touch too fast"). §1. |
 | `COASTER_PHYSICS.GRAVITY` | `web/src/engine/bedrock-coaster.ts` | 19.6 | world blocks/s² | 9.8 × pace². Applied as −g sin θ along the chord; energy conserved to 1.1 % when lossless. |
 | `COASTER_PHYSICS.ROLLING` | `web/src/engine/bedrock-coaster.ts` | 0.24 | world blocks/s² | 0.12 × pace²: a constant wheel/bearing loss (µ g with µ ≈ 1.2 %), device-tuned at pace 1. |
@@ -573,7 +573,7 @@ literal inside a function body (`§` marks the number).
 | `COASTER_PHYSICS.PLATFORM_SPEED` | `web/src/engine/bedrock-coaster.ts` | 3.536 | world blocks/s | 2.5 × pace: 10303's elevator hoist. |
 | `COASTER_PHYSICS.PLATFORM_DWELL` | `web/src/engine/bedrock-coaster.ts` | 30 | ticks | Pause before the platform rises and after it arrives. |
 | `COASTER_PHYSICS.PLATFORM_CLEARANCE` | `web/src/engine/bedrock-coaster.ts` | 1 | model blocks | How far the train must be past the deck before it returns. |
-| `COASTER_PHYSICS.RIDER_EYE` | `web/src/engine/bedrock-coaster.ts` | 1.25 | world blocks | Must equal `SEATED_EYE_HEIGHT_BLOCKS` (carried in config because the runtime cannot import). |
+| `COASTER_PHYSICS.RIDER_EYE` | `web/src/engine/bedrock-coaster.ts` | 1.12 | world blocks | Is `SEATED_EYE_HEIGHT_BLOCKS` (carried in config because the runtime cannot import). |
 | `COASTER_PHYSICS.YAW_HOLD_HORIZONTAL` | `web/src/engine/bedrock-coaster.ts` | 0.2 | horizontal fraction | Below it the axle is near vertical (a car on its side) and the last yaw is held. |
 | `COASTER_PHYSICS.BODY_RANGE` | `web/src/engine/bedrock-coaster.ts` | 320 | model units | Declared range of the body-offset actor properties. |
 | `RAIL_TRAIN_PHYSICS.GRAVITY` | `web/src/engine/bedrock-coaster.ts` | 9.8 | world blocks/s² | Real gravity: a train set is level, nothing is time-scaled. |

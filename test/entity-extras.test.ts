@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { compileLdrawEntityGeometry, figureRole, groupFigures, isFigurePart, baseMould, ldrawToRenderRotation } from '../web/src/engine/ldraw-entity-compiler.js';
 import { extraPlacement, snapFacing } from '../web/src/engine/playable-addon.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
-import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
+import { LDU_PER_BLOCK, SEATED_EYE_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
 const box6 = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): string[] => {
@@ -133,7 +133,7 @@ describe('compileLdrawEntityGeometry extras and cockpit', () => {
     expect(r.warnings.some(w => /seated driver figure \(5 parts\)/.test(w))).toBe(true);
     // The rider's eyes are 11 LDU above the torso origin (−88 − 8 − 11 = −107 → 107 LDU over the floor), 100 LDU forward of centre.
     expect(r.seatPosition[0]).toBe(0);
-    expect(r.seatPosition[1]).toBeCloseTo(Math.max(0.3, 107 / LDU_PER_BLOCK - 1.25), 1);
+    expect(r.seatPosition[1]).toBeCloseTo(Math.max(0.3, 107 / LDU_PER_BLOCK - SEATED_EYE_HEIGHT_BLOCKS), 1);
     expect(r.seatPosition[2]).toBeCloseTo(-100 / LDU_PER_BLOCK, 1);
     const roles = r.extras.map(e => e.role).sort();
     expect(roles).toEqual(['figure', 'prop', 'vehicle']);

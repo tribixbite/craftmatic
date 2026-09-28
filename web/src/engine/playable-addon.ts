@@ -10,9 +10,10 @@ import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, plac
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { compileLdrawEntityGeometry, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { riderVisibleSizes, seatPositionAt, type SeatPlan } from './cockpit-seat.js';
+import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
@@ -267,6 +268,8 @@ export interface PlayableAddonResult {
     diagnostics: Record<string, LegoGeometryDiagnostics>;
     /** What built this pack and from which file — the record in `craftmatic-provenance.json`. */
     provenance: PackProvenance;
+    /** Every rideable vehicle's seats and the source placements they were read from (the seat census, seat-census.ts). */
+    vehicleSeats: VehicleSeatReport[];
 }
 const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
@@ -513,11 +516,15 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // No free seat mould (most LEGO cars and ships build their seats from bricks):
     // a car or boat long enough gets passengers BEHIND the driver (the model's
     // nose is -Z), a block apart on a car, two on a ship, never past the tail.
+    // A boat's driver is at its stern (the helm, ldraw-entity-compiler
+    // `findDriverSeat`), so where there is no room behind, its passengers go
+    // AHEAD of the helm instead, never past the bow (31109 lost two to that).
     const length = entitySize?.length ?? layout.length;
     const fallback: Array<[number, number, number]> = [];
     if (!measured.length && seatCount <= 1 && seatPositionOverride && (kind === 'car' || kind === 'boat') && length >= 3.5) {
         const spacing = kind === 'boat' && length >= 8 ? 2 : 1;
         for (let k = 1; k <= 3 && seatZ + k * spacing <= length / 2 - 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ + k * spacing) * 100) / 100]);
+        if (kind === 'boat') for (let k = 1; fallback.length < 3 && seatZ - k * spacing >= -length / 2 + 0.4; k++) fallback.push([seatX, seatY, Math.round((seatZ - k * spacing) * 100) / 100]);
     }
     const measuredPassengers = measured.length ? measured : fallback.slice(0, kind === 'car' ? 1 : 3);
     // A compiled model's seats are measured in its RENDER frame (nose toward -Z);
@@ -747,11 +754,33 @@ function propBehavior(id: string, collisionBox: { width: number; height: number 
     } } }, collisionBox);
 }
 
+/** The number of rideable seats a behaviour file ships (its base `minecraft:rideable`). */
+function shippedSeatCount(behavior: unknown): number {
+    const ride = (behavior as { 'minecraft:entity'?: { components?: Record<string, { seat_count?: number } | undefined> } })['minecraft:entity']?.components?.['minecraft:rideable'];
+    return ride?.seat_count ?? 0;
+}
+
+/**
+ * A vehicle's seats for the seat census: which source placements (by
+ * identity) its driver's seat and each passenger seat were read from.
+ * `source(i)` maps an index into the compile's input to the source placement.
+ */
+function vehicleSeatReport(label: string, entity: string, kind: string, bricks: readonly ParsedBrick[], source: (i: number) => ParsedBrick, geo: CompiledLdrawGeometry, behavior: unknown, controls: string, toSource: (p: [number, number, number]) => [number, number, number] = p => p): VehicleSeatReport {
+    return {
+        label, entity, kind, bricks,
+        driver: geo.seatEvidence.driver.map(source), driverSource: geo.diagnostics.cockpit.source,
+        passengers: geo.seatEvidence.passengers.map(list => list.map(source)),
+        seatCount: shippedSeatCount(behavior), controls, riderVisibleSizes: riderVisibleSizes(geo.seatPlan),
+        driverPointLdu: toSource(geo.seatEvidence.driverPointLdu),
+    };
+}
+
 /**
  * The invisible seat: a chair or bench in the build becomes something the
  * player can sit on. No gravity, no collision, unhurt; the rider's origin sits
- * 0.3 blocks under the seat surface so a seated minifig-scale player's eyes
- * (0.96 blocks over the pan) land where the compiler puts a rider's.
+ * 0.3 blocks under the seat surface so a seated player's eyes (1.12 over the
+ * seat position, 0.82 over the pan) land where a seated minifig's are (43 LDU,
+ * 0.81 blocks over the pan).
  */
 function seatBehavior(id: string): unknown {
     const rideable = { seat_count: 1, family_types: ['player', 'craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } };
@@ -1816,6 +1845,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     /** Collision height of every figure NPC type, for scripts/figures.js (bedrock-figure-life.ts). */
     const figureBodies: Record<string, number> = {};
     const extraComponents: PlayableAddonResult['components'] = [];
+    const vehicleSeats: VehicleSeatReport[] = [];
     /**
      * Every entity this pack declares gets a `texts/en_US.lang` name (and, if
      * `is_spawnable`, a spawn-egg name too) — otherwise Bedrock shows the raw
@@ -2340,7 +2370,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (ldrawGeo) {
             warnings.push(...ldrawGeo.warnings);
             diagnostics[cid] = ldrawGeo.diagnostics;
-            emitCompiledEntity(cid, ldrawGeo, behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan), emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
+            const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan);
+            emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
+            vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
             cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), riderVisibleSizes: riderVisibleSizes(ldrawGeo.seatPlan) });
 
             // Secondary objects the compiler found beside the vehicle (see
@@ -2375,6 +2407,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     : ekind === 'prop' ? propBehavior(ecid, egeo.collisionBox)
                     : behaviorEntity(ecid, 'car', c.grid, c.sceneScale, c.longitudinalAxis, egeo.facing, undefined, 1, egeo.seatPosition, egeo.collisionBox, egeo.sizeBlocks, 'car', egeo.passengerSeats, egeo.seatPlan);
                 emitCompiledEntity(ecid, egeo, behavior, ekind === 'figure' && egeo.figure ? figureClientAnimations(egeo.figure.system) : ekind === 'car' ? emitDriveAnimation(ecid, 'car', egeo, true) : undefined, ekind !== 'figure');
+                // A second vehicle's seats, its placements named by the parent's own (the extra's are levelled copies).
+                if (ekind === 'car') vehicleSeats.push(vehicleSeatReport(elabel, ecid, 'car', extra.sourceIndices.map(i => c.bricks![i]!), i => c.bricks![extra.sourceIndices[i]!], egeo, behavior, 'scripted car', p => unlevelPoint(ldrawGeo!.levelPose, p)));
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks);
@@ -2928,7 +2962,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar to open it; switch away and back to reopen it. Pin a position (or "Follow my aim" to carry the preview to wherever you look), then "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when it is at least 1 x 2 blocks at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats };
 }
 
 /** One warning line for the moving parts: counts by class and, for doorways, at which wand size each can be walked through. */
