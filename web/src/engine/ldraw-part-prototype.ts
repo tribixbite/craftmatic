@@ -519,8 +519,86 @@ export function bestOfCuboids(lat: Lattice, boundsMax: Vec3): PartCuboid[] {
   return best;
 }
 
-function decomposeLattice(lat: Lattice, boundsMax: Vec3, strategy: PartDecomposition): PartCuboid[] {
-  return strategy === 'best-of' ? bestOfCuboids(lat, boundsMax) : greedyCuboids(lat, boundsMax);
+/**
+ * Thickest far-side overhang (LDU) that is folded into the row before it.
+ * Measured on 10261 (2026-09-28): 550 cubes of its pack were 0.0002-0.03 LDU
+ * thick, every one the last lattice row of a part whose bounds end a float
+ * hair past a grid plane (8.0005 on a 2 LDU grid). Such a sliver's outer face
+ * sits that hair in front of its neighbour's, with the same normal: the two
+ * z-fight on the device as stripes. Well under any grain, so folding it
+ * changes no visible extent.
+ */
+export const FAR_SLIVER_LDU = 0.1;
+
+/**
+ * Fold a sliver last row into the row before it, per axis.
+ *
+ * When the lattice's last row along an axis covers less than
+ * `FAR_SLIVER_LDU` of the part (its far plane is that close to the part's
+ * true bound), each of its solid cells whose neighbour in the row before is
+ * also solid is cleared: that neighbour's box, extended to the true bound by
+ * the caller, covers it. A sliver cell with an EMPTY neighbour is kept, so the
+ * fold can never open a hole. Returns a copy (the caller's lattice keeps its
+ * cells for the metrics), the far plane of each folded axis, and per folded
+ * axis a mask of the cells that absorbed a sliver.
+ */
+export function foldFarSlivers(lat: Lattice, boundsMax: Vec3): {
+  lattice: Lattice;
+  foldedPlane: [number | null, number | null, number | null];
+  absorbed: [Uint8Array | null, Uint8Array | null, Uint8Array | null];
+} {
+  const dims = [lat.nx, lat.ny, lat.nz] as const;
+  const foldedPlane: [number | null, number | null, number | null] = [null, null, null];
+  const absorbed: [Uint8Array | null, Uint8Array | null, Uint8Array | null] = [null, null, null];
+  let solid = lat.solid;
+  for (const axis of [0, 1, 2] as const) {
+    const n = dims[axis];
+    if (n < 2) continue;
+    const plane = lat.origin[axis]! + (n - 1) * lat.cell;
+    const overhang = boundsMax[axis]! - plane;
+    if (overhang <= 1e-9 || overhang >= FAR_SLIVER_LDU) continue;
+    foldedPlane[axis] = plane;
+    if (solid === lat.solid) solid = lat.solid.slice();
+    const mask = absorbed[axis] = new Uint8Array(solid.length);
+    const p = [0, 0, 0];
+    const o1 = (axis + 1) % 3, o2 = (axis + 2) % 3;
+    for (let i = 0; i < dims[o1]!; i++) for (let j = 0; j < dims[o2]!; j++) {
+      p[o1] = i; p[o2] = j;
+      p[axis] = n - 1;
+      const last = cellIndex(lat, p[0]!, p[1]!, p[2]!);
+      if (!solid[last]) continue;
+      p[axis] = n - 2;
+      const before = cellIndex(lat, p[0]!, p[1]!, p[2]!);
+      if (solid[before]) { solid[last] = 0; mask[before] = 1; }
+    }
+  }
+  return { lattice: solid === lat.solid ? lat : { ...lat, solid }, foldedPlane, absorbed };
+}
+
+export function decomposeLattice(lat: Lattice, boundsMax: Vec3, strategy: PartDecomposition): PartCuboid[] {
+  const { lattice, foldedPlane, absorbed } = foldFarSlivers(lat, boundsMax);
+  const cuboids = strategy === 'best-of' ? bestOfCuboids(lattice, boundsMax) : greedyCuboids(lattice, boundsMax);
+  const { origin, cell } = lat;
+  // Cell index range a cuboid spans on one axis (its far side may be clamped to the bound).
+  const span = (c: PartCuboid, a: number): [number, number] => [
+    Math.round((c.min[a]! - origin[a]!) / cell),
+    Math.ceil((c.max[a]! - origin[a]!) / cell - 1e-6) - 1,
+  ];
+  for (const c of cuboids) {
+    for (const axis of [0, 1, 2] as const) {
+      const plane = foldedPlane[axis], mask = absorbed[axis];
+      if (plane === null || !mask || Math.abs(c.max[axis] - plane) >= 1e-9) continue;
+      // Extend only a box that absorbed a sliver: one that merely ends on the
+      // plane stays short of the bound, clear of a neighbour's face there.
+      const [x0, x1] = span(c, 0), [y0, y1] = span(c, 1), [z0, z1] = span(c, 2);
+      let hit = false;
+      for (let y = y0; y <= y1 && !hit; y++) for (let z = z0; z <= z1 && !hit; z++) for (let x = x0; x <= x1; x++) {
+        if (mask[cellIndex(lat, x, y, z)]) { hit = true; break; }
+      }
+      if (hit) c.max[axis] = boundsMax[axis];
+    }
+  }
+  return cuboids;
 }
 
 // ─── Compilation ──────────────────────────────────────────────────────────────

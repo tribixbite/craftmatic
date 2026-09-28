@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import {
   LEGO_ENTITY_QUALITY, PLANNER_COARSEST_LDU, bestOfCuboids, compilePartPrototype, createPrototypeCache, downsample, fillInterior, greedyCuboids, greedyCuboidsOrdered,
-  maxBoxCuboids, planPartGrains, rasterizeSurface, resolveEntityQuality, silhouetteIoU, silhouetteReference, triangleBoxOverlap,
+  FAR_SLIVER_LDU, decomposeLattice, foldFarSlivers, maxBoxCuboids, planPartGrains, rasterizeSurface, resolveEntityQuality, silhouetteIoU, silhouetteReference, triangleBoxOverlap,
   type GrainPlanPart, type LegoEntityQuality,
 } from '../web/src/engine/ldraw-part-prototype.js';
 
@@ -86,6 +86,58 @@ describe('triangleBoxOverlap', () => {
     expect(triangleBoxOverlap(-5, -5, 1, 5, -5, 1, 0, 5, 1, 1, 1, 1)).toBe(true);   // touching the face
     expect(triangleBoxOverlap(2, 2, 2, 3, 2, 2, 2, 3, 2, 1, 1, 1)).toBe(false);     // small triangle away
     expect(triangleBoxOverlap(1.5, 1.5, 0, 3, -3, 0, -3, 3, 0, 1, 1, 1)).toBe(true); // big triangle around a corner
+  });
+});
+
+describe('far-side slivers', () => {
+  // Bounds end 0.0005 LDU past the 4 LDU plane (10261's float-noise shape); a
+  // different colour in the last row stops greedy merging it into the row before.
+  const bounds: Vec3 = [4.0005, 2, 2];
+  const lattice = () => ({
+    origin: [0, 0, 0] as Vec3, cell: 2, nx: 3, ny: 1, nz: 1,
+    solid: new Uint8Array([1, 1, 1]), label: new Uint16Array([1, 1, 2]), colors: [4, 1],
+  });
+  const thinnest = (cs: ReadonlyArray<{ min: Vec3; max: Vec3 }>): number =>
+    Math.min(...cs.flatMap(c => [0, 1, 2].map(a => c.max[a]! - c.min[a]!)));
+
+  it('the plain greedy merge leaves a 0.0005 LDU sliver cuboid', () => {
+    expect(thinnest(greedyCuboids(lattice(), bounds))).toBeLessThan(0.001);
+  });
+
+  it('folds a last row thinner than FAR_SLIVER_LDU into the row before it', () => {
+    const cs = decomposeLattice(lattice(), bounds, 'greedy');
+    expect(thinnest(cs)).toBeGreaterThan(FAR_SLIVER_LDU);
+    expect(cs).toHaveLength(1);
+    // The part's true extent is kept, and nothing reaches past it.
+    expect(cs[0]!.max[0]).toBeCloseTo(4.0005, 9);
+    expect(decomposeLattice(lattice(), bounds, 'best-of').every(c => c.max[0] - c.min[0] > FAR_SLIVER_LDU)).toBe(true);
+  });
+
+  it('extends only the boxes that absorbed a sliver', () => {
+    // Row y=0 has a sliver cell at x=2; row y=1 (another colour) ends on the
+    // plane with nothing beyond it and must stay short of the bound, clear of
+    // any neighbouring part's face there.
+    const lat = {
+      origin: [0, 0, 0] as Vec3, cell: 2, nx: 3, ny: 2, nz: 1,
+      solid: new Uint8Array([1, 1, 1, 1, 1, 0]), label: new Uint16Array([1, 1, 2, 3, 3, 0]), colors: [4, 1, 14],
+    };
+    const cs = decomposeLattice(lat, [4.0005, 4, 2], 'greedy');
+    const row = (y: number) => cs.find(c => c.min[1] === y * 2)!;
+    expect(row(0).max[0]).toBeCloseTo(4.0005, 9);
+    expect(row(1).max[0]).toBe(4);
+  });
+
+  it('keeps a sliver cell whose neighbour is empty (never opens a hole)', () => {
+    const lat = {
+      origin: [0, 0, 0] as Vec3, cell: 2, nx: 3, ny: 1, nz: 1,
+      solid: new Uint8Array([1, 0, 1]), label: new Uint16Array(3), colors: [],
+    };
+    const { lattice, foldedPlane } = foldFarSlivers(lat, [4.001, 2, 2]);
+    expect(foldedPlane[0]).toBe(4);
+    expect([...lattice.solid]).toEqual([1, 0, 1]);
+    const full = foldFarSlivers({ ...lat, solid: new Uint8Array([1, 1, 1]) }, [4.001, 2, 2]);
+    expect([...full.lattice.solid]).toEqual([1, 1, 0]);
+    expect([...lat.solid]).toEqual([1, 0, 1]); // the input lattice is not mutated
   });
 });
 

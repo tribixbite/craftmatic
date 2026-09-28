@@ -221,6 +221,25 @@ player, 11204's chest lid, a lift ride that shows the car moving.
 
 ## Open — rendering and export
 
+- [ ] **Far-side slivers folded** (2026-09-28, `foldFarSlivers` in
+  `ldraw-part-prototype.ts`): a part whose bounds end a float hair past a
+  grid plane (8.0005 on 2 LDU) used to emit its last lattice row as a
+  0.0002-0.03 LDU cuboid. Folded into the row before: favourites' thin cubes
+  7,002 -> 902 (10261 550 -> 5), extents unchanged, no hole (a sliver with an
+  empty neighbour is kept). Side effect: fewer cubes re-plan every pack's
+  grains, so z-fight moves both ways (7 packs up, 4 down, 29 same; total
+  8,028 -> 8,122 pairs, 30.04 -> 30.17 block faces; 42172 +0.08, 77092 +0.11).
+  NOT shown to be visible on a device either way: a sliver is back-face culled
+  and mostly shares its neighbour's colour. Evidence `output/fold-0928/`
+  (`sweep2/`, `ix.log`), probe `scripts/_planar_cuboid_probe.ts`.
+  The `fix/bedrock-fidelity` worktree commit `ecc2c265` (thicken exact-zero
+  cuboids outward by one cell) is NOT merged: it changes none of 10261's
+  placed parts (their slivers are >1e-9 thick) and where it acts it pushes a
+  flat part's plane a whole cell (2-8 LDU) past its own bounds.
+- [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
+  (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
+  the export's separation pass works within one actor only.
+
 - [ ] Stair-step striping on curved parts (42703 arches, round columns) at 2
   LDU: geometry; only a finer grain or merged steps change it.
 - [ ] Close-up fidelity: rotated-cuboid facets for round parts are measured
