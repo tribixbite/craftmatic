@@ -62,15 +62,7 @@ the creator pack is `bun scripts/_minifig_ref.ts <out> --creator=starter "--labe
   no target once the creator pack was bound again (its load sweep removes
   drafts), so it is gone or in an unloaded chunk.
 
-## In flight (2026-09-27)
-
-User ask: every minifig-fitting vehicle seat/cockpit/seat usable by the
-player; fetch files for newly released sets; find sources for missing
-LDraw parts incl. the Gabby mini-doll pieces. Three agents launched:
-- Seating: craftmatic worktree branch `worktree-agent-a123ff9c…`, evidence
-  `output/seat-audit-0927/` there; merge into main after its gates.
-If a session resumes with no agent running, merge the seating branch after
-its gates (see its `output/seat-audit-0927/audit.md`).
+## Sources round (2026-09-27)
 
 New releases and missing parts are DONE and published (clego `6e075c84`,
 `c636ea03`, `b82659bb`; craftmatic `fe46a79e`): 8 new sets indexed (40900 DBIX;
@@ -409,29 +401,28 @@ Open:
   at pitch -20 and reads wrong. Gold on nougat skin is lost.
 - [ ] In-app `.lxf` path: `FIGURE_TURN` (the 5828 hair) is converter-only.
 
-## Vehicle seating (2026-09-26)
+## Seating (2026-09-27, merged `worktree-agent-a123ff9c…`)
 
-Branch `worktree-agent-a3eeb9448f0bdd149` (commits `0587f1db`..`ba56b2ee`,
-merge of main `4875bb35`); not pushed. Guide: docs/bedrock-addon-guide.md
-"Where the player sits". Evidence: the worktree's `output/vehicle-seat-0926/`
-(`before/`, `final3/seats.md`, `shots/saga-*.png`, packs `packs-0a563bbc/`).
-
-- [x] Saga world 925 (packs `0a563bbc`): 42172 rider in the cabin at 100 %
-  with a windscreen view; 7140 hidden at 100 %, in the cockpit at 150 %;
-  summoned vehicles removed, left at the Play screen. Six staging dirs
-  `/data/local/tmp/craftmatic-deploy-20260926-17*`/`-18*` left (~7 MB each).
+Every place a figure sits is in the export report's seat census
+(`engine/seat-census.ts`); guide: docs/bedrock-addon-guide.md "Where the
+player sits". 45 sets (40 favourites + 5 Gabby): places the player can sit
+153/170 -> **160/162** (raw parts 153/176 -> 170/172). Evidence in the
+worktree `output/seat-audit-0927/` (`final/audit.md`, `veh-final.log`,
+`sweep/` 40/40, `ix.log` 0 FAIL). Rules: a ship's wheel steers, the driver
+sits at the wheel, a source-seated figure proves a seat and yields it to a
+player within 2.5 blocks, one measured eye height 1.12 (coaster included),
+boats face bow-first, a boat's driver is never under its hull (60221 on
+deck), 76286's pilot fits from 100 %.
+- [ ] Not seen on a device: every rule above. Next device round: 10365 at
+  the helm facing the bow, 60221 on deck, 76286 at 100 %, a seated NPC
+  standing up for the player (31141 or 10261), coaster eye at 1.12.
+- [ ] Left: 60446's second figure stays in the vehicle geometry (no
+  passenger seat, `TODO(seat-passenger-figures)`); 75397's second steering
+  spot is not a seat. 42092 (Technic, 0.9 scale) keeps the eye in the hull
+  at every size - not a minifig cabin.
 - [ ] GameTest drive on the Pixel (`bun scripts/_gametest_pack.ts <pack>
   --only=vehicles`, world `cmgametest`) to confirm seating did not change
-  driving. Seating itself was seen by hand on the Pixel in round 26d (42172
-  cabin + windscreen, 7140 at 150 %).
-- [ ] 60221: its "steering wheel" (3828) belongs to an accessory in the same
-  entity; the rider sits under the yacht on the ground.
-- [ ] Boats: with no steering wheel the FRONT-most seated figure drives (10365
-  seats the player at the bow); a boat should take the aft-most, and a ship's
-  wheel should count as steering.
-- [ ] 76286, 42092: the eye lies in the hull at every size (never drawn).
-- [ ] `TODO(seat-eye)`: the coaster still uses the 1.25 eye height.
-
+  driving.
 
 ## Gabby sets (2026-09-26)
 
