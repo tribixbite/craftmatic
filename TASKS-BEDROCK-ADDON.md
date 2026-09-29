@@ -221,12 +221,17 @@ player, 11204's chest lid, a lift ride that shows the car moving.
   hand-back by `animTail` 6, and both cameras ride the DRAWN seat
   (`tickLag` 1.5, `animLag` 3.5, marker-measured: the old per-tick camera
   sat 1.7 blocks ahead of the drawn car at 10 blocks/s — in the car ahead at
-  speed). Device proof pending for the second build: (a) no spin over
-  either top, (b) no player's-view flash at loop 2's entry (viewer release
-  now needs two unseen ticks), (c) no jump at the hand-back, (d) the view
-  from the own seat, not the car ahead's. Open after it: `over`'s keyframe
-  direction is off the nose by up to ~3 degrees on a leaning loop; the
-  measured ±30 px frame jitter of the eased camera.
+  speed). Ridden (`f131fe80`, `device/ride3*.jpg`): (a) no spin over either
+  top, (b) no own-view flash at either loop, (c) loop 1's hand-back smooth,
+  loop 2's cut ~40 degrees in one frame → the lag now blends from `animLag`
+  to `tickLag` over `handbackBlend` 4 ticks. Ridden again (`ed273b4b`,
+  `device/ride4*.jpg`, content log 0 errors): both loops pitch over with no
+  spin, both exits continuous, no flash. Not verified by eye: (d) the view
+  is from the own seat (the marker measurement says so). Open: `over`'s
+  keyframe direction is off the nose by up to ~3 degrees on a leaning loop;
+  the eased camera's ±30 px frame jitter; the camprobe pack (`5c0c9d3e…`,
+  `Craftmatic(7)`) is still bound in world 924 — harmless, unbind with the
+  next `--exclusive` round. The user's own verdict is the gate.
 - [ ] Pinball: cabinet button's 1.5x inward travel and launch-tick smoothing
   not seen on a device; drag release inferred (5 still ticks); tap-to-flipper
   ~100 ms is the server round trip.

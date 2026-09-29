@@ -2394,7 +2394,10 @@ looking down at the car to level ahead in one frame
 EYE (tick k − 3.5) with the per-tick ROTATION of tick k − 1.5, and at a helix
 exit those poses are ~40 degrees apart. The per-tick lag now runs from
 `animLag` to `tickLag` over `handbackBlend` (4) ticks after a hand-back,
-so eye and rotation both start where the animation left them.
+so eye and rotation both start where the animation left them. Ridden
+(`ride4.mp4`, pack `ed273b4b`, `ride4-course*-sheet*.jpg` at 10 fps,
+`ride4-exit*-big-*.jpg` at 30 fps): both loops pitch over with no spin,
+both exits continuous, no own-view flash anywhere; content log 0 errors.
 
 **Roll composes about the view axis** (`rot z30`, `rot z30x180`,
 `probe4-z30*.jpg`): the same `z: 30` tilts the picture the same way at
