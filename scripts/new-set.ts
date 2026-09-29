@@ -64,11 +64,13 @@ const step = (name: string, ok: boolean | null, detail: string): void => {
   console.log(`${ok === null ? '·' : ok ? 'OK ' : 'FAIL'} ${name}: ${detail}`);
 };
 
-const sh = (cmd: string, args: string[], label: string, timeoutMs = 20 * 60_000): { status: number | null; out: string } => {
+/** Run a gate; its stdout is kept apart from stderr because the export's report is the JSON on stdout alone. */
+const sh = (cmd: string, args: string[], label: string, timeoutMs = 20 * 60_000): { status: number | null; out: string; stdout: string } => {
   const r = spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: timeoutMs });
-  const out = `${r.stdout ?? ''}\n${r.stderr ?? ''}`;
+  const stdout = r.stdout ?? '';
+  const out = `${stdout}\n${r.stderr ?? ''}`;
   writeFileSync(`${OUT}/${label}.log`, out);
-  return { status: r.status, out };
+  return { status: r.status, out, stdout };
 };
 
 async function fetchJson<T>(url: string, timeoutMs: number): Promise<T | null> {
@@ -153,15 +155,26 @@ if (!SKIP_PACK) {
     step('pack', false, `export exited ${build.status} after ${seconds}s: ${build.out.trim().split('\n').slice(-3).join(' | ').slice(0, 400)}`);
     finish(1);
   }
-  let report: Record<string, unknown> = {};
-  try { report = JSON.parse(build.out.slice(build.out.indexOf('{'))) as Record<string, unknown>; } catch { /* the log has it */ }
+  // The report is the JSON object on STDOUT (what _favorites_export_sweep.ts
+  // reads); a parse failure is a failed gate, not an empty report - an empty
+  // report would read as "0 unresolved parts".
+  let report: Record<string, unknown> | null = null;
+  try { report = JSON.parse(build.stdout.slice(build.stdout.indexOf('{'))) as Record<string, unknown>; } catch { report = null; }
+  if (!report) { step('pack', false, `the export printed no parsable report on stdout (see ${OUT}/export.log)`); finish(1); }
   writeFileSync(`${OUT}/${sku}.export.json`, JSON.stringify(report, null, 1));
-  const subst = (report['substitutedParts'] as unknown[] | undefined)?.length ?? 0;
-  const unres = (report['unresolvedParts'] as unknown[] | undefined)?.length ?? 0;
+  // Part resolution is reported PER ENTITY (shell, each figure, each vehicle):
+  // `unresolvedParts`, `substitutedParts` and `aabbFallbackParts` lists under
+  // `entities.<id>`. Summed here; the names are kept for the report.
+  type EntityDiag = { unresolvedParts?: string[]; substitutedParts?: unknown[]; aabbFallbackParts?: string[] };
+  const entityDiags = Object.entries((report['entities'] as Record<string, EntityDiag> | undefined) ?? {});
+  const unresolved = entityDiags.flatMap(([, d]) => d.unresolvedParts ?? []);
+  const substituted = entityDiags.reduce((n, [, d]) => n + (d.substitutedParts?.length ?? 0), 0);
+  const aabb = entityDiags.flatMap(([, d]) => d.aabbFallbackParts ?? []);
   const warnings = (report['warnings'] as string[] | undefined) ?? [];
-  const entities = Object.keys((report['entities'] as Record<string, unknown> | undefined) ?? {}).length;
+  const entities = entityDiags.length;
   step('pack', true, `${pack} (${(statSync(pack).size / 1024 / 1024).toFixed(1)} MB, ${entities} entities, ${seconds}s, label "${label}")`);
-  step('parts resolved', unres === 0, `${unres} unresolved, ${subst} substituted${warnings.length ? `; ${warnings.length} warning(s): ${warnings.slice(0, 3).join(' | ').slice(0, 300)}` : ''}`);
+  step('parts resolved', unresolved.length === 0 && aabb.length === 0,
+    `${unresolved.length} unresolved${unresolved.length ? ` (${[...new Set(unresolved)].slice(0, 8).join(', ')})` : ''}, ${aabb.length} drawn as boxes${aabb.length ? ` (${[...new Set(aabb)].slice(0, 8).join(', ')})` : ''}, ${substituted} substituted over ${entities} entities${warnings.length ? `; ${warnings.length} warning(s)` : ''}`);
 
   const check = sh('python', ['scripts/_mcaddon_check.py', pack], 'mcaddon-check');
   const checkOk = /^OK\s/m.test(check.out) && !/^FAIL\s/m.test(check.out);
