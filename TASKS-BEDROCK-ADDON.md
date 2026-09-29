@@ -94,6 +94,27 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
+## Round 2026-09-29c (`e2c21112`) - faces closed, Gabby play, kiosk retake, Nimbus
+
+**Sent**: `output/device-round-2026-09-29c/craftmatic-packs-e2c21112.zip`
+(sha256 cc9919f74d517725da7d9a22e87a02bdec4e423ab987f3fa15d525d5a3b15728;
+19 round packs + `nimbus-fixture.mcaddon` + creator, `pack-hashes.tsv`
+inside). Built one at a time from clean main (stamp `6ebcce855fd2`), faces
+`output/faces-art-0926`. `check.txt`: 21/21 `_mcaddon_check` OK, every
+uuid = 29b's (`uuid-proof.tsv`), parts = 29b's except 10788 (the lift car is
+now the 1-part platform 3863; the old 12-part cap is back in the shell - the
+intended change). Render faults <= 1.9 block faces (11374 worst, as before);
+passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
+- [ ] Pixel (agent in flight, `pixel/`): deploy `--exclusive`; figures closed
+  (10261 fig6 front/side/chin, walking, 76417 fig10, a 41732 doll, plus a
+  seated and a head-turned pose - never device-checked); 10261 kiosk fig2
+  retakes its seat (`46e855f1`; log `FIGURE_RETAKE_*`); Nimbus fixture (orbit,
+  tap-to-summon, fly); 10788 lift + slide; content log 0/0.
+- [ ] Saga: deploy the same zip `--exclusive` after the Nimbus proof agent
+  frees the phone (`output/nimbus-saga-0929/`); check the Gabby fixes on the
+  new build (the play round's packs were `377850a5`), the faces, the kiosk.
+- [ ] The user's own look at the rebuilt figures and the Gabby sets.
+
 ## Rounds 2026-09-29a/b (`d95b7f5e`, `f37227ad`)
 
 **Sent**: `output/device-round-2026-09-29a/craftmatic-packs-d95b7f5e.zip`
