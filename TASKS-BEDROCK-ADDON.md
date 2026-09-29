@@ -191,8 +191,6 @@ player, 11204's chest lid, a lift ride that shows the car moving.
 - [ ] Colliders are laid in the grid frame, figures in the underside frame:
   a baseplate off a cell boundary is drawn into the terrain.
 - [ ] Figure walk phase below 100 % (shorter legs, same rate).
-- [ ] Creator figure geometry re-declares `armor_offset.default_neck` per
-  head/hair geometry (content-log error, harmless so far) — creator agent.
 - [ ] 42703's mermaid display dolls hover (stand parts 35678/35680/6330 have
   no LDraw part); goblins at 76417's teller desks only by an explicit rule.
 
