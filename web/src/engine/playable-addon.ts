@@ -2199,13 +2199,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     const c0 = sceneGridPoint(frame, it.leaf.corner), ca = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.along[0], it.leaf.corner[1] + it.leaf.along[1], it.leaf.corner[2] + it.leaf.along[2]]), cu = sceneGridPoint(frame, [it.leaf.corner[0] + it.leaf.up[0], it.leaf.corner[1] + it.leaf.up[1], it.leaf.corner[2] + it.leaf.up[2]]);
                     return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
                 });
-                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []) });
+                const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
+                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches });
                 captureDoorwayNeighbours(colliders.grid, ixPlans);
                 const r = clearanceReport;
                 warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);
             }
             if (compiledIx.length) {
-                const items: InteractiveRuntimeItem[] = compiledIx.map((c, k) => interactiveRuntimeItem(c.it, c.typeId, c.label, ixPlans[k] ?? null));
+                // Blocks per LDU of this model (its collider frame): the opening is measured at the model's own scale.
+                const ixBlocksPerLdu = options.shell.frame.scale / options.shell.frame.cellXZ;
+                const items: InteractiveRuntimeItem[] = compiledIx.map((c, k) => interactiveRuntimeItem(c.it, c.typeId, c.label, ixPlans[k] ?? null, ixBlocksPerLdu));
                 linkSharedDoorways(items);
                 // The hinge in the model's block frame (the walk preview swings the leaf about it; the runtime ignores it).
                 items.forEach((item, k) => {

@@ -106,6 +106,12 @@ export interface ClearanceInput {
   leafPlanes?: ReadonlyArray<{ c: readonly number[]; a: readonly number[]; u: readonly number[] } | null>;
   /** The cells the runtime lays while those leaves are closed: `[x, y, z, lo, hi]`. */
   closedCells: ReadonlyArray<readonly (number | undefined)[]>;
+  /**
+   * Every doorway's approach (`InteractiveColliderPlan.approach`): the columns
+   * a player stands in to walk through it, and the doorway's floor (absolute
+   * sixteenths). Rule 4's second exception reads them.
+   */
+  approaches?: ReadonlyArray<{ columns: ReadonlyArray<readonly [number, number]>; floor16: number }>;
 }
 
 /** One proposal's fate: the cell, what was proposed, and why it was refused (absent when applied). */
@@ -120,6 +126,8 @@ export interface ClearanceReport {
    * over open air (`wallTopRim`), before the leak check (which may still refuse some).
    */
   wallTops: number;
+  /** Standing surfaces rule 4 let through because they stand in a doorway's approach at body height (`approachTop`). */
+  approachTops: number;
   applied: { wall: number; ceiling: number };
   refused: Record<ClearanceRefusal, number>;
   /** Block volume freed (blocks cubed at 100 %). */
@@ -139,6 +147,8 @@ export interface ClearanceReport {
 
 /** Clear height a sneaking player needs, and a standing one (sixteenths); the most a ceiling is raised; what it must keep. */
 export const SNEAK_NEED16 = 24;
+/** The auto-step a player walks up without a jump (9/16): a surface higher than this over a doorway's floor is not its approach floor. */
+export const APPROACH_STEP16 = 9;
 export const STAND_NEED16 = 29;
 export const CEILING_RAISE_MAX16 = STAND_NEED16 - SNEAK_NEED16;
 export const CEILING_KEEP16 = 2;
@@ -200,7 +210,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -335,6 +345,31 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     return true;
   };
 
+  /**
+   * Rule 4's second exception: a surface in a doorway's APPROACH (the columns
+   * a player stands in to walk through it) that is not the approach's floor
+   * but stands in the body of a player there - its top more than an
+   * auto-step (9/16) over the doorway's floor and its bottom under the head
+   * of a player standing on the approach (whose floor may be an auto-step
+   * over the doorway's: 9/16 + 1.8). Kept whole, its phantom rim is an
+   * invisible shelf at knee-to-head height in front of the door: the
+   * minifig's door the player could not reach (10326's Doors 1-2 opened
+   * under a 1/16 sliver of shelf read as a whole block's top, 910049's gate
+   * behind three such rims; `scripts/_ix_sealed_causes.ts`). The trim still
+   * contains the geometry (rule 2) and passes the leak check (rule 5): what
+   * goes is phantom footing only a jump reached, never the floor walked on.
+   */
+  const approachFloor = new Map<string, number>();
+  for (const a of input.approaches ?? []) for (const [cx, cz] of a.columns) {
+    const key = `${cx},${cz}`;
+    approachFloor.set(key, Math.min(approachFloor.get(key) ?? Infinity, a.floor16));
+  }
+  const approachTop = (x: number, y: number, z: number, built: ColliderForm): boolean => {
+    const floor16 = approachFloor.get(`${x},${z}`);
+    if (floor16 === undefined) return false;
+    return y * 16 + built.hi > floor16 + APPROACH_STEP16 && y * 16 + built.lo < floor16 + APPROACH_STEP16 + STAND_NEED16;
+  };
+
   // ── Wall proposals.
   type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm };
   const proposals: Proposal[] = [];
@@ -360,8 +395,9 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     if (headroomAbove(x, z, y * 16 + built.hi) >= SNEAK_NEED16) {
       const top = COLLIDER_KIT.formBoxes(to.v, to.lo, to.hi).filter(b => b[3] === built.hi);
       if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
-        if (!wallTopRim(x, y, z, to, built)) { refuse(p, 'walkable-top'); continue; }
-        report.wallTops++;
+        if (approachTop(x, y, z, built)) report.approachTops++;
+        else if (!wallTopRim(x, y, z, to, built)) { refuse(p, 'walkable-top'); continue; }
+        else report.wallTops++;
       }
     }
     proposals.push(p);

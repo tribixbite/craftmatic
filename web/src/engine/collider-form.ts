@@ -72,8 +72,8 @@ export interface ColliderFormKit {
   lay(block: { setPermutation(p: unknown): void }, form: ColliderForm, loState: string, hiState: string, resolve: (id: string, states: Record<string, number>) => unknown): boolean;
 }
 
-export function colliderFormKit(): ColliderFormKit {
-  const BANDS = [[0, 4], [0, 8], [0, 12], [4, 16], [8, 16], [12, 16], [4, 12]];
+export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>): ColliderFormKit {
+  const BANDS = bands ?? [[0, 4], [0, 8], [0, 12], [4, 16], [8, 16], [12, 16], [4, 12]];
   const SHAPES: Array<[number, number, number, number]> = [[0, 16, 0, 16]];
   for (const b of BANDS) SHAPES.push([b[0]!, b[1]!, 0, 16]);
   for (const b of BANDS) SHAPES.push([0, 16, b[0]!, b[1]!]);
