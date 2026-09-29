@@ -151,9 +151,17 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   `FLYER.FLYING_SPEED` is now 0.0725 for ~11, to confirm); figures closed
   (fig6 front/side/chin, seated fig2). `fly` lines UNCHANGED with the
   interactive entry (8.4/min orbit only, 466/min full-stick flight):
-  next A/B per `TODO(fly-sound)` - `interactive_sounds.block_sounds.normal`
-  verbatim + `fly: ""`, then a real silent `sound_definitions.json` entry;
-  else drop the entry and the gate (verbose-only; low priority). Pixel wand
+  A/B packs READY in `output/fly-sound-ab-0929/` (README has diffs, hashes,
+  recipe): A = `interactive_sounds.block_sounds.normal` vanilla verbatim +
+  `fly: ""`; B = a real silent ogg via `sound_definitions.json`
+  (`craftmatic.silent`); C = both. Measure on the SAGA (dev mode replaces
+  in place; the Pixel import skips an installed uuid+version): 3-min
+  orbit-only idle, 60 s flight, 3-min mounted idle. FINDING: the idle
+  ~8/min lines come from the ORBIT's non-hovering entities (ride car/seat/
+  figure moved through the air; the hovering cloud exists only after a
+  tap), so `flySoundEvents`' can_fly/hover selection misses the source and
+  only the flying window can score B. If neither A nor B works, drop the
+  entry and the gate (verbose-only; low priority). Pixel wand
   recipe: a crosshair tap never fires itemUse; re-select the wand (hotbar
   2 then 1) to open the menu; screenshot before every menu row tap.
 - [x] Nimbus fixes re-checked on the Pixel (`output/nimbus-pixel-0929/`,
