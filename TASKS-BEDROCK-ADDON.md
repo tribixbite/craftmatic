@@ -115,11 +115,28 @@ uuid = 29b's (`uuid-proof.tsv`), parts = 29b's except 10788 (the lift car is
 now the 1-part platform 3863; the old 12-part cap is back in the shell - the
 intended change). Render faults <= 1.9 block faces (11374 worst, as before);
 passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
-- [ ] Pixel (agent in flight, `pixel/`): deploy `--exclusive`; figures closed
-  (10261 fig6 front/side/chin, walking, 76417 fig10, a 41732 doll, plus a
-  seated and a head-turned pose - never device-checked); 10261 kiosk fig2
-  retakes its seat (`46e855f1`; log `FIGURE_RETAKE_*`); Nimbus fixture (orbit,
-  tap-to-summon, fly); 10788 lift + slide; content log 0/0.
+- [x] Pixel (`pixel/`, `_notes.txt` indexes 171 files): deployed
+  `--exclusive`, 21/21 bound, content log 0 errors / 0 overridden. Figures
+  CLOSED: 10261 fig6 front/side/chin at 1.7-2.2 blocks, walking, 76417
+  fig10, 41732 fig2, seated (kiosk fig2, coaster riders), idle head turn -
+  no gap on any figure looked at. Kiosk fig2 RETAKES its own seat (yielded at
+  2.2 blocks, player sat, walked 4.6 away, seated again at the seat's own
+  position after 10 s; the success path logs no FIGURE_RETAKE line). Nimbus:
+  orbit, tap-train summon, fly 13.7 mph, climb, dismount (descend not
+  testable by adb). 10788 lift: tap boards, floors 2, 3, back down. Undo
+  left nothing.
+- [ ] 10788 slide seat NOT tappable on the Pixel (`124-seat-blocks`): since
+  `377850a5` the seat idles on the bed path INSIDE collider blocks
+  (`collider_w6`/`_f1`), the ride entity's box is 0.5 and boarding is
+  entity-interact only, so the tap hits the collider; `/ride` boards and the
+  chute runs (2.4 blocks). Worktree agent fixing (idle at the lip and/or a
+  `playerInteractWithBlock` boarding on collider forms; all six slide sets
+  checked). Also: floor 3's WEST room (x 5575-5582 at the Pixel placement)
+  does not hold the player while the east room does - clearance trim or an
+  open floor in the model; same agent diagnoses with `_clearance_report.ts`.
+- [ ] Nimbus fixes re-check on the Pixel (agent in flight,
+  `output/nimbus-pixel-0929/`): hint, HUD mph vs true + CMVT cadence, look
+  down + Jump dive, float-down, `fly` line count.
 - [ ] Saga: deploy the same zip `--exclusive` after the Nimbus proof agent
   frees the phone (`output/nimbus-saga-0929/`); check the Gabby fixes on the
   new build (the play round's packs were `377850a5`), the faces, the kiosk.
