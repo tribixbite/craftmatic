@@ -215,7 +215,7 @@ describe('the orbit ride runtime', () => {
 
 describe('the summon-and-fade runtime', () => {
   const CLOUD = 'craftmatic:t_cloud', FIG = 'craftmatic:t_fig1', CAR = 'craftmatic:t_car', SEAT = 'craftmatic:t_orbit';
-  function world(options: { sizeFactor?: number } = {}) {
+  function world(options: { sizeFactor?: number; groundY?: number } = {}) {
     const clouds: any[] = [];
     const events: Record<string, Array<(ev: any) => void>> = { interact: [], hit: [] };
     const removed: string[] = [];
@@ -223,9 +223,11 @@ describe('the summon-and-fade runtime', () => {
     const seat: any = { id: 'seat', typeId: SEAT, location: { x: 30, y: 20, z: 0 }, getDynamicProperty: (k: string) => k === 'craftmatic:ride_scale' ? options.sizeFactor ?? 1 : undefined };
     const figure: any = { id: 'fig', typeId: FIG, location: { x: 30, y: 20, z: 0 } };
     const car: any = { id: 'car', typeId: CAR, location: { x: 30, y: 19.5, z: 0 } };
+    const groundY = options.groundY ?? 0; // the ground's top: every block at or under it is solid
     const dim: any = {
       id: 'overworld', particles: 0, sounds: [] as string[],
       getEntities: (q: any) => q.type === CLOUD ? clouds.filter(c => !removed.includes(c.id)) : q.type === SEAT ? [seat] : [],
+      getBlock: (p: any) => ({ isAir: p.y > groundY, isLiquid: false }),
       spawnParticle() { this.particles++; }, playSound(id: string) { this.sounds.push(id); },
       spawnEntity(type: string, at: any) {
         const props = new Map<string, unknown>();
@@ -238,8 +240,9 @@ describe('the summon-and-fade runtime', () => {
         return e;
       },
     };
-    const player: any = { id: 'p1', typeId: 'minecraft:player', location: { x: 0, y: 5, z: 0 }, riding: undefined as any, hud: '', dimension: dim,
+    const player: any = { id: 'p1', typeId: 'minecraft:player', location: { x: 0, y: 5, z: 0 }, riding: undefined as any, hud: '', dimension: dim, effects: [] as Array<{ id: string; ticks: number; options: any }>,
       getRotation: () => ({ x: 0, y: 0 }), getComponent: (n: string) => n === 'minecraft:riding' && player.riding ? { entityRidingOn: player.riding } : undefined,
+      addEffect: (id: string, ticks: number, options: any) => { player.effects.push({ id, ticks, options }); },
       onScreenDisplay: { setActionBar: (s: string) => { player.hud = s; } } };
     (globalThis as any).world = {
       getAllPlayers: () => [player],
@@ -250,7 +253,7 @@ describe('the summon-and-fade runtime', () => {
       mounts: [{ cloudType: CLOUD, summonTypes: [FIG, CAR, SEAT], seatType: SEAT, label: 'Nimbus' }],
       sizeEvents: [100, 200].map(pct => ({ pct, event: `craftmatic:size_${pct}` })),
       particle: 'minecraft:test_puff', spawnSound: 'random.pop', fadeSound: 'random.fizz',
-      constants: { EMPTY_DESPAWN_TICKS: FLYER.EMPTY_DESPAWN_TICKS, CLOUD_CAP: FLYER.CLOUD_CAP, TAP_COOLDOWN_TICKS: FLYER.TAP_COOLDOWN_TICKS, SPAWN_AHEAD_BLOCKS: FLYER.SPAWN_AHEAD_BLOCKS },
+      constants: { EMPTY_DESPAWN_TICKS: FLYER.EMPTY_DESPAWN_TICKS, CLOUD_CAP: FLYER.CLOUD_CAP, TAP_COOLDOWN_TICKS: FLYER.TAP_COOLDOWN_TICKS, SPAWN_AHEAD_BLOCKS: FLYER.SPAWN_AHEAD_BLOCKS, DISMOUNT_DROP_BLOCKS: FLYER.DISMOUNT_DROP_BLOCKS, DISMOUNT_SLOW_FALL_TICKS: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     };
     _flyerRuntimeForTests(config);
     const live = () => clouds.filter(c => !removed.includes(c.id));
@@ -272,8 +275,31 @@ describe('the summon-and-fade runtime', () => {
     expect(w.player.riding).toBe(c);
     expect(w.dim.particles).toBeGreaterThan(0);
     expect(w.dim.sounds).toContain('random.pop');
-    expect(w.player.hud).toMatch(/Nimbus/);
+    // The mount's name and hint are the driver HUD's (vehicle-driver.js, RIDE_HINT_TICKS): a one-shot here was overwritten within 4 ticks.
+    expect(w.player.hud).toBe('');
     expect(c.events).toEqual([]); // 100 %: no size event
+  });
+
+  it('a rider who leaves a cloud in the air floats down: slow falling for DISMOUNT_SLOW_FALL_TICKS and a HUD line; on the ground nothing', () => {
+    const w = world({ groundY: 0 });
+    w.tap(w.figure);
+    w.run(10);
+    w.player.location.y = 40; // flew up (the fake player does not ride along by itself)
+    w.player.riding = undefined; // sneak
+    w.run(10);
+    expect(w.player.effects).toEqual([{ id: 'slow_falling', ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS, options: { amplifier: 0, showParticles: false } }]);
+    expect(w.player.hud).toBe('Floating down');
+    // Back on, down to the ground, off again: no effect (a solid block within DISMOUNT_DROP_BLOCKS under the feet).
+    w.player.effects.length = 0; w.player.hud = '';
+    w.player.riding = w.live()[0]; w.run(10);
+    w.player.location.y = 1 + FLYER.DISMOUNT_DROP_BLOCKS - 0.5; w.player.riding = undefined; w.run(10);
+    expect(w.player.effects).toEqual([]);
+    expect(w.player.hud).toBe('');
+    // The fade's eject counts as leaving too.
+    w.player.riding = w.live()[0]; w.run(10);
+    w.player.location.y = 40;
+    w.live()[0]!.getComponent('minecraft:rideable').ejectRiders(); w.run(10);
+    expect(w.player.effects.map(e => e.id)).toEqual(['slow_falling']);
   });
 
   it('a tap on the cloud or its seat, or a hit, summons too; a stranger does not', () => {

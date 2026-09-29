@@ -346,6 +346,35 @@ export function rideableExitHintLines(files: ReadonlyArray<{ name: string; data:
     return lines;
 }
 /**
+ * The resource pack's `sounds.json`: a silent `fly` sound event for every entity
+ * the behaviour pack declares with `minecraft:can_fly` or `minecraft:movement.hover`
+ * (every rotorcraft, flyer mount and scripted vehicle). Bedrock's hover mover
+ * raises the entity sound event `fly` as it hovers and, finding no entry for
+ * the entity, falls back to the block sound table and logs
+ * `[Sound][verbose] No sound found for block type 'normal' and event type 'fly'`
+ * - 3,101 lines from one Nimbus round (~10/min per idle cloud, 240/min flying;
+ * Saga, 2026-09-29, `output/nimbus-saga-0929/ContentLog2026-09-29_12-44-43_1.txt`).
+ * An empty string is vanilla's own silent event (`bee.events.eat`, the
+ * `entity_sounds.defaults`), and a pack's `entity_sounds` merge per entity
+ * with vanilla's, so nothing else is touched. Read from the emitted behaviour
+ * files like the dismount hints, so no hovering entity can ship without it.
+ * Null when the pack has no such entity. Whether the entry silences the log
+ * is a device measurement (the fallback's trigger is the engine's, not documented).
+ */
+export function silentFlySounds(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): { entity_sounds: { entities: Record<string, { volume: number; pitch: number; events: { fly: string } }> } } | null {
+    const dec = new TextDecoder();
+    const entities: Record<string, { volume: number; pitch: number; events: { fly: string } }> = {};
+    for (const f of files) {
+        if (!f.name.startsWith(`${bpPrefix}entities/`) || !f.name.endsWith('.json')) continue;
+        const src = dec.decode(f.data);
+        if (!src.includes('"minecraft:can_fly"') && !src.includes('"minecraft:movement.hover"')) continue;
+        const id = (JSON.parse(src) as { 'minecraft:entity'?: { description?: { identifier?: string } } })['minecraft:entity']?.description?.identifier;
+        if (!id || entities[id]) continue;
+        entities[id] = { volume: 1, pitch: 1, events: { fly: '' } };
+    }
+    return Object.keys(entities).length ? { entity_sounds: { entities } } : null;
+}
+/**
  * Geometry serializer: MINIFIED, unlike every other file in the pack.
  *
  * `.geo.json` is 98-99 % of a pack's bytes (71043 ultra: 94.35 MB of 95.11 MB)
@@ -1483,9 +1512,33 @@ const timeMachineScript = (config: TimeMachineConfig) => `import { world, system
  * same native controller with its own HUD word and cloud puffs in place of the
  * rotor's sound and flame.
  */
-interface VehicleDriverConfig { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string; motion?: 'rotor' | 'flyer'; hud?: string }>; boostCooldownTicks: number; descendOn: string; descendOff: string; puffParticle?: string }
+interface VehicleDriverConfig {
+  vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string; motion?: 'rotor' | 'flyer'; hud?: string }>;
+  boostCooldownTicks: number; descendOn: string; descendOff: string; puffParticle?: string;
+  /** The rider's look pitch (degrees down) past which the descend group goes in, so Jump dives (`FLYER.DIVE_PITCH_DEG`). */
+  divePitchDeg: number;
+  /** Ticks after boarding during which the HUD shows the mount's name and hint instead of the speed line (`FLYER.RIDE_HINT_TICKS`). */
+  rideHintTicks: number;
+  /** The HUD speed is the mean over the position changes of this many ticks (`DRIVER_SPEED_WINDOW_TICKS`). */
+  speedWindowTicks: number;
+  /** A position change longer than this between two samples is a teleport, not motion (`DRIVER_TELEPORT_BLOCKS`). */
+  teleportBlocks: number;
+}
 /** Ticks between two Jump effects (sound and flame) of a rotorcraft. */
 export const ROTOR_BOOST_COOLDOWN_TICKS = 30;
+/**
+ * The driver HUD's speed is the position delta over the changes of the last
+ * `DRIVER_SPEED_WINDOW_TICKS` ticks, never over one 2-tick interval: a native
+ * mount is client-authoritative and its server position moves in BURSTS, so a
+ * per-interval delta read 0 / 24.9 / 60.2 / 99.0 mph on the Nimbus at ~10
+ * blocks/s (Saga, 2026-09-29, `output/nimbus-saga-0929/flight-hud-strip.jpg`).
+ * A mean between the first and the last position CHANGE inside the window is
+ * the true speed whatever the burst cadence. A vehicle whose position has not
+ * changed for a whole window is standing.
+ */
+export const DRIVER_SPEED_WINDOW_TICKS = 20;
+/** A jump longer than this between two consecutive samples (2 ticks apart) is a teleport - the wand, a reload - and resets the window. */
+export const DRIVER_TELEPORT_BLOCKS = 5;
 /**
  * The vanilla particle a flyer puffs: the white cloud an entity's water
  * evaporation makes (`minecraft:water_evaporation_actor_emitter`); the summon
@@ -1516,20 +1569,31 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
   const states = new Map<string, any>();
   /**
    * Speed of a rider-driven vehicle. A native mount's movement is client-authoritative,
-   * so the server's `getVelocity()` reads ~0 while it visibly flies; measure from the
-   * position delta over the 2-tick interval instead, and treat a jump of more than
-   * 5 blocks as a teleport, not motion.
+   * so the server's `getVelocity()` reads ~0 while it visibly flies, and its position
+   * arrives in bursts (several ticks of motion in one step, then nothing): a delta over
+   * one 2-tick interval read up to 4x the true speed on the Nimbus (Saga, 2026-09-29).
+   * Keep the positions at which it MOVED over the last `speedWindowTicks` and read the
+   * mean between the first and the last of them; no move for a whole window is
+   * standing. A jump over `teleportBlocks` between two samples is a teleport, not motion.
    */
-  const riddenVelocity = (state: any, vehicle: any): { x: number; y: number; z: number } => {
+  const riddenVelocity = (state: any, vehicle: any, now: number): { x: number; y: number; z: number } => {
     let reported = { x: 0, y: 0, z: 0 };
     try { reported = vehicle.getVelocity?.() ?? reported; } catch {}
     let loc: any;
     try { loc = vehicle.location; } catch { return reported; }
-    const last = state.lastPos;
-    state.lastPos = { x: loc.x, y: loc.y, z: loc.z };
-    if (!last) return reported;
-    const measured = { x: (loc.x - last.x) / 2, y: (loc.y - last.y) / 2, z: (loc.z - last.z) / 2 };
-    if (Math.hypot(measured.x, measured.y, measured.z) > 5) return reported; // a teleport, not motion
+    const cur = { t: now, x: loc.x, y: loc.y, z: loc.z };
+    const moves: Array<{ t: number; x: number; y: number; z: number }> = state.moves ?? (state.moves = []);
+    const last = moves[moves.length - 1];
+    if (!last) { moves.push(cur); return reported; }
+    const step = Math.hypot(cur.x - last.x, cur.y - last.y, cur.z - last.z);
+    if (step > config.teleportBlocks) { moves.length = 0; moves.push(cur); return reported; }
+    if (step > 1e-4) moves.push(cur);
+    // Keep the oldest move inside the window and the one before it (two moves make a speed).
+    while (moves.length > 2 && moves[1]!.t <= now - config.speedWindowTicks) moves.shift();
+    const newest = moves[moves.length - 1]!, oldest = moves[0]!;
+    const span = newest.t - oldest.t;
+    if (newest.t <= now - config.speedWindowTicks || span <= 0) return reported;
+    const measured = { x: (newest.x - oldest.x) / span, y: (newest.y - oldest.y) / span, z: (newest.z - oldest.z) / span };
     return Math.hypot(measured.x, measured.z) >= Math.hypot(reported.x, reported.z) ? measured : reported;
   };
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => {
@@ -1551,19 +1615,27 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
       let state = states.get(vehicle.id);
       if (!state) { state = { boostCooldown: 0 }; states.set(vehicle.id, state); }
       if (state.boostCooldown > 0) state.boostCooldown -= 2;
-      const vel = riddenVelocity(state, vehicle);
+      // A new rider (or the same one back on) starts a ride: the HUD opens with the mount's name and hint.
+      let riderId = '';
+      try { riderId = String(rider.id); } catch {}
+      if (state.riderId !== riderId) { state.riderId = riderId; state.rideStart = tick; }
+      const vel = riddenVelocity(state, vehicle, tick);
       const mph = Math.hypot(vel.x, vel.z) * MPH_PER_BLOCK_TICK;
-      let jump = false, forwardInput = 0, steerInput = 0;
+      let jump = false, forwardInput = 0, steerInput = 0, pitch = 0;
       try {
         const m = rider.inputInfo?.getMovementVector?.();
         forwardInput = m?.y ?? 0;
         steerInput = m?.x ?? 0;
         jump = !!(rider.isJumping || rider.inputInfo?.getButtonState?.('Jump') === 'Pressed');
       } catch {}
-      // Descend: pull the stick BACK and hold Jump. The entity's `craftmatic:descending`
-      // group makes Jump's vertical action negative while it is added (behaviorEntity);
-      // it is removed the moment the stick returns so Jump climbs again.
-      const wantDescend = jump && forwardInput < -0.1;
+      try { pitch = Number(rider.getRotation?.()?.x) || 0; } catch {}
+      // Descend: pull the stick BACK and hold Jump, or LOOK DOWN past `divePitchDeg` (pitch
+      // is positive downwards) and hold Jump. The entity's `craftmatic:descending` group
+      // makes Jump's vertical action negative while it is added (behaviorEntity); it is
+      // removed the moment the stick returns and the look levels, so Jump climbs again.
+      // The native hover controller does not turn the look pitch into descent on its
+      // own (26.52, Saga 2026-09-29: "LOOK DOWN: DIVE" did nothing); the group does.
+      const wantDescend = (jump && forwardInput < -0.1) || (cfg.kind === 'plane' && pitch > config.divePitchDeg);
       if (wantDescend !== !!state.descending) {
         state.descending = wantDescend;
         try { vehicle.triggerEvent?.(wantDescend ? config.descendOn : config.descendOff); } catch {}
@@ -1598,10 +1670,16 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
         } catch {}
       }
       // The HUD (ASCII only: the Pixel's HUD font drew emoji as empty boxes, 2026-09-25).
+      // For the first `rideHintTicks` of a ride it is the mount's name and hint (the
+      // summon's own action bar was overwritten by this line within 4 ticks); while the
+      // descend group is in, Jump goes down, and the line says so.
       if (tick % 4 === 0) {
-        const tag = state.descending ? ' · §a[DESCENDING]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · BACK+JUMP: DESCEND · LOOK DOWN: DIVE]§r';
+        const word = flyer ? cfg.hud || 'CLOUD' : 'HELI';
+        const hint = tick - state.rideStart < config.rideHintTicks;
+        const tag = state.descending ? ' · §a[JUMP: DESCEND]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · LOOK DOWN + JUMP: DIVE]§r';
         const aboard = riders.length > 1 ? ` · §d[${riders.length} ABOARD]§r` : '';
-        const hud = `§l${flyer ? cfg.hud || 'CLOUD' : 'HELI'}§r §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${aboard}${tag}`;
+        const hud = hint ? `§e${word}!§r Jump climbs, look down + Jump dives, sneak gets off`
+          : `§l${word}§r §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${aboard}${tag}`;
         for (const r of riders) { try { r.onScreenDisplay?.setActionBar?.(hud); } catch {} }
       }
     }
@@ -1611,6 +1689,17 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
       try { if (vehiclesByType.has(ev.hitEntity?.typeId)) ev.hitEntity.dimension?.playSound?.('note.bell', ev.hitEntity.location, { volume: 0.8, pitch: 1.2 }); } catch {}
     });
   } catch {}
+}
+
+export { vehicleDriverRuntime as _vehicleDriverRuntimeForTests };
+export type { VehicleDriverConfig };
+
+/** The driver's config for a pack: its vehicles and every constant it runs on. */
+export function vehicleDriverConfig(vehicles: VehicleDriverConfig['vehicles']): VehicleDriverConfig {
+  return {
+    vehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF, puffParticle: FLYER_PUFF_PARTICLE,
+    divePitchDeg: FLYER.DIVE_PITCH_DEG, rideHintTicks: FLYER.RIDE_HINT_TICKS, speedWindowTicks: DRIVER_SPEED_WINDOW_TICKS, teleportBlocks: DRIVER_TELEPORT_BLOCKS,
+  };
 }
 
 const vehicleDriverScript = (config: VehicleDriverConfig) =>
@@ -3001,7 +3090,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         mounts: flyerMounts,
         sizeEvents: SIZE_STEPS.map(pct => ({ pct, event: `${SIZE_EVENT_PREFIX}${pct}` })),
         particle: FLYER_PUFF_PARTICLE, spawnSound: FLYER_SOUNDS.spawn, fadeSound: FLYER_SOUNDS.fade,
-        constants: { EMPTY_DESPAWN_TICKS: FLYER.EMPTY_DESPAWN_TICKS, CLOUD_CAP: FLYER.CLOUD_CAP, TAP_COOLDOWN_TICKS: FLYER.TAP_COOLDOWN_TICKS, SPAWN_AHEAD_BLOCKS: FLYER.SPAWN_AHEAD_BLOCKS },
+        constants: { EMPTY_DESPAWN_TICKS: FLYER.EMPTY_DESPAWN_TICKS, CLOUD_CAP: FLYER.CLOUD_CAP, TAP_COOLDOWN_TICKS: FLYER.TAP_COOLDOWN_TICKS, SPAWN_AHEAD_BLOCKS: FLYER.SPAWN_AHEAD_BLOCKS, DISMOUNT_DROP_BLOCKS: FLYER.DISMOUNT_DROP_BLOCKS, DISMOUNT_SLOW_FALL_TICKS: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     } : undefined;
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
     const screenId = entityId(rawScreenId, 's');
@@ -3150,7 +3239,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         } : {}),
     })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
-    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF, puffParticle: FLYER_PUFF_PARTICLE })) });
+    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript(vehicleDriverConfig(driverVehicles))) });
     if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch })) });
     if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({
@@ -3190,6 +3279,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         { name: `${rp}texts/languages.json`, data: json(['en_US']) },
         { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },
     );
+    // sounds.json: a silent `fly` event for every hovering entity, or the content log fills with the block-sound fallback.
+    const flySounds = silentFlySounds(files, bp);
+    if (flySounds) files.push({ name: `${rp}sounds.json`, data: json(flySounds) });
     if (creatorConfig) files.push(
         { name: `${bp}scripts/minifig-wand.js`, data: text(minifigWandScript(creatorConfig)) },
         { name: `${bp}functions/${creatorConfig.shortAlias}.mcfunction`, data: text(`give @s ${creatorConfig.itemId}`) },
@@ -3209,8 +3301,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(figureTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
     // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
-    const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. It hovers in place when you let go. Dismount (sneak) leaves you where you are and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. It hovers in place when you let go. Dismount (sneak) leaves you where you are - in the air you float gently down - and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}) };
