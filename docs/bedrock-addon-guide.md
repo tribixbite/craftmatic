@@ -88,9 +88,12 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
     ≥1.21.90 and the entity declared 1.20.80), `vertical_movement_action`,
     `movement.hover`/`navigation.hover`, `jump.static`, `is_tamed` +
     `behavior.player_ride_tamed`. Speeds are the ghast's scaled
-    (movement 0.3, flying_speed 0.3, vertical 0.5): at 1.35/0.9 the X-wing
-    climbed 206 blocks in a second; at these it climbs ~17 blocks/s and flies
-    forward ~5 blocks/s.
+    (movement 0.3, flying_speed `ROTOR_FLYING_SPEED` 0.3, vertical 0.5): at
+    1.35/0.9 the X-wing climbed 206 blocks in a second; at these it climbs
+    ~17-22 blocks/s and flies forward 38.3 blocks/s (measured on the Nimbus
+    with CMVT telemetry, Pixel 2026-09-29; the "~5 blocks/s" an earlier round
+    read was a ramped touch stick). A flyer mount is written with
+    `FLYER.FLYING_SPEED` 0.09 (~11.5 blocks/s, derived) instead.
   - **Format 1.26.30 removed `minecraft:pushable` from the schema** — the whole
     entity fails to parse (`… is not a valid entity type` at spawn). Vanilla
     mobs use `pushable_by_block` (pistons) and, only when shovable,
@@ -4594,13 +4597,27 @@ clean; the content log has 0 errors. Five defects, fixed the same day
 5. *3,101 content-log lines* `[Sound][verbose] No sound found for block type
    'normal' and event type 'fly'` from every hovering cloud (~10/min idle,
    240/min flying), and the same from every rotor and scripted vehicle (all
-   carry `minecraft:can_fly` + `movement.hover`). The RP now ships
-   `sounds.json` with `entity_sounds.entities.<id>.events.fly: ""` for every
-   such entity (`silentFlySounds`, read from the emitted behaviour files like
-   the dismount hints; an empty string is vanilla's own silent event, e.g.
-   `bee.events.eat`), and `scripts/_mcaddon_check.py` gates it. Whether the
-   entry stops the fallback is a device measurement: the engine's trigger is
-   undocumented.
+   carry `minecraft:can_fly` + `movement.hover`). The first answer,
+   `entity_sounds.entities.<id>.events.fly: ""` (the parrot's `fly` hook), was
+   MEASURED USELESS on the Pixel (711 lines with it; below). The line names
+   the block-MATERIAL table (`normal`), which is how an entity's `step` /
+   `jump` / `land` / `fall` over a block are resolved - through
+   `interactive_sounds`, whose per-entity events map a material or `default`
+   to a sound (vanilla's horse `step: { default: "mob.horse.soft", wood: ... }`),
+   then `interactive_sounds.block_sounds.<material>.events`. Vanilla defines
+   `fly` in neither table (`output/nimbus-fix2-0929/vanilla-sounds.json`), so
+   the line is vanilla's own for every hovering mob. The RP now ships
+   `interactive_sounds.entity_sounds.entities.<id>.events.fly: { default: "" }`
+   for every hovering entity (`flySoundEvents`, read from the emitted
+   behaviour files like the dismount hints) - a NEW key, so it cannot replace
+   a vanilla entry whatever a pack's rule for an existing key is (documented
+   nowhere found: the wiki only says new keys add without overwriting; that
+   is why `block_sounds.normal.events.fly` is not written - it would mean
+   carrying vanilla's `normal` events verbatim in case the key replaces).
+   `scripts/_mcaddon_check.py` gates that the pack CARRIES the entry, and
+   says so; whether it silences the line is device-unproven
+   (`TODO(fly-sound)`; next A/Bs: the `block_sounds.normal` copy, a real
+   silent sound definition instead of the empty string).
 
 **What the child gets.** Goku sits on his Nimbus and flies a slow lap round
 the dragon on his own, rising and falling a little. Tap Goku (or his cloud)
@@ -4673,9 +4690,34 @@ outside half the footprint diagonal), `ORBIT_HEIGHT_FRACTION` 0.8,
 `ORBIT_BOB_LDU` 32 x `ORBIT_BOB_PERIODS` 2 per lap, `ORBIT_POINTS` 64,
 `FLYER_BOB` 1 unit at 120 degrees/s.
 
-**Device-unproven, in order of doubt** (after the Saga round above): the
-five fixes (the pitch dive, the float-down, the ride hint, the windowed
-speed, the silent `fly` event); the puff particle's name
+**Pixel re-check, 2026-09-29** (`output/nimbus-pixel-0929/`, index
+`_notes.txt`; pack `nimbus-main2-0929`, 26.51): ride hint PASS (2.75 s);
+HUD speed PASS (85.7 mph HUD against 85.9 true over 8.5 s; CMVT fast: the
+server position moves every 4 ticks, 38.3 blocks/s steady); look down +
+Jump dive PASS (~4 blocks/s down, ~22 up); float-down PASS (89 blocks in
+11 s, no damage); the `entity_sounds` `fly: ""` FAIL (711 lines: 9-11/min
+from the orbit alone, 272/min flying); tap while riding, orbit after 47
+min and undo PASS. Four follow-ups, fixed the same day (`nimbus-fix2-0929`):
+1. 38 blocks/s (85 mph) is far too fast for a child round a ten-block
+   model, and the physics spec's "~5 blocks/s" was stale. A flyer is now
+   written with `FLYER.FLYING_SPEED` 0.09 (~11.5 blocks/s by proportion; the
+   rotor keeps `ROTOR_FLYING_SPEED` 0.3); the same at every wand size, as
+   the rotor's is (the size groups carry scale, box and seats only).
+2. The same player back on the SAME cloud got no hint: the driver's loop
+   `continue`d on an empty seat before the rider compare, so `riderId` was
+   never cleared. It is cleared when nobody is aboard
+   (`test/vehicle-driver.test.ts`).
+3. "figure 1 could not take its seat; it stands instead" at placement,
+   although the orbit runtime seated it seconds later: `addRider` can refuse
+   in the spawn tick. The placement retries it twice, 2 ticks apart (the
+   summon's own retry), reports only after that with the reason and count,
+   and says nothing for a seat that carries a ride - the orbit runtime
+   re-seats its figure (`test/placement-seating.test.ts`).
+4. The `fly` sound entry, above.
+
+**Device-unproven, in order of doubt**: the slower cruise (a speed to
+re-measure with CMVT), the interactive `fly` entry, the remount hint, the
+seat retry; the puff particle's name
 (`minecraft:water_evaporation_actor_emitter`; a wrong name costs the puff
 only - `spawnParticle` is wrapped); the bob and the chord yaw as drawn;
 `random.pop` / `random.fizz`.

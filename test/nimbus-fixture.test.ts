@@ -84,7 +84,11 @@ function nimbusPackTests(get: () => Pack): void {
     const e = (await json(`${bp}entities/${flyer}.json`))['minecraft:entity'];
     expect(e.description.identifier).toBe(`craftmatic:${flyer}`);
     expect(e.components['minecraft:type_family'].family).toEqual(expect.arrayContaining(['craftmatic_vehicle', 'plane', 'flyer']));
-    expect(e.components['minecraft:flying_speed'].value).toBe(0.3);
+    // A child's cruise: FLYER.FLYING_SPEED (0.09, ~11.5 blocks/s by the Pixel's 38.3 at 0.3), not the rotor's 0.3.
+    expect(e.components['minecraft:flying_speed'].value).toBe(FLYER.FLYING_SPEED);
+    expect(FLYER.FLYING_SPEED).toBeLessThan(0.3);
+    // The same speed at every wand size, as every vehicle's (the size groups carry scale, box and seat only).
+    for (const g of Object.values<any>(e.component_groups)) expect(g['minecraft:flying_speed']).toBeUndefined();
     expect(e.components['minecraft:physics'].has_gravity).toBe(false);
     expect(e.components['minecraft:free_camera_controlled']).toBeDefined();
     expect(e.description.properties).toBeUndefined(); // native, not scripted: no attitude properties
@@ -174,14 +178,15 @@ function nimbusPackTests(get: () => Pack): void {
     expect(flyer.constants.DISMOUNT_DROP_BLOCKS).toBe(FLYER.DISMOUNT_DROP_BLOCKS);
   });
 
-  it('the RP sounds.json gives the cloud (and every hovering entity) a silent fly event, so the hover mover stops logging its block-sound fallback', async () => {
+  it('the RP sounds.json gives the cloud (and every hovering entity) a silent interactive fly event; the entity_sounds entry measured useless on the Pixel is gone', async () => {
     const { json, rp, result, config } = get();
     const sounds = await json(`${rp}sounds.json`);
     const flyer = result.mcpack!.mounts!.found[0]!.flyer;
-    expect(sounds.entity_sounds.entities[flyer]).toEqual({ volume: 1, pitch: 1, events: { fly: '' } });
+    expect(sounds.interactive_sounds.entity_sounds.entities[flyer]).toEqual({ volume: 1, pitch: 1, events: { fly: { default: '' } } });
+    expect(sounds.entity_sounds).toBeUndefined();
     // The companion's cloud and seat do not hover natively (the ride runtime carries them): no entry.
     const carType = config.actors.find((a: any) => /_cloud_ride_car$/.test(a.typeId)).typeId;
-    expect(sounds.entity_sounds.entities[carType]).toBeUndefined();
+    expect(sounds.interactive_sounds.entity_sounds.entities[carType]).toBeUndefined();
   });
 
   it('the lang has every rideable\'s exit hint and a name for each new entity; the README tells the child what to do', async () => {

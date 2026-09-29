@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
-import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, silentFlySounds, COASTER_SAME_CAR_ARC, DRIVER_SPEED_WINDOW_TICKS } from '../web/src/engine/playable-addon.js';
+import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, flySoundEvents, ROTOR_FLYING_SPEED, COASTER_SAME_CAR_ARC, DRIVER_SPEED_WINDOW_TICKS } from '../web/src/engine/playable-addon.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
@@ -421,11 +421,15 @@ describe('playable Bedrock add-on',()=>{
     expect(driver).toContain('LOOK DOWN + JUMP: DIVE');
     // The HUD speed is a mean over a window of position changes, never one 2-tick delta (bursty native positions read 4x).
     expect(driver).toContain(`"speedWindowTicks":${DRIVER_SPEED_WINDOW_TICKS}`);
-    // The RP silences the hover mover's `fly` sound event for the aircraft, or the content log fills with the block-sound fallback.
+    // The RP gives the aircraft a silent interactive `fly` event (the hook the content log's block-sound fallback
+    // names; the plain entity_sounds entry was measured useless on the Pixel and is not written).
     const sounds = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_RP/sounds.json')));
-    expect(sounds.entity_sounds.entities['craftmatic:jet_jet']).toEqual({ volume: 1, pitch: 1, events: { fly: '' } });
+    expect(sounds.interactive_sounds.entity_sounds.entities['craftmatic:jet_jet']).toEqual({ volume: 1, pitch: 1, events: { fly: { default: '' } } });
+    expect(sounds.entity_sounds).toBeUndefined();
     expect(entity['minecraft:entity'].components['minecraft:is_tamed']).toEqual({});
-    expect(entity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: .3 });
+    // A rotorcraft keeps the ghast's 0.3 (~38 blocks/s measured); only a flyer mount is slowed (FLYER.FLYING_SPEED).
+    expect(entity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: ROTOR_FLYING_SPEED });
+    expect(ROTOR_FLYING_SPEED).toBe(0.3);
     expect(entity['minecraft:entity'].components['minecraft:movement.hover']).toEqual({});
     expect(entity['minecraft:entity'].components['minecraft:physics'].has_gravity).toBe(false);
     expect(entity['minecraft:entity'].components['minecraft:movement.fly']).toBeUndefined();
@@ -602,14 +606,17 @@ describe('playable Bedrock add-on',()=>{
     // A car has no native controller left, so no driver script ships with it.
     const car = await buildPlayableAddon(model(), { stem: 'Supercar', vehicleMode: 'car' });
     expect(listZipEntries(ab(car.bytes))).not.toContain('Craftmatic_supercar_BP/scripts/vehicle-driver.js');
-    // Both hover (the rotor natively, the scripted car for Jump-as-input), so both get the silent `fly` event.
+    // Both hover (the rotor natively, the scripted car for Jump-as-input), so both get the silent interactive `fly` event.
     const heliSounds = JSON.parse(new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_RP/sounds.json')));
-    expect(Object.keys(heliSounds.entity_sounds.entities)).toEqual(['craftmatic:rescue_helicopter_rescue_helicopter']);
+    expect(Object.keys(heliSounds.interactive_sounds.entity_sounds.entities)).toEqual(['craftmatic:rescue_helicopter_rescue_helicopter']);
     const carSounds = JSON.parse(new TextDecoder().decode(await extractFile(ab(car.bytes), 'Craftmatic_supercar_RP/sounds.json')));
-    expect(carSounds.entity_sounds.entities['craftmatic:supercar_supercar'].events).toEqual({ fly: '' });
+    expect(carSounds.interactive_sounds.entity_sounds.entities['craftmatic:supercar_supercar'].events).toEqual({ fly: { default: '' } });
+    // The helicopter (a rotor) keeps flying_speed 0.3; the flyer's slower cruise is the fixture test's.
+    const heliEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_BP/entities/rescue_helicopter_rescue_helicopter.json')));
+    expect(heliEntity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: 0.3 });
   });
 
-  it('silentFlySounds reads the hovering entities from the emitted behaviour files and is null without one', () => {
+  it('flySoundEvents reads the hovering entities from the emitted behaviour files, writes only the interactive entry, and is null without one', () => {
     const enc = new TextEncoder();
     const entity = (id: string, components: Record<string, unknown>, groups: Record<string, unknown> = {}) => ({ name: `X_BP/entities/${id}.json`, data: enc.encode(JSON.stringify({ 'minecraft:entity': { description: { identifier: `craftmatic:${id}` }, components, component_groups: groups } })) });
     const files = [
@@ -618,11 +625,11 @@ describe('playable Bedrock add-on',()=>{
       entity('seat', { 'minecraft:rideable': {} }),
       { name: 'X_RP/entity/heli.entity.json', data: enc.encode('{"minecraft:can_fly":{}}') }, // not a behaviour file
     ];
-    expect(silentFlySounds(files, 'X_BP/')).toEqual({ entity_sounds: { entities: {
-      'craftmatic:heli': { volume: 1, pitch: 1, events: { fly: '' } },
-      'craftmatic:cloud': { volume: 1, pitch: 1, events: { fly: '' } },
-    } } });
-    expect(silentFlySounds([entity('seat', { 'minecraft:rideable': {} })], 'X_BP/')).toBeNull();
+    expect(flySoundEvents(files, 'X_BP/')).toEqual({ interactive_sounds: { entity_sounds: { entities: {
+      'craftmatic:heli': { volume: 1, pitch: 1, events: { fly: { default: '' } } },
+      'craftmatic:cloud': { volume: 1, pitch: 1, events: { fly: { default: '' } } },
+    } } } });
+    expect(flySoundEvents([entity('seat', { 'minecraft:rideable': {} })], 'X_BP/')).toBeNull();
   });
 });
 
