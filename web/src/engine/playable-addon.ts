@@ -1587,7 +1587,13 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
     if (!last) { moves.push(cur); return reported; }
     const step = Math.hypot(cur.x - last.x, cur.y - last.y, cur.z - last.z);
     if (step > config.teleportBlocks) { moves.length = 0; moves.push(cur); return reported; }
-    if (step > 1e-4) moves.push(cur);
+    if (step > 1e-4) {
+      // The first move after a stand of more than a window: the motion began somewhere in
+      // the last window, so the anchor is put a window back (a ramp up over a second, never
+      // a spike from a stale anchor minutes old or from the burst read over 2 ticks).
+      if (now - last.t > config.speedWindowTicks) { moves.length = 0; moves.push({ ...last, t: now - config.speedWindowTicks }); }
+      moves.push(cur);
+    }
     // Keep the oldest move inside the window and the one before it (two moves make a speed).
     while (moves.length > 2 && moves[1]!.t <= now - config.speedWindowTicks) moves.shift();
     const newest = moves[moves.length - 1]!, oldest = moves[0]!;

@@ -130,6 +130,21 @@ describe('the driver: HUD speed of a client-driven mount', () => {
     expect(w.mphOf(w.lastHud())).toBe(0);
   });
 
+  it('a start after a long hover ramps up within a window and never overshoots (no spike from a stale anchor)', () => {
+    const w = driverWorld();
+    w.run(FLYER.RIDE_HINT_TICKS + 400); // hovering in place for 20 s
+    w.player.hud.length = 0;
+    const mover = (t: number): void => { if (t % 8 === 0) w.cloud.location.x += TRUE_BLOCKS_PER_TICK * 8; };
+    w.run(DRIVER_SPEED_WINDOW_TICKS + 8, mover);
+    const ramp = w.player.hud.map(w.mphOf).filter((v): v is number => v !== undefined);
+    for (const v of ramp) expect(v).toBeLessThanOrEqual(trueMph + 0.5);
+    // A stale anchor (the hover's first sample, 20 s old) would read ~0 for the whole first window; the ramp is past half by its end.
+    expect(ramp[ramp.length - 1]).toBeGreaterThan(trueMph / 2);
+    w.player.hud.length = 0;
+    w.run(40, mover);
+    for (const v of w.player.hud.map(w.mphOf)) expect(v).toBeCloseTo(trueMph, 0);
+  });
+
   it('a teleport (the wand, a reload) is not a speed', () => {
     const w = driverWorld();
     w.run(FLYER.RIDE_HINT_TICKS + 4);
