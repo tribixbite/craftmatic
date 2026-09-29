@@ -217,6 +217,26 @@ player, 11204's chest lid, a lift ride that shows the car moving.
   mirrored 26559 joins; lift docks snapped (1,884.9 vs 1,857.8 LDU);
   counterweight detection is a heuristic; lap bars for 42703 need an LDraw
   part for 77083.
+- [ ] Rider camera through loops (2026-09-29, worktree
+  `agent-a4896775dd698fb20`, evidence `output/coaster-cam-0929/`): the
+  spin at every loop's zenith and exit was the `roll`-mode chart flip
+  interpolated linearly by the client; keyframes are now `over` views
+  (continuous pitch past ±90, which `playAnimation` takes; ridden clean
+  through loop 1, `ride2-apex1-big-*.jpg`), the animation outlives its
+  hand-back by `animTail` 6, and both cameras ride the DRAWN seat
+  (`tickLag` 1.5, `animLag` 3.5, marker-measured: the old per-tick camera
+  sat 1.7 blocks ahead of the drawn car at 10 blocks/s — in the car ahead at
+  speed). Ridden (`f131fe80`, `device/ride3*.jpg`): (a) no spin over either
+  top, (b) no own-view flash at either loop, (c) loop 1's hand-back smooth,
+  loop 2's cut ~40 degrees in one frame → the lag now blends from `animLag`
+  to `tickLag` over `handbackBlend` 4 ticks. Ridden again (`ed273b4b`,
+  `device/ride4*.jpg`, content log 0 errors): both loops pitch over with no
+  spin, both exits continuous, no flash. Not verified by eye: (d) the view
+  is from the own seat (the marker measurement says so). Open: `over`'s
+  keyframe direction is off the nose by up to ~3 degrees on a leaning loop;
+  the eased camera's ±30 px frame jitter; the camprobe pack (`5c0c9d3e…`,
+  `Craftmatic(7)`) is still bound in world 924 — harmless, unbind with the
+  next `--exclusive` round. The user's own verdict is the gate.
 - [ ] Pinball: cabinet button's 1.5x inward travel and launch-tick smoothing
   not seen on a device; drag release inferred (5 still ticks); tap-to-flipper
   ~100 ms is the server round trip.

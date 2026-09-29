@@ -190,8 +190,17 @@ The prediction runs only with inverted track within reach (`planner.near`)
 and stops early, so a steep drop on a route with no loop costs the ride's
 own step alone: an 80-tick prediction on every steep tick overran the
 device's script tick on 10261 (2026-09-25) and slowed the whole ride.
-The animation trails the server's train by `animLag` ticks (3, ridden on the
-Pixel), because the client draws the train interpolated behind the server.
+Both cameras trail the server's train so they ride the DRAWN seat (the
+client draws entities interpolated behind the server; marker-measured on the
+Pixel): the per-tick camera by `tickLag` (1.5) and the animation by `animLag`
+(3.5), fractional ticks read between two poses. The animation is planned
+`animTail` ticks past its hand-back so the per-tick camera takes over while
+it still plays (an animation that ended first flashed the player's own view),
+and the hand-back `setCamera` is placed at the eye the animation is showing. Its keyframes are `over` views — a
+CONTINUOUS pitch past ±90 (which `playAnimation` takes and `setCamera`
+refuses), the yaw of the right axis, a residual roll — because the client
+interpolates keyframe Euler angles linearly: the ±90 chart's flip at the
+zenith was drawn as a 180-degree spin (2026-09-29).
 `clamp` (the first shipped mode) turned the yaw over at `maxTurn` a tick past
 every vertical, which is what the user saw as a 90° turn on 10303's
 overhanging drop and a sideways swing in the loops. Device facts and the
@@ -587,7 +596,10 @@ literal inside a function body (`§` marks the number).
 | `COASTER_RIDER_VIEW.lookYaw` | `web/src/engine/bedrock-coaster.ts` | 70 | degrees | Most a rider may look away sideways. |
 | `COASTER_RIDER_VIEW.lookPitch` | `web/src/engine/bedrock-coaster.ts` | 50 | degrees | Most up or down. |
 | `COASTER_RIDER_VIEW.lookLag` | `web/src/engine/bedrock-coaster.ts` | 6 | ticks | The client's rider yaw trails the car ~0.3 s on the Pixel; 6 held the look within 5°. |
-| `COASTER_RIDER_VIEW.animLag` | `web/src/engine/bedrock-coaster.ts` | 3 | ticks | An inversion's camera animation shows the pose of tick k − 3: the client draws the train interpolated behind the server. Ridden on the Pixel at 1 (camera inside the car ahead's rider), 3 (matches the per-tick view) and 6 (behind its own train), 2026-09-25. |
+| `COASTER_RIDER_VIEW.animLag` | `web/src/engine/bedrock-coaster.ts` | 3.5 | ticks | An inversion's camera animation shows the pose of tick k − 3.5 (interpolated), which is where the client DRAWS the train: measured against a marker at 10 blocks/s (Pixel 2026-09-29, `output/coaster-cam-0929/`, `camprobe`, ~97 px per block): lag 1 +213 px ahead of the marker, 2 +108, 3 +35, 4 −62, 6 −194; zero at ~3.5. Ridden by eye at 1, 3, 6 on 2026-09-25 (1 inside the car ahead's rider, 6 behind its own train). |
+| `COASTER_RIDER_VIEW.handbackBlend` | `web/src/engine/bedrock-coaster.ts` | 4 | ticks | After an inversion animation hands back, the per-tick camera's lag runs from `animLag` (the pose the animation was showing) down to `tickLag` over this many ticks, so neither its eye nor its rotation jumps at the take-over. Without it the loop-2 exit on 10303 cut from looking down at the car to level ahead in one frame (Pixel, ride 3, 2026-09-29). |
+| `COASTER_RIDER_VIEW.tickLag` | `web/src/engine/bedrock-coaster.ts` | 1.5 | ticks | The per-tick camera shows the pose of tick k − 1.5 (interpolated). On the server's own schedule (lag 0) the eased camera sat +163 px (1.7 blocks) ahead of the drawn marker at 10 blocks/s — at a coaster's 23 blocks/s that is the car ahead, where every ride since 2026-09-24 was viewed from; lag 2 −62, 3 −162, 4 −210. Zero at ~1.5; the ease's own trailing supplies the rest. |
+| `COASTER_RIDER_VIEW.animTail` | `web/src/engine/bedrock-coaster.ts` | 6 | ticks | An inversion's animation is planned this far PAST the tick the per-tick camera takes over, so it is still playing when that `setCamera` lands. An animation that ended first left the player's own view (inside the car's cuboids) for ~2 ticks at every loop's exit (Pixel, 2026-09-29). Even, so keyframes stay 0.1 s apart. |
 | `COASTER_RIDER_VIEW.ease` | `web/src/engine/bedrock-coaster.ts` | 0.1 | s | Camera ease per update. |
 | `TRACK_TWIST_RATE_DEG_PER_BLOCK` | `web/src/engine/bedrock-coaster.ts` | 20 | degrees/block | Largest roll change of the track up between gravity's up and a loop's normal. |
 | `COASTER_CAR_LENGTH` | `web/src/engine/bedrock-coaster.ts` | 1.25 | model blocks | The fabricated cart's drawn length. |

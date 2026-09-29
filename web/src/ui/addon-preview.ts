@@ -1236,7 +1236,8 @@ class AddonWalk implements AddonPreviewHandle {
     // rolling camera animation (from ~10 ticks before it until the car is
     // upright again); the preview draws that stretch as the exact view.
     const inverting = camera.mode === 'loop' && car.frame.up[1] < 0.7;
-    const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode === 'loop' ? (inverting ? 'roll' : 'reflect') : camera.mode, camera.maxTurn);
+    // The pack's animation keyframes are `over` views (continuous pitch, no chart flip at the zenith).
+    const view = coasterRiderView(car.frame.nose, car.frame.up, this.riding.look, this.riding.view, camera.mode === 'loop' ? (inverting ? 'over' : 'reflect') : camera.mode, camera.maxTurn);
     this.riding.view = view;
     // The roll modes draw the view exactly (the device rolls its camera through
     // a spline keyframe); `clamp` draws the roll-free (yaw, pitch) it sends.

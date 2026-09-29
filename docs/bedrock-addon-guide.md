@@ -2317,6 +2317,105 @@ view (the car ahead's rider bottom-centre), 1 is still inside that rider, 6
 trails behind the train. Evidence `final-lap-lag3.jpg`, `loopride2-lag*.jpg`,
 `loopride2.mp4` in `output/coaster-camera-0924/device/`.
 
+#### Round 3 (2026-09-29): the loop spun, and a flash at its exit
+
+User, after round 2026-09-28a: "still broken for upside-down loops". Ridden
+on the Pixel (world 924, pack `ed25bf51`, `output/coaster-cam-0929/device/`
+in the fix's worktree: `ride1.mp4`, `ride1-apex1-zoom-*.jpg`,
+`ride1-loop2-zoom-*.jpg`): through each loop the view SPUN about its own
+axis and swung in yaw — diagonal horizons, the car seen sideways — instead
+of pitching over; loop 2 (helical) spun through its whole top half; and at
+the end of each loop the player's own first person (inside the car's
+cuboids, washed out) flashed for ~2 ticks before the per-tick camera
+resumed.
+
+**Root cause 1 — the keyframes' chart.** The animation was written in
+`roll` mode: (yaw, pitch within ±90, roll), exact but with a chart flip at
+the zenith. 10303's loop 1 keyframes went (yaw −90, pitch −81, roll 0) →
+(78, −78, −180) across the top and (78, 71, −180) → (−90, 83, −357) at the
+exit, 0.1 s apart, and the client interpolates the keyframes' Euler angles
+LINEARLY: each flip was drawn as a 180-degree spin over two ticks. In a
+helical loop the direction is near-vertical for several keyframes, so the
+yaw swung (−86, −76, −42, 57) with the roll (0, −18, −51, −143) over half
+the loop.
+
+**Measured (the `camprobe` pack, `tools/camprobe/`; probes recorded in
+`probe2.mp4`, `probe2-rotover-sheet*.jpg`):** a rotation keyframe `x` of
+0 → 360 over 3 s renders one smooth pitch-over — sky, the horizon upside
+down, the ground, level. The animation takes the CONTINUOUS pitch that
+`setCamera` refuses. So the keyframes are now `over` views: the pitch runs
+on past ±90 through the loop (11 → −81 → −182 → −317 on 10303's loop 1),
+the yaw is the heading of the view's right axis (−90 throughout, ±12 for
+the helix) and the roll is the small residual (≤ 11 degrees on loop 2).
+One chart, nothing to flip. The price: an `over` view fits its yaw to the
+right axis and its pitch to direction AND up, so on a leaning loop the
+keyframe's direction is a few degrees off the nose (3 on the test course).
+The add-on preview draws the same `over` views through an inversion.
+
+**Root cause 2 — the gap.** The animation ended at the hand-back tick and
+the per-tick `setCamera` landed a tick or two later, and in that gap the
+camera reverts to the player. Measured with the probe's `cut` (
+`probe3-cut36-sheet.jpg`, `probe3-cut30-sheet.jpg`): a `setCamera` issued
+while an animation is still playing takes over on the next frame (no
+flash), so each animation is now planned `animTail` (6) ticks past its
+hand-back and the per-tick camera cuts it. Where the plan stops short
+(10303's second loop exits straight into the station's braking distance)
+the tail is carried on from the last planned pose at its own velocity —
+never shown.
+
+**Measured again — where the cameras sit.** With a marker running at 10
+blocks/s under a camera looking straight down (`probe3.mp4`, `probe4.mp4`,
+`probe*-pos-*.jpg`, `marker_offset.py`; 97 px per block on the 1600 px
+frame, the marker under a still camera reads +12): the eased per-tick camera
+on the server's own schedule sits **+163 px = 1.7 blocks AHEAD of the drawn
+marker**. At a coaster's 23 blocks/s that is 4 blocks: the rider has been
+viewing every ride since 2026-09-24 from inside the car ahead (its rider's
+back "bottom-centre" was the normal view), and an animation at lag 2 put the
+whole loop-1 apex inside that car's cuboids (`ride2-apex1-big-*.jpg`,
+washed-out). The client draws entities interpolated behind the server, so
+both cameras now show a PAST pose: the per-tick camera the pose of tick
+k − `tickLag` (1.5: lag 2 read −62, 3 −162, 4 −210) and the animation the
+pose of tick k − `animLag` (3.5: lag 1 +213, 2 +108, 3 +35, 4 −62, 6 −194),
+fractions interpolated between two poses. Both sit over the drawn seat, so
+the hand-back (placed at the eye the animation is showing) needs no jump.
+The 2026-09-25 choice of 3 by eye was 0.5 tick off; 2 (this round's first
+try) was 1.5 ticks ahead. Run-to-run variance is about a tick: two identical
+`anim 3.5 … moving` runs (camera already running when the animation is
+issued, as in the coaster; `probe5.mp4`) read −110 px and 0 px, and the
+mixed cut (an un-eased `setCamera` at the animation's own eye, then eased)
+held ≈0 px through the take-over with no jump.
+
+**Ridden (`ride3.mp4`, pack `f131fe80`):** loop 1 pitches over — sky, the
+world upside down, the ground, level — with no spin (`ride3-loop1-big-*.jpg`)
+and hands back without a jump (`ride3-exit1-big-*.jpg`); loop 2 likewise
+through its top, no own-view flash at either loop, but its EXIT cut from
+looking down at the car to level ahead in one frame
+(`ride3-exit2-big-1-8.jpg` frames 8 → 9): the hand-back took the animation's
+EYE (tick k − 3.5) with the per-tick ROTATION of tick k − 1.5, and at a helix
+exit those poses are ~40 degrees apart. The per-tick lag now runs from
+`animLag` to `tickLag` over `handbackBlend` (4) ticks after a hand-back,
+so eye and rotation both start where the animation left them. Ridden
+(`ride4.mp4`, pack `ed273b4b`, `ride4-course*-sheet*.jpg` at 10 fps,
+`ride4-exit*-big-*.jpg` at 30 fps): both loops pitch over with no spin,
+both exits continuous, no own-view flash anywhere; content log 0 errors.
+
+**Roll composes about the view axis** (`rot z30`, `rot z30x180`,
+`probe4-z30*.jpg`): the same `z: 30` tilts the picture the same way at
+`x: 0` and at `x: 180` (upside down), as `rollTo` assumes, so a helix's
+residual roll is sent as it is.
+
+**A viewer is released after two unseen ticks, not one.** The player's own
+first person (held wand visible) showed for ~2 ticks just before loop 2 on
+the Pixel (`ride2-loop2-big-17-24.jpg`) with no hand-back near it, and the
+probes flash at neither cut pattern; a rider missing from one tick's
+`getRiders()` would `camera.clear()` exactly so. Unconfirmed as the cause;
+the grace costs 0.05 s on a real dismount.
+
+Host tools: `bun scripts/_coaster_cam_probe.ts <pack> [--rebuild]
+[--camera='{"animTail":0}']` prints every camera call and every animation's
+keyframes tick by tick for a rider whose head follows the car (the replay's
+rider is fixed at yaw 0, which reads as a 70-degree head turn).
+
 ### The ramps' running line was on two datums (2026-09-22, `coaster-track.ts`)
 
 The residue the chord fix left — 10261 arc 79-81 climbing a block in half a
