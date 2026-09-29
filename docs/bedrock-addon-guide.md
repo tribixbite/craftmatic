@@ -2363,13 +2363,35 @@ hand-back and the per-tick camera cuts it. Where the plan stops short
 the tail is carried on from the last planned pose at its own velocity —
 never shown.
 
-**Measured again — the lag.** With a marker running at 10 blocks/s under a
-camera looking straight down (`probe3.mp4`, `probe3-pos-*.jpg`,
-`marker_offset.py`; ~91 px per tick of offset): the eased per-tick camera
-sits +175 px ahead of the drawn marker (~1.6 ticks), an animation at lag 1
-+225, lag 2 +120, lag 3 +47. So lag 3, chosen by eye on 2026-09-25, started
-every loop 1.4 ticks behind the per-tick view (a 2-block jolt at 27
-blocks/s) and lag 2 is the continuous choice: `animLag` is 2.
+**Measured again — where the cameras sit.** With a marker running at 10
+blocks/s under a camera looking straight down (`probe3.mp4`, `probe4.mp4`,
+`probe*-pos-*.jpg`, `marker_offset.py`; 97 px per block on the 1600 px
+frame, the marker under a still camera reads +12): the eased per-tick camera
+on the server's own schedule sits **+163 px = 1.7 blocks AHEAD of the drawn
+marker**. At a coaster's 23 blocks/s that is 4 blocks: the rider has been
+viewing every ride since 2026-09-24 from inside the car ahead (its rider's
+back "bottom-centre" was the normal view), and an animation at lag 2 put the
+whole loop-1 apex inside that car's cuboids (`ride2-apex1-big-*.jpg`,
+washed-out). The client draws entities interpolated behind the server, so
+both cameras now show a PAST pose: the per-tick camera the pose of tick
+k − `tickLag` (1.5: lag 2 read −62, 3 −162, 4 −210) and the animation the
+pose of tick k − `animLag` (3.5: lag 1 +213, 2 +108, 3 +35, 4 −62, 6 −194),
+fractions interpolated between two poses. Both sit over the drawn seat, so
+the hand-back (placed at the eye the animation is showing) needs no jump.
+The 2026-09-25 choice of 3 by eye was 0.5 tick off; 2 (this round's first
+try) was 1.5 ticks ahead.
+
+**Roll composes about the view axis** (`rot z30`, `rot z30x180`,
+`probe4-z30*.jpg`): the same `z: 30` tilts the picture the same way at
+`x: 0` and at `x: 180` (upside down), as `rollTo` assumes, so a helix's
+residual roll is sent as it is.
+
+**A viewer is released after two unseen ticks, not one.** The player's own
+first person (held wand visible) showed for ~2 ticks just before loop 2 on
+the Pixel (`ride2-loop2-big-17-24.jpg`) with no hand-back near it, and the
+probes flash at neither cut pattern; a rider missing from one tick's
+`getRiders()` would `camera.clear()` exactly so. Unconfirmed as the cause;
+the grace costs 0.05 s on a real dismount.
 
 Host tools: `bun scripts/_coaster_cam_probe.ts <pack> [--rebuild]
 [--camera='{"animTail":0}']` prints every camera call and every animation's

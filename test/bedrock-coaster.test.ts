@@ -2080,7 +2080,7 @@ describe('the rider camera follows the track', () => {
     // A pitch past ±90 is REFUSED by Bedrock's script API on the Pixel
     // ("Pitch (x rot) is outside accepted range of [-90, 90]"), so this mode is
     // not the default; the math is kept honest for any client that allows it.
-    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'over' } });
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'over', tickLag: 0 } });
     const { player } = cameraRider(h.entity);
     h.run(1); h.riders.push(player); h.run(120); // board at the station, depart
     const calls = player.camera.setCamera.mock.calls as any[][];
@@ -2185,7 +2185,7 @@ describe('the rider camera follows the track', () => {
   });
 
   it('clamp mode looks exactly along the nose, keeps the pitch within ±90, and spreads the flip over the top across ticks', () => {
-    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'clamp' } });
+    const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'clamp', tickLag: 0 } });
     const { player } = cameraRider(h.entity);
     h.run(1); h.riders.push(player); h.run(120);
     const calls = player.camera.setCamera.mock.calls as any[][];
@@ -2240,6 +2240,7 @@ describe('the rider camera follows the track', () => {
     const config = coasterRuntimeConfig('craftmatic:tune_check', [loopCourse()]);
     expect(config.camera?.animLag).toBe(COASTER_RIDER_VIEW.animLag);
     expect(config.camera?.animTail).toBe(COASTER_RIDER_VIEW.animTail);
+    expect(config.camera?.tickLag).toBe(COASTER_RIDER_VIEW.tickLag);
     const script = coasterScript(config);
     // The one script-event listener is a driven TRAIN's stick hook (GameTest),
     // subscribed only when the config names `inputEvent`; a coaster has none.
@@ -2252,7 +2253,10 @@ describe('the rider camera follows the track', () => {
 
   it('loop mode (the default) sends each inversion as ONE rolling animation, planned with the ride\'s own arithmetic', () => {
     const ANIM_LAG = COASTER_RIDER_VIEW.animLag;
-    expect(ANIM_LAG).toBe(2); // measured against a marker on the Pixel (2026-09-29): the eased per-tick camera sits ~1.6 ticks ahead of the drawn entity; 2 keeps the view continuous into and out of a loop
+    // Measured against a marker on the Pixel (2026-09-29): an animation rides the DRAWN
+    // entity at lag ~3.5 and the eased per-tick camera at ~1.5 (both fractional, poses interpolated).
+    expect(ANIM_LAG).toBe(3.5);
+    expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('loop');
     class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
     (globalThis as any).LinearSpline = Spline;
@@ -2307,11 +2311,17 @@ describe('the rider camera follows the track', () => {
           const k = Math.round(key.timeSeconds / 0.05);
           const view = rollFrame({ yaw: key.rotation.y, pitch: -key.rotation.x, roll: key.rotation.z });
           if (Math.abs(key.rotation.x) > 90) past90++;
-          // Keyframe k shows the ride as it was ANIM_LAG ticks earlier: the
-          // client draws the cars that far behind the server (measured on the Pixel).
-          const arc = distances[play.tick + k - ANIM_LAG];
-          const before = distances[play.tick + k - ANIM_LAG - 1]!;
-          let step = arc! - before; if (Math.abs(step) > route.path.length / 2) step -= Math.sign(step) * route.path.length;
+          // Keyframe k shows the ride as it was ANIM_LAG ticks earlier (a
+          // fraction read between two ticks): the client draws the cars that
+          // far behind the server (measured on the Pixel).
+          const arcAt = (t: number) => {
+            const i = Math.floor(t), f = t - i, a = distances[i]!, b = distances[i + 1] ?? a;
+            let d = b - a; if (Math.abs(d) > route.path.length / 2) d -= Math.sign(d) * route.path.length;
+            return a + d * f;
+          };
+          const arc = arcAt(play.tick + k - ANIM_LAG);
+          const before = arcAt(play.tick + k - ANIM_LAG - 1);
+          let step = arc - before; if (Math.abs(step) > route.path.length / 2) step -= Math.sign(step) * route.path.length;
           // Up to the hand-back; the tail past it is carried on from the last
           // planned pose, never shown. An `over` view fits its yaw to the
           // right axis and its pitch to direction AND up, so on this leaning
@@ -2345,6 +2355,56 @@ describe('the rider camera follows the track', () => {
       const sets = player.camera.setCamera.mock.calls.length;
       h.setLoaded(false); h.run(1); h.setLoaded(true); h.run(1);
       expect(player.camera.setCamera.mock.calls.length).toBe(sets + 1);
+    } finally { delete (globalThis as any).LinearSpline; }
+  });
+
+  it('both cameras ride the drawn seat: the per-tick eye is the pose tickLag (1.5) ticks back, the hand-back the animation\'s own eye, and its yaw continuous', () => {
+    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
+    (globalThis as any).LinearSpline = Spline;
+    try {
+      // A twin ride with no lag and no animations (`reflect`: a setCamera every
+      // tick) gives the server-schedule eye of every tick; the ride itself is
+      // the same whatever the camera does.
+      const eyesAt = (camera: Partial<CoasterRiderViewConfig>) => {
+        const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera });
+        const { player } = cameraRider(h.entity);
+        const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
+        let tick = 0;
+        (player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
+        player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
+        h.run(1); h.riders.push(player);
+        for (tick = 0; tick < 700; tick++) h.run(1);
+        return log;
+      };
+      const plain = eyesAt({ mode: 'reflect', tickLag: 0 }), lagged = eyesAt({ tickLag: 1.5, animLag: 3.5 });
+      const eye = (log: typeof plain, tick: number) => log.find(e => e.tick === tick && e.kind === 'set')?.args[1].location;
+      const mid = (a: any, b: any, f: number) => ({ x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f });
+      const close = (a: any, b: any) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9;
+      // Steady running before the first loop: the lagged eye is the midpoint of the plain eyes 2 and 1 ticks back.
+      let compared = 0;
+      for (let t = 20; t < 200; t++) {
+        const want = eye(plain, t - 2) && eye(plain, t - 1) ? mid(eye(plain, t - 2), eye(plain, t - 1), 0.5) : undefined;
+        const got = eye(lagged, t);
+        if (!want || !got) continue;
+        expect(close(got, want)).toBe(true); compared++;
+      }
+      expect(compared).toBeGreaterThan(100);
+      // The hand-back: the animation shows tick k - 3.5, so the un-eased
+      // setCamera that takes over sits at that eye (between the plain eyes 4
+      // and 3 ticks back), and the next tick's yaw is within 45 degrees of it
+      // as sent — no 360-degree re-derivation for an easing client to spin through.
+      const plays = lagged.filter(e => e.kind === 'play');
+      expect(plays.length).toBeGreaterThanOrEqual(1);
+      for (const play of plays) {
+        const total = Math.round(play.args[1].totalTimeSeconds / 0.05), length = total - COASTER_RIDER_VIEW.animTail;
+        const back = lagged.find(e => e.tick === play.tick + length && e.kind === 'set');
+        const next = lagged.find(e => e.tick === play.tick + length + 1 && e.kind === 'set');
+        if (!back || !next) continue;
+        expect(back.args[1].easeOptions).toBeUndefined();
+        const t = play.tick + length;
+        expect(close(back.args[1].location, mid(eye(plain, t - 4), eye(plain, t - 3), 0.5))).toBe(true);
+        expect(Math.abs(next.args[1].rotation.y - back.args[1].rotation.y)).toBeLessThan(45);
+      }
     } finally { delete (globalThis as any).LinearSpline; }
   });
 
@@ -2437,7 +2497,8 @@ describe('the rider camera follows the track', () => {
       expect(plays.length).toBeGreaterThanOrEqual(2);
       // A tick that predicts stops at tick 21 with nothing found, or two ticks
       // after the inversion it found ends: never the old 80-tick horizon.
-      expect(worst).toBeLessThanOrEqual(Math.max(21, ...plays.map(length => length + 3)));
+      // (`length` here is the animation's whole span, tail included; the plan runs to the tail's end plus the hand-back margin.)
+      expect(worst).toBeLessThanOrEqual(Math.max(21, ...plays.map(length => length + 4)));
       expect(worst).toBeLessThan(80);
       // Predicting happens on a few ticks at each loop entry (measured: 3), not
       // every steep tick (before the fix: 20 a loop here, every tick of 10261's drops).
@@ -2453,6 +2514,10 @@ describe('the rider camera follows the track', () => {
     expect(player.addEffect).toHaveBeenCalledWith('invisibility', expect.any(Number), { showParticles: false });
     expect(player.camera.clear).not.toHaveBeenCalled();
     h.dismount(); h.run(1);
+    // One unseen tick is not a dismount (a rider dropped from one tick's
+    // `getRiders()` would flash the player's own view); two are.
+    expect(player.camera.clear).not.toHaveBeenCalled();
+    h.run(1);
     expect(player.camera.clear).toHaveBeenCalledTimes(1);
     expect(player.removeEffect).toHaveBeenCalledWith('invisibility');
     h.run(5);
@@ -2484,7 +2549,7 @@ describe('the rider camera follows the track', () => {
 describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop, the curves and both loops', () => {
   it('over mode: looks along the track all lap, runs over both tops upside down, and never snaps', async () => {
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!, { mode: 'over' }, WHEELBASE_10303);
+    const h = liftHost(scene.routes[0]!, { mode: 'over', tickLag: 0 }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
@@ -2533,7 +2598,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     // turn-over: 10303's drop overhangs past vertical (car pitch 97-103), so
     // the view's yaw swung round at 40 degrees a tick there too.
     const { scene } = await corpusRoutes(PUBLISHED_10303);
-    const h = liftHost(scene.routes[0]!, { mode: 'reflect' }, WHEELBASE_10303);
+    const h = liftHost(scene.routes[0]!, { mode: 'reflect', tickLag: 0 }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
@@ -2622,7 +2687,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     // The pack's own wheelbase: the camera follows the car's chord, and
     // without it the raw tangent's fragment-join piece at loop 1's apex made
     // the numbers below depend on where the ticks fell (see the loops test).
-    const h = liftHost(scene.routes[0]!, { mode: 'clamp' }, WHEELBASE_10303);
+    const h = liftHost(scene.routes[0]!, { mode: 'clamp', tickLag: 0 }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
     h.run(1); h.lead.riders.push(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];

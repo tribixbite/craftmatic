@@ -394,15 +394,13 @@ export interface CoasterRiderViewConfig {
   /** Ticks the rider's own yaw trails the car's: the client turns a rider with its interpolated view of the car (Pixel: ~0.3 s; 6 ticks held the look within 5 degrees through the fastest curve, from -37..+55 uncompensated). */
   lookLag: number;
   /**
-   * Ticks an inversion's camera animation trails the server's train: the
-   * client draws entities interpolated behind the server, so an animation on
-   * the server's own schedule runs AHEAD of the drawn car. Ridden on the Pixel
-   * at 1, 3 and 6 (2026-09-25, 10303 at 24 blocks/s): 1 put the camera inside
-   * the rider of the car ahead, 6 behind its own train, 3 looked like the
-   * per-tick view. Measured against a marker (2026-09-29, `camprobe`): the
-   * eased per-tick camera itself sits ~1.6 ticks ahead of the drawn entity,
-   * lag 2 is 0.6 tick off it and lag 3 1.4 ticks (a 2-block jolt into and out
-   * of every loop at 27 blocks/s), so 2 keeps the view continuous.
+   * Ticks an inversion's camera animation trails the server's train, so the
+   * camera rides the DRAWN seat: the client draws entities interpolated
+   * behind the server. Measured against a marker running at 10 blocks/s
+   * (Pixel 2026-09-29, `camprobe`, ~97 px per block on the 1600 px frame):
+   * lag 1 +213 px, 2 +108, 3 +35, 4 -62, 6 -194 from the marker itself, so
+   * the camera is over it at ~3.5. Ridden earlier at 1, 3 and 6 by eye
+   * (2026-09-25): 1 inside the rider of the car ahead, 6 behind its own train.
    */
   animLag: number;
   /**
@@ -412,6 +410,15 @@ export interface CoasterRiderViewConfig {
    * cuboids) for ~2 ticks at every loop's exit (Pixel, 2026-09-29). Even.
    */
   animTail: number;
+  /**
+   * Ticks the per-tick camera's pose (eye, nose, up) trails the server's
+   * train. A camera on the server's own schedule (lag 0) sat +163 px ahead of
+   * the drawn marker at 10 blocks/s with `ease` 0.1 — 1.7 blocks, which at a
+   * coaster's 23 blocks/s is the car ahead, where every ride since the camera
+   * shipped has been viewed from; lag 2 -62, 3 -162, 4 -210 (Pixel
+   * 2026-09-29, `camprobe tick … lagN`). Over the drawn seat at ~1.5.
+   */
+  tickLag: number;
   /** Whether pushing the head past a limit drags the look reference along. Off: a lag transient can never shift the view for good. */
   ratchet: boolean;
 }
@@ -425,7 +432,7 @@ export interface CoasterRiderViewConfig {
  * always sets where "ahead" is. Values chosen and measured in the guide's
  * "The rider's camera follows the track" section.
  */
-export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'loop', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 2, animTail: 6, ratchet: false };
+export const COASTER_RIDER_VIEW: Readonly<CoasterRiderViewConfig> = { mode: 'loop', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 3.5, animTail: 6, tickLag: 1.5, ratchet: false };
 
 /** |dy/ds| at or below this counts as level track (about 4.6 degrees). */
 const STATION_FLAT_GRADE = 0.08;
@@ -2154,17 +2161,35 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   // (a free camera at the eye draws the rider's own upright body around it,
   // as the pinball seat measured). `seen` is refreshed while grouping, before
   // any hold can skip a train, so a paused tick never drops the camera.
-  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 2, animTail: 6, ratchet: false }, ...(config.camera || {}) };
+  const camera: CoasterRiderViewConfig = { ...{ mode: 'off', lookYaw: 70, lookPitch: 50, ease: 0.1, maxTurn: 40, lookLag: 6, animLag: 3.5, animTail: 6, tickLag: 1.5, ratchet: false }, ...(config.camera || {}) };
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
   const lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet;
   // How many ticks the inversion animation's camera trails the server's train
-  // (`COASTER_RIDER_VIEW.animLag`; a config without one keeps the measured 2).
-  const animLag = Math.max(0, Math.min(10, Math.round(Number.isFinite(camera.animLag) ? camera.animLag : 2)));
+  // (`COASTER_RIDER_VIEW.animLag`; a config without one keeps the measured 3.5). Fractional: a
+  // pose between two ticks is interpolated (`poseAt`).
+  const animLag = Math.max(0, Math.min(10, Number.isFinite(camera.animLag) ? camera.animLag : 3.5));
   // Ticks an inversion's animation is planned past its hand-back, kept even so
   // the keyframes stay 0.1 s apart (`COASTER_RIDER_VIEW.animTail`; a config without one keeps 6).
   const animTail = 2 * Math.round(Math.max(0, Math.min(20, Number.isFinite(camera.animTail) ? camera.animTail : 6)) / 2);
+  // Ticks the per-tick camera's pose trails the server's train (`COASTER_RIDER_VIEW.tickLag`, measured 1.5).
+  const tickLag = Math.max(0, Math.min(10, Number.isFinite(camera.tickLag) ? camera.tickLag : 1.5));
+  /** Poses kept per rider: enough for the longest lag either camera reads back. */
+  const HISTORY = 12;
+  /**
+   * The pose at fractional index `t` of `seq` (poses one tick apart, oldest
+   * first), interpolated between its neighbours and clamped to the ends. The
+   * nose and up are lerped unnormalised: `coasterRiderView` normalises them.
+   */
+  const poseAt = (seq: any[], t: number) => {
+    const i = Math.max(0, Math.min(seq.length - 1, Math.floor(t)));
+    const j = Math.min(seq.length - 1, i + 1), f = Math.max(0, Math.min(1, t - i));
+    if (f <= 0 || i === j) return seq[i];
+    const a = seq[i], b = seq[j];
+    const mix = (p: number[], q: number[]) => [p[0] + (q[0] - p[0]) * f, p[1] + (q[1] - p[1]) * f, p[2] + (q[2] - p[2]) * f];
+    return { eye: { x: a.eye.x + (b.eye.x - a.eye.x) * f, y: a.eye.y + (b.eye.y - a.eye.y) * f, z: a.eye.z + (b.eye.z - a.eye.z) * f }, nose: mix(a.nose, b.nose), up: mix(a.up, b.up) };
+  };
   /** Ticks after boarding during which the look reference follows the head (see `aimRider`). */
   const SETTLE_TICKS = 10;
   const releaseViewer = (id: string) => {
@@ -2257,21 +2282,25 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     let length = end + 1;
     if (length % 2) length++;
     const total = length + animTail;
-    // Keyframe k shows the pose of tick k - animLag: this tick's pose and the
-    // `animLag` before it (from the rider's history), then the plan.
-    const past = history.slice(-(animLag + 1));
-    while (past.length < animLag + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up });
-    const poses = [...past, ...plan.poses].slice(0, total + 1);
-    if (poses.length < length + 1) return failed;
+    // Keyframe k shows the pose of tick k - animLag. `seq[j]` is the pose of
+    // tick j - A (A = animLag rounded up): the rider's history back to tick
+    // -A, this tick, then the plan; a fractional lag reads between two.
+    const A = Math.ceil(animLag);
+    const past = history.slice(-(A + 1));
+    while (past.length < A + 1) past.unshift(past[0] || { eye: frame.eye, nose: frame.nose, up: frame.up });
+    const seq = [...past, ...plan.poses];
+    if (seq.length < A + length - animLag + 1) return failed;
     // The tail past the hand-back is never meant to be seen (the per-tick
     // camera takes over at tick `length`); where the plan has no poses for it
     // (it stops where a brake could bite: 10303's second loop exits straight
     // into the station's braking distance), carry the last pose on at its own
     // velocity, right side up, so the animation keeps playing to the hand-back.
-    while (poses.length < total + 1) {
-      const a = poses[poses.length - 2], b = poses[poses.length - 1];
-      poses.push({ eye: { x: 2 * b.eye.x - a.eye.x, y: 2 * b.eye.y - a.eye.y, z: 2 * b.eye.z - a.eye.z }, nose: b.nose, up: b.up });
+    while (seq.length < A + total - animLag + 2) {
+      const a = seq[seq.length - 2], b = seq[seq.length - 1];
+      seq.push({ eye: { x: 2 * b.eye.x - a.eye.x, y: 2 * b.eye.y - a.eye.y, z: 2 * b.eye.z - a.eye.z }, nose: b.nose, up: b.up });
     }
+    const poses: any[] = [];
+    for (let k = 0; k <= total; k++) poses.push(poseAt(seq, k - animLag + A));
     const views: any[] = [];
     let previous: any = null;
     // `over`: continuous pitch, the right axis's yaw, residual roll — no chart flip at the zenith.
@@ -2314,7 +2343,7 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     viewer.seen = ticks;
     viewer.history = viewer.history || [];
     viewer.history.push({ eye: frame.eye, nose: frame.nose, up: frame.up });
-    if (viewer.history.length > 12) viewer.history.shift();
+    if (viewer.history.length > HISTORY) viewer.history.shift();
     // Sampled with the car's rotation at the start of the tick (see the
     // grouping stage); a rider seen only now falls back to the car's last yaw.
     const sampled = headings.get(rider.id);
@@ -2334,8 +2363,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     viewer.look = riderLook(rotation.y - carYaw, rotation.x, viewer.look, camera.lookYaw, camera.lookPitch, lookRatchet);
     // `loop` draws `reflect` tick by tick and hands each inversion to one animation.
     const tickMode = camera.mode === 'loop' ? 'reflect' : camera.mode;
-    viewer.view = riderView(frame.nose, frame.up, viewer.look, viewer.view, tickMode, camera.maxTurn);
-    const eye = frame.eye, view = viewer.view;
+    /** The rider's pose `n` ticks ago (this tick at 0, fractions interpolated); the oldest kept when the history is shorter. */
+    const lagged = (n: number) => poseAt(viewer.history, viewer.history.length - 1 - n);
+    // The per-tick camera shows the pose of tick k - tickLag: the client draws
+    // the train behind the server, and a camera on the server's own schedule
+    // rode ahead of the drawn seat (measured, see `COASTER_RIDER_VIEW.tickLag`).
+    const pose = lagged(tickLag);
+    viewer.view = riderView(pose.nose, pose.up, viewer.look, viewer.view, tickMode, camera.maxTurn);
+    let eye = pose.eye;
+    const view = viewer.view;
     let handBack = false;
     if (camera.mode === 'loop' && Spline && planner && !viewer.noAnim) {
       if (viewer.anim) {
@@ -2350,8 +2386,15 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
         viewer.anim = null;
         viewer.cooldown = ticks + 10;
         handBack = true;
-        // The animation ends upright, at this pose; the per-tick camera takes over from it without an ease.
-        viewer.view = riderView(frame.nose, frame.up, viewer.look, null, tickMode, camera.maxTurn);
+        // The per-tick camera takes over from the animation without an ease
+        // (measured: a `setCamera` cuts a playing animation on the next frame)
+        // at the eye the animation is showing now, tick k - animLag, so the
+        // position is continuous; its rotation is `viewer.view`, kept
+        // continuous through the loop (re-deriving it from nothing here sent a
+        // yaw 360 degrees from the one before, 275.6 then -83.1, which an
+        // eased client may spin through). From the next tick the eased camera
+        // trails its target as it always does.
+        eye = lagged(animLag).eye;
       } else if (!(viewer.cooldown > ticks) && Math.abs(frame.pitch) > 20) {
         const planned: any = planInversion(frame, planner, viewer.look, viewer.history);
         // Nothing to animate yet, proven for `wait` ticks (see `planInversion`),
@@ -3081,9 +3124,14 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
     // Forget the ride state of a train whose cars have all gone.
     for (const [placement, train] of trains) if (train.seen !== ticks) trains.delete(placement);
     for (const base of [...hoists.keys()]) if (!places.has(base)) hoists.delete(base);
-    // A rider no car reported this tick has dismounted (sneak, Undo, a removed
-    // car): give them their own camera back.
-    for (const [id, viewer] of [...viewers]) if (viewer.seen !== ticks) releaseViewer(id);
+    // A rider no car has reported for two ticks has dismounted (sneak, Undo, a
+    // removed car): give them their own camera back. Two, not one: a release
+    // is `camera.clear()`, and the player's own view showed for ~2 ticks at a
+    // loop entry on the Pixel (2026-09-29, `ride2-loop2-big-17-24.jpg`) with
+    // no hand-back near it; a rider dropped from one tick's `getRiders()` would
+    // flash exactly so. One extra tick of the ride's camera after a real
+    // dismount is 0.05 s.
+    for (const [id, viewer] of [...viewers]) if (ticks - viewer.seen > 1) releaseViewer(id);
   };
   system.runInterval(tick, 1);
 }

@@ -216,16 +216,17 @@ player, 11204's chest lid, a lift ride that shows the car moving.
   `agent-a4896775dd698fb20`, evidence `output/coaster-cam-0929/`): the
   spin at every loop's zenith and exit was the `roll`-mode chart flip
   interpolated linearly by the client; keyframes are now `over` views
-  (continuous pitch past ±90, which `playAnimation` takes), the animation
-  outlives its hand-back by `animTail` 6 (the player's-view flash), and
-  `animLag` is 2 (marker-measured; 3 jolted 1.4 ticks into and out of each
-  loop). Device proof pending in this worktree's round: ride 10303 on the
-  Pixel after the rebuilt pack, look for (a) no spin over either top, (b) no
-  flash at either exit, (c) no jolt at the animation's start/end. Still
-  open after it: the per-tick eased camera itself sits ~1.6 ticks ahead of
-  the drawn car (the whole ride, not only loops) — a history-lagged per-tick
-  camera would put the eye in the drawn seat; `over`'s keyframe direction
-  is off the nose by up to ~3 degrees on a leaning loop.
+  (continuous pitch past ±90, which `playAnimation` takes; ridden clean
+  through loop 1, `ride2-apex1-big-*.jpg`), the animation outlives its
+  hand-back by `animTail` 6, and both cameras ride the DRAWN seat
+  (`tickLag` 1.5, `animLag` 3.5, marker-measured: the old per-tick camera
+  sat 1.7 blocks ahead of the drawn car at 10 blocks/s — in the car ahead at
+  speed). Device proof pending for the second build: (a) no spin over
+  either top, (b) no player's-view flash at loop 2's entry (viewer release
+  now needs two unseen ticks), (c) no jump at the hand-back, (d) the view
+  from the own seat, not the car ahead's. Open after it: `over`'s keyframe
+  direction is off the nose by up to ~3 degrees on a leaning loop; the
+  measured ±30 px frame jitter of the eased camera.
 - [ ] Pinball: cabinet button's 1.5x inward travel and launch-tick smoothing
   not seen on a device; drag release inferred (5 still ticks); tap-to-flipper
   ~100 ms is the server round trip.

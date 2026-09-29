@@ -249,7 +249,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   the zenith was drawn as a 180-degree spin over two ticks ("sideways
   loops"). A `setCamera` issued while an animation plays takes over at once;
   an animation that ENDS before the next `setCamera` flashes the player's
-  own view, so plan it past the hand-back (`animTail`).
+  own view, so plan it past the hand-back (`animTail`). **The client draws
+  entities ~3.5 ticks behind the server**: a camera on the server's schedule
+  sits 1.7 blocks ahead of the drawn seat at 10 blocks/s (in the car ahead
+  at coaster speed), so both cameras show a PAST pose (`tickLag` 1.5 with
+  the 0.1 s ease, `animLag` 3.5; marker-measured, `camprobe`).
   The "Experimental Creator Camera Features" experiment changes none of this.
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".
