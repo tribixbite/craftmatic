@@ -129,6 +129,23 @@ uuids and parts, content logs 0/0 on both, deployed `--exclusive`.
   occlusion, below); tapping the leaf worked.
 - [x] "Place…" drew in a smaller grey font on both phones: now "Place".
 
+## User report 2026-09-29 (after round 29b) - make it great for a 5-year-old
+
+User: "Some of the last packs minifigs still had unclosed faces / surfaces and
+the gabby cars obstructed driver view when mounted also the slide in the
+dollhouse was misaligned and elevator didn't seem functional. Make it awesome
+for my 5yo to explore and play with."
+- [ ] Minifigs with unclosed faces / open surfaces (which sets and where: find
+  on the device first; suspects: hollow part compile, hidden-cube cull,
+  head carve, coplanar separation).
+- [ ] Gabby sets' cars: the driver's view is blocked when mounted.
+- [ ] 10788 Dollhouse: the slide is misaligned; the lift does not work
+  (known: the lift car found is the upper cat-eared assembly, the pink box at
+  the shaft's foot may be the real car; a solid car's rider sits inside it
+  above 100 %).
+- [ ] Gabby sets as a whole: every door, slide, lift, swing, seat and car a
+  child would try should work at 100 %.
+
 ## Open — interactivity
 
 - [ ] **Doorways not OK at 100 %: 26 of 83** (was 40; 150 %: 22, was 32; 0
