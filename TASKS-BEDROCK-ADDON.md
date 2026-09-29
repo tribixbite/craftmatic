@@ -153,6 +153,11 @@ for my 5yo to explore and play with."
     roof, `rec/lift10788_a-big-1-8.jpg`); now the pink platform (3863) rides
     its frames and stops at the three room floors, tap it to board
     (`v09`-`v19`, `rec/v_lift_*`).
+  Gates at `34eb8363`: typecheck (root, web), `bun run test` 2,739 passed,
+  physics spec current, favourites sweep 40/40 (`output/gabby-play-0929/sweep/`),
+  `_mcaddon_check` 0 fails (sweep + 5 Gabby), `_ix_passability` 100/150 % rot 0:
+  0 FAIL, 41 SEALED = the `merge-0929` baseline's 41 (none new). The device
+  packs are `377850a5`; `34eb8363` changes no Gabby seat (vehicle audit).
 - [ ] Minifigs with unclosed faces / open surfaces (another agent owns it).
 - [ ] Gabby, still open from the play round:
   - Undo leaves a car the player rode behind (10796 car 1, 10797's car,
