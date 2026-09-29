@@ -755,8 +755,8 @@ describe('coaster pack assets', () => {
   it('initializes the cart route frame through the serialized placement lifecycle', async () => {
     const h = host({ stem: 'coaster_frame', label: 'Ride', width: 12, height: 4, length: 8, tiles: [],
       actors: [{ typeId: 'craftmatic:ride', label: 'Ride', x: 3, y: 2, z: 4, coasterRouteIndex: 0 }] });
-    await h.open({ selection: 1 }, { canceled: true });
-    await h.open({ selection: 5 }, { selection: 0 }); await h.flush(4000);
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 }); await h.flush(4000);
     const cart = h.spawned.find(spawn => spawn.typeId === 'craftmatic:ride')!;
     expect(cart).toBeDefined();
     expect(cart.entity.getDynamicProperty('craftmatic:coaster_origin')).toEqual({ x: 100, y: 64, z: 200 });
@@ -769,8 +769,8 @@ describe('coaster pack assets', () => {
     const at = { x: 3, y: 2, z: 4 };
     const h = host({ stem: 'coaster_train', label: 'Ride', width: 12, height: 4, length: 8, tiles: [],
       actors: [0, 1, 2].map(car => ({ typeId: 'craftmatic:ride', label: `Ride Car ${car + 1}`, ...at, coasterRouteIndex: 0, coasterCarIndex: car })) });
-    await h.open({ selection: 1 }, { canceled: true });
-    await h.open({ selection: 5 }, { selection: 0 }); await h.flush(4000);
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 }); await h.flush(4000);
     const cars = h.spawned.filter(spawn => spawn.typeId === 'craftmatic:ride');
     expect(cars).toHaveLength(3);
     expect(cars.map(car => car.entity.getDynamicProperty('craftmatic:coaster_car'))).toEqual([0, 1, 2]);

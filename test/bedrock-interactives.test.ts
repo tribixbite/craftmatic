@@ -939,8 +939,8 @@ describe('placement writes what the runtime reads', () => {
   it('stamps an interactive actor with its item, the anchor, the turn and the size', async () => {
     const { host } = await import('./_placement-host.js');
     const h = host({ stem: 'ix', label: 'ix', width: 4, height: 4, length: 4, tiles: [], actors: [{ typeId: 'craftmatic:x_door_1', label: 'door', x: 1, y: 0, z: 1, yaw: 0, interactive: 3 }], settleTicks: 1, finalHoldTicks: 1 });
-    await h.open({ selection: 1 }, { canceled: true }); // pin the corner at the player's feet (100, 64, 200)
-    await h.open({ selection: 5 }, { selection: 0 });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true }); // pin the corner at the player's feet (100, 64, 200)
+    await h.open({ action: 'Place' }, { selection: 0 });
     await h.flush(2000);
     const door = h.spawned.find(s => s.typeId === 'craftmatic:x_door_1')!;
     expect(door.entity.getDynamicProperty('craftmatic:ix')).toBe(3);

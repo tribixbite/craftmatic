@@ -226,14 +226,14 @@ async function relaySequence(dims: GridDims, runs: string, pcts: readonly number
   // Menu indices, from the button order in `menu()`: 1 = pin at my feet, 3 = rotate
   // (90° steps for a pack with blocks), 5 = place, 10 = size. Size cycles through
   // SIZE_STEPS from the 100 % it starts at, so the press count is the index delta.
-  await h.open({ selection: 1 }, { canceled: true });
-  for (let r = 0; r < rotation / 90; r++) await h.open({ selection: 3 }, { canceled: true });
+  await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+  for (let r = 0; r < rotation / 90; r++) await h.open({ action: 'Rotate' }, { canceled: true });
   let current = 100;
   for (const pct of pcts) {
     const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(current) + SIZE_STEPS.length) % SIZE_STEPS.length;
-    for (let i = 0; i < steps; i++) await h.open({ selection: 10 }, { canceled: true });
+    for (let i = 0; i < steps; i++) await h.open({ action: 'Size' }, { canceled: true });
     current = pct;
-    await h.open({ selection: 5 }, { selection: 0 });
+    await h.open({ action: 'Place' }, { selection: 0 });
     await h.flush(4000);
   }
   expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Scaled.'));
