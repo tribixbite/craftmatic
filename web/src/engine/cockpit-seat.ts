@@ -156,6 +156,8 @@ export interface SeatPlan {
   search?: { needRoof: boolean; needSides: boolean; tried: number; outOfCabin: number } | null;
   /** A hidden rider's eye moved out of the model into air (x, y, z); null/absent = not moved. */
   eyeMoved?: Vec3 | null;
+  /** A guessed seat's (`none`) forward view (`forwardView`) at the evidence's seat and at the one shipped; absent for other evidence. */
+  view?: { before: number; after: number } | null;
 }
 
 /**
@@ -188,8 +190,55 @@ export function keepsTheView(at100: { fits: boolean; head: number }, evidenceHea
   return at100.fits || at100.head <= evidenceHead + 1e-9;
 }
 
-/** The evidence a seat came from, as far as the search cares. */
-export type SeatEvidence = 'seat' | 'steering' | 'volume';
+/**
+ * The evidence a seat came from, as far as the search cares. `none`: nothing
+ * in the model says where a driver sits (`findCockpit`'s default cabin: a doll
+ * or Technic car with no figure, seat, wheel or glass) - the seat is a guess,
+ * and it is judged by what its eye SEES (`VIEW`).
+ */
+export type SeatEvidence = 'seat' | 'steering' | 'volume' | 'none';
+
+/**
+ * The driver's view out ahead, for a seat with no evidence (`none`): rays from
+ * the eye over a forward cone (yaw and pitch offsets, degrees, nose toward
+ * -Z), each clear when it leaves the model's bounds through air or glass. A
+ * guessed seat whose view is blocked is moved to one whose view is clear:
+ * Gabby's doll cars (10797's cat bus, 10796's carts) sat the rider's eye
+ * inside their bodywork, so the first-person view was a wall of colour
+ * (Saga, 2026-09-29).
+ */
+export const VIEW = {
+  yaw: [-30, -15, 0, 15, 30],
+  pitch: [-15, -5, 5],
+  /** Share of the rays that must be clear. */
+  minClear: 0.9,
+  /** March step along a ray, blocks. */
+  step: 0.05,
+  /** How far over the model's top a searched eye may go, blocks (a player sitting on a toy car's roof). */
+  overTop: 1.4,
+} as const;
+
+/** Share of the forward view rays from `eye` that leave the model through air or glass (1 = all clear). */
+export function forwardView(boxes: readonly BoxBlocks[], eye: Vec3): number {
+  const opaque = boxes.filter(b => !b.glass);
+  if (!opaque.length) return 1;
+  const lo: Vec3 = [Math.min(...boxes.map(b => b.min[0])), Math.min(...boxes.map(b => b.min[1])), Math.min(...boxes.map(b => b.min[2]))];
+  const hi: Vec3 = [Math.max(...boxes.map(b => b.max[0])), Math.max(...boxes.map(b => b.max[1])), Math.max(...boxes.map(b => b.max[2]))];
+  let clear = 0, total = 0;
+  for (const yd of VIEW.yaw) for (const pd of VIEW.pitch) {
+    total++;
+    const y = yd * Math.PI / 180, p = pd * Math.PI / 180;
+    const d: Vec3 = [Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p)];
+    let hit = false;
+    for (let s = VIEW.step; !hit; s += VIEW.step) {
+      const q: Vec3 = [eye[0] + d[0] * s, eye[1] + d[1] * s, eye[2] + d[2] * s];
+      if (q[0] < lo[0] || q[0] > hi[0] || q[1] < lo[1] || q[1] > hi[1] || q[2] < lo[2] || q[2] > hi[2]) break;
+      hit = opaque.some(b => q[0] >= b.min[0] && q[0] <= b.max[0] && q[1] >= b.min[1] && q[1] <= b.max[1] && q[2] >= b.min[2] && q[2] <= b.max[2]);
+    }
+    if (!hit) clear++;
+  }
+  return clear / total;
+}
 
 /** Measure a driver's seat against the model's boxes (entity frame, blocks). */
 export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evidence: SeatEvidence = 'seat'): SeatPlan {
@@ -269,7 +318,45 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       best = { seat: s2, eye: pick.eye, steps: measure(s2), moved: best.moved };
     }
   }
-  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved };
+  // A guessed seat (`none`) is judged by its view: when the eye cannot see out
+  // ahead, the seat moves to the nearest one that can - on a surface of the
+  // model (the hips on it), anywhere along its length but the ends, a body
+  // that fits preferred to a hidden one, then the lower eye. On a doll car that is its roof or
+  // rear deck: the player rides it the way a child sits on a toy car.
+  let view: SeatPlan['view'] = null;
+  if (evidence === 'none') {
+    const before = forwardView(boxes, best.eye);
+    view = { before, after: before };
+    if (before < VIEW.minClear) {
+      const r2 = (v: number): number => Math.round(v * 100) / 100;
+      const zs = boxes.flatMap(b => [b.min[2], b.max[2]]);
+      const z0 = Math.min(...zs), z1 = Math.max(...zs), margin = (z1 - z0) * SEAT_END_MARGIN;
+      const modelTop = Math.max(...boxes.map(b => b.max[1]));
+      const xs = [...new Set([0, best.seat[0]])];
+      let pick: { seat: Vec3; eye: Vec3; view: number; rank: [number, number, number, number] } | null = null;
+      for (let z = z0 + margin; z <= z1 - margin + 1e-9; z += SEAT_SEARCH.step) for (const x of xs) {
+        // The surfaces the hips can sit on here: every opaque top of the model under the seat's
+        // footprint (never the ground beside it: a rider sat on the grass at a doll truck's bumper).
+        const tops = boxes.filter(b => !b.glass && b.min[0] <= x + 0.2 && b.max[0] >= x - 0.2 && b.min[2] <= z + 0.25 && b.max[2] >= z - 0.1).map(b => b.max[1]);
+        for (const top of new Set(tops.map(r2))) {
+          const s: Vec3 = [r2(x), r2(top - 0.3), r2(z)];
+          const e: Vec3 = [s[0], r2(s[1] + RIDER_EYE_ABOVE_SEAT), s[2]];
+          if (e[1] > modelTop + VIEW.overTop || eyeOverlap(boxes, e) > 0) continue;
+          const v = forwardView(boxes, e);
+          const fits = measure(s)[0]!.fits;
+          const rank: [number, number, number, number] = [v >= VIEW.minClear ? 0 : 1, fits ? 0 : 1, Math.hypot(s[0] - best.seat[0], s[1] - best.seat[1], s[2] - best.seat[2]), e[1]];
+          const better = !pick || rank.some((_, i) => rank.slice(0, i).every((q, j) => Math.abs(q - pick!.rank[j]!) < 1e-9) && rank[i]! < pick!.rank[i]! - 1e-9);
+          if (better) pick = { seat: s, eye: e, view: v, rank };
+        }
+      }
+      if (pick && pick.view >= VIEW.minClear) {
+        best = { seat: pick.seat, eye: pick.eye, steps: measure(pick.seat), moved: [r2(pick.seat[0] - seat[0]), r2(pick.seat[1] - seat[1]), r2(pick.seat[2] - seat[2])] };
+        eyeMoved = null;
+        view = { before, after: pick.view };
+      }
+    }
+  }
+  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}) };
 }
 
 /**

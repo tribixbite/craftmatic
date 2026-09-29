@@ -4142,20 +4142,25 @@ mini-doll sets through the pipeline. What they needed, all general rules:
   (`attachLooseProps`): before, a detached prop was exported nowhere.
 - **Slides and lifts ride** (`engine/bedrock-rides.ts`, `scripts/rides.js`;
   physics spec section 4.7). Every part described `Slide ...` is a slide: its
-  running line is read from the part's top surface (4-LDU cells, banded by
-  height), an invisible ride seat stands at the top, and sitting on it carries
-  the player down (2 -> 8 blocks/s) and off at a 24-LDU run-out; the seat then
-  returns. A lift is a shaft of at least two tall slim guides (`Support`,
-  pillars, beams; >= 192 LDU) with a car covering their footprint, and a stop
-  per storey that meets the shaft (plates/tiles at its side, merged per
-  72 LDU). The car is its own entity of its exact bricks; sitting in it carries
-  car and rider to the next storey (up to the top, then down, 1.5 blocks/s) and
-  sets the rider on that floor beside the shaft. The placement writes each
-  ride's path and exits in WORLD points (`PlacementActor.ride*`), so the
-  runtime only follows points. Found: a slide in all five sets; 10788's lift
-  (three `Support 2 x 2 x 13` guides, 12-part car, 4 storeys). 10788's rooms
-  above the ground floor are not reachable on foot at any size (clearance
-  report: 2 of 23 rooms at 100 %); the lift is the way up.
+  running line is read from the chute's BED - the part's top surface (4-LDU
+  cells) less its rims (a cell with a cell 12 LDU lower within 8 LDU is the
+  top of a side wall) - banded by height; an invisible ride seat stands at the
+  top, and sitting on it carries the player down (2 -> 8 blocks/s) and off at
+  a 24-LDU run-out; the seat then returns. A lift is the set's own ELEVATOR
+  PLATFORM (a mould its description names so, 3863) running in a column of
+  frames or guides stacked over its footprint; the car is the platform and
+  what stands on it, the rider stands on its most common top surface, and a
+  stop is every room floor (flat parts by AREA, merged per 72 LDU) at which
+  the whole car stays in the column. The car is its own entity of its exact
+  bricks; tapping it (or its seat) carries car and rider to the next floor (up
+  to the top, then down, 1.5 blocks/s) and sets the rider on that floor
+  beside the shaft, on a part whose top is the floor, with a player's standing
+  room. The placement writes each ride's path and exits in WORLD points
+  (`PlacementActor.ride*`), so the runtime only follows points. Found: a
+  slide in all five sets; 10788's lift (3863 in four grooved door frames,
+  3 floors). 10788's rooms above the ground floor are not reachable on foot
+  at any size (clearance report: 2 of 23 rooms at 100 %); the lift is the way
+  up. See "The user's report" below for what the first version got wrong.
 - **A playground swing is a seat** (`isSwingSeat`: Studio names 67075
   `Friends Swing 2 x 6 x 5 1/3`); its pan is the seat under the bar, not the
   bar (`seatPanLocalY(mesh, hanging)`).

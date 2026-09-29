@@ -2739,7 +2739,7 @@ export async function compileLdrawEntityGeometry(
     });
     const eyeY = round(cockpitUnits[1] / 16);
     return planSeat(boxes, [round(cockpitUnits[0] / 16), eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
-      cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : 'volume');
+      cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : cockpit.source === 'default-cabin' ? 'none' : 'volume');
   })();
   const collisionBox = {
     width: Math.min(3.5, Math.max(0.8, Math.round(totalWidth * 0.85 * 10) / 10)),

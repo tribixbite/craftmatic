@@ -693,6 +693,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   const overrides = new Map<string, { x: number; y: number; jump: boolean; ticks: number }>();
   let telemetry = false;
   const MPH = 2.236936;
+  /** Ticks a new driver sees the controls hint in the action bar (5 s); then only the speed and any warning. */
+  const HUD_HINT_TICKS = 100;
   const dims = (): any[] => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   // Plants, torches, snow layers and light blocks are passed through; everything else solid is ground.
   const PASSABLE = /(^|:)(air|cave_air|void_air|light_block.*|short_grass|tall_grass|grass|fern|large_fern|.*_flower|dandelion|poppy|torch|.*_torch|snow_layer|vine|seagrass|kelp|kelp_plant|lily_pad)$/;
@@ -893,16 +895,35 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           const lift = hover ? H.RIDE_HEIGHT : 0;
           const noseX = st.x + fx * reach, noseZ = st.z + fz * reach, tailX = st.x - fx * reach, tailZ = st.z - fz * reach;
           // What it stands on: SOLID ground for a car (water is not a road); ground or water for a hover craft, plus its ride height.
-          const below = (px: number, py: number, pz: number, depth: number): number | null => {
-            const t = hover ? surfaceTop(dim, px, py, pz, depth) : solidTop(dim, px, py, pz, depth);
-            return t === null ? null : t + lift;
+          // Scanning down from a step's height over its base, a span whose top is a climbable
+          // step or lower is the ground; a higher span whose underside is over the base is an
+          // OVERHANG the car passes under, not ground; a higher span the base is inside is a
+          // wall, reported by its top. Reading an overhang's top as "a wall under the centre"
+          // turned into "no ground": 10797's doll car (1 block tall) drove under a collider
+          // and fell through the world to y -104 (Saga, 2026-09-29).
+          const footY = st.y - lift;
+          const below = (px: number, pz: number, depth: number): number | null => {
+            const top = Math.floor(footY + P.STEP_UP + 0.2);
+            for (let by = top; by >= top - depth; by--) {
+              const b = blockOf(dim, px, by, pz);
+              if (!b) return null;
+              if (hover && isWater(b)) return by + 0.9 + lift;
+              const s = spanOf(b);
+              if (!s) continue;
+              const lo = by + s[0], hi = by + s[1];
+              if (hi <= footY + P.STEP_UP + 1e-6 || lo <= footY + 0.05) return hi + lift;
+            }
+            return null;
           };
-          const reachUp = st.y - lift + P.STEP_UP + 0.2;
-          ground = below(st.x, reachUp, st.z, st.onGround ? 4 : 48);
-          const groundFront = below(noseX, reachUp, noseZ, 4), groundRear = below(tailX, reachUp, tailZ, 4);
-          const wall = (px: number, pz: number, g: number | null): boolean => (g !== null && g - st.y > P.STEP_UP) || solidAt(dim, px, st.y - lift + P.STEP_UP + 0.45, pz);
+          ground = below(st.x, st.z, st.onGround ? 4 : 48);
+          const groundFront = below(noseX, noseZ, 4), groundRear = below(tailX, tailZ, 4);
+          // The wall probe stands inside the body: a step's height over the base, up to 0.45 over
+          // it on a car tall enough (a doll car's roof is under a 1.5-block probe).
+          const probe = Math.max(P.STEP_UP + 0.05, Math.min(P.STEP_UP + 0.45, kind.height * k - 0.1));
+          const wall = (px: number, pz: number, g: number | null): boolean => (g !== null && g - st.y > P.STEP_UP) || solidAt(dim, px, footY + probe, pz);
           r = car(st, input, {
-            ground: ground !== null && ground - st.y > P.STEP_UP ? null : ground,
+            // A wall under the centre (the base inside a solid) is not "no ground": it holds its height.
+            ground: ground !== null && ground - st.y > P.STEP_UP ? st.y : ground,
             groundFront, groundRear, blockedFront: wall(noseX, noseZ, groundFront), blockedRear: wall(tailX, tailZ, groundRear),
             inWater: !hover && isWater(blockOf(dim, st.x, st.y + 0.2, st.z)), wheelbase: 2 * reach,
           }, P, 0.05);
@@ -938,6 +959,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         }
         states.set(e.id, ns);
         ns.light = st.light; ns.parked = st.parked; ns.scale = st.scale;
+        // Ticks the current driver has been aboard (the controls hint shows only at first).
+        ns.aboard = driver ? (st.aboard || 0) + 1 : 0;
         // A boat rides a gentle swell and a hover craft bobs on its cushion (drawn only: the state keeps the calm line).
         const afloat = kind.mode === 'boat' && ns.afloat;
         const bob = kind.mode === 'hover' && ns.onGround;
@@ -978,11 +1001,13 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
               : ns.stalled ? '§c[STALL: STICK FORWARD]§r' : '§7[STICK BACK: CLIMB · FORWARD: DIVE · JUMP: FULL POWER]§r';
             hud = `§lPLANE§r §e${(ns.speed * MPH).toFixed(0)} mph§r · §bALT ${alt}§r · THR ${Math.round(ns.throttle * 100)} · ${hint}`;
           } else if (kind.mode === 'car' || kind.mode === 'hover') {
-            const hint = r.event === 'blocked' || (ns.speed === 0 && Math.abs(input.y) > 0.15) ? '§c[BLOCKED: BACK UP]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: DRIVE + STEER · JUMP: BOOST]§r';
-            hud = `§l${kind.mode === 'hover' ? 'HOVER' : 'CAR'}§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r · ${hint}`;
+            // The controls hint only for the first `HUD_HINT_TICKS` aboard: the bar sits across the middle
+            // of a phone's screen, over the car the chase camera frames (Gabby's doll cars, Saga 2026-09-29).
+            const hint = r.event === 'blocked' || (ns.speed === 0 && Math.abs(input.y) > 0.15) ? '§c[BLOCKED: BACK UP]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: DRIVE + STEER · JUMP: BOOST]§r' : '';
+            hud = `§l${kind.mode === 'hover' ? 'HOVER' : 'CAR'}§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r${hint ? ` · ${hint}` : ''}`;
           } else {
-            const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST]§r';
-            hud = `§lBOAT§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r · ${hint}`;
+            const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST]§r' : '';
+            hud = `§lBOAT§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r${hint ? ` · ${hint}` : ''}`;
           }
           if (ns.light) hud += ' · §e[LIGHTS]§r';
           try { const extra = e.getDynamicProperty(DYN.hud); if (typeof extra === 'string' && extra) hud += ` · ${extra}`; } catch { /* none */ }

@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
-import { RIDER_EYE_ABOVE_SEAT, eyeOverlap, forwardClear, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { RIDER_EYE_ABOVE_SEAT, VIEW, eyeOverlap, forwardClear, forwardView, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -366,5 +366,49 @@ describe('the seat search (a canopy is a volume, not a seat)', () => {
     // Hips 0.27 under the floor at 100 %; from 150 % the scaled eye lifts them clear.
     expect(planSeat(open, [0, 0.98, 0], [0, -0.27, 0]).fitScale).toBe(1.5);
     expect(planSeat(open, [0, 1.14, 0], [0, -0.11, 0]).fitScale).toBe(1);
+  });
+});
+
+describe('a guessed seat (no cockpit evidence) is judged by what its eye sees', () => {
+  /**
+   * A doll-scale truck, 3 blocks long (nose at -Z): a closed cab 1.3 tall at the front with walls
+   * and a roof round the default-cabin eye, and a flat bed 0.9 tall behind it. The guessed eye sits
+   * inside the cab under its roof - the Saga's view from 10797's cat bus was a wall of colour.
+   */
+  const dollTruck: BoxBlocks[] = [
+    box([-0.6, 0, -1.5], [0.6, 0.3, 1.5]), // chassis
+    box([-0.6, 0.3, -1.5], [0.6, 0.9, -1.3]), // cab front wall (dash)
+    box([-0.6, 0.3, -1.5], [-0.45, 1.3, 0]), // cab left wall
+    box([0.45, 0.3, -1.5], [0.6, 1.3, 0]), // cab right wall
+    box([-0.6, 1.3, -1.5], [0.6, 1.45, 0]), // cab roof
+    box([-0.6, 0.3, 0], [0.6, 0.9, 1.5]), // bed
+  ];
+
+  it('scores the forward view: all clear over the model, none from inside a closed box', () => {
+    expect(forwardView(dollTruck, [0, 2.4, 1])).toBe(1);
+    expect(forwardView([box([-1, 0, -1], [1, 2, 1])], [0, 1, 0])).toBe(0);
+    // Glass does not block the view.
+    expect(forwardView([{ min: [-1, 0, -1], max: [1, 2, -0.5], glass: true }], [0, 1, 0])).toBe(1);
+  });
+
+  it('moves a seat whose view is blocked to the nearest surface with a clear view, body drawn', () => {
+    const eye: Vec3 = [0, 1.2, -0.8];
+    const plan = planSeat(dollTruck, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, eye[2]], 'none');
+    expect(plan.view!.before).toBeLessThan(VIEW.minClear);
+    expect(plan.view!.after).toBeGreaterThanOrEqual(VIEW.minClear);
+    expect(forwardView(dollTruck, plan.eye)).toBeGreaterThanOrEqual(VIEW.minClear);
+    // The hips rest on a surface of the model (its bed or its roof), and the body is drawn at 100 %.
+    const surface = plan.seat[1] + 0.3;
+    expect(dollTruck.some(b => Math.abs(b.max[1] - surface) < 0.02)).toBe(true);
+    expect(plan.steps[0]!.fits).toBe(true);
+  });
+
+  it('leaves a guessed seat alone when it already sees out, and never searches a seat with evidence', () => {
+    const open = planSeat(dollTruck, [0, 1.6, 0.5], [0, 1.6 - RIDER_EYE_ABOVE_SEAT, 0.5], 'none');
+    expect(open.view).toEqual({ before: 1, after: 1 });
+    expect(open.moved).toBeNull();
+    const figure = planSeat(dollTruck, [0, 1.2, -0.8], [0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8], 'seat');
+    expect(figure.view).toBeUndefined();
+    expect(figure.seat).toEqual([0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8]);
   });
 });
