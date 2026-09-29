@@ -146,6 +146,29 @@ for my 5yo to explore and play with."
 - [ ] Gabby sets as a whole: every door, slide, lift, swing, seat and car a
   child would try should work at 100 %.
 
+## New-set onboarding + 11390 (2026-09-29)
+
+Infra is in (sources guide "Onboarding ONE announced set"): clego
+`python discovery/new_set.py <sku> --run` (ladder + harvest/grade/lift/publish,
+exit 0/3/1; lift proved on 40900: entry byte-equal to live, nothing else
+moved, ~5 min), craftmatic `bun scripts/new-set.ts <sku> --commit --browser`
+(live index + models, index commit, Chrome deep-link render via
+`_live_set_check.mjs`, pack + gates + zip), `scripts/new-set-watch.ps1 <sku>`
+for `schtasks` (hourly; lock + DONE). App: `mergeIndexSets` (catalog topped
+up from the index) and `?tab=lego&set=N`. 11390 today: `announced`
+(lego.com knows it: 1,764 pieces, 0 PDFs; DBIX 204; not in Rebrickable).
+- [ ] The user registers the task: `schtasks /create /tn "craftmatic-new-set-11390"
+  /sc hourly /st 06:05 /tr "powershell -NoProfile -ExecutionPolicy Bypass -File
+  C:\git\craftmatic\scripts\new-set-watch.ps1 11390"` (release 2026-11-01).
+- [ ] Deep link on PROD: `bun scripts/new-set.ts 40900 --browser` after the
+  deploy of this round lands (dev-proved: `output/new-set-40900-test/live-40900.png`).
+- [ ] Nimbus rig (worktree agent, offline only): `flyer` motion (native rotor
+  controller, cloud-styled), `set-canon.ts` (11390: cloud mount, companion
+  orbit), mount detector, interact → own cloud (60 s despawn, cap), fixture
+  `test/fixtures/nimbus-fixture.ldr`, GameTest. Then: merge after gates, a
+  Pixel GameTest round, and when the 11390 file lands, `new-set.ts 11390`
+  and the one-line canon check (cloud colour family).
+
 ## Open — interactivity
 
 - [ ] **Doorways not OK at 100 %: 26 of 83** (was 40; 150 %: 22, was 32; 0

@@ -435,6 +435,49 @@ Two halves, split by what can run without the local corpus. See
   complete" is not proof (and urllib's default UA gets 403 from the edge, so
   set one or every object looks missing).
 
+### Onboarding ONE announced set the hour its model appears (2026-09-29)
+
+The weekly halves above make a released set searchable within a week and
+harvestable on the next local run. An announced set (11390 *Dragon Ball:
+Shenron & Goku*, 1,764 pieces, 2026-11-01) needs the per-set, on-demand path,
+built and proved on 40900 (the lifted index entry was byte-equal to the live
+one, no other set moved):
+
+1. **clego `python discovery/new_set.py <sku> [--run]`** prints the status
+   ladder — Rebrickable `sets.csv` · lego.com's instruction page
+   (`__NEXT_DATA__` → `getBuildingInstructionsForSet`: name, pieces, year,
+   theme, PDF count; it knew 11390 weeks before Rebrickable did) · DBIX
+   `BuildingInstructions?ProductNumber=` (the 3D LXFML; HTTP 204 until it is
+   served) · local files · both index copies · the live index and each model's
+   HTTP status — collapsed to `unknown / announced / pdf-only / 3d-available /
+   harvested / indexed / live`. With `--run` from `3d-available`: scoped
+   harvest (`dbix_refresh.py --run --set`), Studio and `CLEGO_LDRAW_LIB=upstream`
+   grades (`misc_regrade_touched.py`, so the index carries the grade prod
+   draws), a SCRATCH `build_model_index.py --out` with only this set's entry
+   lifted into both copies (a full rebuild re-ranks every other set — the
+   2026-09-27 rule; the scratch build takes ~5 min), name/year/parts from the
+   lego.com record when `sets.csv` lacks the set, `sync_models_r2.py --only`
+   (index re-put last), every key read back through prod. Exit 0 live, 3 not
+   yet, 1 failed — cron-shaped.
+2. **craftmatic `bun scripts/new-set.ts <sku> [--commit] [--browser]`** checks
+   the live index and every model path, commits + pushes the rewritten
+   `web/public/lego-models-index.json` (`--commit`; the deploy ships the
+   bundled fallback copy), loads `https://craftmatic.click/?tab=lego&set=<sku>`
+   in Chrome and waits for the source badge to settle (`--browser` →
+   `scripts/_live_set_check.mjs`, node + playwright-core, service workers
+   blocked), then builds the pack from the index's first pick with the LEGO
+   tab's label `Name (sku-1)` (uuid + per-set canon follow it) and runs the
+   gates: `_mcaddon_check.py`, `_render_fault_audit.ts`, `_ix_passability.ts`,
+   substituted/unresolved parts. Writes `output/new-set-<sku>/report.md`, the
+   zip and its sha256. Exit 0 / 2 not live yet / 1 a gate failed.
+3. **`scripts/new-set-watch.ps1 <sku>`** chains the two for a scheduled task
+   (hourly; lock file; `DONE` marker); the `schtasks` line is in its header.
+
+Two app changes make a release-day set reachable before Rebrickable lists it:
+`mergeIndexSets` tops the catalog up from the models index (as `<num>-1`,
+theme 0, the index's name/year/parts) on every search, and `?tab=lego&set=N`
+selects a set on load (`initLego`). `INDEX_ONLY_THEME_ID` marks such rows.
+
 ## Known gaps — a corpus-wide census (2026-09-19)
 
 What is wrong with the corpus, counted rather than described, so a fix can be

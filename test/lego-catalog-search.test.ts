@@ -7,7 +7,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { rankSets, splitQueryTerms, type CatalogSet } from '../web/src/engine/lego-catalog.js';
+import { rankSets, splitQueryTerms, indexOnlySets, INDEX_ONLY_THEME_ID, type CatalogSet } from '../web/src/engine/lego-catalog.js';
 
 const SET = (set_num: string, name: string, year: number, num_parts: number, theme_id = 1): CatalogSet =>
   ({ set_num, name, year, theme_id, num_parts });
@@ -122,5 +122,39 @@ describe('several search terms are a UNION', () => {
     const byYear = rankSets(CATALOG, '21063,6080', null, 2020, null, 24).map(s => s.set_num);
     expect(byYear).toEqual(['21063-1']);          // 6080 is 1984
     expect(rankSets(CATALOG, 'castle,titanic', null, null, null, 3)).toHaveLength(3);
+  });
+});
+
+// A set the models index holds before Rebrickable lists it (a release-day set:
+// 11390 was on lego.com and in LEGO's Builder service days before the catalog
+// knew it) must still be searchable, so the catalog is topped up from the index.
+describe('indexOnlySets — release-day sets the catalog does not list yet', () => {
+  const INDEX = { sets: {
+    '21063': { name: 'Neuschwanstein Castle', year: '2025', parts: 3455, models: [] },   // catalogued
+    '11390': { name: 'Dragon Ball: Shenron & Goku', year: '2026', parts: 1764, models: [] },
+    '99999': { models: [] },                                                             // no metadata at all
+  } };
+
+  it('adds only the sets the catalog lacks, as <number>-1, with the index metadata', () => {
+    const added = indexOnlySets(INDEX, CATALOG);
+    expect(added.map(s => s.set_num)).toEqual(['11390-1', '99999-1']);
+    const goku = added[0]!;
+    expect(goku.name).toBe('Dragon Ball: Shenron & Goku');
+    expect(goku.year).toBe(2026);
+    expect(goku.num_parts).toBe(1764);
+    expect(goku.theme_id).toBe(INDEX_ONLY_THEME_ID);
+    expect(added[1]!.name).toBe('99999');
+    expect(added[1]!.year).toBe(0);
+  });
+
+  it('is searchable by number and by name once merged', () => {
+    const merged = [...CATALOG, ...indexOnlySets(INDEX, CATALOG)];
+    expect(rankSets(merged, '11390', null, null, null, 3)[0]!.set_num).toBe('11390-1');
+    expect(rankSets(merged, 'shenron goku', null, null, null, 3).map(s => s.set_num)).toEqual(['11390-1']);
+  });
+
+  it('is idempotent: merging the same index twice adds nothing', () => {
+    const merged = [...CATALOG, ...indexOnlySets(INDEX, CATALOG)];
+    expect(indexOnlySets(INDEX, merged)).toEqual([]);
   });
 });

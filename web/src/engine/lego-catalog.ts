@@ -91,6 +91,51 @@ export function isLoaded(): boolean {
   return setsCache != null && themesCache != null;
 }
 
+/** Theme id given to a set the catalog does not know (no Rebrickable theme yet). */
+export const INDEX_ONLY_THEME_ID = 0;
+
+/**
+ * Make every set the MODELS INDEX holds searchable, even before Rebrickable
+ * lists it. The catalog is Rebrickable's `sets.csv`, rebuilt on deploy, and it
+ * trails a release by days (11390 was on lego.com's instruction pages and in
+ * LEGO's Builder service before the catalog knew it existed); the index is
+ * published the hour a model appears. A set in the index but not the catalog
+ * could not be searched, selected or deep-linked - the model was live and the
+ * app could not show it. Sets are appended as `<number>-1` with the index's
+ * name/year/parts and theme 0; an entry the catalog already has is left alone
+ * (the catalog's row wins - it carries the real theme). Idempotent: a second
+ * call with the same index adds nothing. Returns how many were added.
+ */
+export function mergeIndexSets(index: IndexLike): number {
+  if (!setsCache) return 0;
+  const added = indexOnlySets(index, setsCache);
+  setsCache.push(...added);
+  return added.length;
+}
+
+type IndexLike = { sets: Record<string, { name?: string; year?: string | number; parts?: number }> };
+
+/** The catalog rows `mergeIndexSets` would add: every index set absent from `catalog`, as `<number>-1`. Pure. */
+export function indexOnlySets(index: IndexLike, catalog: readonly CatalogSet[]): CatalogSet[] {
+  const known = new Set(catalog.map(s => s.set_num.replace(/-\d+$/, '')));
+  const out: CatalogSet[] = [];
+  for (const [num, entry] of Object.entries(index.sets)) {
+    if (known.has(num)) continue;
+    const set_num = `${num}-1`;
+    out.push({
+      set_num,
+      name: entry.name || num,
+      year: Number(entry.year) || 0,
+      theme_id: INDEX_ONLY_THEME_ID,
+      num_parts: entry.parts ?? 0,
+      img_url: `${IMG_BASE}/${encodeURIComponent(set_num)}.jpg`,
+      set_url: `https://rebrickable.com/sets/${encodeURIComponent(set_num)}/`,
+    });
+    known.add(num);
+  }
+  return out;
+}
+
 export function getThemes(): CatalogTheme[] {
   return themesCache ?? [];
 }

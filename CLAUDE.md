@@ -321,6 +321,15 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   load the user had just started — silently, with the source badge still
   reporting success. Invisible on dev, where the same file is a local read.
   Root causes and the reproduction recipe: [testing guide](docs/testing-guide.md).
+- **A set the models index holds but Rebrickable does not list yet was
+  unreachable** (2026-09-29): the LEGO tab searched only `lego-catalog.json`,
+  which trails a release by days, so a model published the hour it appeared
+  could not be selected. `mergeIndexSets` (engine/lego-catalog.ts) tops the
+  catalog up from the index on every search and `?tab=lego&set=<num>` deep-
+  links a set. Onboarding one announced set end to end (11390 is the standing
+  test subject): clego `discovery/new_set.py <sku> --run` then
+  `bun scripts/new-set.ts <sku> --commit --browser`, chained hourly by
+  `scripts/new-set-watch.ps1`; the sources guide, "Onboarding ONE announced set".
 - **clego publisher now validates its CLI** (`c8bd5ce6`, 2026-09-20): `--help`,
   `--status`, and `--dry-run` do not upload; unknown options fail. Use
   `--only-file <listing> --no-index` for corpus-only publication. Failed or

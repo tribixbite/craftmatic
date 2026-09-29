@@ -24,7 +24,7 @@ import { modelExportStem } from '@engine/export-name.js';
 import { sourceHash12, type SourceProvenance } from '@engine/pipeline-version.js';
 import { fetchBffInventory, bffInventoryToLDraw } from '@engine/bff-loader.js';
 import {
-  ensureCatalog, searchCatalog, splitQueryTerms, getThemes, isLoaded, isInOmr, isOmrLoaded,
+  ensureCatalog, searchCatalog, splitQueryTerms, getThemes, isLoaded, isInOmr, isOmrLoaded, mergeIndexSets,
   type CatalogSet, type CatalogTheme,
 } from '@engine/lego-catalog.js';
 import { exportGLB, exportSTL, exportOBJ, export3MF, countExportTriangles } from '@viewer/exporter.js';
@@ -1153,15 +1153,17 @@ function wireEvents(): void {
       // Built in a LOCAL until this run is known to still be the newest: a
       // superseded run that assigned the global left the rendered cards
       // indexing a different array, so a click could select the wrong set.
+      // The models index is async but cached after the first load, so only the
+      // very first search pays a fetch. The source filter and the default
+      // (relevance) ordering need it, and so does the search itself: a set the
+      // index holds but Rebrickable does not list yet (a release-day set) is
+      // searchable only once `mergeIndexSets` has appended it to the catalog.
+      const idx = await getModelsIndex();
+      mergeIndexSets(idx);
       let results = searchCatalog(query, themeId, minYear, maxYear, Infinity);
       if (minPcs != null) results = results.filter(s => (s.num_parts ?? 0) >= minPcs);
       if (maxPcs != null) results = results.filter(s => (s.num_parts ?? 0) <= maxPcs);
       const srcMatch = srcGroup ? SOURCE_GROUPS[srcGroup] : undefined;
-      // The models index is async but cached after the first load, so only the
-      // very first search pays a fetch. Both the source filter and the default
-      // (relevance) ordering need it.
-      const needIdx = srcMatch != null || sortMode === 'relevance';
-      const idx = needIdx ? await getModelsIndex() : null;
       // A newer search owns the UI now — say so and touch nothing. Silence here
       // is how a stale run used to repaint the panel under the user.
       if (seq !== searchSeq) {
@@ -1252,8 +1254,21 @@ function wireEvents(): void {
 
   // Populate themes once the catalog loads, then show the browse-all grid so
   // the tab isn't a dead end before the first search.
-  ensureCatalog().then(() => {
+  ensureCatalog().then(async () => {
     populateThemes(getThemes());
+    // Deep link: `?tab=lego&set=11390` selects that set and auto-loads its
+    // best indexed model - the URL a release-day check (scripts/
+    // _live_set_check.mjs) and a shared link both use. The index is merged
+    // first so a set Rebrickable does not list yet still resolves.
+    const wanted = new URLSearchParams(location.search).get('set')?.trim();
+    if (wanted && !selectedSet) {
+      const idx = await getModelsIndex().catch(() => null);
+      if (idx) mergeIndexSets(idx);
+      const base = wanted.replace(/-\d+$/, '');
+      const hit = searchCatalog(wanted, null, null, null, 8).find(s => s.set_num.replace(/-\d+$/, '') === base);
+      if (hit) { selectSet(hit); return; }
+      setStatus(`Set ${wanted} is not in the catalog or the models index yet.`, 'error');
+    }
     // `searchResults.length === 0` is NOT "the user has not searched": a user
     // search that is itself still awaiting this same catalog has not assigned
     // them yet, so this fired a SECOND search underneath it (and, on
