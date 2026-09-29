@@ -70,6 +70,7 @@ def check(path):
     ident_ok = re.compile(r'^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$')
     n_server = 0
     rideables = []
+    hovering = []
     for n in [x for x in names if '/entities/' in x and x.endswith('.json')]:
         d = json.loads(z.read(n).decode('utf-8-sig'))
         ident = ((d.get('minecraft:entity') or {}).get('description') or {}).get('identifier')
@@ -90,6 +91,8 @@ def check(path):
                     problems.append(f'{n}: {where} uses {dropped!r}, which format 1.26.30 dropped (the entity fails to load)')
             if 'minecraft:rideable' in comps and ident not in rideables:
                 rideables.append(ident)
+            if ('minecraft:can_fly' in comps or 'minecraft:movement.hover' in comps) and ident not in hovering:
+                hovering.append(ident)
         # An int/float actor property whose range is not wider than one value:
         # Bedrock refuses it ("range max is less than range min" for [0, 0],
         # Pixel 2026-09-25) and with it the entity's WHOLE property component,
@@ -113,6 +116,24 @@ def check(path):
         if missing:
             problems.append(f'{lf}: no action.hint.exit line for {len(missing)} rideable entit{"y" if len(missing) == 1 else "ies"} ({", ".join(missing[:4])}{", ..." if len(missing) > 4 else ""}): the raw key shows while riding')
     if rideables: notes.append(f'{len(rideables)} rideable entities, dismount hints checked in {len(langs)} language file(s)')
+    # Every hovering entity (`minecraft:can_fly` / `minecraft:movement.hover`: rotorcraft,
+    # flyer mounts, scripted vehicles) needs a `fly` sound event in the RP's sounds.json
+    # (`entity_sounds.entities.<id>.events.fly`, an empty string is silent), or the
+    # hover mover falls back to the block sound table every few ticks and the content
+    # log fills with `[Sound][verbose] No sound found for block type 'normal' and event
+    # type 'fly'` - 3,101 lines in one Nimbus round (Saga, 2026-09-29). A log symptom,
+    # not a load failure, gated here because the pack is what carries the fix.
+    if hovering:
+        sound_files = [x for x in names if re.search(r'_RP/sounds\.json$', x)]
+        fly_ok = set()
+        for sf in sound_files:
+            ents = ((json.loads(z.read(sf).decode('utf-8-sig')).get('entity_sounds') or {}).get('entities') or {})
+            fly_ok |= {k for k, v in ents.items() if isinstance(v, dict) and 'fly' in (v.get('events') or {})}
+        missing = [h for h in hovering if h not in fly_ok]
+        if missing:
+            problems.append(f'{len(missing)} hovering entit{"y has" if len(missing) == 1 else "ies have"} no `fly` sound event in {sound_files or "an RP sounds.json"} ({", ".join(missing[:4])}{", ..." if len(missing) > 4 else ""}): the content log fills with the block-sound fallback')
+        else:
+            notes.append(f'{len(hovering)} hovering entities, fly sound event silenced')
     # geometries the pack defines
     geo_ids = set()
     # Bedrock floors a box-UV cube's DECLARED size and does not draw a side face whose

@@ -166,6 +166,22 @@ function nimbusPackTests(get: () => Pack): void {
     const driver = await text(`${bp}scripts/vehicle-driver.js`);
     expect(driver).toContain('"motion":"flyer"');
     expect(driver).toContain('"hud":"NIMBUS"');
+    // The driver carries the dive pitch, the ride hint and the speed window (Saga round 2026-09-29), and names only Script API globals.
+    expect(driver).toContain(`"divePitchDeg":${FLYER.DIVE_PITCH_DEG}`);
+    expect(driver).toContain(`"rideHintTicks":${FLYER.RIDE_HINT_TICKS}`);
+    expect(() => new Function('world', 'system', driver.replace(/^import.*\n/, ''))).not.toThrow();
+    expect(flyer.constants.DISMOUNT_SLOW_FALL_TICKS).toBe(FLYER.DISMOUNT_SLOW_FALL_TICKS);
+    expect(flyer.constants.DISMOUNT_DROP_BLOCKS).toBe(FLYER.DISMOUNT_DROP_BLOCKS);
+  });
+
+  it('the RP sounds.json gives the cloud (and every hovering entity) a silent fly event, so the hover mover stops logging its block-sound fallback', async () => {
+    const { json, rp, result, config } = get();
+    const sounds = await json(`${rp}sounds.json`);
+    const flyer = result.mcpack!.mounts!.found[0]!.flyer;
+    expect(sounds.entity_sounds.entities[flyer]).toEqual({ volume: 1, pitch: 1, events: { fly: '' } });
+    // The companion's cloud and seat do not hover natively (the ride runtime carries them): no entry.
+    const carType = config.actors.find((a: any) => /_cloud_ride_car$/.test(a.typeId)).typeId;
+    expect(sounds.entity_sounds.entities[carType]).toBeUndefined();
   });
 
   it('the lang has every rideable\'s exit hint and a name for each new entity; the README tells the child what to do', async () => {

@@ -543,9 +543,12 @@ round settles them.
   `minecraft:free` camera every tick) that pitch was reported not to reach the entity.
   The plane entity carries `craftmatic:descending` (`vertical_movement_action`
   −0.5, `AIRCRAFT_DESCEND_GROUP`) with `craftmatic:descend_on/off` events; the driver
-  script adds it while the rider pulls the stick BACK and holds Jump and removes it when
-  the stick returns (`vehicle.triggerEvent`), HUD `[DESCENDING]` /
-  `BACK+JUMP: DESCEND`. Sneak could not be the input: on a mount it is Dismount.
+  script adds it while the rider pulls the stick BACK and holds Jump, or looks down
+  past `FLYER.DIVE_PITCH_DEG` (25; the Saga proved on 26.52 that the native
+  controller ignores the look pitch, so `LOOK DOWN: DIVE` did nothing until the
+  driver read the pitch, 2026-09-29), and removes it when the stick returns and the
+  look levels (`vehicle.triggerEvent`), HUD `[JUMP: DESCEND]` /
+  `LOOK DOWN + JUMP: DIVE`. Sneak could not be the input: on a mount it is Dismount.
 - **Wand rework** (`bedrock-placement-pack.ts`): state per player is
   `{anchor, dimension, rotation, size, aim}`.
   - *Follow my aim* (menu 9): every 4 ticks `getBlockFromViewDirection` (96 blocks);
@@ -3597,7 +3600,7 @@ pinball 2026-09-24).
   lifts off), forward dives, left/right banks and turns. On the ground,
   stick back with the throttle released brakes.
 - **Helicopter**: stick to fly and turn, Jump climbs, stick back + Jump
-  descends.
+  descends, and so does look down (past 25 degrees) + Jump.
 - **Stick sign, measured**: pushing the stick RIGHT reads
   `getMovementVector().x` = -0.44 to -0.78 on the Pixel (Minecraft's +x
   strafe is LEFT). `FLIGHT.STICK_X_RIGHT` / `BOAT.STICK_X_RIGHT` = -1.
@@ -4499,22 +4502,66 @@ summon-and-fade runtime `scripts/flyer.js`), `bedrock-rides.ts` (ride kind
 README paragraph), `schem-pipeline.ts` (the mount stage). Constants and
 their reasons: `docs/physics-architecture.md` §4.6, §4.7, §9. Tests:
 `test/set-canon.test.ts`, `test/bedrock-flyer.test.ts`,
-`test/nimbus-fixture.test.ts`; device test `flyer_<id>`
-(docs/testing-guide.md). Built for LEGO 11390 (Dragon Ball: Shenron & Goku,
-1,764 pieces, released 2026-11-01) BEFORE its model file existed, against
-`test/fixtures/nimbus-fixture.ldr` (`scripts/_nimbus_fixture_gen.ts`): a
-rock-and-dragon pillar on a black base and a minifig on a 26-part golden
-cloud joined to the rock by a trans-clear bar. Nothing is keyed on the set's
-part ids. Not yet on a device.
+`test/nimbus-fixture.test.ts`, `test/vehicle-driver.test.ts`; device test
+`flyer_<id>` (docs/testing-guide.md). Built for LEGO 11390 (Dragon Ball:
+Shenron & Goku, 1,764 pieces, released 2026-11-01) BEFORE its model file
+existed, against `test/fixtures/nimbus-fixture.ldr`
+(`scripts/_nimbus_fixture_gen.ts`): a rock-and-dragon pillar on a black base
+and a minifig on a 26-part golden cloud joined to the rock by a trans-clear
+bar. Nothing is keyed on the set's part ids.
+
+**Saga round, 2026-09-29** (`output/nimbus-saga-0929/`, the fixture pack on
+26.52): the orbit runs at 3.0 blocks/s and 0.79 of the pillar's height; a tap
+summons with the puff and mounts at once; the player sits on top; forward is
+the look direction; Jump climbs ~20 blocks/s; hands off holds altitude; back
++ Jump descends; an empty cloud fades at 58-61 s; the cap holds 8; undo is
+clean; the content log has 0 errors. Five defects, fixed the same day
+(`output/nimbus-fix-0929/`), none of the fixes device-proven yet:
+
+1. *Look down did not dive.* The native hover controller does not turn the
+   look pitch into descent; only the `craftmatic:descending` group does. The
+   driver (`vehicleDriverRuntime`) now reads `rider.getRotation().x` and puts
+   the group in past `FLYER.DIVE_PITCH_DEG` (25), out again when the look
+   levels; back + Jump is unchanged. So the dive is look down AND hold Jump,
+   and the HUD says `LOOK DOWN + JUMP: DIVE` (`test/vehicle-driver.test.ts`).
+2. *Sneak at altitude dropped the rider 229 blocks* (from ALT 169). No
+   Script API dismount event exists (@minecraft/server 2.9.0), so `flyer.js`
+   polls who is aboard a summoned cloud every 10 ticks; a player no longer
+   aboard with no solid block within `FLYER.DISMOUNT_DROP_BLOCKS` (2) under
+   their feet gets `slow_falling` for `FLYER.DISMOUNT_SLOW_FALL_TICKS` (600,
+   no particles) and the action bar `Floating down`. The fade's eject and the
+   cap count as leaving too (`test/bedrock-flyer.test.ts`).
+3. *The summon hint vanished within 4 ticks* under the driver HUD. The one-shot
+   is gone; the driver shows `NIMBUS! Jump climbs, look down + Jump dives,
+   sneak gets off` for the first `FLYER.RIDE_HINT_TICKS` (60) of every ride
+   (a new rider restarts it), then the speed line.
+4. *The HUD read 99 mph at ~10 blocks/s* (`flight-hud-strip.jpg`: 0 / 24.9 /
+   60.2 / 99.0). A native mount is client-authoritative and its server
+   position moves in bursts, so one 2-tick delta is several ticks of motion.
+   `riddenVelocity` now keeps the positions at which the mount MOVED over
+   `DRIVER_SPEED_WINDOW_TICKS` (20) and reads the mean between the first and
+   the last: exact for any burst cadence up to a second; no move for a second
+   is 0; a step over `DRIVER_TELEPORT_BLOCKS` (5) is a teleport. The rotor
+   shares the path.
+5. *3,101 content-log lines* `[Sound][verbose] No sound found for block type
+   'normal' and event type 'fly'` from every hovering cloud (~10/min idle,
+   240/min flying), and the same from every rotor and scripted vehicle (all
+   carry `minecraft:can_fly` + `movement.hover`). The RP now ships
+   `sounds.json` with `entity_sounds.entities.<id>.events.fly: ""` for every
+   such entity (`silentFlySounds`, read from the emitted behaviour files like
+   the dismount hints; an empty string is vanilla's own silent event, e.g.
+   `bee.events.eat`), and `scripts/_mcaddon_check.py` gates it. Whether the
+   entry stops the fallback is a device measurement: the engine's trigger is
+   undocumented.
 
 **What the child gets.** Goku sits on his Nimbus and flies a slow lap round
 the dragon on his own, rising and falling a little. Tap Goku (or his cloud)
 and a cloud of your own puffs into being beside you with you on it: push the
-joystick to fly where you look, Jump climbs, back + Jump or looking down
-descends, let go and it hovers where it is. Sneak gets you off; the cloud
-waits there; an empty cloud fades after a minute; twenty taps make at most
-eight clouds (the oldest fade). Goku's own cloud never fades and never leaves
-its lap. HUD word `NIMBUS`.
+joystick to fly where you look, Jump climbs, back + Jump or look down + Jump
+descends, let go and it hovers where it is. Sneak gets you off; in the air
+you float down; the cloud waits there; an empty cloud fades after a minute;
+twenty taps make at most eight clouds (the oldest fade). Goku's own cloud
+never fades and never leaves its lap. HUD word `NIMBUS`.
 
 **The canon entry** (`SET_CANON['11390']`), the whole hint:
 
@@ -4570,19 +4617,20 @@ and the seat; the README gets the Nimbus paragraph.
 
 **Constants** (all in §9 with reasons): `EMPTY_DESPAWN_TICKS` 1200 (60 s),
 `CLOUD_CAP` 8, `TAP_COOLDOWN_TICKS` 20, `SPAWN_AHEAD_BLOCKS` 1.5,
+`DIVE_PITCH_DEG` 25, `RIDE_HINT_TICKS` 60, `DISMOUNT_DROP_BLOCKS` 2,
+`DISMOUNT_SLOW_FALL_TICKS` 600, `DRIVER_SPEED_WINDOW_TICKS` 20,
+`DRIVER_TELEPORT_BLOCKS` 5,
 `RIDE.ORBIT_SPEED` 3 blocks/s at 100 %, `ORBIT_MARGIN_LDU` 160 (3 blocks
 outside half the footprint diagonal), `ORBIT_HEIGHT_FRACTION` 0.8,
 `ORBIT_BOB_LDU` 32 x `ORBIT_BOB_PERIODS` 2 per lap, `ORBIT_POINTS` 64,
 `FLYER_BOB` 1 unit at 120 degrees/s.
 
-**Device-unproven, in order of doubt.** The puff particle's name
+**Device-unproven, in order of doubt** (after the Saga round above): the
+five fixes (the pitch dive, the float-down, the ride hint, the windowed
+speed, the silent `fly` event); the puff particle's name
 (`minecraft:water_evaporation_actor_emitter`; a wrong name costs the puff
-only - `spawnParticle` is wrapped); the summoned cloud mounting the player
-in the same tick as its spawn (`addRider` immediately, retried after two
-ticks); the seat height on the cloud top (the rider's eye 1.12 over the
-geometry's top); the figures-only seat accepting the figure at placement
-(`family_types: ['craftmatic_figure']`, the chair seats' proven form);
-the bob and the chord yaw as drawn; `random.pop` / `random.fizz`.
+only - `spawnParticle` is wrapped); the bob and the chord yaw as drawn;
+`random.pop` / `random.fizz`.
 
 **The one-line canon edit to expect** once the 11390 file lands: none if
 the Nimbus is yellow or bright light orange with white (both in the family).

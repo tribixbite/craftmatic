@@ -68,6 +68,14 @@ export const FLYER = {
   TAP_COOLDOWN_TICKS: 20,
   /** A summoned cloud appears this far ahead of the player, blocks. */
   SPAWN_AHEAD_BLOCKS: 1.5,
+  /** The rider's look pitch past which the driver puts the descend group in (Jump then dives), degrees down from level. */
+  DIVE_PITCH_DEG: 25,
+  /** The driver HUD shows the mount's name and "Jump climbs, sneak gets off" for this long after boarding, ticks (3 s). */
+  RIDE_HINT_TICKS: 60,
+  /** A rider who leaves a cloud with no solid block within this many blocks under their feet is given slow falling. */
+  DISMOUNT_DROP_BLOCKS: 2,
+  /** How long that slow falling lasts, ticks (30 s): the longest drop from the cloud's reach, with margin. */
+  DISMOUNT_SLOW_FALL_TICKS: 600,
 } as const;
 
 export interface SceneMount {
@@ -196,7 +204,7 @@ export interface FlyerRuntimeMount {
   summonTypes: string[];
   /** The companion seat type; its `craftmatic:ride_scale` is the placed size a summoned cloud copies. */
   seatType?: string;
-  /** The mount's name, for the HUD line on a summon (ASCII, `bedrockInGameText`). */
+  /** The mount's name (ASCII, `bedrockInGameText`): the README's and the diagnostics'; the HUD word is the driver's `hud`. */
   label: string;
 }
 
@@ -208,7 +216,7 @@ export interface FlyerRuntimeConfig {
   particle: string;
   spawnSound: string;
   fadeSound: string;
-  constants: Pick<typeof FLYER, 'EMPTY_DESPAWN_TICKS' | 'CLOUD_CAP' | 'TAP_COOLDOWN_TICKS' | 'SPAWN_AHEAD_BLOCKS'>;
+  constants: Pick<typeof FLYER, 'EMPTY_DESPAWN_TICKS' | 'CLOUD_CAP' | 'TAP_COOLDOWN_TICKS' | 'SPAWN_AHEAD_BLOCKS' | 'DISMOUNT_DROP_BLOCKS' | 'DISMOUNT_SLOW_FALL_TICKS'>;
 }
 
 declare const world: any;
@@ -278,15 +286,51 @@ function flyerRuntime(config: FlyerRuntimeConfig): void {
     puff(dim, at, 8); sound(dim, at, config.spawnSound);
     const board = (): boolean => { try { return cloud.getComponent('minecraft:rideable')?.addRider?.(player) === true; } catch { return false; } };
     if (!board()) { try { system.runTimeout(() => { board(); }, 2); } catch { /* the player taps the cloud */ } }
-    try { player.onScreenDisplay.setActionBar(`§e${mount.label}!§r Jump climbs, sneak gets off`); } catch { /* no HUD */ }
+    // The mount's name and its hint are the driver HUD's for the first seconds of the
+    // ride (vehicle-driver.js, `FLYER.RIDE_HINT_TICKS`): a one-shot action bar here
+    // was overwritten by that HUD within 4 ticks (Saga, 2026-09-29).
   };
   try { world.afterEvents.playerInteractWithEntity.subscribe((ev: any) => summon(ev.player, ev.target)); } catch { /* no event */ }
   try { world.afterEvents.entityHitEntity.subscribe((ev: any) => { if (ev.damagingEntity?.typeId === 'minecraft:player') summon(ev.damagingEntity, ev.hitEntity); }); } catch { /* no event */ }
+  /** Whether a solid block lies within `DISMOUNT_DROP_BLOCKS` under the feet at `loc` (an unloaded block counts as none: the effect is harmless on the ground). */
+  const groundUnder = (dim: any, loc: any): boolean => {
+    const x = Math.floor(loc.x), z = Math.floor(loc.z), feet = Math.floor(loc.y);
+    for (let dy = 0; dy <= K.DISMOUNT_DROP_BLOCKS; dy++) {
+      try {
+        const b = dim.getBlock({ x, y: feet - dy, z });
+        if (b && !b.isAir && !b.isLiquid) return true;
+      } catch { /* unloaded: no ground known */ }
+    }
+    return false;
+  };
+  // Who is aboard a summoned cloud, so a rider who leaves one (sneak, the fade's eject,
+  // the cap) is seen the next interval. The Script API has no dismount event
+  // (@minecraft/server 2.9.0: WorldAfterEvents lists none), so the riders are polled.
+  const aboard = new Map<string, any>();
+  const floatDown = (player: any): void => {
+    let dim: any, loc: any;
+    try { dim = player.dimension; loc = player.location; } catch { return; }
+    if (groundUnder(dim, loc)) return;
+    // Sneak at altitude dropped a rider 229 blocks (Saga, 2026-09-29): slow falling for
+    // `DISMOUNT_SLOW_FALL_TICKS` floats them down with no fall damage.
+    try { player.addEffect('slow_falling', K.DISMOUNT_SLOW_FALL_TICKS, { amplifier: 0, showParticles: false }); } catch { /* no effect */ }
+    try { player.onScreenDisplay.setActionBar('Floating down'); } catch { /* no HUD */ }
+  };
   // Empty summoned clouds fade after `EMPTY_DESPAWN_TICKS` without a rider (a reload starts the count again).
   system.runInterval(() => {
     const t = now();
     const dims = new Map<string, any>();
-    try { for (const p of world.getAllPlayers()) if (p) dims.set(p.dimension.id, p.dimension); } catch { /* none */ }
+    const players: any[] = [];
+    try { for (const p of world.getAllPlayers()) if (p) { players.push(p); dims.set(p.dimension.id, p.dimension); } } catch { /* none */ }
+    const present = new Set<string>();
+    for (const p of players) {
+      let id: string;
+      try { id = p.id; } catch { continue; }
+      present.add(id);
+      if (ridingCloud(p)) aboard.set(id, p);
+      else if (aboard.delete(id)) floatDown(p);
+    }
+    for (const id of [...aboard.keys()]) if (!present.has(id)) aboard.delete(id);
     const seen = new Set<string>();
     for (const dim of dims.values()) for (const type of cloudTypes) for (const c of clouds(dim, type)) {
       seen.add(c.id);

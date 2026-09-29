@@ -365,8 +365,12 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
 - **Flyer — native, the same controller** (`VehicleMotion` `flyer`; a canon
   mount, set-canon.ts: 11390's Flying Nimbus, `web/src/engine/bedrock-flyer.ts`).
   A free-flying mount: it hovers in place when idle (no gravity, no stall, no
-  take-off run), moves where the rider looks, Jump climbs, back + Jump or
-  looking down descends - the rotorcraft's numbers, device-proven, untouched.
+  take-off run), moves where the rider looks, Jump climbs, back + Jump
+  descends - the rotorcraft's numbers, device-proven (Saga, 2026-09-29:
+  orbit, summon, mount, climb ~20 blocks/s, hover, fade, cap, undo). The
+  native controller does NOT turn the look pitch into descent (26.52): the
+  driver puts the descend group in while the rider looks down past
+  `FLYER.DIVE_PITCH_DEG`, so look down + Jump dives, exactly as back + Jump.
   What differs is the dressing: no rotor sound, no flame, no nose dip
   (`VEHICLE_BODY_MOTION.flyer` banks a little and keeps the nose level), cloud
   puffs under it while it moves and on Jump (`FLYER_PUFF_PARTICLE`), the HUD
@@ -377,8 +381,14 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   player rides is SUMMONED - a tap on the companion figure, its cloud or its
   seat spawns one beside the player and mounts them (`flyerRuntime`,
   `BP/scripts/flyer.js`); an empty one fades after `FLYER.EMPTY_DESPAWN_TICKS`,
-  at most `FLYER.CLOUD_CAP` exist. Not yet on a device (2026-09-29): the
-  puff particle's name, the seat height on the cloud top, the bob.
+  at most `FLYER.CLOUD_CAP` exist. A rider who LEAVES a cloud in the air
+  (sneak, the fade's eject, the cap) gets slow falling for
+  `FLYER.DISMOUNT_SLOW_FALL_TICKS` unless a solid block lies within
+  `FLYER.DISMOUNT_DROP_BLOCKS` under their feet - the Script API has no
+  dismount event, so `flyer.js` polls who is aboard every 10 ticks (a sneak
+  at ALT 169 dropped the Saga rider 229 blocks). Not yet on a device
+  (2026-09-29): the pitch dive, the float-down, the HUD hint and speed after
+  the fix, the silent `fly` sound event.
 - **Car, hover craft, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
   `scriptedVehicleRuntime`). Every native speed is `SCRIPTED_NATIVE_SPEED` (0)
   and gravity is off; the Happy Ghast rider components stay only so Jump is an
@@ -422,11 +432,19 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   leans out of a turn and squats on acceleration from its own motion
   (`VEHICLE_BODY_MOTION`); a scripted vehicle's body takes its attitude from
   the properties.
-- The rotorcraft's driver script (`vehicleDriverRuntime`, every 2 ticks, the
-  only native mount left) only measures speed (position delta, since a
-  client-driven mount reports ~0 velocity), plays effects, swaps the
-  climb/descend group and logs telemetry. mph = blocks/tick × 20 × 2.236936
-  (1 block = 1 m).
+- The rotorcraft's and the flyer's driver script (`vehicleDriverRuntime`,
+  every 2 ticks, the native mounts) only measures speed, plays effects, swaps
+  the climb/descend group (back + Jump, or a look down past
+  `FLYER.DIVE_PITCH_DEG`), shows the HUD (the mount's name and hint for the
+  first `FLYER.RIDE_HINT_TICKS` of a ride, then the speed line) and logs
+  telemetry. The speed: a client-driven mount reports ~0 velocity and its
+  server position moves in BURSTS, so the HUD reads the mean between the
+  first and the last position change of the last `DRIVER_SPEED_WINDOW_TICKS`
+  (a per-interval delta read up to 4x on the Saga); a step over
+  `DRIVER_TELEPORT_BLOCKS` is a teleport. mph = blocks/tick × 20 × 2.236936
+  (1 block = 1 m). Tests: `test/vehicle-driver.test.ts` (the serialised
+  runtime on a fake world: the pitch dive, the hint, a bursty and a smooth
+  mover, a teleport).
 - The wand's size changes `minecraft:scale`, the collision box and the seats
   (`bedrock-placement-pack.ts`); the speeds are the same at every size, the
   footprint and probes scale with it.
@@ -495,7 +513,7 @@ Each device runtime is a function turned into the pack's script text with
 | vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime`, `timeMachineRuntime` |
 | `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `isNightTime`, `headlightCell` |
 | `BP/scripts/rides.js` | `ridesScript` | `ridesRuntime` (module-private; slides, lifts and orbits) |
-| `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds) |
+| `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds, floats a rider who leaves one in the air) |
 
 1. A serialised function may reference NOTHING outside its own body and its
    parameters: no import, no module-level `const`, no other function of the
@@ -778,6 +796,12 @@ literal inside a function body (`§` marks the number).
 | `FLYER.CLOUD_CAP` | `web/src/engine/bedrock-flyer.ts` | 8 | clouds | Most summoned clouds at once; the oldest fades when another is summoned. |
 | `FLYER.TAP_COOLDOWN_TICKS` | `web/src/engine/bedrock-flyer.ts` | 20 | ticks | A tap that lands as both an interact and a hit, or a double tap, is one summon. |
 | `FLYER.SPAWN_AHEAD_BLOCKS` | `web/src/engine/bedrock-flyer.ts` | 1.5 | blocks | The summoned cloud appears this far ahead of the player, who is mounted on it at once. |
+| `FLYER.DIVE_PITCH_DEG` | `web/src/engine/bedrock-flyer.ts` | 25 | degrees (rider pitch, positive down) | Past this the driver puts the descend group in, so Jump dives: a look at the ground ahead (a chase camera's default sits near 20 down) is not a dive, a deliberate look down is. The native hover controller ignores the look pitch (Saga, 26.52, 2026-09-29). |
+| `FLYER.RIDE_HINT_TICKS` | `web/src/engine/bedrock-flyer.ts` | 60 | ticks | The driver HUD opens a ride with the mount's name and "Jump climbs, look down + Jump dives, sneak gets off" for 3 s - long enough to read, short enough that the speed line is back before the first turn. A one-shot action bar at the summon was overwritten by the HUD within 4 ticks. |
+| `FLYER.DISMOUNT_DROP_BLOCKS` | `web/src/engine/bedrock-flyer.ts` | 2 | blocks | A rider leaving a cloud with no solid block within this under their feet is airborne: a step off onto a roof (the seat is ~1 block over the cloud's top) is not. |
+| `FLYER.DISMOUNT_SLOW_FALL_TICKS` | `web/src/engine/bedrock-flyer.ts` | 600 | ticks | 30 s of slow falling (Bedrock: ~3 blocks/s, no fall damage) covers a 90-block drop; the Saga rider fell 229 blocks from ALT 169 in one sneak, and a longer float only lands later. |
+| `DRIVER_SPEED_WINDOW_TICKS` | `web/src/engine/playable-addon.ts` | 20 | ticks | The HUD speed is the mean between the first and the last position CHANGE of the last second: a native mount's server position moves in bursts (one 2-tick delta read 0 / 24.9 / 60.2 / 99.0 mph at ~10 blocks/s on the Saga), and any burst cadence up to a second averages out; a second is also how long a stop takes to read 0. |
+| `DRIVER_TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 5 | blocks per 2 ticks | A longer step between two samples is a teleport (the wand, a reload), not motion: 50 blocks/s, past the rotor's climb and cruise. |
 | `FLYER_BOB.AMPLITUDE_UNITS` | `web/src/engine/bedrock-vehicle.ts` | 1 | geometry units (1/16 block) | The idle bob's amplitude: visible, never enough to move the seat visibly under the rider. |
 | `FLYER_BOB.DEGREES_PER_SECOND` | `web/src/engine/bedrock-vehicle.ts` | 120 | degrees/s of the sine | One breath every 3 s. |
 <!-- /physics-spec:constants -->
@@ -1058,13 +1082,13 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/bedrock-flyer.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `FLYER` | const | Every flyer-mount number: the detector's thresholds, the orbit's shape, the summoned clouds' fade, cap and cooldown (§4.6, §4.7, §9). |
+| `FLYER` | const | Every flyer-mount number: the detector's thresholds, the orbit's shape, the summoned clouds' fade, cap and cooldown, the dive pitch, the ride hint, the dismount float (§4.6, §4.7, §9). |
 | `SceneMount`, `MountSearch` | interface | A found mount (its figure, bricks, box and top) and a search's result (found and missing with reasons). |
 | `modelBoxLdu` | function | Host only: the world AABB of what stays, the orbit's ring. |
 | `findMounts` | function | Host only: the connected cluster under a figure's feet in the canon style's colours, translucent parts never joining. |
 | `orbitPathLdu` | function | Host only: the companion's closed lap (§4.7). |
 | `FlyerRuntimeMount`, `FlyerRuntimeConfig` | interface | One summonable mount (its cloud type and the types a tap on which summons it) and the runtime's config. |
-| `_flyerRuntimeForTests` | re-export | SERIALISED. The runtime (`flyerRuntime`) that summons a cloud on a tap and fades empty ones. |
+| `_flyerRuntimeForTests` | re-export | SERIALISED. The runtime (`flyerRuntime`) that summons a cloud on a tap, fades empty ones and floats down a rider who leaves one in the air. |
 | `flyerScript` | function | Serialises it into `BP/scripts/flyer.js`. |
 <!-- /physics-spec:exports -->
 
