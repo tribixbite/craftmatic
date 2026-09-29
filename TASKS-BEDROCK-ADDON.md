@@ -38,7 +38,17 @@ the creator pack is `bun scripts/_minifig_ref.ts <out> --creator=starter "--labe
 - **Saga** (`192.168.1.243:5555`, rooted, lock `C:/git/craftmatic/output/.saga-lock`),
   Minecraft 26.52: world **925** (root dev mode). **NEVER `stop`/`start`,
   `setprop ctl.restart` or any framework restart; no reboot; no clearing app
-  data** (either phone). Taps: long press, `input swipe x y x y 300`.
+  data** (either phone). Taps: 90 ms swipes `input swipe x y x y 90` worked
+  for every button and the crosshair (2026-09-29; 300 ms also works). Chat:
+  per-character `input text` with 60 ms gaps lands in order (~8 s a command;
+  `_saga_chat.sh`'s "first char at the end" fix-up now deletes the last
+  letter). Two-finger input (Back+Jump) via root `sendevent` on
+  `/dev/input/event4` (protocol B; ROTATION_270: panel x = landscape y,
+  panel y = 2400 − landscape x). The wand's second use may not open its
+  menu: switch hotbar slot away and back. Place shows a confirm form (green
+  button at raw 1197,960). No flight in 925: a `/tp` into the air falls; use
+  a glass platform for top-down shots. The content log gets ~10 verbose
+  `No sound found ... 'fly'` lines/min per hovering flyer (defect 5 above).
 - Deploy: `python -u scripts/_pixel_dev_deploy.py <world> <packs…> [--serial S]
   [--exclusive] [--prune-stale]`. `--exclusive` only with the FULL round
   list. `--prune-stale` (dev mode, i.e. the Saga) lists the files a replaced
@@ -226,13 +236,23 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   companions". Sweep of 8 sets unchanged. Pack from main:
   `output/nimbus-main-0929/nimbus-fixture.mcaddon` ("Nimbus found, 26 parts,
   100 percent cloud colours").
-- [ ] Nimbus on a device: a Saga agent is playing the fixture pack now
-  (`output/nimbus-saga-0929/`): orbit look, tap-to-summon, seat on top,
-  climb/descend/hold, fade, cap, content log. Unproven until it reports:
-  `water_evaporation_actor_emitter` puff (fallback `campfire_smoke_particle`),
-  `addRider` on a just-spawned entity (+2 tick retry), the companion seat
-  accepting the figure via `rideOf`, the bob, the sounds. Then the Pixel
-  GameTest `flyer_<id>` in a later round.
+- [x] Nimbus on the Saga (`output/nimbus-saga-0929/`, pack from `fa7a0a11`,
+  world 925, 100 %): orbit closed at 3.0 blocks/s (13.3 s lap) and 0.79 of
+  the pillar, figure seated for 15+ laps, no jitter; tap → white puff, cloud
+  1.5 ahead, mounted at once, seated ON TOP (1st + 3rd person); forward =
+  look, Jump climbs ~20 blocks/s, hands-off holds, Back+Jump descends; empty
+  cloud fades at 58-61 s; cap 8 holds (8 born in one tick + a tap → 8);
+  tapping Goku never mounts his cloud; Undo leaves nothing; content log 0
+  errors. Sounds unverified (no audio capture).
+- [ ] Nimbus defects from that round (worktree agent fixing, then a Saga
+  re-check with the new fixture pack): (1) LOOK DOWN: DIVE does nothing - the
+  native hover controller ignores pitch; drive `descendOn` from the rider's
+  pitch in the driver tick; (2) sneak at altitude drops the player 229
+  blocks - `slow_falling` on dismount from a flyer; (3) the summon hint is
+  overwritten by the driver HUD in 4 ticks; (4) HUD mph ~4x true (99 shown
+  for ~10 blocks/s); (5) 3,101 verbose `No sound found ... event type 'fly'`
+  content-log lines from every hovering cloud (also the rotor packs) - a
+  silent `fly` entity sound in the RP. Then the Pixel GameTest `flyer_<id>`.
 - [ ] When the 11390 file lands: `new-set.ts 11390`; if the export warns
   `Mounts ... NOT found: <reason>`, the reason names the threshold (colour
   code → `MOUNT_STYLE_COLOURS.cloud.codes`; parts → `FLYER.MOUNT_MAX_PARTS`).
