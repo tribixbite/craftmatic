@@ -20,6 +20,7 @@ import { buildPlayableAddon } from '../web/src/engine/playable-addon.ts';
 import { BlockGrid } from '../src/schem/types.ts';
 import { modelExportStem } from '../web/src/engine/export-name.ts';
 import { isSupportedCreatorTier, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.ts';
+import { computePipelineStamp } from './pipeline-stamp.ts';
 
 setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
 
@@ -58,8 +59,11 @@ mkdirSync(out.replace(/[\\/][^\\/]*$/, ''), { recursive: true });
 
 const t0 = Date.now();
 // One figure standing at the centre of an empty 3×3 footprint, facing −Z (the rig's own frame).
+// The stamp of THIS working tree, as _playable_ref.ts passes it: without it the
+// pack is named "(unstamped)" in Minecraft's pack list and a stale build cannot be told apart.
+const { closure: _closure, ...pipelineStamp } = computePipelineStamp();
 const pack = await buildPlayableAddon(new BlockGrid(3, 1, 3), {
-  stem, label, figures: [{ bricks: figure.bricks, x: 1.5, y: 0, z: 1.5, facingLdu: [0, -1] }],
+  stem, label, figures: [{ bricks: figure.bricks, x: 1.5, y: 0, z: 1.5, facingLdu: [0, -1] }], pipelineStamp,
   ...(creatorTier ? { minifigCreator: minifigCreatorLibrary('starter') } : {}),
 });
 writeFileSync(out, pack.bytes);

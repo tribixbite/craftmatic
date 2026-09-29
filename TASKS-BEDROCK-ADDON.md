@@ -358,7 +358,6 @@ Saga end to end; open items:
   device (walk was device-proved by `creator_<id>` on 2026-09-25 only).
 - [ ] `look` animation turns set-figure heads off their bodies (seen on the
   Saga on `minifig_fig1`); dropped for the creator only. `TODO(figures)`.
-- [ ] `_minifig_ref.ts` packs are named "(unstamped)" in Minecraft's pack list.
 - Creator pack `027c2c03…` is bound again in Saga 925 and Pixel 924 (round
   26d ships it beside the set packs).
 
