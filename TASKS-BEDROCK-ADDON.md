@@ -49,6 +49,16 @@ the creator pack is `bun scripts/_minifig_ref.ts <out> --creator=starter "--labe
   button at raw 1197,960). No flight in 925: a `/tp` into the air falls; use
   a glass platform for top-down shots. The content log gets ~10 verbose
   `No sound found ... 'fly'` lines/min per hovering flyer (defect 5 above).
+  `/tp @s ~ ~ ~` DISMOUNTS (probe position after dismounting). `tp ...
+  facing` computes from the FEET: aim the crosshair at height h with
+  `facing ~ ~(h-1.62) ~` after `execute at` the entity. The wand's "Place
+  now" button is green only while hovered and its y follows the form text
+  (raw 504/707/960): find the first button under the text
+  (`29c/saga/tools/findbtn.py`). `input keyevent 4` after Enter opens the
+  pause menu. The touch "Mount" button moves; `/ride @s start_riding
+  <entity> teleport_rider` is the reliable mount. toybox `find` has no
+  `-delete`: `find <dir> -type f -exec rm {} \;` then `-depth -type d -exec
+  rmdir {} \;`; deploy backup dirs are root-owned (`su -c`).
 - Deploy: `python -u scripts/_pixel_dev_deploy.py <world> <packs…> [--serial S]
   [--exclusive] [--prune-stale]`. `--exclusive` only with the FULL round
   list. `--prune-stale` (dev mode, i.e. the Saga) lists the files a replaced
@@ -152,9 +162,33 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   (the `entity_sounds` one measured useless; `TODO(fly-sound)` lists the
   next A/Bs). Device items: the section "Nimbus follow-ups after the Pixel
   re-check" at the end of this file (29d Pixel round covers them).
-- [ ] Saga: deploy the same zip `--exclusive` after the Nimbus proof agent
-  frees the phone (`output/nimbus-saga-0929/`); check the Gabby fixes on the
-  new build (the play round's packs were `377850a5`), the faces, the kiosk.
+- [x] Saga 29c (`saga/`, 419 MB; `tools/` has place.sh + findbtn.py):
+  deployed `--exclusive`, 21+21 bound, content log 0 errors / 0 overridden.
+  Faces CLOSED (10261 fig6 front/side/back/chin height, walking; 76457
+  fig1/5/8/10 diagonal; fig10's sweater shows grain shading bands, not
+  holes). Kiosk fig2 yields and RETAKES (`RETAKEN` probe). Gabby: lift
+  1→2→3→2→1 with side exits (tap boards at floor 1 only - see below);
+  slide "Wheee!" 2.4 blocks; 10797 cockpit sees ahead, no fall-through in 4
+  drives (but `[BLOCKED: BACK UP]` at the room edge from 3 sides - approach
+  or base plates, not investigated); 10796 cockpit sees ahead; 11204 slide;
+  10786 boat aground as expected. 10303 loops pitch over; the 29b exit cut
+  NOT reproduced (n=1 lap). Undo left nothing, incl. ridden cars.
+- [ ] Saga 29c doorway defects (worktree agent fixing offline):
+  (A) 10326 Door 1: a 2.25-block HOLE at the threshold (walk in from the
+  porch drops to -59.75 under the lintel; out lands on the ground) - the
+  doorway cut removed the floor cells under the leaf; `_ix_passability`
+  said OK, so the harness walks a different line - close that gap too.
+  (B) 910004 Door 3: walk-out stops one cell before the doorway:
+  `collider_w6` at head height in (6794,-55,5001), the approach cell.
+  (D) spurious `FIGURE_RETAKE_NO_SEAT` ~2 min into every 10261 placement,
+  before the seats exist; also `winterchalet_910004_fig5` + "figure 4
+  could not take its seat" on a second 910004 placement.
+  (E) 10788 lift tap did not board from floors 2/3 (5 taps; `/ride` did) -
+  the 29d Saga round probes what the ray hits.
+- [ ] Saga 29d (agent in flight, `29d/saga/`): slide by tap, lift taps on
+  floors 2/3 with block probes, Nimbus follow-ups (no false seat line,
+  cruise at 0.09 measured, remount hint, dive, float-down, `fly` count with
+  the interactive entry), three 10303 laps for the exit cut, fig6.
 - [ ] The user's own look at the rebuilt figures and the Gabby sets.
 
 ## Rounds 2026-09-29a/b (`d95b7f5e`, `f37227ad`)
