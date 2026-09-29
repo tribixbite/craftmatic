@@ -468,9 +468,12 @@ deck), 76286's pilot fits from 100 %.
   glow rule separates the two. Next: the seat from its brick-built front
   seats, or a recorded seat with this evidence.
 - [ ] 60221 rider is at deck height but at the hull's side edge (seat x 1.09);
-  looking down from the eye shows water.
-- [ ] 10261 kiosk figure had not retaken its seat ~20 s after the player left
-  (the runtime retries every 100 ticks): watch longer, then read the code.
+  looking down from the eye shows water. Tried 2026-09-29: glass-derived eyes on
+  the vehicle's centreline - 60221's centre is solid cabin (rider then hidden
+  to 400 %, torso 34 % inside) and 60405's bbox centre is off its body; dropped.
+- [ ] 10261 kiosk figure retake: the runtime retakes a seat only with no player
+  within 2.5 blocks of it; re-check on a device standing well away (the probe
+  may have stayed beside it). Host sim covers the retake.
 - [ ] Not checked on a device: a coaster ride at eye 1.12; a 76457 NPC.
 - [ ] Left: 60446's second figure stays in the vehicle geometry (no
   passenger seat, `TODO(seat-passenger-figures)`); 75397's second steering
