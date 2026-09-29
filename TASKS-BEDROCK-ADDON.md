@@ -142,10 +142,20 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
 - [x] Round 29d BUILT from `3abc14f7` (every merge of the day):
   `output/device-round-2026-09-29d/craftmatic-packs-3abc14f7.zip` (sha256 in
   the `.sha256` beside it; `pack-hashes.tsv` inside; `check.txt` 21/21 OK,
-  uuids = 29c's, parts = 29c's). Pixel agent deploying it now (`29d/pixel/`):
-  slide by tap, Nimbus cruise 0.09 measured, remount hint, no false seat
-  line, `fly` line count with the interactive entry, figures. Saga: deploy
-  29d `--exclusive` once its 29c round reports.
+  uuids = 29c's, parts = 29c's).
+- [x] Pixel 29d (`29d/pixel/`, `_notes.txt`; content log 0/0): 10788 SLIDE
+  BY TAP boards from inside the top room and from outside the west wall
+  (the chute is 2.4 blocks / 1.26 down by construction); lift tap boards;
+  Nimbus: no "could not take its seat" line, remount hint ~3.0 s, cruise
+  MEASURED 13.1 blocks/s at 0.09 (not 11.5: v ≈ 120·fs + 2.3, so
+  `FLYER.FLYING_SPEED` is now 0.0725 for ~11, to confirm); figures closed
+  (fig6 front/side/chin, seated fig2). `fly` lines UNCHANGED with the
+  interactive entry (8.4/min orbit only, 466/min full-stick flight):
+  next A/B per `TODO(fly-sound)` - `interactive_sounds.block_sounds.normal`
+  verbatim + `fly: ""`, then a real silent `sound_definitions.json` entry;
+  else drop the entry and the gate (verbose-only; low priority). Pixel wand
+  recipe: a crosshair tap never fires itemUse; re-select the wand (hotbar
+  2 then 1) to open the menu; screenshot before every menu row tap.
 - [x] Nimbus fixes re-checked on the Pixel (`output/nimbus-pixel-0929/`,
   `_notes.txt`; pack from `a754a7de`, content log 0/0): hint shown 2.75 s;
   HUD 85.7 mph vs 85.9 true (CMVT cadence 4 ticks, server 38.3 blocks/s at
