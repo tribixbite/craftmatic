@@ -129,8 +129,13 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   tap is a hit; `board()` seats a tapped ride seat; pick box 1.0 x 0.6) -
   details under "User report 2026-09-29". Floor 3's west room holds (the
   probes were under the slab / in a wall band). Device tap unproven.
-- [ ] Next full rebuild (29d) carries the silent `fly` sound and the slide
-  tap; do it after the Saga 29c and Pixel Nimbus re-check reports.
+- [x] Round 29d BUILT from `3abc14f7` (every merge of the day):
+  `output/device-round-2026-09-29d/craftmatic-packs-3abc14f7.zip` (sha256 in
+  the `.sha256` beside it; `pack-hashes.tsv` inside; `check.txt` 21/21 OK,
+  uuids = 29c's, parts = 29c's). Pixel agent deploying it now (`29d/pixel/`):
+  slide by tap, Nimbus cruise 0.09 measured, remount hint, no false seat
+  line, `fly` line count with the interactive entry, figures. Saga: deploy
+  29d `--exclusive` once its 29c round reports.
 - [x] Nimbus fixes re-checked on the Pixel (`output/nimbus-pixel-0929/`,
   `_notes.txt`; pack from `a754a7de`, content log 0/0): hint shown 2.75 s;
   HUD 85.7 mph vs 85.9 true (CMVT cadence 4 ticks, server 38.3 blocks/s at
@@ -139,15 +144,14 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   unharmed (was a 229-block drop); tap while riding ignored; orbit still
   running after 47 min; Undo clean. Look pitch cannot be dragged by adb -
   the agent mounted a parked cloud after `tp ... 90 45`.
-- [ ] Nimbus follow-ups (worktree agent): (1) 38 blocks/s is too fast for a
-  child - own `FLYER.FLYING_SPEED` (~0.09 for ~11 b/s), stale "~5 blocks/s"
-  doc row; (2) no hint on remounting the same cloud (`riderId` never
-  cleared on `!rider`); (3) false "figure 1 could not take its seat" at
-  placement (`addRider` in the spawn tick; the orbit seats him seconds
-  later) - retry before telling; (4) the `fly` verbose line is NOT silenced
-  by `entity_sounds` (711 lines: ~10/min from the ORBIT alone, 272/min
-  flying) - the engine names the BLOCK sound table; research the right hook
-  or drop the entry and the gate.
+- [x] Nimbus follow-ups MERGED `3abc14f7` (2,827 tests): `FLYER.FLYING_SPEED`
+  0.09 (~11.5 b/s by proportion, to be re-measured; rotor keeps 0.3), the
+  remount hint (`riderId` cleared when empty), seat `addRider` retried twice
+  before any message (orbit seats silent), the `fly` sound entry moved to
+  `interactive_sounds.entity_sounds.entities.<id>.events.fly.default: ""`
+  (the `entity_sounds` one measured useless; `TODO(fly-sound)` lists the
+  next A/Bs). Device items: the section "Nimbus follow-ups after the Pixel
+  re-check" at the end of this file (29d Pixel round covers them).
 - [ ] Saga: deploy the same zip `--exclusive` after the Nimbus proof agent
   frees the phone (`output/nimbus-saga-0929/`); check the Gabby fixes on the
   new build (the play round's packs were `377850a5`), the faces, the kiosk.
@@ -299,14 +303,11 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   in bursts), teleports > 5 blocks ignored; (5) RP `sounds.json` with
   `fly: ""` for every hovering entity (rotor, flyer, scripted vehicles),
   gated by `_mcaddon_check.py`.
-- [ ] Nimbus re-check on a phone with the rebuilt fixture
-  `output/nimbus-main2-0929/nimbus-fixture.mcaddon` (sha256 37c98096…, from
-  `a754a7de`, same uuids): the dive, the float-down after a sneak at height,
-  the hint at ride start, the HUD mph against a `/scriptevent
-  craftmatic:vehicle_telemetry fast` cadence, and whether `fly: ""` silences
-  the verbose log. Then the Pixel GameTest `flyer_<id>`. NOTE the 29c round
-  packs on both phones predate fix 5 (their logs still fill with `fly`
-  lines); the next full round rebuild carries it.
+- [x] Nimbus fixes re-checked on the Pixel (`output/nimbus-pixel-0929/`):
+  dive, float-down, hint and HUD speed measured good; the `fly` line was
+  not silenced (details under "Round 2026-09-29c"). Follow-ups merged
+  `3abc14f7`; round 29d carries everything. Still to do: the Pixel GameTest
+  `flyer_<id>` and the cruise re-measure at 0.09.
 - [ ] When the 11390 file lands: `new-set.ts 11390`; if the export warns
   `Mounts ... NOT found: <reason>`, the reason names the threshold (colour
   code → `MOUNT_STYLE_COLOURS.cloud.codes`; parts → `FLYER.MOUNT_MAX_PARTS`).
