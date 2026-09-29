@@ -31,9 +31,20 @@ declare const system: any;
 /**
  * How a vehicle moves, for its animation (and its driver runtime): an aircraft
  * is a fixed wing or a rotor; a HOVER craft (a sail barge, a landspeeder, a
- * hovercraft) floats a fixed height over land and water alike.
+ * hovercraft) floats a fixed height over land and water alike; a FLYER is a
+ * free-flying mount (11390's Flying Nimbus, set-canon.ts): the rotor's native
+ * hover controller without its sound, flame or nose dip, hovering in place
+ * when idle and bobbing gently.
  */
-export type VehicleMotion = 'car' | 'boat' | 'plane' | 'rotor' | 'hover';
+export type VehicleMotion = 'car' | 'boat' | 'plane' | 'rotor' | 'hover' | 'flyer';
+
+/**
+ * A flyer's idle bob, drawn by the client (Molang on the `body` bone, no
+ * script): `AMPLITUDE_UNITS` geometry units (1/16 block) up and down over a
+ * `DEGREES_PER_SECOND` sine, 120 = one breath every 3 s. A hover craft's bob
+ * is the runtime's; a flyer is a native mount whose position the client owns.
+ */
+export const FLYER_BOB = { AMPLITUDE_UNITS: 1, DEGREES_PER_SECOND: 120 } as const;
 
 const ROTOR_WORDS = /\b(helicopter|copter|heli|rotorcraft|gyrocopter|autogyro|drone|chopper|quadcopter)\b/i;
 /**
@@ -69,6 +80,8 @@ export const VEHICLE_BODY_MOTION: Readonly<Record<VehicleMotion, {
   rotor: { rollPerYawRate: -0.2, rollMax: 15, pitchPerAccel: 0, pitchMax: 14, flightPath: false, noseDownPerSpeed: 1.6, steerPerYawRate: 0, steerMax: 0 },
   // A hover craft's lean, pitch and bob come from the runtime (`carStep` on `HOVER`, the bob in `scriptedVehicleRuntime`).
   hover: { rollPerYawRate: 0, rollMax: 0, pitchPerAccel: 0, pitchMax: 0, flightPath: false, noseDownPerSpeed: 0, steerPerYawRate: 0, steerMax: 0 },
+  // A flyer banks a little into a turn and keeps its nose level: a cloud has no nose to dip. Its bob is `FLYER_BOB`.
+  flyer: { rollPerYawRate: -0.12, rollMax: 10, pitchPerAccel: 0, pitchMax: 0, flightPath: false, noseDownPerSpeed: 0, steerPerYawRate: 0, steerMax: 0 },
 };
 
 /** Round for Molang text, so the pack is stable byte for byte. */
@@ -124,7 +137,9 @@ export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheel
       `v.cm_wheel = q.property('${FLIGHT_PROPS.wheel}');`,
     );
   }
-  const bones: Record<string, unknown> = { body: { rotation: ['v.cm_pitch', 0, 'v.cm_roll'] } };
+  // A flyer breathes: its body rises and falls `FLYER_BOB.AMPLITUDE_UNITS` on a slow sine of the entity's life time.
+  if (motion === 'flyer') { initialize.push('v.cm_bob = 0.0;'); preAnimation.push(`v.cm_bob = math.sin(q.life_time * ${n(FLYER_BOB.DEGREES_PER_SECOND)}) * ${n(FLYER_BOB.AMPLITUDE_UNITS)};`); }
+  const bones: Record<string, unknown> = { body: { rotation: ['v.cm_pitch', 0, 'v.cm_roll'], ...(motion === 'flyer' ? { position: [0, 'v.cm_bob', 0] } : {}) } };
   for (const w of wheels) {
     const spin = `v.cm_wheel / ${n(Math.max(0.05, w.radiusBlocks))}`;
     bones[w.name] = { rotation: [spin, w.end === 1 && g.steerMax ? 'v.cm_steer' : 0, 0] };

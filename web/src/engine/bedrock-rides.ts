@@ -17,7 +17,13 @@
  *     the seat then returns to the top;
  *   - a lift: from the car's stop to the next floor (up to the top, then back
  *     down) at `LIFT_SPEED`, with the car's own entity (its exact bricks) moved
- *     alongside; the player steps off onto that floor beside the shaft.
+ *     alongside; the player steps off onto that floor beside the shaft;
+ *   - an ORBIT (a flyer mount's companion, bedrock-flyer.ts): the seat carries
+ *     the set's own FIGURE, not a player, round a closed loop the export wrote
+ *     (`orbitPathLdu`) at `ORBIT_SPEED`, for ever, with the mount's own entity
+ *     (the cloud) moved alongside as a lift's car is; nobody sits on it (its
+ *     seat admits figures only) and a figure knocked off is put back on. It
+ *     starts by itself once placed - no rider begins it.
  * Speeds are blocks per second at 100 % and scale with the wand size, so a ride
  * takes the same time at every size.
  *
@@ -93,11 +99,22 @@ export const RIDE = {
   LIFT_EXIT_STEP_LDU: 50,
   /** Speed of the car, blocks/s at 100 %. */
   LIFT_SPEED: 1.5,
+  /** Speed of a companion's orbit, blocks/s at 100 %: a stroll's pace, so a child can watch and follow it. */
+  ORBIT_SPEED: 3,
+  /** An orbit seat with nobody on it looks this far (blocks at 100 %) for its own figure to put back on. */
+  ORBIT_RESEAT_REACH: 8,
+  /** Ticks between two re-seat attempts (a figure a player is holding on to is not fought for every tick). */
+  ORBIT_RESEAT_TICKS: 40,
+  /** Ticks between two scans for placed orbit seats not yet running (a placement, a reload). */
+  ORBIT_ADOPT_TICKS: 20,
+  /** Half the chord the orbit's yaw is read over, blocks: a central difference along the loop, so the facing turns smoothly between points. */
+  ORBIT_YAW_CHORD: 0.5,
   /** Parts closer than this touch, LDU. */
   TOUCH_LDU: 2,
 } as const;
 
-export type RideKind = 'slide' | 'lift';
+/** `slide` and `lift` are found from the geometry (below); an `orbit` is written by a flyer mount's companion (bedrock-flyer.ts). */
+export type RideKind = 'slide' | 'lift' | 'orbit';
 
 export interface SceneRide {
   kind: RideKind;
@@ -389,10 +406,14 @@ export function findLifts(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<st
 // ─── Runtime ─────────────────────────────────────────────────────────────────
 
 export interface RideRuntimeConfig {
-  /** The invisible rideable seat type every ride shares. */
+  /** The invisible rideable seat type every player ride (slide, lift) shares. */
   seatType: string;
-  /** Per ride (the placement writes the index on its seat and car): kind and the car's type for a lift. */
-  rides: Array<{ kind: RideKind; carType?: string; startStop?: number }>;
+  /**
+   * Per ride (the placement writes the index on its seat and car): kind, the
+   * car's type for a lift or an orbit's cloud, and for an orbit its own seat
+   * type (figures only) and the figure type it carries and re-seats.
+   */
+  rides: Array<{ kind: RideKind; carType?: string; startStop?: number; seatType?: string; riderType?: string }>;
   constants: typeof RIDE;
 }
 
@@ -407,18 +428,33 @@ function ridesRuntime(config: RideRuntimeConfig): void {
   const R = config.constants;
   const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir' };
   type P = { x: number; y: number; z: number };
-  interface Run { seat: any; rider: any; kind: string; path: P[]; lens: number[]; s: number; end: number; v: number; f: number; car?: any; carOffset?: P; target?: number; exit?: P; done?: number; home?: P }
+  interface Run {
+    seat: any; rider: any; kind: string; path: P[]; lens: number[]; s: number; end: number; v: number; f: number; car?: any; carOffset?: P; target?: number; exit?: P; done?: number; home?: P;
+    /** An orbit: the loop never ends, and its figure type is put back on when it is off. */
+    loop?: boolean; riderType?: string; reseatAt?: number;
+  }
   const running = new Map<string, Run>();
   const read = (e: any, key: string): any => { try { return e.getDynamicProperty(key); } catch { return undefined; } };
   const parse = (s: any): P[] => { try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { return []; } };
   const lengths = (path: P[]): number[] => { const out = [0]; for (let i = 1; i < path.length; i++) out.push(out[i - 1]! + Math.hypot(path[i]!.x - path[i - 1]!.x, path[i]!.y - path[i - 1]!.y, path[i]!.z - path[i - 1]!.z)); return out; };
-  const at = (path: P[], lens: number[], s: number): { p: P; yaw: number } => {
+  const pointAt = (path: P[], lens: number[], s: number): P => {
     let i = 1;
     while (i < path.length - 1 && lens[i]! < s) i++;
     const a = path[i - 1]!, b = path[i]!, seg = Math.max(1e-6, lens[i]! - lens[i - 1]!);
     const t = Math.max(0, Math.min(1, (s - lens[i - 1]!) / seg));
-    const yaw = Math.hypot(b.x - a.x, b.z - a.z) > 1e-6 ? Math.atan2(-(b.x - a.x), b.z - a.z) * 180 / Math.PI : 0;
-    return { p: { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }, yaw };
+    return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+  };
+  const yawOf = (a: P, b: P): number => Math.hypot(b.x - a.x, b.z - a.z) > 1e-6 ? Math.atan2(-(b.x - a.x), b.z - a.z) * 180 / Math.PI : 0;
+  const at = (path: P[], lens: number[], s: number): { p: P; yaw: number } => {
+    let i = 1;
+    while (i < path.length - 1 && lens[i]! < s) i++;
+    return { p: pointAt(path, lens, s), yaw: yawOf(path[i - 1]!, path[i]!) };
+  };
+  /** A loop: the point at `s` (wrapped) and the yaw of the chord `ORBIT_YAW_CHORD` either side of it, so the facing turns smoothly between the points. */
+  const atLoop = (path: P[], lens: number[], s: number, chord: number): { p: P; yaw: number } => {
+    const end = lens[lens.length - 1]!;
+    const wrap = (v: number): number => ((v % end) + end) % end;
+    return { p: pointAt(path, lens, wrap(s)), yaw: yawOf(pointAt(path, lens, wrap(s - chord)), pointAt(path, lens, wrap(s + chord))) };
   };
   const say = (p: any, s: string): void => { try { p.onScreenDisplay.setActionBar(s); } catch { /* left */ } };
   const findCar = (seat: any, index: number, carType: string): any => {
@@ -427,10 +463,48 @@ function ridesRuntime(config: RideRuntimeConfig): void {
       return near.find((e: any) => read(e, K.index) === index) ?? near[0];
     } catch { return undefined; }
   };
+  const ridersOf = (e: any): any[] => { try { return e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { return []; } };
+  /** An orbit runs from the moment its seat is found: its loop closed back to the first point, its cloud alongside, no rider needed. */
+  const startOrbit = (seat: any, index: number, ride: RideRuntimeConfig['rides'][number]): void => {
+    const f = typeof read(seat, K.scale) === 'number' ? read(seat, K.scale) : 1;
+    const pts = parse(read(seat, K.path));
+    if (pts.length < 3) return;
+    const path = [...pts, pts[0]!];
+    const lens = lengths(path);
+    const car = ride.carType ? findCar(seat, index, ride.carType) : undefined;
+    const carOffset = car ? { x: car.location.x - seat.location.x, y: car.location.y - seat.location.y, z: car.location.z - seat.location.z } : undefined;
+    running.set(seat.id, { seat, rider: undefined, kind: 'orbit', path, lens, s: 0, end: lens[lens.length - 1]!, v: R.ORBIT_SPEED * f, f, car, carOffset, loop: true, ...(ride.riderType ? { riderType: ride.riderType } : {}), reseatAt: 0 });
+  };
+  /** Orbit seats placed (or reloaded) since the last scan, in every dimension a player is in. */
+  const adoptOrbits = (): void => {
+    const dims = new Map<string, any>();
+    try { dims.set('overworld', world.getDimension('overworld')); } catch { /* none */ }
+    try { for (const p of world.getAllPlayers()) if (p) dims.set(p.dimension.id, p.dimension); } catch { /* none */ }
+    config.rides.forEach((ride, index) => {
+      if (ride.kind !== 'orbit') return;
+      for (const dim of dims.values()) {
+        let seats: any[] = [];
+        try { seats = dim.getEntities({ type: ride.seatType ?? config.seatType }); } catch { continue; }
+        for (const seat of seats) if (!running.has(seat.id) && read(seat, K.index) === index) startOrbit(seat, index, ride);
+      }
+    });
+  };
+  /** An orbit's figure, knocked off or never seated: the nearest of its type not riding anything is put back on. */
+  const reseat = (run: Run): void => {
+    if (!run.riderType || system.currentTick < (run.reseatAt ?? 0)) return;
+    run.reseatAt = system.currentTick + R.ORBIT_RESEAT_TICKS;
+    try {
+      const seat = run.seat, near = seat.dimension.getEntities({ type: run.riderType, location: seat.location, maxDistance: R.ORBIT_RESEAT_REACH * run.f });
+      const free = near.find((e: any) => { try { return !e.getComponent('minecraft:riding'); } catch { return false; } });
+      if (!free) return;
+      try { free.teleport(seat.location); } catch { /* unloaded */ }
+      seat.getComponent('minecraft:rideable')?.addRider?.(free);
+    } catch { /* next time */ }
+  };
   const start = (seat: any, rider: any): void => {
     const index = read(seat, K.index);
     const ride = typeof index === 'number' ? config.rides[index] : undefined;
-    if (!ride) return;
+    if (!ride || ride.kind === 'orbit') return;
     const f = typeof read(seat, K.scale) === 'number' ? read(seat, K.scale) : 1;
     const pts = parse(read(seat, K.path));
     if (pts.length < 2) return;
@@ -466,6 +540,7 @@ function ridesRuntime(config: RideRuntimeConfig): void {
     if (run.kind === 'lift') { try { run.seat.setDynamicProperty(K.stop, run.target); } catch { /* gone */ } running.delete(run.seat.id); }
     else run.done = system.currentTick;
   };
+  const hasOrbits = config.rides.some(r => r.kind === 'orbit');
   system.runInterval(() => {
     // New riders: anyone sitting on a ride seat that is not moving yet.
     for (const p of world.getAllPlayers()) {
@@ -474,10 +549,23 @@ function ridesRuntime(config: RideRuntimeConfig): void {
       if (!seat || seat.typeId !== config.seatType || running.has(seat.id)) continue;
       start(seat, p);
     }
+    if (hasOrbits && system.currentTick % R.ORBIT_ADOPT_TICKS === 1) adoptOrbits();
     for (const run of [...running.values()]) {
       // `isValid` is a method before @minecraft/server 2.0 and a property after (bedrock-coaster.ts reads both).
       const valid = typeof run.seat.isValid === 'function' ? run.seat.isValid() : run.seat.isValid;
       if (!valid) { running.delete(run.seat.id); continue; }
+      if (run.loop) {
+        // An orbit: round and round; the seat faces along the loop and so does the figure on it.
+        run.s += run.v / 20;
+        if (run.s >= run.end) run.s -= run.end;
+        const { p, yaw } = atLoop(run.path, run.lens, run.s, R.ORBIT_YAW_CHORD * run.f);
+        try { run.seat.tryTeleport(p, { keepVelocity: false, checkForBlocks: false, rotation: { x: 0, y: yaw } }); } catch { /* unloaded: hold */ }
+        if (run.car && run.carOffset) { try { run.car.tryTeleport({ x: p.x + run.carOffset.x, y: p.y + run.carOffset.y, z: p.z + run.carOffset.z }, { keepVelocity: false, checkForBlocks: false, rotation: { x: 0, y: yaw } }); } catch { /* unloaded */ } }
+        const riders = ridersOf(run.seat);
+        if (riders.length) { for (const r of riders) { try { r.setRotation({ x: 0, y: yaw }); } catch { /* a player keeps their look */ } } }
+        else reseat(run);
+        continue;
+      }
       if (run.done !== undefined) {
         // A slide's seat goes back to the top once its rider is off.
         if (system.currentTick - run.done >= R.SLIDE_RETURN_TICKS) {

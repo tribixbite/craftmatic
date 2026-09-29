@@ -181,6 +181,11 @@ export interface McpackSummary {
    * the pack gives the player there (engine/seat-census.ts).
    */
   seatCensus?: SeatCensus;
+  /**
+   * `.mcaddon`: the set's canon mounts (engine/set-canon.ts): each found and
+   * built as a flyer, or missing and why. Only for a set with a canon.
+   */
+  mounts?: import('./playable-addon.js').MountReport;
 }
 
 export type SchemWorkerOutput =
@@ -337,7 +342,10 @@ export async function runSchemPipeline(
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
     const screens = [];
-    const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }> = [];
+    const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number; mountIndex?: number }> = [];
+    /** Flyer mounts the set's canon names and the detector found (set-canon.ts, bedrock-flyer.ts), and the ones it did not. */
+    let mounts: { frame: NonNullable<typeof sourceOrigin>; items: import('./playable-addon.js').PlayableMount[] } | undefined;
+    const mountsMissing: Array<{ style: string; label: string; reason: string }> = [];
     const seats: Array<{ x: number; y: number; z: number; yaw: number; label: string }> = [];
     const coasterRoutes: import('./bedrock-coaster.js').CoasterRoute[] = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
@@ -350,7 +358,7 @@ export async function runSchemPipeline(
     let shell: { bricks: ParsedBrick[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     let pinball: { plan: import('./bedrock-pinball.js').PinballPlan; frame: NonNullable<typeof sourceOrigin> } | undefined;
     // Slides and lifts (bedrock-rides.ts): paths in grid coordinates, the lift car's own bricks.
-    let rides: { frame: NonNullable<typeof sourceOrigin>; items: Array<{ kind: 'slide' | 'lift'; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> } | undefined;
+    let rides: { frame: NonNullable<typeof sourceOrigin>; items: Array<{ kind: import('./bedrock-rides.js').RideKind; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> } | undefined;
     /** The moving parts (bedrock-interactives.ts): their own hinged entities on the shell's frame. Brick-accurate buildings only. */
     let interactives: { items: import('./bedrock-interactives.js').SceneInteractive[]; frame: NonNullable<typeof sourceOrigin> } | undefined;
     /** Every interactivity candidate and its verdict (engine/interactivity-stage.ts), for the diagnostics. */
@@ -501,6 +509,37 @@ export async function runSchemPipeline(
             pinball = { plan, frame };
             census.owners.push({ label: 'pinball', use: 'none', bricks: new Set(plan.moved), reason: 'part of the pinball table' });
           }
+          /** An LDraw point in grid coordinates, its height up from the model's underside (`sceneFloorPoint`). */
+          const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, scene.groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
+          // A canon MOUNT (set-canon.ts, bedrock-flyer.ts): the small sub-build a
+          // figure stands on that the player can summon a copy of and fly, and
+          // whose figure flies it round the model. Its bricks and its figure's
+          // leave the shell; the figure is that mount's companion, not a walker.
+          // A canon mount none is found for is reported, never silent.
+          // The canon is keyed on the set number in the label (the LEGO tab's
+          // `Name (11390-1)`, the CLI's `--label`), the stem or the provenance.
+          const { canonFor } = await import('./set-canon.js');
+          const canon = canonFor(label, input.packStem, input.sourceProvenance?.setNum);
+          /** Figures that are a mount's companion, by mount index (left out of the walkers below). */
+          const mountFigures = new Map<import('./bedrock-scene-actors.js').SceneFigure, number>();
+          if (canon?.mounts?.length) {
+            const { findMounts, modelBoxLdu, orbitPathLdu } = await import('./bedrock-flyer.js');
+            const search = findMounts(source.bricks.filter(b => !movable.has(b)), scene.meshes, scene.figures, canon.mounts);
+            const items: import('./playable-addon.js').PlayableMount[] = [];
+            for (const m of search.mounts) {
+              for (const b of m.bricks) movable.add(b);
+              for (const b of m.figure.bricks) movable.add(b);
+              mountFigures.set(m.figure, items.length);
+              // The orbit rings what stays: the model without the mount and its figure (and without the vehicles found above).
+              const modelBox = modelBoxLdu(source.bricks.filter(b => !movable.has(b)), scene.meshes) ?? m.boxLdu;
+              const pathLdu = m.canon.companion === 'orbit' ? orbitPathLdu(modelBox, m.topLdu) : [];
+              items.push({ canon: m.canon, bricks: m.bricks, figure: { bricks: m.figure.bricks, facingLdu: m.figure.facingLdu }, top: grid3(m.topLdu), path: pathLdu.map(grid3), colourShare: m.colourShare });
+              census.owners.push({ label: m.canon.label ?? m.canon.style, use: 'ride', bricks: new Set(m.bricks), reason: `the ${m.canon.style} mount a figure rides (set canon ${canon.setNumber})` });
+            }
+            if (items.length) mounts = { frame, items };
+            for (const miss of search.missing) mountsMissing.push({ style: miss.canon.style, label: miss.canon.label ?? miss.canon.style, reason: miss.reason });
+            warnings.push(`Mounts (set canon ${canon.setNumber}): ${[...search.mounts.map(m => `${m.canon.label ?? m.canon.style} found (${m.bricks.length} parts, ${Math.round(m.colourShare * 100)} percent ${m.canon.style} colours, figure at ${m.figure.centreLdu.map(Math.round).join(',')} LDU)`), ...search.missing.map(m => `${m.canon.label ?? m.canon.style} NOT found: ${m.reason}`)].join('; ')}.`);
+          }
           // A playground slide rides its chute; a dollhouse lift carries its car
           // between floors (bedrock-rides.ts). A lift's car leaves the shell and
           // moves as its own entity; a slide stays in the shell and is ridden.
@@ -509,7 +548,6 @@ export async function runSchemPipeline(
             const rideBricks = source.bricks.filter(b => !movable.has(b));
             const found = [...findSlides(rideBricks, scene.meshes), ...findLifts(rideBricks, scene.meshes, scene.figureBricks)];
             if (found.length) {
-              const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, scene.groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
               rides = { frame, items: found.map(r => ({ kind: r.kind, label: r.label, path: r.pathLdu.map(grid3), ...(r.exitsLdu ? { exits: r.exitsLdu.map(grid3) } : {}), ...(r.startStop !== undefined ? { startStop: r.startStop } : {}), ...(r.carBricks ? { carBricks: r.carBricks } : {}) })) };
               for (const r of found) for (const b of r.carBricks ?? []) movable.add(b);
               for (const r of found) if (r.carBricks?.length) census.owners.push({ label: r.label, use: 'ride', bricks: new Set(r.carBricks), reason: `the car of a ${r.kind}` });
@@ -535,8 +573,10 @@ export async function runSchemPipeline(
             // in that car's entity, not as a wandering NPC.
             if (f.bricks.some(b => riderBricks.has(b))) continue;
             const p = sceneFloorPoint(frame, scene.groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
-            const seatIndex = f.seatIndex !== undefined ? seatIndexOf.get(f.seatIndex) : undefined;
-            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(seatIndex !== undefined ? { seatIndex } : {}) });
+            // A mount's companion rides its orbit seat (playable-addon.ts), never a chair.
+            const mountIndex = mountFigures.get(f);
+            const seatIndex = mountIndex === undefined && f.seatIndex !== undefined ? seatIndexOf.get(f.seatIndex) : undefined;
+            figures.push({ bricks: f.bricks, x: p[0], y: p[1], z: p[2], facingLdu: f.facingLdu, ...(seatIndex !== undefined ? { seatIndex } : {}), ...(mountIndex !== undefined ? { mountIndex } : {}) });
             for (const brick of f.bricks) movable.add(brick);
           }
           // A source-seated figure gives its seat up to a player who comes to it (bedrock-figure-life.ts), so it `yields`.
@@ -561,6 +601,7 @@ export async function runSchemPipeline(
             for (const component of found.components) for (const brick of component.bricks) owned.set(brick, `part of ${component.label} (a ${component.kind ?? 'vehicle'} entity)`);
             for (const f of scene.figures) for (const brick of f.bricks) if (movable.has(brick) && !owned.has(brick)) owned.set(brick, 'part of a figure');
             if (pinball) for (const brick of pinball.plan.moved) if (!owned.has(brick)) owned.set(brick, 'part of the pinball table');
+            for (const m of mounts?.items ?? []) for (const brick of m.bricks) if (!owned.has(brick)) owned.set(brick, `part of the ${m.canon.label ?? m.canon.style} a figure rides`);
             for (const brick of movable) if (!owned.has(brick)) owned.set(brick, 'part of a ride car or its riders');
             const stage = interactivityStage({
               bricks: source.bricks, meshes: scene.meshes, owned, seats: sceneSeats,
@@ -647,7 +688,7 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     // The seat census: every place the source sits a figure, and what the pack made of it.
     let seatCensus: SeatCensus | undefined;
     if (census.source) {
@@ -655,7 +696,7 @@ export async function runSchemPipeline(
       seatCensus = takeSeatCensus(findSeatPlaces(census.source.bricks, census.source.meshes), { vehicles: pack.vehicleSeats, sceneSeats: census.sceneSeats, owners: census.owners });
       if (seatCensus.rows.length) warnings.push(describeSeatCensus(label, seatCensus));
     }
-    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}), ...(seatCensus ? { seatCensus } : {}) } };
+    return { grid, bytes: pack.bytes, nonAir, lights, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats, mcpack: { functionCommand: pack.functionCommand, tileCount: pack.tileCount, unmapped: [], warnings: [...warnings, ...pack.warnings], components: pack.components.map(c => `${c.label} (${c.kind})`), provenance: pack.provenance, ...(access ? { access } : {}), ...(seatCensus ? { seatCensus } : {}), ...(pack.mounts ? { mounts: pack.mounts } : {}) } };
   }
 
   if (input.format === 'mcpack') {
