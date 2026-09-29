@@ -206,6 +206,22 @@ for my 5yo to explore and play with."
   `_mcaddon_check` 0 fails (sweep + 5 Gabby), `_ix_passability` 100/150 % rot 0:
   0 FAIL, 41 SEALED = the `merge-0929` baseline's 41 (none new). The device
   packs are `377850a5`; `34eb8363` changes no Gabby seat (vehicle audit).
+- [x] 29c Pixel: the 10788 slide seat could not be boarded by a TAP (three
+  taps, `/ride` ran it): a touch tap is a hit and `rides.js` boarded only a
+  lift's car on one; `board()` now seats a tapped ride seat too, and the
+  seat's pick box is the chute's width (`RIDE_SEAT_TAP_BOX` 1.0 x 0.6).
+  Host test pins the Pixel's seat point inside its `collider_w6` cell.
+  Colliders were never in the way (`selection_box: false`); idle points
+  unchanged in all six slide sets. Floor 3's west room HOLDS the player:
+  the probes were 0.19 block under the slab's top / in the front wall band /
+  outside the west wall; 105/105 offline drops rest on the floor.
+  Evidence + rebuilt pack (label unchanged, uuid holds): `output/gabby-fix-0929/`
+  (`_notes.txt`; `10788-gabbys-dollhouse.mcaddon` sha256 b7d86ce4b6f1…5efba at
+  `4ced924f`; guide "The slide's seat could not be boarded"). Regression: the
+  8-set sweep before/after identical in rides, validity and passability.
+  - [ ] Device: tap the top of 10788's slide from inside its top room (stand
+    at model 12.5,9.25,4 = the round's 5580.5,-50.75,5608) and from outside;
+    the pick on the widened box and the tap boarding are host-only so far.
 - [ ] Gabby, still open from the play round:
   - Undo leaves a car the player rode behind (10796 car 1, 10797's car,
     `v41-kill`, `s53`): killed by hand; not investigated.

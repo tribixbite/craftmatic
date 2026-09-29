@@ -4309,6 +4309,54 @@ dollhouse was misaligned and the elevator didn't seem functional." Played at
 - The controls hint in a car's action bar now shows for 5 s only: it sat over
   the car in the chase view on a phone.
 
+### The slide's seat could not be boarded by a tap (Pixel round 29c, 2026-09-29)
+
+At 100 % 10788's slide seat idles at 5577.88,-50.08,5607.75 (model
+9.878,9.918,3.749: the chute's top band), inside `collider_w6[0,16]` at
+(9,9,3) - the west wall's band, x 9.75..10 - with the chute's own full
+collider beside it. Three taps from 2.6 and 0.8 blocks boarded nobody;
+`/ride` on the same seat ran the chute (2.4 blocks). The lift boarded, by a
+tap on its CAR. Why, and what changed (`output/gabby-fix-0929/`):
+
+- **The colliders were not in the way.** Every collider block ships
+  `selection_box: false`, so a tap's ray passes through them (that is how a
+  tap reaches a door in its wall, docs/bedrock-interactivity.md "Taps through
+  walls"); `playerInteractWithBlock` can never fire for one, so a block
+  handler was no fix. Four of the six slide sets idle their seat inside a
+  collider (41395 in a full block, 41703 `w12`, 10796 `collider[4,14]`, 11204
+  `w1`; 42652's two do not): the seat sits ON the chute's bed and the chute's
+  cell is a collider. The idle points are unchanged (`seat-idle-points-*.txt`):
+  the bed between the rims is where a child aims; a seat lifted over the
+  colliders would float over the rims.
+- **A touch tap is a HIT.** The phone sends `entityHitEntity` for a tap and
+  `playerInteractWithEntity` only for a press held ~0.5 s (the pinball
+  measurements); a vanilla rideable mounts on the interact alone. `rides.js`
+  boarded a tapped lift CAR (`addRider`) and ignored a hit on the seat itself
+  - the only target a slide has. `board()` now seats the tapping player on
+  the seat too (slide or lift; never an orbit's), a second tap or the held
+  press adds nobody twice; `test/bedrock-rides.test.ts` pins the Pixel's
+  seat point inside its `w6` cell and the tap. Replay of HEAD `335e4cc8`
+  against the fix: 0 -> 1 riders (`tap-replay-before-after.txt`).
+- **The seat's pick box is the chute's width.** With no collision the box is
+  only what a tap picks; 0.5 x 0.5 covered the middle third of a 1.5-block
+  chute. `RIDE_SEAT_TAP_BOX` (1.0 x 0.6, the bed's width and the rims'
+  height) is the new box for both ride kinds; the size groups scale it.
+- **Floor 3's west room DOES hold the player.** The round's teleports to
+  y -52 (model 8.0) were 0.19 block UNDER the 2629 slab's top (8.1875,
+  `collider[lo=3,hi=8]` at every x 11..14, z 2..3, untrimmed) and, at z 4.0,
+  inside the front wall's band (z 4..4.25), and x 5575-5576 (model 7-8) is
+  OUTSIDE the west wall (9.75) where the slide hangs; the east probe stood on
+  the front wall's top at exactly 8.0. The per-tick player replays all five
+  probes to the block (fall to 4.938 = the device's -55.06, two to the
+  ground, two held) and, dropped from over the furniture, rests on floor 3 at
+  50 of 50 west-room and 55 of 55 east-room points; `_walk_line.ts --y=9.6`
+  crosses the room without a fall (`floor3-west-room-diagnosis.txt`). Not a
+  trim; nothing changed.
+
+Device-unproven: that the Pixel's pick meets the widened box on the
+chute's top, and the tap boarding itself (the fixed runtime has only run on
+the host).
+
 ## Minifig Creator wand on the phones (2026-09-26)
 
 The creator's properties first loaded on the device on 2026-09-25, so this

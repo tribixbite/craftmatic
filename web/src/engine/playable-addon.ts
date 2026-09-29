@@ -882,6 +882,17 @@ function seatBehavior(id: string): unknown {
  * only and in its own family, so a strolling figure never takes the slide
  * (figures sit on `craftmatic_seat`). The runtime moves it along the ride.
  */
+/**
+ * A ride seat's box (blocks at 100 %; the size groups scale it). It has no
+ * collision (`has_collision: false`, no gravity) and is invisible, so the
+ * box is only what a tap PICKS: a child's tap boards the ride when its ray
+ * meets this box. A slide's seat idles on the chute's top bed between its
+ * rims (a playground chute is 80 LDU = 1.5 blocks wide, its rims 0.56-0.71
+ * high); the old 0.5 x 0.5 box was a target the middle third of the top band
+ * wide, so the box is now the bed's width and the rims' height. A lift's seat
+ * stands on its platform (100 LDU = 1.9 wide), whose car is tapped as well.
+ */
+const RIDE_SEAT_TAP_BOX = { width: 1.0, height: 0.6 } as const;
 function rideSeatBehavior(id: string): unknown {
     const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 0 } };
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
@@ -890,12 +901,12 @@ function rideSeatBehavior(id: string): unknown {
         'minecraft:health': { value: 20, max: 20 },
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
         'minecraft:fire_immune': {},
-        'minecraft:collision_box': { width: 0.5, height: 0.5 },
+        'minecraft:collision_box': { ...RIDE_SEAT_TAP_BOX },
         'minecraft:physics': { has_gravity: false, has_collision: false },
         'minecraft:pushable_by_block': {},
         'minecraft:rideable': rideable,
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
-    } } }, { width: 0.5, height: 0.5 }, rideable, { playerSized: true });
+    } } }, { ...RIDE_SEAT_TAP_BOX }, rideable, { playerSized: true });
 }
 /**
  * A flyer mount's companion seat (bedrock-flyer.ts, bedrock-rides.ts kind

@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { RIDE, _ridesRuntimeForTests, findLifts, findSlides, isLiftCarDescription, isLiftColumnDescription, isLiftGuideDescription, isSlideDescription, ridesScript, slidePathLdu } from '../web/src/engine/bedrock-rides.js';
 import { isSwingSeat, isFurnitureSeat } from '../web/src/engine/bedrock-scene-actors.js';
+import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { isVehicleAndPlaceLabel, isWholeVehicleLabel } from '../web/src/engine/playable-components.js';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -219,6 +220,68 @@ describe('ride runtime', () => {
     subs.interact!({ player, target: { typeId: 'minecraft:cow', dimension: dim, location: car.location } });
     subs.interact!({ player, target: car });
     expect(riders).toEqual([player]);
+  });
+
+  /**
+   * A fake Script API world with ride seats (and a lift car) that record who
+   * boards them, and the two tap events a touch screen sends: a tap is a HIT
+   * (`entityHitEntity`), a press held is an interact (`playerInteractWithEntity`).
+   */
+  function tapWorld(rides: Array<{ kind: 'slide' | 'lift' | 'orbit'; carType?: string; seatType?: string }>, seats: Array<{ index: number; typeId?: string; at: { x: number; y: number; z: number } }>) {
+    const dim: any = {};
+    const entities: any[] = [];
+    const seatOf = (s: typeof seats[number]) => {
+      const props = new Map<string, unknown>([['craftmatic:ride', s.index], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify([s.at, { x: s.at.x + 2, y: s.at.y - 1, z: s.at.z }])], ['craftmatic:ride_exits', JSON.stringify([s.at, s.at])]]);
+      const riders: any[] = [];
+      const seat: any = { id: `seat${s.index}`, typeId: s.typeId ?? 'craftmatic:t_ride', isValid: true, location: { ...s.at }, dimension: dim, riders,
+        getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v), tryTeleport() { return true; },
+        getComponent: (n: string) => (n === 'minecraft:rideable' ? { getRiders: () => riders, addRider: (e: any) => { riders.push(e); return true; }, ejectRiders: () => { riders.length = 0; } } : undefined) };
+      return seat;
+    };
+    for (const s of seats) entities.push(seatOf(s));
+    const car: any = { id: 'car1', typeId: 'craftmatic:t_car', location: { x: 0, y: 0, z: 0.3 }, dimension: dim, getDynamicProperty: (k: string) => (k === 'craftmatic:ride' ? rides.findIndex(r => r.kind === 'lift') : undefined) };
+    entities.push(car);
+    dim.getEntities = (q: { type?: string }) => entities.filter(e => e.typeId === q.type);
+    const player: any = { typeId: 'minecraft:player', location: { x: 1, y: 0, z: 0 }, onScreenDisplay: { setActionBar: () => {} }, getComponent: () => undefined, runCommand: () => {} };
+    const subs: Record<string, (ev: any) => void> = {};
+    (globalThis as any).world = { getAllPlayers: () => [player], afterEvents: {
+      playerInteractWithEntity: { subscribe: (f: any) => { subs.interact = f; } }, entityHitEntity: { subscribe: (f: any) => { subs.hit = f; } } } };
+    (globalThis as any).system = { currentTick: 0, runInterval: () => {} };
+    _ridesRuntimeForTests({ seatType: 'craftmatic:t_ride', rides, constants: RIDE });
+    return { player, car, seats: entities.filter(e => e !== car), tap: (target: any) => subs.hit!({ damagingEntity: player, hitEntity: target }), press: (target: any) => subs.interact!({ player, target }) };
+  }
+
+  it("a tap on a slide's seat boards it: the seat, not a car, is what a child taps at the chute's top (Pixel 2026-09-29c)", () => {
+    // 10788 at 100 %: the slide's seat idles at its chute's top band, 9.878,9.918,3.749 in model
+    // blocks, INSIDE cell (9,9,3)'s `collider_w6[lo=0,hi=16]` (the west wall's band, x 9.75..10).
+    // Colliders have no selection box, so a tap's ray passes them and reaches the seat's box; on a
+    // touch screen that tap is a hit, and the runtime boarded only a lift's CAR on a hit - three
+    // taps boarded nobody while `/ride` on the same seat ran the chute.
+    const idle = { x: 9.878, y: 9.918, z: 3.749 };
+    const wall = COLLIDER_KIT.formBoxes(COLLIDER_KIT.variantOf('craftmatic:collider_w6'), 0, 16);
+    const inside = (b: readonly number[]): boolean => (idle.x - 9) * 16 >= b[0]! && (idle.x - 9) * 16 < b[1]! && (idle.y - 9) * 16 >= b[2]! && (idle.y - 9) * 16 < b[3]! && (idle.z - 3) * 16 >= b[4]! && (idle.z - 3) * 16 < b[5]!;
+    expect(wall.some(inside)).toBe(true);
+    const w = tapWorld([{ kind: 'slide' }, { kind: 'lift', carType: 'craftmatic:t_car' }], [{ index: 0, at: idle }, { index: 1, at: { x: 16.875, y: 1.01, z: 4.8 } }]);
+    const [slide, lift] = w.seats;
+    w.tap(slide);
+    expect(slide.riders).toEqual([w.player]);
+    // A second tap, or the held press that mounts a vanilla rideable, does not add the rider twice.
+    w.tap(slide); w.press(slide);
+    expect(slide.riders).toEqual([w.player]);
+    // A lift's seat boards on a tap too, as its car does.
+    w.tap(lift);
+    expect(lift.riders).toEqual([w.player]);
+  });
+
+  it('a tap on an orbit seat, or on anything that is not a ride, boards nothing', () => {
+    const w = tapWorld([{ kind: 'orbit', carType: 'craftmatic:t_cloud', seatType: 'craftmatic:t_orbit' }, { kind: 'slide' }], [{ index: 0, typeId: 'craftmatic:t_orbit', at: { x: 0, y: 3, z: 0 } }, { index: 1, at: { x: 5, y: 5, z: 5 } }]);
+    const [orbit, slide] = w.seats;
+    w.tap(orbit);
+    w.tap({ typeId: 'minecraft:cow', dimension: slide.dimension, location: slide.location });
+    // A seat of the player type whose ride index is an orbit is not a player's ride either.
+    w.tap({ ...slide, id: 'seat9', getDynamicProperty: (k: string) => (k === 'craftmatic:ride' ? 0 : slide.getDynamicProperty(k)) });
+    expect(orbit.riders).toEqual([]);
+    expect(slide.riders).toEqual([]);
   });
 
   it('serialises into a module that names only Script API globals', () => {

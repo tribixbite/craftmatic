@@ -420,6 +420,13 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - **Slides and lifts are rides** (`engine/bedrock-rides.ts`): a seat carried
   along a WORLD path the placement wrote (`PlacementActor.ridePath`). A new
   ride kind adds a path, never its own teleport loop.
+- **A touch tap is `entityHitEntity`; only a press held ~0.5 s is the
+  interact that mounts a vanilla rideable.** Any seat a child TAPS needs a
+  hit handler that calls `addRider` (rides `board()`): 10788's slide seat
+  boarded nobody over three taps while `/ride` on it ran the chute (Pixel
+  29c). Collider blocks have `selection_box: false`, so a tap's ray passes
+  them - a seat inside a collider is reachable and `playerInteractWithBlock`
+  never fires for one; do not reach for a block handler.
 - **An LDraw part's origin is its TOP stud plane; the body runs to +Y (down).**
   A brick placed at y sits in [y, y+24], a plate in [y, y+8]; a brick ON a
   surface at s has its origin at s − 24. `54200` (Slope 31 1×1×⅔) is the

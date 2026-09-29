@@ -477,8 +477,12 @@ and multiply by the wand factor, so a ride takes the same time at every size
 (a length scale without Froude scaling, like the figure walk). The path is
 measured at export (the chute's bed: its top surface less the rims of its
 side walls; the lift's room floors, by floor area, where the car stays in its
-column), never simulated. A tap on a lift's car boards its seat. Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
-and the serialised runtime on a fake world).
+column), never simulated. A tap on a lift's car, or on either ride's seat,
+boards it: on a touch screen a tap is a hit (`entityHitEntity`), not the
+held-press interact that mounts a vanilla rideable, so the runtime seats the
+tapping player itself (10788's slide boarded nobody over three taps until
+2026-09-29c). Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
+and the serialised runtime on a fake world, the tap on a seat included).
 
 An ORBIT (kind `orbit`, 2026-09-29) is the same runtime carrying the set's
 own FIGURE, not a player: a flyer mount's companion (§4.6,

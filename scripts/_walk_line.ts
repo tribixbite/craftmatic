@@ -5,9 +5,11 @@
  * invisible edge here" from a device round. It jumps whenever a move is
  * clipped, as a player trying to get past would.
  *
- * Usage: bun scripts/_walk_line.ts <pack.mcaddon> [--x=13.8,14.2,...] [--from=9.5] [--to=3.9] [--size=100] [--turn=0] [--open=Door 1,Door 2]
+ * Usage: bun scripts/_walk_line.ts <pack.mcaddon> [--x=13.8,14.2,...] [--from=9.5] [--to=3.9] [--y=0.5] [--size=100] [--turn=0] [--open=Door 1,Door 2]
  *   Walks along -z (toward `--to`) from z `--from` at each x, in model blocks
- *   from the pin (a device position minus the placement origin). Every door is
+ *   from the pin (a device position minus the placement origin), the feet
+ *   starting at `--y` (0.5, the ground; an upper storey's floor height to walk
+ *   a room the ground never reaches - 10788's floor 3 at 8.6). Every door is
  *   closed unless named in `--open`. Exits 0; read the table.
  *
  * Found 76457's sweet-stand rim (device round 2026-09-26a): the shipped pack
@@ -22,9 +24,9 @@ import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const file = process.argv.slice(2).find(a => !a.startsWith('--'));
-if (!file) { console.error('usage: bun scripts/_walk_line.ts <pack.mcaddon> [--x=..] [--from=9.5] [--to=3.9] [--size=100] [--turn=0] [--open=labels]'); process.exit(2); }
+if (!file) { console.error('usage: bun scripts/_walk_line.ts <pack.mcaddon> [--x=..] [--from=9.5] [--to=3.9] [--y=0.5] [--size=100] [--turn=0] [--open=labels]'); process.exit(2); }
 const xs = (flag('x') ?? '13.8,14.2,14.6,15.0,15.5,16.0,16.5,16.9').split(',').map(Number);
-const from = Number(flag('from') ?? 9.5), to = Number(flag('to') ?? 3.9);
+const from = Number(flag('from') ?? 9.5), to = Number(flag('to') ?? 3.9), startY = Number(flag('y') ?? 0.5);
 const sizePct = Number(flag('size') ?? 100), rotation = Number(flag('turn') ?? 0) as QuarterTurn;
 const open = (flag('open') ?? '').split(',').map(s => s.trim()).filter(Boolean);
 
@@ -33,16 +35,17 @@ const model = await loadAddonPreviewModel(b.buffer.slice(b.byteOffset, b.byteOff
 const world = new WalkWorld({ cells: model.cells, dims: model.dims, sizePct, rotation, treads: 'shipped', shippedTreads: (s, q) => treadBlocksAt(model, s, q) });
 const items = model.interactives?.items ?? [];
 if (model.interactives) world.setOverlayBlocks(ixClosedBlocks(items, model.dims, sizePct / 100, rotation, i => open.includes(items[i]!.label)));
-console.log(`${model.label}: walking -z from z ${from} to ${to} at ${sizePct} % turn ${rotation}${open.length ? `, open: ${open.join(', ')}` : ''}`);
+console.log(`${model.label}: walking -z from z ${from} to ${to}, feet from y ${startY}, at ${sizePct} % turn ${rotation}${open.length ? `, open: ${open.join(', ')}` : ''}`);
 for (const x of xs) {
-  let s: PlayerState = { x, y: 0.5, z: from, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
-  let jump = false, minZ = Infinity, jumps = 0, topY = 0;
+  let s: PlayerState = { x, y: startY, z: from, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
+  let jump = false, minZ = Infinity, jumps = 0, topY = startY, lowY = startY;
   for (let t = 0; t < 300; t++) {
     const r = tickPlayer(world, s, { move: { x: 0, z: -1 }, jump, sneak: false });
     s = r.state;
     jump = r.collided.z && s.onGround; if (jump) jumps++;
-    minZ = Math.min(minZ, s.z); topY = Math.max(topY, s.y);
+    minZ = Math.min(minZ, s.z); topY = Math.max(topY, s.y); lowY = Math.min(lowY, s.y);
     if (s.z <= to) break;
   }
-  console.log(`x ${x.toFixed(2)}: ${minZ <= to ? 'REACHED' : 'stopped at'} z ${minZ.toFixed(2)} (feet y ${s.y.toFixed(2)}, highest ${topY.toFixed(2)}, ${jumps} jumps)`);
+  // The lowest the feet went: a walk that starts on an upper floor and ends lower fell through it.
+  console.log(`x ${x.toFixed(2)}: ${minZ <= to ? 'REACHED' : 'stopped at'} z ${minZ.toFixed(2)} (feet y ${s.y.toFixed(2)}, lowest ${lowY.toFixed(2)}, highest ${topY.toFixed(2)}, ${jumps} jumps)`);
 }
