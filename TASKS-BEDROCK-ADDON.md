@@ -441,9 +441,15 @@ deck), 76286's pilot fits from 100 %.
   stripes or missing faces.
 - [ ] 10365 floats ~3 blocks above a `/fill` pool on both phones, the display
   stand's legs hanging clear of the water (`saga/s08-10365-side.png`).
-- [ ] 76286 first person (slot 9) shows the cockpit interior and a grey
-  ceiling, not a view out of the canopy; its chase camera showed the plane's
-  FRONT (rider or camera faces backwards?).
+- [ ] 76286 flew TAIL-FIRST (fixed offline, not yet on a device): its nose was
+  inferred -z because trans-light-blue rings just behind its windscreen read
+  as exhausts, so the chase camera saw its beak and first person looked back
+  into the cabin. Now: glow with glass further out on its own side is not an
+  exhaust (`vehicle-facing.ts`), and its nose is recorded in
+  `VERIFIED_FACINGS` (`playable-components.ts`: the rest of its votes still
+  nearly tie). Rebuilt: nose +z explicit, seat under the windscreen at the
+  front. The vehicle audit's other 18 vehicles keep their facings. Next device
+  round: fly it forward, first person out of the windscreen.
 - [ ] 60221 rider is at deck height but at the hull's side edge (seat x 1.09);
   looking down from the eye shows water.
 - [ ] 10261 kiosk figure had not retaken its seat ~20 s after the player left
