@@ -131,9 +131,23 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   probes were under the slab / in a wall band). Device tap unproven.
 - [ ] Next full rebuild (29d) carries the silent `fly` sound and the slide
   tap; do it after the Saga 29c and Pixel Nimbus re-check reports.
-- [ ] Nimbus fixes re-check on the Pixel (agent in flight,
-  `output/nimbus-pixel-0929/`): hint, HUD mph vs true + CMVT cadence, look
-  down + Jump dive, float-down, `fly` line count.
+- [x] Nimbus fixes re-checked on the Pixel (`output/nimbus-pixel-0929/`,
+  `_notes.txt`; pack from `a754a7de`, content log 0/0): hint shown 2.75 s;
+  HUD 85.7 mph vs 85.9 true (CMVT cadence 4 ticks, server 38.3 blocks/s at
+  `flying_speed` 0.3 - no bursts on 26.51); look down + Jump dives ~4
+  blocks/s (climb ~22); float-down 89 blocks in 11 s, "Floating down",
+  unharmed (was a 229-block drop); tap while riding ignored; orbit still
+  running after 47 min; Undo clean. Look pitch cannot be dragged by adb -
+  the agent mounted a parked cloud after `tp ... 90 45`.
+- [ ] Nimbus follow-ups (worktree agent): (1) 38 blocks/s is too fast for a
+  child - own `FLYER.FLYING_SPEED` (~0.09 for ~11 b/s), stale "~5 blocks/s"
+  doc row; (2) no hint on remounting the same cloud (`riderId` never
+  cleared on `!rider`); (3) false "figure 1 could not take its seat" at
+  placement (`addRider` in the spawn tick; the orbit seats him seconds
+  later) - retry before telling; (4) the `fly` verbose line is NOT silenced
+  by `entity_sounds` (711 lines: ~10/min from the ORBIT alone, 272/min
+  flying) - the engine names the BLOCK sound table; research the right hook
+  or drop the entry and the gate.
 - [ ] Saga: deploy the same zip `--exclusive` after the Nimbus proof agent
   frees the phone (`output/nimbus-saga-0929/`); check the Gabby fixes on the
   new build (the play round's packs were `377850a5`), the faces, the kiosk.
