@@ -142,14 +142,21 @@ player, 11204's chest lid, a lift ride that shows the car moving.
 
 ## Open — interactivity
 
-- [ ] **SEALED doorways, what is left** (28 of 83 at 100 % after the stairs;
-  docs/bedrock-interactivity.md "Stairs up to a raised threshold"). Next, in
-  measured order: diagonal stairs (two columns per step) for the off-axis
-  leaves (11371's shops, 31141 Door 4, 60380 Door 2); an interior-side stair
-  test that accepts a closed room's own flood region instead of "outside
-  only"; the rest open onto furniture or walls (`output/clearance-0925/sealed.ts`
-  in the clearance worktree prints what stands in front of each side).
-  Stairs are not seen on a device yet beyond the GameTest runs below.
+- [ ] **Doorways not OK at 100 %: 26 of 83** (was 40; 150 %: 22, was 32; 0
+  FAIL at every size; docs/bedrock-interactivity.md "Doors a minifig uses, at
+  100 %", sweeps `output/doors-0929/{before-g,after}` in worktree
+  `agent-a8832fe8…`). `bun scripts/_ix_sealed_causes.ts <packs> <geometry>
+  --drawn` names each cause. Left: 23 are the model's own geometry for a
+  0.6 x 1.8 player walking straight through (furniture, a wall or a railing
+  a stud from the leaf - a minifig is 1 stud deep, the player 0.6; stairs or
+  a turn in the corridor; 71043's microscale doors, 48 x 80 LDU over a
+  3-block drop) - report, do not hack. 3 are colliders: 42639 Door 1 and
+  910032 Door 4 (a thin post covered by a whole-length quarter band - a
+  box-shaped form would be needed; eighth bands buy almost nothing,
+  `--kit8`), 11371 Door 1 (trims refused near a leak). Next: a GameTest walk
+  of the newly passable ones (80049 Doors 1-2, 42670 Door 1, 10326 Doors 1-2,
+  11371 Doors 2-4 and 7, 21318 Door 1, 31141 Door 4, 41732 Door 3, 910004
+  Door 3, 910049 Gate 1) - none is device-proven.
 - [ ] **GameTest tap spots on ledges**: 31141 Window 2's tester fell 2.88
   blocks off its spot before hitting (see round 26c): the harness, not the
   runtime's line of sight. Next: `_gametest_pack.ts` prefers spots with

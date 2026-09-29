@@ -211,6 +211,19 @@ export const PLAYER_WIDTH_BLOCKS = 0.6;
 export const PASSAGE_WIDTH_BLOCKS = 1;
 export const PASSAGE_HEIGHT_BLOCKS = 2;
 /**
+ * What a DOORWAY's opening must clear for the player to use it (`passSizeFor`):
+ * a minifig's own envelope - 2 studs across the hips (40 LDU) and 96 LDU
+ * standing, head included - measured in blocks at the model's scale. At
+ * minifig scale (53.33 LDU a block) that is 0.75 x 1.8 blocks, which holds
+ * the 0.6 x 1.8 player: a door a minifig walks through in the real set is a
+ * door the player walks through at 100 %. The whole-block 1 x 2 passage
+ * above stays the rule for access measurements and hatches; it kept every
+ * minifig door narrower than 2.67 studs (80049's 0.9-block shop doors) shut
+ * at 100 % although the passability walk puts a player through them.
+ */
+export const DOORWAY_PASS_WIDTH_LDU = 40;
+export const DOORWAY_PASS_HEIGHT_LDU = 96;
+/**
  * How far up a player gets without and with a jump (Minecraft's own numbers:
  * the 0.6 auto-step, the 1.25-block jump). A LEGO brick riser is 24 LDU =
  * 0.45 blocks: a step at 100 %, a jump at 200 % (0.9), and a wall at 300 %

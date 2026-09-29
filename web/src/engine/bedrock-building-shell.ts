@@ -140,6 +140,11 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
   // The geometry each cell holds, as sixteen layer footprints (sixteenths, rounded outward): what
   // clearance (collider-clearance.ts) trims a cell's collider back to. Same membership and rounding
   // as the cell's own lo/hi below, so a cell's layers span exactly its collider's lo..hi.
+  // Rounded outward past float noise only (`floor16` / `ceil16`): the cell's lo/hi are kept as
+  // float32, the layers are computed in float64, and a box edge ON a sixteenth (a plate top at
+  // 12/16) read 12.0000016 in one and 12 in the other - the layers then spanned [4,13] over a
+  // [4,12] collider and clearance refused the cell as one the doorway cut had changed (69 cells
+  // of 10261, a set with no doorway, 2026-09-29).
   const layers: CellLayers = new Map();
   for (const b of boxes) {
     // LDraw Y is down: the box's max y is its lowest point, so the grid span runs from max→min.
@@ -158,11 +163,11 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
       if (cellHi > hi[i]!) hi[i] = cellHi;
       let cell = layers.get(i);
       if (!cell) layers.set(i, cell = newCellLayers());
-      const l = Math.max(0, Math.min(15, Math.floor(cellLo * 16)));
+      const l = Math.max(0, Math.min(15, floor16(cellLo)));
       addLayerBox(cell,
-        Math.max(0, Math.min(15, Math.floor((Math.max(bx0, x) - x) * 16))), Math.max(1, Math.min(16, Math.ceil((Math.min(bx1, x + 1) - x) * 16))),
-        l, Math.max(l + 1, Math.min(16, Math.ceil(cellHi * 16))),
-        Math.max(0, Math.min(15, Math.floor((Math.max(bz0, z) - z) * 16))), Math.max(1, Math.min(16, Math.ceil((Math.min(bz1, z + 1) - z) * 16))));
+        Math.max(0, Math.min(15, floor16(Math.max(bx0, x) - x))), Math.max(1, Math.min(16, ceil16(Math.min(bx1, x + 1) - x))),
+        l, Math.max(l + 1, Math.min(16, ceil16(cellHi))),
+        Math.max(0, Math.min(15, floor16(Math.max(bz0, z) - z))), Math.max(1, Math.min(16, ceil16(Math.min(bz1, z + 1) - z))));
     }
   }
   const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0 };
@@ -180,8 +185,8 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
     } else if (state === 'minecraft:air') continue;
     let l = 0, h = 16;
     if (seen) {
-      l = Math.max(0, Math.min(15, Math.floor(lo[i]! * 16)));
-      h = Math.max(l + 1, Math.min(16, Math.ceil(hi[i]! * 16)));
+      l = Math.max(0, Math.min(15, floor16(lo[i]!)));
+      h = Math.max(l + 1, Math.min(16, ceil16(hi[i]!)));
     }
     if (l !== 0 || h !== 16) stats.partial++;
     out.set(x, y, z, colliderState(l, h));
@@ -194,6 +199,15 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
   }
   return { grid: out, stats, layers };
 }
+
+/**
+ * A fraction of a block in sixteenths, rounded down / up past float noise: an
+ * edge within 1/1000 of a sixteenth (6e-5 block) of a sixteenth is ON it. The
+ * collider grid and its layer geometry both round with these, so they agree.
+ */
+const NOISE16 = 1e-3;
+const floor16 = (v: number): number => Math.floor(v * 16 + NOISE16);
+const ceil16 = (v: number): number => Math.ceil(v * 16 - NOISE16);
 
 /** The cell index `buildColliderGrid`'s `keepClear` uses: `(x·height + y)·length + z`. */
 export const colliderCellIndex = (grid: { height: number; length: number }, x: number, y: number, z: number): number => (x * grid.height + y) * grid.length + z;

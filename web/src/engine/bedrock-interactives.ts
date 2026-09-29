@@ -29,9 +29,10 @@
  * Molang), lays or clears the doorway's colliders, plays the vanilla door sound
  * and persists the state in the entity's dynamic properties.
  *
- * A doorway smaller than the player's 1 x 2-block passage at the placed size
- * still OPENS (the leaf swings) but keeps its colliders, and says at which wand
- * size it becomes passable (`passSize`).
+ * A doorway smaller than a minifig at the placed size (`passSizeFor`: 0.75 x
+ * 1.8 blocks at minifig scale, which holds the 0.6 x 1.8 player) still OPENS
+ * (the leaf swings) but keeps its colliders, and says at which wand size it
+ * becomes passable (`passSize`).
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -43,7 +44,7 @@ import { cleanPartId } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
 import { SIZE_EVENT_PREFIX, SIZE_STEPS } from './bedrock-placement-pack.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
-import { PASSAGE_HEIGHT_BLOCKS, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
+import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { LeakFlood, parseFormState } from './collider-clearance.js';
@@ -711,6 +712,15 @@ export interface InteractiveColliderPlan {
   stairTreads: number;
   /** Every stair considered for this doorway: the leaf column, the side, and what happened (`laid N` or the refusal). */
   stairs: string[];
+  /**
+   * The doorway's APPROACH: the columns in front of and behind its leaf, along
+   * the leaf's normal up to `PASSAGE_REACH_CELLS`, where a player stands to
+   * walk through (a door or gate; empty for a hatch). Clearance lets a phantom
+   * top at the approach's body height go (collider-clearance.ts, rule 4).
+   */
+  approach: Array<[number, number]>;
+  /** The doorway's floor, absolute sixteenths of the collider grid (the lowest closed cell's bottom). */
+  floor16: number;
 }
 
 /** Cells either side (and above / below) of a leaf whose static state the runtime must know: a block at 25 % holds four cells. */
@@ -896,7 +906,18 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       }
     }
     blockingAll.push(blocking);
-    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [] });
+    // The approach: every column the leaf's normal crosses within the passage's reach, both ways.
+    const approach = new Map<string, [number, number]>();
+    if (it.kind !== 'hatch') {
+      const n = it.leaf.normal;
+      const gn = norm([g(add(corner, n))[0] - g(corner)[0], 0, g(add(corner, n))[2] - g(corner)[2]]);
+      for (const [cx, cz] of columns.values()) for (const dir of [1, -1]) for (let k = 0.25; k <= PASSAGE_REACH_CELLS + 0.01; k += 0.25) {
+        const x = Math.floor(cx + 0.5 + gn[0] * dir * k), z = Math.floor(cz + 0.5 + gn[2] * dir * k);
+        if (!columns.has(`${x},${z}`) && inGrid(x, 0, z)) approach.set(`${x},${z}`, [x, z]);
+      }
+    }
+    const floor16 = blocking.length ? Math.min(...blocking.map(c => c[1] * 16 + c[3])) : 0;
+    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [], approach: [...approach.values()], floor16 });
   }
   if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll);
   captureDoorwayNeighbours(grid, plans);
@@ -1121,15 +1142,20 @@ export function captureDoorwayNeighbours(grid: BlockGrid, plans: ReadonlyArray<I
 }
 
 /**
- * The first wand size (percent, 100…400) at which an opening of `widthLdu` x
- * `heightLdu` clears the player's 1 x 2-block passage (a hatch: 1 x 1, it is a
- * hole to drop through); 0 when none does.
+ * The first wand size (percent, 100…400) at which an opening of `width` x
+ * `height` LDU is passable; 0 when none does. A door or gate needs a
+ * minifig's envelope (`DOORWAY_PASS_WIDTH_LDU` x `DOORWAY_PASS_HEIGHT_LDU`
+ * at minifig scale, 0.75 x 1.8 blocks, which holds the 0.6 x 1.8 player; a
+ * gate has no lintel); a hatch, a hole dropped through, keeps the 1 x 1-block
+ * rule. `blocksPerLdu` is the model's scale (1 / 53.33 at minifig scale).
  */
-export function passSizeFor(kind: InteractiveKind, opening: { width: number; height: number } | undefined, steps: readonly number[] = [100, 150, 200, 300, 400]): number {
+export function passSizeFor(kind: InteractiveKind, opening: { width: number; height: number } | undefined, steps: readonly number[] = [100, 150, 200, 300, 400], blocksPerLdu = 1 / LDU_PER_BLOCK): number {
   if (!opening) return 0;
-  const w = opening.width / LDU_PER_BLOCK, h = opening.height / LDU_PER_BLOCK;
-  const needH = kind === 'hatch' ? PASSAGE_WIDTH_BLOCKS : kind === 'gate' ? 0 : PASSAGE_HEIGHT_BLOCKS;
-  return steps.find(pct => w * pct / 100 + 1e-9 >= PASSAGE_WIDTH_BLOCKS && h * pct / 100 + 1e-9 >= needH) ?? 0;
+  const w = opening.width * blocksPerLdu, h = opening.height * blocksPerLdu;
+  const minifig = 1 / LDU_PER_BLOCK;
+  const needW = kind === 'hatch' ? PASSAGE_WIDTH_BLOCKS : DOORWAY_PASS_WIDTH_LDU * minifig;
+  const needH = kind === 'hatch' ? PASSAGE_WIDTH_BLOCKS : kind === 'gate' ? 0 : DOORWAY_PASS_HEIGHT_LDU * minifig;
+  return steps.find(pct => w * pct / 100 + 1e-9 >= needW && h * pct / 100 + 1e-9 >= needH) ?? 0;
 }
 
 // ─── Entities ────────────────────────────────────────────────────────────────
@@ -1446,13 +1472,19 @@ export const IX_KEYS = {
 /** Round an open angle for the config (tenths). */
 const r1 = (v: number): number => Math.round(v * 10) / 10;
 
-export function interactiveRuntimeItem(it: SceneInteractive, type: string, label: string, plan: InteractiveColliderPlan | null): InteractiveRuntimeItem {
+/**
+ * The runtime record of one moving part. `blocksPerLdu` is the model's scale
+ * (its collider frame's `scale / cellXZ`; 1 / 53.33 at minifig scale): the
+ * opening and its passable size are in blocks of THIS model, not of a
+ * minifig-scale one.
+ */
+export function interactiveRuntimeItem(it: SceneInteractive, type: string, label: string, plan: InteractiveColliderPlan | null, blocksPerLdu = 1 / LDU_PER_BLOCK): InteractiveRuntimeItem {
   const doorway = PASSAGE_KINDS.has(it.kind);
-  const opening = it.openingLdu ? { width: r1(it.openingLdu.width / LDU_PER_BLOCK), height: r1(it.openingLdu.height / LDU_PER_BLOCK) } : undefined;
+  const opening = it.openingLdu ? { width: r1(it.openingLdu.width * blocksPerLdu), height: r1(it.openingLdu.height * blocksPerLdu) } : undefined;
   const leafSounds = { open: 'random.door_open', close: 'random.door_close' };
   return {
     type, kind: it.kind, label, angle: r1(it.angleDeg),
-    ...(doorway ? { passSize: passSizeFor(it.kind, it.openingLdu) } : {}),
+    ...(doorway ? { passSize: passSizeFor(it.kind, it.openingLdu, undefined, blocksPerLdu) } : {}),
     ...(opening && doorway ? { opening } : {}),
     blocking: plan?.blocking ?? [], neighbours: plan?.neighbours ?? [], shares: [],
     sounds: it.kind === 'turnable' || it.kind === 'lever' ? { open: 'random.click', close: 'random.click' } : leafSounds,

@@ -335,6 +335,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   of the geometry, not at a leaf's plane, floors keep their top - except a
   wall's top whose rim overhangs open air and is no door's landing - the leak
   flood); judge it with `_clearance_report.ts` and `_walk_line.ts`, never by eye.
+- **A doorway a minifig uses is the player's at 100 %** (2026-09-29): its
+  `passSize` is a minifig's envelope (40 x 96 LDU at the model's scale), not
+  a 1 x 2-block hole. To ask why a doorway is not walkable, run
+  `bun scripts/_ix_sealed_causes.ts <packs> <geometry> --drawn` (geometry from
+  `_favorites_export_sweep.ts --geometry`); judge the MODEL over the drawn
+  cuboids - clearance's layers are one box per sixteenth per cell and fill a
+  doorway cell between its two jambs. A minifig is 1 stud deep, the player
+  0.6: a door onto furniture a stud away is the model's, not a bug.
 - **Reading a built pack's geometry: ONE rotation convention and a Z mirror.**
   JSON angles turn JSON coordinates by `Rz(−rz)·Ry(ry)·Rx(−rx)` and the world
   is the JSON frame mirrored in Z (`pivotRotation`/`worldFaces` in
