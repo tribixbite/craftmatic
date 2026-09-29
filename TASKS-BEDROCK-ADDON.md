@@ -154,14 +154,20 @@ exit 0/3/1; lift proved on 40900: entry byte-equal to live, nothing else
 moved, ~5 min), craftmatic `bun scripts/new-set.ts <sku> --commit --browser`
 (live index + models, index commit, Chrome deep-link render via
 `_live_set_check.mjs`, pack + gates + zip), `scripts/new-set-watch.ps1 <sku>`
-for `schtasks` (hourly; lock + DONE). App: `mergeIndexSets` (catalog topped
-up from the index) and `?tab=lego&set=N`. 11390 today: `announced`
-(lego.com knows it: 1,764 pieces, 0 PDFs; DBIX 204; not in Rebrickable).
+for `schtasks` (hourly; lock + DONE; one run for 11390 exited 3 as designed).
+App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
+- PROD-proved on 40900 (`f03497b9`: drawn in 11 s,
+`output/new-set-40900-prod/live-40900.png`; pack + gates + zip in
+`output/new-set-40900-pack2/`). 11390 today: `announced` (lego.com knows it:
+1,764 pieces, 0 PDFs; DBIX 204; not in Rebrickable).
 - [ ] The user registers the task: `schtasks /create /tn "craftmatic-new-set-11390"
   /sc hourly /st 06:05 /tr "powershell -NoProfile -ExecutionPolicy Bypass -File
   C:\git\craftmatic\scripts\new-set-watch.ps1 11390"` (release 2026-11-01).
-- [ ] Deep link on PROD: `bun scripts/new-set.ts 40900 --browser` after the
-  deploy of this round lands (dev-proved: `output/new-set-40900-test/live-40900.png`).
+- [ ] Untested until a set actually appears: `new_set.py --run` from
+  `3d-available` end to end (each step is proven alone: harvest via
+  `dbix_refresh --set` on 40900 in the 09-27 round, lift on 40900 today,
+  publish = refresh_local's) and `new-set.ts --commit` (git add/commit/push
+  of the index copy).
 - [ ] Nimbus rig (worktree agent, offline only): `flyer` motion (native rotor
   controller, cloud-styled), `set-canon.ts` (11390: cloud mount, companion
   orbit), mount detector, interact → own cloud (60 s despawn, cap), fixture
