@@ -2379,7 +2379,22 @@ pose of tick k − `animLag` (3.5: lag 1 +213, 2 +108, 3 +35, 4 −62, 6 −194)
 fractions interpolated between two poses. Both sit over the drawn seat, so
 the hand-back (placed at the eye the animation is showing) needs no jump.
 The 2026-09-25 choice of 3 by eye was 0.5 tick off; 2 (this round's first
-try) was 1.5 ticks ahead.
+try) was 1.5 ticks ahead. Run-to-run variance is about a tick: two identical
+`anim 3.5 … moving` runs (camera already running when the animation is
+issued, as in the coaster; `probe5.mp4`) read −110 px and 0 px, and the
+mixed cut (an un-eased `setCamera` at the animation's own eye, then eased)
+held ≈0 px through the take-over with no jump.
+
+**Ridden (`ride3.mp4`, pack `f131fe80`):** loop 1 pitches over — sky, the
+world upside down, the ground, level — with no spin (`ride3-loop1-big-*.jpg`)
+and hands back without a jump (`ride3-exit1-big-*.jpg`); loop 2 likewise
+through its top, no own-view flash at either loop, but its EXIT cut from
+looking down at the car to level ahead in one frame
+(`ride3-exit2-big-1-8.jpg` frames 8 → 9): the hand-back took the animation's
+EYE (tick k − 3.5) with the per-tick ROTATION of tick k − 1.5, and at a helix
+exit those poses are ~40 degrees apart. The per-tick lag now runs from
+`animLag` to `tickLag` over `handbackBlend` (4) ticks after a hand-back,
+so eye and rotation both start where the animation left them.
 
 **Roll composes about the view axis** (`rot z30`, `rot z30x180`,
 `probe4-z30*.jpg`): the same `z: 30` tilts the picture the same way at

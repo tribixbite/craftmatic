@@ -2241,6 +2241,7 @@ describe('the rider camera follows the track', () => {
     expect(config.camera?.animLag).toBe(COASTER_RIDER_VIEW.animLag);
     expect(config.camera?.animTail).toBe(COASTER_RIDER_VIEW.animTail);
     expect(config.camera?.tickLag).toBe(COASTER_RIDER_VIEW.tickLag);
+    expect(config.camera?.handbackBlend).toBe(COASTER_RIDER_VIEW.handbackBlend);
     const script = coasterScript(config);
     // The one script-event listener is a driven TRAIN's stick hook (GameTest),
     // subscribed only when the config names `inputEvent`; a coaster has none.
@@ -2403,7 +2404,13 @@ describe('the rider camera follows the track', () => {
         expect(back.args[1].easeOptions).toBeUndefined();
         const t = play.tick + length;
         expect(close(back.args[1].location, mid(eye(plain, t - 4), eye(plain, t - 3), 0.5))).toBe(true);
+        // The lag runs from animLag to tickLag over HANDBACK_BLEND (4) ticks: each
+        // tick's rotation and eye move by about one tick and a half of ride, never
+        // the two-tick cut that the helix exit showed on the device.
         expect(Math.abs(next.args[1].rotation.y - back.args[1].rotation.y)).toBeLessThan(45);
+        expect(Math.abs(next.args[1].rotation.x - back.args[1].rotation.x)).toBeLessThan(25);
+        const after4 = lagged.find(e => e.tick === t + 4 && e.kind === 'set');
+        if (after4) expect(close(after4.args[1].location, mid(eye(plain, t + 4 - 2), eye(plain, t + 4 - 1), 0.5))).toBe(true);
       }
     } finally { delete (globalThis as any).LinearSpline; }
   });
