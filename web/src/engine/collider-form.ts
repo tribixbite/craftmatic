@@ -72,6 +72,12 @@ export interface ColliderFormKit {
   lay(block: { setPermutation(p: unknown): void }, form: ColliderForm, loState: string, hiState: string, resolve: (id: string, states: Record<string, number>) => unknown): boolean;
 }
 
+/**
+ * Build the kit. `bands` replaces the quarter-block bands (sixteenths, each
+ * used along x and along z) - only for measuring what another vocabulary would
+ * do (`scripts/_ix_sealed_causes.ts --kit8`); the pack's block ids are the
+ * default's, and the runtimes build it with none.
+ */
 export function colliderFormKit(bands?: ReadonlyArray<readonly [number, number]>): ColliderFormKit {
   const BANDS = bands ?? [[0, 4], [0, 8], [0, 12], [4, 16], [8, 16], [12, 16], [4, 12]];
   const SHAPES: Array<[number, number, number, number]> = [[0, 16, 0, 16]];

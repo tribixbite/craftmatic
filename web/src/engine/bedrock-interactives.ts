@@ -29,9 +29,10 @@
  * Molang), lays or clears the doorway's colliders, plays the vanilla door sound
  * and persists the state in the entity's dynamic properties.
  *
- * A doorway smaller than the player's 1 x 2-block passage at the placed size
- * still OPENS (the leaf swings) but keeps its colliders, and says at which wand
- * size it becomes passable (`passSize`).
+ * A doorway smaller than a minifig at the placed size (`passSizeFor`: 0.75 x
+ * 1.8 blocks at minifig scale, which holds the 0.6 x 1.8 player) still OPENS
+ * (the leaf swings) but keeps its colliders, and says at which wand size it
+ * becomes passable (`passSize`).
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';

@@ -253,15 +253,20 @@ boxes stay in the static colliders, so a closed-up window is still a wall.
 
 ## The scale rule
 
-A player needs a clear opening **1 block wide and 2 high** (`PASSAGE_WIDTH_BLOCKS`
-x `PASSAGE_HEIGHT_BLOCKS`; a hatch is a hole: 1 x 1). Each doorway ships its
-**`passSize`**: the first wand size (100/150/200/300/400 %) at which its opening
-clears that; 0 when none does. Below it the leaf still swings open but its
+A doorway is passable at a size when its opening holds a **minifig**: 40 LDU
+across (2 studs, the hips) and 96 LDU high (standing, head included), at the
+model's own scale - 0.75 x 1.8 blocks at minifig scale, which holds the 0.6 x
+1.8 player (`DOORWAY_PASS_WIDTH_LDU` x `DOORWAY_PASS_HEIGHT_LDU`, since
+2026-09-29; it was a whole-block 1 x 2 passage, which kept a minifig's
+0.9-block shop door shut at 100 %). A gate has no lintel (width only); a
+hatch is a hole: 1 x 1 block. Each doorway ships its **`passSize`**: the
+first wand size (100/150/200/300/400 %) at which its opening clears that; 0
+when none does. Below it the leaf still swings open but its
 colliders stay (the runtime says *"This opening is 0.8 x 1.4 blocks at 100
 percent: too small to walk through at 100 percent. Place the build at 200
 percent or larger to pass."*). The pack warnings carry one line per set
-(*"Doorways passable (a player needs 1 x 2 blocks): 4 from 100 %, 2 from
-200 %"*), the diagnostics carry every part's opening and `passSize`, and the
+(*"Doorways passable (a player needs an opening a minifig fits, 0.75 x 1.8
+blocks): 4 from 100 %, 2 from 200 %"*), the diagnostics carry every part's opening and `passSize`, and the
 Walk add-on's legend says how many are passable at the chosen size.
 
 ## Clearance: colliders pulled back to the geometry
@@ -594,6 +599,128 @@ approach either way to walked out (ONE-WAY). No doorway got worse. The rest
 stay SEALED for other reasons: an interior side full of furniture or a wall,
 an upper floor with no floor under the stair, or a diagonal leaf.
 
+### Doors a minifig uses, at 100 % (2026-09-29)
+
+The user's brief: *"At 100% scale if a minifig irl can use the doors and
+chairs etc, the normal 100% scale mc imported set should allow a mc player to
+fit through and operate doors etc."* A minifig at minifig scale is 96 LDU
+standing (1.8 blocks, the player's height) and 2 studs across the hips (40
+LDU, 0.75 block, wider than the 0.6 player) - but only 1 stud (0.375 block)
+deep, where the player is 0.6. So a doorway a minifig walks STRAIGHT through
+in the real set holds the player; one where the minifig squeezes between the
+door and a railing or a bed a stud away does not.
+
+**Measuring it.** `bun scripts/_ix_sealed_causes.ts <packs> <geometry> [--drawn]`
+walks every doorway the passability walk does not call OK over
+counterfactual worlds and names the cause (header of the script for the
+buckets): first an exact-box 1/8-block lattice walk of the player over the
+model's OWN geometry (`--drawn`: the pack's drawn cuboids; without it,
+clearance's layer footprints, which are one bounding box per sixteenth per
+cell and so fill a doorway cell between two jambs - use `--drawn` to judge
+the model), then, where the model lets the player through, the colliders:
+refused trims applied by kind, the lattice over the colliders (a harness
+refusal), and the collider cells standing where the geometry walk stood.
+The geometry comes from the build: `_favorites_export_sweep.ts --geometry
+<dir>` (or `_ix_cell_geometry.ts` for one pack) dumps clearance's layers.
+Sweeps `output/doors-0929/before-g` (at `e2a20394`) and `after` (at
+`90b09bc9`) in the doors worktree; 83 doorways over the 40 favourites.
+
+Causes of every doorway not OK at turn 0 (distinct doorways; the model judged
+over the drawn cuboids):
+
+| cause | 100 % before | after | 150 % before | after |
+|---|---|---|---|---|
+| opening under the passable size (`passSize`) | 1 | 0 | 0 | 0 |
+| collider: phantom top kept (`walkable-top`) | 4 | 0 | 0 | 0 |
+| walk harness: the column route | 0 | 0 | 4 | 0 |
+| collider: refused as `door-cut` | 0 | 0 | 3 | 2 |
+| collider: form too coarse for the geometry | 1 | 2 | 1 | 1 |
+| collider: refused near a leak | 1 | 1 | 0 | 0 |
+| model: solid geometry in front (furniture, wall, railing) | 15 | 13 | 9 | 8 |
+| model: no way through the corridor (steps, a turn, a diagonal) | 15 | 8 | 12 | 9 |
+| model: a drop past the jump | 3 | 2 | 3 | 2 |
+| **not OK** | **40** | **26** | **32** | **22** |
+
+Four rules, each pinned in `test/doorway-reach.test.ts`:
+
+1. **`passSize` is a minifig's envelope** (`passSizeFor`,
+   `DOORWAY_PASS_WIDTH_LDU` 40 x `DOORWAY_PASS_HEIGHT_LDU` 96, measured at the
+   model's own scale - the collider frame's `scale / cellXZ`, which the
+   opening used to ignore), not the whole-block 1 x 2 passage: 80049's shop
+   doors (48 x 123 LDU) and 42670's Door 1 (53 x 112) open at 100 %. A hatch
+   keeps 1 x 1 block. 71043's microscale doors (48 x 80 LDU) stay at 150 %:
+   80 LDU is under a standing minifig.
+2. **A phantom top in a doorway's approach goes** (clearance rule 4,
+   `approachTop`): the plan records each door's or gate's approach (the
+   columns along its normal within `PASSAGE_REACH_CELLS`) and floor; a
+   surface there whose top is over an auto-step above the door's floor and
+   whose bottom is under the head of a player standing an auto-step up is
+   not the approach's floor but an obstacle in it. Its trim still contains
+   the geometry and passes the leak check. 10326's Doors 1-2 (a 1/16 sliver of
+   shelf read as a whole block top, 0.05 block into the head), 11371's Door 7.
+3. **The collider grid and its layers round alike** (`floor16` / `ceil16` in
+   `bedrock-building-shell.ts`): the cell's lo/hi were float32 and the layers
+   float64, so an edge ON a sixteenth read 12 in one and 13 in the other, and
+   clearance refused the cell as one the doorway cut had changed - 69 cells
+   of 10261, a set with no doorway at all. 910049's gate.
+4. **The walk sees what a box sweeps, and only through the doorway**
+   (`interactive-walk.ts`): where the column graph finds no approach or no
+   route it falls back to an exact-box 1/8-block lattice (`doorwayLattice`;
+   the per-tick player still judges every route) - a corridor straddling a
+   column boundary, 21318's Door 1, 41732's Door 3, 11371's diagonal shop
+   doors; and every search crosses the leaf's plane only IN the doorway at
+   its level (`crossesAtDoor`): 42670's raised Door 3 had "passed" at 200-400 %
+   by a route down its stairs and under it on the ground.
+
+Passability over the 40 favourites (`_ix_passability.ts`, turns 0 and 90;
+rows / doorways at turn 0):
+
+| size | OK rows | ONE-WAY | SEALED | SMALL | NO-APPROACH | STEP | FAIL | doorways not OK (turn 0) |
+|---|---|---|---|---|---|---|---|---|
+| 100 % | 84 -> 112 | 14 -> 4 | 56 -> 44 | 6 -> 0 | 4 -> 4 | 0 -> 0 | 0 -> 0 | 40 -> 26 |
+| 150 % | 104 -> 121 | 11 -> 4 | 48 -> 37 | 0 -> 0 | 0 -> 0 | 1 -> 2 | 0 -> 0 | 32 -> 22 |
+| 200 % | 105 -> 118 | 15 -> 5 | 40 -> 36 | 0 -> 0 | 0 -> 0 | 4 -> 5 | 0 -> 0 | 30 -> 23 |
+| 300 % | 93 -> 101 | 20 -> 13 | 34 -> 32 | 0 -> 0 | 0 -> 0 | 17 -> 18 | 0 -> 0 | 36 -> 32 |
+| 400 % | 80 -> 87 | 33 -> 25 | 34 -> 32 | 0 -> 0 | 0 -> 0 | 17 -> 20 | 0 -> 0 | 43 -> 39 |
+
+(OK rows omit the two `Garage door 1` doorways, OK throughout, which the
+tally's parser missed.) Got worse, and why: 42670 Door 3 at 200-400 % was
+ONE-WAY/OK only through the route under it (now SEALED, as at 100 %); 76435's
+Gate 1 at 300-400 % ONE-WAY -> STEP and 910004's Door 3 SEALED -> STEP at
+150-400 % (OK at 100 % now, a riser past the jump above it). Seats: 153 of
+156 places the source sits a figure give the player a seat, unchanged (the
+sweep's labels are bare set numbers, so 41395's and 42663's steering wheels
+find no vehicle; `_seat_audit.ts` with the LEGO tab's labels reads 160/162).
+Render faults (`_render_fault_audit.ts`): 8,151 coplanar pairs, 31.04 block
+faces, identical before and after.
+
+**What is left at 100 %, and why** (drawn cuboids; `stand` is the highest
+floor a 0.6 x 1.8 box fits at one block out, relative to the door's floor,
+`width` the free width across the corridor at body height):
+
+- Solid geometry in front, no standing place one block out on one side
+  (13): 10326 Door 3, 11371 Doors 6 and 8 (8: a bed), 21318 Door 2, 41395
+  Door 1 (the bus door over the road: ONE-WAY), 42663 Door 1, 42670 Door 3 (a
+  bed and a dresser), 71040 Doors 1-2, 76417 Door 1 (floor 18, no floor
+  either side), 910004 Doors 2, 4, 5 (4: a round table). Renders of both
+  sides of every one: `output/doors-0929/sheet[A-D].png`. A minifig stands
+  in these only sideways between the leaf and the furniture (1 stud deep);
+  the player is 0.6 deep.
+- No way through the straight corridor although a place to stand exists one
+  block out (8): 10326 Door 6, 21318 Door 3, 42670 Doors 5 (a chair in the
+  way, a balcony railing beyond) and 6, 60380 Door 2 (diagonal), 75397 Gate 1,
+  76269 Door 1, 910032 Door 5 (a staircase). The exact-box walk that may
+  leave sideways once through (`wide`) does not get through either.
+- A drop past the jump both ways (2): 71043 Doors 1-2, the microscale
+  castle's doors, 48 x 80 LDU (under a standing minifig) and 2.9-3 blocks
+  over the ground.
+- Colliders (3): 42639 Door 1 and 910032 Door 4, where a thin post or a
+  corner of the geometry is covered by a quarter-block band running the
+  cell's whole length (`form`; an eighth-block kit, simulated with
+  `--kit8` before rule 3, unsealed only 910049's gate at 100 % - which rule 3
+  passes - and 76269's Door 1 at 150 %, so the 43-id vocabulary stays);
+  11371 Door 1, whose trims are refused near a leak.
+
 ### Known limits
 
 - Shapes are quarter-block bands along one axis. A 1-stud wall (6/16) against
@@ -659,6 +786,11 @@ Two faults the device found, both fixed and re-run:
   boxes overlap in any state, none covers a seat) and and walks a 0.6 x 1.8 player (the walk module's per-tick Minecraft
   physics) through every doorway at 100 and 200 %, turned 0 and 90: open passes
   where `passSize` allows, closed never does.
+- `bun scripts/_ix_sealed_causes.ts <pack dir> <geometry dir> [--drawn] [--kit8]`:
+  why each doorway that is not OK is not (the model, the colliders, the walk;
+  "Doors a minifig uses, at 100 %"); `DEBUG_DOOR=<set>/<label>/<size>` draws
+  both lattice reaches. The geometry dir comes from
+  `_favorites_export_sweep.ts --geometry <dir>`.
 - `bun scripts/_ix_passability.ts <pack…> [--sizes=] [--rotations=] [--json=]`:
   the same walk over any built pack, one verdict per doorway (OK, SMALL, SEALED,
   NO-APPROACH, FAIL; exit 1 on FAIL). `bun scripts/_ix_report.ts <pack>` lists
@@ -831,7 +963,12 @@ toggles on a hit and every seat (moulded, stool, bench, chair, bed) mounts.
 Still unproven: `custom_hit_test` picking by a real finger (and that `pivot` is
 the box centre), how a sliding part (drawer, garage door) LOOKS as it slides
 (the direction is derived), the root-bone scale at a non-100 % size, the
-occupant step-out and the threshold treads.
+occupant step-out and the threshold treads. Also unproven (2026-09-29,
+offline only): the approach trims (10326's Doors 1-2, 11371's Door 7), a
+minifig-sized doorway opening at 100 % (80049's 0.9-block shop doors, 42670
+Door 1), and the doorways the fine lattice now walks (21318 Door 1, 41732
+Door 3, 11371's diagonal shop doors, 31141 Door 4) - a GameTest walk of each
+is the check.
 
 ## The 40-set audit (2026-09-26)
 
