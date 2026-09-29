@@ -244,15 +244,25 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   cloud fades at 58-61 s; cap 8 holds (8 born in one tick + a tap → 8);
   tapping Goku never mounts his cloud; Undo leaves nothing; content log 0
   errors. Sounds unverified (no audio capture).
-- [ ] Nimbus defects from that round (worktree agent fixing, then a Saga
-  re-check with the new fixture pack): (1) LOOK DOWN: DIVE does nothing - the
-  native hover controller ignores pitch; drive `descendOn` from the rider's
-  pitch in the driver tick; (2) sneak at altitude drops the player 229
-  blocks - `slow_falling` on dismount from a flyer; (3) the summon hint is
-  overwritten by the driver HUD in 4 ticks; (4) HUD mph ~4x true (99 shown
-  for ~10 blocks/s); (5) 3,101 verbose `No sound found ... event type 'fly'`
-  content-log lines from every hovering cloud (also the rotor packs) - a
-  silent `fly` entity sound in the RP. Then the Pixel GameTest `flyer_<id>`.
+- [x] The five Nimbus defects FIXED and merged (`a754a7de`, 2,821 tests):
+  (1) look down + Jump dives (`FLYER.DIVE_PITCH_DEG` 25; the descend group
+  only acts on Jump, so a pitch-only dive is not possible on a native mount;
+  HUD/README say so); (2) a player who leaves a flyer more than 2 blocks up
+  gets `slow_falling` 30 s + "Floating down" (10-tick poll; no dismount event
+  in @minecraft/server 2.9); (3) ride hint "NIMBUS! Jump climbs, look down +
+  Jump dives, sneak gets off" for the first 60 ticks of every ride; (4) HUD
+  speed = mean over a 20-tick window of MOVED positions (client mounts move
+  in bursts), teleports > 5 blocks ignored; (5) RP `sounds.json` with
+  `fly: ""` for every hovering entity (rotor, flyer, scripted vehicles),
+  gated by `_mcaddon_check.py`.
+- [ ] Nimbus re-check on a phone with the rebuilt fixture
+  `output/nimbus-main2-0929/nimbus-fixture.mcaddon` (sha256 37c98096…, from
+  `a754a7de`, same uuids): the dive, the float-down after a sneak at height,
+  the hint at ride start, the HUD mph against a `/scriptevent
+  craftmatic:vehicle_telemetry fast` cadence, and whether `fly: ""` silences
+  the verbose log. Then the Pixel GameTest `flyer_<id>`. NOTE the 29c round
+  packs on both phones predate fix 5 (their logs still fill with `fly`
+  lines); the next full round rebuild carries it.
 - [ ] When the 11390 file lands: `new-set.ts 11390`; if the export warns
   `Mounts ... NOT found: <reason>`, the reason names the threshold (colour
   code → `MOUNT_STYLE_COLOURS.cloud.codes`; parts → `FLYER.MOUNT_MAX_PARTS`).
