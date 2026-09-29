@@ -94,51 +94,33 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
-## Round 2026-09-26d (main checkout, `9b6118c5`)
+## Round 2026-09-29a (main checkout, `d95b7f5e`)
 
-**Sent**: `output/device-round-2026-09-26d/craftmatic-packs-9b6118c5.zip`
-(sha256 10ab1b08be07e86aa8da4cfb83b7ae8c6c471409b9efa7ed16f1f3b23fb1932f;
-19 set packs + `minifig-creator.mcaddon` + PACKS.md). Built one at a time
-from the clean `9b6118c5` (stamp `f1212596d08a`, clean), `--faces=output/faces-art-0926`
-(local-only photo art). All 40 header uuids equal their references
-(`uuid-proof.tsv`: 26b manifests for the 14, the Gabby agent's `packs-ebb20563`
-for the five, the wand agent's pack for the creator). `_mcaddon_check` 20/20.
-Parts vs 26c identical for 12 of 14; 10261 gains `lid_1` (18990 canopy, one
-part out of the shell); 41732 and 42703 are the republished doll sources
-(+1 part each, art faces 0->6 and 0->3). Gabby five: parts identical to
-`ebb20563`, each gains Gabby's art face (0924b had no doll art). Render audit
-equal to the references except 41732 (0.34 -> 0.39 block faces: fig2 x fig3
-overlap, 34 pairs, the known doll-spawn overlap). Evidence in the round folder:
-`check.txt`, `render-audit-summary.txt`, `saga/`, `pixel/`, deploy logs.
-
-Deployed `--exclusive` over all 20 (Saga 925 dev + `--prune-stale`: 4 stale
-10786 RP files deleted; Pixel 924 import). Content log 0 errors / 0
-overridden on both, every load complete on disk. Results (both phones unless
-noted):
-- Dolls: 41732 fig2/fig6 and 42703 fig1/fig2 have faces, hair and legs
-  (`saga/s10`, `s11`, `pixel/p08-dolls-row-crop`).
-- 42172 at 100 %: head in the cabin (side camera `saga/s19`, `pixel/p12`),
-  slot 9 looks out through the windscreen (`saga/s16`, `pixel/p11`).
-- 7140 at 150 %: rider in the cockpit under the canopy (`saga/s22b`,
-  `s24`, `pixel/p13`); first person through the canopy frame (`s23`, `p14`).
-- 10788 lift: stop 2 -> 3, set down on the top floor beside the shaft
-  (position readouts: Saga 3064,-50,2981 = exit 3; Pixel 3249,-50,3028 =
-  exit 3). The car does not visibly move in a fixed-camera burst
-  (`saga/s43-10788-lift-sheet`, `pixel/p16`). Slide: top to foot on both
-  (`saga/s49`, `pixel/p17`).
-- 10786 on a `/fill` pool: floats, boards, drives (Saga 10 mph, 7 blocks;
-  Pixel 13 mph), not aground (`saga/s52-56`, `pixel/p19-22`). Pool refilled
-  with dirt and grass.
-- 11204 bubble dome: FOUND by a tap from ~3 blocks (label "lid 2", Open /
-  close) and opens and closes on both (`saga/s62-64`, `pixel/p26-31`).
-- Minifig Creator: open, draft beside the view, pose (Waving on the Saga,
-  Arms up on the Pixel), place standing still, Undo returns it to the draft,
-  Discard (`saga/s66-70`, `pixel/p33-37`).
-- Everything placed was undone, wands cleared, both phones at the Play screen.
-
-Not seen on a device yet: the ride-car name tag (10261 placed and ridden),
-tap forwarding by a real finger, the display scatter, stairs by a real
-player, 11204's chest lid, a lift ride that shows the car moving.
+**Sent**: `output/device-round-2026-09-29a/craftmatic-packs-d95b7f5e.zip`
+(sha256 f3a4036ed521a05d02db690af3380397a26f04fdfe460606b757affd7b168aff;
+19 set packs + creator + PACKS.md, uuids = 28a's, parts = 28a's). Deployed
+`--exclusive` on both phones (camprobe unbound on the Pixel); content logs
+0 errors / 0 overridden. Evidence in the round folder (`saga/`, `pixel/`).
+- [x] Wand: first use no menu, the ghost follows the aim; second use shows
+  the menu with Place first; place + Undo (both phones).
+- [x] Doors at 100 %: 10326 Door 1 walked in and out, closed/reopened from
+  inside (Pixel; the Saga's walk-out stopped once at 0.6, not repeated);
+  910004 Door 3 opened and walked out (both), walking back in stopped at the
+  threshold once on the Pixel.
+- [x] 10303 loops pitch over on both; Pixel exits continuous. **Saga: one-frame
+  cut + 0.2 s swing at loop 1's exit on lap 1 only** (`saga/rec/exit1-30fps-big-1-8.jpg`). Open.
+- [ ] 10365 in a 6-deep pool: floats steady and drives, posts under water,
+  but the waterline sat at the hull's bottom edge (draft 3.83). Since
+  (uncommitted round 29b): the keel is where the cross-section reaches a
+  quarter of its widest (10365 3.23) and the immersion cap is 2 blocks
+  (draft 5.23, `TODO(boats)`). A 3-deep pool grounds a 26-block ship.
+- [ ] 10261 kiosk figure did NOT retake its seat on either phone (player 9-19
+  blocks away, 35-50 s). Since: the figure is teleported onto the seat before
+  `addRider`, and a refusal logs `FIGURE_RETAKE_REFUSED` / `_NO_SEAT` /
+  `_ERROR` once - read the content log in the next round.
+- [ ] 910004 Door 3 from inside: the tap button named Window 6 (tap
+  occlusion, below); tapping the leaf worked.
+- [x] "Place…" drew in a smaller grey font on both phones: now "Place".
 
 ## Open — interactivity
 

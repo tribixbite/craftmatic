@@ -241,10 +241,10 @@ describe('the ghost never outlives an Undo or the wand', () => {
     await h.use();
     expect(h.buttons).toHaveLength(1);
     const menu = h.buttons[0]!;
-    expect(menu[0]).toBe('Place…');
+    expect(menu[0]).toBe('Place');
     // The rest of the non-running order for a pack with no fine turn, door
     // size, marked seats or vehicle controls.
-    const expected = ['Place…', 'Stop following my aim', 'Pin centred on me', 'Pin corner at my feet', 'Edit coordinates', 'Rotate → 90°', 'Size ', 'View preview in world', 'Hide preview', 'Undo last placement', 'Lighting / night vision'];
+    const expected = ['Place', 'Stop following my aim', 'Pin centred on me', 'Pin corner at my feet', 'Edit coordinates', 'Rotate → 90°', 'Size ', 'View preview in world', 'Hide preview', 'Undo last placement', 'Lighting / night vision'];
     expect(menu).toHaveLength(expected.length);
     expected.forEach((prefix, i) => expect(menu[i]!.startsWith(prefix), `${i}: "${menu[i]}" starts with "${prefix}"`).toBe(true));
   });

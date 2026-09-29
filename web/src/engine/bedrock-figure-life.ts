@@ -488,6 +488,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     wedged?: boolean; walled?: boolean; unwedged?: boolean; unwedging?: boolean;
     /** Its spawn point had nothing under it; it was re-homed where it landed. */
     rehomed?: boolean;
+    /** A seated figure's retake was refused or found no seat, and the content log was told once. */
+    retakeWarned?: boolean;
   }
   const lives = new Map<string, Life>();
   let tick = 0;
@@ -750,8 +752,19 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
           const seats = e.dimension.getEntities({ location: { x: h.home[0], y: h.home[1], z: h.home[2] }, maxDistance: 1.5 })
             .filter((s: any) => config.seatTypes.includes(s.typeId));
           const r = seats[0]?.getComponent('minecraft:rideable');
-          if (r && (r.getRiders?.() ?? []).length === 0 && !nearestPlayer(seats[0].location, e.dimension, T.yieldSeatDistance)) r.addRider(e);
-        } catch { /* try later */ }
+          if (r && (r.getRiders?.() ?? []).length === 0 && !nearestPlayer(seats[0].location, e.dimension, T.yieldSeatDistance)) {
+            // Onto the seat first: the retake failed on both phones (round
+            // 2026-09-29a, 10261's kiosk, player 9-19 blocks away for 35-50 s)
+            // with the figure standing beside it. `addRider` answers false
+            // rather than throwing, so a refusal is logged, once per figure.
+            try { e.teleport(seats[0].location); } catch { /* unloaded */ }
+            const ok = r.addRider(e);
+            if (!ok && !l.retakeWarned) { l.retakeWarned = true; console.warn(`FIGURE_RETAKE_REFUSED ${e.typeId} seat ${seats[0].typeId} at ${Math.round(seats[0].location.x)},${Math.round(seats[0].location.y)},${Math.round(seats[0].location.z)}`); }
+          } else if (!seats.length && !l.retakeWarned) {
+            l.retakeWarned = true;
+            console.warn(`FIGURE_RETAKE_NO_SEAT ${e.typeId} near ${h.home.map(Math.round).join(',')}`);
+          }
+        } catch (err) { if (!l.retakeWarned) { l.retakeWarned = true; console.warn(`FIGURE_RETAKE_ERROR ${e.typeId} ${String(err)}`); } }
       }
       return;
     }

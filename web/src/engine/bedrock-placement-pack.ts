@@ -1539,7 +1539,9 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     const actions: Array<[string, () => any]> = [];
     if (running) actions.push(['Cancel placement', () => { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }]);
     else {
-      actions.push(['Place…', () => confirmPlace(p)]);
+      // Plain ASCII: on both phones the "…" drew this one label in a smaller,
+      // greyer fallback font than the rest (round 2026-09-29a).
+      actions.push(['Place', () => confirmPlace(p)]);
       actions.push([st.aim ? 'Stop following my aim' : 'Follow my aim', () => {
         if (!st.aim) return startAim(p, st);
         st.aim = false;

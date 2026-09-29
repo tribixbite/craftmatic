@@ -470,17 +470,19 @@ export function isScriptedVehicle(kind: PlayableKind, motion: VehicleMotion): bo
  * A scripted vehicle type as scripts/vehicles.js sees it: its mode, half its
  * length (the nose/bow probes), half its width and its height (the swept
  * footprint, `sweepFootprint`) from the shipped geometry, and a boat's draft:
- * its keel's height over the origin (`keelBlocks`: what hangs under the hull,
- * like 10365's stand posts, goes under water) plus an immersion of 12 % of its
- * height, 0.3-1.2 blocks (a 3-block yacht rode visibly high at a flat 0.3 on
- * the Pixel; a 29-block galleon with its masts sits 1.2 deep).
+ * its keel's height over the origin (`keelBlocks`: where the hull begins;
+ * what hangs under it, like 10365's stand posts, goes under water) plus an
+ * immersion of 12 % of its height, 0.3-2 blocks (a 3-block yacht rode visibly
+ * high at a flat 0.3 on the Pixel; 10365 at keel + 1.2 showed its waterline at
+ * the hull's bottom edge on both phones, round 2026-09-29a).
+ * TODO(boats): 2 blocks for a 26-block ship is a judgement; see it on a device.
  */
 export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: { width: number; height: number; length: number }, keelBlocks = 0): ScriptedVehicleType {
     const r2 = (v: number): number => Math.round(v * 100) / 100;
     const mode: ScriptedVehicleType['mode'] = motion === 'hover' ? 'hover' : kind === 'car' ? 'car' : motion === 'boat' ? 'boat' : 'plane';
     return {
         mode, noseReach: r2(size.length / 2), halfWidth: r2(size.width / 2), height: r2(size.height),
-        ...(mode === 'boat' ? { draft: r2(keelBlocks + Math.min(1.2, Math.max(0.3, size.height * 0.12))) } : {}),
+        ...(mode === 'boat' ? { draft: r2(keelBlocks + Math.min(2, Math.max(0.3, size.height * 0.12))) } : {}),
     };
 }
 

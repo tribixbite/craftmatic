@@ -2666,20 +2666,27 @@ export async function compileLdrawEntityGeometry(
   const [midX, floorY, midZ] = options.originLdu ? apply(A, options.originLdu) : automaticOrigin;
   const totalWidth = (all.max[0] - all.min[0]) * scale / 16;
   const totalHeight = (all.max[1] - all.min[1]) * scale / 16;
-  // The keel: the bottom of the largest part (a boat's hull), in blocks over
-  // the origin. What hangs lower - 10365's stand posts, 2.6 blocks under its
-  // hull - is not what floats: a boat's draft is measured from here.
+  // The keel: where the hull BEGINS, in blocks over the origin - the lowest
+  // height at which the model's horizontal cross-section reaches a quarter of
+  // its widest. What hangs lower and thin - 10365's stand posts, 2.6 blocks
+  // under its hull - is not what floats; a boat's draft is measured from here.
+  // (The largest part's bottom was used first: on 10365 that is 14740, which
+  // does not sit at the hull's bottom, and the ship rode with its waterline at
+  // the hull's bottom edge on both phones, round 2026-09-29a.)
   let keelBlocks = 0;
   {
-    let biggest = -1;
-    for (const b of placed) {
-      const m = meshes.get(b.part);
-      if (!m || !m.triangles.length) continue;
-      const R: Mat3 = b.rot ?? IDENTITY;
-      const box = aabbOfCorners(cornersOf(m.bounds.min, m.bounds.max).map(v => { const r = apply(R, v); return apply(A, [r[0] + b.x, r[1] + b.y, r[2] + b.z]); }));
-      const volume = (box.max[0] - box.min[0]) * (box.max[1] - box.min[1]) * (box.max[2] - box.min[2]);
-      if (volume > biggest) { biggest = volume; keelBlocks = Math.max(0, (box.min[1] - floorY) * scale / 16); }
+    const BIN_LDU = 2;
+    const area: number[] = [];
+    for (const c of renderCuboids) {
+      const d = drawnBox(c);
+      const foot = (d.max[0] - d.min[0]) * (d.max[2] - d.min[2]);
+      if (foot <= 0) continue;
+      const b0 = Math.max(0, Math.floor((d.min[1] - floorY) / BIN_LDU)), b1 = Math.max(b0, Math.ceil((d.max[1] - floorY) / BIN_LDU) - 1);
+      for (let b = b0; b <= b1; b++) area[b] = (area[b] ?? 0) + foot;
     }
+    const widest = Math.max(0, ...area.map(a => a ?? 0));
+    const first = area.findIndex(a => (a ?? 0) >= widest * 0.25);
+    if (widest > 0 && first > 0) keelBlocks = first * BIN_LDU * scale / 16;
   }
   // An entity is lit by the block at its own position. A building shell's
   // floor centre sits inside its collider volume (light 0: three of four
