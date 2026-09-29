@@ -362,6 +362,23 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
 - **Rotorcraft — native.** The vanilla Happy Ghast: `has_gravity: false`,
   hover movement and navigation, `free_camera_controlled`, `flying_speed` 0.3,
   `vertical_movement_action` +0.5 (climb) / −0.5 (descend group).
+- **Flyer — native, the same controller** (`VehicleMotion` `flyer`; a canon
+  mount, set-canon.ts: 11390's Flying Nimbus, `web/src/engine/bedrock-flyer.ts`).
+  A free-flying mount: it hovers in place when idle (no gravity, no stall, no
+  take-off run), moves where the rider looks, Jump climbs, back + Jump or
+  looking down descends - the rotorcraft's numbers, device-proven, untouched.
+  What differs is the dressing: no rotor sound, no flame, no nose dip
+  (`VEHICLE_BODY_MOTION.flyer` banks a little and keeps the nose level), cloud
+  puffs under it while it moves and on Jump (`FLYER_PUFF_PARTICLE`), the HUD
+  word from the canon (`NIMBUS`), and a client-side idle bob on the `body`
+  bone (`FLYER_BOB`: one geometry unit up and down every 3 s, Molang, no
+  script). The rider sits ON it: the seat is the geometry's top surface,
+  scaled with the wand's size steps like every vehicle seat. The cloud the
+  player rides is SUMMONED - a tap on the companion figure, its cloud or its
+  seat spawns one beside the player and mounts them (`flyerRuntime`,
+  `BP/scripts/flyer.js`); an empty one fades after `FLYER.EMPTY_DESPAWN_TICKS`,
+  at most `FLYER.CLOUD_CAP` exist. Not yet on a device (2026-09-29): the
+  puff particle's name, the seat height on the cloud top, the bob.
 - **Car, hover craft, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
   `scriptedVehicleRuntime`). Every native speed is `SCRIPTED_NATIVE_SPEED` (0)
   and gravity is off; the Happy Ghast rider components stay only so Jump is an
@@ -429,7 +446,7 @@ course `vehicle_<id>_<n>` (with a post off the centre line inside the
 footprint, and a hover craft's run over the pool) and train test
 `train_<id>_<n>` (`web/src/engine/gametest-pack.ts`, `test/gametest-pack.test.ts`).
 
-### 4.7 Slides and lifts — `web/src/engine/bedrock-rides.ts`
+### 4.7 Slides, lifts and orbits — `web/src/engine/bedrock-rides.ts`
 
 KINEMATIC, not dynamic: a ride carries its seat (and the player riding it,
 as the coaster carries its riders, by `tryTeleport` of the ridden entity)
@@ -445,6 +462,25 @@ side walls; the lift's room floors, by floor area, where the car stays in its
 column), never simulated. A tap on a lift's car boards its seat. Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
 and the serialised runtime on a fake world).
 
+An ORBIT (kind `orbit`, 2026-09-29) is the same runtime carrying the set's
+own FIGURE, not a player: a flyer mount's companion (§4.6,
+`web/src/engine/bedrock-flyer.ts`) rides a figures-only seat round a closed
+loop the export wrote with `orbitPathLdu` - a circle about the model's
+footprint centre, `FLYER.ORBIT_MARGIN_LDU` outside half its footprint
+diagonal (clear of every corner), at `FLYER.ORBIT_HEIGHT_FRACTION` of the
+model's height with `FLYER.ORBIT_BOB_PERIODS` sinusoidal rises and falls of
+`FLYER.ORBIT_BOB_LDU` baked into its `FLYER.ORBIT_POINTS` points - at
+`RIDE.ORBIT_SPEED` (a stroll, so a child can follow it), for ever, the
+mount's own entity carried alongside as a lift carries its car. It starts by
+itself when its seat is found (`ORBIT_ADOPT_TICKS`), faces along the loop
+(a central-difference yaw over `ORBIT_YAW_CHORD`, so 64 points never show a
+kink) and turns its rider with it, and a figure knocked off is put back
+(`ORBIT_RESEAT_REACH`, every `ORBIT_RESEAT_TICKS`). Nothing about it is
+dynamic and it has no Froude term: the speed is world-absolute times the
+wand factor like the other rides. Tests: `test/bedrock-flyer.test.ts` (the
+path's radius, band, sense and closure; the runtime on a fake world: the
+lap, the car offset, the re-seat).
+
 ## 5. Serialised runtimes: the rules
 
 Each device runtime is a function turned into the pack's script text with
@@ -458,6 +494,8 @@ Each device runtime is a function turned into the pack's script text with
 | `BP/scripts/figures.js` | `figureLifeScript` | `figureLifeRuntime`, `standFeetAt`, `exploreWalkable`, `pathTo`, `blockSpan`, `startCell`, `refugeCell` |
 | vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime`, `timeMachineRuntime` |
 | `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `isNightTime`, `headlightCell` |
+| `BP/scripts/rides.js` | `ridesScript` | `ridesRuntime` (module-private; slides, lifts and orbits) |
+| `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds) |
 
 1. A serialised function may reference NOTHING outside its own body and its
    parameters: no import, no module-level `const`, no other function of the
@@ -495,7 +533,8 @@ Each device runtime is a function turned into the pack's script text with
 | `tickPlayer` | — (Bedrock is the player) | `addon-preview.ts` | `interactive-walk.ts`, `scripts/_addon_walk.ts` |
 | `carStep`, `flightStep`, `boatStep` (`CAR`, `HOVER`, `FLIGHT`, `BOAT` via `config.car` / `config.hover` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
 | `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on a fake world) |
-| `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts` |
+| `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts`, `test/bedrock-flyer.test.ts` (the flyer's bob) |
+| `findMounts`, `orbitPathLdu` (`FLYER`) | export time: the orbit on the seat's `ridePath`, followed by `ridesRuntime` | — | `test/bedrock-flyer.test.ts`, `test/nimbus-fixture.test.ts` |
 
 ## 7. Adding a vehicle class or a physics module
 
@@ -719,6 +758,28 @@ literal inside a function body (`§` marks the number).
 | `RIDE.SLIDE_VMAX` | `web/src/engine/bedrock-rides.ts` | 8 | blocks/s | Under a sprint (5.6) plus a jump's carry; fast enough to feel, slow enough to see the chute pass. |
 | `RIDE.SLIDE_RETURN_TICKS` | `web/src/engine/bedrock-rides.ts` | 10 | ticks | The seat waits half a second at the foot, so the rider is clear before it returns to the top. |
 | `RIDE.LIFT_SPEED` | `web/src/engine/bedrock-rides.ts` | 1.5 | blocks/s | A storey of a minifig dollhouse (8 bricks, 3.6 blocks) in about 2.4 s: a lift, not a launch. |
+| `RIDE.ORBIT_SPEED` | `web/src/engine/bedrock-rides.ts` | 3 | blocks/s at 100 % | A companion's lap: under the player's 4.3 walk, so a child can watch it go by and follow it; a 20-block-radius lap takes ~40 s. Scaled by the wand factor like the other rides. |
+| `RIDE.ORBIT_RESEAT_REACH` | `web/src/engine/bedrock-rides.ts` | 8 | blocks at 100 % | An orbit seat with nobody on it looks this far for its own figure type; the figure is unique to the mount, so the search cannot take another. |
+| `RIDE.ORBIT_RESEAT_TICKS` | `web/src/engine/bedrock-rides.ts` | 40 | ticks | Two seconds between re-seat attempts: a figure a player is holding on to is not fought for every tick. |
+| `RIDE.ORBIT_ADOPT_TICKS` | `web/src/engine/bedrock-rides.ts` | 20 | ticks | A placed or reloaded orbit seat is found and started within a second. |
+| `RIDE.ORBIT_YAW_CHORD` | `web/src/engine/bedrock-rides.ts` | 0.5 | blocks | Half the chord the loop's yaw is read over (a central difference), so the facing turns smoothly between the 64 points instead of stepping 5.6 degrees a segment. |
+| `FLYER.MOUNT_MIN_PARTS` | `web/src/engine/bedrock-flyer.ts` | 6 | parts | Fewer is a plate the figure stands on, not a build. |
+| `FLYER.MOUNT_MAX_PARTS` | `web/src/engine/bedrock-flyer.ts` | 80 | parts | A cloud is a few dozen slopes; the rock and its dragon are hundreds (the fixture's cloud is 26, its pillar 268). |
+| `FLYER.MOUNT_COLOUR_SHARE` | `web/src/engine/bedrock-flyer.ts` | 0.6 | fraction | At least this share of a mount's parts are in its style's colour family (a golden cloud with a few white or tan pieces passes; a grey rock with a yellow flower does not). |
+| `FLYER.MOUNT_FOOT_REACH_LDU` | `web/src/engine/bedrock-flyer.ts` | 16 | LDU | The mount's top lies within this of the figure's soles: a plate is 8, with slack for a stud and a converter's rounding. |
+| `FLYER.MOUNT_FOOT_MARGIN_LDU` | `web/src/engine/bedrock-flyer.ts` | 12 | LDU | The soles lie within half a stud of a mount part's footprint. |
+| `FLYER.TOUCH_LDU` | `web/src/engine/bedrock-flyer.ts` | 2 | LDU | Parts closer than this touch (clustering; the rides' `TOUCH_LDU` is the same). |
+| `FLYER.ORBIT_MARGIN_LDU` | `web/src/engine/bedrock-flyer.ts` | 160 | LDU | The lap runs 3 blocks (at 100 %) outside half the model's footprint diagonal: clear of every corner, close enough to read as "round the dragon". |
+| `FLYER.ORBIT_HEIGHT_FRACTION` | `web/src/engine/bedrock-flyer.ts` | 0.8 | share of the model's height | The lap's centre line, in the model's upper third; with the bob below it stays under the top. |
+| `FLYER.ORBIT_BOB_LDU` | `web/src/engine/bedrock-flyer.ts` | 32 | LDU | 0.6 blocks up and down at 100 %: a rise a child sees, not a swoop. |
+| `FLYER.ORBIT_BOB_PERIODS` | `web/src/engine/bedrock-flyer.ts` | 2 | per lap | Two rises and falls a lap. |
+| `FLYER.ORBIT_POINTS` | `web/src/engine/bedrock-flyer.ts` | 64 | points | 5.6 degrees a segment; the runtime's chord yaw makes the facing continuous over them. |
+| `FLYER.EMPTY_DESPAWN_TICKS` | `web/src/engine/bedrock-flyer.ts` | 1200 | ticks | A summoned cloud nobody rides fades after 60 s: long enough to get back on after a look round, short enough that a child's twenty taps do not litter the world. |
+| `FLYER.CLOUD_CAP` | `web/src/engine/bedrock-flyer.ts` | 8 | clouds | Most summoned clouds at once; the oldest fades when another is summoned. |
+| `FLYER.TAP_COOLDOWN_TICKS` | `web/src/engine/bedrock-flyer.ts` | 20 | ticks | A tap that lands as both an interact and a hit, or a double tap, is one summon. |
+| `FLYER.SPAWN_AHEAD_BLOCKS` | `web/src/engine/bedrock-flyer.ts` | 1.5 | blocks | The summoned cloud appears this far ahead of the player, who is mounted on it at once. |
+| `FLYER_BOB.AMPLITUDE_UNITS` | `web/src/engine/bedrock-vehicle.ts` | 1 | geometry units (1/16 block) | The idle bob's amplitude: visible, never enough to move the seat visibly under the rider. |
+| `FLYER_BOB.DEGREES_PER_SECOND` | `web/src/engine/bedrock-vehicle.ts` | 120 | degrees/s of the sine | One breath every 3 s. |
 <!-- /physics-spec:constants -->
 
 ## 10. Measured facts
@@ -795,7 +856,8 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/bedrock-vehicle.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `VehicleMotion` | type | `car` / `boat` / `plane` (fixed wing) / `rotor` / `hover`. |
+| `VehicleMotion` | type | `car` / `boat` / `plane` (fixed wing) / `rotor` / `hover` / `flyer` (a canon mount: the rotor's controller dressed as a cloud, §4.6). |
+| `FLYER_BOB` | const | The flyer's client-side idle bob: amplitude in geometry units and the sine's rate (§9). |
 | `HOVER_WORDS` | const | Titles that float: a sail barge, a (land)speeder, a hovercraft, a podracer. |
 | `vehicleMotionOf` | function | A playable kind and its title → its motion class (a hover craft or a rotorcraft by its title). |
 | `VEHICLE_BODY_MOTION` | const | Lean, squat and steer gains of the Molang drive animation, per motion class. |
@@ -984,13 +1046,26 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/bedrock-rides.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `RIDE` | const | Every ride number: detection thresholds (LDU) and the speeds (§4.7, §9). |
-| `RideKind`, `SceneRide`, `RideRuntimeConfig` | type, interface | A ride's kind, its measured path / car / stops, and the runtime's config. |
+| `RIDE` | const | Every ride number: detection thresholds (LDU), the speeds, and the orbit's re-seat, adoption and yaw chord (§4.7, §9). |
+| `RideKind`, `SceneRide`, `RideRuntimeConfig` | type, interface | A ride's kind (`slide`, `lift`, `orbit`), its measured path / car / stops, and the runtime's config (an orbit's own seat and rider types). |
 | `isSlideDescription`, `isLiftGuideDescription`, `isLiftCarDescription`, `isLiftColumnDescription` | function | Library-description tests for a slide mould, a lift guide, an elevator platform (the car) and a part of the column it runs in (a guide or a grooved frame). |
 | `slidePathLdu`, `findSlides` | function | Host only: a slide's running line from its top surface's BED (rim cells dropped). |
 | `findLifts` | function | Host only: an elevator platform in its column of frames/guides, the stand point on it and a stop per room floor it can reach, with a step-off point on each floor. |
-| `_ridesRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`ridesRuntime`) that carries a seated player along a ride. |
+| `_ridesRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`ridesRuntime`) that carries a seated player along a slide or lift, and a figure round an orbit. |
 | `ridesScript` | function | Serialises it into `BP/scripts/rides.js`. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/bedrock-flyer.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `FLYER` | const | Every flyer-mount number: the detector's thresholds, the orbit's shape, the summoned clouds' fade, cap and cooldown (§4.6, §4.7, §9). |
+| `SceneMount`, `MountSearch` | interface | A found mount (its figure, bricks, box and top) and a search's result (found and missing with reasons). |
+| `modelBoxLdu` | function | Host only: the world AABB of what stays, the orbit's ring. |
+| `findMounts` | function | Host only: the connected cluster under a figure's feet in the canon style's colours, translucent parts never joining. |
+| `orbitPathLdu` | function | Host only: the companion's closed lap (§4.7). |
+| `FlyerRuntimeMount`, `FlyerRuntimeConfig` | interface | One summonable mount (its cloud type and the types a tap on which summons it) and the runtime's config. |
+| `_flyerRuntimeForTests` | re-export | SERIALISED. The runtime (`flyerRuntime`) that summons a cloud on a tap and fades empty ones. |
+| `flyerScript` | function | Serialises it into `BP/scripts/flyer.js`. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/figure-life-sim.ts -->

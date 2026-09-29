@@ -4409,3 +4409,105 @@ walked with its head on its body; `/ride` seated one. Not captured: the seated
 bend from the side, an arm swing mid-stride, the Pixel. Evidence
 `output/dolls-0926/saga/` (pairs are matched by DOLL: figure numbers moved
 when the stump doll gained its torso).
+
+## Flyer mounts and companions: 11390's Flying Nimbus (2026-09-29)
+
+Code: `web/src/engine/set-canon.ts` (the per-set canon table),
+`web/src/engine/bedrock-flyer.ts` (the mount detector, the orbit path, the
+summon-and-fade runtime `scripts/flyer.js`), `bedrock-rides.ts` (ride kind
+`orbit`), `bedrock-vehicle.ts` (`VehicleMotion` `flyer`, `FLYER_BOB`),
+`playable-addon.ts` (the flyer entity, the companion seat and cloud, the
+README paragraph), `schem-pipeline.ts` (the mount stage). Constants and
+their reasons: `docs/physics-architecture.md` §4.6, §4.7, §9. Tests:
+`test/set-canon.test.ts`, `test/bedrock-flyer.test.ts`,
+`test/nimbus-fixture.test.ts`; device test `flyer_<id>`
+(docs/testing-guide.md). Built for LEGO 11390 (Dragon Ball: Shenron & Goku,
+1,764 pieces, released 2026-11-01) BEFORE its model file existed, against
+`test/fixtures/nimbus-fixture.ldr` (`scripts/_nimbus_fixture_gen.ts`): a
+rock-and-dragon pillar on a black base and a minifig on a 26-part golden
+cloud joined to the rock by a trans-clear bar. Nothing is keyed on the set's
+part ids. Not yet on a device.
+
+**What the child gets.** Goku sits on his Nimbus and flies a slow lap round
+the dragon on his own, rising and falling a little. Tap Goku (or his cloud)
+and a cloud of your own puffs into being beside you with you on it: push the
+joystick to fly where you look, Jump climbs, back + Jump or looking down
+descends, let go and it hovers where it is. Sneak gets you off; the cloud
+waits there; an empty cloud fades after a minute; twenty taps make at most
+eight clouds (the oldest fade). Goku's own cloud never fades and never leaves
+its lap. HUD word `NIMBUS`.
+
+**The canon entry** (`SET_CANON['11390']`), the whole hint:
+
+```ts
+'11390': { setNumber: '11390', name: 'Dragon Ball: Shenron & Goku',
+  mounts: [{ style: 'cloud', motion: 'flyer', companion: 'orbit', label: 'Nimbus', hud: 'NIMBUS' }] },
+```
+
+`style` picks the colour family the detector wants (`MOUNT_STYLE_COLOURS`:
+a cloud is the yellows, light oranges, white, tan, trans yellow and clear,
+plus a hue rule for a source's own `!COLOUR`), `motion` how it flies
+(`flyer` is the rotor's native Happy Ghast controller - device-proven -
+without the rotor's sound, flame and nose dip), `companion` what its figure
+does (`orbit`), `label`/`hud` the words. The set number is read from the
+label's trailing `(11390-1)` (the LEGO tab's and the CLI `--label`'s form),
+the provenance's `setNum`, or the stem, and only a number the table names
+matches - a title with a stray number (`Ecto-1 (10274)`) never does. There
+are no other per-set tables: everything else stays inferred from parts and
+titles (the 76252 / 10300 special cases predate this one). A future hint (a
+seat, a facing, a scale) is a new optional field of `SetCanon`, applied where
+the pipeline reads `canonFor`.
+
+**What the detector needs** (`findMounts`): an upright figure the scene
+found, standing (soles within `MOUNT_FOOT_REACH_LDU` = 16 of a part's top,
+over its footprint) on a CONNECTED cluster of `MOUNT_MIN_PARTS`..`MOUNT_MAX_PARTS`
+(6..80) opaque parts, at least `MOUNT_COLOUR_SHARE` (60 %) of them in the
+style's colours, that is not the model's largest cluster. Translucent parts
+(a clear bar, a stand) are left out of the clustering, so a cloud hung off
+the rock by a trans-clear bar - the finished-model page's likely shape - is
+its own object; an OPAQUE bar joins them and the cloud becomes the model
+(reported as "over 80" or "largest"). One figure per mount; the figure's
+bricks and the mount's leave the shell. A canon mount none is found for is
+`mounts.missing` in the export report (`craftmatic-diagnostics.json`,
+`SchemPipelineResult.mcpack.mounts`) with the nearest candidate's reason,
+and a warning; the export succeeds without it.
+
+**What is built.** The mount's bricks compile TWICE: as `<stem>_<style>`,
+a `flyer` vehicle (kind `plane`, family `flyer`, the figure's facing as its
+nose, seat on the geometry's top surface, player-sized and scaled with the
+wand's size steps, chase camera like any aircraft, drive animation with the
+bob), which the placement never spawns - `scripts/flyer.js` summons it; and
+as `<stem>_<style>_ride_car`, the companion's own cloud (a no-gravity,
+no-collision prop with a tappable box) carried beside the companion seat
+`<stem>_<style>_ride` (figures only: a player who taps it gets a cloud of
+their own, never this seat) by `scripts/rides.js` kind `orbit`. The figure
+is `figure <n>` with `rideOf` the seat (mode `seated`: figure life leaves
+it alone while it rides; the ride runtime puts it back if it is knocked
+off), never a walker. The loop starts at the point nearest the mount's
+source position and both seat and cloud are placed there, so the runtime's
+car offset is the cloud's origin under its top. `main.js` imports
+`rides.js` and `flyer.js`; the lang has `action.hint.exit.` for the flyer
+and the seat; the README gets the Nimbus paragraph.
+
+**Constants** (all in §9 with reasons): `EMPTY_DESPAWN_TICKS` 1200 (60 s),
+`CLOUD_CAP` 8, `TAP_COOLDOWN_TICKS` 20, `SPAWN_AHEAD_BLOCKS` 1.5,
+`RIDE.ORBIT_SPEED` 3 blocks/s at 100 %, `ORBIT_MARGIN_LDU` 160 (3 blocks
+outside half the footprint diagonal), `ORBIT_HEIGHT_FRACTION` 0.8,
+`ORBIT_BOB_LDU` 32 x `ORBIT_BOB_PERIODS` 2 per lap, `ORBIT_POINTS` 64,
+`FLYER_BOB` 1 unit at 120 degrees/s.
+
+**Device-unproven, in order of doubt.** The puff particle's name
+(`minecraft:water_evaporation_actor_emitter`; a wrong name costs the puff
+only - `spawnParticle` is wrapped); the summoned cloud mounting the player
+in the same tick as its spawn (`addRider` immediately, retried after two
+ticks); the seat height on the cloud top (the rider's eye 1.12 over the
+geometry's top); the figures-only seat accepting the figure at placement
+(`family_types: ['craftmatic_figure']`, the chair seats' proven form);
+the bob and the chord yaw as drawn; `random.pop` / `random.fizz`.
+
+**The one-line canon edit to expect** once the 11390 file lands: none if
+the Nimbus is yellow or bright light orange with white (both in the family).
+If the real cloud is a colour the family does not name (say Flame Yellowish
+Orange 191 is fine, but a pearl gold 297 is not), add its code to
+`MOUNT_STYLE_COLOURS.cloud.codes` in `set-canon.ts`; if the cloud is more
+than 80 parts, raise `FLYER.MOUNT_MAX_PARTS` (and its §9 row).

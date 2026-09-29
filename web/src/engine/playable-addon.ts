@@ -6,11 +6,13 @@ import { currentPipelineStamp, packDisplayName, packProvenance, packVersionAt, p
 import { BEDROCK_MAX_TILE, encodeMcstructureTile, planStructureTiles } from './mcstructure-encode.js';
 import type { PlayableKind, VehicleFacing, VehicleMode } from './playable-components.js';
 import { classifyVehicleKind, isWholeVehicleLabel } from './playable-components.js';
-import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
+import { buildPlacementPackAssets, colliderSourceCells, encodeColliderRuns, placementAlias, SIZE_EVENT_PREFIX, SIZE_STEPS, visibleBoundsForSizeSteps, withSizeGroups, type PlacementActor, type PlacementColliders } from './bedrock-placement-pack.js';
+import { FLYER, flyerScript, type FlyerRuntimeConfig } from './bedrock-flyer.js';
+import type { CanonMount } from './set-canon.js';
 import { buildPreviewGhost, type PreviewComponentPlacement } from './bedrock-preview-entity.js';
 import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLegoAtlasPng } from './lego-resource-pack.js';
 import type { ParsedBrick } from './ldraw-parser.js';
-import { compileLdrawEntityGeometry, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
+import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
 import { riderVisibleSizes, seatPositionAt, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
@@ -104,8 +106,13 @@ export interface PlayableAddonOptions {
      * minifig NPCs, a wheeled object is rideable, a wheel-less one is a prop.
      */
     mainVehicleOnly?: boolean;
-    /** Figures found in the scenery (bedrock-scene-actors.ts), in grid coordinates: each becomes a wandering minifig NPC; one with a `seatIndex` spawns riding that seat. */
-    figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number }>;
+    /**
+     * Figures found in the scenery (bedrock-scene-actors.ts), in grid
+     * coordinates: each becomes a wandering minifig NPC; one with a `seatIndex`
+     * spawns riding that seat; one with a `mountIndex` is the companion of that
+     * mount in `mounts` and spawns riding its orbit seat (never a walker).
+     */
+    figures?: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number; mountIndex?: number }>;
     /** Free seats in the scenery, in grid coordinates: each gets an invisible rideable seat entity. */
     seats?: Array<{ x: number; y: number; z: number; yaw: number; label: string }>;
     /** Continuous measured 3D track routes; open routes safely reverse at their ends. */
@@ -118,6 +125,16 @@ export interface PlayableAddonOptions {
      * `scripts/rides.js`.
      */
     rides?: { frame: SceneGridFrame; items: Array<{ kind: RideKind; label: string; path: Array<[number, number, number]>; exits?: Array<[number, number, number]>; startStop?: number; carBricks?: ParsedBrick[] }> };
+    /**
+     * Flyer mounts the set's canon names (set-canon.ts) and the detector found
+     * (bedrock-flyer.ts `findMounts`), in grid coordinates: each becomes a
+     * rideable `flyer` vehicle the player summons by tapping its figure, and -
+     * with a companion - an orbit ride (`scripts/rides.js`, kind `orbit`) that
+     * carries that figure on the mount's own entity round `path`.
+     */
+    mounts?: { frame: SceneGridFrame; items: PlayableMount[] };
+    /** Canon mounts the detector did NOT find: reported in the warnings and the diagnostics, never silent. */
+    mountsMissing?: Array<{ style: string; label: string; reason: string }>;
     /**
      * Brick-accurate building: the scenery's placements (figures and door
      * leaves already taken out) compiled as one static entity over invisible
@@ -228,6 +245,27 @@ export interface PlayableAddonOptions {
 }
 /** `hull`: ship a per-colour surface hull beside the full model and switch to it at `lodDistance`. */
 export type LodMode = 'none' | 'hull';
+
+/** One flyer mount as the pipeline hands it over (bedrock-flyer.ts `SceneMount`, in grid coordinates). */
+export interface PlayableMount {
+    canon: CanonMount;
+    /** The mount's own placements. */
+    bricks: ParsedBrick[];
+    /** The figure standing on it (also in `figures` with this mount's `mountIndex`); absent: nobody rides it in the source. */
+    figure?: { bricks: ParsedBrick[]; facingLdu: [number, number] };
+    /** The centre of the mount's top surface, grid coordinates. */
+    top: [number, number, number];
+    /** The companion's closed orbit, grid coordinates (bedrock-flyer.ts `orbitPathLdu`); empty without a companion. */
+    path: Array<[number, number, number]>;
+    /** Parts in the style's colour family, over all its parts. */
+    colourShare: number;
+}
+
+/** What the export made of the set's canon mounts (`craftmatic-diagnostics.json` `mounts`, `PlayableAddonResult.mounts`). */
+export interface MountReport {
+    found: Array<{ style: string; label: string; parts: number; colourShare: number; flyer: string; companion?: string; orbitPoints?: number }>;
+    missing: Array<{ style: string; label: string; reason: string }>;
+}
 /**
  * Default camera-to-nearest-cube distance, in blocks, past which the hull may
  * take over (`PlayableAddonOptions.lodDistance`). The controllers add each
@@ -270,6 +308,8 @@ export interface PlayableAddonResult {
     provenance: PackProvenance;
     /** Every rideable vehicle's seats and the source placements they were read from (the seat census, seat-census.ts). */
     vehicleSeats: VehicleSeatReport[];
+    /** The set's canon mounts: what was found and built, and what was not (only when the set has a canon). */
+    mounts?: MountReport;
 }
 const enc = new TextEncoder();
 const text = (s: string) => enc.encode(s.endsWith('\n') ? s : `${s}\n`);
@@ -573,7 +613,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             })(),
         };
     const common: Record<string, unknown> = {
-        'minecraft:type_family': { family: ['craftmatic_vehicle', kind, ...(motion === 'hover' ? ['hover'] : [])] },
+        'minecraft:type_family': { family: ['craftmatic_vehicle', kind, ...(motion === 'hover' ? ['hover'] : motion === 'flyer' ? ['flyer'] : [])] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
         'minecraft:health': { value: 100, max: 100 },
         'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
@@ -632,7 +672,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
         // Rotorcraft follow the vanilla HAPPY GHAST (bedrock-samples, format
         // 1.26.30): `free_camera_controlled` flies where the rider looks (pitch
         // included), `vertical_movement_action` makes Jump climb, hover
-        // movement/navigation keep it airborne with no gravity.
+        // movement/navigation keep it airborne with no gravity. A FLYER (a
+        // canon mount, 11390's Nimbus) is the same controller - device-proven -
+        // styled as a cloud by the driver script (no rotor sound or flame).
         Object.assign(common, {
             'minecraft:physics': { has_gravity: false, has_collision: true },
             'minecraft:can_fly': {},
@@ -655,7 +697,7 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // downwards"). `vertical_movement_action` with a NEGATIVE velocity moves
     // the entity down on Jump, so the driver script swaps this group in while
     // the rider pulls the stick back and holds Jump (vehicle-driver.js).
-    const aircraftGroups = motion === 'rotor' ? {
+    const aircraftGroups = motion === 'rotor' || motion === 'flyer' ? {
         component_groups: {
             [AIRCRAFT_CLIMB_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: .5 } },
             [AIRCRAFT_DESCEND_GROUP]: { 'minecraft:vertical_movement_action': { vertical_velocity: -.5 } },
@@ -825,6 +867,49 @@ function rideSeatBehavior(id: string): unknown {
         'minecraft:rideable': rideable,
         'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
     } } }, { width: 0.5, height: 0.5 }, rideable, { playerSized: true });
+}
+/**
+ * A flyer mount's companion seat (bedrock-flyer.ts, bedrock-rides.ts kind
+ * `orbit`): the invisible seat the set's own FIGURE rides round the orbit.
+ * Figures only - a player who taps it is given a cloud of their own by
+ * scripts/flyer.js, never this one - and the rider's origin 0.3 under the seat
+ * as on a chair (`seatBehavior`), so the seated figure's hips rest on the
+ * mount's top, where the seat is placed. The ride runtime moves it.
+ */
+function companionSeatBehavior(id: string): unknown {
+    const rideable = { seat_count: 1, family_types: ['craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 0 } };
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_ride', 'craftmatic_companion'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 20, max: 20 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': { width: 0.5, height: 0.5 },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+        'minecraft:pushable_by_block': {},
+        'minecraft:rideable': rideable,
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
+    } } }, { width: 0.5, height: 0.5 }, rideable, { playerSized: true });
+}
+/**
+ * A flyer mount's companion entity: the mount's exact bricks, carried beside
+ * the orbit seat by scripts/rides.js. No gravity (it flies), no collision (the
+ * seat and its figure ride through nothing), a tappable box (a tap on it
+ * summons the player's own mount), unhurt, never a spawn egg.
+ */
+function mountCarBehavior(id: string, collisionBox: { width: number; height: number }): unknown {
+    return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
+        'minecraft:type_family': { family: ['craftmatic_prop', 'craftmatic_companion'] },
+        'minecraft:nameable': {}, 'minecraft:persistent': {},
+        'minecraft:health': { value: 100, max: 100 },
+        'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+        'minecraft:fire_immune': {},
+        'minecraft:collision_box': collisionBox,
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+        'minecraft:pushable_by_block': {},
+        'minecraft:knockback_resistance': { value: 1 },
+        'minecraft:conditional_bandwidth_optimization': { default_values: { max_optimized_distance: 80, max_dropped_ticks: 10, use_motion_prediction_hints: true } },
+    } } }, collisionBox);
 }
 function seatClient(id: string): unknown {
     return { format_version: '1.10.0', 'minecraft:client_entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, materials: { default: 'entity_alphatest' }, textures: { default: 'textures/entity/craftmatic_seat' }, geometry: { default: `geometry.${PACK_NAMESPACE}.seat` }, render_controllers: ['controller.render.default'] } } };
@@ -1392,10 +1477,25 @@ interface TimeMachineConfig {
 export const TIME_MACHINE = { TOP_MARGIN: 1.03, TELEPORT_BLOCKS: 10 } as const;
 const timeMachineScript = (config: TimeMachineConfig) => `import { world, system } from "@minecraft/server";\nimport { ModalFormData } from "@minecraft/server-ui";\nconst showTimeMachineControls = (${timeMachineRuntime.toString()})(${JSON.stringify(config)});\nexport { showTimeMachineControls };\n`;
 
-/** What the rotorcraft driver script is told: its types, the boost-feedback cooldown and the descend events. */
-interface VehicleDriverConfig { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }>; boostCooldownTicks: number; descendOn: string; descendOff: string }
+/**
+ * What the rotorcraft driver script is told: its types, the boost-feedback
+ * cooldown and the descend events. A `flyer` (a canon mount's cloud) rides the
+ * same native controller with its own HUD word and cloud puffs in place of the
+ * rotor's sound and flame.
+ */
+interface VehicleDriverConfig { vehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string; motion?: 'rotor' | 'flyer'; hud?: string }>; boostCooldownTicks: number; descendOn: string; descendOff: string; puffParticle?: string }
 /** Ticks between two Jump effects (sound and flame) of a rotorcraft. */
 export const ROTOR_BOOST_COOLDOWN_TICKS = 30;
+/**
+ * The vanilla particle a flyer puffs: the white cloud an entity's water
+ * evaporation makes (`minecraft:water_evaporation_actor_emitter`); the summon
+ * and fade puffs of scripts/flyer.js are the same. TODO(flyer): the name is
+ * from the vanilla resource pack's particle list, not yet seen on a device;
+ * `spawnParticle` is wrapped, so a wrong name costs the puff and nothing else.
+ */
+export const FLYER_PUFF_PARTICLE = 'minecraft:water_evaporation_actor_emitter';
+/** The summon's and the fade's sounds: vanilla sound ids (`firework.launch` is device-proven for the rotor's Jump). */
+export const FLYER_SOUNDS = { spawn: 'random.pop', fade: 'random.fizz' } as const;
 
 /**
  * Runs in the pack for the vehicles that keep a NATIVE controller - since
@@ -1442,11 +1542,12 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
   let tick = 0;
   system.runInterval(() => {
     tick += 2;
-    for (const { vehicle } of activeVehicles()) {
+    for (const { vehicle, config: cfg } of activeVehicles()) {
       let riders: any[] = [];
       try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
       const rider = riders.find((e: any) => e.typeId === 'minecraft:player') ?? riders[0];
       if (!rider) continue;
+      const flyer = cfg.motion === 'flyer';
       let state = states.get(vehicle.id);
       if (!state) { state = { boostCooldown: 0 }; states.set(vehicle.id, state); }
       if (state.boostCooldown > 0) state.boostCooldown -= 2;
@@ -1468,14 +1569,23 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
         try { vehicle.triggerEvent?.(wantDescend ? config.descendOn : config.descendOff); } catch {}
       }
       // Jump feedback: the climb itself is native (`vertical_movement_action`).
+      // A flyer puffs a cloud under itself instead of the rotor's flame and bang.
       if (jump && state.boostCooldown <= 0 && forwardInput >= 0 && !state.descending) {
         state.boostCooldown = config.boostCooldownTicks;
-        try { vehicle.dimension?.playSound?.('firework.launch', vehicle.location, { volume: 0.8, pitch: 1.2 }); } catch {}
-        try { vehicle.dimension?.spawnParticle?.('minecraft:campfire_smoke_particle', vehicle.location); } catch {}
+        if (flyer) {
+          try { const l = vehicle.location; vehicle.dimension?.spawnParticle?.(config.puffParticle, { x: l.x, y: l.y - 0.1, z: l.z }); } catch {}
+        } else {
+          try { vehicle.dimension?.playSound?.('firework.launch', vehicle.location, { volume: 0.8, pitch: 1.2 }); } catch {}
+          try { vehicle.dimension?.spawnParticle?.('minecraft:campfire_smoke_particle', vehicle.location); } catch {}
+        }
       }
-      // The rotor's sound, pitched with speed.
+      // The rotor's sound, pitched with speed; a flyer leaves soft puffs behind it instead.
       if (forwardInput > 0.1 && mph > 1.5 && tick % 10 === 0) {
-        try { vehicle.dimension?.playSound?.('elytra.loop', vehicle.location, { volume: 0.38, pitch: Math.min(1.8, 0.8 + (mph / 50) * 0.8) }); } catch {}
+        if (flyer) {
+          try { const l = vehicle.location; vehicle.dimension?.spawnParticle?.(config.puffParticle, { x: l.x + (Math.random() - 0.5) * 0.8, y: l.y - 0.1, z: l.z + (Math.random() - 0.5) * 0.8 }); } catch {}
+        } else {
+          try { vehicle.dimension?.playSound?.('elytra.loop', vehicle.location, { volume: 0.38, pitch: Math.min(1.8, 0.8 + (mph / 50) * 0.8) }); } catch {}
+        }
       }
       // Telemetry (/scriptevent craftmatic:vehicle_telemetry on|fast|off): one CMVT line a second
       // (every 4 ticks with `fast`), with the rider's own yaw beside the vehicle's.
@@ -1491,7 +1601,7 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
       if (tick % 4 === 0) {
         const tag = state.descending ? ' · §a[DESCENDING]§r' : ' · §a[STICK: TURN · JUMP: CLIMB · BACK+JUMP: DESCEND · LOOK DOWN: DIVE]§r';
         const aboard = riders.length > 1 ? ` · §d[${riders.length} ABOARD]§r` : '';
-        const hud = `§lHELI§r §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${aboard}${tag}`;
+        const hud = `§l${flyer ? cfg.hud || 'CLOUD' : 'HELI'}§r §e${mph.toFixed(1)} mph§r · §bALT ${Math.floor(vehicle.location?.y ?? 0)}§r${aboard}${tag}`;
         for (const r of riders) { try { r.onScreenDisplay?.setActionBar?.(hud); } catch {} }
       }
     }
@@ -2326,7 +2436,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         }
     }
     let timeMachineConfig: TimeMachineConfig | undefined;
-    const driverVehicles: Array<{ typeId: string; kind: 'car' | 'plane' | 'boat'; label: string }> = [];
+    const driverVehicles: VehicleDriverConfig['vehicles'] = [];
     /** Fixed-wing aircraft and boats moved by scripts/vehicles.js (bedrock-vehicle.ts), with half their length for the bow probe. */
     const scriptedTypes: ScriptedVehicleConfig['types'] = {};
     const cameraVehicles: VehicleCameraConfig[] = [];
@@ -2454,6 +2564,94 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         addEntityName(fullTypeId, c.label, true);
         actors.push({ typeId: fullTypeId, label: c.label, ...componentSpawnPoint(c, grid), yaw: layout.actorYaw });
     }
+    // Flyer mounts (set-canon.ts, bedrock-flyer.ts): the mount's geometry as a
+    // rideable `flyer` vehicle the player summons by tapping its figure, and -
+    // with a companion - that figure riding it round an orbit: an invisible
+    // figures-only seat carried along the loop by scripts/rides.js (kind
+    // `orbit`) with the mount's own entity alongside, as a lift carries its car.
+    /** The orbit seat actor each mount's figure rides (`rideOf`), by mount index. */
+    const mountSeatActor = new Map<number, number>();
+    /** Orbit rides, appended after the slides and lifts in `scripts/rides.js` (their `ride` index counts from there). */
+    const orbitRides: Array<{ carType: string; seatType: string; riderType?: string }> = [];
+    const flyerMounts: FlyerRuntimeConfig['mounts'] = [];
+    const mountReport: MountReport | undefined = options.mounts || options.mountsMissing?.length ? { found: [], missing: (options.mountsMissing ?? []).map(m => ({ ...m })) } : undefined;
+    /** The figure entity type of the companion of mount `mi` (the figure with that `mountIndex`), for the runtimes that re-seat and listen to it. */
+    const mountFigureType = (mi: number): string | undefined => {
+        const k = (options.figures ?? []).findIndex(f => f.mountIndex === mi);
+        return k >= 0 ? `${PACK_NAMESPACE}:${entityId(`${id}_fig${k + 1}`, 'f')}` : undefined;
+    };
+    for (const [mi, m] of (options.mounts?.items ?? []).entries()) {
+        const style = m.canon.style, mountLabel = m.canon.label ?? style;
+        const rawFlyer = `${id}_${style}`, flyerId = entityId(rawFlyer, 'v'), flyerType = `${PACK_NAMESPACE}:${flyerId}`;
+        // The mount's nose is where its figure faced (a cloud has no nose of its own).
+        const nose = snapFacing(m.figure?.facingLdu ?? [0, -1]);
+        options.onProgress?.(`compiling ${label} ${mountLabel}`);
+        let geo: CompiledLdrawGeometry;
+        try {
+            // Every placement kept, origin at the floor centre (no cockpit search, no stand rule: `wholeModel`); a `body` bone for the drive animation's bob.
+            geo = await compileLdrawEntityGeometry(flyerId, 'plane', m.bricks, { scale: unitsPerLdu, frame: ldrawToRenderRotation(nose), wholeModel: true, vehicleRig: true, partGeometry: options.partGeometry, quality: options.entityQuality, pbr });
+        } catch (e) {
+            const reason = `could not be compiled (${e instanceof Error ? e.message : String(e)})`;
+            warnings.push(`${label}: the ${mountLabel} ${reason}; left out.`);
+            mountReport?.missing.push({ style, label: mountLabel, reason });
+            continue;
+        }
+        diagnostics[flyerId] = geo.diagnostics;
+        warnings.push(...geo.warnings.filter(w => !/front\/rear direction/.test(w)));
+        // The rider sits ON the mount: the seat at its top surface (a riding
+        // player's eye is `SEATED_EYE_HEIGHT_BLOCKS` over it), player-sized at
+        // 100 % and scaled with the mount's size steps like any vehicle seat.
+        const seatTop: [number, number, number] = [0, Math.round(geo.sizeBlocks.height * 100) / 100, 0];
+        const flyerBehavior = behaviorEntity(flyerId, 'plane', new BlockGrid(1, 1, 1), undefined, undefined, 'auto', undefined, 1, seatTop, geo.collisionBox, geo.sizeBlocks, 'flyer', []);
+        emitCompiledEntity(flyerId, geo, flyerBehavior, emitDriveAnimation(flyerId, 'flyer', geo, false), true);
+        addEntityName(flyerType, `${label} ${mountLabel}`, true);
+        const hud = bedrockInGameText(m.canon.hud ?? mountLabel.toUpperCase());
+        driverVehicles.push({ typeId: flyerType, kind: 'plane', label: `${label} ${mountLabel}`, motion: 'flyer', hud });
+        cameraVehicles.push({ ...emitCameraPresets(flyerId, 'plane', geo.sizeBlocks), riderVisibleSizes: null });
+        extraComponents.push({ id: flyerId, label: `${label} ${mountLabel}`, kind: 'plane', provenance: `flyer mount (${m.bricks.length} placements, ${Math.round(m.colourShare * 100)} percent ${style} colours): tap its figure to summon one` });
+        const found: MountReport['found'][number] = { style, label: mountLabel, parts: m.bricks.length, colourShare: Math.round(m.colourShare * 1000) / 1000, flyer: flyerType };
+        const summonTypes: string[] = [];
+        const riderType = mountFigureType(mi);
+        if (m.figure && m.canon.companion === 'orbit' && m.path.length >= 3) {
+            const carId = entityId(`${rawFlyer}_ride_car`, 'l'), carType = `${PACK_NAMESPACE}:${carId}`;
+            const seatId = entityId(`${rawFlyer}_ride`, 'r'), seatType = `${PACK_NAMESPACE}:${seatId}`;
+            try {
+                options.onProgress?.(`compiling ${label} ${mountLabel} companion`);
+                // The companion's cloud: the same bricks on the same nose, origin over the model so open sky lights it (a lift car's recipe).
+                const cgeo = await compileLdrawEntityGeometry(carId, 'prop', m.bricks, { scale: unitsPerLdu, frame: ldrawToRenderRotation(nose), wholeModel: true, partGeometry: options.partGeometry, quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, originAboveModel: true });
+                diagnostics[carId] = cgeo.diagnostics;
+                emitCompiledEntity(carId, cgeo, mountCarBehavior(carId, cgeo.collisionBox));
+                addEntityName(carType, `${label} ${mountLabel} (companion)`, false);
+                files.push({ name: `${bp}entities/${seatId}.json`, data: json(companionSeatBehavior(seatId)) }, { name: `${rp}entity/${seatId}.entity.json`, data: json(seatClient(seatId)) });
+                addEntityName(seatType, `${label} ${mountLabel} orbit`, false);
+                const rideIndex = (options.rides?.items.length ?? 0) + orbitRides.length;
+                // The loop starts at the point nearest the mount's source position: the
+                // seat begins there and the cloud is shifted with it by the same offset,
+                // so the runtime's car offset is the cloud's origin under its top.
+                const start = m.path[0]!;
+                const carAt = sceneGridPoint(options.mounts!.frame, cgeo.originLdu);
+                const shift = [start[0] - m.top[0], start[1] - m.top[1], start[2] - m.top[2]] as const;
+                const carLabel = `${label} ${mountLabel} (companion)`;
+                actors.push({ typeId: carType, label: carLabel, x: carAt[0] + shift[0], y: carAt[1] + cgeo.originLiftBlocks + shift[1], z: carAt[2] + shift[2], yaw: yawForFacing(m.figure.facingLdu), ride: rideIndex });
+                actors.push({ typeId: seatType, label: `${label} ${mountLabel} orbit`, x: start[0], y: start[1], z: start[2], yaw: yawForFacing(m.figure.facingLdu), ride: rideIndex, ridePath: m.path });
+                mountSeatActor.set(mi, actors.length - 1);
+                orbitRides.push({ carType, seatType, ...(riderType ? { riderType } : {}) });
+                extraComponents.push({ id: seatId, label: `${label} ${mountLabel} orbit`, kind: 'seat', provenance: `orbit: the figure flies its ${mountLabel} round the model on its own (${m.path.length} points, ${RIDE.ORBIT_SPEED} blocks/s at 100 percent)` });
+                summonTypes.push(carType, seatType);
+                found.companion = seatType; found.orbitPoints = m.path.length;
+            } catch (e) {
+                warnings.push(`${label}: the ${mountLabel} companion could not be compiled (${e instanceof Error ? e.message : String(e)}); its figure walks instead.`);
+            }
+        }
+        if (riderType) summonTypes.push(riderType);
+        // Nothing to tap (no figure on it): the mount is still a spawn egg in the creative inventory.
+        if (summonTypes.length) flyerMounts.push({ cloudType: flyerType, summonTypes, ...(found.companion ? { seatType: found.companion } : {}), label: bedrockInGameText(mountLabel) });
+        mountReport?.found.push(found);
+    }
+    if (mountReport) {
+        for (const f of mountReport.found) warnings.push(`${label}: ${f.label} - a ${f.style} mount of ${f.parts} placements; tap ${f.companion ? 'its figure or its cloud' : 'nothing yet (no figure stands on it)'} to summon one${f.companion ? `; the figure flies its own round the model (${f.orbitPoints} points)` : ''}.`);
+        for (const m of mountReport.missing) warnings.push(`${label}: the canon names a ${m.style} mount (${m.label}) and none was found: ${m.reason}. Exported without it.`);
+    }
     // Figures found in the scenery: one minifig NPC type each, standing where the source put them.
     const figureKindCounts: Record<string, number> = {};
     /** Actor index of each scene figure, so a seated one can be told which seat actor to ride. */
@@ -2496,6 +2694,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             return yawForFacing(nose === '+x' ? [1, 0] : nose === '-x' ? [-1, 0] : nose === '+z' ? [0, 1] : [0, -1]);
         })();
         let at = { x: fig.x, y: fig.y, z: fig.z };
+        // A mount's companion spawns riding its orbit seat (mode `seated`, never a walker); with no seat built it walks like the rest.
+        const mountSeat = fig.mountIndex !== undefined ? mountSeatActor.get(fig.mountIndex) : undefined;
+        if (mountSeat !== undefined) {
+            const seat = actors[mountSeat]!;
+            actors.push({ typeId: `${PACK_NAMESPACE}:${fcid}`, label: flabel, x: seat.x, y: seat.y, z: seat.z, yaw, rideOf: mountSeat });
+            figureActorIndex.set(k, actors.length - 1);
+            extraComponents.push({ id: fcid, label: flabel, kind: 'figure', provenance: `minifig riding the set's ${options.mounts!.items[fig.mountIndex!]!.canon.label ?? 'mount'} (companion)` });
+            figureKindCounts['figure'] = (figureKindCounts['figure'] ?? 0) + 1;
+            continue;
+        }
         if (figureSpanAt && placementColliders && fig.seatIndex === undefined) {
             const { width, length } = placementColliders;
             const spawn = resolveFigureSpawn(figureSpanAt, at, figureBodies[`${PACK_NAMESPACE}:${fcid}`]!,
@@ -2737,8 +2945,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     }
     // Slides and lifts (bedrock-rides.ts): a ride seat at each ride's start,
     // a lift's car as its own entity of its exact bricks, and scripts/rides.js.
+    // A mount companion's orbit (above) is a ride of the same script, listed
+    // after them; it needs the script and the seat geometry, not the player seat.
     let ridesConfig: RideRuntimeConfig | undefined;
-    if (options.rides?.items.length) {
+    if (options.rides?.items.length || orbitRides.length) {
         const rideSeatId = entityId(`${id}_ride`, 'r');
         const rideSeatType = `${PACK_NAMESPACE}:${rideSeatId}`;
         files.push(
@@ -2751,7 +2961,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         );
         addEntityName(rideSeatType, `${label} Ride`, true);
         const rideList: RideRuntimeConfig['rides'] = [];
-        for (const [i, r] of options.rides.items.entries()) {
+        for (const [i, r] of options.rides?.items.entries() ?? []) {
             let carType: string | undefined;
             if (r.kind === 'lift' && r.carBricks?.length) {
                 const carId = entityId(`${id}_lift_car_${i + 1}`, 'l');
@@ -2768,7 +2978,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     const carBox = { width: Math.round(Math.min(3.5, Math.max(0.5, Math.min(geo.sizeBlocks.width, geo.sizeBlocks.length))) * 100) / 100, height: Math.round(Math.min(3.5, Math.max(0.3, geo.sizeBlocks.height)) * 100) / 100 };
                     emitCompiledEntity(carId, geo, pinballPropBehavior(carType, carBox));
                     addEntityName(carType, `${label} lift car`, false);
-                    const at = sceneGridPoint(options.rides.frame, geo.originLdu);
+                    const at = sceneGridPoint(options.rides!.frame, geo.originLdu);
                     actors.push({ typeId: carType, label: `${label} lift car`, x: at[0], y: at[1] + geo.originLiftBlocks, z: at[2], yaw: 0, ride: i });
                     extraComponents.push({ id: carId, label: `${label} lift car`, kind: 'prop', provenance: `the set's own lift car: ${r.carBricks.length} source placements between ${r.path.length} floors` });
                 } catch (e) {
@@ -2782,9 +2992,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             actors.push({ typeId: rideSeatType, label: rideLabel, x: start[0], y: start[1], z: start[2], yaw: 0, ride: i, ridePath: r.path, ...(r.exits ? { rideExits: r.exits } : {}) });
             extraComponents.push({ id: `${rideSeatId}_${i + 1}`, label: rideLabel, kind: 'seat', provenance: r.kind === 'slide' ? `slide: sit at the top to slide down its chute (${r.path.length} points)` : `lift: sit in the car to ride to the next floor (${r.path.length} stops)` });
         }
+        for (const o of orbitRides) rideList.push({ kind: 'orbit', carType: o.carType, seatType: o.seatType, ...(o.riderType ? { riderType: o.riderType } : {}) });
         ridesConfig = { seatType: rideSeatType, rides: rideList, constants: RIDE };
-        warnings.push(`${label}: rides - ${rideList.filter(r => r.kind === 'slide').length} slide(s) and ${rideList.filter(r => r.kind === 'lift').length} lift(s); sit on one to ride it.`);
+        if (options.rides?.items.length) warnings.push(`${label}: rides - ${rideList.filter(r => r.kind === 'slide').length} slide(s) and ${rideList.filter(r => r.kind === 'lift').length} lift(s); sit on one to ride it.`);
     }
+    // scripts/flyer.js (bedrock-flyer.ts): a tap on a mount's figure, cloud or seat summons the player's own cloud; empty ones fade.
+    const flyerConfig: FlyerRuntimeConfig | undefined = flyerMounts.length ? {
+        mounts: flyerMounts,
+        sizeEvents: SIZE_STEPS.map(pct => ({ pct, event: `${SIZE_EVENT_PREFIX}${pct}` })),
+        particle: FLYER_PUFF_PARTICLE, spawnSound: FLYER_SOUNDS.spawn, fadeSound: FLYER_SOUNDS.fade,
+        constants: { EMPTY_DESPAWN_TICKS: FLYER.EMPTY_DESPAWN_TICKS, CLOUD_CAP: FLYER.CLOUD_CAP, TAP_COOLDOWN_TICKS: FLYER.TAP_COOLDOWN_TICKS, SPAWN_AHEAD_BLOCKS: FLYER.SPAWN_AHEAD_BLOCKS },
+    } : undefined;
     const screens = options.screens ?? [], rawScreenId = `${id}_control_screen`;
     const screenId = entityId(rawScreenId, 's');
     if (screens.length) {
@@ -2830,10 +3048,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         warnings.push(`${label}: distance LOD dropped for ${Object.keys(lodSkipped).length} entit${Object.keys(lodSkipped).length === 1 ? 'y' : 'ies'} - the client stops drawing the whole actor before its hull could take over at ${MIN_LOD_NEAREST_CUBE_BLOCKS}+ blocks from its nearest cube, so the model pops out at that cull whether or not a hull ships: ${dropped}.`);
     }
     // Every fidelity degradation is inspectable from the pack itself.
-    if (Object.keys(diagnostics).length || coasterConfig || options.access) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
+    if (Object.keys(diagnostics).length || coasterConfig || options.access || mountReport) files.push({ name: `${bp}craftmatic-diagnostics.json`, data: json({
         // The provenance record (pipeline stamp, source file + hash, build
         // instant) is spread in whole, so one file answers "which build made this".
         ...provenance, label,
+        // The set's canon mounts (set-canon.ts): found and built, or missing and why - never silent.
+        ...(mountReport ? { mounts: mountReport } : {}),
         // `fallbackCuboids` are the BlockGrid-fallback entities' cuboids, which have no per-entity diagnostics of their own.
         pack: { ...budget, fallbackCuboids, figuresClampedToBalanced: figuresClamped, lodCuboids },
         // `query.distance_from_camera` is evaluated in a geometry field and reads
@@ -2930,7 +3150,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         } : {}),
     })));
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
-    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF })) });
+    if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript({ vehicles: driverVehicles, boostCooldownTicks: ROTOR_BOOST_COOLDOWN_TICKS, descendOn: AIRCRAFT_DESCEND_ON, descendOff: AIRCRAFT_DESCEND_OFF, puffParticle: FLYER_PUFF_PARTICLE })) });
+    if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
     if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch })) });
     if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({
         types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, headlights: HEADLIGHTS,
@@ -2984,12 +3205,15 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(pinballConfig ? ["import './pinball.js';"] : []),
         ...(interactiveConfig ? ["import './interactives.js';"] : []),
         ...(ridesConfig ? ["import './rides.js';"] : []),
+        ...(flyerConfig ? ["import './flyer.js';"] : []),
         ...(figureTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
-    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
+    const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. It hovers in place when you let go. Dismount (sneak) leaves you where you are and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
+    files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump to descend straight down; looking up or down also climbs or dives. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}) };
 }
 
 /** One warning line for the moving parts: counts by class and, for doorways, at which wand size each can be walked through. */

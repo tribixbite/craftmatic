@@ -411,6 +411,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
 - **Slides and lifts are rides** (`engine/bedrock-rides.ts`): a seat carried
   along a WORLD path the placement wrote (`PlacementActor.ridePath`). A new
   ride kind adds a path, never its own teleport loop.
+- **An LDraw part's origin is its TOP stud plane; the body runs to +Y (down).**
+  A brick placed at y sits in [y, y+24], a plate in [y, y+8]; a brick ON a
+  surface at s has its origin at s − 24. `54200` (Slope 31 1×1×⅔) is the
+  exception in the cloud family: origin at its BOTTOM, body −15.6..0. The
+  library's mesh bounds exclude studs, and `6141`'s mesh is only 3 LDU tall.
+  A fixture authored with "origin at the bottom" overlapped its base by a
+  plate and read `groundLdu` 16 (2026-09-29, `_nimbus_fixture_gen.ts`);
+  check `placementBox` before trusting any hand-placed y. Per-set hints
+  (mounts, later seats/facing/scale) go in `engine/set-canon.ts`, never in a
+  title regex.
 - **A load path may never abandon itself silently.** Every staleness guard in
   `lego.ts`/`viewer.ts` goes through a reporter that names it, the phases after
   the part prefetch report stages, and a 20 s no-progress watchdog rewrites the
