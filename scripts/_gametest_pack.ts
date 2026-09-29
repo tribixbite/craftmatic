@@ -184,13 +184,14 @@ if (pinballName) {
 // Every rideable vehicle type the placement spawns (family `craftmatic_vehicle`),
 // driven in the vehicle arena: its kind, seats and shipped size.
 const vehicles: GametestVehicle[] = [];
-for (const typeId of [...new Set(placement.actors.map(a => a.typeId))]) {
+/** The rideable vehicle of an entity type in the pack, for the arena course; undefined for a type that is not a `craftmatic_vehicle`. */
+const vehicleOf = (typeId: string): GametestVehicle | undefined => {
   const cid = typeId.replace(/^[^:]*:/, '');
   const beh = [...entries.keys()].find(n => n === `${bpFolder}/entities/${cid}.json`);
-  if (!beh) continue;
+  if (!beh) return undefined;
   const ent = JSON.parse(text(beh).replace(/^﻿/, ''))['minecraft:entity'];
   const family: string[] = ent?.components?.['minecraft:type_family']?.family ?? [];
-  if (!family.includes('craftmatic_vehicle')) continue;
+  if (!family.includes('craftmatic_vehicle')) return undefined;
   const kind = (['flyer', 'hover', 'boat', 'plane', 'car'] as const).find(k => family.includes(k)) ?? 'car';
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (const [name] of entries) {
@@ -203,7 +204,11 @@ for (const typeId of [...new Set(placement.actors.map(a => a.typeId))]) {
   const label = placement.actors.find(a => a.typeId === typeId)?.label ?? cid;
   // A scripted vehicle (bedrock-vehicle.ts) declares the attitude properties its runtime writes.
   const scripted = 'craftmatic:fl_pitch' in (ent.description?.properties ?? {});
-  vehicles.push({ label, typeId, kind, seats: ent.components['minecraft:rideable']?.seat_count ?? 1, size, ...(scripted ? { scripted } : {}) });
+  return { label, typeId, kind, seats: ent.components['minecraft:rideable']?.seat_count ?? 1, size, ...(scripted ? { scripted } : {}) };
+};
+for (const typeId of [...new Set(placement.actors.map(a => a.typeId))]) {
+  const v = vehicleOf(typeId);
+  if (v) vehicles.push(v);
 }
 
 // A canon flyer mount's companion (engine/bedrock-flyer.ts): the cloud, the
@@ -223,6 +228,12 @@ if (flyerName) {
     flyer = { label: m.label, figureType, cloudType: m.cloudType, seatType: m.seatType, carType, figureActor: { x: figureActor.x, y: figureActor.y, z: figureActor.z }, despawnTicks: fc.constants.EMPTY_DESPAWN_TICKS, cap: fc.constants.CLOUD_CAP, cooldownTicks: fc.constants.TAP_COOLDOWN_TICKS };
     console.log(`  flyer: ${m.label} (${m.cloudType}) summoned by ${figureType}; orbit seat ${m.seatType}`);
   } else console.log('  flyer.js present but no companion mount with a figure: no flyer test');
+  // Every summonable cloud runs the arena course too: it is never a placed actor, so the loop above did not see it.
+  for (const mount of fc?.mounts ?? []) {
+    if (vehicles.some(v => v.typeId === mount.cloudType)) continue;
+    const v = vehicleOf(mount.cloudType);
+    if (v) vehicles.push({ ...v, label: `${placement.label} ${mount.label}` });
+  }
 }
 
 // Driven trains: every railway route (`physics.DRIVER`) in scripts/coaster.js's
