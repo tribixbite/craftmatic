@@ -19,7 +19,7 @@
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
 import { COLLIDER_KIT } from './collider-form.js';
 import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
-import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState, type SolidBox } from './addon-walk.js';
+import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
 /** Ticks the walk gets (10 s at 20 ticks/s): a 4-block approach, a jump or two. */
@@ -86,6 +86,13 @@ export interface DoorwayWalkPack {
   dims: { width: number; height: number; length: number };
   interactives: InteractiveRuntimeConfig;
   shippedTreads?: (sizePct: number, rotation: QuarterTurn) => readonly TreadBlock[] | undefined;
+  /**
+   * Build the walk world from the options the walk would use (default
+   * `new WalkWorld`). A diagnostic walks the same doorway over another
+   * world - the model's own part geometry (`scripts/_ix_sealed_causes.ts`) -
+   * to tell a doorway the MODEL seals from one its colliders seal.
+   */
+  makeWorld?: (options: WalkWorldOptions) => WalkWorld;
 }
 
 /** A model-frame direction turned by the placement's quarter turn (the translation cancels). */
@@ -226,7 +233,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
    * whether it is big enough yet, so the approach is found in that world.
    */
   const worldFor = (groupOpen: boolean, lifted = false): WalkWorld => {
-    const w = new WalkWorld({ cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) });
+    const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) };
+    const w = pack.makeWorld ? pack.makeWorld(options) : new WalkWorld(options);
     const items = lifted ? cfg.items.map((it, i) => group.has(i) ? { ...it, blocking: [] } : it) : cfg.items;
     w.setOverlayBlocks(ixClosedBlocks(items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : openOthers));
     return w;

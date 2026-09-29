@@ -10,8 +10,11 @@
  * is answered with the measured share of placements the budget coarsened,
  * rather than by eye.
  *
- * Usage: bun scripts/_favorites_export_sweep.ts [set…] [--out DIR] [--keep]
- *   --keep  do not re-export a set whose .mcaddon is already in DIR.
+ * Usage: bun scripts/_favorites_export_sweep.ts [set…] [--out DIR] [--keep] [--geometry DIR]
+ *   --keep      do not re-export a set whose .mcaddon is already in DIR.
+ *   --geometry  also write each set's part geometry per collider cell to
+ *               DIR/<set>.json (`_ix_cell_geometry.ts`), the truth
+ *               `_ix_sealed_causes.ts` walks a sealed doorway over.
  * Output: DIR/<set>.mcaddon, DIR/<set>.json, DIR/summary.json.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
@@ -26,7 +29,10 @@ const argv = process.argv.slice(2);
 const outIndex = argv.indexOf('--out');
 const OUT = outIndex >= 0 ? argv[outIndex + 1]! : 'output/bedrock-entity-qa/favorites-sweep';
 const KEEP = argv.includes('--keep');
-const targets = argv.filter(a => !a.startsWith('--') && a !== OUT);
+const geometryIndex = argv.indexOf('--geometry');
+const GEOMETRY = geometryIndex >= 0 ? argv[geometryIndex + 1]! : undefined;
+if (GEOMETRY) mkdirSync(GEOMETRY, { recursive: true });
+const targets = argv.filter(a => !a.startsWith('--') && a !== OUT && a !== GEOMETRY);
 const sets = (JSON.parse(readFileSync(INDEX, 'utf8')) as {
   sets: Record<string, { name?: string; models?: IndexModel[]; parts?: number; catalogParts?: number }>;
 }).sets;
@@ -67,7 +73,8 @@ for (const set of (targets.length ? targets : FAVOURITES)) {
   // NOT `shell: true`: on Windows that joins argv into one command line, so a
   // first-pick path containing spaces (`LDR/10261 Roller Coaster.mpd`) is split
   // and the export dies with ENOENT on a truncated name.
-  const run = spawnSync('bun', ['scripts/_playable_ref.ts', file, pack, `--label=${set}`], {
+  const build = GEOMETRY ? ['scripts/_ix_cell_geometry.ts', `${GEOMETRY}/${set}.json`] : ['scripts/_playable_ref.ts'];
+  const run = spawnSync('bun', [...build, file, pack, `--label=${set}`], {
     encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
   });
   row.seconds = Math.round((Date.now() - started) / 100) / 10;
