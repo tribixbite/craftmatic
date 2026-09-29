@@ -341,6 +341,19 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `engine/bedrock-geometry-faces.ts`). The Walk preview and the LOD hull each
   had another convention until 2026-09-25 (parts at the wrong angle, doors two
   blocks off their doorways). Anything new that reads `.geo.json` calls these.
+- **A rotated bone's cuboid is stored UNROTATED at its pivot.** Its `min`/`max`
+  are not where it is drawn (`drawn` holds that). Bounds read from the stored
+  boxes put 10365's origin 2.86 blocks under its drawn keel and the ship
+  hovered over the water (2026-09-28). The vertical bounds read `drawn`; x/z
+  still read the stored boxes on purpose (drawn ones pulled figures off their
+  feet). `bun scripts/_drawn_floor.ts <pack> [filter] [--world]` prints the
+  drawn span per entity; `--world` adds the placement, so two builds can be
+  proved to draw every actor in the same place.
+- **A vehicle's facing is settled on the device, not from a review's wording.**
+  The Milano's "windscreen in front" (a review) was a different mould; its
+  84954 is a REAR window, and flipping its nose on that reading turned it
+  round (b733c029, undone). The Saga probe (nose position, chase camera)
+  decided it. Measure the nose in the world before changing a facing.
 - **Two colours on one plane hatch on the device.** Every entity passes
   `separateCoplanarFaces` at export (winner pushed out 1/107 block);
   `bun scripts/_render_fault_audit.ts <pack>` counts what is left and
