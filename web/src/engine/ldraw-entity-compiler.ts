@@ -486,6 +486,12 @@ export interface LegoGeometryDiagnostics {
    */
   headCubesCarved: number;
   /**
+   * Box-UV cubes declared under one unit on some axis and rewritten to size + 2
+   * with inflate -1 so the device draws every face (`boxUvSafeCube`). Same drawn
+   * boxes, same cube count.
+   */
+  boxUvInflated: number;
+  /**
    * The occupancy grid that cull ran on: the cell it sampled at, the cell the
    * quality asked for, and whether the 40 M-cell budget forced a coarser cell
    * (`coarsened`) or, at the very coarsest allowed cell, no cull at all
@@ -679,6 +685,17 @@ export interface CompileLdrawEntityOptions {
    */
   faceTextures?: boolean;
   /**
+   * Declare every box-UV cube at least `BOX_UV_MIN_DECLARED_SIZE` on each
+   * axis (`boxUvSafeCube`: size + 2 with inflate -1, the same drawn box), so
+   * the device draws all six of its faces. Default: on for FIGURES, whose
+   * 2 LDU grain is 0.6 units and lost faces everywhere (user report
+   * 2026-09-29). Other kinds keep plain boxes for now.
+   * TODO(box-uv): shells, vehicles and props have the same exposure (10261:
+   * 37 % of all faces have a side under one unit) - enable after their
+   * readers (LOD hull, collider and seat probes) are checked against inflate.
+   */
+  boxUvFloorSafe?: boolean;
+  /**
    * The rig slot of each placement in `bricks` (parallel; from
    * `assembleMinifig`). Headwear compiles surface-preserving (a thin hair
    * shell keeps every cell) and carves the head cells it covers.
@@ -771,6 +788,42 @@ interface BedrockCube {
    * 1.05 kB per cuboid on a Pixel 8 Pro, 34 % of a cuboid's 3.08 kB.
    */
   uv: [number, number] | FaceUv;
+  /** Grows the drawn box on every side; set only by `boxUvSafeCube`. */
+  inflate?: number;
+}
+
+/**
+ * The smallest size, in model units, a box-UV cube may DECLARE on any axis
+ * and still have every face drawn on the device.
+ *
+ * Bedrock floors a box-UV cube's size before it lays out the UV cross, and a
+ * face whose floored rectangle collapses is simply not drawn. Measured on the
+ * Pixel 8 Pro (26.51, 2026-09-29, `output/fig-faces-0929/probe/`, a test card
+ * written over an installed figure): a 3 x 0.6 x 0.6 cube showed no front face
+ * at all, a 0.6 x 3 x 0.6 one did (a side face goes when its HEIGHT floors to
+ * 0, not its width), and a 0.6-unit cube was not drawn. At 0.3 units per LDU a
+ * figure's 2 LDU grain is 0.6 units, so 84 % of the round-29b figure faces had
+ * a collapsing side: the torso print showed the white body through it in
+ * stripes, hair and heads had see-through slits (the user's "unclosed faces").
+ */
+export const BOX_UV_MIN_DECLARED_SIZE = 1;
+
+/**
+ * Make a box-UV cube's every face drawable without changing the box it draws:
+ * a cube with any size under `BOX_UV_MIN_DECLARED_SIZE` is DECLARED one unit
+ * larger on every side (`size + 2`) and pulled back with `inflate: -1`, so the
+ * UV is laid out from a size of at least 2 while the drawn box is unchanged
+ * (the device probe's fixed row drew all eight test cubes at their true size).
+ * A per-face-UV cube (a face decal) names its own UV size and is left alone.
+ * Mutates `cube`; returns whether it changed it.
+ */
+export function boxUvSafeCube(cube: { origin: [number, number, number]; size: [number, number, number]; uv: unknown; inflate?: number }): boolean {
+  if (!Array.isArray(cube.uv) || cube.inflate !== undefined) return false;
+  if (!cube.size.some(s => s < BOX_UV_MIN_DECLARED_SIZE)) return false;
+  cube.origin = [round(cube.origin[0] - 1), round(cube.origin[1] - 1), round(cube.origin[2] - 1)];
+  cube.size = [round(cube.size[0] + 2), round(cube.size[1] + 2), round(cube.size[2] + 2)];
+  cube.inflate = -1;
+  return true;
 }
 /**
  * Per-face UV, used ONLY by a face decal: the one face it lists is drawn from
@@ -1102,11 +1155,25 @@ export function detachedClusters(
  * Studs are tested on `worldBoxes` separately, so culling here changes no stud.
  */
 export function cullHiddenCuboids(
-  cuboids: Array<{ min: Vec3; max: Vec3; translucent: boolean; aligned: boolean }>,
+  cuboids: Array<{ min: Vec3; max: Vec3; translucent: boolean; aligned: boolean; group?: string }>,
   cell: number,
 ): Set<number> {
   const hidden = new Set<number>();
   if (cuboids.length < 2) return hidden;
+  // Cuboids that MOVE relative to each other (a figure's legs, arms and head
+  // on their own animated bones) may only hide cuboids of their own group: a
+  // hip cube buried between the legs at rest is in the open once a leg
+  // swings, and 7140's pilot showed the world through his hips even at REST
+  // where the leg cubes' sampled ring read as solid (fig-faces-0929).
+  if (cuboids.some(c => c.group !== undefined)) {
+    const byGroup = new Map<string, number[]>();
+    cuboids.forEach((c, i) => { const k = c.group ?? ''; const list = byGroup.get(k); if (list) list.push(i); else byGroup.set(k, [i]); });
+    for (const members of byGroup.values()) {
+      const sub = cullHiddenCuboids(members.map(i => { const { group: _group, ...rest } = cuboids[i]!; return rest; }), cell);
+      for (const j of sub) hidden.add(members[j]!);
+    }
+    return hidden;
+  }
   const all = aabbOfCorners(cuboids.flatMap(c => [c.min, c.max]));
   const nx = Math.ceil((all.max[0] - all.min[0]) / cell) + 2, ny = Math.ceil((all.max[1] - all.min[1]) / cell) + 2, nz = Math.ceil((all.max[2] - all.min[2]) / cell) + 2;
   if (nx * ny * nz > CULL_GRID_CELL_BUDGET) return hidden; // the caller coarsens instead: cullHiddenCuboidsWithinBudget
@@ -1186,7 +1253,7 @@ export interface HiddenCullPlan {
  * byte-identical to the previous behaviour.
  */
 export function cullHiddenCuboidsWithinBudget(
-  cuboids: Array<{ min: Vec3; max: Vec3; translucent: boolean; aligned: boolean }>,
+  cuboids: Array<{ min: Vec3; max: Vec3; translucent: boolean; aligned: boolean; group?: string }>,
   cell: number,
 ): HiddenCullPlan {
   const base = { hidden: new Set<number>(), requestedCellLdu: cell };
@@ -2476,9 +2543,20 @@ export async function compileLdrawEntityGeometry(
     // occupancy is sampled in the render frame, where aligned boxes are exact;
     // a rotated bone's cuboid is stored unrotated at its pivot, so its render
     // AABB here is not its world box — it is tested with the world AABB instead.
-    const forCull = renderCuboids.map((c, i) => c.aligned
-      ? { min: c.min, max: c.max, translucent: c.material.alpha < 1, aligned: true }
-      : { ...(() => { const wb = worldBoxes[i]!; return aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v))); })(), translucent: c.material.alpha < 1, aligned: false });
+    // On a rig every animated bone is its own group (see cullHiddenCuboids); a
+    // rotated part's `r<i>` bone belongs to the rig bone it hangs from.
+    const rigidGroupOf = (bone: string): string => {
+      let b = bone;
+      for (let guard = 0; /^r\d+$/.test(b) && guard < 64; guard++) { const parent = bones.get(b)?.parent; if (!parent) break; b = parent; }
+      return b;
+    };
+    const grouped = !!options.rig;
+    const forCull = renderCuboids.map((c, i) => ({
+      ...(c.aligned
+        ? { min: c.min, max: c.max, translucent: c.material.alpha < 1, aligned: true }
+        : { ...(() => { const wb = worldBoxes[i]!; return aabbOfCorners(cornersOf(wb.min, wb.max).map(v => apply(A, v))); })(), translucent: c.material.alpha < 1, aligned: false }),
+      ...(grouped ? { group: rigidGroupOf(c.bone) } : {}),
+    }));
     // Over the 40 M-cell budget the cell is COARSENED (up to 12 LDU), not the
     // cull abandoned - see cullHiddenCuboidsWithinBudget.
     const cullPlan = cullHiddenCuboidsWithinBudget(forCull, Math.min(4, quality.microcellLdu));
@@ -2897,6 +2975,12 @@ export async function compileLdrawEntityGeometry(
   }
   const coplanar = separateCoplanarFaces(coplanarEntry);
   if (coplanar.pairsLeft) warnings.push(`${cid}: ${coplanar.pairsLeft} different-colour face pair${coplanar.pairsLeft === 1 ? '' : 's'} still share a plane after separation (may hatch on the device).`);
+  // Last, once the separation has settled every cube's box: a cube declared
+  // under one unit on any axis loses faces on the device (`boxUvSafeCube`).
+  let boxUvInflated = 0;
+  if (options.boxUvFloorSafe ?? kind === 'figure') {
+    for (const group of ordered) for (const it of group.items) if (boxUvSafeCube(it.cube)) boxUvInflated++;
+  }
   for (const group of ordered) {
     for (let offset = 0; offset < group.items.length; offset += chunk) {
       const meshId = `geometry.${PACK_NAMESPACE}.${cid}_mesh_${emittedMeshes.length}`;
@@ -2979,6 +3063,7 @@ export async function compileLdrawEntityGeometry(
     defaultFaces,
     ...(faceDecalCuboids.length ? { faceTextures: { printed: facePrinted, art: faceArtCount, default: faceDefault, atlas: faceAtlasSize } } : {}),
     headCubesCarved,
+    boxUvInflated,
     hiddenCull: { cellLdu: cullPlan.cellLdu, requestedCellLdu: cullPlan.requestedCellLdu, gridCells: cullPlan.gridCells, coarsened: cullPlan.coarsened, skipped: cullPlan.skipped },
     mergedCubes,
     coplanar,

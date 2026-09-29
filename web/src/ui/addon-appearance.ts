@@ -44,6 +44,12 @@ export interface AppearanceCube {
   rotation?: [number, number, number];
   pivot?: [number, number, number];
   /**
+   * The size the JSON DECLARES when it also carries an `inflate`: `origin` and
+   * `size` above are the drawn box, this is what Bedrock lays the box UV out
+   * from (and floors). Absent when the cube has no inflate.
+   */
+  uvSize?: [number, number, number];
+  /**
    * Per-face UV (a face decal, `head-face.ts`): the ONE face the cube draws and
    * its texel rectangle in the geometry's texture. Every other face is not
    * drawn. Absent for an ordinary box-UV cube.
@@ -225,11 +231,19 @@ function indexGeometries(sources: AppearanceSources, notes: string[]): Map<strin
         });
         if (!Array.isArray(b.cubes)) continue;
         for (const rawCube of b.cubes) {
-          const c = rawCube as { origin?: unknown; size?: unknown; rotation?: unknown; pivot?: unknown; uv?: unknown };
-          const origin = optVec3(c.origin), size = optVec3(c.size);
-          if (!origin || !size) continue;
+          const c = rawCube as { origin?: unknown; size?: unknown; rotation?: unknown; pivot?: unknown; uv?: unknown; inflate?: unknown };
+          const declaredOrigin = optVec3(c.origin), declaredSize = optVec3(c.size);
+          if (!declaredOrigin || !declaredSize) continue;
+          // `inflate` grows the drawn box on every side; the box UV is still laid
+          // out from the DECLARED size (`boxUvSafeCube` in ldraw-entity-compiler.ts
+          // relies on exactly that), so the entry keeps the drawn box as
+          // origin/size and the declared size as `uvSize`.
+          const inflate = typeof c.inflate === 'number' && Number.isFinite(c.inflate) ? c.inflate : 0;
+          const origin: [number, number, number] = inflate ? [declaredOrigin[0] - inflate, declaredOrigin[1] - inflate, declaredOrigin[2] - inflate] : declaredOrigin;
+          const size: [number, number, number] = inflate ? [declaredSize[0] + 2 * inflate, declaredSize[1] + 2 * inflate, declaredSize[2] + 2 * inflate] : declaredSize;
           cubes.push({
             bone: name, origin, size,
+            ...(inflate ? { uvSize: declaredSize } : {}),
             ...(optVec3(c.rotation) ? { rotation: optVec3(c.rotation)! } : {}),
             ...(optVec3(c.pivot) ? { pivot: optVec3(c.pivot)! } : {}),
             ...(faceUvOf(c.uv) ? { faceUv: faceUvOf(c.uv)! } : {}),

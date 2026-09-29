@@ -115,11 +115,26 @@ def check(path):
     if rideables: notes.append(f'{len(rideables)} rideable entities, dismount hints checked in {len(langs)} language file(s)')
     # geometries the pack defines
     geo_ids = set()
+    # Bedrock floors a box-UV cube's DECLARED size and does not draw a side face whose
+    # height floors to 0 (Pixel probe 2026-09-29, output/fig-faces-0929/probe/): a figure
+    # (and a creator slot) must declare every box-UV cube at least 1 unit on each axis
+    # (`boxUvSafeCube`: size + 2 with inflate -1). Other entities are counted, not gated.
+    # TODO(box-uv): gate every entity once the compiler applies the fix to all kinds.
+    thin_figure, thin_other = 0, 0
     for n in [x for x in names if x.endswith('.geo.json')]:
         d = json.loads(z.read(n).decode('utf-8-sig'))
+        figure_geo = bool(re.search(r'_fig\d+\.geo\.json$|_mf_', n))
         for g in d.get('minecraft:geometry', []):
             gid = (g.get('description') or {}).get('identifier')
             if gid: geo_ids.add(gid)
+            for b in g.get('bones') or []:
+                for c in b.get('cubes') or []:
+                    if not isinstance(c.get('uv'), list): continue
+                    if any(s < 1 for s in c.get('size', [1, 1, 1])):
+                        if figure_geo: thin_figure += 1
+                        else: thin_other += 1
+    if thin_figure: problems.append(f'{thin_figure} figure box-UV cubes declare a size under 1 unit: the device drops their faces (declare size + 2 with inflate -1)')
+    if thin_other: notes.append(f'{thin_other} non-figure box-UV cubes declare a size under 1 unit (faces the device may not draw)')
     tex_files = {x.rsplit('.', 1)[0] for x in names if x.endswith(('.png', '.tga'))}
     ents = [x for x in names if '/entity/' in x and x.endswith('.json')]
     n_client = 0
