@@ -198,8 +198,10 @@ for my 5yo to explore and play with."
   unchanged in all six slide sets. Floor 3's west room HOLDS the player:
   the probes were 0.19 block under the slab's top / in the front wall band /
   outside the west wall; 105/105 offline drops rest on the floor.
-  Evidence + rebuilt pack (label unchanged, uuid holds):
-  `output/gabby-fix-0929/` (guide "The slide's seat could not be boarded").
+  Evidence + rebuilt pack (label unchanged, uuid holds): `output/gabby-fix-0929/`
+  (`_notes.txt`; `10788-gabbys-dollhouse.mcaddon` sha256 b7d86ce4b6f1…5efba at
+  `4ced924f`; guide "The slide's seat could not be boarded"). Regression: the
+  8-set sweep before/after identical in rides, validity and passability.
   - [ ] Device: tap the top of 10788's slide from inside its top room (stand
     at model 12.5,9.25,4 = the round's 5580.5,-50.75,5608) and from outside;
     the pick on the widened box and the tap boarding are host-only so far.
