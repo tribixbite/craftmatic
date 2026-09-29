@@ -3009,6 +3009,85 @@ and 536 elements newer than Studio's Jul 2025 element table); UNdecorated
 heads (statues) still get the default face because a converted `.ldr` cannot
 tell them from an unresolved print.
 
+### Unclosed faces: Bedrock floors a box-UV cube's size (2026-09-29)
+
+User report after round 29b: "some of the last packs' minifigs still had
+unclosed faces / surfaces". On the Pixel (10261 fig6, free camera 1-2 blocks
+away, `output/fig-faces-0929/pixel/d13-front*.png`, `d14-torso*.png`) the
+torso print showed the white body through it in horizontal stripes, the hair
+had slits the sky showed through, black bars hung under the chin and yellow
+flecks of the hand showed through the upper arm. None of it was in the
+geometry: offline, the pack drew a closed figure.
+
+**Cause (measured).** Bedrock floors a box-UV cube's DECLARED size before it
+lays the UV cross out, and a face whose floored rectangle collapses is not
+drawn. A test card written IN PLACE over the installed fig6 geometry (same
+identifiers and bones, no new pack on the phone; restored afterwards, sha256
+checked; `output/fig-faces-0929/probe/`, `pixel/d26-probe-crop.png`,
+`d32-probe2-crop.png`) settled which faces go:
+
+| cube (model units) | front face drawn? |
+|---|---|
+| 0.6 x 0.6 x 0.6 | no |
+| 3 x 0.6 x 0.6 | no (only an edge line) |
+| 0.6 x 3 x 0.6 | yes |
+| 3 x 3 x 0.6 | yes |
+| 1 x 1 x 1 | yes |
+| 0.9 x 0.9 x 3 | no |
+| the same eight declared size + 2 with `inflate: -1` | all yes, at their true size |
+
+So a side face goes when its HEIGHT floors to 0, not its width; up/down faces
+were not isolated (the fix does not depend on them). At 0.3 units per LDU a
+figure's 2 LDU grain is 0.6 units: 84 % of the round's figure faces had a side
+under one unit. Modelled offline as `UvFloorModel` `v`
+(`web/src/engine/figure-holes.ts`), every one of the 92 NPC figures of the
+round's 19 sources lost visible surface on the device (12.6-24.3 % of what
+the six axis views see) and showed see-through holes in the rest, walk, sit
+and look poses.
+
+**Fix.** `boxUvSafeCube` (`ldraw-entity-compiler.ts`, the last step of the
+emission, after the coplanar separation): a box-UV cube declared under one
+unit on any axis is written as `origin - 1`, `size + 2`, `inflate: -1`. The
+drawn box is identical and the cube count unchanged; the UV is laid out from a
+size of at least 2. On by default for FIGURES (`boxUvFloorSafe`; the creator's
+slots are figures too). Readers: `addon-appearance.ts` reads an inflated cube
+as the box it draws and keeps the declared size as `uvSize`; anything else that
+reads `.geo.json` cubes must subtract the inflate (the creator's slot-bounds
+test did not). `_mcaddon_check.py` fails a pack whose figure geometry declares
+a box-UV cube under one unit and counts the rest.
+
+**Also found: the hidden-cube cull across bones.** `cullHiddenCuboids` let a
+cuboid be hidden by cuboids of ANOTHER animated bone; 7140's pilot showed the
+world through his hips at rest (the legs' sampled ring read as solid), and a
+cuboid buried at rest is exposed once a limb swings. On a rig a cuboid is now
+hidden only by its own bone group (a rotated part's `r<i>` bone belongs to the
+rig bone it hangs from). The cull had only ever removed such cross-bone
+cuboids on figures: +3 to +57 cubes per figure (+822 over the round's 85
+built figure entities, +1.4 %; 42703's dolls +7-9 %).
+
+**Measured after (round packs rebuilt from `f706452e`, deployed to world
+924, `pixel/fig6-front-before-after.jpg`, `fig6-torso-before-after.jpg`,
+`a-fig6-walk-crops.jpg`, `a-41732-fig2-pair.jpg`, `a-76417-fig10-pair.jpg`):**
+the print, hair, chin and arms closed on the device, standing and walking.
+Offline: visible surface the device drops 0.0 % for every figure; see-through
+holes the real parts do not have, in any pose: 0 in 87 of 92 figures.
+
+**Left (not fixed):** five figures keep a 1-2 LDU² slit where a head meets its
+hair (10797, 11204, 42703 fig4, 76286 fig2, 10365 fig8; visible only along a
+diagonal): the voxelised head and hair shell leave a sub-cell gap that the
+head carve no longer plugs (without the carve the separation's grown hair
+faces hid it, at 10x the z-fight). Shells, vehicles and props still ship
+cubes under one unit (10261: 37 % of all faces): `TODO(box-uv)`.
+
+**Tools.** `bun scripts/_figure_compile_holes.ts <source> [--plain]
+[--uvfloor=v]` compiles every NPC figure in-process and reports, per figure,
+cubes, lost surface under the device model and see-through holes the source
+triangles do not have (`figureReferenceSurfaces`), in every animation pose;
+`--shot=<pose>:<view>:<png>` draws one view with holes magenta.
+`bun scripts/_figure_holes.ts <pack|dir> --uvfloor=v` does the same on a built
+pack (without the source reference); `_figure_part_holes.ts` checks each
+figure part's prototype against its mould. Tests: `test/figure-holes.test.ts`.
+
 ## Moving parts: doors, windows, hatches, levers, turnables (2026-09-24)
 
 Every door leaf (at any angle to the grid), gate, trap door, opening window,

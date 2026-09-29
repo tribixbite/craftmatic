@@ -135,9 +135,20 @@ User: "Some of the last packs minifigs still had unclosed faces / surfaces and
 the gabby cars obstructed driver view when mounted also the slide in the
 dollhouse was misaligned and elevator didn't seem functional. Make it awesome
 for my 5yo to explore and play with."
-- [ ] Minifigs with unclosed faces / open surfaces (which sets and where: find
-  on the device first; suspects: hollow part compile, hidden-cube cull,
-  head carve, coplanar separation).
+- [x] Minifigs with unclosed faces: Bedrock does not draw a box-UV side face
+  whose DECLARED height floors to 0 (Pixel probe); every figure's 0.6-unit
+  grain lost 13-24 % of its visible surface. Fixed (`f706452e`,
+  `boxUvSafeCube` size + 2 / inflate -1, cube count unchanged; cull kept within
+  a rig bone: +822 cubes over 85 figure entities). Rebuilt round packs
+  `output/fig-faces-0929/packs-f706452e/` (worktree `agent-a173ac725…`) are
+  bound in world 924; before/after on the Pixel in `output/fig-faces-0929/pixel/`
+  (`fig6-*-before-after.jpg`). Guide: "Unclosed faces: Bedrock floors a box-UV
+  cube's size". Open: (a) `TODO(box-uv)` shells/vehicles/props ship sub-unit
+  cubes too (10261: 37 % of all faces) - enable `boxUvFloorSafe` for every kind
+  after checking the LOD hull and seat/collider readers against `inflate`, then
+  a device look at a shell; (b) 1-2 LDU² head/hair slits on 5 figures (10797,
+  11204, 42703 fig4, 76286 fig2, 10365 fig8), diagonal views only; (c) the user's
+  own look at the rebuilt figures.
 - [ ] Gabby sets' cars: the driver's view is blocked when mounted.
 - [ ] 10788 Dollhouse: the slide is misaligned; the lift does not work
   (known: the lift car found is the upper cat-eared assembly, the pink box at
