@@ -48,7 +48,10 @@ describe.skipIf(!existsSync(ROOT))('creator library real geometry', () => {
     // recentering each slot puts torsos on the floor and collapses the figure.
     const slotBounds = async (slot: string) => {
       const data = JSON.parse(new TextDecoder().decode(await extractFile(zip, `Craftmatic_realcreator_RP/models/entity/realcreator_mf_${slot}_0.geo.json`)));
-      const cubes = data['minecraft:geometry'].flatMap((mesh: { bones: Array<{ cubes?: Array<{ origin: number[]; size: number[] }> }> }) => mesh.bones.flatMap(bone => bone.cubes ?? [])) as Array<{ origin: number[]; size: number[] }>;
+      type Cube = { origin: number[]; size: number[]; inflate?: number };
+      // The DRAWN box: a cube under one unit is declared size + 2 with inflate -1 (boxUvSafeCube).
+      const cubes = (data['minecraft:geometry'].flatMap((mesh: { bones: Array<{ cubes?: Cube[] }> }) => mesh.bones.flatMap(bone => bone.cubes ?? [])) as Cube[])
+        .map(c => { const k = c.inflate ?? 0; return { origin: c.origin.map(v => v - k), size: c.size.map(v => v + 2 * k) }; });
       expect(cubes.length).toBeGreaterThan(0);
       return {
         minY: Math.min(...cubes.map(cube => cube.origin[1]!)),

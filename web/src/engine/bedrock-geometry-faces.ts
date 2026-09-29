@@ -41,6 +41,8 @@ export interface GeoCubeLike {
   rotation?: [number, number, number];
   pivot?: [number, number, number];
   faceUv?: { face: 'north' | 'south' | 'east' | 'west' | 'up' | 'down'; uv: [number, number]; size: [number, number] };
+  /** The size the JSON declares when it carries an `inflate` (`origin`/`size` are then the drawn box). */
+  uvSize?: [number, number, number];
 }
 
 /** One colour's cubes (one swatch, or a face atlas). Structurally the preview's `AppearanceGroup`. */

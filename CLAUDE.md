@@ -383,6 +383,15 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   84954 is a REAR window, and flipping its nose on that reading turned it
   round (b733c029, undone). The Saga probe (nose position, chase camera)
   decided it. Measure the nose in the world before changing a facing.
+- **Bedrock floors a box-UV cube's DECLARED size and does not draw a side
+  face whose height floors to 0** (Pixel probe 2026-09-29: a 3 x 0.6 x 0.6
+  cube had no front face, 0.6 x 3 x 0.6 did). At 0.3 units/LDU a figure's
+  2 LDU grain is 0.6 units, so every figure showed its white body through its
+  print and the sky through its hair - the "unclosed faces" report. Figures
+  now declare every cube under one unit as size + 2 with `inflate: -1`
+  (`boxUvSafeCube`, same drawn box); anything reading `.geo.json` cubes must
+  subtract `inflate`. Shells/vehicles still ship sub-unit cubes (`TODO(box-uv)`).
+  Offline the device rule is `UvFloorModel` `v`: `bun scripts/_figure_compile_holes.ts`.
 - **Two colours on one plane hatch on the device.** Every entity passes
   `separateCoplanarFaces` at export (winner pushed out 1/107 block);
   `bun scripts/_render_fault_audit.ts <pack>` counts what is left and

@@ -135,10 +135,6 @@ User: "Some of the last packs minifigs still had unclosed faces / surfaces and
 the gabby cars obstructed driver view when mounted also the slide in the
 dollhouse was misaligned and elevator didn't seem functional. Make it awesome
 for my 5yo to explore and play with."
-- [ ] Minifigs with unclosed faces / open surfaces (worktree agent on the
-  Pixel, evidence `output/fig-faces-0929/`; suspects: hollow part compile,
-  hidden-cube cull, head carve, coplanar separation). Merge after its gates,
-  then the device round below.
 - [ ] Device round after the faces merge (both phones, same labels as 29b so
   every uuid holds): the faces fix, the kiosk retake `46e855f1`, the Gabby
   play fixes, and the Nimbus fixture; send ONE zip.
@@ -220,6 +216,21 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   `Mounts ... NOT found: <reason>`, the reason names the threshold (colour
   code → `MOUNT_STYLE_COLOURS.cloud.codes`; parts → `FLYER.MOUNT_MAX_PARTS`).
   If two figures stand on small builds, add a `figure` hint to the canon.
+- [x] Minifigs with unclosed faces: Bedrock does not draw a box-UV side face
+  whose DECLARED height floors to 0 (Pixel probe); every figure's 0.6-unit
+  grain lost 13-24 % of its visible surface. Fixed (`f706452e`,
+  `boxUvSafeCube` size + 2 / inflate -1, cube count unchanged; cull kept within
+  a rig bone: +822 cubes over 85 figure entities). Rebuilt round packs
+  `output/fig-faces-0929/packs-f706452e/` (worktree `agent-a173ac725…`) are
+  bound in world 924; before/after on the Pixel in `output/fig-faces-0929/pixel/`
+  (`fig6-*-before-after.jpg`). Guide: "Unclosed faces: Bedrock floors a box-UV
+  cube's size". Open: (a) `TODO(box-uv)` shells/vehicles/props ship sub-unit
+  cubes too (10261: 37 % of all faces) - enable `boxUvFloorSafe` for every kind
+  after checking the LOD hull and seat/collider readers against `inflate`, then
+  a device look at a shell; (b) 1-2 LDU² head/hair slits on 5 figures (10797,
+  11204, 42703 fig4, 76286 fig2, 10365 fig8), diagonal views only; (c) the user's
+  own look at the rebuilt figures. MERGED to main after the Gabby and Nimbus
+  merges (gates re-run on main).
 
 ## Open — interactivity
 
