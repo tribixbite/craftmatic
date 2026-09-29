@@ -735,3 +735,24 @@ evidence `output/gabby-0926/` there. Guide: docs/bedrock-addon-guide.md "Gabby's
 - [ ] Prod serves the old index until craftmatic deploys; the five files are live.
 - [ ] clego `dbix_reconvert_summary.json` carries uncommitted entries from this
   round's trial reconversions (shared file, left as is).
+
+## Nimbus follow-ups after the Pixel re-check (worktree agent-a666ee99b, 2026-09-29)
+
+The Pixel re-check (`output/nimbus-pixel-0929/_notes.txt`) passed the hint,
+the HUD speed, the dive and the float-down; four follow-ups are fixed here,
+tests first (`test/vehicle-driver.test.ts`, `test/placement-seating.test.ts`,
+`test/nimbus-fixture.test.ts`, `test/playable-addon.test.ts`), evidence
+`output/nimbus-fix2-0929/`. Add-on guide, "Flyer mounts and companions",
+"Pixel re-check"; physics spec §4.6 and §9.
+- [ ] Device: the flyer's cruise (`FLYER.FLYING_SPEED` 0.09, ~11.5 blocks/s
+  by proportion to the measured 38.3 at 0.3): read it with `/scriptevent
+  craftmatic:vehicle_telemetry fast` and correct the constant to the
+  measurement if the ratio is not linear.
+- [ ] Device: remount the SAME cloud and expect the NIMBUS hint again;
+  place and expect no "could not take its seat" line for figure 1.
+- [ ] Device: count `No sound found ... 'fly'` lines with the
+  `interactive_sounds` entry (`flySoundEvents`); the `entity_sounds` entry
+  measured useless (711 lines) is no longer written. If the line persists,
+  A/B `interactive_sounds.block_sounds.normal` (vanilla's entry verbatim +
+  `fly: ""`) and a real silent sound definition; if neither, remove the
+  entry and the gate (`TODO(fly-sound)` in playable-addon.ts).

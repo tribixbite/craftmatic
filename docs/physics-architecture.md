@@ -366,8 +366,13 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   mount, set-canon.ts: 11390's Flying Nimbus, `web/src/engine/bedrock-flyer.ts`).
   A free-flying mount: it hovers in place when idle (no gravity, no stall, no
   take-off run), moves where the rider looks, Jump climbs, back + Jump
-  descends - the rotorcraft's numbers, device-proven (Saga, 2026-09-29:
-  orbit, summon, mount, climb ~20 blocks/s, hover, fade, cap, undo). The
+  descends - the rotorcraft's controller, device-proven (Saga, 2026-09-29:
+  orbit, summon, mount, climb ~20 blocks/s, hover, fade, cap, undo), at its
+  own cruise: `FLYER.FLYING_SPEED` 0.09 in place of the rotor's
+  `ROTOR_FLYING_SPEED` 0.3, which flew the Nimbus at 38.3 blocks/s (85.7 mph
+  HUD, Pixel 2026-09-29) - far too fast for a child round a ten-block model;
+  proportionally 0.09 is ~11.5 blocks/s (derived, to be re-measured). The
+  same at every wand size, as every vehicle's speeds are (§8). The
   native controller does NOT turn the look pitch into descent (26.52): the
   driver puts the descend group in while the rider looks down past
   `FLYER.DIVE_PITCH_DEG`, so look down + Jump dives, exactly as back + Jump.
@@ -386,9 +391,15 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   `FLYER.DISMOUNT_SLOW_FALL_TICKS` unless a solid block lies within
   `FLYER.DISMOUNT_DROP_BLOCKS` under their feet - the Script API has no
   dismount event, so `flyer.js` polls who is aboard every 10 ticks (a sneak
-  at ALT 169 dropped the Saga rider 229 blocks). Not yet on a device
-  (2026-09-29): the pitch dive, the float-down, the HUD hint and speed after
-  the fix, the silent `fly` sound event.
+  at ALT 169 dropped the Saga rider 229 blocks). Pixel re-check
+  (2026-09-29, `output/nimbus-pixel-0929/`): the ride hint, the HUD speed
+  (85.7 mph HUD against 85.9 true; CMVT cadence 4 ticks), the look-down dive
+  (~4 blocks/s down against ~22 up) and the float-down all PASS; the
+  `entity_sounds` `fly: ""` entry did NOT silence the verbose line (711
+  lines; now an `interactive_sounds` entry, `flySoundEvents`, unproven). Not
+  yet on a device: the slower cruise, the hint on a remount of the same cloud
+  (the driver now forgets its rider when the seat is empty), the seat retry
+  at placement (`bedrock-placement-pack.ts`, `SEAT_RETRIES`).
 - **Car, hover craft, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
   `scriptedVehicleRuntime`). Every native speed is `SCRIPTED_NATIVE_SPEED` (0)
   and gravity is off; the Happy Ghast rider components stay only so Jump is an
@@ -719,7 +730,8 @@ literal inside a function body (`§` marks the number).
 | sim ground friction | `web/src/engine/figure-life-sim.ts` `e.v.x *= §;` | 0.546 | per tick | Minecraft ground friction (as the walker). |
 | sim drop per tick | `web/src/engine/figure-life-sim.ts` `e.location.y - §)` | 0.4 | blocks/tick | Stand-in fall to the floor below; not gravity. |
 | `SCRIPTED_NATIVE_SPEED` | `web/src/engine/playable-addon.ts` | 0 | Bedrock movement / flying_speed | A scripted vehicle's native speeds: only the script moves it. |
-| rotorcraft flying speed | `web/src/engine/playable-addon.ts` `'minecraft:flying_speed': { value: § }` | 0.3 | Bedrock flying_speed | Happy Ghast's, scaled: ~5 blocks/s forward measured. |
+| `ROTOR_FLYING_SPEED` | `web/src/engine/playable-addon.ts` | 0.3 | Bedrock flying_speed | A rotorcraft's, the Happy Ghast's controller: 38.3 blocks/s forward measured on the Nimbus at this value (Pixel 2026-09-29, CMVT fast, 85.7 mph HUD against 85.9 true) - not the "~5 blocks/s" an earlier round read off a ramped stick. |
+| `FLYER.FLYING_SPEED` | `web/src/engine/bedrock-flyer.ts` | 0.09 | Bedrock flying_speed | A flyer mount's cruise, for a five-year-old round a ten-block model: proportional to the measured 38.3 blocks/s at 0.3 (127.7 blocks/s per unit), 0.09 is ~11.5 blocks/s (26 mph). Derived from that one Pixel measurement, not yet measured itself; the same at every wand size. |
 | `FLIGHT.ROTATE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 10 | blocks/s | Take-off speed; about 15 blocks of run at full power on the device (Milano GameTest). |
 | `FLIGHT.STALL_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 7 | blocks/s | Below it the wing sinks and the nose drops. |
 | `FLIGHT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 32 | blocks/s | Airspeed ceiling. |
@@ -846,8 +858,10 @@ over the shorter runs, at 100 % and 200 %.
 **Device (Pixel 8 Pro).** Pace 1.0 "about 50 % too slow" (2026-09-24);
 pace 1.6 rode, "just a touch TOO fast" (2026-09-25); pace √2 not yet ridden.
 Camera limits (pitch ±90, roll only by animation, rider yaw lags ~6 ticks):
-the add-on guide, "The rider's camera follows the track". Aircraft ~17
-blocks/s climb, ~5 forward.
+the add-on guide, "The rider's camera follows the track". Aircraft (the
+Happy Ghast controller at `flying_speed` 0.3): ~22 blocks/s climb, ~4 down
+with the descend group, 38.3 forward (the Nimbus, CMVT fast, 2026-09-29;
+an earlier "~5 forward" was read off a ramped touch stick).
 
 ## 11. Known limits
 
@@ -1086,7 +1100,7 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/bedrock-flyer.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `FLYER` | const | Every flyer-mount number: the detector's thresholds, the orbit's shape, the summoned clouds' fade, cap and cooldown, the dive pitch, the ride hint, the dismount float (§4.6, §4.7, §9). |
+| `FLYER` | const | Every flyer-mount number: the detector's thresholds, the orbit's shape, the summoned clouds' fade, cap and cooldown, the flying speed, the dive pitch, the ride hint, the dismount float (§4.6, §4.7, §9). |
 | `SceneMount`, `MountSearch` | interface | A found mount (its figure, bricks, box and top) and a search's result (found and missing with reasons). |
 | `modelBoxLdu` | function | Host only: the world AABB of what stays, the orbit's ring. |
 | `findMounts` | function | Host only: the connected cluster under a figure's feet in the canon style's colours, translucent parts never joining. |

@@ -1416,13 +1416,34 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       }
       saveManualSeats(p, st);
       // A figure the source seated on a chair rides that chair's seat entity (its sit pose plays while riding).
+      // `addRider` can refuse in the spawn tick (the Pixel refused the orbit's companion
+      // seat at placement, 2026-09-29, and the ride runtime seated the same figure seconds
+      // later): it is retried `SEAT_RETRIES` times, `SEAT_RETRY_TICKS` apart, the +2-tick
+      // retry scripts/flyer.js gives a summoned cloud, and only then reported. A seat that
+      // carries a ride (`actor.ride`: an orbit's) is adopted by scripts/rides.js, which
+      // puts its own figure back on whenever it is off, so a refusal there says nothing.
+      const SEAT_RETRIES = 2, SEAT_RETRY_TICKS = 2;
       for (let j = 0; j < config.actors.length; j++) {
         const actor = config.actors[j];
         if (actor.rideOf === undefined || !spawned[j] || !spawned[actor.rideOf]) continue;
-        try {
-          const seat = spawned[actor.rideOf].getComponent('minecraft:rideable');
-          if (!seat || !seat.addRider(spawned[j])) tell(p, `§e${actor.label} could not take its seat; it stands instead.`);
-        } catch (e: any) { tell(p, `§e${actor.label} could not take its seat (${e && e.message ? e.message : e}).`); }
+        const seatEntity = spawned[actor.rideOf], figure = spawned[j];
+        const adopted = config.actors[actor.rideOf].ride !== undefined;
+        let failure = '';
+        const board = (): boolean => {
+          try {
+            const seat = seatEntity.getComponent('minecraft:rideable');
+            if (seat && seat.addRider(figure) === true) return true;
+            failure = seat ? 'the seat refused it' : 'the seat is not rideable';
+          } catch (e: any) { failure = e && e.message ? e.message : String(e); }
+          return false;
+        };
+        let tries = 0;
+        const attempt = (): void => {
+          if (board()) return;
+          if (tries++ < SEAT_RETRIES) { system.runTimeout(attempt, SEAT_RETRY_TICKS); return; }
+          if (!adopted) tell(p, `§e${actor.label} could not take its seat (${failure}, ${tries} tries); it stands instead.`);
+        };
+        attempt();
       }
       // Replacing a placement must retire its old actors too; otherwise every
       // re-place duplicated figures, mould seats and user-marked brick chairs.

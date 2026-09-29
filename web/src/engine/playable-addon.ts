@@ -345,34 +345,57 @@ export function rideableExitHintLines(files: ReadonlyArray<{ name: string; data:
     }
     return lines;
 }
+/** One hovering entity's `fly` entry in the RP's interactive sound table (`flySoundEvents`). */
+export interface FlySoundEntry { volume: number; pitch: number; events: { fly: { default: string } } }
 /**
- * The resource pack's `sounds.json`: a silent `fly` sound event for every entity
- * the behaviour pack declares with `minecraft:can_fly` or `minecraft:movement.hover`
- * (every rotorcraft, flyer mount and scripted vehicle). Bedrock's hover mover
- * raises the entity sound event `fly` as it hovers and, finding no entry for
- * the entity, falls back to the block sound table and logs
- * `[Sound][verbose] No sound found for block type 'normal' and event type 'fly'`
- * - 3,101 lines from one Nimbus round (~10/min per idle cloud, 240/min flying;
- * Saga, 2026-09-29, `output/nimbus-saga-0929/ContentLog2026-09-29_12-44-43_1.txt`).
- * An empty string is vanilla's own silent event (`bee.events.eat`, the
- * `entity_sounds.defaults`), and a pack's `entity_sounds` merge per entity
- * with vanilla's, so nothing else is touched. Read from the emitted behaviour
- * files like the dismount hints, so no hovering entity can ship without it.
- * Null when the pack has no such entity. Whether the entry silences the log
- * is a device measurement (the fallback's trigger is the engine's, not documented).
+ * The resource pack's `sounds.json`: an `interactive_sounds` `fly` event,
+ * silent over every block material, for every entity the behaviour pack
+ * declares with `minecraft:can_fly` or `minecraft:movement.hover` (every
+ * rotorcraft, flyer mount and scripted vehicle). Read from the emitted
+ * behaviour files like the dismount hints, so no hovering entity can ship
+ * without it; null when the pack has no such entity.
+ *
+ * What it answers: Bedrock's hover mover raises a `fly` sound event as it
+ * hovers, and the client logs `[Sound][verbose] No sound found for block type
+ * 'normal' and event type 'fly'` for it every few ticks - 711 lines in the
+ * Pixel round of 2026-09-29 (~10/min from the orbit's cloud alone, 272/min
+ * flying; `output/nimbus-pixel-0929/ContentLog-final.txt`). The line names the
+ * BLOCK-material sound table (`normal` is the material of air and of most
+ * stone), so the event is resolved the way an entity's `step` / `jump` /
+ * `land` / `fall` over a block are: through `interactive_sounds`, whose
+ * per-entity events map a block material (or `default`) to a sound
+ * (vanilla's horse: `step: { default: "mob.horse.soft", wood: … }`), then
+ * `interactive_sounds.block_sounds.<material>.events`. Vanilla defines `fly`
+ * in NEITHER table (its only `fly` is the parrot's, in the plain
+ * `entity_sounds`; `output/nimbus-fix2-0929/vanilla-sounds.json`), so the
+ * fallback logs for vanilla's own hovering mobs too.
+ *
+ * MEASURED NOT TO WORK (Pixel, 2026-09-29): `entity_sounds.entities.<id>.events.fly: ""`,
+ * the parrot's hook, shipped in `nimbus-main2-0929` and changed nothing (711
+ * lines with it). It is no longer written. What is written is the per-entity
+ * interactive entry `fly: { default: "" }`: a NEW key beside vanilla's, so it
+ * cannot replace a vanilla entry whatever a pack's merge rule for an existing
+ * key is (that rule is documented nowhere found; the wiki only says new keys
+ * add without overwriting). `interactive_sounds.block_sounds.normal.events.fly`
+ * would be the material-level hook, but writing `normal` means carrying
+ * vanilla's other `normal` events verbatim in case the key REPLACES, and a
+ * later vanilla change to that entry would then be silently undone; not done.
+ * TODO(fly-sound): device-unproven. If the line persists, the next A/Bs are
+ * that `block_sounds.normal` entry (verbatim copy + `fly: ""`) and a real
+ * silent sound definition in place of the empty string.
  */
-export function silentFlySounds(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): { entity_sounds: { entities: Record<string, { volume: number; pitch: number; events: { fly: string } }> } } | null {
+export function flySoundEvents(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): { interactive_sounds: { entity_sounds: { entities: Record<string, FlySoundEntry> } } } | null {
     const dec = new TextDecoder();
-    const entities: Record<string, { volume: number; pitch: number; events: { fly: string } }> = {};
+    const entities: Record<string, FlySoundEntry> = {};
     for (const f of files) {
         if (!f.name.startsWith(`${bpPrefix}entities/`) || !f.name.endsWith('.json')) continue;
         const src = dec.decode(f.data);
         if (!src.includes('"minecraft:can_fly"') && !src.includes('"minecraft:movement.hover"')) continue;
         const id = (JSON.parse(src) as { 'minecraft:entity'?: { description?: { identifier?: string } } })['minecraft:entity']?.description?.identifier;
         if (!id || entities[id]) continue;
-        entities[id] = { volume: 1, pitch: 1, events: { fly: '' } };
+        entities[id] = { volume: 1, pitch: 1, events: { fly: { default: '' } } };
     }
-    return Object.keys(entities).length ? { entity_sounds: { entities } } : null;
+    return Object.keys(entities).length ? { interactive_sounds: { entity_sounds: { entities } } } : null;
 }
 /**
  * Geometry serializer: MINIFIED, unlike every other file in the pack.
@@ -499,6 +522,12 @@ export const ENTITY_FORMAT_VERSION = '1.26.30';
 export const AIRCRAFT_DESCEND_GROUP = 'craftmatic:descending';
 /** Every native speed of a SCRIPTED vehicle (car, hover craft, fixed wing, boat): zero, so only scripts/vehicles.js moves it. */
 export const SCRIPTED_NATIVE_SPEED = 0;
+/**
+ * A rotorcraft's `minecraft:flying_speed`: the Happy Ghast's controller at
+ * 0.3 flies ~38 blocks/s (the Nimbus, the same controller, measured 38.3 on
+ * the Pixel 2026-09-29). A flyer mount takes `FLYER.FLYING_SPEED` instead.
+ */
+export const ROTOR_FLYING_SPEED = 0.3;
 /** Aircraft component group holding the normal Jump = CLIMB action; added at spawn and by `descend_off`. */
 export const AIRCRAFT_CLIMB_GROUP = 'craftmatic:climbing';
 export const AIRCRAFT_DESCEND_ON = 'craftmatic:descend_on';
@@ -711,7 +740,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
             'minecraft:movement.hover': {},
             'minecraft:navigation.hover': { can_path_over_water: true, avoid_damage_blocks: false },
             'minecraft:free_camera_controlled': { strafe_speed_modifier: 1, backwards_movement_modifier: .5 },
-            'minecraft:flying_speed': { value: .3 },
+            // A mount a child steers round a ten-block model cruises at ~11 blocks/s
+            // (`FLYER.FLYING_SPEED`); the rotor keeps the ghast's 0.3 (~38 blocks/s).
+            'minecraft:flying_speed': { value: motion === 'flyer' ? FLYER.FLYING_SPEED : ROTOR_FLYING_SPEED },
             // The vertical action lives in the climb/descend GROUPS below, never
             // in the base components: removing a group removes its components
             // outright, so a base +0.5 did not come back after one descend and
@@ -1627,7 +1658,15 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
       let riders: any[] = [];
       try { riders = vehicle.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch {}
       const rider = riders.find((e: any) => e.typeId === 'minecraft:player') ?? riders[0];
-      if (!rider) continue;
+      if (!rider) {
+        // Nobody aboard ends the ride: the next rider, the same player back on this
+        // cloud included, opens with the hint again. Left set, the rider compare below
+        // never fired for a remount and the HUD went straight to the speed line
+        // (Pixel, 2026-09-29, `output/nimbus-pixel-0929/dive-video-strip.jpg`).
+        const idle = states.get(vehicle.id);
+        if (idle) { idle.riderId = undefined; idle.rideStart = undefined; }
+        continue;
+      }
       const flyer = cfg.motion === 'flyer';
       let state = states.get(vehicle.id);
       if (!state) { state = { boostCooldown: 0 }; states.set(vehicle.id, state); }
@@ -3296,8 +3335,9 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         { name: `${rp}texts/languages.json`, data: json(['en_US']) },
         { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },
     );
-    // sounds.json: a silent `fly` event for every hovering entity, or the content log fills with the block-sound fallback.
-    const flySounds = silentFlySounds(files, bp);
+    // sounds.json: a silent interactive `fly` event for every hovering entity (`flySoundEvents`: the hook the
+    // content log's block-sound fallback names; device-unproven, TODO(fly-sound)).
+    const flySounds = flySoundEvents(files, bp);
     if (flySounds) files.push({ name: `${rp}sounds.json`, data: json(flySounds) });
     if (creatorConfig) files.push(
         { name: `${bp}scripts/minifig-wand.js`, data: text(minifigWandScript(creatorConfig)) },

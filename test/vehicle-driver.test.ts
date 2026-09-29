@@ -91,6 +91,25 @@ describe('the driver: the ride opens with the mount\'s name and hint', () => {
     expect(w.lastHud()).toMatch(/^§lNIMBUS§r §e0\.0 mph§r · §bALT 64§r · §a\[STICK: TURN · JUMP: CLIMB · LOOK DOWN \+ JUMP: DIVE\]§r$/);
   });
 
+  it('the same player back on the same cloud gets the hint again (the Pixel went straight to "[JUMP: DESCEND]" on a remount)', () => {
+    const w = driverWorld();
+    w.run(FLYER.RIDE_HINT_TICKS + 8);
+    expect(w.lastHud()).toMatch(/mph/);
+    // Off: the driver sees an empty seat for a few intervals (no HUD is written to nobody).
+    w.riders.length = 0;
+    w.player.hud.length = 0;
+    w.run(20);
+    expect(w.player.hud).toEqual([]);
+    // Back on, the same player: the ride opens with the hint for a full RIDE_HINT_TICKS again.
+    w.riders.push(w.player);
+    w.run(4);
+    expect(w.lastHud()).toMatch(/^§eNIMBUS!§r/);
+    w.run(FLYER.RIDE_HINT_TICKS - 8);
+    for (const line of w.player.hud) expect(line).toMatch(/^§eNIMBUS!§r/);
+    w.run(8);
+    expect(w.lastHud()).toMatch(/mph/);
+  });
+
   it('a new rider on the same cloud gets the hint again; a rotorcraft says HELI', () => {
     const w = driverWorld();
     w.run(FLYER.RIDE_HINT_TICKS + 8);
