@@ -72,11 +72,14 @@ export const FLYER = {
    * The `minecraft:flying_speed` a mount is written with (the rotor keeps
    * `ROTOR_FLYING_SPEED` 0.3). Bedrock's hover controller flew the Nimbus at
    * 38.3 blocks/s at 0.3 (85.7 mph HUD; Pixel, 2026-09-29), far too fast to
-   * steer round a ten-block model: proportionally, 0.09 is ~11.5 blocks/s
-   * (26 mph). Derived from that one measurement, not yet measured itself.
-   * The same at every wand size, as every vehicle's speeds are.
+   * steer round a ten-block model. The response is NOT proportional: 0.09
+   * measured 13.1 blocks/s, not the 11.5 proportion predicted (Pixel, CMVT
+   * fast, 56 steady samples), so the two points give v ≈ 120·fs + 2.3
+   * blocks/s and 0.0725 is the value for the ~11 blocks/s (25 mph) a child
+   * can steer round a ten-block model. The same at every wand size, as
+   * every vehicle's speeds are.
    */
-  FLYING_SPEED: 0.09,
+  FLYING_SPEED: 0.0725,
   /** The rider's look pitch past which the driver puts the descend group in (Jump then dives), degrees down from level. */
   DIVE_PITCH_DEG: 25,
   /** The driver HUD shows the mount's name and "Jump climbs, sneak gets off" for this long after boarding, ticks (3 s). */

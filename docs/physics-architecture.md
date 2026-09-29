@@ -368,10 +368,12 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   take-off run), moves where the rider looks, Jump climbs, back + Jump
   descends - the rotorcraft's controller, device-proven (Saga, 2026-09-29:
   orbit, summon, mount, climb ~20 blocks/s, hover, fade, cap, undo), at its
-  own cruise: `FLYER.FLYING_SPEED` 0.09 in place of the rotor's
+  own cruise: `FLYER.FLYING_SPEED` 0.0725 in place of the rotor's
   `ROTOR_FLYING_SPEED` 0.3, which flew the Nimbus at 38.3 blocks/s (85.7 mph
-  HUD, Pixel 2026-09-29) - far too fast for a child round a ten-block model;
-  proportionally 0.09 is ~11.5 blocks/s (derived, to be re-measured). The
+  HUD, Pixel 2026-09-29) - far too fast for a child round a ten-block model.
+  The controller's speed is not proportional to the value: 0.09 measured
+  13.1 blocks/s (not 11.5), so the two points fit v ≈ 120·fs + 2.3 blocks/s
+  and 0.0725 is ~11 blocks/s (to be confirmed on the next round). The
   same at every wand size, as every vehicle's speeds are (§8). The
   native controller does NOT turn the look pitch into descent (26.52): the
   driver puts the descend group in while the rider looks down past
@@ -731,7 +733,7 @@ literal inside a function body (`§` marks the number).
 | sim drop per tick | `web/src/engine/figure-life-sim.ts` `e.location.y - §)` | 0.4 | blocks/tick | Stand-in fall to the floor below; not gravity. |
 | `SCRIPTED_NATIVE_SPEED` | `web/src/engine/playable-addon.ts` | 0 | Bedrock movement / flying_speed | A scripted vehicle's native speeds: only the script moves it. |
 | `ROTOR_FLYING_SPEED` | `web/src/engine/playable-addon.ts` | 0.3 | Bedrock flying_speed | A rotorcraft's, the Happy Ghast's controller: 38.3 blocks/s forward measured on the Nimbus at this value (Pixel 2026-09-29, CMVT fast, 85.7 mph HUD against 85.9 true) - not the "~5 blocks/s" an earlier round read off a ramped stick. |
-| `FLYER.FLYING_SPEED` | `web/src/engine/bedrock-flyer.ts` | 0.09 | Bedrock flying_speed | A flyer mount's cruise, for a five-year-old round a ten-block model: proportional to the measured 38.3 blocks/s at 0.3 (127.7 blocks/s per unit), 0.09 is ~11.5 blocks/s (26 mph). Derived from that one Pixel measurement, not yet measured itself; the same at every wand size. |
+| `FLYER.FLYING_SPEED` | `web/src/engine/bedrock-flyer.ts` | 0.0725 | Bedrock flying_speed | A flyer mount's cruise, for a five-year-old round a ten-block model. Two Pixel measurements (CMVT fast, 2026-09-29): 38.3 blocks/s at 0.3 and 13.1 at 0.09 - not proportional (11.5 predicted), so v ≈ 120·fs + 2.3 blocks/s and 0.0725 is ~11 blocks/s (25 mph). Confirm on the next round; the same at every wand size. |
 | `FLIGHT.ROTATE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 10 | blocks/s | Take-off speed; about 15 blocks of run at full power on the device (Milano GameTest). |
 | `FLIGHT.STALL_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 7 | blocks/s | Below it the wing sinks and the nose drops. |
 | `FLIGHT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 32 | blocks/s | Airspeed ceiling. |

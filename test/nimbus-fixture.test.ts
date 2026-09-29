@@ -84,7 +84,7 @@ function nimbusPackTests(get: () => Pack): void {
     const e = (await json(`${bp}entities/${flyer}.json`))['minecraft:entity'];
     expect(e.description.identifier).toBe(`craftmatic:${flyer}`);
     expect(e.components['minecraft:type_family'].family).toEqual(expect.arrayContaining(['craftmatic_vehicle', 'plane', 'flyer']));
-    // A child's cruise: FLYER.FLYING_SPEED (0.09, ~11.5 blocks/s by the Pixel's 38.3 at 0.3), not the rotor's 0.3.
+    // A child's cruise: FLYER.FLYING_SPEED (0.0725, ~11 blocks/s by the two Pixel measurements), not the rotor's 0.3.
     expect(e.components['minecraft:flying_speed'].value).toBe(FLYER.FLYING_SPEED);
     expect(FLYER.FLYING_SPEED).toBeLessThan(0.3);
     // The same speed at every wand size, as every vehicle's (the size groups carry scale, box and seat only).

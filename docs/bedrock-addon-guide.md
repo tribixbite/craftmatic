@@ -93,7 +93,8 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
     ~17-22 blocks/s and flies forward 38.3 blocks/s (measured on the Nimbus
     with CMVT telemetry, Pixel 2026-09-29; the "~5 blocks/s" an earlier round
     read was a ramped touch stick). A flyer mount is written with
-    `FLYER.FLYING_SPEED` 0.09 (~11.5 blocks/s, derived) instead.
+    `FLYER.FLYING_SPEED` 0.0725 (~11 blocks/s; 0.09 measured 13.1, the
+    response is not proportional) instead.
   - **Format 1.26.30 removed `minecraft:pushable` from the schema** — the whole
     entity fails to parse (`… is not a valid entity type` at spawn). Vanilla
     mobs use `pushable_by_block` (pistons) and, only when shovable,
@@ -4700,7 +4701,8 @@ from the orbit alone, 272/min flying); tap while riding, orbit after 47
 min and undo PASS. Four follow-ups, fixed the same day (`nimbus-fix2-0929`):
 1. 38 blocks/s (85 mph) is far too fast for a child round a ten-block
    model, and the physics spec's "~5 blocks/s" was stale. A flyer is now
-   written with `FLYER.FLYING_SPEED` 0.09 (~11.5 blocks/s by proportion; the
+   written with `FLYER.FLYING_SPEED` 0.0725 (~11 blocks/s: 0.09 measured 13.1
+   on the Pixel, so v ≈ 120·fs + 2.3, not a proportion; the
    rotor keeps `ROTOR_FLYING_SPEED` 0.3); the same at every wand size, as
    the rotor's is (the size groups carry scale, box and seats only).
 2. The same player back on the SAME cloud got no hint: the driver's loop
