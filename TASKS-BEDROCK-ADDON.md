@@ -135,11 +135,15 @@ User: "Some of the last packs minifigs still had unclosed faces / surfaces and
 the gabby cars obstructed driver view when mounted also the slide in the
 dollhouse was misaligned and elevator didn't seem functional. Make it awesome
 for my 5yo to explore and play with."
-- [ ] Minifigs with unclosed faces / open surfaces (which sets and where: find
-  on the device first; suspects: hollow part compile, hidden-cube cull,
-  head carve, coplanar separation).
-- [x] Gabby cars' view, the 10788 slide and lift: fixed in `377850a5` (worktree
-  `agent-a743597866bba6650`), device-checked on the Saga, world 925, packs
+- [ ] Minifigs with unclosed faces / open surfaces (worktree agent on the
+  Pixel, evidence `output/fig-faces-0929/`; suspects: hollow part compile,
+  hidden-cube cull, head carve, coplanar separation). Merge after its gates,
+  then the device round below.
+- [ ] Device round after the faces merge (both phones, same labels as 29b so
+  every uuid holds): the faces fix, the kiosk retake `46e855f1`, the Gabby
+  play fixes, and the Nimbus fixture; send ONE zip.
+- [x] Gabby cars' view, the 10788 slide and lift: fixed in `377850a5`, MERGED
+  to main `e8cb009b` (gates green, 2,761 tests), device-checked on the Saga, world 925, packs
   `output/gabby-play-0929/packs-377850a5/` (uuids unchanged; content log 0 errors / 0 overridden).
   Evidence `output/gabby-play-0929/saga/` (`s*` = before, `v*` = after) and `output/gabby-play-0929/rec/`.
   - Cars: 10797's cat car put the eye inside its bodywork (default-cabin, view
@@ -158,7 +162,6 @@ for my 5yo to explore and play with."
   `_mcaddon_check` 0 fails (sweep + 5 Gabby), `_ix_passability` 100/150 % rot 0:
   0 FAIL, 41 SEALED = the `merge-0929` baseline's 41 (none new). The device
   packs are `377850a5`; `34eb8363` changes no Gabby seat (vehicle audit).
-- [ ] Minifigs with unclosed faces / open surfaces (another agent owns it).
 - [ ] Gabby, still open from the play round:
   - Undo leaves a car the player rode behind (10796 car 1, 10797's car,
     `v41-kill`, `s53`): killed by hand; not investigated.
@@ -195,12 +198,28 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   `dbix_refresh --set` on 40900 in the 09-27 round, lift on 40900 today,
   publish = refresh_local's) and `new-set.ts --commit` (git add/commit/push
   of the index copy).
-- [ ] Nimbus rig (worktree agent, offline only): `flyer` motion (native rotor
-  controller, cloud-styled), `set-canon.ts` (11390: cloud mount, companion
-  orbit), mount detector, interact → own cloud (60 s despawn, cap), fixture
-  `test/fixtures/nimbus-fixture.ldr`, GameTest. Then: merge after gates, a
-  Pixel GameTest round, and when the 11390 file lands, `new-set.ts 11390`
-  and the one-line canon check (cloud colour family).
+- [x] Nimbus rig MERGED `fa7a0a11` (gates green, 2,799 tests, physics spec
+  current): `flyer` motion (native rotor controller, cloud-styled, bob),
+  `engine/set-canon.ts` (11390: cloud mount, companion orbit; THE per-set
+  hint table), `engine/bedrock-flyer.ts` (mount detector, orbit path, summon
+  runtime `scripts/flyer.js`: tap Goku → your own cloud 1.5 blocks ahead,
+  mounted at once; empty clouds fade after 1,200 ticks; cap 8), orbit ride
+  kind in `bedrock-rides.ts`, fixture `test/fixtures/nimbus-fixture.ldr`
+  (298 real parts), GameTest `flyer_<id>`, guide "Flyer mounts and
+  companions". Sweep of 8 sets unchanged. Pack from main:
+  `output/nimbus-main-0929/nimbus-fixture.mcaddon` ("Nimbus found, 26 parts,
+  100 percent cloud colours").
+- [ ] Nimbus on a device: a Saga agent is playing the fixture pack now
+  (`output/nimbus-saga-0929/`): orbit look, tap-to-summon, seat on top,
+  climb/descend/hold, fade, cap, content log. Unproven until it reports:
+  `water_evaporation_actor_emitter` puff (fallback `campfire_smoke_particle`),
+  `addRider` on a just-spawned entity (+2 tick retry), the companion seat
+  accepting the figure via `rideOf`, the bob, the sounds. Then the Pixel
+  GameTest `flyer_<id>` in a later round.
+- [ ] When the 11390 file lands: `new-set.ts 11390`; if the export warns
+  `Mounts ... NOT found: <reason>`, the reason names the threshold (colour
+  code → `MOUNT_STYLE_COLOURS.cloud.codes`; parts → `FLYER.MOUNT_MAX_PARTS`).
+  If two figures stand on small builds, add a `figure` hint to the canon.
 
 ## Open — interactivity
 
