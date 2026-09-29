@@ -306,34 +306,19 @@ export function inferVehicleNose(bricks: ParsedBrick[], kind: PlayableKind, opti
   if (kind === 'plane') {
     // 5a. Engine glow: translucent ROUND parts (dishes, round bricks/plates,
     //     cones) in a glow colour are exhausts, and exhausts sit at the tail.
+    //     Strongest plane signal: the Milano's cockpit sits AFT of centre
+    //     (its prongs reach forward), so canopy position alone read it 90°
+    //     wrong; its four trans-light-blue engine dishes settle it.
     const glow = bricks.filter(b => isTranslucentColour(b.color) && isRoundGlowPart(b.part, options.meshes?.get(b.part)?.description));
     //     Weighted by footprint area: an engine is a 4×4 dish, a nav light a
     //     1×1 round plate, and the Milano has nine of the latter spread about.
     const footprint = (b: ParsedBrick): number => { const m = options.meshes?.get(b.part); return m ? Math.max(1, (m.bounds.max[0] - m.bounds.min[0]) * (m.bounds.max[2] - m.bounds.min[2])) : 400; };
+    if (glow.length >= 2) centroidVote(glow, 'engine glow', 3, -1, 0.1, `${glow.length} translucent round placements`, footprint);
     // 5b. Canopy position: the cockpit sits toward the nose (a helicopter's
     //     cabin, a fighter's canopy). Glass only - lamps and glows are not a
-    //     cockpit, and they are exactly what sits at the tail. (Weighting a
-    //     windscreen mould above other glass was tried and dropped: 75301's
-    //     canopy sits aft of its long nose and nearly turned it round.)
+    //     cockpit, and they are exactly what sits at the tail.
+    //     Weaker than the exhausts: the Milano's cockpit sits AFT of centre.
     const canopy = bricks.filter(b => isTranslucentColour(b.color) && isGlassPart(b.part, options.meshes?.get(b.part)));
-    //     Nothing sits behind an exhaust: glass FURTHER out on the glow's own
-    //     side means those round lights are not at the tail. The Milano
-    //     (76286, round 2026-09-28a on both phones) has trans-light-blue rings
-    //     115 LDU forward of its mass centre and its windscreen 231 LDU, at its
-    //     "beak-like front" (Rebrickable review); read as exhausts they turned
-    //     it round, so it flew tail-first with the pilot facing into the cabin.
-    //     Its remaining votes still nearly tie, so its nose is also recorded
-    //     in `VERIFIED_FACINGS` (playable-components.ts).
-    const centroid = (sel: ParsedBrick[], w: (b: ParsedBrick) => number = () => 1): [number, number] => {
-      const t = sel.reduce((a, b) => a + w(b), 0) || 1;
-      return [sel.reduce((a, b) => a + b.x * w(b), 0) / t - mx, sel.reduce((a, b) => a + b.z * w(b), 0) / t - mz];
-    };
-    let glowAtTail = glow.length >= 2;
-    if (glowAtTail && canopy.length) {
-      const [gx, gz] = centroid(glow, footprint), [cx, cz] = centroid(canopy);
-      if (gx * cx + gz * cz > 0 && Math.hypot(cx, cz) > Math.hypot(gx, gz)) glowAtTail = false;
-    }
-    if (glowAtTail) centroidVote(glow, 'engine glow', 3, -1, 0.1, `${glow.length} translucent round placements`, footprint);
     if (canopy.length >= 1) centroidVote(canopy, 'canopy position', 1.5, 1, 0.08, `${canopy.length} glass placements`);
     narrowEnd(1);
   }

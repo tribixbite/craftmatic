@@ -80,14 +80,3 @@ describe('vehicle-titled MPD with a display beside the vehicle', () => {
     expect(components[0]!.bricks).toHaveLength(20);
   });
 });
-
-describe('verified facings', () => {
-  it('gives the Milano its verified nose, and nothing else one', () => {
-    const hull: ParsedBrick[] = Array.from({ length: 12 }, (_, i) => ({ part: '3001.dat', color: 7, x: 0, y: 0, z: i * 80 }));
-    const milano = discoverPlayableComponents(hull, 'The Milano Spaceship 76286');
-    expect(milano.components[0]).toMatchObject({ kind: 'plane', forwardDirection: '+z' });
-    expect(milano.components[0]!.provenance).toContain('verified');
-    const other = discoverPlayableComponents(hull, 'Xwing Fighter 7140');
-    expect(other.components[0]!.forwardDirection).toBeUndefined();
-  });
-});

@@ -246,29 +246,6 @@ export function withPlayableBounds(component: Omit<PlayableBrickComponent, 'boun
   }
 }
 
-/**
- * Noses settled by evidence where the inferred votes conflict (source frame, as
- * `inferVehicleNose` reports them). Each entry names what decided it; add one
- * only with device or reference evidence, never to make a vote come out.
- */
-export const VERIFIED_FACINGS: ReadonlyArray<{ set: RegExp; kind: PlayableKind; nose: Exclude<VehicleFacing, 'auto'>; provenance: string }> = [
-  {
-    // Votes: its windscreen (84954, z 371) against trans-light-blue rings just
-    // behind it and a narrow end at the far side (forward-swept wings make the
-    // FRONT wide). Inferred -z, it flew tail-first on both phones (round
-    // 2026-09-28a: the chase camera saw its beak, first person looked back
-    // into the cabin). The set's review puts the new windscreen "in front" of
-    // a "beak-like front" (rebrickable.com/blog/769).
-    set: /\b76286\b/, kind: 'plane', nose: '+z',
-    provenance: 'windscreen at the front (Rebrickable review 769); tail-first when inferred -z (device round 2026-09-28a)',
-  },
-];
-
-/** The verified nose for a set's whole-model vehicle, if one is recorded. */
-export function verifiedFacing(label: string, kind: PlayableKind): (typeof VERIFIED_FACINGS)[number] | undefined {
-  return VERIFIED_FACINGS.find(v => v.kind === kind && v.set.test(label));
-}
-
 /** The title-driven discovery: a verified Batmobile, a whole-model vehicle, named submodels, wheel clusters. */
 function discoverTitled(
   bricks: ParsedBrick[], label: string, mode: VehicleMode, kind: PlayableKind,
@@ -291,15 +268,12 @@ function discoverTitled(
   // vehicle submodel is preferred when it dominates, and everything that does
   // not physically touch the vehicle is left behind.
   if (mode === 'auto' && isWholeVehicleLabel(label)) {
-    const verified = verifiedFacing(label, kind);
-    const facing = verified ? { forwardDirection: verified.nose } : {};
-    const why = verified ? `; nose ${verified.nose} verified: ${verified.provenance}` : '';
     const named = dominantNamedGroup(bricks, kind);
-    if (!named) return { components: [withBounds({ id: kind, label, kind, bricks, provenance: `whole model identified by source title${why}`, ...facing })], warnings: [] };
+    if (!named) return { components: [withBounds({ id: kind, label, kind, bricks, provenance: 'whole model identified by source title' })], warnings: [] };
     const name = named.name.replace(/\.(ldr|mpd|dat)$/i, '');
     const outside = bricks.length - named.bricks.length;
     return {
-      components: [withBounds({ id: kind, label, kind, bricks: named.bricks, provenance: `whole model identified by source title; vehicle submodel "${name}" (${named.bricks.length} of ${bricks.length} placements)${why}`, ...facing })],
+      components: [withBounds({ id: kind, label, kind, bricks: named.bricks, provenance: `whole model identified by source title; vehicle submodel "${name}" (${named.bricks.length} of ${bricks.length} placements)` })],
       warnings: [`${label}: ${outside} placement${outside === 1 ? '' : 's'} outside the "${name}" submodel left out of the vehicle.`],
     };
   }

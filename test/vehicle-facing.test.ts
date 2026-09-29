@@ -105,20 +105,21 @@ describe('inferVehicleNose', () => {
     expect(d.votes.map(v => v.signal).sort()).toEqual(['canopy position', 'narrow end x']);
   });
 
-  it('glow with glass further out on its own side is not an exhaust (the Milano flew tail-first)', () => {
-    // 76286's shape: forward-swept wings make the FRONT the wide end, trans-light-blue
-    // rings sit forward of centre, and its windscreen further out still.
+  it('a rear window behind the exhausts does not turn the plane round (the Milano)', () => {
+    // 76286's shape, measured on the Saga (probe 2026-09-28): the pointed nose is at
+    // the narrow end, trans-light-blue engine rings sit aft of centre, and a
+    // windscreen mould (84954) sits further aft still, as a rear window. Its
+    // canopy vote loses to the engines and the narrow end; the nose stays −Z.
     const bricks: ParsedBrick[] = [...body('z', 600, 80)];
     for (let x = -300; x <= 300; x += 40) bricks.push({ part: '3001.dat', color: 7, x, y: 0, z: 260, rot: I });
     bricks.push(
-      { part: '6141.dat', color: 43, x: -40, y: -24, z: 80, rot: I }, { part: '6141.dat', color: 43, x: 40, y: -24, z: 80, rot: I },
-      { part: '84954.dat', color: 47, x: 0, y: -40, z: 220, rot: I },
+      { part: '6141.dat', color: 43, x: -40, y: -24, z: 180, rot: I }, { part: '6141.dat', color: 43, x: 40, y: -24, z: 180, rot: I },
+      { part: '84954.dat', color: 47, x: 0, y: -40, z: 290, rot: I },
     );
     const meshes = new Map([['84954.dat', { ...mesh('84954', [[-30, -60, 0], [30, -60, 0], [30, 0, -40], [-30, 0, -40]]), description: 'Windscreen  3 x  4 x  3' }]]);
     const d = inferVehicleNose(bricks, 'plane', { meshes });
-    expect(d.votes.map(v => v.signal)).not.toContain('engine glow');
-    // The glass now votes unopposed by the rings; its end is +Z.
-    expect(d.votes.find(v => v.signal === 'canopy position')!.z).toBeGreaterThan(0);
+    expect(d.nose).toBe('-z');
+    expect(d.votes.map(v => v.signal)).toContain('engine glow');
   });
 
   it('exhausts behind the canopy still vote for the other end', () => {

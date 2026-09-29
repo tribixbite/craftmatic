@@ -439,17 +439,20 @@ deck), 76286's pilot fits from 100 %.
   100 %; a seated 10261 kiosk figure stands up when the player comes within
   2.5 blocks and the player sits; 10261 close-up at 2-5 blocks shows no
   stripes or missing faces.
-- [ ] 10365 floats ~3 blocks above a `/fill` pool on both phones, the display
-  stand's legs hanging clear of the water (`saga/s08-10365-side.png`).
-- [ ] 76286 flew TAIL-FIRST (fixed offline, not yet on a device): its nose was
-  inferred -z because trans-light-blue rings just behind its windscreen read
-  as exhausts, so the chase camera saw its beak and first person looked back
-  into the cabin. Now: glow with glass further out on its own side is not an
-  exhaust (`vehicle-facing.ts`), and its nose is recorded in
-  `VERIFIED_FACINGS` (`playable-components.ts`: the rest of its votes still
-  nearly tie). Rebuilt: nose +z explicit, seat under the windscreen at the
-  front. The vehicle audit's other 18 vehicles keep their facings. Next device
-  round: fly it forward, first person out of the windscreen.
+- [ ] 10365 floats ~3 blocks above the water: the entity is where the
+  runtime means (CMVT y -61.3 = surface -60.1 - draft 1.2, confirmed by
+  testforblock), but its lowest drawn point is +2.86 blocks over the origin
+  (the stand legs; keel +5.5-6.1), so a 1.2 draft sinks nothing. Probe
+  `output/probe-0928-float/` (Saga). Next: draft from the drawn keel.
+- [ ] 76286's pilot sits at a REAR window: the Saga probe (2026-09-28,
+  `output/probe-0928-float/`) measured its pointed nose at world +z and the
+  chase camera behind the engine rings, so its facing (-z, inferred) is RIGHT.
+  The seat comes from `canopy-parts`, i.e. 84954, a windscreen mould set as a
+  rear window aft of the engines (source z 371 of -203..554); first person
+  looks forward down the cabin to the two real pilot seats (riderAt eye
+  0, 4.5, -3.66). A facing "fix" (b733c029) turned it round and was undone.
+  Next: the driver's seat from the front seats (brick-built) or from glass at
+  the driving end, not the only glass anywhere.
 - [ ] 60221 rider is at deck height but at the hull's side edge (seat x 1.09);
   looking down from the eye shows water.
 - [ ] 10261 kiosk figure had not retaken its seat ~20 s after the player left
