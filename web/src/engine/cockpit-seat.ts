@@ -205,7 +205,9 @@ export type SeatEvidence = 'seat' | 'steering' | 'volume' | 'none';
  * guessed seat whose view is blocked is moved to one whose view is clear:
  * Gabby's doll cars (10797's cat bus, 10796's carts) sat the rider's eye
  * inside their bodywork, so the first-person view was a wall of colour
- * (Saga, 2026-09-29).
+ * (Saga, 2026-09-29). Only at minifig scale (the compiler asks): a display
+ * car shrunk to its real length has a real cabin whose bonnet fills the low
+ * rays (42172 scored 0.4 and its windscreen view is device-checked good).
  */
 export const VIEW = {
   yaw: [-30, -15, 0, 15, 30],

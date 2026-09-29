@@ -2738,8 +2738,9 @@ export async function compileLdrawEntityGeometry(
       return { min: [lo[0] / 16, lo[1] / 16, lo[2] / 16] as Vec3, max: [hi[0] / 16, hi[1] / 16, hi[2] / 16] as Vec3, glass: resolveLdrawEntityMaterial(placed[wb.brick]?.color ?? 16).alpha < 1 };
     });
     const eyeY = round(cockpitUnits[1] / 16);
+    // A default cabin at minifig scale (a toy or doll car built round a figure) is judged by its view (cockpit-seat.ts `VIEW`).
     return planSeat(boxes, [round(cockpitUnits[0] / 16), eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
-      cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : cockpit.source === 'default-cabin' ? 'none' : 'volume');
+      cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : cockpit.source === 'default-cabin' && scale >= BEDROCK_UNITS_PER_LDU - 1e-9 ? 'none' : 'volume');
   })();
   const collisionBox = {
     width: Math.min(3.5, Math.max(0.8, Math.round(totalWidth * 0.85 * 10) / 10)),

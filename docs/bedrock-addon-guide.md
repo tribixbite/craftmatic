@@ -4192,6 +4192,41 @@ room. Boarding a ride from chat is `/ride @s start_riding @e[type=<pack>_ride,c=
 Not seen working: 11204's dome and chest lids (no tap found their hit boxes),
 the swing, the carts, 10797's turntable and stool, the drawers.
 
+### The user's report and the play round (2026-09-29, Saga, `output/gabby-play-0929/`)
+
+"The gabby cars obstructed driver view when mounted, the slide in the
+dollhouse was misaligned and the elevator didn't seem functional." Played at
+100 % on the Saga (world 925) before and after; what was wrong and why:
+
+- **A doll car's guessed seat put the eye in its bodywork.** With no figure,
+  seat, wheel or glass (`default-cabin`) the seat is a guess, and on 10797's
+  cat bus its eye saw 0 of 15 forward rays out. A guessed seat is now judged
+  by its view (`forwardView`, `VIEW` in `cockpit-seat.ts`): below 90 % clear
+  it moves to the nearest model surface whose eye sees out (10797: its rear
+  deck; 10796: onto each cart). Only at minifig scale: a display car shrunk
+  to its real length has a real cabin whose bonnet fills the low rays (42172
+  scored 0.4 and moved onto its roof in a first try; its windscreen view is
+  device-checked good). Vehicle audit (`_vehicle_audit.ts --seats`, 41
+  default rideables + 4 Gabby): the three Gabby cars and 60367's sub5
+  airport vehicle change (its rider, hidden at 100 %, now sits drawn on top
+  with a clear view); every other seat is identical.
+- **A scripted car fell through the world under an overhang.** The ground
+  scan read a collider's top 2 blocks over a 1-block car as a wall under its
+  centre, then "no ground", and 10797's car fell to y -104. The scan now skips
+  a span whose underside is over the car's base, and a wall under the centre
+  holds the car's height (`bedrock-vehicle.ts`, host tests).
+- **The slide ran on its rails.** 27976's side walls stand 30 LDU over its
+  bed and the top-surface map read them; rim cells are now dropped.
+- **The lift's car was the wrong assembly.** "A car standing on two
+  supports" found only the cap of the shaft's back wall (bricks on three
+  `Support 2 x 2 x 13`), which then flew over the roof; the real car, the pink
+  3863 elevator platform in four grooved door frames, never moved. Lifts are
+  now found from the platform (`isLiftCarDescription`), stops are the room
+  floors (2629 2/3 bricks, by area; the rim tiles under them had been counted
+  and the car stopped a third of a block low), and a tap on the car boards it.
+- The controls hint in a car's action bar now shows for 5 s only: it sat over
+  the car in the chase view on a phone.
+
 ## Minifig Creator wand on the phones (2026-09-26)
 
 The creator's properties first loaded on the device on 2026-09-25, so this
