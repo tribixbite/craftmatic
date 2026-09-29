@@ -916,7 +916,7 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       let item: any;
       try { item = p.getComponent('minecraft:inventory')?.container?.getItem(p.selectedSlotIndex); } catch {}
       if (item?.typeId === config.itemId) {
-        if (!held.has(p.id)) { held.add(p.id); system.run(() => menu(p).catch((e: any) => tell(p, e.message || String(e)))); }
+        if (!held.has(p.id)) { held.add(p.id); system.run(() => open(p).catch((e: any) => tell(p, e.message || String(e)))); }
       } else if (held.has(p.id)) {
         // The wand put away (another slot, dropped, cleared): the preview goes with it.
         held.delete(p.id);
@@ -1509,79 +1509,88 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
     tell(p, 'Marked seat anchor removed. Re-place the build to update its seat entities.');
     return menu(p);
   }
+  /** Start carrying the preview to wherever the player looks (the "Follow my aim" action). */
+  function startAim(p: any, st: any): void {
+    st.aim = true;
+    previews.add(p.id);
+    const target = aimTarget(p);
+    if (target) pinCentredAt(p, st, target);
+    tell(p, 'The preview follows the block you look at. Use the wand again (or switch away and back) to open the menu: place it, pin it, rotate or resize it.');
+  }
+  /**
+   * What selecting or using the wand does. The first time - nothing pinned,
+   * no preview up, not already aiming - it goes straight to "Follow my aim":
+   * the user asked for the ghost first and the menu only once there is a
+   * placement to act on (2026-09-29). With an anchor (pinned, typed or left by
+   * the aim) or a preview showing, it opens the menu.
+   */
+  async function open(p: any): Promise<any> {
+    const st = state(p);
+    if (active?.player !== p.id && !st.anchor && !st.aim && !previews.has(p.id)) return startAim(p, st);
+    return menu(p);
+  }
   async function menu(p: any): Promise<any> {
     const st = state(p), running = active?.player === p.id;
     const nextSize = sizes[(sizes.indexOf(st.size) + 1) % sizes.length];
     const interaction = config.interactionNote ? `\n\n§eInteraction scale: ${config.interactionNote}` : '';
     const f = new ActionFormData().title(`${config.label} · Brick Wand`).body(`${summary(st)}${interaction}${walkThroughLine()}\n\nPreview first: ${config.preview ? 'a translucent ghost of the whole build stands at the pin, turned to the chosen rotation and size, with' : 'a full-size outline and model markers stay fixed at the pinned placement;'} red/green/blue marking +X/+Y/+Z and gold the model's -Z side. "Follow my aim" moves it to wherever you look until you pin. Place is always a separate confirmation.`);
-    if (running) f.button('Cancel placement');
+    // One list of [label, action]: the buttons are drawn from it and the
+    // selection indexes it, so the order is changed here and nowhere else.
+    const actions: Array<[string, () => any]> = [];
+    if (running) actions.push(['Cancel placement', () => { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }]);
     else {
-      f.button('Pin centred on me').button('Pin corner at my feet').button('Edit coordinates').button(`Rotate → ${(st.rotation + turnStep) % 360}°`).button('View preview in world').button('Place…').button('Undo last placement').button('Hide preview').button('Lighting / night vision');
-      f.button(st.aim ? 'Stop following my aim' : 'Follow my aim').button(`Size ${sizeLabel(st.size)} → ${sizeLabel(nextSize)}${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`);
-      const recommendedDoorSize = nextDoorSize(st.size);
-      if (recommendedDoorSize) f.button(`Use next door size ${percent(recommendedDoorSize)}`);
-      if (config.manualSeatTypeId) {
-        f.button(`Add seat here (${(st.manualSeats || []).length}/${manualSeatCap})`);
-        f.button('Manage marked seats');
-      }
-      if (fineTurn) f.button(`Turn back ← ${((st.rotation - turnStep) % 360 + 360) % 360}°`);
-    }
-    if (!running && config.vehicleControls) f.button('DeLorean controls');
-    const r = await show(p, f); if (r.canceled) return;
-    if (running) { if (active?.player === p.id) active.cancelled = true; return tell(p, 'Cancel requested.'); }
-    if (r.selection === 0) {
+      actions.push(['Place…', () => confirmPlace(p)]);
+      actions.push([st.aim ? 'Stop following my aim' : 'Follow my aim', () => {
+        if (!st.aim) return startAim(p, st);
+        st.aim = false;
+        return tell(p, st.anchor ? 'The preview stays where it is.' : 'Aim stopped.');
+      }]);
       // The origin is the model's corner; put the ROTATED, SIZED footprint centre on the player so a
       // vehicle-only pack lands where they stand instead of half a model away.
-      st.aim = false;
-      pinCentredAt(p, st, p.location);
-      return menu(p);
+      actions.push(['Pin centred on me', () => { st.aim = false; pinCentredAt(p, st, p.location); return menu(p); }]);
+      actions.push(['Pin corner at my feet', () => { st.aim = false; st.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; st.dimension = p.dimension.id; previews.add(p.id); return menu(p); }]);
+      actions.push(['Edit coordinates', () => edit(p)]);
+      actions.push([`Rotate → ${(st.rotation + turnStep) % 360}°`, () => {
+        st.rotation = fineTurn ? (st.rotation + turnStep) % 360 : rotations[(rotations.indexOf(st.rotation) + 1) % 4];
+        if (st.anchor) previews.add(p.id); return menu(p);
+      }]);
+      if (fineTurn) actions.push([`Turn back ← ${((st.rotation - turnStep) % 360 + 360) % 360}°`, () => { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; if (st.anchor) previews.add(p.id); return menu(p); }]);
+      actions.push([`Size ${sizeLabel(st.size)} → ${sizeLabel(nextSize)}${!blocksResizable && nextSize !== 100 ? ' (entities only)' : ''}`, () => {
+        st.size = nextSize;
+        if (st.anchor) previews.add(p.id);
+        if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
+        // The measured reason, quoted whole, the moment the wand lands on that step.
+        if (recommendedSize && nextSize === recommendedSize) tell(p, `${percent(nextSize)} is the measured walk-through size: ${access.reason}`);
+        return menu(p);
+      }]);
+      const recommendedDoorSize = nextDoorSize(st.size);
+      if (recommendedDoorSize) actions.push([`Use next door size ${percent(recommendedDoorSize)}`, () => { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }]);
+      actions.push(['View preview in world', () => { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }]);
+      actions.push(['Hide preview', () => { endPreview(p); return tell(p, 'Preview hidden.'); }]);
+      actions.push(['Undo last placement', () => undo(p)]);
+      actions.push(['Lighting / night vision', () => lighting(p)]);
+      if (config.manualSeatTypeId) {
+        actions.push([`Add seat here (${(st.manualSeats || []).length}/${manualSeatCap})`, () => {
+          try {
+            validate(p, st);
+            const at = modelPoint(st, p.location);
+            if (at.x < 0 || at.x > config.width || at.y < 0 || at.y > config.height || at.z < 0 || at.z > config.length) throw new Error('Stand on the chair seat inside the pinned build before marking it.');
+            if ((st.manualSeats || []).length >= manualSeatCap) throw new Error(`You can mark up to ${manualSeatCap} seats. Use Manage marked seats to remove one first.`);
+            if ((st.manualSeats || []).some((seat: any) => Math.abs(seat.x - at.x) < .25 && Math.abs(seat.y - at.y) < .25 && Math.abs(seat.z - at.z) < .25)) throw new Error('That chair surface is already marked.');
+            st.manualSeats = [...(st.manualSeats || []), { x: at.x, y: at.y, z: at.z, yaw: (p.getRotation?.().y || 0) - st.rotation }];
+            saveManualSeats(p, st);
+            return tell(p, 'Seat marked at your feet. Stand on the chair’s sitting surface; it will rotate, resize and be removed with this placement.');
+          } catch (e: any) { tell(p, e.message || String(e)); return menu(p); }
+        }]);
+        actions.push(['Manage marked seats', () => manageManualSeats(p, st)]);
+      }
+      if (config.vehicleControls && openVehicleControls) actions.push(['DeLorean controls', () => openVehicleControls(p)]);
     }
-    if (r.selection === 1) { st.aim = false; st.anchor = { x: Math.floor(p.location.x), y: Math.floor(p.location.y), z: Math.floor(p.location.z) }; st.dimension = p.dimension.id; previews.add(p.id); return menu(p); }
-    if (r.selection === 2) return edit(p);
-    if (r.selection === 3) {
-      st.rotation = fineTurn ? (st.rotation + turnStep) % 360 : rotations[(rotations.indexOf(st.rotation) + 1) % 4];
-      if (st.anchor) previews.add(p.id); return menu(p);
-    }
-    if (r.selection === 4) { try { validate(p, st); } catch (e: any) { tell(p, e.message); return menu(p); } previews.add(p.id); return tell(p, config.preview ? "The ghost stands at the pin, turned to the chosen rotation and size, while you hold the wand. Putting the wand away hides it; select the wand again to rotate, resize or place." : "Full-size preview fixed at the pin while you hold the wand. Red/green/blue mark +X/+Y/+Z; gold marks the model's -Z side. Putting the wand away hides it; select the wand again to rotate or place."); }
-    if (r.selection === 5) return confirmPlace(p);
-    if (r.selection === 6) return undo(p);
-    if (r.selection === 7) { endPreview(p); return tell(p, 'Preview hidden.'); }
-    if (r.selection === 8) return lighting(p);
-    if (r.selection === 9) {
-      st.aim = !st.aim;
-      if (st.aim) { previews.add(p.id); const target = aimTarget(p); if (target) pinCentredAt(p, st, target); return tell(p, 'The preview now follows the block you look at. Open the wand and pin (or place) when it is where you want it.'); }
-      return tell(p, st.anchor ? 'The preview stays where it is.' : 'Aim stopped.');
-    }
-    if (r.selection === 10) {
-      st.size = nextSize;
-      if (st.anchor) previews.add(p.id);
-      if (!blocksResizable && nextSize !== 100) tell(p, 'This pack\'s blocks were exported as coloured blocks: only the entities take the new size. Export again with brick-accurate buildings or at another model scale for the blocks to follow.');
-      // The measured reason, quoted whole, the moment the wand lands on that step.
-      if (recommendedSize && nextSize === recommendedSize) tell(p, `${percent(nextSize)} is the measured walk-through size: ${access.reason}`);
-      return menu(p);
-    }
-    const recommendedDoorSize = nextDoorSize(st.size);
-    if (recommendedDoorSize && r.selection === 11) { st.size = recommendedDoorSize; if (st.anchor) previews.add(p.id); return tell(p, `Door size set to ${percent(recommendedDoorSize)}. Eligible leaves at or below this threshold become interactive; larger measured leaves remain source geometry.`); }
-    const seatSelection = 11 + (recommendedDoorSize ? 1 : 0);
-    if (config.manualSeatTypeId && r.selection === seatSelection) {
-      try {
-        validate(p, st);
-        const at = modelPoint(st, p.location);
-        if (at.x < 0 || at.x > config.width || at.y < 0 || at.y > config.height || at.z < 0 || at.z > config.length) throw new Error('Stand on the chair seat inside the pinned build before marking it.');
-        if ((st.manualSeats || []).length >= manualSeatCap) throw new Error(`You can mark up to ${manualSeatCap} seats. Use Manage marked seats to remove one first.`);
-        if ((st.manualSeats || []).some((seat: any) => Math.abs(seat.x - at.x) < .25 && Math.abs(seat.y - at.y) < .25 && Math.abs(seat.z - at.z) < .25)) throw new Error('That chair surface is already marked.');
-        st.manualSeats = [...(st.manualSeats || []), { x: at.x, y: at.y, z: at.z, yaw: (p.getRotation?.().y || 0) - st.rotation }];
-        saveManualSeats(p, st);
-        return tell(p, 'Seat marked at your feet. Stand on the chair’s sitting surface; it will rotate, resize and be removed with this placement.');
-      } catch (e: any) { tell(p, e.message || String(e)); return menu(p); }
-    }
-    const manageSeatsSelection = seatSelection + 1;
-    if (config.manualSeatTypeId && r.selection === manageSeatsSelection) return manageManualSeats(p, st);
-    const afterSeat = (recommendedDoorSize ? 1 : 0) + (config.manualSeatTypeId ? 2 : 0);
-    if (fineTurn && r.selection === 11 + afterSeat) { st.rotation = ((st.rotation - turnStep) % 360 + 360) % 360; if (st.anchor) previews.add(p.id); return menu(p); }
-    if (r.selection === (fineTurn ? 12 + afterSeat : 11 + afterSeat) && config.vehicleControls && openVehicleControls) return openVehicleControls(p);
+    for (const [label] of actions) f.button(label);
+    const r = await show(p, f); if (r.canceled || r.selection === undefined) return;
+    return actions[r.selection]?.[1]();
   }
-  world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => menu(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
+  world.afterEvents.itemUse.subscribe((ev: any) => { if (ev.itemStack.typeId === config.itemId) system.run(() => open(ev.source).catch((e: any) => tell(ev.source, e.message || String(e)))); });
   console.warn(`BRICK_WAND_READY ${config.id}`);
 }
 
@@ -1607,7 +1616,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
       },
     },
   };
-  const grant = `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar to open it. Switch away and back to reopen. "Follow my aim" moves the ghost preview to wherever you look; pin, rotate and size it, then place.` }] })}\n`;
+  const grant = `give @s ${itemId} 1\ntellraw @s ${JSON.stringify({ rawtext: [{ text: `§b[BrickWand]§r Select ${spec.label} BrickWand in your hotbar: the ghost preview follows wherever you look. Use the wand again (or switch away and back) for the menu - Place is at the top; pin, rotate and size it there.` }] })}\n`;
   return {
     itemId, shortAlias, script,
     files: [

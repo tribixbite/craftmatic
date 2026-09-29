@@ -8,9 +8,19 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   const responses: any[] = [];
   let showCalls = 0;
   class Form {
-    title() { return this; } body() { return this; } button() { return this; }
+    labels: string[] = [];
+    title() { return this; } body() { return this; } button(label: string) { this.labels.push(label); return this; }
     textField(_label: string, _placeholder: string, options: any) { expect(typeof options).toBe('object'); return this; }
-    async show() { showCalls++; return responses.shift() ?? { canceled: true }; }
+    async show() {
+      showCalls++;
+      const r = responses.shift() ?? { canceled: true };
+      // `{ action: 'Place' }` presses the button whose label starts with it, so
+      // the test names the button instead of depending on the menu's order.
+      if (r.action === undefined) return r;
+      const i = this.labels.findIndex(l => l.startsWith(r.action));
+      if (i < 0) throw new Error(`no "${r.action}" button in [${this.labels.join(' | ')}]`);
+      return { selection: i };
+    }
   }
   let use: any, selectedItem: any, loaded = false, loadCalls = 0, blockedLoadCall = 0, blockEveryLoad = false, addSuccessCount = 1;
   const intervals = new Map<number, any>();
@@ -43,23 +53,35 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   const flush = async (turns = 60) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
   const pollHeldItem = intervals.get(5), drawPreview = intervals.get(12);
 
-  // Selecting the exact wand opens once; staying on it does not reopen, while
-  // switching away and back creates a fresh activation transition.
-  selectedItem = { typeId: assets.itemId }; responses.push({ canceled: true });
+  // Selecting the exact wand activates once; staying on it does not re-activate,
+  // while switching away and back creates a fresh activation transition. With
+  // nothing pinned an activation starts "Follow my aim" and draws no form.
+  const aimStarts = () => player.sendMessage.mock.calls.filter(([m]: [string]) => m.includes('The preview follows the block you look at')).length;
+  selectedItem = { typeId: assets.itemId };
   pollHeldItem(); await flush();
-  expect(showCalls).toBe(1);
+  expect(showCalls).toBe(0);
+  expect(aimStarts()).toBe(1);
   pollHeldItem(); await flush();
-  expect(showCalls).toBe(1);
+  expect(aimStarts()).toBe(1);
   selectedItem = undefined; pollHeldItem();
-  selectedItem = { typeId: assets.itemId }; responses.push({ canceled: true });
+  selectedItem = { typeId: assets.itemId };
   pollHeldItem(); await flush();
-  expect(showCalls).toBe(2);
+  expect(showCalls).toBe(0);
+  expect(aimStarts()).toBe(2);
   selectedItem = undefined; pollHeldItem();
 
   // The wrong item must not open or mutate this pack's planner.
-  use({ itemStack: { typeId: 'minecraft:stick' }, source: player });
-  responses.push({ selection: 1 }, { selection: 3 }, { canceled: true });
+  use({ itemStack: { typeId: 'minecraft:stick' }, source: player }); await flush();
+  expect(showCalls).toBe(0);
+  expect(aimStarts()).toBe(2);
+  // The first use of an unpinned wand starts the aim (no form); the second,
+  // while aiming, opens the menu.
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  expect(showCalls).toBe(0);
+  expect(aimStarts()).toBe(3);
+  responses.push({ action: 'Pin corner at my feet' }, { action: 'Rotate' }, { canceled: true });
+  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  expect(showCalls).toBe(3);
   expect(commands).toHaveLength(0);
   drawPreview();
   // Every marker is full-size at the pinned, rotated placement. Looking in a
@@ -79,7 +101,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   drawPreview();
   expect(particles).toEqual(firstPreview);
   player.location = { x: 10, y: 20, z: 30 };
-  responses.push({ selection: 5 }, { selection: 0 });
+  responses.push({ action: 'Place' }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toEqual(['structure load craftmatic:t0 28 20 30 90_degrees none', 'structure load craftmatic:t1 28 20 48 90_degrees none']);
   expect(areaCommands.some(command => command.includes('tickingarea add 28 20 30 29 20 47'))).toBe(true);
@@ -97,13 +119,13 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // Cancel before the next placement mutates anything: the previous complete
   // placement must remain the one available to Undo.
   blockedLoadCall = loadCalls + 1;
-  responses.push({ selection: 5 }, { selection: 0 });
+  responses.push({ action: 'Place' }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
-  responses.push({ selection: 0 });
+  responses.push({ action: 'Cancel placement' });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placement stopped: Canceled.'));
   blockedLoadCall = 0;
-  responses.push({ selection: 6 });
+  responses.push({ action: 'Undo last placement' });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(restores.map(args => args[2])).toEqual([{ x: 28, y: 20, z: 30 }, { x: 28, y: 20, z: 48 }]);
   expect(entity.remove).toHaveBeenCalledOnce();
@@ -112,7 +134,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // A pinned origin cannot silently move to the same coordinates in another dimension.
   const nether = { ...dimension, id: 'nether' };
   player.dimension = nether;
-  responses.push({ selection: 5 }, { canceled: true });
+  responses.push({ action: 'Place' }, { canceled: true });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(commands).toHaveLength(2);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Origin is pinned in overworld'));
@@ -120,9 +142,9 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
 
   // Cancel while the actor's awaited chunk load is pending: no actor may spawn afterward.
   blockedLoadCall = loadCalls + 3;
-  responses.push({ selection: 5 }, { selection: 0 });
+  responses.push({ action: 'Place' }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
-  responses.push({ selection: 0 });
+  responses.push({ action: 'Cancel placement' });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placement stopped: Canceled.'));
@@ -131,13 +153,13 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // and preserves the partial placement history produced just before it.
   blockedLoadCall = 0;
   blockEveryLoad = true;
-  responses.push({ selection: 5 }, { selection: 0 });
+  responses.push({ action: 'Place' }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(800);
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
   expect(loaded).toBe(false);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('probe 28,20,30 returned undefined'));
   blockEveryLoad = false;
-  responses.push({ selection: 6 });
+  responses.push({ action: 'Undo last placement' });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(restores).toHaveLength(4);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Undo complete.'));
@@ -146,7 +168,7 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // A command that runs but reports no successful ticking area fails immediately
   // with an actionable diagnostic rather than entering the 600-tick poll.
   addSuccessCount = 0;
-  responses.push({ selection: 5 }, { selection: 0 });
+  responses.push({ action: 'Place' }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('tickingarea command reported successCount 0'));
   expect(dimension.spawnEntity).toHaveBeenCalledOnce();
@@ -154,17 +176,24 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   // Lighting is an appended player-only aid; existing menu indexes stay stable
   // and neither choice performs a dimension command or block mutation.
   const commandsBeforeLighting = commands.length, snapshotsBeforeLighting = snapshots.length;
-  responses.push({ selection: 8 }, { selection: 0 });
+  responses.push({ action: 'Lighting' }, { selection: 0 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.addEffect).toHaveBeenCalledWith('minecraft:night_vision', 12000, { showParticles: false });
-  responses.push({ selection: 8 }, { selection: 1 });
+  responses.push({ action: 'Lighting' }, { selection: 1 });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(player.removeEffect).toHaveBeenCalledWith('minecraft:night_vision');
   expect(commands).toHaveLength(commandsBeforeLighting);
   expect(snapshots).toHaveLength(snapshotsBeforeLighting);
   expect(showTimeMachineControls).not.toHaveBeenCalled();
-  responses.push({ selection: 11 }); // after "Follow my aim" (9) and "Size" (10)
+  responses.push({ action: 'DeLorean controls' });
   use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
   expect(showTimeMachineControls).toHaveBeenCalledExactlyOnceWith(player);
   expect(commands).toHaveLength(commandsBeforeLighting);
+
+  // With a pin, SELECTING the wand again opens the menu instead of starting the aim.
+  const showsBeforeReselect = showCalls, aimsBeforeReselect = aimStarts();
+  selectedItem = { typeId: assets.itemId }; responses.push({ canceled: true });
+  pollHeldItem(); await flush();
+  expect(showCalls).toBe(showsBeforeReselect + 1);
+  expect(aimStarts()).toBe(aimsBeforeReselect);
 });

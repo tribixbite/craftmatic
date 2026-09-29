@@ -20,9 +20,19 @@ function savedWorld() {
 /** Boot the pack's runtime over `saved` as a fresh script (the state a reload leaves). */
 function boot(assets: ReturnType<typeof buildPlacementPackAssets>, saved: ReturnType<typeof savedWorld>, idPad = '', turns = 3000) {
   const responses: any[] = [];
+  let shown = 0;
   class Form {
-    title() { return this; } body() { return this; } button() { return this; } textField() { return this; }
-    async show() { return responses.shift() ?? { canceled: true }; }
+    labels: string[] = [];
+    title() { return this; } body() { return this; } button(label: string) { this.labels.push(label); return this; } textField() { return this; }
+    async show() {
+      shown++;
+      const r = responses.shift() ?? { canceled: true };
+      // `{ action: 'Place' }` presses the button whose label starts with it.
+      if (r.action === undefined) return r;
+      const i = this.labels.findIndex(l => l.startsWith(r.action));
+      if (i < 0) throw new Error(`no "${r.action}" button in [${this.labels.join(' | ')}]`);
+      return { selection: i };
+    }
   }
   let use: any, loaded = false, spawnedCount = saved.entities.size;
   const dimension: any = {
@@ -65,7 +75,18 @@ function boot(assets: ReturnType<typeof buildPlacementPackAssets>, saved: Return
   new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'BlockVolume', 'ActionFormData', 'ModalFormData', source)(
     world, system, { Memory: 'memory', World: 'world' }, { resolve: (id: string, states: any) => ({ id, states }) }, class {}, Form, Form);
   const flush = async () => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
-  const open = async (...r: any[]) => { responses.push(...r); use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
+  const useWand = async () => { use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
+  /**
+   * Open the wand's MENU and answer its forms with `r`. An unpinned wand's first
+   * use starts "Follow my aim" and draws no form, so the wand is then used once
+   * more - as a player would - to reach the menu.
+   */
+  const open = async (...r: any[]) => {
+    const before = shown;
+    responses.push(...r);
+    await useWand();
+    if (r.length && shown === before) await useWand();
+  };
   return { open, player, messages: () => player.sendMessage.mock.calls.map((c: unknown[]) => String(c[0])) };
 }
 boot.nearby = new Set<string>();
@@ -82,8 +103,8 @@ describe('Brick Wand Undo survives a world reload', () => {
     const assets = buildPlacementPackAssets(spec(3));
     const saved = savedWorld();
     const first = boot(assets, saved);
-    await first.open({ selection: 1 }, { canceled: true }); // pin the corner at the player's feet
-    await first.open({ selection: 5 }, { selection: 0 }); // Place... -> confirm
+    await first.open({ action: 'Pin corner at my feet' }, { canceled: true }); // pin the corner at the player's feet
+    await first.open({ action: 'Place' }, { selection: 0 }); // Place... -> confirm
     expect(first.messages().some(m => m.includes('Placed Reload'))).toBe(true);
     // Snapshots are kept in the WORLD, not the script's memory.
     expect(saved.structures.size).toBe(2);
@@ -99,7 +120,7 @@ describe('Brick Wand Undo survives a world reload', () => {
     // The reload: a new script, an empty `histories`, and the entities in unloaded chunks.
     boot.nearby.clear();
     const second = boot(assets, saved);
-    await second.open({ selection: 6 }); // Undo last placement
+    await second.open({ action: 'Undo last placement' }); // Undo last placement
     expect(second.messages().some(m => m.includes('Nothing to undo'))).toBe(false);
     expect(second.messages().some(m => m.includes('Undo complete.'))).toBe(true);
     expect(saved.restores.map(r => r.at)).toEqual([{ x: 10, y: 20, z: 30 }, { x: 20, y: 20, z: 30 }]);
@@ -107,7 +128,7 @@ describe('Brick Wand Undo survives a world reload', () => {
     for (const e of live) expect(e.removed).toBe(true);
     // The record is gone with it: a second Undo has nothing to do.
     expect([...saved.playerProperties.keys()].some(k => k.includes(':undo'))).toBe(false);
-    await second.open({ selection: 6 });
+    await second.open({ action: 'Undo last placement' });
     expect(second.messages().at(-1)).toContain('Nothing to undo');
   });
 
@@ -115,19 +136,19 @@ describe('Brick Wand Undo survives a world reload', () => {
     const assets = buildPlacementPackAssets(spec(2));
     const saved = savedWorld();
     const first = boot(assets, saved);
-    await first.open({ selection: 1 }, { canceled: true });
-    await first.open({ selection: 5 }, { selection: 0 });
+    await first.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await first.open({ action: 'Place' }, { selection: 0 });
     const old = [...saved.entities.values()];
     const oldSnapshots = [...saved.structures.keys()];
     const second = boot(assets, saved);
-    await second.open({ selection: 1 }, { canceled: true });
-    await second.open({ selection: 5 }, { selection: 0 });
+    await second.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await second.open({ action: 'Place' }, { selection: 0 });
     for (const e of old) expect(e.removed).toBe(true);
     for (const name of oldSnapshots) expect(saved.deleted).toContain(name);
     // The new placement is the one Undo now reverts.
     const fresh = [...saved.entities.values()].filter(e => !e.removed);
     expect(fresh).toHaveLength(2);
-    await second.open({ selection: 6 });
+    await second.open({ action: 'Undo last placement' });
     for (const e of fresh) expect(e.removed).toBe(true);
   });
 
@@ -136,14 +157,14 @@ describe('Brick Wand Undo survives a world reload', () => {
     const assets = buildPlacementPackAssets(spec(700));
     const saved = savedWorld();
     const first = boot(assets, saved, 'x'.repeat(56), 200000);
-    await first.open({ selection: 1 }, { canceled: true });
-    await first.open({ selection: 5 }, { selection: 0 });
+    await first.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await first.open({ action: 'Place' }, { selection: 0 });
     const keys = [...saved.playerProperties.keys()].filter(k => k.includes(':undo'));
     expect(keys.length).toBeGreaterThan(1);
     for (const k of keys) expect(String(saved.playerProperties.get(k)).length).toBeLessThanOrEqual(32767);
     // Nothing is near after the reload; the sweep finds every one by tag.
     const second = boot(assets, saved);
-    await second.open({ selection: 6 });
+    await second.open({ action: 'Undo last placement' });
     expect([...saved.entities.values()].every(e => e.removed)).toBe(true);
     expect([...saved.playerProperties.keys()].filter(k => k.includes(':undo'))).toHaveLength(0);
   });

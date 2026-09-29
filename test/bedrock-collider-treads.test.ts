@@ -37,7 +37,8 @@ import { host } from './_placement-host.js';
 
 /** The pin the host's player uses (its `location`, floored). */
 const ANCHOR = { x: 100, y: 64, z: 200 };
-const PIN_AT_FEET = 1, ROTATE = 3, PLACE = 5, SIZE = 10;
+/** Label prefixes of the wand menu's buttons (`menu()` in bedrock-placement-pack.ts). */
+const PIN_AT_FEET = 'Pin corner at my feet', ROTATE = 'Rotate', PLACE = 'Place', SIZE = 'Size';
 
 const colliders = (dims: GridDims, runs: string): PlacementColliders =>
   ({ ...dims, block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE, runs, keptCells: 0 });
@@ -137,11 +138,11 @@ async function relay(dims: GridDims, runs: string, pct: number, rotation: number
     tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: dims.width, height: dims.height, length: dims.length, nonAir: 1 }],
     actors: [], colliders: colliders(dims, runs), treads, settleTicks: 1, finalHoldTicks: 1,
   });
-  await h.open({ selection: PIN_AT_FEET }, { canceled: true });
-  for (let r = 0; r < rotation / 90; r++) await h.open({ selection: ROTATE }, { canceled: true });
+  await h.open({ action: PIN_AT_FEET }, { canceled: true });
+  for (let r = 0; r < rotation / 90; r++) await h.open({ action: ROTATE }, { canceled: true });
   const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
-  for (let i = 0; i < steps; i++) await h.open({ selection: SIZE }, { canceled: true });
-  await h.open({ selection: PLACE }, { selection: 0 });
+  for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
+  await h.open({ action: PLACE }, { selection: 0 });
   await h.flush(20000);
   expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed House.'));
   const messages = (h.player.sendMessage.mock.calls as string[][]).map(c => c[0]!);

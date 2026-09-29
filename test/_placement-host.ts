@@ -14,7 +14,16 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   class Form {
     labels: string[] = [];
     title() { return this; } body() { return this; } button(l: string) { this.labels.push(l); return this; } textField() { return this; }
-    async show() { buttons.push(this.labels); return responses.shift() ?? { canceled: true }; }
+    async show() {
+      buttons.push(this.labels);
+      const r = responses.shift() ?? { canceled: true };
+      // `{ action: 'Place' }` picks the button whose label starts with it, so a
+      // test names what it presses instead of depending on the menu's order.
+      if (r.action === undefined) return r;
+      const i = this.labels.findIndex(l => l.startsWith(r.action));
+      if (i < 0) throw new Error(`no "${r.action}" button in [${this.labels.join(' | ')}]`);
+      return { selection: i };
+    }
   }
   const intervals = new Map<number, any>();
   /** `fill`'s documented cap, which `fillBlocks` shares: 32768 blocks per call. */
@@ -85,6 +94,18 @@ export function host(spec: Parameters<typeof buildPlacementPackAssets>[0]) {
   const source = assets.script.replace(/^import .*;\s*$/gm, '');
   new Function('world', 'system', 'StructureSaveMode', 'BlockPermutation', 'BlockVolume', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory', World: 'world' }, BlockPermutation, BlockVolume, Form, Form);
   const flush = async (turns = 400) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
-  const open = async (...r: any[]) => { responses.push(...r); use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
-  return { assets, world, open, flush, intervals, spawned, set, commands, actionBars, player, buttons, playerProperties, setHit: (h: any) => { hit = h; }, blocks, fills };
+  /** Use the wand once, answering nothing: the first use of a fresh wand starts "Follow my aim". */
+  const useWand = async () => { use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(); };
+  /**
+   * Open the wand's MENU and answer its forms with `r`. A fresh wand's first
+   * use shows no menu (it starts following the aim), so when that use drew no
+   * form the wand is used once more - as a player would - to reach the menu.
+   */
+  const open = async (...r: any[]) => {
+    const shown = buttons.length;
+    responses.push(...r);
+    await useWand();
+    if (r.length && buttons.length === shown) await useWand();
+  };
+  return { assets, world, open, use: useWand, flush, intervals, spawned, set, commands, actionBars, player, buttons, playerProperties, setHit: (h: any) => { hit = h; }, blocks, fills };
 }

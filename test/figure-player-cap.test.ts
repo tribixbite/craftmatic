@@ -161,7 +161,8 @@ describe('a figure in a 2× export is compiled at 1× (player height), while the
 });
 
 describe('a figure spawned by the runtime stands ON the scaled floor', () => {
-  const PIN_AT_FEET = 1, PLACE = 5, SIZE = 10;
+  /** Label prefixes of the wand menu's buttons (`menu()` in bedrock-placement-pack.ts). */
+  const PIN_AT_FEET = 'Pin corner at my feet', PLACE = 'Place', SIZE = 'Size';
   const collider = (lo: number, hi: number) => ({ typeId: 'craftmatic:collider', permutation: { getState: (k: string) => (k === 'craftmatic:hi' ? hi : lo) }, setPermutation() {} });
   const grass = () => ({ typeId: 'minecraft:grass_block', permutation: { getState: () => undefined }, setPermutation() {} });
   const spec = (figureY: number) => {
@@ -178,10 +179,10 @@ describe('a figure spawned by the runtime stands ON the scaled floor', () => {
   const place = async (figureY: number, pct: number, prepare: (h: ReturnType<typeof host>) => void) => {
     const h = host(spec(figureY));
     prepare(h);
-    await h.open({ selection: PIN_AT_FEET }, { canceled: true });
+    await h.open({ action: PIN_AT_FEET }, { canceled: true });
     const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
-    for (let i = 0; i < steps; i++) await h.open({ selection: SIZE }, { canceled: true });
-    await h.open({ selection: PLACE }, { selection: 0 });
+    for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
+    await h.open({ action: PLACE }, { selection: 0 });
     await h.flush(2000);
     expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Floor.'));
     return h.spawned.find(s => s.typeId === 'craftmatic:floor_fig1')!.at.y as number;

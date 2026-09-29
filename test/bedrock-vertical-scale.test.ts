@@ -30,8 +30,8 @@ import { host } from './_placement-host.js';
 
 /** The pin the host's player sets with "Pin corner at my feet" (its location floored). */
 const ANCHOR = { x: 100, y: 64, z: 200 };
-/** Menu indices of the runtime's buttons (`menu()` in bedrock-placement-pack.ts). */
-const PIN_AT_FEET = 1, PLACE = 5, SIZE = 10;
+/** Label prefixes of the wand menu's buttons (`menu()` in bedrock-placement-pack.ts). */
+const PIN_AT_FEET = 'Pin corner at my feet', PLACE = 'Place', SIZE = 'Size';
 
 /**
  * The player's movement limits, in blocks. Height is the shared LEGO/Minecraft
@@ -177,10 +177,10 @@ async function relay(spec: { dims: GridDims; runs: string; stem: string }, pct: 
     treads: false,
     settleTicks: 1, finalHoldTicks: 1,
   });
-  await h.open({ selection: PIN_AT_FEET }, { canceled: true });
+  await h.open({ action: PIN_AT_FEET }, { canceled: true });
   const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
-  for (let i = 0; i < steps; i++) await h.open({ selection: SIZE }, { canceled: true });
-  await h.open({ selection: PLACE }, { selection: 0 });
+  for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
+  await h.open({ action: PLACE }, { selection: 0 });
   await h.flush(turns);
   expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining(`Placed ${spec.stem}.`));
   return placedSpans(h.blocks);

@@ -26,8 +26,8 @@ const jsonOf = async (buffer: ArrayBuffer, name: string): Promise<any> => JSON.p
 
 /** The pin the host's player sets with "Pin corner at my feet" (its location floored). */
 const PIN = { x: 100, y: 64, z: 200 };
-/** Menu indices of the runtime's buttons (`menu()` in bedrock-placement-pack.ts). */
-const PIN_AT_FEET = 1, PLACE = 5, SIZE = 10;
+/** Label prefixes of the wand menu's buttons (`menu()` in bedrock-placement-pack.ts). */
+const PIN_AT_FEET = 'Pin corner at my feet', PLACE = 'Place', SIZE = 'Size';
 
 /** Lowest cuboid of a compiled geometry, in blocks above the entity's own origin (16 units = 1 block). */
 function geometryFloorBlocks(geo: any): number {
@@ -42,10 +42,10 @@ function geometryFloorBlocks(geo: any): number {
  */
 async function placeAtSize(spec: Parameters<typeof host>[0], pct: number) {
   const h = host(spec);
-  await h.open({ selection: PIN_AT_FEET }, { canceled: true });
+  await h.open({ action: PIN_AT_FEET }, { canceled: true });
   const steps = (SIZE_STEPS.indexOf(pct) - SIZE_STEPS.indexOf(100) + SIZE_STEPS.length) % SIZE_STEPS.length;
-  for (let i = 0; i < steps; i++) await h.open({ selection: SIZE }, { canceled: true });
-  await h.open({ selection: PLACE }, { selection: 0 });
+  for (let i = 0; i < steps; i++) await h.open({ action: SIZE }, { canceled: true });
+  await h.open({ action: PLACE }, { selection: 0 });
   await h.flush(4000);
   return h;
 }
