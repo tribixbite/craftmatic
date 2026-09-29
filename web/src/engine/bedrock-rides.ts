@@ -656,17 +656,34 @@ function ridesRuntime(config: RideRuntimeConfig): void {
       if (run.s >= run.end - 1e-6) finish(run);
     }
   }, 1);
-  // A tap on a lift's CAR boards it: the rider is put on the car's own seat.
-  // The seat is an invisible half block on the platform; a child taps the
-  // pink box they can see (10788, 2026-09-29).
+  // A tap boards a ride. On a touch screen a tap is a HIT (`entityHitEntity`);
+  // only a press held ~0.5 s is the interact that mounts a vanilla rideable
+  // (measured on the Pixel, the add-on guide's pinball notes), so every seat a
+  // child taps needs this handler. Two targets:
+  //   - a lift's CAR: the rider is put on the car's own seat. The seat is
+  //     invisible; a child taps the pink box they can see (10788, 2026-09-29);
+  //   - the ride SEAT itself (a slide has no car): its box sits on the chute's
+  //     top bed, where the child aims. Until 2026-09-29c a hit on it did
+  //     nothing - 10788's slide boarded nobody over three taps on the Pixel
+  //     while `/ride` on the same seat ran the chute. Colliders have no
+  //     selection box, so the tap's ray reaches the seat inside them.
   const carRide = new Map<string, number>();
   config.rides.forEach((r, i) => { if (r.carType) carRide.set(r.carType, i); });
-  const board = (player: any, car: any): void => {
-    if (!player || player.typeId !== 'minecraft:player' || !car || !carRide.has(car.typeId)) return;
-    const index = typeof read(car, K.index) === 'number' ? read(car, K.index) : carRide.get(car.typeId);
-    let seats: any[] = [];
-    try { seats = car.dimension.getEntities({ type: config.seatType, location: car.location, maxDistance: 16 }); } catch { return; }
-    const seat = seats.find((s: any) => read(s, K.index) === index);
+  const board = (player: any, target: any): void => {
+    if (!player || player.typeId !== 'minecraft:player' || !target) return;
+    let seat: any;
+    if (target.typeId === config.seatType) {
+      const index = read(target, K.index);
+      const ride = typeof index === 'number' ? config.rides[index] : undefined;
+      if (!ride || ride.kind === 'orbit') return; // an orbit's seat carries a figure, never a player (bedrock-flyer.ts gives the player a cloud)
+      seat = target;
+    } else {
+      if (!carRide.has(target.typeId)) return;
+      const index = typeof read(target, K.index) === 'number' ? read(target, K.index) : carRide.get(target.typeId);
+      let seats: any[] = [];
+      try { seats = target.dimension.getEntities({ type: config.seatType, location: target.location, maxDistance: 16 }); } catch { return; }
+      seat = seats.find((s: any) => read(s, K.index) === index);
+    }
     if (!seat || running.has(seat.id)) return;
     let rideable: any;
     try { rideable = seat.getComponent('minecraft:rideable'); } catch { return; }
