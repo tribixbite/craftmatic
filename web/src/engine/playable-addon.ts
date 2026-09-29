@@ -470,15 +470,17 @@ export function isScriptedVehicle(kind: PlayableKind, motion: VehicleMotion): bo
  * A scripted vehicle type as scripts/vehicles.js sees it: its mode, half its
  * length (the nose/bow probes), half its width and its height (the swept
  * footprint, `sweepFootprint`) from the shipped geometry, and a boat's draft:
- * 12 % of its height, 0.3-1.2 blocks (a 3-block yacht rode visibly high at a
- * flat 0.3 on the Pixel; a 29-block galleon with its masts sits 1.2 deep).
+ * its keel's height over the origin (`keelBlocks`: what hangs under the hull,
+ * like 10365's stand posts, goes under water) plus an immersion of 12 % of its
+ * height, 0.3-1.2 blocks (a 3-block yacht rode visibly high at a flat 0.3 on
+ * the Pixel; a 29-block galleon with its masts sits 1.2 deep).
  */
-export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: { width: number; height: number; length: number }): ScriptedVehicleType {
+export function scriptedTypeOf(kind: PlayableKind, motion: VehicleMotion, size: { width: number; height: number; length: number }, keelBlocks = 0): ScriptedVehicleType {
     const r2 = (v: number): number => Math.round(v * 100) / 100;
     const mode: ScriptedVehicleType['mode'] = motion === 'hover' ? 'hover' : kind === 'car' ? 'car' : motion === 'boat' ? 'boat' : 'plane';
     return {
         mode, noseReach: r2(size.length / 2), halfWidth: r2(size.width / 2), height: r2(size.height),
-        ...(mode === 'boat' ? { draft: r2(Math.min(1.2, Math.max(0.3, size.height * 0.12))) } : {}),
+        ...(mode === 'boat' ? { draft: r2(keelBlocks + Math.min(1.2, Math.max(0.3, size.height * 0.12))) } : {}),
     };
 }
 
@@ -2364,7 +2366,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         if (componentIsTimeMachine)
             timeMachineConfig = { typeId: fullTypeId, width: layout.width, height: layout.height, length: layout.length, topSpeedProperty: VEHICLE_DYNAMIC.topSpeed, hudProperty: VEHICLE_DYNAMIC.hud, topMargin: TIME_MACHINE.TOP_MARGIN, teleportBlocks: TIME_MACHINE.TELEPORT_BLOCKS };
         if (scripted)
-            scriptedTypes[fullTypeId] = scriptedTypeOf(c.kind, motion, ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length });
+            scriptedTypes[fullTypeId] = scriptedTypeOf(c.kind, motion, ldrawGeo?.sizeBlocks ?? { width: layout.width, height: layout.height, length: layout.length }, ldrawGeo?.keelBlocks ?? 0);
         else if (c.kind === 'car' || c.kind === 'plane' || c.kind === 'boat')
             driverVehicles.push({ typeId: fullTypeId, kind: c.kind, label: c.label });
         if (ldrawGeo) {

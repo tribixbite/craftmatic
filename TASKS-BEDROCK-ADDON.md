@@ -439,11 +439,21 @@ deck), 76286's pilot fits from 100 %.
   100 %; a seated 10261 kiosk figure stands up when the player comes within
   2.5 blocks and the player sits; 10261 close-up at 2-5 blocks shows no
   stripes or missing faces.
-- [ ] 10365 floats ~3 blocks above the water: the entity is where the
-  runtime means (CMVT y -61.3 = surface -60.1 - draft 1.2, confirmed by
-  testforblock), but its lowest drawn point is +2.86 blocks over the origin
-  (the stand legs; keel +5.5-6.1), so a 1.2 draft sinks nothing. Probe
-  `output/probe-0928-float/` (Saga). Next: draft from the drawn keel.
+- [ ] 10365 floated ~3 blocks over the water (Saga probe 2026-09-28,
+  `output/probe-0928-float/`: CMVT y -61.3 = surface -60.1 - draft 1.2, but
+  the lowest DRAWN point was +2.86 over the origin). Fixed offline, not yet
+  on a device: (1) an entity's vertical bounds and floor read where a rotated
+  bone's cuboid is DRAWN, not its stored unrotated box (10365's drawn bottom
+  0.00 over the origin, was 2.86; `scripts/_drawn_floor.ts`); (2) a boat's
+  draft is its keel (the largest part's bottom, `keelBlocks`) plus the
+  immersion, so its stand posts go under and the hull sits 1.2 deep; (3) the
+  runtime's water scan follows the waterline (origin + draft), not the
+  origin, or a deep draft read each lower water block as the top (host test).
+  Across (x, z) the stored boxes still set the centre (drawn boxes moved 51
+  figures 0.26-0.55 blocks off their feet); `TODO(bounds)` for vehicle
+  footprints. Favourites: 452 of 452 yaw-0 actors keep their world span
+  (`--world`), driver seats keep their source, 40/40 export, 0 doorway FAIL.
+  Next device round: 10365 on a /fill pool, hull in the water.
 - [ ] 76286's pilot sits at a REAR window: the Saga probe (2026-09-28,
   `output/probe-0928-float/`) measured its pointed nose at world +z and the
   chase camera behind the engine rings, so its facing (-z, inferred) is RIGHT.
@@ -451,8 +461,12 @@ deck), 76286's pilot fits from 100 %.
   rear window aft of the engines (source z 371 of -203..554); first person
   looks forward down the cabin to the two real pilot seats (riderAt eye
   0, 4.5, -3.66). A facing "fix" (b733c029) turned it round and was undone.
-  Next: the driver's seat from the front seats (brick-built) or from glass at
-  the driving end, not the only glass anywhere.
+  Tried and dropped (2026-09-28): glass aft of centre is a rear window
+  (75301's canopy is aft of its long nose too), glass behind the glow
+  centroid, behind every glow part (the Milano has a small dish aft of its
+  window), behind the area-weighted glow (75301 still lost its canopy). No
+  glow rule separates the two. Next: the seat from its brick-built front
+  seats, or a recorded seat with this evidence.
 - [ ] 60221 rider is at deck height but at the hull's side edge (seat x 1.09);
   looking down from the eye shows water.
 - [ ] 10261 kiosk figure had not retaken its seat ~20 s after the player left

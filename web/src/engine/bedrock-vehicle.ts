@@ -752,11 +752,19 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   };
   const solidTop = (dim: any, x: number, y: number, z: number, depth: number): number | null => topBelow(dim, x, y, z, depth, false);
   const surfaceTop = (dim: any, x: number, y: number, z: number, depth: number): number | null => topBelow(dim, x, y, z, depth, true);
-  /** A boat's water: the surface under it (the top of the highest water block within a block of its keel), the ground under it, land at the waterline ahead / astern. */
+  /**
+   * A boat's water: the surface under it (the top of the highest water block
+   * within a block of its WATERLINE, origin + draft), the ground under it,
+   * land at the waterline ahead / astern. The window follows the waterline,
+   * not the origin: a hull whose keel sits over hanging parts (10365's stand
+   * posts) carries a draft of several blocks, and a window at its origin would
+   * start under the surface and read a deeper block as the top.
+   */
   const waterAt = (dim: any, st: any, reach: number, draft: number): any => {
     const rad = st.yaw * Math.PI / 180, fx = -Math.sin(rad), fz = Math.cos(rad);
     let surface: number | null = null;
-    for (let by = Math.floor(st.y + 1); by >= Math.floor(st.y - 2); by--) { if (isWater(blockOf(dim, st.x, by, st.z))) { surface = by + 0.9; break; } }
+    const waterline = st.y + draft;
+    for (let by = Math.floor(waterline + 1); by >= Math.floor(waterline - 2); by--) { if (isWater(blockOf(dim, st.x, by, st.z))) { surface = by + 0.9; break; } }
     const line = surface ?? st.y + draft;
     const landAt = (d: number): boolean => { const px = st.x + fx * d, pz = st.z + fz * d; return solidAt(dim, px, line - 0.1, pz) || solidAt(dim, px, line + 0.4, pz); };
     return { surface, ground: surface === null ? solidTop(dim, st.x, st.y + 0.5, st.z, 48) : null, shoreAhead: landAt(reach + 0.3), shoreAstern: landAt(-(reach + 0.3)) };

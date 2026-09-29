@@ -579,6 +579,8 @@ export interface CompiledLdrawGeometry {
   collisionBox: { width: number; height: number };
   /** Entity extent in blocks (render frame: width across, length nose-to-tail). */
   sizeBlocks: { width: number; height: number; length: number };
+  /** Height of the largest part's bottom (a boat's hull) over the origin, blocks at scale 1; 0 when the hull is the lowest thing. */
+  keelBlocks: number;
   /** The LDraw nose direction the geometry was compiled with (explicit or inferred). */
   facing: NoseDirection;
   /** Indices into the INPUT `bricks` of every placement that made it into the geometry (after the stand, internal, cluster and driver-figure drops). */
@@ -801,6 +803,12 @@ interface RenderCuboid {
   pivot?: Vec3;
   /** Body cuboid placed directly (exact box); false for a cuboid inside a rotated bone. */
   aligned?: boolean;
+  /**
+   * For a cuboid inside a rotated bone (`aligned` false): the render-frame
+   * AABB of where it is DRAWN. `min`/`max` hold it unrotated at its pivot,
+   * which is not where it appears; the model's bounds and floor read this.
+   */
+  drawn?: { min: Vec3; max: Vec3 };
   /**
    * A face decal: its print, already laid out for the cube face it looks out
    * of (`orientFace`). Kept out of the carve, the cull and the merge, and
@@ -2397,6 +2405,7 @@ export async function compileLdrawEntityGeometry(
             min: [local.min[0] + at[0], local.min[1] + at[1], local.min[2] + at[2]],
             max: [local.max[0] + at[0], local.max[1] + at[1], local.max[2] + at[2]],
             material: cubeMaterial, bone, aligned: false,
+            drawn: aabbOfCorners(cornersOf(world.min, world.max).map(v => apply(A, v))),
           });
         }
       }
@@ -2627,7 +2636,20 @@ export async function compileLdrawEntityGeometry(
   }
 
   // 6. Recentre: true geometric bounds in the render frame (floor at y = 0).
-  const all = renderCuboids.length ? aabbOfCorners(renderCuboids.flatMap(c => [c.min, c.max])) : { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
+  // The VERTICAL bounds are what is DRAWN: a rotated bone's cuboid is stored
+  // unrotated at its pivot (`drawn` holds where it appears). Reading the stored
+  // box put 10365's origin 2.86 blocks under its lowest drawn point, so its
+  // 1.2-block draft sank nothing and the ship hovered over the water (Saga
+  // probe 2026-09-28). Across (x, z) the stored boxes still set the centre:
+  // taken from the drawn boxes, a figure's raised arm pulled its centre - and
+  // so its body, placed at the source feet - 0.26-0.55 blocks aside in 51 of
+  // 452 compared actors (favourites sweep, 2026-09-28).
+  // TODO(bounds): a vehicle's width/length (`sizeBlocks`, the swept footprint)
+  // still read the stored boxes across; measure before switching them.
+  const drawnBox = (c: RenderCuboid): { min: Vec3; max: Vec3 } => c.drawn ?? c;
+  const stored = renderCuboids.length ? aabbOfCorners(renderCuboids.flatMap(c => [c.min, c.max])) : { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
+  const drawnAll = renderCuboids.length ? aabbOfCorners(renderCuboids.flatMap(c => { const d = drawnBox(c); return [d.min, d.max]; })) : stored;
+  const all = { min: [stored.min[0], drawnAll.min[1], stored.min[2]] as Vec3, max: [stored.max[0], drawnAll.max[1], stored.max[2]] as Vec3 };
   // A rigged figure stands on its FEET: its actor is placed at the source
   // figure's feet (bedrock-scene-actors `floorLdu`), so the geometry's y = 0
   // must be the lowest cube of its body, not of what it holds. A broom, wand
@@ -2639,11 +2661,26 @@ export async function compileLdrawEntityGeometry(
     return false;
   };
   const bodyCubes = options.rig ? renderCuboids.filter(c => !heldBone(c.bone)) : [];
-  const floorOf = bodyCubes.length ? Math.min(...bodyCubes.map(c => c.min[1])) : all.min[1];
+  const floorOf = bodyCubes.length ? Math.min(...bodyCubes.map(c => drawnBox(c).min[1])) : all.min[1];
   const automaticOrigin: Vec3 = [(all.min[0] + all.max[0]) / 2, floorOf, (all.min[2] + all.max[2]) / 2];
   const [midX, floorY, midZ] = options.originLdu ? apply(A, options.originLdu) : automaticOrigin;
   const totalWidth = (all.max[0] - all.min[0]) * scale / 16;
   const totalHeight = (all.max[1] - all.min[1]) * scale / 16;
+  // The keel: the bottom of the largest part (a boat's hull), in blocks over
+  // the origin. What hangs lower - 10365's stand posts, 2.6 blocks under its
+  // hull - is not what floats: a boat's draft is measured from here.
+  let keelBlocks = 0;
+  {
+    let biggest = -1;
+    for (const b of placed) {
+      const m = meshes.get(b.part);
+      if (!m || !m.triangles.length) continue;
+      const R: Mat3 = b.rot ?? IDENTITY;
+      const box = aabbOfCorners(cornersOf(m.bounds.min, m.bounds.max).map(v => { const r = apply(R, v); return apply(A, [r[0] + b.x, r[1] + b.y, r[2] + b.z]); }));
+      const volume = (box.max[0] - box.min[0]) * (box.max[1] - box.min[1]) * (box.max[2] - box.min[2]);
+      if (volume > biggest) { biggest = volume; keelBlocks = Math.max(0, (box.min[1] - floorY) * scale / 16); }
+    }
+  }
   // An entity is lit by the block at its own position. A building shell's
   // floor centre sits inside its collider volume (light 0: three of four
   // shells rendered near-black at noon on the Pixel, round 4), so the shell's
@@ -2971,6 +3008,7 @@ export async function compileLdrawEntityGeometry(
     seatEvidence,
     collisionBox,
     sizeBlocks: { width: round(totalWidth), height: round(totalHeight), length: round(totalLength) },
+    keelBlocks: round(keelBlocks),
     facing: nose,
     keptSourceIndices: placedIdx,
     extras,

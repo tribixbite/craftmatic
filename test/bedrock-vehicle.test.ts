@@ -442,6 +442,19 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on a fake worl
     for (const p of over.slice(-5)) expect(p.y).toBeGreaterThan(63.9 + HOVER.RIDE_HEIGHT - 0.2);
     expect(host.entity.location.x).toBeGreaterThan(20);
   });
+  it('holds a deep-draft hull at its waterline instead of sinking a block a tick (10365)', () => {
+    // 10365's keel sits 2.6 blocks over its origin (stand posts hang below), so
+    // its draft is ~3.8. A water scan around the ORIGIN started under the
+    // surface and took each deeper block for the top.
+    const ship: ScriptedVehicleType = { mode: 'boat', noseReach: 3, halfWidth: 1.5, height: 20, draft: 3.8 };
+    const host = vehicleHost({ type: ship, at: { x: 0.5, y: 63.9 - 3.8, z: 0.5 }, fills: [{ from: [-40, 50, -40], to: [40, 63, 40], id: 'minecraft:water' }] });
+    host.dismount();
+    host.run(60);
+    expect(host.poses.length).toBeGreaterThan(30);
+    // Its origin rides the draft under the surface (63.9), give or take the swell.
+    expect(host.entity.location.y).toBeGreaterThan(63.9 - 3.8 - 0.1);
+    expect(host.entity.location.y).toBeLessThan(63.9 - 3.8 + 0.1);
+  });
   it('lights the way at night with one light block ahead of the nose, moves it, and clears it when the rider leaves', () => {
     const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, time: 18000 });
     host.set(0, 0.5);
