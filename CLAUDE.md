@@ -242,6 +242,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `LinearSpline` needs 3 points, a keyframe's `x` is the NEGATED pitch, and
   an animation re-issued every tick is never drawn — ONE uninterrupted
   animation does roll, so a coaster loop is sent whole, planned ahead.
+  **Keyframe Euler angles are interpolated LINEARLY and `x` takes a
+  CONTINUOUS pitch past ±90** (x 0 → 360 is one smooth pitch-over,
+  2026-09-29): write a loop as one chart (`over`: continuous pitch, the right
+  axis's yaw, residual roll), never as (yaw, ±90 pitch, roll) — its flip at
+  the zenith was drawn as a 180-degree spin over two ticks ("sideways
+  loops"). A `setCamera` issued while an animation plays takes over at once;
+  an animation that ENDS before the next `setCamera` flashes the player's
+  own view, so plan it past the hand-back (`animTail`).
   The "Experimental Creator Camera Features" experiment changes none of this.
   A rider's reported yaw is the CLIENT's and trails its vehicle ~6 ticks.
   Details: the add-on guide's "The rider's camera follows the track".

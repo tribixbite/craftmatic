@@ -212,6 +212,20 @@ player, 11204's chest lid, a lift ride that shows the car moving.
   mirrored 26559 joins; lift docks snapped (1,884.9 vs 1,857.8 LDU);
   counterweight detection is a heuristic; lap bars for 42703 need an LDraw
   part for 77083.
+- [ ] Rider camera through loops (2026-09-29, worktree
+  `agent-a4896775dd698fb20`, evidence `output/coaster-cam-0929/`): the
+  spin at every loop's zenith and exit was the `roll`-mode chart flip
+  interpolated linearly by the client; keyframes are now `over` views
+  (continuous pitch past ±90, which `playAnimation` takes), the animation
+  outlives its hand-back by `animTail` 6 (the player's-view flash), and
+  `animLag` is 2 (marker-measured; 3 jolted 1.4 ticks into and out of each
+  loop). Device proof pending in this worktree's round: ride 10303 on the
+  Pixel after the rebuilt pack, look for (a) no spin over either top, (b) no
+  flash at either exit, (c) no jolt at the animation's start/end. Still
+  open after it: the per-tick eased camera itself sits ~1.6 ticks ahead of
+  the drawn car (the whole ride, not only loops) — a history-lagged per-tick
+  camera would put the eye in the drawn seat; `over`'s keyframe direction
+  is off the nose by up to ~3 degrees on a leaning loop.
 - [ ] Pinball: cabinet button's 1.5x inward travel and launch-tick smoothing
   not seen on a device; drag release inferred (5 still ticks); tap-to-flipper
   ~100 ms is the server round trip.
