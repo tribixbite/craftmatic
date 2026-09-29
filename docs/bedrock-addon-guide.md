@@ -4142,20 +4142,25 @@ mini-doll sets through the pipeline. What they needed, all general rules:
   (`attachLooseProps`): before, a detached prop was exported nowhere.
 - **Slides and lifts ride** (`engine/bedrock-rides.ts`, `scripts/rides.js`;
   physics spec section 4.7). Every part described `Slide ...` is a slide: its
-  running line is read from the part's top surface (4-LDU cells, banded by
-  height), an invisible ride seat stands at the top, and sitting on it carries
-  the player down (2 -> 8 blocks/s) and off at a 24-LDU run-out; the seat then
-  returns. A lift is a shaft of at least two tall slim guides (`Support`,
-  pillars, beams; >= 192 LDU) with a car covering their footprint, and a stop
-  per storey that meets the shaft (plates/tiles at its side, merged per
-  72 LDU). The car is its own entity of its exact bricks; sitting in it carries
-  car and rider to the next storey (up to the top, then down, 1.5 blocks/s) and
-  sets the rider on that floor beside the shaft. The placement writes each
-  ride's path and exits in WORLD points (`PlacementActor.ride*`), so the
-  runtime only follows points. Found: a slide in all five sets; 10788's lift
-  (three `Support 2 x 2 x 13` guides, 12-part car, 4 storeys). 10788's rooms
-  above the ground floor are not reachable on foot at any size (clearance
-  report: 2 of 23 rooms at 100 %); the lift is the way up.
+  running line is read from the chute's BED - the part's top surface (4-LDU
+  cells) less its rims (a cell with a cell 12 LDU lower within 8 LDU is the
+  top of a side wall) - banded by height; an invisible ride seat stands at the
+  top, and sitting on it carries the player down (2 -> 8 blocks/s) and off at
+  a 24-LDU run-out; the seat then returns. A lift is the set's own ELEVATOR
+  PLATFORM (a mould its description names so, 3863) running in a column of
+  frames or guides stacked over its footprint; the car is the platform and
+  what stands on it, the rider stands on its most common top surface, and a
+  stop is every room floor (flat parts by AREA, merged per 72 LDU) at which
+  the whole car stays in the column. The car is its own entity of its exact
+  bricks; tapping it (or its seat) carries car and rider to the next floor (up
+  to the top, then down, 1.5 blocks/s) and sets the rider on that floor
+  beside the shaft, on a part whose top is the floor, with a player's standing
+  room. The placement writes each ride's path and exits in WORLD points
+  (`PlacementActor.ride*`), so the runtime only follows points. Found: a
+  slide in all five sets; 10788's lift (3863 in four grooved door frames,
+  3 floors). 10788's rooms above the ground floor are not reachable on foot
+  at any size (clearance report: 2 of 23 rooms at 100 %); the lift is the way
+  up. See "The user's report" below for what the first version got wrong.
 - **A playground swing is a seat** (`isSwingSeat`: Studio names 67075
   `Friends Swing 2 x 6 x 5 1/3`); its pan is the seat under the bar, not the
   bar (`seatPanLocalY(mesh, hanging)`).
@@ -4186,6 +4191,41 @@ room. Boarding a ride from chat is `/ride @s start_riding @e[type=<pack>_ride,c=
 (`c=1` takes the NEAREST ride seat: 10788's slide and lift share the type).
 Not seen working: 11204's dome and chest lids (no tap found their hit boxes),
 the swing, the carts, 10797's turntable and stool, the drawers.
+
+### The user's report and the play round (2026-09-29, Saga, `output/gabby-play-0929/`)
+
+"The gabby cars obstructed driver view when mounted, the slide in the
+dollhouse was misaligned and the elevator didn't seem functional." Played at
+100 % on the Saga (world 925) before and after; what was wrong and why:
+
+- **A doll car's guessed seat put the eye in its bodywork.** With no figure,
+  seat, wheel or glass (`default-cabin`) the seat is a guess, and on 10797's
+  cat bus its eye saw 0 of 15 forward rays out. A guessed seat is now judged
+  by its view (`forwardView`, `VIEW` in `cockpit-seat.ts`): below 90 % clear
+  it moves to the nearest model surface whose eye sees out (10797: its rear
+  deck; 10796: onto each cart). Only at minifig scale: a display car shrunk
+  to its real length has a real cabin whose bonnet fills the low rays (42172
+  scored 0.4 and moved onto its roof in a first try; its windscreen view is
+  device-checked good). Vehicle audit (`_vehicle_audit.ts --seats`, 41
+  default rideables + 4 Gabby): the three Gabby cars and 60367's sub5
+  airport vehicle change (its rider, hidden at 100 %, now sits drawn on top
+  with a clear view); every other seat is identical.
+- **A scripted car fell through the world under an overhang.** The ground
+  scan read a collider's top 2 blocks over a 1-block car as a wall under its
+  centre, then "no ground", and 10797's car fell to y -104. The scan now skips
+  a span whose underside is over the car's base, and a wall under the centre
+  holds the car's height (`bedrock-vehicle.ts`, host tests).
+- **The slide ran on its rails.** 27976's side walls stand 30 LDU over its
+  bed and the top-surface map read them; rim cells are now dropped.
+- **The lift's car was the wrong assembly.** "A car standing on two
+  supports" found only the cap of the shaft's back wall (bricks on three
+  `Support 2 x 2 x 13`), which then flew over the roof; the real car, the pink
+  3863 elevator platform in four grooved door frames, never moved. Lifts are
+  now found from the platform (`isLiftCarDescription`), stops are the room
+  floors (2629 2/3 bricks, by area; the rim tiles under them had been counted
+  and the car stopped a third of a block low), and a tap on the car boards it.
+- The controls hint in a car's action bar now shows for 5 s only: it sat over
+  the car in the chase view on a phone.
 
 ## Minifig Creator wand on the phones (2026-09-26)
 

@@ -1574,6 +1574,13 @@ interface VehicleCameraConfig {
      * and flanks while the eye is the driver's. null/absent = always drawn.
      */
     riderVisibleSizes?: number[] | null;
+    /**
+     * The driver's eye over the vehicle's floor at 100 % (cockpit-seat.ts `SeatPlan.eye`), blocks.
+     * The chase camera rises until its line of sight passes over a DRAWN rider's head: on
+     * Gabby's doll cars the boom sat level with the rider's head and the player's own back
+     * filled the view ahead (Saga, 2026-09-29).
+     */
+    eyeY?: number;
 }
 
 /**
@@ -1603,7 +1610,9 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
   // camel car's tuning hooks (`craftmatic:vehicle_scheme`, `vehicle_camera`)
   // went with the camel.
   const NATIVE_SCHEME = 'player_relative';
-  const chase = (player: any, vehicle: any, cfg: any): boolean => {
+  /** A seated player's head top over its eye, and the clearance the chase camera's line of sight keeps over it, blocks. */
+  const HEAD_ABOVE_EYE = 0.22, HEAD_CLEAR = 0.25;
+  const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
     if (cfg.scripted) {
@@ -1625,6 +1634,12 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
       const prad = pitch * Math.PI / 180, cp = Math.cos(prad), sp = -Math.sin(prad);
       location = { x: v.x - fx * cp * cfg.radius, y: v.y + cfg.pivotY + cfg.height * 0.5 - sp * cfg.radius, z: v.z - fz * cp * cfg.radius };
       facingLocation = { x: v.x + fx * cp * cfg.radius, y: v.y + cfg.pivotY + sp * cfg.radius, z: v.z + fz * cp * cfg.radius };
+      // Over the rider's head: the boom's midpoint (the vehicle) must pass HEAD_CLEAR over a drawn
+      // rider's head top (the eye stays on the scaled driver's eye, so it is eyeY x size).
+      if (typeof cfg.eyeY === 'number' && drawn) {
+        const headTop = v.y + cfg.eyeY * size + HEAD_ABOVE_EYE + HEAD_CLEAR;
+        location.y = Math.max(location.y, 2 * headTop - facingLocation.y);
+      }
     } else if (cfg.kind === 'plane') {
       // Aircraft: the camera looks along the rider's exact yaw AND pitch, so
       // `free_camera_controlled` (flies where the camera looks) and the
@@ -1699,7 +1714,7 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
         continue;
       }
       if (now) now.chase = true;
-      if (!chase(player, vehicle, cfg) && !t) applyPreset(player, cfg.preset);
+      if (!chase(player, vehicle, cfg, size, !hidden.has(id)) && !t) applyPreset(player, cfg.preset);
     }
     schemeTick++;
     if (tracked.size) {
@@ -2380,7 +2395,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             const mainBehavior = behaviorEntity(cid, c.kind, c.grid, c.sceneScale, c.longitudinalAxis, facing, c.seatAnchor, options.seatCount ?? 1, ldrawGeo.seatPosition, ldrawGeo.collisionBox, ldrawGeo.sizeBlocks, motion, ldrawGeo.passengerSeats, ldrawGeo.seatPlan);
             emitCompiledEntity(cid, ldrawGeo, mainBehavior, emitDriveAnimation(cid, motion, ldrawGeo, scripted), true);
             vehicleSeats.push(vehicleSeatReport(c.label, cid, c.kind, c.bricks!, i => c.bricks![i]!, ldrawGeo, mainBehavior, `${scripted ? 'scripted' : 'native'} ${motion}`));
-            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), riderVisibleSizes: riderVisibleSizes(ldrawGeo.seatPlan) });
+            cameraVehicles.push({ ...emitCameraPresets(cid, c.kind, ldrawGeo.sizeBlocks), ...(scripted ? { scripted: true } : {}), riderVisibleSizes: riderVisibleSizes(ldrawGeo.seatPlan), ...(ldrawGeo.seatPlan ? { eyeY: ldrawGeo.seatPlan.eye[1] } : {}) });
 
             // Secondary objects the compiler found beside the vehicle (see
             // EntityExtra): figures wander as minifig NPCs, a wheeled second
@@ -2419,7 +2434,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 addEntityName(`${PACK_NAMESPACE}:${ecid}`, elabel, true);
                 if (ekind === 'car') {
                     scriptedTypes[`${PACK_NAMESPACE}:${ecid}`] = scriptedTypeOf('car', 'car', egeo.sizeBlocks);
-                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, riderVisibleSizes: riderVisibleSizes(egeo.seatPlan) });
+                    cameraVehicles.push({ ...emitCameraPresets(ecid, 'car', egeo.sizeBlocks), scripted: true, riderVisibleSizes: riderVisibleSizes(egeo.seatPlan), ...(egeo.seatPlan ? { eyeY: egeo.seatPlan.eye[1] } : {}) });
                 }
                 // A rigged figure faces exactly where its torso pointed (not the nearest axis).
                 const place = extraPlacement(ldrawGeo, extra, egeo.facing, layout.actorYaw, egeo.figure?.facingLdu, lduPerBlock);
@@ -2742,11 +2757,16 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 const carId = entityId(`${id}_lift_car_${i + 1}`, 'l');
                 try {
                     options.onProgress?.(`compiling ${label} lift car`, 78);
+                    // Origin at the car's floor, and a hit box over its whole body: a tap on
+                    // the car boards the lift (rides.js). With the origin a block over the
+                    // car (for its light) and a 0.5 x 0.3 box there, a tap on the platform
+                    // a child can see met nothing (10788, 2026-09-29).
                     const geo = await compileLdrawEntityGeometry(carId, 'prop', r.carBricks, { scale: unitsPerLdu, frame: [...SHELL_FRAME], wholeModel: true, partGeometry: options.partGeometry,
-                        quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr, originAboveModel: true });
+                        quality: LEGO_SHELL_QUALITY[options.entityQuality ?? 'balanced'], pbr });
                     diagnostics[carId] = geo.diagnostics;
                     carType = `${PACK_NAMESPACE}:${carId}`;
-                    emitCompiledEntity(carId, geo, pinballPropBehavior(carType, { width: 0.5, height: 0.3 }));
+                    const carBox = { width: Math.round(Math.min(3.5, Math.max(0.5, Math.min(geo.sizeBlocks.width, geo.sizeBlocks.length))) * 100) / 100, height: Math.round(Math.min(3.5, Math.max(0.3, geo.sizeBlocks.height)) * 100) / 100 };
+                    emitCompiledEntity(carId, geo, pinballPropBehavior(carType, carBox));
                     addEntityName(carType, `${label} lift car`, false);
                     const at = sceneGridPoint(options.rides.frame, geo.originLdu);
                     actors.push({ typeId: carType, label: `${label} lift car`, x: at[0], y: at[1] + geo.originLiftBlocks, z: at[2], yaw: 0, ride: i });

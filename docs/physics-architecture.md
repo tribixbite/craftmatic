@@ -440,8 +440,9 @@ sliding - and sets the rider down at the run-out; a lift moves its car and
 seat one storey at `RIDE.LIFT_SPEED`. Speeds are blocks per second at 100 %
 and multiply by the wand factor, so a ride takes the same time at every size
 (a length scale without Froude scaling, like the figure walk). The path is
-measured at export (the chute's top surface; the lift's storeys), never
-simulated. Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
+measured at export (the chute's bed: its top surface less the rims of its
+side walls; the lift's room floors, by floor area, where the car stays in its
+column), never simulated. A tap on a lift's car boards its seat. Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
 and the serialised runtime on a fake world).
 
 ## 5. Serialised runtimes: the rules
@@ -985,9 +986,9 @@ one of these files fails the check until its row is written.
 |---|---|---|
 | `RIDE` | const | Every ride number: detection thresholds (LDU) and the speeds (§4.7, §9). |
 | `RideKind`, `SceneRide`, `RideRuntimeConfig` | type, interface | A ride's kind, its measured path / car / stops, and the runtime's config. |
-| `isSlideDescription`, `isLiftGuideDescription` | function | Library-description tests for a slide mould and a lift guide. |
-| `slidePathLdu`, `findSlides` | function | Host only: a slide's running line from its top surface. |
-| `findLifts` | function | Host only: a shaft of guides, its car and a stop per storey. |
+| `isSlideDescription`, `isLiftGuideDescription`, `isLiftCarDescription`, `isLiftColumnDescription` | function | Library-description tests for a slide mould, a lift guide, an elevator platform (the car) and a part of the column it runs in (a guide or a grooved frame). |
+| `slidePathLdu`, `findSlides` | function | Host only: a slide's running line from its top surface's BED (rim cells dropped). |
+| `findLifts` | function | Host only: an elevator platform in its column of frames/guides, the stand point on it and a stop per room floor it can reach, with a step-off point on each floor. |
 | `_ridesRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`ridesRuntime`) that carries a seated player along a ride. |
 | `ridesScript` | function | Serialises it into `BP/scripts/rides.js`. |
 <!-- /physics-spec:exports -->

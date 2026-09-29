@@ -23,18 +23,27 @@
  *
  * WHAT IS A SLIDE. A part whose description starts `Slide ` (the playground
  * moulds 28387, 11267, 27976, ...). Its chute is read from the part's TOP
- * surface: the highest face over each 4-LDU cell of its footprint, banded by
- * height; each band's centroid is a point of the running line, which descends
- * monotonically from the top of the chute to its foot, so the bands order it.
+ * surface: the highest face over each 4-LDU cell of its footprint. The chute's
+ * side walls stand over its bed, so a cell with a cell `SLIDE_RIM_LDU` lower
+ * within `SLIDE_RIM_REACH_LDU` is a RIM and is dropped: what is left is the
+ * bed the rider slides on. Banded by height, each band's centroid is a point
+ * of the running line, which descends monotonically from the top of the chute
+ * to its foot, so the bands order it. Reading the rims too put 10788's rider
+ * on top of its side walls, 30 LDU over the bed at the top (Saga, 2026-09-29).
  *
- * WHAT IS A LIFT. A shaft of tall slim upright GUIDES (`Support 2 x 2 x 13`,
- * pillars, poles, beams at least `LIFT_MIN_GUIDE_LDU` tall) with a CAR: a
- * cluster of parts standing on or among at least two guides, inside and
- * covering their footprint (plus what stands on it over the shaft). Contact
- * with the building does not disqualify it: a car touches the structure at the
- * stop it stands at. Its stops are the floors that meet
- * the shaft's sides (plates and tiles within `LIFT_FLOOR_REACH_LDU`, at least
- * two at a level), and the car's own level.
+ * WHAT IS A LIFT. The set's own ELEVATOR PLATFORM (a mould its library
+ * description names so: 3863 "Brick 2 x 4 x 5 ... Runners for Channels and
+ * Elevator Platform"), running in a COLUMN: the frames and supports stacked
+ * over (or under) the platform's footprint, contiguous within
+ * `LIFT_COLUMN_GAP_LDU` (10788: four `Door Frame 3 x 6 x 6 with Inside
+ * Grooves` whose grooves take the platform's runners). The car is the platform
+ * and what stands on it; the rider stands on its lowest wide top surface (the
+ * platform, not the runner block behind it). Its stops are the floors that
+ * meet the column's sides (flat parts within `LIFT_FLOOR_REACH_LDU`,
+ * `LIFT_MIN_FLOOR_AREA_LDU2` at a level) at which the whole car stays inside the
+ * column. Until 2026-09-29 a lift was "a car standing on two supports", and
+ * 10788's only such car was the top of its shaft's back wall: the cat-eared
+ * cap flew over the roof while the pink platform never moved.
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
@@ -58,39 +67,46 @@ export const RIDE = {
   SLIDE_VMAX: 8,
   /** Ticks the seat waits at the foot before it returns to the top. */
   SLIDE_RETURN_TICKS: 10,
-  /** A guide stands at least this tall, LDU (8 bricks: a storey). */
-  LIFT_MIN_GUIDE_LDU: 192,
-  /** A guide's footprint is no wider than this, LDU (a 2 x 2 support is 40). */
-  LIFT_MAX_GUIDE_WIDTH_LDU: 48,
-  /** Guides this close (centre to centre, LDU) belong to one shaft: a car up to six studs across between its rails. */
-  LIFT_GUIDE_GROUP_LDU: 120,
-  /** The shaft reaches this far beyond its guides' footprint, LDU. */
+  /** A top-surface cell with a cell at least this much lower nearby is a chute's rim, not its bed, LDU (10788's rails stand 30-38 over the bed). */
+  SLIDE_RIM_LDU: 12,
+  /** How far the rim test looks for that lower cell, LDU: two cells, so a chute falling less than 1.5 LDU per LDU keeps its own downhill cells. */
+  SLIDE_RIM_REACH_LDU: 8,
+  /** Parts of a lift's column are stacked within this vertical gap of each other and of the car, LDU (a plate). */
+  LIFT_COLUMN_GAP_LDU: 16,
+  /** A column carries the car at least this far, LDU (two storeys of 3 bricks: less is a shelf, not a lift). */
+  LIFT_MIN_TRAVEL_LDU: 144,
+  /** A car may stand this far past the column's top or foot at a stop, LDU (a brick of runner above the last groove). */
+  LIFT_COLUMN_SLACK_LDU: 24,
+  /** What stands on the car belongs to it while it stays this close to the car's footprint, LDU. */
   LIFT_SHAFT_MARGIN_LDU: 24,
-  /** A car may stand this far above the guides' top, LDU (it rides ON them). */
-  LIFT_CAR_ABOVE_LDU: 240,
-  /** A car has at least / at most this many parts. */
-  LIFT_CAR_MIN_PARTS: 3,
+  /** A car has at most this many parts. */
   LIFT_CAR_MAX_PARTS: 80,
-  /** A shaft has at least this many guides (a single post is a lamp or a pillar). */
-  LIFT_MIN_GUIDES: 2,
-  /** A car covers at least this share of its guides' footprint (a car, not a bracket on one post). */
-  LIFT_CAR_MIN_COVER: 0.6,
-  /** A floor meets the shaft when a plate or tile lies within this of its side, LDU. */
+  /** The rider stands on the car's top surface cells within this of its most common height, LDU (the platform, not the runner block). */
+  LIFT_PLATFORM_BAND_LDU: 8,
+  /** A floor meets the shaft when a floor part lies within this of its side, LDU. */
   LIFT_FLOOR_REACH_LDU: 40,
+  /** A floor part is a flat part at most this thick, LDU: a plate, a tile, a 2/3 brick (10788's rooms stand on 2629 "Brick, Modified 8 x 16 x 2/3"). */
+  LIFT_FLOOR_MAX_THICK_LDU: 16,
   /** Storeys are at least this far apart, LDU (3 bricks). */
   LIFT_MIN_STOREY_LDU: 72,
   /** A lift serves at most this many storeys (more is a tower's frame, not a dollhouse). */
   LIFT_MAX_STOPS: 6,
-  /** A storey has at least this many floor parts at the shaft's sides. */
-  LIFT_MIN_FLOOR_PARTS: 3,
+  /** A storey has at least this much floor at the shaft's sides, LDU² (4 x 4 studs: a room's floor, not a shelf or a rim of tiles). */
+  LIFT_MIN_FLOOR_AREA_LDU2: 6400,
   /** Floor parts at one level: heights within this, LDU. */
   LIFT_LEVEL_TOL_LDU: 4,
-  /** A seated rider's eye over the seat entity, LDU at 100 % (1.62 - 0.3 blocks x 53.33). */
-  LIFT_RIDER_EYE_LDU: 70,
-  /** A rider's eye clears the top of a solid car by this, LDU. */
-  LIFT_EYE_CLEAR_LDU: 6,
   /** A rider steps off this far past the shaft's edge, LDU (past a 20-LDU side wall into the room). */
   LIFT_EXIT_STEP_LDU: 50,
+  /** Along the shaft's side the step-off point is searched this far apart for a floor under it, LDU (half a stud). */
+  LIFT_EXIT_SEARCH_LDU: 10,
+  /** The floor a rider steps onto may lie this far under the storey's rim tiles, LDU (a brick). */
+  LIFT_EXIT_DROP_LDU: 24,
+  /** The step-off point lies at least this far inside the floor part under it, LDU (a player's half width, 0.3 blocks). */
+  LIFT_EXIT_INSET_LDU: 16,
+  /** The step-off point has this much clear height over its floor, LDU (a player, 1.8 blocks). */
+  LIFT_EXIT_HEADROOM_LDU: 96,
+  /** The step-off point is searched out to this far past the shaft's edge, LDU (three studs more than the first step). */
+  LIFT_EXIT_REACH_LDU: 60,
   /** Speed of the car, blocks/s at 100 %. */
   LIFT_SPEED: 1.5,
   /** Parts closer than this touch, LDU. */
@@ -142,38 +158,34 @@ export function isLiftGuideDescription(description: string): boolean {
   return /^(Support|Pillar|Column)\b/i.test(d) && !/\b(Girder|Lattice|Truss|Crane|Triangular)\b/i.test(d);
 }
 
-interface Box { min: Vec3; max: Vec3 }
-
-function worldBox(b: ParsedBrick, mesh: LdrawPartMesh): Box {
-  const { min: lo, max: hi } = mesh.bounds;
-  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
-  for (const x of [lo[0], hi[0]]) for (const y of [lo[1], hi[1]]) for (const z of [lo[2], hi[2]]) {
-    const w = toWorld(b, [x, y, z]);
-    for (let i = 0; i < 3; i++) { if (w[i]! < min[i]!) min[i] = w[i]!; if (w[i]! > max[i]!) max[i] = w[i]!; }
-  }
-  return { min, max };
+/**
+ * A lift's car mould, named by its library description: an elevator (or lift)
+ * platform. 3863 reads "Brick 2 x 4 x 5 with Hole for Worm Screw 6L, Runners
+ * for Channels and Elevator Platform" in Studio's library and "Brick 2 x 4 x 5
+ * with Platform and Hole for Worm Screw" in LDraw's 2026-04 update; both name it.
+ */
+export function isLiftCarDescription(description: string): boolean {
+  const d = stripped(description);
+  return /\b(Elevator|Lift)\s+Platform\b/i.test(d) || /\bwith\s+Platform\s+and\s+Hole\s+for\s+Worm\s+Screw\b/i.test(d);
 }
 
-/** One box stands on or hangs from the other: their footprints overlap (not just an edge) and they meet vertically. */
-const stacked = (a: Box, b: Box): boolean => {
-  const inset = 1;
-  const xz = a.min[0] + inset < b.max[0] && b.min[0] + inset < a.max[0] && a.min[2] + inset < b.max[2] && b.min[2] + inset < a.max[2];
-  return xz && (Math.abs(a.max[1] - b.min[1]) <= RIDE.TOUCH_LDU || Math.abs(b.max[1] - a.min[1]) <= RIDE.TOUCH_LDU || (a.min[1] < b.max[1] && b.min[1] < a.max[1]));
-};
-const touches = (a: Box, b: Box, tol: number): boolean =>
-  a.min[0] <= b.max[0] + tol && b.min[0] <= a.max[0] + tol && a.min[1] <= b.max[1] + tol && b.min[1] <= a.max[1] + tol && a.min[2] <= b.max[2] + tol && b.min[2] <= a.max[2] + tol;
+/**
+ * A part of the column a lift's car runs in: a guide (`isLiftGuideDescription`)
+ * or a frame whose grooves take the car's runners (3417 "Door Frame 3 x 6 x 6
+ * with Inside Grooves", BrickLink's `bl_3417` "FRAME 3X6X6 ... CUT OUT").
+ * Only parts over the car's own footprint and stacked on its run are asked.
+ */
+export function isLiftColumnDescription(description: string): boolean {
+  return isLiftGuideDescription(description) || /\bFrame\b/i.test(stripped(description));
+}
 
 /**
- * A slide's running line in LDraw, top to foot, plus the run-out; null when the
- * part does not fall `SLIDE_MIN_DROP_LDU` (or has no geometry).
+ * The top surface of triangles over a grid of `cell`-LDU columns spanning
+ * `box` in X/Z: the smallest LDraw y (the highest point) any face reaches over
+ * each cell's centre, Infinity where no face covers it.
  */
-export function slidePathLdu(b: ParsedBrick, mesh: LdrawPartMesh): Vec3[] | null {
-  if (!mesh.triangles.length) return null;
-  const cell = RIDE.SLIDE_CELL_LDU;
-  const tris = mesh.triangles.map(t => [toWorld(b, t.a), toWorld(b, t.b), toWorld(b, t.c)] as const);
-  const box = worldBox(b, mesh);
+function topSurface(tris: ReadonlyArray<readonly [Vec3, Vec3, Vec3]>, box: Box, cell: number): { top: Float64Array; nx: number; nz: number } {
   const nx = Math.max(1, Math.ceil((box.max[0] - box.min[0]) / cell)), nz = Math.max(1, Math.ceil((box.max[2] - box.min[2]) / cell));
-  // Top surface: the smallest LDraw y (highest) any face reaches over each cell's centre.
   const top = new Float64Array(nx * nz).fill(Infinity);
   for (const [a, p, c] of tris) {
     const x1 = p[0] - a[0], z1 = p[2] - a[2], x2 = c[0] - a[0], z2 = c[2] - a[2];
@@ -191,14 +203,59 @@ export function slidePathLdu(b: ParsedBrick, mesh: LdrawPartMesh): Vec3[] | null
       if (y < top[j]!) top[j] = y;
     }
   }
+  return { top, nx, nz };
+}
+
+interface Box { min: Vec3; max: Vec3 }
+
+function worldBox(b: ParsedBrick, mesh: LdrawPartMesh): Box {
+  const { min: lo, max: hi } = mesh.bounds;
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const x of [lo[0], hi[0]]) for (const y of [lo[1], hi[1]]) for (const z of [lo[2], hi[2]]) {
+    const w = toWorld(b, [x, y, z]);
+    for (let i = 0; i < 3; i++) { if (w[i]! < min[i]!) min[i] = w[i]!; if (w[i]! > max[i]!) max[i] = w[i]!; }
+  }
+  return { min, max };
+}
+
+
+/**
+ * A slide's running line in LDraw, top to foot, plus the run-out; null when the
+ * part does not fall `SLIDE_MIN_DROP_LDU` (or has no geometry).
+ */
+export function slidePathLdu(b: ParsedBrick, mesh: LdrawPartMesh): Vec3[] | null {
+  if (!mesh.triangles.length) return null;
+  const cell = RIDE.SLIDE_CELL_LDU;
+  const tris = mesh.triangles.map(t => [toWorld(b, t.a), toWorld(b, t.b), toWorld(b, t.c)] as const);
+  const box = worldBox(b, mesh);
+  const { top, nx, nz } = topSurface(tris, box, cell);
+  // The bed: every covered cell but the rims (a cell with a much lower cell
+  // beside it is the top of a side wall or rail over the bed).
+  const reach = Math.max(1, Math.round(RIDE.SLIDE_RIM_REACH_LDU / cell));
+  const bed = new Uint8Array(nx * nz);
+  let bedCells = 0;
+  for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) {
+    const y = top[i * nz + k]!;
+    if (!Number.isFinite(y)) continue;
+    let rim = false;
+    for (let di = -reach; di <= reach && !rim; di++) for (let dk = -reach; dk <= reach && !rim; dk++) {
+      const ii = i + di, kk = k + dk;
+      if (ii < 0 || kk < 0 || ii >= nx || kk >= nz) continue;
+      const o = top[ii * nz + kk]!;
+      if (Number.isFinite(o) && o - y >= RIDE.SLIDE_RIM_LDU) rim = true; // LDraw y down: o lower by the rim height
+    }
+    if (!rim) { bed[i * nz + k] = 1; bedCells++; }
+  }
+  // A part with no rims at all (a plain ramp) is all bed.
+  const onBed = (j: number): boolean => Number.isFinite(top[j]!) && (bedCells === 0 || bed[j] === 1);
   let hi = Infinity, lo = -Infinity;
-  for (const y of top) if (Number.isFinite(y)) { if (y < hi) hi = y; if (y > lo) lo = y; }
+  for (let j = 0; j < top.length; j++) if (onBed(j)) { const y = top[j]!; if (y < hi) hi = y; if (y > lo) lo = y; }
   if (!Number.isFinite(hi) || lo - hi < RIDE.SLIDE_MIN_DROP_LDU) return null;
   const bands = Math.max(4, Math.min(16, Math.round((lo - hi) / RIDE.SLIDE_BAND_LDU)));
   const sums = Array.from({ length: bands }, () => ({ x: 0, y: 0, z: 0, n: 0 }));
   for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) {
     const y = top[i * nz + k]!;
-    if (!Number.isFinite(y)) continue;
+    if (!onBed(i * nz + k)) continue;
     const band = Math.min(bands - 1, Math.floor((y - hi) / (lo - hi) * bands));
     const s = sums[band]!;
     s.x += box.min[0] + (i + 0.5) * cell; s.y += y; s.z += box.min[2] + (k + 0.5) * cell; s.n++;
@@ -225,161 +282,178 @@ export function findSlides(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<s
 }
 
 /**
- * Every lift: a shaft of guides with a car inside it and at least two floors
- * meeting it. `exclude` are placements already taken (figures, vehicles).
+ * Every lift: the set's elevator platform (`isLiftCarDescription`) running in
+ * a column of frames or guides over its footprint, with a stop at every floor
+ * that meets the column and keeps the car inside it. `exclude` are placements
+ * already taken (figures, vehicles).
  */
 export function findLifts(bricks: readonly ParsedBrick[], meshes: ReadonlyMap<string, LdrawPartMesh | null>, exclude: ReadonlySet<ParsedBrick> = new Set(), trace?: (message: string) => void): SceneRide[] {
   const boxes = new Map<ParsedBrick, Box>();
   for (const b of bricks) { const m = meshes.get(b.part); if (m && m.triangles.length) boxes.set(b, worldBox(b, m)); }
-  const guides = bricks.filter(b => {
-    const m = meshes.get(b.part), box = boxes.get(b);
-    if (!m || !box || exclude.has(b) || !isLiftGuideDescription(m.description)) return false;
-    const h = box.max[1] - box.min[1];
-    return h >= RIDE.LIFT_MIN_GUIDE_LDU && Math.max(box.max[0] - box.min[0], box.max[2] - box.min[2]) <= RIDE.LIFT_MAX_GUIDE_WIDTH_LDU;
-  });
-  // Group guides into shafts.
-  const shafts: ParsedBrick[][] = [];
-  for (const g of guides) {
-    const gb = boxes.get(g)!, c: [number, number] = [(gb.min[0] + gb.max[0]) / 2, (gb.min[2] + gb.max[2]) / 2];
-    const home = shafts.find(s => s.some(o => { const ob = boxes.get(o)!; return Math.hypot((ob.min[0] + ob.max[0]) / 2 - c[0], (ob.min[2] + ob.max[2]) / 2 - c[1]) <= RIDE.LIFT_GUIDE_GROUP_LDU; }));
-    if (home) home.push(g); else shafts.push([g]);
-  }
+  const desc = (b: ParsedBrick): string => meshes.get(b.part)?.description ?? '';
+  // A floor part: flat and thin (a plate, a tile, a 2/3 brick), whatever its name.
+  const isFloorPart = (b: ParsedBrick): boolean => { const box = boxes.get(b); return !!box && box.max[1] - box.min[1] <= RIDE.LIFT_FLOOR_MAX_THICK_LDU + 0.5; };
+  const t = RIDE.TOUCH_LDU;
   const out: SceneRide[] = [];
-  const isFloorPart = (b: ParsedBrick): boolean => /^(Plate|Tile)\b/i.test(stripped(meshes.get(b.part)?.description ?? ''));
-  for (const shaft of shafts) {
-    const gbs = shaft.map(g => boxes.get(g)!);
-    const inner: Box = { min: [Math.min(...gbs.map(b => b.min[0])), Math.min(...gbs.map(b => b.min[1])), Math.min(...gbs.map(b => b.min[2]))], max: [Math.max(...gbs.map(b => b.max[0])), Math.max(...gbs.map(b => b.max[1])), Math.max(...gbs.map(b => b.max[2]))] };
-    // The car runs in the guides' own footprint (10788's car spans exactly its
-    // three supports); the shaft's walls stand beside it and are not the car.
-    const t = RIDE.TOUCH_LDU;
-    const shaftBox: Box = { min: [inner.min[0] - t, inner.min[1] - RIDE.LIFT_CAR_ABOVE_LDU, inner.min[2] - t], max: [inner.max[0] + t, inner.max[1], inner.max[2] + t] };
-    const guideSet = new Set(shaft);
-    // Candidates: wholly inside the shaft box, not a guide, not taken.
-    const inside = bricks.filter(b => {
-      const box = boxes.get(b);
-      if (!box || guideSet.has(b) || exclude.has(b)) return false;
-      return box.min[0] >= shaftBox.min[0] && box.max[0] <= shaftBox.max[0] && box.min[1] >= shaftBox.min[1] && box.max[1] <= shaftBox.max[1] && box.min[2] >= shaftBox.min[2] && box.max[2] <= shaftBox.max[2];
-    });
-    const insideSet = new Set(inside);
-    const outside = bricks.filter(b => boxes.has(b) && !insideSet.has(b) && !guideSet.has(b));
-    // Clusters of the candidates by touch.
-    const parent = inside.map((_, i) => i);
-    const find = (i: number): number => { while (parent[i] !== i) i = parent[i] = parent[parent[i]!]!; return i; };
-    for (let i = 0; i < inside.length; i++) for (let j = i + 1; j < inside.length; j++)
-      if (touches(boxes.get(inside[i]!)!, boxes.get(inside[j]!)!, RIDE.TOUCH_LDU)) parent[find(i)] = find(j);
-    const groups = new Map<number, ParsedBrick[]>();
-    inside.forEach((b, i) => { const r = find(i); const l = groups.get(r); if (l) l.push(b); else groups.set(r, [b]); });
-    // The car: the largest cluster resting on or among the guides that nothing
-    // outside the shaft stands on or hangs from (`stacked`); a wall beside it
-    // (touching a side face) does not hold it - it slides past.
-    // A part that reaches out of the footprint but rests only on the car (10788's
-    // roof plate) is the car's; a pin in a guide's hole is the stop it rests on.
-    const isPin = (b: ParsedBrick): boolean => /^Technic\s+(Pin|Axle Pin)\b/i.test(stripped(meshes.get(b.part)?.description ?? ''));
-    const stackedOn = (o: ParsedBrick, among: readonly ParsedBrick[]): boolean => among.some(b => stacked(boxes.get(b)!, boxes.get(o)!));
-    // Transitively: what stands on the car (and on that), while it stays over
-    // the shaft (its box within `LIFT_SHAFT_MARGIN_LDU` of the guides); a part
-    // reaching further is the building (a floor, a wall) and holds the car.
-    const overShaft = (o: ParsedBrick): boolean => {
-      const b = boxes.get(o)!, m = RIDE.LIFT_SHAFT_MARGIN_LDU;
-      return b.min[0] >= inner.min[0] - m && b.max[0] <= inner.max[0] + m && b.min[2] >= inner.min[2] - m && b.max[2] <= inner.max[2] + m;
+  const taken = new Set<ParsedBrick>();
+  for (const platform of bricks) {
+    const pBox = boxes.get(platform);
+    if (!pBox || exclude.has(platform) || taken.has(platform) || !isLiftCarDescription(desc(platform))) continue;
+    // The column: frames and guides over the platform's footprint (half its
+    // width in X or Z, and more than a touch in the other), stacked on its run.
+    const overlap = (a: Box, b: Box, k: number): number => Math.min(a.max[k]!, b.max[k]!) - Math.max(a.min[k]!, b.min[k]!);
+    const overFootprint = (b: Box): boolean => {
+      const ox = overlap(b, pBox, 0), oz = overlap(b, pBox, 2);
+      const wx = pBox.max[0] - pBox.min[0], wz = pBox.max[2] - pBox.min[2];
+      return (ox >= 0.5 * wx && oz > t) || (oz >= 0.5 * wz && ox > t);
     };
-    const absorb = (g: ParsedBrick[]): ParsedBrick[] => {
-      const car = [...g], taken = new Set(g);
-      for (let grew = true; grew;) {
-        grew = false;
-        for (const o of outside) {
-          if (taken.has(o) || isPin(o) || !overShaft(o) || !stackedOn(o, car)) continue;
-          car.push(o); taken.add(o); grew = true;
-        }
+    const candidates = bricks.filter(b => b !== platform && !exclude.has(b) && boxes.has(b) && isLiftColumnDescription(desc(b)) && overFootprint(boxes.get(b)!));
+    const column: ParsedBrick[] = [];
+    let top = pBox.min[1], foot = pBox.max[1];
+    for (let grew = true; grew;) {
+      grew = false;
+      for (const c of candidates) {
+        if (column.includes(c)) continue;
+        const cb = boxes.get(c)!;
+        if (cb.max[1] < top - RIDE.LIFT_COLUMN_GAP_LDU || cb.min[1] > foot + RIDE.LIFT_COLUMN_GAP_LDU) continue;
+        column.push(c); top = Math.min(top, cb.min[1]); foot = Math.max(foot, cb.max[1]); grew = true;
       }
-      return car;
-    };
-    // A car touches the structure at the stop it stands at (10788's rests on
-    // the pins in its supports and meets the shaft's ceiling), so contact does
-    // not disqualify one; what does is being a column rather than a car: a lift
-    // shaft has at least `LIFT_MIN_GUIDES` guides and its car covers
-    // `LIFT_CAR_MIN_COVER` of their footprint.
-    const innerArea = Math.max(1, (inner.max[0] - inner.min[0]) * (inner.max[2] - inner.min[2]));
-    const covers = (g: ParsedBrick[]): boolean => {
-      const gb = g.map(b => boxes.get(b)!);
-      const w = Math.min(inner.max[0], Math.max(...gb.map(b => b.max[0]))) - Math.max(inner.min[0], Math.min(...gb.map(b => b.min[0])));
-      const d = Math.min(inner.max[2], Math.max(...gb.map(b => b.max[2]))) - Math.max(inner.min[2], Math.min(...gb.map(b => b.min[2])));
-      return w > 0 && d > 0 && w * d >= RIDE.LIFT_CAR_MIN_COVER * innerArea;
-    };
-    const cars = shaft.length < RIDE.LIFT_MIN_GUIDES ? [] : [...groups.values()]
-      .filter(g => g.length >= RIDE.LIFT_CAR_MIN_PARTS)
-      .filter(g => g.some(b => shaft.some(s => touches(boxes.get(b)!, boxes.get(s)!, RIDE.TOUCH_LDU))))
-      .map(absorb)
-      .filter(g => g.length <= RIDE.LIFT_CAR_MAX_PARTS && covers(g))
-      .sort((a, b) => b.length - a.length);
-    trace?.(`shaft of ${shaft.length} guide(s) ${JSON.stringify(inner)}: ${inside.length} parts inside, clusters ${[...groups.values()].map(g => g.length).join(',')}, free cars ${cars.map(g => g.length).join(',')}`);
-    if (trace) for (const g of groups.values()) {
-      if (g.length < RIDE.LIFT_CAR_MIN_PARTS) continue;
-      const tied = outside.filter(o => g.some(b => stacked(boxes.get(b)!, boxes.get(o)!)));
-      trace(`  cluster ${g.map(b => `${b.part}@${b.y}`).join(' ')} | stacked with outside: ${tied.map(o => `${o.part}@${o.x},${o.y},${o.z}`).join(' ')}`);
     }
-    const car = cars[0];
-    if (!car) continue;
+    trace?.(`platform ${platform.part} at ${platform.x},${platform.y},${platform.z}: column of ${column.length} (${column.map(c => c.part).join(' ')}), ${top}..${foot}`);
+    if (!column.length || foot - top - (pBox.max[1] - pBox.min[1]) < RIDE.LIFT_MIN_TRAVEL_LDU) continue;
+    const columnSet = new Set(column);
+    // The car: the platform and what stands on it (transitively) over its footprint.
+    const near = (b: Box): boolean => { const m = RIDE.LIFT_SHAFT_MARGIN_LDU; return b.min[0] >= pBox.min[0] - m && b.max[0] <= pBox.max[0] + m && b.min[2] >= pBox.min[2] - m && b.max[2] <= pBox.max[2] + m; };
+    const car = [platform];
+    for (let grew = true; grew && car.length < RIDE.LIFT_CAR_MAX_PARTS;) {
+      grew = false;
+      for (const o of bricks) {
+        const ob = boxes.get(o);
+        if (!ob || car.includes(o) || columnSet.has(o) || exclude.has(o) || !near(ob)) continue;
+        // On the car: its foot on a car part's top (LDraw y down), footprints overlapping.
+        if (!car.some(c => { const cb = boxes.get(c)!; return Math.abs(ob.max[1] - cb.min[1]) <= t && overlap(ob, cb, 0) > t && overlap(ob, cb, 2) > t; })) continue;
+        car.push(o); grew = true;
+      }
+    }
     const cb = car.map(b => boxes.get(b)!);
     const carBox: Box = { min: [Math.min(...cb.map(b => b.min[0])), Math.min(...cb.map(b => b.min[1])), Math.min(...cb.map(b => b.min[2]))], max: [Math.max(...cb.map(b => b.max[0])), Math.max(...cb.map(b => b.max[1])), Math.max(...cb.map(b => b.max[2]))] };
-    // Floors meeting the shaft's sides: plate/tile tops within reach, outside the shaft, at least two per level.
+    // Where the rider stands: the car's most common top-surface height (the
+    // platform, not the runner block behind it), at the centroid of those cells.
+    const cell = RIDE.SLIDE_CELL_LDU;
+    const tris = car.flatMap(b => (meshes.get(b.part)?.triangles ?? []).map(tr => [toWorld(b, tr.a), toWorld(b, tr.b), toWorld(b, tr.c)] as const));
+    const { top: surf, nx, nz } = topSurface(tris, carBox, cell);
+    const counts = new Map<number, number>();
+    for (const y of surf) if (Number.isFinite(y)) { const k = Math.round(y / cell); counts.set(k, (counts.get(k) ?? 0) + 1); }
+    const mode = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+    if (!mode) continue;
+    let sx = 0, sz = 0, sy = 0, n = 0;
+    for (let i = 0; i < nx; i++) for (let k = 0; k < nz; k++) {
+      const y = surf[i * nz + k]!;
+      if (!Number.isFinite(y) || Math.abs(y - mode[0] * cell) > RIDE.LIFT_PLATFORM_BAND_LDU) continue;
+      sx += carBox.min[0] + (i + 0.5) * cell; sz += carBox.min[2] + (k + 0.5) * cell; sy += y; n++;
+    }
+    const cx = sx / n, cz = sz / n, standY = sy / n;
+    // The shaft the floors meet: the column and the car, in X/Z.
+    const all = [...column.map(c => boxes.get(c)!), carBox];
+    const shaftBox: Box = { min: [Math.min(...all.map(b => b.min[0])), top, Math.min(...all.map(b => b.min[2]))], max: [Math.max(...all.map(b => b.max[0])), foot, Math.max(...all.map(b => b.max[2]))] };
+    const carSet = new Set(car);
+    // Where a rider steps off at a floor: `LIFT_EXIT_STEP_LDU` past the shaft's
+    // side (into the room, past its wall), level with the floor, and over a
+    // part whose top IS that floor - beside the shaft first (along its whole side,
+    // starting level with the car), then at its front or back. 10788's
+    // platform stands out in front of the house, where there is no floor, and
+    // its ground floor has tiles behind the shaft: the first tile found set the
+    // rider behind the shaft's back wall.
+    // The floor under a point: the highest part top from the floor's level down
+    // to `LIFT_EXIT_DROP_LDU` under it (10788's rooms are 2629 "Brick, Modified
+    // 8 x 16 x 2/3" 16 LDU under the rim tiles its storeys are counted by);
+    // null when nothing is there.
+    const floorAt = (x: number, y: number, z: number): number | null => {
+      let best: number | null = null;
+      for (const b of bricks) {
+        const box = boxes.get(b);
+        if (!box || carSet.has(b) || columnSet.has(b) || exclude.has(b)) continue;
+        if (box.min[1] < y - RIDE.LIFT_LEVEL_TOL_LDU || box.min[1] > y + RIDE.LIFT_EXIT_DROP_LDU) continue;
+        // Far enough inside the part for a player's half width, so the rider lands ON the floor, not at its edge.
+        const i = RIDE.LIFT_EXIT_INSET_LDU;
+        if (x < box.min[0] + i || x > box.max[0] - i || z < box.min[2] + i || z > box.max[2] - i) continue;
+        if (best === null || box.min[1] < best) best = box.min[1];
+      }
+      return best;
+    };
+    const liftExit = (y: number): Vec3 => {
+      const e = RIDE.LIFT_EXIT_STEP_LDU, step = RIDE.LIFT_EXIT_SEARCH_LDU;
+      const scx = (shaftBox.min[0] + shaftBox.max[0]) / 2, scz = (shaftBox.min[2] + shaftBox.max[2]) / 2;
+      /** Points along a line from `from` toward `to` (inclusive), `step` apart. */
+      const along = (from: number, to: number): number[] => { const n = Math.max(1, Math.ceil(Math.abs(to - from) / step)); return Array.from({ length: n + 1 }, (_, i) => from + (to - from) * i / n); };
+      // Out from the shaft's side in `LIFT_EXIT_SEARCH_LDU` steps up to `LIFT_EXIT_REACH_LDU`
+      // past it, nearer first: beside it (X) at any distance, then at its front or back (Z).
+      const outs = along(e, e + RIDE.LIFT_EXIT_REACH_LDU);
+      const xDirs = cx < scx ? [-1, 1] : [1, -1], zDirs = cz < scz ? [-1, 1] : [1, -1];
+      const candidates: Vec3[] = [];
+      for (const o of outs) for (const d of xDirs) for (const z of along(cz, cz < scz ? shaftBox.max[2] : shaftBox.min[2])) candidates.push([d > 0 ? shaftBox.max[0] + o : shaftBox.min[0] - o, y, z]);
+      for (const o of outs) for (const d of zDirs) for (const x of along(cx, cx < scx ? shaftBox.max[0] : shaftBox.min[0])) candidates.push([x, y, d > 0 ? shaftBox.max[2] + o : shaftBox.min[2] - o]);
+      // Standing room over the floor there: no part in a player's column (10788's
+      // first pick, 50 LDU into its ground-floor room, was inside a 2 x 4 brick).
+      const clear = (x: number, f: number, z: number): boolean => {
+        const r = RIDE.LIFT_EXIT_INSET_LDU, h = RIDE.LIFT_EXIT_HEADROOM_LDU;
+        return !bricks.some(b => {
+          const box = boxes.get(b);
+          return !!box && !carSet.has(b) && !exclude.has(b) && box.max[1] > f - h + t && box.min[1] < f - t
+            && box.max[0] > x - r && box.min[0] < x + r && box.max[2] > z - r && box.min[2] < z + r;
+        });
+      };
+      for (const p of candidates) { const f = floorAt(p[0], p[1], p[2]); if (f !== null && clear(p[0], f, p[2])) return [p[0], f, p[2]]; }
+      for (const p of candidates) { const f = floorAt(p[0], p[1], p[2]); if (f !== null) return [p[0], f, p[2]]; }
+      return candidates[0]!;
+    };
+    // Floors meeting the shaft's sides: floor-part tops within reach, not the car's or the column's.
     const reach = RIDE.LIFT_FLOOR_REACH_LDU;
-    const tops: Array<{ y: number; x: number; z: number }> = [];
-    for (const b of outside) {
-      if (!isFloorPart(b)) continue;
-      const box = boxes.get(b)!;
+    const tops: Array<{ y: number; area: number }> = [];
+    for (const b of bricks) {
+      const box = boxes.get(b);
+      if (!box || carSet.has(b) || columnSet.has(b) || !isFloorPart(b)) continue;
       const dx = Math.max(shaftBox.min[0] - box.max[0], box.min[0] - shaftBox.max[0], 0), dz = Math.max(shaftBox.min[2] - box.max[2], box.min[2] - shaftBox.max[2], 0);
       if (Math.hypot(dx, dz) > reach) continue;
-      // The ground storey may lie below the guides' foot (10788's supports start a storey up).
-      if (box.min[1] < shaftBox.min[1] - reach || box.min[1] > inner.max[1] + RIDE.LIFT_MIN_STOREY_LDU * 2) continue;
-      tops.push({ y: box.min[1], x: (box.min[0] + box.max[0]) / 2, z: (box.min[2] + box.max[2]) / 2 });
+      if (box.min[1] < top - reach || box.min[1] > foot + reach) continue;
+      tops.push({ y: box.min[1], area: (box.max[0] - box.min[0]) * (box.max[2] - box.min[2]) });
     }
     tops.sort((a, b) => b.y - a.y); // lowest (largest LDraw y) first
-    const levels: Array<{ y: number; exit: Vec3; n: number }> = [];
-    for (const t of tops) {
-      const lv = levels.find(l => Math.abs(l.y - t.y) <= RIDE.LIFT_LEVEL_TOL_LDU);
-      if (lv) { lv.n++; continue; }
-      // Step off through the side this floor meets, `LIFT_EXIT_STEP_LDU` past the shaft's edge (into the room, not onto its wall).
-      const ox = t.x - (inner.min[0] + inner.max[0]) / 2, oz = t.z - (inner.min[2] + inner.max[2]) / 2;
-      const exit: Vec3 = Math.abs(ox) >= Math.abs(oz)
-        ? [ox > 0 ? shaftBox.max[0] + RIDE.LIFT_EXIT_STEP_LDU : shaftBox.min[0] - RIDE.LIFT_EXIT_STEP_LDU, t.y, (inner.min[2] + inner.max[2]) / 2]
-        : [(inner.min[0] + inner.max[0]) / 2, t.y, oz > 0 ? shaftBox.max[2] + RIDE.LIFT_EXIT_STEP_LDU : shaftBox.min[2] - RIDE.LIFT_EXIT_STEP_LDU];
-      levels.push({ y: t.y, exit, n: 1 });
+    const levels: Array<{ y: number; area: number }> = [];
+    for (const tp of tops) {
+      const lv = levels.find(l => Math.abs(l.y - tp.y) <= RIDE.LIFT_LEVEL_TOL_LDU);
+      if (lv) lv.area += tp.area; else levels.push({ y: tp.y, area: tp.area });
     }
-    // A storey is the best-populated level in each `LIFT_MIN_STOREY_LDU` window
-    // (a floor's tiles, not the shelf plates between floors), with at least
-    // `LIFT_MIN_FLOOR_PARTS` parts at the shaft's sides.
-    const floors: typeof levels = [];
-    for (const l of [...levels].sort((a, b) => b.n - a.n)) {
-      if (l.n < RIDE.LIFT_MIN_FLOOR_PARTS || floors.some(f => Math.abs(f.y - l.y) < RIDE.LIFT_MIN_STOREY_LDU)) continue;
-      floors.push(l);
+    // A storey is the level with the most floor in each `LIFT_MIN_STOREY_LDU`
+    // window (a room's floor, not the rim tiles under its edge: 10788's rooms
+    // stand 16 LDU over the tiles that were counted as its storeys, so its car
+    // stopped a third of a block under each floor), with at least
+    // `LIFT_MIN_FLOOR_AREA_LDU2` of it at the shaft's sides.
+    const floors: Array<{ y: number; area: number; exit: Vec3 }> = [];
+    for (const l of [...levels].sort((a, b) => b.area - a.area)) {
+      if (l.area < RIDE.LIFT_MIN_FLOOR_AREA_LDU2 || floors.some(f => Math.abs(f.y - l.y) < RIDE.LIFT_MIN_STOREY_LDU)) continue;
+      floors.push({ ...l, exit: liftExit(l.y) });
     }
-    const cx = (carBox.min[0] + carBox.max[0]) / 2, cz = (carBox.min[2] + carBox.max[2]) / 2;
-    const carFloor = carBox.max[1];
-    // Where the rider sits: on the car's floor when there is head room over it
-    // inside the car, else high enough that the rider's EYE clears the car's
-    // top. 10788's cat car is solid bricks, and a rider on its floor saw only
-    // wall colour for the whole ride (Pixel, 2026-09-26).
-    const headroomLdu = RIDE.LIFT_RIDER_EYE_LDU + RIDE.TOUCH_LDU;
-    const column = cb.some(b => cx > b.min[0] && cx < b.max[0] && cz > b.min[2] && cz < b.max[2] && b.min[1] < carFloor - RIDE.TOUCH_LDU && b.max[1] > carFloor - headroomLdu);
-    const seatRiseLdu = column ? (carFloor - carBox.min[1]) - RIDE.LIFT_RIDER_EYE_LDU + RIDE.LIFT_EYE_CLEAR_LDU : 0;
-    const stops = floors.map(f => ({ y: f.y, exit: f.exit }));
-    stops.sort((a, b) => b.y - a.y);
+    if (!floors.length) { trace?.('no floor meets the column'); continue; }
+    // The car starts at the floor nearest where it stands and keeps its height
+    // over each floor; a floor it would leave the column at is not a stop
+    // (10788's platform cannot reach the attic: its runner block would pass
+    // the top frame).
+    const start = floors.reduce((a, b) => (Math.abs(b.y - standY) < Math.abs(a.y - standY) ? b : a));
+    const s = RIDE.LIFT_COLUMN_SLACK_LDU;
+    const stops = floors.filter(f => {
+      const shift = f.y - start.y;
+      return carBox.min[1] + shift >= top - s && carBox.max[1] + shift <= foot + s;
+    }).sort((a, b) => b.y - a.y);
+    trace?.(`car ${car.length} part(s), stands at ${Math.round(standY)} over ${Math.round(cx)},${Math.round(cz)}; levels ${levels.map(l => `${l.y}:${Math.round(l.area)}`).join(' ')}; floors ${floors.map(f => f.y).join(' ')}; stops ${stops.map(f => f.y).join(' ')}`);
+    if (stops.length < 2 || !stops.includes(start)) continue;
     if (stops.length > RIDE.LIFT_MAX_STOPS) { trace?.(`${stops.length} stops: a tower, not a dollhouse lift`); continue; }
-    trace?.(`car ${car.length} parts, floor ${carFloor}; levels ${levels.map(l => `${l.y}x${l.n}`).join(' ')}; stops ${stops.map(s => s.y).join(' ')}`);
-    if (stops.length < 2) continue;
-    // The car starts at the storey nearest where the source stands it; it keeps
-    // its own height over that floor at every stop (the runtime moves it by the
-    // storey's rise).
-    let start = 0;
-    stops.forEach((s, i) => { if (Math.abs(s.y - carFloor) < Math.abs(stops[start]!.y - carFloor)) start = i; });
+    for (const b of car) taken.add(b);
     out.push({
-      kind: 'lift', label: 'Lift', part: shaft[0]!.part.replace(/\.dat$/i, ''),
-      // The seat stands on the car's own floor, which keeps its height over each storey.
-      // TODO(rides): the rise is set at 100 %; the rider does not grow with the wand, so above 100 % its eye is back inside a solid car.
-      pathLdu: stops.map(s => [cx, s.y + (carFloor - stops[start]!.y) - Math.max(0, seatRiseLdu), cz] as Vec3),
-      exitsLdu: stops.map(s => s.exit),
-      startStop: start < 0 ? 0 : start,
+      kind: 'lift', label: 'Lift', part: platform.part.replace(/\.dat$/i, ''),
+      pathLdu: stops.map(f => [cx, standY + (f.y - start.y), cz] as Vec3),
+      exitsLdu: stops.map(f => f.exit),
+      startStop: stops.indexOf(start),
       carBricks: car,
     });
   }
@@ -494,6 +568,31 @@ function ridesRuntime(config: RideRuntimeConfig): void {
       if (run.s >= run.end - 1e-6) finish(run);
     }
   }, 1);
+  // A tap on a lift's CAR boards it: the rider is put on the car's own seat.
+  // The seat is an invisible half block on the platform; a child taps the
+  // pink box they can see (10788, 2026-09-29).
+  const carRide = new Map<string, number>();
+  config.rides.forEach((r, i) => { if (r.carType) carRide.set(r.carType, i); });
+  const board = (player: any, car: any): void => {
+    if (!player || player.typeId !== 'minecraft:player' || !car || !carRide.has(car.typeId)) return;
+    const index = typeof read(car, K.index) === 'number' ? read(car, K.index) : carRide.get(car.typeId);
+    let seats: any[] = [];
+    try { seats = car.dimension.getEntities({ type: config.seatType, location: car.location, maxDistance: 16 }); } catch { return; }
+    const seat = seats.find((s: any) => read(s, K.index) === index);
+    if (!seat || running.has(seat.id)) return;
+    let rideable: any;
+    try { rideable = seat.getComponent('minecraft:rideable'); } catch { return; }
+    try { if ((rideable?.getRiders?.() ?? []).length) return; } catch { /* treat as free */ }
+    let ok = false;
+    try { ok = !!rideable?.addRider?.(player); } catch { ok = false; }
+    if (!ok) {
+      // A client that refuses addRider for a player: the ride command on this seat's spot.
+      const l = seat.location;
+      try { player.runCommand(`ride @s start_riding @e[type=${config.seatType},c=1,x=${l.x},y=${l.y},z=${l.z},r=1]`); } catch { /* left */ }
+    }
+  };
+  try { world.afterEvents?.playerInteractWithEntity?.subscribe?.((ev: any) => board(ev.player, ev.target)); } catch { /* not in this API */ }
+  try { world.afterEvents?.entityHitEntity?.subscribe?.((ev: any) => board(ev.damagingEntity, ev.hitEntity)); } catch { /* not in this API */ }
 }
 
 export { ridesRuntime as _ridesRuntimeForTests };

@@ -312,7 +312,8 @@ function vehicleHost(o: HostOptions) {
     };
   };
   let stick = { x: 0, y: 0 }, jump = false, riding = true;
-  const player = { typeId: 'minecraft:player', inputInfo: { getMovementVector: () => ({ ...stick }), getButtonState: () => (jump ? 'Pressed' : 'Released') }, onScreenDisplay: { setActionBar: () => {} } };
+  const bars: string[] = [];
+  const player = { typeId: 'minecraft:player', inputInfo: { getMovementVector: () => ({ ...stick }), getButtonState: () => (jump ? 'Pressed' : 'Released') }, onScreenDisplay: { setActionBar: (s: string) => { bars.push(s); } } };
   const dynamic = new Map<string, unknown>();
   const poses: Array<{ x: number; y: number; z: number; yaw: number }> = [];
   const dim: any = { id: 'overworld', getBlock: block, getEntities: (q: { type?: string; families?: string[] }) => (q.type === typeId || q.families?.includes('craftmatic_vehicle') ? [entity] : []), playSound: () => {}, runCommand: () => ({}) };
@@ -329,7 +330,7 @@ function vehicleHost(o: HostOptions) {
   const script = scriptedVehicleScript(hostConfig({ [typeId]: o.type }, o.colliders ? { colliders: o.colliders } : {}));
   new Function('world', 'system', script.replace(/^import .*;\n/, ''))(world, system);
   return {
-    entity, poses, placed, dynamic,
+    entity, poses, placed, dynamic, bars,
     set: (x: number, y: number, j = false) => { stick = { x, y }; jump = j; },
     dismount: () => { riding = false; },
     run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
@@ -485,6 +486,27 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on a fake worl
     expect(host.entity.location.x - at).toBeLessThan(20);
     expect(host.entity.location.x - at).toBeGreaterThan(5);
   });
+  it('drives a low car under an overhang without falling through the world (10797, Saga 2026-09-29)', () => {
+    // A doll-scale car (1 block tall) passes under a collider whose underside is 1.25 over the road:
+    // the ground scan started INSIDE that collider, read its top (2 over the car) as a wall under the
+    // centre, called it "no ground" and dropped the car, which then fell through the stone for ever
+    // (the Saga's 10797 car ended at y -104, under the world).
+    const colliders = { block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi' };
+    const low: ScriptedVehicleType = { mode: 'car', noseReach: 0.8, halfWidth: 0.5, height: 1 };
+    const host = vehicleHost({ type: low, at: { x: 0.5, y: 64, z: 0.5 }, colliders, fills: [{ from: [5, 65, -3], to: [9, 65, 3], id: 'craftmatic:collider[lo=4,hi=16]' }] });
+    host.set(0, 0.6);
+    host.run(80);
+    expect(Math.min(...host.poses.map(p => p.y))).toBeGreaterThan(63.9);
+    expect(host.entity.location.x).toBeGreaterThan(10);
+    expect(host.entity.location.y).toBeCloseTo(64, 5);
+  });
+  it('a car whose centre ends inside a solid block holds its height instead of falling', () => {
+    // Spawned (or pushed) with its base inside a 2-block wall: no fall, whatever the scan reads above it.
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [0, 64, 0], to: [0, 65, 0], id: 'minecraft:stone' }] });
+    host.set(0, 0);
+    host.run(20);
+    expect(Math.min(64, ...host.poses.map(p => p.y))).toBeGreaterThan(63.9);
+  });
   it('holds still where the terrain ahead or under it is not loaded, instead of falling through it', () => {
     const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, unloadedBeyondX: 30 });
     host.set(0, 1);
@@ -493,6 +515,15 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on a fake worl
     expect(host.entity.location.x).toBeLessThan(30);
     expect(host.entity.location.x).toBeGreaterThan(20);
     expect(host.entity.location.y).toBe(64);
+  });
+  it('shows the controls hint for a new driver only at first, then only the speed (the bar covers the car on a phone)', () => {
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 } });
+    host.set(0, 0.5);
+    host.run(20);
+    expect(host.bars.at(-1)).toMatch(/STICK: DRIVE \+ STEER/);
+    host.run(120);
+    expect(host.bars.at(-1)).toMatch(/mph/);
+    expect(host.bars.at(-1)).not.toMatch(/STICK/);
   });
   it('places no light by day', () => {
     const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, time: 6000 });

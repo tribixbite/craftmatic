@@ -138,13 +138,40 @@ for my 5yo to explore and play with."
 - [ ] Minifigs with unclosed faces / open surfaces (which sets and where: find
   on the device first; suspects: hollow part compile, hidden-cube cull,
   head carve, coplanar separation).
-- [ ] Gabby sets' cars: the driver's view is blocked when mounted.
-- [ ] 10788 Dollhouse: the slide is misaligned; the lift does not work
-  (known: the lift car found is the upper cat-eared assembly, the pink box at
-  the shaft's foot may be the real car; a solid car's rider sits inside it
-  above 100 %).
-- [ ] Gabby sets as a whole: every door, slide, lift, swing, seat and car a
-  child would try should work at 100 %.
+- [x] Gabby cars' view, the 10788 slide and lift: fixed in `377850a5` (worktree
+  `agent-a743597866bba6650`), device-checked on the Saga, world 925, packs
+  `output/gabby-play-0929/packs-377850a5/` (uuids unchanged; content log 0 errors / 0 overridden).
+  Evidence `output/gabby-play-0929/saga/` (`s*` = before, `v*` = after) and `output/gabby-play-0929/rec/`.
+  - Cars: 10797's cat car put the eye inside its bodywork (default-cabin, view
+    0 of 15 rays clear); now the seat is on its rear deck and first person
+    sees ahead (`v27`, `rec/v_car10797_cockpit`); 10796's carts see ahead too
+    (`v34`, `v36`). 10797's car also FELL THROUGH THE WORLD under an overhang
+    (Saga: y -104, `s43`-`s46`); the ground scan now passes under it (host test).
+  - 10788 slide: the rider ran on the chute's side rails, 30 LDU over the bed;
+    now in the chute (`rec/v_slide10788-big-*`, `rec/v_slide10796-big-*`).
+  - 10788 lift: the "car" was the shaft's back-wall cap (it flew over the
+    roof, `rec/lift10788_a-big-1-8.jpg`); now the pink platform (3863) rides
+    its frames and stops at the three room floors, tap it to board
+    (`v09`-`v19`, `rec/v_lift_*`).
+  Gates at `34eb8363`: typecheck (root, web), `bun run test` 2,739 passed,
+  physics spec current, favourites sweep 40/40 (`output/gabby-play-0929/sweep/`),
+  `_mcaddon_check` 0 fails (sweep + 5 Gabby), `_ix_passability` 100/150 % rot 0:
+  0 FAIL, 41 SEALED = the `merge-0929` baseline's 41 (none new). The device
+  packs are `377850a5`; `34eb8363` changes no Gabby seat (vehicle audit).
+- [ ] Minifigs with unclosed faces / open surfaces (another agent owns it).
+- [ ] Gabby, still open from the play round:
+  - Undo leaves a car the player rode behind (10796 car 1, 10797's car,
+    `v41-kill`, `s53`): killed by hand; not investigated.
+  - Chase camera: the rider's head still sits at the middle of a doll car's
+    chase view (`v33b`, `v35b`); the boom now rises over it only when the
+    rider is drawn. The cockpit (slot 9) view is clear.
+  - The 10788 attic has no lift stop (the platform's runner block would leave
+    the top frame); its rooms 2-3 are reached by the lift only.
+  - Not re-checked this round: 10786's boat, 11204's slide after the bed fix
+    (both moved < 0.5 block in the offline path), the turntable, swing, stool,
+    drawers and lids. 10797's turntable showed no tap target at 2.5 blocks (`s50`).
+  - Lift exit onto the 2nd/3rd floors lands beside the shaft on the room's
+    floor (`v17`); the step off is a teleport, not a walk.
 
 ## New-set onboarding + 11390 (2026-09-29)
 
@@ -577,10 +604,6 @@ evidence `output/gabby-0926/` there. Guide: docs/bedrock-addon-guide.md "Gabby's
   tap from ~3 blocks on both phones, round 26d.) Pixel r3: re-boarding the lift from the
   same spot re-seated the parked car without a trip (host sim
   `lift_sim.ts` cycles every ride; not explained).
-- [ ] 10788: the car found is the upper cat-eared assembly (2456/3002/15068 at
-  y -424..-592); the pink box at the shaft's foot may be the real car - check the
-  instructions. Above 100 % a solid car's rider is inside it again
-  (`TODO(rides)`).
 - [ ] The cats have no LDraw bodies (65213, 102297, 5690-5692, 3862): MerCat's head
   4040 stands alone; do not invent geometry.
 - [ ] 10796/10797/10786/11204 are staged captures: builds stand in a row.
