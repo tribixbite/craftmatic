@@ -128,8 +128,8 @@ export interface GametestSeat {
 export interface GametestVehicle {
   label: string;
   typeId: string;
-  /** `hover`: a hover craft (family `hover`), driven over the land lane AND the pool. */
-  kind: 'car' | 'boat' | 'plane' | 'hover';
+  /** `hover`: a hover craft (family `hover`), driven over the land lane AND the pool; `flyer`: a canon mount's cloud (family `flyer`), a native hover mount that must hold its height hands off. */
+  kind: 'car' | 'boat' | 'plane' | 'hover' | 'flyer';
   /** `minecraft:rideable.seat_count`. */
   seats: number;
   /** Shipped geometry size in blocks (for the spawn clearance). */
@@ -157,6 +157,30 @@ export interface GametestTrain {
   /** A car's placement position, model-local (to find the train after placement). */
   at: Vec3;
   window?: number;
+}
+
+/**
+ * A canon flyer mount's companion (`flyer_<id>`, engine/bedrock-flyer.ts,
+ * engine/set-canon.ts): the model is placed with its own placement code; the
+ * companion's seat must be found orbiting with its figure aboard and its
+ * cloud alongside; a simulated player taps the figure and must be aboard a
+ * NEW cloud beside it, flies it forward, holds Jump (the climb is recorded,
+ * not judged: a simulated Jump never climbed the rotor either, 2026-09-25),
+ * must not sink hands off, gets off (the cloud must stay), summons more than
+ * the cap (the count must not pass it), and every empty cloud must fade after
+ * `despawnTicks` while the companion keeps its own.
+ */
+export interface GametestFlyer {
+  label: string;
+  figureType: string;
+  cloudType: string;
+  seatType: string;
+  carType: string;
+  /** The companion figure actor's model-local position. */
+  figureActor: Vec3;
+  despawnTicks: number;
+  cap: number;
+  cooldownTicks: number;
 }
 
 /** The vehicle arena: 64 x 64 over one structure, land on the low-z half, a pool on the high-z half. */
@@ -296,6 +320,8 @@ export interface GametestPlan {
   creatorWand?: { api: string; savedKey: string; slotSizes: Record<string, number> } | undefined;
   /** Driven trains on the model's own railway track (`train_<id>_<n>`); absent or empty: no test. */
   trains?: GametestTrain[] | undefined;
+  /** A canon flyer mount's companion (`flyer_<id>`); absent: no test. */
+  flyer?: GametestFlyer | undefined;
 }
 
 /** The server-side animation controller the gait probe adds to one figure's BP entity. */
@@ -624,8 +650,8 @@ interface RuntimeModules { mc: any; gt: any }
 export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena: Vec3, margin: number, judge: typeof judgeWalk, matches: typeof outcomeMatches, judgeFigure?: typeof judgeFigureTrack, vehicleKit?: { summarise: typeof summariseVehiclePhase; layout: typeof GT_VEHICLE_LAYOUT; inputEvent: string }): void {
   const { mc, gt } = mods;
   // `--only=vehicles`: none of the model's own tests, so a vehicle run is short and cannot collide with them.
-  if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [] };
-  if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [], trains: [] };
+  if (plan.vehiclesOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, figures: [], flyer: undefined };
+  if (plan.figuresOnly) plan = { ...plan, doorways: [], parts: [], seats: [], pinball: undefined, vehicles: [], trains: [], flyer: undefined };
   if (plan.vehiclesOnly) plan = { ...plan, gaitProbe: undefined, creatorFigure: undefined, creatorWand: undefined };
   const { world, system } = mc;
   const NS = 'craftmatic_gt';
@@ -1632,6 +1658,8 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
         // Reversing goes the OTHER way to forward: the two travel headings at least 120 degrees apart.
         && Math.abs(((ph.reverse.travelYaw - ph.forward.travelYaw + 540) % 360) - 180) > 120;
       checks.turns = Math.abs(ph.turn_left?.yawChange ?? 0) > 30;
+      // A flyer (a canon mount's cloud) has no gravity: hands off, it hovers where it is.
+      if (v.kind === 'flyer') checks.holdsAltitude = (ph.coast?.minDy ?? -9) > -0.5;
     }
     // A second rider, where the vehicle has a second seat.
     if (v.seats > 1 && !row.lost) {
@@ -1656,6 +1684,101 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     flush();
     if (row.pass) test.succeed(); else test.fail(`vehicle ${v.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
   }).structureName(`${NS}:vehicles_${plan.modelId}`).maxTicks(4000).tag(NS));
+
+  /**
+   * A canon flyer mount's companion (`GametestFlyer`): the orbit, the summon,
+   * a short flight, the dismount, the cap and the fade. One `CMGT FLYER` row.
+   */
+  const fl = plan.flyer;
+  if (fl) gt.registerAsync(NS, `flyer_${plan.modelId}`, async (test: any) => {
+    const placed = await placeModel(test, 'flyer');
+    if (!placed) return;
+    const { sim, anchor, dim } = placed;
+    const checks: Record<string, boolean> = {};
+    const row: any = { label: fl.label, checks };
+    const centre = add(anchor, { x: plan.dims.width / 2, y: 0, z: plan.dims.length / 2 });
+    const reach = Math.max(plan.dims.width, plan.dims.length) * 2 + 32;
+    const find = (type: string, near: Vec3 = centre, r = reach): any[] => { try { return dim.getEntities({ type, location: near, maxDistance: r }); } catch { return []; } };
+    const ridersOf = (e: any): any[] => { try { return e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { return []; } };
+    const loc = (e: any): Vec3 | undefined => { try { return { ...e.location }; } catch { return undefined; } };
+    const dist = (a: Vec3 | undefined, b: Vec3 | undefined): number => a && b ? Math.sqrt(dist2(a, b)) : NaN;
+    await test.idle(40);
+    const seat = find(fl.seatType)[0], figure = find(fl.figureType)[0], car = find(fl.carType)[0];
+    row.found = { seat: !!seat, figure: !!figure, car: !!car };
+    checks.companionPlaced = !!seat && !!figure && !!car;
+    if (!checks.companionPlaced) { log('FLYER', row); flush(); test.fail('the companion seat, figure or cloud was not placed'); return; }
+    // The orbit: the seat moves, the figure rides it, the cloud keeps its offset from the seat.
+    const s0 = loc(seat)!, c0 = loc(car)!;
+    await test.idle(60);
+    const s1 = loc(seat), c1 = loc(car);
+    row.orbit = { moved: Math.round(dist(s0, s1) * 100) / 100, offsetDrift: c1 && s1 ? Math.round(Math.abs(dist(c1, s1) - dist(c0, s0)) * 100) / 100 : null, riders: ridersOf(seat).map((r: any) => r.typeId) };
+    checks.orbits = dist(s0, s1) > 1;
+    checks.figureRidesSeat = ridersOf(seat).some((r: any) => r.typeId === fl.figureType);
+    checks.cloudFollows = row.orbit.offsetDrift !== null && row.orbit.offsetDrift < 0.5;
+    /** Stand beside the (flying) figure and tap it; the summoned cloud mounts the player before they fall far. */
+    const summon = async (): Promise<any> => {
+      const at = loc(figure);
+      if (!at) return undefined;
+      sim.teleport(add(at, { x: 0, y: 0.5, z: 1 }), { facingLocation: at });
+      await test.idle(2);
+      try { sim.lookAtEntity(figure); } catch { /* not required */ }
+      let mine: any;
+      try { sim.interactWithEntity(figure); } catch (err) { row.interactError = String(err); }
+      await test.idle(8);
+      mine = find(fl.cloudType, loc(sim), 8).find((c: any) => ridersOf(c).some((r: any) => r.name === sim.name));
+      if (!mine) {
+        try { sim.attackEntity(figure); } catch { /* the hit path */ }
+        await test.idle(8);
+        mine = find(fl.cloudType, loc(sim), 8).find((c: any) => ridersOf(c).some((r: any) => r.name === sim.name));
+        if (mine) row.viaHit = true;
+      }
+      return mine;
+    };
+    const cloud = await summon();
+    checks.summoned = !!cloud;
+    if (cloud) {
+      const p0 = loc(cloud)!;
+      await test.idle(10);
+      // Forward along the rider's look for 2 s, then the climb (recorded) and the hold (judged).
+      try { sim.moveRelative(0, 1); } catch { /* idle */ }
+      await test.idle(40);
+      try { sim.stopMoving(); } catch { /* idle */ }
+      const p1 = loc(cloud)!;
+      row.forward = Math.round(Math.hypot(p1.x - p0.x, p1.z - p0.z) * 100) / 100;
+      checks.flies = row.forward > 2;
+      const y0 = p1.y;
+      for (let t = 0; t < 40; t++) { try { sim.jump(); } catch { /* no jump */ } await test.idle(1); }
+      row.climb = Math.round((loc(cloud)!.y - y0) * 100) / 100;
+      const hy = loc(cloud)!.y;
+      await test.idle(40);
+      row.hold = Math.round((loc(cloud)!.y - hy) * 100) / 100;
+      checks.holdsAltitude = row.hold > -0.5;
+      const where = loc(cloud)!;
+      try { cloud.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
+      await test.idle(20);
+      checks.staysAfterDismount = find(fl.cloudType, where, 4).length >= 1;
+    }
+    // Summon again and again, past the cap: at most `cap` clouds ever exist.
+    let summons = 0;
+    for (let i = 0; i < fl.cap + 2; i++) {
+      const mine = await summon();
+      if (mine) { summons++; try { mine.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ } }
+      await test.idle(fl.cooldownTicks + 4);
+    }
+    row.summons = summons;
+    row.cloudsAfterCap = find(fl.cloudType).length;
+    checks.capHolds = summons >= fl.cap && row.cloudsAfterCap <= fl.cap && row.cloudsAfterCap >= 1;
+    // Away from them all: every empty cloud fades, the companion keeps its own.
+    try { sim.teleport(test.worldLocation({ x: 0.5, y: 2, z: 0.5 })); } catch { /* stays */ }
+    await test.idle(fl.despawnTicks + 60);
+    row.cloudsAfterFade = find(fl.cloudType).length;
+    checks.emptyFades = row.cloudsAfterFade === 0;
+    checks.companionKeepsCloud = ridersOf(seat).some((r: any) => r.typeId === fl.figureType) && find(fl.carType).length === 1;
+    row.pass = Object.values(checks).every(Boolean);
+    log('FLYER', row);
+    flush();
+    if (row.pass) test.succeed(); else test.fail(`flyer ${fl.label}: ${Object.entries(checks).filter(([, ok]) => !ok).map(([k]) => k).join(', ')}`);
+  }).structureName(`${NS}:arena_${plan.modelId}`).maxTicks(fl.despawnTicks + 3000).tag(NS);
 
   /**
    * Trains: place the model (its train stands on its own railway track), seat

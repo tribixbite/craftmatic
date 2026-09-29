@@ -344,6 +344,21 @@ camera.
   brake to rest, reverse from rest, coast, and on an open line a run to the
   buffer (must stop on the line). Read off the cars' `craftmatic:coaster_*`
   dynamic properties every 2 ticks; `CMGT TRAIN_PHASE` / `CMGT TRAIN`.
+- `flyer_<id>` for a set whose canon names a flyer mount with a companion
+  (engine/set-canon.ts, engine/bedrock-flyer.ts; 11390's Nimbus, from
+  `scripts/flyer.js`'s CONFIG): the model is placed; the companion's seat
+  must be found orbiting with its figure aboard and its cloud alongside
+  (`orbits`, `figureRidesSeat`, `cloudFollows`); a simulated player taps the
+  figure (`interactWithEntity`, then `attackEntity` if that did not summon)
+  and must be aboard a new cloud beside it (`summoned`), flies it forward
+  (`flies`), holds Jump (the climb is RECORDED only - a simulated Jump never
+  climbed the rotor either), must not sink hands off (`holdsAltitude`), gets
+  off and the cloud must stay (`staysAfterDismount`), summons past the cap
+  (`capHolds`), and after `EMPTY_DESPAWN_TICKS` + 60 every empty cloud must
+  be gone while the companion keeps its own (`emptyFades`,
+  `companionKeepsCloud`). One `CMGT FLYER` row. The cloud also runs the
+  `vehicle_<id>_<n>` course as a native mount with a `holdsAltitude` check.
+  Written 2026-09-29, not yet run on a device.
 
 Each result is a `CMGT DOOR` / `PART` / `SEAT` line, and each test ends with a
 `CMGT SUMMARY` / `PARTS_SUMMARY` line. `bun scripts/_ix_audit_table.ts <sweep
