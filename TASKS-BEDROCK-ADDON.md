@@ -125,15 +125,12 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   orbit, tap-train summon, fly 13.7 mph, climb, dismount (descend not
   testable by adb). 10788 lift: tap boards, floors 2, 3, back down. Undo
   left nothing.
-- [ ] 10788 slide seat NOT tappable on the Pixel (`124-seat-blocks`): since
-  `377850a5` the seat idles on the bed path INSIDE collider blocks
-  (`collider_w6`/`_f1`), the ride entity's box is 0.5 and boarding is
-  entity-interact only, so the tap hits the collider; `/ride` boards and the
-  chute runs (2.4 blocks). Worktree agent fixing (idle at the lip and/or a
-  `playerInteractWithBlock` boarding on collider forms; all six slide sets
-  checked). Also: floor 3's WEST room (x 5575-5582 at the Pixel placement)
-  does not hold the player while the east room does - clearance trim or an
-  open floor in the model; same agent diagnoses with `_clearance_report.ts`.
+- [x] 10788 slide seat not tappable: FIXED and merged `16d4bc82` (a touch
+  tap is a hit; `board()` seats a tapped ride seat; pick box 1.0 x 0.6) -
+  details under "User report 2026-09-29". Floor 3's west room holds (the
+  probes were under the slab / in a wall band). Device tap unproven.
+- [ ] Next full rebuild (29d) carries the silent `fly` sound and the slide
+  tap; do it after the Saga 29c and Pixel Nimbus re-check reports.
 - [ ] Nimbus fixes re-check on the Pixel (agent in flight,
   `output/nimbus-pixel-0929/`): hint, HUD mph vs true + CMVT cadence, look
   down + Jump dive, float-down, `fly` line count.
