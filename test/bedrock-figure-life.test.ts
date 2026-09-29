@@ -238,6 +238,15 @@ describe('the serialised runtime', () => {
     expect(t!.slice(720).every(p => p.riding)).toBe(true);
   });
 
+  it('retakes a seat whose entity sits 2 blocks under the figure\'s home (10261\'s kiosk, round 2026-09-29b)', () => {
+    const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 2.6, z: 2.5 }, mode: 'seated' }],
+      player: { x: 3.5, y: 3 / 16, z: 2.5 }, playerLeavesAt: 600 };
+    const [t] = simulateFigureLife(w, config, 1200, 5);
+    expect(t!.slice(720).every(p => p.riding)).toBe(true);
+  });
+
   it('walks a figure spawned inside a collider column into the free cell beside it, then keeps it there', () => {
     const cells: SourceCell[] = [0, 1, 2].map(y => ({ x: 2, y, z: 2, lo: 0, hi: 16 }));
     const w: SimWorld = { cells, area: [2, 2, 4, 3], ground: 0, figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.4, y: 0, z: 2.5 } }] };

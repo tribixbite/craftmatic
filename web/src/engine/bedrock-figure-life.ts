@@ -469,6 +469,8 @@ export interface FigurePlanner {
 export function figureLifeRuntime(mc: { world: any; system: any }, config: FigureLifeConfig, planner: FigurePlanner, homeProperty: string): void {
   const { world, system } = mc;
   const T = config.tuning;
+  /** How far from its home (blocks) a seated figure looks for the seat to retake: 10261's kiosk seat entity sits ~2 below its home. */
+  const RETAKE_REACH = 4;
   const types = new Set(config.figureTypes);
   const draftTypes = new Set(config.draftTypes ?? []);
   /** A creator figure the wand is dressing or editing (`craftmatic:draft`): not this runtime's to move. */
@@ -490,6 +492,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     rehomed?: boolean;
     /** A seated figure's retake was refused or found no seat, and the content log was told once. */
     retakeWarned?: boolean;
+    /** The seat entity a seated figure rode, retaken by id once a player gives it back. */
+    seatId?: string;
   }
   const lives = new Map<string, Life>();
   let tick = 0;
@@ -740,6 +744,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       if (riding(e)) {
         let seat: any;
         try { seat = e.getComponent('minecraft:riding')?.entityRidingOn; } catch { seat = undefined; }
+        // Its own seat, remembered to retake it by id once given up.
+        if (seat && config.seatTypes.includes(seat.typeId)) l.seatId = seat.id;
         if (seat && config.seatTypes.includes(seat.typeId) && nearestPlayer(seat.location, e.dimension, T.yieldSeatDistance)) {
           try { seat.getComponent('minecraft:rideable')?.ejectRider(e); } catch { /* seat gone */ }
           l.until = tick + 100;
@@ -749,8 +755,15 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       if (tick >= l.until) {
         l.until = tick + 100;
         try {
-          const seats = e.dimension.getEntities({ location: { x: h.home[0], y: h.home[1], z: h.home[2] }, maxDistance: 1.5 })
-            .filter((s: any) => config.seatTypes.includes(s.typeId));
+          // Its own seat by id, else the nearest seat within `RETAKE_REACH` of
+          // home. A 1.5-block search found nothing on both phones (round
+          // 2026-09-29b: FIGURE_RETAKE_NO_SEAT for 10261's kiosk figure, whose
+          // home is ~2 blocks above the seat entity it rode).
+          const at = { x: h.home[0], y: h.home[1], z: h.home[2] };
+          const d2 = (s: any): number => (s.location.x - at.x) ** 2 + (s.location.y - at.y) ** 2 + (s.location.z - at.z) ** 2;
+          const seats = e.dimension.getEntities({ location: at, maxDistance: RETAKE_REACH })
+            .filter((s: any) => config.seatTypes.includes(s.typeId))
+            .sort((a: any, b: any) => (a.id === l.seatId ? -1 : b.id === l.seatId ? 1 : d2(a) - d2(b)));
           const r = seats[0]?.getComponent('minecraft:rideable');
           if (r && (r.getRiders?.() ?? []).length === 0 && !nearestPlayer(seats[0].location, e.dimension, T.yieldSeatDistance)) {
             // Onto the seat first: the retake failed on both phones (round

@@ -94,30 +94,37 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
-## Round 2026-09-29a (main checkout, `d95b7f5e`)
+## Rounds 2026-09-29a/b (`d95b7f5e`, `f37227ad`)
 
 **Sent**: `output/device-round-2026-09-29a/craftmatic-packs-d95b7f5e.zip`
 (sha256 f3a4036ed521a05d02db690af3380397a26f04fdfe460606b757affd7b168aff;
 19 set packs + creator + PACKS.md, uuids = 28a's, parts = 28a's). Deployed
 `--exclusive` on both phones (camprobe unbound on the Pixel); content logs
 0 errors / 0 overridden. Evidence in the round folder (`saga/`, `pixel/`).
+29b: `output/device-round-2026-09-29b/craftmatic-packs-f37227ad.zip` (sha256
+c9c523f18bcf0da0f419904ae53efa173f5c9b79950c863c2ee2232b8c086137), same
+uuids and parts, content logs 0/0 on both, deployed `--exclusive`.
 - [x] Wand: first use no menu, the ghost follows the aim; second use shows
   the menu with Place first; place + Undo (both phones).
 - [x] Doors at 100 %: 10326 Door 1 walked in and out, closed/reopened from
   inside (Pixel; the Saga's walk-out stopped once at 0.6, not repeated);
   910004 Door 3 opened and walked out (both), walking back in stopped at the
   threshold once on the Pixel.
-- [x] 10303 loops pitch over on both; Pixel exits continuous. **Saga: one-frame
-  cut + 0.2 s swing at loop 1's exit on lap 1 only** (`saga/rec/exit1-30fps-big-1-8.jpg`). Open.
-- [ ] 10365 in a 6-deep pool: floats steady and drives, posts under water,
-  but the waterline sat at the hull's bottom edge (draft 3.83). Since
-  (uncommitted round 29b): the keel is where the cross-section reaches a
-  quarter of its widest (10365 3.23) and the immersion cap is 2 blocks
-  (draft 5.23, `TODO(boats)`). A 3-deep pool grounds a 26-block ship.
-- [ ] 10261 kiosk figure did NOT retake its seat on either phone (player 9-19
-  blocks away, 35-50 s). Since: the figure is teleported onto the seat before
-  `addRider`, and a refusal logs `FIGURE_RETAKE_REFUSED` / `_NO_SEAT` /
-  `_ERROR` once - read the content log in the next round.
+- [ ] 10303 loops pitch over on both phones; Pixel exits continuous. **Saga:
+  a one-frame cut to the car's other side + 0.1-0.15 s swing back at loop 1's
+  exit on EVERY lap in round 29b (3 of 3; 29a saw it on lap 1 only); loop 2's
+  exit is continuous.** Evidence `output/device-round-2026-09-29b/saga/rec/`
+  (`lap*-exit1-30fps-big-1-8.jpg`, `lap*-framediff.tsv`). Open: Saga-only,
+  so likely frame timing at the hand-back (26.52 vs the Pixel's 26.51).
+- [x] 10365 (round 29b, draft 5.23, 7-deep pool): floats 5.3 below the
+  surface on both phones, waterline above the hull's bottom edge, lower hull
+  and posts under water, drives 43 blocks level. A 3-deep pool grounds it.
+  `TODO(boats)` 2-block cap stays a judgement until the user sees it.
+- [ ] 10261 kiosk figure: still no retake in round 29b, and the log said why -
+  `FIGURE_RETAKE_NO_SEAT craftmatic:roller_10261_fig2 near 4584,-57,4592` (both
+  phones): its home is ~2 blocks above the seat entity, outside the 1.5-block
+  search. Since: the figure remembers its seat's id and searches 4 blocks
+  (host test with the seat 2 below fails at 1.5). Device-unproven.
 - [ ] 910004 Door 3 from inside: the tap button named Window 6 (tap
   occlusion, below); tapping the leaf worked.
 - [x] "Place…" drew in a smaller grey font on both phones: now "Place".
