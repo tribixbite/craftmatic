@@ -7,7 +7,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
-import { blockSpan, exploreWalkable, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
+import { host } from './_placement-host.js';
+import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
 import { simulateFigureLife, type SimWorld } from '../web/src/engine/figure-life-sim.js';
 
 const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
@@ -236,6 +237,90 @@ describe('the serialised runtime', () => {
     expect(t!.slice(2, 600).every(p => !p.riding)).toBe(true);
     // Back on its seat within the 100-tick retry once the player has gone.
     expect(t!.slice(720).every(p => p.riding)).toBe(true);
+  });
+
+  it('tells the content log of a missing seat on the second retake check in a row, not while a placement is still spawning its seats', () => {
+    // A seated figure is adopted the tick it spawns; a large placement (10261, ~2 min) spawns its
+    // seats later. Both phones logged FIGURE_RETAKE_NO_SEAT for 10261's kiosk figure at that first
+    // check, before its seat existed, and the figure sat on it afterwards (Saga round 2026-09-29c).
+    const tuning = { ...FIGURE_TUNING, idleMin: 20, idleMax: 30 }; // the first check at tick 21..31, the second 100 later
+    const late: string[] = [];
+    const seatComes: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 }, spawnAt: 60 }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated' }],
+      onWarn: l => late.push(l) };
+    const [t] = simulateFigureLife(seatComes, { ...config, tuning }, 400, 5);
+    expect(late.filter(l => l.includes('FIGURE_RETAKE'))).toEqual([]);
+    // Seated on it by the second check.
+    expect(t!.slice(200).every(p => p.riding)).toBe(true);
+    // No seat ever: the line once, on the second miss (two checks, 10 s), never on the first.
+    const never: string[] = [];
+    simulateFigureLife({ ...seatComes, seats: [], onWarn: l => never.push(l) }, { ...config, tuning }, 400, 5);
+    expect(never.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
+    expect(never[0]).toMatch(/FIGURE_RETAKE_NO_SEAT craftmatic:a_fig1 near 3,1,3 \(2 checks, 10 s\)/);
+    const early: string[] = [];
+    simulateFigureLife({ ...seatComes, seats: [], onWarn: l => early.push(l) }, { ...config, tuning }, 100, 5);
+    expect(early).toEqual([]);
+  });
+
+  it('says nothing while the placement is still seating the figure, however long its seat takes to spawn (10261, ~2 min)', () => {
+    // 10261's placement spawns its actors over ~2 minutes, the kiosk figure long before its seat:
+    // both phones logged FIGURE_RETAKE_NO_SEAT ~2 min into every placement (Saga round 2026-09-29c).
+    // The seat comes at tick 2400 (2 min); the placement's seating mark is on the figure until then.
+    const late: string[] = [];
+    const slow: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 }, spawnAt: 2400 }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated', seatingUntil: 2400 }],
+      onWarn: l => late.push(l) };
+    const [t] = simulateFigureLife(slow, config, 2800, 5);
+    expect(late.filter(l => l.includes('FIGURE_RETAKE'))).toEqual([]);
+    // Once the mark goes the retake runs and seats it (the placement's own pass would have first, on the device).
+    expect(t!.slice(2600).every(p => p.riding)).toBe(true);
+    // Without the mark (a pack built before it) two misses in a row are not enough grace for a 2-minute placement.
+    const unmarked: string[] = [];
+    simulateFigureLife({ ...slow, figures: [{ ...slow.figures[0]!, seatingUntil: undefined }], onWarn: l => unmarked.push(l) }, config, 2800, 5);
+    expect(unmarked.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
+  });
+
+  it('spells the seating mark and its grace as the constants say, in both serialised runtimes', () => {
+    const js = figureLifeScript({ ...config, interactiveFamily: 'craftmatic_interactive' });
+    const quoted = new RegExp(`["']${FIGURE_SEATING_PROPERTY}["']`);
+    expect(js).toMatch(quoted);
+    // The transpiler may spell the number differently (6e5): compare values.
+    expect(Number(/SEATING_GRACE_MS = ([^,;\s]+)/.exec(js)?.[1])).toBe(FIGURE_SEATING_GRACE_MS);
+    const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 4 };
+    const h = host({ stem: 'marks', label: 'Marks', width: 4, height: 2, length: 2, tiles: [tile], actors: [], settleTicks: 1, finalHoldTicks: 1 });
+    expect(h.assets.script).toMatch(quoted);
+  });
+
+  it('the placement marks a source-seated figure until its seating pass is done with it', async () => {
+    // The figure spawns BEFORE its seat (10261's order); the host's seat is not rideable, so the
+    // pass retries and gives up - the mark must go either way.
+    const tile = { identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 4 };
+    const h = host({ stem: 'seated', label: 'Seated', width: 4, height: 2, length: 2, tiles: [tile],
+      actors: [
+        { typeId: 'craftmatic:seated_fig1', label: 'Figure 1', x: 1, y: 1, z: 1, rideOf: 1 },
+        { typeId: 'craftmatic:seated_seat', label: 'Seat', x: 1, y: 0.5, z: 1 },
+        { typeId: 'craftmatic:seated_fig2', label: 'Figure 2', x: 2, y: 1, z: 1 },
+      ],
+      settleTicks: 1, finalHoldTicks: 1 });
+    const dim = h.world.getDimension() as { spawnEntity: (t: string, at: unknown) => unknown };
+    const spawn = dim.spawnEntity;
+    let markWhileSeatSpawns: unknown = 'unset';
+    dim.spawnEntity = (t: string, at: unknown) => {
+      if (t === 'craftmatic:seated_seat') markWhileSeatSpawns = h.spawned.find(s => s.typeId === 'craftmatic:seated_fig1')!.entity.getDynamicProperty(FIGURE_SEATING_PROPERTY);
+      return spawn(t, at);
+    };
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(2000);
+    expect(typeof markWhileSeatSpawns).toBe('number');
+    const fig1 = h.spawned.find(s => s.typeId === 'craftmatic:seated_fig1')!.entity;
+    const fig2 = h.spawned.find(s => s.typeId === 'craftmatic:seated_fig2')!.entity;
+    expect(fig1.getDynamicProperty(FIGURE_SEATING_PROPERTY)).toBeUndefined();
+    // A roaming figure is never marked.
+    expect(fig2.getDynamicProperty(FIGURE_SEATING_PROPERTY)).toBeUndefined();
+    expect(JSON.parse(String(fig1.getDynamicProperty('craftmatic:fig'))).mode).toBe('seated');
   });
 
   it('retakes a seat whose entity sits 2 blocks under the figure\'s home (10261\'s kiosk, round 2026-09-29b)', () => {

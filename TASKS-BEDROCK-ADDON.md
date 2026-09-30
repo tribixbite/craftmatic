@@ -828,3 +828,31 @@ tests first (`test/vehicle-driver.test.ts`, `test/placement-seating.test.ts`,
   A/B `interactive_sounds.block_sounds.normal` (vanilla's entry verbatim +
   `fly: ""`) and a real silent sound definition; if neither, remove the
   entry and the gate (`TODO(fly-sound)` in playable-addon.ts).
+
+## Doors fix after Saga round 29c (worktree `agent-a9d41e0a221ddc20b`, 2026-09-29/30)
+
+Commits `cb8e851a` (the first agent's WIP) + `db994f40`, `448fc3db`,
+`df580c19`. Findings: `docs/bedrock-interactivity.md`, "The doorway's floor,
+a floor's top, and the device's line". Evidence: the worktree's
+`output/doors-fix-0929/` (probes in `tools/`) and `output/doors-fix-0929b/`
+(`packs-448fc3db/` = the 29d round rebuilt, `verdicts/*.json` + `verdict_diff.py`,
+`trace_door.ts`, `trace_line.ts`, `sweep/`). Gates at `df580c19`: both
+typechecks, `bun run test` 2822 passed / 31 skipped, physics spec current,
+passability 0 FAIL (4 rows changed, all 910004 Door 3 -> SEALED), sweep 6/6
+with `_mcaddon_check` valid.
+- (A) 10326 Door 1: the device's fall is the model's (door 2.6 over the base
+  plate at the model's front edge, no steps in the source; the threshold is
+  intact in every pack). Fixed: the phantom tread the walk stood on.
+- (B) 910004 Door 3: the model's (platform under a 1.56-1.75 ceiling); SEALED.
+- (D) FIGURE_RETAKE_NO_SEAT: `craftmatic:fig_seating` mark from spawn to the
+  placement's seating pass. Probably also the "figure 4 could not take its
+  seat" line (the runtime's retake seating fig4 before the placement's pass
+  did): not proved, the reason text was not captured.
+- [ ] Device: 10326 Door 1 walk-out at x 10.67 (expect the new invisible
+  1-block ledge at the doorway's level, then the model's edge), 41732 Door 3
+  both ways (stoop kept), 10261 placement: no FIGURE_RETAKE_NO_SEAT in the
+  content log, the kiosk figure seated.
+- [ ] Decide on 10326's ledge: the passage keeps a cell under the step line
+  whole even where its geometry is a 1/8-block lip (rule 1's flip side).
+- [ ] 10022 Door 1 reads OK at 150/200 % via a ledge on the car's side
+  (main: ONE-WAY); not judged against the model.

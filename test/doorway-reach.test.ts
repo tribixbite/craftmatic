@@ -25,7 +25,8 @@ import {
   INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, interactiveRuntimeItem, passSizeFor, planInteractiveColliders,
   type InteractiveRuntimeConfig, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
-import { verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
+import { doorwayColumnLines, doorwayHoles, jumpHelps, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
+import { WalkWorld } from '../web/src/engine/addon-walk.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU } from '../web/src/engine/addon-scale.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
@@ -48,9 +49,9 @@ function leafAt(x0: number, width: number, zc: number, height = 2.6, floor = 1):
   };
 }
 
-/** The walk pack over a collider grid with one doorway planned in it (`passSize` 100). */
-function packOf(g: BlockGrid, leaf: SceneInteractive) {
-  const [plan] = planInteractiveColliders(g, [leaf], frame);
+/** The walk pack over a collider grid with one doorway planned in it (`passSize` 100); `layers` is the cells' geometry when the planner should tell a floor from a rim. */
+function packOf(g: BlockGrid, leaf: SceneInteractive, layers?: CellLayers) {
+  const [plan] = planInteractiveColliders(g, [leaf], frame, layers);
   const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize: 100, normal: [0, 0, 1] as [number, number, number] };
   const cells: SourceCell[] = [];
   for (let x = 0; x < g.width; x++) for (let y = 0; y < g.height; y++) for (let z = 0; z < g.length; z++) {
@@ -207,5 +208,152 @@ describe('the passability walk', () => {
     expect(closed.outcome).not.toBe('passed');
     expect(open.outcome).not.toBe('passed');
     expect(verdictOf(open, closed)).toBe('SEALED');
+  });
+});
+
+describe('a threshold tread stands on a floor, never on a wall\'s rim (10326\'s Door 1, Saga round 2026-09-29c)', () => {
+  /**
+   * The museum's front: the base plate (row 0), the door wall at z 3 with the
+   * leaf hung 14/16 up row 2 (floor 2.875) and the room floor inside at that
+   * height (z 4..7); in front of the leaf's two columns (z 2), at x 3 the
+   * base's front wall - a 4/16 band with a 2/16 plate at its foot, a floor +
+   * wall form whose rim at 2.0 is no floor - and at x 4 nothing down to the
+   * plate. With `rimIsFloor` the cell at x 3 is a full brick instead.
+   */
+  const front = (rimIsFloor: boolean) => {
+    const s = scene(8, 6, 8);
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) s.solid(x, 0, z, [[0, 16, 0, 16, 0, 16]]);
+    for (let x = 0; x < 8; x++) for (let y = 1; y <= 5; y++) s.solid(x, y, 3, [[0, 16, 0, 16, 0, 16]]);
+    for (let x = 0; x < 8; x++) for (let z = 4; z < 8; z++) s.solid(x, 2, z, [[0, 16, 0, 14, 0, 16]]);
+    s.solid(3, 1, 2, rimIsFloor ? [[0, 16, 0, 16, 0, 16]] : [[0, 16, 0, 2, 0, 16], [0, 16, 2, 16, 12, 16]]);
+    return s;
+  };
+  it('lays no half-way tread on a rim, and the device\'s line through the other column reports the pit', () => {
+    const s = front(false);
+    const { plan, pack } = packOf(s.grid, leafAt(3, 1.5, 3.5, 2.5, 2.875), s.layers);
+    expect(plan.treads).toBe(0);
+    expect(parseFormState(s.grid.get(3, 2, 2))).toBeNull();
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    // The rim's full cell is still a shelf 0.875 under the threshold (clearance keeps a landing): a way in, with a jump.
+    expect(verdictOf(open, closed)).toBe('OK');
+    expect(open.directions.find(d => d.from === -1)).toMatchObject({ outcome: 'passed' });
+    expect(open.directions.find(d => d.from === -1)!.jumps).toBeGreaterThan(0);
+    // The leaf's other column (x 4) drops to the plate, 1.875 under the doorway, on the outside: a hole the verdict walk never stood over.
+    const lines = doorwayColumnLines(pack, 0, 100, 0);
+    const holes = doorwayHoles(lines, 100);
+    expect(holes.map(h => `${h.column.x},${h.column.z}:${h.from}`)).toContain('4,3:-1');
+    expect(holes.find(h => h.column.x === 4 && h.from === -1)!.dropNear).toBeCloseTo(1.875, 2);
+    expect(holes.some(h => h.column.x === 3 && h.from === -1)).toBe(false);
+  });
+  it('lays the tread on a floor, and walks through without a jump', () => {
+    const s = front(true);
+    const { plan, pack } = packOf(s.grid, leafAt(3, 1.5, 3.5, 2.5, 2.875), s.layers);
+    expect(plan.treads).toBe(1);
+    expect(parseFormState(s.grid.get(3, 2, 2))).toEqual({ v: 0, lo: 0, hi: 7 });
+    const open = walkThroughDoorway(pack, 0, 100, 0, true);
+    expect(verdictOf(open, walkThroughDoorway(pack, 0, 100, 0, false))).toBe('OK');
+    expect(open.directions.some(d => d.outcome === 'passed' && d.jumps === 0)).toBe(true);
+  });
+});
+
+describe('an approach is a spot a player can go on from (910004\'s Door 3, Saga round 2026-09-29c)', () => {
+  /**
+   * A door in a wall at z 3 on the ground plate. Inside, `alcove`: one free
+   * column (3, 4) between furniture (x 2 and x 4, solid to row 3, four cells
+   * deep) and a wall at z 5 - a dead end a stud deep. `hallway`: the row z 4
+   * free across the whole width, the wall at z 5 - a corridor along the wall.
+   */
+  const inside = (alcove: boolean) => {
+    const g = new BlockGrid(8, 6, 8);
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) g.set(x, 0, z, colliderState(0, 16));
+    for (let x = 0; x < 8; x++) for (let y = 1; y <= 4; y++) g.set(x, y, 3, colliderState(0, 16));
+    for (let x = 0; x < 8; x++) for (let z = 4; z < 8; z++) for (let y = 1; y <= 3; y++) {
+      if (z === 4 && (!alcove || x === 3)) continue;
+      g.set(x, y, z, colliderState(0, 16));
+    }
+    return g;
+  };
+  it('calls a door into a one-column alcove SEALED, not OK', () => {
+    const { pack } = packOf(inside(true), leafAt(3, 1.5, 3.5, 2.5, 1));
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    expect(open.outcome).toBe('sealed');
+    expect(verdictOf(open, closed)).toBe('SEALED');
+  });
+  it('still walks a door onto a corridor running along the wall', () => {
+    const { pack } = packOf(inside(false), leafAt(3, 1.5, 3.5, 2.5, 1));
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    expect(open.outcome).toBe('passed');
+    expect(verdictOf(open, closed)).toBe('OK');
+  });
+});
+
+describe('the passage is measured from the doorway\'s floor, not the row the leaf\'s bottom is in (41732\'s Door 3, Saga round 2026-09-29c)', () => {
+  /**
+   * A leaf hung 14/16 up row 2 (floor 2.875) in a wall at z 3; inside, a
+   * floor LEVEL with the threshold two cells deep (row 2 [0, 14] at z 4..5),
+   * then the ground plate (row 0). The row-based rule read the level floor as
+   * an obstacle ("row y0 higher than a 9/16 step") and cleared both cells
+   * whole - a 1.875-block pit behind the door.
+   */
+  it('keeps a floor level with a leaf hung high in its row', () => {
+    const s = scene(8, 6, 8);
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) s.solid(x, 0, z, [[0, 16, 0, 16, 0, 16]]);
+    for (let x = 0; x < 8; x++) for (let y = 1; y <= 5; y++) s.solid(x, y, 3, [[0, 16, 0, 16, 0, 16]]);
+    for (let x = 0; x < 8; x++) for (let z = 4; z <= 5; z++) s.solid(x, 2, z, [[0, 16, 0, 14, 0, 16]]);
+    const { plan, pack } = packOf(s.grid, leafAt(3, 1.5, 3.5, 2.5, 2.875), s.layers);
+    expect(plan.passageCleared).toBe(0);
+    for (const x of [3, 4]) for (const z of [4, 5]) expect(parseFormState(s.grid.get(x, 2, z))).toEqual({ v: 0, lo: 0, hi: 14 });
+    const open = walkThroughDoorway(pack, 0, 100, 0, true);
+    expect(open.directions.find(d => d.from === 1)).toMatchObject({ outcome: 'passed' });
+    expect(doorwayHoles(doorwayColumnLines(pack, 0, 100, 0), 100).filter(h => h.from === 1)).toEqual([]);
+  });
+});
+
+describe('the device\'s line starts where a player can stand (76417\'s Gate 1 at 150 %)', () => {
+  it('starts on a step that tops out over the doorway\'s floor, not inside it', () => {
+    // A door (floor 2.0) in a wall at z 3 over a raised interior; outside, a step 0.5 high over the
+    // doorway's floor (z 1..2, top 2.5) standing over nothing - the ground plane is 2 blocks down.
+    // Dropped at the doorway's floor, the line's box started INSIDE the step, fell through it and
+    // reported a 2-block HOLE on a way in that is a step down.
+    const g = new BlockGrid(8, 6, 8);
+    for (let x = 0; x < 8; x++) for (let z = 3; z < 8; z++) for (let y = 0; y <= 1; y++) g.set(x, y, z, colliderState(0, 16));
+    for (let x = 0; x < 8; x++) for (let y = 2; y <= 5; y++) g.set(x, y, 3, colliderState(0, 16));
+    for (let x = 2; x <= 5; x++) for (const z of [1, 2]) g.set(x, 2, z, colliderState(0, 8));
+    const { pack } = packOf(g, leafAt(3, 1.5, 3.5, 2.5, 2));
+    const lines = doorwayColumnLines(pack, 0, 100, 0).filter(l => l.from === -1);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l.start!.y, `${l.column.x},${l.column.z}`).toBeCloseTo(2.5, 2);
+    expect(doorwayHoles(lines, 100)).toEqual([]);
+  });
+});
+
+describe('the walks jump only where a jump helps (31141\'s 45-degree Door 4)', () => {
+  /**
+   * A floor at 1.0 over an 8 x 8 plate; along z 5 a wall three blocks high,
+   * and at x 5 a riser: `rise` sixteenths over the floor. The walks jumped on
+   * ANY clipped move, so a player whose momentum brushed a jamb jumped through
+   * the leaf plane and was counted as not walking through at the doorway's
+   * floor (31141's Door 4 once the stoop outside it was kept).
+   */
+  const worldWith = (rise16: number) => {
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) cells.push({ x, y: 0, z, lo: 0, hi: 16 });
+    for (let x = 0; x < 8; x++) for (let y = 1; y <= 3; y++) cells.push({ x, y, z: 5, lo: 0, hi: 16 });
+    if (rise16 > 0) for (let z = 0; z < 5; z++) cells.push({ x: 5, y: 1, z, lo: 0, hi: rise16 });
+    return new WalkWorld({ cells, dims: { width: 8, height: 5, length: 8 }, sizePct: 100, rotation: 0, treads: 'none' });
+  };
+  const standing = (x: number, z: number) => ({ x, y: 1, z, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 });
+  it('slides along a wall that runs up past the jump', () => {
+    // Pressed against the wall at z 5 (box edge at 4.99), moving diagonally into it.
+    expect(jumpHelps(worldWith(0), standing(2.5, 4.69), Math.SQRT1_2, Math.SQRT1_2)).toBe(false);
+  });
+  it('jumps a riser within the jump, and not one past it', () => {
+    // At the riser's foot (box edge at 4.99), walking +x into a 1-block step, then into a 1.5-block one.
+    expect(jumpHelps(worldWith(16), standing(4.69, 2.5), 1, 0)).toBe(true);
+    const tall = worldWith(16);
+    const twoRows: SourceCell[] = [];
+    for (let z = 0; z < 5; z++) twoRows.push({ x: 5, y: 2, z, lo: 0, hi: 8 });
+    const past = new WalkWorld({ cells: [...(tall.options.cells as SourceCell[]), ...twoRows], dims: { width: 8, height: 5, length: 8 }, sizePct: 100, rotation: 0, treads: 'none' });
+    expect(jumpHelps(past, standing(4.69, 2.5), 1, 0)).toBe(false);
   });
 });

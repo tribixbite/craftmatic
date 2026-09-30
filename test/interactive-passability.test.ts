@@ -53,7 +53,11 @@ async function check76457({ model }: BuiltPack): Promise<void> {
 
 const SETS: Array<{ set: string; file: string; minDoorways: number; minOkAt100: number; check?: (p: BuiltPack) => Promise<void> }> = [
   { set: '31141', file: `${CORPUS}/IOModel2V2/31141.ldr`, minDoorways: 5, minOkAt100: 4 },
-  { set: '10022', file: `${CORPUS}/IOModel2V2/10022.ldr`, minDoorways: 4, minOkAt100: 1 },
+  // A passenger car on its track: every door's sill stands 1.44 blocks over the track bed with no
+  // platform in the source, so every door is ONE-WAY (walked out of, not into) at 100 %. Door 2
+  // read OK until 2026-09-29 only because Door 1's row-based passage cleared Door 2's sill in one
+  // column, a 1.0-block notch in the model's floor; measured from the doorway's floor, the sill stays.
+  { set: '10022', file: `${CORPUS}/IOModel2V2/10022.ldr`, minDoorways: 4, minOkAt100: 0 },
   { set: '76417', file: `${CORPUS}/DbixConvV3/76417.ldr`, minDoorways: 4, minOkAt100: 3 },
   // The device round's other two door packs (2026-09-24d): 76457's six doors, 41732's raised shop threshold.
   { set: '76457', file: `${CORPUS}/DbixConvV3/76457.ldr`, minDoorways: 6, minOkAt100: 6, check: check76457 },
