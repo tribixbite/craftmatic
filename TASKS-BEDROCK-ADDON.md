@@ -122,13 +122,25 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 except 10326 (doors 1-3 drop the pediment parts they had absorbed, shell +6,
 door 6 +1 - the 60616a fix)). Sim: regressions 13 OK + gabby-car-overhang
 not reproduced; hop passes.
-- [ ] Device round (Saga; Pixel once re-paired): 10326 Doors 1-3 at the
-  ground (tap, swing, walk in; Door 2 both ways; knob/studs on the leaf; no
-  stair, model 6 nearer the corner than 30g); cockpit hotbar 9 on 76286 (eye
-  3.1 up, rider hidden), 42639 (door top under the horizon), a ship with the
-  high fallback eye (31109 is not in the round - use 10365 or 60221 if they
-  took it; else note) - is the high view OK for a child?; regressions of
-  60380 / 42172 / 7140 cockpit.
+Saga round DONE 2026-09-30 (`output/device-round-2026-09-30h/saga/_notes.txt`;
+content log 0 errors / 0 FIGURE_RETAKE / 0 fly / 0 overridden): 10326 Door 1
+at the ground in its arch, no stair, tap opens, stick walk in/out, knobs on
+the leaves; 76286 cockpit FIXED (eye over the hull, horizon across the middle;
+a dark fin covers the top ~20 %); 42639 FIXED (door top under the horizon, at
+31 mph too); 60380 / 42172 / 7140 / 60221 unchanged; 10365 helm eye OK. Only
+76286 took the high fallback in this round (no ship did).
+- [ ] 10326 Door 3: a tap from 1.9 blocks with the door in plain view is
+  refused "behind a wall from here" (twice, s26); from 0.9 it opens.
+  Repro: museum at 5380,-60,5380, 0 deg, 100 %; stand 5384.6,-59.8,5382.4, look
+  at 5386.5,-58.8,5382.35. Suspect the tap's line-of-sight check hits a
+  collider on the door's -x side.
+- [ ] 10326 Door 2 (inside, into the east room): walkable both ways only
+  within ~1 block (stopped at x 5389.7 east / 5393.3 west, s29-s31); the room
+  is boxed in by display cases (the model's). `_ix_passability` rates it OK
+  because its walks start 0.9 out - consider longer approach walks.
+- Doors 2 and 3 are INSIDE (turned 90 deg), not on the back wall; Door 1 is the
+  back face's only doorway.
+- Pixel still needs a hand (see 30g below).
 
 ## Round 2026-09-30g (`c73c545a`) - access stairs, cockpit seats, sim fold
 
