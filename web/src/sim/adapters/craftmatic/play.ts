@@ -9,9 +9,10 @@
  *   slide-rides-in-chute   a slide carries its rider in the chute, not on a rim;
  *   lift-car-in-model      a lift's car stays inside the model's box;
  *   rider-set-down         at a ride's end the rider stands free on a floor;
- *   driver-sees-ahead      a driver's eye sees the horizon ahead (`AHEAD` of
- *                          `cockpit-seat.ts`, the rule every compiled seat is
- *                          placed by, over the DRAWN geometry);
+ *   driver-sees-ahead      a driver's eye sees out: the horizon ahead and
+ *                          either side (`driverSeesOut` of `cockpit-seat.ts`,
+ *                          the rule every compiled seat is placed by, over the
+ *                          DRAWN geometry);
  *   mount-summoned         a tap on a flyer's companion puts the player on a mount;
  *   doorway-line           the device's straight walk through a doorway, from
  *                          both sides and every leaf column; a fall or a stop is
@@ -28,13 +29,12 @@ import { lookAngles, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
 import { findApproach } from '../../scenario/approach.js';
-import { AHEAD, VIEW } from '../../../engine/cockpit-seat.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
 import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry, jumpHelps } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
-import { entityDrawn, forwardViewWorld, type DrawnBox } from './drawn.js';
+import { driverViewWorld, entityDrawn, type DrawnBox } from './drawn.js';
 import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
@@ -180,14 +180,15 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       const drawn = entityDrawn(appearance, v);
       if (drawn && v.riders[0] === ctx.player) {
         const eye = ctx.player.headLocation();
-        // Judged by the compiler's own rule for every seat (`AHEAD`, cockpit-seat.ts): the horizon ahead,
-        // over the DRAWN geometry. The wider `VIEW` fan (the guessed seat's test) is reported beside it: a
-        // real bonnet fills its low rays (42172: 6 of 15, device-good), so it judges nothing here.
-        const ahead = forwardViewWorld(drawn, eye, v.rotation.y, AHEAD);
-        const view = forwardViewWorld(drawn, eye, v.rotation.y, VIEW);
-        ctx.state['driverView'] = { ...view, ahead };
-        ctx.note(`${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays, and out of ${view.clear} of ${view.total} of the wider fan`);
-        if (ahead.clear / ahead.total < AHEAD.minClear - 1e-9) ctx.violate({ invariant: 'driver-sees-ahead', message: `${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays (needs all; ${view.clear} of ${view.total} of the wider fan)`, evidence: { eye: pt(eye), yaw: r3(v.rotation.y) } });
+        // Judged by the compiler's own rule for every seat (`driverSeesOut`, cockpit-seat.ts): the horizon
+        // ahead and the view to either side, over the DRAWN geometry. The wider `VIEW` fan (the guessed seat's
+        // test) is reported beside it: a real bonnet fills its low rays (42172: 6 of 15, device-good).
+        const dv = driverViewWorld(drawn, eye, v.rotation.y);
+        const { ahead, view } = dv;
+        const sides = `left ${dv.left.clear} of ${dv.left.total}, right ${dv.right.clear} of ${dv.right.total}`;
+        ctx.state['driverView'] = { ...view, ahead, left: dv.left, right: dv.right };
+        ctx.note(`${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays, to the sides ${sides}, and out of ${view.clear} of ${view.total} of the wider fan`);
+        if (!dv.seesOut) ctx.violate({ invariant: 'driver-sees-ahead', message: `${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays (needs all) and to the sides ${sides} (needs 90 percent of each, nothing within a block; ${view.clear} of ${view.total} of the wider fan)`, evidence: { eye: pt(eye), yaw: r3(v.rotation.y) } });
       }
       // First under the model's overhangs (a shelf, a balcony: a collider span starting 1-3 blocks over a floor the
       // car stands on) - 10797's car fell through the world under one on the Saga - then the open course.

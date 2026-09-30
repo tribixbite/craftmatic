@@ -305,8 +305,11 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   along its length until 2026-09-26 (the X-wing's pilot sat over its nose),
   and ACROSS it until 2026-09-30 (60380's driver sat outside its cab wall):
   the geometry is drawn at (-x, y, -z) of the render frame, so a seat turns
-  half round, x AND z (`renderSeatToEntity`). Every seat's eye must see the
-  horizon ahead (`AHEAD`, cockpit-seat.ts); `bun scripts/_cockpit_view.ts
+  half round, x AND z (`renderSeatToEntity`). Every seat's eye must see out
+  (`driverSeesOut`: the horizon `AHEAD`, and no panel within a block beside
+  the face, `SIDES`); where nothing in the cabin sees ahead the eye leaves it
+  and the body is hidden (`AHEAD_FALLBACK`) - the hotbar-9 view is the
+  rider's own first person, so eye and seat move together. `bun scripts/_cockpit_view.ts
   <packs> --out=<dir>` renders the hotbar-9 view offline. A car's wheel eye is
   aft along the VEHICLE, never along the mould's axes (42639's turned
   `16091`). A riding player's eye is 1.12 above its seat
