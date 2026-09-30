@@ -28,7 +28,8 @@ import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
 import { VIEW } from '../../../engine/cockpit-seat.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
-import { JUMP_PEAK } from '../../physics/body.js';
+import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
+import { LINE_MIN_OUT, LINE_OUT } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
 import { entityDrawn, forwardViewWorld, type DrawnBox } from './drawn.js';
 import { modelDirToWorld, modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
@@ -252,7 +253,12 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
           const q = modelToWorld(pack.placement, placed, { x: c.x + a.x * s, y: c.y, z: c.z + a.z * s });
           columns.set(`${Math.floor(q.x)},${Math.floor(q.z)}`, { x: Math.floor(q.x) + 0.5, y: floorY, z: Math.floor(q.z) + 0.5 });
         }
-        for (const col of columns.values()) for (const side of [-1, 1] as const) await deviceLine(ctx, statics, it.label, col, n, side, floorY, k);
+        // Two starts per column and side: the harness's (`LINE_OUT` in to `LINE_MIN_OUT`) and the device round's
+        // "porch", a teleport PORCH_OUT blocks out at the doorway's height (10326 Door 1 on the Saga, 29c).
+        for (const col of columns.values()) for (const side of [-1, 1] as const) {
+          await deviceLine(ctx, statics, it.label, col, n, side, floorY, k, LINE_OUT, LINE_MIN_OUT, 'line');
+          await deviceLine(ctx, statics, it.label, col, n, side, floorY, k, PORCH_OUT, PORCH_OUT, 'porch');
+        }
       }
     },
 
@@ -349,6 +355,12 @@ export interface DoorwayFinding { kind: 'HOLE' | 'STOP'; where: string; model: b
 export const doorwayFindings = (state: Record<string, unknown>): DoorwayFinding[] => (state['doorwayFindings'] as DoorwayFinding[] | undefined) ?? [];
 const finding = (ctx: StepContext, f: DoorwayFinding): void => { ctx.state['doorwayFindings'] = [...doorwayFindings(ctx.state), f]; };
 
+/** How far (blocks) drawn geometry may sit from a collider that stands for it: the colliders are supersets on a 1/16 grid, their forms a quarter block at the coarsest. */
+export const COLLIDER_SLACK = 0.25;
+
+/** The device round's "porch": a teleport this far out (blocks at 100 %) at the doorway's height, then a walk in. */
+export const PORCH_OUT = 2.5;
+
 const boxHits = (boxes: readonly DrawnBox[], q: Box): boolean => boxes.some(({ box: b }) => b.x1 > q.x0 && b.x0 < q.x1 && b.y1 > q.y0 && b.y0 < q.y1 && b.z1 > q.z0 && b.z0 < q.z1);
 
 /**
@@ -357,34 +369,46 @@ const boxHits = (boxes: readonly DrawnBox[], q: Box): boolean => boxes.some(({ b
  * and walk straight through. A fall past a jump within a block of the leaf,
  * or a stop before crossing, is recorded and attributed.
  */
-async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label: string, col: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, k: number): Promise<void> {
+async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label: string, col: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, k: number, outMax: number, outMin: number, kind: 'line' | 'porch'): Promise<void> {
   const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension);
   const along = (q: Vec3): number => ((q.x - col.x) * n.x + (q.z - col.z) * n.z) * -side;
-  // The start: the farthest free spot from 3.5 to 0.5 blocks out, at the doorway's floor up to a jump over it.
+  // The start, as the harness (`doorwayColumnLines`) and the device's teleport pick it: the farthest spot from
+  // `LINE_OUT` in to `LINE_MIN_OUT` where the player's box is free within a jump over the doorway's floor - in
+  // the air when nothing is there (the device's "porch" on 10326 was a teleport into the air).
   let start: Vec3 | undefined;
-  for (let out = 3.5 * k; out >= 0.5 * k - 1e-9 && !start; out -= 0.25) {
+  for (let out = outMax * k; out >= outMin * k - 1e-9 && !start; out -= 1 / 8) {
     for (let up = 0.01; up <= 1.25 * k + 1e-9; up += 1 / 16) {
       const q = { x: col.x + n.x * side * out, y: floorY + up, z: col.z + n.z * side * out };
       if (!w.overlapping({ x0: q.x - 0.3, y0: q.y, z0: q.z - 0.3, x1: q.x + 0.3, y1: q.y + 1.8, z1: q.z + 0.3 }, 0.001)) { start = q; break; }
     }
   }
-  const where = `${label} column ${Math.floor(col.x)},${Math.floor(col.z)} from ${side > 0 ? '+' : '-'} side`;
+  const where = `${label} column ${Math.floor(col.x)},${Math.floor(col.z)} from ${side > 0 ? '+' : '-'} side${kind === 'porch' ? ` (porch, ${outMax} out)` : ''}`;
+  if (!start && kind === 'porch') return;
   if (!start) {
-    const blocked = boxHits(statics, { x0: col.x + n.x * side * 1.5 * k - 0.3, y0: floorY, z0: col.z + n.z * side * 1.5 * k - 0.3, x1: col.x + n.x * side * 1.5 * k + 0.3, y1: floorY + 1.8, z1: col.z + n.z * side * 1.5 * k + 0.3 });
-    ctx.note(`${where}: no room to stand within 3.5 blocks (${blocked ? 'the model draws geometry there: SEALED, the model\'s' : 'colliders with nothing drawn'})`);
+    const q = { x: col.x + n.x * side * LINE_OUT * k, z: col.z + n.z * side * LINE_OUT * k };
+    const blocked = boxHits(statics, { x0: q.x - 0.3, y0: floorY + 0.05, z0: q.z - 0.3, x1: q.x + 0.3, y1: floorY + 1.8, z1: q.z + 0.3 });
+    ctx.note(`${where}: no room to stand ${LINE_MIN_OUT}-${LINE_OUT} blocks out (${blocked ? 'the model draws geometry there: SEALED, the model\'s' : 'colliders with nothing drawn'})`);
+    finding(ctx, { kind: 'STOP', where, model: blocked, noRoom: true });
     if (!blocked) ctx.violate({ invariant: 'doorway-line', message: `${where}: no room to stand on this side, and the model draws nothing there (the pack's colliders)` });
     return;
   }
+  ctx.quiet(['no-unprotected-fall', 'player-not-in-solid']);
   teleport(ctx.sim.host, p, start);
   p.onGround = false;
   const end = { x: col.x - n.x * side * 1.5 * k, z: col.z - n.z * side * 1.5 * k };
-  let lowestNear = floorY, lowest = start.y, best = -Infinity, stall = 0, last = -Infinity, fellAt: Vec3 | undefined, stoppedAt: Vec3 | undefined;
+  let lowestNear = floorY, best = -Infinity, stall = 0, last = -Infinity, fellAt: Vec3 | undefined, stoppedAt: Vec3 | undefined;
+  // Where the feet lost the doorway's level: the first point off the ground after the last one standing at it
+  // (the start itself when the line began over nothing - the device's teleport into the air).
+  let lostAt: Vec3 = { ...start }, standing = false;
   for (let t = 0; t < 200; t++) {
     p.rotation.y = lookAngles({ x: end.x - p.location.x, y: 0, z: end.z - p.location.z }).yaw;
     ctx.sim.controls.set(p.id, { forward: 1, strafe: 0, jump: false });
+    const before = { ...p.location };
     await ctx.run(1);
+    const atLevel = p.onGround && p.location.y >= floorY - STEP_HEIGHT - 1e-6;
+    if (atLevel) standing = true;
+    else if (standing && !p.onGround) { lostAt = before; standing = false; }
     const a = along(p.location);
-    lowest = Math.min(lowest, p.location.y);
     if (Math.abs(a) <= 1.0 * k && p.location.y < lowestNear) { lowestNear = p.location.y; if (floorY - lowestNear > JUMP_PEAK * k) fellAt ??= { ...p.location }; }
     best = Math.max(best, a);
     if (a >= 1.5 * k) break;
@@ -392,20 +416,28 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label:
   }
   ctx.sim.controls.set(p.id, { forward: 0 });
   await ctx.run(2);
+  ctx.quiet([]);
   const drop = floorY - lowestNear;
   if (fellAt) {
-    // Attribute: does the model DRAW a floor anywhere between the doorway's floor and where the feet landed, here?
-    const probe = { x0: fellAt.x - 0.3, y0: lowestNear + 0.1, z0: fellAt.z - 0.3, x1: fellAt.x + 0.3, y1: floorY + 0.05, z1: fellAt.z + 0.3 };
-    const drawnFloor = boxHits(statics, probe);
+    // Attribute: does the model DRAW a floor at the doorway's level where the feet lost it? A drawn top within a
+    // step under the doorway's floor, under the footprint a little ahead of that point, is a floor the colliders lost;
+    // nothing drawn there is the model's own hole (or a start over nothing).
+    const ahead = { x: lostAt.x - n.x * side * 0.3, z: lostAt.z - n.z * side * 0.3 };
+    const drawnFloor = statics.some(({ box: b }) => b.y1 >= floorY - STEP_HEIGHT && b.y1 <= floorY + 0.1 && b.x1 > ahead.x - 0.3 && b.x0 < ahead.x + 0.3 && b.z1 > ahead.z - 0.3 && b.z0 < ahead.z + 0.3);
     const text = `${where}: fell ${r3(drop)} blocks at the door plane (HOLE)`;
-    if (drawnFloor) ctx.violate({ invariant: 'doorway-line', message: `${text}; the model draws a floor there, the pack's colliders lost it`, evidence: { start: pt(start), fellAt: pt(fellAt), floorY: r3(floorY), lowest: r3(lowestNear) } });
-    else ctx.note(`${text} - the MODEL's: nothing is drawn under the doorway's floor there (start ${JSON.stringify(pt(start))}, landed y ${r3(lowestNear)})`);
-    finding(ctx, { kind: 'HOLE', where, drop: r3(drop), model: !drawnFloor, start: pt(start), landed: r3(lowestNear) });
+    if (drawnFloor) ctx.violate({ invariant: 'doorway-line', message: `${text}; the model draws a floor where the feet lost it, the pack's colliders do not`, evidence: { start: pt(start), lostAt: pt(lostAt), fellAt: pt(fellAt), floorY: r3(floorY), lowest: r3(lowestNear) } });
+    else ctx.note(`${text} - the MODEL's: nothing is drawn at the doorway's level where the feet lost it (${standing || lostAt !== start ? `at ${JSON.stringify(pt(lostAt))}` : 'the line started over nothing'}; landed y ${r3(lowestNear)})`);
+    finding(ctx, { kind: 'HOLE', where, drop: r3(drop), model: !drawnFloor, start: pt(start), lostAt: pt(lostAt), landed: r3(lowestNear) });
   } else if (best < 0.7 * k) {
     const at = stoppedAt ?? p.location;
-    const probe = { x0: at.x - 0.3 + n.x * -side * 0.15, y0: at.y + 0.05, z0: at.z - 0.3 + n.z * -side * 0.15, x1: at.x + 0.3 + n.x * -side * 0.15, y1: at.y + 1.8, z1: at.z + 0.3 + n.z * -side * 0.15 };
-    const drawn = boxHits(statics, probe);
+    // What stopped it: the collider the box meets a step ahead. A collider is a SUPERSET of the geometry it stands for
+    // (up to its sixteenth grid and its form's shape), so drawn geometry within `COLLIDER_SLACK` of the box ahead makes
+    // the obstacle the model's.
+    const ahead = { x: at.x - n.x * side * 0.15, z: at.z - n.z * side * 0.15 };
+    const probe = { x0: ahead.x - 0.3, y0: at.y + 0.05, z0: ahead.z - 0.3, x1: ahead.x + 0.3, y1: at.y + 1.8, z1: ahead.z + 0.3 };
     const hit = w.overlapping(probe, 0.001);
+    const g = COLLIDER_SLACK;
+    const drawn = boxHits(statics, { x0: probe.x0 - g, y0: probe.y0 - g, z0: probe.z0 - g, x1: probe.x1 + g, y1: probe.y1 + g, z1: probe.z1 + g });
     const text = `${where}: stopped ${r3(-Math.min(0, best))} blocks before the door plane${hit?.block ? ` on ${hit.block.typeId} at ${hit.block.x},${hit.block.y},${hit.block.z}` : ''}`;
     if (drawn) ctx.note(`${text} - the MODEL's: it draws geometry where the player's box needs room (SEALED)`);
     else ctx.violate({ invariant: 'doorway-line', message: `${text}; nothing is drawn there, the pack's colliders block it`, evidence: { start: pt(start), stoppedAt: pt(at) } });

@@ -143,8 +143,13 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       if (!line) throw new Error('undo: no "Undo complete" line');
       if (!/Undo complete/.test(line)) ctx.violate({ invariant: 'nothing-left-after-undo', message: line });
       // Nothing of the pack may be left: its entities, and any block of the box not as it was.
+      // The placement tags every entity it spawns (`cmu_...`); one still standing is a leftover. The pack's other
+      // entities (a summoned cloud, which fades by itself) are noted, not failed.
       const ours = new Set(ctx.sim.engine.definitions.all().map(d => d.identifier));
-      const left = [...ctx.sim.engine.entities.values()].filter(e => e.valid && ours.has(e.typeId));
+      const alive = [...ctx.sim.engine.entities.values()].filter(e => e.valid && ours.has(e.typeId));
+      const left = alive.filter(e => [...e.tags].some(t => t.startsWith('cmu_')));
+      const others = alive.filter(e => !left.includes(e));
+      if (others.length) ctx.note(`after Undo, ${others.length} entit${others.length === 1 ? 'y' : 'ies'} the placement did not spawn remain: ${[...new Set(others.map(e => e.typeId))].join(', ')}`);
       if (left.length) ctx.violate({ invariant: 'nothing-left-after-undo', message: `${left.length} entit${left.length === 1 ? 'y' : 'ies'} left after Undo: ${[...new Set(left.map(e => e.typeId))].slice(0, 6).join(', ')}`, evidence: { entities: left.slice(0, 10).map(e => ({ type: e.typeId, at: e.location })) } });
       const snap = ctx.state[SNAPSHOT_KEY] as { origin: { x: number; y: number; z: number }; dims: { w: number; h: number; l: number }; ids: number[] } | undefined;
       if (snap) {

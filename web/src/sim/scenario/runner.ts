@@ -20,7 +20,7 @@ import { quirkValue } from '../quirks/registry.js';
 import { teleport } from '../script-host/facades.js';
 import type { Addon } from '../pack/pack.js';
 import { FLAT_GROUND_Y } from '../world/voxel-world.js';
-import { coreInvariants, type Invariant, type InvariantContext, type Violation } from './invariants.js';
+import { coreInvariants, quietable, type Invariant, type InvariantContext, type Violation } from './invariants.js';
 import type { AnyStep, EntitySelector, Scenario, StepContext, StepHandler } from './types.js';
 
 export type ScenarioStatus = 'pass' | 'fail' | 'error' | 'unknown';
@@ -38,6 +38,8 @@ export interface ScenarioResult {
   ticks: number;
   ms: number;
   unmodelled: UnmodelledUse[];
+  /** The steps' shared state at the end (findings the adapters recorded), without the engine caches. */
+  state: Record<string, unknown>;
   /** The whole timeline, when asked for (`keepTimeline`). */
   timeline?: TimelineEntry[];
 }
@@ -211,14 +213,15 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
     if (n <= REPEAT_LIMIT) violations.push({ ...v, tick: sim.engine.tick, ...(currentStep ? { step: currentStep } : {}) });
   };
   const all = [...coreInvariants(), ...(options.invariants ?? [])].filter(i => !scenario.invariants || scenario.invariants.includes(i.id));
-  const ictx: InvariantContext = { engine: sim.engine, player, allowLines: scenario.allowLines ?? [], report };
+  let quiet: ReadonlySet<string> = new Set();
+  const ictx: InvariantContext = quietable({ engine: sim.engine, player, allowLines: scenario.allowLines ?? [], report }, () => quiet);
   for (const inv of all) inv.setup?.(ictx);
   const run = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) { await sim.engine.step(); for (const inv of all) inv.tick?.(ictx); }
   };
   const handlers = { ...CORE_HANDLERS, ...(options.handlers ?? {}) };
   const state: Record<string, unknown> = {};
-  const ctx: StepContext = { sim, player, state, violate: report, note: t => notes.push(`[tick ${sim.engine.tick}] ${t}`), run, find: sel => findEntity(sim, player, sel) };
+  const ctx: StepContext = { sim, player, state, violate: report, note: t => notes.push(`[tick ${sim.engine.tick}] ${t}`), run, find: sel => findEntity(sim, player, sel), quiet: ids => { quiet = new Set(ids); } };
   await options.prepare?.(sim, player);
   let errored = false;
   for (const step of scenario.steps) {
@@ -233,6 +236,7 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
     } catch (e) {
       res.ok = false; res.error = (e as Error).message; errored = true;
     }
+    quiet = new Set();
     res.ticks = sim.engine.tick - start;
     steps.push(res);
     if (!res.ok) break;
@@ -244,6 +248,7 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
   return {
     name: scenario.name, ...(scenario.description ? { description: scenario.description } : {}), ...(scenario.evidence ? { evidence: scenario.evidence } : {}),
     status, violations, notes, steps, ticks: sim.engine.tick, ms: Math.round(performance.now() - t0), unmodelled,
+    state: Object.fromEntries(Object.entries(state).filter(([k]) => !/staticDrawn|snapshot/.test(k))),
     ...(options.keepTimeline ? { timeline: sim.engine.timeline.entries } : {}),
   };
 }

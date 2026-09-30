@@ -1,0 +1,73 @@
+/**
+ * Reports: every scenario's result per pack as JSON (for tools) and markdown
+ * (for people), and the unmodelled API members ranked by how often scripts
+ * reached them across the run - the simulator's roadmap.
+ */
+
+import type { UnmodelledUse } from '../core/timeline.js';
+import type { ScenarioResult } from './runner.js';
+
+/** Every scenario of one pack. */
+export interface PackReport {
+  pack: string;
+  label?: string;
+  results: ScenarioResult[];
+  ms: number;
+  /** A pack the run could not load or read (not a craftmatic pack, a bad archive). */
+  error?: string;
+}
+
+/** Unmodelled members summed over results, most used first. */
+export function unmodelledTotals(results: readonly ScenarioResult[]): UnmodelledUse[] {
+  const by = new Map<string, UnmodelledUse>();
+  for (const r of results) for (const u of r.unmodelled) {
+    const cur = by.get(u.member) ?? { member: u.member, count: 0, sources: [], firstTick: u.firstTick };
+    cur.count += u.count;
+    for (const s of u.sources) if (!cur.sources.includes(s)) cur.sources.push(s);
+    by.set(u.member, cur);
+  }
+  return [...by.values()].sort((a, b) => b.count - a.count || a.member.localeCompare(b.member));
+}
+
+const esc = (s: string): string => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+
+/** The markdown report of a run over packs. */
+export function markdownReport(reports: readonly PackReport[], title = 'Simulator run'): string {
+  const all = reports.flatMap(r => r.results);
+  const count = (st: string): number => all.filter(r => r.status === st).length;
+  const lines: string[] = [`# ${title}`, '', `${reports.length} packs, ${all.length} scenarios: ${count('pass')} pass, ${count('fail')} fail, ${count('unknown')} unknown (unmodelled API reached), ${count('error')} error.`, ''];
+  lines.push('| pack | scenarios | pass | fail | unknown | error | violations | seconds |', '|---|---|---|---|---|---|---|---|');
+  for (const r of reports) {
+    const st = (s: string): number => r.results.filter(x => x.status === s).length;
+    lines.push(`| ${esc(r.pack)}${r.error ? ` (${esc(r.error)})` : ''} | ${r.results.length} | ${st('pass')} | ${st('fail')} | ${st('unknown')} | ${st('error')} | ${r.results.reduce((n, x) => n + x.violations.length, 0)} | ${(r.ms / 1000).toFixed(1)} |`);
+  }
+  lines.push('', '## Violations', '');
+  for (const r of reports) for (const res of r.results) {
+    for (const v of res.violations) lines.push(`- **${esc(r.pack)}** \`${res.name}\` [${v.invariant}] tick ${v.tick}${v.step ? ` (${esc(v.step)})` : ''}: ${esc(v.message)}`);
+    for (const s of res.steps.filter(x => !x.ok)) lines.push(`- **${esc(r.pack)}** \`${res.name}\` step ${esc(s.label)} ERROR: ${esc(s.error ?? '?')}`);
+  }
+  const ranking = unmodelledTotals(all);
+  lines.push('', '## Unmodelled API members, by uses', '');
+  if (!ranking.length) lines.push('None reached.');
+  else { lines.push('| member | uses | scripts |', '|---|---|---|'); for (const u of ranking) lines.push(`| \`${esc(u.member)}\` | ${u.count} | ${u.sources.join(', ')} |`); }
+  return `${lines.join('\n')}\n`;
+}
+
+/** A regression row: the case, what the old pack did, what the new one did. */
+export interface RegressionRow {
+  id: string; title: string; evidence: string; expectNew: string;
+  old: { reproduced: boolean; attribution?: string; evidence: string; status: string; ms: number } | { error: string };
+  new: { reproduced: boolean; attribution?: string; evidence: string; status: string; ms: number } | { error: string };
+  verdict: string;
+  limits?: string;
+}
+
+/** The regression table in markdown. */
+export function regressionMarkdown(rows: readonly RegressionRow[]): string {
+  const cell = (x: RegressionRow['old']): string => ('error' in x ? `ERROR ${esc(x.error)}` : `${x.reproduced ? 'REPRODUCED' : 'not reproduced'}${x.attribution ? ` (${x.attribution}'s)` : ''} - ${esc(x.evidence)}`);
+  const lines = ['# Regression set', '', '| case | old pack (device) | current tree | expected now | verdict |', '|---|---|---|---|---|'];
+  for (const r of rows) lines.push(`| ${esc(r.title)} | ${cell(r.old)} | ${cell(r.new)} | ${r.expectNew} | ${r.verdict} |`);
+  lines.push('', '## Evidence', '');
+  for (const r of rows) lines.push(`- \`${r.id}\`: ${esc(r.evidence)}${r.limits ? ` Limits: ${esc(r.limits)}` : ''}`);
+  return `${lines.join('\n')}\n`;
+}

@@ -154,6 +154,9 @@ export class SimEngine {
     const def = this.definitions.get(typeId);
     if (!def) throw new Error(`Invalid entity type: ${typeId} is not a valid entity type`);
     const e = new SimEntity(typeId, this.dimension(dimension).id, at, this.tick, def);
+    // The game fires the type's `minecraft:entity_spawned` event on every spawn (its groups are in from the start).
+    const spawned = e.triggerEvent('minecraft:entity_spawned');
+    for (const k of spawned.unmodelled) this.timeline.unmodelled(`entity-event:${k}`);
     this.entities.set(e.id, e);
     this.emit('entitySpawn', { entity: e });
     return e;

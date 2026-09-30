@@ -62,6 +62,12 @@ export interface StepContext {
   run(ticks: number): Promise<void>;
   /** Resolve a selector to an entity (undefined when nothing matches). */
   find(sel: EntitySelector): SimEntity | undefined;
+  /**
+   * Silence invariants while a step does something they would flag on purpose
+   * (a device line that starts in the air falls by design; the step reports
+   * the fall itself). `quiet([])` restores them.
+   */
+  quiet(invariants: string[]): void;
 }
 
 /** A step handler. */
