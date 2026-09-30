@@ -14,7 +14,8 @@ import { Simulation, type SimulationOptions } from '../core/simulation.js';
 import type { UnmodelledUse, TimelineEntry } from '../core/timeline.js';
 import { distance, lookAngles, type Vec3 } from '../core/vec.js';
 import type { SimEntity } from '../entity/entity.js';
-import { aimPoint, interact, lookAt, tap, useItem } from '../input/touch.js';
+import { aimPoint, interact, lookAt, pick, tap, useItem } from '../input/touch.js';
+import { findApproach } from './approach.js';
 import { quirkValue } from '../quirks/registry.js';
 import { teleport } from '../script-host/facades.js';
 import type { Addon } from '../pack/pack.js';
@@ -118,6 +119,7 @@ export const CORE_HANDLERS: Record<string, StepHandler> = {
     const sel = step['target'] as EntitySelector;
     const target = ctx.find(sel);
     if (!target) throw new Error(`tap: no ${describe(sel)}`);
+    await reachFor(ctx, target, describe(sel));
     const r = tap(ctx.sim.engine, ctx.player, target);
     ctx.state['lastTap'] = r;
     if (step['expectHit'] !== false && r.entity !== target) {
@@ -129,6 +131,7 @@ export const CORE_HANDLERS: Record<string, StepHandler> = {
     const sel = step['target'] as EntitySelector;
     const target = ctx.find(sel);
     if (!target) throw new Error(`hold: no ${describe(sel)}`);
+    await reachFor(ctx, target, describe(sel));
     lookAt(ctx.player, aimPoint(ctx.player, target));
     await ctx.run(Number(step['ticks'] ?? quirkValue('hold-is-interact', 'holdTicks')));
     const r = interact(ctx.sim.engine, ctx.player, target, (p, t) => ctx.sim.host.before('playerInteractWithEntity', { player: ctx.sim.host.entity(p), target: ctx.sim.host.entity(t) }));
@@ -169,6 +172,26 @@ export const CORE_HANDLERS: Record<string, StepHandler> = {
     if (msg) ctx.violate({ invariant: `expect:${String(step['label'] ?? 'check')}`, message: msg });
   },
 };
+
+/**
+ * Stand where a tap picks the target: stay when the view already picks it,
+ * else move to the nearest spot within reach that does (`findApproach`).
+ * # TODO(sim-walk): the child is TELEPORTED to the spot; walking there (and
+ * failing to) is the doorway and path steps' job, not the tap's.
+ */
+async function reachFor(ctx: StepContext, target: SimEntity, label: string): Promise<void> {
+  lookAt(ctx.player, aimPoint(ctx.player, target));
+  if (ctx.player.ridingOn || pick(ctx.sim.engine, ctx.player).entity === target) return;
+  const spot = findApproach(ctx.sim.engine, ctx.player, target);
+  if (!spot) {
+    ctx.violate({ invariant: 'tap-target-reachable', message: `no standing spot within reach picks ${label}`, evidence: { target: target.typeId, at: target.location } });
+    return;
+  }
+  teleport(ctx.sim.host, ctx.player, spot.feet);
+  ctx.player.onGround = true;
+  await ctx.run(1);
+  lookAt(ctx.player, aimPoint(ctx.player, target));
+}
 
 const describe = (sel: EntitySelector): string => sel.label ?? (sel.type ? String(sel.type) : sel.family ?? 'entity');
 

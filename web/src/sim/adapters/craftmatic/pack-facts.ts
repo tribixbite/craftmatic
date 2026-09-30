@@ -9,7 +9,7 @@
 import type { Addon, Pack } from '../../pack/pack.js';
 import { behaviorPacks, packText } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
-import type { PlacementActor } from '../../../engine/bedrock-placement-pack.js';
+import type { PlacementActor, PlacementColliders } from '../../../engine/bedrock-placement-pack.js';
 import type { InteractiveRuntimeConfig } from '../../../engine/bedrock-interactives.js';
 import { rotatePlacementPoint, type PlacementRotation } from '../../../engine/bedrock-placement-pack.js';
 import type { Vec3 } from '../../core/vec.js';
@@ -24,6 +24,8 @@ export interface PlacementFacts {
   sizes: number[];
   /** Whether the pack ships a collider grid (blocks can resize). */
   resizable: boolean;
+  /** The shipped collider grid (run-length cells and tread plans), when there is one. */
+  colliders: PlacementColliders | null;
 }
 
 /** A ride as rides.js knows it. */
@@ -75,6 +77,7 @@ export function readCraftmaticPack(addon: Addon): CraftmaticPack | undefined {
         actors: (placement['actors'] as PlacementActor[] | undefined) ?? [],
         sizes: (placement['sizes'] as number[] | undefined) ?? [100],
         resizable: !!placement['colliders'] || !((placement['tiles'] as unknown[] | undefined)?.length),
+        colliders: (placement['colliders'] as PlacementColliders | undefined) ?? null,
       },
       interactives: ix && Array.isArray(ix.items) ? ix : null,
       rides: rides?.seatType ? { seatType: rides.seatType, rides: (rides.rides ?? []).map((r, index) => ({ index, kind: String(r.kind ?? '?'), ...(r.carType ? { carType: r.carType } : {}) })) } : null,

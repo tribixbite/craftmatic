@@ -38,10 +38,20 @@ const NONE: readonly Box[] = [];
 const AIR_SHAPE: BlockShape = { collision: NONE, selection: NONE, isAir: true, isLiquid: false, friction: 0.6 };
 const SOLID_SHAPE: BlockShape = { collision: [FULL], selection: [FULL], isAir: false, isLiquid: false, friction: 0.6 };
 
-/** A pixel box (`origin` x/z from the centre, y from the bottom) as a block-unit box. */
+/**
+ * A pixel box (`origin` x/z from the centre, y from the bottom) as block-unit
+ * boxes: `true` a full cube, `false` none, one `{ origin, size }`, or an ARRAY
+ * of them (the clearance forms' floor + wall; Bedrock takes several boxes).
+ * Undefined when the value is none of these.
+ */
 function pixelBox(v: unknown): Box[] | undefined {
   if (v === true) return [FULL];
   if (v === false) return [];
+  if (Array.isArray(v)) {
+    const out: Box[] = [];
+    for (const one of v) { const b = pixelBox(one); if (!b) return undefined; out.push(...b); }
+    return out;
+  }
   if (v && typeof v === 'object' && Array.isArray((v as { origin?: unknown }).origin) && Array.isArray((v as { size?: unknown }).size)) {
     const o = (v as { origin: number[] }).origin, s = (v as { size: number[] }).size;
     const x0 = (o[0]! + 8) / 16, y0 = o[1]! / 16, z0 = (o[2]! + 8) / 16;

@@ -63,18 +63,21 @@ export const FAULT_LINE_PATTERNS: readonly RegExp[] = [
 
 const round = (v: number): number => Math.round(v * 100) / 100;
 
+/** Ticks a player may stay inside a solid before it counts (a teleport's set-down is resolved on the next physics pass). */
+export const IN_SOLID_GRACE_TICKS = 2;
+
 function playerNotInSolid(): Invariant {
-  let inside = false;
+  let inside = 0;
   return {
-    id: 'player-not-in-solid', description: 'The player never stands inside a block\'s collision.',
+    id: 'player-not-in-solid', description: `The player never stays inside a block's collision (${IN_SOLID_GRACE_TICKS} ticks' grace for a teleport's set-down).`,
     tick(ctx) {
       const p = ctx.player;
-      if (!p.valid || p.ridingOn) { inside = false; return; }
+      if (!p.valid || p.ridingOn) { inside = 0; return; }
       const w = ctx.engine.dimension(p.dimension);
       const { width, height } = p.collisionSize(), h = width / 2;
       const hit = w.overlapping({ x0: p.location.x - h, y0: p.location.y, z0: p.location.z - h, x1: p.location.x + h, y1: p.location.y + height, z1: p.location.z + h }, 0.02);
-      if (hit && !inside) ctx.report({ invariant: 'player-not-in-solid', message: `player inside ${hit.block?.typeId ?? 'a block'} at ${hit.block ? `${hit.block.x},${hit.block.y},${hit.block.z}` : '?'}`, evidence: { feet: { x: round(p.location.x), y: round(p.location.y), z: round(p.location.z) }, solid: { x0: round(hit.x0), y0: round(hit.y0), z0: round(hit.z0), x1: round(hit.x1), y1: round(hit.y1), z1: round(hit.z1) } } });
-      inside = !!hit;
+      inside = hit ? inside + 1 : 0;
+      if (hit && inside === IN_SOLID_GRACE_TICKS) ctx.report({ invariant: 'player-not-in-solid', message: `player inside ${hit.block?.typeId ?? 'a block'} at ${hit.block ? `${hit.block.x},${hit.block.y},${hit.block.z}` : '?'}`, evidence: { feet: { x: round(p.location.x), y: round(p.location.y), z: round(p.location.z) }, solid: { x0: round(hit.x0), y0: round(hit.y0), z0: round(hit.z0), x1: round(hit.x1), y1: round(hit.y1), z1: round(hit.z1) } } });
     },
   };
 }

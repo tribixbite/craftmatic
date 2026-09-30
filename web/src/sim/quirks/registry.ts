@@ -42,7 +42,7 @@ export type QuirkId =
   | 'hover-climb-descend' | 'hover-descend-needs-jump' | 'camera-pitch-limit' | 'camera-roll-animation-only'
   | 'client-entity-lag' | 'rider-yaw-lag' | 'actor-draw-ceiling' | 'cull-by-collision-box' | 'box-uv-sub-unit-faces'
   | 'coplanar-hatching' | 'slow-falling-gravity' | 'fill-volume-limit' | 'structure-load-keeps-states'
-  | 'no-dismount-event' | 'dynamic-property-string-limit' | 'simulation-distance' | 'native-mount-bursts';
+  | 'no-dismount-event' | 'dynamic-property-string-limit' | 'simulation-distance' | 'native-mount-bursts' | 'teleport-into-floor-lifts';
 
 const QUIRKS: readonly Quirk[] = [
   { id: 'add-rider-spawn-tick', rule: '`Rideable.addRider` can refuse a rider in the tick either entity spawned; a retry a couple of ticks later succeeds.', evidence: 'Pixel 2026-09-29: the orbit companion refused at placement and was seated seconds later by rides.js (TASKS-BEDROCK-ADDON.md "Nimbus follow-ups", `SEAT_RETRIES` in bedrock-placement-pack.ts)', appliesTo: ['entity'], simulated: 'modelled' },
@@ -78,6 +78,7 @@ const QUIRKS: readonly Quirk[] = [
   { id: 'dynamic-property-string-limit', rule: 'A string dynamic property holds at most 32,767 characters; a longer one throws.', evidence: 'bedrock-placement-pack.ts undo record chunks (2026-09-25)', appliesTo: ['script-host'], simulated: 'modelled', values: { maxChars: 32767 } },
   { id: 'simulation-distance', rule: 'Chunks within the simulation distance of a player (and inside ticking areas) are loaded; outside them blocks read undefined and entities freeze.', evidence: 'CLAUDE.md "An unloaded block is not air" (a GameTest vehicle ~100 blocks out stopped being readable)', appliesTo: ['world'], simulated: 'partial', values: { chunks: 6 }, gap: 'the phones\' exact simulation distance is not measured; 6 chunks (96 blocks) matches the ~100-block GameTest loss' },
   { id: 'native-mount-bursts', rule: 'A client-driven mount reports ~0 velocity and its server position moves in bursts (CMVT cadence ~4 ticks).', evidence: 'physics spec §4.6 (`DRIVER_SPEED_WINDOW_TICKS`; Saga 2-tick deltas 0/24.9/60.2/99.0 mph)', appliesTo: ['physics'], simulated: 'partial', values: { burstTicks: 4 }, gap: 'the engine moves the mount every tick (smooth); the driver HUD\'s burst averaging is not exercised' },
+  { id: 'teleport-into-floor-lifts', rule: 'A player teleported with its feet a little inside a floor (less than a step, 9/16) stands on that floor\'s top, not inside it.', evidence: 'Saga round 29c (TASKS-BEDROCK-ADDON.md "Saga 29c": the 10788 lift\'s exits, which the simulator finds 0.34 inside the room floor\'s slab, and the play round\'s `output/gabby-play-0929/saga/v17` showing the player standing on the floor)', appliesTo: ['physics'], simulated: 'partial', values: { maxLiftBlocks: 0.5625 }, gap: 'inferred from where the player was seen standing, not from a probe of the push itself; deeper overlaps are left as they are' },
 ];
 
 const BY_ID = new Map<QuirkId, Quirk>(QUIRKS.map(q => [q.id, q]));
