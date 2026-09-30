@@ -552,8 +552,10 @@ class AddonWalk implements AddonPreviewHandle {
       const entry = appearance.byType.get(entity.typeId);
       if (!entry) return;
       const at = placedPoint(entity, this.model.dims, this.sizePct, this.rotation);
-      // The actor's own yaw, plus the quarter turn the whole placement took.
-      const yaw = (entity.yaw + this.rotation * 90) * deg;
+      // The actor's own Bedrock yaw, plus the quarter turn the whole placement took. Bedrock's yaw turns +X toward
+      // +Z - three.js `rotation.y` by the NEGATED angle (`worldFaces`, bedrock-geometry-faces.ts); the holder turned
+      // by +yaw drew a shell placed at 90 degrees the other way round from its colliders (2026-09-30).
+      const yaw = -(entity.yaw + this.rotation * 90) * deg;
       // A figure seated on a MANUAL seat (`rideOf`) is startRiding()'d at spawn,
       // so `query.is_riding` is true from the first tick and the pack's own
       // sit animation (legs -90°) is its default pose, not the standing bind
@@ -807,7 +809,8 @@ class AddonWalk implements AddonPreviewHandle {
   private moveEntityHolder(entityIndex: number, world: { x: number; y: number; z: number }, yawDeg: number): void {
     const yawRad = yawDeg * Math.PI / 180;
     const holder = this.entityHolders.get(entityIndex);
-    if (holder) { holder.position.set(world.x, world.y, world.z); holder.rotation.y = yawRad; }
+    // A Bedrock yaw is three.js `rotation.y` by the negated angle, mirrored holder or plain marker alike.
+    if (holder) { holder.position.set(world.x, world.y, world.z); holder.rotation.y = -yawRad; }
     const marker = this.markerByIndex.get(entityIndex);
     if (marker) {
       marker.mesh.position.set(world.x, world.y + marker.height / 2, world.z);
