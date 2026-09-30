@@ -177,6 +177,25 @@ describe('the script host', () => {
     expect(tap(sim.engine, p, target).entity).toBe(target);
   });
 
+  it('a rider that sneaks off a mount whose seat sits under the ground stands on the ground, not in it (quirk dismount-free-spot, assumed)', async () => {
+    const car = entityJson('x:car', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 0, 0] } }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'car.json': car }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    const mount = sim.engine.spawnEntity('x:car', 'overworld', { x: 3.5, y: FLAT_GROUND_Y - 0.9, z: 0.5 });
+    await sim.run(2);
+    expect(mount.addRider(p, sim.engine.tick).ok).toBe(true);
+    await sim.run(1);
+    sim.controls.set(p.id, { sneak: true });
+    await sim.run(2);
+    sim.controls.set(p.id, { sneak: false });
+    expect(p.ridingOn).toBeUndefined();
+    const w = sim.engine.dimension('overworld');
+    expect(w.overlapping({ x0: p.location.x - 0.3, y0: p.location.y, z0: p.location.z - 0.3, x1: p.location.x + 0.3, y1: p.location.y + 1.8, z1: p.location.z + 0.3 }, 0.001)).toBeUndefined();
+    expect(p.location.y).toBeCloseTo(FLAT_GROUND_Y, 6);
+    expect(quirk('dismount-free-spot').simulated).toBe('partial');
+  });
+
   it('lets a yielding status line be replaced at once, and still catches an instruction taken over', async () => {
     const bytes = await miniAddon({
       'main.js': "import './a.js';\nimport './b.js';\n",

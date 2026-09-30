@@ -20,7 +20,8 @@
 import { ORDER, type SimEngine } from '../core/engine.js';
 import type { SimEntity } from '../entity/entity.js';
 import { quirkValue } from '../quirks/registry.js';
-import { TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
+import { PLAYER_HEIGHT, PLAYER_WIDTH, TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
+import type { VoxelWorld } from '../world/voxel-world.js';
 import { stickToWorld, type ControlState } from '../input/controls.js';
 
 const stateOf = (e: SimEntity): PlayerState => ({ x: e.location.x, y: e.location.y, z: e.location.z, vx: e.velocity.x, vy: e.velocity.y, vz: e.velocity.z, onGround: e.onGround, sneaking: false, tick: 0 });
@@ -39,6 +40,28 @@ function trackFall(engine: SimEngine, e: SimEntity): void {
     if (d > 0.05) engine.emit('landed', { entity: e, fallDistance: d, slowFell: e.fall.slowFell || slow, at: { ...e.location } });
     e.fall = undefined;
   }
+}
+
+/**
+ * Where a rider that got off stands (quirk `dismount-free-spot`, ASSUMED): where it was when its box is free;
+ * else stood on the highest floor under its head height, where it was or on rings out to 2 blocks (at most 3
+ * under its feet). Without this a low car's rider (seat 0.1-0.3 under the
+ * grass top: 42172, 10796's cars) was left inside the ground, which the device does not do.
+ */
+function dismountSpot(p: SimEntity, world: VoxelWorld): void {
+  const h = PLAYER_WIDTH / 2;
+  const boxAt = (q: { x: number; y: number; z: number }) => ({ x0: q.x - h, y0: q.y, z0: q.z - h, x1: q.x + h, y1: q.y + PLAYER_HEIGHT, z1: q.z + h });
+  if (!world.overlapping(boxAt(p.location), 0.001)) return;
+  const standAt = (x: number, z: number): { x: number; y: number; z: number } | undefined => {
+    let top = -Infinity;
+    for (const [dx, dz] of [[0, 0], [-h + 0.01, -h + 0.01], [h - 0.01, -h + 0.01], [-h + 0.01, h - 0.01], [h - 0.01, h - 0.01]] as const) top = Math.max(top, world.supportBelow(x + dx, p.location.y + PLAYER_HEIGHT, z + dz, 5));
+    if (!(top > p.location.y - 3)) return undefined;
+    const q = { x, y: top, z };
+    return world.overlapping(boxAt(q), 0.001) ? undefined : q;
+  };
+  let q = standAt(p.location.x, p.location.z);
+  for (let r = 0.5; !q && r <= 2 + 1e-9; r += 0.5) for (let k = 0; k < 16 && !q; k++) q = standAt(p.location.x + Math.cos(k * Math.PI / 8) * r, p.location.z + Math.sin(k * Math.PI / 8) * r);
+  if (q) { p.location = q; p.onGround = true; }
 }
 
 /** Whether an entity is a native hover mount (the rotorcraft / flyer controller). */
@@ -61,6 +84,7 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
             mount.removeRider(p);
             p.velocity = { x: 0, y: 0, z: 0 };
             p.onGround = false;
+            dismountSpot(p, en.dimension(p.dimension));
             en.emit('dismounted', { rider: p, mount, cause: 'sneak' });
           }
           continue;
