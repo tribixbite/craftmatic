@@ -56,9 +56,13 @@ for (const file of files) {
     // The device's line through every leaf column of an OK doorway: a fall past the jump is a hole.
     const lines = verdict === 'OK' ? doorwayColumnLines(pack, i, size, rot) : [];
     const holes = doorwayHoles(lines, size);
+    // A line that STARTS more than a jump under the doorway's floor (the approach 1.5 blocks out is
+    // already the ground or a street: 41732's Door 1 at 150 %, 10326's Door 1 on the ground plate) says the
+    // door hangs over that ground, not that its threshold opened; the note says which.
+    const startUnder = (h: (typeof holes)[number]): number => Math.round(((h.lowest + h.drop) - (h.start?.y ?? h.lowest)) * 100) / 100;
     if (holes.length) holeRows++;
-    rows.push({ label: it.label, kind: it.kind, opening: it.opening, passSize: it.passSize, size, rotation: rot, open: open.outcome, closed: closed.outcome, verdict, openDirections: open.directions, closedDirections: closed.directions, ...(lines.length ? { lines } : {}), ...(holes.length ? { holes: holes.map(h => ({ column: h.column, from: h.from, drop: h.dropNear })) } : {}) });
-    const holeNote = holes.length ? `  HOLE ${holes.map(h => `${h.column.x},${h.column.z} from ${h.from > 0 ? '+' : '-'}: ${h.dropNear} down`).join('; ')}` : '';
+    rows.push({ label: it.label, kind: it.kind, opening: it.opening, passSize: it.passSize, size, rotation: rot, open: open.outcome, closed: closed.outcome, verdict, openDirections: open.directions, closedDirections: closed.directions, ...(lines.length ? { lines } : {}), ...(holes.length ? { holes: holes.map(h => ({ column: h.column, from: h.from, drop: h.dropNear, startUnder: startUnder(h) })) } : {}) });
+    const holeNote = holes.length ? `  HOLE ${holes.map(h => `${h.column.x},${h.column.z} from ${h.from > 0 ? '+' : '-'}: ${h.dropNear} down${startUnder(h) > 1.25 * Math.max(1, size / 100) ? ` (starts ${startUnder(h)} under)` : ''}`).join('; ')}` : '';
     console.log(`  ${it.label.padEnd(9)} ${it.kind.padEnd(5)} ${JSON.stringify(it.opening ?? {}).padEnd(26)} pass>=${String(it.passSize).padEnd(3)} @${String(size).padEnd(3)}/${String(rot).padEnd(3)} open:${open.outcome.padEnd(11)} closed:${closed.outcome.padEnd(11)} ${verdict}${holeNote}`);
   }
   report.push({ pack: basename(file), counts, doorways: doorways.length, rows });

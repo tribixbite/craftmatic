@@ -309,6 +309,24 @@ describe('the passage is measured from the doorway\'s floor, not the row the lea
   });
 });
 
+describe('the device\'s line starts where a player can stand (76417\'s Gate 1 at 150 %)', () => {
+  it('starts on a step that tops out over the doorway\'s floor, not inside it', () => {
+    // A door (floor 2.0) in a wall at z 3 over a raised interior; outside, a step 0.5 high over the
+    // doorway's floor (z 1..2, top 2.5) standing over nothing - the ground plane is 2 blocks down.
+    // Dropped at the doorway's floor, the line's box started INSIDE the step, fell through it and
+    // reported a 2-block HOLE on a way in that is a step down.
+    const g = new BlockGrid(8, 6, 8);
+    for (let x = 0; x < 8; x++) for (let z = 3; z < 8; z++) for (let y = 0; y <= 1; y++) g.set(x, y, z, colliderState(0, 16));
+    for (let x = 0; x < 8; x++) for (let y = 2; y <= 5; y++) g.set(x, y, 3, colliderState(0, 16));
+    for (let x = 2; x <= 5; x++) for (const z of [1, 2]) g.set(x, 2, z, colliderState(0, 8));
+    const { pack } = packOf(g, leafAt(3, 1.5, 3.5, 2.5, 2));
+    const lines = doorwayColumnLines(pack, 0, 100, 0).filter(l => l.from === -1);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l.start!.y, `${l.column.x},${l.column.z}`).toBeCloseTo(2.5, 2);
+    expect(doorwayHoles(lines, 100)).toEqual([]);
+  });
+});
+
 describe('the walks jump only where a jump helps (31141\'s 45-degree Door 4)', () => {
   /**
    * A floor at 1.0 over an 8 x 8 plate; along z 5 a wall three blocks high,
