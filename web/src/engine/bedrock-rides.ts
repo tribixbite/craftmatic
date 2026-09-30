@@ -615,11 +615,11 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe): void
     // Set down where the body FITS: the planned point lifted out of a floor it sits in, else the nearest free
     // standing spot within a block (times the size). The planned points had put riders 0.2-0.34 inside floor
     // slabs (10788's lift exits, 41703's and 42652's slide feet) and the player then fell through (simulator
-    // triage 2026-09-30). Without a probe (a test host) the planned point stands. The search reaches a block
-    // (times the size) and a floor up to 3 blocks down - the most a player falls unhurt: 41395's slide foot lies
-    // inside the bus's body, and the nearest room to stand is its floor 2.3 blocks under the foot.
+    // triage 2026-09-30). Without a probe (a test host) the planned point stands. The search reaches 1.5 blocks
+    // (times the size) aside and a floor up to 3 blocks down - the most a player falls unhurt: 41395's slide foot
+    // ends against the bus's bodywork, and the nearest room to stand is 1.25 blocks aside, at the foot's level.
     let at = { x: off.x, y: off.y + 0.05, z: off.z };
-    if (body) { try { at = body.settle(run.seat.dimension, at, Math.max(1, run.f), 3); } catch { /* keep the planned point */ } }
+    if (body) { try { at = body.settle(run.seat.dimension, at, 1.5 * Math.max(1, run.f), 3); } catch { /* keep the planned point */ } }
     for (const r of riders) { try { r.teleport(at, { keepVelocity: false }); } catch { /* left */ } }
     if (run.kind === 'lift') { try { run.seat.setDynamicProperty(K.stop, run.target); } catch { /* gone */ } running.delete(run.seat.id); }
     else run.done = system.currentTick;
