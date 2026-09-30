@@ -555,7 +555,9 @@ class AddonWalk implements AddonPreviewHandle {
       // The actor's own Bedrock yaw, plus the quarter turn the whole placement took. Bedrock's yaw turns +X toward
       // +Z - three.js `rotation.y` by the NEGATED angle (`worldFaces`, bedrock-geometry-faces.ts); the holder turned
       // by +yaw drew a shell placed at 90 degrees the other way round from its colliders (2026-09-30).
-      const yaw = -(entity.yaw + this.rotation * 90) * deg;
+      // `QuarterTurn` is already in DEGREES (0 | 90 | 180 | 270); multiplying it by 90
+      // again drew every actor facing the wrong way at every non-zero turn (browser check 2026-09-30).
+      const yaw = -(entity.yaw + this.rotation) * deg;
       // A figure seated on a MANUAL seat (`rideOf`) is startRiding()'d at spawn,
       // so `query.is_riding` is true from the first tick and the pack's own
       // sit animation (legs -90°) is its default pose, not the standing bind
@@ -782,7 +784,7 @@ class AddonWalk implements AddonPreviewHandle {
         if (entityIndex === undefined) continue;
         const [mx, my, mz] = frameResult.position;
         const w = placedPoint({ x: mx, y: my, z: mz }, model.dims, sizePct, rotation);
-        const yawDeg = frameResult.yaw + rotation * 90;
+        const yawDeg = frameResult.yaw + rotation;
         this.moveEntityHolder(entityIndex, w, yawDeg);
         this.carWorld.set(entityIndex, { x: w.x, y: w.y, z: w.z, yawDeg, frame: frameResult });
       }
@@ -791,14 +793,14 @@ class AddonWalk implements AddonPreviewHandle {
         const liftIndex = model.entities.findIndex(e => e.kind === 'lift' && e.coasterRouteIndex === routeIndex);
         if (liftIndex >= 0) {
           const w = placedPoint({ x: px + tx * progress, y: py + ty * progress, z: pz + tz * progress }, model.dims, sizePct, rotation);
-          this.moveEntityHolder(liftIndex, w, (model.entities[liftIndex]!.yaw + rotation * 90));
+          this.moveEntityHolder(liftIndex, w, (model.entities[liftIndex]!.yaw + rotation));
         }
         if (route.lift.counterweightPoint) {
           const [cx, cy, cz] = route.lift.counterweightPoint;
           const cwIndex = model.entities.findIndex(e => e.kind === 'counterweight' && e.coasterRouteIndex === routeIndex);
           if (cwIndex >= 0) {
             const w = placedPoint({ x: cx - tx * progress, y: cy - ty * progress, z: cz - tz * progress }, model.dims, sizePct, rotation);
-            this.moveEntityHolder(cwIndex, w, (model.entities[cwIndex]!.yaw + rotation * 90));
+            this.moveEntityHolder(cwIndex, w, (model.entities[cwIndex]!.yaw + rotation));
           }
         }
       }
@@ -1070,8 +1072,9 @@ class AddonWalk implements AddonPreviewHandle {
     const open = !this.openDoorLeaves.has(entityIndex);
     if (open) this.openDoorLeaves.add(entityIndex); else this.openDoorLeaves.delete(entityIndex);
     const holder = this.entityHolders.get(entityIndex);
-    const base = (entity.yaw + this.rotation * 90) * Math.PI / 180;
-    if (holder) holder.rotation.y = open ? base + Math.PI / 2 : base;
+    const base = (entity.yaw + this.rotation) * Math.PI / 180;
+    // A Bedrock yaw is three.js `rotation.y` negated (as in `moveEntityHolder`); the leaf swings as its marker does.
+    if (holder) holder.rotation.y = open ? -base - Math.PI / 2 : -base;
     const marker = this.markerByIndex.get(entityIndex);
     if (marker) marker.mesh.rotation.y = open ? -base - Math.PI / 2 : -base;
   }
@@ -1266,7 +1269,7 @@ class AddonWalk implements AddonPreviewHandle {
     this.camera.position.set(at.x, at.y + PLAYER_HEIGHT - 0.53, at.z);
     this.camera.rotation.set(0, 0, 0);
     this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = (entity.yaw + this.rotation * 90) * Math.PI / 180;
+    this.camera.rotation.y = (entity.yaw + this.rotation) * Math.PI / 180;
     this.camera.rotation.x = 0;
   }
 

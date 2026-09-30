@@ -214,7 +214,7 @@ if (mode === 'flyout') {
     // the face and the prints are in view. This codebase's camera yaw 0 looks
     // down -Z, so looking back along the forward is the entity yaw plus a
     // half turn.
-    const yaw = ((marker.entity.yaw ?? 0) + (w.rotation ?? 0) * 90) * Math.PI / 180;
+    const yaw = ((marker.entity.yaw ?? 0) + (w.rotation ?? 0)) * Math.PI / 180;
     // "left"/"right" stand the camera a quarter turn round from "front" (a
     // coaster car's riders face along the track, not along the car's marker).
     const around = view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : -Math.PI / 2;
