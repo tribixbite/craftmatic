@@ -59,7 +59,12 @@ export const REGRESSIONS: RegressionCase[] = [
     evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; add-on guide "The lift\'s car was the wrong assembly" (stops a third of a block low); rec/lift10788_a-big-1-8.jpg; fix 377850a5',
     oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',
     scenario: pack => ({ name: 'gabby-lift-cap', steps: [...place, { kind: 'rideLift', index: rideIndex(pack, 'lift'), trips: 3, board: 'hold', on: 'seat' }], allowLines: allow }),
-    judge: r => { const v = violated(r, 'rider-set-down') ?? violated(r, 'lift-car-in-model') ?? violated(r, 'tap-boards-ride'); return { reproduced: !!v, evidence: v ?? r.notes.filter(n => /lift/.test(n)).join(' / ') }; },
+    // Set down inside the floor (the device's "stops a third of a block low") shows as the player
+    // left inside a collider. Until the x mirror of block collision boxes was measured (quirk
+    // block-collision-x-mirrored, 2026-09-30) the simulator read the old pack's ceiling forms on the
+    // wrong half and saw a 1.71-block drop instead; read as the device reads them, the set-down is
+    // inside `collider_c2` / `collider_w2` on every trip and the drop is under a block.
+    judge: r => { const v = violated(r, 'rider-set-down') ?? violated(r, 'lift-car-in-model') ?? violated(r, 'tap-boards-ride') ?? violated(r, 'player-not-in-solid'); return { reproduced: !!v, evidence: v ?? r.notes.filter(n => /lift/.test(n)).join(' / ') }; },
   },
   {
     id: 'gabby-car-overhang', title: '10797 car driven under an overhang falls through the world (Saga: y -104)',

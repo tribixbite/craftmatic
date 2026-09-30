@@ -53,7 +53,7 @@ const ARENA = { width: 48, height: 8, length: 48 } as const;
 /** The collider forms the probe places: the full collider and the half-block x wall band. */
 const PROBE_COLLIDERS = ['craftmatic:collider', 'craftmatic:collider_w2', 'craftmatic:collider_w5', 'craftmatic:collider_w9'] as const;
 /** Every test the probe has; `--tests=a,b` registers a subset. */
-const ALL_TESTS = ['quirk_tp', 'quirk_dismount', 'quirk_bands', 'quirk_reach'] as const;
+const ALL_TESTS = ['quirk_tp', 'quirk_dismount', 'quirk_dismount2', 'quirk_bands', 'quirk_reach'] as const;
 
 /**
  * The tests, serialised into the pack with `.toString()` (no outside
@@ -163,44 +163,32 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string, only: readonly str
   }, 2400);
 
   // ── dismount-free-spot ─────────────────────────────────────────────────
-  register('quirk_dismount', async (test: any) => {
+  /** A dismount case: stone walls (2 high) beside the seat cell, a block over it, other blocks, the seat's height/offset/yaw. */
+  type DismountConfig = { name: string; walls: number[][]; head?: boolean; seatH: number; yaw?: number; seatOff?: [number, number]; blocks?: Array<[number, number, number, string]> };
+  const runDismount = async (test: any, testName: string, CONFIGS: DismountConfig[], METHODS: string[], yawVariants: boolean): Promise<void> => {
     try {
       const fy = floorY(test);
       const S = fy + 1;
       const dim = test.getDimension();
       const stone = mc.BlockPermutation.resolve('minecraft:stone');
-      // Blocks around the seat cell (cx, cz): feet and head level, relative offsets.
-      const SIDES: Record<string, number[][]> = { px: [[1, 0]], nx: [[-1, 0]], pz: [[0, 1]], nz: [[0, -1]] };
-      const RING8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-      const CONFIGS: Array<{ name: string; walls: number[][]; head?: boolean; seatH: number; yaw?: number }> = [
-        { name: 'open', walls: [], seatH: 0.3 },
-        { name: 'px', walls: SIDES.px!, seatH: 0.3 },
-        { name: 'nx', walls: SIDES.nx!, seatH: 0.3 },
-        { name: 'pz', walls: SIDES.pz!, seatH: 0.3 },
-        { name: 'nz', walls: SIDES.nz!, seatH: 0.3 },
-        { name: 'x2', walls: [[1, 0], [-1, 0]], seatH: 0.3 },
-        { name: 'x2pz', walls: [[1, 0], [-1, 0], [0, 1]], seatH: 0.3 },
-        { name: 'ring4', walls: [[1, 0], [-1, 0], [0, 1], [0, -1]], seatH: 0.3 },
-        { name: 'ring8', walls: RING8, seatH: 0.3 },
-        { name: 'head', walls: [], head: true, seatH: 0.3 },
-        { name: 'headRing4', walls: [[1, 0], [-1, 0], [0, 1], [0, -1]], head: true, seatH: 0.3 },
-        { name: 'sunk03', walls: [], seatH: 0 },
-        { name: 'sunk01', walls: [], seatH: 0.2 },
-        { name: 'sunk03ring8', walls: RING8, seatH: 0 },
-      ];
-      const METHODS = ['eject', 'sneak', 'cmd'];
-      const rows: any[] = [];
+      const PERMS: Record<string, () => any> = {
+        stone: () => stone,
+        slab: () => mc.BlockPermutation.resolve('minecraft:smooth_stone_slab'),
+        air: () => mc.BlockPermutation.resolve('minecraft:air'),
+      };
       let idx = 0;
       for (const method of METHODS) {
         const cases: any[] = CONFIGS.map(c => ({ ...c, method }));
-        if (method === 'eject') cases.push({ ...CONFIGS[1]!, name: 'px_yaw90', yaw: 90, method }, { ...CONFIGS[3]!, name: 'pz_yaw90', yaw: 90, method });
+        if (yawVariants && method === 'eject') cases.push({ ...CONFIGS[1]!, name: 'px_yaw90', yaw: 90, method }, { ...CONFIGS[3]!, name: 'pz_yaw90', yaw: 90, method });
         for (const c of cases) {
           const { cx, cz } = cellOf(idx++);
           c.cell = [cx, cz];
           // Each case has its own fresh cell (setting air over air throws couldNotSetBlock).
           for (const [dx, dz] of c.walls) for (let dy = 0; dy <= 1; dy++) test.setBlockPermutation(stone, { x: cx + dx!, y: S + dy, z: cz + dz! });
           if (c.head) test.setBlockPermutation(stone, { x: cx, y: S + 1, z: cz });
-          c.seatAt = { x: cx + 0.5, y: S + c.seatH, z: cz + 0.5 };
+          for (const [dx, dy, dz, kind] of c.blocks ?? []) test.setBlockPermutation(PERMS[kind]!(), { x: cx + dx, y: S + dy, z: cz + dz });
+          const off = c.seatOff ?? [0, 0];
+          c.seatAt = { x: cx + 0.5 + off[0], y: S + c.seatH, z: cz + 0.5 + off[1] };
           c.seat = dim.spawnEntity('craftmatic:gtq_seat', test.worldLocation(c.seatAt));
           try { c.seat.setRotation({ x: 0, y: c.yaw ?? 0 }); } catch (err) { c.rotErr = String(err); }
           c.sim = await spawnSim(test, { x: cx + 2, y: S, z: cz + 2 }, `cmdm_${idx}`, SURVIVAL);
@@ -245,19 +233,61 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string, only: readonly str
           if (t < 30) await test.idle(1);
         }
         for (const c of cases) {
-          const row = { name: c.name, method, walls: c.walls, head: !!c.head, seatH: c.seatH, yaw: c.yaw ?? 0, mount: c.mount, seated: c.seated, cmd: c.cmd, dmErr: c.dmErr, rotErr: c.rotErr, offAt: c.offAt, stillRiding: riding(c.sim)?.id === c.seat.id, health: health(c.sim), err: c.err, samples: c.samples };
-          rows.push(row);
+          const row = { test: testName, name: c.name, method, walls: c.walls, head: !!c.head, blocks: c.blocks ?? [], seatH: c.seatH, seatOff: c.seatOff ?? [0, 0], yaw: c.yaw ?? 0, mount: c.mount, seated: c.seated, cmd: c.cmd, dmErr: c.dmErr, rotErr: c.rotErr, offAt: c.offAt, stillRiding: riding(c.sim)?.id === c.seat.id, health: health(c.sim), err: c.err, samples: c.samples };
           log('QDM', row);
         }
         flush();
         for (const c of cases) { try { test.removeSimulatedPlayer(c.sim); } catch { /* gone */ } try { c.seat.remove(); } catch { /* gone */ } }
         await test.idle(10);
       }
-    } catch (err) { log('QDM_ERROR', { error: String(err), stack: (err as any)?.stack }); }
-    log('QUIRK_DONE', { test: 'quirk_dismount' });
+    } catch (err) { log('QDM_ERROR', { test: testName, error: String(err), stack: (err as any)?.stack }); }
+    log('QUIRK_DONE', { test: testName });
     flush();
     test.succeed();
+  };
+  // Blocks around the seat cell (cx, cz): feet and head level, relative offsets.
+  const RING4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const RING8 = [...RING4, [1, 1], [1, -1], [-1, 1], [-1, -1]];
+  register('quirk_dismount', async (test: any) => {
+    const SIDES: Record<string, number[][]> = { px: [[1, 0]], nx: [[-1, 0]], pz: [[0, 1]], nz: [[0, -1]] };
+    const CONFIGS: DismountConfig[] = [
+      { name: 'open', walls: [], seatH: 0.3 },
+      { name: 'px', walls: SIDES.px!, seatH: 0.3 },
+      { name: 'nx', walls: SIDES.nx!, seatH: 0.3 },
+      { name: 'pz', walls: SIDES.pz!, seatH: 0.3 },
+      { name: 'nz', walls: SIDES.nz!, seatH: 0.3 },
+      { name: 'x2', walls: [[1, 0], [-1, 0]], seatH: 0.3 },
+      { name: 'x2pz', walls: [[1, 0], [-1, 0], [0, 1]], seatH: 0.3 },
+      { name: 'ring4', walls: [[1, 0], [-1, 0], [0, 1], [0, -1]], seatH: 0.3 },
+      { name: 'ring8', walls: RING8, seatH: 0.3 },
+      { name: 'head', walls: [], head: true, seatH: 0.3 },
+      { name: 'headRing4', walls: [[1, 0], [-1, 0], [0, 1], [0, -1]], head: true, seatH: 0.3 },
+      { name: 'sunk03', walls: [], seatH: 0 },
+      { name: 'sunk01', walls: [], seatH: 0.2 },
+      { name: 'sunk03ring8', walls: RING8, seatH: 0 },
+    ];
+    await runDismount(test, 'quirk_dismount', CONFIGS, ['eject', 'sneak', 'cmd'], true);
   }, 3000);
+  // Run 2 found the spot is one block to world -z, then +z, then (+x, -z) inside a ring of four,
+  // and the seat's own point +0.2 inside a ring of eight. These cases order the rest.
+  register('quirk_dismount2', async (test: any) => {
+    const CONFIGS: DismountConfig[] = [
+      { name: 'z2', walls: [[0, 1], [0, -1]], seatH: 0.3 },
+      { name: 'z2px', walls: [[0, 1], [0, -1], [1, 0]], seatH: 0.3 },
+      { name: 'z2nx', walls: [[0, 1], [0, -1], [-1, 0]], seatH: 0.3 },
+      { name: 'ring4_pxnz', walls: [...RING4, [1, -1]], seatH: 0.3 },
+      { name: 'ring4_pxnz_nxnz', walls: [...RING4, [1, -1], [-1, -1]], seatH: 0.3 },
+      { name: 'ring4_pxnz_nxnz_pxpz', walls: [...RING4, [1, -1], [-1, -1], [1, 1]], seatH: 0.3 },
+      { name: 'offCentre_hi', walls: [], seatH: 0.3, seatOff: [0.3, 0.2] },
+      { name: 'offCentre_lo', walls: [], seatH: 0.3, seatOff: [-0.3, -0.3] },
+      { name: 'nzSlab', walls: [], seatH: 0.3, blocks: [[0, 0, -1, 'slab']] },
+      { name: 'nzStep', walls: [], seatH: 0.3, blocks: [[0, 0, -1, 'stone']] },
+      { name: 'nzPit', walls: [], seatH: 0.3, blocks: [[0, -1, -1, 'air']] },
+      { name: 'yaw180', walls: [], seatH: 0.3, yaw: 180 },
+      { name: 'yaw270_nz', walls: [[0, -1]], seatH: 0.3, yaw: 270 },
+    ];
+    await runDismount(test, 'quirk_dismount2', CONFIGS, ['eject'], false);
+  }, 2000);
 
   // ── where a collider form's band lies in the world ─────────────────────
   // Run 1's wall-form subjects were pushed the way a band on the block's HIGH-x

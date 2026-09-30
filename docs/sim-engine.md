@@ -285,7 +285,7 @@ a new refusal the log shows becomes a check there.
 | case | pack the device ran | current tree |
 |---|---|---|
 | 10788 slide rides on its rails (29b) | reproduced: the seat 0.253 over the drawn chute (limit 0.2) | passes: 0.159 |
-| 10788 lift car is the shaft cap, rider not carried past the floors (29b) | reproduced: set down under a floor, dropped 1.71 | passes |
+| 10788 lift car is the shaft cap, rider not carried past the floors (29b) | reproduced: set down under a floor, dropped 1.71 (since the x mirror, 2026-09-30: set down inside `collider_c2`/`collider_w2` on every trip) | passes |
 | 10797 car under an overhang falls through the world (29b) | NOT reproduced (see limits) | passes |
 | 10797 driver's eye in the bodywork, 0 of 15 rays (29b) | reproduced: 0 of 15 | passes |
 | 10788 slide seat: a tap boards nothing (29c) | reproduced | passes |
@@ -315,17 +315,34 @@ branch needs a geometry the simulator has not been given.
 - **Riding**: a mob rider's own ride offset is not applied (`TODO(sim-seat)`);
   a player's teleport while riding dismounts (measured for `/tp`, assumed for
   the script call).
-- **Touch reach** (5 blocks) and the hold time (10 ticks) are assumed. The
+- **Touch reach**: the pick is 5 blocks. The Pixel GameTest of 2026-09-30
+  (`scripts/_gametest_quirks.ts`, quirk_reach) measured the SERVER's reach for
+  a simulated player: a hit (`attack()`) to ~7 blocks in Creative and ~3 in
+  Survival, the interact that mounts a seat to ~5 in both; how far a phone's
+  own touch pick reaches is not measurable by GameTest, so 5 stays (inside the
+  Creative 7). The hold time (10 ticks) is from the pinball rounds. The
   approach (`scenario/approach.ts`) tries every floor from 3 blocks over the
   pick point to 3 under the eye level, aiming from each spot at the pick box
   nearest its eye; after a refusal ("behind a wall") the child steps IN FRONT
   of the part (spots with nothing solid on the line of sight first). Before
   2026-09-30 it tried three floor heights under eye level and found no spot
   for parts lying on the floor (21 of the favourites' tap findings).
-- **A player teleported inside a floor slab** is not moved (quirk
-  `teleport-into-floor`, device-only: the 29d Pixel read-out contradicts the
-  earlier "lifted onto the top"); the runtimes now set riders down where the
-  body fits, so a pack that still does it is reported.
+- **A player teleported inside a block** falls THROUGH it to the surface
+  under its feet and is pushed sideways at 0.1 block/tick toward the nearest
+  free side while it overlaps (quirk `teleport-into-floor`, measured by the
+  Pixel GameTest of 2026-09-30: never lifted; a 3 x 3 pad gives no push). The
+  2-tick pause before the fall is not modelled. A MOB in the same place is
+  lifted onto the top on the device; the engine does not lift it. The
+  `player-not-in-solid` invariant still reports a player left inside a block
+  past its 2-tick grace: on the device that player is falling.
+- **Block collision boxes are read MIRRORED in x**, as the device reads them
+  (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30): a pack
+  built before the fix to `collisionBox` shows its x-banded clearance forms on
+  the half of the block the phone put them on, not where the kit meant.
+- **Dismount spot** (quirk `dismount-free-spot`): the order the device uses
+  (world -z, +z, then (+x, -z) in a ring of four; the seat's own point 0.2 up
+  when walled in) is measured for `ejectRider` and `/ride stop_riding`; a
+  real sneak cannot be sent by a simulated player.
 - **Before-events** do not enforce the read-only restriction scripts meet on
   the device; **numeric enums** are names.
 - **Performance** is not the device's: a tick is as fast as the host runs it.

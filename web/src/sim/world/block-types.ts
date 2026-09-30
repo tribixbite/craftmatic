@@ -54,7 +54,9 @@ function pixelBox(v: unknown): Box[] | undefined {
   }
   if (v && typeof v === 'object' && Array.isArray((v as { origin?: unknown }).origin) && Array.isArray((v as { size?: unknown }).size)) {
     const o = (v as { origin: number[] }).origin, s = (v as { size: number[] }).size;
-    const x0 = (o[0]! + 8) / 16, y0 = o[1]! / 16, z0 = (o[2]! + 8) / 16;
+    // The device MIRRORS x (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30):
+    // a box declared at origin x o, size s stands on world x [8 - o - s, 8 - o] pixels.
+    const x0 = (8 - o[0]! - s[0]!) / 16, y0 = o[1]! / 16, z0 = (o[2]! + 8) / 16;
     return [{ x0, y0, z0, x1: x0 + s[0]! / 16, y1: y0 + s[1]! / 16, z1: z0 + s[2]! / 16 }];
   }
   return undefined;

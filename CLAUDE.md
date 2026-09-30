@@ -380,6 +380,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   of the geometry, not at a leaf's plane, floors keep their top - except a
   wall's top whose rim overhangs open air and is no door's landing - the leak
   flood); judge it with `_clearance_report.ts` and `_walk_line.ts`, never by eye.
+- **Bedrock MIRRORS a custom block's `collision_box` in x** (Pixel GameTest
+  2026-09-30, `scripts/_gametest_quirks.ts` quirk_bands): origin x -8 is the
+  block's HIGH-x side; y and z are as written. A box meant for world x
+  [x0, x1] (sixteenths) is declared at origin x `8 - x1` (`collisionBox` in
+  bedrock-building-shell.ts). Every pack built before that fix carries its
+  x-banded clearance forms (`_w1`..`_w7`, x-shaped `_f`/`_c`) on the wrong
+  half of the block; the simulator reads JSON the way the device does
+  (quirk `block-collision-x-mirrored`).
 - **A doorway a minifig uses is the player's at 100 %** (2026-09-29): its
   `passSize` is a minifig's envelope (40 x 96 LDU at the model's scale), not
   a 1 x 2-block hole. To ask why a doorway is not walkable, run

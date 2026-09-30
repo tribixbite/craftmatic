@@ -212,8 +212,18 @@ const ceil16 = (v: number): number => Math.ceil(v * 16 - NOISE16);
 /** The cell index `buildColliderGrid`'s `keepClear` uses: `(x·height + y)·length + z`. */
 export const colliderCellIndex = (grid: { height: number; length: number }, x: number, y: number, z: number): number => (x * grid.height + y) * grid.length + z;
 
-/** A form box (sixteenths) as a Bedrock collision box: origin from the block's bottom centre, pixels. */
-const collisionBox = (b: readonly number[]): { origin: number[]; size: number[] } => ({ origin: [b[0]! - 8, b[2]!, b[4]! - 8], size: [b[1]! - b[0]!, b[3]! - b[2]!, b[5]! - b[4]!] });
+/**
+ * A form box (sixteenths, world axes) as a Bedrock collision box: origin from
+ * the block's bottom centre, pixels. **Bedrock MIRRORS a custom block's
+ * collision-box x** (Pixel GameTest 2026-09-30, `quirk_bands`,
+ * `output/gametest-quirks-0930/run2/cmgt.log` QBANDS): a box declared at
+ * origin x -8, size 8 stands on the block's HIGH-x half in the world, while z
+ * and y are as written. So a box on world x [x0, x1] is declared at origin x
+ * `8 - x1`. Until this fix every x-banded clearance form (`_w1`..`_w7` and
+ * the x-shaped `_f`/`_c` forms) stood on the wrong half of its block (quirk
+ * `block-collision-x-mirrored`).
+ */
+export const collisionBox = (b: readonly number[]): { origin: number[]; size: number[] } => ({ origin: [8 - b[1]!, b[2]!, b[4]! - 8], size: [b[1]! - b[0]!, b[3]! - b[2]!, b[5]! - b[4]!] });
 
 /** Every (lo, hi) pair with lo < hi: 136 permutations, each laying variant `v`'s boxes (collider-form.ts). */
 const COLLIDER_PERMUTATIONS = (v = 0): unknown[] => {

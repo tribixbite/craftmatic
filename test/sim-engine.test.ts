@@ -76,7 +76,9 @@ describe('world', () => {
     types.addDefinition('f.json', { 'minecraft:block': { description: { identifier: 'test:f', states: { 'test:lo': { values: { min: 0, max: 15 } } } }, components: { 'minecraft:collision_box': [{ origin: [-8, 0, -8], size: [16, 4, 16] }, { origin: [0, 4, -8], size: [8, 12, 16] }], 'minecraft:selection_box': false } } });
     const shape = types.shape('test:f', {});
     expect(shape.collision).toHaveLength(2);
-    expect(shape.collision[1]).toEqual({ x0: 0.5, y0: 0.25, z0: 0, x1: 1, y1: 1, z1: 1 });
+    // Declared at origin x 0, size 8: the device stands it on the LOW-x half (x is mirrored,
+    // quirk block-collision-x-mirrored, Pixel GameTest 2026-09-30).
+    expect(shape.collision[1]).toEqual({ x0: 0, y0: 0.25, z0: 0, x1: 0.5, y1: 1, z1: 1 });
     expect(shape.selection).toHaveLength(0);
   });
 });
@@ -194,6 +196,28 @@ describe('the script host', () => {
     expect(w.overlapping({ x0: p.location.x - 0.3, y0: p.location.y, z0: p.location.z - 0.3, x1: p.location.x + 0.3, y1: p.location.y + 1.8, z1: p.location.z + 0.3 }, 0.001)).toBeUndefined();
     expect(p.location.y).toBeCloseTo(FLAT_GROUND_Y, 6);
     expect(quirk('dismount-free-spot').simulated).toBe('partial');
+  });
+
+  it('a player teleported into a block falls through it, pushed sideways only where a side is free (quirk teleport-into-floor, Pixel GameTest 2026-09-30)', async () => {
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }), 'mini'));
+    const w = sim.engine.dimension('overworld');
+    const stone = sim.host.resolvePermutation('minecraft:stone');
+    const G = FLAT_GROUND_Y;
+    // A 3 x 3 pad at x -1..1 and a single block at x 10, both one block over the ground.
+    for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) w.setPermutation(x, G, z, stone);
+    w.setPermutation(10, G, 0, stone);
+    const centred = sim.addPlayer('Centred', { x: 0.5, y: G + 1 - 0.34, z: 0.5 });
+    const edge = sim.addPlayer('Edge', { x: 11.0, y: G + 1 - 0.1, z: 0.5 });
+    await sim.run(40);
+    // Device (run1 QTP 2 and 16): the centred player ends at the pad's bottom, unmoved sideways (-0.66 from the target);
+    // the edge player is pushed +x off the block (0.64 on the device) and lands on the ground under it.
+    expect(centred.location.y).toBeCloseTo(G, 6);
+    expect(centred.location.x).toBeCloseTo(0.5, 6);
+    expect(edge.location.y).toBeCloseTo(G, 6);
+    expect(edge.location.x - 11.0).toBeGreaterThan(0.3);
+    expect(edge.location.x - 11.0).toBeLessThan(0.8);
+    expect(quirk('teleport-into-floor').values?.['pushBlocksPerTick']).toBe(0.1);
   });
 
   it('lets a yielding status line be replaced at once, and still catches an instruction taken over', async () => {

@@ -64,6 +64,34 @@ function dismountSpot(p: SimEntity, world: VoxelWorld): void {
   if (q) { p.location = q; p.onGround = true; }
 }
 
+/**
+ * The push out of blocks a PLAYER gets while its box overlaps a solid (quirk `teleport-into-floor`,
+ * Pixel GameTest 2026-09-30, `output/gametest-quirks-0930/run1/`). It is never lifted: the sweep
+ * ignores a solid the box already overlaps (`clipY`), so it falls through to the surface under its
+ * feet. Sideways, its velocity on the one axis whose move frees the box soonest is SET to
+ * `pushBlocksPerTick` toward the free side, every tick it still overlaps; the rest is the ordinary
+ * friction (the device drifted 0.12-0.34 past the point where it came free). A move that would put
+ * the box into another solid, or needs more than `maxPushBlocks`, is not a candidate: a player in
+ * the middle of a 3 x 3 pad (1.8 blocks from free) was not pushed at all.
+ */
+function pushOutOfBlocks(p: SimEntity, world: VoxelWorld): void {
+  const h = PLAYER_WIDTH / 2, eps = 1e-3;
+  const box = { x0: p.location.x - h, y0: p.location.y, z0: p.location.z - h, x1: p.location.x + h, y1: p.location.y + PLAYER_HEIGHT, z1: p.location.z + h };
+  const inside = world.solidsNear(box, 0, 0, 0).filter(s => !s.unloaded && box.x1 > s.x0 + eps && box.x0 < s.x1 - eps && box.y1 > s.y0 + eps && box.y0 < s.y1 - eps && box.z1 > s.z0 + eps && box.z0 < s.z1 - eps);
+  if (!inside.length) return;
+  const push = quirkValue('teleport-into-floor', 'pushBlocksPerTick'), maxPush = quirkValue('teleport-into-floor', 'maxPushBlocks');
+  let best: { axis: 'x' | 'z'; sign: number; d: number } | undefined;
+  for (const [axis, sign] of [['x', 1], ['x', -1], ['z', 1], ['z', -1]] as const) {
+    const d = Math.max(...inside.map(s => axis === 'x' ? (sign > 0 ? s.x1 - box.x0 : box.x1 - s.x0) : (sign > 0 ? s.z1 - box.z0 : box.z1 - s.z0)));
+    if (d > maxPush || (best && d >= best.d)) continue;
+    const dx = axis === 'x' ? sign * (d + eps) : 0, dz = axis === 'z' ? sign * (d + eps) : 0;
+    if (world.overlapping({ x0: box.x0 + dx, y0: box.y0, z0: box.z0 + dz, x1: box.x1 + dx, y1: box.y1, z1: box.z1 + dz }, eps)) continue;
+    best = { axis, sign, d };
+  }
+  if (!best) return;
+  p.velocity = best.axis === 'x' ? { ...p.velocity, x: best.sign * push } : { ...p.velocity, z: best.sign * push };
+}
+
 /** Whether an entity is a native hover mount (the rotorcraft / flyer controller). */
 export function isHoverMount(e: SimEntity): boolean {
   return 'minecraft:free_camera_controlled' in e.components && ('minecraft:movement.hover' in e.components || 'minecraft:can_fly' in e.components);
@@ -91,6 +119,7 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         }
         const world = en.dimension(p.dimension);
         if (!world.isLoaded(p.location.x, p.location.z)) continue;
+        pushOutOfBlocks(p, world);
         const move = stickToWorld(c, p.rotation.y);
         const r = tickPlayer(world, stateOf(p), { move, jump: c.jump, sneak: c.sneak, sprint: c.sprint, slowFalling: hasEffect(p, 'slow_falling') });
         p.location = { x: r.state.x, y: r.state.y, z: r.state.z };
