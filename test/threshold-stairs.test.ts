@@ -52,6 +52,8 @@ describe('planThresholdStairs', () => {
     planThresholdStairs(g, plans, [cand], new Map([['3,5', 0]]));
     expect(plans[0]!.stairTreads).toBeGreaterThan(0);
     expect(plans[0]!.stairs.join()).toMatch(/laid 2 treads/);
+    // The columns laid, for the pipeline's "did a stair use the margin" question.
+    expect(plans[0]!.stairColumns).toEqual([[4, 5], [5, 5]]);
     // Walking out: 24 -> x4 -> x5 -> ground; every step at most 9/16, none a hole under a tread.
     const tops = [24, columnTop(g, 4, 5), columnTop(g, 5, 5), columnTop(g, 6, 5)];
     for (let k = 1; k < tops.length; k++) expect(tops[k - 1]! - tops[k]!).toBeLessThanOrEqual(9);

@@ -713,6 +713,8 @@ export interface InteractiveColliderPlan {
   stairTreads: number;
   /** Every stair considered for this doorway: the leaf column, the side, and what happened (`laid N` or the refusal). */
   stairs: string[];
+  /** The columns (x, z) its access stairs were laid in: the pipeline asks whether any lies in the margin it widened. */
+  stairColumns?: Array<[number, number]>;
   /**
    * The doorway's APPROACH: the columns in front of and behind its leaf, along
    * the leaf's normal up to `PASSAGE_REACH_CELLS`, where a player stands to
@@ -1322,7 +1324,7 @@ export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveCol
       }
     }
     const plan = plans[c.item];
-    if (plan) plan.stairTreads += laid;
+    if (plan) { plan.stairTreads += laid; (plan.stairColumns ??= []).push(...treads.map(t => [t.x, t.z] as [number, number])); }
     note(c, `laid ${treads.length} treads over a rise of ${rise16}/16${turns ? ` (${turns} turn${turns === 1 ? '' : 's'} along the facade)` : ''}`);
   }
 }

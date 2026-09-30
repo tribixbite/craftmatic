@@ -68,6 +68,12 @@ export type SchemSource = BrickSource | GridSource;
 
 export interface SchemWorkerInput {
   source: SchemSource;
+  /**
+   * Internal: `false` exports without the access margin (`accessMarginFor`).
+   * The pipeline sets it itself when a widened grid laid no stair in the
+   * margin, so the model keeps its own footprint; callers leave it unset.
+   */
+  accessMargin?: false;
   format: SchemWorkerFormat;
   /** Block-mapping profile id (block-profiles.ts). */
   profile: string;
@@ -447,7 +453,7 @@ export async function runSchemPipeline(
           // gets room past that edge for an invisible stair down to the ground. The grid and its
           // origin are widened together BEFORE anything is placed on the frame, so every actor,
           // seat, ride, door and collider lands exactly where it did, a margin further in.
-          if (entityDoors && scene.doors.length) {
+          if (entityDoors && scene.doors.length && input.accessMargin !== false) {
             const origin = sourceOrigin;
             const doorBoxes = scene.doors.filter(d => (d.offGridDeg ?? 0) <= ACCESS_DOOR_MAX_OFF_GRID_DEG).map(d => {
               const a = sceneGridPoint(origin, d.minLdu), b = sceneGridPoint(origin, d.maxLdu);
@@ -715,6 +721,14 @@ export async function runSchemPipeline(
       }
     }
     const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(accessMargin ? { accessMargin } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    // A margin no stair used is only a bigger footprint: export again without it (the pipeline is
+    // deterministic, so the rerun is this export minus the margin; it costs one more build, and only
+    // for a set whose raised door turned out to be reached already or refused its stair).
+    if (accessMargin && pack.accessMarginUsed === false) {
+      const again = await runSchemPipeline({ ...input, accessMargin: false }, onProgress);
+      again.mcpack?.warnings?.push(`Access margin: the grid was widened ${accessMargin.x0}/${accessMargin.x1} blocks at its low/high x and ${accessMargin.z0}/${accessMargin.z1} at its low/high z for a door hung over the ground, but no access stair used it; exported without it.`);
+      return again;
+    }
     // The seat census: every place the source sits a figure, and what the pack made of it.
     let seatCensus: SeatCensus | undefined;
     if (census.source) {
