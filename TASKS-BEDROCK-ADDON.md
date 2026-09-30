@@ -129,15 +129,30 @@ the leaves; 76286 cockpit FIXED (eye over the hull, horizon across the middle;
 a dark fin covers the top ~20 %); 42639 FIXED (door top under the horizon, at
 31 mph too); 60380 / 42172 / 7140 / 60221 unchanged; 10365 helm eye OK. Only
 76286 took the high fallback in this round (no ship did).
-- [ ] 10326 Door 3: a tap from 1.9 blocks with the door in plain view is
-  refused "behind a wall from here" (twice, s26); from 0.9 it opens.
-  Repro: museum at 5380,-60,5380, 0 deg, 100 %; stand 5384.6,-59.8,5382.4, look
-  at 5386.5,-58.8,5382.35. Suspect the tap's line-of-sight check hits a
-  collider on the door's -x side.
-- [ ] 10326 Door 2 (inside, into the east room): walkable both ways only
-  within ~1 block (stopped at x 5389.7 east / 5393.3 west, s29-s31); the room
-  is boxed in by display cases (the model's). `_ix_passability` rates it OK
-  because its walks start 0.9 out - consider longer approach walks.
+- [ ] 10326 Door 3 tap: FIXED OFFLINE (`99f5090d`, docs/bedrock-interactivity.md
+  "Door 3's tap and Door 2's pockets"; sim regression `door3-tap-10326` OK).
+  The device spot is INSIDE an invisible collider band (`collider_w10`, the
+  bounding box of a handrail tilted 42.7 deg over the corridor); the runtime
+  now skips a form the player's own box stands in. Packs at `99f5090d`:
+  `.claude/worktrees/agent-aa7e8ea0c704eedba/output/door-tap-0930/packs-99f5090d/`
+  (10326 with the round's source + label; 8/8 `_mcaddon_check` OK).
+  Device-only: the same tap (feet 5384.6,-59.8,5382.4 by /tp, look at
+  5386.5,-58.8,5382.35) opens; and walk the corridor by stick to see where
+  the head meets the band (expect z ~5383.05).
+- [ ] Tilted-part colliders are their AXIS-ALIGNED box (`buildColliderGrid`):
+  an invisible band under 10326's handrail at head height, x 5382-5386,
+  z 5382-5382.75. `TODO(tilted-colliders)`: lay a turned cuboid from its
+  oriented box; needs its own passability + clearance sweep (every model).
+- [ ] Tap sweep widening to review: from CLIPPED spots (player inside a
+  collider) 4,955 favourites spot-part pairs flipped refused -> accepted, 4,677
+  of them with the player inside DRAWN geometry (a teleported/placed-into
+  player taps past the wall it stands in). Free standing spots: identical.
+  Decide if that is acceptable (docs section above has the numbers).
+- [ ] 10326 Door 2 pocket: now flagged offline as SHORT-APPROACH (east side,
+  room 1.98 < 2.25; `_ix_passability` at 100 % only, verdicts unchanged).
+  Favourites with it: 10326 D2, 11371 D7, 31141 D2/D3/D4, 42639 D2, 42670 D1,
+  60380 D1, 71040 D2, 76435 Gate 1, 910032 D3 (only 10326's device-seen).
+  The pocket is the model's display cases; no pack fix planned.
 - Doors 2 and 3 are INSIDE (turned 90 deg), not on the back wall; Door 1 is the
   back face's only doorway.
 - Pixel still needs a hand (see 30g below).

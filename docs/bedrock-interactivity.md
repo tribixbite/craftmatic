@@ -190,7 +190,10 @@ quality) with:
   A collider cell the part's own boxes reach into (a window in its wall cell,
   a leaf 9 degrees off the grid poking into its frame's cell) and the
   doorway's own closed cells are not a wall, nor is the last 0.3 block of a
-  line. A refused tap says *"The door 1 is behind a wall from here - step in
+  line, nor a collider form the player's own box stands in (round 30h:
+  10326's Door 3 refused from inside the invisible band a tilted handrail's
+  bounding box leaves at head height; "Door 3's tap and Door 2's pockets"
+  below). A refused tap says *"The door 1 is behind a wall from here - step in
   front of it"*: a tap that does nothing reads as a broken part.
   Before refusing, the tap goes to what the player aimed at in plain sight
   (2026-09-26): the nearest other moving part or seat on the player's VIEW
@@ -1026,7 +1029,95 @@ on 10326 5/5 pass.
 
 Device-unproven: the door in its frame (tap, swing, walk in at the ground),
 Door 2 both ways, the handle studs on the leaf, and the museum placed
-without the margin.
+without the margin. (Round 30h proved all four on the Saga.)
+
+### Door 3's tap and Door 2's pockets (round 2026-09-30h)
+
+**Door 3 refused a tap in plain view.** On the Saga a tap on 10326's Door 3
+(inside, turned 90 degrees, into the WC) from 1.9 blocks with the whole leaf
+in view was refused "behind a wall" twice
+(`output/device-round-2026-09-30h/saga/s26-door3-tap.jpg`); from 0.9 it
+opened. The simulator reproduces it from the round's exact spot (corner
+pinned at 5380,-60,5380; feet anchor + (4.6, 0.2, 2.4), looking at the
+leaf's centre anchor + (6.5, 1.2, 2.35)): regression `door3-tap-10326`
+(`tapPartFrom`). The refusal record names the cell that cut the line,
+`10,-59,-4 craftmatic:collider_w10[0,16]` - the cell the player's EYES are
+in. That collider stands for nothing drawn there. It is the bounding box of
+two handrail bars tilted 42.7 degrees (bones `r1583`/`r1589`, 72 and 84
+units long) that climb from x 2.2, y 1.0 to x 6.2, y 4.7 over the spot:
+`buildColliderGrid` lays each part cuboid's AXIS-ALIGNED box, so under a
+tilted part it leaves an invisible band (here z 2..2.75 over y 1..2, x 2..6)
+at head height. The tester stood in it by teleport (the Position read
+5384,-60,5382), and every line of sight to the leaf started inside it; the
+0.9-block spot was in the band too, in a cell the part's own margin skips.
+A child walking the corridor stops at the band's face (z 3.05), and from
+there the round's own runtime already opens the door (simulator, z 3.17).
+
+The runtime's sight test now skips a collider form box the player's own
+box (0.6 x 1.8 at its feet) overlaps by more than 1/64 block (`sightClear`'s
+`body`; the seat hand-off `forward` passes the same box): a solid the player
+stands in is around the player, not between the player and the part. A
+wall the player stands clear of, touches, or one beyond the one it is in,
+still refuses (`bedrock-interactives.test.ts`, "does not count a collider the
+player stands inside"). Round 30h's pack refuses from the device's spot;
+the pack built at `99f5090d` opens (`output/door-tap-0930/` in the worktree
+that made it, `sim-regressions.md`: 13 OK, `gabby-car-overhang` not
+reproduced as before; child play on 10326 5/5 pass).
+
+**The tap sweep** (`scripts/_ix_tap_probe.ts --runtime=<base archive>` for
+the before, `--clipped` for spots where the player's box overlaps a
+collider form; `output/door-tap-0930/tap-sweep.sh`, `sweep-compare.py`,
+`clip-classify.ts`), over the 40 favourites (packs of `favsweep-3664f4f3`):
+
+- FREE standing spots (244 parts, 3,886 reachable spot-part pairs): identical
+  before and after - 3,688 accepted, 3,439 close again, 0 flips either way.
+  Every spot a child can walk to answers exactly as before, so no door
+  behind a real wall became tappable from anywhere a player stands.
+- CLIPPED spots (16,991 pairs): accepted 10,103 -> 15,058, closes 8,991 ->
+  14,065, 0 accepted -> refused. Of the 4,955 that flipped, 278 have the
+  player's box only in colliders with nothing drawn at the body (the
+  museum's case) and 4,677 inside DRAWN geometry: a player left inside a
+  real wall (a teleport, a placement laid round it) now taps past the wall
+  it stands in. That is consistent with what such a player sees - an
+  entity's faces are not drawn from inside, so the camera sees through the
+  wall it is in - but it is a widening, measured, not a side effect nobody
+  looked at. The 8 packs built at `99f5090d`: free 562 = 562, clipped
+  1,515 -> 2,176.
+
+Not fixed - the cause: a tilted part's collider is its bounding box, so a
+child walking under the museum's handrail bumps its head on air.
+`TODO(tilted-colliders)`: lay a turned cuboid's colliders from its own
+oriented box (sliced per column) instead of its world AABB. It changes the
+colliders under every tilted part in every model, so it needs its own
+passability and clearance sweep.
+
+**Door 2 is a door you use from a block away.** The walk rated it OK from
+start points 0.9 out, but on the Saga a child 2.1 blocks west or 2.5 east
+could not walk up to it: the east side is a pocket boxed in by the model's
+display cases. `walkThroughDoorway` now measures, at 100 % with the door
+open, how far a player WALKS (steps only - `STEP_HEIGHT`, no jump onto
+furniture, as the device walked it by stick) from the doorway on each side:
+`room`, the farthest point of a flood over the fine lattice from the side's
+approach spot, staying on that side, every other door open (Door 1's entry
+pocket leads on THROUGH Door 2, its pair, whose columns the flood walks).
+Under `SHORT_APPROACH_ROOM` (2.25 blocks from the doorway's centre: half the
+leaf, a block, a player's half-width) the side is a pocket and
+`_ix_passability.ts` prints `SHORT-APPROACH from <side>: room <r>` after the
+verdict, counts the rows and writes `room` / `shortApproach` to the JSON. The
+verdict is unchanged (332 verdict rows over the favourites, 0 differ from
+the base script). Over the 40 favourites at 100 % (114 sides) the values run
+1.13 ... 1.98, 2.08, 2.13, then a gap to 2.47; the threshold sits in it.
+Not measured above 100 %: the step is the player's and does not grow with
+the model, so at 200 % a doubled riser reads as a wall - with the threshold
+scaled, 20 of 65 doorways at 200 %/0 read as pockets against 9 of 57 at
+100 % (first draft, threshold 2); `TODO(short-approach)`.
+
+SHORT-APPROACH at 100 % (turns 0 and 90 alike), 11 sides of 11 doorways in
+9 sets, all OK doorways: 10326 Door 2 + (1.98, the device's pocket reached
+about 1.65 from the leaf's centre), 11371 Door 7 - (1.63), 31141 Door 2 -
+(1.86), Door 3 + (1.86), Door 4 - (1.40), 42639 Door 2 + (2.08), 42670
+Door 1 - (1.35), 60380 Door 1 + (1.13), 71040 Door 2 + (2.13), 76435 Gate 1
++ (1.29), 910032 Door 3 - (1.29). Only 10326's is device-observed.
 
 ### Known limits
 

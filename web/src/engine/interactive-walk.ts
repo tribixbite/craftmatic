@@ -74,9 +74,9 @@ export interface DoorwayWalkResult {
   /** The side (along `normal`) a player only DROPS into from the doorway: walked out, never back in past the jump. */
   oneWay?: -1 | 1;
   /**
-   * With the door OPEN and both approaches found: how far a player can get
-   * from the doorway on each side (`approachRoom`, blocks from its centre to
-   * the farthest column centre reached), and the sides under
+   * At 100 %, with the door OPEN and both approaches found: how far a player
+   * walks from the doorway on each side (`approachRoom`, blocks from its
+   * centre to the farthest point reached), and the sides under
    * `SHORT_APPROACH_ROOM` (`shortApproach`).
    */
   room?: { '-1': number; '1': number };
@@ -643,8 +643,12 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   }
 
   // ── How far a player gets from the doorway on each side (open only: it is the model's, not the state's).
-  const room = open ? approachRoom(worldFor(true, true, true), k, centre, n, spots, doorColumns) : undefined;
-  const short = room ? ([-1, 1] as const).filter(sd => room[String(sd) as '-1' | '1'] < SHORT_APPROACH_ROOM * k - 1e-6) : [];
+  // At 100 % only: the flood walks by steps (`STEP_HEIGHT`, the player's, which does not grow with the model),
+  // so above 100 % a riser that doubled reads as a wall - with the threshold scaled, 20 of the favourites' 65
+  // doorways at 200 % read as pockets against 9 of 57 at 100 % (2026-09-30).
+  // TODO(short-approach): a room above 100 % over the treads the planner lays there.
+  const room = open && sizePct === 100 ? approachRoom(worldFor(true, true, true), k, centre, n, spots, doorColumns) : undefined;
+  const short = room ? ([-1, 1] as const).filter(sd => room[String(sd) as '-1' | '1'] < SHORT_APPROACH_ROOM - 1e-6) : [];
   const roomFields = room ? { room, ...(short.length ? { shortApproach: [...short] } : {}) } : {};
 
   // ── The walk, in the world of the state asked for.
@@ -721,15 +725,18 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
 }
 
 /**
- * Under this (blocks at 100 %, scaled like the walk) from the doorway's centre
- * to the farthest point a player stands on a side, the side is a POCKET: the
- * door is usable only from within about a block of it. 10326's Door 2 (Saga
- * round 30h): walkable both ways from the harness's start points 0.9 out, but
- * a child 2.1 blocks west or 2.5 east of the leaf could not walk up to it -
- * the east room is boxed in by the model's display cases, so the walk's OK
- * says nothing about getting there.
+ * Under this (blocks, at 100 %) from the doorway's centre to the farthest
+ * point a player walks to on a side, the side is a POCKET: the door is usable
+ * only from within about a block of it (half the leaf, a block, a player's
+ * half-width). 10326's Door 2 (Saga round 30h): walkable both ways from the
+ * harness's start points 0.9 out, but a child 2.1 blocks west or 2.5 east of
+ * the leaf could not walk up to it - the east room is boxed in by the model's
+ * display cases, so the walk's OK says nothing about getting there; its east
+ * side reads 1.98. Over the 40 favourites at 100 % (114 sides) the values
+ * run 1.13 ... 1.98, 2.08, 2.13, then a gap to 2.47: the threshold sits in
+ * that gap (`output/door-tap-0930/rooms.py`).
  */
-export const SHORT_APPROACH_ROOM = 2;
+export const SHORT_APPROACH_ROOM = 2.25;
 
 /**
  * How far a player can WALK from a doorway on each side: a flood over the fine

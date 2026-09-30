@@ -22,8 +22,10 @@
  * 2.6-block pit through the other); it is printed, counted and written to
  * the JSON (`holes`), and does not change the verdict.
  *
- * Every doorway walked open also reports how far a player gets from it on
- * each side (`room`, `approachRoom` in interactive-walk.ts). A side under
+ * Every doorway walked open at 100 % also reports how far a player walks
+ * from it on each side (`room`, `approachRoom` in interactive-walk.ts; not
+ * above 100 %, where the step-only flood reads every doubled riser as a
+ * wall). A side under
  * `SHORT_APPROACH_ROOM` is a pocket: the door is usable only from within
  * about a block of it (10326's Door 2, Saga round 2026-09-30h: OK from the
  * walk's start points 0.9 out, but boxed in by the model's display cases).

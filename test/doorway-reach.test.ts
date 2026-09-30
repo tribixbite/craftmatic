@@ -210,8 +210,10 @@ describe('the passability walk', () => {
     const free = walkThroughDoorway(room(false), 0, 100, 0, true);
     expect(free.room!['1']).toBeGreaterThanOrEqual(SHORT_APPROACH_ROOM);
     expect(free.shortApproach).toBeUndefined();
-    // Only the open walk measures it: the room is the model's, not the door's state.
+    // Only the open walk at 100 % measures it: the room is the model's, not the door's state, and the step-only
+    // flood is not calibrated above 100 %.
     expect(closed.room).toBeUndefined();
+    expect(walkThroughDoorway(boxed, 0, 200, 0, true).room).toBeUndefined();
   });
 
   it('never counts a way round a raised doorway on the ground under it', () => {

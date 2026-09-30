@@ -234,7 +234,10 @@ would flag on purpose (a device line that starts in the air).
 Craftmatic steps (`adapters/craftmatic`): `place` / `undo` (the wand, read
 like a child reads it; Undo checks the placement's box block for block and
 every entity the placement tagged), `tapInteractives`, `doorwayLines`,
-`rideSlide`, `rideLift`, `driveVehicle`, `driveUnderFixture`, `flyMount`,
+`tapPartFrom` (a device round's tap replayed: `{ label, feet, at }` in blocks
+from the placement's anchor, the device's pinned corner; a tap that does not
+move the part is a `tap-in-plain-view` violation carrying the refusal
+record), `rideSlide`, `rideLift`, `driveVehicle`, `driveUnderFixture`, `flyMount`,
 `figuresLive`, `visitSeatedFigures`, `snapshot`;
 the hop's (`adapters/craftmatic/hop.ts`): `mountSpawned`, `fillTrain`,
 `flyIntoTrain`, `slideIntoParked`.
@@ -369,6 +372,7 @@ a new refusal the log shows becomes a check there.
 | Nimbus: summon hint overwritten by the driver HUD (0929) | reproduced: after 3 ticks | passes |
 | 10326 Door 1 from the porch drops at the door plane (29d) | reproduced, the MODEL's | reproduced, the model's (as expected) |
 | 910004 Door 3 walk-out stops before the doorway (29d) | reproduced, the MODEL's | reproduced, the model's (as expected) |
+| 10326 Door 3 tap from 1.9 blocks refused "behind a wall" (30h) | reproduced: the line cut in the eyes' own cell, `collider_w10` (a tilted handrail's bounding box) | passes (`99f5090d`: a form the player stands in is not between) |
 | 10261 spurious FIGURE_RETAKE_NO_SEAT during placement (29d) | reproduced | passes |
 
 **The driver's view** (`driveVehicle`'s `driver-sees-ahead`) is the
