@@ -476,9 +476,11 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
 - Seats are not physics but ride with it: a compiled vehicle's seat is the
   driver's eye from the source less the measured 1.12, written in the entity
   frame (nose +Z; the render seat turned half round, x AND z,
-  `renderSeatToEntity`), raised or set back until it sees the horizon ahead
-  (`AHEAD`), eye-anchored at every wand size, and the rider is made
-  invisible at sizes where the body does not fit (`cockpit-seat.ts`;
+  `renderSeatToEntity`), raised or set back until the driver sees out
+  (`driverSeesOut`: the horizon `AHEAD` and either side, `SIDES`), out of
+  the cabin when nothing in it sees ahead (`AHEAD_FALLBACK`, the body then
+  hidden at every size), eye-anchored at every wand size, and the rider is
+  made invisible at sizes where the body does not fit (`cockpit-seat.ts`;
   add-on guide "Where the player sits").
 
 Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint and

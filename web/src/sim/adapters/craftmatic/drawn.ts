@@ -13,6 +13,7 @@ import { resourcePacks, type Addon } from '../../pack/pack.js';
 import type { Box, Vec3 } from '../../core/vec.js';
 import { rayBox } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
+import { AHEAD, VIEW, driverSeesOut, sideFan } from '../../../engine/cockpit-seat.js';
 
 /** Read an add-on's appearance (every entity type's drawn geometry). */
 export function packAppearance(addon: Addon): AddonAppearance {
@@ -69,4 +70,30 @@ export function forwardViewWorld(boxes: readonly DrawnBox[], eye: Vec3, yawDeg: 
     if (!opaque.some(b => rayBox(eye, d, b, maxDistance) !== undefined)) clear++;
   }
   return { clear, total };
+}
+
+/** A driver's view over the drawn geometry: rays clear / cast per fan of cockpit-seat.ts. */
+export interface DriverViewWorld {
+  /** The horizon ahead (`AHEAD`). */
+  ahead: { clear: number; total: number };
+  /** Each side (`SIDES`): left and right as the driver sees them. */
+  left: { clear: number; total: number };
+  right: { clear: number; total: number };
+  /** The wider forward fan (`VIEW`), reported, never judged. */
+  view: { clear: number; total: number };
+  /** `driverSeesOut` over these shares: the compiler's own judgement of a seat. */
+  seesOut: boolean;
+}
+
+/**
+ * The driver's view from `eye` looking along `yawDeg`, judged by the SAME rule
+ * every compiled seat is placed by (`driverSeesOut`, cockpit-seat.ts): the
+ * simulator's `driver-sees-ahead` invariant and `_cockpit_view.ts` read it.
+ * A +yaw offset looks to the driver's right in both frames (Bedrock: facing
+ * +Z, +yaw turns toward -X), so `sideFan(1)` is the right here as there.
+ */
+export function driverViewWorld(boxes: readonly DrawnBox[], eye: Vec3, yawDeg: number): DriverViewWorld {
+  const ahead = forwardViewWorld(boxes, eye, yawDeg, AHEAD), left = forwardViewWorld(boxes, eye, yawDeg, sideFan(-1)), right = forwardViewWorld(boxes, eye, yawDeg, sideFan(1));
+  const share = (r: { clear: number; total: number }): number => r.total ? r.clear / r.total : 1;
+  return { ahead, left, right, view: forwardViewWorld(boxes, eye, yawDeg, VIEW), seesOut: driverSeesOut(share(ahead), { left: share(left), right: share(right) }) };
 }

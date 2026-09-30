@@ -2,8 +2,9 @@
  * The DRIVER'S VIEW of every vehicle in a built pack, offline: place the
  * model in the headless simulator, mount each vehicle as a child does (a
  * hold), and report where the rider's eye is against what the vehicle
- * DRAWS - the horizon-ahead rays the `driver-sees-ahead` invariant judges
- * (`AHEAD`, cockpit-seat.ts), the wider `VIEW` fan, the eye in the vehicle's
+ * DRAWS - the rays the `driver-sees-ahead` invariant judges (`driverSeesOut`,
+ * cockpit-seat.ts: the horizon `AHEAD` and either side, `SIDES`), the wider
+ * `VIEW` fan, the eye in the vehicle's
  * own frame, how many opaque drawn cubes hold the eye - and render the
  * first-person picture to a PNG (`<dir>/cockpit-view.json` collects the
  * rows). The hotbar-9 cockpit view on
@@ -25,9 +26,8 @@ import { readAddon } from '../web/src/sim/pack/pack.ts';
 import { runScenario } from '../web/src/sim/scenario/runner.ts';
 import { childPlay } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { CRAFTMATIC_ALLOWED_LINES } from '../web/src/sim/adapters/craftmatic/child-play.ts';
-import { entityDrawn, forwardViewWorld, packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
+import { driverViewWorld, entityDrawn, packAppearance } from '../web/src/sim/adapters/craftmatic/drawn.ts';
 import { firstPersonSnapshot } from '../web/src/sim/adapters/craftmatic/snapshot.ts';
-import { AHEAD, VIEW } from '../web/src/engine/cockpit-seat.ts';
 import type { StepContext } from '../web/src/sim/scenario/types.ts';
 
 const args = process.argv.slice(2);
@@ -68,8 +68,7 @@ for (const file of files) {
         }
         const drawn = entityDrawn(appearance, v) ?? [];
         const eye = ctx.player.headLocation();
-        const view = forwardViewWorld(drawn, eye, v.rotation.y, VIEW);
-        const ahead = forwardViewWorld(drawn, eye, v.rotation.y, AHEAD);
+        const { ahead, left, right, view, seesOut } = driverViewWorld(drawn, eye, v.rotation.y);
         const inside = drawn.filter(d => !d.glass && eye.x >= d.box.x0 && eye.x <= d.box.x1 && eye.y >= d.box.y0 && eye.y <= d.box.y1 && eye.z >= d.box.z0 && eye.z <= d.box.z1);
         const lo = { x: Math.min(...drawn.map(d => d.box.x0)), y: Math.min(...drawn.map(d => d.box.y0)), z: Math.min(...drawn.map(d => d.box.z0)) };
         const hi = { x: Math.max(...drawn.map(d => d.box.x1)), y: Math.max(...drawn.map(d => d.box.y1)), z: Math.max(...drawn.map(d => d.box.z1)) };
@@ -77,7 +76,7 @@ for (const file of files) {
         const png = join(outDir!, `${basename(file, '.mcaddon')}-${type.replace(/[^a-z0-9_]+/gi, '_')}-${tag}.png`);
         await sharp(Buffer.from(rgb), { raw: { width: 960, height: 540, channels: 3 } }).png().toFile(png);
         const row = {
-          pack: basename(file), type, ahead: `${ahead.clear}/${ahead.total}`, view: `${view.clear}/${view.total}`, eye: [r3(eye.x), r3(eye.y), r3(eye.z)],
+          pack: basename(file), type, ahead: `${ahead.clear}/${ahead.total}`, left: `${left.clear}/${left.total}`, right: `${right.clear}/${right.total}`, seesOut, view: `${view.clear}/${view.total}`, eye: [r3(eye.x), r3(eye.y), r3(eye.z)],
           vehicle: { at: [r3(v.location.x), r3(v.location.y), r3(v.location.z)], yaw: r3(v.rotation.y) },
           // The eye relative to the vehicle's origin, turned into the vehicle's own frame (+z = its nose, Bedrock seat frame).
           eyeInVehicle: (() => { const a = v.rotation.y * Math.PI / 180, dx = eye.x - v.location.x, dz = eye.z - v.location.z; return [r3(dx * Math.cos(a) + dz * Math.sin(a)), r3(eye.y - v.location.y), r3(-dx * Math.sin(a) + dz * Math.cos(a))]; })(),

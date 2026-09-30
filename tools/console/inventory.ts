@@ -136,7 +136,7 @@ export const OPERATIONS: readonly Operation[] = [
     id: 'cockpit-view',
     group: 'Pack validation',
     title: 'Driver\'s cockpit view, offline',
-    answers: 'For every vehicle in the pack: mounted by a hold in the simulator, does the driver\'s eye see the horizon ahead over the DRAWN geometry (`AHEAD`, the rule every seat is placed by), how much of the wider 15-ray fan is clear, where the eye sits in the vehicle - and the hotbar-9 cockpit view rendered to a PNG.',
+    answers: 'For every vehicle in the pack: mounted by a hold in the simulator, does the driver\'s eye see out over the DRAWN geometry (`driverSeesOut`: the horizon `AHEAD` and either side, `SIDES` - the rule every seat is placed by), how much of the wider 15-ray fan is clear, where the eye sits in the vehicle - and the hotbar-9 cockpit view rendered to a PNG.',
     entry: 'scripts/_cockpit_view.ts',
     runtime: 'bun', cwd: 'craftmatic', input: 'pack', batch: 'one-process',
     args: [{ items: 'args' }, '--out', { runDir: 'cockpit-view' }],

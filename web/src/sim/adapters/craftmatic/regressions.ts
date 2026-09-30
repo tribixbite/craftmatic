@@ -89,6 +89,20 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees the horizon ahead') }; },
   },
   {
+    id: 'cockpit-side-panel-42639', title: '42639 car (30g): road and horizon visible, but a teal side panel covers the left ~35 % of the cockpit view',
+    evidence: 'TASKS-BEDROCK-ADDON.md round 30g; `output/device-round-2026-09-30g/saga/s70-42639-cockpit.jpg` + `_notes.txt` "COCKPIT VIEWS"; add-on guide "The view to either side"',
+    oldPack: `${ROUND}/device-round-2026-09-30g/packs-c73c545a/42639-andreas-modern-mansion.mcaddon`, newStem: '42639-andreas-modern-mansion', expectNew: 'pass',
+    scenario: pack => ({ name: 'cockpit-side-panel-42639', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees out') }; },
+  },
+  {
+    id: 'cockpit-in-hull-76286', title: '76286 Milano (30g): the cockpit view is the inside of the hull, no horizon',
+    evidence: 'TASKS-BEDROCK-ADDON.md round 30g; `output/device-round-2026-09-30g/saga/s74-76286-cockpit.jpg` + `_notes.txt` "COCKPIT VIEWS"; add-on guide "When no eye in the cabin sees ahead"',
+    oldPack: `${ROUND}/device-round-2026-09-30g/packs-c73c545a/76286-the-milano-spaceship.mcaddon`, newStem: '76286-the-milano-spaceship', expectNew: 'pass',
+    scenario: pack => ({ name: 'cockpit-in-hull-76286', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees out') }; },
+  },
+  {
     id: 'gabby-slide-tap', title: '10788 slide (29c): a tap on the slide\'s seat boards nothing',
     evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" (Pixel, three taps); add-on guide "The slide\'s seat could not be boarded by a tap"; fix 16d4bc82',
     oldPack: `${ROUND}/device-round-2026-09-29c/packs-e2c21112/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',

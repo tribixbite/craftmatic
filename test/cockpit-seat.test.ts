@@ -12,16 +12,20 @@ import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
 import { simHost } from './_sim-host.js';
-import { AHEAD, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, VIEW, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { AHEAD, AHEAD_FALLBACK, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, SIDES, VIEW, driverSeesOut, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, seesOut, sideFan, sideView, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
 
-/** A closed cabin (blocks): floor 0..0.15, walls at |x| = w, roof from `roofY` up, open fore and aft. */
+/**
+ * A closed cabin (blocks): floor 0..0.15, walls at |x| = w from a block ahead of the seat to the tail, roof
+ * from `roofY` up, open fore and aft. The walls stop short of the nose, where a windscreen's pillars would
+ * be: walls running on to it close the view ahead in a tunnel (`AHEAD`), and the eye would leave the cabin.
+ */
 const cabin = (w: number, roofY: number): BoxBlocks[] => [
   box([-w - 0.2, 0, -2], [w + 0.2, 0.15, 2]),
-  box([-w - 0.2, 0, -2], [-w, roofY, 2]),
-  box([w, 0, -2], [w + 0.2, roofY, 2]),
+  box([-w - 0.2, 0, -1], [-w, roofY, 2]),
+  box([w, 0, -1], [w + 0.2, roofY, 2]),
   box([-w - 0.2, roofY, -2], [w + 0.2, roofY + 0.2, 2]),
 ];
 
@@ -43,8 +47,8 @@ describe('riderOverlap / planSeat', () => {
   });
 
   it('finds the smallest wand size at which the body fits (the model scales, the player does not)', () => {
-    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor.
-    const small = [box([-0.5, 0, -2], [0.5, 0.03, 2]), box([-0.5, 0, -2], [-0.3, 0.55, 2]), box([0.3, 0, -2], [0.5, 0.55, 2]), box([-0.5, 0.55, -2], [0.5, 0.6, 2])];
+    // A quarter-size cabin: 0.55 blocks inside, the driver's eye 0.3 over the floor, the flanks from half a block ahead of it.
+    const small = [box([-0.5, 0, -2], [0.5, 0.03, 2]), box([-0.5, 0, -0.5], [-0.3, 0.55, 2]), box([0.3, 0, -0.5], [0.5, 0.55, 2]), box([-0.5, 0.55, -2], [0.5, 0.6, 2])];
     const eye: Vec3 = [0, 0.3, 0];
     const plan = planSeat(small, eye, [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0]);
     expect(plan.steps.map(s => s.f)).toEqual([1, 1.5, 2, 3, 4]);
@@ -473,15 +477,82 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(planSeat(car, eye, seat, 'seat').ahead!.after).toBe(1);
   });
 
-  it('leaves a seat that already sees ahead where it is, and reports a closed box it cannot see out of', () => {
+  it('leaves a seat that already sees out where it is, and lifts an eye shut in a closed box out over its top', () => {
     const open = [box([-1, 0, -2], [1, 0.3, 2])];
     const plan = planSeat(open, [0, 1.42, 0], [0, 0.3, 0], 'seat');
-    expect(plan.ahead).toEqual({ before: 1, after: 1, moved: null });
+    expect(plan.ahead).toEqual({ before: 1, after: 1, moved: null, sides: { before: { left: 1, right: 1 }, after: { left: 1, right: 1 } } });
     expect(plan.seat).toEqual([0, 0.3, 0]);
+    // Nothing in the box sees out: the eye leaves it, just over its top, and the body is hidden at every size.
     const closed = [box([-3, 0, -3], [3, 4, 3])];
     const shut = planSeat(closed, [0, 1.42, 0], [0, 0.3, 0], 'seat');
-    expect(shut.ahead!.after).toBe(0);
-    expect(shut.ahead!.moved).toBeNull();
+    expect(shut.ahead!.before).toBe(0);
+    expect(shut.ahead!.after).toBe(1);
+    expect(shut.ahead!.fallback).toBe(true);
+    expect(shut.eye[1]).toBeGreaterThan(4);
+    expect(shut.eye[1]).toBeLessThanOrEqual(4 + AHEAD_FALLBACK.step + 0.1 + 1e-9);
+    expect(riderVisibleSizes(shut)).toEqual([]);
+    expect(shut.fitScale).toBeNull();
+  });
+
+  it('catches a panel BESIDE the face that AHEAD cannot see, and raises the eye over it (42639, Saga 30g)', () => {
+    // An open car with a raised door at the driver's left (-x, the nose at -Z): 0.4 block beside the eye,
+    // from the floor to 0.25 over the eye, 1.0 ahead of it to 0.3 behind.
+    const car = [box([-1, 0, -2], [1, 0.3, 2]), box([-0.6, 0, -1.0], [-0.4, 1.71, 0.3])];
+    const eye: Vec3 = [0, 1.46, 0];
+    const seat: Vec3 = [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0];
+    expect(seesAhead(car, eye)).toBe(true);
+    expect(sideView(car, eye).left).toBeLessThan(SIDES.minClear);
+    expect(sideView(car, eye).right).toBe(1);
+    expect(seesOut(car, eye)).toBe(false);
+    const plan = planSeat(car, eye, seat, 'seat');
+    expect(plan.ahead!.sides!.before.left).toBeLessThan(SIDES.minClear);
+    expect(plan.ahead!.sides!.after.left).toBeGreaterThanOrEqual(SIDES.minClear);
+    expect(seesOut(car, plan.eye)).toBe(true);
+    // Up toward the door's top until half of that side clears (not across the car), within the cabin
+    // search, the body still drawn in the seat.
+    expect(plan.eye[0]).toBe(0);
+    expect(plan.eye[1]).toBeGreaterThan(eye[1]);
+    expect(plan.eye[1] - eye[1]).toBeLessThanOrEqual(AHEAD_SEARCH.up + 1e-9);
+    expect(plan.ahead!.fallback).toBeUndefined();
+    expect(plan.steps[0]!.fits).toBe(true);
+    // A panel no search in the cabin clears keeps a seat that sees ahead where it was: the sides are a preference.
+    const tall = [box([-1, 0, -2], [1, 0.3, 2]), box([-0.6, 0, -1.0], [-0.4, 3, 0.3])];
+    const kept = planSeat(tall, eye, seat, 'seat');
+    expect(kept.ahead!.moved).toBeNull();
+    expect(kept.eye).toEqual(eye);
+  });
+
+  it('lets the eye leave a roofed cabin that cannot see ahead, over the model, and hides the body (76286, Saga 30g)', () => {
+    // A roofed seat with a bulkhead across the car ahead of it, taller than the cabin search can rise.
+    const hull = [
+      box([-1, 0, -3], [1, 0.3, 3]),
+      box([-1, 0.3, -1.2], [1, 3.5, -1.0]),
+      box([-1, 2.2, -1.0], [1, 2.4, 1.0]),
+    ];
+    const eye: Vec3 = [0, 1.46, 0];
+    const seat: Vec3 = [0, eye[1] - RIDER_EYE_ABOVE_SEAT, 0];
+    const plan = planSeat(hull, eye, seat, 'seat');
+    expect(plan.ahead!.before).toBe(0);
+    expect(plan.ahead!.fallback).toBe(true);
+    expect(seesAhead(hull, plan.eye)).toBe(true);
+    // Straight up over the bulkhead's top (the nearest point that sees ahead), on the seat's own line.
+    expect(plan.eye[0]).toBe(0);
+    expect(plan.eye[1]).toBeGreaterThan(3.5);
+    expect(plan.eye[1]).toBeLessThan(3.5 + 2 * AHEAD_FALLBACK.step + 1e-9);
+    expect(plan.seat[1]).toBeCloseTo(plan.eye[1] - RIDER_EYE_ABOVE_SEAT, 5);
+    // Only an eye there: hidden at every size, though a body would "fit" in the open air over the roof.
+    expect(plan.steps.every(s => !s.fits)).toBe(true);
+    expect(riderVisibleSizes(plan)).toEqual([]);
+    expect(riderVisibleAt(plan, 1)).toBe(false);
+  });
+
+  it('judges the simulator\'s drawn view and the compiler\'s boxes by the same numbers (driverSeesOut)', () => {
+    expect(driverSeesOut(1, { left: 1, right: 1 })).toBe(true);
+    expect(driverSeesOut(5 / 6, { left: 1, right: 1 })).toBe(false);
+    expect(driverSeesOut(1, { left: 0, right: 1 })).toBe(false);
+    expect(driverSeesOut(1, { left: SIDES.minClear, right: SIDES.minClear })).toBe(true);
+    // The two side fans mirror each other about the nose.
+    expect(sideFan(1).yaw.map(y => -y)).toEqual(sideFan(-1).yaw);
   });
 
   it('seats a car\'s driver AFT of its steering wheel along the vehicle, not along the mould\'s own axes (42639\'s 16091)', async () => {
