@@ -144,14 +144,17 @@ a dark fin covers the top ~20 %); 42639 FIXED (door top under the horizon, at
   z 5382-5382.75. `TODO(tilted-colliders)`: lay a turned cuboid from its
   oriented box; needs its own passability + clearance sweep (every model).
 - [ ] Tap sweep widening to review: from CLIPPED spots (player inside a
-  collider) 4,955 favourites spot-part pairs flipped refused -> accepted, 4,677
+  collider) 4,955 favourites spot-part pairs flipped refused -> accepted, 4,680
   of them with the player inside DRAWN geometry (a teleported/placed-into
-  player taps past the wall it stands in). Free standing spots: identical.
-  Decide if that is acceptable (docs section above has the numbers).
+  player taps past the wall it stands in). Free standing spots: identical
+  (3,697 accepted before and after). Decide if that is acceptable (docs
+  section "Door 3's tap and Door 2's pockets" has the numbers).
 - [ ] 10326 Door 2 pocket: now flagged offline as SHORT-APPROACH (east side,
   room 1.98 < 2.25; `_ix_passability` at 100 % only, verdicts unchanged).
-  Favourites with it: 10326 D2, 11371 D7, 31141 D2/D3/D4, 42639 D2, 42670 D1,
-  60380 D1, 71040 D2, 76435 Gate 1, 910032 D3 (only 10326's device-seen).
+  Favourites with it (at `482a1fbe`): 10326 D2, 11371 D7, 31141 D5, 42639 D2,
+  42670 D1, 60380 D1, 71040 D2, 76435 Gate 1, 910032 D3 (only 10326's
+  device-seen). Favourites export at `482a1fbe`:
+  `.claude/worktrees/agent-aa7e8ea0c704eedba/output/door-tap-0930/fav40-482a1fbe/`.
   The pocket is the model's display cases; no pack fix planned.
 - Doors 2 and 3 are INSIDE (turned 90 deg), not on the back wall; Door 1 is the
   back face's only doorway.

@@ -732,9 +732,9 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
  * harness's start points 0.9 out, but a child 2.1 blocks west or 2.5 east of
  * the leaf could not walk up to it - the east room is boxed in by the model's
  * display cases, so the walk's OK says nothing about getting there; its east
- * side reads 1.98. Over the 40 favourites at 100 % (114 sides) the values
- * run 1.13 ... 1.98, 2.08, 2.13, then a gap to 2.47: the threshold sits in
- * that gap (`output/door-tap-0930/rooms.py`).
+ * side reads 1.98. Over the 40 favourites at 100 % (116 sides, exported at
+ * `482a1fbe`) the values run 1.13 ... 1.98, 2.08, 2.13, 2.19, then a gap to
+ * 2.40: the threshold sits in that gap (`output/door-tap-0930/rooms.py`).
  */
 export const SHORT_APPROACH_ROOM = 2.25;
 

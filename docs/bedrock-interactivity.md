@@ -1067,16 +1067,18 @@ reproduced as before; child play on 10326 5/5 pass).
 **The tap sweep** (`scripts/_ix_tap_probe.ts --runtime=<base archive>` for
 the before, `--clipped` for spots where the player's box overlaps a
 collider form; `output/door-tap-0930/tap-sweep.sh`, `sweep-compare.py`,
-`clip-classify.ts`), over the 40 favourites (packs of `favsweep-3664f4f3`):
+`clip-classify.ts`), over the 40 favourites exported at `482a1fbe`
+(`fav40-482a1fbe/`, 40/40, `sweep-cur40*`):
 
-- FREE standing spots (244 parts, 3,886 reachable spot-part pairs): identical
-  before and after - 3,688 accepted, 3,439 close again, 0 flips either way.
+- FREE standing spots (244 parts, 3,900 reachable spot-part pairs): identical
+  before and after - 3,697 accepted, 3,459 close again, 0 flips either way,
+  no part refuses every tap (two turnables are out of reach, as before).
   Every spot a child can walk to answers exactly as before, so no door
   behind a real wall became tappable from anywhere a player stands.
-- CLIPPED spots (16,991 pairs): accepted 10,103 -> 15,058, closes 8,991 ->
-  14,065, 0 accepted -> refused. Of the 4,955 that flipped, 278 have the
+- CLIPPED spots (16,981 pairs): accepted 10,084 -> 15,039, closes 8,998 ->
+  14,050, 0 accepted -> refused. Of the 4,955 that flipped, 275 have the
   player's box only in colliders with nothing drawn at the body (the
-  museum's case) and 4,677 inside DRAWN geometry: a player left inside a
+  museum's case) and 4,680 inside DRAWN geometry: a player left inside a
   real wall (a teleport, a placement laid round it) now taps past the wall
   it stands in. That is consistent with what such a player sees - an
   entity's faces are not drawn from inside, so the camera sees through the
@@ -1105,19 +1107,23 @@ leaf, a block, a player's half-width) the side is a pocket and
 `_ix_passability.ts` prints `SHORT-APPROACH from <side>: room <r>` after the
 verdict, counts the rows and writes `room` / `shortApproach` to the JSON. The
 verdict is unchanged (332 verdict rows over the favourites, 0 differ from
-the base script). Over the 40 favourites at 100 % (114 sides) the values run
-1.13 ... 1.98, 2.08, 2.13, then a gap to 2.47; the threshold sits in it.
+the base script, at `482a1fbe` as on the older `favsweep-3664f4f3` packs).
+Over the 40 favourites at 100 % (116 sides at `482a1fbe`) the values run
+1.13 ... 1.98, 2.08, 2.13, 2.19, then a gap to 2.40; the threshold sits in
+it (the older packs: ... 2.13, then 2.47).
 Not measured above 100 %: the step is the player's and does not grow with
 the model, so at 200 % a doubled riser reads as a wall - with the threshold
 scaled, 20 of 65 doorways at 200 %/0 read as pockets against 9 of 57 at
 100 % (first draft, threshold 2); `TODO(short-approach)`.
 
-SHORT-APPROACH at 100 % (turns 0 and 90 alike), 11 sides of 11 doorways in
-9 sets, all OK doorways: 10326 Door 2 + (1.98, the device's pocket reached
-about 1.65 from the leaf's centre), 11371 Door 7 - (1.63), 31141 Door 2 -
-(1.86), Door 3 + (1.86), Door 4 - (1.40), 42639 Door 2 + (2.08), 42670
-Door 1 - (1.35), 60380 Door 1 + (1.13), 71040 Door 2 + (2.13), 76435 Gate 1
-+ (1.29), 910032 Door 3 - (1.29). Only 10326's is device-observed.
+SHORT-APPROACH at 100 % over the favourites at `482a1fbe` (turns 0 and 90
+alike), 9 sides of 9 OK doorways in 9 sets: 10326 Door 2 + (1.98, the
+device's pocket reached about 1.65 from the leaf's centre), 11371 Door 7 -
+(1.63), 31141 Door 5 + (2.19), 42639 Door 2 + (2.08), 42670 Door 1 - (1.35),
+60380 Door 1 + (1.13), 71040 Door 2 + (2.13), 76435 Gate 1 + (1.29), 910032
+Door 3 - (1.29). Only 10326's is device-observed. (On the 45-commit-older
+`favsweep-3664f4f3` packs 31141's Doors 2-4 read pockets and Door 5 did not:
+its colliders changed since.)
 
 ### Known limits
 
