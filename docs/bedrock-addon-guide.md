@@ -3931,7 +3931,7 @@ there, three faults, all general:
   The simulator's `driver-sees-ahead` judges the same rule.
 
 Before/after, drawn geometry (horizon rays / the wider fan; `output/cockpit-0930/`,
-packs `packs-9759f0bf`, pictures `cockpit-before-after.jpg`):
+packs `packs-40fd7d54`, pictures `cockpit-before-after.jpg`):
 
 | car | before (round 30f pack) | after |
 |---|---|---|
@@ -3940,8 +3940,19 @@ packs `packs-9759f0bf`, pictures `cockpit-before-after.jpg`):
 | 42172 | 6/6, 6/15 | unchanged |
 | 10797 | 6/6, 15/15 | unchanged |
 
-Vehicle audit over the favourites and the vehicle extras: see the tracker
-("Cockpit view", `output/cockpit-0930/audit-*`).
+Vehicle audit over the favourites and the vehicle extras (61 sets, 41
+rideables, `audit-base-f35cd5c5/` vs `audit-40fd7d54/`): the drawn horizon
+is not all clear for 23 before and 14 after; after the x fix the compiler's
+own horizon score equals the simulator's on 40 of 41 (with the mirrored
+seat it could not: 60446's plan saw 0/6 where its mirrored rider saw 6/6 of
+open sky OUTSIDE the craft). One seat newly fails, 60446: now at its
+pilot's place, whose torso faces 35 degrees off the inferred nose, at a
+side window. The 14 are closed or display cockpits (an opaque part ahead
+of a canopy or cabin eye, no clear point within `AHEAD_SEARCH`) and boat
+seats looking into a cabin; the tracker lists them.
+- **A boat's steering wheel under the keel is stowed** (60221's scooter,
+  5.6 LDU under the hull's bottom): the keel test reads the wheel itself,
+  not only its eye, which the aft rule had lifted over the keel.
 
 **Device-only still:** what the cockpit view looks like with Bedrock's
 lighting and the near-plane (the offline picture has no ground); the
