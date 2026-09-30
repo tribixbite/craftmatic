@@ -114,18 +114,24 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
-## Round 2026-09-30e (`3664f4f3`) - doors, fly sound, sim-triage fixes
+## Round 2026-09-30f (`dc699e3e`) - hop, collision x-mirror fix, 42639 + 60380
 
-**Sent** (zip, not deployed): `output/device-round-2026-09-30e/craftmatic-packs-3664f4f3.zip`
-(sha256 47ca53d78b8a0dc2c2430b185c4687cb0dccd6de2a9030285ff256c8cbbd9dbf;
-21 packs; `check.txt` 21/21 OK, uuids = 29d, parts = 29d). Favourites sweep
-on the same commit: 40/40 exported and valid, `_ix_passability` 0 FAIL,
-sim child play 198/200 (`output/favsweep-3664f4f3*`).
-- [ ] Device check of this round: 42639 / 60380 driver views; the
-  simulator's ASSUMED rules (`teleport-into-floor`, `dismount-free-spot`, tap
-  reach 5); 10326 Door 1 ledge (KEPT, user 2026-09-30); 10261 no retake
-  line; flyer cruise at 0.0725 (~11 blocks/s expected); the 10303 loop-1
-  exit swing (Saga, intermittent).
+**Sent** (zip, not deployed yet): `output/device-round-2026-09-30f/craftmatic-packs-dc699e3e.zip`
+(sha256 cb71547462e6dfe4799eae618289b8d790c832a1b237e8a2b9ed6e5a2bd8bc91;
+23 packs = 30e's 21 + 42639 `Andrea's Modern Mansion (42639-1)` + 60380
+`Downtown (60380-1)`; `check.txt` 23/23 OK, uuids = 30e, parts = 30e).
+Build: `bash output/device-round-2026-09-30f/build.sh`, check:
+`python output/device-round-2026-09-30f/check.py <packs> <creator>`. The first
+30f build (`stale-premirror-*`, 09e2e8a4) predates the x-mirror fix: never ship it.
+Sim on these packs: regressions 10 OK / 1 not reproduced (gabby-car-overhang,
+as before); `--scenario=hop` (10261 + Nimbus, 10788 + 42639) all pass.
+- [ ] Device round (both phones, `--exclusive`): hop (Nimbus into 10261's
+  moving train: which car/seat, camera handover flash, cloud hovers; a car at
+  10788's / 10797's slide foot); 42639 / 60380 driver views; clearance walls
+  now on the right half (walk a few doorways: 10326, 41732 Door 3, 76457);
+  10261 no retake line; flyer cruise at 0.0725 (~11 blocks/s expected); the
+  10303 loop-1 exit swing (Saga, intermittent). 10326 Door 1 ledge KEPT
+  (user 2026-09-30, standing rule: prefer exploration/interactivity).
 
 ## Round 2026-09-29c (`e2c21112`) - faces closed, Gabby play, kiosk retake, Nimbus
 
