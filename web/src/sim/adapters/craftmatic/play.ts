@@ -32,6 +32,7 @@ import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
 import { LINE_MIN_OUT, LINE_OUT } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
+import type { VoxelWorld } from '../../world/voxel-world.js';
 import { entityDrawn, forwardViewWorld, type DrawnBox } from './drawn.js';
 import { modelDirToWorld, modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
 import { PLACED_KEY } from './wand.js';
@@ -242,6 +243,12 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         if (!leafEntity) { ctx.note(`${it.label}: no entity`); continue; }
         if (leafEntity.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, leafEntity, it.label, () => leafEntity.dynamic.get(IX_KEYS.open) === true);
         if (leafEntity.dynamic.get(IX_KEYS.open) !== true) { ctx.note(`${it.label}: no tap from any spot within reach opened it; its lines are not walked`); continue; }
+        // A double door's other leaf must be open too (the pair moves together, but a leaf tapped on its own can leave it shut).
+        for (const j of it.pairs ?? []) {
+          const other = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === j });
+          if (other && other.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, other, ix.items[j]?.label ?? `part ${j}`, () => other.dynamic.get(IX_KEYS.open) === true);
+          if (other && other.dynamic.get(IX_KEYS.open) !== true) ctx.note(`${it.label}: its pair ${ix.items[j]?.label ?? j} stays shut`);
+        }
         const leaf = it.leaf;
         const c = { x: leaf.c[0]!, y: leaf.c[1]!, z: leaf.c[2]! }, a = { x: leaf.a[0]!, y: leaf.a[1]!, z: leaf.a[2]! };
         const nW = modelDirToWorld(pack.placement, placed, { x: leaf.n[0]!, y: 0, z: leaf.n[2]! });
@@ -376,6 +383,17 @@ const finding = (ctx: StepContext, f: DoorwayFinding): void => { ctx.state['door
 /** How far (blocks) drawn geometry may sit from a collider that stands for it: the colliders are supersets on a 1/16 grid, their forms a quarter block at the coarsest. */
 export const COLLIDER_SLACK = 0.25;
 
+/**
+ * Whether every solid a box meets stands for drawn geometry: each collider box the probe overlaps has a drawn
+ * cube within `COLLIDER_SLACK` of it (a collider is a superset of its geometry). No solid at all counts as the
+ * model's (nothing of the pack's is in the way).
+ */
+function colliderIsModels(w: VoxelWorld, statics: readonly DrawnBox[], probe: Box): boolean {
+  const g = COLLIDER_SLACK;
+  const solids = w.solidsNear(probe, 0, 0, 0).filter(sd => !sd.unloaded && sd.x1 > probe.x0 + 1e-3 && sd.x0 < probe.x1 - 1e-3 && sd.y1 > probe.y0 + 1e-3 && sd.y0 < probe.y1 - 1e-3 && sd.z1 > probe.z0 + 1e-3 && sd.z0 < probe.z1 - 1e-3);
+  return solids.every(sd => boxHits(statics, { x0: sd.x0 - g, y0: sd.y0 - g, z0: sd.z0 - g, x1: sd.x1 + g, y1: sd.y1 + g, z1: sd.z1 + g }));
+}
+
 /** The device round's "porch": a teleport this far out (blocks at 100 %) at the doorway's height, then a walk in. */
 export const PORCH_OUT = 2.5;
 
@@ -403,8 +421,10 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label:
   const where = `${label} column ${Math.floor(col.x)},${Math.floor(col.z)} from ${side > 0 ? '+' : '-'} side${kind === 'porch' ? ` (porch, ${outMax} out)` : ''}`;
   if (!start && kind === 'porch') return;
   if (!start) {
-    const q = { x: col.x + n.x * side * LINE_OUT * k, z: col.z + n.z * side * LINE_OUT * k };
-    const blocked = boxHits(statics, { x0: q.x - 0.3, y0: floorY + 0.05, z0: q.z - 0.3, x1: q.x + 0.3, y1: floorY + 1.8, z1: q.z + 0.3 });
+    // Who took the room: the colliders the player's box meets at the harness's start, each judged by whether the
+    // model draws geometry within a collider's superset slack of it.
+    const q = { x: col.x + n.x * side * outMax * k, z: col.z + n.z * side * outMax * k };
+    const blocked = colliderIsModels(w, statics, { x0: q.x - 0.3, y0: floorY + 0.05, z0: q.z - 0.3, x1: q.x + 0.3, y1: floorY + 1.8, z1: q.z + 0.3 });
     ctx.note(`${where}: no room to stand ${LINE_MIN_OUT}-${LINE_OUT} blocks out (${blocked ? 'the model draws geometry there: SEALED, the model\'s' : 'colliders with nothing drawn'})`);
     finding(ctx, { kind: 'STOP', where, model: blocked, noRoom: true });
     if (!blocked) ctx.violate({ invariant: 'doorway-line', message: `${where}: no room to stand on this side, and the model draws nothing there (the pack's colliders)` });
@@ -454,8 +474,7 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label:
     const ahead = { x: at.x - n.x * side * 0.15, z: at.z - n.z * side * 0.15 };
     const probe = { x0: ahead.x - 0.3, y0: at.y + 0.05, z0: ahead.z - 0.3, x1: ahead.x + 0.3, y1: at.y + 1.8, z1: ahead.z + 0.3 };
     const hit = w.overlapping(probe, 0.001);
-    const g = COLLIDER_SLACK;
-    const drawn = boxHits(statics, { x0: probe.x0 - g, y0: probe.y0 - g, z0: probe.z0 - g, x1: probe.x1 + g, y1: probe.y1 + g, z1: probe.z1 + g });
+    const drawn = colliderIsModels(w, statics, probe);
     const text = `${where}: stopped ${r3(-Math.min(0, best))} blocks before the door plane${hit?.block ? ` on ${hit.block.typeId} at ${hit.block.x},${hit.block.y},${hit.block.z}` : ''}`;
     if (drawn) ctx.note(`${text} - the MODEL's: it draws geometry where the player's box needs room (SEALED)`);
     else ctx.violate({ invariant: 'doorway-line', message: `${text}; nothing is drawn there, the pack's colliders block it`, evidence: { start: pt(start), stoppedAt: pt(at) } });

@@ -28,7 +28,11 @@ export interface DrawnBox { box: Box; glass: boolean }
 /** The world boxes of an entity's near geometry at its pose (a turned cube is its corners' box). */
 export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number, scale = 1): DrawnBox[] {
   const bones = boneTransforms(entry.bones);
-  const y = yawDeg * Math.PI / 180, cy = Math.cos(y), sy = Math.sin(y);
+  // `yawDeg` is Bedrock's (yaw 90 faces -X). The placement matrix below is `worldFaces`', whose angle turns
+  // the other way (the walk preview's three.js `rotation.y`), so it takes the negated yaw. Measured: at a
+  // 90-degree placement of 11371 the un-negated turn put 2 % of the collider boxes near drawn geometry, the
+  // negated one as many as at 0 degrees.
+  const y = -yawDeg * Math.PI / 180, cy = Math.cos(y), sy = Math.sin(y);
   // Geometry JSON → world: Z mirrored, then the yaw about +Y, then the scale and the placement (units of 1/16 block).
   const place: Affine = [cy * scale, 0, -sy * scale, at.x * 16, 0, scale, 0, at.y * 16, -sy * scale, 0, -cy * scale, at.z * 16];
   const out: DrawnBox[] = [];
