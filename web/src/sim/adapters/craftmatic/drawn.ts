@@ -54,9 +54,9 @@ export function entityDrawn(appearance: AddonAppearance, e: SimEntity): DrawnBox
 
 /**
  * The share of forward view rays from `eye` that leave `boxes` without
- * meeting an opaque one - the cockpit test (`forwardView` in
- * cockpit-seat.ts, with its yaw/pitch fan), in the world frame, looking along
- * `yawDeg`. 1 = every ray clear.
+ * meeting an opaque one - the cockpit tests of cockpit-seat.ts (`fanView`
+ * with `AHEAD`, the rule every seat is placed by; `forwardView`'s wider `VIEW`
+ * fan), in the world frame, looking along `yawDeg`. 1 = every ray clear.
  */
 export function forwardViewWorld(boxes: readonly DrawnBox[], eye: Vec3, yawDeg: number, fan: { yaw: readonly number[]; pitch: readonly number[] }, maxDistance = 16): { clear: number; total: number } {
   const opaque = boxes.filter(b => !b.glass).map(b => b.box);

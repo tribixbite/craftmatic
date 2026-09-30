@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
-import { RIDER_EYE_ABOVE_SEAT, VIEW, eyeOverlap, forwardClear, forwardView, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
+import { AHEAD, AHEAD_SEARCH, RIDER_EYE_ABOVE_SEAT, VIEW, eyeOverlap, fanView, forwardClear, forwardView, keepsTheView, planSeat, renderSeatToEntity, seesAhead, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const box = (min: Vec3, max: Vec3): BoxBlocks => ({ min, max });
@@ -424,5 +424,83 @@ describe('a guessed seat (no cockpit evidence) is judged by what its eye sees', 
     const figure = planSeat(dollTruck, [0, 1.2, -0.8], [0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8], 'seat');
     expect(figure.view).toBeUndefined();
     expect(figure.seat).toEqual([0, 1.2 - RIDER_EYE_ABOVE_SEAT, -0.8]);
+  });
+});
+
+describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () => {
+  it('turns a render-frame seat half round into the rideable frame, both horizontal axes (60380 sat outside its cab, Pixel 30f)', () => {
+    expect(renderSeatToEntity([0.51, 0.49, -0.28])).toEqual([-0.51, 0.49, 0.28]);
+    // No negative zero on the centre line (the rideable JSON keeps a plain 0).
+    expect(Object.is(renderSeatToEntity([0, 0.4, 0])[0], 0)).toBe(true);
+    expect(Object.is(renderSeatToEntity([0, 0.4, 0])[2], 0)).toBe(true);
+  });
+
+  it('passes a bonnet below the level and fails a panel in front of the face', () => {
+    // 42172-like: a low bonnet 1.1-3 blocks ahead of an eye 1.29 up fills VIEW's low rays only.
+    const bonnet = [box([-0.9, 0, -3.4], [0.9, 1.15, -1.3]), box([-0.9, 0, 0.2], [0.9, 1.6, 0.5])];
+    const eye: Vec3 = [0, 1.29, -0.2];
+    expect(forwardView(bonnet, eye)).toBeLessThan(VIEW.minClear);
+    expect(seesAhead(bonnet, eye)).toBe(true);
+    expect(fanView(bonnet, eye, AHEAD)).toBe(1);
+    // 42639's first seat: a raised door a quarter of a block ahead, reaching over the eye.
+    const door = [...bonnet, box([-0.2, 1.1, -0.9], [0.2, 1.9, -0.45])];
+    expect(seesAhead(door, eye)).toBe(false);
+    // Glass is seen through.
+    expect(seesAhead([...bonnet, { min: [-0.2, 1.1, -0.9], max: [0.2, 1.9, -0.45], glass: true }], eye)).toBe(true);
+  });
+
+  it('raises a steering wheel driver over the rim, and keeps the body drawn under the roof', () => {
+    // A minifig-scale car: open sides, a roof at 2.3, a dashboard to 1.2 and a steering wheel whose rim
+    // reaches 1.52, half a block ahead of an eye at 1.46 (60380's wheel at its own eye height).
+    const car: BoxBlocks[] = [
+      box([-1, 0, -2], [1, 0.3, 2]),
+      box([-1, 0.3, -2], [1, 1.2, -1]),
+      box([-0.25, 1.0, -0.8], [0.25, 1.52, -0.7]),
+      box([-1, 2.3, -1], [1, 2.45, 1]),
+    ];
+    const eye: Vec3 = [0, 1.46, -0.3];
+    const seat: Vec3 = [0, eye[1] - RIDER_EYE_ABOVE_SEAT, eye[2]];
+    expect(seesAhead(car, eye)).toBe(false);
+    const plan = planSeat(car, eye, seat, 'steering');
+    expect(plan.ahead!.before).toBeLessThan(1);
+    expect(plan.ahead!.after).toBe(1);
+    expect(seesAhead(car, plan.eye)).toBe(true);
+    // Up over the rim, not across the car; within the search's reach.
+    expect(plan.eye[0]).toBe(0);
+    expect(plan.eye[1]).toBeGreaterThan(1.52);
+    expect(plan.eye[1] - eye[1]).toBeLessThanOrEqual(AHEAD_SEARCH.up + 1e-9);
+    expect(plan.seat[1]).toBeCloseTo(plan.eye[1] - RIDER_EYE_ABOVE_SEAT, 5);
+    expect(plan.steps[0]!.fits).toBe(true);
+    // The same seat as a seated figure's is judged by the same rule.
+    expect(planSeat(car, eye, seat, 'seat').ahead!.after).toBe(1);
+  });
+
+  it('leaves a seat that already sees ahead where it is, and reports a closed box it cannot see out of', () => {
+    const open = [box([-1, 0, -2], [1, 0.3, 2])];
+    const plan = planSeat(open, [0, 1.42, 0], [0, 0.3, 0], 'seat');
+    expect(plan.ahead).toEqual({ before: 1, after: 1, moved: null });
+    expect(plan.seat).toEqual([0, 0.3, 0]);
+    const closed = [box([-3, 0, -3], [3, 4, 3])];
+    const shut = planSeat(closed, [0, 1.42, 0], [0, 0.3, 0], 'seat');
+    expect(shut.ahead!.after).toBe(0);
+    expect(shut.ahead!.moved).toBeNull();
+  });
+
+  it('seats a car\'s driver AFT of its steering wheel along the vehicle, not along the mould\'s own axes (42639\'s 16091)', async () => {
+    const { findCockpit, CAR_WHEEL_EYE_LDU } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    const mesh = (description: string) => ({
+      partId: description, resolvedAs: description, studs: [], unresolvedRefs: [], description,
+      triangles: [{ a: [-10, -10, -10], b: [10, 0, 10], c: [-10, 0, 10], color: 16 }], bounds: { min: [-10, -10, -10], max: [10, 0, 10] },
+    }) as never;
+    const meshes = new Map([['16091.dat', mesh('Car Steering Wheel 2L Reinforced')], ['body.dat', mesh('Brick 2 x 4')]]);
+    // A car along z, nose -z (so aft is +z). 42639's wheel is turned so its local +Z points to world -x.
+    const wheel = { part: '16091.dat', color: 0, x: 980, y: -60.3668, z: 35.2403, rot: [0, 0, -1, 0.9114, 0.4116, 0, 0.4116, -0.9114, 0] };
+    const placed = [{ part: 'body.dat', color: 4, x: 980, y: 0, z: -60 }, { part: 'body.dat', color: 4, x: 980, y: 0, z: 190 }, wheel];
+    const cockpit = findCockpit(placed as never, meshes, { nose: '-z', isXLongitudinal: false, forwardSign: -1, spanX: 140, spanZ: 250 });
+    expect(cockpit.source).toBe('steering-wheel');
+    // On the wheel's own line across the car, 30 LDU behind it, 20 over it.
+    expect(cockpit.eyeLdu[0]).toBeCloseTo(980, 6);
+    expect(cockpit.eyeLdu[1]).toBeCloseTo(wheel.y - CAR_WHEEL_EYE_LDU.up, 6);
+    expect(cockpit.eyeLdu[2]).toBeCloseTo(wheel.z + CAR_WHEEL_EYE_LDU.aft, 6);
   });
 });
