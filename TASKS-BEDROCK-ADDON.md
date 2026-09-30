@@ -204,10 +204,24 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
     collider cell, an invisible 1-block ledge at door height over the pit.
   - [ ] Device: 10326 Door 1 walk-out onto that ledge; 41732 Door 3 both
     ways; a 10261 placement with no FIGURE_RETAKE line.
-- [ ] Saga 29d (resumed by a new agent after a spend-limit cut-off; `29d/saga/`): slide by tap, lift taps on
-  floors 2/3 with block probes, Nimbus follow-ups (no false seat line,
-  cruise at 0.09 measured, remount hint, dive, float-down, `fly` count with
-  the interactive entry), three 10303 laps for the exit cut, fig6.
+- [x] Saga 29d (`29d/saga/`; content logs 0/0 in all 12): 10788 slide by
+  TAP from inside the top room and from outside; lift boards by tap on
+  floors 1, 2 AND 3 (29c's floor 2/3 failures gone; from inside floor 2's
+  room the platform is behind colliders - not reachable, by design?);
+  Nimbus: no false seat line, remount hint 3.0 s, dive, float-down (also in
+  survival: all hearts), cruise 12.5 blocks/s at 0.09 (Pixel 13.1; HUD
+  matches true); 10261 fig6 closed; no FIGURE_RETAKE line.
+- [ ] 10303 loop-1 exit swing on the Saga is INTERMITTENT: 4 of 6 laps
+  (29b 3/3, 29c 0/1): behind -> side -> FRONT -> side -> behind in 3-4
+  frames at y -47/-48. Suspect the hand-back's first `setCamera` yaw vs the
+  `over` chart's end (`bedrock-coaster.ts` `COASTER_RIDER_VIEW`); measure
+  with camprobe before changing. Device-only (the sim does not model the
+  camera).
+- [x] Fly-sound A/B on the Saga (`output/fly-sound-ab-0929/saga/`): variant A
+  (`interactive_sounds.block_sounds.normal` = vanilla's events + `fly: ""`)
+  and C give 0 lines in every window; B (a silent sound definition) 404/min
+  flying, no better than baseline. Content log flushes on HOME, not on Save
+  & Quit. -> implement A in `flySoundEvents` (queued).
 - [ ] The user's own look at the rebuilt figures and the Gabby sets.
 
 ## Rounds 2026-09-29a/b (`d95b7f5e`, `f37227ad`)
