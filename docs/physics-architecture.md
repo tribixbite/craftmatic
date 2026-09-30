@@ -295,7 +295,13 @@ notes: the add-on guide's "Pinball" section.
 
 ### 4.4 Walk-preview player — `web/src/engine/addon-walk.ts`
 
-`tickPlayer` is Minecraft's player per tick (§3): a 0.6 × 1.8 box, gravity
+`tickPlayer` is Minecraft's player per tick (§3), since 2026-09-30 in the
+headless simulator's body module (`web/src/sim/physics/body.ts`, generic over
+any `SolidQuery`: `moveBox` is the sweep and auto-step, `tickBody` the same
+for a mob moved by impulses); `addon-walk.ts` re-exports its constants and
+runs it over its collider world (`WalkWorld.solidsNear`), and the simulator
+runs it over its voxel world (`web/src/sim/physics/systems.ts`, docs/sim-engine.md).
+It is a 0.6 × 1.8 box, gravity
 0.08 with 0.98 drag, jump 0.42, walk 4.317 blocks/s (sprint ×1.3, sneak
 ×0.3), ground friction 0.546 (0.6 slipperiness × 0.91), air 0.91 with 0.02
 air control, auto-step 9/16, collision per axis against the exact collider
@@ -565,7 +571,9 @@ Each device runtime is a function turned into the pack's script text with
 | `RAIL_TRAIN_PHYSICS` | per route, `CoasterRuntimeRoute.physics` | via `route.physics` | `test/rail-track.test.ts` |
 | `createPinballSim` | serialised | `addon-preview.ts` | `test/pinball.test.ts`, `pinball-table.ts` (lane probing) |
 | figure planner functions | serialised | — | `figure-life-sim.ts`, census script |
-| `tickPlayer` | — (Bedrock is the player) | `addon-preview.ts` | `interactive-walk.ts`, `scripts/_addon_walk.ts` |
+| `tickPlayer`, `moveBox` (`web/src/sim/physics/body.ts`) | — (Bedrock is the player) | `addon-preview.ts` (through `addon-walk.ts`) | `interactive-walk.ts`, `scripts/_addon_walk.ts`, the headless simulator's player (`web/src/sim/physics/systems.ts`) |
+| `tickBody` (`web/src/sim/physics/body.ts`) | — (Bedrock moves the mob) | — | the simulator's mobs under `minecraft:physics` (a figure walked by `applyImpulse`) |
+| every serialised runtime above | serialised | — | the headless simulator runs them UNMODIFIED, all of a pack's scripts in one context, against its `@minecraft/server` mock (docs/sim-engine.md) |
 | `carStep`, `flightStep`, `boatStep` (`CAR`, `HOVER`, `FLIGHT`, `BOAT` via `config.car` / `config.hover` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
 | `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on a fake world) |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts`, `test/bedrock-flyer.test.ts` (the flyer's bob) |
@@ -701,19 +709,21 @@ literal inside a function body (`§` marks the number).
 | plunger dead pull | `web/src/engine/pinball-physics.ts` `const MIN_PULL = §;` | 0.05 | fraction | A pull under this is a release without a shot. |
 | nominal tilt | `web/src/engine/pinball-table.ts` `(options.nominalTiltDeg ?? §) * Math.PI` | 6.5 | degrees | Reported for a flat model; the sim's gravity does not read it (§11). |
 | pinball tick | `web/src/engine/bedrock-pinball.ts` `pull: pullNow }, §)` | 0.05 | s | One sim step per game tick. |
-| `TICKS_PER_SECOND` | `web/src/engine/addon-walk.ts` | 20 | ticks/s | Minecraft's tick. |
-| `GRAVITY` | `web/src/engine/addon-walk.ts` | 0.08 | blocks/tick² | Minecraft player gravity (§3). |
-| `VERTICAL_DRAG` | `web/src/engine/addon-walk.ts` | 0.98 | per tick | Minecraft player vertical drag. |
-| `JUMP_VELOCITY` | `web/src/engine/addon-walk.ts` | 0.42 | blocks/tick | Minecraft jump impulse. |
-| `JUMP_PEAK` | `web/src/engine/addon-walk.ts` | 1.2522 | blocks | Computed by the integrator; the wiki's 1.2522. |
-| `TERMINAL_VELOCITY` | `web/src/engine/addon-walk.ts` | 3.92 | blocks/tick | 0.08 × 0.98 / 0.02. |
-| `WALK_SPEED` | `web/src/engine/addon-walk.ts` | 0.21585 | blocks/tick | 4.317 blocks/s. |
-| `SPRINT_FACTOR` | `web/src/engine/addon-walk.ts` | 1.3 | × walk | Minecraft sprint. |
-| `SNEAK_FACTOR` | `web/src/engine/addon-walk.ts` | 0.3 | × walk | Minecraft sneak. |
-| `GROUND_FRICTION` | `web/src/engine/addon-walk.ts` | 0.546 | per tick | 0.6 block slipperiness × 0.91. |
-| `AIR_FRICTION` | `web/src/engine/addon-walk.ts` | 0.91 | per tick | Minecraft horizontal drag in air. |
-| `AIR_ACCELERATION` | `web/src/engine/addon-walk.ts` | 0.02 | blocks/tick² | In-air control. |
-| `STEP_HEIGHT` | `web/src/engine/addon-walk.ts` | 0.5625 | blocks | The reach BFS's quantised 0.6 step (9/16), so walker and BFS agree by construction. |
+| `TICKS_PER_SECOND` | `web/src/sim/physics/body.ts` | 20 | ticks/s | Minecraft's tick. |
+| `GRAVITY` | `web/src/sim/physics/body.ts` | 0.08 | blocks/tick² | Minecraft player gravity (§3). |
+| `VERTICAL_DRAG` | `web/src/sim/physics/body.ts` | 0.98 | per tick | Minecraft player vertical drag. |
+| `JUMP_VELOCITY` | `web/src/sim/physics/body.ts` | 0.42 | blocks/tick | Minecraft jump impulse. |
+| `JUMP_PEAK` | `web/src/sim/physics/body.ts` | 1.2522 | blocks | Computed by the integrator; the wiki's 1.2522. |
+| `TERMINAL_VELOCITY` | `web/src/sim/physics/body.ts` | 3.92 | blocks/tick | 0.08 × 0.98 / 0.02. |
+| `WALK_SPEED` | `web/src/sim/physics/body.ts` | 0.21585 | blocks/tick | 4.317 blocks/s. |
+| `SPRINT_FACTOR` | `web/src/sim/physics/body.ts` | 1.3 | × walk | Minecraft sprint. |
+| `SNEAK_FACTOR` | `web/src/sim/physics/body.ts` | 0.3 | × walk | Minecraft sneak. |
+| `GROUND_FRICTION` | `web/src/sim/physics/body.ts` | 0.546 | per tick | 0.6 block slipperiness × 0.91. |
+| `AIR_FRICTION` | `web/src/sim/physics/body.ts` | 0.91 | per tick | Minecraft horizontal drag in air. |
+| `AIR_ACCELERATION` | `web/src/sim/physics/body.ts` | 0.02 | blocks/tick² | In-air control. |
+| `STEP_HEIGHT` | `web/src/sim/physics/body.ts` | 0.5625 | blocks | The reach BFS's quantised 0.6 step (9/16), so walker and BFS agree by construction. |
+| `SLOW_FALL_GRAVITY` | `web/src/sim/physics/body.ts` | 0.01 | blocks/tick² | Slow falling's gravity while falling: a 9.8 blocks/s terminal with the 0.98 drag; the Pixel's float-down took 11 s over 89 blocks (2026-09-29, `output/nimbus-pixel-0929/`). |
+| `PLAYER_EYE_HEIGHT` | `web/src/sim/physics/body.ts` | 1.62 | blocks | A standing player's eye over its feet (Minecraft's). |
 | `STEP_HEIGHT_BLOCKS` | `web/src/engine/addon-scale.ts` | 0.6 | blocks | Minecraft auto-step. |
 | `JUMP_HEIGHT_BLOCKS` | `web/src/engine/addon-scale.ts` | 1.25 | blocks | Minecraft jump, for reach planning. |
 | `PLAYER_WIDTH_BLOCKS` | `web/src/engine/addon-scale.ts` | 0.6 | blocks | Player box width. |
@@ -1053,12 +1063,11 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/addon-walk.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `TICKS_PER_SECOND`, `GRAVITY`, `VERTICAL_DRAG`, `JUMP_VELOCITY`, `TERMINAL_VELOCITY`, `WALK_SPEED`, `SPRINT_FACTOR`, `SNEAK_FACTOR`, `GROUND_FRICTION`, `AIR_FRICTION`, `AIR_ACCELERATION`, `STEP_HEIGHT`, `JUMP_PEAK` | const | Minecraft's player physics (§3, §9). |
-| `PLAYER_WIDTH`, `PLAYER_HEIGHT` | const | The 0.6 × 1.8 box. |
-| `tickPlayer` | function | One tick of the player: input, gravity, friction, step, per-axis collision. |
-| `spawnState`, `playerBox` | function | Initial state; the player's box. |
-| `NO_INPUT` | const | Idle input. |
-| `PlayerState`, `WalkInput`, `Contact`, `TickResult`, `Box`, `SolidBox`, `EntitySolid` | interface | Types. |
+| `TICKS_PER_SECOND`, `GRAVITY`, `VERTICAL_DRAG`, `JUMP_VELOCITY`, `TERMINAL_VELOCITY`, `WALK_SPEED`, `SPRINT_FACTOR`, `SNEAK_FACTOR`, `GROUND_FRICTION`, `AIR_FRICTION`, `AIR_ACCELERATION`, `STEP_HEIGHT`, `JUMP_PEAK`, `PLAYER_WIDTH`, `PLAYER_HEIGHT`, `NO_INPUT`, `playerBox` | re-export | The simulator's player physics (`web/src/sim/physics/body.ts`, §3, §9); `PlayerState`, `WalkInput` and `Box` are re-exported as types. |
+| `tickPlayer` | function | One tick of the player over this module's `SolidBox`es: the simulator's `tickPlayer`, typed so a contact carries its collider `block`. |
+| `spawnState` | function | Initial state. |
+| `Contact`, `TickResult` | type | The simulator's `Contact` / `TickResult` over `SolidBox`. |
+| `SolidBox`, `EntitySolid` | interface | Types. |
 | `WalkWorld` | class | The shipped collider blocks at a size and turn, plus ground and treads. |
 | `buildWalkWorld` | function | Builds it. |
 | `WalkWorldOptions` | interface | Its options. |
@@ -1068,6 +1077,27 @@ one of these files fails the check until its row is written.
 | `simulateEdge`, `edgeMacros`, `simulateReach`, `compareReach`, `classifyDivergence`, `structuralReason`, `highestReachable`, `reachPoint`, `plannedTargets`, `routeAsModelPoints` | function | Reach parity: the continuous player against the reach BFS. |
 | `Macro`, `DivergenceClass`, `TargetRefusal` | type | Types. |
 | `MacroSpec`, `EdgeResult`, `SimulatedReach`, `SimulateReachOptions`, `Divergence`, `ReachComparison`, `PointReach` | interface | Types. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/sim/physics/body.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `TICKS_PER_SECOND`, `GRAVITY`, `VERTICAL_DRAG`, `JUMP_VELOCITY`, `TERMINAL_VELOCITY`, `WALK_SPEED`, `SPRINT_FACTOR`, `SNEAK_FACTOR`, `GROUND_FRICTION`, `AIR_FRICTION`, `AIR_ACCELERATION`, `STEP_HEIGHT`, `JUMP_PEAK`, `SLOW_FALL_GRAVITY` | const | Minecraft's per-tick motion (§3, §9): the one integrator's numbers. |
+| `PLAYER_WIDTH`, `PLAYER_HEIGHT`, `PLAYER_EYE_HEIGHT`, `PLAYER_DIMS` | const | The 0.6 × 1.8 box and the 1.62 eye. |
+| `SolidQuery` | interface | Where the solids come from (the walk preview's collider grid, the simulator's voxels). |
+| `BodyDims`, `PlayerState`, `WalkInput`, `Contact`, `TickResult`, `MoveResult` | interface | Types. |
+| `NO_INPUT` | const | Idle input. |
+| `playerBox` | function | A body's box on its feet. |
+| `moveBox` | function | The per-axis sweep with the auto-step (and the sneak guard). |
+| `tickPlayer` | function | One tick of the player: input, gravity (slow falling's when on), friction, step, collision. |
+| `tickBody` | function | One tick of a mob moved by velocity alone (a figure's impulses). |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/sim/physics/systems.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `installPhysics` | function | The simulator's motion systems: players (walk, sneak-dismount, lift out of a floor), native hover mounts at the measured speeds, mobs under `minecraft:physics`, riders to their seats, effects; falls tracked for the invariants. |
+| `isHoverMount` | function | A native hover mount: `free_camera_controlled` plus hover movement or `can_fly`. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-figure-life.ts -->

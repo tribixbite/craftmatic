@@ -5,6 +5,27 @@ Read before validating renderer, resolver, alignment, or exporter changes. PDF-s
 [Project guide](../CLAUDE.md). Paths in code spans are relative to the repository root unless explicitly qualified.
 
 - Build: `bun run build:web`. Tests: `bun test` (vitest). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression), and `test/ldraw-frame.test.ts` (**the LDraw → scene/grid frame is a ROTATION**: `det = +scale³·det(R)` on the viewer's instance matrix, a printed-glyph winding check from the printed side, a baked STL's facets all outward, and the grid, `SHELL_FRAME`, `yawForFacing`, Java display entities and stair facings on the same half turn about X — the reflection that mirrored every model until 2026-09-22 cannot return silently). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests). Two more from the 2026-09-08 audit: `test/part-cache-revision.test.ts` (persistent-cache identity + transitive geometry invalidation, over a fake IndexedDB that survives `vi.resetModules()` — the WARM-browser path, not an incognito one) and `test/schem-real-set.test.ts` (real set through the real export pipeline; skips without the local corpus).
+## The tiers of evidence for a Bedrock pack (2026-09-30)
+
+Answer a question at the cheapest tier that can answer it:
+
+1. **Validators** (seconds): `python scripts/_mcaddon_check.py <pack>`,
+   `bun scripts/_ix_passability.ts`, `bun scripts/_render_fault_audit.ts`,
+   `bun scripts/_physics_spec_check.ts` - is the pack well-formed, is the
+   MODEL passable over its shipped colliders.
+2. **The headless simulator** (seconds per pack, [sim engine](sim-engine.md)):
+   `bun scripts/sim.ts <packs>` runs the pack's scripts unmodified, all
+   together, against a `@minecraft/server` mock over the pack's own world, and
+   plays a child's session (place at 100/150 percent and turns 0/90, tap every
+   part, walk every doorway, ride, drive, fly, let figures live 5 minutes,
+   Undo) with invariants every tick. `--scenario=regressions --new=<builds>`
+   re-judges the device-bug regression set; `test/sim-engine.test.ts` runs it
+   in `bun run test` where the round packs are on the machine. An `unknown`
+   result means scripts reached API the mock does not model - never a pass.
+3. **GameTest** on the Pixel (below): the real engine, unattended.
+4. **A short tap round** on the phones: only what a person must see
+   (rendering, culling, form text, camera feel, sound).
+
 ## Two QA surfaces built 2026-09-22 — use them before the phone
 
 Every semantic question in the September coaster rounds cost a 20-90 minute

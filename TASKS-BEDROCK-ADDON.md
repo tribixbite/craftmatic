@@ -857,3 +857,44 @@ with `_mcaddon_check` valid.
   whole even where its geometry is a 1/8-block lip (rule 1's flip side).
 - [ ] 10022 Door 1 reads OK at 150/200 % via a ledge on the car's side
   (main: ONE-WAY); not judged against the model.
+
+## Headless Bedrock simulator (2026-09-30, worktree `agent-ab277014785c1263d`)
+
+`web/src/sim` + `bun scripts/sim.ts`, guide `docs/sim-engine.md` (tiers:
+validators -> simulator -> GameTest -> short tap round). Loads a built pack as
+shipped, runs ALL its scripts unmodified against a `@minecraft/server` mock
+(unmodelled API recorded, never passed), plays a child's session with
+invariants. Commits `22cf0417`..`19a91eae`; gates at `19a91eae`: both
+typechecks, physics spec current; `bun run test` 2845 passed / 31 skipped at
+`a641f6a4` (sim suite `test/sim-engine.test.ts` 23 + the placement host's 287
+re-run after the last fixes). Evidence `output/sim-regress-449abd0e/`
+(regression packs built from `449abd0e`, `regressions.md|json`) and
+`output/sim-favourites-449abd0e/` (40 favourites, `child-play.md|json|log`,
+`child-play-summary.txt`).
+- Regression set (`bun scripts/sim.ts --scenario=regressions --new=<dir>`):
+  9 of 10 reproduce on the packs the device ran and pass (or, for the two
+  doors, reproduce attributed to the MODEL) on current builds. Not
+  reproduced: 10797's car under an overhang (the Saga's overhang is not
+  recorded; neither the model's overhangs nor a fixture of the host test's
+  geometry made the old ground scan fail).
+- Favourites child play (200 scenarios, 88.6 s): 144 pass, 56 fail, zero
+  unmodelled API. Triage, none device-checked:
+  - [ ] 66 doorway-line findings in 15 packs, mostly at 150 %: the straight
+    line through a leaf column meets a full collider column the harness's
+    route avoids (10326 Door 4/5 at 150/0: the placement lays (15,-60..-57,6)
+    full and the opened door never clears it; `_ix_passability` says OK).
+    Decide whether the opening at 150 % is narrower than the leaf.
+  - [ ] Taps: 21 parts in 12 packs no tap from any spot changes (levers,
+    turnables, cupboards; several refuse "behind a wall"); 71040 Door 1's tap
+    picks Door 2.
+  - [ ] 42652 slides: rider 0.2+ over the drawn chute and dropped after the
+    run-out; 41703 slide drop; 10788 lift/slide exits 0.34 inside a floor
+    slab (the device showed the player standing: quirk
+    `teleport-into-floor-lifts`, partial).
+  - [ ] Driver view under 90 %: 42639 car 2/15, 60380 car 11/15, 910047 boat 13/15.
+  - [ ] Seated figures that yield and do not retake within 45 s: 10303 fig4, 910032 fig3.
+  - [ ] 31141: 3 blocks of the box differ after Undo; 11374: pinball's HUD
+    replaces the wand's "done" line after 13 ticks.
+- [ ] `TODO(sim-fold)`: fold `interactive-walk.ts`, `figure-life-sim.ts` and
+  the other test hosts (`_ix-host`, the vehicle/rides/flyer/coaster hosts)
+  onto the simulator; `test/_placement-host.ts` already runs on it.
