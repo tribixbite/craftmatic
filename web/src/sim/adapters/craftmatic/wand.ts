@@ -88,7 +88,9 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       const p = ctx.player;
       ctx.state[START_KEY] = { ...p.location };
       p.rotation = { x: 0, y: -90 };
-      const target = { x: Math.floor(p.location.x) + ahead + 0.5, y: FLAT_GROUND_Y - 0.5, z: Math.floor(p.location.z) + 0.5 };
+      // Aim at the ground's TOP face: a point inside the block (y - 0.5) is met by the grazing view ray where it
+      // first crosses the top, 11 blocks short at 45 ahead, and 76457 (77 wide) was placed over the child's feet.
+      const target = { x: Math.floor(p.location.x) + ahead + 0.5, y: FLAT_GROUND_Y, z: Math.floor(p.location.z) + 0.5 };
       lookAt(p, target);
       let confirmed: ShownForm | undefined;
       ctx.sim.host.chooser = (form: ShownForm): FormAnswer => {
