@@ -1016,7 +1016,13 @@ for any bone but `body` and wheels, and an interactive's leaf is ALIGNED in
 the rig bone `ix_untilt`, so a leaf turned 180 degrees had its studs on the
 far side of the hinge. The branch keys on `aligned` now (`b5fbebde`); a
 symmetric stud layout (a minifig head's stud, a hip's pair) hid the same
-error on every figure.
+error on every figure. A second favourites sweep at `b5fbebde` changed no
+verdict against `74209454` (`verdict-diff-b5fbebde-vs-74209454.txt`); on the
+round's 10326 pack the render-fault audit fell from 217 z-fight pairs / 0.70
+block faces to 188 / 0.41. Simulator on the round rebuilt at `3dc93bca`
+(`round-3dc93bca/`, 22 packs): regressions 10 OK and `gabby-car-overhang` not
+reproduced (as in 30g), `door1-10326` "no HOLE on Door 1's lines"; child play
+on 10326 5/5 pass.
 
 Device-unproven: the door in its frame (tap, swing, walk in at the ground),
 Door 2 both ways, the handle studs on the leaf, and the museum placed

@@ -134,10 +134,17 @@ Saga content log 0 errors / 0 FIGURE_RETAKE / 0 fly.
   those a fallback eye that sees out (above the canopy / hull top).
 - [ ] 42639 cockpit: road + horizon visible now, but a teal side panel still
   covers the left ~35 %.
-- [ ] 10326: Door 1 hangs directly over a DRAWN ground-level entrance (white
-  arch + round-window glass door, `pixel/12-front-close.jpg`, `25*-door1-*.jpg`):
-  the child sees a door at the ground and the stair lifts them over it. Is the
-  ground entrance a missed door (brick-built / static)? Make it the way in.
+- [ ] 10326 back doors: FIXED offline (`74209454` + `b5fbebde`, docs/bedrock-interactivity.md
+  "The museum's back doors"). Plain `60616` read Studio's foot-origin stub, so
+  Doors 1-3 hung a door height over their own ground-floor frames; now read as
+  `60616a`: Door 1 stands in the white-arched frame, no access stair or margin,
+  Door 2 ONE-WAY -> OK; the handle studs no longer float 0.9 block off the leaf.
+  Round packs at `3dc93bca` (same labels/uuids, 22/22 `_mcaddon_check` OK):
+  `.claude/worktrees/agent-a83a9ff783672ba04/output/museum-entrance-0930/round-3dc93bca/`;
+  sim regressions 10 OK + gabby-car-overhang not reproduced; 10326 child play 5/5.
+  Device-only: tap/swing/walk in at the ground door (both phones), Door 2 both
+  ways, the knob/stud on the leaf, the museum placed WITHOUT the 6-block margin
+  (it sits 6 nearer the pinned corner than in 30g).
 - [ ] 10303 (Saga, 6 laps): first-drop one-frame jump 6/6; loop-1 exit swing
   5/7 (30f: 1/5). Camera work, device-measured.
 - [ ] Hop: 0.5-0.9 s of vanilla "Sneak to get off" before the coaster HUD.
