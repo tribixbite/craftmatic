@@ -231,13 +231,37 @@ off, summon and fly a flyer mount and sneak off in the air, let the figures
 live 5 simulated minutes, visit the seated ones (they yield and retake),
 Undo.
 
-**Doorway attribution.** A device line (the harness's start, and a "porch"
-start 2.5 blocks out at the doorway's height - the device's teleport into the
-air) that falls past a jump at the leaf, or stops before crossing, is
-attributed: the MODEL's when the model draws no floor at the doorway's level
-where the feet lost it (a fall), or draws geometry within a collider's
-superset slack of the box (a stop); otherwise the PACK's (its colliders
-disagree with what the model draws) - only the pack's are violations.
+**Doorway attribution.** The lines walk the HARNESS's doorway
+(`doorwayGeometry` in interactive-walk.ts: the columns of the leaf's closed
+blocks at the size and turn, the doorway's floor the lowest closed bottom, the
+walk's normal) and jump where a jump helps (the harness's `jumpHelps` rule: blocked
+at the feet a short reach ahead, free a jump up). A device line (the harness's
+start, and a "porch" start 2.5 blocks out at the doorway's height - the
+device's teleport into the air) that falls past a jump at the leaf, or stops
+before crossing, is attributed: the MODEL's when the model draws no floor at
+the doorway's level where the feet lost it (a fall), or draws geometry within a
+collider's superset slack of the box (a stop); otherwise the PACK's (its
+colliders disagree with what the model draws). What "the model draws" means
+for the colliders: the static actors AND every moving part that is not a
+passage (window, cabinet, lever, turnable, hinged section) at its closed pose,
+never figures. Above 100 % the slack widens horizontally by the re-lay's shift
+(`relayRounding`: a column belongs to the cell holding its centre, half a block
+at 150 %), and a fall where the drawn floor itself ends within that shift is
+the model's edge moved (RELAY). A stop the pack is blamed for is a violation
+only when NO line from that side of the doorway crosses: a child steers through
+a doorway, and the harness judges passability by a route and holes by its
+lines. A tread (`bedrock-collider-scale.ts`) in the way is named as such.
+
+Triage of the first favourites run (2026-09-30, 66 raw doorway findings on
+the `449abd0e` packs; each change applied on top of the one before, so a count
+is what that change removed in this order): jumping where a jump helps 12
+(treads and risers a child hops: all four of 10326's at 150/90), the moving
+parts' closed geometry 3 (41395's hinged section), the per-side judgement 31
+(edge columns and porch starts of doorways another column crosses), the
+re-lay's shift 19 (the doorways among them the harness calls SEALED at 100 %
+too: 11371 Doors 1/8, 21318 Door 2, 75397 and 80049's gates, 910004 Doors 2/4),
+the harness's doorway geometry 1 (60380 Door 1: its leaf hangs DOWN from the
+corner the lines read as its floor). None was a pack fault.
 
 ## Calibrating from a device round
 
@@ -291,7 +315,17 @@ branch needs a geometry the simulator has not been given.
 - **Riding**: a mob rider's own ride offset is not applied (`TODO(sim-seat)`);
   a player's teleport while riding dismounts (measured for `/tp`, assumed for
   the script call).
-- **Touch reach** (5 blocks) and the hold time (10 ticks) are assumed.
+- **Touch reach** (5 blocks) and the hold time (10 ticks) are assumed. The
+  approach (`scenario/approach.ts`) tries every floor from 3 blocks over the
+  pick point to 3 under the eye level, aiming from each spot at the pick box
+  nearest its eye; after a refusal ("behind a wall") the child steps IN FRONT
+  of the part (spots with nothing solid on the line of sight first). Before
+  2026-09-30 it tried three floor heights under eye level and found no spot
+  for parts lying on the floor (21 of the favourites' tap findings).
+- **A player teleported inside a floor slab** is not moved (quirk
+  `teleport-into-floor`, device-only: the 29d Pixel read-out contradicts the
+  earlier "lifted onto the top"); the runtimes now set riders down where the
+  body fits, so a pack that still does it is reported.
 - **Before-events** do not enforce the read-only restriction scripts meet on
   the device; **numeric enums** are names.
 - **Performance** is not the device's: a tick is as fast as the host runs it.
@@ -299,7 +333,10 @@ branch needs a geometry the simulator has not been given.
 ## Folding the older hosts in
 
 The doorway merge (`c4c34b1c`) freed the files another agent held, so these
-are the next folds, each a `TODO(sim-fold)`:
+are the next folds, each a `TODO(sim-fold)`. Done 2026-09-30: the device
+lines take the harness's doorway (`doorwayGeometry`, exported) and its jump
+rule; the walker itself is still two (the harness's `tickPlayer` over
+`WalkWorld`, the simulator's over the voxel world).
 
 - `web/src/engine/interactive-walk.ts` walks doorways over `WalkWorld` (the
   shipped grid re-laid by its own arithmetic); the simulator walks the same

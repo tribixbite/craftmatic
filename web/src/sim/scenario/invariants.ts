@@ -40,6 +40,8 @@ export interface InvariantContext {
   player: SimEntity;
   /** Lines the scenario allows. */
   allowLines: RegExp[];
+  /** Action-bar lines another script may replace at once (a status whose news is told elsewhere too; `Scenario.yieldingLines`). */
+  yieldingLines?: RegExp[];
   report(v: Omit<Violation, 'tick' | 'step'>): void;
 }
 
@@ -146,6 +148,7 @@ function actionbarNotStolen(): Invariant {
         last.set(e.target, e);
         if (!prev || !prev.source || !e.source || prev.source === e.source || !plainText(prev.text).trim()) continue;
         if (changedAt > prev.tick && changedAt <= e.tick) continue;
+        if (ctx.yieldingLines?.some(r => r.test(plainText(prev.text)))) continue;
         if (e.tick - prev.tick < ACTIONBAR_HOLD_TICKS && plainText(e.text) !== plainText(prev.text)) {
           ctx.report({ invariant: 'actionbar-not-stolen', message: `${e.source} replaced ${prev.source}'s "${plainText(prev.text).slice(0, 80)}" after ${e.tick - prev.tick} ticks with "${plainText(e.text).slice(0, 80)}"`, evidence: { shown: prev.tick, replaced: e.tick, by: e.source, from: prev.source } });
         }

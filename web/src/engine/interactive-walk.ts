@@ -402,8 +402,12 @@ function doorwayLattice(world: WalkWorld, centre: { x: number; y: number; z: num
 type GraphNode = { x: number; z: number; t: number; prev: GraphNode | null };
 const nodeKey = (n: { x: number; z: number; t: number }): string => `${n.x},${n.z},${Math.round(n.t * 16)}`;
 
-/** A doorway at a size and turn: the leaf's closed blocks (`own`), their centre (its floor the lowest closed bottom) and the walk's normal. */
-function doorwayGeometry(pack: DoorwayWalkPack, item: InteractiveRuntimeConfig['items'][number], f: number, rotation: QuarterTurn) {
+/**
+ * A doorway at a size and turn: the leaf's closed blocks (`own`, anchor-relative world blocks), their centre
+ * (its floor the lowest closed bottom) and the walk's normal. Exported for the simulator's device lines
+ * (`web/src/sim/adapters/craftmatic/play.ts`), which walk the same columns from the same floor.
+ */
+export function doorwayGeometry(pack: Pick<DoorwayWalkPack, 'dims'>, item: InteractiveRuntimeConfig['items'][number], f: number, rotation: QuarterTurn) {
   const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation, COLLIDER_KIT).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
   const centre = own.length
     ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }

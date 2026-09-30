@@ -45,6 +45,22 @@ describe('worldFaces: JSON to world', () => {
     const up = faces.find(f => f.face === 'up')!;
     expect(up.normal[1]).toBeCloseTo(1, 6);
   });
+
+  it('turns an actor by its BEDROCK yaw: at yaw 90 the model\'s +X runs along world +Z, as the wand turns the colliders (2026-09-30)', () => {
+    // A cube one block out along JSON +X (X is not mirrored). The wand's quarter turn (`rotatePlacementPoint`, 90)
+    // carries the model's +X to world +Z, and it sets the shell's yaw to 90; the drawn cube must follow.
+    const entry: GeoEntryLike = { bones: [{ name: 'body', pivot: [0, 0, 0] }], groups: [{ ldrawColor: 4, alpha: 1, cubes: [{ bone: 'body', origin: [16, 0, -8], size: [16, 16, 16] }] }] };
+    const centre = (yawDeg: number): Vec3 => {
+      const cs = worldFaces([{ typeId: 't', kind: 'shell', entry, at: { x: 0, y: 0, z: 0 }, yawDeg }]).flatMap(f => f.corners);
+      const mid = (i: 0 | 1 | 2): number => (Math.min(...cs.map(c => c[i])) + Math.max(...cs.map(c => c[i]))) / 2 / 16;
+      return [mid(0), mid(1), mid(2)];
+    };
+    const at0 = centre(0), at90 = centre(90);
+    expect(at0[0]).toBeCloseTo(1.5, 6);
+    expect(at0[2]).toBeCloseTo(0, 6);
+    expect(at90[0]).toBeCloseTo(0, 6);
+    expect(at90[2]).toBeCloseTo(1.5, 6);
+  });
 });
 
 /** A 3 x 3 red plate with a white tile sunk flush into its top: the source-overlap shape behind the hatching. */

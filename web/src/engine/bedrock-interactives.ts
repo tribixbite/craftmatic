@@ -44,9 +44,10 @@ import { cleanPartId } from './ldraw-entity-compiler.js';
 import { floatActorProperty } from './bedrock-json.js';
 import { SIZE_EVENT_PREFIX, SIZE_STEPS } from './bedrock-placement-pack.js';
 import { LDU_PER_BLOCK } from './lego-scale.js';
+import { relayRounding } from './bedrock-collider-scale.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
-import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
+import { COLLIDER_KIT, colliderBodyProbe, colliderFormKit, type ColliderFormKit } from './collider-form.js';
 import { LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
 
 declare const world: any;
@@ -1654,9 +1655,11 @@ export function pairDoubleDoors(items: InteractiveRuntimeItem[]): void {
  *   it survives a reload; a freshly placed part (no `ready` flag) is laid
  *   closed on the next sync pass.
  */
-function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: typeof ixWorldBlocks, kit: ColliderFormKit): void {
+function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: typeof ixWorldBlocks, kit: ColliderFormKit, relayShift: typeof relayRounding, bodyProbe: typeof colliderBodyProbe): void {
   const K = { index: 'craftmatic:ix', anchor: 'craftmatic:ix_anchor', rotation: 'craftmatic:ix_rotation', scale: 'craftmatic:ix_scale', open: 'craftmatic:ix_open', angle: 'craftmatic:ix_angle', ready: 'craftmatic:ix_ready' };
   const C = config.colliders;
+  // Where a body fits over this pack's colliders (a step-out lands only there).
+  const body = bodyProbe(kit, C.loState, C.hiState);
   const byType = new Map<string, number>();
   config.items.forEach((it, i) => byType.set(it.type, i));
   const lastUse = new Map<string, number>();
@@ -1794,23 +1797,34 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     }
     return false;
   };
-  /** After closing: a player or figure standing in the doorway's laid blocks (not on the leaf) is stepped out along the leaf's normal to the side it stands on. */
+  /**
+   * After closing: a player or figure standing in the doorway's laid blocks (not on the leaf) is stepped out
+   * along the leaf's normal to the side it stands on - to the first point out of the doorway's blocks where its
+   * body is FREE of colliders, else the other side's, else (nowhere free within reach) the first point out of the
+   * doorway as before. Until 2026-09-30 it took the first point out of the doorway whatever stood there: at
+   * 150 % 76417's Door 3 stepped a player 0.29 block into the wall beside it (simulator triage).
+   */
   const stepOut = (e: any, i: number, pl: any): void => {
     const it = config.items[i]!;
     if (!it.blocking.length || !it.leaf) return;
     const own = [...worldBlocks(it.blocking, config.dims, pl.f, pl.r, kit).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number); return { x: pl.anchor.x + x!, y: pl.anchor.y + y! + span[0] / 16, z: pl.anchor.z + z!, top: pl.anchor.y + y! + span[1] / 16 }; });
     const inside = (l: any): boolean => own.some(bk => l.x + 0.3 > bk.x && l.x - 0.3 < bk.x + 1 && l.z + 0.3 > bk.z && l.z - 0.3 < bk.z + 1 && l.y + 1.8 > bk.y && l.y < bk.top);
     const n = turnDir(pl, it.leaf.n), centre = toWorld(pl, [it.leaf.c[0]! + it.leaf.a[0]! / 2, it.leaf.c[1]!, it.leaf.c[2]! + it.leaf.a[2]! / 2]);
+    const reach = 3 * Math.max(1, pl.f);
     for (const o of occupants(e, centre, 4 * Math.max(1, pl.f))) {
       const l = o.location;
       if (!inside(l)) continue;
       const side = (l.x - centre.x) * n.x + (l.z - centre.z) * n.z >= 0 ? 1 : -1;
-      for (let d = 0.1; d <= 3 * Math.max(1, pl.f); d += 0.1) {
-        const q = { x: l.x + n.x * side * d, y: l.y, z: l.z + n.z * side * d };
-        if (inside(q)) continue;
-        try { o.teleport(q); } catch { /* not movable */ }
-        break;
-      }
+      const along = (sd: number, free: boolean): any => {
+        for (let d = 0.1; d <= reach; d += 0.1) {
+          const q = { x: l.x + n.x * sd * d, y: l.y, z: l.z + n.z * sd * d };
+          if (inside(q)) continue;
+          if (!free || body.bodyFree(e.dimension, q)) return q;
+        }
+        return undefined;
+      };
+      const q = along(side, true) ?? along(-side, true) ?? along(side, false);
+      if (q) { try { o.teleport(q); } catch { /* not movable */ } }
     }
   };
   /** Select the tap boxes for this placement's turn and size and the part's state (`hitGroupName`), and turn/scale the rig's root to match. */
@@ -1924,7 +1938,12 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
     if (!boxes.length) return false;
     // Cells within this of a tap box are the part's own frame: a pane set back in a
     // deep frame whose cell the collider grid fills whole (76417's tower windows).
-    const PART_MARGIN = 0.75;
+    // Above 100 % the re-lay moves a wall by up to `relayShift(f)` (half a block at
+    // 150 %: a column belongs to the cell holding its centre), so the frame's cell
+    // can land that much further out: at 150 % a sill 1.1 blocks from 11371's
+    // Lever 1 and a wall 1.05 from 910032's Turnable 2 refused every tap that
+    // reached them, with nothing DRAWN on the line (simulator triage 2026-09-30).
+    const PART_MARGIN = 0.75 + relayShift(pl.f);
     const own = new Set<string>();
     for (const j of [i, ...(it.shares || [])]) {
       for (const key of worldBlocks(config.items[j]!.blocking, config.dims, pl.f, pl.r, kit).keys()) {
@@ -2039,7 +2058,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
 
 /** The behaviour pack's `scripts/interactives.js`. */
 export function interactivesScript(config: InteractiveRuntimeConfig): string {
-  return `import { world, system, BlockPermutation } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${interactivesRuntime.toString()})(CONFIG, ${ixWorldBlocks.toString()}, (${colliderFormKit.toString()})());\n`;
+  return `import { world, system, BlockPermutation } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${interactivesRuntime.toString()})(CONFIG, ${ixWorldBlocks.toString()}, (${colliderFormKit.toString()})(), ${relayRounding.toString()}, ${colliderBodyProbe.toString()});\n`;
 }
 
 export { interactivesRuntime as _interactivesRuntimeForTests };

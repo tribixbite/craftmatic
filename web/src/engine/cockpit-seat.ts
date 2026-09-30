@@ -327,7 +327,10 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
   // rear deck: the player rides it the way a child sits on a toy car.
   let view: SeatPlan['view'] = null;
   if (evidence === 'none') {
-    const before = forwardView(boxes, best.eye);
+    // Judged where the game puts the rider's eye: 1.12 over the seat (quirk `rider-eye-above-seat`), not at the
+    // cockpit point the seat was guessed from - 910047's boat scored 15/15 at its cockpit point, 0.35 block ahead
+    // of and 0.15 beside the seat, while the rider's own eye saw out of 13 of 15 (simulator triage 2026-09-30).
+    const before = forwardView(boxes, [best.seat[0], best.seat[1] + RIDER_EYE_ABOVE_SEAT, best.seat[2]]);
     view = { before, after: before };
     if (before < VIEW.minClear) {
       const r2 = (v: number): number => Math.round(v * 100) / 100;

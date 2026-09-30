@@ -43,26 +43,25 @@ function trackFall(engine: SimEngine, e: SimEntity): void {
 }
 
 /**
- * A player whose feet sit a little inside a floor (a teleport's set-down)
- * stands on that floor's top (quirk `teleport-into-floor-lifts`): the highest
- * top among the solids the box overlaps, when it is within the limit over the
- * feet and the box is free there.
+ * Where a rider that got off stands (quirk `dismount-free-spot`, ASSUMED): where it was when its box is free;
+ * else stood on the highest floor under its head height, where it was or on rings out to 2 blocks (at most 3
+ * under its feet). Without this a low car's rider (seat 0.1-0.3 under the
+ * grass top: 42172, 10796's cars) was left inside the ground, which the device does not do.
  */
-function liftOutOfFloor(p: SimEntity, world: VoxelWorld): void {
-  const h = PLAYER_WIDTH / 2, max = quirkValue('teleport-into-floor-lifts', 'maxLiftBlocks');
-  const box = { x0: p.location.x - h, y0: p.location.y, z0: p.location.z - h, x1: p.location.x + h, y1: p.location.y + PLAYER_HEIGHT, z1: p.location.z + h };
-  if (!world.overlapping(box, 0.001)) return;
-  let top = -Infinity;
-  for (const s of world.solidsNear(box, 0, 0, 0)) {
-    if (s.unloaded || s.x1 <= box.x0 || s.x0 >= box.x1 || s.z1 <= box.z0 || s.z0 >= box.z1 || s.y1 <= box.y0 || s.y0 >= box.y1) continue;
-    if (s.y0 <= p.location.y + 1e-6 && s.y1 - p.location.y <= max) top = Math.max(top, s.y1);
-  }
-  if (top === -Infinity) return;
-  const lifted = { ...box, y0: top, y1: top + PLAYER_HEIGHT };
-  if (world.overlapping(lifted, 0.001)) return;
-  p.location = { ...p.location, y: top };
-  p.onGround = true;
-  p.velocity = { x: p.velocity.x, y: 0, z: p.velocity.z };
+function dismountSpot(p: SimEntity, world: VoxelWorld): void {
+  const h = PLAYER_WIDTH / 2;
+  const boxAt = (q: { x: number; y: number; z: number }) => ({ x0: q.x - h, y0: q.y, z0: q.z - h, x1: q.x + h, y1: q.y + PLAYER_HEIGHT, z1: q.z + h });
+  if (!world.overlapping(boxAt(p.location), 0.001)) return;
+  const standAt = (x: number, z: number): { x: number; y: number; z: number } | undefined => {
+    let top = -Infinity;
+    for (const [dx, dz] of [[0, 0], [-h + 0.01, -h + 0.01], [h - 0.01, -h + 0.01], [-h + 0.01, h - 0.01], [h - 0.01, h - 0.01]] as const) top = Math.max(top, world.supportBelow(x + dx, p.location.y + PLAYER_HEIGHT, z + dz, 5));
+    if (!(top > p.location.y - 3)) return undefined;
+    const q = { x, y: top, z };
+    return world.overlapping(boxAt(q), 0.001) ? undefined : q;
+  };
+  let q = standAt(p.location.x, p.location.z);
+  for (let r = 0.5; !q && r <= 2 + 1e-9; r += 0.5) for (let k = 0; k < 16 && !q; k++) q = standAt(p.location.x + Math.cos(k * Math.PI / 8) * r, p.location.z + Math.sin(k * Math.PI / 8) * r);
+  if (q) { p.location = q; p.onGround = true; }
 }
 
 /** Whether an entity is a native hover mount (the rotorcraft / flyer controller). */
@@ -85,13 +84,13 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
             mount.removeRider(p);
             p.velocity = { x: 0, y: 0, z: 0 };
             p.onGround = false;
+            dismountSpot(p, en.dimension(p.dimension));
             en.emit('dismounted', { rider: p, mount, cause: 'sneak' });
           }
           continue;
         }
         const world = en.dimension(p.dimension);
         if (!world.isLoaded(p.location.x, p.location.z)) continue;
-        liftOutOfFloor(p, world);
         const move = stickToWorld(c, p.rotation.y);
         const r = tickPlayer(world, stateOf(p), { move, jump: c.jump, sneak: c.sneak, sprint: c.sprint, slowFalling: hasEffect(p, 'slow_falling') });
         p.location = { x: r.state.x, y: r.state.y, z: r.state.z };

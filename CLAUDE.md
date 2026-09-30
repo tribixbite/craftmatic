@@ -394,6 +394,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `engine/bedrock-geometry-faces.ts`). The Walk preview and the LOD hull each
   had another convention until 2026-09-25 (parts at the wrong angle, doors two
   blocks off their doorways). Anything new that reads `.geo.json` calls these.
+  **An actor's yaw is Bedrock's** (+X turns toward +Z, as `rotatePlacementPoint`
+  turns the colliders) = three.js `rotation.y` by the NEGATED angle; `worldFaces`
+  takes the Bedrock yaw and negates it. Until 2026-09-30 it (and the walk
+  preview's holders) did not: a shell placed at 90 degrees drew 1.9 % of its
+  colliders near geometry, 99.8 % negated (`output/sim-triage-0930/probes/yaw-check.ts`).
+- **Heights of what stands or sits on a model are measured from the frame the
+  shell is laid in** (`actorGroundLdu`): the voxel grid holds figures too, so a
+  figure line-up standing under the model's base (42652, 1.18 cells) lifts the
+  shell off the grid's bottom, and a slide measured from the model's own
+  underside ran 1.1 blocks under its drawn chute (2026-09-30).
 - **A rotated bone's cuboid is stored UNROTATED at its pivot.** Its `min`/`max`
   are not where it is drawn (`drawn` holds that). Bounds read from the stored
   boxes put 10365's origin 2.86 blocks under its drawn keel and the ship
@@ -443,7 +453,10 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   a place (`isVehicleAndPlaceLabel`) is a scene whose boat/car is found in it.
 - **Slides and lifts are rides** (`engine/bedrock-rides.ts`): a seat carried
   along a WORLD path the placement wrote (`PlacementActor.ridePath`). A new
-  ride kind adds a path, never its own teleport loop.
+  ride kind adds a path, never its own teleport loop. A runtime that puts a
+  player somewhere (a ride's set-down, a door's step-out) goes through
+  `colliderBodyProbe` (collider-form.ts): planned points sat 0.2-0.34 inside
+  floor slabs and the player fell through (2026-09-30).
 - **A touch tap is `entityHitEntity`; only a press held ~0.5 s is the
   interact that mounts a vanilla rideable.** Any seat a child TAPS needs a
   hit handler that calls `addRider` (rides `board()`): 10788's slide seat

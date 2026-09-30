@@ -204,6 +204,7 @@ export interface AuditActor {
   entry: AddonAppearanceEntry;
   /** Placement in the shared frame: model blocks → the audit works in 1/16 block units, so this is ×16 by the caller or here. */
   at: { x: number; y: number; z: number };
+  /** The actor's BEDROCK yaw, degrees (0 faces +Z, 90 faces -X): what the placement sets (`actor.yaw + rotation`). */
   yawDeg: number;
   overlay?: ReadonlyMap<string, readonly [number, number, number]>;
   /** Bones not drawn (a coaster car's inactive rider variants). */
@@ -225,8 +226,13 @@ export function worldFaces(actors: readonly AuditActor[], options: { far?: boole
   const out: WorldFace[] = [];
   actors.forEach((a, actor) => {
     const bones = boneTransforms(a.entry.bones, a.overlay);
-    // Actor frame: translate to its placement (×16: model units) and turn by yaw about +Y (three.js `rotation.y`).
-    const y = a.yawDeg * DEG, cy = Math.cos(y), sy = Math.sin(y);
+    // Actor frame: translate to its placement (×16: model units) and turn by its Bedrock yaw about +Y. Bedrock's
+    // yaw turns +X toward +Z (yaw 90: the model's +X runs along world +Z, as the wand's `rotatePlacementPoint`
+    // turns the colliders), which is three.js `rotation.y` by the NEGATED angle. Until 2026-09-30 the angle was
+    // not negated: every actor with a yaw drew turned the other way - a shell placed at 90 degrees put 1.9 % of
+    // its collider blocks near drawn geometry, against 99.8 % negated (`output/sim-triage-0930/probes/yaw-check.ts`
+    // on 11371). `_pack_render`, `_render_fault_audit` and `_ix_sealed_causes` pass the Bedrock yaw.
+    const y = -a.yawDeg * DEG, cy = Math.cos(y), sy = Math.sin(y);
     // Geometry JSON → world: the game's world is the JSON frame with Z
     // mirrored (`Sz`), then the actor's yaw about +Y, then its placement.
     const place: Affine = [cy, 0, -sy, a.at.x * 16, 0, 1, 0, a.at.y * 16, -sy, 0, -cy, a.at.z * 16];

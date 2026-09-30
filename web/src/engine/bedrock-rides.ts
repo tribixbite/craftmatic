@@ -54,6 +54,8 @@
 
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
+import { colliderBodyProbe, colliderFormKit, type ColliderBodyProbe } from './collider-form.js';
+import { COLLIDER_HI_STATE, COLLIDER_LO_STATE } from './bedrock-building-shell.js';
 
 /** Every tuned number of the rides, with its unit. */
 export const RIDE = {
@@ -498,7 +500,7 @@ declare const system: any;
  * The rides' runtime. Serialised whole into `scripts/rides.js` (`ridesScript`),
  * so it may use only its arguments and the Script API globals.
  */
-function ridesRuntime(config: RideRuntimeConfig): void {
+function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe): void {
   const R = config.constants;
   const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir' };
   type P = { x: number; y: number; z: number };
@@ -610,7 +612,15 @@ function ridesRuntime(config: RideRuntimeConfig): void {
     try { run.seat.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* gone */ }
     const last = run.path[run.path.length - 1]!;
     const off = run.kind === 'lift' && run.exit ? run.exit : last;
-    for (const r of riders) { try { r.teleport({ x: off.x, y: off.y + 0.05, z: off.z }, { keepVelocity: false }); } catch { /* left */ } }
+    // Set down where the body FITS: the planned point lifted out of a floor it sits in, else the nearest free
+    // standing spot within a block (times the size). The planned points had put riders 0.2-0.34 inside floor
+    // slabs (10788's lift exits, 41703's and 42652's slide feet) and the player then fell through (simulator
+    // triage 2026-09-30). Without a probe (a test host) the planned point stands. The search reaches 1.5 blocks
+    // (times the size) aside and a floor up to 3 blocks down - the most a player falls unhurt: 41395's slide foot
+    // ends against the bus's bodywork, and the nearest room to stand is 1.25 blocks aside, at the foot's level.
+    let at = { x: off.x, y: off.y + 0.05, z: off.z };
+    if (body) { try { at = body.settle(run.seat.dimension, at, 1.5 * Math.max(1, run.f), 3); } catch { /* keep the planned point */ } }
+    for (const r of riders) { try { r.teleport(at, { keepVelocity: false }); } catch { /* left */ } }
     if (run.kind === 'lift') { try { run.seat.setDynamicProperty(K.stop, run.target); } catch { /* gone */ } running.delete(run.seat.id); }
     else run.done = system.currentTick;
   };
@@ -704,5 +714,5 @@ export { ridesRuntime as _ridesRuntimeForTests };
 
 /** `scripts/rides.js`: the config and the runtime. */
 export function ridesScript(config: RideRuntimeConfig): string {
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${ridesRuntime.toString()})(CONFIG);\n`;
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(COLLIDER_LO_STATE)}, ${JSON.stringify(COLLIDER_HI_STATE)}));\n`;
 }

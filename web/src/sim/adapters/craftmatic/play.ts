@@ -30,12 +30,14 @@ import { findApproach } from '../../scenario/approach.js';
 import { VIEW } from '../../../engine/cockpit-seat.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
-import { LINE_MIN_OUT, LINE_OUT } from '../../../engine/interactive-walk.js';
+import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
 import { entityDrawn, forwardViewWorld, type DrawnBox } from './drawn.js';
-import { modelDirToWorld, modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
+import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
 import { PLACED_KEY } from './wand.js';
+import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
+import { relayRounding, type QuarterTurn } from '../../../engine/bedrock-collider-scale.js';
 
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const pt = (p: Vec3): Vec3 => ({ x: r3(p.x), y: r3(p.y), z: r3(p.z) });
@@ -67,6 +69,24 @@ function heightOverDrawn(boxes: readonly DrawnBox[], p: Vec3, radius: number): n
   return top === -Infinity ? undefined : p.y - top;
 }
 
+/** A slide's run-out in the world: its last two path points (the foot and the set-down point), when the last segment is level. */
+function slideRunout(pack: CraftmaticPack, placed: Placed, index: number): { foot: Vec3; end: Vec3 } | undefined {
+  const actor = pack.placement.actors.find(a => a.ridePath && (a as { ride?: number }).ride === index);
+  const path = actor?.ridePath;
+  if (!path || path.length < 2) return undefined;
+  const [fx, fy, fz] = path[path.length - 2]!, [ex, ey, ez] = path[path.length - 1]!;
+  if (Math.abs(fy - ey) > 1e-6) return undefined;
+  return { foot: modelToWorld(pack.placement, placed, { x: fx, y: fy, z: fz }), end: modelToWorld(pack.placement, placed, { x: ex, y: ey, z: ez }) };
+}
+
+/** Whether a seat is on the run-out: past the foot along the run-out's direction, at its height. */
+export function onRunout(at: Vec3, r: { foot: Vec3; end: Vec3 }): boolean {
+  const dx = r.end.x - r.foot.x, dz = r.end.z - r.foot.z, len2 = dx * dx + dz * dz;
+  if (len2 < 1e-9) return false;
+  const t = ((at.x - r.foot.x) * dx + (at.z - r.foot.z) * dz) / len2;
+  return t > 1e-3 && Math.abs(at.y - r.foot.y) < 0.05;
+}
+
 /** How far over its drawn chute a slide's seat may run (blocks at 100 %, times the size): the drawn geometry's own grain. */
 export const SLIDE_SEAT_OVER_DRAWN = 0.2;
 
@@ -96,13 +116,18 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       if (!seat) throw new Error(`rideSlide: no seat for ride ${index}`);
       const f = placedOf(ctx).sizePct / 100;
       if (!await board(ctx, seat, (step['board'] as 'tap' | 'hold') ?? 'tap', `slide ${index + 1}'s seat`)) return;
-      const drawn = staticDrawn(ctx, appearance);
+      const drawn = staticDrawn(ctx, appearance, pack);
       // The seat must run IN the chute: never over the surface the model draws directly under it (29b ran on the
       // side rails, 30 LDU over the bed). # TODO(sim-slide): the drawn slope is coarse (its cubes step by a few LDU),
       // so the margin between a seat on the bed and one on the rails is small; part-level geometry would settle it.
+      // The run-out (the path's last, level segment past the chute's foot, `RIDE.SLIDE_RUNOUT_LDU`) carries the rider
+      // off the chute to where it is set down: it is not in the chute, and over a floor lower than the foot it
+      // read as "running over the chute" (42652's slides, 0.45 over the floor under the run-out).
+      const runout = slideRunout(pack, placedOf(ctx), index);
       let ticks = 0, worst = -Infinity, worstAt: Vec3 | undefined, reported = false;
       for (; ticks < 600 && ctx.player.ridingOn; ticks++) {
         await ctx.run(1);
+        if (runout && onRunout(seat.location, runout)) continue;
         const h = heightOverDrawn(drawn, seat.location, 0);
         if (h === undefined) continue;
         if (h > worst) { worst = h; worstAt = { ...seat.location }; }
@@ -234,7 +259,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       if (!ix) return;
       const placed = placedOf(ctx), f = placed.sizePct / 100, k = Math.max(1, f);
       const only = step['only'] as number[] | undefined;
-      const statics = staticDrawn(ctx, appearance);
+      const statics = staticDrawn(ctx, appearance, pack), treads = treadKeys(ctx, pack);
       for (let i = 0; i < ix.items.length; i++) {
         const it = ix.items[i]!;
         if (only && !only.includes(i)) continue;
@@ -249,21 +274,24 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
           if (other && other.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, other, ix.items[j]?.label ?? `part ${j}`, () => other.dynamic.get(IX_KEYS.open) === true);
           if (other && other.dynamic.get(IX_KEYS.open) !== true) ctx.note(`${it.label}: its pair ${ix.items[j]?.label ?? j} stays shut`);
         }
-        const leaf = it.leaf;
-        const c = { x: leaf.c[0]!, y: leaf.c[1]!, z: leaf.c[2]! }, a = { x: leaf.a[0]!, y: leaf.a[1]!, z: leaf.a[2]! };
-        const nW = modelDirToWorld(pack.placement, placed, { x: leaf.n[0]!, y: 0, z: leaf.n[2]! });
-        const nl = Math.hypot(nW.x, nW.z) || 1, n = { x: nW.x / nl, z: nW.z / nl };
-        const floorY = modelToWorld(pack.placement, placed, c).y;
+        // The harness's doorway (`doorwayGeometry`): the columns of the leaf's closed blocks at this size and turn,
+        // the doorway's floor the lowest closed bottom, the walk's normal. Until 2026-09-30 the lines read the leaf's
+        // corner `c` as the floor, which is the leaf's TOP when it hangs down (`u` negative: 60380's Door 1), and
+        // sampled their own columns along the leaf.
+        const geo = doorwayGeometry({ dims: ix.dims }, it, f, placed.rotation as QuarterTurn);
+        if (!geo.own.length) { ctx.note(`${it.label}: no closed blocks at ${placed.sizePct} percent; its lines are not walked`); continue; }
+        const n = geo.n, floorY = placed.anchor.y + geo.centre.y;
         const columns = new Map<string, Vec3>();
-        for (let s = 0.1; s < 1; s += 0.2) {
-          const q = modelToWorld(pack.placement, placed, { x: c.x + a.x * s, y: c.y, z: c.z + a.z * s });
-          columns.set(`${Math.floor(q.x)},${Math.floor(q.z)}`, { x: Math.floor(q.x) + 0.5, y: floorY, z: Math.floor(q.z) + 0.5 });
-        }
+        for (const b of geo.own) columns.set(`${b.x},${b.z}`, { x: placed.anchor.x + b.x + 0.5, y: floorY, z: placed.anchor.z + b.z + 0.5 });
         // Two starts per column and side: the harness's (`LINE_OUT` in to `LINE_MIN_OUT`) and the device round's
         // "porch", a teleport PORCH_OUT blocks out at the doorway's height (10326 Door 1 on the Saga, 29c).
-        for (const col of columns.values()) for (const side of [-1, 1] as const) {
-          await deviceLine(ctx, statics, it.label, col, n, side, floorY, k, LINE_OUT, LINE_MIN_OUT, 'line');
-          await deviceLine(ctx, statics, it.label, col, n, side, floorY, k, PORCH_OUT, PORCH_OUT, 'porch');
+        for (const side of [-1, 1] as const) {
+          const outcomes: LineOutcome[] = [];
+          for (const col of columns.values()) {
+            outcomes.push(await deviceLine(ctx, statics, treads, it.label, col, n, side, floorY, k, LINE_OUT, LINE_MIN_OUT, 'line'));
+            outcomes.push(await deviceLine(ctx, statics, treads, it.label, col, n, side, floorY, k, PORCH_OUT, PORCH_OUT, 'porch'));
+          }
+          judgeSide(ctx, outcomes);
         }
       }
     },
@@ -340,14 +368,28 @@ async function driveTo(ctx: StepContext, v: SimEntity, target: Vec3, maxTicks: n
   ctx.note(`drove toward the overhang at ${JSON.stringify(pt(target))}: ended ${r3(Math.hypot(target.x - v.location.x, target.z - v.location.z))} blocks from it at ${JSON.stringify(pt(v.location))}`);
 }
 
-/** Every drawn box of the placement's static actors (the shell and props), for attributing a doorway fall. */
-function staticDrawn(ctx: StepContext, appearance: AddonAppearance): DrawnBox[] {
+/** A craftmatic figure's entity type (`..._fig<N>`). */
+export const FIGURE_TYPE = /_fig\d+$/;
+
+/**
+ * Every drawn box the placement's STATIC collider grid stands for, for attributing a doorway fall or stop:
+ * the static actors (the shell and props) and every moving part that is NOT a passage (a window, cabinet,
+ * lever, turnable or hinged section: "their closed part boxes stay in the static colliders",
+ * docs/bedrock-interactivity.md) at its pose when first read - read it before any tap, while the parts
+ * stand as the placement laid them (closed). Doors and gates are left out: the runtime re-lays their
+ * cells (air when open). Figures are left out: they walk, and no collider stands for them. Until
+ * 2026-09-30 every moving part was left out, so a collider standing for 41395's closed hinged section
+ * read as "nothing is drawn there, the pack's colliders".
+ */
+export function staticDrawn(ctx: StepContext, appearance: AddonAppearance, pack: CraftmaticPack): DrawnBox[] {
   const key = 'craftmatic.staticDrawn';
   const cached = ctx.state[key] as DrawnBox[] | undefined;
   if (cached) return cached;
   const out: DrawnBox[] = [];
   for (const e of ctx.sim.engine.entities.values()) {
-    if (!e.valid || e.isPlayer || e.dynamic.has(IX_KEYS.index)) continue;
+    if (!e.valid || e.isPlayer || FIGURE_TYPE.test(e.typeId)) continue;
+    const ix = e.dynamic.get(IX_KEYS.index);
+    if (typeof ix === 'number' && (pack.interactives?.items[ix]?.blocking.length ?? 0) > 0) continue;
     const d = entityDrawn(appearance, e);
     if (d) out.push(...d);
   }
@@ -362,15 +404,19 @@ function staticDrawn(ctx: StepContext, appearance: AddonAppearance): DrawnBox[] 
  * whether `changed` became true.
  */
 export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean): Promise<boolean> {
-  const tried: Vec3[] = [];
+  const tried: Vec3[] = [], log: string[] = [];
   for (let attempt = 0; attempt < 4; attempt++) {
-    const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried);
+    // After a refusal the child steps IN FRONT of the part (where nothing solid hides it), as the refusal tells it to.
+    const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried, { inFront: true });
     if (attempt > 0) { if (!spot) break; teleport(ctx.sim.host, ctx.player, spot.feet); await ctx.run(1); }
     await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label } }, ctx);
     tried.push({ ...ctx.player.location });
+    const picked = (ctx.state['lastTap'] as { entity?: SimEntity; blockedBy?: string } | undefined);
+    log.push(`${attempt === 0 ? 'here' : `spot ${attempt}`} ${JSON.stringify(pt(ctx.player.location))}: ${picked?.entity === part ? 'picked it' : picked?.entity ? `picked ${picked.entity.typeId}` : picked?.blockedBy ? `a block ${picked.blockedBy}` : 'picked nothing'}`);
     await ctx.run(10);
     if (changed()) return true;
   }
+  ctx.note(`${label}: no tap changed it; ${log.join('; ') || 'no spot to tap from'}`);
   return false;
 }
 
@@ -385,13 +431,58 @@ export const COLLIDER_SLACK = 0.25;
 
 /**
  * Whether every solid a box meets stands for drawn geometry: each collider box the probe overlaps has a drawn
- * cube within `COLLIDER_SLACK` of it (a collider is a superset of its geometry). No solid at all counts as the
- * model's (nothing of the pack's is in the way).
+ * cube within `COLLIDER_SLACK` of it (a collider is a superset of its geometry), plus `shift` horizontally - the
+ * re-lay's rounding at the placed size (`relayRounding`: a wall re-laid at 150 % lands up to half a block from
+ * the geometry it stands for). No solid at all counts as the model's (nothing of the pack's is in the way).
  */
-function colliderIsModels(w: VoxelWorld, statics: readonly DrawnBox[], probe: Box): boolean {
-  const g = COLLIDER_SLACK;
+function colliderIsModels(w: VoxelWorld, statics: readonly DrawnBox[], probe: Box, shift = 0): boolean {
+  const g = COLLIDER_SLACK, h = g + shift;
   const solids = w.solidsNear(probe, 0, 0, 0).filter(sd => !sd.unloaded && sd.x1 > probe.x0 + 1e-3 && sd.x0 < probe.x1 - 1e-3 && sd.y1 > probe.y0 + 1e-3 && sd.y0 < probe.y1 - 1e-3 && sd.z1 > probe.z0 + 1e-3 && sd.z0 < probe.z1 - 1e-3);
-  return solids.every(sd => boxHits(statics, { x0: sd.x0 - g, y0: sd.y0 - g, z0: sd.z0 - g, x1: sd.x1 + g, y1: sd.y1 + g, z1: sd.z1 + g }));
+  return solids.every(sd => boxHits(statics, { x0: sd.x0 - h, y0: sd.y0 - g, z0: sd.z0 - h, x1: sd.x1 + h, y1: sd.y1 + g, z1: sd.z1 + h }));
+}
+
+/**
+ * The world blocks the placement's TREAD plan wrote (invisible steps the planner lays above 100 %,
+ * `bedrock-collider-scale.ts`), keyed "x,y,z". A collider that is a tread stands for no geometry by
+ * design, so a doorway line it stops is the pack's, and the report names the tread as the cause.
+ */
+function treadKeys(ctx: StepContext, pack: CraftmaticPack): ReadonlySet<string> {
+  const placed = placedOf(ctx), key = `craftmatic.treads.${placed.sizePct}:${placed.rotation}`;
+  const cached = ctx.state[key] as Set<string> | undefined;
+  if (cached) return cached;
+  const out = new Set<string>();
+  if (pack.placement.colliders) {
+    for (const b of treadBlocksFor(pack.placement.colliders, placed.sizePct, placed.rotation as QuarterTurn)) out.add(`${placed.anchor.x + b.x},${placed.anchor.y + b.y},${placed.anchor.z + b.z}`);
+  }
+  ctx.state[key] = out;
+  return out;
+}
+
+/** The tread blocks among the solids a box overlaps ("x,y,z" of each). */
+function treadsIn(w: VoxelWorld, treads: ReadonlySet<string>, probe: Box): string[] {
+  if (!treads.size) return [];
+  const out = new Set<string>();
+  for (const sd of w.solidsNear(probe, 0, 0, 0)) {
+    if (sd.unloaded || !sd.block) continue;
+    if (!(sd.x1 > probe.x0 + 1e-3 && sd.x0 < probe.x1 - 1e-3 && sd.y1 > probe.y0 + 1e-3 && sd.y0 < probe.y1 - 1e-3 && sd.z1 > probe.z0 + 1e-3 && sd.z0 < probe.z1 - 1e-3)) continue;
+    const k = `${sd.block.x},${sd.block.y},${sd.block.z}`;
+    if (treads.has(k)) out.add(k);
+  }
+  return [...out];
+}
+
+/** How far ahead (blocks) a line looks for what stopped it: `interactive-walk.ts`' `JUMP_PROBE`. */
+const JUMP_PROBE = 0.3;
+
+/**
+ * Whether a jump helps a player standing at `feet` and moving along (dx, dz): the box a short reach ahead is
+ * blocked at the feet and free a jump up. The harness's `jumpHelps` over the simulator's world; a wall that
+ * runs up past the jump is not jumped at.
+ */
+function jumpHelpsAt(w: VoxelWorld, feet: Vec3, dx: number, dz: number): boolean {
+  const ax = feet.x + dx * JUMP_PROBE, az = feet.z + dz * JUMP_PROBE, h = 0.3;
+  const box = (y: number): Box => ({ x0: ax - h, y0: y, z0: az - h, x1: ax + h, y1: y + 1.8, z1: az + h });
+  return !!w.overlapping(box(feet.y + 1e-3), 1e-4) && !w.overlapping(box(feet.y + JUMP_PEAK + 1e-3), 1e-4);
 }
 
 /** The device round's "porch": a teleport this far out (blocks at 100 %) at the doorway's height, then a walk in. */
@@ -400,13 +491,54 @@ export const PORCH_OUT = 2.5;
 const boxHits = (boxes: readonly DrawnBox[], q: Box): boolean => boxes.some(({ box: b }) => b.x1 > q.x0 && b.x0 < q.x1 && b.y1 > q.y0 && b.y0 < q.y1 && b.z1 > q.z0 && b.z0 < q.z1);
 
 /**
+ * What one device line did. A HOLE is judged at once (a fall anywhere a child walks is a fall); a STOP the pack
+ * is blamed for is `pending` until the side is judged (`judgeSide`).
+ */
+export interface LineOutcome { crossed: boolean; pending?: { message: string; evidence: Record<string, unknown> } }
+
+/**
+ * Judge one side of a doorway from its lines. A child STEERS through a doorway: a straight line in one column
+ * that meets a jamb, a step or a re-laid wall while another column from the same side crosses is not a door
+ * nobody can use - the harness judges passability by a route (`walkThroughDoorway`) and only holes by its
+ * lines (`doorwayHoles`). So a pack-attributed stop is a violation only when NO line from that side crossed;
+ * otherwise it is a note (the finding is kept, marked `steered`). Until 2026-09-30 every stopped column was
+ * a violation, and 38 of the favourites' 66 doorway findings were edge columns of doorways a child walks through.
+ */
+export function judgeSide(ctx: Pick<StepContext, 'note' | 'violate' | 'state'>, outcomes: readonly LineOutcome[]): void {
+  const crossed = outcomes.some(o => o.crossed);
+  for (const o of outcomes) {
+    if (!o.pending) continue;
+    if (crossed) ctx.note(`${o.pending.message} - but another column from this side crosses (a child steers through it; not a failure)`);
+    else ctx.violate({ invariant: 'doorway-line', message: `${o.pending.message}; no column from this side crosses`, evidence: o.pending.evidence });
+  }
+  if (crossed) for (const f of doorwayFindings(ctx.state)) if (outcomes.some(o => o.pending && f['pendingMessage'] === o.pending.message)) f['steered'] = true;
+}
+
+/** Why a stop is the pack's: its treads, or colliders with nothing drawn near them. */
+function stopCause(tread: readonly string[]): string {
+  return tread.length ? `the pack's TREAD at ${tread.join(' ')} blocks it` : 'nothing is drawn there, the pack\'s colliders block it';
+}
+
+/** How a stop's obstacle is the model's: as drawn, or within the re-lay's rounding of what is drawn. */
+function modelsObstacle(w: VoxelWorld, statics: readonly DrawnBox[], probe: Box, rounding: number): 'drawn' | 'relay' | undefined {
+  if (colliderIsModels(w, statics, probe)) return 'drawn';
+  return rounding > 0 && colliderIsModels(w, statics, probe, rounding) ? 'relay' : undefined;
+}
+
+/** The note for an obstacle the model draws. */
+const sealedText = (how: 'drawn' | 'relay', rounding: number, sizePct: number): string => how === 'drawn'
+  ? 'the model draws geometry where the player\'s box needs room (SEALED)'
+  : `the model draws geometry within ${rounding} block of it, the shift of the whole-block re-lay at ${sizePct} percent (SEALED, RELAY)`;
+
+/**
  * One device line: stand the player `LINE_OUT` blocks out on one side, at the
  * doorway's floor (in the air if nothing is there - the device's teleport),
- * and walk straight through. A fall past a jump within a block of the leaf,
- * or a stop before crossing, is recorded and attributed.
+ * and walk straight through, jumping where a jump helps. A fall past a jump
+ * within a block of the leaf is attributed and reported at once; a stop is
+ * attributed and returned for its side to judge.
  */
-async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label: string, col: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, k: number, outMax: number, outMin: number, kind: 'line' | 'porch'): Promise<void> {
-  const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension);
+async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads: ReadonlySet<string>, label: string, col: Vec3, n: { x: number; z: number }, side: -1 | 1, floorY: number, k: number, outMax: number, outMin: number, kind: 'line' | 'porch'): Promise<LineOutcome> {
+  const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension), placed = placedOf(ctx), rounding = relayRounding(placed.sizePct / 100);
   const along = (q: Vec3): number => ((q.x - col.x) * n.x + (q.z - col.z) * n.z) * -side;
   // The start, as the harness (`doorwayColumnLines`) and the device's teleport pick it: the farthest spot from
   // `LINE_OUT` in to `LINE_MIN_OUT` where the player's box is free within a jump over the doorway's floor - in
@@ -419,16 +551,18 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label:
     }
   }
   const where = `${label} column ${Math.floor(col.x)},${Math.floor(col.z)} from ${side > 0 ? '+' : '-'} side${kind === 'porch' ? ` (porch, ${outMax} out)` : ''}`;
-  if (!start && kind === 'porch') return;
+  if (!start && kind === 'porch') return { crossed: false };
   if (!start) {
     // Who took the room: the colliders the player's box meets at the harness's start, each judged by whether the
     // model draws geometry within a collider's superset slack of it.
     const q = { x: col.x + n.x * side * outMax * k, z: col.z + n.z * side * outMax * k };
-    const blocked = colliderIsModels(w, statics, { x0: q.x - 0.3, y0: floorY + 0.05, z0: q.z - 0.3, x1: q.x + 0.3, y1: floorY + 1.8, z1: q.z + 0.3 });
-    ctx.note(`${where}: no room to stand ${LINE_MIN_OUT}-${LINE_OUT} blocks out (${blocked ? 'the model draws geometry there: SEALED, the model\'s' : 'colliders with nothing drawn'})`);
-    finding(ctx, { kind: 'STOP', where, model: blocked, noRoom: true });
-    if (!blocked) ctx.violate({ invariant: 'doorway-line', message: `${where}: no room to stand on this side, and the model draws nothing there (the pack's colliders)` });
-    return;
+    const standBox = { x0: q.x - 0.3, y0: floorY + 0.05, z0: q.z - 0.3, x1: q.x + 0.3, y1: floorY + 1.8, z1: q.z + 0.3 };
+    const how = modelsObstacle(w, statics, standBox, rounding);
+    const tread = treadsIn(w, treads, standBox);
+    if (how) { ctx.note(`${where}: no room to stand ${LINE_MIN_OUT}-${LINE_OUT} blocks out - the MODEL's: ${sealedText(how, rounding, placed.sizePct)}`); finding(ctx, { kind: 'STOP', where, model: true, noRoom: true, ...(how === 'relay' ? { relay: true } : {}) }); return { crossed: false }; }
+    const message = `${where}: no room to stand on this side; ${stopCause(tread)}`;
+    finding(ctx, { kind: 'STOP', where, model: false, noRoom: true, pendingMessage: message, ...(tread.length ? { tread } : {}) });
+    return { crossed: false, pending: { message, evidence: { treads: tread } } };
   }
   ctx.quiet(['no-unprotected-fall', 'player-not-in-solid']);
   teleport(ctx.sim.host, p, start);
@@ -438,11 +572,19 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label:
   // Where the feet lost the doorway's level: the first point off the ground after the last one standing at it
   // (the start itself when the line began over nothing - the device's teleport into the air).
   let lostAt: Vec3 = { ...start }, standing = false;
+  // The harness's line (`doorwayColumnLines`) jumps where a jump helps (`jumpHelps`: blocked at the feet a
+  // short reach ahead, free a jump up - a sill, a step, a tread); so does a child. A line that never jumped
+  // stopped at every riser past the step height and reported it as a wall (2026-09-30 triage).
+  let jump = false, jumps = 0;
   for (let t = 0; t < 200; t++) {
     p.rotation.y = lookAngles({ x: end.x - p.location.x, y: 0, z: end.z - p.location.z }).yaw;
-    ctx.sim.controls.set(p.id, { forward: 1, strafe: 0, jump: false });
+    ctx.sim.controls.set(p.id, { forward: 1, strafe: 0, jump });
     const before = { ...p.location };
     await ctx.run(1);
+    const dx = end.x - p.location.x, dz = end.z - p.location.z, dl = Math.hypot(dx, dz) || 1;
+    const movedH = Math.hypot(p.location.x - before.x, p.location.z - before.z);
+    jump = p.onGround && movedH < 0.1 && jumpHelpsAt(w, p.location, dx / dl, dz / dl);
+    if (jump) jumps++;
     const atLevel = p.onGround && p.location.y >= floorY - STEP_HEIGHT - 1e-6;
     if (atLevel) standing = true;
     else if (standing && !p.onGround) { lostAt = before; standing = false; }
@@ -459,25 +601,40 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], label:
   if (fellAt) {
     // Attribute: does the model DRAW a floor at the doorway's level where the feet lost it? A drawn top within a
     // step under the doorway's floor, under the footprint a little ahead of that point, is a floor the colliders lost;
-    // nothing drawn there is the model's own hole (or a start over nothing).
-    const ahead = { x: lostAt.x - n.x * side * 0.3, z: lostAt.z - n.z * side * 0.3 };
-    const drawnFloor = statics.some(({ box: b }) => b.y1 >= floorY - STEP_HEIGHT && b.y1 <= floorY + 0.1 && b.x1 > ahead.x - 0.3 && b.x0 < ahead.x + 0.3 && b.z1 > ahead.z - 0.3 && b.z0 < ahead.z + 0.3);
+    // nothing drawn there is the model's own hole (or a start over nothing). Above 100 % the re-lay can move the
+    // floor's edge by `relayRounding` (half a block at 150 %): when the drawn floor itself ends within that distance
+    // further on, the drop is the model's own edge, moved by the re-lay (31141's upper doors open over the street).
+    const drawnFloorAt = (d: number): boolean => {
+      const q = { x: lostAt.x - n.x * side * d, z: lostAt.z - n.z * side * d };
+      return statics.some(({ box: b }) => b.y1 >= floorY - STEP_HEIGHT && b.y1 <= floorY + 0.1 && b.x1 > q.x - 0.3 && b.x0 < q.x + 0.3 && b.z1 > q.z - 0.3 && b.z0 < q.z + 0.3);
+    };
+    const drawnFloor = drawnFloorAt(0.3);
+    const edgeMoved = drawnFloor && rounding > 0 && !drawnFloorAt(0.3 + rounding);
     const text = `${where}: fell ${r3(drop)} blocks at the door plane (HOLE)`;
-    if (drawnFloor) ctx.violate({ invariant: 'doorway-line', message: `${text}; the model draws a floor where the feet lost it, the pack's colliders do not`, evidence: { start: pt(start), lostAt: pt(lostAt), fellAt: pt(fellAt), floorY: r3(floorY), lowest: r3(lowestNear) } });
+    const evidence = { start: pt(start), lostAt: pt(lostAt), fellAt: pt(fellAt), floorY: r3(floorY), lowest: r3(lowestNear), jumps };
+    if (drawnFloor && !edgeMoved) ctx.violate({ invariant: 'doorway-line', message: `${text}; the model draws a floor where the feet lost it, the pack's colliders do not`, evidence });
+    else if (edgeMoved) ctx.note(`${text} - the MODEL's drop: its drawn floor ends within ${rounding} block of where the feet lost it, the edge the ${placed.sizePct} percent re-lay moves (RELAY)`);
     else ctx.note(`${text} - the MODEL's: nothing is drawn at the doorway's level where the feet lost it (${standing || lostAt !== start ? `at ${JSON.stringify(pt(lostAt))}` : 'the line started over nothing'}; landed y ${r3(lowestNear)})`);
-    finding(ctx, { kind: 'HOLE', where, drop: r3(drop), model: !drawnFloor, start: pt(start), lostAt: pt(lostAt), landed: r3(lowestNear) });
-  } else if (best < 0.7 * k) {
-    const at = stoppedAt ?? p.location;
-    // What stopped it: the collider the box meets a step ahead. A collider is a SUPERSET of the geometry it stands for
-    // (up to its sixteenth grid and its form's shape), so drawn geometry within `COLLIDER_SLACK` of the box ahead makes
-    // the obstacle the model's.
-    const ahead = { x: at.x - n.x * side * 0.15, z: at.z - n.z * side * 0.15 };
-    const probe = { x0: ahead.x - 0.3, y0: at.y + 0.05, z0: ahead.z - 0.3, x1: ahead.x + 0.3, y1: at.y + 1.8, z1: ahead.z + 0.3 };
-    const hit = w.overlapping(probe, 0.001);
-    const drawn = colliderIsModels(w, statics, probe);
-    const text = `${where}: stopped ${r3(-Math.min(0, best))} blocks before the door plane${hit?.block ? ` on ${hit.block.typeId} at ${hit.block.x},${hit.block.y},${hit.block.z}` : ''}`;
-    if (drawn) ctx.note(`${text} - the MODEL's: it draws geometry where the player's box needs room (SEALED)`);
-    else ctx.violate({ invariant: 'doorway-line', message: `${text}; nothing is drawn there, the pack's colliders block it`, evidence: { start: pt(start), stoppedAt: pt(at) } });
-    finding(ctx, { kind: 'STOP', where, model: drawn, start: pt(start), stoppedAt: pt(at), block: hit?.block });
+    finding(ctx, { kind: 'HOLE', where, drop: r3(drop), model: !drawnFloor || edgeMoved, ...(edgeMoved ? { relay: true } : {}), start: pt(start), lostAt: pt(lostAt), landed: r3(lowestNear) });
+    return { crossed: false };
   }
+  if (best >= 0.7 * k) return { crossed: true };
+  const at = stoppedAt ?? p.location;
+  // What stopped it: the collider the box meets a step ahead. A collider is a SUPERSET of the geometry it stands for
+  // (up to its sixteenth grid and its form's shape), so drawn geometry within `COLLIDER_SLACK` of the box ahead makes
+  // the obstacle the model's.
+  const ahead = { x: at.x - n.x * side * 0.15, z: at.z - n.z * side * 0.15 };
+  const probe = { x0: ahead.x - 0.3, y0: at.y + 0.05, z0: ahead.z - 0.3, x1: ahead.x + 0.3, y1: at.y + 1.8, z1: ahead.z + 0.3 };
+  const hit = w.overlapping(probe, 0.001);
+  const how = modelsObstacle(w, statics, probe, rounding);
+  const tread = treadsIn(w, treads, probe);
+  const text = `${where}: stopped ${r3(-Math.min(0, best))} blocks before the door plane${hit?.block ? ` on ${hit.block.typeId} at ${hit.block.x},${hit.block.y},${hit.block.z}` : ''}`;
+  if (how) {
+    ctx.note(`${text} - the MODEL's: ${sealedText(how, rounding, placed.sizePct)}`);
+    finding(ctx, { kind: 'STOP', where, model: true, start: pt(start), stoppedAt: pt(at), block: hit?.block, ...(how === 'relay' ? { relay: true } : {}) });
+    return { crossed: false };
+  }
+  const message = `${text}; ${stopCause(tread)}`;
+  finding(ctx, { kind: 'STOP', where, model: false, pendingMessage: message, start: pt(start), stoppedAt: pt(at), block: hit?.block, ...(tread.length ? { tread } : {}) });
+  return { crossed: false, pending: { message, evidence: { start: pt(start), stoppedAt: pt(at), treads: tread, jumps } } };
 }

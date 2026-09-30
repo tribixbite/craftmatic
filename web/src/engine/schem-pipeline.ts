@@ -335,7 +335,7 @@ export async function runSchemPipeline(
     const { buildPlayableAddon, measureCoasterTrain } = await import('./playable-addon.js');
     const { bedrockExportNotes } = await import('./bedrock-export-notes.js');
     const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
-    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing } = await import('./bedrock-scene-actors.js');
+    const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing, actorGroundLdu } = await import('./bedrock-scene-actors.js');
     const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
@@ -510,7 +510,10 @@ export async function runSchemPipeline(
             census.owners.push({ label: 'pinball', use: 'none', bricks: new Set(plan.moved), reason: 'part of the pinball table' });
           }
           /** An LDraw point in grid coordinates, its height up from the model's underside (`sceneFloorPoint`). */
-          const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, scene.groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
+          // Heights of what stands or sits on the model, from the underside the shell is laid on (`actorGroundLdu`).
+          const groundLdu = actorGroundLdu(frame, scene.groundLdu);
+          if (groundLdu !== scene.groundLdu) warnings.push(`Ground: the model's underside is ${Math.round((groundLdu - scene.groundLdu) / frame.cellY * 100) / 100} cells over the lowest placement (figures stand below it); figures, seats and rides are measured from the grid's bottom, where the shell is laid.`);
+          const grid3 = (p: readonly number[]): [number, number, number] => { const q = sceneFloorPoint(frame, groundLdu, [p[0]!, p[1]!, p[2]!]); return [q[0], q[1], q[2]]; };
           // A canon MOUNT (set-canon.ts, bedrock-flyer.ts): the small sub-build a
           // figure stands on that the player can summon a copy of and fly, and
           // whose figure flies it round the model. Its bricks and its figure's
@@ -572,7 +575,7 @@ export async function runSchemPipeline(
             // A figure seated in a ride car (upright in a station, 10261) rides
             // in that car's entity, not as a wandering NPC.
             if (f.bricks.some(b => riderBricks.has(b))) continue;
-            const p = sceneFloorPoint(frame, scene.groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
+            const p = sceneFloorPoint(frame, groundLdu, [f.centreLdu[0], f.floorLdu, f.centreLdu[2]]);
             // A mount's companion rides its orbit seat (playable-addon.ts), never a chair.
             const mountIndex = mountFigures.get(f);
             const seatIndex = mountIndex === undefined && f.seatIndex !== undefined ? seatIndexOf.get(f.seatIndex) : undefined;
@@ -585,7 +588,7 @@ export async function runSchemPipeline(
             census.sceneSeats.push({ ...(s.brick ? { brick: s.brick } : {}), part: s.part, surfaceLdu: s.surfaceLdu, ...(sitter ? { occupant: { label: 'a figure the source seated there', bricks: new Set(sitter.bricks), yields: true } } : {}) });
           });
           for (const s of sceneSeats) {
-            const p = sceneFloorPoint(frame, scene.groundLdu, s.surfaceLdu);
+            const p = sceneFloorPoint(frame, groundLdu, s.surfaceLdu);
             seats.push({ x: p[0], y: p[1], z: p[2], yaw: yawForFacing(s.facingLdu), label: s.part === 'bed' ? 'Bed' : `Seat (${s.part})` });
           }
           if (entityDoors) {

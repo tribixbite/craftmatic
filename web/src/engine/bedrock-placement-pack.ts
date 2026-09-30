@@ -1501,6 +1501,19 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         try { found = dim.getEntities({ tags: [h.tag] }) || []; } catch {}
         for (const e of found) { missing.delete(e.id); try { e.remove(); } catch {} }
       };
+      // This pack's colliders anywhere in the placement's box go first: a moving part lays its closed doorway
+      // into cells no snapshot covers (at 100 % only the structure tiles are snapshotted, and 31141's upper
+      // Door 5 lies above its tiles - Undo left its 3 collider blocks, simulator triage 2026-09-30). The
+      // snapshots restored next bring back whatever stood inside them before, colliders included; only
+      // collider forms are cleared (`clearColliders`), never the player's world.
+      if (h.bounds && h.bounds.from && h.bounds.to) {
+        const f = h.bounds.from, t = h.bounds.to;
+        for (const box of placementBoxes(t.x - f.x + 1, t.y - f.y + 1, t.z - f.z + 1)) {
+          const from = { x: f.x + box.x0, y: f.y + box.y0, z: f.z + box.z0 }, to = { x: f.x + box.x1, y: f.y + box.y1, z: f.z + box.z1 };
+          await load(dim, from, to);
+          clearColliders(dim, from, to);
+        }
+      }
       for (const b of h.backups) {
         const structure = world.structureManager.get(b.name);
         if (!structure) continue;
