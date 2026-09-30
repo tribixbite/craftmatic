@@ -15,7 +15,7 @@ import {
   rotateAbout, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type IxCell, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
 import { colliderState, COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
-import { ScaledColliderGrid, QUARTER_TURNS, type QuarterTurn, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
+import { ScaledColliderGrid, QUARTER_TURNS, relayRounding, type QuarterTurn, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { laidColliderBlocks } from '../web/src/ui/addon-preview-data.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { bedrockJsonText } from '../web/src/engine/bedrock-json.js';
@@ -499,6 +499,28 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
   });
 
+  it('above 100 % a wall within the re-lay\'s shift of the part is its frame, not a wall (11371 Lever 1 and 910032 Turnable 2 at 150 %, simulator 2026-09-30)', () => {
+    // The re-lay moves a wall by up to half a block at 150 % (`relayRounding`), so a cell of the part's own frame
+    // lands 1.1 blocks from its tap box: at 100 % that cell is a wall in front of the part, at 150 % it is the frame.
+    const cfg = doubleDoorConfig();
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
+    const tapAt = (f: number): unknown => {
+      const h = runtimeHost(cfg);
+      // The tap box's near face at z 205.1 (f 1.5) / 205.175 (f 1): the wall cell z 203 ends 1.1 / 1.175 blocks before it.
+      const a = h.spawn(0, anchor, f, 0, { x: 103, y: 65, z: 205.325 });
+      h.sync();
+      for (const x of [102, 103, 104]) for (const y of [65, 66, 67]) h.setCollider(x, y, 203, 0, 16);
+      h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103, y: 66.25, z: 205.325 });
+      h.tap(a);
+      return a.getDynamicProperty('craftmatic:ix_open');
+    };
+    expect(relayRounding(1)).toBe(0);
+    expect(relayRounding(1.5)).toBe(0.5);
+    expect(relayRounding(2)).toBe(0);
+    expect(tapAt(1)).toBeUndefined();
+    expect(tapAt(1.5)).toBe(true);
+  });
+
   it('hands a tap Bedrock gave to a part behind a wall to the seat the player aimed at in plain sight (76457 Bed vs Door 4, Pixel 2026-09-26)', () => {
     const cfg = doubleDoorConfig();
     cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
@@ -610,6 +632,26 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.blocks.set(k0!, { typeId: 'minecraft:stone', states: {} });
     h.tap(a);
     expect(h.blocks.get(k0!)?.typeId).toBe('minecraft:stone');
+  });
+
+  it('steps a player out of a closing doorway only onto a spot its body fits, never into the wall beside it (76417 Door 3 at 150 %, simulator 2026-09-30)', () => {
+    const cfg = doubleDoorConfig();
+    const h = runtimeHost(cfg);
+    const a = h.spawn(0, anchor);
+    h.sync();
+    h.tap(a);
+    const [k0] = keysOf(cfg, 0);
+    const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
+    h.players.push(h.player);
+    // A wall two blocks tall right outside the doorway on the player's side: the first point out of the doorway's
+    // block (z - 0.3) puts the body in it. The player must land past it (or on the other side), never inside it.
+    for (const dx of [-1, 0, 1]) for (const dy of [0, 1]) h.setCollider(x + dx, y + dy, z - 1, 0, 16);
+    h.player.location = { x: x + 0.5, y, z: z + 0.12 };
+    h.tap(a);
+    expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
+    const l = h.player.location;
+    const inWall = l.z - 0.3 < z && l.z + 0.3 > z - 1;
+    expect(inWall).toBe(false);
   });
 
   it('keeps a too-small doorway blocked when it opens, and says which size passes', () => {

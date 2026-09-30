@@ -114,6 +114,20 @@ export function cellColumns(i: number, f: number): [number, number] {
   return [Math.ceil(a - 0.5), Math.max(Math.ceil(a - 0.5), Math.ceil(b - 0.5) - 1)];
 }
 
+/**
+ * How far a wall can move when the wand re-lays the collider grid at size factor `f`: at f > 1 a world column
+ * belongs to the cell whose scaled span holds its CENTRE (`cellColumns`), so a cell boundary at `i·f` lands on
+ * the whole block `ceil(i·f - 1/2)`; the largest such shift over the grid, in blocks. 0 at 100 %, 200 %,
+ * 300 % and 400 %; half a block at 150 %. Self-contained (no imports): the interactives runtime is handed
+ * its source (`interactivesScript`), and the simulator's doorway attribution reads it too.
+ */
+export function relayRounding(f: number): number {
+  if (f <= 1) return 0;
+  let worst = 0;
+  for (let i = 1; i <= 256; i++) worst = Math.max(worst, Math.abs(Math.ceil(i * f - 0.5) - i * f));
+  return Math.round(worst * 1e6) / 1e6;
+}
+
 /** The cell index a source cell takes after the wand's quarter turn - the runtime's `cellAt`. */
 export function rotatedCell(x: number, z: number, dims: GridDims, r: QuarterTurn): { x: number; z: number } {
   if (r === 90) return { x: dims.length - 1 - z, z: x };

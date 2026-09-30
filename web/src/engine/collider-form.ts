@@ -217,3 +217,79 @@ export const COLLIDER_KIT: ColliderFormKit = colliderFormKit();
 
 /** Number of collider variants (43): block ids the pack defines. */
 export const COLLIDER_VARIANT_COUNT = COLLIDER_KIT.VARIANTS.length;
+
+/** What a runtime asks of a standing body over the pack's colliders (`colliderBodyProbe`). */
+export interface ColliderBodyProbe {
+  /** Whether a 0.6 x 1.8 body with its feet at `q` meets no collider form box and no other non-air block (unloaded counts as solid). */
+  bodyFree(dim: any, q: { x: number; y: number; z: number }): boolean;
+  /** The highest collision top under the body's footprint at (x, z), at most `fromY` and at least `fromY - depth`; undefined for none. */
+  floorTop(dim: any, x: number, z: number, fromY: number, depth: number): number | undefined;
+  /**
+   * The nearest spot to `at` where a body stands FREE on a floor: the point itself lifted within a step
+   * (9/16) out of a floor it sits in, else the nearest point on rings out to `reach` blocks (a floor within a
+   * step over `at` down to `drop` under it). `at` itself when there is none.
+   */
+  settle(dim: any, at: { x: number; y: number; z: number }, reach: number, drop: number): { x: number; y: number; z: number };
+}
+
+/**
+ * The body probe a runtime builds from its collider kit and the collider blocks' state names. Self-contained
+ * (it names only its arguments): the interactives and rides runtimes are handed its source, so a door that
+ * steps a player out of its doorway and a ride that sets its rider down both put the body where it FITS - the
+ * set-down points and step-outs had put players inside walls and floor slabs (simulator triage 2026-09-30).
+ */
+export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState: string): ColliderBodyProbe {
+  const HALF = 0.3, HEIGHT = 1.8, STEP = 9 / 16;
+  /** The world boxes of the block at (bx, by, bz): a collider's form boxes, a full box for any other non-air block, [] for air; undefined when unloaded. */
+  const boxesAt = (dim: any, bx: number, by: number, bz: number): Array<[number, number, number, number, number, number]> | undefined => {
+    let b: any;
+    try { b = dim.getBlock({ x: bx, y: by, z: bz }); } catch { b = undefined; }
+    if (!b) return undefined;
+    const v = kit.variantOf(b.typeId);
+    if (v < 0) return b.isAir === false && b.isLiquid !== true ? [[bx, bx + 1, by, by + 1, bz, bz + 1]] : [];
+    const lo = Number(b.permutation.getState(loState)), hi = Number(b.permutation.getState(hiState));
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [[bx, bx + 1, by, by + 1, bz, bz + 1]];
+    return kit.formBoxes(v, lo, hi).map(w => [bx + w[0] / 16, bx + w[1] / 16, by + w[2] / 16, by + w[3] / 16, bz + w[4] / 16, bz + w[5] / 16]);
+  };
+  const bodyFree = (dim: any, q: { x: number; y: number; z: number }): boolean => {
+    const x0 = q.x - HALF, x1 = q.x + HALF, y0 = q.y + 0.01, y1 = q.y + HEIGHT, z0 = q.z - HALF, z1 = q.z + HALF;
+    for (let bx = Math.floor(x0); bx <= Math.floor(x1); bx++) for (let by = Math.floor(y0); by <= Math.floor(y1); by++) for (let bz = Math.floor(z0); bz <= Math.floor(z1); bz++) {
+      const boxes = boxesAt(dim, bx, by, bz);
+      if (!boxes) return false;
+      for (const w of boxes) if (w[1] > x0 && w[0] < x1 && w[3] > y0 && w[2] < y1 && w[5] > z0 && w[4] < z1) return false;
+    }
+    return true;
+  };
+  const floorTop = (dim: any, x: number, z: number, fromY: number, depth: number): number | undefined => {
+    const x0 = x - HALF, x1 = x + HALF, z0 = z - HALF, z1 = z + HALF;
+    let top: number | undefined;
+    for (let bx = Math.floor(x0); bx <= Math.floor(x1); bx++) for (let bz = Math.floor(z0); bz <= Math.floor(z1); bz++) for (let by = Math.floor(fromY); by >= Math.floor(fromY - depth); by--) {
+      const boxes = boxesAt(dim, bx, by, bz);
+      if (!boxes) continue;
+      for (const w of boxes) {
+        if (!(w[1] > x0 && w[0] < x1 && w[5] > z0 && w[4] < z1)) continue;
+        if (w[3] <= fromY + 1e-6 && w[3] >= fromY - depth - 1e-6 && (top === undefined || w[3] > top)) top = w[3];
+      }
+    }
+    return top;
+  };
+  const settle = (dim: any, at: { x: number; y: number; z: number }, reach: number, drop: number): { x: number; y: number; z: number } => {
+    const standAt = (x: number, z: number): { x: number; y: number; z: number } | undefined => {
+      const t = floorTop(dim, x, z, at.y + STEP, STEP + drop);
+      if (t === undefined) return undefined;
+      const q = { x, y: t, z };
+      return bodyFree(dim, q) ? q : undefined;
+    };
+    const here = standAt(at.x, at.z);
+    if (here) return here;
+    for (let r = 0.25; r <= reach + 1e-9; r += 0.25) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const q = standAt(at.x + Math.cos(a) * r, at.z + Math.sin(a) * r);
+        if (q) return q;
+      }
+    }
+    return at;
+  };
+  return { bodyFree, floorTop, settle };
+}

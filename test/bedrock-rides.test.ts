@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { RIDE, _ridesRuntimeForTests, findLifts, findSlides, isLiftCarDescription, isLiftColumnDescription, isLiftGuideDescription, isSlideDescription, ridesScript, slidePathLdu } from '../web/src/engine/bedrock-rides.js';
 import { isSwingSeat, isFurnitureSeat } from '../web/src/engine/bedrock-scene-actors.js';
 import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
 import { isVehicleAndPlaceLabel, isWholeVehicleLabel } from '../web/src/engine/playable-components.js';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -184,6 +185,42 @@ describe('ride runtime', () => {
     expect(w.player.riding).toBeUndefined();
     expect(w.player.location.x).toBeCloseTo(6, 5);
     expect(w.seat.location).toEqual(path[0]);
+  });
+
+  it('sets the rider down where the body fits: out of a floor slab its planned point sits in (41703, 42652, 10788 lift exits; simulator 2026-09-30)', () => {
+    // The shipped module (ridesScript), so the collider body probe it is handed is the one the pack runs.
+    const path = [{ x: 0.5, y: 5, z: 0.5 }, { x: 4.5, y: 2, z: 0.5 }, { x: 6.5, y: 1.3, z: 0.5 }];
+    // A floor slab (a collider form, lo 0 hi 8: the lower half of the block) under the slide's foot: its top is 1.5,
+    // and the planned set-down (1.3 + 0.05) is 0.15 inside it.
+    const blocks = new Map<string, { typeId: string; states: Record<string, number> }>();
+    for (let x = 4; x <= 9; x++) for (let z = -2; z <= 2; z++) blocks.set(`${x},1,${z}`, { typeId: COLLIDER_BLOCK_ID, states: { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 8 } });
+    const dimension = {
+      getEntities: () => [],
+      getBlock: (p: { x: number; y: number; z: number }) => {
+        const b = blocks.get(`${p.x},${p.y},${p.z}`) ?? { typeId: 'minecraft:air', states: {} };
+        return { typeId: b.typeId, isAir: b.typeId === 'minecraft:air', isLiquid: false, permutation: { getState: (k: string) => b.states[k] } };
+      },
+    };
+    const props = new Map<string, unknown>([['craftmatic:ride', 0], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify(path)]]);
+    const seat: any = {
+      id: 'seat1', typeId: 'craftmatic:t_ride', isValid: true, location: { ...path[0]! }, dimension,
+      getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v),
+      tryTeleport(p: any) { this.location = { ...p }; return true; },
+    };
+    const player: any = { location: { ...path[0]! }, riding: seat, onScreenDisplay: { setActionBar: () => {} },
+      getComponent: (n: string) => n === 'minecraft:riding' && player.riding ? { entityRidingOn: player.riding } : undefined,
+      teleport(p: any) { this.location = { ...p }; } };
+    seat.getComponent = (n: string) => n === 'minecraft:rideable' ? { getRiders: () => player.riding ? [player] : [], ejectRiders: () => { player.riding = undefined; } } : undefined;
+    let tick = 0; let loop: () => void = () => {};
+    const worldApi = { getAllPlayers: () => [player] };
+    const systemApi = { get currentTick() { return tick; }, runInterval: (f: () => void) => { loop = f; } };
+    const src = ridesScript({ seatType: 'craftmatic:t_ride', rides: [{ kind: 'slide' }], constants: RIDE });
+    new Function('world', 'system', src.replace(/^import.*\n/, ''))(worldApi, systemApi);
+    for (let i = 0; i < 300; i++) { tick++; loop(); }
+    expect(player.riding).toBeUndefined();
+    // On the slab's top, not inside it.
+    expect(player.location.y).toBeCloseTo(1.5, 6);
+    expect(player.location.x).toBeCloseTo(6.5, 6);
   });
 
   it('a lift goes to the next storey, sets the rider on that floor and stays there', () => {

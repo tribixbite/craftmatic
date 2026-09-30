@@ -346,6 +346,28 @@ describe('collider re-lay matches the model at every size', () => {
     for (const f of fills) expect(f.options).toEqual({ blockFilter: { includeTypes: [...COLLIDER_BLOCK_IDS] } });
   });
 
+  it('Undo takes away this pack\'s colliders laid inside the placement\'s box but outside every snapshot (31141 Door 5, simulator 2026-09-30)', async () => {
+    // At 100 % only the structure tiles are snapshotted. A moving part lays its closed doorway into cells the
+    // tiles do not cover (31141's upper Door 5, 12 blocks up): Undo restored the tiles and left those 3 blocks.
+    const h = host({
+      stem: 'undo_gap', label: 'Gap', width: 4, height: 4, length: 2,
+      tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 4, height: 2, length: 2, nonAir: 1 }],
+      actors: [], settleTicks: 1, finalHoldTicks: 1,
+    });
+    await h.open({ action: 'Pin corner at my feet' }, { canceled: true });
+    await h.open({ action: 'Place' }, { selection: 0 });
+    await h.flush(4000);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Gap.'));
+    // A doorway's closed cell, laid by the interactives runtime, above the only tile.
+    const cell = `${ANCHOR.x + 1},${ANCHOR.y + 3},${ANCHOR.z}`;
+    h.blocks.set(cell, { typeId: COLLIDER_BLOCK_ID, states: { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 4 } });
+    expect(h.blocks.get(cell)?.typeId).toBe(COLLIDER_BLOCK_ID);
+    await h.open({ action: 'Undo last placement' });
+    await h.flush(4000);
+    expect(h.player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Undo complete'));
+    expect(h.blocks.get(cell)).toBeUndefined();
+  });
+
   for (const rotation of [90, 180, 270]) {
     it(`${rotation}° at 200 %: the turned, scaled walls match the turned model`, async () => {
       const want = expectedColliders(cells, dims, rotation, 2);
