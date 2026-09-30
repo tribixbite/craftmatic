@@ -3,6 +3,7 @@ import { BEDROCK_UNITS_PER_LDU, compileLdrawEntityGeometry, cullHiddenCuboids, c
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { interactiveRig } from '../web/src/engine/bedrock-interactives.js';
 import type { CompiledMesh } from '../web/src/engine/ldraw-entity-compiler.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
@@ -39,6 +40,10 @@ const LIBRARY: Record<string, string> = {
   '56908': ['0 Wheel Rim', ...box6(-10, 10, -10, 10, -4, 4, 'xXyYzZ')].join('\n'),
   // A canopy the compiler recognises by DESCRIPTION (isCanopyMould): the plane rules key on it.
   '2507': ['0 Windscreen 10 x 4 x 2.333 Canopy', ...box6(-40, 40, -24, 0, -20, 20)].join('\n'),
+  // A door leaf like 60616a: hinge at x = 0, 60 wide, 80 tall, with a handle
+  // stud on its -Z face at x = 50 (its axis turned from -Y to -Z). The stud is
+  // off-centre, so a placement that ignores the leaf's turn shows.
+  'leafstud': ['0 Door 1 x 3 x 4 Test Leaf', ...box6(0, 60, -80, 0, -2, 2, 'xXyYzZ'), '1 16 50 -40 -2 1 0 0 0 0 -1 0 1 0 stud.dat'].join('\n'),
 };
 const provider = () => createPartGeometryProvider({ fetchPartText: async id => LIBRARY[id.replace(/^.*\//, '')] ?? null });
 
@@ -179,6 +184,34 @@ describe('compileLdrawEntityGeometry', () => {
     // coplanar facet tops cannot z-fight and all four sit in one geometry.
     for (const c of studs) expect(c.uv).toEqual([0, 0]);
     expect(new Set(studs.map(c => c.mesh)).size).toBe(1);
+  });
+
+  it('puts a turned part\'s studs where the part is, on a rig bone as on the body (a door leaf\'s handle stud)', async () => {
+    // 10326's back doors (60616a turned 180 degrees): the handle studs sat 0.9
+    // block past the leaf's free edge on every door entity, because an ALIGNED
+    // part in a rig bone took the unrotated-bone branch (2026-09-30).
+    const bricks: ParsedBrick[] = [{ part: 'leafstud.dat', color: 70, x: 100, y: 0, z: 0, rot: [-1, 0, 0, 0, 1, 0, 0, 0, -1] }];
+    // The stud points along -Z here, so its 1.2-unit height is its z size (`isStud` reads y).
+    const isFaceStud = (c: { size: number[] }) => c.size.some(s => Math.abs(s - 1.2) < 1e-9) && Math.max(...c.size) <= 3.6 + 1e-9;
+    const faceStuds = (g: Geo) => allCubes(g).filter(isFaceStud);
+    const studOffset = (g: Geo): number[] => {
+      const body = allCubes(g).filter(c => !isFaceStud(c)), stud = faceStuds(g).find(c => !c.rotation)!;
+      const centre = (lo: number[], size: number[], i: number) => lo[i]! + size[i]! / 2;
+      const bx = (Math.min(...body.map(c => c.origin[0]!)) + Math.max(...body.map(c => c.origin[0]! + c.size[0]!))) / 2;
+      const by = (Math.min(...body.map(c => c.origin[1]!)) + Math.max(...body.map(c => c.origin[1]! + c.size[1]!))) / 2;
+      return [centre(stud.origin, stud.size, 0) - bx, centre(stud.origin, stud.size, 1) - by];
+    };
+    const plain = await compileLdrawEntityGeometry('t', 'prop', bricks, { partGeometry: provider(), wholeModel: true });
+    const rigged = await compileLdrawEntityGeometry('t', 'prop', bricks, {
+      partGeometry: provider(), wholeModel: true, rig: interactiveRig(1, [100, -40, 0], [0, -1, 0]), originLdu: [70, 0, 0],
+    });
+    expect(faceStuds(rigged.value as Geo)).toHaveLength(4);
+    expect(faceStuds(rigged.value as Geo).every(c => c.bone === 'ix_untilt')).toBe(true);
+    const [px, py] = studOffset(plain.value as Geo), [rx, ry] = studOffset(rigged.value as Geo);
+    // 20 LDU from the leaf's centre (x 40..100, stud at 50) = 6 units, on the leaf, not 80 LDU past it.
+    expect(Math.abs(px)).toBeCloseTo(6, 1);
+    expect(rx).toBeCloseTo(px, 2);
+    expect(ry).toBeCloseTo(py, 2);
   });
 
   it('snaps float-noise rotations to the exact axis frame instead of spending a bone', async () => {

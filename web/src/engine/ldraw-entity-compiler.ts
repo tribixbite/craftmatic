@@ -2617,8 +2617,14 @@ export async function compileLdrawEntityGeometry(
         centerW[0] + t[0] + upW[0] * (s.height + 2), centerW[1] + t[1] + upW[1] * (s.height + 2), centerW[2] + t[2] + upW[2] * (s.height + 2),
       ];
       if (covered(probe, brick)) continue;
-      // A wheel bone's parts are authored where they stand, exactly like `body`'s.
-      if (bone === 'body' || (aligned && wheelPivotsLdu.has(bone))) {
+      // An ALIGNED part's cuboids are authored where they stand in whatever bone
+      // holds them - `body`, a wheel, or a rig bone (a door leaf's `ix_untilt`,
+      // a figure's limbs) - so its studs are too. Only a turned part has its own
+      // `r<i>` bone and is authored unrotated. Keyed on the bone name, the rig
+      // case took the unrotated branch: 60616a's handle studs on a leaf turned
+      // 180 degrees drew 0.9 block past its free edge (10326, 2026-09-30); a
+      // symmetric layout (a head's stud, a hip's pair) hid the same error.
+      if (aligned) {
         // Render frame: the stud's base centre and axis through the placement.
         exposed.push({ centre: apply(A, [centerW[0] + t[0], centerW[1] + t[1], centerW[2] + t[2]]), up: apply(A, upW), radius: s.radius, height: s.height, material, bone });
       } else {

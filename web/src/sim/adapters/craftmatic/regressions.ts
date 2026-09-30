@@ -119,9 +119,13 @@ export const REGRESSIONS: RegressionCase[] = [
     // but the porch line still drops 2.625: the door hangs 2.6 over the base plate with
     // nothing drawn in front (the model's). The `.io` source reads no HOLE at all.
     // Since the access steps (2026-09-30, docs/bedrock-interactivity.md "Access steps")
-    // the grid is widened 6 blocks in front of the museum and an invisible half-block
-    // stair runs straight out of each leaf column down to the ground: the porch line
-    // starts on it and walks in.
+    // the grid was widened 6 blocks in front of the museum and an invisible half-block
+    // stair ran straight out of each leaf column down to the ground (round 30g, device
+    // PASS). The door was never up there: Studio's `60616.dat` stub puts the leaf's
+    // origin at its foot, so every plain-60616 leaf drew a door height over its own
+    // ground-floor frame ("The museum's back doors", same doc). Read as `60616a`
+    // (STUDIO_FRAME_REDIRECTS, 2026-09-30) Door 1 stands in its frame on the plate;
+    // no stair is laid, the margin is dropped, and the porch line walks straight in.
     expectNew: 'pass',
     scenario: pack => ({ name: 'door1-10326', steps: [...place, { kind: 'doorwayLines', only: [doorIndex(pack, 'Door 1')] }], allowLines: allow }),
     judge: r => doorJudge(r, 'Door 1', 'HOLE'),
