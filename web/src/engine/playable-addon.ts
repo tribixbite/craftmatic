@@ -39,7 +39,7 @@ import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
-import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
+import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -222,6 +222,12 @@ export interface PlayableAddonOptions {
      * applies it: no export changes size on its own.
      */
     access?: AccessScaleRecommendation;
+    /**
+     * How far (blocks) schem-pipeline.ts widened the grid past the model on
+     * each horizontal side so an access stair from a raised door can run out
+     * past its edge (`accessMarginFor`); reported in the diagnostics.
+     */
+    accessMargin?: { x0: number; x1: number; z0: number; z1: number };
     /** Existing invisible seat type exposed to the brick-wand manual chair placer. */
     manualSeatTypeId?: string;
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
@@ -2494,7 +2500,27 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
             const colliders = buildColliderGrid(scenery, [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], options.shell.frame, options.colliderKeepClear);
             // The part geometry per cell goes along so a threshold tread or stair stands on a floor, never on a wall's rim (`standingTop16`).
-            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame, colliders.layers) : [];
+            // What stands in the open air around the model, which an access stair may not take
+            // (`accessAvoidCells`): the ride paths and their exits, the coaster track, the mounts'
+            // tops and orbits, the vehicles' footprints, every figure and every seat.
+            const avoid = compiledIx.length ? accessAvoidCells({
+                points: [
+                    ...(options.figures ?? []).map(f => [f.x, f.y, f.z] as const),
+                    ...(options.seats ?? []).map(q => [q.x, q.y, q.z] as const),
+                    ...(options.mounts?.items ?? []).map(m => m.top),
+                    ...(options.rides?.items ?? []).flatMap(r => r.exits ?? []),
+                ],
+                paths: [
+                    ...(options.rides?.items ?? []).map(r => r.path),
+                    ...(options.coasterRoutes ?? []).map(r => r.points),
+                    ...(options.mounts?.items ?? []).map(m => m.path),
+                ],
+                boxes: (options.components ?? []).map(c => {
+                    const p = componentSpawnPoint(c, grid), r = c.sceneScale ?? 1;
+                    return { min: [p.x - c.grid.width * r / 2, p.y, p.z - c.grid.length * r / 2] as const, max: [p.x + c.grid.width * r / 2, p.y + c.grid.height * r, p.z + c.grid.length * r / 2] as const };
+                }),
+            }) : undefined;
+            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame, colliders.layers, avoid) : [];
             if (options.colliderClearance !== false) {
                 // Clearance (collider-clearance.ts, docs/bedrock-interactivity.md):
                 // pull every wall back to its own geometry where it is certain,
@@ -3266,6 +3292,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // still reaches at that size. A recommendation - this pack was NOT
         // resized by it (`modelScale` is what it was exported at).
         ...(options.access ? { access: options.access } : {}),
+        // The grid widened past the model for access stairs (blocks per side), when it was.
+        ...(options.accessMargin ? { accessMargin: options.accessMargin } : {}),
         entities: diagnostics,
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
         // The moving parts: class, hinge angle, the opening a player passes and

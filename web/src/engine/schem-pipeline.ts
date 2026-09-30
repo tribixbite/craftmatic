@@ -337,6 +337,7 @@ export async function runSchemPipeline(
     const { discoverPlayableComponents, isWholeVehicleLabel, knownScreenAnchors, withPlayableBounds } = await import('./playable-components.js');
     const { DOOR_MAX_OFF_GRID_DEG, discoverSceneActors, settleLooseAccessories, applySceneDoors, measureSceneAccess, recommendAccessScale, runtimeDoorCandidates, sceneFloorPoint, sceneGridPoint, yawForFacing, actorGroundLdu } = await import('./bedrock-scene-actors.js');
     const { isFigurePart, isTorso, repairFigureTorsos, describeTorsoRepairs } = await import('./ldraw-entity-compiler.js');
+    const { ACCESS_DOOR_MAX_OFF_GRID_DEG, accessMarginFor } = await import('./bedrock-interactives.js');
     const { createPartGeometryProvider } = await import('./ldraw-part-geometry.js');
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
@@ -350,6 +351,8 @@ export async function runSchemPipeline(
     const coasterRoutes: import('./bedrock-coaster.js').CoasterRoute[] = [];
     let sceneDoors: import('./bedrock-scene-actors.js').SceneDoor[] = [];
     let interactionNote: string | undefined;
+    /** How far the grid was widened past the model for access stairs (`accessMarginFor`); undefined when it was not. */
+    let accessMargin: { x0: number; x1: number; z0: number; z1: number } | undefined;
     /** The measured walk-through size (see `measureSceneAccess` below); undefined when no scene was discovered. */
     let access: AccessScaleRecommendation | undefined;
     /** The title's only vehicle is a train on its own railway track (it runs on the coaster engine instead). */
@@ -439,6 +442,26 @@ export async function runSchemPipeline(
         if (!sourceOrigin && (scene.figures.length || scene.seats.length || scene.doors.length)) {
           warnings.push('Figures, seats and doors were found but the source geometry did not resolve, so they stay as blocks.');
         } else if (sourceOrigin) {
+          // Access margin (bedrock-interactives.ts `accessMarginFor`, docs/bedrock-interactivity.md
+          // "Access steps"): a door hung more than a jump over the ground near the model's edge
+          // gets room past that edge for an invisible stair down to the ground. The grid and its
+          // origin are widened together BEFORE anything is placed on the frame, so every actor,
+          // seat, ride, door and collider lands exactly where it did, a margin further in.
+          if (entityDoors && scene.doors.length) {
+            const origin = sourceOrigin;
+            const doorBoxes = scene.doors.filter(d => (d.offGridDeg ?? 0) <= ACCESS_DOOR_MAX_OFF_GRID_DEG).map(d => {
+              const a = sceneGridPoint(origin, d.minLdu), b = sceneGridPoint(origin, d.maxLdu);
+              return { min: [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.min(a[2], b[2])] as [number, number, number], max: [Math.max(a[0], b[0]), Math.max(a[1], b[1]), Math.max(a[2], b[2])] as [number, number, number], normal: d.alongAxis === 'x' ? 'z' as const : 'x' as const };
+            });
+            const voxels = grid;
+            const margin = accessMarginFor(doorBoxes, { width: grid.width, height: grid.height, length: grid.length }, (x, y, z) => voxels.get(x, y, z) !== 'minecraft:air');
+            if (margin.x0 || margin.x1 || margin.z0 || margin.z1) {
+              grid = padGridXZ(grid, margin);
+              sourceOrigin = { ...origin, x: origin.x - margin.x0 / origin.scale, z: origin.z - margin.z0 / origin.scale };
+              accessMargin = margin;
+              warnings.push(`Access margin: the grid is widened ${margin.x0}/${margin.x1} blocks at its low/high x and ${margin.z0}/${margin.z1} at its low/high z so an invisible stair can run from a door hung over the ground past the model's edge.`);
+            }
+          }
           const frame = sourceOrigin;
           const { extractCoasterTrackRoutes } = await import('./coaster-track.js');
           const sceneBricks = source.bricks.filter(b => !movable.has(b));
@@ -691,7 +714,7 @@ export async function runSchemPipeline(
         screens.push({ id: anchor.id, label: anchor.label, x, y, z });
       }
     }
-    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
+    const pack = await buildPlayableAddon(grid, { stem: input.packStem ?? 'model', label, vehicleMode: railOnly ? 'static' : input.vehicleMode, vehicleFacing: input.vehicleFacing, seatCount: input.seatCount, entityQuality: input.entityQuality, cameraStyle: input.cameraStyle, lod: input.lod ?? 'hull', lodDistance: input.lodDistance, mainVehicleOnly: input.mainVehicleOnly, modelScale: input.modelScale, figureCollisionHeight: input.figureCollisionHeight, components: components.length ? components : undefined, screens, figures, seats, shell, ...(coasterRoutes.length ? { coasterRoutes } : {}), ...(pinball ? { pinball } : {}), ...(rides ? { rides } : {}), ...(mounts ? { mounts } : {}), ...(mountsMissing.length ? { mountsMissing } : {}), ...(interactives && shell ? { interactives } : {}), ...(interactivityReport ? { interactivityReport } : {}), ...(leafActors.length ? { leafActors: leafActors.map(({ door: _door, ...leaf }) => leaf) } : {}), ...(interactionNote ? { interactionNote } : {}), ...(access ? { access } : {}), ...(accessMargin ? { accessMargin } : {}), ...(runtimeDoors.length ? { runtimeDoorCandidates: runtimeDoors } : {}), ...(doorClearedCells.size ? { colliderKeepClear: doorClearedCells } : {}), ...(input.pipelineStamp ? { pipelineStamp: input.pipelineStamp } : {}), ...(input.sourceProvenance !== undefined ? { source: input.sourceProvenance } : {}), onProgress });
     // The seat census: every place the source sits a figure, and what the pack made of it.
     let seatCensus: SeatCensus | undefined;
     if (census.source) {
@@ -755,6 +778,23 @@ export async function runSchemPipeline(
   onProgress(input.format === 'schem' ? 'writing NBT' : 'writing Litematica NBT');
   const bytes = input.format === 'schem' ? encodeSchemBytes(grid) : encodeLitematicBytes(grid);
   return { grid, bytes, nonAir, lights, lightFill, shapes: shapeStats, elements: elementStats, detailMaterials: detailStats };
+}
+
+/**
+ * Widen a grid by `m` cells on each horizontal side (x0/z0 low, x1/z1 high):
+ * the old cells keep their contents shifted by (x0, 0, z0), block entities
+ * included, and the new columns are air. Its origin moves by the same amount
+ * (the caller shifts the voxelizer's `gridOrigin`), so nothing measured on the
+ * frame moves in the world.
+ */
+export function padGridXZ(grid: BlockGrid, m: { x0: number; x1: number; z0: number; z1: number }): BlockGrid {
+  const out = new BlockGrid(grid.width + m.x0 + m.x1, grid.height, grid.length + m.z0 + m.z1);
+  for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) for (let x = 0; x < grid.width; x++) {
+    const state = grid.get(x, y, z);
+    if (state !== 'minecraft:air') out.set(x + m.x0, y, z + m.z0, state);
+  }
+  for (const be of grid.blockEntities) out.blockEntities.push({ ...be, pos: [be.pos[0] + m.x0, be.pos[1], be.pos[2] + m.z0] });
+  return out;
 }
 
 /** Keep separately voxelized assemblies in the original model's coordinate frame. */
