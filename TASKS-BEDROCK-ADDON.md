@@ -333,9 +333,19 @@ for my 5yo to explore and play with."
   Fixed `ad751582`, browser-proved on 10788 + 10326 at all four turns
   (coverage 1.000, 30/30 holder yaws; `output/walk-preview-yaw-0930/fixed/`).
   Unchecked: the sitting camera's sign and a `door` leaf's swing direction.
-- [ ] Test mocks without `fillBlocks`/`BlockVolume` print
-  `BRICK_WAND_CLEAR_FAILED` during `bun run test` (noise; the sim's mock has
-  both - migrate those hosts, `TODO(sim-fold)`).
+- [ ] `TODO(sim-gametest)`: the one `@minecraft/server` mock left is
+  `test/gametest-pack.test.ts`'s fake `@minecraft/server-gametest`. The
+  simulator needs that module (registerAsync + builder, `Test`, a
+  `SimulatedPlayer` with steering for `moveToLocation`) so a GameTest pack
+  and the sim run the SAME scenario definitions; the member list and counts
+  are in docs/sim-engine.md "The GameTest and the simulator".
+- [ ] `TODO(walk-pack-blocks)`: `WalkWorld` (addon-walk.ts) reads the CURRENT
+  collider kit's block JSON; a pack built before the x-mirror fix ships other
+  definitions. Read the pack's own `blocks/*.json` when walking an old pack.
+- [ ] `_ix_tap_probe` on 10326: "closes" fell for Doors 2-6 (e.g. 14 -> 12)
+  once the probe's player became a real occupant; inferred (the runtime's
+  "someone in the doorway" check refuses the spot the player stands in), not
+  traced per spot. No test asserts "closes".
 
 Goal: catch most bugs in minutes without an adb round; long term it grows
 into a standalone web game engine (user: "Keep it modular and DRY"). Of 14
@@ -350,9 +360,13 @@ child-play adapter, `scripts/sim.ts`, `docs/sim-engine.md`).
   eye in bodywork; 29c slide tap; Nimbus sneak drop + hint overwrite; 29d
   10326 threshold + 910004 approach wall (still failing on main until the
   doorway agent merges); the spurious 10261 retake line.
-- [ ] Then: the favourites child-play run, the unmodelled-API ranking (the
-  roadmap), migrating the per-module test hosts onto the mock, and folding
-  interactive-walk/figure-life-sim in after the doorway merge.
+- [ ] Then: the unmodelled-API ranking (the roadmap). The test hosts,
+  interactive-walk's world and figure-life-sim are folded onto the simulator
+  (2026-09-30, docs/sim-engine.md "The older hosts, folded").
+- Regression gate on `output/device-round-2026-09-30f/packs-dc699e3e`:
+  `door1-10326` reads FAIL (reproduced, the model's) because those packs
+  predate the access stairs (`373445c7`), which the case now expects; the
+  same verdict at `a806594b`. The other nine as before.
 
 ## Quirk probe on the Pixel (2026-09-30, worktree `agent-adebef11c6236a71d`)
 
@@ -950,11 +964,6 @@ re-run after the last fixes). Evidence `output/sim-regress-449abd0e/`
   - [ ] Device-only: `teleport-into-floor` (29d Pixel read y -56, not the slab
     top: a GameTest teleporting 0.2-0.4 into a slab settles it) and
     `dismount-free-spot` (assumed).
-- [ ] `TODO(sim-fold)`: the device lines now take the harness's doorway and
-  jump rule; still to fold: one walker for `interactive-walk.ts` and the
-  simulator, `figure-life-sim.ts`, the test hosts (`_ix-host`, the
-  vehicle/rides/flyer/coaster hosts); `test/_placement-host.ts` already runs
-  on the simulator.
 
 ## Hop (2026-09-30, worktree `agent-a67a945e8cc86f24a`)
 

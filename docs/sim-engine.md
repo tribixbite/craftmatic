@@ -57,12 +57,24 @@ web/src/sim/
   scenario/    types (the step language) · runner · invariants · approach (where to stand) · report
   render/      rasterizer (z-buffered quads → RGB)
   pack/        pack (.mcaddon → packs) · json (literal-preserving JSON) · script-config (CONFIG reader)
+               fixture (a pack built in memory: one runtime and its definitions, for tests and probes)
   adapters/craftmatic/
                pack-facts · wand (place, undo) · play (rides, vehicles, flyers, doorways, figures)
                child-play (the generated scenarios) · regressions (the device-bug set)
                hop (several packs in one world: fly or drive into another mount)
                appearance (the pack's drawn geometry) · drawn · snapshot
+               fixture (the collider kit's shipped block JSON) · figure-life (figures.js over a
+               pack's collider cells: the roam census) · coaster (a coaster config's entities and
+               placement, for the coaster tests and replay probes)
 ```
+
+The runtime tests run on this engine too: `test/_sim-host.ts` (`simHost`)
+loads ONE serialised runtime as a fixture pack with its definitions and
+drives it tick by tick - the vehicle, rides, flyer, driver, cockpit camera,
+coaster, pinball, interactives (`test/_ix-host.ts`), placement wand
+(`test/_placement-host.ts`), Minifig Creator wand, figure-life and HotSchem
+tests all do. There is no other mock of `@minecraft/server` in `test/` or
+`scripts/` except the GameTest harness's (below, `TODO(sim-gametest)`).
 
 **Dependency rule.** Nothing under `web/src/sim` imports `web/src/ui` or the
 DOM. The core (everything outside `adapters/`) imports nothing of craftmatic
@@ -74,6 +86,19 @@ FROM the simulator (`addon-walk.ts` re-exports the integrator,
 `ui/addon-appearance.ts` and `ui/addon-preview-data.ts` re-export the moved
 readers), not the other way round.
 
+**One collider world.** The doorway harness and the walk preview
+(`engine/addon-walk.ts` `WalkWorld`) keep the re-laid grid in a `VoxelWorld`
+whose terrain IS that grid (materialised section by section as a walk first
+reads it) over the ground below the pin plane, with the collider kit's own
+block JSON (`colliderBlockDefinition`, now in `engine/collider-form.ts`) read
+by `BlockTypes` - so a form's boxes come from one reader of one definition
+for the harness, the preview and the simulator, and `solidsNear` is the
+voxel world's. The harness's jump rule (`jumpHelps` / `boxFree` in
+`interactive-walk.ts`, over any `SolidQuery`) is the one the device lines
+use. What differs is the CONTENT, on purpose: the harness walks the grid the
+shipped arithmetic re-lays, the simulator the blocks the runtime laid; a
+disagreement between them is a pack fault.
+
 **The tick.** `SimEngine.step()` runs its systems in order: loading (the
 chunk columns around players and inside ticking areas) → players → hover
 mounts → mobs → riders → effects → scripts (after-events, then due
@@ -84,16 +109,22 @@ edit of the loop.
 ### Public APIs, by module
 
 - `core/simulation.ts` `Simulation`: `loadAddon(addon)`, `loadAddonBytes(bytes)`,
-  `addPlayer(name, at, items)`, `run(ticks)`, `itemIds()`; `.engine`, `.host`, `.controls`.
+  `addPlayer(name, at, items)`, `run(ticks)`, `runSync(ticks)`, `reloadScripts()` (a world
+  reopened: fresh script context, same world), `itemIds()`; `.engine`, `.host`, `.controls`.
 - `core/engine.ts` `SimEngine`: `loadAddon`, `addSystem`, `on`/`emit` (engine events:
   `entityHitEntity`, `playerInteractWithEntity`, `itemUse`, `scriptEventReceive`,
-  `entitySpawn`, `entityRemove`, `landed`, `dismounted`), `step`/`run`, `dimension(id)`,
-  `spawnEntity`, `addPlayer`, `removeEntity`, `loadedEntities`; `.timeline`, `.structures`.
+  `entitySpawn`, `entityRemove`, `entityLoad`, `landed`, `dismounted`), `step`/`run`,
+  `stepSync`/`runSync` (no await per tick: synchronous runtimes), `dimension(id)`,
+  `spawnEntity(type, dim, at, id?)`, `addPlayer`, `removeEntity`, `loadedEntities`;
+  `.timeline`, `.structures`.
 - `core/timeline.ts` `Timeline`: `add`, `of(kind)`, `callerSource()`, `unmodelled(member)`,
   `unmodelledRanking()`.
-- `world/voxel-world.ts` `VoxelWorld`: `permutationAt`, `setPermutation`, `shapeAt`,
-  `isLoaded`, `solidsNear` (the physics' `SolidQuery`), `overlapping`, `supportBelow`, `onWrite`;
-  `flatTerrain(groundY)` (the QA worlds' superflat, standing height -60).
+- `world/voxel-world.ts` `VoxelWorld`: `rawId`, `permutationAt`, `setPermutation`, `shapeOf(id)`,
+  `shapeAt`, `isLoaded`, `setAllLoaded` (a world with no loading rule), `solidsNear` (the
+  physics' `SolidQuery`), `overlapping`, `supportBelow`, `onWrite`; `flatTerrain(groundY)` (the
+  QA worlds' superflat, standing height -60); a `TerrainGenerator` may be `verticalOnly` or
+  `materialiseOnRead` (a world read from another model, filled a section at a time).
+- `pack/fixture.ts`: `fixturePack`, `fixtureAddon`, `entityDefinition`, `entityFilePath`.
 - `world/block-types.ts` `BlockTypes`: `addDefinition(path, json)`, `shape(typeId, states)`.
 - `entity/definitions.ts` `EntityDefinitions`: `load(path, text)` (refusing as the game does);
   `entity/entity.ts` `SimEntity`: `triggerEvent`, `addGroup`/`removeGroup`, `rideable()`,
@@ -101,9 +132,12 @@ edit of the loop.
 - `physics/body.ts`: `tickPlayer`, `tickBody`, `moveBox`, the constants (physics spec §12).
 - `input/touch.ts`: `tap`, `interact`, `pick`, `lookAt`, `aimPoint`, `useItem`;
   `input/ray.ts`: `raycastBlocks`, `raycastEntities`, `pickBoxes`.
-- `script-host/host.ts` `ScriptHost`: `loadScripts(addon)`, `builtin(name)`, `deliver`,
-  `before`, `entity(sim)`, `simOf(api)`, `resolvePermutation`, `playerState`; `.chooser`
-  (answers forms), `.scheduler`, `.stats` (sounds and particles).
+- `script-host/host.ts` `ScriptHost`: `loadScripts(addon)`, `reloadScripts(addons)`,
+  `builtin(name)`, `deliver`, `before`, `entity(sim)`, `simOf(api)`, `dimensionApi(id)`,
+  `resolvePermutation`, `playerState`, `scriptNow()` (a script's `Date.now()`); `.chooser`
+  (answers forms), `.scheduler`, `.stats` (sounds and particles); options `scheduler`
+  (`ticks` / `immediate`), `seed`, `timeOfDay`, `chooser`, `wrapMath` (instrument the
+  scripts' `Math`), `absentExports` (exports an older client lacks).
 - `scenario/runner.ts`: `runScenario(scenario, addons, options)` → `ScenarioResult`;
   `CORE_HANDLERS`, `findEntity`. `scenario/report.ts`: `markdownReport`,
   `regressionMarkdown`, `unmodelledTotals`.
@@ -112,7 +146,12 @@ edit of the loop.
 - `adapters/craftmatic`: `readCraftmaticPack`, `wandHandlers`, `playHandlers`,
   `craftmaticHandlers`, `childPlay`, `childPlayScenarios`, `REGRESSIONS`,
   `hopHandlers`, `hopCases`,
-  `packAppearance`, `drawnBoxes`, `forwardViewWorld`, `firstPersonSnapshot`, `renderActors`.
+  `packAppearance`, `drawnBoxes`, `forwardViewWorld`, `firstPersonSnapshot`, `renderActors`,
+  `colliderKitFiles`, `simulateFigureLife`, `coasterEntityTypes`, `coasterPlacementEntities`,
+  `coasterScriptConfig`.
+- `test/_sim-host.ts` (tests and probes): `simHost(options)` → spawn, addPlayer, seat,
+  controls, setBlock/fill, run/runAsync/runUntil, reload, lines, errors; strict by default (a
+  script error, an unmodelled member or a refused definition throws).
 
 ## Scripts: one context, unmodified
 
@@ -384,31 +423,64 @@ branch needs a geometry the simulator has not been given.
   sat.
 - **Before-events** do not enforce the read-only restriction scripts meet on
   the device; **numeric enums** are names.
+- **Timing of deferred calls** follows Microsoft's contract, not a device
+  probe: a `system.run` from an event handler runs at the end of the same
+  tick, from other code in the next (`Scheduler.inEventHandler`); a
+  `runTimeout` counts its delay from the same point. `world.afterEvents.worldLoad`
+  fires once in the first script tick after the scripts load (and again
+  after a reload).
 - **Dynamic properties are shared between packs** here; on the device each
   pack sees only its own (quirk `dynamic-properties-per-pack`). A script that
   reads another pack's property works here and not there.
 - **Performance** is not the device's: a tick is as fast as the host runs it.
 
-## Folding the older hosts in
+## The older hosts, folded (2026-09-30)
 
-The doorway merge (`c4c34b1c`) freed the files another agent held, so these
-are the next folds, each a `TODO(sim-fold)`. Done 2026-09-30: the device
-lines take the harness's doorway (`doorwayGeometry`, exported) and its jump
-rule; the walker itself is still two (the harness's `tickPlayer` over
-`WalkWorld`, the simulator's over the voxel world).
+Every hand-rolled `@minecraft/server` mock of the runtime tests now runs on
+this engine (`test/_sim-host.ts`): the vehicle, rides, flyer, driver, cockpit
+camera, coaster (and the coaster replay / pace / camera probes), pinball,
+interactives (`test/_ix-host.ts` and its probes), placement wand (runtime,
+ghost, undo across a reload), Minifig Creator wand and HotSchem tests. The
+figure census (`engine/figure-life-sim.ts`, a stand-in world with a constant
+0.4-block/tick drop) is `adapters/craftmatic/figure-life.ts` on the
+simulator's mob physics. The doorway harness shares the collider world and
+the jump rule (above, "One collider world"). What a fold still stubs on
+purpose is fault injection at the API (a refused teleport, an unloaded block
+read, a rider's client-lagged yaw - quirk `rider-yaw-lag` is device-only),
+each commented where it is done.
 
-- `web/src/engine/interactive-walk.ts` walks doorways over `WalkWorld` (the
-  shipped grid re-laid by its own arithmetic); the simulator walks the same
-  lines over the world the RUNTIME laid (`doorwayLines`). The harness's
-  verdicts (`walkThroughDoorway`) and the simulator's device lines should
-  share one walker and one world.
-- `web/src/engine/figure-life-sim.ts` runs `figures.js` over a stand-in world
-  (a constant 0.4-block/tick drop); the simulator runs it with the pack's
-  placement, seats and physics (`figuresLive`).
-- The test hosts `test/_ix-host.ts` and the ones inside
-  `test/bedrock-{vehicle,rides,flyer,coaster}.test.ts` each fake a slice of
-  the API; `test/_placement-host.ts` now runs on the simulator (its fixtures
-  documented at its head) and is the pattern for the rest.
+## The GameTest and the simulator: one scenario definition (`TODO(sim-gametest)`)
+
+The one mock left is the GameTest harness's: `test/gametest-pack.test.ts`
+fakes `@minecraft/server-gametest` (and the slice of `@minecraft/server` its
+runtime touches) to test the harness's decisions with outcomes the test
+chooses; `test/gametest-creator-wand.test.ts` runs its wand on the simulator
+but still hands the GameTest a hand-made `Test` (real ticks behind `idle`, a
+real player behind `spawnSimulatedPlayer`). Running the SAME definitions here and on the Pixel needs the
+simulator to provide that module, which the fold did not leave cheap:
+
+- `registerAsync(class, name, fn)` and its builder (`maxTicks`,
+  `structureName`, `padding`, `tag`, ... recorded, not applied), and a runner
+  that builds the test's arena and runs one test by name;
+- a `Test`: `idle(ticks)` (a promise the scheduler resolves), `succeed`,
+  `fail`, `getDimension`, `worldLocation`, `worldBlockLocation`,
+  `relativeLocation`, `getBlock`, `getTestDirection`,
+  `spawnSimulatedPlayer(location, name, gameMode)`;
+- a `SimulatedPlayer` (a sim player) with `attackEntity` (a tap:
+  `entityHitEntity`), `interactWithEntity` (`input/touch.ts` `interact`),
+  `lookAtEntity`, `moveToLocation` / `moveRelative` / `stopMoving` (steering
+  the controls at a point: the simulator has no navigation), `jump`,
+  `rotateBody`, `setRotation`.
+
+`web/src/engine/gametest-pack.ts` uses `idle` 74 times, `fail` 20,
+`succeed` 11, `teleport` 10, `lookAtEntity` / `attackEntity` /
+`getDimension` 7 each, `worldLocation` / `interactWithEntity` 6,
+`worldBlockLocation` / `spawnSimulatedPlayer` 5, `moveToLocation` /
+`stopMoving` / `jump` 3, `moveRelative` / `relativeLocation` /
+`getTestDirection` 2, `rotateBody` 1. With them, `bun scripts/sim.ts` runs a
+GameTest pack (`scripts/_gametest_pack.ts`) as the Pixel does, the four fake
+harnesses of `gametest-pack.test.ts` become simulator worlds, and a device
+finding can land as a GameTest and a regression case written once.
 
 ## Towards a standalone engine
 
