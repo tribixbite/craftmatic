@@ -403,6 +403,20 @@ describe('a guessed seat (no cockpit evidence) is judged by what its eye sees', 
     expect(plan.steps[0]!.fits).toBe(true);
   });
 
+  it('judges a guessed seat\'s view from the RIDER\'s eye over the seat, not from the cockpit point it was guessed from (910047\'s boat, simulator 2026-09-30)', () => {
+    // An open deck behind a tall front wall: the body fits on the deck (no search moves it), and the rider's eye,
+    // 1.12 over the seat, looks into the wall. The cockpit point the seat was guessed from is high over the wall and
+    // sees out. The view must be judged where the game puts the eye, and the seat then moved to one that sees out.
+    const walled: BoxBlocks[] = [box([-0.6, 0, -1.5], [0.6, 0.3, 1.5]), box([-0.6, 0.3, -1.5], [0.6, 2.6, -1.3])];
+    const seat: Vec3 = [0, 0.3, -0.8], riderEyeAt: Vec3 = [0, 0.3 + RIDER_EYE_ABOVE_SEAT, -0.8];
+    expect(forwardView(walled, [0, 3.5, 1])).toBeGreaterThanOrEqual(VIEW.minClear);
+    expect(forwardView(walled, riderEyeAt)).toBeLessThan(VIEW.minClear);
+    const plan = planSeat(walled, [0, 3.5, 1], seat, 'none');
+    expect(plan.view!.before).toBe(forwardView(walled, riderEyeAt));
+    const riderEye: Vec3 = [plan.seat[0], plan.seat[1] + RIDER_EYE_ABOVE_SEAT, plan.seat[2]];
+    expect(forwardView(walled, riderEye)).toBeGreaterThanOrEqual(VIEW.minClear);
+  });
+
   it('leaves a guessed seat alone when it already sees out, and never searches a seat with evidence', () => {
     const open = planSeat(dollTruck, [0, 1.6, 0.5], [0, 1.6 - RIDER_EYE_ABOVE_SEAT, 0.5], 'none');
     expect(open.view).toEqual({ before: 1, after: 1 });

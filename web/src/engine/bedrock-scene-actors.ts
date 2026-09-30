@@ -987,6 +987,23 @@ export function sceneFloorPoint(frame: SceneGridFrame, groundLdu: number, p: Vec
 }
 
 /**
+ * The underside the actors' heights are measured from, for a voxel grid `frame`: the model's own underside
+ * (`SceneActors.groundLdu`, which leaves figures out) - unless the GRID reaches more than half a cell below it.
+ * The grid holds every placement, figures included, and the shell and its colliders are laid in the grid's
+ * frame; so when figures stand below the model (42652's display line-up, 1.1 blocks under the tree's base) the
+ * shell is laid that far above the grid's bottom, and heights measured from the model's underside put the
+ * slides and seats that far UNDER the parts they belong to (the slide ran 1.1 blocks under its drawn chute,
+ * simulator triage 2026-09-30). Then the grid's bottom is the underside. Within half a cell the model's own
+ * underside stands: that is the voxelizer's row-0 rounding of a thin baseplate (the chalet's plate, below).
+ */
+export function actorGroundLdu(frame: SceneGridFrame, groundLdu: number): number {
+  if (!Number.isFinite(groundLdu)) return groundLdu;
+  // LDraw y (down) of the grid's row-0 bottom: where `sceneGridPoint`'s height is 0.
+  const gridBottomLdu = -frame.y * frame.cellY;
+  return groundLdu < gridBottomLdu - frame.cellY / 2 ? gridBottomLdu : groundLdu;
+}
+
+/**
  * Bedrock yaw (degrees; 0 faces +Z, forward = (−sin, cos)) for a horizontal
  * LDraw direction (x, z). World Z is LDraw −Z (`sceneGridPoint`), so the
  * world direction is (x, −z): a figure facing LDraw −Z (the front) faces

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '@craft/schem/types.js';
-import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, settleLooseAccessories, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
+import { DOOR_MAX_OFF_GRID_DEG, FIGURE_UPRIGHT_MAX_TILT_DEG, applySceneDoors, discoverSceneActors, doorBlockForColor, isDoorLeafDescription, measureSceneAccess, recommendAccessScale, recommendDoorExportScale, runtimeDoorCandidates, sceneFloorPoint, actorGroundLdu, settleLooseAccessories, sceneGridPoint, tiltDegOf, yawForFacing } from '../web/src/engine/bedrock-scene-actors.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
@@ -388,6 +388,23 @@ describe('sceneFloorPoint', () => {
     expect(sceneFloorPoint(frame, 8, [LDU_PER_BLOCK * 2, 8, -LDU_PER_BLOCK])).toEqual([2, 0, 1]);
     // No underside known: fall back to the grid mapping.
     expect(sceneFloorPoint(frame, NaN, [0, 8, 0])[1]).toBeCloseTo(-8 / LDU_PER_BLOCK, 9);
+  });
+
+  it('measures heights from the grid\'s bottom when figures stand more than half a cell under the model (42652, simulator 2026-09-30)', () => {
+    // The grid (every placement, figures included) reaches 1.18 cells under the model's own underside: 42652's
+    // figure line-up stands under the tree's base. The shell is laid in the grid's frame, so a slide's path and a
+    // seat measured from the model's underside land 1.18 cells under the parts they belong to.
+    const grid = { x: 0, y: -1.18, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
+    const modelUnderside = 0; // LDraw y (down) of the lowest non-figure brick
+    const ground = actorGroundLdu(grid, modelUnderside);
+    expect(ground).toBeCloseTo(1.18 * LDU_PER_BLOCK, 9);
+    // A chute's top 2 cells over the model's underside: its path now lands where the grid (and the drawn shell) put it.
+    const chuteTop: [number, number, number] = [0, -2 * LDU_PER_BLOCK, 0];
+    expect(sceneFloorPoint(grid, ground, chuteTop)[1]).toBeCloseTo(sceneGridPoint(grid, chuteTop)[1], 9);
+    // Within half a cell (a baseplate the voxelizer rounds into row 0) the model's own underside stands.
+    const plate = { x: 0, y: -8 / LDU_PER_BLOCK, z: 0, scale: 1, cellXZ: LDU_PER_BLOCK, cellY: LDU_PER_BLOCK };
+    expect(actorGroundLdu(plate, 0)).toBe(0);
+    expect(actorGroundLdu(frame, NaN)).toBeNaN();
   });
 
   it('discoverSceneActors reports the underside of the non-figure placements', async () => {
