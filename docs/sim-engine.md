@@ -322,12 +322,24 @@ a new refusal the log shows becomes a check there.
 | 10788 lift car is the shaft cap, rider not carried past the floors (29b) | reproduced: set down under a floor, dropped 1.71 (since the x mirror, 2026-09-30: set down inside `collider_c2`/`collider_w2` on every trip) | passes |
 | 10797 car under an overhang falls through the world (29b) | NOT reproduced (see limits) | passes |
 | 10797 driver's eye in the bodywork, 0 of 15 rays (29b) | reproduced: 0 of 15 | passes |
+| 42639 cockpit view two thirds its own body (30f) | reproduced: horizon 0 of 6 (2 of 15 of the wider fan) | passes: 6 of 6 (`9759f0bf`, `output/cockpit-0930/`) |
 | 10788 slide seat: a tap boards nothing (29c) | reproduced | passes |
 | Nimbus: sneak off at altitude drops the player (0929) | reproduced: 70.55 blocks without slow falling | passes (slow falling) |
 | Nimbus: summon hint overwritten by the driver HUD (0929) | reproduced: after 3 ticks | passes |
 | 10326 Door 1 from the porch drops at the door plane (29d) | reproduced, the MODEL's | reproduced, the model's (as expected) |
 | 910004 Door 3 walk-out stops before the doorway (29d) | reproduced, the MODEL's | reproduced, the model's (as expected) |
 | 10261 spurious FIGURE_RETAKE_NO_SEAT during placement (29d) | reproduced | passes |
+
+**The driver's view** (`driveVehicle`'s `driver-sees-ahead`) is the
+compiler's own seat rule, `AHEAD` in `cockpit-seat.ts`: the level and +5
+degree rays straight ahead and 15 degrees either side must leave the drawn
+vehicle. Until 2026-09-30 the guard asked 90 % of the wider 15-ray `VIEW`
+fan, which a real bonnet fails (42172: 6 of 15, device-good) and which the
+compiler applied to guessed seats only - so a set's own seat was placed by
+no view rule and the guard's failures on it were read as its blind spot.
+Now every seat is placed by `AHEAD` and judged by it; the wider fan is
+reported in the step's note. `bun scripts/_cockpit_view.ts <packs> --out=<dir>`
+renders each vehicle's hotbar-9 view offline and prints both scores.
 
 Limits of this set: the slide's margin is small (the drawn slope is coarse;
 `TODO(sim-slide)`); where the Saga's 10797 car met its overhang is not

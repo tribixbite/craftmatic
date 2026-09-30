@@ -32,8 +32,10 @@ import type { StepContext } from '../web/src/sim/scenario/types.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--${n}=`))?.slice(n.length + 3);
-const files = args.filter(a => !a.startsWith('--'));
-const outDir = flag('out');
+// `--out=<dir>` or `--out <dir>` (the operator console passes the spaced form).
+const outAt = args.indexOf('--out');
+const outDir = flag('out') ?? (outAt >= 0 ? args[outAt + 1] : undefined);
+const files = args.filter((a, i) => !a.startsWith('--') && !(outAt >= 0 && i === outAt + 1));
 if (!files.length || !outDir) { console.error('usage: bun scripts/_cockpit_view.ts <pack.mcaddon>... --out=<dir> [--size=100] [--rotation=0] [--pitch=0]'); process.exit(2); }
 mkdirSync(outDir, { recursive: true });
 const size = Number(flag('size') ?? 100), rotation = Number(flag('rotation') ?? 0) as 0 | 90, pitch = Number(flag('pitch') ?? 0);

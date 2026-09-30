@@ -3788,8 +3788,9 @@ Census: `bun scripts/_vehicle_audit.ts <sets> --seats` (evidence
   pilot seat (render z +1.71, behind the middle) sat the player in the air
   over its NOSE at 150 %, and 42172's rider telemetry read its eye 1.64
   blocks ahead of the car's origin for a seat meant 1.64 behind. Seat z now
-  flips on the way into the rideable (x does not: the geometry's JSON X
-  mirror and the entity's half turn cancel).
+  flips on the way into the rideable. (x was left alone here on the reading
+  that the JSON X mirror and the entity's half turn cancel; they do not - x
+  flips too, see "The driver's eye sees the road ahead" below.)
 - **The "kart" rule sat 16 of 43 rideables ON the roof.** A model under 2.4
   blocks tall or 2.2 wide (every display car shrunk to its real length, and
   the 1x Senna) put the hips at `roofAtSeat - 0.55`: outside the car, the
@@ -3829,6 +3830,10 @@ Census: `bun scripts/_vehicle_audit.ts <sets> --seats` (evidence
 5. A hidden rider is only its eye: if the eye is inside the model or cannot
    see ahead through air or glass, it moves to the nearest point that can,
    never out through a roof it started under.
+6. (2026-09-30) Every eye, whatever its evidence, sees the horizon ahead
+   (`AHEAD`), rising or set back until it does; the seat is written turned
+   half round, x and z (`renderSeatToEntity`). See "The driver's eye sees
+   the road ahead" below.
 
 **Census** (43 rideables in 34 sets; `final3/seats.md`): the rider is drawn
 in the driver's seat at 100 % in 22 (minifig-scale vehicles whose figure,
@@ -3887,6 +3892,62 @@ now counted from the source and judged against the pack
 - An invisible rider still shows what it holds (the invisibility effect); the
   chase camera then shows the vehicle without a driver.
 - None of round 2 is seen on a device yet.
+
+### The driver's eye sees the road ahead (2026-09-30, `output/cockpit-0930/`)
+
+Pixel round 30f: 42639's car in the cockpit view (hotbar 9) was two thirds
+its own teal body, the road a strip at the right, parked or driving
+(`device-round-2026-09-30f/pixel/47b-47e`). The simulator's picture of the
+same seat over the drawn geometry (`bun scripts/_cockpit_view.ts <packs>
+--out=<dir>`, the hotbar-9 view rendered offline) matched it; measured
+there, three faults, all general:
+
+- **The rideable seat was mirrored in x.** The geometry is drawn at (-x, y,
+  -z) of the compiler's render frame - its JSON x is the render x negated,
+  and the world draws JSON x as x (`drawnBoxes`, `worldFaces`) - so the seat
+  must turn half round with it, both axes; only z was turned. Every seat off
+  the centre line sat mirrored across it: 60380's drawn steering wheel is at
+  x -0.51 and its seat was at +0.51, so the driver sat OUTSIDE its cab wall
+  (the device's 49/49b: the cab to one side, open road to the other).
+  `renderSeatToEntity` (cockpit-seat.ts) turns both, for the driver and
+  every passenger seat.
+- **A car's wheel eye was read along the mould's own axes.** The eye was 30
+  LDU along the wheel's local +Z - behind a 3829 stand set square, but
+  42639's `16091` (a reinforced 2L wheel) is turned so its local +Z runs
+  across the car, and the driver sat 30 LDU to one side, off the wheel's
+  line. The eye is now aft along the VEHICLE (`CAR_WHEEL_EYE_LDU`: 30 behind,
+  20 over), as a ship's helm already was. A wheel, a seat mould or a seated
+  figure is no longer snapped to x 0 either: x 0 is the middle of everything
+  the entity carries (42639's has a door raised at one side), not the car's
+  centre line.
+- **No view rule for a seat with evidence.** Only a guessed seat was judged
+  by what its eye saw (`VIEW`, 90 % of 15 rays), and that fan fails a real
+  bonnet (42172: 6 of 15, device-good). Every seat now passes one rule,
+  `AHEAD`: the rays at the level and 5 degrees over it, straight ahead and
+  15 degrees either side, leave the vehicle through air or glass. When they
+  do not, the eye rises or sets back to the nearest point where they do
+  (`AHEAD_SEARCH`: up to 0.6 up, 0.6 back), in air, under the roof it sat
+  under, keeping a drawn body drawn (`SeatPlan.ahead` in the export report).
+  The simulator's `driver-sees-ahead` judges the same rule.
+
+Before/after, drawn geometry (horizon rays / the wider fan; `output/cockpit-0930/`,
+packs `packs-9759f0bf`, pictures `cockpit-before-after.jpg`):
+
+| car | before (round 30f pack) | after |
+|---|---|---|
+| 42639 | 0/6, 2/15: eye 0.49 off the wheel's line, 0.23 behind the raised door | 6/6, 5/15: on the wheel's line behind it, the wheel's rim just under the horizon |
+| 60380 | 6/6, 11/15 - from OUTSIDE the cab wall | 6/6, 9/15: in the cab, 0.2 over the wheel's rim |
+| 42172 | 6/6, 6/15 | unchanged |
+| 10797 | 6/6, 15/15 | unchanged |
+
+Vehicle audit over the favourites and the vehicle extras: see the tracker
+("Cockpit view", `output/cockpit-0930/audit-*`).
+
+**Device-only still:** what the cockpit view looks like with Bedrock's
+lighting and the near-plane (the offline picture has no ground); the
+cockpit's look is FIXED to the car's heading on every compiled seat
+(`lock_rider_rotation: 0`; the device notes' "look drags do not move it") -
+unchanged and not judged here.
 
 ### Traps found this round
 
