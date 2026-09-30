@@ -43,25 +43,47 @@ function trackFall(engine: SimEngine, e: SimEntity): void {
 }
 
 /**
- * Where a rider that got off stands (quirk `dismount-free-spot`, ASSUMED): where it was when its box is free;
- * else stood on the highest floor under its head height, where it was or on rings out to 2 blocks (at most 3
- * under its feet). Without this a low car's rider (seat 0.1-0.3 under the
- * grass top: 42172, 10796's cars) was left inside the ground, which the device does not do.
+ * The spots a dismounted player is tried at, in the device's order, as (dx, dz) blocks from the SEAT
+ * ENTITY's point (quirk `dismount-free-spot`, Pixel GameTest 2026-09-30, runs 2 and 3): world -z, +z,
+ * then the diagonals (+x -z), (+x +z), (-x +z). A ring with +-z walled took (+x -z) even with +-x open,
+ * so the plain x sides come after the diagonals. TODO(dismount-order): (-x -z), (+x 0) and (-x 0) were
+ * never reached by a probe; their places here are a guess.
  */
-function dismountSpot(p: SimEntity, world: VoxelWorld): void {
-  const h = PLAYER_WIDTH / 2;
+export const DISMOUNT_OFFSETS: ReadonlyArray<readonly [number, number]> = [[0, -1], [0, 1], [1, -1], [1, 1], [-1, 1], [-1, -1], [1, 0], [-1, 0]];
+/**
+ * How far above / below the seat entity's point a candidate's floor may lie. Measured: a floor 0.3 under
+ * the seat point and a slab top 0.2 over it were taken, a block top 0.7 over it and a floor 1.3 under it
+ * were not. TODO(dismount-floor): the bounds are inside those brackets, not measured exactly.
+ */
+export const DISMOUNT_FLOOR_ABOVE = 0.5;
+export const DISMOUNT_FLOOR_BELOW = 1;
+/** With every candidate refused, the rider is put at the seat entity's point this far up (it then falls). */
+export const DISMOUNT_FALLBACK_LIFT = 0.2;
+
+/**
+ * Put a PLAYER that left a seat (a sneak, `ejectRider`, `/ride stop_riding`) where the device puts it
+ * (quirk `dismount-free-spot`): on the floor of the first free candidate one block from the seat
+ * entity (`DISMOUNT_OFFSETS`), its box free there; else at the seat entity's point 0.2 up. The device
+ * does this even in the open (run 2: an open seat's rider was set one block to -z), and even when the
+ * rider sat inside a block (a seat sunk 0.1-0.3 into the floor, a block over the seat).
+ */
+export function setDownRider(p: SimEntity, mount: SimEntity, world: VoxelWorld): void {
+  const h = PLAYER_WIDTH / 2, eps = 0.001;
   const boxAt = (q: { x: number; y: number; z: number }) => ({ x0: q.x - h, y0: q.y, z0: q.z - h, x1: q.x + h, y1: q.y + PLAYER_HEIGHT, z1: q.z + h });
-  if (!world.overlapping(boxAt(p.location), 0.001)) return;
+  const ref = mount.location;
   const standAt = (x: number, z: number): { x: number; y: number; z: number } | undefined => {
     let top = -Infinity;
-    for (const [dx, dz] of [[0, 0], [-h + 0.01, -h + 0.01], [h - 0.01, -h + 0.01], [-h + 0.01, h - 0.01], [h - 0.01, h - 0.01]] as const) top = Math.max(top, world.supportBelow(x + dx, p.location.y + PLAYER_HEIGHT, z + dz, 5));
-    if (!(top > p.location.y - 3)) return undefined;
+    for (const [dx, dz] of [[0, 0], [-h + 0.01, -h + 0.01], [h - 0.01, -h + 0.01], [-h + 0.01, h - 0.01], [h - 0.01, h - 0.01]] as const) top = Math.max(top, world.supportBelow(x + dx, ref.y + DISMOUNT_FLOOR_ABOVE, z + dz, 3));
+    if (!(top >= ref.y - DISMOUNT_FLOOR_BELOW - eps)) return undefined;
     const q = { x, y: top, z };
-    return world.overlapping(boxAt(q), 0.001) ? undefined : q;
+    return world.overlapping(boxAt(q), eps) ? undefined : q;
   };
-  let q = standAt(p.location.x, p.location.z);
-  for (let r = 0.5; !q && r <= 2 + 1e-9; r += 0.5) for (let k = 0; k < 16 && !q; k++) q = standAt(p.location.x + Math.cos(k * Math.PI / 8) * r, p.location.z + Math.sin(k * Math.PI / 8) * r);
-  if (q) { p.location = q; p.onGround = true; }
+  for (const [dx, dz] of DISMOUNT_OFFSETS) {
+    const q = standAt(ref.x + dx, ref.z + dz);
+    if (q) { p.location = q; p.onGround = true; return; }
+  }
+  p.location = { x: ref.x, y: ref.y + DISMOUNT_FALLBACK_LIFT, z: ref.z };
+  p.onGround = false;
 }
 
 /**
@@ -112,7 +134,7 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
             mount.removeRider(p);
             p.velocity = { x: 0, y: 0, z: 0 };
             p.onGround = false;
-            dismountSpot(p, en.dimension(p.dimension));
+            setDownRider(p, mount, en.dimension(p.dimension));
             en.emit('dismounted', { rider: p, mount, cause: 'sneak' });
           }
           continue;

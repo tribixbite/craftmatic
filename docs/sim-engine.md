@@ -339,10 +339,15 @@ branch needs a geometry the simulator has not been given.
   (quirk `block-collision-x-mirrored`, Pixel GameTest 2026-09-30): a pack
   built before the fix to `collisionBox` shows its x-banded clearance forms on
   the half of the block the phone put them on, not where the kit meant.
-- **Dismount spot** (quirk `dismount-free-spot`): the order the device uses
-  (world -z, +z, then (+x, -z) in a ring of four; the seat's own point 0.2 up
-  when walled in) is measured for `ejectRider` and `/ride stop_riding`; a
-  real sneak cannot be sent by a simulated player.
+- **Dismount spot** (quirk `dismount-free-spot`, `setDownRider` in
+  `physics/systems.ts`): a player that gets off is set on the floor one block
+  from the seat ENTITY, trying world (0,-1), (0,+1), (+1,-1), (+1,+1),
+  (-1,+1) in that order, a floor within about +0.5 / -1 of the seat entity;
+  with none free, at the seat's point 0.2 up. Measured for `ejectRider` and
+  `/ride stop_riding` (identical); the rest of the order and the exact floor
+  window are guesses (`TODO(dismount-order)`, `TODO(dismount-floor)`); a real
+  sneak cannot be sent by a simulated player; a mob rider is left where it
+  sat.
 - **Before-events** do not enforce the read-only restriction scripts meet on
   the device; **numeric enums** are names.
 - **Performance** is not the device's: a tick is as fast as the host runs it.

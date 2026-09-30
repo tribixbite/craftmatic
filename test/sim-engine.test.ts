@@ -179,22 +179,32 @@ describe('the script host', () => {
     expect(tap(sim.engine, p, target).entity).toBe(target);
   });
 
-  it('a rider that sneaks off a mount whose seat sits under the ground stands on the ground, not in it (quirk dismount-free-spot, assumed)', async () => {
-    const car = entityJson('x:car', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 0, 0] } }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+  it('a rider that gets off is set on the floor one block to -z, then +z, then a diagonal; walled in, at the seat 0.2 up (quirk dismount-free-spot, Pixel GameTest 2026-09-30)', async () => {
+    // The moulded seat's shape: rider 0.3 under the seat entity. Sunk: the seat entity AT the ground top (run 2 `sunk03`).
+    const seat = entityJson('x:seat', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, -0.3, 0] } }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
     const sim = new Simulation();
-    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'car.json': car }), 'mini'));
-    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
-    const mount = sim.engine.spawnEntity('x:car', 'overworld', { x: 3.5, y: FLAT_GROUND_Y - 0.9, z: 0.5 });
-    await sim.run(2);
-    expect(mount.addRider(p, sim.engine.tick).ok).toBe(true);
-    await sim.run(1);
-    sim.controls.set(p.id, { sneak: true });
-    await sim.run(2);
-    sim.controls.set(p.id, { sneak: false });
-    expect(p.ridingOn).toBeUndefined();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'seat.json': seat }), 'mini'));
     const w = sim.engine.dimension('overworld');
-    expect(w.overlapping({ x0: p.location.x - 0.3, y0: p.location.y, z0: p.location.z - 0.3, x1: p.location.x + 0.3, y1: p.location.y + 1.8, z1: p.location.z + 0.3 }, 0.001)).toBeUndefined();
-    expect(p.location.y).toBeCloseTo(FLAT_GROUND_Y, 6);
+    const stone = sim.host.resolvePermutation('minecraft:stone');
+    const G = FLAT_GROUND_Y;
+    const wall = (x: number, z: number): void => { w.setPermutation(x, G, z, stone); w.setPermutation(x, G + 1, z, stone); };
+    // Seat A open (sunk); seat B with -z walled; seat C with +-z walled; seat D walled on all eight sides.
+    const seats = [0, 10, 20, 30].map(x => sim.engine.spawnEntity('x:seat', 'overworld', { x: x + 0.5, y: G, z: 0.5 }));
+    wall(10, -1); wall(20, -1); wall(20, 1);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) wall(30 + dx!, dz!);
+    const players = seats.map((_, i) => sim.addPlayer(`Child${i}`, { x: i * 10 + 0.5, y: G, z: 3.5 }));
+    await sim.run(2);
+    seats.forEach((s, i) => expect(s.addRider(players[i]!, sim.engine.tick).ok).toBe(true));
+    await sim.run(1);
+    for (const p of players) sim.controls.set(p.id, { sneak: true });
+    await sim.run(1);
+    for (const p of players) { sim.controls.set(p.id, { sneak: false }); expect(p.ridingOn).toBeUndefined(); }
+    const at = (i: number) => ({ dx: players[i]!.location.x - seats[i]!.location.x, y: players[i]!.location.y, dz: players[i]!.location.z - seats[i]!.location.z });
+    expect(at(0)).toEqual({ dx: 0, y: G, dz: -1 });
+    expect(at(1)).toEqual({ dx: 0, y: G, dz: 1 });
+    expect(at(2)).toEqual({ dx: 1, y: G, dz: -1 });
+    expect(at(3).dx).toBe(0);
+    expect(at(3).dz).toBe(0);
     expect(quirk('dismount-free-spot').simulated).toBe('partial');
   });
 
