@@ -55,8 +55,8 @@ export class SimEntity {
   /** Highest point of the current fall and whether slow falling touched it (the fall invariant). */
   fall: { startY: number; slowFell: boolean } | undefined;
 
-  constructor(readonly typeId: string, public dimension: string, at: Vec3, tick: number, readonly def: EntityDefinition | undefined, readonly isPlayer = false) {
-    this.id = isPlayer ? `-${4294967295 - nextEntityNumber++}` : String(nextEntityNumber++ * 17 + 4294967296);
+  constructor(readonly typeId: string, public dimension: string, at: Vec3, tick: number, readonly def: EntityDefinition | undefined, readonly isPlayer = false, id?: string) {
+    this.id = id ?? (isPlayer ? `-${4294967295 - nextEntityNumber++}` : String(nextEntityNumber++ * 17 + 4294967296));
     this.location = { ...at };
     this.spawnTick = tick;
     this.components = { ...(def?.components ?? {}) };

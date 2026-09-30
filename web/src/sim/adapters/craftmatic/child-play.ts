@@ -15,14 +15,13 @@
  */
 
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
-import { CORE_HANDLERS } from '../../scenario/runner.js';
 import { teleport } from '../../script-host/facades.js';
+import { findApproach } from '../../scenario/approach.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import type { Addon } from '../../pack/pack.js';
-import type { SimEntity } from '../../entity/entity.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
-import { playHandlers, placedOf } from './play.js';
+import { playHandlers, placedOf, tapPart } from './play.js';
 import { packAppearance } from './drawn.js';
 
 /** Lines a craftmatic pack prints that are not faults (the wand's own progress and the pack's diagnostics it shows on purpose). */
@@ -45,11 +44,14 @@ function extraHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
       for (const part of parts) {
         const idx = e2n(part.dynamic.get(IX_KEYS.index));
         const label = pack.interactives?.items[idx]?.label ?? part.typeId;
-        const before = JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
-        await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label } }, ctx);
-        await ctx.run(10);
-        const after = JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
-        if (before === after) ctx.violate({ invariant: 'tap-moves-part', message: `a tap on ${label} changed nothing`, evidence: { part: part.typeId, state: before } });
+        const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
+        const before = state();
+        if (!await tapPart(ctx, part, label, () => state() !== before)) {
+          const refused = part.dynamic.get('craftmatic:ix_refused');
+          ctx.violate({ invariant: 'tap-moves-part', message: `no tap on ${label} from any spot within reach changed it${refused ? ` (the part refused: ${String(refused)})` : ''}`, evidence: { part: part.typeId, state: before, at: part.location } });
+        }
+        // A double door's second leaf moves with the first: close the pair again so each leaf is tapped from rest.
+        await ctx.run(8);
       }
       ctx.note(`tapped ${parts.length} moving parts`);
     },
@@ -60,7 +62,10 @@ function extraHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
       const seated = [...ctx.sim.engine.entities.values()].filter(e => e.valid && /_fig\d+$/.test(e.typeId) && e.ridingOn);
       for (const fig of seated.slice(0, 4)) {
         const seat = fig.ridingOn!;
-        teleport(ctx.sim.host, ctx.player, { x: seat.location.x + 1.2, y: seat.location.y, z: seat.location.z });
+        // Walk up to it: a spot within reach from which a tap would pick it (where a child stands to look at it).
+        const spot = findApproach(ctx.sim.engine, ctx.player, fig);
+        if (!spot) { ctx.note(`${fig.typeId}: no standing spot within reach of it; not visited`); continue; }
+        teleport(ctx.sim.host, ctx.player, spot.feet);
         await ctx.run(100);
         const yielded = !fig.ridingOn;
         teleport(ctx.sim.host, ctx.player, { x: placed.from.x - 6.5, y: placed.from.y, z: placed.from.z - 6.5 });

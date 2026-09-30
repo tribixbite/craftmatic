@@ -26,6 +26,7 @@ import { CORE_HANDLERS, findEntity } from '../../scenario/runner.js';
 import { lookAngles, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
+import { findApproach } from '../../scenario/approach.js';
 import { VIEW } from '../../../engine/cockpit-seat.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
@@ -239,10 +240,8 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         if (it.passSize === undefined || !it.leaf || !it.passSize || placed.sizePct < it.passSize) continue;
         const leafEntity = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === i });
         if (!leafEntity) { ctx.note(`${it.label}: no entity`); continue; }
-        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) {
-          await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === leafEntity, label: it.label } }, ctx);
-          await ctx.run(10);
-        }
+        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, leafEntity, it.label, () => leafEntity.dynamic.get(IX_KEYS.open) === true);
+        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) { ctx.note(`${it.label}: no tap from any spot within reach opened it; its lines are not walked`); continue; }
         const leaf = it.leaf;
         const c = { x: leaf.c[0]!, y: leaf.c[1]!, z: leaf.c[2]! }, a = { x: leaf.a[0]!, y: leaf.a[1]!, z: leaf.a[2]! };
         const nW = modelDirToWorld(pack.placement, placed, { x: leaf.n[0]!, y: 0, z: leaf.n[2]! });
@@ -347,6 +346,25 @@ function staticDrawn(ctx: StepContext, appearance: AddonAppearance): DrawnBox[] 
   }
   ctx.state[key] = out;
   return out;
+}
+
+/**
+ * Tap a moving part until it answers, as a child would: from the nearest spot
+ * that picks it, then - when the runtime refused (a part tapped from behind its
+ * wall says so on the action bar) - from the next spot, up to four. Returns
+ * whether `changed` became true.
+ */
+export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean): Promise<boolean> {
+  const tried: Vec3[] = [];
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried);
+    if (attempt > 0) { if (!spot) break; teleport(ctx.sim.host, ctx.player, spot.feet); await ctx.run(1); }
+    await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label } }, ctx);
+    tried.push({ ...ctx.player.location });
+    await ctx.run(10);
+    if (changed()) return true;
+  }
+  return false;
 }
 
 /** A doorway finding for the report (the model's, or the pack's). */

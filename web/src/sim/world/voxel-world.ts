@@ -65,6 +65,8 @@ export class VoxelWorld {
   private loaded = new Set<string>();
   /** Every block write, for scenarios that want to know what changed (undo checks). */
   readonly writes = new Map<string, number>();
+  /** Called after every write (a recorder, a test host). */
+  onWrite: ((x: number, y: number, z: number, p: Permutation) => void) | undefined;
 
   constructor(readonly id: string, readonly palette: BlockPalette, readonly types: BlockTypes, private readonly generator: TerrainGenerator = flatTerrain(), heightRange = { min: -64, max: 320 }) {
     this.heightRange = heightRange;
@@ -116,6 +118,7 @@ export class VoxelWorld {
     const s = this.section(x, y, z, true)!;
     s[((x & 15) * 16 + (y & 15)) * 16 + (z & 15)] = p.id;
     this.writes.set(`${x},${y},${z}`, p.id);
+    this.onWrite?.(x, y, z, p);
   }
 
   /** The shape of the block at a position. */

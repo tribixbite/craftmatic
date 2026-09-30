@@ -38,10 +38,11 @@ export function floorBelow(engine: SimEngine, dimension: string, x: number, from
 }
 
 /**
- * Find a spot from which a tap picks `target`. Leaves the player where it was
- * (it looks and moves only to test), and returns the spot or undefined.
+ * Find a spot from which a tap picks `target`, skipping spots within a block of
+ * `exclude` (ones already tried). Leaves the player where it was (it looks and
+ * moves only to test), and returns the spot or undefined.
  */
-export function findApproach(engine: SimEngine, player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks') - 0.5): ApproachSpot | undefined {
+export function findApproach(engine: SimEngine, player: SimEntity, target: SimEntity, reach = quirkValue('tap-is-hit', 'reachBlocks') - 0.5, exclude: readonly Vec3[] = []): ApproachSpot | undefined {
   const saved = { loc: { ...player.location }, rot: { ...player.rotation } };
   const a = aimPoint(player, target);
   const candidates: Array<ApproachSpot & { fromPlayer: number }> = [];
@@ -65,6 +66,7 @@ export function findApproach(engine: SimEngine, player: SimEntity, target: SimEn
   candidates.sort((p, q) => p.distance - q.distance || p.fromPlayer - q.fromPlayer);
   let found: ApproachSpot | undefined;
   for (const c of candidates) {
+    if (exclude.some(e => Math.hypot(e.x - c.feet.x, e.z - c.feet.z) < 1)) continue;
     player.location = { ...c.feet };
     lookAt(player, a);
     if (pick(engine, player).entity === target) { found = { feet: c.feet, distance: c.distance }; break; }

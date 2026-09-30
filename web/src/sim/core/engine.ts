@@ -162,9 +162,9 @@ export class SimEngine {
     return e;
   }
 
-  /** Add a player standing at a point. */
-  addPlayer(name: string, dimension: string, at: Vec3): SimEntity {
-    const p = new SimEntity('minecraft:player', this.dimension(dimension).id, at, this.tick - 1, undefined, true);
+  /** Add a player standing at a point (with its own id when given: a trace that must repeat names its players). */
+  addPlayer(name: string, dimension: string, at: Vec3, id?: string): SimEntity {
+    const p = new SimEntity('minecraft:player', this.dimension(dimension).id, at, this.tick - 1, undefined, true, id);
     p.nameTag = name;
     this.entities.set(p.id, p);
     this.players.push(p);

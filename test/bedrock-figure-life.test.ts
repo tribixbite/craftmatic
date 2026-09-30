@@ -304,7 +304,7 @@ describe('the serialised runtime', () => {
         { typeId: 'craftmatic:seated_fig2', label: 'Figure 2', x: 2, y: 1, z: 1 },
       ],
       settleTicks: 1, finalHoldTicks: 1 });
-    const dim = h.world.getDimension() as { spawnEntity: (t: string, at: unknown) => unknown };
+    const dim = h.world.getDimension('overworld') as { spawnEntity: (t: string, at: unknown) => unknown };
     const spawn = dim.spawnEntity;
     let markWhileSeatSpawns: unknown = 'unset';
     dim.spawnEntity = (t: string, at: unknown) => {

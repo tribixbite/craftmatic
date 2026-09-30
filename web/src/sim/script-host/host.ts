@@ -80,6 +80,11 @@ export class ScriptHost implements FacadeHost {
     engine.addSystem({ name: 'scripts', order: ORDER.scripts, tick: () => this.tick() });
   }
 
+  /** The module a script importing `name` gets (`@minecraft/server`, `@minecraft/server-ui`), or undefined. */
+  builtin(name: string): Record<string, unknown> | undefined {
+    return name === '@minecraft/server' ? this.serverModule : name === '@minecraft/server-ui' ? this.uiModule : undefined;
+  }
+
   // ─── Loading ───────────────────────────────────────────────────────────────
 
   /** Load and start every behaviour pack's scripts (entry modules in pack order, one shared context). */
@@ -88,7 +93,7 @@ export class ScriptHost implements FacadeHost {
     for (const pack of behaviorPacks(addon)) {
       if (!pack.scriptEntry) continue;
       const loader = new ModuleLoader(pack, {
-        builtin: name => (name === '@minecraft/server' ? this.serverModule : name === '@minecraft/server-ui' ? this.uiModule : undefined),
+        builtin: name => this.builtin(name),
         Math: seededMath(this.options.seed ?? 1),
         Date: engineDate(() => EPOCH_MS + this.engine.tick * 50),
         console,
