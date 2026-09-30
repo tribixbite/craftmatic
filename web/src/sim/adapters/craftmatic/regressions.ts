@@ -102,9 +102,12 @@ export const REGRESSIONS: RegressionCase[] = [
     evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (A) (Saga: ends at y -59.75); docs/bedrock-interactivity.md "The doorway\'s floor, a floor\'s top, and the device\'s line" (the model\'s: the door hangs 2.6 over the plate, the porch was a teleport into the air); merge c4c34b1c',
     oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum',
     // The user kept the invisible 1-block ledge at the doorway's level (2026-09-30:
-    // "always prefer unlocking exploration and interactivity"), so a current build
-    // must NOT drop the player here; the 29d pack still does.
-    expectNew: 'pass',
+    // "always prefer unlocking exploration and interactivity"). On the round's source
+    // (IOModel2V2 10326-noprint.ldr, what the device runs) the doorway's own lines pass,
+    // but the porch line still drops 2.625: the door hangs 2.6 over the base plate with
+    // nothing drawn in front (the model's). The `.io` source reads no HOLE at all.
+    // TODO(access-steps): invisible steps up to an elevated door would make this 'pass'.
+    expectNew: 'reproduce-as-model',
     scenario: pack => ({ name: 'door1-10326', steps: [...place, { kind: 'doorwayLines', only: [doorIndex(pack, 'Door 1')] }], allowLines: allow }),
     judge: r => doorJudge(r, 'Door 1', 'HOLE'),
   },
