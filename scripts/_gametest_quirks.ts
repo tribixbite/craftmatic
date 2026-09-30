@@ -29,7 +29,11 @@
  * so it must be the ONLY behaviour pack bound in `cmgametest` (the collider
  * ids would clash with a model pack's).
  *
- * Usage: bun scripts/_gametest_quirks.ts [--out=output/gametest-quirks-0930]
+ *   - `quirk_bands`: a small pin dropped over each quarter of a collider
+ *     form's pillar shows which half of the block the form's band occupies in
+ *     the world. `CMGT QBANDS {json}`.
+ *
+ * Usage: bun scripts/_gametest_quirks.ts [--out=output/gametest-quirks-0930] [--tests=quirk_dismount,quirk_bands]
  * Then run it on the Pixel with output/gametest-quirks-0930/_run_quirks.py.
  */
 import { execSync } from 'node:child_process';
@@ -47,14 +51,20 @@ const NS = 'craftmatic_gtq';
 /** Arena: 48 x 48 of smooth stone, 10 high (cells 6 blocks apart; see the runtime). */
 const ARENA = { width: 48, height: 8, length: 48 } as const;
 /** The collider forms the probe places: the full collider and the half-block x wall band. */
-const PROBE_COLLIDERS = ['craftmatic:collider', 'craftmatic:collider_w2'] as const;
+const PROBE_COLLIDERS = ['craftmatic:collider', 'craftmatic:collider_w2', 'craftmatic:collider_w5', 'craftmatic:collider_w9'] as const;
+/** Every test the probe has; `--tests=a,b` registers a subset. */
+const ALL_TESTS = ['quirk_tp', 'quirk_dismount', 'quirk_bands', 'quirk_reach'] as const;
 
 /**
  * The tests, serialised into the pack with `.toString()` (no outside
  * references: `mc`/`gt` are handed in).
  */
-function quirkRuntime(mods: { mc: any; gt: any }, ns: string): void {
+function quirkRuntime(mods: { mc: any; gt: any }, ns: string, only: readonly string[]): void {
   const { mc, gt } = mods;
+  /** Register one test when this build asked for it (`--tests=`). */
+  const register = (name: string, fn: (test: any) => Promise<void>, maxTicks: number): void => {
+    if (only.includes(name)) gt.registerAsync(ns, name, fn).structureName(`${ns}:arena`).maxTicks(maxTicks).tag(ns);
+  };
   const { world, system } = mc;
   const log = (tag: string, data: unknown): void => { console.warn(`CMGT ${tag} ${JSON.stringify(data)}`); };
   // The content log is block-buffered: pad so the lines above reach the file.
@@ -83,7 +93,7 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string): void {
   const spawnSim = async (test: any, at: any, name: string, mode: any): Promise<any> => test.spawnSimulatedPlayer(at, name, mode);
 
   // ── teleport-into-floor ────────────────────────────────────────────────
-  gt.registerAsync(ns, 'quirk_tp', async (test: any) => {
+  register('quirk_tp', async (test: any) => {
     try {
       const fy = floorY(test);
       const S = fy + 1; // floor top, relative
@@ -150,16 +160,15 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string): void {
     log('QUIRK_DONE', { test: 'quirk_tp' });
     flush();
     test.succeed();
-  }).structureName(`${ns}:arena`).maxTicks(2400).tag(ns);
+  }, 2400);
 
   // ── dismount-free-spot ─────────────────────────────────────────────────
-  gt.registerAsync(ns, 'quirk_dismount', async (test: any) => {
+  register('quirk_dismount', async (test: any) => {
     try {
       const fy = floorY(test);
       const S = fy + 1;
       const dim = test.getDimension();
       const stone = mc.BlockPermutation.resolve('minecraft:stone');
-      const air = mc.BlockPermutation.resolve('minecraft:air');
       // Blocks around the seat cell (cx, cz): feet and head level, relative offsets.
       const SIDES: Record<string, number[][]> = { px: [[1, 0]], nx: [[-1, 0]], pz: [[0, 1]], nz: [[0, -1]] };
       const RING8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
@@ -188,8 +197,7 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string): void {
         for (const c of cases) {
           const { cx, cz } = cellOf(idx++);
           c.cell = [cx, cz];
-          // Clear the cell's 3 x 3 x 3 first (the cells are not reused, but be explicit).
-          for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) for (let dy = 0; dy <= 2; dy++) test.setBlockPermutation(air, { x: cx + dx, y: S + dy, z: cz + dz });
+          // Each case has its own fresh cell (setting air over air throws couldNotSetBlock).
           for (const [dx, dz] of c.walls) for (let dy = 0; dy <= 1; dy++) test.setBlockPermutation(stone, { x: cx + dx!, y: S + dy, z: cz + dz! });
           if (c.head) test.setBlockPermutation(stone, { x: cx, y: S + 1, z: cz });
           c.seatAt = { x: cx + 0.5, y: S + c.seatH, z: cz + 0.5 };
@@ -249,14 +257,51 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string): void {
     log('QUIRK_DONE', { test: 'quirk_dismount' });
     flush();
     test.succeed();
-  }).structureName(`${ns}:arena`).maxTicks(3000).tag(ns);
+  }, 3000);
+
+  // ── where a collider form's band lies in the world ─────────────────────
+  // Run 1's wall-form subjects were pushed the way a band on the block's HIGH-x
+  // half would push them, while the kit (collider-form.ts SHAPES) puts
+  // `collider_w2` on x 0..8/16. A 0.2-wide pin dropped over each quarter of a
+  // form's pillar lands on it (feet at the pillar's top) only where the band is.
+  register('quirk_bands', async (test: any) => {
+    try {
+      const fy = floorY(test);
+      const S = fy + 1;
+      const dim = test.getDimension();
+      // Forms: x band 0..8 (w2), x band 8..16 (w5), z band 0..8 (w9), stone as the control.
+      const FORMS: Array<{ name: string; perm: () => any }> = [
+        { name: 'collider_w2 (kit x 0..8)', perm: () => collider('craftmatic:collider_w2', 0, 16) },
+        { name: 'collider_w5 (kit x 8..16)', perm: () => collider('craftmatic:collider_w5', 0, 16) },
+        { name: 'collider_w9 (kit z 0..8)', perm: () => collider('craftmatic:collider_w9', 0, 16) },
+        { name: 'stone', perm: () => mc.BlockPermutation.resolve('minecraft:stone') },
+      ];
+      const QUARTERS: Array<[number, number]> = [[0.25, 0.5], [0.75, 0.5], [0.5, 0.25], [0.5, 0.75]];
+      const pins: any[] = [];
+      FORMS.forEach((f, i) => {
+        const { cx, cz } = cellOf(i);
+        test.setBlockPermutation(f.perm(), { x: cx, y: S, z: cz });
+        for (const [fx, fz] of QUARTERS) {
+          const at = { x: cx + fx, y: S + 2.5, z: cz + fz };
+          pins.push({ form: f.name, fx, fz, e: dim.spawnEntity('craftmatic:gtq_pin', test.worldLocation(at)) });
+        }
+      });
+      await test.idle(60);
+      const rows = pins.map(p => { let y: number | null = null; try { y = r3(rel(test, p.e).y - (S + 1)); } catch { /* gone */ } return [p.form, p.fx, p.fz, y]; });
+      log('QBANDS', { cols: ['form', 'xFrac', 'zFrac', 'feetMinusPillarTop'], frame: { origin: test.worldBlockLocation({ x: 0, y: 0, z: 0 }), xAxis: test.worldBlockLocation({ x: 1, y: 0, z: 0 }), zAxis: test.worldBlockLocation({ x: 0, y: 0, z: 1 }) }, rows });
+      for (const p of pins) { try { p.e.remove(); } catch { /* gone */ } }
+    } catch (err) { log('QBANDS_ERROR', { error: String(err), stack: (err as any)?.stack }); }
+    log('QUIRK_DONE', { test: 'quirk_bands' });
+    flush();
+    test.succeed();
+  }, 600);
 
   // ── reach of attack() / interact() ─────────────────────────────────────
   const hits: Array<{ tick: number; by: string; hit: string; id: string }> = [];
   world.afterEvents.entityHitEntity.subscribe((ev: any) => {
     try { hits.push({ tick: system.currentTick, by: String(ev.damagingEntity?.name ?? ev.damagingEntity?.typeId), hit: String(ev.hitEntity?.typeId), id: String(ev.hitEntity?.id) }); } catch { /* invalid */ }
   });
-  gt.registerAsync(ns, 'quirk_reach', async (test: any) => {
+  register('quirk_reach', async (test: any) => {
     try {
       const fy = floorY(test);
       const S = fy + 1;
@@ -328,7 +373,7 @@ function quirkRuntime(mods: { mc: any; gt: any }, ns: string): void {
     log('QUIRK_DONE', { test: 'quirk_reach' });
     flush();
     test.succeed();
-  }).structureName(`${ns}:arena`).maxTicks(12000).tag(ns);
+  }, 12000);
 
   let started = false;
   world.afterEvents.playerSpawn.subscribe((ev: any) => {
@@ -356,6 +401,18 @@ function dummyBehavior(): unknown {
   } } };
 }
 
+/** A 0.2-wide falling pin (gravity and collision, no AI) that shows where a collider form's band is. */
+function pinBehavior(): unknown {
+  return { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:gtq_pin', is_spawnable: false, is_summonable: true }, components: {
+    'minecraft:type_family': { family: ['craftmatic_gtq'] },
+    'minecraft:collision_box': { width: 0.2, height: 0.2 },
+    'minecraft:physics': {},
+    'minecraft:health': { value: 20, max: 20 },
+    'minecraft:damage_sensor': { triggers: [{ cause: 'all', deals_damage: 'no' }] },
+    'minecraft:movement': { value: 0 },
+  } } };
+}
+
 /** The small tap target: a 0.5 box, no gravity, no collision, unhurt (like a seat, not rideable). */
 function targetBehavior(): unknown {
   return { format_version: '1.26.30', 'minecraft:entity': { description: { identifier: 'craftmatic:gtq_target', is_spawnable: false, is_summonable: true }, components: {
@@ -369,6 +426,9 @@ function targetBehavior(): unknown {
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const outDir = resolve(flag('out') ?? 'output/gametest-quirks-0930');
+const tests = (flag('tests') ?? ALL_TESTS.join(',')).split(',').filter(Boolean);
+const unknownTests = tests.filter(t => !(ALL_TESTS as readonly string[]).includes(t));
+if (unknownTests.length) throw new Error(`unknown tests: ${unknownTests.join(', ')} (have ${ALL_TESTS.join(', ')})`);
 mkdirSync(outDir, { recursive: true });
 // The commit the probe was built from, so the pack on the phone is identifiable (+dirty when the tree was not clean).
 const stamp = execSync('git rev-parse --short=8 HEAD').toString().trim() + (execSync('git status --porcelain -uno').toString().trim() ? '+dirty' : '');
@@ -383,7 +443,7 @@ const bp = 'craftmatic_quirk_probe_bp/';
 const rp = 'craftmatic_quirk_probe_rp/';
 const colliderVariants = PROBE_COLLIDERS.map(id => COLLIDER_BLOCK_IDS.indexOf(id));
 if (colliderVariants.some(v => v < 0)) throw new Error(`collider ids not in the kit: ${PROBE_COLLIDERS.join(', ')}`);
-const script = `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n(${quirkRuntime.toString()})({ mc, gt }, ${JSON.stringify(NS)});\n`;
+const script = `import * as mc from "@minecraft/server";\nimport * as gt from "@minecraft/server-gametest";\n(${quirkRuntime.toString()})({ mc, gt }, ${JSON.stringify(NS)}, ${JSON.stringify(tests)});\n`;
 const files: Array<{ name: string; data: Uint8Array }> = [
   { name: `${bp}manifest.json`, data: json({ format_version: 2, header: { name: `${label} [GameTest]`, description: 'Measures teleport-into-floor, dismount spot and tap reach (scripts/_gametest_quirks.ts).', uuid: bpUuid, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: uid('bp.data'), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: uid('bp.script'), version }], dependencies: [{ uuid: rpUuid, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-gametest', version: GT_GAMETEST_VERSION }] }) },
   { name: `${bp}scripts/main.js`, data: enc.encode(script) },
@@ -391,6 +451,7 @@ const files: Array<{ name: string; data: Uint8Array }> = [
   { name: `${bp}entities/gtq_seat.json`, data: json(seatBehavior('gtq_seat')) },
   { name: `${bp}entities/gtq_dummy.json`, data: json(dummyBehavior()) },
   { name: `${bp}entities/gtq_target.json`, data: json(targetBehavior()) },
+  { name: `${bp}entities/gtq_pin.json`, data: json(pinBehavior()) },
   ...colliderVariants.map(v => ({ name: `${bp}blocks/${colliderBlockFile(v)}`, data: json(colliderBlockDefinition(v)) })),
   { name: `${rp}manifest.json`, data: json({ format_version: 2, header: { name: label, description: 'Quirk probe resources.', uuid: rpUuid, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: uid('rp.res'), version }] }) },
   { name: `${rp}blocks.json`, data: json({ format_version: '1.21.40', ...Object.fromEntries(PROBE_COLLIDERS.map(id => [id, { sound: 'stone' }])) }) },
@@ -399,4 +460,4 @@ const files: Array<{ name: string; data: Uint8Array }> = [
 ];
 const out = join(outDir, 'craftmatic-quirk-probe.mcaddon');
 writeFileSync(out, await createZip(files));
-console.log(`probe ${out}\nstamp ${stamp} version ${version.join('.')} bp ${bpUuid} rp ${rpUuid}`);
+console.log(`probe ${out} tests ${tests.join(',')}\nstamp ${stamp} version ${version.join('.')} bp ${bpUuid} rp ${rpUuid}`);
