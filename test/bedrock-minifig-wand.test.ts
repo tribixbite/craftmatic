@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { MINIFIG_WAND_API_GLOBAL, minifigWandScript } from '../web/src/engine/bedrock-minifig-wand.js';
+import { MINIFIG_WAND_API_GLOBAL, creatorFigureBehavior, minifigWandScript } from '../web/src/engine/bedrock-minifig-wand.js';
+import { ORDER } from '../web/src/sim/core/engine.js';
+import { lookAt } from '../web/src/sim/input/touch.js';
+import type { FormAnswer, ShownForm } from '../web/src/sim/script-host/ui-module.js';
+import { simHost, solidBelow } from './_sim-host.js';
 
 const slotNames = ['head', 'hair', 'torso', 'arms', 'hands', 'hips', 'legs', 'held_right', 'held_left', 'back'];
 const config = {
@@ -22,7 +26,11 @@ const config = {
 };
 
 type Response = { canceled?: boolean; selection?: number; formValues?: unknown[]; cancelationReason?: string };
-interface Form { kind: string; title: string; body: string; buttons: string[]; icons: Array<string | undefined>; fields: any[] }
+interface Form { kind: string; title: string; body: string; buttons: string[]; icons: Array<string | undefined> }
+
+/** A set's seat: rideable by one, with the thin box a set's invisible seat has. */
+const SEAT_TYPE = 'craftmatic:set_seat';
+const SEAT_DEFINITION = { components: { 'minecraft:rideable': { seat_count: 1, seats: [{ position: [0, 0.1, 0] }] }, 'minecraft:collision_box': { width: 0.2, height: 0.1 } } };
 /** A scripted answer: a fixed response, or one computed from the form on screen (pick a button by its label). */
 type Answer = Response | ((form: Form) => Response);
 
@@ -35,111 +43,89 @@ const pick = (label: string): Answer => (form) => {
 const close: Answer = { canceled: true };
 const values = (...formValues: unknown[]): Answer => ({ formValues });
 
-function host(answers: Answer[] = [], runtimeConfig: any = config, opts: { deferProperties?: boolean } = {}) {
-  /** Bedrock applies `setProperty` at the end of the tick: queued here until the next timeout. */
-  const pending: Array<() => void> = [];
-  let nextId = 1;
-  const entities = new Map<string, any>();
+/**
+ * The SERIALISED wand runtime (`scripts/minifig-wand.js`) on the headless
+ * simulator (test/_sim-host.ts): the creator figure declared as the pack
+ * declares it (`creatorFigureBehavior`), a player standing on stone at
+ * (0.5, 64, 0.5) looking along +z, nether and End loaded by ticking areas, and
+ * the forms answered by `answers` in order. A form stays open for one tick
+ * before its answer arrives (a thumb is never faster), so a figure the wand
+ * spawns is never seated in its own spawn tick (quirk `add-rider-spawn-tick`).
+ *
+ * What the old fake modelled that stays a fixture here: the block the player
+ * looks at (`getBlockFromViewDirection`, a stone block at (8, 70, 9) the
+ * view ray itself does not reach from a yaw-0 look), and - for one test -
+ * actor properties applied at the END of the tick (`deferProperties`), the
+ * device timing that test pins.
+ */
+function host(answers: Answer[] = [], runtimeConfig: any = config, opts: { deferProperties?: boolean; loadRadius?: number | false } = {}) {
   const forms: Form[] = [];
-  const messages: string[] = [];
-  const subscribers = { itemUse: [] as Function[], leave: [] as Function[], interact: [] as Function[], spawn: [] as Function[], load: [] as Function[] };
-  const intervals: Function[] = [];
-  const solid = new Set<string>();
-  class Entity {
-    id = `entity-${nextId++}`;
-    typeId = runtimeConfig.figureType;
-    properties = new Map<string, unknown>();
-    dynamic = new Map<string, unknown>();
-    removed = false;
-    events: string[] = [];
-    nameTag = '';
-    rotation = { x: 0, y: 0 };
-    location: any;
-    dimension: any;
-    components: Record<string, any> = {};
-    constructor(dimension: any, location: any, typeId?: string) { this.dimension = dimension; this.location = { ...location }; if (typeId) this.typeId = typeId; entities.set(this.id, this); }
-    getProperty(key: string) { return this.properties.get(key); }
-    setProperty(key: string, value: unknown) { if (opts.deferProperties) pending.push(() => this.properties.set(key, value)); else this.properties.set(key, value); }
-    getDynamicProperty(key: string) { return this.dynamic.get(key); }
-    setDynamicProperty(key: string, value: unknown) { if (value === undefined) this.dynamic.delete(key); else this.dynamic.set(key, value); }
-    triggerEvent(name: string) { this.events.push(name); }
-    teleport(at: any) { this.location = { ...at }; }
-    getRotation() { return { ...this.rotation }; }
-    setRotation(r: any) { this.rotation = { ...r }; }
-    getComponent(name: string) { return this.components[name]; }
-    remove() { this.removed = true; entities.delete(this.id); }
-  }
-  const dimensions: Record<string, any> = Object.fromEntries(['overworld', 'nether', 'the_end'].map((id) => [id, {
-    id,
-    spawnEntity(type: string, at: any) { return new Entity(dimensions[id], at, type); },
-    getEntities({ type }: any) { return [...entities.values()].filter((e) => !e.removed && e.dimension.id === id && e.typeId === type); },
-    getBlock({ x, y, z }: any) { const k = `${x},${y},${z}`; return { isAir: !solid.has(k), isLiquid: false }; },
-  }]));
-  const dynamic = new Map<string, unknown>();
-  const player: any = {
-    id: 'player-1', typeId: 'minecraft:player', location: { x: 0.5, y: 64, z: 0.5 }, dimension: dimensions.overworld,
-    isSneaking: false, selectedSlotIndex: 0, heldItem: undefined, rotation: { x: 0, y: 0 }, inView: [] as any[],
-    sendMessage(value: unknown) { messages.push(String(value)); },
-    getDynamicProperty(key: string) { return dynamic.get(key); },
-    setDynamicProperty(key: string, value: unknown) { dynamic.set(key, value); },
-    getRotation() { return { ...player.rotation }; },
-    getBlockFromViewDirection() { return { block: { location: { x: 8, y: 70, z: 9 } }, face: 'Up' }; },
-    getEntitiesFromViewDirection() { return player.inView.map((entity: any) => ({ entity, distance: 3 })); },
-    getComponent() { return { container: { getItem: () => player.heldItem } }; },
+  /** Answers waiting for their tick: resolved at the start of the next tick. */
+  const waiting: Array<() => void> = [];
+  const chooser = (shown: ShownForm): Promise<FormAnswer> => {
+    const form: Form = { kind: shown.kind, title: shown.title, body: shown.body, buttons: shown.buttons, icons: shown.icons ?? [] };
+    forms.push(form);
+    const answer = answers.shift() ?? close;
+    const r = typeof answer === 'function' ? answer(form) : answer;
+    const reply: FormAnswer = r.canceled ? { cancel: true, ...(r.cancelationReason === 'UserBusy' ? { reason: 'UserBusy' as const } : {}) } : r.formValues ? { values: r.formValues } : { button: r.selection ?? 0 };
+    return new Promise(resolve => waiting.push(() => resolve(reply)));
   };
-  class FormBase {
-    form: Form;
-    constructor(kind: string) { this.form = { kind, title: '', body: '', buttons: [], icons: [], fields: [] }; forms.push(this.form); }
-    title(text: string) { this.form.title = text; return this; }
-    body(text: string) { this.form.body = text; return this; }
-    button(label: string, icon?: string) { this.form.buttons.push(label); this.form.icons.push(icon); return this; }
-    button1(label: string) { this.form.buttons[0] = label; return this; }
-    button2(label: string) { this.form.buttons[1] = label; return this; }
-    textField(...args: any[]) { this.form.fields.push(args); return this; }
-    submitButton() { return this; }
-    async show() {
-      const answer = answers.shift() ?? close;
-      return typeof answer === 'function' ? answer(this.form) : answer;
-    }
-  }
-  class ActionFormData extends FormBase { constructor() { super('action'); } }
-  class ModalFormData extends FormBase { constructor() { super('modal'); } }
-  class MessageFormData extends FormBase { constructor() { super('message'); } }
-  const world: any = {
-    afterEvents: {
-      itemUse: { subscribe: (fn: Function) => subscribers.itemUse.push(fn) },
-      playerLeave: { subscribe: (fn: Function) => subscribers.leave.push(fn) },
-      playerSpawn: { subscribe: (fn: Function) => subscribers.spawn.push(fn) },
-      entityLoad: { subscribe: (fn: Function) => subscribers.load.push(fn) },
-    },
-    beforeEvents: { playerInteractWithEntity: { subscribe: (fn: Function) => subscribers.interact.push(fn) } },
-    getEntity: (id: string) => entities.get(id), getDimension: (id: string) => dimensions[id], getAllPlayers: () => [player],
-  };
-  const system: any = {
-    currentTick: 0,
-    run(fn: Function) { fn(); }, runTimeout(fn: Function) { for (const apply of pending.splice(0)) apply(); fn(); },
-    runInterval(fn: Function) { intervals.push(fn); },
-  };
-  const source = minifigWandScript(runtimeConfig).replace(/^import .*;\n/gm, '');
-  const reload = () => new Function('world', 'system', 'ActionFormData', 'ModalFormData', 'MessageFormData', 'FormCancelationReason', source)(
-    world, system, ActionFormData, ModalFormData, MessageFormData, { UserBusy: 'UserBusy' },
-  );
-  reload();
-  const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
-  const use = async (sneaking = false) => {
-    player.isSneaking = sneaking;
-    subscribers.itemUse[0]!({ source: player, itemStack: { typeId: runtimeConfig.itemId } });
+  const h = simHost({
+    script: minifigWandScript(runtimeConfig), entities: { [runtimeConfig.figureType]: creatorFigureBehavior(runtimeConfig, '1.26.30'), [SEAT_TYPE]: SEAT_DEFINITION },
+    terrain: solidBelow(64), chooser, loadRadius: opts.loadRadius ?? 1024,
+  });
+  // Nether and the End: loaded where the tests put figures (the wand counts its cap across every dimension).
+  for (const dim of ['minecraft:nether', 'minecraft:the_end']) h.engine.tickingAreas.set(dim, { name: dim, dimension: dim, x0: -64, z0: -64, x1: 64, z1: 64 });
+  h.engine.updateLoaded();
+  h.engine.addSystem({ name: 'form-answers', order: ORDER.input, tick: () => { for (const answer of waiting.splice(0)) answer(); } });
+  /** Actor property writes queued to the end of the tick (`deferProperties`). */
+  const pending: Array<() => void> = [];
+  if (opts.deferProperties) h.engine.addSystem({ name: 'end-of-tick-properties', order: ORDER.observers, tick: () => { for (const apply of pending.splice(0)) apply(); } });
+  // Every entity's triggered events are listed on `.events` (the assertions the tests make).
+  h.engine.on('entitySpawn', ({ entity }) => {
+    if (entity.isPlayer) return;
+    const e = h.api(entity);
+    e.events = [] as string[];
+    const trigger = e.triggerEvent;
+    e.triggerEvent = (ev: string) => { e.events.push(ev); return trigger(ev); };
+    if (opts.deferProperties) { const set = e.setProperty; e.setProperty = (k: string, v: unknown) => { pending.push(() => set(k, v)); }; }
+  });
+  const sim = h.addPlayer('Player', { x: 0.5, y: 64, z: 0.5 });
+  const player = h.api(sim);
+  // The block the player looks at: stone at (8, 70, 9), its top face.
+  h.setBlock(8, 70, 9, 'minecraft:stone');
+  player.getBlockFromViewDirection = () => ({ block: h.dimension().getBlock({ x: 8, y: 70, z: 9 }), face: 'Up' });
+  const dimensions = { overworld: h.dimension('overworld'), nether: h.dimension('nether'), the_end: h.dimension('the_end') };
+  /** Let the world run until the forms are answered and every wait is over. */
+  const flush = async (): Promise<void> => { await h.runAsync(80); };
+  const use = async (sneaking = false): Promise<void> => {
+    h.controls(sim, { sneak: sneaking });
+    h.host.deliver('itemUse', { source: player, itemStack: { typeId: runtimeConfig.itemId } });
     await flush();
   };
-  const interact = async (target: any) => {
-    const event: any = { itemStack: { typeId: runtimeConfig.itemId }, player, target, cancel: false };
-    subscribers.interact[0]!(event);
+  /** A held press on `target` (the cancelable before-event), then the world runs; returns whether the wand cancelled it. */
+  const interact = async (target: any): Promise<{ cancel: boolean }> => {
+    const cancel = h.host.before('playerInteractWithEntity', { itemStack: { typeId: runtimeConfig.itemId }, player, target });
     await flush();
-    return event;
+    return { cancel };
   };
-  const figures = () => [...entities.values()].filter((e) => e.typeId === runtimeConfig.figureType);
+  const figures = (): any[] => [...h.engine.entities.values()].filter(e => e.valid && e.typeId === runtimeConfig.figureType).map(e => h.api(e));
   const api = () => (globalThis as any)[MINIFIG_WAND_API_GLOBAL];
-  return { dimensions, entities, forms, intervals, messages, player, subscribers, use, interact, flush, reload, figures, solid, system, api, Entity };
+  return {
+    h, dimensions, forms, player, sim, use, interact, flush, figures, api,
+    /** Whether an entity id is still in the world. */
+    entities: { has: (id: string): boolean => h.engine.entities.get(id)?.valid === true },
+    /** Every chat line the player was sent. */
+    get messages(): string[] { return h.lines('chat'); },
+    /** The wand runtime's hotbar poll (its first interval). */
+    poll: (): void => h.host.scheduler.intervals()[0]!.fn(),
+    /** Put `typeId` in the selected hotbar slot (undefined: an empty hand). */
+    hold: (typeId: string | undefined): void => { h.host.playerState(sim).items[player.selectedSlotIndex] = typeId; },
+    /** A set's seat (a thin box, as a set's seat is) at `at`. */
+    seat: (at: { x: number; y: number; z: number }): any => h.api(h.spawn(SEAT_TYPE, at)),
+    /** The world is reopened: the wand's script starts again over the same entities. */
+    reload: (): void => { h.reload(); },
+  };
 }
 
 describe('Bedrock minifig wand behavior host', () => {
@@ -149,7 +135,7 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(js).not.toMatch(/__name|import_|require\(/);
   });
 
-  it('restores interrupted edits on reload (keeping how they live) while deleting only disposable drafts', () => {
+  it('restores interrupted edits on reload (keeping how they live) while deleting only disposable drafts', async () => {
     const h = host();
     const edited = h.dimensions.overworld.spawnEntity(config.figureType, { x: 3, y: 64, z: 3 });
     edited.setProperty('craftmatic:draft', true);
@@ -162,6 +148,7 @@ describe('Bedrock minifig wand behavior host', () => {
     const disposable = h.dimensions.nether.spawnEntity(config.figureType, { x: 0, y: 64, z: 0 });
     disposable.setProperty('craftmatic:draft', true);
     h.reload();
+    await h.flush();
     expect(h.entities.has(edited.id)).toBe(true);
     expect(edited.getProperty('craftmatic:draft')).toBe(false);
     expect(edited.getProperty('craftmatic:torso')).toBe(1);
@@ -176,12 +163,18 @@ describe('Bedrock minifig wand behavior host', () => {
     const h = host([close]);
     await h.use();
     const [live] = h.figures();
-    const leaked = h.dimensions.overworld.spawnEntity(config.figureType, { x: 9, y: 64, z: 9 });
+    // Two drafts saved by an earlier session lie in chunks nobody has loaded since the script started ...
+    const leaked = h.h.api(h.h.spawn(config.figureType, { x: 2009, y: 64, z: 9 }));
     leaked.setProperty('craftmatic:draft', true);
-    const edited = h.dimensions.overworld.spawnEntity(config.figureType, { x: 7, y: 64, z: 7 });
+    const edited = h.h.api(h.h.spawn(config.figureType, { x: 2007, y: 64, z: 7 }));
     edited.setProperty('craftmatic:draft', true);
     edited.setDynamicProperty('craftmatic:editing_placed', true);
-    for (const e of [live, leaked, edited]) h.subscribers.load[0]!({ entity: e });
+    h.h.run(1);
+    expect(h.h.engine.isEntityLoaded(h.h.simOf(leaked)!)).toBe(false);
+    // ... until a ticking area loads them (`entityLoad`); the live draft's own chunk loads again too.
+    h.h.engine.tickingAreas.set('far', { name: 'far', dimension: 'minecraft:overworld', x0: 2000, z0: 0, x1: 2015, z1: 15 });
+    h.h.host.deliver('entityLoad', { entity: live });
+    await h.flush();
     expect(h.entities.has(live.id)).toBe(true);
     expect(h.entities.has(leaked.id)).toBe(false);
     expect(edited.getProperty('craftmatic:draft')).toBe(false);
@@ -195,12 +188,12 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(draft.location.z - h.player.location.z).toBeCloseTo(3.2);
     expect(draft.location.x - h.player.location.x).toBeCloseTo(-3.2);
     const toPlayer = Math.atan2(-(h.player.location.x - draft.location.x), h.player.location.z - draft.location.z) * 180 / Math.PI;
-    expect(draft.rotation.y).toBeCloseTo(toPlayer);
+    expect(draft.getRotation().y).toBeCloseTo(toPlayer);
   });
 
   it('falls back to a nearer spot when the preferred one is walled in', async () => {
     const h = host([close]);
-    h.solid.add('-3,64,3'); // the block 3.2 ahead / 3.2 right of (0.5, 64, 0.5)
+    h.h.setBlock(-3, 64, 3, 'minecraft:stone'); // the block 3.2 ahead / 3.2 right of (0.5, 64, 0.5)
     await h.use();
     const [draft] = h.figures();
     expect(Math.hypot(draft.location.x - h.player.location.x, draft.location.z - h.player.location.z)).toBeGreaterThan(1);
@@ -297,7 +290,7 @@ describe('Bedrock minifig wand behavior host', () => {
     await h.use(true);
     const placed = h.figures().find((e) => !e.getProperty('craftmatic:draft'));
     expect(placed.location).toEqual({ x: 8.5, y: 71, z: 9.5 });
-    expect(placed.getDynamicProperty('craftmatic:owner')).toBe('player-1');
+    expect(placed.getDynamicProperty('craftmatic:owner')).toBe(h.player.id);
     expect(placed.getDynamicProperty('craftmatic:mf_mode')).toBe('walk');
     h.dimensions.nether.spawnEntity(config.figureType, { x: 0, y: 1, z: 0 }).setProperty('craftmatic:draft', false);
     await h.use(true);
@@ -336,13 +329,11 @@ describe('Bedrock minifig wand behavior host', () => {
 
   it('sits the figure on a free seat in view, with its home on the seat', async () => {
     const h = host([pick('Place'), pick('Sit on the seat')]);
-    const seat = new h.Entity(h.dimensions.overworld, { x: 4, y: 64, z: 4 }, 'craftmatic:set_seat');
-    const riders: any[] = [];
-    seat.components['minecraft:rideable'] = { seatCount: 1, getRiders: () => riders, addRider: (e: any) => { riders.push(e); return true; } };
-    h.player.inView = [seat];
+    const seat = h.seat({ x: 4, y: 64, z: 4 });
+    lookAt(h.sim, { x: 4, y: 64.05, z: 4 }); // the view ray meets the seat
     await h.use();
     const fig = h.figures()[0];
-    expect(riders).toEqual([fig]);
+    expect(seat.getComponent('minecraft:rideable').getRiders().map((r: any) => r.id)).toEqual([fig.id]);
     expect(fig.getDynamicProperty('craftmatic:mf_mode')).toBe('seat');
     expect(JSON.parse(fig.getDynamicProperty('craftmatic:fig')).home).toEqual([4, 64, 4]);
   });
@@ -350,19 +341,17 @@ describe('Bedrock minifig wand behavior host', () => {
   it('finds the seat nearest the view direction when the view ray misses it (touch has no crosshair)', async () => {
     const h = host([pick('Place'), pick('Sit on the seat')]);
     const make = (at: any) => {
-      const seat = new h.Entity(h.dimensions.overworld, at, 'craftmatic:set_seat');
-      const riders: any[] = [];
-      seat.components['minecraft:rideable'] = { seatCount: 1, getRiders: () => riders, addRider: (e: any) => { riders.push(e); return true; } };
-      return { seat, riders };
+      const seat = h.seat(at);
+      return { seat, riders: () => seat.getComponent('minecraft:rideable').getRiders() };
     };
     const ahead = make({ x: 0.5, y: 64, z: 4.5 });   // 10 degrees below the view, straight ahead
     const aside = make({ x: 5.5, y: 64, z: 1.5 });   // well off to the side
-    h.player.getViewDirection = () => ({ x: 0, y: -0.2, z: 1 });
-    h.player.getHeadLocation = () => ({ x: 0.5, y: 65.6, z: 0.5 });
-    h.dimensions.overworld.getEntities = ((all: any) => (q: any) => (q?.maxDistance ? [...h.entities.values()] : all(q)))(h.dimensions.overworld.getEntities);
+    // Looking along (0, -0.2, 1): the ray passes over the thin seat ahead.
+    h.sim.rotation = { x: Math.atan2(0.2, 1) * 180 / Math.PI, y: 0 };
+    expect(h.player.getEntitiesFromViewDirection({ maxDistance: 8 }).some((hit: any) => hit.entity.id === ahead.seat.id)).toBe(false);
     await h.use();
-    expect(ahead.riders).toHaveLength(1);
-    expect(aside.riders).toHaveLength(0);
+    expect(ahead.riders()).toHaveLength(1);
+    expect(aside.riders()).toHaveLength(0);
   });
 
   it('asks before discarding, and Undo brings the draft back as it was', async () => {
@@ -414,7 +403,7 @@ describe('Bedrock minifig wand behavior host', () => {
     const leaving = host([close]);
     await leaving.use();
     expect(leaving.figures()).toHaveLength(1);
-    leaving.subscribers.leave[0]!({ playerId: leaving.player.id });
+    leaving.h.host.deliver('playerLeave', { playerId: leaving.player.id });
     expect(leaving.figures()).toHaveLength(0);
   });
 
@@ -478,24 +467,25 @@ describe('Bedrock minifig wand behavior host', () => {
     expect(busy.figures()).toHaveLength(0);
 
     const hotbar = host([close, close]);
-    hotbar.player.heldItem = { typeId: config.itemId };
-    hotbar.intervals[0]!(); await hotbar.flush();
-    hotbar.intervals[0]!(); await hotbar.flush();
+    hotbar.hold(config.itemId);
+    hotbar.poll(); await hotbar.flush();
+    hotbar.poll(); await hotbar.flush();
     expect(hotbar.forms).toHaveLength(1);
-    hotbar.player.heldItem = undefined; hotbar.intervals[0]!();
-    hotbar.player.heldItem = { typeId: config.itemId }; hotbar.intervals[0]!(); await hotbar.flush();
+    hotbar.hold(undefined); hotbar.poll();
+    hotbar.hold(config.itemId); hotbar.poll(); await hotbar.flush();
     expect(hotbar.forms).toHaveLength(2);
   });
 
   it('does not pop the menu for a wand already in hand when the world loads', async () => {
     const h = host([close]);
-    h.system.currentTick = 10;
-    h.subscribers.spawn[0]!({ player: h.player, initialSpawn: true });
-    h.player.heldItem = { typeId: config.itemId };
-    h.system.currentTick = 40; h.intervals[0]!(); await h.flush();
+    // The world has run 10 ticks when the player first spawns, holding the wand.
+    h.h.engine.tick = 10;
+    h.h.host.deliver('playerSpawn', { player: h.player, initialSpawn: true });
+    h.hold(config.itemId);
+    h.h.engine.tick = 40; h.poll(); await h.flush();
     expect(h.forms).toHaveLength(0);
-    h.player.heldItem = undefined; h.system.currentTick = 200; h.intervals[0]!();
-    h.player.heldItem = { typeId: config.itemId }; h.intervals[0]!(); await h.flush();
+    h.hold(undefined); h.h.engine.tick = 200; h.poll();
+    h.hold(config.itemId); h.poll(); await h.flush();
     expect(h.forms).toHaveLength(1);
   });
 

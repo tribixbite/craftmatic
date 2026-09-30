@@ -359,7 +359,6 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
   }, 1);
 }
 
-export { hopRuntime as _hopRuntimeForTests };
 
 /** The hop kit's config for a pack. */
 export function hopKitConfig(namespace: string): HopKitConfig {

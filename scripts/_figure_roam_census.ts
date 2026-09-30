@@ -3,7 +3,7 @@
  * (web/src/engine/bedrock-figure-life.ts): for every figure, where the
  * placement lifts it at spawn, how much floor it can reach under the planner,
  * and what the shipped runtime does with it over a simulated watch in the host
- * world of figure-life-sim.ts (the pack's own collider grid, a flat ground at
+ * simulator (sim/adapters/craftmatic/figure-life.ts: the pack's own collider grid, a flat ground at
  * the pin plane, its seats and door leaves). The device GameTest
  * (`figures_<id>`, gametest-pack.ts) is the ground truth; this answers the
  * same questions in seconds, for every favourite.
@@ -14,7 +14,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadAddonPreviewModel } from '../web/src/ui/addon-preview-data.ts';
 import { exploreWalkable, FIGURE_TUNING, spawnLift, standFeetAt, startCell, type SpanLookup } from '../web/src/engine/bedrock-figure-life.ts';
-import { simulateFigureLife, type SimWorld } from '../web/src/engine/figure-life-sim.ts';
+import { simulateFigureLife, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 const files = process.argv.slice(2).filter(a => !a.startsWith('--'));

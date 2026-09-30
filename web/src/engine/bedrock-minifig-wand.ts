@@ -11,7 +11,7 @@
  * `creator_wand_<id>`) drives exactly what a tap drives: a simulated player
  * cannot answer a `server-ui` form.
  */
-import type { MinifigCreatorConfig } from './minifig-creator-types.js';
+import { NPC_COMPONENT_GROUP, NPC_OFF_EVENT, POSE_PROPERTY, RELEASE_EVENT, type MinifigCreatorConfig } from './minifig-creator-types.js';
 
 /** The `globalThis` key the runtime publishes its operations under (for GameTest). */
 export const MINIFIG_WAND_API_GLOBAL = 'craftmaticMinifigWand';
@@ -831,4 +831,34 @@ function minifigWandRuntime(
 /** Serialize the creator's interactive draft/place/save/edit runtime. */
 export function minifigWandScript(config: MinifigCreatorConfig): string {
   return `import { world, system } from "@minecraft/server";\nimport { ActionFormData, ModalFormData, MessageFormData, FormCancelationReason } from "@minecraft/server-ui";\nconst C=${JSON.stringify(config)};\n(${minifigWandRuntime.toString()})(C,world,system,ActionFormData,ModalFormData,MessageFormData,FormCancelationReason,${JSON.stringify(MINIFIG_WAND_API_GLOBAL)});`;
+}
+
+/**
+ * The creator figure's behaviour-pack entity (`entities/<id>_minifig.json`):
+ * one int property per minifig slot and per slot colour, the family, the
+ * `craftmatic:draft` flag and the pose - each int's range WIDER than one
+ * value (Bedrock refuses `[0, 0]` and with it the whole property component,
+ * Pixel 2026-09-25) - and the `craftmatic:npc` group the wand's release adds
+ * and `npc_off` removes. Shared by the pack writer (playable-addon.ts) and the
+ * simulator tests that run the wand, so both declare the same properties.
+ */
+export function creatorFigureBehavior(config: Pick<MinifigCreatorConfig, 'figureType' | 'library' | 'colours' | 'poses'>, formatVersion: string): Record<string, unknown> {
+  const intRange = (count: number): [number, number] => [0, Math.max(1, count - 1)];
+  const properties: Record<string, unknown> = {};
+  for (const [slot, entries] of Object.entries(config.library.minifig)) {
+    properties[`craftmatic:${slot}`] = { type: 'int', range: intRange(entries?.length ?? 0), default: 0, client_sync: true };
+    properties[`craftmatic:c_${slot}`] = { type: 'int', range: intRange(config.colours.length), default: 0, client_sync: true };
+  }
+  properties['craftmatic:family'] = { type: 'int', range: intRange(1), default: 0, client_sync: true };
+  properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
+  properties[POSE_PROPERTY] = { type: 'int', range: intRange(config.poses?.length ?? 0), default: 0, client_sync: true };
+  return {
+    format_version: formatVersion,
+    'minecraft:entity': {
+      description: { identifier: config.figureType, is_spawnable: true, is_summonable: true, properties },
+      components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } },
+      component_groups: { [NPC_COMPONENT_GROUP]: { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .08 }, 'minecraft:behavior.random_look_around': { priority: 8 } } },
+      events: { [RELEASE_EVENT]: { add: { component_groups: [NPC_COMPONENT_GROUP] } }, [NPC_OFF_EVENT]: { remove: { component_groups: [NPC_COMPONENT_GROUP] } } },
+    },
+  };
 }

@@ -18,6 +18,8 @@ export interface ShownForm {
   body: string;
   /** Action/message buttons; for a modal, its controls' labels. */
   buttons: string[];
+  /** Action-form button icons (texture paths), by button; undefined where a button has none. */
+  icons?: Array<string | undefined>;
   /** The player it was shown to (engine id). */
   player: string;
   tick: number;
@@ -48,15 +50,15 @@ export function createUiModule(timeline: Timeline, choose: () => FormChooser, pl
     return { canceled: false, selection: i };
   };
   class ActionFormData {
-    private t = ''; private b = ''; private readonly buttons: string[] = [];
+    private t = ''; private b = ''; private readonly buttons: string[] = []; private readonly icons: Array<string | undefined> = [];
     constructor() { return guard(this, 'ActionFormData', timeline); }
     title(s: unknown) { this.t = messageText(s); return this; }
     body(s: unknown) { this.b = messageText(s); return this; }
-    button(s: unknown) { this.buttons.push(messageText(s)); return this; }
+    button(s: unknown, icon?: string) { this.buttons.push(messageText(s)); this.icons.push(icon); return this; }
     divider() { return this; }
     header(s: unknown) { this.b += `\n${messageText(s)}`; return this; }
     label(s: unknown) { this.b += `\n${messageText(s)}`; return this; }
-    show(p: unknown) { return answer({ kind: 'action', title: this.t, body: this.b, buttons: [...this.buttons], player: playerId(p), tick: tick() }, 'action'); }
+    show(p: unknown) { return answer({ kind: 'action', title: this.t, body: this.b, buttons: [...this.buttons], icons: [...this.icons], player: playerId(p), tick: tick() }, 'action'); }
   }
   class ModalFormData {
     private t = ''; private readonly controls: string[] = [];

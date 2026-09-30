@@ -30,7 +30,7 @@ import { findApproach } from '../../scenario/approach.js';
 import { VIEW } from '../../../engine/cockpit-seat.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
-import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry } from '../../../engine/interactive-walk.js';
+import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry, jumpHelps } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
 import { entityDrawn, forwardViewWorld, type DrawnBox } from './drawn.js';
@@ -472,20 +472,6 @@ function treadsIn(w: VoxelWorld, treads: ReadonlySet<string>, probe: Box): strin
   return [...out];
 }
 
-/** How far ahead (blocks) a line looks for what stopped it: `interactive-walk.ts`' `JUMP_PROBE`. */
-const JUMP_PROBE = 0.3;
-
-/**
- * Whether a jump helps a player standing at `feet` and moving along (dx, dz): the box a short reach ahead is
- * blocked at the feet and free a jump up. The harness's `jumpHelps` over the simulator's world; a wall that
- * runs up past the jump is not jumped at.
- */
-function jumpHelpsAt(w: VoxelWorld, feet: Vec3, dx: number, dz: number): boolean {
-  const ax = feet.x + dx * JUMP_PROBE, az = feet.z + dz * JUMP_PROBE, h = 0.3;
-  const box = (y: number): Box => ({ x0: ax - h, y0: y, z0: az - h, x1: ax + h, y1: y + 1.8, z1: az + h });
-  return !!w.overlapping(box(feet.y + 1e-3), 1e-4) && !w.overlapping(box(feet.y + JUMP_PEAK + 1e-3), 1e-4);
-}
-
 /** The device round's "porch": a teleport this far out (blocks at 100 %) at the doorway's height, then a walk in. */
 export const PORCH_OUT = 2.5;
 
@@ -584,7 +570,7 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
     await ctx.run(1);
     const dx = end.x - p.location.x, dz = end.z - p.location.z, dl = Math.hypot(dx, dz) || 1;
     const movedH = Math.hypot(p.location.x - before.x, p.location.z - before.z);
-    jump = p.onGround && movedH < 0.1 && jumpHelpsAt(w, p.location, dx / dl, dz / dl);
+    jump = p.onGround && movedH < 0.1 && jumpHelps(w, p.location, dx / dl, dz / dl);
     if (jump) jumps++;
     const atLevel = p.onGround && p.location.y >= floorY - STEP_HEIGHT - 1e-6;
     if (atLevel) standing = true;

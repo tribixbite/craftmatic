@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { extractFile } from '../web/src/engine/zip-utils.js';
+import { simHost } from './_sim-host.js';
 import { RIDER_EYE_ABOVE_SEAT, VIEW, eyeOverlap, forwardClear, forwardView, keepsTheView, planSeat, riderOverlap, riderVisibleAt, riderVisibleSizes, seatPositionAt, SEAT_FIT_TOLERANCE, type BoxBlocks, type Vec3 } from '../web/src/engine/cockpit-seat.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
@@ -110,9 +111,10 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
     });
     const buffer = ab(result.bytes);
     const read = async (n: string): Promise<string> => new TextDecoder().decode(await extractFile(buffer, n));
-    const entity = JSON.parse(await read('Craftmatic_cabin_BP/entities/cabin_car.json'))['minecraft:entity'];
+    const entityText = await read('Craftmatic_cabin_BP/entities/cabin_car.json');
+    const entity = JSON.parse(entityText)['minecraft:entity'];
     const camera = await read('Craftmatic_cabin_BP/scripts/vehicle-camera.js');
-    return { entity, camera };
+    return { entity, entityText, camera };
   };
 
   it('at minifig scale the body fits the seat: the rider is drawn there at 100 %', async () => {
@@ -149,45 +151,32 @@ describe('the player sits in the driver\'s seat of a car too small for them', ()
   });
 
   it('hides a rider while the car is too small for them and shows them again at the size that fits (vehicle-camera.js)', async () => {
-    const { camera } = await build(0.25);
+    const { camera, entityText } = await build(0.25);
     const sizes = JSON.parse(/"riderVisibleSizes":(\[[^\]]*\])/.exec(camera)?.[1] ?? 'null') as number[];
     const from = sizes.length ? sizes[0]! : 99;
-    let scale = 1;
-    let riders: unknown[] = [];
+    // The shipped script and the shipped car (its size groups) on the headless simulator (test/_sim-host.ts).
+    const h = simHost({ script: camera, files: { 'entities/cabin_car.json': entityText } });
+    const car = h.spawn('craftmatic:cabin_car', { x: 0, y: 0, z: 0 });
+    const rider = h.addPlayer('Driver', { x: 0, y: 0, z: 0 });
+    // Every invisibility the script adds or removes on the rider, in order.
     const effects: string[] = [];
-    const player = {
-      id: 'p1', typeId: 'minecraft:player', selectedSlotIndex: 0,
-      getRotation: () => ({ x: 0, y: 0 }),
-      camera: { setCamera: () => {}, clear: () => {} },
-      runCommand: () => {}, sendMessage: () => {},
-      addEffect: (name: string) => { effects.push(`+${name}`); },
-      removeEffect: (name: string) => { effects.push(`-${name}`); },
-    };
-    const vehicle = {
-      typeId: 'craftmatic:cabin_car', location: { x: 0, y: 0, z: 0 },
-      getRotation: () => ({ x: 0, y: 0 }), getProperty: () => 0,
-      getComponent: (name: string) => name === 'minecraft:scale' ? { value: scale } : name === 'minecraft:rideable' ? { getRiders: () => riders } : undefined,
-    };
-    let tick: () => void = () => {};
-    const world = {
-      getDimension: (id: string) => ({ getEntities: () => id === 'overworld' ? [vehicle] : [] }),
-      getAllPlayers: () => [player],
-      afterEvents: { playerLeave: { subscribe: () => {} } },
-    };
-    const system = { runInterval: (fn: () => void) => { tick = fn; } };
-    new Function('world', 'system', camera.replace(/^import .*;\n/, ''))(world, system);
-    riders = [player];
-    tick();
+    const player = h.api(rider), addEffect = player.addEffect, removeEffect = player.removeEffect;
+    player.addEffect = (name: string, ...rest: unknown[]) => { effects.push(`+${name}`); return addEffect(name, ...rest); };
+    player.removeEffect = (name: string) => { effects.push(`-${name}`); return removeEffect(name); };
+    /** The wand's size step: the car's own size event (its `minecraft:scale` group). */
+    const size = (f: number): void => { h.api(car).triggerEvent(`craftmatic:size_${Math.round(f * 100)}`); };
+    h.seat(rider, car);
+    h.run(1);
     expect(effects).toEqual(['+invisibility']);
     // Placed at the size the body fits: drawn again.
-    scale = from;
-    tick();
+    size(from);
+    h.run(1);
     expect(effects).toEqual(['+invisibility', '-invisibility']);
     // Back to 100 %, then dismount: the effect the script added goes with the ride.
-    scale = 1;
-    tick();
-    riders = [];
-    tick();
+    size(1);
+    h.run(1);
+    h.unseat(rider);
+    h.run(1);
     expect(effects).toEqual(['+invisibility', '-invisibility', '+invisibility', '-invisibility']);
   });
 });

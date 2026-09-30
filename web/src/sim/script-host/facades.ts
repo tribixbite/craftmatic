@@ -293,7 +293,7 @@ function playerMembers(host: FacadeHost, sim: SimEntity, _live: () => SimEntity)
     get inputPermissions() { return inputPermissions; },
     get selectedSlotIndex() { return st().selectedSlot; },
     set selectedSlotIndex(v: number) { st().selectedSlot = v; },
-    get isFlying() { return false; },
+    get isFlying() { return sim.flying; },
     get isGliding() { return false; },
     get isJumping() { return controls.get(sim.id).jump; },
     get isEmoting() { return false; },
@@ -355,6 +355,19 @@ function componentFacade(host: FacadeHost, sim: SimEntity, name: string): unknow
       get isValid() { return sim.valid; },
       getItem: (slot: number) => (st.items[slot] ? guard({ get typeId() { return st.items[slot]; }, get amount() { return 1; } }, 'ItemStack', timeline) : undefined),
       setItem: (slot: number, item?: { typeId?: string }) => { st.items[slot] = item?.typeId; },
+      // Within the player's own inventory only (another container is not modelled): the stack moves to an EMPTY slot.
+      // # TODO(sim-api): the device merges into a same-type stack and refuses an occupied slot of another type; unmeasured.
+      moveItem: (from: number, to: number, toContainer: unknown) => {
+        if (toContainer !== undefined && toContainer !== container) throw unmodelled(timeline, 'Container.moveItem (to another container)');
+        if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= 36 || to >= 36) throw new RangeError(`moveItem: slot out of range (${from} -> ${to})`);
+        if (!st.items[from]) return;
+        if (st.items[to]) throw new Error(`moveItem: slot ${to} is occupied`);
+        st.items[to] = st.items[from]; st.items[from] = undefined;
+      },
+      swapItems: (a: number, b: number, other: unknown) => {
+        if (other !== undefined && other !== container) throw unmodelled(timeline, 'Container.swapItems (with another container)');
+        const t = st.items[a]; st.items[a] = st.items[b]; st.items[b] = t;
+      },
     }, 'Container', timeline);
     return guard({ get container() { return container; }, get typeId() { return 'minecraft:inventory'; }, get isValid() { return sim.valid; } }, 'EntityInventoryComponent', timeline);
   }

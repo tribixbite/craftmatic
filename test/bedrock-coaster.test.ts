@@ -5,7 +5,7 @@ import {
   coasterRuntimeConfig, coasterScript, coasterTrackUps, findCoasterStation, planCoasterVehicles, resolveCoasterCars, COASTER_CAR_LENGTH,
   COASTER_PHYSICS, COASTER_RIDE_PACE, COASTER_RIDER_VIEW, coasterCarAttitude, coasterLoopRadius, coasterRiderLook, coasterRiderView,
 } from '../web/src/engine/bedrock-coaster.js';
-import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar } from '../web/src/engine/bedrock-coaster.js';
+import type { CoasterRiderViewConfig, CoasterRoute, CoasterRouteCar, CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.js';
 import type { CoasterCar } from '../web/src/engine/coaster-assemblies.js';
 import { detectCoasterAssemblies } from '../web/src/engine/coaster-assemblies.js';
 import { extractCoasterTrackRoutes } from '../web/src/engine/coaster-track.js';
@@ -21,60 +21,128 @@ import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
 import { BlockGrid } from '../src/schem/types.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { host } from './_placement-host.js';
+import { simHost, solidBelow } from './_sim-host.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
+import { COASTER_TEST_ORIGIN, coasterEntityTypes } from '../web/src/sim/adapters/craftmatic/coaster.js';
 
-interface RideHostOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig>;
-  /** The `Math` the runtime sees: a test counts the ride's work through it (`Math.ceil` runs once per ride prediction step, `rideWork`). */
-  math?: Math }
+// ─── The coaster runtime on the headless simulator (test/_sim-host.ts) ───────
+
+/** Where every test placement pins its route (the old hosts' origin, kept so every expected point reads the same). */
+const COASTER_ORIGIN = COASTER_TEST_ORIGIN;
+
+/** What a coaster host needs from a simulator world. */
+interface CoasterSimOptions {
+  /** The client has `LinearSpline` (the loop camera's animations); default false, as the old hosts ran without it. */
+  spline?: boolean;
+  /** Wrap the runtime's `Math` (a test counts `Math.ceil`, `rideWork`). */
+  wrapMath?: (math: Math) => Math;
+}
+
+/** The facade a host hands the tests, and the host that owns it (so `cameraRider` can add a player to the same world). */
+const coasterSims = new WeakMap<object, ReturnType<typeof coasterSim>>();
+
+/**
+ * One world with `coasterScript(config)` loaded, the config's entity types
+ * registered, the world stone below y = 0 (so a player off a car stands on
+ * something) and loaded over the placement. Two faults the device produces
+ * are injected at the API, where the runtime looks (docs/sim-engine.md
+ * "Folding the older hosts in"):
+ *   - `setLoaded(false)`: the chunk AHEAD is unloaded, `getBlock` answers
+ *     undefined (quirk `unloaded-block-undefined`) while the car itself is
+ *     still ticking - a real unload cannot be staged around a car a player
+ *     sits in, since the rider loads its own chunks;
+ *   - `unload(sim)`: one car's chunk has gone (a train straddling a chunk
+ *     border): the car reads `isValid === false` and `getEntities` omits it.
+ */
+function coasterSim(config: CoasterRuntimeConfig, options: CoasterSimOptions = {}) {
+  const h = simHost({
+    script: coasterScript(config), entities: coasterEntityTypes(config), terrain: solidBelow(0),
+    loadArea: { x0: COASTER_ORIGIN.x - 128, z0: COASTER_ORIGIN.z - 128, x1: COASTER_ORIGIN.x + 128, z1: COASTER_ORIGIN.z + 128 },
+    ...(options.spline ? {} : { absentExports: ['LinearSpline'] }), ...(options.wrapMath ? { wrapMath: options.wrapMath } : {}),
+    deferScripts: true,
+  });
+  let loaded = true;
+  const gone = new Set<SimEntity>();
+  const dim = h.dimension();
+  const getBlock = dim.getBlock, getEntities = dim.getEntities;
+  // Fault injection (see above): the unloaded chunk ahead, and cars whose chunk has gone.
+  dim.getBlock = (p: { x: number; y: number; z: number }) => (loaded ? getBlock(p) : undefined);
+  dim.getEntities = (q?: Record<string, unknown>) => (getEntities(q) as unknown[]).filter(e => !gone.has(h.simOf(e)!));
+  /** A player standing at the placement, its action bar spied. */
+  const newPlayer = (name: string): any => {
+    const p = h.api(h.addPlayer(name, { x: COASTER_ORIGIN.x + 6, y: 0, z: COASTER_ORIGIN.z }));
+    p.onScreenDisplay.setActionBar = vi.fn(p.onScreenDisplay.setActionBar);
+    return p;
+  };
+  /** Spawn one coaster entity with its placement frame and spies on the members the tests read. */
+  const make = (typeId: string, dynamic: Record<string, unknown>, refuse: () => boolean = () => false, id = typeId) => {
+    const sim = h.spawn(typeId, COASTER_ORIGIN, { dynamic: { 'craftmatic:coaster_origin': { ...COASTER_ORIGIN }, 'craftmatic:coaster_rotation': 0, 'craftmatic:coaster_route': 0, ...dynamic } });
+    const entity = h.api(sim);
+    const positions: Array<{ x: number; y: number; z: number }> = [];
+    const yaws: number[] = [];
+    entity.setProperty = vi.fn(entity.setProperty);
+    entity.teleport = vi.fn(entity.teleport);
+    const tryTeleport = entity.tryTeleport;
+    entity.tryTeleport = vi.fn((position: any, teleportOptions: any) => {
+      // Fault injection: a refused teleport (`setRefuse`), as the device refuses one into blocks.
+      if (refuse()) return false;
+      // Without `checkForBlocks` a tryTeleport IS a teleport (the runtime passes false): it goes through the
+      // spied `teleport`, so a test reads every move off one spy as it did; with it, the API's own check runs.
+      const ok = teleportOptions?.checkForBlocks ? tryTeleport(position, teleportOptions) : (entity.teleport(position, teleportOptions), true);
+      if (ok) { positions.push({ ...position }); if (teleportOptions?.rotation) yaws.push(teleportOptions.rotation.y); }
+      return ok;
+    });
+    // Fault injection: a car whose chunk has gone reads invalid, as Bedrock reports it.
+    const valid = Object.getOwnPropertyDescriptor(entity, 'isValid')!.get!;
+    Object.defineProperty(entity, 'isValid', { configurable: true, enumerable: true, get: () => !gone.has(sim) && valid() });
+    return {
+      id, typeId, sim, entity, positions, yaws,
+      /** The car's saved state (its dynamic properties, the world's copy). */
+      properties: sim.dynamic,
+      /** Its synced actor properties as the runtime last set them. */
+      actorProperties: sim.properties,
+      /** The rider facades aboard, seat order. */
+      get riders(): any[] { return sim.riderList().map(r => h.api(r)); },
+      /** Seat a player (a facade) aboard, as a player boarding it. */
+      seat(player: any): void { h.seat(h.simOf(player)!, sim); },
+      /** Everyone off (no set-down: the player stays where the seat was). */
+      dismount(): void { for (const r of sim.riderList()) h.unseat(r); },
+    };
+  };
+  const api = {
+    h, make, newPlayer, gone,
+    setLoaded: (value: boolean) => { loaded = value; },
+    unload: (e: SimEntity) => { gone.add(e); }, reload: (e: SimEntity) => { gone.delete(e); },
+  };
+  return api;
+}
+
+interface RideHostOptions extends CoasterSimOptions { riders?: boolean; scale?: number; wheelbase?: number; seat?: [number, number, number]; camera?: Partial<CoasterRiderViewConfig>;
+  /** A pack built before the rider camera existed: its config carries no `camera`. */
+  noCamera?: boolean }
 
 /** One host per placement. A route that declares a train gets that many car
  * entities, all spawned at the same station point the placement uses. The
  * cart's wheelbase and seat are what `buildCoasterRideAssets` would fill in. */
 function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
   const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
-  const config = { ...bare, ...(options.camera ? { camera: { ...bare.camera!, ...options.camera } } : {}), types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
+  const config: CoasterRuntimeConfig = { ...bare, ...(options.camera ? { camera: { ...bare.camera!, ...options.camera } } : {}), types: { ...bare.types, 'craftmatic:test_cart': { ...bare.types['craftmatic:test_cart']!, ...(options.wheelbase !== undefined ? { wheelbase: options.wheelbase } : {}), ...(options.seat ? { seat: options.seat } : {}) } } };
+  if (options.noCamera) delete config.camera;
   const count = config.routes[0]!.cars.count;
-  let loaded = true, removed = false;
-  /** Cars whose chunk has gone: Bedrock reports an unloaded entity as invalid. */
-  const gone = new Set<number>();
+  const world = coasterSim(config, options);
+  const { h } = world;
   const cars = Array.from({ length: count }, (_, index) => {
-    const properties = new Map<string, unknown>([
-      ['craftmatic:coaster_origin', { x: 100, y: 64, z: 200 }],
-      ['craftmatic:coaster_rotation', 0], ['craftmatic:coaster_scale', options.scale ?? 1], ['craftmatic:coaster_route', 0],
-    ]);
-    const rider = { id: `rider${index}`, onScreenDisplay: { setActionBar: vi.fn() } };
-    // A cart now runs with or without a rider, so the default host is EMPTY and
-    // a test boards deliberately. `riders: true` starts with a rider aboard.
-    const riders: unknown[] = options.riders ? [rider] : [];
-    const positions: Array<{ x: number; y: number; z: number }> = [];
-    /** The rotation Bedrock would remember between ticks; the runtime reads it back to hold a yaw. */
-    const rotation = { x: 0, y: 0 };
-    const yaws: number[] = [];
-    const entity: any = {
-      // The runtime discovers coaster entities by family and resolves each one's
-      // role from its type, so the mock carries the cart's type id.
-      id: `cart${index}`, typeId: 'craftmatic:test_cart', getDynamicProperty: (key: string) => { if (removed) throw new Error('removed'); return properties.get(key); },
-      setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
-      setProperty: vi.fn(), teleport: vi.fn(), getRotation: () => ({ ...rotation }),
-      // Bedrock exposes removal through isValid; a removed cart must retire quietly.
-      isValid: () => !removed && !gone.has(index),
-      getComponent: () => ({ getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } }),
-    };
-    entity.tryTeleport = vi.fn((position: any, teleportOptions: any) => {
-      entity.teleport(position, teleportOptions); positions.push({ ...position });
-      if (teleportOptions?.rotation) { rotation.x = teleportOptions.rotation.x; rotation.y = teleportOptions.rotation.y; yaws.push(teleportOptions.rotation.y); }
-      return true;
-    });
-    entity.dimension = { getBlock: () => loaded ? {} : undefined };
-    return { entity, properties, rider, riders, positions, yaws };
+    const car = world.make('craftmatic:test_cart', { 'craftmatic:coaster_scale': options.scale ?? 1 });
+    // Each car's own player, standing by: a cart runs with or without a rider,
+    // so the default host is EMPTY and a test boards deliberately. `riders: true` starts with them aboard.
+    const rider = world.newPlayer(`rider${index}`);
+    if (options.riders) car.seat(rider);
+    return { ...car, get riders() { return car.riders; }, rider };
   });
-  const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' && !removed
-    ? cars.filter((_, index) => !gone.has(index)).map(car => car.entity) : [] }) };
-  let tick = () => {};
-  const system = { runInterval: (callback: () => void) => { tick = callback; } };
-  const script = coasterScript(config);
-  const start = () => new Function('world', 'system', 'Math', script.replace(/^import .*;\n/, ''))(world, system, options.math ?? Math);
-  start();
+  h.start();
   const lead = cars[0]!;
+  coasterSims.set(lead.entity, world);
+  for (const car of cars) coasterSims.set(car.entity, world);
   /** Saved ride distance after each tick (the train's centre), whether or not it moved. */
   const distances: number[] = [];
   const speedsOf = (positions: Array<{ x: number; y: number; z: number }>) => positions.slice(1).map((point, index) => {
@@ -88,14 +156,22 @@ function rideHost(route: CoasterRoute, options: RideHostOptions = {}) {
     if (closed) step = Math.min(step, total - step);
     return step * 20 * (options.scale ?? 1);
   });
-  return { cars, config, distances, start,
+  return { cars, config, distances, sim: h,
+    /** Every `console.warn` line the runtime wrote (the content-log diagnostics), in order. */
+    warnings: (): string[] => h.lines('console').filter(l => l.startsWith('[warn] ')).map(l => l.slice('[warn] '.length)),
+    /** The world reopened: the runtime loaded again from its first line over the same cars (a reload). */
+    start: () => h.reload(),
     // Car 0 aliases keep the single-cart tests reading as they did.
-    entity: lead.entity, properties: lead.properties, riders: lead.riders, rider: lead.rider, positions: lead.positions,
-    run: (n: number) => { for (let i = 0; i < n; i++) { tick(); distances.push(Number(lead.properties.get('craftmatic:coaster_distance'))); } },
-    board: (index = 0) => { cars[index]!.riders.push(cars[index]!.rider); },
-    dismount: (index = 0) => { cars[index]!.riders.length = 0; },
-    setLoaded: (value: boolean) => { loaded = value; }, remove: () => { removed = true; },
-    unload: (index: number) => { gone.add(index); }, reload: (index: number) => { gone.delete(index); },
+    entity: lead.entity, properties: lead.properties, get riders() { return lead.riders; }, rider: lead.rider, positions: lead.positions,
+    run: (n: number) => { for (let i = 0; i < n; i++) { h.run(1); distances.push(Number(lead.properties.get('craftmatic:coaster_distance'))); } },
+    /** Seat a player (a facade, e.g. `cameraRider`'s) in car `index`. */
+    seat: (player: any, index = 0) => { cars[index]!.seat(player); },
+    board: (index = 0) => { cars[index]!.seat(cars[index]!.rider); },
+    dismount: (index = 0) => { cars[index]!.dismount(); },
+    setLoaded: world.setLoaded,
+    /** Undo: every car of the placement removed from the world. */
+    remove: () => { for (const car of cars) h.remove(car.sim); },
+    unload: (index: number) => { world.unload(cars[index]!.sim); }, reload: (index: number) => { world.reload(cars[index]!.sim); },
     /** World blocks per second between consecutive teleports of one car: the ENTITY's speed, which carries the rider's head offset. */
     speeds: (index = 0) => speedsOf(cars[index]!.positions),
     arcSpeeds,
@@ -508,7 +584,7 @@ describe('serialized coaster runtime', () => {
     h.run(1);
     h.entity.tryTeleport.mockImplementationOnce((position: any, options: unknown) => {
       h.entity.teleport(position, options); h.positions.push({ ...position });
-      h.riders.length = 0;
+      h.dismount();
       return true;
     });
     h.run(1);
@@ -519,29 +595,27 @@ describe('serialized coaster runtime', () => {
     expect(Number(h.properties.get('craftmatic:coaster_distance'))).toBeGreaterThan(STATION_RUN);
   });
   it('retires a cart removed by Undo without reporting a movement error', () => {
-    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const h = rideHost(towerRoute(), { riders: true }); h.run(45);
-      h.rider.onScreenDisplay.setActionBar.mockClear();
-      h.remove(); h.run(60);
-      // Undo is an ordinary retirement: no console fault, no message to a player.
-      expect(log).not.toHaveBeenCalled();
-      expect(h.rider.onScreenDisplay.setActionBar).not.toHaveBeenCalled();
-    } finally { log.mockRestore(); }
+    // The runtime's console is captured on the simulator's timeline (`warnings()`), not the host process's.
+    const h = rideHost(towerRoute(), { riders: true }); h.run(45);
+    h.rider.onScreenDisplay.setActionBar.mockClear();
+    const before = h.warnings().length;
+    h.remove(); h.run(60);
+    // Undo is an ordinary retirement: no console fault, no message to a player.
+    expect(h.warnings().slice(before)).toEqual([]);
+    expect(h.rider.onScreenDisplay.setActionBar).not.toHaveBeenCalled();
   });
   it('reports bounded movement errors with their stage and throttles repeated logs', () => {
-    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const h = rideHost(towerRoute(), { riders: true });
-      h.entity.tryTeleport.mockImplementation(() => { throw new Error('movement denied ' + 'x'.repeat(200)); });
-      h.run(150);
-      expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
-      expect(log).toHaveBeenCalledTimes(1);
-      expect(log.mock.calls[0]![0]).toContain('at teleport cart: movement denied');
-      expect(h.rider.onScreenDisplay.setActionBar).toHaveBeenCalledWith('Coaster paused at teleport cart: ' + ('movement denied ' + 'x'.repeat(200)).slice(0, 160));
-      h.run(150);
-      expect(log).toHaveBeenCalledTimes(2);
-    } finally { log.mockRestore(); }
+    // The runtime's console is captured on the simulator's timeline (`warnings()`), not the host process's.
+    const h = rideHost(towerRoute(), { riders: true });
+    // Fault injection: every teleport of the cart throws.
+    h.entity.tryTeleport.mockImplementation(() => { throw new Error('movement denied ' + 'x'.repeat(200)); });
+    h.run(150);
+    expect(h.properties.has('craftmatic:coaster_distance')).toBe(false);
+    expect(h.warnings()).toHaveLength(1);
+    expect(h.warnings()[0]).toContain('at teleport cart: movement denied');
+    expect(h.rider.onScreenDisplay.setActionBar).toHaveBeenCalledWith('Coaster paused at teleport cart: ' + ('movement denied ' + 'x'.repeat(200)).slice(0, 160));
+    h.run(150);
+    expect(h.warnings()).toHaveLength(2);
   });
   it('stays inside the declared pitch, roll and body-offset property ranges over a whole ride', () => {
     const h = rideHost(loopRoute(), { scale: 0.25 });
@@ -1134,7 +1208,7 @@ describe('lift-extended route config', () => {
  * what the rider sees must pass the set's own wheelbase, or it measures a
  * polyline artefact the shipped car never shows (see the 10303 loop tests).
  */
-function liftHost(route: CoasterRoute, camera?: Partial<CoasterRiderViewConfig>, wheelbase?: number) {
+function liftHost(route: CoasterRoute, camera?: Partial<CoasterRiderViewConfig>, wheelbase?: number, sim: CoasterSimOptions = {}) {
   const bare = coasterRuntimeConfig('craftmatic:test_cart', [route]);
   const withCamera = camera ? { ...bare, camera: { ...bare.camera!, ...camera } } : bare;
   const config = wheelbase === undefined ? withCamera : {
@@ -1142,49 +1216,33 @@ function liftHost(route: CoasterRoute, camera?: Partial<CoasterRiderViewConfig>,
     types: Object.fromEntries(Object.entries(withCamera.types).map(([id, type]) => [id, type.role === 'car' ? { ...type, wheelbase } : type])),
   };
   const runtimeRoute = config.routes[0]!;
-  let loaded = true;
-  const removed = new Set<string>();
+  const world = coasterSim(config, sim);
+  const { h } = world;
+  /** Fault injection: the types whose teleports the "device" refuses (`setRefuse`). */
   let refuse: ((typeId: string) => boolean) | undefined;
-  const make = (id: string, typeId: string, index?: number) => {
-    const properties = new Map<string, unknown>([
-      ['craftmatic:coaster_origin', { x: 100, y: 64, z: 200 }], ['craftmatic:coaster_rotation', 0], ['craftmatic:coaster_scale', 1], ['craftmatic:coaster_route', 0],
-      ...(index !== undefined ? [['craftmatic:coaster_car', index] as [string, unknown]] : []),
-    ]);
-    const actorProperties = new Map<string, unknown>();
-    const riders: any[] = [];
-    const positions: Array<{ x: number; y: number; z: number }> = [];
-    /** The rotation Bedrock remembers from the last teleport. */
-    const rotation = { x: 0, y: 0 };
-    const entity: any = {
-      id, typeId, getDynamicProperty: (key: string) => properties.get(key), setDynamicProperty: (key: string, value: unknown) => properties.set(key, value),
-      setProperty: (key: string, value: unknown) => actorProperties.set(key, value), getRotation: () => ({ ...rotation }), isValid: () => !removed.has(id),
-      getComponent: (name: string) => name === 'minecraft:rideable' ? { getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } } : undefined,
-      tryTeleport: vi.fn((position: any, options?: any) => { if (refuse?.(typeId)) return false; positions.push({ ...position }); if (options?.rotation) Object.assign(rotation, options.rotation); return true; }),
-      dimension: { getBlock: () => loaded ? {} : undefined },
-    };
-    return { id, typeId, entity, properties, actorProperties, riders, positions };
-  };
+  const make = (id: string, typeId: string, index?: number) =>
+    world.make(typeId, { 'craftmatic:coaster_scale': 1, ...(index !== undefined ? { 'craftmatic:coaster_car': index } : {}) }, () => !!refuse?.(typeId), id);
   const cars = runtimeRoute.cars.slots!.map((slot, k) => make(`car${k}`, slot.type, k));
   const platform = runtimeRoute.lift ? make('platform', runtimeRoute.lift.type) : undefined;
   const weight = runtimeRoute.lift?.counterweightType ? make('weight', runtimeRoute.lift.counterweightType) : undefined;
   const all = [...cars, ...(platform ? [platform] : []), ...(weight ? [weight] : [])];
-  const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? all.filter(m => !removed.has(m.id)).map(m => m.entity) : [] }) };
-  let tick = () => {};
-  const system = { runInterval: (callback: () => void) => { tick = callback; } };
-  new Function('world', 'system', coasterScript(config).replace(/^import .*;\n/, ''))(world, system);
+  h.start();
+  for (const m of all) coasterSims.set(m.entity, world);
   const lead = cars[0]!;
   return {
-    config, route: runtimeRoute, cars, platform, weight, lead,
-    run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
+    config, route: runtimeRoute, cars, platform, weight, lead, sim: h,
+    run: (n: number) => { h.run(n); },
     /** Run until `predicate` holds, or `limit` ticks pass; returns the ticks run. */
-    runUntil: (predicate: () => boolean, limit = 5000) => { let n = 0; while (!predicate() && n < limit) { tick(); n++; } return n; },
+    runUntil: (predicate: () => boolean, limit = 5000) => h.runUntil(predicate, limit),
     phase: () => String(lead.properties.get('craftmatic:coaster_phase') ?? 'track'),
     progress: () => Number(lead.properties.get('craftmatic:coaster_lift') ?? 0),
     distance: () => Number(lead.properties.get('craftmatic:coaster_distance')),
     speed: () => Number(lead.properties.get('craftmatic:coaster_speed')),
-    setLoaded: (value: boolean) => { loaded = value; },
+    setLoaded: world.setLoaded,
     setRefuse: (fn?: (typeId: string) => boolean) => { refuse = fn; },
-    remove: (id: string) => { removed.add(id); },
+    /** A player (spied action bar) a test seats with `car.seat`. */
+    newRider: () => world.newPlayer('lift-rider'),
+    remove: (id: string) => { const m = all.find(x => x.id === id); if (m) h.remove(m.sim); },
   };
 }
 
@@ -1296,14 +1354,14 @@ describe('the lift completes the circuit', () => {
     h.run(1);
     for (const car of h.cars) expect(car.actorProperties.get('craftmatic:rider')).toBe(0);
     expect(h.lead.actorProperties.get('craftmatic:occupied')).toBe(false);
-    h.lead.riders.push({ id: 'p', onScreenDisplay: { setActionBar: vi.fn() } });
+    h.lead.seat(h.newRider());
     h.run(1);
     expect(h.lead.actorProperties.get('craftmatic:occupied')).toBe(true);
     expect(h.cars[1]!.actorProperties.get('craftmatic:occupied')).toBe(false);
     h.runUntil(() => h.phase() === 'delivered');
     expect(h.lead.riders).toHaveLength(1);
     expect(h.lead.riders[0].onScreenDisplay.setActionBar).toHaveBeenCalledWith(expect.stringMatching(/lift rising/));
-    h.lead.riders.length = 0;
+    h.lead.dismount();
     h.run(1);
     expect(h.lead.actorProperties.get('craftmatic:occupied')).toBe(false);
   });
@@ -2025,14 +2083,18 @@ function cameraRider(entity: any, head = { yaw: 0, pitch: 0 }) {
     const calls = entity.tryTeleport.mock.calls as any[][];
     return calls.length ? Number(calls[Math.max(0, calls.length - 1 - COASTER_RIDER_VIEW.lookLag)]![1].rotation.y) : 0;
   };
-  return {
-    head,
-    player: {
-      id: 'player', typeId: 'minecraft:player', onScreenDisplay: { setActionBar: vi.fn() },
-      camera: { setCamera: vi.fn(), clear: vi.fn() }, addEffect: vi.fn(), removeEffect: vi.fn(),
-      getRotation: () => ({ x: head.pitch, y: lastYaw() + head.yaw }),
-    },
-  };
+  // A real player in the car's world (it boards with `h.seat(player)`), its camera and effects spied.
+  const world = coasterSims.get(entity);
+  if (!world) throw new Error('cameraRider: the entity is not a coaster host\'s car');
+  const player = world.newPlayer('viewer');
+  player.camera.setCamera = vi.fn(player.camera.setCamera);
+  player.camera.clear = vi.fn(player.camera.clear);
+  player.addEffect = vi.fn(player.addEffect);
+  player.removeEffect = vi.fn(player.removeEffect);
+  // The reported yaw is the CLIENT's (quirk `rider-yaw-lag`, device-only: the simulator does not
+  // turn a rider with its mount), so the rotation the runtime reads is stood in here, as measured.
+  player.getRotation = () => ({ x: head.pitch, y: lastYaw() + head.yaw });
+  return { head, player };
 }
 
 /** Bedrock's view direction for a camera rotation (yaw 0 faces +Z, +pitch looks down), pitch taken literally past ±90. */
@@ -2082,7 +2144,7 @@ describe('the rider camera follows the track', () => {
     // not the default; the math is kept honest for any client that allows it.
     const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'over', tickLag: 0 } });
     const { player } = cameraRider(h.entity);
-    h.run(1); h.riders.push(player); h.run(120); // board at the station, depart
+    h.run(1); h.seat(player); h.run(120); // board at the station, depart
     const calls = player.camera.setCamera.mock.calls as any[][];
     const route = h.config.routes[0]!, wheelbase = h.config.types['craftmatic:test_cart']!.wheelbase || 0;
     let worstYawStep = 0, worstPitchStep = 0, worstAlong = 0, minPitch = 0, maxPitch = 0, compared = 0;
@@ -2118,7 +2180,7 @@ describe('the rider camera follows the track', () => {
   it('layers the rider\'s head turn on the track frame, clamped, and recentres by looking back', () => {
     const h = rideHost(towerRoute(), { seat: [0, 0.35, 0] });
     const rider = cameraRider(h.entity, { yaw: 25, pitch: -10 }); // boards looking somewhere else
-    h.run(1); h.riders.push(rider.player); h.run(1);
+    h.run(1); h.seat(rider.player); h.run(1);
     // Bedrock turns a new rider to the seat a few ticks after mounting: the
     // reference follows the head until then, so the ride starts looking ahead.
     rider.head.yaw = 40; h.run(11);
@@ -2169,7 +2231,7 @@ describe('the rider camera follows the track', () => {
   it('reflect mode folds the pitch back over a loop and never turns the yaw', () => {
     const h = rideHost(loopRoute(), { seat: [0, 0.35, 0] });
     const { player } = cameraRider(h.entity);
-    h.run(1); h.riders.push(player); h.run(700);
+    h.run(1); h.seat(player); h.run(700);
     const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
     const yaws = new Set(views.map(v => Math.round(((v.y % 360) + 360) % 360)));
     // A planar loop: one heading all lap (the fabricated cart faces its motion, which never reverses here).
@@ -2187,7 +2249,7 @@ describe('the rider camera follows the track', () => {
   it('clamp mode looks exactly along the nose, keeps the pitch within ±90, and spreads the flip over the top across ticks', () => {
     const h = rideHost(loopRoute(), { seat: [0, 0.35, 0], camera: { mode: 'clamp', tickLag: 0 } });
     const { player } = cameraRider(h.entity);
-    h.run(1); h.riders.push(player); h.run(120);
+    h.run(1); h.seat(player); h.run(120);
     const calls = player.camera.setCamera.mock.calls as any[][];
     const route = h.config.routes[0]!, wheelbase = h.config.types['craftmatic:test_cart']!.wheelbase || 0;
     let previous: any, flipping = 0, worstAlong = 0, compared = 0;
@@ -2259,16 +2321,15 @@ describe('the rider camera follows the track', () => {
     expect(ANIM_LAG).toBe(3.5);
     expect(COASTER_RIDER_VIEW.tickLag).toBe(1.5);
     expect(COASTER_RIDER_VIEW.mode).toBe('loop');
-    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
-    (globalThis as any).LinearSpline = Spline;
-    try {
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
+    // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
+    {
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], spline: true });
       const { player } = cameraRider(h.entity);
       const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[]; distance: number }> = [];
       let tick = 0;
       (player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args, distance: NaN }); });
       player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args, distance: NaN }); });
-      h.run(1); h.riders.push(player);
+      h.run(1); h.seat(player);
       const distances: number[] = [];
       for (tick = 0; tick < 1200; tick++) { h.run(1); distances[tick] = h.distances.at(-1)!; }
       const plays = log.filter(e => e.kind === 'play');
@@ -2337,17 +2398,16 @@ describe('the rider camera follows the track', () => {
         // animation's last keyframe agree to the helix's lean.
         expect(rollFrame({ yaw: keys.at(-1).rotation.y, pitch: -keys.at(-1).rotation.x, roll: keys.at(-1).rotation.z }).u[1]).toBeGreaterThan(0.7);
       }
-    } finally { delete (globalThis as any).LinearSpline; }
+    }
   });
 
   it('loop mode hands back at once when the ride leaves the plan (a held chunk)', () => {
-    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
-    (globalThis as any).LinearSpline = Spline;
-    try {
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
+    // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
+    {
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], spline: true });
       const { player } = cameraRider(h.entity);
       (player.camera as any).playAnimation = vi.fn();
-      h.run(1); h.riders.push(player);
+      h.run(1); h.seat(player);
       // Run until an animation starts, then hold the ride for a tick.
       let guard = 0;
       while ((player.camera as any).playAnimation.mock.calls.length === 0 && guard++ < 1200) h.run(1);
@@ -2356,24 +2416,23 @@ describe('the rider camera follows the track', () => {
       const sets = player.camera.setCamera.mock.calls.length;
       h.setLoaded(false); h.run(1); h.setLoaded(true); h.run(1);
       expect(player.camera.setCamera.mock.calls.length).toBe(sets + 1);
-    } finally { delete (globalThis as any).LinearSpline; }
+    }
   });
 
   it('both cameras ride the drawn seat: the per-tick eye is the pose tickLag (1.5) ticks back, the hand-back the animation\'s own eye, and its yaw continuous', () => {
-    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
-    (globalThis as any).LinearSpline = Spline;
-    try {
+    // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
+    {
       // A twin ride with no lag and no animations (`reflect`: a setCamera every
       // tick) gives the server-schedule eye of every tick; the ride itself is
       // the same whatever the camera does.
       const eyesAt = (camera: Partial<CoasterRiderViewConfig>) => {
-        const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera });
+        const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], camera, spline: true });
         const { player } = cameraRider(h.entity);
         const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
         let tick = 0;
         (player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
         player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
-        h.run(1); h.riders.push(player);
+        h.run(1); h.seat(player);
         for (tick = 0; tick < 700; tick++) h.run(1);
         return log;
       };
@@ -2412,14 +2471,14 @@ describe('the rider camera follows the track', () => {
         const after4 = lagged.find(e => e.tick === t + 4 && e.kind === 'set');
         if (after4) expect(close(after4.args[1].location, mid(eye(plain, t + 4 - 2), eye(plain, t + 4 - 1), 0.5))).toBe(true);
       }
-    } finally { delete (globalThis as any).LinearSpline; }
+    }
   });
 
   it('a client without LinearSpline rides loop mode on the per-tick reflect camera alone', () => {
     const h = rideHost(loopCourse(), { seat: [0, 0.35, 0] });
     const { player } = cameraRider(h.entity);
     (player.camera as any).playAnimation = vi.fn();
-    h.run(1); h.riders.push(player); h.run(400);
+    h.run(1); h.seat(player); h.run(400);
     expect((player.camera as any).playAnimation).not.toHaveBeenCalled();
     const views = (player.camera.setCamera.mock.calls as any[][]).map(call => call[1].rotation);
     expect(views.length).toBeGreaterThan(300);
@@ -2437,9 +2496,13 @@ describe('the rider camera follows the track', () => {
    */
   function rideWork() {
     let predictions = 0, substeps = 0;
-    const math = Object.create(Math) as Math;
-    math.ceil = (x: number) => { const n = Math.ceil(x); predictions++; substeps += Math.max(1, n); return n; };
-    return { math, take: () => { const out = { predictions, substeps }; predictions = 0; substeps = 0; return out; } };
+    // Wraps the runtime's own (seeded) Math: only `ceil` is counted, its result unchanged.
+    const wrapMath = (seeded: Math): Math => {
+      const math = Object.create(seeded) as Math;
+      math.ceil = (x: number) => { const n = seeded.ceil(x); predictions++; substeps += Math.max(1, n); return n; };
+      return math;
+    };
+    return { wrapMath, take: () => { const out = { predictions, substeps }; predictions = 0; substeps = 0; return out; } };
   }
   /** Station, then a straight climb of sin(theta) `grade`: an open shuttle whose run back down is a steep drop. */
   function steepTower(grade: number): CoasterRoute {
@@ -2452,14 +2515,13 @@ describe('the rider camera follows the track', () => {
 
   for (const grade of [CLIMB_GRADE, 0.95]) {
     it(`loop mode on steep track with no inversion (sin ${grade}) predicts nothing: one ride step a tick, no animation`, () => {
-      class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
-      (globalThis as any).LinearSpline = Spline;
-      try {
+      // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
+      {
         const work = rideWork();
-        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], math: work.math });
+        const h = rideHost(steepTower(grade), { seat: [0, 0.35, 0], wrapMath: work.wrapMath, spline: true });
         const { player } = cameraRider(h.entity);
         (player.camera as any).playAnimation = vi.fn();
-        h.run(1); h.riders.push(player); h.run(1); work.take();
+        h.run(1); h.seat(player); h.run(1); work.take();
         const pitchCalls = () => (h.entity.setProperty.mock.calls as any[][]).filter(call => call[0] === 'craftmatic:track_pitch');
         let steepTicks = 0, worstPredictions = 0, worstSubsteps = 0;
         for (let t = 0; t < 1500; t++) {
@@ -2480,21 +2542,20 @@ describe('the rider camera follows the track', () => {
         const P = COASTER_PHYSICS;
         expect(worstSubsteps).toBeLessThanOrEqual(Math.ceil((P.MAX_SPEED + (P.GRAVITY + P.LIFT_ACCEL) / 20) / 20 / SPACING));
         expect((player.camera as any).playAnimation).not.toHaveBeenCalled();
-      } finally { delete (globalThis as any).LinearSpline; }
+      }
     });
   }
 
   it('loop mode predicts only near an inversion, and the prediction ends with it', () => {
-    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
-    (globalThis as any).LinearSpline = Spline;
-    try {
+    // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
+    {
       const work = rideWork();
-      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], math: work.math });
+      const h = rideHost(loopCourse(), { seat: [0, 0.35, 0], wrapMath: work.wrapMath, spline: true });
       const { player } = cameraRider(h.entity);
       const plays: number[] = [];
       let tick = 0;
       (player.camera as any).playAnimation = vi.fn((_spline: unknown, options: any) => { plays.push(Math.round(options.totalTimeSeconds / 0.05)); });
-      h.run(1); h.riders.push(player); h.run(1); work.take();
+      h.run(1); h.seat(player); h.run(1); work.take();
       let predictingTicks = 0, predicted = 0, worst = 0;
       for (tick = 0; tick < 1200; tick++) {
         h.run(1);
@@ -2511,13 +2572,13 @@ describe('the rider camera follows the track', () => {
       // every steep tick (before the fix: 20 a loop here, every tick of 10261's drops).
       expect(predictingTicks).toBeLessThanOrEqual(plays.length * 3);
       expect(predicted).toBeLessThanOrEqual(plays.reduce((sum, length) => sum + length + 3, 0) + plays.length * 2 * 21);
-    } finally { delete (globalThis as any).LinearSpline; }
+    }
   });
 
   it('gives the player their own camera back, and their visibility, on dismount', () => {
     const h = rideHost(towerRoute());
     const { player } = cameraRider(h.entity);
-    h.run(1); h.riders.push(player); h.run(5);
+    h.run(1); h.seat(player); h.run(5);
     expect(player.addEffect).toHaveBeenCalledWith('invisibility', expect.any(Number), { showParticles: false });
     expect(player.camera.clear).not.toHaveBeenCalled();
     h.dismount(); h.run(1);
@@ -2534,20 +2595,18 @@ describe('the rider camera follows the track', () => {
   it('keeps the camera through a paused tick (an unloaded chunk) instead of dropping it', () => {
     const h = rideHost(towerRoute());
     const { player } = cameraRider(h.entity);
-    h.run(1); h.riders.push(player); h.run(3);
+    h.run(1); h.seat(player); h.run(3);
     h.setLoaded(false); h.run(3); h.setLoaded(true); h.run(2);
     expect(player.camera.clear).not.toHaveBeenCalled();
   });
 
   it('never touches the camera of a pack built without one', () => {
-    const h = rideHost(towerRoute());
-    const bare = { ...h.config }; delete bare.camera;
-    const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? [h.entity] : [] }) };
-    let tick = () => {};
-    new Function('world', 'system', coasterScript(bare).replace(/^import .*;\n/, ''))(world, { runInterval: (callback: () => void) => { tick = callback; } });
+    // The runtime of a pack built before the camera: its config carries no `camera` at all.
+    const h = rideHost(towerRoute(), { noCamera: true });
+    expect(h.config.camera).toBeUndefined();
     const { player } = cameraRider(h.entity);
-    tick(); h.riders.push(player);
-    for (let i = 0; i < 20; i++) tick();
+    h.run(1); h.seat(player);
+    h.run(20);
     expect(player.camera.setCamera).not.toHaveBeenCalled();
     expect(player.addEffect).not.toHaveBeenCalled();
   });
@@ -2558,7 +2617,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     const { scene } = await corpusRoutes(PUBLISHED_10303);
     const h = liftHost(scene.routes[0]!, { mode: 'over', tickLag: 0 }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
-    h.run(1); h.lead.riders.push(rider.player);
+    h.run(1); h.lead.seat(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
     const phases: string[] = [];
     const centres: number[] = [];
@@ -2607,7 +2666,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     const { scene } = await corpusRoutes(PUBLISHED_10303);
     const h = liftHost(scene.routes[0]!, { mode: 'reflect', tickLag: 0 }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
-    h.run(1); h.lead.riders.push(rider.player);
+    h.run(1); h.lead.seat(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
     const path = h.route.path, cars = h.route.cars;
     const wheelbase = h.config.types[cars.slots![0]!.type]!.wheelbase || 0;
@@ -2643,17 +2702,16 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
   }, 240_000);
 
   it('loop mode: one rolling animation per loop, each played to its planned end, and the per-tick camera never turns round', async () => {
-    class Spline { controlPoints: Array<{ x: number; y: number; z: number }> = []; }
-    (globalThis as any).LinearSpline = Spline;
-    try {
+    // A client with `LinearSpline` (the loop camera animates each inversion): the host is built with `spline: true`.
+    {
       const { scene } = await corpusRoutes(PUBLISHED_10303);
-      const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303);
+      const h = liftHost(scene.routes[0]!, undefined, WHEELBASE_10303, { spline: true });
       const rider = cameraRider(h.lead.entity);
       const log: Array<{ tick: number; kind: 'set' | 'play'; args: any[] }> = [];
       let tick = 0;
       (rider.player.camera as any).playAnimation = vi.fn((...args: any[]) => { log.push({ tick, kind: 'play', args }); });
       rider.player.camera.setCamera.mockImplementation((...args: any[]) => { log.push({ tick, kind: 'set', args }); });
-      h.run(1); h.lead.riders.push(rider.player);
+      h.run(1); h.lead.seat(rider.player);
       const turn = (a: number, b: number) => Math.abs(((b - a) % 360 + 540) % 360 - 180);
       let worstYawStep = 0, previous: any;
       for (tick = 0; tick < 1400; tick++) {
@@ -2686,7 +2744,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
         }
       }
       expect(worstYawStep).toBeLessThan(20);
-    } finally { delete (globalThis as any).LinearSpline; }
+    }
   }, 240_000);
 
   it('clamp mode: exact along the nose except while turning over a loop, pitch within ±90, no yaw jump', async () => {
@@ -2696,7 +2754,7 @@ describe.skipIf(!HAVE_CORPUS)('10303: the rider view through the lift, the drop,
     // the numbers below depend on where the ticks fell (see the loops test).
     const h = liftHost(scene.routes[0]!, { mode: 'clamp', tickLag: 0 }, WHEELBASE_10303);
     const rider = cameraRider(h.lead.entity);
-    h.run(1); h.lead.riders.push(rider.player);
+    h.run(1); h.lead.seat(rider.player);
     const calls = rider.player.camera.setCamera.mock.calls as any[][];
     const path = h.route.path, cars = h.route.cars;
     const wheelbase = h.config.types[cars.slots![0]!.type]!.wheelbase || 0;

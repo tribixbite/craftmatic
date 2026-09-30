@@ -7,116 +7,98 @@ import { host } from './_placement-host.js';
  * runtime exactly as bedrock-placement-runtime.test.ts drives the planner.
  */
 it('spawns a ghost at the rotated footprint centre, turns it with the rotation, removes it on hide and place, and reports progress on the action bar', async () => {
-  const assets = buildPlacementPackAssets({ stem: 'ghosted', label: 'Ghosted', width: 40, height: 10, length: 20,
+  // The serialised runtime on the simulator (test/_placement-host.ts). Its own ticking areas are
+  // what the old fake called "loaded": a structure load, a snapshot and every actor spawn must come
+  // while the runtime holds an area over the target (the preview ghost is spawned beside the player).
+  const h = host({ stem: 'ghosted', label: 'Ghosted', width: 40, height: 10, length: 20,
     tiles: [{ identifier: 'craftmatic:t0', dx: 0, dy: 0, dz: 0, width: 40, height: 10, length: 20, nonAir: 5 }],
     actors: [{ typeId: 'craftmatic:car', label: 'Car', x: 20, y: 1, z: 10 }],
     preview: { typeId: 'craftmatic:ghosted_preview' }, settleTicks: 3, finalHoldTicks: 5 });
+  const { assets, player, spawned } = h;
   expect(assets.script).toContain('"preview":{"typeId":"craftmatic:ghosted_preview"}');
   expect(assets.script).toContain('"settleTicks":3');
-
-  const responses: any[] = [];
-  let shown = 0;
-  class Form {
-    labels: string[] = [];
-    title() { return this; } body() { return this; } button(label: string) { this.labels.push(label); return this; } textField() { return this; }
-    async show() {
-      shown++;
-      const r = responses.shift() ?? { canceled: true };
-      // `{ action: 'Place' }` presses the button whose label starts with it.
-      if (r.action === undefined) return r;
-      const i = this.labels.findIndex(l => l.startsWith(r.action));
-      if (i < 0) throw new Error(`no "${r.action}" button in [${this.labels.join(' | ')}]`);
-      return { selection: i };
-    }
-  }
-  const intervals = new Map<number, any>();
-  const spawned: Array<{ typeId: string; at: any; entity: any }> = [];
-  const removed: string[] = [];
-  const commands: string[] = [];
-  const actionBars: string[] = [];
+  const shown = () => h.buttons.length;
+  /** The ids of the spawned entities the runtime removed, in spawn order (`e1` is the first spawned). */
+  const removed = () => spawned.flatMap((s, i) => (s.entity.remove.mock.calls.length ? [`e${i + 1}`] : []));
+  const loaded = () => h.runtimeAreas().length > 0;
+  // Every command other than a ticking area, and every actor spawn, needs the runtime's area over its
+  // target; a use without one is listed (the runtime catches a throw, so the test asserts the list).
+  const outsideArea: string[] = [];
+  const runCommand = h.dimension.runCommand;
+  h.dimension.runCommand = (command: string) => {
+    if (!command.startsWith('tickingarea ')) { const [, , , x, , z] = command.split(' '); if (!h.runtimeLoads(Number(x), Number(z))) outsideArea.push(command); }
+    return runCommand(command);
+  };
+  h.engine.on('entitySpawn', ({ entity }) => { if (entity.typeId !== 'craftmatic:ghosted_preview' && !entity.isPlayer && !h.runtimeLoads(entity.location.x, entity.location.z)) outsideArea.push(entity.typeId); });
+  // The particles the preview draws, and the tick counts of every timeout the runtime waits.
+  const spawnParticle = vi.fn(h.dimension.spawnParticle);
+  h.dimension.spawnParticle = spawnParticle;
   const timeouts: number[] = [];
-  let loaded = false;
-  const makeEntity = (id: string, typeId: string) => ({ id, typeId, nameTag: '', dimension: { id: 'overworld' }, teleport: vi.fn(), setRotation: vi.fn(), remove: () => removed.push(id) });
-  const dimension: any = { id: 'overworld', heightRange: { min: -64, max: 320 }, spawnParticle: vi.fn(),
-    runCommand: (command: string) => {
-      if (command.startsWith('tickingarea remove ')) { loaded = false; return { successCount: 1 }; }
-      if (command.startsWith('tickingarea add ')) { loaded = true; return { successCount: 1 }; }
-      expect(loaded).toBe(true); commands.push(command); return { successCount: 1 };
-    },
-    getBlock: () => loaded ? { typeId: 'minecraft:air' } : undefined,
-    getEntities: () => [],
-    spawnEntity: (typeId: string, at: any) => { if (typeId !== 'craftmatic:ghosted_preview') expect(loaded).toBe(true); const entity = makeEntity(`e${spawned.length + 1}`, typeId); spawned.push({ typeId, at, entity }); return entity; } };
-  let use: any;
-  const player: any = { id: 'player', location: { x: 100, y: 64, z: 200 }, dimension, selectedSlotIndex: 0,
-    getComponent: () => undefined, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: (s: string) => actionBars.push(s) } };
-  const world = { afterEvents: { itemUse: { subscribe: (fn: any) => { use = fn; } }, playerLeave: { subscribe: vi.fn() } },
-    getAllPlayers: () => [player], getDimension: () => dimension,
-    getEntity: (id: string) => removed.includes(id) ? undefined : spawned.find(s => s.entity.id === id)?.entity,
-    structureManager: { createFromWorld: vi.fn(), get: () => undefined, place: vi.fn(), delete: vi.fn() } };
-  const system = { run: (fn: any) => fn(), runTimeout: (fn: any, ticks: number) => { timeouts.push(ticks); queueMicrotask(fn); }, runInterval: (fn: any, ticks: number) => { intervals.set(ticks, fn); } };
-  const source = assets.script.replace(/^import .*;\s*$/gm, '');
-  new Function('world', 'system', 'StructureSaveMode', 'ActionFormData', 'ModalFormData', source)(world, system, { Memory: 'memory', World: 'world' }, Form, Form);
-  const flush = async (turns = 80) => { for (let i = 0; i < turns; i++) await Promise.resolve(); };
-  const drawPreview = intervals.get(12);
-  expect(world.afterEvents.playerLeave.subscribe).toHaveBeenCalled();
+  const runTimeout = h.system.runTimeout;
+  h.system.runTimeout = (fn: () => void, ticks?: number) => { timeouts.push(ticks ?? 1); return runTimeout(fn, ticks); };
+  const drawPreview = h.intervals.get(12)!;
+  expect(h.host.subscriberCount('playerLeave')).toBeGreaterThan(0);
+  const use = () => h.use(80);
+  const responses = h.responses;
 
   // The first use of an unpinned wand starts following the aim and shows no
   // form; nothing is under the crosshair here, so no ghost stands yet.
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
-  expect(shown).toBe(0);
+  await use();
+  expect(shown()).toBe(0);
   drawPreview();
   expect(spawned).toHaveLength(0);
   // Pin the corner at the feet: the ghost appears at the footprint centre (20, 0, 10) from the pin, yaw 0.
   responses.push({ action: 'Pin corner at my feet' }, { canceled: true });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
-  expect(shown).toBe(2);
+  await use();
+  expect(shown()).toBe(2);
   drawPreview();
   expect(spawned).toHaveLength(1);
   expect(spawned[0]).toMatchObject({ typeId: 'craftmatic:ghosted_preview', at: { x: 120, y: 64, z: 210 } });
   expect(spawned[0]!.entity.teleport).toHaveBeenCalledWith({ x: 120, y: 64, z: 210 }, { rotation: { x: 0, y: 0 } });
   // No particle sample points once a ghost ships (the outline and the +Y axis marker at the pin stay).
-  expect(dimension.spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:villager_happy' && (c[1].x !== 100 || c[1].z !== 200))).toBe(false);
-  expect(dimension.spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:endrod')).toBe(true);
+  expect(spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:villager_happy' && (c[1].x !== 100 || c[1].z !== 200))).toBe(false);
+  expect(spawnParticle.mock.calls.some((c: any[]) => c[0] === 'minecraft:endrod')).toBe(true);
 
   // Rotate → 90°: the same ghost is moved to the rotated centre (length − z, x) = (10, 20) and turned.
   responses.push({ action: 'Rotate' }, { canceled: true });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  await use();
   drawPreview();
   expect(spawned).toHaveLength(1);
   expect(spawned[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 110, y: 64, z: 220 }, { rotation: { x: 0, y: 90 } });
   // "Pin centred on me" puts the rotated footprint centre (10, 20 at 90°) on the player: anchor = feet − centre.
   responses.push({ action: 'Pin centred on me' }, { canceled: true });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  await use();
   drawPreview();
   expect(spawned[0]!.entity.teleport).toHaveBeenLastCalledWith({ x: 100, y: 64, z: 200 }, { rotation: { x: 0, y: 90 } });
   responses.push({ action: 'Pin corner at my feet' }, { canceled: true });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  await use();
 
   // Hide preview removes it; showing it again spawns a fresh one.
   responses.push({ action: 'Hide preview' });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
-  expect(removed).toEqual(['e1']);
+  await use();
+  expect(removed()).toEqual(['e1']);
   drawPreview();
   expect(spawned).toHaveLength(1);
   responses.push({ action: 'View preview in world' });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush();
+  await use();
   drawPreview();
   expect(spawned).toHaveLength(2);
 
   // Place: the ghost goes away before the first tile, the bar runs 0 → 100 %, the area is held after the last piece.
   responses.push({ action: 'Place' }, { selection: 0 });
-  use({ itemStack: { typeId: assets.itemId }, source: player }); await flush(200);
-  expect(removed).toEqual(['e1', 'e2']);
-  expect(commands).toEqual(['structure load craftmatic:t0 100 64 200 90_degrees none']);
+  await h.use(200);
+  expect(removed()).toEqual(['e1', 'e2']);
+  expect(h.commands).toEqual(['structure load craftmatic:t0 100 64 200 90_degrees none']);
   expect(spawned.filter(s => s.typeId === 'craftmatic:car')).toHaveLength(1);
-  expect(actionBars.some(s => s.includes('▱') && s.includes(' 0 percent ') && s.includes('loading area for piece 1/1'))).toBe(true);
-  expect(actionBars.some(s => s.includes('50 percent') && s.includes('piece 1/1 placed'))).toBe(true);
-  expect(actionBars.some(s => s.includes('100 percent') && s.includes('done'))).toBe(true);
+  expect(h.actionBars.some(s => s.includes('▱') && s.includes(' 0 percent ') && s.includes('loading area for piece 1/1'))).toBe(true);
+  expect(h.actionBars.some(s => s.includes('50 percent') && s.includes('piece 1/1 placed'))).toBe(true);
+  expect(h.actionBars.some(s => s.includes('100 percent') && s.includes('done'))).toBe(true);
   expect(timeouts).toContain(3);
   expect(timeouts).toContain(5);
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placing Ghosted: 1 structure piece and 1 entity.'));
   expect(player.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Placed Ghosted.'));
-  expect(loaded).toBe(false);
+  expect(loaded()).toBe(false);
+  expect(outsideArea).toEqual([]);
   // Placement cleared the preview: nothing is respawned afterwards.
   drawPreview();
   expect(spawned.filter(s => s.typeId === 'craftmatic:ghosted_preview')).toHaveLength(2);

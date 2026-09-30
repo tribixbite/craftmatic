@@ -1,7 +1,7 @@
 /**
  * Minifig NPC life (web/src/engine/bedrock-figure-life.ts): the pure planner
  * over collision spans, and the SERIALISED `scripts/figures.js` runtime run
- * in the host world of figure-life-sim.ts - rooms with floor plates under a
+ * on the headless simulator (sim/adapters/craftmatic/figure-life.ts) - rooms with floor plates under a
  * ceiling (the Winter Chalet case where vanilla mob AI never moved), walls,
  * a drop, a doorway leaf, seats, and a figure pushed out of its area.
  */
@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { host } from './_placement-host.js';
 import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
-import { simulateFigureLife, type SimWorld } from '../web/src/engine/figure-life-sim.js';
+import { simulateFigureLife, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
 
 const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
   const m = new Map(cells.map(c => [`${c.x},${c.y},${c.z}`, c]));

@@ -1,14 +1,18 @@
 /**
  * Slides and lifts (engine/bedrock-rides.ts): the chute is read from a part's
  * top surface, a lift from its guides, car and floors, and the runtime carries
- * a seated player along the world path the placement wrote and sets them down.
+ * a seated player along the world path the placement wrote and sets them down -
+ * the shipped `scripts/rides.js` on the headless simulator (test/_sim-host.ts).
  */
 import { describe, expect, it } from 'vitest';
-import { RIDE, _ridesRuntimeForTests, findLifts, findSlides, isLiftCarDescription, isLiftColumnDescription, isLiftGuideDescription, isSlideDescription, ridesScript, slidePathLdu } from '../web/src/engine/bedrock-rides.js';
+import { RIDE, type RideRuntimeConfig, findLifts, findSlides, isLiftCarDescription, isLiftColumnDescription, isLiftGuideDescription, isSlideDescription, ridesScript, slidePathLdu } from '../web/src/engine/bedrock-rides.js';
 import { isSwingSeat, isFurnitureSeat } from '../web/src/engine/bedrock-scene-actors.js';
 import { COLLIDER_KIT } from '../web/src/engine/collider-form.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
 import { isVehicleAndPlaceLabel, isWholeVehicleLabel } from '../web/src/engine/playable-components.js';
+import { companionSeatBehavior, rideSeatBehavior } from '../web/src/engine/playable-addon.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
+import { simHost, type SimHost } from './_sim-host.js';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
@@ -157,23 +161,35 @@ describe('lifts', () => {
 });
 
 describe('ride runtime', () => {
-  /** A fake Script API world with one player sitting on one seat. */
-  function world(path: Array<{ x: number; y: number; z: number }>, kind: 'slide' | 'lift', extra: Record<string, unknown> = {}) {
-    const props = new Map<string, unknown>([['craftmatic:ride', 0], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify(path)], ...Object.entries(extra)]);
-    const seat: any = {
-      id: 'seat1', typeId: 'craftmatic:t_ride', isValid: true, location: { ...path[0]! }, dimension: { getEntities: () => [] },
-      getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v),
-      tryTeleport(p: any) { this.location = { ...p }; return true; },
-    };
-    const player: any = { location: { ...path[0]! }, riding: seat, onScreenDisplay: { setActionBar: () => {} },
-      getComponent: (n: string) => n === 'minecraft:riding' && player.riding ? { entityRidingOn: player.riding } : undefined,
-      teleport(p: any) { this.location = { ...p }; } };
-    seat.getComponent = (n: string) => n === 'minecraft:rideable' ? { getRiders: () => player.riding ? [player] : [], ejectRiders: () => { player.riding = undefined; } } : undefined;
-    let tick = 0; let loop: () => void = () => {};
-    (globalThis as any).world = { getAllPlayers: () => [player] };
-    (globalThis as any).system = { get currentTick() { return tick; }, runInterval: (f: () => void) => { loop = f; } };
-    _ridesRuntimeForTests({ seatType: 'craftmatic:t_ride', rides: [{ kind }], constants: RIDE });
-    return { seat, player, props, run: (n: number) => { for (let i = 0; i < n; i++) { tick++; loop(); } } };
+  const SEAT = 'craftmatic:t_ride', ORBIT_SEAT = 'craftmatic:t_orbit', CAR = 'craftmatic:t_car', OTHER = 'craftmatic:t_prop';
+  /** A static actor a child can tap: a lift car, or anything that is not a ride. */
+  const PROP = { components: { 'minecraft:type_family': { family: ['craftmatic_actor'] }, 'minecraft:collision_box': { width: 1, height: 1 } } };
+
+  /**
+   * `scripts/rides.js` as the pack ships it (`ridesScript`: the runtime with its
+   * collider body probe) on the headless simulator (test/_sim-host.ts): the
+   * pack's own ride seat and orbit seat types (`rideSeatBehavior`,
+   * `companionSeatBehavior`), a lift car and a prop. Air everywhere unless a
+   * test lays blocks; `seat` spawns a seat carrying the placement's ride marks.
+   */
+  function rideHost(rides: RideRuntimeConfig['rides'], o: { colliders?: boolean } = {}) {
+    const h = simHost({
+      script: ridesScript({ seatType: SEAT, rides, constants: RIDE }),
+      entities: { [SEAT]: rideSeatBehavior('t_ride') as Record<string, unknown>, [ORBIT_SEAT]: companionSeatBehavior('t_orbit') as Record<string, unknown>, [CAR]: PROP, [OTHER]: PROP },
+      ...(o.colliders ? { colliders: true } : {}),
+    });
+    const seat = (index: number, at: { x: number; y: number; z: number }, marks: Record<string, unknown> = {}, typeId = SEAT) =>
+      h.spawn(typeId, at, { dynamic: { 'craftmatic:ride': index, 'craftmatic:ride_scale': 1, ...marks } });
+    return { h, seat };
+  }
+
+  /** One player sitting on one seat of a slide or a lift. */
+  function world(path: Array<{ x: number; y: number; z: number }>, kind: 'slide' | 'lift', extra: Record<string, unknown> = {}, at = path[0]!) {
+    const { h, seat: place } = rideHost([{ kind }]);
+    const seat = place(0, at, { 'craftmatic:ride_path': JSON.stringify(path), ...extra });
+    const player = h.addPlayer('Rider', at);
+    h.seat(player, seat);
+    return { h, seat: h.api(seat), player, props: seat.dynamic, run: (n: number) => h.run(n) };
   }
 
   it('slides the rider to the foot, sets them down there and returns the seat to the top', () => {
@@ -182,7 +198,8 @@ describe('ride runtime', () => {
     w.run(1);
     expect(w.seat.location.x).toBeGreaterThan(0);
     w.run(200);
-    expect(w.player.riding).toBeUndefined();
+    expect(w.player.ridingOn).toBeUndefined();
+    // Set down at the foot (nothing stands there in this empty world, so the probe keeps the planned point; the body then falls straight down).
     expect(w.player.location.x).toBeCloseTo(6, 5);
     expect(w.seat.location).toEqual(path[0]);
   });
@@ -192,33 +209,14 @@ describe('ride runtime', () => {
     const path = [{ x: 0.5, y: 5, z: 0.5 }, { x: 4.5, y: 2, z: 0.5 }, { x: 6.5, y: 1.3, z: 0.5 }];
     // A floor slab (a collider form, lo 0 hi 8: the lower half of the block) under the slide's foot: its top is 1.5,
     // and the planned set-down (1.3 + 0.05) is 0.15 inside it.
-    const blocks = new Map<string, { typeId: string; states: Record<string, number> }>();
-    for (let x = 4; x <= 9; x++) for (let z = -2; z <= 2; z++) blocks.set(`${x},1,${z}`, { typeId: COLLIDER_BLOCK_ID, states: { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 8 } });
-    const dimension = {
-      getEntities: () => [],
-      getBlock: (p: { x: number; y: number; z: number }) => {
-        const b = blocks.get(`${p.x},${p.y},${p.z}`) ?? { typeId: 'minecraft:air', states: {} };
-        return { typeId: b.typeId, isAir: b.typeId === 'minecraft:air', isLiquid: false, permutation: { getState: (k: string) => b.states[k] } };
-      },
-    };
-    const props = new Map<string, unknown>([['craftmatic:ride', 0], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify(path)]]);
-    const seat: any = {
-      id: 'seat1', typeId: 'craftmatic:t_ride', isValid: true, location: { ...path[0]! }, dimension,
-      getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v),
-      tryTeleport(p: any) { this.location = { ...p }; return true; },
-    };
-    const player: any = { location: { ...path[0]! }, riding: seat, onScreenDisplay: { setActionBar: () => {} },
-      getComponent: (n: string) => n === 'minecraft:riding' && player.riding ? { entityRidingOn: player.riding } : undefined,
-      teleport(p: any) { this.location = { ...p }; } };
-    seat.getComponent = (n: string) => n === 'minecraft:rideable' ? { getRiders: () => player.riding ? [player] : [], ejectRiders: () => { player.riding = undefined; } } : undefined;
-    let tick = 0; let loop: () => void = () => {};
-    const worldApi = { getAllPlayers: () => [player] };
-    const systemApi = { get currentTick() { return tick; }, runInterval: (f: () => void) => { loop = f; } };
-    const src = ridesScript({ seatType: 'craftmatic:t_ride', rides: [{ kind: 'slide' }], constants: RIDE });
-    new Function('world', 'system', src.replace(/^import.*\n/, ''))(worldApi, systemApi);
-    for (let i = 0; i < 300; i++) { tick++; loop(); }
-    expect(player.riding).toBeUndefined();
-    // On the slab's top, not inside it.
+    const { h, seat: place } = rideHost([{ kind: 'slide' }], { colliders: true });
+    h.fill({ x: 4, y: 1, z: -2 }, { x: 9, y: 1, z: 2 }, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 8 });
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path) });
+    const player = h.addPlayer('Rider', path[0]!);
+    h.seat(player, seat);
+    h.run(300);
+    expect(player.ridingOn).toBeUndefined();
+    // On the slab's top, not inside it (and standing there since: the simulator's player stands on the slab).
     expect(player.location.y).toBeCloseTo(1.5, 6);
     expect(player.location.x).toBeCloseTo(6.5, 6);
   });
@@ -226,66 +224,44 @@ describe('ride runtime', () => {
   it('a lift goes to the next storey, sets the rider on that floor and stays there', () => {
     const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }, { x: 0, y: 8, z: 0 }];
     const exits = [{ x: 2, y: -0.5, z: 0 }, { x: 2, y: 3.5, z: 0 }, { x: 2, y: 7.5, z: 0 }];
-    const w = world(path, 'lift', { 'craftmatic:ride_exits': JSON.stringify(exits), 'craftmatic:ride_stop': 1 });
-    w.seat.location = { ...path[1]! };
-    w.run(400);
-    expect(w.player.riding).toBeUndefined();
+    const w = world(path, 'lift', { 'craftmatic:ride_exits': JSON.stringify(exits), 'craftmatic:ride_stop': 1 }, path[1]!);
+    const ran = w.h.runUntil(() => !w.player.ridingOn, 400);
+    expect(w.player.ridingOn).toBeUndefined();
+    // Read the tick the rider is set down: no floor is built at the exit in this world, so the body falls from there after.
     expect(w.player.location.y).toBeCloseTo(7.55, 5);
+    w.run(400 - ran);
     expect(w.seat.location.y).toBeCloseTo(8, 5);
     expect(w.props.get('craftmatic:ride_stop')).toBe(2);
   });
 
-  it('a tap on the car of a lift boards its seat (the seat is invisible; the car is what a child sees)', () => {
-    const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }];
-    const props = new Map<string, unknown>([['craftmatic:ride', 0], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify(path)], ['craftmatic:ride_exits', JSON.stringify(path)]]);
-    const riders: any[] = [];
-    const dim: any = {};
-    const seat: any = { id: 'seat1', typeId: 'craftmatic:t_ride', isValid: true, location: { ...path[0]! }, dimension: dim,
-      getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v), tryTeleport() { return true; },
-      getComponent: (n: string) => (n === 'minecraft:rideable' ? { getRiders: () => riders, addRider: (e: any) => { riders.push(e); return true; }, ejectRiders: () => { riders.length = 0; } } : undefined) };
-    const car: any = { id: 'car1', typeId: 'craftmatic:t_car', location: { x: 0, y: 0, z: 0.3 }, dimension: dim, getDynamicProperty: (k: string) => (k === 'craftmatic:ride' ? 0 : undefined) };
-    dim.getEntities = (q: { type?: string }) => (q.type === 'craftmatic:t_ride' ? [seat] : q.type === 'craftmatic:t_car' ? [car] : []);
-    const player: any = { typeId: 'minecraft:player', location: { x: 1, y: 0, z: 0 }, onScreenDisplay: { setActionBar: () => {} }, getComponent: () => undefined, runCommand: () => {} };
-    const subs: Record<string, (ev: any) => void> = {};
-    (globalThis as any).world = { getAllPlayers: () => [player], afterEvents: {
-      playerInteractWithEntity: { subscribe: (f: any) => { subs.interact = f; } }, entityHitEntity: { subscribe: (f: any) => { subs.hit = f; } } } };
-    (globalThis as any).system = { currentTick: 0, runInterval: () => {} };
-    _ridesRuntimeForTests({ seatType: 'craftmatic:t_ride', rides: [{ kind: 'lift', carType: 'craftmatic:t_car' }], constants: RIDE });
-    subs.hit!({ damagingEntity: player, hitEntity: car });
-    expect(riders).toEqual([player]);
-    // A tap on anything else boards nothing; a second tap does not add the rider twice.
-    subs.interact!({ player, target: { typeId: 'minecraft:cow', dimension: dim, location: car.location } });
-    subs.interact!({ player, target: car });
-    expect(riders).toEqual([player]);
+  /** A tap is a HIT (`entityHitEntity`); a press held ~0.5 s is the interact (`playerInteractWithEntity`). Each is delivered in the next tick's script phase. */
+  const touches = (h: SimHost, player: SimEntity) => ({
+    tap: (target: SimEntity, who = player) => { h.engine.emit('entityHitEntity', { damagingEntity: who, hitEntity: target }); h.run(1); },
+    press: (target: SimEntity, who = player) => { h.engine.emit('playerInteractWithEntity', { player: who, target }); h.run(1); },
   });
 
-  /**
-   * A fake Script API world with ride seats (and a lift car) that record who
-   * boards them, and the two tap events a touch screen sends: a tap is a HIT
-   * (`entityHitEntity`), a press held is an interact (`playerInteractWithEntity`).
-   */
-  function tapWorld(rides: Array<{ kind: 'slide' | 'lift' | 'orbit'; carType?: string; seatType?: string }>, seats: Array<{ index: number; typeId?: string; at: { x: number; y: number; z: number } }>) {
-    const dim: any = {};
-    const entities: any[] = [];
-    const seatOf = (s: typeof seats[number]) => {
-      const props = new Map<string, unknown>([['craftmatic:ride', s.index], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify([s.at, { x: s.at.x + 2, y: s.at.y - 1, z: s.at.z }])], ['craftmatic:ride_exits', JSON.stringify([s.at, s.at])]]);
-      const riders: any[] = [];
-      const seat: any = { id: `seat${s.index}`, typeId: s.typeId ?? 'craftmatic:t_ride', isValid: true, location: { ...s.at }, dimension: dim, riders,
-        getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v), tryTeleport() { return true; },
-        getComponent: (n: string) => (n === 'minecraft:rideable' ? { getRiders: () => riders, addRider: (e: any) => { riders.push(e); return true; }, ejectRiders: () => { riders.length = 0; } } : undefined) };
-      return seat;
-    };
-    for (const s of seats) entities.push(seatOf(s));
-    const car: any = { id: 'car1', typeId: 'craftmatic:t_car', location: { x: 0, y: 0, z: 0.3 }, dimension: dim, getDynamicProperty: (k: string) => (k === 'craftmatic:ride' ? rides.findIndex(r => r.kind === 'lift') : undefined) };
-    entities.push(car);
-    dim.getEntities = (q: { type?: string }) => entities.filter(e => e.typeId === q.type);
-    const player: any = { typeId: 'minecraft:player', location: { x: 1, y: 0, z: 0 }, onScreenDisplay: { setActionBar: () => {} }, getComponent: () => undefined, runCommand: () => {} };
-    const subs: Record<string, (ev: any) => void> = {};
-    (globalThis as any).world = { getAllPlayers: () => [player], afterEvents: {
-      playerInteractWithEntity: { subscribe: (f: any) => { subs.interact = f; } }, entityHitEntity: { subscribe: (f: any) => { subs.hit = f; } } } };
-    (globalThis as any).system = { currentTick: 0, runInterval: () => {} };
-    _ridesRuntimeForTests({ seatType: 'craftmatic:t_ride', rides, constants: RIDE });
-    return { player, car, seats: entities.filter(e => e !== car), tap: (target: any) => subs.hit!({ damagingEntity: player, hitEntity: target }), press: (target: any) => subs.interact!({ player, target }) };
+  it('a tap on the car of a lift boards its seat (the seat is invisible; the car is what a child sees)', () => {
+    const path = [{ x: 0, y: 0, z: 0 }, { x: 0, y: 4, z: 0 }];
+    const { h, seat: place } = rideHost([{ kind: 'lift', carType: CAR }]);
+    const seat = place(0, path[0]!, { 'craftmatic:ride_path': JSON.stringify(path), 'craftmatic:ride_exits': JSON.stringify(path) });
+    const car = h.spawn(CAR, { x: 0, y: 0, z: 0.3 }, { dynamic: { 'craftmatic:ride': 0 } });
+    const player = h.addPlayer('Child', { x: 1, y: 0, z: 0 });
+    const t = touches(h, player);
+    t.tap(car);
+    expect(seat.riderList()).toEqual([player]);
+    // A tap on anything else boards nothing; a second tap does not add the rider twice.
+    t.press(h.spawn(OTHER, car.location));
+    t.press(car);
+    expect(seat.riderList()).toEqual([player]);
+  });
+
+  /** Ride seats (and a lift car) the placement laid, and a player who taps or presses them. */
+  function tapWorld(rides: RideRuntimeConfig['rides'], seats: Array<{ index: number; typeId?: string; at: { x: number; y: number; z: number } }>) {
+    const { h, seat: place } = rideHost(rides);
+    const sims = seats.map(s => place(s.index, s.at, { 'craftmatic:ride_path': JSON.stringify([s.at, { x: s.at.x + 2, y: s.at.y - 1, z: s.at.z }]), 'craftmatic:ride_exits': JSON.stringify([s.at, s.at]) }, s.typeId ?? SEAT));
+    const car = h.spawn(CAR, { x: 0, y: 0, z: 0.3 }, { dynamic: { 'craftmatic:ride': rides.findIndex(r => r.kind === 'lift') } });
+    const player = h.addPlayer('Child', { x: 1, y: 0, z: 0 });
+    return { h, player, car, seats: sims, place, ...touches(h, player) };
   }
 
   it("a tap on a slide's seat boards it: the seat, not a car, is what a child taps at the chute's top (Pixel 2026-09-29c)", () => {
@@ -298,27 +274,29 @@ describe('ride runtime', () => {
     const wall = COLLIDER_KIT.formBoxes(COLLIDER_KIT.variantOf('craftmatic:collider_w6'), 0, 16);
     const inside = (b: readonly number[]): boolean => (idle.x - 9) * 16 >= b[0]! && (idle.x - 9) * 16 < b[1]! && (idle.y - 9) * 16 >= b[2]! && (idle.y - 9) * 16 < b[3]! && (idle.z - 3) * 16 >= b[4]! && (idle.z - 3) * 16 < b[5]!;
     expect(wall.some(inside)).toBe(true);
-    const w = tapWorld([{ kind: 'slide' }, { kind: 'lift', carType: 'craftmatic:t_car' }], [{ index: 0, at: idle }, { index: 1, at: { x: 16.875, y: 1.01, z: 4.8 } }]);
-    const [slide, lift] = w.seats;
+    const w = tapWorld([{ kind: 'slide' }, { kind: 'lift', carType: CAR }], [{ index: 0, at: idle }, { index: 1, at: { x: 16.875, y: 1.01, z: 4.8 } }]);
+    const [slide, lift] = w.seats as [SimEntity, SimEntity];
     w.tap(slide);
-    expect(slide.riders).toEqual([w.player]);
+    expect(slide.riderList()).toEqual([w.player]);
     // A second tap, or the held press that mounts a vanilla rideable, does not add the rider twice.
     w.tap(slide); w.press(slide);
-    expect(slide.riders).toEqual([w.player]);
-    // A lift's seat boards on a tap too, as its car does.
-    w.tap(lift);
-    expect(lift.riders).toEqual([w.player]);
+    expect(slide.riderList()).toEqual([w.player]);
+    // A lift's seat boards on a tap too, as its car does (a second child: the first is on the slide, and a
+    // rider already aboard one seat cannot be added to another).
+    const other = w.h.addPlayer('Child2', { x: 1, y: 0, z: 0 });
+    w.tap(lift, other);
+    expect(lift.riderList()).toEqual([other]);
   });
 
   it('a tap on an orbit seat, or on anything that is not a ride, boards nothing', () => {
-    const w = tapWorld([{ kind: 'orbit', carType: 'craftmatic:t_cloud', seatType: 'craftmatic:t_orbit' }, { kind: 'slide' }], [{ index: 0, typeId: 'craftmatic:t_orbit', at: { x: 0, y: 3, z: 0 } }, { index: 1, at: { x: 5, y: 5, z: 5 } }]);
-    const [orbit, slide] = w.seats;
+    const w = tapWorld([{ kind: 'orbit', carType: 'craftmatic:t_cloud', seatType: ORBIT_SEAT }, { kind: 'slide' }], [{ index: 0, typeId: ORBIT_SEAT, at: { x: 0, y: 3, z: 0 } }, { index: 1, at: { x: 5, y: 5, z: 5 } }]);
+    const [orbit, slide] = w.seats as [SimEntity, SimEntity];
     w.tap(orbit);
-    w.tap({ typeId: 'minecraft:cow', dimension: slide.dimension, location: slide.location });
+    w.tap(w.h.spawn(OTHER, slide.location));
     // A seat of the player type whose ride index is an orbit is not a player's ride either.
-    w.tap({ ...slide, id: 'seat9', getDynamicProperty: (k: string) => (k === 'craftmatic:ride' ? 0 : slide.getDynamicProperty(k)) });
-    expect(orbit.riders).toEqual([]);
-    expect(slide.riders).toEqual([]);
+    w.tap(w.place(0, slide.location));
+    expect(orbit.riderList()).toEqual([]);
+    expect(slide.riderList()).toEqual([]);
   });
 
   it('serialises into a module that names only Script API globals', () => {

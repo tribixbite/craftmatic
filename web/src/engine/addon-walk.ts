@@ -50,7 +50,9 @@ import {
   type GridDims, type QuarterTurn, type ReachResult, type ReachTarget, type SourceCell, type Surface, type TreadBlock, type TreadPlan,
 } from './bedrock-collider-scale.js';
 import { NO_INPUT, tickPlayer as simTickPlayer, type Box, type Contact as SimContact, type PlayerState, type SolidQuery, type TickResult as SimTickResult, type WalkInput } from '../sim/physics/body.js';
-import { COLLIDER_KIT, type ColliderForm } from './collider-form.js';
+import { BlockPalette, VoxelWorld, type Permutation, type TerrainGenerator, type WorldSolid } from '../sim/world/voxel-world.js';
+import { BlockTypes } from '../sim/world/block-types.js';
+import { COLLIDER_KIT, COLLIDER_STATES, colliderBlockDefinition, type ColliderForm } from './collider-form.js';
 
 // ─── Constants: the simulator's player physics (web/src/sim/physics/body.ts) ──
 
@@ -98,9 +100,47 @@ export interface WalkWorldOptions {
   entitySolids?: readonly EntitySolid[];
 }
 
+/** The block under the pin plane: the player's own ground, under and around the footprint. */
+const GROUND_BLOCK = 'minecraft:grass_block';
+
+let colliderRegistry: { palette: BlockPalette; types: BlockTypes } | undefined;
+/**
+ * The block registry every walk world shares: the collider kit's definitions
+ * exactly as the pack ships them (`colliderBlockDefinition`), read by the
+ * simulator's block reader (`sim/world/block-types.ts`, the device's reading,
+ * x mirror included) - so the doorway harness, the walk preview and the
+ * simulator take a collider form's boxes from ONE reader of ONE definition.
+ * TODO(walk-pack-blocks): a pack built before the x-mirror fix ships other
+ * definitions; the walk world reads the current kit's, not the pack's own.
+ */
+function walkBlockRegistry(): { palette: BlockPalette; types: BlockTypes } {
+  if (!colliderRegistry) {
+    const types = new BlockTypes();
+    for (let v = 0; v < COLLIDER_KIT.VARIANTS.length; v++) types.addDefinition(`blocks/collider_${v}.json`, colliderBlockDefinition(v));
+    colliderRegistry = { palette: new BlockPalette(), types };
+  }
+  return colliderRegistry;
+}
+
+/** The collider kit permutation a grid block is laid as (the runtime's lay): its form's variant and states, else the full collider over lo..hi. */
+function colliderPermutationOf(b: { lo: number; hi: number; form?: ColliderForm }): { typeId: string; states: Record<string, number> } {
+  const f = b.form;
+  return { typeId: COLLIDER_KIT.VARIANTS[f ? f.v : 0]!.id, states: { [COLLIDER_STATES.lo]: f ? f.lo : b.lo, [COLLIDER_STATES.hi]: f ? f.hi : b.hi } };
+}
+
+/** A collider permutation's facts for a `SolidBox`: its vertical extent (sixteenths) and its form variant (0 = full footprint). */
+interface ColliderMeta { lo: number; hi: number; v: number }
+
 /**
  * The collider world at one size and turn: the re-laid grid with its treads
  * written in, and the ground plane under and around it.
+ *
+ * STORAGE AND COLLISION are the simulator's (`VoxelWorld`): the grid's blocks
+ * are the collider kit's permutations (form variant, `lo`/`hi` states) in a
+ * voxel world whose terrain is the ground below the pin plane, filled from the
+ * re-laid grid section by section as a walk first reads it (a 400 % grid of a
+ * large set is too big to lay whole). `solidsNear` is the voxel world's, so the
+ * doorway harness's player and the simulator's collide through the same reader.
  */
 export class WalkWorld {
   readonly grid: ScaledColliderGrid;
@@ -142,7 +182,28 @@ export class WalkWorld {
     }
     this.treadBlocks = blocks; this.treadSource = source; this.treadPlan = plan;
     this.entitySolids = options.entitySolids ?? [];
+    const { palette, types } = walkBlockRegistry();
+    this.palette = palette;
+    const grid = this.grid;
+    // The terrain IS the laid grid (with its treads) over the ground: a column's block at a row is the collider
+    // kit's permutation of its form, and every block under the pin plane is ground.
+    const terrain: TerrainGenerator = Object.assign((x: number, y: number, z: number): { typeId: string; states?: Record<string, number> } => {
+      if (y < 0) return { typeId: GROUND_BLOCK };
+      if (!grid.inside(x, z)) return { typeId: 'minecraft:air' };
+      const b = grid.column(x, z).blocks.find(k => k.row === y);
+      return b ? colliderPermutationOf(b) : { typeId: 'minecraft:air' };
+    }, { materialiseOnRead: true });
+    this.voxels = new VoxelWorld('walk', palette, types, terrain);
+    this.voxels.setAllLoaded();
   }
+
+  /** The voxel world the walk collides with (the re-laid grid, treads and overlay in it). */
+  private readonly voxels: VoxelWorld;
+  private readonly palette: BlockPalette;
+  /** Collider facts by permutation id (`SolidBox.block`), filled as blocks are met. */
+  private readonly metaById = new Map<number, ColliderMeta | null>();
+  /** The grid's own permutation under each overlay block, to put back when the overlay changes. */
+  private readonly underOverlay = new Map<string, Permutation>();
 
   get sizePct(): number { return this.options.sizePct; }
   get rotation(): QuarterTurn { return this.options.rotation; }
@@ -158,54 +219,80 @@ export class WalkWorld {
    * block here replaces the grid's block in that row (the state already
    * merges the static cells there, as the runtime writes it).
    */
-  private readonly overlay = new Map<string, Map<number, { lo: number; hi: number; form?: ColliderForm }>>();
+  /** Overlay rows by column `"x,z"` (the rows `setOverlayBlocks` wrote), for `boxesInColumn`. */
+  private readonly overlayRows = new Map<string, Set<number>>();
 
   /**
    * Replace the laid-over blocks (keys `"x,row,z"` from the pin, the
    * `ixWorldBlocks` convention: `[lo, hi]` or `[lo, hi, v]` with `v` a
-   * clearance form). An empty map clears them.
+   * clearance form). An empty map clears them. Written into the voxel world
+   * as the runtime writes them; the grid's own block comes back when cleared.
    */
   setOverlayBlocks(blocks: ReadonlyMap<string, readonly (number | undefined)[]>): void {
-    this.overlay.clear();
+    for (const [key, p] of this.underOverlay) { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; this.voxels.setPermutation(x, y, z, p); }
+    this.underOverlay.clear();
+    this.overlayRows.clear();
     for (const [key, st] of blocks) {
       const [x, row, z] = key.split(',').map(Number) as [number, number, number];
       if (!this.grid.inside(x, z)) continue;
-      const col = `${x},${z}`;
-      let rows = this.overlay.get(col);
-      if (!rows) this.overlay.set(col, rows = new Map());
       const lo = st[0]!, hi = st[1]!, v = st[2] ?? 0;
-      if (!v) { rows.set(row, { lo, hi }); continue; }
-      const boxes = COLLIDER_KIT.formBoxes(v, lo, hi);
-      rows.set(row, { lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])), form: { v, lo, hi } });
+      if (!this.underOverlay.has(key)) this.underOverlay.set(key, this.voxels.permutationAt(x, row, z));
+      const perm = colliderPermutationOf({ lo, hi, ...(v ? { form: { v, lo, hi } } : {}) });
+      this.voxels.setPermutation(x, row, z, this.palette.intern(perm.typeId, perm.states));
+      const col = `${x},${z}`;
+      let rows = this.overlayRows.get(col);
+      if (!rows) this.overlayRows.set(col, rows = new Set());
+      rows.add(row);
     }
   }
 
-  /** A column's blocks with the overlay applied (lo/hi the vertical extent; `form` a clearance form). */
-  private columnBlocks(x: number, z: number): ReadonlyArray<{ row: number; lo: number; hi: number; form?: ColliderForm }> {
-    const base = this.grid.column(x, z).blocks;
-    const rows = this.overlay.get(`${x},${z}`);
-    if (!rows) return base;
-    const out: Array<{ row: number; lo: number; hi: number; form?: ColliderForm }> = base.filter(b => !rows.has(b.row)).map(b => ({ row: b.row, lo: b.lo, hi: b.hi, ...(b.form ? { form: b.form } : {}) }));
-    for (const [row, b] of rows) out.push({ row, ...b });
-    return out.sort((p, q) => p.row - q.row);
+  /** The collider facts of a permutation (null: not a collider - ground, or air). */
+  private metaOf(id: number): ColliderMeta | null {
+    let m = this.metaById.get(id);
+    if (m !== undefined) return m;
+    const p = this.palette.get(id), v = COLLIDER_KIT.variantOf(p.typeId);
+    if (v < 0) m = null;
+    else {
+      const lo = Number(p.states[COLLIDER_STATES.lo]), hi = Number(p.states[COLLIDER_STATES.hi]);
+      // A clearance form's vertical extent runs over all its boxes (a floor + wall form's wall reaches the block top).
+      const boxes = COLLIDER_KIT.formBoxes(v, lo, hi);
+      m = v ? { lo: Math.min(...boxes.map(b => b[2])), hi: Math.max(...boxes.map(b => b[3])), v } : { lo, hi, v: 0 };
+    }
+    this.metaById.set(id, m);
+    return m;
   }
 
-  /** The solid boxes of one block: its whole footprint, or its clearance form's boxes. */
-  private blockBoxes(x: number, z: number, b: { row: number; lo: number; hi: number; form?: ColliderForm }): SolidBox[] {
-    const block = { x, row: b.row, z, lo: b.lo, hi: b.hi, ...(b.form ? { v: b.form.v } : {}) }, tread = this.isTread(x, b.row, z);
-    if (!b.form) return [{ x0: x, y0: b.row + b.lo / 16, z0: z, x1: x + 1, y1: b.row + b.hi / 16, z1: z + 1, block, tread, ground: false }];
-    return COLLIDER_KIT.formBoxes(b.form.v, b.form.lo, b.form.hi).map(q => ({
-      x0: x + q[0] / 16, y0: b.row + q[2] / 16, z0: z + q[4] / 16, x1: x + q[1] / 16, y1: b.row + q[3] / 16, z1: z + q[5] / 16, block, tread, ground: false,
-    }));
+  /**
+   * One of the voxel world's solids as a `SolidBox`: the ground's, or a
+   * collider form's box with its block's facts and tread flag. Undefined for a
+   * block whose span misses [y0, y1] (the grid walk reads a column's blocks by
+   * row) or that an open door drops.
+   */
+  private toSolidBox(s: WorldSolid, y0 = -Infinity, y1 = Infinity): SolidBox | undefined {
+    const b = s.block;
+    if (!b) return undefined;
+    const id = this.voxels.rawId(b.x, b.y, b.z);
+    const m = this.metaOf(id);
+    if (!m) return b.typeId === GROUND_BLOCK ? { x0: s.x0, y0: s.y0, z0: s.z0, x1: s.x1, y1: s.y1, z1: s.z1, tread: false, ground: true } : undefined;
+    const by0 = b.y + m.lo / 16, by1 = b.y + m.hi / 16;
+    if (by1 <= y0 || by0 >= y1) return undefined;
+    // An open door drops any block of this column whose span the opening covers.
+    const open = this.openDoorAt(b.x, b.z);
+    if (open && by0 >= open.y0 - EPS && by1 <= open.y1 + EPS) return undefined;
+    return { x0: s.x0, y0: s.y0, z0: s.z0, x1: s.x1, y1: s.y1, z1: s.z1, block: { x: b.x, row: b.y, z: b.z, lo: m.lo, hi: m.hi, ...(m.v ? { v: m.v } : {}) }, tread: this.isTread(b.x, b.y, b.z), ground: false };
   }
 
-  /** The solid boxes of one column (none outside the footprint; the ground plane is separate). Skips a block an open door has dropped. */
+  /** The solid boxes of one column, row by row (none outside the footprint; the ground plane is separate). Skips a block an open door has dropped. */
   boxesInColumn(x: number, z: number): SolidBox[] {
     if (!this.grid.inside(x, z)) return [];
-    const open = this.openDoorAt(x, z);
-    return this.columnBlocks(x, z)
-      .filter(b => !(open && b.row + b.lo / 16 >= open.y0 - EPS && b.row + b.hi / 16 <= open.y1 + EPS))
-      .flatMap(b => this.blockBoxes(x, z, b));
+    const rows = this.grid.column(x, z).blocks.map(b => b.row);
+    for (const r of this.overlayRows.get(`${x},${z}`) ?? []) rows.push(r);
+    if (!rows.length) return [];
+    // A thin probe inside the column over its rows: the voxel world answers this column's blocks only.
+    const probe = { x0: x + 0.25, y0: Math.min(...rows), z0: z + 0.25, x1: x + 0.75, y1: Math.max(...rows) + 1, z1: z + 0.75 };
+    const out: SolidBox[] = [];
+    for (const s of this.voxels.solidsNear(probe, 0, 0, 0)) { const sb = this.toSolidBox(s); if (sb && !sb.ground) out.push(sb); }
+    return out;
   }
 
   /** Every solid box of the laid footprint (for drawing); a 400 % grid of a large set is tens of thousands. */
@@ -221,18 +308,7 @@ export class WalkWorld {
     const z0 = Math.floor(Math.min(box.z0, box.z0 + dz) - EPS), z1 = Math.floor(Math.max(box.z1, box.z1 + dz) + EPS);
     const y0 = Math.min(box.y0, box.y0 + dy) - EPS, y1 = Math.max(box.y1, box.y1 + dy) + EPS;
     const out: SolidBox[] = [];
-    if (y0 <= 0) out.push({ x0: x0 - 1, y0: -1, z0: z0 - 1, x1: x1 + 2, y1: 0, z1: z1 + 2, tread: false, ground: true });
-    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
-      if (!this.grid.inside(x, z)) continue;
-      const open = this.openDoorAt(x, z);
-      for (const b of this.columnBlocks(x, z)) {
-        const by0 = b.row + b.lo / 16, by1 = b.row + b.hi / 16;
-        if (by1 <= y0 || by0 >= y1) continue;
-        // An open door drops any block of this column whose span the opening covers.
-        if (open && by0 >= open.y0 - EPS && by1 <= open.y1 + EPS) continue;
-        out.push(...this.blockBoxes(x, z, b));
-      }
-    }
+    for (const s of this.voxels.solidsNear(box, dx, dy, dz)) { const sb = this.toSolidBox(s, y0, y1); if (sb) out.push(sb); }
     for (const s of this.entitySolids) {
       if (s.x1 <= x0 || s.x0 > x1 + 1 || s.z1 <= z0 || s.z0 > z1 + 1 || s.y1 <= y0 || s.y0 >= y1) continue;
       out.push({ x0: s.x0, y0: s.y0, z0: s.z0, x1: s.x1, y1: s.y1, z1: s.z1, tread: false, ground: false });

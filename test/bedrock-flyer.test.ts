@@ -2,12 +2,15 @@
  * Flyer mounts (engine/bedrock-flyer.ts, the `orbit` ride of
  * engine/bedrock-rides.ts, the `flyer` motion of engine/bedrock-vehicle.ts):
  * the detector on a fake scene of box parts, the orbit path's shape, and the
- * three serialised runtimes on fake worlds - the orbit that carries a figure,
+ * serialised runtimes on the headless simulator (test/_sim-host.ts) - the orbit that carries a figure,
  * the summon-and-fade of the player's clouds, and the client bob.
  */
 import { describe, expect, it } from 'vitest';
-import { FLYER, _flyerRuntimeForTests, findMounts, flyerScript, modelBoxLdu, orbitPathLdu, type FlyerRuntimeConfig } from '../web/src/engine/bedrock-flyer.js';
-import { RIDE, _ridesRuntimeForTests, ridesScript } from '../web/src/engine/bedrock-rides.js';
+import { FLYER, findMounts, flyerScript, modelBoxLdu, orbitPathLdu, type FlyerRuntimeConfig } from '../web/src/engine/bedrock-flyer.js';
+import { RIDE, ridesScript } from '../web/src/engine/bedrock-rides.js';
+import { companionSeatBehavior, mountCarBehavior } from '../web/src/engine/playable-addon.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
+import { simHost, solidBelow } from './_sim-host.js';
 import { FLYER_BOB, VEHICLE_BODY_MOTION, vehicleClientAnimation } from '../web/src/engine/bedrock-vehicle.js';
 import { SET_CANON } from '../web/src/engine/set-canon.js';
 import type { SceneFigure } from '../web/src/engine/bedrock-scene-actors.js';
@@ -150,32 +153,27 @@ describe('orbitPathLdu', () => {
   });
 });
 
+/** A set figure: the rider type an orbit carries and re-seats, and what a child taps to summon a cloud. */
+const FIGURE_TYPE = { components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:collision_box': { width: 0.6, height: 1.8 } } };
+
 describe('the orbit ride runtime', () => {
-  /** A fake world: an orbit seat with its path, a cloud car beside it, and one figure of the rider type standing nearby. */
+  /**
+   * `scripts/rides.js` (ridesScript) on the headless simulator (test/_sim-host.ts): an
+   * orbit seat of the pack's own companion-seat type with its path, a cloud car of the
+   * pack's own mount-car type beside it, and one figure of the rider type nearby.
+   */
   function world(options: { seated?: boolean } = {}) {
     const path = [{ x: 10, y: 20, z: 0 }, { x: 0, y: 21, z: 10 }, { x: -10, y: 20, z: 0 }, { x: 0, y: 19, z: -10 }];
-    const props = new Map<string, unknown>([['craftmatic:ride', 0], ['craftmatic:ride_scale', 1], ['craftmatic:ride_path', JSON.stringify(path)]]);
-    const riders: any[] = [];
-    const figure: any = { id: 'fig', typeId: 'craftmatic:t_fig1', location: { x: 12, y: 0, z: 0 }, rotation: { x: 0, y: 0 }, riding: false,
-      getComponent: (n: string) => n === 'minecraft:riding' && figure.riding ? {} : undefined,
-      teleport(p: any) { this.location = { ...p }; }, setRotation(r: any) { this.rotation = { ...r }; } };
-    const car: any = { id: 'car', typeId: 'craftmatic:t_car', location: { x: 10, y: 19.5, z: 0.5 }, rotation: { y: 0 },
-      getDynamicProperty: (k: string) => k === 'craftmatic:ride' ? 0 : undefined,
-      tryTeleport(p: any, o: any) { this.location = { ...p }; if (o?.rotation) this.rotation = { ...o.rotation }; return true; } };
-    const seat: any = {
-      id: 'seat', typeId: 'craftmatic:t_orbit', isValid: true, location: { ...path[0]! }, rotation: { y: 0 },
-      getDynamicProperty: (k: string) => props.get(k), setDynamicProperty: (k: string, v: unknown) => props.set(k, v),
-      tryTeleport(p: any, o: any) { this.location = { ...p }; if (o?.rotation) this.rotation = { ...o.rotation }; return true; },
-      getComponent: (n: string) => n === 'minecraft:rideable' ? { getRiders: () => riders, addRider: (e: any) => { if (riders.length) return false; riders.push(e); e.riding = true; return true; } } : undefined,
-    };
-    const dim: any = { id: 'overworld', getEntities: (q: any) => (q.type === 'craftmatic:t_orbit' ? [seat] : q.type === 'craftmatic:t_car' ? [car] : q.type === 'craftmatic:t_fig1' ? [figure] : []) };
-    seat.dimension = dim; car.dimension = dim; figure.dimension = dim;
-    if (options.seated) { riders.push(figure); figure.riding = true; }
-    let tick = 0; let loop: () => void = () => {};
-    (globalThis as any).world = { getAllPlayers: () => [], getDimension: () => dim };
-    (globalThis as any).system = { get currentTick() { return tick; }, runInterval: (f: () => void) => { loop = f; } };
-    _ridesRuntimeForTests({ seatType: 'craftmatic:t_ride', rides: [{ kind: 'orbit', carType: 'craftmatic:t_car', seatType: 'craftmatic:t_orbit', riderType: 'craftmatic:t_fig1' }], constants: RIDE });
-    return { seat, car, figure, riders, path, run: (n: number) => { for (let i = 0; i < n; i++) { tick++; loop(); } } };
+    const h = simHost({
+      script: ridesScript({ seatType: 'craftmatic:t_ride', rides: [{ kind: 'orbit', carType: 'craftmatic:t_car', seatType: 'craftmatic:t_orbit', riderType: 'craftmatic:t_fig1' }], constants: RIDE }),
+      entities: { 'craftmatic:t_orbit': companionSeatBehavior('t_orbit') as Record<string, unknown>, 'craftmatic:t_car': mountCarBehavior('t_car', { width: 1, height: 0.5 }) as Record<string, unknown>, 'craftmatic:t_fig1': FIGURE_TYPE },
+    });
+    const seat = h.spawn('craftmatic:t_orbit', path[0]!, { dynamic: { 'craftmatic:ride': 0, 'craftmatic:ride_scale': 1, 'craftmatic:ride_path': JSON.stringify(path) } });
+    const car = h.spawn('craftmatic:t_car', { x: 10, y: 19.5, z: 0.5 }, { dynamic: { 'craftmatic:ride': 0 } });
+    // Standing near the orbit's start, inside the re-seat reach (ORBIT_RESEAT_REACH) and 2 blocks under the seat.
+    const figure = h.spawn('craftmatic:t_fig1', { x: 12, y: 18, z: 0 });
+    if (options.seated) h.seat(figure, seat);
+    return { h, seat, car, figure, path, get riders() { return seat.riderList(); }, run: (n: number) => h.run(n) };
   }
 
   it('starts by itself, carries the cloud at its offset, faces along the loop and wraps round', () => {
@@ -197,10 +195,10 @@ describe('the orbit ride runtime', () => {
     expect(w.riders).toHaveLength(0);
     w.run(RIDE.ORBIT_ADOPT_TICKS + 2);
     expect(w.riders).toEqual([w.figure]);
-    // Teleported up onto the seat (a real rider then rides along; this fake one stays where it was put).
+    // Teleported up onto the seat, and riding along with it since.
     expect(Math.abs(w.figure.location.y - 20)).toBeLessThan(1.5);
     // Knocked off: put back after ORBIT_RESEAT_TICKS.
-    w.riders.length = 0; w.figure.riding = false;
+    w.h.unseat(w.figure);
     w.run(2);
     expect(w.riders).toHaveLength(0);
     w.run(RIDE.ORBIT_RESEAT_TICKS + 1);
@@ -215,98 +213,122 @@ describe('the orbit ride runtime', () => {
 
 describe('the summon-and-fade runtime', () => {
   const CLOUD = 'craftmatic:t_cloud', FIG = 'craftmatic:t_fig1', CAR = 'craftmatic:t_car', SEAT = 'craftmatic:t_orbit';
+  /** The summoned cloud: a player seat, the vehicle family and the wand's size events the summon copies. */
+  const CLOUD_TYPE = {
+    components: { 'minecraft:type_family': { family: ['craftmatic_vehicle'] }, 'minecraft:collision_box': { width: 1, height: 0.5 }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0] }] } },
+    component_groups: { 'craftmatic:size_100': { 'minecraft:scale': { value: 1 } }, 'craftmatic:size_200': { 'minecraft:scale': { value: 2 } } },
+    events: { 'craftmatic:size_100': { add: { component_groups: ['craftmatic:size_100'] } }, 'craftmatic:size_200': { add: { component_groups: ['craftmatic:size_200'] } } },
+  };
+  /**
+   * `scripts/flyer.js` (flyerScript) on the headless simulator: the companion figure,
+   * its cloud car and seat (the pack's own companion types) standing where the orbit
+   * left them, and a child on the ground (solid at and under `groundY`) who taps them.
+   * Every summoned cloud's triggered events are recorded, and every `addEffect` the
+   * runtime makes on the player (the call, as it was made).
+   */
   function world(options: { sizeFactor?: number; groundY?: number } = {}) {
-    const clouds: any[] = [];
-    const events: Record<string, Array<(ev: any) => void>> = { interact: [], hit: [] };
-    const removed: string[] = [];
-    let tick = 0; let loop: () => void = () => {}; const timeouts: Array<() => void> = [];
-    const seat: any = { id: 'seat', typeId: SEAT, location: { x: 30, y: 20, z: 0 }, getDynamicProperty: (k: string) => k === 'craftmatic:ride_scale' ? options.sizeFactor ?? 1 : undefined };
-    const figure: any = { id: 'fig', typeId: FIG, location: { x: 30, y: 20, z: 0 } };
-    const car: any = { id: 'car', typeId: CAR, location: { x: 30, y: 19.5, z: 0 } };
-    const groundY = options.groundY ?? 0; // the ground's top: every block at or under it is solid
-    const dim: any = {
-      id: 'overworld', particles: 0, sounds: [] as string[],
-      getEntities: (q: any) => q.type === CLOUD ? clouds.filter(c => !removed.includes(c.id)) : q.type === SEAT ? [seat] : [],
-      getBlock: (p: any) => ({ isAir: p.y > groundY, isLiquid: false }),
-      spawnParticle() { this.particles++; }, playSound(id: string) { this.sounds.push(id); },
-      spawnEntity(type: string, at: any) {
-        const props = new Map<string, unknown>();
-        const riders: any[] = [];
-        const e: any = { id: `cloud${clouds.length + 1}`, typeId: type, location: { ...at }, rotation: { y: 0 }, events: [] as string[], riders, dimension: dim,
-          setRotation(r: any) { this.rotation = { ...r }; }, setDynamicProperty: (k: string, v: unknown) => props.set(k, v), getDynamicProperty: (k: string) => props.get(k),
-          triggerEvent(name: string) { this.events.push(name); }, remove() { removed.push(this.id); },
-          getComponent: (n: string) => n === 'minecraft:rideable' ? { getRiders: () => riders, addRider: (p: any) => { riders.push(p); p.riding = e; return true; }, ejectRiders: () => { for (const p of riders) p.riding = undefined; riders.length = 0; } } : undefined };
-        clouds.push(e);
-        return e;
-      },
-    };
-    const player: any = { id: 'p1', typeId: 'minecraft:player', location: { x: 0, y: 5, z: 0 }, riding: undefined as any, hud: '', dimension: dim, effects: [] as Array<{ id: string; ticks: number; options: any }>,
-      getRotation: () => ({ x: 0, y: 0 }), getComponent: (n: string) => n === 'minecraft:riding' && player.riding ? { entityRidingOn: player.riding } : undefined,
-      addEffect: (id: string, ticks: number, options: any) => { player.effects.push({ id, ticks, options }); },
-      onScreenDisplay: { setActionBar: (s: string) => { player.hud = s; } } };
-    (globalThis as any).world = {
-      getAllPlayers: () => [player],
-      afterEvents: { playerInteractWithEntity: { subscribe: (f: any) => events.interact!.push(f) }, entityHitEntity: { subscribe: (f: any) => events.hit!.push(f) } },
-    };
-    (globalThis as any).system = { get currentTick() { return tick; }, runInterval: (f: () => void) => { loop = f; }, runTimeout: (f: () => void) => { timeouts.push(f); } };
+    const groundY = options.groundY ?? 0; // the ground's top block: every block at or under it is solid
     const config: FlyerRuntimeConfig = {
       mounts: [{ cloudType: CLOUD, summonTypes: [FIG, CAR, SEAT], seatType: SEAT, label: 'Nimbus' }],
       sizeEvents: [100, 200].map(pct => ({ pct, event: `craftmatic:size_${pct}` })),
       particle: 'minecraft:test_puff', spawnSound: 'random.pop', fadeSound: 'random.fizz',
       constants: { EMPTY_DESPAWN_TICKS: FLYER.EMPTY_DESPAWN_TICKS, CLOUD_CAP: FLYER.CLOUD_CAP, TAP_COOLDOWN_TICKS: FLYER.TAP_COOLDOWN_TICKS, SPAWN_AHEAD_BLOCKS: FLYER.SPAWN_AHEAD_BLOCKS, DISMOUNT_DROP_BLOCKS: FLYER.DISMOUNT_DROP_BLOCKS, DISMOUNT_SLOW_FALL_TICKS: FLYER.DISMOUNT_SLOW_FALL_TICKS },
     };
-    _flyerRuntimeForTests(config);
-    const live = () => clouds.filter(c => !removed.includes(c.id));
+    const h = simHost({
+      script: flyerScript(config), terrain: solidBelow(groundY + 1),
+      entities: { [CLOUD]: CLOUD_TYPE, [FIG]: FIGURE_TYPE, [CAR]: mountCarBehavior('t_car', { width: 1, height: 0.5 }) as Record<string, unknown>, [SEAT]: companionSeatBehavior('t_orbit') as Record<string, unknown>, 'craftmatic:t_prop': FIGURE_TYPE },
+    });
+    const spawned: SimEntity[] = [], removed: SimEntity[] = [];
+    const events = new Map<SimEntity, string[]>();
+    h.engine.on('entitySpawn', ({ entity }) => {
+      if (entity.typeId !== CLOUD) return;
+      spawned.push(entity);
+      const list: string[] = [];
+      events.set(entity, list);
+      const api = h.api(entity), trigger = api.triggerEvent;
+      api.triggerEvent = (name: string) => { list.push(name); return trigger(name); };
+    });
+    h.engine.on('entityRemove', ({ entity }) => { if (entity.typeId === CLOUD) removed.push(entity); });
+    const seat = h.spawn(SEAT, { x: 30, y: 20, z: 0 }, { dynamic: { 'craftmatic:ride_scale': options.sizeFactor ?? 1 } });
+    const figure = h.spawn(FIG, { x: 30, y: 20, z: 0 });
+    const car = h.spawn(CAR, { x: 30, y: 19.5, z: 0 });
+    const player = h.addPlayer('Child', { x: 0.5, y: groundY + 1, z: 0.5 });
+    const effects: Array<{ id: string; ticks: number; options: unknown }> = [];
+    const api = h.api(player), addEffect = api.addEffect;
+    api.addEffect = (id: string, ticks: number, opts: unknown) => { effects.push({ id, ticks, options: opts }); return addEffect(id, ticks, opts); };
+    let hudFrom = 0;
+    const live = (): SimEntity[] => spawned.filter(c => c.valid);
+    /**
+     * A tap (a hit or a press) is delivered in the next tick's script phase. The cloud cannot take a
+     * rider in the tick it spawned (quirk `add-rider-spawn-tick`), so the runtime boards the player 2
+     * ticks later (its own `runTimeout`): a touch runs those 3 ticks, and the child is aboard after it.
+     */
+    const touch = (event: 'entityHitEntity' | 'playerInteractWithEntity', target: SimEntity): void => {
+      if (event === 'entityHitEntity') h.engine.emit(event, { damagingEntity: player, hitEntity: target });
+      else h.engine.emit(event, { player, target });
+      h.run(3);
+    };
+    /** Move a cloud (and whoever rides it) to height `y`, as flying up or down does. */
+    const flyTo = (cloud: SimEntity, y: number): void => { cloud.location = { ...cloud.location, y }; cloud.placeRiders(); };
     return {
-      player, figure, car, seat, dim, live, removed,
-      tap: (target: any) => { for (const f of events.interact!) f({ player, target }); },
-      hit: (target: any) => { for (const f of events.hit!) f({ damagingEntity: player, hitEntity: target }); },
-      run: (n: number) => { for (let i = 0; i < n; i++) { tick++; if (tick % 10 === 0) loop(); while (timeouts.length) timeouts.shift()!(); } },
+      h, player, figure, car, seat, live, removed, effects, flyTo,
+      get events() { return events; },
+      /** The last action-bar line the child was shown since `clearHud`, or ''. */
+      get hud(): string { return h.lines('actionbar', 'Child').slice(hudFrom).at(-1) ?? ''; },
+      clearHud: () => { hudFrom = h.lines('actionbar', 'Child').length; },
+      stat: (key: string): number => h.host.stats.get(key) ?? 0,
+      tap: (target: SimEntity) => touch('playerInteractWithEntity', target),
+      hit: (target: SimEntity) => touch('entityHitEntity', target),
+      run: (n: number) => h.run(n),
     };
   }
 
   it('a tap on the figure summons a cloud ahead of the player, mounts them, puffs and sounds', () => {
     const w = world();
+    const stood = { ...w.player.location };
     w.tap(w.figure);
     expect(w.live()).toHaveLength(1);
     const c = w.live()[0]!;
-    expect(c.location.z).toBeCloseTo(FLYER.SPAWN_AHEAD_BLOCKS, 6); // yaw 0 faces +z
-    expect(c.riders).toEqual([w.player]);
-    expect(w.player.riding).toBe(c);
-    expect(w.dim.particles).toBeGreaterThan(0);
-    expect(w.dim.sounds).toContain('random.pop');
+    expect(c.location.z - stood.z).toBeCloseTo(FLYER.SPAWN_AHEAD_BLOCKS, 6); // yaw 0 faces +z
+    expect(c.riderList()).toEqual([w.player]);
+    expect(w.player.ridingOn).toBe(c);
+    expect(w.stat('particle minecraft:test_puff')).toBeGreaterThan(0);
+    expect(w.stat('sound random.pop')).toBeGreaterThan(0);
     // The mount's name and hint are the driver HUD's (vehicle-driver.js, RIDE_HINT_TICKS): a one-shot here was overwritten within 4 ticks.
-    expect(w.player.hud).toBe('');
-    expect(c.events).toEqual([]); // 100 %: no size event
+    expect(w.hud).toBe('');
+    expect(w.events.get(c)).toEqual([]); // 100 %: no size event
   });
 
   it('a rider who leaves a cloud in the air floats down: slow falling for DISMOUNT_SLOW_FALL_TICKS and a HUD line; on the ground nothing', () => {
     const w = world({ groundY: 0 });
     w.tap(w.figure);
     w.run(10);
-    w.player.location.y = 40; // flew up (the fake player does not ride along by itself)
-    w.player.riding = undefined; // sneak
+    const cloud = w.live()[0]!;
+    w.flyTo(cloud, 40); // flew up
+    w.h.controls(w.player, { sneak: true }); w.run(1); w.h.controls(w.player, { sneak: false }); // sneak: off
+    expect(w.player.ridingOn).toBeUndefined();
     w.run(10);
-    expect(w.player.effects).toEqual([{ id: 'slow_falling', ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS, options: { amplifier: 0, showParticles: false } }]);
-    expect(w.player.hud).toBe('Floating down');
+    expect(w.effects).toEqual([{ id: 'slow_falling', ticks: FLYER.DISMOUNT_SLOW_FALL_TICKS, options: { amplifier: 0, showParticles: false } }]);
+    expect(w.hud).toBe('Floating down');
     // Back on, down to the ground, off again: no effect (a solid block within DISMOUNT_DROP_BLOCKS under the feet).
-    w.player.effects.length = 0; w.player.hud = '';
-    w.player.riding = w.live()[0]; w.run(10);
-    w.player.location.y = 1 + FLYER.DISMOUNT_DROP_BLOCKS - 0.5; w.player.riding = undefined; w.run(10);
-    expect(w.player.effects).toEqual([]);
-    expect(w.player.hud).toBe('');
+    w.effects.length = 0; w.clearHud();
+    w.h.seat(w.player, cloud); w.run(10);
+    w.h.unseat(w.player);
+    w.player.location = { ...w.player.location, y: 1 + FLYER.DISMOUNT_DROP_BLOCKS - 0.5 };
+    w.run(10);
+    expect(w.effects).toEqual([]);
+    expect(w.hud).toBe('');
     // The fade's eject counts as leaving too.
-    w.player.riding = w.live()[0]; w.run(10);
-    w.player.location.y = 40;
-    w.live()[0]!.getComponent('minecraft:rideable').ejectRiders(); w.run(10);
-    expect(w.player.effects.map(e => e.id)).toEqual(['slow_falling']);
+    w.h.seat(w.player, cloud); w.run(10);
+    w.h.api(cloud).getComponent('minecraft:rideable').ejectRiders(); w.run(10);
+    expect(w.effects.map(e => e.id)).toEqual(['slow_falling']);
   });
 
   it('a tap on the cloud or its seat, or a hit, summons too; a stranger does not', () => {
     const w = world();
-    w.tap(w.car); w.player.riding = undefined; w.run(FLYER.TAP_COOLDOWN_TICKS + 1);
-    w.hit(w.seat); w.player.riding = undefined; w.run(FLYER.TAP_COOLDOWN_TICKS + 1);
-    w.tap({ id: 'x', typeId: 'minecraft:cow', location: { x: 0, y: 0, z: 0 } });
+    w.tap(w.car); w.h.unseat(w.player); w.run(FLYER.TAP_COOLDOWN_TICKS + 1);
+    w.hit(w.seat); w.h.unseat(w.player); w.run(FLYER.TAP_COOLDOWN_TICKS + 1);
+    w.tap(w.h.spawn('craftmatic:t_prop', { x: 0, y: 0, z: 0 }));
     expect(w.live()).toHaveLength(2);
   });
 
@@ -322,7 +344,7 @@ describe('the summon-and-fade runtime', () => {
   it('a summoned cloud takes the placed size of the companion seat beside the tapped figure', () => {
     const w = world({ sizeFactor: 2 });
     w.tap(w.figure);
-    expect(w.live()[0]!.events).toEqual(['craftmatic:size_200']);
+    expect(w.events.get(w.live()[0]!)).toEqual(['craftmatic:size_200']);
   });
 
   it('an empty cloud fades after EMPTY_DESPAWN_TICKS, a ridden one never; the fade puffs and sounds', () => {
@@ -331,23 +353,25 @@ describe('the summon-and-fade runtime', () => {
     const c = w.live()[0]!;
     w.run(FLYER.EMPTY_DESPAWN_TICKS + 20);
     expect(w.live()).toHaveLength(1); // ridden all along
-    c.getComponent('minecraft:rideable').ejectRiders();
+    w.h.api(c).getComponent('minecraft:rideable').ejectRiders();
     w.run(FLYER.EMPTY_DESPAWN_TICKS - 20);
     expect(w.live()).toHaveLength(1);
     w.run(40);
     expect(w.live()).toHaveLength(0);
-    expect(w.dim.sounds).toContain('random.fizz');
+    expect(w.stat('sound random.fizz')).toBeGreaterThan(0);
   });
 
   it('at most CLOUD_CAP summoned clouds: the oldest fades when one more is summoned', () => {
     const w = world();
+    const summoned: SimEntity[] = [];
     for (let i = 0; i < FLYER.CLOUD_CAP + 3; i++) {
       w.tap(w.figure);
-      w.player.riding = undefined;
+      summoned.push(w.player.ridingOn!);
+      w.h.unseat(w.player);
       w.run(FLYER.TAP_COOLDOWN_TICKS + 1);
     }
     expect(w.live()).toHaveLength(FLYER.CLOUD_CAP);
-    expect(w.removed).toEqual(['cloud1', 'cloud2', 'cloud3']);
+    expect(w.removed).toEqual(summoned.slice(0, 3));
   });
 
   it('serialises into a module that names only Script API globals', () => {

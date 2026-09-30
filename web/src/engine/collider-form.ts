@@ -293,3 +293,72 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
   };
   return { bodyFree, floorTop, settle };
 }
+
+// ─── The blocks' definitions (the pack's `blocks/*.json`) ─────────────────────
+
+/** The two states every collider form carries: its sixteenth span (the pack writer's `COLLIDER_LO_STATE` / `_HI_STATE`). */
+export const COLLIDER_STATES = { lo: 'craftmatic:lo', hi: 'craftmatic:hi' } as const;
+
+/**
+ * A form box (sixteenths, world axes) as a Bedrock collision box: origin from
+ * the block's bottom centre, pixels. **Bedrock MIRRORS a custom block's
+ * collision-box x** (Pixel GameTest 2026-09-30, `quirk_bands`,
+ * `output/gametest-quirks-0930/run2/cmgt.log` QBANDS): a box declared at
+ * origin x -8, size 8 stands on the block's HIGH-x half in the world, while z
+ * and y are as written. So a box on world x [x0, x1] is declared at origin x
+ * `8 - x1`. Until this fix every x-banded clearance form (`_w1`..`_w7` and
+ * the x-shaped `_f`/`_c` forms) stood on the wrong half of its block (quirk
+ * `block-collision-x-mirrored`).
+ */
+export const collisionBox = (b: readonly number[]): { origin: number[]; size: number[] } => ({ origin: [8 - b[1]!, b[2]!, b[4]! - 8], size: [b[1]! - b[0]!, b[3]! - b[2]!, b[5]! - b[4]!] });
+
+/** Every (lo, hi) pair with lo < hi: 136 permutations, each laying variant `v`'s boxes. */
+const colliderPermutations = (v = 0): unknown[] => {
+  const out: unknown[] = [];
+  for (let l = 0; l < 16; l++) for (let h = l + 1; h <= 16; h++) {
+    const boxes = COLLIDER_KIT.formBoxes(v, l, h).map(collisionBox);
+    out.push({
+      condition: `q.block_state('${COLLIDER_STATES.lo}') == ${l} && q.block_state('${COLLIDER_STATES.hi}') == ${h}`,
+      components: { 'minecraft:collision_box': boxes.length === 1 ? boxes[0] : boxes },
+    });
+  }
+  return out;
+};
+
+/**
+ * The behaviour-pack block definition of collider variant `v` (0: the
+ * full-footprint `craftmatic:collider`; the others are the clearance forms).
+ * A floor + wall or wall + ceiling form is two boxes, which Bedrock accepts as
+ * an array from format 1.26.0 (Microsoft Learn, minecraft:collision_box), so
+ * those blocks declare it; the others keep the format the collider has always
+ * had. The pack ships exactly this; the walk worlds (addon-walk.ts) and the
+ * simulator read their collision from it, so there is one reading of a form.
+ */
+export function colliderBlockDefinition(v = 0): unknown {
+  const variant = COLLIDER_KIT.VARIANTS[v]!;
+  const base = COLLIDER_KIT.formBoxes(v, 0, 16).map(collisionBox);
+  return {
+    format_version: variant.kind === 0 ? '1.21.40' : '1.26.0',
+    'minecraft:block': {
+      description: {
+        identifier: variant.id,
+        menu_category: { category: 'none' },
+        states: {
+          [COLLIDER_STATES.lo]: { values: { min: 0, max: 15 } },
+          [COLLIDER_STATES.hi]: { values: { min: 1, max: 16 } },
+        },
+      },
+      components: {
+        'minecraft:geometry': 'minecraft:geometry.full_block',
+        'minecraft:material_instances': { '*': { texture: 'craftmatic_collider', render_method: 'alpha_test', face_dimming: false, ambient_occlusion: false } },
+        'minecraft:collision_box': base.length === 1 ? base[0] : base,
+        'minecraft:selection_box': false,
+        'minecraft:light_dampening': 0,
+        'minecraft:destructible_by_mining': { seconds_to_destroy: 0.5 },
+        'minecraft:destructible_by_explosion': false,
+        'minecraft:friction': 0.6,
+      },
+      permutations: colliderPermutations(v),
+    },
+  };
+}

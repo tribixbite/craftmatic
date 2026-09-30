@@ -19,7 +19,8 @@
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
 import { COLLIDER_KIT } from './collider-form.js';
 import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
-import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
+import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type Box, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
+import type { SolidQuery } from '../sim/physics/body.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
 /** Ticks the walk gets (10 s at 20 ticks/s): a 4-block approach, a jump or two. */
@@ -102,10 +103,18 @@ function turnDirection(d: { x: number; z: number }, dims: { width: number; heigh
   return { x: x / l, z: z / l };
 }
 
-/** Whether a player box with feet at (x, y, z) overlaps any solid. */
-export function boxFree(world: WalkWorld, x: number, y: number, z: number): boolean {
+/**
+ * A world a walk judges: the doorway harness's `WalkWorld` or the simulator's
+ * voxel world (`sim/world/voxel-world.ts`), whose solids flag the ground plane
+ * and, in the simulator, an unloaded column's stand-in wall.
+ */
+export type WalkSolids = SolidQuery<Box & { ground?: boolean; unloaded?: boolean }>;
+
+/** Whether a player box with feet at (x, y, z) overlaps any solid (an unloaded column's wall is not a solid to stand in). */
+export function boxFree(world: WalkSolids, x: number, y: number, z: number): boolean {
   const box = playerBox({ x, y, z });
   for (const s of world.solidsNear(box, 0, 0, 0)) {
+    if (s.unloaded) continue;
     if (s.ground) { if (y < -1e-6) return false; continue; }
     if (box.x1 > s.x0 + 1e-7 && box.x0 < s.x1 - 1e-7 && box.y1 > s.y0 + 1e-7 && box.y0 < s.y1 - 1e-7 && box.z1 > s.z0 + 1e-7 && box.z0 < s.z1 - 1e-7) return false;
   }
@@ -123,9 +132,10 @@ const JUMP_PROBE = 0.3;
  * The walks jumped on ANY clipped move, so a doorway approached at a slant
  * with a wall beside it (31141's 45-degree Door 4, a floor stepping down to
  * the sill beside a wall) jumped through the leaf plane and counted as not
- * walked through at the doorway's floor.
+ * walked through at the doorway's floor. The simulator's device lines ask the
+ * same question over the world the runtime laid (`sim/adapters/craftmatic/play.ts`).
  */
-export function jumpHelps(world: WalkWorld, s: PlayerState, dx: number, dz: number): boolean {
+export function jumpHelps(world: WalkSolids, s: { x: number; y: number; z: number }, dx: number, dz: number): boolean {
   const ax = s.x + dx * JUMP_PROBE, az = s.z + dz * JUMP_PROBE;
   return !boxFree(world, ax, s.y + 1e-3, az) && boxFree(world, ax, s.y + JUMP_RISE + 1e-3, az);
 }

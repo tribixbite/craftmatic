@@ -2273,7 +2273,6 @@ export function interactivesScript(config: InteractiveRuntimeConfig): string {
   return `import { world, system, BlockPermutation } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${interactivesRuntime.toString()})(CONFIG, ${ixWorldBlocks.toString()}, (${colliderFormKit.toString()})(), ${relayRounding.toString()}, ${colliderBodyProbe.toString()});\n`;
 }
 
-export { interactivesRuntime as _interactivesRuntimeForTests };
 
 /**
  * The world blocks every CLOSED doorway lays at wand factor `f` and turn `r`,

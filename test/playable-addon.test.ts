@@ -8,6 +8,8 @@ import { packIdentity } from '../web/src/engine/mcpack.js';
 import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceProvenance } from '../web/src/engine/pipeline-version.js';
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { readAddon } from '../web/src/sim/pack/pack.js';
+import { simHost } from './_sim-host.js';
 import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
@@ -480,59 +482,63 @@ describe('playable Bedrock add-on',()=>{
 
   it('raises the scripted car top speed to the armed speed and makes one exact time jump when it gets there', async () => {
     const result = await buildPlayableAddon(model(), { stem: 'BackToThe-10300', label: 'Back to the Future Time Machine', vehicleMode: 'car' });
-    let script = new TextDecoder().decode(await extractFile(ab(result.bytes), 'Craftmatic_backtothe_10300_BP/scripts/time-machine.js'));
-    script = script.replace(/^import .*;$/gm, '').replace('export { showTimeMachineControls };', 'return showTimeMachineControls;');
-    let interval: (() => void) | undefined;
-    const commands: string[] = [], teleports: Array<{x:number;y:number;z:number}> = [], dynamic = new Map<string, unknown>();
-    const player: any = { id: 'player', typeId: 'minecraft:player', location: { x: 0, y: 70, z: 0 },
-      inputInfo: { getMovementVector: () => ({ x: 0, y: 1 }) }, sendMessage: vi.fn(), onScreenDisplay: { setActionBar: vi.fn() } };
-    const rideable = { getRiders: () => [player], addRider: vi.fn(() => true) };
-    const dimension: any = { heightRange: { min: -64, max: 320 },
-      getEntities: ({ type }: any) => type === 'craftmatic:backtothe_10300_backtothe_10300' ? [vehicle] : [],
-      getBlock: () => ({ typeId: 'minecraft:air' }), runCommand: (command: string) => { commands.push(command); return { successCount: 1 }; } };
-    // scripts/vehicles.js moves the car by teleports along its heading (yaw 0 = +z); here the test does, `speed` blocks/s.
-    let speed = 0;
-    const vehicle: any = { id: 'car', typeId: 'craftmatic:backtothe_10300_backtothe_10300', dimension, location: { x: 0, y: 70, z: 0 },
-      getComponent: (id: string) => id === 'minecraft:rideable' ? rideable : undefined,
-      getRotation: () => ({ x: 0, y: 0 }), tryTeleport: (p: any) => { teleports.push({ ...p }); vehicle.location = { ...p }; return true; },
-      getDynamicProperty: (key: string) => dynamic.get(key), setDynamicProperty: (key: string, value: unknown) => dynamic.set(key, value) };
-    const drive = (): void => { vehicle.location = { ...vehicle.location, z: vehicle.location.z + speed * 2 / 20 }; interval!(); };
-    player.dimension = dimension;
+    // The shipped scripts/time-machine.js and the shipped car on the headless simulator (test/_sim-host.ts), with
+    // timeouts on the next microtask (the scheduler's `immediate` mode: the circuit's waits take no test ticks).
+    const pack = (await readAddon(result.bytes)).packs.find(p => p.kind === 'behavior')!;
+    const carType = 'craftmatic:backtothe_10300_backtothe_10300';
+    const utf8 = new TextDecoder();
+    const [carPath, carFile] = [...pack.files].find(([p, d]) => p.startsWith('entities/') && utf8.decode(d).includes(`"${carType}"`))!;
     let formValues = [10, 80, 20, 150];
-    class Form { title() { return this; } textField() { return this; } slider() { return this; } async show() { return { canceled: false, formValues }; } }
-    const world = { getDimension: (id: string) => { if (id !== 'overworld') throw new Error('missing'); return dimension; } };
-    const system = { runInterval: (fn: () => void) => { interval = fn; }, runTimeout: (fn: () => void) => fn() };
-    const show = new Function('world', 'system', 'ModalFormData', script)(world, system, Form);
+    const h = simHost({ script: utf8.decode(pack.files.get('scripts/time-machine.js')!), entry: 'scripts/time-machine.js', files: { [carPath]: carFile }, scheduler: 'immediate', chooser: () => ({ values: formValues }) });
+    const show = h.host.loaders[0]!.load('scripts/time-machine.js')['showTimeMachineControls'] as (player: unknown) => Promise<void>;
+    const car = h.spawn(carType, { x: 0, y: 70, z: 0 });
+    const rider = h.addPlayer('Driver', { x: 0, y: 70, z: 0 });
+    h.seat(rider, car);
+    h.controls(rider, { forward: 1 });
+    const player = h.api(rider);
+    const teleports: Array<{ x: number; y: number; z: number }> = [];
+    const vehicle = h.api(car), tryTeleport = vehicle.tryTeleport;
+    vehicle.tryTeleport = (p: { x: number; y: number; z: number }, opts?: unknown) => { teleports.push({ ...p }); return tryTeleport(p, opts); };
+    const dynamic = car.dynamic;
+    const commands = (): string[] => h.lines('command');
+    const lastMessage = (): string | undefined => h.lines('chat', 'Driver').at(-1);
+    // scripts/vehicles.js moves the car by teleports along its heading (yaw 0 = +z); here the test does, `speed` blocks/s,
+    // then the circuit's 2-tick interval reads it.
+    let speed = 0;
+    const drive = async (): Promise<void> => { car.location = { ...car.location, z: car.location.z + speed * 2 / 20 }; await h.runAsync(2); };
     // Circuit off: the car tops out just past 88 mph, and the HUD says the circuit is off.
-    drive();
+    await drive();
     expect(dynamic.get('craftmatic:top_speed')).toBeCloseTo(88 * 1.03 / 2.236936, 5);
     expect(dynamic.get('craftmatic:vehicle_hud')).toContain('TIME CIRCUIT OFF');
     await show(player);
     expect(dynamic.get('craftmatic:time_armed')).toBe(true);
-    expect(commands.some(c => c.startsWith('tickingarea add '))).toBe(true);
+    expect(commands().some(c => c.startsWith('tickingarea add '))).toBe(true);
     // Armed at 150 mph: the top speed follows it, and the HUD shows it armed.
-    drive();
+    await drive();
     expect(dynamic.get('craftmatic:top_speed')).toBeCloseTo(150 * 1.03 / 2.236936, 5);
     expect(dynamic.get('craftmatic:vehicle_hud')).toContain('ARMED 150 MPH');
     // Below the armed speed nothing happens; at it, exactly one jump.
-    for (speed = 0; speed < 66; speed += 2) { drive(); await Promise.resolve(); }
+    for (speed = 0; speed < 66; speed += 2) await drive();
     expect(teleports).toHaveLength(0);
-    for (let i = 0; i < 20 && !teleports.length; i++) { speed = 68; drive(); await Promise.resolve(); }
+    for (let i = 0; i < 20 && !teleports.length; i++) { speed = 68; await drive(); }
     expect(teleports).toEqual([{ x: 10, y: 80, z: 20 }]);
     expect(dynamic.get('craftmatic:time_armed')).toBe(false);
+    // The rider went with the car (still aboard at the destination).
+    expect(rider.ridingOn).toBe(car);
+    expect(lastMessage()).toBe('Time jump complete at 150 mph.');
     // The jump itself (a 10-block move in 2 ticks) is a teleport, not a speed: no second jump.
-    for (let i = 0; i < 40; i++) { drive(); await Promise.resolve(); }
+    for (let i = 0; i < 40; i++) await drive();
     expect(teleports).toHaveLength(1);
     await show(player);
     speed = 0;
-    for (let i = 0; i < 500; i++) { drive(); await Promise.resolve(); }
+    for (let i = 0; i < 500; i++) await drive();
     expect(teleports).toHaveLength(1);
-    expect(commands.some(c => c.startsWith('tickingarea remove '))).toBe(true);
-    const adds = commands.filter(c => c.startsWith('tickingarea add ')).length;
+    expect(commands().some(c => c.startsWith('tickingarea remove '))).toBe(true);
+    const adds = commands().filter(c => c.startsWith('tickingarea add ')).length;
     formValues = [1e100, 80, 20, 88];
     await show(player);
-    expect(commands.filter(c => c.startsWith('tickingarea add '))).toHaveLength(adds);
-    expect(player.sendMessage).toHaveBeenLastCalledWith('Use coordinates within +/-29,999,999 and a speed from 10 to 150 mph.');
+    expect(commands().filter(c => c.startsWith('tickingarea add '))).toHaveLength(adds);
+    expect(lastMessage()).toBe('Use coordinates within +/-29,999,999 and a speed from 10 to 150 mph.');
   });
 
   it('reports deduplicated structure blocks that Bedrock cannot encode', async () => {

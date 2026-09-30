@@ -22,6 +22,11 @@ Answer a question at the cheapest tier that can answer it:
    re-judges the device-bug regression set; `test/sim-engine.test.ts` runs it
    in `bun run test` where the round packs are on the machine. An `unknown`
    result means scripts reached API the mock does not model - never a pass.
+   The runtime unit tests use the same engine: `test/_sim-host.ts`
+   (`simHost`) loads one serialised runtime with its definitions as a pack
+   and fails a test on a script error, an unmodelled member or a refused
+   definition. Write a new runtime test on it, never on a hand-rolled fake of
+   the API (the GameTest harness's fake is the one left, `TODO(sim-gametest)`).
 3. **GameTest** on the Pixel (below): the real engine, unattended.
 4. **A short tap round** on the phones: only what a person must see
    (rendering, culling, form text, camera feel, sound).

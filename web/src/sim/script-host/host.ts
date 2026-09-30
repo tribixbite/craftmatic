@@ -26,7 +26,9 @@ import { createUiModule, type FormChooser } from './ui-module.js';
 import { guard, unmodelled, unmodelledExport } from './unmodelled.js';
 
 /** Events the host delivers to `world.afterEvents` / `system.afterEvents` subscribers. */
-type AfterEventName = 'entityHitEntity' | 'playerInteractWithEntity' | 'itemUse' | 'playerLeave' | 'entitySpawn' | 'entityRemove' | 'playerSpawn' | 'scriptEventReceive';
+type AfterEventName = 'entityHitEntity' | 'playerInteractWithEntity' | 'itemUse' | 'playerLeave' | 'entitySpawn' | 'entityRemove' | 'playerSpawn' | 'scriptEventReceive' | 'entityLoad' | 'worldLoad';
+/** Before-events the host can raise (cancelable). */
+type BeforeEventName = 'playerInteractWithEntity' | 'playerInteractWithBlock';
 
 export interface ScriptHostOptions {
   /** `ticks` (default): timeouts wait their ticks. `immediate`: every timeout runs on the next microtask (the older host tests' fast-forward). */
@@ -37,6 +39,18 @@ export interface ScriptHostOptions {
   timeOfDay?: number;
   /** Answers every form (default: cancel). */
   chooser?: FormChooser;
+  /**
+   * Wrap the `Math` the scripts see (after seeding): an instrument that counts
+   * a runtime's work (a test counts `Math.ceil` calls), never a change of result.
+   */
+  wrapMath?: (math: Math) => Math;
+  /**
+   * `@minecraft/server` exports the client's module version does NOT have
+   * (e.g. `LinearSpline` before the camera splines shipped): a script reads
+   * them as `undefined`, exactly as an older game answers a feature probe
+   * (`typeof LinearSpline === 'undefined'`), instead of the current mock.
+   */
+  absentExports?: readonly string[];
 }
 
 /** The engine's clock epoch for scripts' `Date.now()` (a fixed instant, so traces repeat). */
@@ -66,7 +80,7 @@ export class ScriptHost implements FacadeHost {
 
   constructor(readonly engine: SimEngine, readonly controls: ControlState, readonly options: ScriptHostOptions = {}) {
     this.timeline = engine.timeline;
-    this.scheduler = new Scheduler(this.timeline, options.scheduler ?? 'ticks');
+    this.scheduler = new Scheduler(this.timeline, options.scheduler ?? 'ticks', () => engine.tick);
     this.chooser = options.chooser ?? (() => ({ cancel: true }));
     this.timeOfDay = options.timeOfDay ?? 6000;
     this.serverModule = this.buildServerModule();
@@ -77,6 +91,7 @@ export class ScriptHost implements FacadeHost {
     engine.on('scriptEventReceive', e => this.enqueue('scriptEventReceive', () => ({ id: e.id, message: e.message, sourceEntity: e.sourceEntity ? this.entity(e.sourceEntity) : undefined, sourceType: e.sourceEntity ? 'Entity' : 'Server' })));
     engine.on('entitySpawn', e => this.enqueue('entitySpawn', () => ({ entity: this.entity(e.entity), cause: 'Spawned' })));
     engine.on('entityRemove', e => this.enqueue('entityRemove', () => ({ removedEntityId: e.entity.id, typeId: e.entity.typeId })));
+    engine.on('entityLoad', e => this.enqueue('entityLoad', () => ({ entity: this.entity(e.entity) })));
     engine.addSystem({ name: 'scripts', order: ORDER.scripts, tick: () => this.tick() });
   }
 
@@ -94,7 +109,7 @@ export class ScriptHost implements FacadeHost {
       if (!pack.scriptEntry) continue;
       const loader = new ModuleLoader(pack, {
         builtin: name => this.builtin(name),
-        Math: seededMath(this.options.seed ?? 1),
+        Math: this.options.wrapMath ? this.options.wrapMath(seededMath(this.options.seed ?? 1)) : seededMath(this.options.seed ?? 1),
         Date: engineDate(() => EPOCH_MS + this.engine.tick * 50),
         console,
         onError: (path, e) => this.timeline.add('script-error', `module ${path}: ${(e as Error)?.name ?? 'Error'}: ${(e as Error)?.message ?? String(e)}`, { source: path }),
@@ -102,6 +117,27 @@ export class ScriptHost implements FacadeHost {
       this.loaders.push(loader);
       loader.loadEntry();
     }
+    // `world.afterEvents.worldLoad`: once per world open, delivered in the first script tick after the scripts
+    // loaded (every pack's subscriptions are in by then). Assumed, not measured: the device fires it after world
+    // initialisation, once, before any player input; its exact tick relative to `system.run` is not probed.
+    if (!this.queue.some(q => q.name === 'worldLoad')) this.enqueue('worldLoad', () => ({}));
+  }
+
+  /**
+   * Reload every script into a FRESH context over the same world, as a world
+   * reopened (or `/reload`) leaves it: subscriptions, timers, jobs, queued
+   * events and every module's state are gone; blocks, entities, their tags and
+   * dynamic properties, the world's dynamic properties and saved structures
+   * stay (they are saved in the world). Facades stay the same objects: a new
+   * script reading an entity gets the same handle a test holds.
+   */
+  reloadScripts(addons: readonly Addon[]): void {
+    this.subscribers.clear();
+    this.beforeSubscribers.clear();
+    this.queue.length = 0;
+    this.scheduler.clear();
+    this.loaders.length = 0;
+    for (const addon of addons) this.loadScripts(addon);
   }
 
   private captureConsole(): Pick<Console, 'log' | 'warn' | 'error' | 'info' | 'debug'> {
@@ -119,15 +155,23 @@ export class ScriptHost implements FacadeHost {
   /** Deliver an after-event now (the input module's before/after pairs use this). */
   deliver(name: AfterEventName, payload: unknown): void {
     for (const cb of [...(this.subscribers.get(name) ?? [])]) {
-      try { cb(payload); } catch (e) { this.scheduler.fault(e, `afterEvents.${name}`); }
+      try { this.scheduler.inEventHandler(() => cb(payload)); } catch (e) { this.scheduler.fault(e, `afterEvents.${name}`); }
     }
   }
 
-  /** Fire a before-event; returns true when a subscriber cancelled it. */
-  before(name: 'playerInteractWithEntity', payload: Record<string, unknown>): boolean {
+  /** How many callbacks scripts have subscribed to an after-event (`before`: a before-event) - whether a runtime listens at all. */
+  subscriberCount(name: string, before = false): number { return (before ? this.beforeSubscribers : this.subscribers).get(name)?.length ?? 0; }
+
+  /**
+   * Fire a before-event; returns true when a subscriber cancelled it. The input module raises
+   * `playerInteractWithEntity` (a held press on an entity) and `playerInteractWithBlock` (an item used on a
+   * block: payload `{ player, block, blockFace, faceLocation, itemStack, isFirstEvent }` as facades).
+   * # TODO(sim-api): the read-only restriction scripts meet inside a before-event is not enforced.
+   */
+  before(name: BeforeEventName, payload: Record<string, unknown>): boolean {
     const ev = { ...payload, cancel: false };
     for (const cb of [...(this.beforeSubscribers.get(name) ?? [])]) {
-      try { cb(ev); } catch (e) { this.scheduler.fault(e, `beforeEvents.${name}`); }
+      try { this.scheduler.inEventHandler(() => cb(ev)); } catch (e) { this.scheduler.fault(e, `beforeEvents.${name}`); }
     }
     return ev.cancel === true;
   }
@@ -147,6 +191,9 @@ export class ScriptHost implements FacadeHost {
   }
 
   simOf(api: unknown): SimEntity | undefined { return api && typeof api === 'object' ? this.sims.get(api) : undefined; }
+
+  /** What a script's `Date.now()` answers at the current tick (the engine clock), for a world state that stamps a time. */
+  scriptNow(): number { return EPOCH_MS + this.engine.tick * 50; }
 
   playerState(sim: SimEntity): PlayerExtra {
     let s = this.players.get(sim);
@@ -240,8 +287,11 @@ export class ScriptHost implements FacadeHost {
 
   private buildServerModule(): Record<string, unknown> {
     const host = this, engine = this.engine, timeline = this.timeline;
-    const worldAfter = guard(Object.fromEntries((['entityHitEntity', 'playerInteractWithEntity', 'itemUse', 'playerLeave', 'entitySpawn', 'entityRemove', 'playerSpawn'] as const).map(n => [n, this.signal(n, `${n[0]!.toUpperCase()}${n.slice(1)}AfterEventSignal`, this.subscribers)])), 'WorldAfterEvents', timeline);
-    const worldBefore = guard({ playerInteractWithEntity: this.signal('playerInteractWithEntity', 'PlayerInteractWithEntityBeforeEventSignal', this.beforeSubscribers) }, 'WorldBeforeEvents', timeline);
+    const worldAfter = guard(Object.fromEntries((['entityHitEntity', 'playerInteractWithEntity', 'itemUse', 'playerLeave', 'entitySpawn', 'entityRemove', 'playerSpawn', 'entityLoad', 'worldLoad'] as const).map(n => [n, this.signal(n, `${n[0]!.toUpperCase()}${n.slice(1)}AfterEventSignal`, this.subscribers)])), 'WorldAfterEvents', timeline);
+    const worldBefore = guard({
+      playerInteractWithEntity: this.signal('playerInteractWithEntity', 'PlayerInteractWithEntityBeforeEventSignal', this.beforeSubscribers),
+      playerInteractWithBlock: this.signal('playerInteractWithBlock', 'PlayerInteractWithBlockBeforeEventSignal', this.beforeSubscribers),
+    }, 'WorldBeforeEvents', timeline);
     const structureManager = guard({
       createFromWorld: (name: string, dim: { id: string }, from: Vec3, to: Vec3) => {
         const w = engine.dimension(dim.id);
@@ -310,8 +360,11 @@ export class ScriptHost implements FacadeHost {
     for (const [name, t] of Object.entries(SERVER_TYPES)) {
       if (t.kind === 'enum' && SERVER_EXPORTS.includes(name)) implemented[name] = Object.fromEntries(t.members.map(m => [m, m]));
     }
+    // An export the client's module version lacks reads undefined (`ScriptHostOptions.absentExports`).
+    const absent = new Set(this.options.absentExports ?? []);
     return new Proxy(implemented, {
       get(t, prop) {
+        if (typeof prop === 'string' && absent.has(prop)) return undefined;
         if (typeof prop === 'symbol' || prop in t) return Reflect.get(t, prop);
         if (SERVER_EXPORTS.includes(prop)) return unmodelledExport(`@minecraft/server.${prop}`, timeline);
         return undefined;

@@ -524,21 +524,20 @@ describe('interactives runtime (scripts/interactives.js)', () => {
   it('hands a tap Bedrock gave to a part behind a wall to the seat the player aimed at in plain sight (76457 Bed vs Door 4, Pixel 2026-09-26)', () => {
     const cfg = doubleDoorConfig();
     cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
-    const h = runtimeHost(cfg);
+    const SEAT = 'craftmatic:hogsmeade_76457_seat_2';
+    const h = runtimeHost(cfg, { types: { [SEAT]: { components: { 'minecraft:type_family': { family: ['craftmatic_seat'] }, 'minecraft:collision_box': { width: 0.6, height: 0.6 }, 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.3, 0] }] } } } } });
     const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
     h.sync();
     for (const x of [102, 103, 104]) for (const y of [65, 66, 67]) h.setCollider(x, y, 202, 0, 16);
-    const riders: unknown[] = [];
-    const seat = { id: 's1', typeId: 'craftmatic:hogsmeade_76457_seat_2', families: ['craftmatic_seat'], location: { x: 103.5, y: 65, z: 200.8 }, dimension: a.dimension,
-      getDynamicProperty: () => undefined, getComponent: (n: string) => (n === 'minecraft:rideable' ? { addRider: (p: unknown) => { riders.push(p); return true; } } : undefined) };
-    h.entities.push(seat as never);
+    const seat = h.host.spawn(SEAT, { x: 103.5, y: 65, z: 200.8 });
     // Looking down at the seat in front of the wall; Bedrock's pick went on to the door beyond the wall.
     h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103.5, y: 65.3, z: 200.8 });
     h.tap(a);
-    expect(riders).toEqual([h.player]);
+    expect(seat.riderList()).toEqual([h.playerSim]);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBeUndefined();
-    // With no seat on the view ray the refusal stands.
-    h.entities.pop();
+    // With no seat on the view ray the refusal stands (the seat is gone, and the player with it off it, stood back where it aimed from).
+    h.host.remove(seat);
+    h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 103.5, y: 65.3, z: 200.8 });
     h.tap(a);
     expect(h.lastBar()).toMatch(/door 1 is behind a wall from here/);
   });
@@ -551,7 +550,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.sync();
     // The camera looks at a wall to the side; the finger is on the door, which the eyes see clearly (device 2026-09-24e, 76457's Door 1).
     h.setCollider(99, 66, 199, 0, 16);
-    Object.assign(h.player, { getHeadLocation: () => ({ x: 103.5, y: 66.6, z: 199.5 }), getViewDirection: () => ({ x: -1, y: 0, z: 0 }) });
+    h.aim({ x: 103.5, y: 66.6, z: 199.5 }, { x: 90, y: 66.6, z: 199.5 });
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     // The frame's cell the (skewed) leaf reaches into is full, right in front of the leaf: not a wall in front of it.
@@ -593,7 +592,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     // Standing right on the closed pane's plane (GameTest 2026-09-25: a lid never closed on the player beside it).
     h.player.location = { x: anchor.x + 3, y: anchor.y + 1, z: 205.5 };
-    h.players.push(h.player);
+    // (The player is in the world: an occupant wherever it stands.)
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(false);
   });
@@ -617,7 +616,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
     // The leaf's mid-plane is at grid z 5.5 (world z 205.5): standing on it refuses the close.
     h.player.location = { x: x + 0.5, y, z: 205.5 };
-    h.players.push(h.player);
+    // (The player is in the world: an occupant wherever it stands.)
     h.tap(a);
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
     expect(h.lastBar()).toMatch(/standing in the door 1/);
@@ -628,7 +627,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(h.teleports.length).toBeGreaterThan(0);
     expect(h.player.location.z).toBeLessThanOrEqual(z - 0.3 + 1e-9);
     h.tap(a);
-    h.players.length = 0;
+    h.player.location = { x: 0.5, y: 0, z: 0.5 }; // the player walks away
     h.blocks.set(k0!, { typeId: 'minecraft:stone', states: {} });
     h.tap(a);
     expect(h.blocks.get(k0!)?.typeId).toBe('minecraft:stone');
@@ -642,7 +641,7 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     h.tap(a);
     const [k0] = keysOf(cfg, 0);
     const [x, y, z] = k0!.split(',').map(Number) as [number, number, number];
-    h.players.push(h.player);
+    // (The player is in the world: an occupant wherever it stands.)
     // A wall two blocks tall right outside the doorway on the player's side: the first point out of the doorway's
     // block (z - 0.3) puts the body in it. The player must land past it (or on the other side), never inside it.
     for (const dx of [-1, 0, 1]) for (const dy of [0, 1]) h.setCollider(x + dx, y + dy, z - 1, 0, 16);

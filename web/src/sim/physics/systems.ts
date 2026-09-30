@@ -141,6 +141,8 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         }
         const world = en.dimension(p.dimension);
         if (!world.isLoaded(p.location.x, p.location.z)) continue;
+        // A flying player hangs where it is (SimEntity.flying; its flight movement is not modelled).
+        if (p.flying) { p.velocity = { x: 0, y: 0, z: 0 }; p.onGround = false; p.fall = undefined; continue; }
         pushOutOfBlocks(p, world);
         const move = stickToWorld(c, p.rotation.y);
         const r = tickPlayer(world, stateOf(p), { move, jump: c.jump, sneak: c.sneak, sprint: c.sprint, slowFalling: hasEffect(p, 'slow_falling') });

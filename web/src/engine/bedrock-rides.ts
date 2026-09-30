@@ -726,8 +726,6 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?:
   try { world.afterEvents?.entityHitEntity?.subscribe?.((ev: any) => board(ev.damagingEntity, ev.hitEntity)); } catch { /* not in this API */ }
 }
 
-export { ridesRuntime as _ridesRuntimeForTests };
-
 /** `scripts/rides.js`: the config and the runtime. */
 export function ridesScript(config: RideRuntimeConfig): string {
   const hopArg = config.hop ? `, (${hopKit.toString()})(CONFIG.hop)` : '';
