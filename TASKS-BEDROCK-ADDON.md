@@ -114,6 +114,22 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
+## Round 2026-09-30g (`c73c545a`) - access stairs, cockpit seats, sim fold
+
+**Sent** (zip, not deployed yet): `output/device-round-2026-09-30g/craftmatic-packs-c73c545a.zip`
+(sha256 c38344709432b514f8c9b8f48ac117ede3766d38746ad7daab30466528b6b409;
+23 packs, same set list and labels as 30f; `check.txt` 23/23 OK, uuids =
+30f). Sim on these packs: regressions 11 OK (incl. `door1-10326` now
+walks in by the stair, `cockpit-occluded-42639`) + gabby-car-overhang not
+reproduced as before; `--scenario=hop` passes.
+- [ ] Device round (both phones, `--exclusive`): 10326 Door 1 access stair
+  from the ground (the grid is widened 6 blocks in front: the model sits
+  further from the placement corner); 42639 cockpit (hotbar 9) road visible;
+  60380 driver inside its cab; seats that moved ACROSS (x) - the X-wing
+  7140, 76286 Milano, 60221, 42172 - rider on the right side, eye not in a
+  panel; 10303 first-drop one-frame jump (every lap) and loop-1 exit swing;
+  hop repeated on the Saga.
+
 ## Round 2026-09-30f (`dc699e3e`) - hop, collision x-mirror fix, 42639 + 60380
 
 **Sent** (zip, not deployed yet): `output/device-round-2026-09-30f/craftmatic-packs-dc699e3e.zip`
