@@ -742,11 +742,18 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
     const big = verdictOf(walkThroughDoorway(pack, 0, 200, 0, true), walkThroughDoorway(pack, 0, 200, 0, false));
     expect(big).toBe('OK');
   });
-  /** A bus door: the floor inside (z < 5) and under the doorway is `rows` deep, the wall stands on it, and outside (z > 5) only the ground `rows` blocks down. */
-  async function busDoor(rows: number) {
-    const g = new BlockGrid(12, rows + 5, 10);
+  /**
+   * A bus door: the floor inside (z < 5) and under the doorway is `rows` deep,
+   * the wall stands on it, and outside (z > 5) only the ground `rows` blocks
+   * down, `length - 6` columns of it. `posts` stands a full-height post in the
+   * columns either side of the doorway (x 2 and 5) all the way out, so no
+   * stair can turn along the facade.
+   */
+  async function busDoor(rows: number, length = 10, posts = false) {
+    const g = new BlockGrid(12, rows + 5, length);
     for (let x = 0; x < 12; x++) for (let z = 0; z <= 5; z++) for (let y = 0; y < rows; y++) g.set(x, y, z, colliderState(0, 16));
     for (let x = 0; x < 12; x++) for (let y = rows; y <= rows + 3; y++) g.set(x, y, 5, colliderState(0, 16));
+    if (posts) for (const x of [2, 5]) for (let z = 6; z < length; z++) for (let y = 0; y <= rows + 3; y++) g.set(x, y, z, colliderState(0, 16));
     const leaf = leafAt(3.25, 1.5, 5.5, 2.6, rows);
     const [plan] = planInteractiveColliders(g, [leaf], frame);
     const item = { ...interactiveRuntimeItem(leaf, 'craftmatic:x_door_1', 'Door 1', plan!), passSize: 100, normal: [0, 0, 1] as [number, number, number] };
@@ -767,9 +774,21 @@ describe('the passability walk (engine/interactive-walk.ts)', () => {
     expect(closed.outcome).not.toBe('passed');
     expect(verdictOf(open, closed)).toBe('OK');
   });
-  it('walks out of a doorway far over the ground (ONE-WAY: past the stair limit), never back in, and never through it closed', async () => {
+  it('lays a stair that turns along the facade where the ground in front is too short for a straight one (3 blocks up, 4 columns out)', async () => {
     const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
     const { plan, pack } = await busDoor(3);
+    expect(plan.stairTreads, plan.stairs.join('; ')).toBeGreaterThan(0);
+    expect(plan.stairs.join('; ')).toMatch(/laid \d+ treads over a rise of \d+\/16 \(1 turn along the facade\)/);
+    const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
+    expect(open.outcome).toBe('passed');
+    expect(closed.outcome).not.toBe('passed');
+    expect(verdictOf(open, closed)).toBe('OK');
+  });
+  it('walks out of a doorway far over the ground where no stair fits (ONE-WAY), never back in, and never through it closed', async () => {
+    const { walkThroughDoorway, verdictOf } = await import('../web/src/engine/interactive-walk.js');
+    // 3 blocks up, 2 columns of ground out and posts either side: no straight run, no turn.
+    const { plan, pack } = await busDoor(3, 8, true);
+    expect(plan.stairs.join('; ')).toMatch(/no stair: straight out, the grid's edge/);
     expect(plan.stairTreads, plan.stairs.join("; ")).toBe(0);
     const open = walkThroughDoorway(pack, 0, 100, 0, true), closed = walkThroughDoorway(pack, 0, 100, 0, false);
     expect(open.outcome).toBe('passed');

@@ -48,7 +48,7 @@ import { relayRounding } from './bedrock-collider-scale.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 import { COLLIDER_KIT, colliderBodyProbe, colliderFormKit, type ColliderFormKit } from './collider-form.js';
-import { LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
+import { LANDING_REACH, LANDING_RISE, LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
 
 declare const world: any;
 declare const system: any;
@@ -713,6 +713,8 @@ export interface InteractiveColliderPlan {
   stairTreads: number;
   /** Every stair considered for this doorway: the leaf column, the side, and what happened (`laid N` or the refusal). */
   stairs: string[];
+  /** The columns (x, z) its access stairs were laid in: the pipeline asks whether any lies in the margin it widened. */
+  stairColumns?: Array<[number, number]>;
   /**
    * The doorway's APPROACH: the columns in front of and behind its leaf, along
    * the leaf's normal up to `PASSAGE_REACH_CELLS`, where a player stands to
@@ -785,9 +787,11 @@ export function standingTop16(grid: BlockGrid, layers: CellLayers | undefined, x
  *
  * `layers` (the part geometry per cell, `buildColliderGrid`) lets the tread
  * and stair planners tell a floor from a wall's rim (`standingTop16`); without
- * it every collider top counts as a floor, as before.
+ * it every collider top counts as a floor, as before. `avoid` holds the cells
+ * ("x,y,z") an access stair may not take (`accessAvoidCells`: the pack's rides,
+ * track, vehicles, figures and seats).
  */
-export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneInteractive[], frame: SceneGridFrame, layers?: CellLayers): Array<InteractiveColliderPlan | null> {
+export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneInteractive[], frame: SceneGridFrame, layers?: CellLayers, avoid?: ReadonlySet<string>): Array<InteractiveColliderPlan | null> {
   const isCollider = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length && grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID);
   const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length;
   const plans: Array<InteractiveColliderPlan | null> = [];
@@ -997,7 +1001,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     const floor16 = blocking.length ? Math.min(...blocking.map(c => c[1] * 16 + c[3])) : 0;
     plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [], approach: [...approach.values()], floor16 });
   }
-  if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll, layers);
+  if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll, layers, avoid);
   captureDoorwayNeighbours(grid, plans);
   return plans;
 }
@@ -1014,56 +1018,104 @@ export interface StairCandidate {
   door: number;
 }
 
-/** Longest invisible staircase in front of a raised threshold: its rise (sixteenths) and its treads. */
-export const STAIR_MAX_RISE16 = 40;
-export const STAIR_MAX_TREADS = 4;
+/**
+ * One riser of an access stair (sixteenths): half a block, a slab's height,
+ * which a player walks up without jumping (Bedrock's auto-step is 9/16, so a
+ * half block leaves a sixteenth to spare). A stair also walks onto the model's
+ * own floors (a landing, a porch, the model's own steps) within the 9/16
+ * auto-step (`PASSAGE_STEP16`) of the level it is at, so where a run meets such
+ * a floor, or the ground, that one riser may be the auto-step.
+ */
+export const STAIR_RISE16 = 8;
+/**
+ * Longest invisible staircase: its rise (sixteenths, 4 blocks - a door on the
+ * second storey of a minifig building is ~3 blocks up) and its treads, one per
+ * riser below the top (4 blocks at half a block a riser: 7 treads).
+ */
+export const STAIR_MAX_RISE16 = 64;
+export const STAIR_MAX_TREADS = 7;
 /** Cells (Chebyshev) a tread keeps from another doorway's leaf standing lower than the tread's top. */
 const STAIR_DOOR_CLEAR = 2;
-/** How far out (cells) a stair may look for the ground, landing included. */
-const STAIR_MAX_RUN = 8;
+/** How many columns a stair may take out from its leaf column, landings, treads and the ground it ends on included. */
+const STAIR_MAX_RUN = 12;
+/**
+ * A stair runs straight out along the leaf's normal when it can; where that
+ * is blocked (another doorway, the model's edge, geometry) it may turn - along
+ * the facade, then away from it again - at most `STAIR_MAX_TURNS` times, each
+ * turn costing `STAIR_TURN_COST` columns in the search (a straight stair is
+ * preferred over a turning one up to that many columns longer).
+ */
+const STAIR_MAX_TURNS = 2;
+const STAIR_TURN_COST = 4;
+/** Search states a candidate may expand (a bound on a pathological grid; a real facade needs a few hundred). */
+const STAIR_MAX_EXPANSIONS = 20_000;
 /** A stair runs along a grid axis only: the leaf's normal within ~20 degrees of one (cos 20° = 0.94). */
 const STAIR_AXIS_COS = 0.94;
-/** Headroom kept clear above the doorway's floor over every tread column (a standing player, sixteenths). */
+/** Headroom kept clear over the level a player walks at on every stair column (a standing player, sixteenths). */
 const STAIR_HEAD16 = 29;
 /** The flood over a stair's world is skipped (the stair refused) past this many quarter-block voxels. */
 const STAIR_MAX_FLOOD_VOXELS = 64_000_000;
+/** A player's jump (sixteenths, 1.25 blocks): a doorway floor more than this over the ground is out of reach. */
+export const ACCESS_JUMP16 = 20;
+/** The most the grid is widened on one side (cells) so a stair from a raised door can run out past the model's edge. */
+export const ACCESS_MARGIN_MAX = 7;
+/** A door leaf turned further than this off the grid (degrees) widens nothing: its stair would be refused `off-axis` (`STAIR_AXIS_COS`). */
+export const ACCESS_DOOR_MAX_OFF_GRID_DEG = 20;
 
 /**
- * Invisible stairs up to a raised threshold (clearance's "certain test" discipline).
+ * Invisible access stairs up to a raised door (clearance's "certain test"
+ * discipline; docs/bedrock-interactivity.md "Access steps").
  *
  * A door hung on a raised base over open ground (41395's, 60380's, 42670's
- * Door 6: 1.3-2 blocks up) reads SEALED or ONE-WAY: the floor in front is
- * more than a jump below the doorway's floor, so nobody can walk up to it
- * (the single half-way tread covers only a rise of two 9/16 auto-steps). For
- * such a side this lays a straight run of treads along the leaf's normal,
- * each a 9/16 auto-step below the last, until the floor in front is within
- * one step - a staircase walked up without a jump, invisible like every
- * collider. Only when EVERY condition holds (otherwise the side keeps what it
- * had):
+ * Door 6: 1.3-2 blocks up; 10326's Door 1: 2.9 blocks over the plate at the
+ * model's front edge) reads SEALED or ONE-WAY: the floor in front is more than
+ * a jump below the doorway's floor, so nobody can walk up to it (the single
+ * half-way tread covers only a rise of two auto-steps). For such a side this
+ * lays a run of treads, each `STAIR_RISE16` below the last, until the floor in
+ * front is within one riser of the ground plane - a staircase walked up
+ * without a jump, invisible like every collider. The run goes straight out
+ * along the leaf's normal where it can and turns along the facade where that
+ * is blocked (`STAIR_MAX_TURNS`), and walks onto the model's own floors on the
+ * way (a porch, a planter). Only when EVERY condition holds (otherwise the
+ * side keeps what it had, and `stairs` says why):
  *
- * - the rise from the floor where the stair ends to the doorway's floor is at
- *   most `STAIR_MAX_RISE16` and it takes at most `STAIR_MAX_TREADS` treads;
+ * - the rise from the ground to the doorway's floor is at most
+ *   `STAIR_MAX_RISE16` in at most `STAIR_MAX_TREADS` treads;
  * - the leaf's normal is within ~20 degrees of a grid axis (a player walks
  *   between face-sharing columns);
- * - every tread column is AIR from its floor to a standing player's head over
- *   the doorway's floor - a tread only fills open air on a floor, never a
- *   hole under a floor, never a cell of the model, and leaves the head room;
+ * - every stair column is AIR from its floor to a standing player's head over
+ *   the level the player walks in at - a tread only fills open air on a
+ *   floor, never a hole under a floor, never a cell of the model - and a floor
+ *   it stands on is a surface a player stands on (`standingTop16`), never a
+ *   wall's rim;
  * - no tread column is any doorway's leaf column or blocking cell (a stair is
- *   never laid in a doorway or in a leaf's swing), nor another stair's;
- * - **outside only**: every filled cell and the head room over it is reached
- *   by the leak flood (`LeakFlood`: a flying, sneaking player from outside the
- *   model) through the collider world with EVERY doorway closed. A tread can
- *   only make walkable a space a player already reaches from outside with the
- *   doors shut, so it never opens an enclosed room and never leads past a
- *   closed leaf. (A raised door INSIDE a room keeps its verdict: stricter
- *   than needed, never wrong.)
+ *   never laid in a doorway or in a leaf's swing), nor another stair's; no
+ *   tread stands within `STAIR_DOOR_CLEAR` of a lower doorway's leaf or in
+ *   another doorway's approach above that doorway's floor (a stair never
+ *   blocks another door's line); and no tread or the head room over it takes a
+ *   cell of `avoid` (the pack's ride paths, slide chutes, coaster track,
+ *   vehicles, figures and seats, `accessAvoidCells`);
+ * - it stays inside the grid - the model's placement footprint and the margin
+ *   the pipeline widened it by for this (`accessMarginFor`); only the ground it
+ *   ends on may lie past the grid;
+ * - **outside only**: every filled cell is reached by the leak flood
+ *   (`LeakFlood`: a flying, sneaking player from outside the model) through the
+ *   collider world with EVERY doorway closed. A tread can only make walkable a
+ *   space a player already reaches from outside with the doors shut, so it
+ *   never opens an enclosed room and never leads past a closed leaf. (A raised
+ *   door INSIDE a room keeps its verdict: stricter than needed, never wrong.)
+ *   TODO(access-steps): an inside stair (a door whose inside floor is out of
+ *   reach) needs its own proof that it blocks no furniture, seat or figure
+ *   path in the room before the flood rule can be relaxed for it.
  *
  * Stairs are laid on the COLLIDER grid before clearance, like the doorway cut
- * and the single tread; `stairTreads` counts the cells laid. With `layers` a
- * column's floor is a surface a player stands on (`standingTop16`); a wall's
- * rim under the doorway's floor is not open air beside it and refuses the run.
+ * and the single tread, so they scale with the wand like every collider (a
+ * half-block riser is a jump at 200 %, and past that the scaled-grid planner,
+ * bedrock-collider-scale.ts, restores it as it restores every riser the model
+ * climbs at 100 %); `stairTreads` counts the cells laid. With `layers` a
+ * column's floor is a surface a player stands on (`standingTop16`).
  */
-export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveColliderPlan | null>, candidates: readonly StairCandidate[], leafColumns: ReadonlyMap<string, number>, layers?: CellLayers): void {
+export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveColliderPlan | null>, candidates: readonly StairCandidate[], leafColumns: ReadonlyMap<string, number>, layers?: CellLayers, avoid?: ReadonlySet<string>): void {
   const W = grid.width, H = grid.height, L = grid.length;
   const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L;
   const isCollider = (x: number, y: number, z: number): boolean => inGrid(x, y, z) && grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID);
@@ -1076,82 +1128,165 @@ export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveCol
   for (const plan of plans) for (const c of plan?.blocking ?? []) blockingKeys.add(`${c[0]},${c[1]},${c[2]}`);
   /** Each doorway's floor (sixteenths): the lowest closed cell's bottom. */
   const doorFloor16 = plans.map(plan => plan?.blocking.length ? Math.min(...plan.blocking.map(c => c[1] * 16 + c[3])) : Infinity);
+  /** Each column in some doorway's approach: the doorways (index) whose approach it is. */
+  const approachOf = new Map<string, number[]>();
+  plans.forEach((plan, i) => { for (const [x, z] of plan?.approach ?? []) { const k = `${x},${z}`; const list = approachOf.get(k); if (list) list.push(i); else approachOf.set(k, [i]); } });
   /**
-   * A tread column within `STAIR_DOOR_CLEAR` cells of ANOTHER doorway's leaf
-   * whose floor is under the tread's top would stand in that doorway's
-   * approach (a door at street level beside a raised one): refused.
+   * Why a tread whose top is `top16` may not stand in column (x, z) for
+   * doorway `item`, or '' when it may: another doorway's leaf within
+   * `STAIR_DOOR_CLEAR` cells standing lower than the tread (a door at street
+   * level beside a raised one), another doorway's approach where the tread
+   * would stand over that doorway's floor, a doorway's closed cell, or a cell
+   * of `avoid` from the tread's floor to the head room over its top.
    */
-  const nearLowerDoor = (item: number, x: number, z: number, top16: number): boolean => {
+  const treadRefusal = (item: number, x: number, z: number, floor16: number, top16: number): string => {
     for (let dx = -STAIR_DOOR_CLEAR; dx <= STAIR_DOOR_CLEAR; dx++) for (let dz = -STAIR_DOOR_CLEAR; dz <= STAIR_DOOR_CLEAR; dz++) {
       const other = leafColumns.get(`${x + dx},${z + dz}`);
-      if (other !== undefined && other !== item && doorFloor16[other]! < top16) return true;
+      if (other !== undefined && other !== item && doorFloor16[other]! < top16) return 'in front of another doorway';
     }
-    return false;
+    for (const other of approachOf.get(`${x},${z}`) ?? []) if (other !== item && top16 > doorFloor16[other]! + STAIR_RISE16) return 'in another doorway\'s approach';
+    for (let y = Math.floor(floor16 / 16); y * 16 < top16; y++) if (blockingKeys.has(`${x},${y},${z}`)) return 'a doorway cell';
+    if (avoid) for (let y = Math.floor(floor16 / 16); y * 16 < top16 + STAIR_HEAD16; y++) if (avoid.has(`${x},${y},${z}`)) return 'in the way of a ride, a vehicle or a figure';
+    return '';
+  };
+
+  /**
+   * What a player walking at `cur16` finds on entering column (x, z) of a
+   * stair for candidate `c`, moving up or down at most `step16` without a
+   * tread (the 9/16 auto-step for a stair's route; the 1.25-block jump when
+   * asking whether the side is reached without one).
+   */
+  type Entry = { kind: 'landing' | 'ground'; floor16: number } | { kind: 'tread'; floor16: number; top16: number } | { kind: 'refused'; why: string };
+  const enter = (c: StairCandidate, x: number, z: number, cur16: number, step16: number): Entry => {
+    const item = c.item;
+    if (leafColumns.has(`${x},${z}`)) return { kind: 'refused', why: 'a leaf column' };
+    // Past the grid is the world's ground plane: a stair may END there, never lay a tread there.
+    if (x < 0 || z < 0 || x >= W || z >= L) return cur16 <= step16 ? { kind: 'ground', floor16: 0 } : { kind: 'refused', why: 'the grid\'s edge' };
+    // The column's floor under the player: the highest collider span that reaches no higher than an
+    // auto-step over `cur16`; anything reaching into the body band above that is in the way.
+    let floor16 = 0;
+    for (let y = Math.min(H - 1, Math.floor((cur16 + STAIR_HEAD16 - 1) / 16)); y >= 0; y--) {
+      const s = spanOf(x, y, z);
+      if (!s) continue;
+      const top = y * 16 + s[1], bottom = y * 16 + s[0];
+      if (bottom >= cur16 + STAIR_HEAD16) continue; // over the head
+      if (top > cur16 + step16) return { kind: 'refused', why: 'not open air' };
+      // The floor is a surface a player stands on; a wall's rim here is not open air beside the door -
+      // unless it is this doorway's LANDING, a rim clearance never narrows (collider-clearance.ts:
+      // within `LANDING_REACH` of the leaf and `LANDING_RISE` of its foot; 10326 Door 1's lip).
+      const st = standingTop16(grid, layers, x, y, z);
+      const landing = Math.hypot(Math.max(0, Math.abs(x - c.cx) - 1), Math.max(0, Math.abs(z - c.cz) - 1)) <= LANDING_REACH && Math.abs(top - Math.round(c.door * 16)) <= LANDING_RISE * 16;
+      if (st === null && !landing) return { kind: 'refused', why: 'a wall\'s rim' };
+      floor16 = st ?? top;
+      break;
+    }
+    // A floor within an auto-step is walked onto (a landing, the model's own steps, a threshold tread).
+    if (floor16 >= cur16 - step16) return { kind: floor16 <= PASSAGE_STEP16 ? 'ground' : 'landing', floor16 };
+    const top16 = cur16 - STAIR_RISE16;
+    const why = treadRefusal(item, x, z, floor16, top16);
+    return why ? { kind: 'refused', why } : { kind: 'tread', floor16, top16 };
   };
 
   // One proposal per candidate: the treads (column, floor, top in absolute sixteenths).
   interface Tread { x: number; z: number; floor16: number; top16: number }
-  const proposals: Array<{ c: StairCandidate; treads: Tread[]; rise16: number }> = [];
+  interface Node { x: number; z: number; cur16: number; hx: number; hz: number; turns: number; cols: number; cost: number; steps: Array<Tread & { landing: boolean }>; treads: number; ground: boolean }
+  const proposals: Array<{ c: StairCandidate; treads: Tread[]; rise16: number; turns: number }> = [];
   const note = (c: StairCandidate, verdict: string): void => { plans[c.item]?.stairs.push(`${c.cx},${c.cz} side ${c.dir > 0 ? '+' : '-'}: ${verdict}`); };
+  /**
+   * Uniform-cost search from candidate `c`'s leaf column over (column, level,
+   * heading): straight out along the normal (`sx`, `sz`) first, a turn costs
+   * `STAIR_TURN_COST` columns. The first node popped that stands on the ground
+   * is the route; `allowTreads` false walks the model's own floors only, a
+   * jump (`ACCESS_JUMP16`) at a time.
+   * `straightWhy`/`straightStep` say where the straight line out stopped.
+   */
+  const route = (c: StairCandidate, sx: number, sz: number, door16: number, allowTreads: boolean): { found: Node | null; straightWhy: string; straightStep: number; bounded: boolean } => {
+    const open: Node[] = [{ x: c.cx, z: c.cz, cur16: door16, hx: sx, hz: sz, turns: 0, cols: 0, cost: 0, steps: [], treads: 0, ground: false }];
+    const seen = new Map<string, number>();
+    let found: Node | null = null, straightWhy = '', straightStep = 0, expansions = 0;
+    const stop = (n: Node, turn: boolean, why: string): void => { if (n.turns === 0 && !turn && !straightWhy) { straightWhy = why; straightStep = n.cols + 1; } };
+    while (open.length && !found && expansions++ < STAIR_MAX_EXPANSIONS) {
+      let best = 0;
+      for (let i = 1; i < open.length; i++) if (open[i]!.cost < open[best]!.cost) best = i;
+      const n = open.splice(best, 1)[0]!;
+      // A node on the ground is popped only when no cheaper route is still open: the cheapest route.
+      if (n.ground) { found = n; break; }
+      // The first move leaves the doorway along its normal; later ones go on, or turn left or right.
+      const moves: Array<[number, number]> = n.cols === 0 ? [[n.hx, n.hz]] : [[n.hx, n.hz], [n.hz, -n.hx], [-n.hz, n.hx]];
+      for (const [dx, dz] of moves) {
+        const turn = dx !== n.hx || dz !== n.hz;
+        if (turn && n.turns >= STAIR_MAX_TURNS) continue;
+        if (n.cols + 1 > STAIR_MAX_RUN) { stop(n, turn, 'no ground within reach'); continue; }
+        const x = n.x + dx, z = n.z + dz;
+        if ((x === c.cx && z === c.cz) || n.steps.some(st => st.x === x && st.z === z)) continue;
+        const e = enter(c, x, z, n.cur16, allowTreads ? PASSAGE_STEP16 : ACCESS_JUMP16);
+        if (e.kind === 'refused') { stop(n, turn, e.why); continue; }
+        if (e.kind === 'tread' && !allowTreads) { stop(n, turn, 'a drop past the auto-step'); continue; }
+        if (e.kind === 'tread' && n.treads >= STAIR_MAX_TREADS) { stop(n, turn, `more than ${STAIR_MAX_TREADS} treads`); continue; }
+        const tread = e.kind === 'tread', top16 = e.kind === 'tread' ? e.top16 : e.floor16;
+        const next: Node = {
+          x, z, cur16: top16, hx: dx, hz: dz, turns: n.turns + (turn ? 1 : 0), cols: n.cols + 1,
+          cost: n.cost + 1 + (turn ? STAIR_TURN_COST : 0), treads: n.treads + (tread ? 1 : 0), ground: e.kind === 'ground',
+          steps: [...n.steps, { x, z, floor16: e.floor16, top16, landing: !tread }],
+        };
+        const key = `${x},${z},${next.cur16},${dx},${dz}`;
+        if ((seen.get(key) ?? Infinity) <= next.cost) continue;
+        seen.set(key, next.cost);
+        open.push(next);
+      }
+    }
+    return { found, straightWhy, straightStep, bounded: expansions > STAIR_MAX_EXPANSIONS };
+  };
   for (const c of candidates) {
     const [ax, az] = c.gn;
     if (Math.max(Math.abs(ax), Math.abs(az)) < STAIR_AXIS_COS) { note(c, 'off-axis'); continue; }
     const sx = Math.abs(ax) >= Math.abs(az) ? Math.sign(ax) * c.dir : 0, sz = sx === 0 ? Math.sign(az) * c.dir : 0;
-    const door16 = Math.round(c.door * 16), head16 = door16 + STAIR_HEAD16;
-    /** The column's floor under the doorway's floor (absolute sixteenths; 0 = the ground plane), or null when the column is not open air from that floor to the head room. */
-    const floorOf = (x: number, z: number): number | null => {
-      if (!inGrid(x, 0, z)) return null;
-      let floor16 = 0;
-      for (let y = Math.min(H - 1, Math.floor(head16 / 16)); y >= 0; y--) {
-        const s = spanOf(x, y, z);
-        if (!s) continue;
-        const top = y * 16 + s[1], bottom = y * 16 + s[0];
-        if (bottom < head16 && top > door16) return null; // something between the doorway's floor and the head room
-        if (top <= door16) {
-          // The floor is a surface a player stands on; a wall's rim here is not open air beside the door.
-          const st = standingTop16(grid, layers, x, y, z);
-          if (st === null) return null;
-          floor16 = st;
-          break;
-        }
-      }
-      return floor16;
-    };
-    // Walk out along the normal: level or auto-step columns are walked onto
-    // (a landing, a porch), a drop past the auto-step takes a tread 9/16 below
-    // the last, and the run ends on a floor within an auto-step of the ground
-    // plane - where a player outside stands.
+    const door16 = Math.round(c.door * 16);
+    // A side a player already reaches from the ground on the model's own floors (a porch, its own
+    // steps, a threshold tread), jumping where a jump is enough, needs no stair: the same search with
+    // no tread and the jump as its step decides it (the brief: a doorway floor more than a jump over
+    // the reachable floor in front).
+    if (route(c, sx, sz, door16, false).found) continue;
+    const { found, straightWhy, straightStep, bounded } = route(c, sx, sz, door16, true);
+    if (!found) {
+      // The side has no route. A side whose first column is the model's own wall or another leaf
+      // (a door into a wall, a double door's other half) is not a stair side at all: silent, as before.
+      if (straightStep === 1 && (straightWhy === 'not open air' || straightWhy === 'a leaf column' || straightWhy === 'a wall\'s rim')) continue;
+      note(c, `no stair: straight out, ${straightWhy || 'no ground within reach'} at step ${straightStep || 1}${bounded ? ' (search bound reached)' : ', and no turn along the facade finds the ground'}`);
+      continue;
+    }
+    // The treads in walking order, and the level the first one is stepped down from.
     const treads: Tread[] = [];
-    let cur = door16, why = '', runStart = door16, end = -1, oneRun = true;
-    for (let k = 1; k <= STAIR_MAX_RUN && end < 0; k++) {
-      const x = c.cx + sx * k, z = c.cz + sz * k;
-      if (leafColumns.has(`${x},${z}`)) { why = `a leaf column at step ${k}`; break; }
-      const floor16 = floorOf(x, z);
-      if (floor16 === null) { why = `not open air at step ${k}`; break; }
-      if (floor16 > cur + PASSAGE_STEP16) { why = `a rise at step ${k}`; break; }
-      if (floor16 >= cur - PASSAGE_STEP16) {
+    let runStart = door16, oneRun = true, level = door16;
+    for (const s of found.steps) {
+      if (s.landing) {
         // A landing after treads (a planter, a porch edge) is walked onto; the steps are then not one even run.
-        if (treads.length && floor16 > PASSAGE_STEP16) oneRun = false;
-        cur = floor16;
-        if (floor16 <= PASSAGE_STEP16) end = floor16;
+        if (treads.length && s.floor16 > PASSAGE_STEP16) oneRun = false;
+        level = s.floor16;
         continue;
       }
-      if (treads.length >= STAIR_MAX_TREADS) { why = `more than ${STAIR_MAX_TREADS} treads`; break; }
-      if (!treads.length) runStart = cur;
-      cur -= PASSAGE_STEP16;
-      treads.push({ x, z, floor16, top16: cur });
+      if (!treads.length) runStart = level;
+      treads.push({ x: s.x, z: s.z, floor16: s.floor16, top16: s.top16 });
+      level = s.top16;
     }
-    if (!treads.length) continue; // walks down to the ground already, or no stair could start here
-    if (!why && end < 0) why = 'no ground within reach';
-    if (!why && door16 - end > STAIR_MAX_RISE16) why = `rise ${door16 - end}/16 over the limit`;
-    if (why) { note(c, why); continue; }
-    // Even steps over the run when the floors allow it (a 9/16 then a 2/16 step reads as a glitch).
-    const n = treads.length, even = treads.map((_t, j) => runStart - Math.round((j + 1) * (runStart - end) / (n + 1)));
-    if (oneRun && treads.every((t, j) => even[j]! > t.floor16)) treads.forEach((t, j) => { t.top16 = even[j]!; });
-    if (treads.some(t => nearLowerDoor(c.item, t.x, t.z, t.top16))) { note(c, 'in front of another doorway'); continue; }
-    // No tread cell may be a doorway's blocking cell.
-    if (treads.some(t => { for (let y = Math.floor(t.floor16 / 16); y * 16 < t.top16; y++) if (blockingKeys.has(`${t.x},${y},${t.z}`)) return true; return false; })) { note(c, 'a doorway cell'); continue; }
-    proposals.push({ c, treads, rise16: door16 - end });
+    const end = found.steps[found.steps.length - 1]!.floor16;
+    if (door16 - end > STAIR_MAX_RISE16) { note(c, `rise ${door16 - end}/16 over the limit`); continue; }
+    // Even steps over the run when the floors allow it (a half-block then a 2/16 step reads as a glitch).
+    // An even tread may stand higher than the greedy one: its column must still be clear from its floor
+    // to a player's head over the level stepped down from (`enter` checked the greedy levels).
+    const clear = (x: number, z: number, floor16: number, upTo16: number): boolean => {
+      for (let y = Math.max(0, Math.floor(floor16 / 16)); y < H && y * 16 < upTo16; y++) {
+        const sp = spanOf(x, y, z);
+        if (sp && y * 16 + sp[0] < upTo16 && y * 16 + sp[1] > floor16) return false;
+      }
+      return true;
+    };
+    const nT = treads.length, even = treads.map((_t, j) => runStart - Math.round((j + 1) * (runStart - end) / (nT + 1)));
+    if (oneRun && treads.every((t, j) => even[j]! > t.floor16 && clear(t.x, t.z, t.floor16, (j ? even[j - 1]! : runStart) + STAIR_HEAD16))) treads.forEach((t, j) => { t.top16 = even[j]!; });
+    // Re-spacing moves tops: re-check the doorways and avoided cells at the tops laid.
+    const late = treads.map(t => treadRefusal(c.item, t.x, t.z, t.floor16, t.top16)).find(w => w);
+    if (late) { note(c, late); continue; }
+    proposals.push({ c, treads, rise16: door16 - end, turns: found.turns });
   }
   if (!proposals.length) return;
 
@@ -1170,17 +1305,17 @@ export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveCol
   const PH = H + 2, PL = L + 2;
   const outside = (x: number, y: number, z: number): boolean => y >= 0 && y < PH && reached[((x + 1) * PH + y) * PL + (z + 1)] === 1;
   const taken = new Set<string>();
-  for (const { c, treads, rise16 } of proposals) {
+  for (const { c, treads, rise16, turns } of proposals) {
     const cells = treads.flatMap(t => {
       const rows: Array<[number, number, number]> = [];
       // The rows the tread fills, from the row the flood's feet stand in on this
-      // floor (it moves in quarter blocks); the head room above is air (`floorOf`).
+      // floor (it moves in quarter blocks); the head room above is air (`enter`).
       for (let y = Math.floor(Math.ceil(t.floor16 / 4) * 4 / 16); y * 16 < t.top16; y++) rows.push([t.x, y, t.z]);
       return rows;
     });
     if (!cells.every(([x, y, z]) => outside(x, y, z))) { note(c, 'not outside (the flood with every door closed does not reach it)'); continue; }
-    if (cells.some(([x, y, z]) => taken.has(`${x},${y},${z}`))) { note(c, 'another stair'); continue; }
-    for (const [x, y, z] of cells) taken.add(`${x},${y},${z}`);
+    if (treads.some(t => taken.has(`${t.x},${t.z}`))) { note(c, 'another stair'); continue; }
+    for (const t of treads) taken.add(`${t.x},${t.z}`);
     let laid = 0;
     for (const t of treads) {
       for (let y = Math.floor(t.floor16 / 16); y * 16 < t.top16; y++) {
@@ -1192,9 +1327,86 @@ export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveCol
       }
     }
     const plan = plans[c.item];
-    if (plan) plan.stairTreads += laid;
-    note(c, `laid ${treads.length} treads over a rise of ${rise16}/16`);
+    if (plan) { plan.stairTreads += laid; (plan.stairColumns ??= []).push(...treads.map(t => [t.x, t.z] as [number, number])); }
+    note(c, `laid ${treads.length} treads over a rise of ${rise16}/16${turns ? ` (${turns} turn${turns === 1 ? '' : 's'} along the facade)` : ''}`);
   }
+}
+
+/**
+ * How far (cells) to widen the grid on each horizontal side so an access stair
+ * from a raised door can run straight out past the model's edge
+ * (`planThresholdStairs`). A door whose leaf's foot stands more than a jump
+ * (`ACCESS_JUMP16`) over the grid's floor needs `n` treads for a straight run
+ * down (`STAIR_RISE16` a riser, from its floor plus one riser - a lip or a
+ * threshold a step over the leaf's foot - to the ground). On each side of it
+ * along its normal that FACES OUT - `solid(x, y, z)` (the voxel grid) holds
+ * nothing between the leaf and that side at a standing player's chest over the
+ * leaf's foot (an interior door has the facade there) - the grid is widened
+ * until that many treads and a landing fit between the leaf and the side, at
+ * most `ACCESS_MARGIN_MAX`.
+ *
+ * `doors` are grid boxes (the leaf's AABB in grid cells at 100 %) with the
+ * grid axis the leaf's normal runs along. Nothing else is decided here: the
+ * planner still lays a stair only past its every test, and a side widened for
+ * a stair it then refuses is air the placement lays and nothing stands on.
+ */
+export function accessMarginFor(doors: ReadonlyArray<{ min: Vec3; max: Vec3; normal: 'x' | 'z' }>, dims: { width: number; height: number; length: number }, solid: (x: number, y: number, z: number) => boolean): { x0: number; x1: number; z0: number; z1: number } {
+  const m = { x0: 0, x1: 0, z0: 0, z1: 0 };
+  for (const d of doors) {
+    const foot16 = Math.round(d.min[1] * 16);
+    if (foot16 <= ACCESS_JUMP16) continue;
+    const treads = Math.min(STAIR_MAX_TREADS, Math.ceil((foot16 + STAIR_RISE16) / STAIR_RISE16) - 1);
+    const need = treads + 1;
+    // The chest row over the leaf's foot (1.5 blocks up), and the leaf's span along its width.
+    const row = Math.floor((foot16 + 24) / 16);
+    const along = d.normal === 'z' ? [Math.floor(d.min[0]), Math.ceil(d.max[0])] : [Math.floor(d.min[2]), Math.ceil(d.max[2])];
+    /** Nothing of the model stands at chest height between the leaf and the side, over the leaf's width. */
+    const facesOut = (from: number, to: number): boolean => {
+      if (row < 0 || row >= dims.height) return true;
+      for (let n = from; n < to; n++) for (let t = along[0]!; t < along[1]!; t++) {
+        const [x, z] = d.normal === 'z' ? [t, n] : [n, t];
+        if (solid(x, row, z)) return false;
+      }
+      return true;
+    };
+    const lo = d.normal === 'z' ? Math.floor(d.min[2]) : Math.floor(d.min[0]);
+    const hi = d.normal === 'z' ? Math.ceil(d.max[2]) : Math.ceil(d.max[0]);
+    const size = d.normal === 'z' ? dims.length : dims.width;
+    const low = facesOut(0, lo) ? Math.min(ACCESS_MARGIN_MAX, need - lo) : 0;
+    const high = facesOut(hi, size) ? Math.min(ACCESS_MARGIN_MAX, need - (size - hi)) : 0;
+    if (d.normal === 'z') { m.z0 = Math.max(m.z0, low); m.z1 = Math.max(m.z1, high); }
+    else { m.x0 = Math.max(m.x0, low); m.x1 = Math.max(m.x1, high); }
+  }
+  return m;
+}
+
+/**
+ * The grid cells ("x,y,z") an access stair may not take (`planThresholdStairs`
+ * `avoid`): what the pack puts in the open air around the model. Points (a
+ * figure's feet, a seat, a mount's top) keep a 3 x 3 x 3 box of cells round
+ * them; paths (a slide chute, a lift, a coaster track, a mount's orbit) the
+ * cells within a block of every quarter-block sample along them, from a block
+ * under to two over (the car and its rider); boxes (a vehicle's footprint)
+ * every cell they touch.
+ */
+export function accessAvoidCells(sources: { points?: ReadonlyArray<readonly [number, number, number]>; paths?: ReadonlyArray<ReadonlyArray<readonly [number, number, number]>>; boxes?: ReadonlyArray<{ min: readonly [number, number, number]; max: readonly [number, number, number] }> }): Set<string> {
+  const out = new Set<string>();
+  const around = (p: readonly [number, number, number], below: number, above: number): void => {
+    const cx = Math.floor(p[0]), cy = Math.floor(p[1]), cz = Math.floor(p[2]);
+    for (let dx = -1; dx <= 1; dx++) for (let dy = -below; dy <= above; dy++) for (let dz = -1; dz <= 1; dz++) out.add(`${cx + dx},${cy + dy},${cz + dz}`);
+  };
+  for (const p of sources.points ?? []) around(p, 1, 1);
+  for (const path of sources.paths ?? []) {
+    for (let i = 0; i < path.length; i++) {
+      const a = path[i]!, b = path[i + 1] ?? a;
+      const n = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) * 4));
+      for (let k = 0; k <= n; k++) around([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n, a[2] + (b[2] - a[2]) * k / n], 1, 2);
+    }
+  }
+  for (const b of sources.boxes ?? []) {
+    for (let x = Math.floor(b.min[0]); x < Math.ceil(b.max[0]); x++) for (let y = Math.floor(b.min[1]); y < Math.ceil(b.max[1]); y++) for (let z = Math.floor(b.min[2]); z < Math.ceil(b.max[2]); z++) out.add(`${x},${y},${z}`);
+  }
+  return out;
 }
 
 /**

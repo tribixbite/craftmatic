@@ -39,7 +39,7 @@ import { bedrockJsonText } from './bedrock-json.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
-import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
+import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
 declare const system: any;
 declare const ModalFormData: any;
@@ -222,6 +222,12 @@ export interface PlayableAddonOptions {
      * applies it: no export changes size on its own.
      */
     access?: AccessScaleRecommendation;
+    /**
+     * How far (blocks) schem-pipeline.ts widened the grid past the model on
+     * each horizontal side so an access stair from a raised door can run out
+     * past its edge (`accessMarginFor`); reported in the diagnostics.
+     */
+    accessMargin?: { x0: number; x1: number; z0: number; z1: number };
     /** Existing invisible seat type exposed to the brick-wand manual chair placer. */
     manualSeatTypeId?: string;
     /** Small semantic LDraw doors that the placement wand may offer as interactive vanilla doors. */
@@ -303,6 +309,12 @@ export interface PlayableAddonResult {
         provenance: string;
     }>;
     warnings: string[];
+    /**
+     * Whether an access stair was laid in the margin `options.accessMargin`
+     * widened the grid by (absent without a margin): schem-pipeline.ts exports
+     * again without the margin when none was, so a model keeps its footprint.
+     */
+    accessMarginUsed?: boolean;
     /** Geometry diagnostics per brick-compiled entity id (also written into the BP). */
     diagnostics: Record<string, LegoGeometryDiagnostics>;
     /** What built this pack and from which file — the record in `craftmatic-provenance.json`. */
@@ -2152,6 +2164,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     let interactiveReport: unknown[] | undefined;
     /** What clearance applied and refused (collider-clearance.ts), for the diagnostics. */
     let clearanceReport: ClearanceReport | undefined;
+    /** Whether an access stair took a column of `options.accessMargin` (false when none did, or no doorway was planned). */
+    let accessMarginUsed = false;
     /** What the doorway walk found at 100 % (`doorwayWalkSummary`), for the wand. */
     let ixWalkNote: string | undefined;
     const actors: PlacementActor[] = [];
@@ -2494,7 +2508,33 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             }
             const colliders = buildColliderGrid(scenery, [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], options.shell.frame, options.colliderKeepClear);
             // The part geometry per cell goes along so a threshold tread or stair stands on a floor, never on a wall's rim (`standingTop16`).
-            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame, colliders.layers) : [];
+            // What stands in the open air around the model, which an access stair may not take
+            // (`accessAvoidCells`): the ride paths and their exits, the coaster track, the mounts'
+            // tops and orbits, the vehicles' footprints, every figure and every seat.
+            const avoid = compiledIx.length ? accessAvoidCells({
+                points: [
+                    ...(options.figures ?? []).map(f => [f.x, f.y, f.z] as const),
+                    ...(options.seats ?? []).map(q => [q.x, q.y, q.z] as const),
+                    ...(options.mounts?.items ?? []).map(m => m.top),
+                    ...(options.rides?.items ?? []).flatMap(r => r.exits ?? []),
+                ],
+                paths: [
+                    ...(options.rides?.items ?? []).map(r => r.path),
+                    ...(options.coasterRoutes ?? []).map(r => r.points),
+                    ...(options.mounts?.items ?? []).map(m => m.path),
+                ],
+                boxes: (options.components ?? []).map(c => {
+                    const p = componentSpawnPoint(c, grid), r = c.sceneScale ?? 1;
+                    return { min: [p.x - c.grid.width * r / 2, p.y, p.z - c.grid.length * r / 2] as const, max: [p.x + c.grid.width * r / 2, p.y + c.grid.height * r, p.z + c.grid.length * r / 2] as const };
+                }),
+            }) : undefined;
+            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame, colliders.layers, avoid) : [];
+            // Did any access stair take a column of the margin the pipeline widened the grid by?
+            const m = options.accessMargin;
+            if (m) {
+                const W = colliders.grid.width, L = colliders.grid.length;
+                accessMarginUsed = ixPlans.some(pl => pl?.stairColumns?.some(([x, z]) => x < m.x0 || x >= W - m.x1 || z < m.z0 || z >= L - m.z1));
+            }
             if (options.colliderClearance !== false) {
                 // Clearance (collider-clearance.ts, docs/bedrock-interactivity.md):
                 // pull every wall back to its own geometry where it is certain,
@@ -3266,6 +3306,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // still reaches at that size. A recommendation - this pack was NOT
         // resized by it (`modelScale` is what it was exported at).
         ...(options.access ? { access: options.access } : {}),
+        // The grid widened past the model for access stairs (blocks per side), when it was.
+        ...(options.accessMargin ? { accessMargin: { ...options.accessMargin, used: accessMarginUsed } } : {}),
         entities: diagnostics,
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
         // The moving parts: class, hinge angle, the opening a player passes and
@@ -3326,6 +3368,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         preview: { typeId: ghost.typeId },
         ...(placementColliders ? { colliders: placementColliders } : {}),
+        // A doorway's threshold keeps the steps that climb to it from either side (`planColliderTreads` `doorCells`).
+        ...(interactiveConfig ? { doorCells: interactiveConfig.items.flatMap(item => item.blocking) } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
@@ -3412,7 +3456,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse - the camera stays behind you; press Jump for a short boost; the Dismount (sneak) button gets you out. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships: hold Jump for full throttle down the runway; at take-off speed pull the joystick BACK to lift off (holding Jump alone lifts off a little later). In the air the joystick flies it - back climbs, forward dives, left and right bank and turn - and the engine holds cruise power by itself; hold Jump for full power. Too slow and it stalls: push forward to regain speed. To land, point the nose gently down near the ground and let it touch, then it brakes to a stop (pull back to brake harder). Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you; it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
-    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}) };
+    return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}), ...(options.accessMargin ? { accessMarginUsed } : {}) };
 }
 
 /** One warning line for the moving parts: counts by class and, for doorways, at which wand size each can be walked through. */

@@ -144,6 +144,13 @@ export interface PlacementPackSpec {
   /** Model points that should be reachable on foot (a boarding platform), reported per size in the tread diagnostics. */
   reachTargets?: ReachTarget[];
   /**
+   * The cells closed doorways fill, `[x, y, z, lo, hi]` in the 100 % grid
+   * (bedrock-interactives.ts `blocking`): the tread planner restores a climb
+   * to a doorway's threshold from EITHER side even when the other side
+   * already reaches it (`planColliderTreads` `doorCells`).
+   */
+  doorCells?: ReadonlyArray<readonly (number | undefined)[]>;
+  /**
    * Ticks each tile's ticking area stays alive after its `structure load`, and
    * ticks the last area is held after the final piece. A ticking area removed
    * the moment the command returns can unload the chunk before its block
@@ -511,7 +518,7 @@ export const TREAD_RULE = 'An invisible step is laid only where a rise between t
  * the tiles carry the grid verbatim and the planner is empty there by
  * construction (asserted in test/bedrock-collider-treads.test.ts).
  */
-export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = []): { colliders: PlacementColliders; report: PlacementTreadReport } {
+export function withColliderTreads(colliders: PlacementColliders, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = []): { colliders: PlacementColliders; report: PlacementTreadReport } {
   // Planned over the grid as it was BEFORE clearance: every clearance form
   // (collider-form.ts) read as the full cell over its vertical extent. A tread
   // only ever fills a column the planner found standable and clear, and its
@@ -531,7 +538,7 @@ export function withColliderTreads(colliders: PlacementColliders, targets: reado
   for (const pct of SIZE_STEPS) {
     if (pct <= 100) continue;
     for (const r of QUARTER_TURNS) {
-      const plan = planColliderTreads(cells, dims, pct, r, targets);
+      const plan = planColliderTreads(cells, dims, pct, r, targets, doorCells);
       const f = pct / 100;
       const { blocks, before, after, ...rest } = plan;
       report.plans.push({ ...rest, blocks: blocks.length, before: { surfaces: before.surfaces, columns: before.columns, highestBlocks: blocksAt100(before.highest16, f) }, after: { surfaces: after.surfaces, columns: after.columns, highestBlocks: blocksAt100(after.highest16, f) } });
@@ -1646,7 +1653,7 @@ export function buildPlacementPackAssets(spec: PlacementPackSpec): PlacementPack
   const shortAlias = placementAlias(spec.stem);
   // Invisible steps are planned from the shipped grid here, so a brick-shell
   // pack carries them without the pipeline knowing (bedrock-collider-scale.ts).
-  const treads = spec.colliders && spec.treads !== false ? withColliderTreads(spec.colliders, spec.reachTargets ?? []) : undefined;
+  const treads = spec.colliders && spec.treads !== false ? withColliderTreads(spec.colliders, spec.reachTargets ?? [], spec.doorCells ?? []) : undefined;
   const config = { id, shortAlias, vehicleControls: spec.vehicleControls === true, label: spec.label, itemId, width: spec.width, height: spec.height, length: spec.length, tiles: spec.tiles, actors: spec.actors ?? [], previewPoints: (spec.previewPoints ?? []).slice(0, 120),
     preview: spec.preview ?? null, colliders: treads ? treads.colliders : spec.colliders ?? null, interactionNote: spec.interactionNote ?? '', access: spec.access ?? null, manualSeatTypeId: spec.manualSeatTypeId ?? '', runtimeDoorCandidates: spec.runtimeDoorCandidates ?? [], sizes: [...SIZE_STEPS], sizeEventPrefix: SIZE_EVENT_PREFIX, settleTicks: spec.settleTicks ?? 8, finalHoldTicks: spec.finalHoldTicks ?? 40 };
   const controlsImport = spec.vehicleControls ? 'import { showTimeMachineControls } from "./time-machine.js";\n' : '';

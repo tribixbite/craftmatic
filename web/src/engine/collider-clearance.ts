@@ -165,8 +165,8 @@ const LEAKS_REPORTED = 40;
  * door. Two blocks is the passability walk's approach reach at 100 % plus a
  * margin; the rise is the jump.
  */
-const LANDING_REACH = 2;
-const LANDING_RISE = 1.25;
+export const LANDING_REACH = 2;
+export const LANDING_RISE = 1.25;
 /** How far past each end of a closed leaf (blocks) its protected cells reach: a frame's sliver. */
 const LEAF_END_REACH = 0.4;
 /** Above this many voxels the leak check is not run and every trim is refused (`unverifiable`). */

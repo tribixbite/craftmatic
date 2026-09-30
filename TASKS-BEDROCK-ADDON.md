@@ -983,3 +983,37 @@ Evidence `output/hop-0930/` in that worktree: packs `packs-196360e2/`
   the first); run it on the Pixel (`cmgametest`).
 - [ ] 10788 + 42639: the car parked at the slide foot cannot drive out (the
   slide ends on an upper floor); a model question, not the hop's.
+
+## Access steps (2026-09-30, worktree `agent-a44a9ee098a094474`)
+
+Invisible half-block stairs up to doors hung more than a jump over the
+ground, straight out or turning along the facade, with the grid widened past
+the model's edge where a raised door faces out (at most 7 blocks, dropped
+again when no stair uses it). Design and numbers: docs/bedrock-interactivity.md
+"Access steps". Commits `373445c7`, `0de83c83`, `7f7723fa` (+ docs). Evidence
+`output/access-steps-0930/` in that worktree: `sweep-base2/` (base `dc699e3e`,
+built from an archive of the base tree in `base-src/`; `sweep-before/` is
+CONTAMINATED - mixed builds, ignore) vs `sweep-after3/` (`7f7723fa`),
+`pass-base.json` / `pass-after3.json` + `verdict-diff3.txt`, `stairs-after3.txt`,
+`unreached-100.txt`, `sim-base.*` / `sim-after3.*`, regression packs
+`packs-7f7723fa/` (6 packs, round labels, `_mcaddon_check` 6/6, `regressions.md`:
+every case OK, `door1-10326` now `pass`), probes in `tools/`.
+- Passability (40 favourites, 100-400 %, turns 0/90): OK rows +2/+2/+2/+3/+4,
+  ONE-WAY 2->0 at 100 and 150 %, STEP 13->10 and 14->10 at 300/400 %, 0 FAIL,
+  no OK row worse. 41395 Door 1 ONE-WAY/STEP -> OK at every size.
+  Child play 198/200 before and after (same two driver-view fails).
+- [ ] Device: walk up 10326 Door 1's stair on the round's pack
+  (`packs-7f7723fa/10326-natural-history-museum.mcaddon`: 6 treads straight
+  out of each leaf column, the model 6 blocks in from the pinned corner) and
+  41395 Door 1's (margin 3 at low x); a turning stair (42663 Door 1, 31141
+  Door 2's back); a scaled threshold climb at 150-200 % (31141 Door 2 front).
+  Half-block invisible risers and turning on one are unproven on both phones.
+- [ ] Figures may now roam down a stair into the margin (their area is the
+  widened footprint): watch a 10326 placement for figures outside the model.
+- [ ] `TODO(access-steps)`: no stair for a door whose INSIDE floor is out of
+  reach (the outside-only flood refuses it); the margin is decided from the
+  scene's door leaves only (a brick-built door is never widened for).
+- 26 doorways stay not OK at 100 %/0 (`unreached-100.txt`): the model's
+  geometry either side, diagonal leaves (off-axis), 42663's van, 910004 Door
+  3's headroom, 71043's microscale doors - the 2026-09-29 causes; report,
+  do not hack.

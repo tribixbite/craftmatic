@@ -554,7 +554,7 @@ function targetReached(grid: ScaledColliderGrid, reach: ReachResult, at: { x: nu
  * Plan the treads for one size step and quarter turn. Pure: the same cells
  * give the same plan. See the module header for the rule.
  */
-export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = []): TreadPlan {
+export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims, sizePct: number, rotation: QuarterTurn, targets: readonly ReachTarget[] = [], doorCells: ReadonlyArray<readonly (number | undefined)[]> = []): TreadPlan {
   const f = sizePct / 100;
   const unrestored: Record<UnrestoredReason, number> = { 'no-run': 0, headroom: 0, verify: 0 };
   const refused: TreadPlan['refused'] = [];
@@ -741,10 +741,56 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
       return true;
     });
   };
+  /**
+   * DOORWAY THRESHOLDS. A doorway joins two places, and the walk above counts
+   * its threshold (the floor of a leaf's column) reached from whichever side
+   * gets there first - so once one side has a way up (the model's own stair,
+   * an access stair, bedrock-interactives.ts `planThresholdStairs`), the rule
+   * "restore only what is reached by no route" drops the other side's climb:
+   * 31141's front ledge lost its treads at 150-200 % when a stair up to Door
+   * 2's back appeared, and the door read ONE-WAY from the front. So after the
+   * main plan, every blocked rise from a REACHED surface into a threshold
+   * surface of `doorCells`' world columns is restored by the same rule (within
+   * the jump at 100 %, laid back over reached floor), each run verified
+   * against the unassisted walk (never block) and reverted if it fails.
+   */
+  const doorColumns = new Set<number>();
+  for (const c of doorCells) {
+    const turned = rotatedCell(c[0]!, c[2]!, dims, rotation);
+    const [x0, x1] = cellColumns(turned.x, f), [z0, z1] = cellColumns(turned.z, f);
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) doorColumns.add(colKey(x, z));
+  }
+  const doorwayPass = (): void => {
+    if (!doorColumns.size) return;
+    let reach = walkScaledColliders(grid);
+    for (const ck of doorColumns) {
+      const x = Math.floor(ck / (grid.length + 2)) - 1, z = ck % (grid.length + 2) - 1;
+      if (!grid.inside(x, z)) continue;
+      for (const t of grid.surfaces(x, z)) {
+        const q = { x, z, t };
+        for (const [px, pz] of [[x + 1, z], [x - 1, z], [x, z + 1], [x, z - 1]] as const) {
+          if (!grid.inRing(px, pz)) continue;
+          for (const tp of grid.surfaces(px, pz)) {
+            const p = { x: px, z: pz, t: tp };
+            if (!reach.visited.has(grid.key(px, pz, tp)) || grid.canMove(px, pz, tp, x, z, t)) continue;
+            const ek = edgeKey(p, q);
+            if (failed.has(ek)) continue;
+            const e = planRun(p, q, reach.visited);
+            if (e === 'no-rule') continue;
+            if (typeof e === 'string') { refuse(p, q, e); failed.add(ek); continue; }
+            apply(e); edits.push(e);
+            const walked = walkScaledColliders(grid);
+            if (!holds(walked)) { revert(e); edits.pop(); refuse(p, q, 'verify'); failed.add(ek); continue; }
+            reach = walked;
+          }
+        }
+      }
+    }
+  };
   // Fast path: one laying walk, then a single verification from scratch.
   layingWalk(false);
   let after = walkScaledColliders(grid);
-  if (holds(after)) return report(after, edits, true);
+  if (holds(after)) { doorwayPass(); return report(walkScaledColliders(grid), edits, true); }
   // Slow path: undo everything and re-plan one run at a time, each verified
   // against the unassisted walk, until a pass lays nothing new.
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
@@ -756,7 +802,7 @@ export function planColliderTreads(cells: readonly SourceCell[], dims: GridDims,
     if (edits.length === count) break;
   }
   after = walkScaledColliders(grid);
-  if (holds(after)) return report(after, edits, true);
+  if (holds(after)) { doorwayPass(); return report(walkScaledColliders(grid), edits, true); }
   for (let i = edits.length - 1; i >= 0; i--) revert(edits[i]!);
   edits.length = 0;
   return report(walkScaledColliders(grid), [], false);
