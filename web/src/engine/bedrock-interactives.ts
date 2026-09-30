@@ -1104,6 +1104,9 @@ export const ACCESS_DOOR_MAX_OFF_GRID_DEG = 20;
  *   space a player already reaches from outside with the doors shut, so it
  *   never opens an enclosed room and never leads past a closed leaf. (A raised
  *   door INSIDE a room keeps its verdict: stricter than needed, never wrong.)
+ *   TODO(access-steps): an inside stair (a door whose inside floor is out of
+ *   reach) needs its own proof that it blocks no furniture, seat or figure
+ *   path in the room before the flood rule can be relaxed for it.
  *
  * Stairs are laid on the COLLIDER grid before clearance, like the doorway cut
  * and the single tread, so they scale with the wand like every collider (a

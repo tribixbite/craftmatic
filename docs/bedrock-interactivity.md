@@ -577,7 +577,8 @@ reported with its verdict in the pack diagnostics (`stairs`, `stairTreads`):
   verdict; a diagonal stair would need two columns per step);
 - at most 4 treads (`STAIR_MAX_TREADS`) over at most 2.5 blocks
   (`STAIR_MAX_RISE16`) from the ground to the doorway's floor, within 8
-  columns;
+  columns (superseded 2026-09-30 by "Access steps" below: half-block risers,
+  up to 4 blocks and 7 treads, turning along the facade);
 - every tread column open air from its floor to a standing player's head over
   the doorway's floor (`not open air`), never a doorway cell, never within 2
   cells of another doorway standing lower than the tread (`in front of another
@@ -832,6 +833,136 @@ Device-unproven: all of it. 10326 Door 1 now has an invisible ledge one
 block deep at the doorway's level where the model has a 1/8-block lip (the
 device player would stand on it walking out); 41732 Door 3's kept stoop and
 31141/10022 were never walked on a phone.
+
+### Access steps (2026-09-30)
+
+The user's standing rule (2026-09-30): *"always prefer unlocking exploration
+and interactivity."* A door hung more than a jump over the ground in front of
+it cannot be walked into at all. The case that raised it: 10326's Door 1 on
+the device's source (`IOModel2V2/10326-noprint.ldr`) hangs 2.9 blocks over the
+base plate at the model's FRONT EDGE with nothing drawn in front, so the 1/8
+lip at the doorway's level (kept since 2026-09-30) is a ledge over a pit and
+the simulator's porch line (`door1-10326`) fell 2.625 blocks. The stairs of
+2026-09-26 could not reach it: the run needed six columns past the grid's
+edge, and 2.9 blocks was over their 2.5-block limit.
+
+`planThresholdStairs` is now the one access-stair pass (the 2026-09-26 rules
+above stand except where this section changes them):
+
+- **Half-block risers** (`STAIR_RISE16` 8): a slab's height, walked up without
+  a jump; where a run meets one of the model's own floors or the ground that
+  one riser may be the 9/16 auto-step. Up to 4 blocks (`STAIR_MAX_RISE16` 64,
+  `STAIR_MAX_TREADS` 7).
+- **Straight out, else along the facade.** A uniform-cost search from each
+  leaf column: the first move leaves along the leaf's normal, later ones go on
+  or turn (at most `STAIR_MAX_TURNS` 2, each costing `STAIR_TURN_COST` 4
+  columns), within 12 columns. The model's own floors within the auto-step
+  are walked onto on the way (a porch, its own steps).
+- **Only where a jump does not already reach.** The same search with no tread
+  and the jump (`ACCESS_JUMP16`, 1.25 blocks) as its step runs first; a side
+  it walks down to the ground gets nothing - the brief's "more than a jump".
+  (The first build had no such test and laid a 2/16 tread with two turns
+  beside 10326's ground-floor Door 4.)
+- **Never in anyone's way.** No tread in another doorway's approach above that
+  doorway's floor (besides the 2026-09-26 leaf clearance), and no tread or the
+  head room over it in a cell of `accessAvoidCells`: the pack's slide and lift
+  paths and their exits, coaster track, mount tops and orbits (a cell box
+  round every quarter-block sample, a block under to two over), vehicle
+  footprints, figure spawns and seats.
+- **The doorway's own lip is its landing.** A wall-band rim within
+  `LANDING_REACH` of the leaf and `LANDING_RISE` of its foot is a floor to the
+  search: clearance's landing guard (rule 4) keeps exactly those whole
+  (`collider-clearance.ts`, now exported). Elsewhere a rim still refuses.
+- **Every refusal past the first column is reported** in `stairs` ("no stair:
+  straight out, <why> at step <k>, ..."); a side whose first column is a wall
+  or another leaf stays silent, as before.
+
+**The margin.** A stair may not leave the grid (only the ground it ends on
+may lie past it), so the pipeline widens the grid where a raised door faces
+out of the model (`accessMarginFor`, `padGridXZ`, schem-pipeline.ts): for a
+scene door leaf whose foot is more than a jump over the grid's floor, on each
+side along its normal where the voxel grid holds nothing at chest height
+between the leaf and that side, by the treads a straight half-block run needs
+plus a landing, less the columns already in front, at most
+`ACCESS_MARGIN_MAX` (7) blocks. The grid and the voxelizer's origin move
+together BEFORE anything is placed on the frame, so every actor, seat, ride,
+door and collider keeps its place relative to the model; the model sits the
+margin further in from the wand's pinned corner, and the footprint (preview,
+figures' roaming area) grows by it. When no stair ends up in the margin
+(`accessMarginUsed`), the pipeline exports again without it, so a model whose
+raised door turned out to be reached already keeps its own footprint (the
+favourites sweep widened 10326 from the index's source, 43267 and 910032 for
+nothing before this). The diagnostics carry `accessMargin` with `used`.
+
+**Scaled treads at doorway thresholds.** A threshold is ONE surface for both
+of a doorway's sides, and the scaled-grid tread planner restores only what the
+unassisted walk reaches by no route: when 31141's Door 2 got a stair up its
+back, its front ledge lost its treads at 150-200 % and the door read ONE-WAY.
+`planColliderTreads` now takes the doorways' closed cells (`doorCells`) and,
+after its main plan, restores every blocked rise from a reached surface into a
+threshold column by the same rule, each run verified never to block
+(`test/doorway-threshold-treads.test.ts`).
+
+**Results over the 40 favourites** (sweeps `output/access-steps-0930/sweep-base2`
+at `dc699e3e`, built from an archive of the base tree: the sweep spawns one
+export per set, so a first baseline run while the code was being edited mixed
+old and new builds and was discarded - and
+`sweep-after3` at `7f7723fa`; `_ix_passability.ts` at 100-400 %, turns 0 and
+90, `pass-base.json` / `pass-after3.json`, diff `verdict-diff3.txt` by
+`tools/verdict_diff.py`; stair verdicts `stairs-after3.txt`):
+
+| size | OK rows | ONE-WAY | STEP | SEALED | NO-APPROACH | HOLE rows | FAIL |
+|---|---|---|---|---|---|---|---|
+| 100 % | 112 -> 114 | 2 -> 0 | 0 -> 0 | 48 -> 48 | 4 -> 4 | 4 -> 4 | 0 -> 0 |
+| 150 % | 122 -> 124 | 2 -> 0 | 2 -> 2 | 40 -> 40 | 0 | 8 -> 8 | 0 -> 0 |
+| 200 % | 127 -> 129 | 3 -> 1 | 0 | 36 -> 36 | 0 | 9 -> 9 | 0 -> 0 |
+| 300 % | 117 -> 120 | 2 -> 2 | 13 -> 10 | 34 -> 34 | 0 | 8 -> 8 | 0 -> 0 |
+| 400 % | 112 -> 116 | 6 -> 6 | 14 -> 10 | 34 -> 34 | 0 | 8 -> 8 | 0 -> 0 |
+
+Changed doorways: 41395 Door 1 (the bus door over the road) ONE-WAY -> OK at
+100-200 % and STEP -> OK at 300-400 %, both turns (margin 3 blocks at low x,
+2 treads); 42670 Door 6 STEP -> OK at 400 %/0; 76435 Gate 1 STEP -> OK at
+300-400 %/0; 42670's Garage door 1 keeps OK with fewer HOLE columns at
+200-400 % (5 -> 1, 8 -> 1, 22 -> 6/2); 31141 Door 2 keeps OK with fewer HOLE
+columns (it now also has a 6-tread stair up its back, one turn). No OK row got
+worse; the one HOLE count that grew is 31141 Door 3 at 400 %/90 (24 -> 27
+columns, an OK row). Stairs laid: 46 cells over 7 sets (base: 2 cells, one
+stair). The sweep's 10326 is the index's first pick, where Door 1 reads OK
+with no stair (every side reached with jumps); on the device's source the
+regression `door1-10326` passes (the porch line walks in up a straight
+6-tread stair from each leaf column, `packs-7f7723fa/`), and the whole
+regression set is OK (`packs-7f7723fa/regressions.md`).
+
+Child play (`bun scripts/sim.ts`, 200 scenarios): base 198 pass / 2 fail,
+after 198 / 2, the same two scenarios (42639's and 60380's driver views, open
+in the tracker); `sim-base.json` / `sim-after3.json`.
+
+Doorways still not OK at 100 %/0 (26, `unreached-100.txt`), by what the
+search said: the model's own geometry in the way of either side (furniture,
+a wall, a railing - 10326 Doors 3 and 6, 11371 Door 8, 42639 Door 1, 42670
+Doors 3 and 5, 71040 Door 1, 75397 Gate 1, 910004 Doors 2, 4 and 5, 910032
+Door 5, 80049 Gate 1, 910049 Gate 1, 11371 Door 1, 21318 Door 1: "not open
+air", "a wall's rim" or "a leaf column" on the straight line and no turn
+around it, or no stair side at all); a diagonal leaf (`off-axis`: 11371 Door
+6, 21318 Doors 2-3, 76417 Door 1, 910032 Door 4); 42663's van (a stair laid on
+one side; the other is solid geometry, the 2026-09-29 table); 910004 Door 3 (the headroom inside is
+the model's, 1.25-1.75 blocks); 71043's microscale doors (walls within 2-5
+columns and no approach either side). These are the model's, as the
+2026-09-29 causes table found.
+
+**Device-unproven:** all of it - walking up a half-block invisible stair on the
+Pixel or the Saga (and turning on one), a margin-widened placement (41395:
+the model 3 blocks in from the pinned corner), the scaled treads at a
+threshold, and whether figures now roam down a stair into the margin (their
+area is the widened footprint).
+
+**Compromises and limits.** The margin is decided from the scene's door
+leaves (`discoverSceneActors`), not from the interactivity stage's doorways,
+so a brick-built door or gate is never widened for (its stair can still run
+inside the footprint). A side reached only through the interior (a raised
+door INSIDE a room) still gets no stair: the outside-only flood refuses it -
+`TODO(access-steps)` in `planThresholdStairs` if a child needs one. A stair
+never runs diagonally, and at most 12 columns with 2 turns.
 
 ### Known limits
 

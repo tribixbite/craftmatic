@@ -183,6 +183,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   upstream-only prints (`3626cp1t`, every `92198p*`) into their plain mould
   and the pack shipped blank heads. Fixed in `ldraw-geometry.ts` (`e09a0fa9`);
   keep that order.
+- **`_favorites_export_sweep.ts` spawns one export PROCESS per set**, so each
+  set runs the tree as it is when that set starts: editing the pipeline while
+  a sweep runs mixes old and new builds (a 2026-09-30 "before" sweep carried
+  the new stair code in its later sets). Take a baseline from a clean
+  tree - an archive of the base commit in its own folder with its own
+  `bun install` - and do not touch pipeline sources until a sweep finishes.
+- **A grid may be widened past the model** (`accessMarginFor`, `padGridXZ`):
+  a door hung over the ground near the edge gets room for an access stair, the
+  grid and the voxelizer's origin move together before anything is placed, and
+  the model sits the margin further in from the pinned corner. Read `dims` /
+  `accessMargin` from the pack, never assume the grid is the model's bounds.
 - **Build packs one at a time and read `substitutedParts` / `unresolvedParts`.**
   Parallel CLI exports drew the 429 above and shipped parts as aliases or
   AABBs without failing. Without `ldraw_ref/`, point the CLI at a running dev
