@@ -29,6 +29,7 @@ import { lookAngles, type Box, type Vec3 } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { teleport } from '../../script-host/facades.js';
 import { findApproach } from '../../scenario/approach.js';
+import { lookAt, pick } from '../../input/touch.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
 import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry, jumpHelps } from '../../../engine/interactive-walk.js';
@@ -301,6 +302,35 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
           judgeSide(ctx, outcomes);
         }
       }
+    },
+
+    /**
+     * A device round's tap, replayed: stand at `feet`, look at `at` (both blocks from the placement's
+     * anchor, the device's pinned corner, as the round's notes give them), tap what the view picks, and
+     * require the part labelled `label` to change: `{ label, feet, at }`. A tap that picks something else
+     * or that the runtime refuses is a `tap-in-plain-view` violation carrying the refusal record
+     * (`craftmatic:ix_refused`: the eyes, the part and the collider cell that cut the line).
+     */
+    async tapPartFrom(step: AnyStep, ctx: StepContext) {
+      const placed = placedOf(ctx), label = String(step['label']);
+      const feet = step['feet'] as Vec3, at = step['at'] as Vec3;
+      const index = pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
+      const part = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === index });
+      if (!part) throw new Error(`tapPartFrom: no ${label}`);
+      const a = placed.anchor;
+      teleport(ctx.sim.host, ctx.player, { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z });
+      await ctx.run(4);
+      lookAt(ctx.player, { x: a.x + at.x, y: a.y + at.y, z: a.z + at.z });
+      const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
+      const before = state();
+      const picked = pick(ctx.sim.engine, ctx.player);
+      if (picked.entity) ctx.sim.engine.emit('entityHitEntity', { damagingEntity: ctx.player, hitEntity: picked.entity });
+      await ctx.run(10);
+      const stood = pt({ x: ctx.player.location.x - a.x, y: ctx.player.location.y - a.y, z: ctx.player.location.z - a.z });
+      const refused = part.dynamic.get('craftmatic:ix_refused');
+      if (state() !== before) { ctx.note(`${label}: the tap from ${JSON.stringify(stood)} (anchor-relative) moved it`); return; }
+      const what = picked.entity === part ? (refused ? `the runtime refused it: ${String(refused)}` : 'it did not move') : `the view picked ${picked.entity?.typeId ?? picked.blockedBy ?? 'nothing'}`;
+      ctx.violate({ invariant: 'tap-in-plain-view', message: `${label}: a tap from ${JSON.stringify(stood)} (anchor-relative) did not move it - ${what}`, evidence: { feet: stood, at, refused: refused === undefined ? null : String(refused) } });
     },
 
     /** Let the figures live: `{ ticks }`; each must stay inside the model's box. */

@@ -14,6 +14,14 @@
  *
  * Collider blocks have no selection box on the device, so they never catch a
  * tap themselves; only the runtime's own wall test can refuse one.
+ *
+ * `spots: 'clipped'` stands the player instead where its box OVERLAPS a
+ * collider form over a floor (column centres whose 1.8 blocks are not free):
+ * where the device leaves a player it placed or teleported into an invisible
+ * collider (10326's Door 3, Saga round 2026-09-30h: a tap from inside the
+ * band a tilted handrail's bounding box leaves at head height was refused
+ * "behind a wall"). `script` runs another runtime over the same pack (the
+ * before/after of a runtime change).
  */
 import { extractMatching } from '../web/src/engine/zip-utils.js';
 import { hitGroupName, seatHitBox, worldHitBox, type HitBox, type InteractiveRuntimeConfig, type WorldHitBox } from '../web/src/engine/bedrock-interactives.js';
@@ -60,7 +68,16 @@ function rayBox(o: number[], d: number[], b: WorldHitBox): number {
   return t1 >= Math.max(t0, 0) ? Math.max(t0, 0) : Infinity;
 }
 
-export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number; trace?: boolean } = {}): Promise<TapAudit> {
+export interface TapAuditOptions {
+  reach?: number;
+  trace?: boolean;
+  /** 'free' (default): spots with 1.8 blocks of room; 'clipped': spots whose box overlaps a collider form. */
+  spots?: 'free' | 'clipped';
+  /** The runtime's source for a config (default: this tree's `interactivesScript`). */
+  script?: (cfg: InteractiveRuntimeConfig) => string;
+}
+
+export async function auditPackTaps(mcaddon: ArrayBuffer, opts: TapAuditOptions = {}): Promise<TapAudit> {
   const reach = opts.reach ?? 3;
   const found = await extractMatching(mcaddon, n => /scripts\/(placement|interactives)\.js$/.test(n) || /_BP\/entities\/[^/]+\.json$/.test(n));
   let placement: { actors?: Actor[]; colliders?: { width: number; height: number; length: number; runs: string } } = {};
@@ -86,8 +103,11 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
    * floor below and tapped from there, "behind a wall" (GameTest 2026-09-26).
    */
   const centreTop = new Map<string, number>();
+  /** Each cell's exact form boxes (sixteenths), for the clipped spots' overlap test. */
+  const forms = new Map<string, ReturnType<typeof COLLIDER_KIT.formBoxes>>();
   for (const c of cells) {
     const boxes = COLLIDER_KIT.formBoxes(c.v ?? 0, c.lo, c.hi);
+    forms.set(`${c.x},${c.y},${c.z}`, boxes);
     solid.set(`${c.x},${c.y},${c.z}`, [Math.min(...boxes.map(b => b[2])), Math.max(...boxes.map(b => b[3]))]);
     const under = boxes.filter(b => b[0] <= 8 && b[1] >= 8 && b[4] <= 8 && b[5] >= 8);
     if (under.length) centreTop.set(`${c.x},${c.y},${c.z}`, Math.max(...under.map(b => b[3])));
@@ -109,11 +129,25 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
     }
     return false;
   };
+  /**
+   * Whether a player's box at the column centre (x 0.2..0.8 of the block, as z) over [y0, y1] overlaps a
+   * form box itself - not merely a cell holding one, as `occupied` reads it.
+   */
+  const inForm = (x: number, z: number, y0: number, y1: number): boolean => {
+    for (let y = Math.floor(y0); y < Math.ceil(y1); y++) {
+      for (const b of forms.get(`${x},${y},${z}`) ?? []) {
+        if (b[1] > 3.2 + 1e-6 && b[0] < 12.8 - 1e-6 && b[5] > 3.2 + 1e-6 && b[4] < 12.8 - 1e-6 && y + b[3] / 16 > y0 + 1e-6 && y + b[2] / 16 < y1 - 1e-6) return true;
+      }
+    }
+    return false;
+  };
   const spots: Array<[number, number, number]> = [];
   for (let x = -3; x < W + 3; x++) for (let z = -3; z < L + 3; z++) {
     const tops = new Set<number>([0]);
     for (let y = 0; y < H; y++) { const t = centreTop.get(`${x},${y},${z}`); if (t !== undefined) tops.add(y + t / 16); }
-    for (const t of tops) if (!occupied(x, z, t, t + 1.8)) spots.push([x + 0.5, t, z + 0.5]);
+    for (const t of tops) {
+      if (opts.spots === 'clipped' ? inForm(x, z, t + 1e-3, t + 1.8) : !occupied(x, z, t, t + 1.8)) spots.push([x + 0.5, t, z + 0.5]);
+    }
   }
 
   const out: TapAuditPart[] = [];
@@ -124,7 +158,7 @@ export async function auditPackTaps(mcaddon: ArrayBuffer, opts: { reach?: number
     const others = [...allBoxes.filter((_, j) => j !== pi).flat(), ...seatBoxes];
     /** A fresh host with this part spawned closed (after a refused closing tap the old one is left open). */
     const fresh = (): { h: ReturnType<typeof runtimeHost>; e: ReturnType<ReturnType<typeof runtimeHost>['spawn']> } => {
-      const h = runtimeHost(cfg!);
+      const h = runtimeHost(cfg!, opts.script ? { script: opts.script } : {});
       // Each cell's exact collider form (clearance), not its min/max span.
       for (const c of cells) h.setCollider(c.x, c.y, c.z, c.lo, c.hi, c.v ?? 0);
       const e = h.spawn(a.interactive!, { x: 0, y: 0, z: 0 }, 1, 0, { x: a.x, y: a.y, z: a.z });

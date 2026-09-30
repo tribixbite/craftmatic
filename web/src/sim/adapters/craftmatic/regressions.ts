@@ -145,6 +145,17 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => doorJudge(r, 'Door 1', 'HOLE'),
   },
   {
+    id: 'door3-tap-10326', title: '10326 Door 3: a tap from 1.9 blocks with the leaf in plain view is refused "behind a wall"',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-30h"; `output/device-round-2026-09-30h/saga/s26-door3-tap.jpg` + `_notes.txt` ("NEW DEFECT CANDIDATE"); docs/bedrock-interactivity.md "Taps through walls"',
+    oldPack: `${ROUND}/device-round-2026-09-30h/packs-59fb347c/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum', expectNew: 'pass',
+    // The Saga's spot exactly (corner pinned at 5380,-60,5380): feet 5384.6,-59.8,5382.4, looking at the leaf's
+    // centre 5386.5,-58.8,5382.35. The spot is inside the collider band (`collider_w10`, z 2..2.75 over y 1..2)
+    // that a tilted handrail's bounding box leaves at head height; the device let the player stand there
+    // (its Position read 5384,-60,5382), and every line of sight started inside it.
+    scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 } }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'tap-in-plain-view'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note') }; },
+  },
+  {
     id: 'door3-910004', title: '910004 Door 3: walking out stops one cell before the doorway on a collider at head height',
     evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (B) (collider_w6 at head height in the approach cell); docs/bedrock-interactivity.md (the model\'s: 1.25-1.75 blocks of headroom inside); merge c4c34b1c',
     oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/910004-winter-chalet.mcaddon`, newStem: '910004-winter-chalet', expectNew: 'reproduce-as-model',

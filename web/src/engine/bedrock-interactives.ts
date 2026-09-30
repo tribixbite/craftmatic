@@ -2107,13 +2107,27 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
    */
   /** The last stretch of a sight line that is never a wall (the part's own frame, blocks). */
   const WALL_MARGIN = 0.3;
+  /** A player's collision box (Bedrock's 0.6 x 1.8) at its feet, world blocks. */
+  const bodyBox = (player: any): any => {
+    let l: any;
+    try { l = player.location; } catch { return undefined; }
+    return l ? { x0: l.x - 0.3, x1: l.x + 0.3, y0: l.y, y1: l.y + 1.8, z0: l.z - 0.3, z1: l.z + 0.3 } : undefined;
+  };
   /**
    * Whether the line from `head` to `to` crosses no collider FORM box (a
    * clearance form blocks only where it is), sampled every 0.1 block from 0.3
    * out to `WALL_MARGIN` short of the end; `skip(cell)` names cells that are
-   * the target's own and never a wall.
+   * the target's own and never a wall. A form box the player's own `body`
+   * overlaps is not a wall either: it stands AROUND the player, not between
+   * the player and the part. Round 30h (Saga, 10326 Door 3 from 1.9 blocks,
+   * leaf in plain view): the player stood in the invisible collider band a
+   * tilted handrail's bounding box leaves at head height (`collider_w10`),
+   * every line of sight started inside it, and the tap was refused "behind a
+   * wall". A player's box cannot enter a collider it walks into, so this
+   * only answers for one the device let it stand in (a teleport, a form laid
+   * round it); a wall the player stands clear of still refuses.
    */
-  const sightClear = (dim: any, head: any, to: any, skip: (p: any) => boolean): boolean => {
+  const sightClear = (dim: any, head: any, to: any, skip: (p: any) => boolean, body?: any): boolean => {
     const d = { x: to.x - head.x, y: to.y - head.y, z: to.z - head.z }, n = Math.hypot(d.x, d.y, d.z);
     if (n < 1e-6) return true;
     let last = '';
@@ -2131,7 +2145,12 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       const lo = Number(b.permutation.getState(C.loState)), hi = Number(b.permutation.getState(C.hiState));
       if (!Number.isFinite(lo) || !Number.isFinite(hi)) return false;
       const fx = (q.x - p.x) * 16, fy = (q.y - p.y) * 16, fz = (q.z - p.z) * 16;
-      if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5])) {
+      // Overlap past a sliver (1/64 block): a player standing against a wall touches its face without entering it.
+      const around = (w: readonly number[]): boolean => !!body
+        && p.x + w[1]! / 16 > body.x0 + 0.016 && p.x + w[0]! / 16 < body.x1 - 0.016
+        && p.y + w[3]! / 16 > body.y0 + 0.016 && p.y + w[2]! / 16 < body.y1 - 0.016
+        && p.z + w[5]! / 16 > body.z0 + 0.016 && p.z + w[4]! / 16 < body.z1 - 0.016;
+      if (kit.formBoxes(v, lo, hi).some(w => fx >= w[0] && fx <= w[1] && fy >= w[2] && fy <= w[3] && fz >= w[4] && fz <= w[5] && !around(w))) {
         lastWall = `${key} ${b.typeId}[${lo},${hi}]`;
         return false;
       }
@@ -2164,7 +2183,8 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       }
     }
     const inPart = (p: any): boolean => boxes.some(b => p.x + 1 > b.x0 - PART_MARGIN && p.x < b.x1 + PART_MARGIN && p.y + 1 > b.y0 - PART_MARGIN && p.y < b.y1 + PART_MARGIN && p.z + 1 > b.z0 - PART_MARGIN && p.z < b.z1 + PART_MARGIN);
-    const clear = (to: any): boolean => sightClear(target.dimension, head, to, (p: any) => own.has(`${p.x},${p.y},${p.z}`) || inPart(p));
+    const body = bodyBox(player);
+    const clear = (to: any): boolean => sightClear(target.dimension, head, to, (p: any) => own.has(`${p.x},${p.y},${p.z}`) || inPart(p), body);
     for (const b of boxes) {
       const centre = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2, z: (b.z0 + b.z1) / 2 };
       const near = { x: Math.max(b.x0, Math.min(head.x, b.x1)), y: Math.max(b.y0, Math.min(head.y, b.y1)), z: Math.max(b.z0, Math.min(head.z, b.z1)) };
@@ -2212,7 +2232,7 @@ function interactivesRuntime(config: InteractiveRuntimeConfig, worldBlocks: type
       if (seat) {
         const c = { x: l.x, y: l.y + 0.3, z: l.z };
         const cell = { x: Math.floor(c.x), y: Math.floor(c.y), z: Math.floor(c.z) };
-        if (!sightClear(e.dimension, head, c, (p: any) => Math.abs(p.x - cell.x) + Math.abs(p.y - cell.y) + Math.abs(p.z - cell.z) === 0)) continue;
+        if (!sightClear(e.dimension, head, c, (p: any) => Math.abs(p.x - cell.x) + Math.abs(p.y - cell.y) + Math.abs(p.z - cell.z) === 0, bodyBox(player))) continue;
       } else if (behindWall(player, e)) continue;
       best = { e, t, seat };
     }

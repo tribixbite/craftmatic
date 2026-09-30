@@ -25,7 +25,7 @@ import {
   INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, interactiveRuntimeItem, passSizeFor, planInteractiveColliders,
   type InteractiveRuntimeConfig, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
-import { doorwayColumnLines, doorwayHoles, jumpHelps, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
+import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, jumpHelps, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
 import { WalkWorld } from '../web/src/engine/addon-walk.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU } from '../web/src/engine/addon-scale.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
@@ -185,6 +185,33 @@ describe('the passability walk', () => {
     expect(open.directions.every(d => d.outcome === 'passed')).toBe(true);
     expect(closed.outcome).not.toBe('passed');
     expect(verdictOf(open, closed)).toBe('OK');
+  });
+
+  it('marks a side that is a pocket a block deep SHORT-APPROACH, without changing the verdict (10326 Door 2, Saga round 30h)', () => {
+    // A wall at z 5 with a 1.5-block door at x 3.25..4.75. Behind it (-z) an open room; in front (+z) a pocket
+    // two columns wide (x 3..4) and one deep (z 6), walled at z 7 and beside x 2 / x 5 - display cases round a door.
+    const room = (pocket: boolean) => {
+      const g = new BlockGrid(12, 6, 12);
+      for (let x = 0; x < 12; x++) for (let z = 0; z < 12; z++) g.set(x, 0, z, colliderState(0, 16));
+      for (let x = 0; x < 12; x++) for (let y = 1; y <= 4; y++) g.set(x, y, 5, colliderState(0, 16));
+      if (pocket) for (let y = 1; y <= 4; y++) {
+        for (let x = 0; x < 12; x++) for (let z = 7; z < 12; z++) g.set(x, y, z, colliderState(0, 16));
+        for (const x of [0, 1, 2, 5, 6, 7, 8, 9, 10, 11]) g.set(x, y, 6, colliderState(0, 16));
+      }
+      return packOf(g, leafAt(3.25, 1.5, 5.5)).pack;
+    };
+    const boxed = room(true);
+    const open = walkThroughDoorway(boxed, 0, 100, 0, true), closed = walkThroughDoorway(boxed, 0, 100, 0, false);
+    expect(verdictOf(open, closed)).toBe('OK');
+    expect(open.room!['1']).toBeLessThan(SHORT_APPROACH_ROOM);
+    expect(open.room!['-1']).toBeGreaterThanOrEqual(SHORT_APPROACH_ROOM);
+    expect(open.shortApproach).toEqual([1]);
+    // The same door with the room in front open: no pocket.
+    const free = walkThroughDoorway(room(false), 0, 100, 0, true);
+    expect(free.room!['1']).toBeGreaterThanOrEqual(SHORT_APPROACH_ROOM);
+    expect(free.shortApproach).toBeUndefined();
+    // Only the open walk measures it: the room is the model's, not the door's state.
+    expect(closed.room).toBeUndefined();
   });
 
   it('never counts a way round a raised doorway on the ground under it', () => {

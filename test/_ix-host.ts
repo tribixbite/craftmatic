@@ -48,6 +48,12 @@ const SYNC_TICKS = 10;
 export interface RuntimeHostOptions {
   /** More entity types in the world (a seat a tap may be handed to), by identifier. */
   types?: Record<string, EntityDefinitionSpec | Record<string, unknown>>;
+  /**
+   * The runtime's source for a config, when not this tree's `interactivesScript`:
+   * a probe comparing two runtimes over the same packs passes an older one
+   * (`scripts/_ix_tap_probe.ts --runtime=`).
+   */
+  script?: (cfg: InteractiveRuntimeConfig) => string;
 }
 
 export function runtimeHost(cfg: InteractiveRuntimeConfig, options: RuntimeHostOptions = {}) {
@@ -59,7 +65,7 @@ export function runtimeHost(cfg: InteractiveRuntimeConfig, options: RuntimeHostO
     entities[it.type] = interactiveBehavior(it.type, { kind: it.kind } as SceneInteractive, hit) as Record<string, unknown>;
   }
   // The world the tests use spans the origin and (100, 64, 200); a smaller loaded square keeps a tick cheap.
-  const h = simHost({ script: interactivesScript(cfg), entities, colliders: true, loadRadius: 256 });
+  const h = simHost({ script: (options.script ?? interactivesScript)(cfg), entities, colliders: true, loadRadius: 256 });
   const dim = h.dimension();
 
   /** Every sound the runtime played, in order. */

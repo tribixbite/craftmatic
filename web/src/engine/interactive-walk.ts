@@ -19,7 +19,7 @@
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
 import { COLLIDER_KIT } from './collider-form.js';
 import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
-import { NO_INPUT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type Box, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
+import { NO_INPUT, STEP_HEIGHT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type Box, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
 import type { SolidQuery } from '../sim/physics/body.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
@@ -73,6 +73,14 @@ export interface DoorwayWalkResult {
   normal: { x: number; z: number };
   /** The side (along `normal`) a player only DROPS into from the doorway: walked out, never back in past the jump. */
   oneWay?: -1 | 1;
+  /**
+   * With the door OPEN and both approaches found: how far a player can get
+   * from the doorway on each side (`approachRoom`, blocks from its centre to
+   * the farthest column centre reached), and the sides under
+   * `SHORT_APPROACH_ROOM` (`shortApproach`).
+   */
+  room?: { '-1': number; '1': number };
+  shortApproach?: Array<-1 | 1>;
 }
 
 /** Optional debugging record: each direction's route (column centres) and the player's feet per tick. */
@@ -439,11 +447,11 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
    * player would stand to use the doorway is a property of the model, not of
    * whether it is big enough yet, so the approach is found in that world.
    */
-  const worldFor = (groupOpen: boolean, lifted = false): WalkWorld => {
+  const worldFor = (groupOpen: boolean, lifted = false, others = openOthers): WalkWorld => {
     const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) };
     const w = pack.makeWorld ? pack.makeWorld(options) : new WalkWorld(options);
     const items = lifted ? cfg.items.map((it, i) => group.has(i) ? { ...it, blocking: [] } : it) : cfg.items;
-    w.setOverlayBlocks(ixClosedBlocks(items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : openOthers));
+    w.setOverlayBlocks(ixClosedBlocks(items, pack.dims, f, rotation, i => group.has(i) ? groupOpen : others));
     return w;
   };
   const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
@@ -634,6 +642,11 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     };
   }
 
+  // ── How far a player gets from the doorway on each side (open only: it is the model's, not the state's).
+  const room = open ? approachRoom(worldFor(true, true, true), k, centre, n, spots, doorColumns) : undefined;
+  const short = room ? ([-1, 1] as const).filter(sd => room[String(sd) as '-1' | '1'] < SHORT_APPROACH_ROOM * k - 1e-6) : [];
+  const roomFields = room ? { room, ...(short.length ? { shortApproach: [...short] } : {}) } : {};
+
   // ── The walk, in the world of the state asked for.
   const world = open && passableAtSize ? openWorld : worldFor(open);
   const g = world === openWorld ? og : surfaceGraph(world, window, k);
@@ -704,7 +717,55 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     directions.push({ from, outcome: passed ? 'passed' : 'blocked', ...(passed ? {} : { reason: 'physics' as const }), ticks, jumps, crossed: r2(best), start: { x: r2(start.x), y: r2(start.y), z: r2(start.z) }, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) } });
   }
   const outcome = directions.some(d => d.outcome === 'passed') ? 'passed' : directions.some(d => d.outcome === 'blocked') ? 'blocked' : 'no-approach';
-  return { ...base, outcome, directions, ...(oneWay ? { oneWay } : {}) };
+  return { ...base, outcome, directions, ...(oneWay ? { oneWay } : {}), ...roomFields };
+}
+
+/**
+ * Under this (blocks at 100 %, scaled like the walk) from the doorway's centre
+ * to the farthest point a player stands on a side, the side is a POCKET: the
+ * door is usable only from within about a block of it. 10326's Door 2 (Saga
+ * round 30h): walkable both ways from the harness's start points 0.9 out, but
+ * a child 2.1 blocks west or 2.5 east of the leaf could not walk up to it -
+ * the east room is boxed in by the model's display cases, so the walk's OK
+ * says nothing about getting there.
+ */
+export const SHORT_APPROACH_ROOM = 2;
+
+/**
+ * How far a player can WALK from a doorway on each side: a flood over the fine
+ * lattice (`doorwayLattice`: the player's box free at every point), rising or
+ * dropping no more than a step (`STEP_HEIGHT`: no jump onto a display case, as
+ * the device walked it by stick), from the side's approach spot, staying on
+ * that side of the leaf's plane and out of the leaf's own columns, in `world` -
+ * the doorway's group lifted and every OTHER door open (a vestibule's far door
+ * leads on, as `continues` reads it). A partner leaf's columns are walked:
+ * 10326 pairs Door 1 with Door 2, a leaf at right angles to it, and the way on
+ * from Door 1's entry pocket is THROUGH Door 2. The lattice spans the walk's
+ * window across the doorway and `LATTICE_REACH` along its normal, so the
+ * answer (the largest horizontal distance from the doorway's centre to a point
+ * reached) is capped there; only its value under `SHORT_APPROACH_ROOM` is
+ * read. A side without an approach spot reads 0.
+ */
+function approachRoom(
+  world: WalkWorld, k: number, centre: { x: number; y: number; z: number }, n: { x: number; z: number },
+  spots: Record<'-1' | '1', PlayerState | undefined>, doorColumns: ReadonlySet<string>,
+): { '-1': number; '1': number } {
+  const avoid = (x: number, z: number): boolean => doorColumns.has(`${x},${z}`);
+  const lattice = doorwayLattice(world, centre, n, WINDOW_BLOCKS * k, k, DOOR_FLOOR_SLACK * k, avoid);
+  const out = { '-1': 0, '1': 0 };
+  for (const sd of [-1, 1] as const) {
+    const key = String(sd) as '-1' | '1', spot = spots[key];
+    if (!spot) continue;
+    const start = lattice.snap(spot);
+    let far = 0;
+    lattice.search([start], JUMP_RISE * k, m => {
+      const p = lattice.at(m.a, m.l);
+      far = Math.max(far, Math.hypot(p.x - centre.x, p.z - centre.z));
+      return false;
+    }, false, m => Math.sign(m.a) === sd && Math.abs(m.t - (m.prev?.t ?? m.t)) <= STEP_HEIGHT + 1e-6 && !avoid(Math.floor(lattice.at(m.a, m.l).x), Math.floor(lattice.at(m.a, m.l).z)));
+    out[key] = Math.round(far * 100) / 100;
+  }
+  return out;
 }
 
 /** How far out (blocks at 100 %, scaled) a column line starts from the leaf's plane on each side. */

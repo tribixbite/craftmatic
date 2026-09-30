@@ -499,6 +499,37 @@ describe('interactives runtime (scripts/interactives.js)', () => {
     expect(a.getDynamicProperty('craftmatic:ix_open')).toBe(true);
   });
 
+  it('does not count a collider the player stands inside as a wall between it and the part, and still refuses one beyond it (10326 Door 3, Saga round 30h)', () => {
+    const cfg = doubleDoorConfig();
+    cfg.items[0]!.hit = { c: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }], o: [{ width: 0.3, height: 2.5, pivot: [0, 1.25, 0] }] };
+    const tapFrom = (head: { x: number; y: number; z: number }, walls: Array<[number, number, number, number, number, number?]>): { open: unknown; bar: string | undefined } => {
+      const h = runtimeHost(cfg);
+      const a = h.spawn(0, anchor, 1, 0, { x: 103, y: 65, z: 205.5 });
+      h.sync();
+      for (const [x, y, z, lo, hi, v] of walls) h.setCollider(x, y, z, lo, hi, v ?? 0);
+      h.aim(head, { x: 103, y: 66.25, z: 205.5 });
+      h.tap(a);
+      return { open: a.getDynamicProperty('craftmatic:ix_open'), bar: h.lastBar() };
+    };
+    // A band at head height (the bounding box of a tilted handrail over the spot): the eyes are inside it.
+    const band: Array<[number, number, number, number, number]> = [[102, 66, 201, 0, 16], [103, 66, 201, 0, 16], [104, 66, 201, 0, 16]];
+    expect(tapFrom({ x: 103.5, y: 66.6, z: 201.5 }, band).open).toBe(true);
+    // A clearance form round the player: the z band `collider_w10` (z 0..12), the Saga's own cell.
+    const w10 = COLLIDER_KIT.variantOf('craftmatic:collider_w10');
+    expect(COLLIDER_KIT.formBoxes(w10, 0, 16)).toEqual([[0, 16, 0, 16, 0, 12]]);
+    expect(tapFrom({ x: 103.5, y: 66.6, z: 201.4 }, [[103, 66, 201, 0, 16, w10]]).open).toBe(true);
+    // The same band with the player standing clear of it, in front: it IS between, the tap is refused.
+    const clear = tapFrom({ x: 103.5, y: 66.6, z: 199.5 }, band);
+    expect(clear.open).toBeUndefined();
+    expect(clear.bar).toMatch(/door 1 is behind a wall from here/);
+    // Standing against its face (the box touches it, does not enter it) is standing clear of it too.
+    expect(tapFrom({ x: 103.5, y: 66.6, z: 200.7 }, band).open).toBeUndefined();
+    // Inside one band with a real wall beyond it: the wall still refuses.
+    const beyond = tapFrom({ x: 103.5, y: 66.6, z: 201.5 }, [...band, [102, 66, 203, 0, 16], [103, 66, 203, 0, 16], [104, 66, 203, 0, 16], [102, 65, 203, 0, 16], [103, 65, 203, 0, 16], [104, 65, 203, 0, 16], [102, 67, 203, 0, 16], [103, 67, 203, 0, 16], [104, 67, 203, 0, 16]]);
+    expect(beyond.open).toBeUndefined();
+    expect(beyond.bar).toMatch(/door 1 is behind a wall from here/);
+  });
+
   it('above 100 % a wall within the re-lay\'s shift of the part is its frame, not a wall (11371 Lever 1 and 910032 Turnable 2 at 150 %, simulator 2026-09-30)', () => {
     // The re-lay moves a wall by up to half a block at 150 % (`relayRounding`), so a cell of the part's own frame
     // lands 1.1 blocks from its tap box: at 100 % that cell is a wall in front of the part, at 150 % it is the frame.

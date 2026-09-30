@@ -21,11 +21,19 @@
  * Door 1, Saga round 2026-09-29c: OK through one column of the leaf, a
  * 2.6-block pit through the other); it is printed, counted and written to
  * the JSON (`holes`), and does not change the verdict.
+ *
+ * Every doorway walked open also reports how far a player gets from it on
+ * each side (`room`, `approachRoom` in interactive-walk.ts). A side under
+ * `SHORT_APPROACH_ROOM` is a pocket: the door is usable only from within
+ * about a block of it (10326's Door 2, Saga round 2026-09-30h: OK from the
+ * walk's start points 0.9 out, but boxed in by the model's display cases).
+ * It prints as `SHORT-APPROACH` after the verdict, is counted and written to
+ * the JSON (`shortApproach`), and does not change the verdict.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { loadAddonPreviewModel, treadBlocksAt } from '../web/src/ui/addon-preview-data.ts';
-import { doorwayColumnLines, doorwayHoles, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
+import { SHORT_APPROACH_ROOM, doorwayColumnLines, doorwayHoles, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.ts';
 import type { QuarterTurn } from '../web/src/engine/bedrock-collider-scale.ts';
 
 const flag = (name: string): string | undefined => process.argv.find(a => a.startsWith(`--${name}=`))?.slice(name.length + 3);
@@ -35,7 +43,7 @@ const files = process.argv.slice(2).filter(a => !a.startsWith('--'));
 if (!files.length) { console.error('usage: bun scripts/_ix_passability.ts <pack.mcaddon…> [--sizes=100,200] [--rotations=0,90] [--json=out.json]'); process.exit(2); }
 
 const report: Array<Record<string, unknown>> = [];
-let failures = 0, holeRows = 0;
+let failures = 0, holeRows = 0, shortRows = 0;
 for (const file of files) {
   const bytes = readFileSync(file);
   const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
@@ -61,13 +69,17 @@ for (const file of files) {
     // door hangs over that ground, not that its threshold opened; the note says which.
     const startUnder = (h: (typeof holes)[number]): number => Math.round(((h.lowest + h.drop) - (h.start?.y ?? h.lowest)) * 100) / 100;
     if (holes.length) holeRows++;
-    rows.push({ label: it.label, kind: it.kind, opening: it.opening, passSize: it.passSize, size, rotation: rot, open: open.outcome, closed: closed.outcome, verdict, openDirections: open.directions, closedDirections: closed.directions, ...(lines.length ? { lines } : {}), ...(holes.length ? { holes: holes.map(h => ({ column: h.column, from: h.from, drop: h.dropNear, startUnder: startUnder(h) })) } : {}) });
+    const short = open.shortApproach ?? [];
+    if (short.length) shortRows++;
+    rows.push({ label: it.label, kind: it.kind, opening: it.opening, passSize: it.passSize, size, rotation: rot, open: open.outcome, closed: closed.outcome, verdict, openDirections: open.directions, closedDirections: closed.directions, ...(lines.length ? { lines } : {}), ...(holes.length ? { holes: holes.map(h => ({ column: h.column, from: h.from, drop: h.dropNear, startUnder: startUnder(h) })) } : {}), ...(open.room ? { room: open.room } : {}), ...(short.length ? { shortApproach: short } : {}) });
     const holeNote = holes.length ? `  HOLE ${holes.map(h => `${h.column.x},${h.column.z} from ${h.from > 0 ? '+' : '-'}: ${h.dropNear} down${startUnder(h) > 1.25 * Math.max(1, size / 100) ? ` (starts ${startUnder(h)} under)` : ''}`).join('; ')}` : '';
-    console.log(`  ${it.label.padEnd(9)} ${it.kind.padEnd(5)} ${JSON.stringify(it.opening ?? {}).padEnd(26)} pass>=${String(it.passSize).padEnd(3)} @${String(size).padEnd(3)}/${String(rot).padEnd(3)} open:${open.outcome.padEnd(11)} closed:${closed.outcome.padEnd(11)} ${verdict}${holeNote}`);
+    const shortNote = short.length ? `  SHORT-APPROACH ${short.map(sd => `from ${sd > 0 ? '+' : '-'}: room ${open.room![String(sd) as '-1' | '1']}`).join('; ')}` : '';
+    console.log(`  ${it.label.padEnd(9)} ${it.kind.padEnd(5)} ${JSON.stringify(it.opening ?? {}).padEnd(26)} pass>=${String(it.passSize).padEnd(3)} @${String(size).padEnd(3)}/${String(rot).padEnd(3)} open:${open.outcome.padEnd(11)} closed:${closed.outcome.padEnd(11)} ${verdict}${holeNote}${shortNote}`);
   }
   report.push({ pack: basename(file), counts, doorways: doorways.length, rows });
 }
 const out = flag('json');
 if (out) writeFileSync(out, JSON.stringify(report, null, 1));
 if (holeRows) console.log(`${holeRows} OK row${holeRows === 1 ? '' : 's'} with a HOLE on a leaf column's line`);
+if (shortRows) console.log(`${shortRows} row${shortRows === 1 ? '' : 's'} with a SHORT-APPROACH side (a pocket under ${SHORT_APPROACH_ROOM} blocks from the doorway)`);
 if (failures) { console.log(`${failures} FAIL`); process.exit(1); }
