@@ -139,6 +139,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   translations; `bun scripts/_coaster_frame_measure.ts` derives a new one and
   `_coaster_mould_audit.ts` exits 1 on any placed id whose design IS profiled
   under a sibling name.
+- **A bare name can resolve to a Studio stub in ANOTHER frame, and it never
+  misses.** Studio's `UnOfficial/parts/60616.dat` ("GLASS DOOR FOR FRAME
+  1X4X6") has its origin at the leaf's foot; the official `60616a`/`b` and the
+  frame 60596 have it at the head. The alias ladder only runs on a miss, so
+  every plain-60616 door drew a door height (2.7 blocks) over its own frame -
+  10326's back doors, which an access stair then climbed to (round
+  2026-09-30g). `STUDIO_FRAME_REDIRECTS` (ldraw-part-aliases.ts) reads such a
+  name as its official mould BEFORE any probe, in both resolvers. When a part
+  sits a whole part-height off where it belongs, compare the local file's
+  bounds with its official siblings' before blaming the source or a detector.
 - **A quarter of Studio's `UnOfficial/parts` files start with `0 FILE
   <name>.dat`; the description is the SECOND line.** 5,605 of 22,692. Read
   the first line and Hagrid's `Torso Large`, the `Arm Large with Pin` arms,

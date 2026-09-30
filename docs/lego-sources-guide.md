@@ -747,6 +747,26 @@ recipe in clego: `mb_partmap` 60616→60616a with a re-fit delta, then a
 regeneration — and the R2 sync should stop treating Studio-only stubs as
 mirror content once no pick depends on them.
 
+**Superseded 2026-09-30: `60616` is now read as `60616a` before any library
+probe** (`STUDIO_FRAME_REDIRECTS`, engine/ldraw-part-aliases.ts; the export
+resolver and the viewer). The clego re-fit above was done (§ "Class A, fixed"
+below: the indexed `MecabricksLDR` writes `60616a` in 100 files; only the
+retired `_MecabricksLDR_prev` / `_MecabricksSearchLDR_prev` still place the
+stub, 167 placements at +144 from their frame), and the sources still naming
+plain `60616` are the OTHER frame: IOModel2V2 186 of 197 leaves at dy 0 from
+their 60596 (the rest +140/141, stacked frames), Reconstructed 36 of 46, every
+indexed first pick that places it (15 sets) at dy 0. Studio's own `.io` writes
+that same placement as `60616a.dat` in `model.ldr` and `60616.dat` only in the
+LDD-id `model2.ldr`, which IOModel2V2 converts. Read through the stub, 10326's
+three back doors (round 2026-09-30g) hung a door height over their frames.
+It is not an alias (the stub never misses, so the ladder never fires) and not
+recorded as a substitution. Census scripts: `output/museum-entrance-0930/`
+(`door-frame-census*.ts`, `index-60616-census.ts`, `studio-shadow-scan.ts`);
+of Studio's 22,692 unofficial files only 5 bare numeric names shadow an
+official suffixed sibling, and `60616` is the only same-size pure frame shift
+(`64567`, 35.5 LDU in y with 8.9 LDU height difference, is a TODO pending a
+placement census).
+
 ### 5. The full DbixConvV3 regeneration (2026-09-19, local only)
 
 All 2,302 stems regenerated with the local converter fixes and re-polished;

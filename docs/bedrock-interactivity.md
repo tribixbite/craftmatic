@@ -964,6 +964,64 @@ door INSIDE a room) still gets no stair: the outside-only flood refuses it -
 `TODO(access-steps)` in `planThresholdStairs` if a child needs one. A stair
 never runs diagonally, and at most 12 columns with 2 turns.
 
+### The museum's back doors (round 2026-09-30g)
+
+On both phones 10326's Door 1 stair passed, and showed what it was built for:
+the brown leaf hung flush on the facade directly over a drawn ground-level
+doorway (a white arch round an empty frame; through it the room, a round
+tile and the knob), and the stair lifted the child past that doorway into
+the leaf 3 blocks up (`output/device-round-2026-09-30g/pixel/12-front-close.jpg`,
+`25*-door1-*.jpg`).
+
+It was never a missed door or a detector rule. The white arch frames a
+`60596` Door 1 x 4 x 6 Frame at y -152..-4 (the ground floor); the leaf is
+`60616` placed AT THE FRAME'S ORIGIN, as every LDraw door and frame pair is.
+The name resolved to Studio's `UnOfficial/parts/60616.dat` ("GLASS DOOR FOR
+FRAME 1X4X6 (Needs Work)"), whose origin is the leaf's FOOT (body y -140..-8),
+not its head like `60616a`/`b` (y 4..136): every plain-60616 leaf drew 144 LDU
+(2.7 blocks) over its frame, and the leaf's attachment pass then took the
+arch's pediment (3023 + two 54200) as the leaf's hardware. The real set
+(Brick Architect's review: "three doors in the back of the building") has
+three reddish-brown doors in those frames at street level - our Doors 1-3 -
+and its MAIN entrance is the front door between the white columns at the top
+of the front steps, our Doors 4-5 (trans-clear `80683` pair, which were always
+right). `STUDIO_FRAME_REDIRECTS` reads `60616` as `60616a`
+(docs/lego-sources-guide.md, the superseded "do not alias" note, has the
+corpus evidence). The index's first pick for 10326, the `.io`, was never
+affected: Studio's `model.ldr` names the leaf `60616a`; only the IOModel2V2
+`.ldr` the rounds ship (converted from the LDD-id `model2.ldr`) says `60616`.
+
+On the round's source at `74209454` (`output/museum-entrance-0930/`):
+Doors 1-3 stand at y 0.21 in their frames with the knob on the leaf; the
+access margin is dropped ("no access stair used it; exported without it"),
+so the model sits where 30f put it (6 blocks nearer the pinned corner than
+30g); Door 1 OK, Door 2 ONE-WAY -> OK, Doors 4-5 OK, Doors 3 and 6 still
+SEALED by the model (`sealed-74209454/causes*.txt`: Door 3 `model:solid`,
+no standing place a block out on its -x side; Door 6, the upper floor,
+`model:route`). The stair is not wanted any more and none is laid; nothing
+of it can stand in the ground entrance's approach.
+
+Favourites sweep (40 sets, `_ix_passability.ts` at 100 and 200 %, turns 0
+and 90; base from an archive of `e680bb9b`, `sweep-base-e680bb9b*`, against
+`sweep-new-74209454*`, diff `verdict-diff-74209454.txt`): no OK row got
+worse; 910032 Door 5 SEALED -> OK at every size and turn; 31141 Door 3 at
+200 %/0 ONE-WAY -> OK; 31141 Doors 2-4 keep OK with their HOLE columns
+gone (2 -> 0 at 100 %, 4-7 -> 0 at 200 %). Totals at 100 %: OK 114 -> 116,
+SEALED 48 -> 46; at 200 %: OK 129 -> 132, SEALED 36 -> 34, ONE-WAY 1 -> 0.
+
+Rendering the fixed door showed one more fault, in the compiler: the leaf's
+handle studs (60616a's pair at x 57 on both faces) drew 0.9 block past its
+free edge. `findExposedStuds` placed a stud "unrotated at the brick origin"
+for any bone but `body` and wheels, and an interactive's leaf is ALIGNED in
+the rig bone `ix_untilt`, so a leaf turned 180 degrees had its studs on the
+far side of the hinge. The branch keys on `aligned` now (`b5fbebde`); a
+symmetric stud layout (a minifig head's stud, a hip's pair) hid the same
+error on every figure.
+
+Device-unproven: the door in its frame (tap, swing, walk in at the ground),
+Door 2 both ways, the handle studs on the leaf, and the museum placed
+without the margin.
+
 ### Known limits
 
 - Shapes are quarter-block bands along one axis. A 1-stud wall (6/16) against
