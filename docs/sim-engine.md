@@ -362,6 +362,8 @@ a new refusal the log shows becomes a check there.
 | 10797 car under an overhang falls through the world (29b) | NOT reproduced (see limits) | passes |
 | 10797 driver's eye in the bodywork, 0 of 15 rays (29b) | reproduced: 0 of 15 | passes |
 | 42639 cockpit view two thirds its own body (30f) | reproduced: horizon 0 of 6 (2 of 15 of the wider fan) | passes: 6 of 6 (`9759f0bf`, `output/cockpit-0930/`) |
+| 42639 side panel covers the left ~35 % (30g) | reproduced: sides left 4 of 28 | passes: 28 of 28 (`8aa1425c`, `output/cockpit-fallback-0930/`) |
+| 76286 cockpit view inside the hull (30g) | reproduced: horizon 0 of 6 | passes: 6 of 6, the eye over the hull |
 | 10788 slide seat: a tap boards nothing (29c) | reproduced | passes |
 | Nimbus: sneak off at altitude drops the player (0929) | reproduced: 70.55 blocks without slow falling | passes (slow falling) |
 | Nimbus: summon hint overwritten by the driver HUD (0929) | reproduced: after 3 ticks | passes |
@@ -370,9 +372,10 @@ a new refusal the log shows becomes a check there.
 | 10261 spurious FIGURE_RETAKE_NO_SEAT during placement (29d) | reproduced | passes |
 
 **The driver's view** (`driveVehicle`'s `driver-sees-ahead`) is the
-compiler's own seat rule, `AHEAD` in `cockpit-seat.ts`: the level and +5
-degree rays straight ahead and 15 degrees either side must leave the drawn
-vehicle. Until 2026-09-30 the guard asked 90 % of the wider 15-ray `VIEW`
+compiler's own seat rule, `driverSeesOut` in `cockpit-seat.ts`: the level
+and +5 degree rays straight ahead and 15 degrees either side must leave the
+drawn vehicle (`AHEAD`), and 90 % of each side's rays 20-50 degrees off the
+nose must meet nothing within a block (`SIDES`, since 2026-09-30). Until 2026-09-30 the guard asked 90 % of the wider 15-ray `VIEW`
 fan, which a real bonnet fails (42172: 6 of 15, device-good) and which the
 compiler applied to guessed seats only - so a set's own seat was placed by
 no view rule and the guard's failures on it were read as its blind spot.

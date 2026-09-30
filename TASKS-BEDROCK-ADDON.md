@@ -128,12 +128,9 @@ stair PASSES on both (y -60..-57 by stick only, in and out; door exactly 6.0
 further from the corner = the margin); hop PASSES on the Saga (front car in 3/3,
 no flash, cloud hovers then fades); 60380 / 42172 / 7140 / 60221 cockpit OK;
 Saga content log 0 errors / 0 FIGURE_RETAKE / 0 fly.
-- [ ] 76286 Milano cockpit (hotbar 9): eye INSIDE the hull, all grey
-  (`saga/s74-76286-cockpit.jpg`); it is one of the 14 cars the AHEAD rule
-  finds no passing eye for, and the rule leaves such a seat as it was. Give
-  those a fallback eye that sees out (above the canopy / hull top).
-- [ ] 42639 cockpit: road + horizon visible now, but a teal side panel still
-  covers the left ~35 %.
+- [ ] 76286 cockpit in the hull and 42639's side panel: FIXED OFFLINE
+  (`8b765dbd`, `8aa1425c`; section "Cockpit fallback" at the end). Device
+  check of the next round's packs still open.
 - [ ] 10326: Door 1 hangs directly over a DRAWN ground-level entrance (white
   arch + round-window glass door, `pixel/12-front-close.jpg`, `25*-door1-*.jpg`):
   the child sees a door at the ground and the stair lifts them over it. Is the
@@ -1107,11 +1104,38 @@ built), `audit-base-f35cd5c5/` vs `audit-40fd7d54/` (vehicle audit, 61 sets,
   inside the craft, whose torso faces ~35 degrees off the inferred nose (+x)
   at a side window; before, the mirrored seat floated the rider outside the
   craft (6/6 of sky). Facing or pilot-direction question, not the seat.
-- [ ] Still flagged (before and after): 10337, 42143, 42128, 76139, 42092,
-  76286, 10242 (display/closed cockpits: canopy or cabin evidence whose eye
-  sees an opaque part, no clear point within `AHEAD_SEARCH`), 31109, 6286,
-  60266, 75397 (boat seats looking into a cabin), 60367 sub1/sub4. The
-  simulator's `driver-sees-ahead` reports them in any child play whose pack
-  is built with the set's name label.
+- Still flagged: superseded by "Cockpit fallback" below (13 of those 14 now
+  see the horizon).
 - Not changed: every compiled seat's `lock_rider_rotation: 0` (the device's
   "look drags do not move" the cockpit view).
+
+## Cockpit fallback (2026-09-30, worktree `agent-a46e1a84740d559db`)
+
+Commits `8b765dbd` (`driverSeesOut` = AHEAD + SIDES, `AHEAD_FALLBACK`, sim
+invariant on the same rule, regressions `cockpit-side-panel-42639` and
+`cockpit-in-hull-76286`), `8aa1425c` (SIDES counts only a panel within 1
+block). Design + numbers: add-on guide "The view to either side, and when
+no eye in the cabin sees ahead". Evidence `output/cockpit-fallback-0930/`
+in that worktree: `packs-8aa1425c/` (76286, 42639, 60380, 42172, 10797,
+7140, 60221; 30g labels + faces, one at a time, stamp clean),
+`mcaddon-check-8aa1425c.txt` (7/7 OK), `views-30g/` vs `views-8aa1425c/`,
+`cockpit-before-after-8aa1425c.jpg`, `regressions-8aa1425c.log` (car
+cases OK; FAIL lines are only packs not built this round), the audit
+`audit-base-40fd7d54/` vs `audit-8aa1425c/` + `audit-diff-*.txt`,
+`fallback-sheet-8aa1425c.jpg`. Rebuild: `bash output/cockpit-fallback-0930/build.sh`.
+- [ ] Device: hotbar 9 on 76286 (eye 3.1 over the rear-window seat, the
+  ship's back and horizon ahead, rider hidden), 42639 (eye 0.4 higher, the
+  door's top under the horizon, body still drawn); 60380 / 42172 / 7140 /
+  60221 / 10797 are unchanged by construction (same eyes, all 28 side rays
+  clear).
+- [ ] 31109's fallback eye is 10.2 blocks up (over the mast tops; any lower
+  eye's horizon is in its sails): judge on the device whether a child
+  prefers that to the helm. 6286 +5.7, 75397 +6.3, 60266 +4.1 likewise.
+- [ ] Ships and boats that took the fallback lose their drawn captain in the
+  chase view (body hidden at every size). `TODO(cockpit-camera)`: a camera
+  offset from the seat instead of moving it - needs a device probe of a
+  client-side offset camera (a free camera lags ~3.5 ticks).
+- [ ] Not seeing out after the fix (5/41): 76139 (plan 6/6, drawn 4/6,
+  rotated-cube bounds), 10295 and 60367 sub3/sub6 (pillars/cabin walls
+  within a block no in-cabin point clears), 60266 (fallback eye sees ahead,
+  a panel at its right).

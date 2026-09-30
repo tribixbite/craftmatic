@@ -3956,6 +3956,55 @@ seats looking into a cabin; the tracker lists them.
   5.6 LDU under the hull's bottom): the keel test reads the wheel itself,
   not only its eye, which the aft rule had lifted over the keel.
 
+#### The view to either side, and when no eye in the cabin sees ahead (2026-09-30, `output/cockpit-fallback-0930/`)
+
+Saga round 30g: 76286's cockpit view was the inside of its hull (its canopy
+evidence is the REAR window, so the eye sat at the tail looking down the
+fuselage; `saga/s74-76286-cockpit`), and 42639's showed the road with its
+raised door filling the left ~35 % (`s70-42639-cockpit`). The hotbar-9 view
+is the rider's own first person (vehicle-camera.js clears the chase camera),
+so the camera IS the seat's eye: moving the eye moves the seat.
+
+- **One judgement, `driverSeesOut`** (cockpit-seat.ts), used by `planSeat`
+  and by the simulator's `driver-sees-ahead` (`driverViewWorld`, drawn.ts):
+  every `AHEAD` ray clear, and at least 90 % of each side's `SIDES` rays -
+  yaw 20-50, pitch -5..10, blocked only by an opaque part within `near` (1
+  block). Distance is what separates a panel at the face from the car's body:
+  a first rule counting any hit (half of each side clear) raised 42639 a
+  quarter block and its door's top still stood on the horizon; per-ray
+  patterns (`probe/rays.*`) show 42172's sills and a ship's rigging a block
+  or more away, 42639's door at 0.4. Every device-good cockpit (42172, 60380,
+  7140, 60221, 10797) is clear on all 28 rays of each side and did not move.
+- The cabin search (`AHEAD_SEARCH`, under the roof it sat under) prefers a
+  point that sees out; the sides never move an eye that already sees ahead
+  when no such point exists.
+- **`AHEAD_FALLBACK`**: when no eye in the cabin sees ahead, the eye leaves
+  it - the nearest point up (to the model's top + 1.4) or back (2 blocks, not
+  past the tail) that does, in air, on the seat's own line, preferring one
+  that also sees the sides within 0.5 block further. Only an eye there: the
+  body is hidden at every size (`SeatPlan.ahead.fallback`, all `fits` false),
+  since a body drawn over a roof is the kart rule removed on 2026-09-26.
+
+Results (audit of 61 sets / 41 rideables, `audit-base-40fd7d54` vs
+`audit-8aa1425c`, `audit-diff-*.txt`; views `*/views/`): drawn horizon not
+all clear 14 -> 1 (76139, whose plan says 6/6 and the drawn 4/6 - rotated-cube
+bounds, as before); the full rule 22 -> 5 (10295, 60367 sub3 and sub6 have
+side pillars and cabins no in-cabin point clears; 60266's fallback eye sees
+ahead with a panel at its right; 76139). Eyes that left their cabin: 76286
++3.1, 10337 +0.5, 42143 +0.9, 10242 +0.6, 42128 +0.5, 60446 +1.1, 60367 sub1
++1.1 and sub4 +0.8, 42092 +1.6/0.3 back, 60266 +4.1, 6286 +5.7, 75397 +6.3/1
+back, 31109 +10.2 (over its mast tops: its sails fill every lower eye's
+horizon; the picture is sky and the ship's top). Moved by the sides only:
+42639 +0.4 (body still drawn), 41395 +0.2, 60198 car 2 and 60367 sub2 set
+back 0.1/0.25, 10497 +0.1. Pictures: `cockpit-before-after-8aa1425c.jpg`
+(76286, 42639 before/after; 60380, 42172 unchanged), `fallback-sheet-8aa1425c.jpg`.
+
+TODO(cockpit-camera): a boat's or ship's drawn captain disappears when its
+eye leaves the cabin. A camera preset offset from the seated rider (keeping
+the body at the helm) would avoid it, but the only client-side camera that
+follows without the ~3.5-tick server lag is the first person; untested on
+the device.
+
 **Device-only still:** what the cockpit view looks like with Bedrock's
 lighting and the near-plane (the offline picture has no ground); the
 cockpit's look is FIXED to the car's heading on every compiled seat
