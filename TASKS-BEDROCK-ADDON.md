@@ -922,3 +922,31 @@ re-run after the last fixes). Evidence `output/sim-regress-449abd0e/`
   simulator, `figure-life-sim.ts`, the test hosts (`_ix-host`, the
   vehicle/rides/flyer/coaster hosts); `test/_placement-host.ts` already runs
   on the simulator.
+
+## Hop (2026-09-30, worktree `agent-a67a945e8cc86f24a`)
+
+Fly or drive into another mountable and ride it (user request for the
+5-year-old). One runtime, `web/src/engine/bedrock-ride-hop.ts` ->
+`BP/scripts/hop.js` in every pack with a driveable; slide set-downs in
+`rides.js`; coaster cars carry train/rank tags; a scripted plane left by a
+hop hovers (`VEHICLE_DYNAMIC.hold`). Design: physics spec §4.8, add-on guide
+"Hop", sim-engine "Hop". Commits `c7c20023`, `d16ef785`, `196360e2`.
+Evidence `output/hop-0930/` in that worktree: packs `packs-196360e2/`
+(11 sets, one at a time, clean stamp), `mcaddon-check-196360e2.txt` (11 OK),
+`hop-196360e2.log|json|md` + `hop-10797-196360e2.*` (4/4 pass),
+`regressions-196360e2.*`, `childplay-196360e2.*`, `hop-census-196360e2.txt`,
+`gametest-nimbus-196360e2/` (flyer GameTest with the hop phase), `tools/`.
+- Offline: `test/bedrock-ride-hop.test.ts` 11 pass; Nimbus into 10261's
+  train at 17.6 blocks/s met car rank 1, seated in rank 0, coaster camera
+  next tick, cloud moved 0; full train flown through; 10788 + 42639 and 10797
+  slide into a parked car; 0 unintended hops in 11 packs' child play.
+- Regressions: all as before; `door1-10326` FAIL is pre-existing (same
+  verdict on the pre-hop `3664f4f3` build), see the simulator section above.
+- [ ] Device: Nimbus (or a plane) into 10261's moving train: which car
+  seats the child, whether the coaster camera takes over without a flash,
+  the cloud hovering where left; a car at 10797's slide foot. Quirks
+  assumed: `rider-seat-order`, `add-rider-after-eject`, `aabb-is-collision-box`.
+- [ ] GameTest `flyer_<id>` now records `hop` (second cloud swept through
+  the first); run it on the Pixel (`cmgametest`).
+- [ ] 10788 + 42639: the car parked at the slide foot cannot drive out (the
+  slide ends on an upper floor); a model question, not the hop's.

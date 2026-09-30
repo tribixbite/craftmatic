@@ -4793,7 +4793,12 @@ yields its chair; two packs owning the same plane hop once; the back-hop
 cooldown holds for 5 s and then allows it; the Nimbus flown into 10261's train
 running at 17.6 blocks/s meets its second car and seats the child in the
 first, the coaster's camera takes the view the next tick, the cloud stays put;
-42639's car parked at 10788's slide foot takes the rider.
+42639's car parked at 10788's slide foot takes the rider (it cannot then move:
+that slide ends on an upper floor), and 10797's own car parked at its slide's
+foot takes the rider, who drives off 11 blocks. Across the ordinary child play
+of 11 packs (10261, 10303, 10326, 10788, 10797, 42172, 42639, 60380, 76457,
+910004, the Nimbus) no hop happened that the child did not aim for
+(`output/hop-0930/hop-census-196360e2.txt`).
 
 **Device-unproven** (the tracker's "Hop" section): which seat `addRider`
 gives on a multi-seat vehicle, an `addRider` in the tick after an
