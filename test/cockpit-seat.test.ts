@@ -508,13 +508,15 @@ describe('every seat sees the horizon ahead (AHEAD), whatever its evidence', () 
     expect(plan.ahead!.sides!.before.left).toBeLessThan(SIDES.minClear);
     expect(plan.ahead!.sides!.after.left).toBeGreaterThanOrEqual(SIDES.minClear);
     expect(seesOut(car, plan.eye)).toBe(true);
-    // Up toward the door's top until half of that side clears (not across the car), within the cabin
+    // Up over the door's top until that side is clear of it (not across the car), within the cabin
     // search, the body still drawn in the seat.
     expect(plan.eye[0]).toBe(0);
     expect(plan.eye[1]).toBeGreaterThan(eye[1]);
     expect(plan.eye[1] - eye[1]).toBeLessThanOrEqual(AHEAD_SEARCH.up + 1e-9);
     expect(plan.ahead!.fallback).toBeUndefined();
     expect(plan.steps[0]!.fits).toBe(true);
+    // Only what is NEAR counts: the same wall 1.5 blocks to the side is the car's body, not a panel at the face.
+    expect(sideView([box([-1, 0, -2], [1, 0.3, 2]), box([-1.7, 0, -1.0], [-1.5, 1.71, 0.3])], eye).left).toBe(1);
     // A panel no search in the cabin clears keeps a seat that sees ahead where it was: the sides are a preference.
     const tall = [box([-1, 0, -2], [1, 0.3, 2]), box([-0.6, 0, -1.0], [-0.4, 3, 0.3])];
     const kept = planSeat(tall, eye, seat, 'seat');

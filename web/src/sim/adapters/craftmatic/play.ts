@@ -188,7 +188,7 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         const sides = `left ${dv.left.clear} of ${dv.left.total}, right ${dv.right.clear} of ${dv.right.total}`;
         ctx.state['driverView'] = { ...view, ahead, left: dv.left, right: dv.right };
         ctx.note(`${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays, to the sides ${sides}, and out of ${view.clear} of ${view.total} of the wider fan`);
-        if (!dv.seesOut) ctx.violate({ invariant: 'driver-sees-ahead', message: `${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays (needs all) and to the sides ${sides} (needs half of each; ${view.clear} of ${view.total} of the wider fan)`, evidence: { eye: pt(eye), yaw: r3(v.rotation.y) } });
+        if (!dv.seesOut) ctx.violate({ invariant: 'driver-sees-ahead', message: `${type}: the driver's eye sees the horizon ahead along ${ahead.clear} of ${ahead.total} rays (needs all) and to the sides ${sides} (needs 90 percent of each, nothing within a block; ${view.clear} of ${view.total} of the wider fan)`, evidence: { eye: pt(eye), yaw: r3(v.rotation.y) } });
       }
       // First under the model's overhangs (a shelf, a balcony: a collider span starting 1-3 blocks over a floor the
       // car stands on) - 10797's car fell through the world under one on the Saga - then the open course.

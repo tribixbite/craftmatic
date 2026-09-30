@@ -283,9 +283,9 @@ export function fanDirection(yawDeg: number, pitchDeg: number): Vec3 {
   return [Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p)];
 }
 
-/** Whether a ray from `o` along `d` meets the box (slab test; an eye inside the box is blocked). */
-function rayHitsBox(o: Vec3, d: Vec3, b: BoxBlocks): boolean {
-  let t0 = 1e-6, t1 = Infinity;
+/** Whether a ray from `o` along `d` (a unit vector) meets the box within `reach` blocks (slab test; an eye inside the box is blocked). */
+function rayHitsBox(o: Vec3, d: Vec3, b: BoxBlocks, reach = Infinity): boolean {
+  let t0 = 1e-6, t1 = reach;
   for (let k = 0; k < 3; k++) {
     if (Math.abs(d[k]!) < 1e-12) { if (o[k]! < b.min[k]! || o[k]! > b.max[k]!) return false; continue; }
     let a = (b.min[k]! - o[k]!) / d[k]!, c = (b.max[k]! - o[k]!) / d[k]!;
@@ -298,15 +298,16 @@ function rayHitsBox(o: Vec3, d: Vec3, b: BoxBlocks): boolean {
 
 /**
  * Share of a fan's rays from `eye` that leave the model through air or glass
- * (exact ray-box tests, as the simulator's `forwardViewWorld` casts them).
+ * (exact ray-box tests, as the simulator's `forwardViewWorld` casts them);
+ * with a `reach`, only what stands within that many blocks of the eye counts.
  */
-export function fanView(boxes: readonly BoxBlocks[], eye: Vec3, fan: ViewFan): number {
+export function fanView(boxes: readonly BoxBlocks[], eye: Vec3, fan: ViewFan, reach = Infinity): number {
   const opaque = boxes.filter(b => !b.glass);
   let clear = 0, total = 0;
   for (const yd of fan.yaw) for (const pd of fan.pitch) {
     total++;
     const d = fanDirection(yd, pd);
-    if (!opaque.some(b => rayHitsBox(eye, d, b))) clear++;
+    if (!opaque.some(b => rayHitsBox(eye, d, b, reach))) clear++;
   }
   return total ? clear / total : 1;
 }
@@ -315,27 +316,31 @@ export function fanView(boxes: readonly BoxBlocks[], eye: Vec3, fan: ViewFan): n
 export const seesAhead = (boxes: readonly BoxBlocks[], eye: Vec3): boolean => fanView(boxes, eye, AHEAD) >= AHEAD.minClear - 1e-9;
 
 /**
- * THE VIEW TO EITHER SIDE of the road ahead: rays 20 to 50 degrees off the
- * nose, at the level and 5 and 10 degrees over it, on each side. `AHEAD`
- * cannot see a panel standing BESIDE the face: 42639's raised door passed all
- * six of its rays and still filled the left ~35 % of the cockpit view (Saga
- * round 30g, `s70-42639-cockpit`; a device screen is ~115 degrees wide, so
- * that panel spans ~20-57 degrees off the nose). At least half of each
- * side's rays must leave the vehicle through air or glass: a panel across
- * the whole side clears none of them (42639: 0 of 21), while the pillars and
- * frames of every device-good cockpit leave most clear (42172 at 0.25x: 17
- * and 16 of 21; 60380, 7140 and 60221: all of them).
+ * THE VIEW TO EITHER SIDE of the road ahead: no panel BESIDE the face. Rays
+ * 20 to 50 degrees off the nose, 5 degrees under the level to 10 over it, on
+ * each side; a ray is blocked by an opaque part within `near` blocks of the
+ * eye. `AHEAD` cannot see such a panel: 42639's raised door, 0.4 block beside
+ * the driver, passed all six of its rays and still filled the left ~35 % of
+ * the cockpit view (Saga round 30g, `s70-42639-cockpit`; a device screen is
+ * ~115 degrees wide, the panel spans ~20-57 degrees off the nose). Only what
+ * is NEAR counts: a panel at arm's length fills a third of the screen, while
+ * the body of the car a block or more away (42172's sills, a ship's rigging)
+ * is what a driver expects to see, and a device-good cockpit has none within
+ * reach (42172, 60380, 7140, 60221, 10797: all 28 rays of each side clear).
+ * `minClear` lets a thin pillar through (75892's: 2 of 28), not a panel:
+ * 42639's door blocked 24 of 28 at its first eye and 6 at a quarter block
+ * higher, where its top still stood on the horizon.
  */
-export const SIDES = { yaw: [20, 25, 30, 35, 40, 45, 50], pitch: [0, 5, 10], minClear: 0.5 } as const;
+export const SIDES = { yaw: [20, 25, 30, 35, 40, 45, 50], pitch: [-5, 0, 5, 10], near: 1, minClear: 0.9 } as const;
 
 /** One side's fan of `SIDES` (+1: toward +x of this frame, the driver's right with the nose at -Z; -1: the left). */
 export const sideFan = (side: 1 | -1): ViewFan => ({ yaw: SIDES.yaw.map(y => y * side), pitch: SIDES.pitch });
 
-/** Share of each side's `SIDES` rays that leave the model through air or glass. */
+/** Share of each side's `SIDES` rays that meet no opaque part within `SIDES.near`. */
 export interface SideView { left: number; right: number }
 
 /** The view to either side of an eye (`SIDES`). */
-export const sideView = (boxes: readonly BoxBlocks[], eye: Vec3): SideView => ({ left: fanView(boxes, eye, sideFan(-1)), right: fanView(boxes, eye, sideFan(1)) });
+export const sideView = (boxes: readonly BoxBlocks[], eye: Vec3): SideView => ({ left: fanView(boxes, eye, sideFan(-1), SIDES.near), right: fanView(boxes, eye, sideFan(1), SIDES.near) });
 
 /**
  * THE DRIVER SEES OUT: the one judgement of a driver's eye, shared by the

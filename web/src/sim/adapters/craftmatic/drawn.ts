@@ -13,7 +13,7 @@ import { resourcePacks, type Addon } from '../../pack/pack.js';
 import type { Box, Vec3 } from '../../core/vec.js';
 import { rayBox } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
-import { AHEAD, VIEW, driverSeesOut, sideFan } from '../../../engine/cockpit-seat.js';
+import { AHEAD, SIDES, VIEW, driverSeesOut, sideFan } from '../../../engine/cockpit-seat.js';
 
 /** Read an add-on's appearance (every entity type's drawn geometry). */
 export function packAppearance(addon: Addon): AddonAppearance {
@@ -93,7 +93,7 @@ export interface DriverViewWorld {
  * +Z, +yaw turns toward -X), so `sideFan(1)` is the right here as there.
  */
 export function driverViewWorld(boxes: readonly DrawnBox[], eye: Vec3, yawDeg: number): DriverViewWorld {
-  const ahead = forwardViewWorld(boxes, eye, yawDeg, AHEAD), left = forwardViewWorld(boxes, eye, yawDeg, sideFan(-1)), right = forwardViewWorld(boxes, eye, yawDeg, sideFan(1));
+  const ahead = forwardViewWorld(boxes, eye, yawDeg, AHEAD), left = forwardViewWorld(boxes, eye, yawDeg, sideFan(-1), SIDES.near), right = forwardViewWorld(boxes, eye, yawDeg, sideFan(1), SIDES.near);
   const share = (r: { clear: number; total: number }): number => r.total ? r.clear / r.total : 1;
   return { ahead, left, right, view: forwardViewWorld(boxes, eye, yawDeg, VIEW), seesOut: driverSeesOut(share(ahead), { left: share(left), right: share(right) }) };
 }
