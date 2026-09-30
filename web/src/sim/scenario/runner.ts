@@ -248,7 +248,7 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
   return {
     name: scenario.name, ...(scenario.description ? { description: scenario.description } : {}), ...(scenario.evidence ? { evidence: scenario.evidence } : {}),
     status, violations, notes, steps, ticks: sim.engine.tick, ms: Math.round(performance.now() - t0), unmodelled,
-    state: Object.fromEntries(Object.entries(state).filter(([k]) => !/staticDrawn|snapshot/.test(k))),
+    state: Object.fromEntries(Object.entries(state).filter(([k]) => !/staticDrawn|craftmatic.snapshot$/.test(k))),
     ...(options.keepTimeline ? { timeline: sim.engine.timeline.entries } : {}),
   };
 }

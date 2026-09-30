@@ -23,6 +23,9 @@ import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
 import { playHandlers, placedOf, tapPart } from './play.js';
 import { packAppearance } from './drawn.js';
+import { firstPersonSnapshot } from './snapshot.js';
+import { lookAt } from '../../input/touch.js';
+import type { AddonAppearance } from './appearance.js';
 
 /** Lines a craftmatic pack prints that are not faults (the wand's own progress and the pack's diagnostics it shows on purpose). */
 export const CRAFTMATIC_ALLOWED_LINES: readonly RegExp[] = [/BRICK_WAND_READY/, /CRAFTMATIC_[A-Z_]+_READY/];
@@ -33,11 +36,27 @@ export const FIGURE_LIFE_TICKS = 6000;
 /** The adapter's step handlers for one pack (wand + play + the child-play extras). */
 export function craftmaticHandlers(pack: CraftmaticPack, addon: Addon): Record<string, StepHandler> {
   const appearance = packAppearance(addon);
-  return { ...wandHandlers(pack), ...playHandlers(pack, appearance), ...extraHandlers(pack) };
+  return { ...wandHandlers(pack), ...playHandlers(pack, appearance), ...extraHandlers(pack, appearance) };
 }
 
-function extraHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
+/** A first-person picture a scenario took (`snapshot` step), for the CLI's `--shots`. */
+export interface Snapshot { name: string; width: number; height: number; rgb: Uint8Array }
+
+function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Record<string, StepHandler> {
   return {
+    /** A first-person picture: from where the child placed, looking at the model's centre (or from where it stands: `{ here: true }`). */
+    async snapshot(step: AnyStep, ctx: StepContext) {
+      const placed = placedOf(ctx);
+      if (!step['here']) {
+        const start = ctx.state['craftmatic.start'] as { x: number; y: number; z: number } | undefined;
+        if (start) teleport(ctx.sim.host, ctx.player, start);
+        lookAt(ctx.player, { x: (placed.from.x + placed.to.x + 1) / 2, y: (placed.from.y + placed.to.y) / 2, z: (placed.from.z + placed.to.z + 1) / 2 });
+        await ctx.run(1);
+      }
+      const size = { width: 480, height: 270 };
+      const shot: Snapshot = { name: String(step['name'] ?? 'shot'), ...size, rgb: firstPersonSnapshot(ctx.sim.engine, appearance, ctx.player, size) };
+      ctx.state['snapshots'] = [...((ctx.state['snapshots'] as Snapshot[] | undefined) ?? []), shot];
+    },
     /** Tap every moving part once; each must change its state (open/closed, turned). */
     async tapInteractives(_step: AnyStep, ctx: StepContext) {
       const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX_KEYS.index) === 'number');
@@ -81,7 +100,7 @@ function extraHandlers(pack: CraftmaticPack): Record<string, StepHandler> {
 const e2n = (v: unknown): number => (typeof v === 'number' ? v : -1);
 
 /** The child-play scenarios for one pack. */
-export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: boolean } = {}): Scenario[] {
+export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: boolean; shots?: boolean } = {}): Scenario[] {
   const out: Scenario[] = [];
   const variants: Array<[number, 0 | 90]> = [[100, 0], [100, 90]];
   if (pack.placement.resizable && pack.placement.sizes.includes(150)) variants.push([150, 0], [150, 90]);
@@ -93,19 +112,22 @@ export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: bool
     out.push({ name: `place-${size}-${rot}`, description: `Place at ${size} percent, turn ${rot}; tap every moving part; walk every doorway; Undo.`, steps, ...common });
   }
   const play: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }];
+  if (options.shots) play.push({ kind: 'snapshot', name: 'placed' });
   for (const r of pack.rides?.rides ?? []) {
     if (r.kind === 'slide') play.push({ kind: 'rideSlide', index: r.index, board: 'tap' });
     if (r.kind === 'lift') play.push({ kind: 'rideLift', index: r.index, trips: 3 });
   }
   for (const t of pack.vehicleTypes) play.push({ kind: 'driveVehicle', type: t, ticks: options.quick ? 200 : 600 });
   if (pack.flyers.length) play.push({ kind: 'flyMount' });
-  play.push({ kind: 'figuresLive', ticks: options.quick ? 1200 : FIGURE_LIFE_TICKS }, { kind: 'visitSeatedFigures' }, { kind: 'undo' });
+  play.push({ kind: 'figuresLive', ticks: options.quick ? 1200 : FIGURE_LIFE_TICKS });
+  if (options.shots) play.push({ kind: 'snapshot', name: 'figures-lived' });
+  play.push({ kind: 'visitSeatedFigures' }, { kind: 'undo' });
   out.push({ name: 'play-100-0', description: 'Ride every ride by a tap, drive every vehicle 30 s, fly the mount, let the figures live 5 minutes, visit the seated ones, Undo.', steps: play, ...common });
   return out;
 }
 
 /** Read a pack and build its child-play scenarios with their handlers (undefined for a non-craftmatic pack). */
-export function childPlay(addon: Addon, options: { quick?: boolean } = {}): { pack: CraftmaticPack; scenarios: Scenario[]; handlers: Record<string, StepHandler> } | undefined {
+export function childPlay(addon: Addon, options: { quick?: boolean; shots?: boolean } = {}): { pack: CraftmaticPack; scenarios: Scenario[]; handlers: Record<string, StepHandler> } | undefined {
   const pack = readCraftmaticPack(addon);
   if (!pack) return undefined;
   return { pack, scenarios: childPlayScenarios(pack, options), handlers: craftmaticHandlers(pack, addon) };

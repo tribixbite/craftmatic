@@ -5,7 +5,7 @@
  *
  * Usage:
  *   bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|<file.ts>]
- *        [--json=<out.json>] [--md=<out.md>] [--quick] [--only=<scenario substring>]
+ *        [--json=<out.json>] [--md=<out.md>] [--quick] [--only=<scenario substring>] [--shots=<dir>]
  *        [--new=<dir>]   (regressions: the current tree's packs, `<dir>/<stem>.mcaddon`)
  *
  *   child-play   (default) every craftmatic pack's generated scenarios: place at
@@ -14,16 +14,19 @@
  *   regressions  the 2026-09-29 device-bug set: each on the pack the device ran
  *                and on `--new=<dir>`'s build; packs on the command line are ignored.
  *   <file.ts>    a module exporting `scenarios(pack: CraftmaticPack): Scenario[]`.
+ *   --shots      child-play also takes first-person pictures (after placing, after
+ *                the figures lived) and writes them there as PNG.
  *
  * Exit 1 when a scenario fails (child-play, files) or a regression's verdict is FAIL.
  */
-import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import sharp from 'sharp';
 import { basename, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readAddon } from '../web/src/sim/pack/pack.ts';
 import { runScenario, type ScenarioResult } from '../web/src/sim/scenario/runner.ts';
 import { markdownReport, regressionMarkdown, unmodelledTotals, type PackReport, type RegressionRow } from '../web/src/sim/scenario/report.ts';
-import { childPlay, craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.ts';
+import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
 import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.ts';
 import type { Scenario } from '../web/src/sim/scenario/types.ts';
@@ -33,6 +36,7 @@ const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--$
 const mode = flag('scenario') ?? 'child-play';
 const quick = args.includes('--quick');
 const only = flag('only');
+const shotsDir = flag('shots');
 const inputs = args.filter(a => !a.startsWith('--'));
 const packs = inputs.flatMap(p => (existsSync(p) && statSync(p).isDirectory() ? readdirSync(p).filter(f => f.endsWith('.mcaddon')).sort().map(f => join(p, f)) : [p]));
 
@@ -90,7 +94,7 @@ for (const file of packs) {
   const report: PackReport = { pack: basename(file), results: [], ms: 0 };
   try {
     const addon = await load(file);
-    const cp = childPlay(addon, { quick });
+    const cp = childPlay(addon, { quick, shots: !!shotsDir });
     if (!cp) { report.error = 'not a craftmatic pack (no scripts/placement.js)'; reports.push(report); console.log(`${report.pack}: ${report.error}`); continue; }
     report.label = cp.pack.placement.label;
     const scenarios = (custom ? custom(cp.pack) : cp.scenarios).filter(s => !only || s.name.includes(only));
@@ -98,6 +102,13 @@ for (const file of packs) {
     for (const s of scenarios) {
       // Each scenario on a fresh world: the add-on is read again so no state leaks between them.
       const r = await runScenario(s, [await load(file)], { handlers: cp.handlers });
+      // Pictures go to --shots as PNG files; the report keeps their names only.
+      const shots = (r.state['snapshots'] as Snapshot[] | undefined) ?? [];
+      if (shots.length && shotsDir) {
+        mkdirSync(shotsDir, { recursive: true });
+        for (const sh of shots) await sharp(Buffer.from(sh.rgb), { raw: { width: sh.width, height: sh.height, channels: 3 } }).png().toFile(join(shotsDir, `${basename(file, '.mcaddon')}-${r.name}-${sh.name}.png`));
+      }
+      r.state['snapshots'] = shots.map(sh => sh.name);
       report.results.push(r);
       if (r.status === 'fail') failed++;
       console.log(statusLine(r));
