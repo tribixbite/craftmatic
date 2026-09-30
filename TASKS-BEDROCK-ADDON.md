@@ -303,6 +303,25 @@ for my 5yo to explore and play with."
   - Lift exit onto the 2nd/3rd floors lands beside the shaft on the room's
     floor (`v17`); the step off is a teleport, not a walk.
 
+## Headless Bedrock simulator (2026-09-29, user-approved)
+
+Goal: catch most bugs in minutes without an adb round; long term it grows
+into a standalone web game engine (user: "Keep it modular and DRY"). Of 14
+device-found defects on 09-29, ~9 were our logic and simulator-catchable.
+A worktree agent is building `web/src/sim/` (world, entity components from
+the pack JSON, physics from `addon-walk.ts`, one mock `@minecraft/server`
+running ALL pack scripts together, measured touch input: tap = ray + hit,
+quirk registry with evidence, scenario DSL + invariants, craftmatic
+child-play adapter, `scripts/sim.ts`, `docs/sim-engine.md`).
+- [ ] Acceptance: the regression set reproduces on the OLD packs and passes
+  on new builds - 29b Gabby slide on rails / lift car / 10797 fall-through /
+  eye in bodywork; 29c slide tap; Nimbus sneak drop + hint overwrite; 29d
+  10326 threshold + 910004 approach wall (still failing on main until the
+  doorway agent merges); the spurious 10261 retake line.
+- [ ] Then: the favourites child-play run, the unmodelled-API ranking (the
+  roadmap), migrating the per-module test hosts onto the mock, and folding
+  interactive-walk/figure-life-sim in after the doorway merge.
+
 ## New-set onboarding + 11390 (2026-09-29)
 
 Infra is in (sources guide "Onboarding ONE announced set"): clego
