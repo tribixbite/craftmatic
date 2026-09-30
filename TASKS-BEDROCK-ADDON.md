@@ -114,6 +114,19 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
+## Round 2026-09-30e (`3664f4f3`) - doors, fly sound, sim-triage fixes
+
+**Sent** (zip, not deployed): `output/device-round-2026-09-30e/craftmatic-packs-3664f4f3.zip`
+(sha256 47ca53d78b8a0dc2c2430b185c4687cb0dccd6de2a9030285ff256c8cbbd9dbf;
+21 packs; `check.txt` 21/21 OK, uuids = 29d, parts = 29d). Favourites sweep
+on the same commit: 40/40 exported and valid, `_ix_passability` 0 FAIL,
+sim child play 198/200 (`output/favsweep-3664f4f3*`).
+- [ ] Device check of this round: 42639 / 60380 driver views; the
+  simulator's ASSUMED rules (`teleport-into-floor`, `dismount-free-spot`, tap
+  reach 5); 10326 Door 1 ledge (user decision pending); 10261 no retake
+  line; flyer cruise at 0.0725 (~11 blocks/s expected); the 10303 loop-1
+  exit swing (Saga, intermittent).
+
 ## Round 2026-09-29c (`e2c21112`) - faces closed, Gabby play, kiosk retake, Nimbus
 
 **Sent**: `output/device-round-2026-09-29c/craftmatic-packs-e2c21112.zip`
