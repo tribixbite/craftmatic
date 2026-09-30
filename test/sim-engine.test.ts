@@ -24,7 +24,10 @@ import { PLAYER_HEIGHT_BLOCKS } from '../web/src/engine/lego-scale.js';
 import { STEP16 } from '../web/src/engine/bedrock-collider-scale.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
 import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.js';
-import { craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
+import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
+import { findApproach } from '../web/src/sim/scenario/approach.js';
 import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
 
 const enc = new TextEncoder();
@@ -157,6 +160,34 @@ describe('the script host', () => {
     expect(r.blockedBy).toMatch(/minecraft:stone/);
   });
 
+  it('finds a standing spot for a part lying on the floor the child stands on (31141 Turnable 1, 2026-09-30 triage)', async () => {
+    // A flat part at foot level: its pick box is 0.2 tall on the ground. The approach used to try floors only a
+    // little under eye level with the pick point - all of them under the ground here - and found no spot at all.
+    const plate = entityJson('x:plate', { 'minecraft:custom_hit_test': { hitboxes: [{ width: 0.9, height: 0.2, pivot: [0, 0.1, 0] }] }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'plate.json': plate }), 'mini'));
+    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
+    const target = sim.engine.spawnEntity('x:plate', 'overworld', { x: 12.5, y: FLAT_GROUND_Y, z: 0.5 });
+    await sim.run(2);
+    const spot = findApproach(sim.engine, p, target);
+    expect(spot).toBeDefined();
+    expect(spot!.feet.y).toBeCloseTo(FLAT_GROUND_Y, 6);
+    // From there the tap picks it.
+    p.location = { ...spot!.feet };
+    expect(tap(sim.engine, p, target).entity).toBe(target);
+  });
+
+  it('lets a yielding status line be replaced at once, and still catches an instruction taken over', async () => {
+    const bytes = await miniAddon({
+      'main.js': "import './a.js';\nimport './b.js';\n",
+      'a.js': "import { world, system } from '@minecraft/server';\nsystem.runTimeout(() => { for (const p of world.getAllPlayers()) p.onScreenDisplay.setActionBar('[Wand] 100 percent · done'); }, 5);\n",
+      'b.js': "import { world, system } from '@minecraft/server';\nsystem.runTimeout(() => { for (const p of world.getAllPlayers()) p.onScreenDisplay.setActionBar('press Play'); }, 8);\n",
+    });
+    const run = async (yieldingLines?: RegExp[]) => runScenario({ name: 'y', steps: [{ kind: 'wait', ticks: 20 }], ...(yieldingLines ? { yieldingLines } : {}) }, [await readAddon(bytes, 'mini')]);
+    expect((await run()).violations.map(v => v.invariant)).toContain('actionbar-not-stolen');
+    expect((await run([/percent · done$/])).violations.map(v => v.invariant)).not.toContain('actionbar-not-stolen');
+  });
+
   it('getBlock outside the loaded area is undefined, never air', async () => {
     const bytes = await miniAddon({ 'main.js': "import { world, system } from '@minecraft/server';\nsystem.run(() => { const d = world.getDimension('overworld'); console.warn('near ' + (d.getBlock({ x: 0, y: -61, z: 0 })?.typeId) + ' far ' + (d.getBlock({ x: 5000, y: -61, z: 0 }) === undefined)); });\n" });
     const r = await runScenario({ name: 'unloaded', steps: [{ kind: 'wait', ticks: 3 }] }, [await readAddon(bytes, 'mini')], { keepTimeline: true });
@@ -187,4 +218,36 @@ describe.skipIf(!regressionPacks)('the 2026-09-29 regression set reproduces on t
       if (c.expectNew === 'reproduce-as-model') expect(j.attribution).toBe('model');
     });
   }
+});
+
+describe('craftmatic adapter judgements (simulator triage 2026-09-30)', () => {
+  const ctx = () => {
+    const notes: string[] = [], violations: string[] = [];
+    return { notes, violations, c: { note: (t: string) => { notes.push(t); }, violate: (v: { message: string }) => { violations.push(v.message); }, state: {} as Record<string, unknown> } };
+  };
+  it('a doorway side fails on a stopped column only when no column from that side crosses (a child steers)', () => {
+    const stop = { crossed: false, pending: { message: 'Door 1 column 3,4 from + side: stopped', evidence: {} } };
+    const a = ctx();
+    judgeSide(a.c, [stop, { crossed: true }]);
+    expect(a.violations).toEqual([]);
+    expect(a.notes[0]).toMatch(/another column from this side crosses/);
+    const b = ctx();
+    judgeSide(b.c, [stop, { crossed: false }]);
+    expect(b.violations).toEqual(['Door 1 column 3,4 from + side: stopped; no column from this side crosses']);
+  });
+  it('the re-lay moves a wall by up to half a block at 150 percent, none at whole sizes', () => {
+    expect([1, 1.5, 2, 3, 4].map(relayRounding)).toEqual([0, 0.5, 0, 0, 0]);
+    expect(relayRounding(0.5)).toBe(0);
+  });
+  it('a slide seat past the chute foot, at its height, is on the run-out', () => {
+    const r = { foot: { x: 0, y: 5, z: 0 }, end: { x: 0.45, y: 5, z: 0 } };
+    expect(onRunout({ x: 0.2, y: 5, z: 0 }, r)).toBe(true);
+    expect(onRunout({ x: -0.2, y: 5.3, z: 0 }, r)).toBe(false);
+    expect(onRunout({ x: 0.2, y: 5.4, z: 0 }, r)).toBe(false);
+  });
+  it('reads a figure\'s life mode from the placement\'s record: only a source-seated one retakes', () => {
+    const e = { dynamic: new Map<string, unknown>([['craftmatic:fig', JSON.stringify({ mode: 'seated' })]]) } as unknown as SimEntity;
+    expect(figureMode(e)).toBe('seated');
+    expect(figureMode({ dynamic: new Map() } as unknown as SimEntity)).toBeUndefined();
+  });
 });

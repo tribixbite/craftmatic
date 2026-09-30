@@ -20,8 +20,7 @@
 import { ORDER, type SimEngine } from '../core/engine.js';
 import type { SimEntity } from '../entity/entity.js';
 import { quirkValue } from '../quirks/registry.js';
-import { PLAYER_HEIGHT, PLAYER_WIDTH, TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
-import type { VoxelWorld } from '../world/voxel-world.js';
+import { TICKS_PER_SECOND, moveBox, tickBody, tickPlayer, type PlayerState } from './body.js';
 import { stickToWorld, type ControlState } from '../input/controls.js';
 
 const stateOf = (e: SimEntity): PlayerState => ({ x: e.location.x, y: e.location.y, z: e.location.z, vx: e.velocity.x, vy: e.velocity.y, vz: e.velocity.z, onGround: e.onGround, sneaking: false, tick: 0 });
@@ -40,29 +39,6 @@ function trackFall(engine: SimEngine, e: SimEntity): void {
     if (d > 0.05) engine.emit('landed', { entity: e, fallDistance: d, slowFell: e.fall.slowFell || slow, at: { ...e.location } });
     e.fall = undefined;
   }
-}
-
-/**
- * A player whose feet sit a little inside a floor (a teleport's set-down)
- * stands on that floor's top (quirk `teleport-into-floor-lifts`): the highest
- * top among the solids the box overlaps, when it is within the limit over the
- * feet and the box is free there.
- */
-function liftOutOfFloor(p: SimEntity, world: VoxelWorld): void {
-  const h = PLAYER_WIDTH / 2, max = quirkValue('teleport-into-floor-lifts', 'maxLiftBlocks');
-  const box = { x0: p.location.x - h, y0: p.location.y, z0: p.location.z - h, x1: p.location.x + h, y1: p.location.y + PLAYER_HEIGHT, z1: p.location.z + h };
-  if (!world.overlapping(box, 0.001)) return;
-  let top = -Infinity;
-  for (const s of world.solidsNear(box, 0, 0, 0)) {
-    if (s.unloaded || s.x1 <= box.x0 || s.x0 >= box.x1 || s.z1 <= box.z0 || s.z0 >= box.z1 || s.y1 <= box.y0 || s.y0 >= box.y1) continue;
-    if (s.y0 <= p.location.y + 1e-6 && s.y1 - p.location.y <= max) top = Math.max(top, s.y1);
-  }
-  if (top === -Infinity) return;
-  const lifted = { ...box, y0: top, y1: top + PLAYER_HEIGHT };
-  if (world.overlapping(lifted, 0.001)) return;
-  p.location = { ...p.location, y: top };
-  p.onGround = true;
-  p.velocity = { x: p.velocity.x, y: 0, z: p.velocity.z };
 }
 
 /** Whether an entity is a native hover mount (the rotorcraft / flyer controller). */
@@ -91,7 +67,6 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         }
         const world = en.dimension(p.dimension);
         if (!world.isLoaded(p.location.x, p.location.z)) continue;
-        liftOutOfFloor(p, world);
         const move = stickToWorld(c, p.rotation.y);
         const r = tickPlayer(world, stateOf(p), { move, jump: c.jump, sneak: c.sneak, sprint: c.sprint, slowFalling: hasEffect(p, 'slow_falling') });
         p.location = { x: r.state.x, y: r.state.y, z: r.state.z };

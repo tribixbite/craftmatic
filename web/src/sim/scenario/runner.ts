@@ -192,7 +192,8 @@ async function reachFor(ctx: StepContext, target: SimEntity, label: string): Pro
   teleport(ctx.sim.host, ctx.player, spot.feet);
   ctx.player.onGround = true;
   await ctx.run(1);
-  lookAt(ctx.player, aimPoint(ctx.player, target));
+  // Aim where the search proved the tap picks the target (the pick box nearest the eye there).
+  lookAt(ctx.player, spot.aim);
 }
 
 const describe = (sel: EntitySelector): string => sel.label ?? (sel.type ? String(sel.type) : sel.family ?? 'entity');
@@ -214,7 +215,7 @@ export async function runScenario(scenario: Scenario, addons: readonly Addon[], 
   };
   const all = [...coreInvariants(), ...(options.invariants ?? [])].filter(i => !scenario.invariants || scenario.invariants.includes(i.id));
   let quiet: ReadonlySet<string> = new Set();
-  const ictx: InvariantContext = quietable({ engine: sim.engine, player, allowLines: scenario.allowLines ?? [], report }, () => quiet);
+  const ictx: InvariantContext = quietable({ engine: sim.engine, player, allowLines: scenario.allowLines ?? [], ...(scenario.yieldingLines ? { yieldingLines: scenario.yieldingLines } : {}), report }, () => quiet);
   for (const inv of all) inv.setup?.(ictx);
   const run = async (n: number): Promise<void> => {
     for (let i = 0; i < n; i++) { await sim.engine.step(); for (const inv of all) inv.tick?.(ictx); }

@@ -16,19 +16,30 @@
 
 import type { Scenario, Step, StepContext, StepHandler, AnyStep } from '../../scenario/types.js';
 import { teleport } from '../../script-host/facades.js';
-import { findApproach } from '../../scenario/approach.js';
+import { approachSpots, findApproach, SIGHT_MARGIN } from '../../scenario/approach.js';
 import { IX_KEYS } from '../../../engine/bedrock-interactives.js';
 import type { Addon } from '../../pack/pack.js';
 import { readCraftmaticPack, type CraftmaticPack } from './pack-facts.js';
 import { wandHandlers } from './wand.js';
-import { playHandlers, placedOf, tapPart } from './play.js';
+import { FIGURE_TYPE, playHandlers, placedOf, staticDrawn, tapPart } from './play.js';
 import { packAppearance } from './drawn.js';
 import { firstPersonSnapshot } from './snapshot.js';
 import { lookAt } from '../../input/touch.js';
+import { rayBox } from '../../core/vec.js';
+import { PLAYER_EYE_HEIGHT } from '../../physics/body.js';
+import type { SimEntity } from '../../entity/entity.js';
+import type { DrawnBox } from './drawn.js';
 import type { AddonAppearance } from './appearance.js';
 
 /** Lines a craftmatic pack prints that are not faults (the wand's own progress and the pack's diagnostics it shows on purpose). */
 export const CRAFTMATIC_ALLOWED_LINES: readonly RegExp[] = [/BRICK_WAND_READY/, /CRAFTMATIC_[A-Z_]+_READY/];
+
+/**
+ * Action-bar lines of a craftmatic pack another script may replace at once: the wand's closing progress line.
+ * Its news is told in the chat ("Placed ...", `finalHoldTicks` later); 11374's pinball prompt ("press Play
+ * pinball") replacing it after 13 ticks is the next instruction, not a stolen one (simulator triage 2026-09-30).
+ */
+export const CRAFTMATIC_YIELDING_LINES: readonly RegExp[] = [/\[Brick Wand\].*100 percent · done$/];
 
 /** How long figures live in the play scenario (5 simulated minutes). */
 export const FIGURE_LIFE_TICKS = 6000;
@@ -59,6 +70,8 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
     },
     /** Tap every moving part once; each must change its state (open/closed, turned). */
     async tapInteractives(_step: AnyStep, ctx: StepContext) {
+      // Read the drawn geometry the static colliders stand for while every part is still as placed (closed).
+      staticDrawn(ctx, appearance, pack);
       const parts = [...ctx.sim.engine.entities.values()].filter(e => e.valid && typeof e.dynamic.get(IX_KEYS.index) === 'number');
       for (const part of parts) {
         const idx = e2n(part.dynamic.get(IX_KEYS.index));
@@ -67,7 +80,13 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
         const before = state();
         if (!await tapPart(ctx, part, label, () => state() !== before)) {
           const refused = part.dynamic.get('craftmatic:ix_refused');
-          ctx.violate({ invariant: 'tap-moves-part', message: `no tap on ${label} from any spot within reach changed it${refused ? ` (the part refused: ${String(refused)})` : ''}`, evidence: { part: part.typeId, state: before, at: part.location } });
+          const text = `no tap on ${label} from any spot within reach changed it${refused ? ` (the part refused: ${String(refused)})` : ''}`;
+          // A refusal ("behind a wall") is the runtime's line of sight over its colliders. When the MODEL's own drawn
+          // geometry stands between the eye and the part from EVERY spot a tap picks it from, the part is hidden by
+          // the model within reach (76417's Door 1 at 150 %, set back behind its arch): the model's, noted.
+          const hidden = refused ? hiddenByModel(ctx, part, staticDrawn(ctx, appearance, pack)) : undefined;
+          if (hidden) ctx.note(`${text} - the MODEL's: from all ${hidden} spots a tap picks it from, the model's own geometry stands between the eye and it`);
+          else ctx.violate({ invariant: 'tap-moves-part', message: text, evidence: { part: part.typeId, state: before, at: part.location } });
         }
         // A double door's second leaf moves with the first: close the pair again so each leaf is tapped from rest.
         await ctx.run(8);
@@ -78,7 +97,12 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
     /** Walk up to each seated figure (it yields its seat), step away (it should take it back). */
     async visitSeatedFigures(_step: AnyStep, ctx: StepContext) {
       const placed = placedOf(ctx);
-      const seated = [...ctx.sim.engine.entities.values()].filter(e => e.valid && /_fig\d+$/.test(e.typeId) && e.ridingOn);
+      // Only a figure the SOURCE sat on a chair (`craftmatic:fig` mode `seated`) takes its seat back; a walker that sat
+      // down on its own stands up for the child and walks on (figures.js `sit`). Until 2026-09-30 every riding figure
+      // was expected to retake, and 10303's fig4 and 910032's fig3 - walkers on a bench - failed for doing as designed.
+      const seated = [...ctx.sim.engine.entities.values()].filter(e => e.valid && FIGURE_TYPE.test(e.typeId) && e.ridingOn && figureMode(e) === 'seated');
+      const walkersSitting = [...ctx.sim.engine.entities.values()].filter(e => e.valid && FIGURE_TYPE.test(e.typeId) && e.ridingOn && figureMode(e) !== 'seated');
+      if (walkersSitting.length) ctx.note(`${walkersSitting.length} walking figure(s) sitting down of their own accord (${walkersSitting.map(e => e.typeId).join(', ')}): not visited, they do not retake a seat`);
       for (const fig of seated.slice(0, 4)) {
         const seat = fig.ridingOn!;
         // Walk up to it: a spot within reach from which a tap would pick it (where a child stands to look at it).
@@ -99,12 +123,37 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
 
 const e2n = (v: unknown): number => (typeof v === 'number' ? v : -1);
 
+/** A figure's life mode as the placement wrote it (`craftmatic:fig`): `seated` (the source sat it) or `roam`. */
+export function figureMode(e: SimEntity): string | undefined {
+  const raw = e.dynamic.get('craftmatic:fig');
+  if (typeof raw !== 'string') return undefined;
+  try { return (JSON.parse(raw) as { mode?: string }).mode; } catch { return undefined; }
+}
+
+/**
+ * How many spots a tap picks `part` from, when the model's drawn (opaque) geometry blocks the line from the eye
+ * to the aimed point from EVERY one of them (short of the last `SIGHT_MARGIN`, the part's own frame); undefined
+ * when there is no such spot or any one of them sees the part.
+ */
+function hiddenByModel(ctx: StepContext, part: SimEntity, drawn: readonly DrawnBox[]): number | undefined {
+  const spots = approachSpots(ctx.sim.engine, ctx.player, part);
+  if (!spots.length) return undefined;
+  const opaque = drawn.filter(d => !d.glass).map(d => d.box);
+  for (const s of spots) {
+    const eye = { x: s.feet.x, y: s.feet.y + PLAYER_EYE_HEIGHT, z: s.feet.z };
+    const d = { x: s.aim.x - eye.x, y: s.aim.y - eye.y, z: s.aim.z - eye.z }, len = Math.hypot(d.x, d.y, d.z);
+    const u = { x: d.x / len, y: d.y / len, z: d.z / len };
+    if (!opaque.some(b => rayBox(eye, u, b, len - SIGHT_MARGIN) !== undefined)) return undefined;
+  }
+  return spots.length;
+}
+
 /** The child-play scenarios for one pack. */
 export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: boolean; shots?: boolean } = {}): Scenario[] {
   const out: Scenario[] = [];
   const variants: Array<[number, 0 | 90]> = [[100, 0], [100, 90]];
   if (pack.placement.resizable && pack.placement.sizes.includes(150)) variants.push([150, 0], [150, 90]);
-  const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES] };
+  const common = { allowLines: [...CRAFTMATIC_ALLOWED_LINES], yieldingLines: [...CRAFTMATIC_YIELDING_LINES] };
   for (const [size, rot] of variants) {
     const steps: Step[] = [{ kind: 'place', size, rotation: rot }, { kind: 'wait', ticks: 40 }];
     if (pack.interactives?.items.length) steps.push({ kind: 'tapInteractives' }, { kind: 'doorwayLines' });

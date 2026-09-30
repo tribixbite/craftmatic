@@ -85,6 +85,12 @@ export interface Scenario {
   invariants?: string[];
   /** Lines (chat, action bar, console) the scenario expects and the unexpected-line invariant must not flag. */
   allowLines?: RegExp[];
+  /**
+   * Action-bar lines another script may replace at once: a status whose news the game tells elsewhere too (the
+   * Brick Wand's closing "100 percent · done", whose "Placed ..." comes in the chat). An instruction the child
+   * needs (how to ride, how to play) is never one: the invariant exists for those.
+   */
+  yieldingLines?: RegExp[];
   /** Where the player starts. */
   start?: Vec3;
   /** Hotbar items (the wand). */
