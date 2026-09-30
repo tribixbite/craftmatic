@@ -95,8 +95,9 @@ export class EntityDefinitions {
       const type = def['type'] as PropertyDef['type'];
       const base = `/minecraft:entity/description/properties/${esc(prop)}`;
       if (type === 'float') {
-        const literals = [parsed.numberLiterals.get(`${base}/default`), parsed.numberLiterals.get(`${base}/range/0`), parsed.numberLiterals.get(`${base}/range/1`)];
-        if (literals.some(isIntegerLiteral)) {
+        // The measured refusal is the DEFAULT's literal (CLAUDE.md); an integer range is not known to be refused, so it is not.
+        // # TODO(sim-entity): a device probe of `"range": [0, 90]` on a float property would settle the range too.
+        if (isIntegerLiteral(parsed.numberLiterals.get(`${base}/default`))) {
           this.contentLog.push(`[Actor] ${identifier}: property ${prop}: 'default' value does not match the specified type 'float' - the property component is dropped`);
           propertiesRefused = true;
         }
