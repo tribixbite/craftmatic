@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
-import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, flySoundEvents, ROTOR_FLYING_SPEED, COASTER_SAME_CAR_ARC, DRIVER_SPEED_WINDOW_TICKS } from '../web/src/engine/playable-addon.js';
+import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, flySoundEvents, VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS, ROTOR_FLYING_SPEED, COASTER_SAME_CAR_ARC, DRIVER_SPEED_WINDOW_TICKS } from '../web/src/engine/playable-addon.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
@@ -421,10 +421,10 @@ describe('playable Bedrock add-on',()=>{
     expect(driver).toContain('LOOK DOWN + JUMP: DIVE');
     // The HUD speed is a mean over a window of position changes, never one 2-tick delta (bursty native positions read 4x).
     expect(driver).toContain(`"speedWindowTicks":${DRIVER_SPEED_WINDOW_TICKS}`);
-    // The RP gives the aircraft a silent interactive `fly` event (the hook the content log's block-sound fallback
-    // names; the plain entity_sounds entry was measured useless on the Pixel and is not written).
+    // The RP silences the block-material `fly` event (Saga A/B variant A); per-entity entries measured useless are not written.
     const sounds = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_RP/sounds.json')));
-    expect(sounds.interactive_sounds.entity_sounds.entities['craftmatic:jet_jet']).toEqual({ volume: 1, pitch: 1, events: { fly: { default: '' } } });
+    expect(sounds.interactive_sounds.block_sounds.normal.events).toEqual({ ...VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS.events, fly: '' });
+    expect(sounds.interactive_sounds.entity_sounds).toBeUndefined();
     expect(sounds.entity_sounds).toBeUndefined();
     expect(entity['minecraft:entity'].components['minecraft:is_tamed']).toEqual({});
     // A rotorcraft keeps the ghast's 0.3 (~38 blocks/s measured); only a flyer mount is slowed (FLYER.FLYING_SPEED).
@@ -606,30 +606,40 @@ describe('playable Bedrock add-on',()=>{
     // A car has no native controller left, so no driver script ships with it.
     const car = await buildPlayableAddon(model(), { stem: 'Supercar', vehicleMode: 'car' });
     expect(listZipEntries(ab(car.bytes))).not.toContain('Craftmatic_supercar_BP/scripts/vehicle-driver.js');
-    // Both hover (the rotor natively, the scripted car for Jump-as-input), so both get the silent interactive `fly` event.
+    // Both packs have entities, so both carry the block-material `fly` silence (vanilla's `normal` + `fly: ""`) and no per-entity entry.
     const heliSounds = JSON.parse(new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_RP/sounds.json')));
-    expect(Object.keys(heliSounds.interactive_sounds.entity_sounds.entities)).toEqual(['craftmatic:rescue_helicopter_rescue_helicopter']);
+    expect(heliSounds).toEqual(flySoundEvents([{ name: 'X_BP/entities/a.json', data: new Uint8Array() }], 'X_BP/'));
+    expect(heliSounds.interactive_sounds.entity_sounds).toBeUndefined();
     const carSounds = JSON.parse(new TextDecoder().decode(await extractFile(ab(car.bytes), 'Craftmatic_supercar_RP/sounds.json')));
-    expect(carSounds.interactive_sounds.entity_sounds.entities['craftmatic:supercar_supercar'].events).toEqual({ fly: { default: '' } });
+    expect(carSounds.interactive_sounds.block_sounds.normal.events.fly).toBe('');
     // The helicopter (a rotor) keeps flying_speed 0.3; the flyer's slower cruise is the fixture test's.
     const heliEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_BP/entities/rescue_helicopter_rescue_helicopter.json')));
     expect(heliEntity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: 0.3 });
   });
 
-  it('flySoundEvents reads the hovering entities from the emitted behaviour files, writes only the interactive entry, and is null without one', () => {
+  it('flySoundEvents writes vanilla\'s interactive `normal` block sounds verbatim + `fly: ""` for ANY pack with an entity (not only hovering ones), and is null without one', () => {
     const enc = new TextEncoder();
-    const entity = (id: string, components: Record<string, unknown>, groups: Record<string, unknown> = {}) => ({ name: `X_BP/entities/${id}.json`, data: enc.encode(JSON.stringify({ 'minecraft:entity': { description: { identifier: `craftmatic:${id}` }, components, component_groups: groups } })) });
-    const files = [
-      entity('heli', { 'minecraft:can_fly': {}, 'minecraft:movement.hover': {} }),
-      entity('cloud', { 'minecraft:movement.hover': {} }),
-      entity('seat', { 'minecraft:rideable': {} }),
-      { name: 'X_RP/entity/heli.entity.json', data: enc.encode('{"minecraft:can_fly":{}}') }, // not a behaviour file
-    ];
-    expect(flySoundEvents(files, 'X_BP/')).toEqual({ interactive_sounds: { entity_sounds: { entities: {
-      'craftmatic:heli': { volume: 1, pitch: 1, events: { fly: { default: '' } } },
-      'craftmatic:cloud': { volume: 1, pitch: 1, events: { fly: { default: '' } } },
-    } } } });
-    expect(flySoundEvents([entity('seat', { 'minecraft:rideable': {} })], 'X_BP/')).toBeNull();
+    const entity = (id: string, components: Record<string, unknown>) => ({ name: `X_BP/entities/${id}.json`, data: enc.encode(JSON.stringify({ 'minecraft:entity': { description: { identifier: `craftmatic:${id}` }, components } })) });
+    // The Saga A/B's variant A, which read 0 lines in every window (output/fly-sound-ab-0929/README.md).
+    const variantA = { interactive_sounds: { block_sounds: { normal: {
+      events: {
+        default: '',
+        fall: { sound: 'fall.stone', sounds: 'fall.stone', volume: 0.4 },
+        jump: { sound: 'jump.stone', volume: 0.12 },
+        land: { sound: 'land.stone', volume: 0.22 },
+        step: { sound: 'step.stone', volume: 0.3 },
+        fly: '',
+      },
+      pitch: 1,
+      volume: 1,
+    } } } };
+    // A seat that never hovers still gets it: the orbit's non-hovering car, seat and figure logged the line too.
+    expect(flySoundEvents([entity('seat', { 'minecraft:rideable': {} })], 'X_BP/')).toEqual(variantA);
+    expect(flySoundEvents([entity('heli', { 'minecraft:can_fly': {}, 'minecraft:movement.hover': {} }), entity('seat', {})], 'X_BP/')).toEqual(variantA);
+    // No behaviour entity (an RP client entity file does not count): no sounds.json.
+    expect(flySoundEvents([{ name: 'X_RP/entity/heli.entity.json', data: enc.encode('{}') }], 'X_BP/')).toBeNull();
+    // The shared constant is not mutated by the added `fly`.
+    expect('fly' in VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS.events).toBe(false);
   });
 });
 

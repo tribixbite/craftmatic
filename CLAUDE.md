@@ -322,6 +322,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   `bedrockFloat()` from `web/src/engine/bedrock-json.ts`. Diagnose this class of
   fault from the device **content log** (`…/files/games/com.mojang/logs/`,
   newest file, grep on-device) — none of it reaches logcat.
+- **The content log's verbose `No sound found for block type 'normal' and
+  event type 'fly'` is resolved through `interactive_sounds.block_sounds.<material>`,
+  and per-entity entries do nothing.** Any entity moved through the air (not
+  only a hovering one) raises it, 355 lines a minute in flight. The RP
+  `block_sounds.normal` with vanilla's events verbatim + `"fly": ""` read 0 in
+  every Saga window; `entity_sounds` / `interactive_sounds.entity_sounds`
+  entries, even naming a real silent sound, changed nothing (2026-09-29/30,
+  `flySoundEvents`, quirk `fly-sound-block-normal`).
 - **PWA service worker** caches all modules and serves stale code. If changes
   don't take effect: unregister SW + clear caches, then hard reload. (See the
   snippet history; `navigator.serviceWorker.getRegistrations()...` + `caches.keys()...`.)

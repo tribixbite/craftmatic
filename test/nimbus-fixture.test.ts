@@ -25,6 +25,7 @@ import { SET_CANON } from '../web/src/engine/set-canon.js';
 import { modelExportStem } from '../web/src/engine/export-name.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
+import { VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS } from '../web/src/engine/playable-addon.js';
 
 const LDRAW_ROOT = 'C:/git/clego/extracted/studio_release/app/ldraw';
 const FIXTURE = 'test/fixtures/nimbus-fixture.ldr';
@@ -178,15 +179,18 @@ function nimbusPackTests(get: () => Pack): void {
     expect(flyer.constants.DISMOUNT_DROP_BLOCKS).toBe(FLYER.DISMOUNT_DROP_BLOCKS);
   });
 
-  it('the RP sounds.json gives the cloud (and every hovering entity) a silent interactive fly event; the entity_sounds entry measured useless on the Pixel is gone', async () => {
-    const { json, rp, result, config } = get();
+  it('the RP sounds.json is the Saga A/B\'s variant A: vanilla\'s interactive `normal` block sounds + a silent `fly`, no per-entity entry', async () => {
+    const { json, rp } = get();
     const sounds = await json(`${rp}sounds.json`);
-    const flyer = result.mcpack!.mounts!.found[0]!.flyer;
-    expect(sounds.interactive_sounds.entity_sounds.entities[flyer]).toEqual({ volume: 1, pitch: 1, events: { fly: { default: '' } } });
+    // Variant A read 0 fly lines in every Saga window (orbit idle, perch, flight, mounted idle; output/fly-sound-ab-0929/saga/_notes.txt).
+    expect(sounds).toEqual({ interactive_sounds: { block_sounds: { normal: {
+      events: { ...VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS.events, fly: '' },
+      pitch: 1,
+      volume: 1,
+    } } } });
+    // The per-entity entries (entity_sounds, interactive_sounds.entity_sounds) measured useless on the Pixel and the Saga are gone.
     expect(sounds.entity_sounds).toBeUndefined();
-    // The companion's cloud and seat do not hover natively (the ride runtime carries them): no entry.
-    const carType = config.actors.find((a: any) => /_cloud_ride_car$/.test(a.typeId)).typeId;
-    expect(sounds.interactive_sounds.entity_sounds.entities[carType]).toBeUndefined();
+    expect(sounds.interactive_sounds.entity_sounds).toBeUndefined();
   });
 
   it('the lang has every rideable\'s exit hint and a name for each new entity; the README tells the child what to do', async () => {

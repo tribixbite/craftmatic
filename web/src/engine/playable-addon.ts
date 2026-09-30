@@ -345,57 +345,71 @@ export function rideableExitHintLines(files: ReadonlyArray<{ name: string; data:
     }
     return lines;
 }
-/** One hovering entity's `fly` entry in the RP's interactive sound table (`flySoundEvents`). */
-export interface FlySoundEntry { volume: number; pitch: number; events: { fly: { default: string } } }
+/** One event of a block material in the RP's `interactive_sounds.block_sounds` table: a sound name or its settings. */
+export type BlockSoundEvent = string | { sound: string; sounds?: string; volume?: number; pitch?: number };
+/** A block material's entry in the RP's `interactive_sounds.block_sounds` table (vanilla's shape). */
+export interface BlockSoundEntry { events: Record<string, BlockSoundEvent>; pitch: number; volume: number }
 /**
- * The resource pack's `sounds.json`: an `interactive_sounds` `fly` event,
- * silent over every block material, for every entity the behaviour pack
- * declares with `minecraft:can_fly` or `minecraft:movement.hover` (every
- * rotorcraft, flyer mount and scripted vehicle). Read from the emitted
- * behaviour files like the dismount hints, so no hovering entity can ship
- * without it; null when the pack has no such entity.
- *
- * What it answers: Bedrock's hover mover raises a `fly` sound event as it
- * hovers, and the client logs `[Sound][verbose] No sound found for block type
- * 'normal' and event type 'fly'` for it every few ticks - 711 lines in the
- * Pixel round of 2026-09-29 (~10/min from the orbit's cloud alone, 272/min
- * flying; `output/nimbus-pixel-0929/ContentLog-final.txt`). The line names the
- * BLOCK-material sound table (`normal` is the material of air and of most
- * stone), so the event is resolved the way an entity's `step` / `jump` /
- * `land` / `fall` over a block are: through `interactive_sounds`, whose
- * per-entity events map a block material (or `default`) to a sound
- * (vanilla's horse: `step: { default: "mob.horse.soft", wood: … }`), then
- * `interactive_sounds.block_sounds.<material>.events`. Vanilla defines `fly`
- * in NEITHER table (its only `fly` is the parrot's, in the plain
- * `entity_sounds`; `output/nimbus-fix2-0929/vanilla-sounds.json`), so the
- * fallback logs for vanilla's own hovering mobs too.
- *
- * MEASURED NOT TO WORK (Pixel, 2026-09-29): `entity_sounds.entities.<id>.events.fly: ""`,
- * the parrot's hook, shipped in `nimbus-main2-0929` and changed nothing (711
- * lines with it). It is no longer written. What is written is the per-entity
- * interactive entry `fly: { default: "" }`: a NEW key beside vanilla's, so it
- * cannot replace a vanilla entry whatever a pack's merge rule for an existing
- * key is (that rule is documented nowhere found; the wiki only says new keys
- * add without overwriting). `interactive_sounds.block_sounds.normal.events.fly`
- * would be the material-level hook, but writing `normal` means carrying
- * vanilla's other `normal` events verbatim in case the key REPLACES, and a
- * later vanilla change to that entry would then be silently undone; not done.
- * TODO(fly-sound): device-unproven. If the line persists, the next A/Bs are
- * that `block_sounds.normal` entry (verbatim copy + `fly: ""`) and a real
- * silent sound definition in place of the empty string.
+ * Vanilla's `interactive_sounds.block_sounds.normal`, VERBATIM: bedrock-samples
+ * `resource_pack/sounds.json` (branch `main`, format 1.26.50), fetched
+ * 2026-09-29, sha256 `e7a4d319e72c6fed951140f10aea5a311a8b2254bc8dfb8a85221608d2fc4afd`
+ * (a copy is `output/fly-sound-ab-0929/vanilla/sounds.json` in the main
+ * checkout). Its `fall` event carries both `sound` and `sounds` in vanilla;
+ * that quirk is kept on purpose. This is the INTERACTIVE `normal` (step /
+ * jump / land / fall), not the top-level `block_sounds.normal` (break / hit /
+ * place / ...), which is not written. Re-copy it when vanilla changes this
+ * entry (see `flySoundEvents`, TODO(fly-sound)).
  */
-export function flySoundEvents(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): { interactive_sounds: { entity_sounds: { entities: Record<string, FlySoundEntry> } } } | null {
-    const dec = new TextDecoder();
-    const entities: Record<string, FlySoundEntry> = {};
-    for (const f of files) {
-        if (!f.name.startsWith(`${bpPrefix}entities/`) || !f.name.endsWith('.json')) continue;
-        const src = dec.decode(f.data);
-        if (!src.includes('"minecraft:can_fly"') && !src.includes('"minecraft:movement.hover"')) continue;
-        const id = (JSON.parse(src) as { 'minecraft:entity'?: { description?: { identifier?: string } } })['minecraft:entity']?.description?.identifier;
-        if (!id || entities[id]) continue;
-        entities[id] = { volume: 1, pitch: 1, events: { fly: { default: '' } } };
-    }
-    return Object.keys(entities).length ? { interactive_sounds: { entity_sounds: { entities } } } : null;
+export const VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS: Readonly<BlockSoundEntry> = {
+    events: {
+        default: '',
+        fall: { sound: 'fall.stone', sounds: 'fall.stone', volume: 0.4 },
+        jump: { sound: 'jump.stone', volume: 0.12 },
+        land: { sound: 'land.stone', volume: 0.22 },
+        step: { sound: 'step.stone', volume: 0.3 },
+    },
+    pitch: 1.0,
+    volume: 1.0,
+};
+/** The RP `sounds.json` that `flySoundEvents` writes. */
+export interface FlySoundsJson { interactive_sounds: { block_sounds: { normal: BlockSoundEntry } } }
+/**
+ * The resource pack's `sounds.json` for EVERY pack whose behaviour pack
+ * declares an entity: `interactive_sounds.block_sounds.normal` = vanilla's
+ * interactive `normal` entry verbatim (`VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS`)
+ * plus a silent `fly: ""`. Null only when the pack has no entity file.
+ *
+ * What it answers: the client logs `[Sound][verbose] No sound found for block
+ * type 'normal' and event type 'fly'` for an entity moved through the air -
+ * 3,101 lines in one Pixel round, 355 in a minute of flight on the Saga. The
+ * source is ANY airborne entity, not only a `can_fly`/`movement.hover` one:
+ * with only Goku's orbit placed (a ride car, its seat and a figure, none of
+ * which hovers) the Saga logged 45-72/min. The line names the block-MATERIAL
+ * table (`normal` is air's material), so the hook is that material's `fly`.
+ *
+ * MEASURED (Saga, Minecraft 26.52, 2026-09-29/30, `output/fly-sound-ab-0929/saga/_notes.txt`):
+ * this entry (variant A) read 0 lines in every window - orbit idle 3 min,
+ * standing beside the orbit, 60 s of flight, 3 min mounted idle - against 355
+ * in the baseline's 60 s flight. A real silent sound definition named per
+ * entity in both `entity_sounds` and `interactive_sounds.entity_sounds`
+ * (variant B) read 404 in 60 s of flight: useless. The per-entity
+ * `interactive_sounds.entity_sounds.entities.<id>.events.fly: { default: "" }`
+ * this function wrote before, and the parrot-style `entity_sounds` `fly: ""`,
+ * changed nothing on the Pixel or the Saga; neither is written.
+ *
+ * TODO(fly-sound): whether a pack's `block_sounds.normal` REPLACES vanilla's
+ * entry or MERGES into it per event is unknown (documented nowhere found; the
+ * A/B cannot tell the two apart). The entry carries vanilla's events
+ * verbatim, so a replace loses nothing TODAY, but it would silently undo a
+ * later vanilla change to `normal` for as long as the pack is active. A probe
+ * shipping `normal` with ONLY `fly: ""` and listening for footsteps on stone
+ * would settle it.
+ */
+export function flySoundEvents(files: ReadonlyArray<{ name: string; data: Uint8Array }>, bpPrefix: string): FlySoundsJson | null {
+    const hasEntity = files.some(f => f.name.startsWith(`${bpPrefix}entities/`) && f.name.endsWith('.json'));
+    if (!hasEntity) return null;
+    const vanilla = VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS;
+    return { interactive_sounds: { block_sounds: { normal: { events: { ...vanilla.events, fly: '' }, pitch: vanilla.pitch, volume: vanilla.volume } } } };
 }
 /**
  * Geometry serializer: MINIFIED, unlike every other file in the pack.
@@ -3336,8 +3350,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         { name: `${rp}texts/languages.json`, data: json(['en_US']) },
         { name: `${rp}texts/en_US.lang`, data: text(langLines.join('\n')) },
     );
-    // sounds.json: a silent interactive `fly` event for every hovering entity (`flySoundEvents`: the hook the
-    // content log's block-sound fallback names; device-unproven, TODO(fly-sound)).
+    // sounds.json: vanilla's interactive `normal` block sounds plus a silent `fly` (`flySoundEvents`), for every
+    // pack with an entity: silences the content log's `event type 'fly'` line from any airborne entity (Saga A/B).
     const flySounds = flySoundEvents(files, bp);
     if (flySounds) files.push({ name: `${rp}sounds.json`, data: json(flySounds) });
     if (creatorConfig) files.push(

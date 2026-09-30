@@ -4596,29 +4596,35 @@ clean; the content log has 0 errors. Five defects, fixed the same day
    is 0; a step over `DRIVER_TELEPORT_BLOCKS` (5) is a teleport. The rotor
    shares the path.
 5. *3,101 content-log lines* `[Sound][verbose] No sound found for block type
-   'normal' and event type 'fly'` from every hovering cloud (~10/min idle,
-   240/min flying), and the same from every rotor and scripted vehicle (all
-   carry `minecraft:can_fly` + `movement.hover`). The first answer,
-   `entity_sounds.entities.<id>.events.fly: ""` (the parrot's `fly` hook), was
-   MEASURED USELESS on the Pixel (711 lines with it; below). The line names
-   the block-MATERIAL table (`normal`), which is how an entity's `step` /
-   `jump` / `land` / `fall` over a block are resolved - through
-   `interactive_sounds`, whose per-entity events map a material or `default`
-   to a sound (vanilla's horse `step: { default: "mob.horse.soft", wood: ... }`),
-   then `interactive_sounds.block_sounds.<material>.events`. Vanilla defines
-   `fly` in neither table (`output/nimbus-fix2-0929/vanilla-sounds.json`), so
-   the line is vanilla's own for every hovering mob. The RP now ships
-   `interactive_sounds.entity_sounds.entities.<id>.events.fly: { default: "" }`
-   for every hovering entity (`flySoundEvents`, read from the emitted
-   behaviour files like the dismount hints) - a NEW key, so it cannot replace
-   a vanilla entry whatever a pack's rule for an existing key is (documented
-   nowhere found: the wiki only says new keys add without overwriting; that
-   is why `block_sounds.normal.events.fly` is not written - it would mean
-   carrying vanilla's `normal` events verbatim in case the key replaces).
-   `scripts/_mcaddon_check.py` gates that the pack CARRIES the entry, and
-   says so; whether it silences the line is device-unproven
-   (`TODO(fly-sound)`; next A/Bs: the `block_sounds.normal` copy, a real
-   silent sound definition instead of the empty string).
+   'normal' and event type 'fly'` (~10/min idle, 240/min flying). The source
+   is ANY entity moved through the air, not only a hovering one: with only
+   Goku's orbit placed - a ride car, its seat and a figure, none with
+   `can_fly` / `movement.hover` - the Saga logged 45-72/min. The line names
+   the block-MATERIAL table (`normal` is air's material), resolved the way an
+   entity's `step` / `jump` / `land` / `fall` over a block are: through
+   `interactive_sounds.block_sounds.<material>.events`. Vanilla defines `fly`
+   there for no material, so the line is vanilla's own for every flying mob.
+   **Measured (Saga A/B, 2026-09-29/30, `output/fly-sound-ab-0929/`):** the RP
+   `sounds.json` `interactive_sounds.block_sounds.normal` holding vanilla's
+   interactive `normal` events verbatim plus `"fly": ""` read **0 lines in
+   every window** (orbit idle 3 min, standing by the orbit, 60 s of flight,
+   3 min mounted idle) against 355 in the baseline's 60 s flight. Per-entity
+   entries do NOTHING: the parrot-style `entity_sounds.<id>.events.fly: ""`
+   (711 lines with it, Pixel), the per-entity
+   `interactive_sounds.entity_sounds.<id>.events.fly: { default: "" }` (Pixel
+   and Saga), and a real silent `.ogg` sound definition named per entity in
+   both tables (404 lines in 60 s of flight). `flySoundEvents` now writes the
+   block entry into every pack whose behaviour pack declares an entity
+   (vanilla's events are the typed constant
+   `VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS`, bedrock-samples format 1.26.50,
+   fetched 2026-09-29), and `scripts/_mcaddon_check.py` fails a pack with an
+   entity that lacks `fly: ""` or any of vanilla's `default` / `fall` /
+   `jump` / `land` / `step`. Still unknown (`TODO(fly-sound)`): whether a
+   pack's `normal` REPLACES vanilla's or MERGES into it. Carrying vanilla's
+   events verbatim means a replace loses nothing today, but it would silently
+   undo a later vanilla change to `normal` while the pack is active; re-copy
+   the constant when bedrock-samples changes it. Quirk
+   `fly-sound-block-normal`.
 
 **What the child gets.** Goku sits on his Nimbus and flies a slow lap round
 the dragon on his own, rising and falling a little. Tap Goku (or his cloud)

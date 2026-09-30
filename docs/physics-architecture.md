@@ -404,7 +404,9 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   (85.7 mph HUD against 85.9 true; CMVT cadence 4 ticks), the look-down dive
   (~4 blocks/s down against ~22 up) and the float-down all PASS; the
   `entity_sounds` `fly: ""` entry did NOT silence the verbose line (711
-  lines; now an `interactive_sounds` entry, `flySoundEvents`, unproven). Not
+  lines; the Saga A/B of 2026-09-29/30 found the hook: a block-material
+  `interactive_sounds.block_sounds.normal.events.fly: ""` in every pack with
+  an entity, `flySoundEvents`, 0 lines in every window). Not
   yet on a device: the slower cruise, the hint on a remount of the same cloud
   (the driver now forgets its rider when the seat is empty), the seat retry
   at placement (`bedrock-placement-pack.ts`, `SEAT_RETRIES`).
