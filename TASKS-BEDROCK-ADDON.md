@@ -133,9 +133,8 @@ frames through the painted riders' heads; 10797 slide into its parked car ->
 driver seat, drove 50 blocks); 60380 driver view OK; clearance after the
 x-mirror fix: no invisible walls / pass-throughs (10326 D1, 41732 D3, 76457
 D3); 10261 kiosk seated, no retake line; Nimbus 10.55 b/s at 0.0725.
-- [ ] 42639 COCKPIT view (hotbar 9) ~2/3 covered by the car's own teal body
-  (`pixel/47b-47e`); chase view fine. The sim's driver-sees-ahead (2/15) was
-  right - it is a defect, not the view guard's blind spot.
+- [ ] 42639 COCKPIT view: fixed offline (section "Cockpit view" at the end);
+  device check of the next round's pack still open.
 - [ ] 10303: a one-frame jump at the bottom of the first drop EVERY lap (the
   loop-1 ENTRY handover, under the car -> behind it); the loop-1 exit swing
   1/5 (0.17 s to the car's side). Saga.
@@ -968,9 +967,6 @@ re-run after the last fixes). Evidence `output/sim-regress-449abd0e/`
   built from `4db40e56`, the three ride packs from `72c8c619`; `_ix_passability` 0 FAIL, 40/40
   `_mcaddon_check` OK). Classes and fixes in docs/sim-engine.md "Doorway
   attribution" and the commit messages. Open:
-  - [ ] Driver view 42639 car (2/15) and 60380 car (11/15): seats with
-    evidence (the set's own seat), which the view guard does not judge by
-    design (42172 scored 0.4 and was device-good). Device look needed.
   - [ ] 29d set rebuilt (`packs-29d-rebuild2`): 10797 slide set-down still
     0.18 inside `collider_f9`; 11204 slide 0.443 over the drawn chute (not
     the run-out: check its frame like 42652's); 10796 slide 0.206 (limit 0.2,
@@ -1041,3 +1037,44 @@ every case OK, `door1-10326` now `pass`), probes in `tools/`.
   geometry either side, diagonal leaves (off-axis), 42663's van, 910004 Door
   3's headroom, 71043's microscale doors - the 2026-09-29 causes; report,
   do not hack.
+
+## Cockpit view (2026-09-30, worktree `agent-a3760e662cc5224f1`)
+
+42639's cockpit view (Pixel 30f, two thirds its own teal body). Root causes
+and the rule: add-on guide "The driver's eye sees the road ahead". Commits
+`f35cd5c5` (registry quote escape, same as main's `1a119917`), `9759f0bf`
+(seat x turned with the geometry, wheel eye aft along the vehicle, `AHEAD`
+for every seat, sim guard on the same rule), `c3f77f69` (regression
+`cockpit-occluded-42639`, console entry, docs), `40fd7d54` (a boat's wheel
+under the keel is stowed). Evidence `output/cockpit-0930/` in this worktree:
+`packs-40fd7d54/` (42639, 60380, 42172, 10797; round labels + faces, one at a
+time, clean stamp), `mcaddon-check-40fd7d54.txt` (4/4 OK),
+`views-40fd7d54/` (offline hotbar-9 pictures), `cockpit-before-after.jpg`
+(round 30f pack left, fix right), `childplay-40fd7d54.*` (19/20: the 10797
+slide set-down in `collider_f9`, the same on the 30f pack),
+`regressions-40fd7d54.*` (the car cases OK; the other cases' packs were not
+built), `audit-base-f35cd5c5/` vs `audit-40fd7d54/` (vehicle audit, 61 sets,
+41 rideables, + `views/`), `audit-diff-f35cd5c5-40fd7d54.txt`,
+`plan-vs-drawn-40fd7d54.txt`.
+- Drawn horizon (`AHEAD` over the drawn geometry, `_cockpit_view.ts`): not
+  all clear 23/41 rideables -> 14/41. Fixed: 42639 0/6->6/6, 41395 0->6,
+  10365 2->6, 10497 0->6, 60198 car_2 0->6, 60253 3->6, 60367 4->6, 70618
+  5->6, 75892 0->6, 60221 5->6; 42172 and 10797 unchanged (6/6). After the x
+  fix the compiler's own horizon score equals the simulator's on 40/41
+  (76139: 6 vs 4, rotated-cube bounds).
+- [ ] Device: the cockpit view (hotbar 9) of 42639 (eye on the wheel's line,
+  the rim just under the horizon, the raised door at the left) and 60380
+  (in the cab now, not outside its wall); any off-centre seat moved to the
+  other side (22 rideables changed: `audit-diff-*.txt`).
+- [ ] 60446 now FAILS the horizon (0/6): its seat is the source's pilot's,
+  inside the craft, whose torso faces ~35 degrees off the inferred nose (+x)
+  at a side window; before, the mirrored seat floated the rider outside the
+  craft (6/6 of sky). Facing or pilot-direction question, not the seat.
+- [ ] Still flagged (before and after): 10337, 42143, 42128, 76139, 42092,
+  76286, 10242 (display/closed cockpits: canopy or cabin evidence whose eye
+  sees an opaque part, no clear point within `AHEAD_SEARCH`), 31109, 6286,
+  60266, 75397 (boat seats looking into a cabin), 60367 sub1/sub4. The
+  simulator's `driver-sees-ahead` reports them in any child play whose pack
+  is built with the set's name label.
+- Not changed: every compiled seat's `lock_rider_rotation: 0` (the device's
+  "look drags do not move" the cockpit view).

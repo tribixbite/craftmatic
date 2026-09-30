@@ -158,6 +158,12 @@ export interface SeatPlan {
   eyeMoved?: Vec3 | null;
   /** A guessed seat's (`none`) forward view (`forwardView`) at the evidence's seat and at the one shipped; absent for other evidence. */
   view?: { before: number; after: number } | null;
+  /**
+   * The horizon ahead (`AHEAD`, share of its rays clear) from the eye the
+   * earlier steps chose and from the one shipped, and how far the eye moved
+   * to see it (x, y, z; null = not moved). Every seat has it.
+   */
+  ahead?: { before: number; after: number; moved: Vec3 | null };
 }
 
 /**
@@ -241,6 +247,69 @@ export function forwardView(boxes: readonly BoxBlocks[], eye: Vec3): number {
   }
   return clear / total;
 }
+
+/** A fan of view rays from an eye: yaw and pitch offsets from the nose, degrees (+pitch looks up). */
+export interface ViewFan { yaw: readonly number[]; pitch: readonly number[] }
+
+/**
+ * THE HORIZON AHEAD, the one test every driver's eye passes whatever its
+ * evidence (a seated figure, a seat, a wheel, glass or a guess): the rays at
+ * the level and 5 degrees over it, straight ahead and 15 degrees either side,
+ * leave the vehicle through air or glass. Below the level a bonnet or a
+ * dashboard may fill the view (42172 at 0.25x: 6 of `VIEW`'s 15 rays clear,
+ * every one of these, and its windscreen view is device-checked good); what
+ * may not is a panel in front of the face, which hides the road wherever the
+ * player looks - 42639's driver sat 0.23 block behind a raised door and none
+ * of these rays cleared (Pixel round 30f, the cockpit view two thirds teal) -
+ * nor a steering wheel's rim over the level, which hides the road straight
+ * ahead (a minifig-scale wheel is half a block across, half a block from the
+ * eye: 42639 and 60380 at the wheel's own eye height).
+ */
+export const AHEAD: ViewFan & { minClear: number } = { yaw: [-15, 0, 15], pitch: [0, 5], minClear: 1 };
+
+/**
+ * How far the eye may move to see the horizon ahead (blocks: up over a wheel
+ * or a dashboard, back from a panel), in `step`s, and never out through a roof
+ * it sat under nor more than `VIEW.overTop` over the model's top.
+ */
+export const AHEAD_SEARCH = { up: 0.6, back: 0.6, step: 0.05 } as const;
+
+/** The direction of a fan ray in the entity frame (nose toward -Z, +y up). */
+export function fanDirection(yawDeg: number, pitchDeg: number): Vec3 {
+  const y = yawDeg * Math.PI / 180, p = pitchDeg * Math.PI / 180;
+  return [Math.sin(y) * Math.cos(p), Math.sin(p), -Math.cos(y) * Math.cos(p)];
+}
+
+/** Whether a ray from `o` along `d` meets the box (slab test; an eye inside the box is blocked). */
+function rayHitsBox(o: Vec3, d: Vec3, b: BoxBlocks): boolean {
+  let t0 = 1e-6, t1 = Infinity;
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(d[k]!) < 1e-12) { if (o[k]! < b.min[k]! || o[k]! > b.max[k]!) return false; continue; }
+    let a = (b.min[k]! - o[k]!) / d[k]!, c = (b.max[k]! - o[k]!) / d[k]!;
+    if (a > c) [a, c] = [c, a];
+    t0 = Math.max(t0, a); t1 = Math.min(t1, c);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/**
+ * Share of a fan's rays from `eye` that leave the model through air or glass
+ * (exact ray-box tests, as the simulator's `forwardViewWorld` casts them).
+ */
+export function fanView(boxes: readonly BoxBlocks[], eye: Vec3, fan: ViewFan): number {
+  const opaque = boxes.filter(b => !b.glass);
+  let clear = 0, total = 0;
+  for (const yd of fan.yaw) for (const pd of fan.pitch) {
+    total++;
+    const d = fanDirection(yd, pd);
+    if (!opaque.some(b => rayHitsBox(eye, d, b))) clear++;
+  }
+  return total ? clear / total : 1;
+}
+
+/** Whether an eye sees the horizon ahead (`AHEAD`). */
+export const seesAhead = (boxes: readonly BoxBlocks[], eye: Vec3): boolean => fanView(boxes, eye, AHEAD) >= AHEAD.minClear - 1e-9;
 
 /** Measure a driver's seat against the model's boxes (entity frame, blocks). */
 export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evidence: SeatEvidence = 'seat'): SeatPlan {
@@ -361,7 +430,47 @@ export function planSeat(boxes: readonly BoxBlocks[], eye: Vec3, seat: Vec3, evi
       }
     }
   }
-  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}) };
+  // Every seat, whatever its evidence: the eye sees the horizon ahead
+  // (`AHEAD`). When it does not - a panel, a raised door, a wheel's rim in
+  // front of the face - the eye moves to the nearest point that does, up over
+  // it or back from it (`AHEAD_SEARCH`), across the car where the evidence put
+  // it, in air, under the roof it sat under. A body drawn in the seat is kept
+  // drawn if any such point allows it.
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  const eyeOf = (s: Vec3): Vec3 => [s[0], r2(s[1] + RIDER_EYE_ABOVE_SEAT), s[2]];
+  const from = eyeOf(best.seat);
+  const aheadBefore = fanView(boxes, from, AHEAD);
+  let ahead: NonNullable<SeatPlan['ahead']> = { before: aheadBefore, after: aheadBefore, moved: null };
+  if (aheadBefore < AHEAD.minClear - 1e-9) {
+    const n = (v: number): number => Math.round(v / AHEAD_SEARCH.step);
+    const modelTop = Math.max(...boxes.map(b => b.max[1]));
+    const underRoof = (e: Vec3): boolean => boxes.some(b => !b.glass && b.min[0] <= e[0] && b.max[0] >= e[0] && b.min[2] <= e[2] && b.max[2] >= e[2] && b.min[1] > e[1] + 0.05 && b.min[1] < e[1] + 2);
+    const roofed0 = underRoof(from);
+    const drawn0 = best.steps[0]!.fits;
+    const candidates: Array<{ e: Vec3; move: number }> = [];
+    for (let j = 0; j <= n(AHEAD_SEARCH.up); j++) for (let k = 0; k <= n(AHEAD_SEARCH.back); k++) {
+      if (!j && !k) continue;
+      const e: Vec3 = [from[0], r2(from[1] + j * AHEAD_SEARCH.step), r2(from[2] + k * AHEAD_SEARCH.step)];
+      candidates.push({ e, move: Math.hypot(j, k) * AHEAD_SEARCH.step });
+    }
+    candidates.sort((a, b) => a.move - b.move);
+    let pick: { e: Vec3; drawn: boolean } | null = null;
+    for (const { e } of candidates) {
+      if (e[1] > modelTop + VIEW.overTop || eyeOverlap(boxes, e) > 0 || (roofed0 && !underRoof(e))) continue;
+      if (fanView(boxes, e, AHEAD) < AHEAD.minClear - 1e-9) continue;
+      const s: Vec3 = [e[0], r2(e[1] - RIDER_EYE_ABOVE_SEAT), e[2]];
+      const drawn = measure(s)[0]!.fits;
+      if (!pick || (drawn0 && drawn && !pick.drawn)) pick = { e, drawn };
+      // The nearest point that sees ahead, unless a body drawn in the seat could stay drawn a little further on.
+      if (!drawn0 || drawn) break;
+    }
+    if (pick) {
+      const s: Vec3 = [pick.e[0], r2(pick.e[1] - RIDER_EYE_ABOVE_SEAT), pick.e[2]];
+      ahead = { before: aheadBefore, after: fanView(boxes, pick.e, AHEAD), moved: [0, r2(pick.e[1] - from[1]), r2(pick.e[2] - from[2])] };
+      best = { seat: s, eye: pick.e, steps: measure(s), moved: best.moved };
+    }
+  }
+  return { eye: best.eye, seat: best.seat, fitScale: fitOf(best.steps), steps: best.steps, moved: best.moved, search, eyeMoved, ...(view ? { view } : {}), ahead };
 }
 
 /**
@@ -404,6 +513,20 @@ export function riderVisibleAt(plan: Pick<SeatPlan, 'steps'>, f: number): boolea
  */
 export const riderVisibleSizes = (plan: Pick<SeatPlan, 'steps'> | undefined): number[] | null =>
   plan ? plan.steps.filter(s => s.fits).map(s => s.f) : null;
+
+/**
+ * A seat measured in the compiler's RENDER frame (this module's frame: nose
+ * toward -Z) as a `minecraft:rideable` seat position (+Z the nose). The
+ * geometry is drawn at (-x, y, -z) of the render frame - its JSON x is the
+ * render x negated, and the world draws JSON x as x with z mirrored
+ * (`drawnBoxes`, bedrock-geometry-faces `worldFaces`) - so the seat turns half
+ * round with it, BOTH horizontal axes. Keeping x (until 2026-09-30) sat every
+ * seat off the centre line mirrored across it: 60380's driver outside its cab
+ * wall, 42639's beside its door (Pixel round 30f).
+ */
+export function renderSeatToEntity(p: Vec3): Vec3 {
+  return [p[0] === 0 ? 0 : -p[0], p[1], p[2] === 0 ? 0 : -p[2]];
+}
 
 /**
  * A seat's position at wand factor `f`: the rider's EYE stays on the scaled

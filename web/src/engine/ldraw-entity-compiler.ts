@@ -2022,6 +2022,13 @@ export const DRIVER_REACH_LDU = 80;
 export const HELM_EYE_LDU = { aft: 30, up: 35 } as const;
 
 /**
+ * A seated driver's eye at a car's steering wheel, LDU from the wheel's
+ * origin: aft along the vehicle (its torso 30 LDU behind the wheel) and 20
+ * over it.
+ */
+export const CAR_WHEEL_EYE_LDU = { aft: 30, up: 20 } as const;
+
+/**
  * Where the driver's EYES are, from the best evidence available, in order:
  *   1. a seated figure inside the vehicle's footprint - eyes 11 LDU above the
  *      torso origin (the head's origin is 24 LDU up, the eyes half-way down
@@ -2029,8 +2036,8 @@ export const HELM_EYE_LDU = { aft: 30, up: 35 } as const;
  *      front-most, is the driver and its parts come back in `driverParts`;
  *   2. a seat mould - a figure on it has its eyes 51 LDU above the seat (8
  *      hips, 32 torso, 11 to the eyes), centred over the seat;
- *   3. a steering wheel / stand - the driver sits 30 LDU behind it (its
- *      local +Z), eyes 20 LDU above the wheel;
+ *   3. a steering wheel / stand - the driver sits 30 LDU behind it (aft
+ *      along the vehicle, `CAR_WHEEL_EYE_LDU`), eyes 20 LDU above the wheel;
  *   4. the LARGEST windscreen / canopy mould - eyes at its centre;
  *   5. the largest translucent part big enough to be glass (≥ 30 LDU on two
  *      axes) - eyes at its centre; a lamp or an engine glow never qualifies;
@@ -2105,13 +2112,22 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
   }
   const aboveKeel = (eye: Vec3): boolean => eye[1] < keelY;
 
-  // The helmsman's eye at a wheel: behind a steering wheel (its local +Z, 30
-  // LDU, eyes 20 over it); aft of a ship's wheel, standing (`HELM_EYE_LDU`).
+  // The driver's eye at a wheel: AFT of it along the vehicle (the nose the
+  // facing chose), never along the mould's own axes - a car's steering wheel
+  // 30 LDU behind and 20 over it (`CAR_WHEEL_EYE_LDU`), a ship's helmsman
+  // standing (`HELM_EYE_LDU`). The mould's local +Z was read as "behind" until
+  // 2026-09-30: true of a 3829 stand set square, but 42639's 16091 (a
+  // reinforced 2L wheel, turned so its local Z runs ACROSS the car) put the
+  // driver 30 LDU to one side, off the car's centre line and against its door.
   const aft = frame.isXLongitudinal ? [-frame.forwardSign, 0] : [0, -frame.forwardSign];
-  const wheelEye = (w: ParsedBrick): Vec3 => isShipWheel(w.part, desc(w))
-    ? [w.x + aft[0]! * HELM_EYE_LDU.aft, w.y - HELM_EYE_LDU.up, w.z + aft[1]! * HELM_EYE_LDU.aft]
-    : local(w, [0, -20, 30]);
-  const wheels = placed.filter(b => isSteering(b.part, desc(b)) && aboveKeel(wheelEye(b)));
+  const wheelEye = (w: ParsedBrick): Vec3 => {
+    const e = isShipWheel(w.part, desc(w)) ? HELM_EYE_LDU : CAR_WHEEL_EYE_LDU;
+    return [w.x + aft[0]! * e.aft, w.y - e.up, w.z + aft[1]! * e.aft];
+  };
+  // The WHEEL itself over the keel, not only its eye: 60221's scooter wheel sits 5.6 LDU under the
+  // hull's bottom and its eye 20 over it cleared the keel once the eye stopped following the
+  // wheel's tilted axes (2026-09-30), seating the driver in the stowed scooter again.
+  const wheels = placed.filter(b => isSteering(b.part, desc(b)) && aboveKeel([b.x, b.y, b.z]) && aboveKeel(wheelEye(b)));
 
   // 1. A figure in the vehicle: a whole one (a bust - 10365's figurehead - is
   //    decoration), inside the footprint, feet above the floor. With a wheel,
@@ -2790,10 +2806,16 @@ export async function compileLdrawEntityGeometry(
   // 7. Seat + collision. The cockpit's EYE point (LDraw) goes through the same
   //    frame; the rider's origin sits SEATED_EYE_HEIGHT_BLOCKS below it.
   const cockpitUnits = toUnits(apply(A, cockpit.eyeLdu));
-  const seatX = Math.abs(cockpitUnits[0] / 16) < 0.3 ? 0 : round(cockpitUnits[0] / 16);
+  // A seated figure, a seat mould or a steering wheel names WHERE the driver
+  // sits across the car; only a volume (glass, a default cabin) is snapped to
+  // the centre line. x 0 is the middle of everything the entity carries, not
+  // the car's centre line: 42639's car carries a door raised at one side, and
+  // the snap put its driver 0.28 off the wheel.
+  const pinnedAcross = cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' || cockpit.source === 'steering-wheel';
+  const seatX = !pinnedAcross && Math.abs(cockpitUnits[0] / 16) < 0.3 ? 0 : round(cockpitUnits[0] / 16);
   const seatY = Math.max(0.3, round(cockpitUnits[1] / 16 - SEATED_EYE_HEIGHT_BLOCKS));
   // A canopy or default cabin is a volume, not a seat: set the rider back a little so the eyes sit inside the glass.
-  const seatZ = round(cockpitUnits[2] / 16 + (cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' || cockpit.source === 'steering-wheel' ? 0 : 0.35));
+  const seatZ = round(cockpitUnits[2] / 16 + (pinnedAcross ? 0 : 0.35));
   // The roof over the seat: the highest cuboid whose footprint covers the cockpit (0.3 blocks of slack), in blocks above the floor.
   const cockpitRender = apply(A, cockpit.eyeLdu), seatSlack = 0.3 * 16 / scale;
   let roofTop = -Infinity;
@@ -2817,7 +2839,7 @@ export async function compileLdrawEntityGeometry(
     });
     const eyeY = round(cockpitUnits[1] / 16);
     // A default cabin at minifig scale (a toy or doll car built round a figure) is judged by its view (cockpit-seat.ts `VIEW`).
-    return planSeat(boxes, [round(cockpitUnits[0] / 16), eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
+    return planSeat(boxes, [seatX, eyeY, round(cockpitUnits[2] / 16)], [seatX, round(eyeY - RIDER_EYE_ABOVE_SEAT), seatZ],
       cockpit.source === 'seated-figure' || cockpit.source === 'seat-parts' ? 'seat' : cockpit.source === 'steering-wheel' ? 'steering' : cockpit.source === 'default-cabin' && scale >= BEDROCK_UNITS_PER_LDU - 1e-9 ? 'none' : 'volume');
   })();
   const collisionBox = {

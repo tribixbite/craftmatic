@@ -79,7 +79,14 @@ export const REGRESSIONS: RegressionCase[] = [
     evidence: 'add-on guide "A doll car\'s guessed seat put the eye in its bodywork" (Saga 29b, `forwardView`); fix 377850a5',
     oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10797-gabbys-party-room.mcaddon`, newStem: '10797-gabbys-party-room', expectNew: 'pass',
     scenario: pack => ({ name: 'gabby-car-eye', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
-    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? 'the driver sees out of at least 90 percent of the rays' }; },
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees the horizon ahead') }; },
+  },
+  {
+    id: 'cockpit-occluded-42639', title: '42639 car: the cockpit view (hotbar 9) is two thirds the car\'s own teal body',
+    evidence: 'TASKS-BEDROCK-ADDON.md round 30f; `output/device-round-2026-09-30f/pixel/47b-47e` + `_notes.txt` "2 DRIVER VIEWS"; add-on guide "The driver\'s eye sees the road ahead"; fix 9759f0bf',
+    oldPack: `${ROUND}/device-round-2026-09-30f/packs-dc699e3e/42639-andreas-modern-mansion.mcaddon`, newStem: '42639-andreas-modern-mansion', expectNew: 'pass',
+    scenario: pack => ({ name: 'cockpit-occluded-42639', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 100 }], allowLines: allow }),
+    judge: r => { const v = violated(r, 'driver-sees-ahead'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /horizon ahead/.test(n)) ?? 'the driver sees the horizon ahead') }; },
   },
   {
     id: 'gabby-slide-tap', title: '10788 slide (29c): a tap on the slide\'s seat boards nothing',

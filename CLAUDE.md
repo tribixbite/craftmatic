@@ -292,8 +292,14 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   stops being readable ("Entity being invalid"), so keep test courses near.
 - **A `minecraft:rideable` seat's +Z is the entity's NOSE; the compiler's
   render frame has the nose at -Z.** Every compiled vehicle seat was mirrored
-  along its length until 2026-09-26 (the X-wing's pilot sat over its nose);
-  `behaviorEntity` flips z. A riding player's eye is 1.12 above its seat
+  along its length until 2026-09-26 (the X-wing's pilot sat over its nose),
+  and ACROSS it until 2026-09-30 (60380's driver sat outside its cab wall):
+  the geometry is drawn at (-x, y, -z) of the render frame, so a seat turns
+  half round, x AND z (`renderSeatToEntity`). Every seat's eye must see the
+  horizon ahead (`AHEAD`, cockpit-seat.ts); `bun scripts/_cockpit_view.ts
+  <packs> --out=<dir>` renders the hotbar-9 view offline. A car's wheel eye is
+  aft along the VEHICLE, never along the mould's axes (42639's turned
+  `16091`). A riding player's eye is 1.12 above its seat
   (measured), and removing a component group removes its components even where
   the base declares them (a `size_100` that only removed groups left vehicles
   unrideable). Seats: `cockpit-seat.ts`, add-on guide "Where the player sits".

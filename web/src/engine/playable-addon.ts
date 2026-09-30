@@ -14,7 +14,7 @@ import { CONCRETE_COLORS, encodePngRgba, generateStudBlockPng, generateEntityLeg
 import type { ParsedBrick } from './ldraw-parser.js';
 import { compileLdrawEntityGeometry, ldrawToRenderRotation, unlevelPoint, type CompiledLdrawGeometry, type EntityExtra, type EntityKind, type LegoGeometryDiagnostics } from './ldraw-entity-compiler.js';
 import { BEDROCK_UNITS_PER_LDU, LDU_PER_BLOCK } from './lego-scale.js';
-import { riderVisibleSizes, seatPositionAt, type SeatPlan } from './cockpit-seat.js';
+import { renderSeatToEntity, riderVisibleSizes, seatPositionAt, type SeatPlan } from './cockpit-seat.js';
 import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
@@ -672,9 +672,16 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // faces - its nose. Measured on the Saga (2026-09-26): 42172's seat at z
     // +1.64 put the rider's eye 1.64 blocks AHEAD of the car's origin
     // (telemetry `riderAt`), and the X-wing's pilot seat at +1.71 sat the
-    // player over its nose, in front of the canopy. X needs no change (the
-    // geometry's JSON X mirror and the entity's half turn cancel).
-    const toEntity = (p: [number, number, number]): [number, number, number] => seatPositionOverride ? [p[0], p[1], p[2] === 0 ? 0 : -p[2]] : p;
+    // player over its nose, in front of the canopy. X turns too: the geometry
+    // is drawn at (-x, y, -z) of the render frame (its JSON x is the render x
+    // negated, and Bedrock draws JSON x as world x - `drawnBoxes`, the one
+    // convention every placed actor is measured by), so the rideable seat is
+    // the render seat turned half round, both axes. Until 2026-09-30 x was
+    // kept, and every seat off the centre line sat MIRRORED across it: 60380's
+    // driver sat outside its cab wall (Pixel 30f: the cab to one side, open
+    // road to the other; its drawn steering wheel at x -0.51, the seat +0.51),
+    // 42639's behind the door on the far side of its steering wheel.
+    const toEntity = (p: [number, number, number]): [number, number, number] => seatPositionOverride ? renderSeatToEntity(p) : p;
     const rideableComponent: Record<string, unknown> = measuredPassengers.length
         ? {
             seat_count: 1 + measuredPassengers.length, controlling_seat: 0, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true,
