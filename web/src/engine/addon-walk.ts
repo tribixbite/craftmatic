@@ -13,20 +13,12 @@
  * and around it is the player's own world: a ground plane at y = 0 (the pin
  * plane), the surface the reach walk starts from.
  *
- * PHYSICS, matched to Minecraft's per-tick model (20 ticks/s):
- *   - a 0.6 x 1.8 axis-aligned box (`PLAYER_WIDTH_BLOCKS`, `PLAYER_HEIGHT_BLOCKS`);
- *   - gravity 0.08 blocks/tick^2 with the 0.98 vertical drag, so a jump at
- *     0.42 blocks/tick peaks at 1.2522 blocks: the 1.25-block jump;
- *   - horizontal: walk 4.317 blocks/s (sprint x1.3, sneak x0.3), ground
- *     friction 0.546 and air friction 0.91 with the 0.02/tick air control -
- *     a player walking off a ledge drifts ~0.8 blocks over a one-block fall,
- *     as in the game;
- *   - the auto-step of `STEP16` sixteenths (9/16, the walk's own quantised
- *     0.6): a horizontal move blocked by a rise up to it is retried stepped
- *     up, exactly when on the ground or landing this tick;
- *   - collision resolved per axis (y, then x, then z) against the partial
- *     `lo`/`hi` collider boxes and the ground plane; sneaking on the ground
- *     will not walk off a drop deeper than the step.
+ * PHYSICS: Minecraft's per-tick player (0.6 x 1.8 box, gravity 0.08 with the
+ *   0.98 drag, jump 0.42, walk 4.317 blocks/s, ground friction 0.546, the
+ *   9/16 auto-step, per-axis collision against the partial `lo`/`hi` collider
+ *   boxes and the ground plane). The integrator is the headless simulator's
+ *   (`web/src/sim/physics/body.ts`, `tickPlayer`), re-exported here: this
+ *   module supplies the WORLD it runs over (`WalkWorld.solidsNear`).
  *
  * PARITY. `walkScaledColliders` (the reach BFS) decides what the size
  * recommendation and the tread plan report. `simulateReach` floods the SAME
@@ -57,38 +49,17 @@ import {
   JUMP16, PLAYER_NEED16, STEP16, ScaledColliderGrid, blocksAt100, planColliderTreads, walkScaledColliders,
   type GridDims, type QuarterTurn, type ReachResult, type ReachTarget, type SourceCell, type Surface, type TreadBlock, type TreadPlan,
 } from './bedrock-collider-scale.js';
-import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
-import { PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
+import { NO_INPUT, tickPlayer as simTickPlayer, type Box, type Contact as SimContact, type PlayerState, type SolidQuery, type TickResult as SimTickResult, type WalkInput } from '../sim/physics/body.js';
 import { COLLIDER_KIT, type ColliderForm } from './collider-form.js';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
+// ─── Constants: the simulator's player physics (web/src/sim/physics/body.ts) ──
 
-export const TICKS_PER_SECOND = 20;
-/** The player's box: 0.6 wide, 1.8 tall (the width is the box's full extent). */
-export const PLAYER_WIDTH = PLAYER_WIDTH_BLOCKS;
-export const PLAYER_HEIGHT = PLAYER_HEIGHT_BLOCKS;
-/** Blocks per tick^2 and the per-tick vertical drag; a jump starts at `JUMP_VELOCITY` and peaks at `JUMP_PEAK`. */
-export const GRAVITY = 0.08;
-export const VERTICAL_DRAG = 0.98;
-export const JUMP_VELOCITY = 0.42;
-/** Terminal fall speed, blocks per tick. */
-export const TERMINAL_VELOCITY = 3.92;
-/** Walking speed, blocks per tick (4.317 blocks/s); sprint and sneak scale it. */
-export const WALK_SPEED = 4.317 / TICKS_PER_SECOND;
-export const SPRINT_FACTOR = 1.3;
-export const SNEAK_FACTOR = 0.3;
-/** Horizontal velocity kept per tick on the ground and in the air, and the in-air control. */
-export const GROUND_FRICTION = 0.546;
-export const AIR_FRICTION = 0.91;
-export const AIR_ACCELERATION = 0.02;
-/** The auto-step, the reach walk's own quantised height (9/16 = 0.5625), so the two agree by construction. */
-export const STEP_HEIGHT = STEP16 / 16;
-/** The jump's reach in blocks under this integrator (1.2522), against the walk's `JUMP16` (1.25). */
-export const JUMP_PEAK = ((): number => {
-  let y = 0, v = JUMP_VELOCITY, peak = 0;
-  for (let i = 0; i < 20; i++) { y += v; if (y > peak) peak = y; v = (v - GRAVITY) * VERTICAL_DRAG; }
-  return peak;
-})();
+export {
+  TICKS_PER_SECOND, GRAVITY, VERTICAL_DRAG, JUMP_VELOCITY, TERMINAL_VELOCITY, WALK_SPEED, SPRINT_FACTOR, SNEAK_FACTOR,
+  GROUND_FRICTION, AIR_FRICTION, AIR_ACCELERATION, STEP_HEIGHT, JUMP_PEAK, PLAYER_WIDTH, PLAYER_HEIGHT,
+  NO_INPUT, playerBox,
+} from '../sim/physics/body.js';
+export type { Box, PlayerState, WalkInput } from '../sim/physics/body.js';
 /** The collision epsilon (Minecraft's own 1e-7). */
 const EPS = 1e-7;
 
@@ -350,180 +321,25 @@ export function worldPointToModel(p: WorldPoint, dims: GridDims, f: number, r: Q
   return { x: m.x, y: p.y / f, z: m.z };
 }
 
-// ─── The player ──────────────────────────────────────────────────────────────
+// ─── The player: the simulator's integrator over this world ────────────────
 
-export interface Box { x0: number; y0: number; z0: number; x1: number; y1: number; z1: number }
+/** A solid the move was clipped by (a `SolidBox` of this world), and on which axis. */
+export type Contact = SimContact<SolidBox>;
+/** One tick's result over this world (`tickPlayer` returns it when called with a `WalkWorld`). */
+export type TickResult = SimTickResult<SolidBox>;
 
-export interface PlayerState {
-  /** Feet position: the box's bottom centre. */
-  x: number; y: number; z: number;
-  /** Velocity, blocks per tick. */
-  vx: number; vy: number; vz: number;
-  onGround: boolean;
-  sneaking: boolean;
-  /** The tick counter, for a caller's own timing. */
-  tick: number;
-}
-
-export interface WalkInput {
-  /** The intended horizontal direction in world axes, magnitude at most 1 (clamped). */
-  move: { x: number; z: number };
-  jump: boolean;
-  sneak: boolean;
-  sprint?: boolean;
-}
-
-/** A solid the move was clipped by, and on which axis. */
-export interface Contact { axis: 'x' | 'y' | 'z'; solid: SolidBox }
-
-export interface TickResult {
-  state: PlayerState;
-  /** Whether the move was clipped below (landing / standing), above (a ceiling), or sideways. */
-  collided: { below: boolean; above: boolean; x: boolean; z: boolean };
-  /** The auto-step raised the player this tick. */
-  stepped: boolean;
-  /** Each solid that clipped the move, once per axis it clipped. */
-  contacts: Contact[];
-}
-
-export const NO_INPUT: WalkInput = { move: { x: 0, z: 0 }, jump: false, sneak: false };
-
-export function playerBox(s: Pick<PlayerState, 'x' | 'y' | 'z'>): Box {
-  const h = PLAYER_WIDTH / 2;
-  return { x0: s.x - h, y0: s.y, z0: s.z - h, x1: s.x + h, y1: s.y + PLAYER_HEIGHT, z1: s.z + h };
+/**
+ * One tick of the player over a world of `SolidBox`es: the simulator's
+ * `tickPlayer` (web/src/sim/physics/body.ts), typed for this module's solids
+ * so a caller reads each contact's collider `block`.
+ */
+export function tickPlayer(world: SolidQuery<SolidBox>, prev: PlayerState, input: WalkInput): TickResult {
+  return simTickPlayer(world, prev, input);
 }
 
 /** A player standing still with feet at `at` (default: the ring's ground at the footprint's -x, -z corner). */
 export function spawnState(_world: WalkWorld, at?: Partial<WorldPoint>): PlayerState {
   return { x: at?.x ?? -0.5, y: at?.y ?? 0, z: at?.z ?? -0.5, vx: 0, vy: 0, vz: 0, onGround: at?.y === undefined || at.y === 0, sneaking: false, tick: 0 };
-}
-
-const overlapsXZ = (a: Box, b: Box): boolean => a.x1 > b.x0 + EPS && a.x0 < b.x1 - EPS && a.z1 > b.z0 + EPS && a.z0 < b.z1 - EPS;
-const overlapsY = (a: Box, b: Box): boolean => a.y1 > b.y0 + EPS && a.y0 < b.y1 - EPS;
-const overlapsXY = (a: Box, b: Box): boolean => a.x1 > b.x0 + EPS && a.x0 < b.x1 - EPS && overlapsY(a, b);
-const overlapsYZ = (a: Box, b: Box): boolean => a.z1 > b.z0 + EPS && a.z0 < b.z1 - EPS && overlapsY(a, b);
-const shift = (b: Box, dx: number, dy: number, dz: number): Box => ({ x0: b.x0 + dx, y0: b.y0 + dy, z0: b.z0 + dz, x1: b.x1 + dx, y1: b.y1 + dy, z1: b.z1 + dz });
-
-/** Clip a y move against the solids the box overlaps in x and z; the clipping solid, if any. */
-function clipY(box: Box, dy: number, solids: readonly SolidBox[]): { d: number; hit: SolidBox | null } {
-  let d = dy, hit: SolidBox | null = null;
-  for (const s of solids) {
-    if (!overlapsXZ(box, s)) continue;
-    if (d > 0 && s.y0 >= box.y1 - EPS) { const m = s.y0 - box.y1; if (m < d) { d = m; hit = s; } }
-    else if (d < 0 && s.y1 <= box.y0 + EPS) { const m = s.y1 - box.y0; if (m > d) { d = m; hit = s; } }
-  }
-  return { d, hit };
-}
-function clipX(box: Box, dx: number, solids: readonly SolidBox[]): { d: number; hit: SolidBox | null } {
-  let d = dx, hit: SolidBox | null = null;
-  for (const s of solids) {
-    if (!overlapsYZ(box, s)) continue;
-    if (d > 0 && s.x0 >= box.x1 - EPS) { const m = s.x0 - box.x1; if (m < d) { d = m; hit = s; } }
-    else if (d < 0 && s.x1 <= box.x0 + EPS) { const m = s.x1 - box.x0; if (m > d) { d = m; hit = s; } }
-  }
-  return { d, hit };
-}
-function clipZ(box: Box, dz: number, solids: readonly SolidBox[]): { d: number; hit: SolidBox | null } {
-  let d = dz, hit: SolidBox | null = null;
-  for (const s of solids) {
-    if (!overlapsXY(box, s)) continue;
-    if (d > 0 && s.z0 >= box.z1 - EPS) { const m = s.z0 - box.z1; if (m < d) { d = m; hit = s; } }
-    else if (d < 0 && s.z1 <= box.z0 + EPS) { const m = s.z1 - box.z0; if (m > d) { d = m; hit = s; } }
-  }
-  return { d, hit };
-}
-
-interface Sweep { dx: number; dy: number; dz: number; hits: { x: SolidBox | null; y: SolidBox | null; z: SolidBox | null } }
-
-/** The per-axis sweep (y, then x, then z) of a box by a move against the solids. */
-function sweep(box: Box, dx: number, dy: number, dz: number, solids: readonly SolidBox[]): Sweep {
-  const y = clipY(box, dy, solids);
-  let b = shift(box, 0, y.d, 0);
-  const x = clipX(b, dx, solids);
-  b = shift(b, x.d, 0, 0);
-  const z = clipZ(b, dz, solids);
-  return { dx: x.d, dy: y.d, dz: z.d, hits: { x: x.hit, y: y.hit, z: z.hit } };
-}
-
-/**
- * True when the box, moved by (dx, dy, dz) all at once, overlaps a solid -
- * the sneak guard's support test (the game's `noCollision(box.move(dx,
- * -step, dz))`): a plain overlap of the displaced box, not a sweep, so
- * support under the box's OLD position does not count.
- */
-function wouldCollide(box: Box, dx: number, dy: number, dz: number, solids: readonly SolidBox[]): boolean {
-  const b = shift(box, dx, dy, dz);
-  for (const s of solids) if (overlapsXZ(b, s) && overlapsY(b, s)) return true;
-  return false;
-}
-
-/**
- * One tick of player motion. Input is applied first (a jump only from the
- * ground, sneaking scales speed and guards ledges), the box is swept per
- * axis against the solids it could meet, a sideways clip on the ground is
- * retried stepped up by `STEP_HEIGHT`, and the velocity is then damped as
- * the game does after its move.
- */
-export function tickPlayer(world: WalkWorld, prev: PlayerState, input: WalkInput): TickResult {
-  const s: PlayerState = { ...prev, tick: prev.tick + 1, sneaking: input.sneak };
-  // Intent → velocity. Ground: an acceleration whose steady state is the walking speed under ground friction.
-  let mx = input.move.x, mz = input.move.z;
-  const mag = Math.hypot(mx, mz);
-  if (mag > 1) { mx /= mag; mz /= mag; }
-  const speed = WALK_SPEED * (input.sneak ? SNEAK_FACTOR : input.sprint ? SPRINT_FACTOR : 1);
-  if (s.onGround) {
-    const accel = speed * (1 - GROUND_FRICTION);
-    s.vx += mx * accel; s.vz += mz * accel;
-    if (input.jump) { s.vy = JUMP_VELOCITY; }
-  } else {
-    s.vx += mx * AIR_ACCELERATION; s.vz += mz * AIR_ACCELERATION;
-  }
-  let dx = s.vx, dy = s.vy, dz = s.vz;
-  const box = playerBox(s);
-  const solids = world.solidsNear(box, dx, Math.min(dy, -STEP_HEIGHT), dz);
-  // The sneak guard: on the ground, shorten a move that would leave the box without support within a step below.
-  if (input.sneak && s.onGround) {
-    const supported = (ex: number, ez: number): boolean => wouldCollide(box, ex, -STEP_HEIGHT, ez, solids);
-    for (; dx !== 0 && !supported(dx, 0); dx = Math.abs(dx) <= 0.05 ? 0 : dx - Math.sign(dx) * 0.05);
-    for (; dz !== 0 && !supported(0, dz); dz = Math.abs(dz) <= 0.05 ? 0 : dz - Math.sign(dz) * 0.05);
-    for (; dx !== 0 && dz !== 0 && !supported(dx, dz); dx = Math.abs(dx) <= 0.05 ? 0 : dx - Math.sign(dx) * 0.05, dz = Math.abs(dz) <= 0.05 ? 0 : dz - Math.sign(dz) * 0.05);
-  }
-  let sw = sweep(box, dx, dy, dz, solids);
-  let stepped = false;
-  const clippedSideways = Math.abs(sw.dx - dx) > EPS || Math.abs(sw.dz - dz) > EPS;
-  // The auto-step: when on the ground (or landing this tick), retry the move raised by the step height, then settle down.
-  if (clippedSideways && (s.onGround || (dy < 0 && Math.abs(sw.dy - dy) > EPS))) {
-    const up = clipY(box, STEP_HEIGHT, solids).d;
-    const raised = shift(box, 0, up, 0);
-    const x = clipX(raised, dx, solids);
-    const afterX = shift(raised, x.d, 0, 0);
-    const z = clipZ(afterX, dz, solids);
-    const afterZ = shift(afterX, 0, 0, z.d);
-    const down = clipY(afterZ, -up, solids);
-    const plainDist = sw.dx * sw.dx + sw.dz * sw.dz, stepDist = x.d * x.d + z.d * z.d;
-    if (stepDist > plainDist + EPS) {
-      sw = { dx: x.d, dy: up + down.d, dz: z.d, hits: { x: x.hit, y: down.hit, z: z.hit } };
-      stepped = true;
-    }
-  }
-  s.x += sw.dx; s.y += sw.dy; s.z += sw.dz;
-  const collided = { below: dy < 0 && sw.dy > dy + EPS, above: dy > 0 && sw.dy < dy - EPS, x: Math.abs(sw.dx - dx) > EPS, z: Math.abs(sw.dz - dz) > EPS };
-  if (stepped) collided.below = true;
-  s.onGround = collided.below;
-  if (collided.x) s.vx = 0;
-  if (collided.z) s.vz = 0;
-  if (collided.below || collided.above) s.vy = 0;
-  // Post-move damping, as the game applies it: gravity + drag vertically, friction horizontally.
-  s.vy = Math.max(-TERMINAL_VELOCITY, (s.vy - GRAVITY) * VERTICAL_DRAG);
-  const friction = s.onGround ? GROUND_FRICTION : AIR_FRICTION;
-  s.vx *= friction; s.vz *= friction;
-  if (Math.abs(s.vx) < 1e-5) s.vx = 0;
-  if (Math.abs(s.vz) < 1e-5) s.vz = 0;
-  const contacts: Contact[] = [];
-  if (sw.hits.y && (collided.below || collided.above)) contacts.push({ axis: 'y', solid: sw.hits.y });
-  if (sw.hits.x && collided.x) contacts.push({ axis: 'x', solid: sw.hits.x });
-  if (sw.hits.z && collided.z) contacts.push({ axis: 'z', solid: sw.hits.z });
-  return { state: s, collided, stepped, contacts };
 }
 
 // ─── Moves between surfaces: the macros ──────────────────────────────────────
