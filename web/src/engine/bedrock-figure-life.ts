@@ -53,6 +53,25 @@
 /** Dynamic property holding a figure's home record (JSON string; see `FigureHome`). */
 export const FIGURE_HOME_PROPERTY = 'craftmatic:fig';
 
+/**
+ * Dynamic property the placement sets on a source-seated figure while it is
+ * still spawning the model's actors (`Date.now()` in ms), and clears once its
+ * own seating pass has seated the figure or given up: until then the seat may
+ * not exist yet, so the figure runtime neither retakes nor reports a missing
+ * seat. 10261's placement spawns its actors over ~2 minutes and its kiosk
+ * figure before its seat; both phones logged FIGURE_RETAKE_NO_SEAT for it on
+ * every placement (Saga round 2026-09-29c). The runtimes are serialised, so
+ * both spell the literal; `test/bedrock-figure-life.test.ts` pins that.
+ */
+export const FIGURE_SEATING_PROPERTY = 'craftmatic:fig_seating';
+
+/**
+ * How long (ms) a seating mark holds the retake off. A placement stopped by
+ * an error or a script reload never clears its mark; past this the figure
+ * retakes as usual. 10261's placement takes ~2 minutes on the phones.
+ */
+export const FIGURE_SEATING_GRACE_MS = 10 * 60 * 1000;
+
 /** A figure's home record, written by the placement runtime at spawn. World blocks. */
 export interface FigureHome {
   /** Spawn feet position. */
@@ -471,6 +490,20 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
   const T = config.tuning;
   /** How far from its home (blocks) a seated figure looks for the seat to retake: 10261's kiosk seat entity sits ~2 below its home. */
   const RETAKE_REACH = 4;
+  /**
+   * Retake checks in a row (5 s apart) that find no seat near home before the
+   * content log hears of it: the first miss is a placement still spawning
+   * its seats (the figure is adopted the tick it appears), not a fault.
+   */
+  const RETAKE_MISSES_TO_WARN = 2;
+  /** `FIGURE_SEATING_PROPERTY` and `FIGURE_SEATING_GRACE_MS` (this function is serialised: literals). */
+  const SEATING_PROPERTY = 'craftmatic:fig_seating', SEATING_GRACE_MS = 600000;
+  /** Whether the placement is still seating this figure (its seat may not exist yet). */
+  const beingSeated = (e: any): boolean => {
+    let v: any;
+    try { v = e.getDynamicProperty(SEATING_PROPERTY); } catch { return false; }
+    return typeof v === 'number' && Date.now() - v < SEATING_GRACE_MS;
+  };
   const types = new Set(config.figureTypes);
   const draftTypes = new Set(config.draftTypes ?? []);
   /** A creator figure the wand is dressing or editing (`craftmatic:draft`): not this runtime's to move. */
@@ -492,6 +525,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     rehomed?: boolean;
     /** A seated figure's retake was refused or found no seat, and the content log was told once. */
     retakeWarned?: boolean;
+    /** Retake checks in a row that found no seat near home (reset when one is there). */
+    retakeMisses?: number;
     /** The seat entity a seated figure rode, retaken by id once a player gives it back. */
     seatId?: string;
   }
@@ -754,6 +789,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       }
       if (tick >= l.until) {
         l.until = tick + 100;
+        // The placement is still spawning the model (and seats it itself when done): no retake yet.
+        if (beingSeated(e)) return;
         try {
           // Its own seat by id, else the nearest seat within `RETAKE_REACH` of
           // home. A 1.5-block search found nothing on both phones (round
@@ -773,10 +810,20 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
             try { e.teleport(seats[0].location); } catch { /* unloaded */ }
             const ok = r.addRider(e);
             if (!ok && !l.retakeWarned) { l.retakeWarned = true; console.warn(`FIGURE_RETAKE_REFUSED ${e.typeId} seat ${seats[0].typeId} at ${Math.round(seats[0].location.x)},${Math.round(seats[0].location.y)},${Math.round(seats[0].location.z)}`); }
-          } else if (!seats.length && !l.retakeWarned) {
-            l.retakeWarned = true;
-            console.warn(`FIGURE_RETAKE_NO_SEAT ${e.typeId} near ${h.home.map(Math.round).join(',')}`);
+          } else if (!seats.length) {
+            // No seat near home. A placement still spawning its seats is held off
+            // above (`beingSeated`: both phones logged FIGURE_RETAKE_NO_SEAT for
+            // 10261's kiosk figure ~2 min into every placement, before its seat
+            // existed, Saga round 2026-09-29c); a pack built before that mark, or a
+            // seat entity reloading with its chunk, still misses once. The line is
+            // written on the SECOND miss in a row (10 s with no seat), once per figure.
+            l.retakeMisses = (l.retakeMisses ?? 0) + 1;
+            if (l.retakeMisses >= RETAKE_MISSES_TO_WARN && !l.retakeWarned) {
+              l.retakeWarned = true;
+              console.warn(`FIGURE_RETAKE_NO_SEAT ${e.typeId} near ${h.home.map(Math.round).join(',')} (${l.retakeMisses} checks, ${Math.round(l.retakeMisses * 100 / 20)} s)`);
+            }
           }
+          if (seats.length) l.retakeMisses = 0;
         } catch (err) { if (!l.retakeWarned) { l.retakeWarned = true; console.warn(`FIGURE_RETAKE_ERROR ${e.typeId} ${String(err)}`); } }
       }
       return;

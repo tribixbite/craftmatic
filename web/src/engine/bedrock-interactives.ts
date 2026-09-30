@@ -47,7 +47,7 @@ import { LDU_PER_BLOCK } from './lego-scale.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU, PASSAGE_WIDTH_BLOCKS } from './addon-scale.js';
 import { COLLIDER_BLOCK_ID, colliderState } from './bedrock-building-shell.js';
 import { COLLIDER_KIT, colliderFormKit, type ColliderFormKit } from './collider-form.js';
-import { LeakFlood, parseFormState } from './collider-clearance.js';
+import { LeakFlood, layerBoxes, parseFormState, type CellLayers } from './collider-clearance.js';
 
 declare const world: any;
 declare const system: any;
@@ -726,10 +726,46 @@ export interface InteractiveColliderPlan {
 /** Cells either side (and above / below) of a leaf whose static state the runtime must know: a block at 25 % holds four cells. */
 export const NEIGHBOUR_REACH = 3;
 const LEAF_SAMPLE_FROM = 0.15, LEAF_SAMPLE_TO = 0.85;
-/** The passage: how far past the leaf (cells) it may be cut, the highest floor a player steps onto (sixteenths, the walk's 9/16 step) and the lowest ceiling in the row above head height (sixteenths). */
+/**
+ * The passage: how far past the leaf (cells) it may be cut; the highest floor
+ * a player steps onto over the doorway's floor (sixteenths, the walk's 9/16
+ * step); and the clear height the passage keeps over the doorway's floor
+ * (sixteenths: 2.5 blocks - a player standing on that step, and a margin;
+ * before 2026-09-29 this was "row y0+2 free below its middle", the same 40/16
+ * for a leaf standing at a row boundary).
+ */
 const PASSAGE_REACH_CELLS = 3;
 const PASSAGE_STEP16 = 9;
-const PASSAGE_HEAD16 = 8;
+const PASSAGE_CLEAR16 = 40;
+
+/**
+ * The top of a collider cell as a surface a player STANDS on (absolute
+ * sixteenths), or null: no collider there, or a cell whose geometry is only a
+ * WALL band (`COLLIDER_KIT.cover` kind 0) - a rim clearance pulls back to the
+ * band. A cell with no geometry record (a tread or stair laid earlier, or no
+ * `layers` given) stands on its whole span, as every caller did before.
+ *
+ * Treads and stairs are planned BEFORE clearance over full cells, and a full
+ * cell's top is not always a floor: 10326's Door 1 got a half-way tread on the
+ * base's front wall (a 4/16 band with a 2/16 plate at its foot, cover f13)
+ * whose rim clearance then trimmed away, leaving the tread 0.9 block over the
+ * plate - a step from nowhere that the passability walk stood on and called
+ * the doorway OK while the device player fell 2.6 blocks into the pit in the
+ * leaf's other column (Saga round 2026-09-29c). A floor + wall form stands on
+ * its floor, a wall + ceiling form on its slab; a cell the doorway cut
+ * shortened keeps the lower of its span and its geometry.
+ */
+export function standingTop16(grid: BlockGrid, layers: CellLayers | undefined, x: number, y: number, z: number): number | null {
+  if (x < 0 || y < 0 || z < 0 || x >= grid.width || y >= grid.height || z >= grid.length) return null;
+  const f = parseFormState(grid.get(x, y, z));
+  if (!f) return null;
+  const a = layers?.get((x * grid.height + y) * grid.length + z);
+  if (!a) return y * 16 + f.hi;
+  const cover = COLLIDER_KIT.cover(layerBoxes(a));
+  if (!cover) return y * 16 + f.hi;
+  if (cover.v !== 0 && COLLIDER_KIT.VARIANTS[cover.v]!.kind === 0) return null;
+  return y * 16 + Math.min(f.hi, cover.hi);
+}
 
 /**
  * Cut every passage interactive's doorway into the COLLIDER grid (not the
@@ -745,8 +781,12 @@ const PASSAGE_HEAD16 = 8;
  * and the first two-row air within three cells (a frame 20 LDU thick
  * straddling a cell boundary is two blocks deep). A hatch opens only its own
  * cells: below it is whatever the model put there.
+ *
+ * `layers` (the part geometry per cell, `buildColliderGrid`) lets the tread
+ * and stair planners tell a floor from a wall's rim (`standingTop16`); without
+ * it every collider top counts as a floor, as before.
  */
-export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneInteractive[], frame: SceneGridFrame): Array<InteractiveColliderPlan | null> {
+export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneInteractive[], frame: SceneGridFrame, layers?: CellLayers): Array<InteractiveColliderPlan | null> {
   const isCollider = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length && grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID);
   const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length;
   const plans: Array<InteractiveColliderPlan | null> = [];
@@ -796,8 +836,11 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       }
       return yLo;
     };
+    /** Each leaf column's doorway floor (grid blocks): where the closed leaf's cells start. */
+    const columnFloor = new Map<string, number>();
     for (const [cx, cz] of columns.values()) {
       const bottom = it.kind === 'hatch' ? yLo : floorUnder(cx, cz);
+      columnFloor.set(`${cx},${cz}`, bottom);
       for (let y = Math.max(0, Math.floor(bottom + 0.02)); y <= rowTo; y++) {
       if (!inGrid(cx, y, cz)) continue;
       const lo = Math.max(0, Math.min(15, Math.floor((bottom - y) * 16 + 1e-6)));
@@ -823,9 +866,20 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     }
     if (it.kind !== 'hatch') {
       // The passage, along the leaf's horizontal normal, both ways: a
-      // column a player can stand in at the doorway's floor (row y0 at most a
-      // step high, row y0+1 free, row y0+2 free below its middle) ends it;
-      // the columns between are opened to that shape.
+      // column a player can stand in at the doorway's floor ends it; the
+      // columns between are opened to that shape.
+      //
+      // Measured from the DOORWAY's floor, not from the row the leaf's bottom
+      // is in: the player's band runs from a step (`PASSAGE_STEP16`) over
+      // that floor up to `PASSAGE_CLEAR16` over it, a column is standable when
+      // no collider box reaches into the band, and opening a column trims each
+      // cell to what lies outside the band - a floor under it, a lintel over
+      // it (one span per cell, the larger). The row-based rule ("row y0 at
+      // most a step high") read a floor LEVEL with a leaf hung 14/16 up its
+      // row as an obstacle and cleared it whole: 41732's stoop in front of
+      // Door 3 became a 2.7-block pit to the street and the museum's floor
+      // behind 10326's Door 1 a 1-block pit (Saga round 2026-09-29c). For a
+      // leaf standing at a row boundary the two rules agree exactly.
       const n = it.leaf.normal;
       const gn = norm([g(add(corner, n))[0] - g(corner)[0], 0, g(add(corner, n))[2] - g(corner)[2]]);
       const y0 = rowFrom;
@@ -834,22 +888,44 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
         const m = /\[lo=(\d+),hi=(\d+)\]$/.exec(grid.get(x, y, z));
         return m ? [Number(m[1]), Number(m[2])] : [0, 16];
       };
-      const standable = (x: number, z: number): boolean => {
-        const a = spanAt(x, y0, z), b = spanAt(x, y0 + 1, z), c = spanAt(x, y0 + 2, z);
-        return (!a || a[1] <= PASSAGE_STEP16) && !b && (!c || c[0] >= PASSAGE_HEAD16);
+      /** The collider spans of column (x, z) reaching into the band (lo16, hi16), absolute sixteenths, with their rows. */
+      const inBand = (x: number, z: number, lo16: number, hi16: number): Array<{ y: number; s: [number, number] }> => {
+        const out: Array<{ y: number; s: [number, number] }> = [];
+        for (let y = Math.max(0, Math.floor(lo16 / 16)); y < grid.height && y * 16 < hi16; y++) {
+          const s = spanAt(x, y, z);
+          if (s && y * 16 + s[0] < hi16 && y * 16 + s[1] > lo16) out.push({ y, s });
+        }
+        return out;
       };
-      const openUp = (x: number, z: number): void => {
-        const a = spanAt(x, y0, z), c = spanAt(x, y0 + 2, z);
-        if (a && a[1] > PASSAGE_STEP16) { grid.set(x, y0, z, 'minecraft:air'); passageCleared++; }
-        if (spanAt(x, y0 + 1, z)) { grid.set(x, y0 + 1, z, 'minecraft:air'); passageCleared++; }
-        if (c && c[0] < PASSAGE_HEAD16) { grid.set(x, y0 + 2, z, 'minecraft:air'); passageCleared++; }
+      const band = (door16: number): [number, number] => [door16 + PASSAGE_STEP16, door16 + PASSAGE_CLEAR16];
+      const standable = (x: number, z: number, door16: number): boolean => inBand(x, z, ...band(door16)).length === 0;
+      const openUp = (x: number, z: number, door16: number): void => {
+        const [lo16, hi16] = band(door16);
+        // Every cell from the doorway's floor up: one at or under the step line stays as a step
+        // unless it holds a FLOOR with something on it (a post, a seat back - 41732's Door 4 has
+        // a lamp post on the floor plate inside it, which clearance would cover as a knee-high
+        // band across the doorway), which is trimmed to the floor.
+        for (const { y, s } of inBand(x, z, door16, hi16)) {
+          const floor16 = standingTop16(grid, layers, x, y, z);
+          if (y * 16 + s[1] <= lo16 && (floor16 === null || floor16 >= y * 16 + s[1])) continue;
+          // The part under the band stays only where the cell's geometry has a FLOOR there
+          // (`standingTop16` at or under the step line: a floor with a post or rail on it); a
+          // wall's foot is not kept as a step - at 400 % a 9/16 ledge is a 2.25-block wall.
+          const below = floor16 !== null && floor16 <= lo16 && floor16 - y * 16 > s[0] ? [s[0], Math.min(16, floor16 - y * 16)] as const : null;
+          const above = hi16 - y * 16 < s[1] ? [Math.max(0, hi16 - y * 16), s[1]] as const : null;
+          const keep = above && below ? (above[1] - above[0] >= below[1] - below[0] ? above : below) : above ?? below;
+          if (keep && keep[1] > keep[0]) grid.set(x, y, z, colliderState(keep[0], keep[1]));
+          else grid.set(x, y, z, 'minecraft:air');
+          passageCleared++;
+        }
       };
       // A player moves between columns that share a FACE: a step along a
       // diagonal normal (a 45-degree leaf) that changes both x and z also
       // opens the connector column between them (the less solid of the two),
       // or the passage is a chain of corners no 0.6-wide box fits through.
-      const solidity = (x: number, z: number): number => [y0, y0 + 1, y0 + 2].reduce((n, y) => n + (spanAt(x, y, z) ? 1 : 0), 0);
+      const solidity = (x: number, z: number, door16: number): number => inBand(x, z, ...band(door16)).length;
       for (const [cx, cz] of columns.values()) for (const dir of [1, -1]) {
+        const door16 = Math.round((columnFloor.get(`${cx},${cz}`) ?? y0) * 16);
         const cells: Array<[number, number]> = [];
         let open = false, px = cx, pz = cz;
         const visit = (x: number, z: number): 'open' | 'go' => {
@@ -859,7 +935,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
           // the closed leaf merges with).
           if (columns.has(`${x},${z}`)) return 'go';
           if (!cells.some(([a, b]) => a === x && b === z)) {
-            if (standable(x, z)) return 'open';
+            if (standable(x, z, door16)) return 'open';
             cells.push([x, z]);
           }
           return 'go';
@@ -868,14 +944,14 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
           const x = Math.floor(cx + 0.5 + gn[0] * dir * k), z = Math.floor(cz + 0.5 + gn[2] * dir * k);
           if ((x === px && z === pz) || (x === cx && z === cz)) continue;
           if (x !== px && z !== pz) {
-            const [ax, az] = solidity(x, pz) <= solidity(px, z) ? [x, pz] : [px, z];
+            const [ax, az] = solidity(x, pz, door16) <= solidity(px, z, door16) ? [x, pz] : [px, z];
             if (visit(ax, az) === 'open') { open = true; break; }
           }
           px = x; pz = z;
           if (visit(x, z) === 'open') { open = true; break; }
         }
         if (!open) continue;
-        for (const [x, z] of cells) openUp(x, z);
+        for (const [x, z] of cells) openUp(x, z, door16);
       }
       // A raised threshold (a leaf standing on a plate or two over the floor
       // either side) is a rise past the 9/16 auto-step: walking at it, the
@@ -891,8 +967,9 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
         if (!inGrid(x, 0, z) || columns.has(`${x},${z}`)) continue;
         let top = -Infinity;
         for (let y = Math.min(grid.height - 1, Math.floor(door + 1e-6)); y >= Math.max(0, Math.floor(door) - 2); y--) {
-          const s = staticSpan(x, y, z);
-          if (s && y + s[1] / 16 <= door + 1e-6) { top = y + s[1] / 16; break; }
+          // The floor beside the door is a surface a player stands on, never a wall's rim (`standingTop16`).
+          const st = standingTop16(grid, layers, x, y, z);
+          if (st !== null && st / 16 <= door + 1e-6) { top = st / 16; break; }
         }
         if (!Number.isFinite(top)) top = 0;
         const rise = door - top;
@@ -919,7 +996,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     const floor16 = blocking.length ? Math.min(...blocking.map(c => c[1] * 16 + c[3])) : 0;
     plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [], approach: [...approach.values()], floor16 });
   }
-  if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll);
+  if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll, layers);
   captureDoorwayNeighbours(grid, plans);
   return plans;
 }
@@ -981,9 +1058,11 @@ const STAIR_MAX_FLOOD_VOXELS = 64_000_000;
  *   than needed, never wrong.)
  *
  * Stairs are laid on the COLLIDER grid before clearance, like the doorway cut
- * and the single tread; `stairTreads` counts the cells laid.
+ * and the single tread; `stairTreads` counts the cells laid. With `layers` a
+ * column's floor is a surface a player stands on (`standingTop16`); a wall's
+ * rim under the doorway's floor is not open air beside it and refuses the run.
  */
-export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveColliderPlan | null>, candidates: readonly StairCandidate[], leafColumns: ReadonlyMap<string, number>): void {
+export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveColliderPlan | null>, candidates: readonly StairCandidate[], leafColumns: ReadonlyMap<string, number>, layers?: CellLayers): void {
   const W = grid.width, H = grid.height, L = grid.length;
   const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < W && y < H && z < L;
   const isCollider = (x: number, y: number, z: number): boolean => inGrid(x, y, z) && grid.get(x, y, z).startsWith(COLLIDER_BLOCK_ID);
@@ -1027,7 +1106,13 @@ export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveCol
         if (!s) continue;
         const top = y * 16 + s[1], bottom = y * 16 + s[0];
         if (bottom < head16 && top > door16) return null; // something between the doorway's floor and the head room
-        if (top <= door16) { floor16 = top; break; }
+        if (top <= door16) {
+          // The floor is a surface a player stands on; a wall's rim here is not open air beside the door.
+          const st = standingTop16(grid, layers, x, y, z);
+          if (st === null) return null;
+          floor16 = st;
+          break;
+        }
       }
       return floor16;
     };

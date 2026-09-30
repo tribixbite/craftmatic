@@ -313,6 +313,8 @@ describe('planInteractiveColliders', () => {
     const [plan] = planInteractiveColliders(g, [leafAt(3.25, 1.5, 5.5)], frame);
     expect(plan!.passageCleared).toBeGreaterThan(0);
     for (const z of [4, 6]) for (const x of [3, 4]) for (const y of [1, 2]) expect(g.get(x, y, z), `${x},${y},${z}`).toBe('minecraft:air');
+    // Row 3 keeps what lies over the passage's clear height (2.5 blocks over the doorway's floor): a lintel, not air.
+    for (const z of [4, 6]) for (const x of [3, 4]) expect(g.get(x, 3, z), `${x},3,${z}`).toBe(colliderState(8, 16));
     // Past the wall the floor was already standable: row 0 is untouched everywhere.
     for (let z = 0; z < 10; z++) expect(g.get(3, 0, z)).toBe(colliderState(0, 16));
   });

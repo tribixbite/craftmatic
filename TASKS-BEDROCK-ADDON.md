@@ -191,19 +191,20 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   or base plates, not investigated); 10796 cockpit sees ahead; 11204 slide;
   10786 boat aground as expected. 10303 loops pitch over; the 29b exit cut
   NOT reproduced (n=1 lap). Undo left nothing, incl. ridden cars.
-- [ ] Saga 29c doorway defects (first agent cut off by a spend limit; its work is snapshot `cb8e851a` in worktree `agent-a9d41e0a221ddc20b`, a new agent finishes and verifies it there):
-  (A) 10326 Door 1: a 2.25-block HOLE at the threshold (walk in from the
-  porch drops to -59.75 under the lintel; out lands on the ground) - the
-  doorway cut removed the floor cells under the leaf; `_ix_passability`
-  said OK, so the harness walks a different line - close that gap too.
-  (B) 910004 Door 3: walk-out stops one cell before the doorway:
-  `collider_w6` at head height in (6794,-55,5001), the approach cell.
-  (D) spurious `FIGURE_RETAKE_NO_SEAT` ~2 min into every 10261 placement,
-  before the seats exist; also `winterchalet_910004_fig5` + "figure 4
-  could not take its seat" on a second 910004 placement.
-  (E) 10788 lift tap did not board from floors 2/3 (5 taps; `/ride` did) -
-  the 29d Saga round probes what the ray hits.
-- [ ] Saga 29d (first agent cut off by a spend limit at 17:28; a new agent took over its lock and resumes from `29d/saga/`): slide by tap, lift taps on
+- [x] Saga 29c doorway defects MERGED `c4c34b1c` (2,842 tests; details in
+  the doors section at the end of this file): (A) 10326 Door 1's drop is the
+  MODEL's - the door sits 2.6 blocks above the base plate with nothing drawn
+  in front; the harness had passed it on a tread laid on a wall rim, now
+  removed, and walks each leaf column printing HOLE. (B) 910004 Door 3 is the
+  model's too: 1.25-1.75 blocks of headroom inside (a platform under the
+  upper floor); the harness now says SEALED. (D) a `craftmatic:fig_seating`
+  mark stops the retake runtime while the placement is still seating.
+  Only verdict change in 116 rows: 910004 Door 3 OK/STEP -> SEALED.
+  - [ ] Decide: the new passage rule keeps 10326's 1/8-block lip as a whole
+    collider cell, an invisible 1-block ledge at door height over the pit.
+  - [ ] Device: 10326 Door 1 walk-out onto that ledge; 41732 Door 3 both
+    ways; a 10261 placement with no FIGURE_RETAKE line.
+- [ ] Saga 29d (resumed by a new agent after a spend-limit cut-off; `29d/saga/`): slide by tap, lift taps on
   floors 2/3 with block probes, Nimbus follow-ups (no false seat line,
   cruise at 0.09 measured, remount hint, dive, float-down, `fly` count with
   the interactive entry), three 10303 laps for the exit cut, fig6.
@@ -302,6 +303,25 @@ for my 5yo to explore and play with."
     drawers and lids. 10797's turntable showed no tap target at 2.5 blocks (`s50`).
   - Lift exit onto the 2nd/3rd floors lands beside the shaft on the room's
     floor (`v17`); the step off is a teleport, not a walk.
+
+## Headless Bedrock simulator (2026-09-29, user-approved)
+
+Goal: catch most bugs in minutes without an adb round; long term it grows
+into a standalone web game engine (user: "Keep it modular and DRY"). Of 14
+device-found defects on 09-29, ~9 were our logic and simulator-catchable.
+A worktree agent is building `web/src/sim/` (world, entity components from
+the pack JSON, physics from `addon-walk.ts`, one mock `@minecraft/server`
+running ALL pack scripts together, measured touch input: tap = ray + hit,
+quirk registry with evidence, scenario DSL + invariants, craftmatic
+child-play adapter, `scripts/sim.ts`, `docs/sim-engine.md`).
+- [ ] Acceptance: the regression set reproduces on the OLD packs and passes
+  on new builds - 29b Gabby slide on rails / lift car / 10797 fall-through /
+  eye in bodywork; 29c slide tap; Nimbus sneak drop + hint overwrite; 29d
+  10326 threshold + 910004 approach wall (still failing on main until the
+  doorway agent merges); the spurious 10261 retake line.
+- [ ] Then: the favourites child-play run, the unmodelled-API ranking (the
+  roadmap), migrating the per-module test hosts onto the mock, and folding
+  interactive-walk/figure-life-sim in after the doorway merge.
 
 ## New-set onboarding + 11390 (2026-09-29)
 
@@ -809,3 +829,31 @@ tests first (`test/vehicle-driver.test.ts`, `test/placement-seating.test.ts`,
   A/B `interactive_sounds.block_sounds.normal` (vanilla's entry verbatim +
   `fly: ""`) and a real silent sound definition; if neither, remove the
   entry and the gate (`TODO(fly-sound)` in playable-addon.ts).
+
+## Doors fix after Saga round 29c (worktree `agent-a9d41e0a221ddc20b`, 2026-09-29/30)
+
+Commits `cb8e851a` (the first agent's WIP) + `db994f40`, `448fc3db`,
+`df580c19`. Findings: `docs/bedrock-interactivity.md`, "The doorway's floor,
+a floor's top, and the device's line". Evidence: the worktree's
+`output/doors-fix-0929/` (probes in `tools/`) and `output/doors-fix-0929b/`
+(`packs-448fc3db/` = the 29d round rebuilt, `verdicts/*.json` + `verdict_diff.py`,
+`trace_door.ts`, `trace_line.ts`, `sweep/`). Gates at `df580c19`: both
+typechecks, `bun run test` 2822 passed / 31 skipped, physics spec current,
+passability 0 FAIL (4 rows changed, all 910004 Door 3 -> SEALED), sweep 6/6
+with `_mcaddon_check` valid.
+- (A) 10326 Door 1: the device's fall is the model's (door 2.6 over the base
+  plate at the model's front edge, no steps in the source; the threshold is
+  intact in every pack). Fixed: the phantom tread the walk stood on.
+- (B) 910004 Door 3: the model's (platform under a 1.56-1.75 ceiling); SEALED.
+- (D) FIGURE_RETAKE_NO_SEAT: `craftmatic:fig_seating` mark from spawn to the
+  placement's seating pass. Probably also the "figure 4 could not take its
+  seat" line (the runtime's retake seating fig4 before the placement's pass
+  did): not proved, the reason text was not captured.
+- [ ] Device: 10326 Door 1 walk-out at x 10.67 (expect the new invisible
+  1-block ledge at the doorway's level, then the model's edge), 41732 Door 3
+  both ways (stoop kept), 10261 placement: no FIGURE_RETAKE_NO_SEAT in the
+  content log, the kiosk figure seated.
+- [ ] Decide on 10326's ledge: the passage keeps a cell under the step line
+  whole even where its geometry is a 1/8-block lip (rule 1's flip side).
+- [ ] 10022 Door 1 reads OK at 150/200 % via a ledge on the car's side
+  (main: ONE-WAY); not judged against the model.

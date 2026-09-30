@@ -1085,6 +1085,8 @@ one of these files fails the check until its row is written.
 | `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |
+| `FIGURE_SEATING_PROPERTY` | const | Dynamic property (`Date.now()` ms) the placement sets on a source-seated figure until its own seating pass is done with it; the runtime neither retakes nor reports a missing seat meanwhile (10261 spawns its kiosk figure ~2 min before the seat, Saga 2026-09-29c). |
+| `FIGURE_SEATING_GRACE_MS` | const | 10 minutes: a seating mark older than this (a placement stopped by a reload) no longer holds the retake off. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-rides.ts -->
