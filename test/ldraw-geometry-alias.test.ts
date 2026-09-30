@@ -14,6 +14,9 @@ import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometr
 import { partAliasCandidates } from '../web/src/engine/ldraw-part-aliases.js';
 
 const BRICK = ['0 Brick 1 x 1', '4 16 -10 -24 -10 10 -24 -10 10 -24 10 -10 -24 10', '4 16 -10 0 -10 10 0 -10 10 0 10 -10 0 10'].join('\n');
+/** A 1x4x6 door leaf in the official frame (origin at its head, body y 4..136) and Studio's stub of it (origin at its foot, y -140..-8). */
+const DOOR_OFFICIAL = ['0 Door  1 x  4 x  6 Smooth with Square Handle Plinth', '4 16 0 4 0 67 4 0 67 136 0 0 136 0'].join('\n');
+const DOOR_STUDIO_STUB = ['0 GLASS DOOR FOR FRAME 1X4X6 (Needs Work)', '4 16 0 -140 0 67 -140 0 67 -8 0 0 -8 0'].join('\n');
 
 describe('export resolver alias ladder', () => {
   let root: string;
@@ -24,6 +27,9 @@ describe('export resolver alias ladder', () => {
     writeFileSync(join(root, 'parts', '6538.dat'), BRICK);
     writeFileSync(join(root, 'parts', '3626a.dat'), BRICK);
     writeFileSync(join(root, 'parts', '41669.dat'), BRICK);
+    mkdirSync(join(root, 'UnOfficial', 'parts'), { recursive: true });
+    writeFileSync(join(root, 'parts', '60616a.dat'), DOOR_OFFICIAL);
+    writeFileSync(join(root, 'UnOfficial', 'parts', '60616.dat'), DOOR_STUDIO_STUB);
     setLDrawRoot(root);
     setLDrawMirror(null);
   });
@@ -72,6 +78,16 @@ describe('export resolver alias ladder', () => {
     expect(mesh).not.toBeNull();
     expect(provider.report().substitutions).toContainEqual({ part: 'x346', alias: '41669' });
     expect(provider.report().unresolved).toEqual([]);
+  });
+
+  it('reads a Studio-shadowed name as its official mould, not the local stub in another frame', async () => {
+    // 60616: Studio's UnOfficial stub sits a door height above the official
+    // 60616a (STUDIO_FRAME_REDIRECTS). The stub is FOUND, so only a redirect
+    // ahead of the probe keeps it from being drawn.
+    expect(await getDatText('60616')).toBe(DOOR_OFFICIAL);
+    expect(datSubstitutionFor('60616')).toBeUndefined();
+    const mesh = await createPartGeometryProvider().getPartMesh('60616');
+    expect(mesh!.bounds.min[1]).toBeGreaterThanOrEqual(0); // body runs DOWN from the origin, as the frame 60596's
   });
 
   it('never applies the ladder to a primitive path', async () => {

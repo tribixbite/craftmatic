@@ -8,7 +8,7 @@
  */
 
 import type { Vec3, Triangle, Edge, PartGeom, UV } from './types.js';
-import { partAliasCandidates } from '../../engine/ldraw-part-aliases.js';
+import { partAliasCandidates, studioFrameRedirect } from '../../engine/ldraw-part-aliases.js';
 
 const datTextCache = new Map<string, string | null>();
 const partGeomCache = new Map<string, PartGeom>();
@@ -884,6 +884,15 @@ async function fetchDatText(id: string): Promise<string | null> {
   const orderedPaths = candidateRelPaths(key).map(p => `${LDRAW_BASE}/${p}`);
 
   const promise = (async (): Promise<string | null> => {
+    // Before any cache: a name whose Studio file is in another origin frame is
+    // read as its official mould (`STUDIO_FRAME_REDIRECTS`). Ahead of the IDB
+    // lookup on purpose - an earlier session persisted Studio's text under the
+    // bare name. In-memory only, like an alias, for the same reason.
+    const redirect = studioFrameRedirect(key);
+    if (redirect) {
+      const text = await fetchDatText(redirect);
+      if (text !== null) { datTextCache.set(key, text); return text; }
+    }
     // Persistent cache first: library .dat files are immutable in practice,
     // so a previous session's fetch satisfies this one with zero network.
     const persisted = await idbGetDat(key);

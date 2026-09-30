@@ -28,7 +28,7 @@
  */
 
 import type { ParsedBrick } from './ldraw-parser.js';
-import { partAliasCandidates } from './ldraw-part-aliases.js';
+import { partAliasCandidates, studioFrameRedirect } from './ldraw-part-aliases.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import { ldrawColorToBlock, LDRAW_COLOR_TO_BLOCK } from './ldraw-colors.js';
 import { type VoxelizeResult, type VoxelizeOptions, TECHNIC_INTERNAL_PARTS } from './ldraw-voxelizer.js';
@@ -322,6 +322,14 @@ async function fetchDatText(id: string): Promise<string | null> {
   if (datInFlight.has(key))  return datInFlight.get(key)!;
 
   const promise = (async (): Promise<string | null> => {
+    // A name whose local Studio file is in another origin frame is read as its
+    // official mould first (`STUDIO_FRAME_REDIRECTS`: 60616 hung a door height
+    // over its frame). Not a near-variant substitution, so not recorded as one.
+    const redirect = studioFrameRedirect(key);
+    if (redirect) {
+      const text = await fetchDatText(redirect);
+      if (text !== null) { datTextCache.set(key, text); return text; }
+    }
     const direct = await probeLibrary(key);
     if (direct !== null) { datTextCache.set(key, direct); return direct; }
     // CLI only: the EXACT name at the mirror before any local alias. The local

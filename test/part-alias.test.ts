@@ -20,7 +20,7 @@ import {
   substitutedDatNames,
   clearMpdInlines,
 } from '../web/src/viewer/ldraw/parts.js';
-import { LDRAW_PART_ALIASES } from '../web/src/engine/ldraw-part-aliases.js';
+import { LDRAW_PART_ALIASES, studioFrameRedirect } from '../web/src/engine/ldraw-part-aliases.js';
 
 describe('partAliasCandidates', () => {
   it('strips mecabricks decoration and mould-version suffixes', () => {
@@ -109,13 +109,18 @@ describe('partAliasCandidates', () => {
     for (const stem of ['112554', '112555', '112556', '112557', '112558', '109637']) {
       expect(partAliasCandidates(stem), stem).toEqual([]);
     }
-    // `60616` resolves on prod to a Studio "(Needs Work)" stub whose origin is
-    // on the BOTTOM plane; the real mould `60616a` has it at the top. clego's
-    // harvester fitted every Mecabricks door (184 placements) against the
-    // stub, so mapping 60616 → 60616a HERE would drop all of them by 144 LDU.
-    // The fix is a re-fit in clego (the 3814 → 973 recipe), never this table.
+    // `60616`'s local file is a Studio "(Needs Work)" stub whose origin is on
+    // the BOTTOM plane; the real mould `60616a` has it at the top. The ladder
+    // (a miss-only fallback) still has nothing for it: the stub never misses.
+    // Since 2026-09-30 it is read as 60616a BEFORE the library probe
+    // (`STUDIO_FRAME_REDIRECTS`) - the Mecabricks re-fit this note used to
+    // wait for is done (the indexed MecabricksLDR writes 60616a in 100 files;
+    // only the retired `_Mecabricks*_prev` classes still place the stub), and
+    // every indexed first pick placing plain 60616 is in the official frame.
     expect(partAliasCandidates('60616')).toEqual([]);
     expect(LDRAW_PART_ALIASES['60616']).toBeUndefined();
+    expect(studioFrameRedirect('60616')).toBe('60616a');
+    expect(studioFrameRedirect('s/60616s01')).toBeUndefined();
   });
 
   it('terminates and never repeats a candidate', () => {

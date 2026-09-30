@@ -151,6 +151,47 @@ export const LDRAW_PART_ALIASES: Readonly<Record<string, string>> = Object.freez
 });
 
 /**
+ * Names whose LOCAL file is Studio's own `UnOfficial/parts/<name>.dat` in a
+ * DIFFERENT origin frame from the one sources place that name in; resolved to
+ * the official mould BEFORE any library probe, so the Studio mesh is never read.
+ *
+ * `LDRAW_PART_ALIASES` above only fires on a miss. These names never miss:
+ * Studio's 2020 library ships a bare file for them, the official library only
+ * the suffixed moulds, so the direct probe returns Studio's mesh and the
+ * placement lands wherever that mesh's origin says.
+ *
+ * `60616` (Door 1 x 4 x 6): Studio's file ("GLASS DOOR FOR FRAME 1X4X6 (Needs
+ * Work)") runs y -140..-8 - origin at the leaf's FOOT - while `60616a`/`60616b`
+ * run y 4..136 from its HEAD, the frame 60596's convention (measured
+ * 2026-09-30, centre shift 143.9 LDU, sizes within 1.7 LDU; the z difference
+ * is the handle). Sources place it at the frame's origin: in IOModel2V2 186
+ * of 197 plain `60616` leaves sit at dy 0 from their nearest 60596 and 10 at
+ * +140/+141 (stacked frames); every indexed FIRST PICK placing it (15 sets)
+ * is dy 0. Studio's own `.io` writes the same placement as `60616a.dat` in
+ * `model.ldr` and `60616.dat` only in `model2.ldr` (LDD ids, what IOModel2V2
+ * converts). Only the retired `_Mecabricks*_prev` classes place it at +144.
+ * Read through Studio's file, every such door hung one door height ABOVE its
+ * frame: 10326's three back doors floated 2.7 blocks over their own doorways
+ * (Pixel/Saga round 2026-09-30g) and an access stair lifted the player past
+ * the empty frame to reach one.
+ *
+ * Found by `output/museum-entrance-0930/studio-shadow-scan.ts`: of Studio's
+ * 22,692 unofficial files only 5 bare numeric names shadow an official
+ * suffixed sibling, and 60616 is the only same-size pure frame shift.
+ * TODO(studio-shadow): `64567` ("LIGHT SWORD SHAFT" vs `64567a` hilt) is
+ * shifted 35.5 LDU in y with a 8.9 LDU height difference; unmapped until a
+ * placement census in a hand shows which frame sources use.
+ */
+export const STUDIO_FRAME_REDIRECTS: Readonly<Record<string, string>> = Object.freeze({
+  '60616': '60616a',
+});
+
+/** The official mould a bare name must be read as, when Studio's local file for it is in another frame (`STUDIO_FRAME_REDIRECTS`). */
+export function studioFrameRedirect(key: string): string | undefined {
+  return key.includes('/') ? undefined : STUDIO_FRAME_REDIRECTS[key];
+}
+
+/**
  * Alias ladder for part names that exist in NO LDraw library. Converted models
  * name pieces by mould/decoration variants LDraw either never adopted or names
  * differently: mecabricks writes `3626d1024` (head, decoration 1024) and
