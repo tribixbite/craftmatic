@@ -76,7 +76,9 @@ describe('world', () => {
     types.addDefinition('f.json', { 'minecraft:block': { description: { identifier: 'test:f', states: { 'test:lo': { values: { min: 0, max: 15 } } } }, components: { 'minecraft:collision_box': [{ origin: [-8, 0, -8], size: [16, 4, 16] }, { origin: [0, 4, -8], size: [8, 12, 16] }], 'minecraft:selection_box': false } } });
     const shape = types.shape('test:f', {});
     expect(shape.collision).toHaveLength(2);
-    expect(shape.collision[1]).toEqual({ x0: 0.5, y0: 0.25, z0: 0, x1: 1, y1: 1, z1: 1 });
+    // Declared at origin x 0, size 8: the device stands it on the LOW-x half (x is mirrored,
+    // quirk block-collision-x-mirrored, Pixel GameTest 2026-09-30).
+    expect(shape.collision[1]).toEqual({ x0: 0, y0: 0.25, z0: 0, x1: 0.5, y1: 1, z1: 1 });
     expect(shape.selection).toHaveLength(0);
   });
 });
@@ -177,23 +179,55 @@ describe('the script host', () => {
     expect(tap(sim.engine, p, target).entity).toBe(target);
   });
 
-  it('a rider that sneaks off a mount whose seat sits under the ground stands on the ground, not in it (quirk dismount-free-spot, assumed)', async () => {
-    const car = entityJson('x:car', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, 0, 0] } }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
+  it('a rider that gets off is set on the floor one block to -z, then +z, then a diagonal; walled in, at the seat 0.2 up (quirk dismount-free-spot, Pixel GameTest 2026-09-30)', async () => {
+    // The moulded seat's shape: rider 0.3 under the seat entity. Sunk: the seat entity AT the ground top (run 2 `sunk03`).
+    const seat = entityJson('x:seat', { 'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: { position: [0, -0.3, 0] } }, 'minecraft:physics': { has_gravity: false, has_collision: false } });
     const sim = new Simulation();
-    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'car.json': car }), 'mini'));
-    const p = sim.addPlayer('Child', { x: 0.5, y: FLAT_GROUND_Y, z: 0.5 });
-    const mount = sim.engine.spawnEntity('x:car', 'overworld', { x: 3.5, y: FLAT_GROUND_Y - 0.9, z: 0.5 });
-    await sim.run(2);
-    expect(mount.addRider(p, sim.engine.tick).ok).toBe(true);
-    await sim.run(1);
-    sim.controls.set(p.id, { sneak: true });
-    await sim.run(2);
-    sim.controls.set(p.id, { sneak: false });
-    expect(p.ridingOn).toBeUndefined();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'seat.json': seat }), 'mini'));
     const w = sim.engine.dimension('overworld');
-    expect(w.overlapping({ x0: p.location.x - 0.3, y0: p.location.y, z0: p.location.z - 0.3, x1: p.location.x + 0.3, y1: p.location.y + 1.8, z1: p.location.z + 0.3 }, 0.001)).toBeUndefined();
-    expect(p.location.y).toBeCloseTo(FLAT_GROUND_Y, 6);
+    const stone = sim.host.resolvePermutation('minecraft:stone');
+    const G = FLAT_GROUND_Y;
+    const wall = (x: number, z: number): void => { w.setPermutation(x, G, z, stone); w.setPermutation(x, G + 1, z, stone); };
+    // Seat A open (sunk); seat B with -z walled; seat C with +-z walled; seat D walled on all eight sides.
+    const seats = [0, 10, 20, 30].map(x => sim.engine.spawnEntity('x:seat', 'overworld', { x: x + 0.5, y: G, z: 0.5 }));
+    wall(10, -1); wall(20, -1); wall(20, 1);
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) wall(30 + dx!, dz!);
+    const players = seats.map((_, i) => sim.addPlayer(`Child${i}`, { x: i * 10 + 0.5, y: G, z: 3.5 }));
+    await sim.run(2);
+    seats.forEach((s, i) => expect(s.addRider(players[i]!, sim.engine.tick).ok).toBe(true));
+    await sim.run(1);
+    for (const p of players) sim.controls.set(p.id, { sneak: true });
+    await sim.run(1);
+    for (const p of players) { sim.controls.set(p.id, { sneak: false }); expect(p.ridingOn).toBeUndefined(); }
+    const at = (i: number) => ({ dx: players[i]!.location.x - seats[i]!.location.x, y: players[i]!.location.y, dz: players[i]!.location.z - seats[i]!.location.z });
+    expect(at(0)).toEqual({ dx: 0, y: G, dz: -1 });
+    expect(at(1)).toEqual({ dx: 0, y: G, dz: 1 });
+    expect(at(2)).toEqual({ dx: 1, y: G, dz: -1 });
+    expect(at(3).dx).toBe(0);
+    expect(at(3).dz).toBe(0);
     expect(quirk('dismount-free-spot').simulated).toBe('partial');
+  });
+
+  it('a player teleported into a block falls through it, pushed sideways only where a side is free (quirk teleport-into-floor, Pixel GameTest 2026-09-30)', async () => {
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }), 'mini'));
+    const w = sim.engine.dimension('overworld');
+    const stone = sim.host.resolvePermutation('minecraft:stone');
+    const G = FLAT_GROUND_Y;
+    // A 3 x 3 pad at x -1..1 and a single block at x 10, both one block over the ground.
+    for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) w.setPermutation(x, G, z, stone);
+    w.setPermutation(10, G, 0, stone);
+    const centred = sim.addPlayer('Centred', { x: 0.5, y: G + 1 - 0.34, z: 0.5 });
+    const edge = sim.addPlayer('Edge', { x: 11.0, y: G + 1 - 0.1, z: 0.5 });
+    await sim.run(40);
+    // Device (run1 QTP 2 and 16): the centred player ends at the pad's bottom, unmoved sideways (-0.66 from the target);
+    // the edge player is pushed +x off the block (0.64 on the device) and lands on the ground under it.
+    expect(centred.location.y).toBeCloseTo(G, 6);
+    expect(centred.location.x).toBeCloseTo(0.5, 6);
+    expect(edge.location.y).toBeCloseTo(G, 6);
+    expect(edge.location.x - 11.0).toBeGreaterThan(0.3);
+    expect(edge.location.x - 11.0).toBeLessThan(0.8);
+    expect(quirk('teleport-into-floor').values?.['pushBlocksPerTick']).toBe(0.1);
   });
 
   it('lets a yielding status line be replaced at once, and still catches an instruction taken over', async () => {

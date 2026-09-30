@@ -914,7 +914,7 @@ function vehicleSeatReport(label: string, entity: string, kind: string, bricks: 
  * seat position, 0.82 over the pan) land where a seated minifig's are (43 LDU,
  * 0.81 blocks over the pan).
  */
-function seatBehavior(id: string): unknown {
+export function seatBehavior(id: string): unknown {
     const rideable = { seat_count: 1, family_types: ['player', 'craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 181 } };
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_seat'] },
@@ -2054,7 +2054,7 @@ function concat(...parts: Uint8Array[]) { const o = new Uint8Array(parts.reduce(
 } return o; }
 function pngChunk(name: string, data: Uint8Array) { const n = enc.encode(name), body = concat(n, data); return concat(u32(data.length), body, u32(pngCrc(body))); }
 /** A 2×2 fully transparent RGBA PNG (the invisible seat entity's texture). */
-function transparentPng(): Uint8Array {
+export function transparentPng(): Uint8Array {
     const w = 2, h = 2, raw = new Uint8Array(h * (1 + w * 4));
     let a = 1, b = 0; for (const v of raw) { a = (a + v) % 65521; b = (b + a) % 65521; }
     const z = concat(Uint8Array.of(0x78, 0x01), Uint8Array.of(1, raw.length & 255, raw.length >>> 8, (~raw.length) & 255, ((~raw.length) >>> 8) & 255), raw, u32((b << 16) | a));

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, colliderBlockDefinition, colliderCellIndex, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, colliderBlockDefinition, colliderCellIndex, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
+import { BlockTypes } from '../web/src/sim/world/block-types.js';
 import { ACTOR_DRAW_CEILING_BLOCKS } from '../web/src/engine/bedrock-lod-hull.js';
 import { toBedrockBlock } from '../web/src/engine/bedrock-blocks.js';
 import { buildPlayableAddon } from '../web/src/engine/playable-addon.js';
@@ -144,6 +145,19 @@ describe('the collider block', () => {
     expect(p.components['minecraft:collision_box']).toEqual({ origin: [-8, 3, -8], size: [16, 13, 16] });
     expect(block.components['minecraft:light_dampening']).toBe(0);
     expect(block.components['minecraft:selection_box']).toBe(false);
+  });
+
+  it('declares an x band at the MIRRORED origin the device reads (quirk block-collision-x-mirrored), and the simulator reads it back where the kit meant', () => {
+    // collider_w2 is the kit's x 0..8 band. Pixel GameTest 2026-09-30: a box declared at origin x -8 stood on x 0.5-1.
+    const v = COLLIDER_BLOCK_IDS.indexOf('craftmatic:collider_w2');
+    const def = colliderBlockDefinition(v) as { 'minecraft:block': { components: { 'minecraft:collision_box': { origin: number[]; size: number[] } } } };
+    expect(def['minecraft:block'].components['minecraft:collision_box']).toEqual({ origin: [0, 0, -8], size: [8, 16, 16] });
+    // z is not mirrored: collider_w9 is the z 0..8 band and keeps origin z -8.
+    const z = colliderBlockDefinition(COLLIDER_BLOCK_IDS.indexOf('craftmatic:collider_w9')) as typeof def;
+    expect(z['minecraft:block'].components['minecraft:collision_box']).toEqual({ origin: [-8, 0, -8], size: [16, 16, 8] });
+    const types = new BlockTypes();
+    types.addDefinition('w2.json', def);
+    expect(types.shape('craftmatic:collider_w2', { 'craftmatic:lo': 0, 'craftmatic:hi': 16 }).collision).toEqual([{ x0: 0, y0: 0, z0: 0, x1: 0.5, y1: 1, z1: 1 }]);
   });
 });
 

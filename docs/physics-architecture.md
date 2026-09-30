@@ -1187,7 +1187,11 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/sim/physics/systems.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `installPhysics` | function | The simulator's motion systems: players (walk, sneak-dismount, lift out of a floor), native hover mounts at the measured speeds, mobs under `minecraft:physics`, riders to their seats, effects; falls tracked for the invariants. |
+| `installPhysics` | function | The simulator's motion systems: players (walk, sneak-dismount, the device's push out of blocks - sideways 0.1/tick, never up, quirk `teleport-into-floor`), native hover mounts at the measured speeds, mobs under `minecraft:physics`, riders to their seats, effects; falls tracked for the invariants. |
+| `setDownRider` | function | Where a PLAYER that left a seat stands (sneak, `ejectRider`): the first free floor one block from the seat entity in the device's order, else the seat point 0.2 up (quirk `dismount-free-spot`, Pixel GameTest 2026-09-30). |
+| `DISMOUNT_OFFSETS` | const | That order, (dx, dz) blocks: (0,-1), (0,+1), (+1,-1), (+1,+1), (-1,+1) measured; (-1,-1), (+1,0), (-1,0) placed by guess (`TODO(dismount-order)`). |
+| `DISMOUNT_FLOOR_ABOVE`, `DISMOUNT_FLOOR_BELOW` | const | The floor window about the seat entity's point, blocks (0.5, 1): +0.2 and -0.3 were taken on the device, +0.7 and -1.3 refused (`TODO(dismount-floor)`). |
+| `DISMOUNT_FALLBACK_LIFT` | const | Walled in on all eight sides, the rider is put at the seat entity's point this far up (0.2, measured) and falls. |
 | `isHoverMount` | function | A native hover mount: `free_camera_controlled` plus hover movement or `can_fly`. |
 <!-- /physics-spec:exports -->
 

@@ -16,6 +16,7 @@ import type { SimEntity } from '../entity/entity.js';
 import type { ControlState } from '../input/controls.js';
 import { raycastBlocks, raycastEntities } from '../input/ray.js';
 import { quirkValue } from '../quirks/registry.js';
+import { setDownRider } from '../physics/systems.js';
 import type { BlockStates } from '../world/block-types.js';
 import type { Permutation, VoxelWorld } from '../world/voxel-world.js';
 import { guard, unmodelled } from './unmodelled.js';
@@ -327,8 +328,9 @@ function componentFacade(host: FacadeHost, sim: SimEntity, name: string): unknow
         if (!out.ok) timeline.add('event', `addRider refused (${out.why}): ${r.typeId} on ${sim.typeId}`, withSource(timeline));
         return out.ok;
       },
-      ejectRider: (rider: unknown) => { const r = host.simOf(rider); if (r && sim.removeRider(r)) engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); },
-      ejectRiders: () => { for (const r of sim.riderList()) { sim.removeRider(r); engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); } },
+      // An ejected PLAYER is set down where the device sets it (quirk `dismount-free-spot`); a mob's spot is not measured.
+      ejectRider: (rider: unknown) => { const r = host.simOf(rider); if (r && sim.removeRider(r)) { if (r.isPlayer) setDownRider(r, sim, engine.dimension(sim.dimension)); engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); } },
+      ejectRiders: () => { for (const r of sim.riderList()) { sim.removeRider(r); if (r.isPlayer) setDownRider(r, sim, engine.dimension(sim.dimension)); engine.emit('dismounted', { rider: r, mount: sim, cause: 'script' }); } },
       getRiders: () => sim.riderList().map(r => host.entity(r)),
       getFamilyTypes: () => [...(sim.rideable()?.familyTypes ?? [])],
       getSeats: () => (sim.rideable()?.seats ?? []).map(s => ({ position: copy(s.position), lockRiderRotation: s.lockRiderRotation ?? 0 })),

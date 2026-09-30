@@ -348,6 +348,33 @@ child-play adapter, `scripts/sim.ts`, `docs/sim-engine.md`).
   roadmap), migrating the per-module test hosts onto the mock, and folding
   interactive-walk/figure-life-sim in after the doorway merge.
 
+## Quirk probe on the Pixel (2026-09-30, worktree `agent-adebef11c6236a71d`)
+
+`bun scripts/_gametest_quirks.ts --out=<dir> [--tests=quirk_tp,quirk_dismount,quirk_dismount2,quirk_bands,quirk_reach]`
+builds a standalone GameTest pack (not a model pack); run it with
+`QUIRK_TESTS=<n> python -u output/gametest-quirks-0930/_run_quirks.py <probe.mcaddon> <run> output/bedrock-entity-qa/device-backups/20260930-095611`
+(the last argument holds cmgametest's ORIGINAL bindings, `c2e08f53` /
+`2193775f`, restored after the run). Evidence `output/gametest-quirks-0930/run1..3/`
+(`_summarise.py <run>` tabulates). Quirk rows: `teleport-into-floor`,
+`dismount-free-spot`, `tap-is-hit`, `hold-is-interact`, new `block-collision-x-mirrored`.
+- [ ] **Every pack built before `0605e0a3` has its x-banded clearance forms
+  on the wrong half of the block** (Bedrock mirrors a block collision box's
+  x; device-proved, and the fix device-proved in run 3). Rebuild and
+  redeploy the round's packs before the next device round; walls that
+  "leaked" or doorways that stopped a player 0.5 early in x may be this.
+  Re-run `_ix_passability.ts` / favourites sweep on fresh builds (the
+  offline tools read the kit, so their verdicts do not change; the
+  device's do).
+- [ ] Dismount order past (0,-1), (0,+1), (+1,-1), (+1,+1), (-1,+1) and the
+  exact floor window: `TODO(dismount-order)` / `TODO(dismount-floor)` in
+  `web/src/sim/physics/systems.ts`; a MOB rider's spot is unmeasured.
+- [ ] A phone player's own touch pick reach and a real sneak cannot be
+  produced by GameTest (simulated `isSneaking = true` does not dismount);
+  both stay assumed (tap pick 5, sneak = stop_riding's spot).
+- Left on the Pixel: the probe's imported BP/RP folders under
+  `behavior_packs/Craftmatic(8)` and `resource_packs/Craftmatic` (adb cannot
+  delete there without root), unbound from every world.
+
 ## New-set onboarding + 11390 (2026-09-29)
 
 Infra is in (sources guide "Onboarding ONE announced set"): clego
