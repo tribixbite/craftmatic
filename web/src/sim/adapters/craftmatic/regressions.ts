@@ -100,7 +100,11 @@ export const REGRESSIONS: RegressionCase[] = [
   {
     id: 'door1-10326', title: '10326 Door 1: walking in from the porch drops the player 2.25 blocks at the door plane',
     evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (A) (Saga: ends at y -59.75); docs/bedrock-interactivity.md "The doorway\'s floor, a floor\'s top, and the device\'s line" (the model\'s: the door hangs 2.6 over the plate, the porch was a teleport into the air); merge c4c34b1c',
-    oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum', expectNew: 'reproduce-as-model',
+    oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10326-natural-history-museum.mcaddon`, newStem: '10326-natural-history-museum',
+    // The user kept the invisible 1-block ledge at the doorway's level (2026-09-30:
+    // "always prefer unlocking exploration and interactivity"), so a current build
+    // must NOT drop the player here; the 29d pack still does.
+    expectNew: 'pass',
     scenario: pack => ({ name: 'door1-10326', steps: [...place, { kind: 'doorwayLines', only: [doorIndex(pack, 'Door 1')] }], allowLines: allow }),
     judge: r => doorJudge(r, 'Door 1', 'HOLE'),
   },

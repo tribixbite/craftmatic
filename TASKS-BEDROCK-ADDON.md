@@ -914,9 +914,6 @@ re-run after the last fixes). Evidence `output/sim-regress-449abd0e/`
     the run-out: check its frame like 42652's); 10796 slide 0.206 (limit 0.2,
     `TODO(sim-slide)`); 10796 car_2 driven ~100 blocks off stays after Undo
     (Undo sees loaded entities only); 10796 cars 13/15 and 10/15 views.
-  - [ ] Regression `door1-10326` no longer reproduces on current builds with
-    either the old or the new simulator (the 29c ledge at the doorway's level):
-    its `expectNew` needs a decision. `nimbus-*` need a rebuilt fixture pack.
   - [ ] Device-only: `teleport-into-floor` (29d Pixel read y -56, not the slab
     top: a GameTest teleporting 0.2-0.4 into a slab settles it) and
     `dismount-free-spot` (assumed).
@@ -943,8 +940,8 @@ Evidence `output/hop-0930/` in that worktree: packs `packs-196360e2/`
   train at 17.6 blocks/s met car rank 1, seated in rank 0, coaster camera
   next tick, cloud moved 0; full train flown through; 10788 + 42639 and 10797
   slide into a parked car; 0 unintended hops in 11 packs' child play.
-- Regressions: all as before; `door1-10326` FAIL is pre-existing (same
-  verdict on the pre-hop `3664f4f3` build), see the simulator section above.
+- Regressions on the hop packs: every case OK, `door1-10326` now expects
+  `pass` (ledge kept by the user 2026-09-30).
 - [ ] Device: Nimbus (or a plane) into 10261's moving train: which car
   seats the child, whether the coaster camera takes over without a flash,
   the cloud hovering where left; a car at 10797's slide foot. Quirks
