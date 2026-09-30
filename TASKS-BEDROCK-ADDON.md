@@ -114,6 +114,22 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
+## Round 2026-09-30h (`59fb347c`) - museum back doors, cockpit fallback
+
+**Sent** (zip, not deployed yet): `output/device-round-2026-09-30h/craftmatic-packs-59fb347c.zip`
+(sha256 6c90f4f32c47d63f6f4b639fe701549af2f28d98f0923df52fe353adcb3c8088;
+23 packs, labels as 30g; `check.txt` 23/23 OK, uuids = 30g; parts = 30g
+except 10326 (doors 1-3 drop the pediment parts they had absorbed, shell +6,
+door 6 +1 - the 60616a fix)). Sim: regressions 13 OK + gabby-car-overhang
+not reproduced; hop passes.
+- [ ] Device round (Saga; Pixel once re-paired): 10326 Doors 1-3 at the
+  ground (tap, swing, walk in; Door 2 both ways; knob/studs on the leaf; no
+  stair, model 6 nearer the corner than 30g); cockpit hotbar 9 on 76286 (eye
+  3.1 up, rider hidden), 42639 (door top under the horizon), a ship with the
+  high fallback eye (31109 is not in the round - use 10365 or 60221 if they
+  took it; else note) - is the high view OK for a child?; regressions of
+  60380 / 42172 / 7140 cockpit.
+
 ## Round 2026-09-30g (`c73c545a`) - access stairs, cockpit seats, sim fold
 
 **Sent** (zip, not deployed yet): `output/device-round-2026-09-30g/craftmatic-packs-c73c545a.zip`
