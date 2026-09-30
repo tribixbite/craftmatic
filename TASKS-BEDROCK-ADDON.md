@@ -122,13 +122,34 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 30f). Sim on these packs: regressions 11 OK (incl. `door1-10326` now
 walks in by the stair, `cockpit-occluded-42639`) + gabby-car-overhang not
 reproduced as before; `--scenario=hop` passes.
-- [ ] Device round (both phones, `--exclusive`): 10326 Door 1 access stair
-  from the ground (the grid is widened 6 blocks in front: the model sits
-  further from the placement corner); 42639 cockpit (hotbar 9) road visible;
-  60380 driver inside its cab; seats that moved ACROSS (x) - the X-wing
-  7140, 76286 Milano, 60221, 42172 - rider on the right side, eye not in a
-  panel; 10303 first-drop one-frame jump (every lap) and loop-1 exit swing;
-  hop repeated on the Saga.
+Device round 2026-09-30 (Saga complete; Pixel lost adb at 15:13 after item 1;
+evidence `output/device-round-2026-09-30g/{pixel,saga}/_notes.txt`): 10326 Door 1
+stair PASSES on both (y -60..-57 by stick only, in and out; door exactly 6.0
+further from the corner = the margin); hop PASSES on the Saga (front car in 3/3,
+no flash, cloud hovers then fades); 60380 / 42172 / 7140 / 60221 cockpit OK;
+Saga content log 0 errors / 0 FIGURE_RETAKE / 0 fly.
+- [ ] 76286 Milano cockpit (hotbar 9): eye INSIDE the hull, all grey
+  (`saga/s74-76286-cockpit.jpg`); it is one of the 14 cars the AHEAD rule
+  finds no passing eye for, and the rule leaves such a seat as it was. Give
+  those a fallback eye that sees out (above the canopy / hull top).
+- [ ] 42639 cockpit: road + horizon visible now, but a teal side panel still
+  covers the left ~35 %.
+- [ ] 10326: Door 1 hangs directly over a DRAWN ground-level entrance (white
+  arch + round-window glass door, `pixel/12-front-close.jpg`, `25*-door1-*.jpg`):
+  the child sees a door at the ground and the stair lifts them over it. Is the
+  ground entrance a missed door (brick-built / static)? Make it the way in.
+- [ ] 10303 (Saga, 6 laps): first-drop one-frame jump 6/6; loop-1 exit swing
+  5/7 (30f: 1/5). Camera work, device-measured.
+- [ ] Hop: 0.5-0.9 s of vanilla "Sneak to get off" before the coaster HUD.
+- [ ] PIXEL NEEDS A HAND: wireless debugging off/rotated (re-enable + re-pair);
+  left in world 924 unsaved at 5490,-60,5480 with the wand, coordinates ON
+  (was off), 10326 undone; `/sdcard/r30g-stairup.mp4`, `/sdcard/r30g-stairdown.mp4`
+  and 23 `/sdcard/Download/000-*.mcaddon` to delete one by one; then delete
+  `output/.phone-lock` (kept with a note). Saga: 9 older deploy staging dirs
+  in `/data/local/tmp/craftmatic-deploy-*` (file by file only).
+- Phones rule learned: LAN games from other devices list FIRST in the worlds
+  screen - never tap the first tile; pick world 924/925 by NAME (30g's Saga
+  flush may have joined "stonecraft party" for ~55 s).
 
 ## Round 2026-09-30f (`dc699e3e`) - hop, collision x-mirror fix, 42639 + 60380
 
