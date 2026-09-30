@@ -309,6 +309,15 @@ for my 5yo to explore and play with."
 
 ## Headless Bedrock simulator (2026-09-29, user-approved)
 
+- [x] Walk preview at 90/180/270 drew every actor facing the wrong way since
+  4ceb3c42 (`QuarterTurn` is degrees; the preview multiplied it by 90 again).
+  Fixed `ad751582`, browser-proved on 10788 + 10326 at all four turns
+  (coverage 1.000, 30/30 holder yaws; `output/walk-preview-yaw-0930/fixed/`).
+  Unchecked: the sitting camera's sign and a `door` leaf's swing direction.
+- [ ] Test mocks without `fillBlocks`/`BlockVolume` print
+  `BRICK_WAND_CLEAR_FAILED` during `bun run test` (noise; the sim's mock has
+  both - migrate those hosts, `TODO(sim-fold)`).
+
 Goal: catch most bugs in minutes without an adb round; long term it grows
 into a standalone web game engine (user: "Keep it modular and DRY"). Of 14
 device-found defects on 09-29, ~9 were our logic and simulator-catchable.
