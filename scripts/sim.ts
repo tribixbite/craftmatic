@@ -7,7 +7,7 @@
  *   bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|<file.ts>]
  *        [--json=<out.json>] [--md=<out.md>] [--quick] [--only=<scenario substring>] [--shots=<dir>]
  *        [--new=<dir>]   (regressions: the current tree's packs, `<dir>/<stem>.mcaddon`)
- *   bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>] [--slide=<10788>] [--json=] [--md=]
+ *   bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>] [--json=] [--md=]
  *
  *   child-play   (default) every craftmatic pack's generated scenarios: place at
  *                100/150 percent and turns 0/90, tap every part, walk every
@@ -86,7 +86,9 @@ if (mode === 'regressions') {
 
 if (mode === 'hop') {
   const named = async (n: string): Promise<Awaited<ReturnType<typeof load>> | undefined> => { const f = flag(n); return f ? load(f) : undefined; };
-  const cases = hopCases({ coaster: await named('coaster'), flyer: await named('flyer'), slide: await named('slide'), car: await named('car') });
+  const slide = await named('slide');
+  // `--car=same`: the slide pack's own car (a set with both, 10797).
+  const cases = hopCases({ coaster: await named('coaster'), flyer: await named('flyer'), slide, car: flag('car') === 'same' ? slide : await named('car') });
   if (!cases.length) { console.error('--scenario=hop needs --coaster= and --flyer=, and/or --slide= and --car='); process.exit(2); }
   const report: PackReport = { pack: 'hop', results: [], ms: 0 };
   const t0 = performance.now();

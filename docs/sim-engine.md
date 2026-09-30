@@ -20,7 +20,7 @@ bun scripts/sim.ts <packs> --md=out.md --json=out.json   # with reports
 bun scripts/sim.ts <packs> --shots=<dir>                 # plus first-person PNGs
 bun scripts/sim.ts --scenario=regressions --new=<dir>    # the device-bug regression set
 bun scripts/sim.ts <packs> --scenario=my-scenarios.ts    # your own scenarios
-bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>] [--slide=<10788>]
+bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>]
                                                          # several packs in ONE world: the hop
 ```
 
@@ -286,7 +286,7 @@ of every pack running, as on a phone with a few packs active:
 |---|---|---|
 | `hop-flyer-into-coaster` | 10261, the Nimbus fixture, 42639 (a third pack with its own `hop.js`) | the 10261 train's lead car's path is recorded for a lap, the fastest point picked; on the next pass the cloud is set 7 blocks off the track and flown onto it timed to meet a car BEHIND the lead: `hop-boards` (on a coaster car), `hop-front-most` (no free car ahead of it), `hop-once` (one hop sound), `hop-camera` (the coaster's camera within 10 ticks), `hop-source-waits` (the cloud still where it was left 2 s later), and the child still aboard 10 s on |
 | `hop-coaster-full` | 10261, the Nimbus fixture | a player in every car (`fillTrain`), the same fly-in: `hop-no-full` (nobody hops, nobody is moved) |
-| `hop-slide-into-car` | 10788, 42639 | 42639's car parked a block past 10788's slide set-down: `hop-slide-into-car` (the rider ends in the car), then drives off (a note) |
+| `hop-slide-into-car` | 10788 + 42639, or 10797 alone (`--car=same`: the set's own car) | the car parked a block past the slide's set-down: `hop-slide-into-car` (the rider ends in the car), then drives ahead and in reverse (a note: 10788's slide ends on an upper floor, where 42639's car cannot move; 10797's car drove off 11 blocks) |
 
 The pure contact test and the runtimes on small hand-built packs (a scripted
 plane catching a train's rear car and sitting in its front one, hovering where

@@ -57,6 +57,13 @@ const freeSeats = (e: SimEntity): number => (e.rideable()?.seatCount ?? 0) - e.r
 /** Every coaster car that carries a rideable seat. */
 const coasterCars = (ctx: StepContext): SimEntity[] => ctx.sim.engine.loadedEntities(ctx.player.dimension).filter(e => e.families().includes(COASTER_FAMILY) && !!e.rideable());
 
+/**
+ * Entities a step hands to a later one (the mount the child was put on, the players filling a train), kept beside
+ * the scenario's state rather than in it: the state is written to the JSON report, and an entity is not JSON.
+ */
+const refs = new WeakMap<object, { source?: SimEntity; riders?: SimEntity[] }>();
+const refsOf = (ctx: StepContext): { source?: SimEntity; riders?: SimEntity[] } => { let r = refs.get(ctx.state); if (!r) refs.set(ctx.state, r = {}); return r; };
+
 /** The hop steps. `flyer`: the pack whose mount the child flies (its cloud type); `car`: the pack whose car is parked. */
 export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPack; slide?: CraftmaticPack }): Record<string, StepHandler> {
   return {
@@ -72,7 +79,8 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
       await ctx.run(2);
       const r = e.addRider(p, ctx.sim.engine.tick);
       if (!r.ok) throw new Error(`mountSpawned: addRider refused (${r.why})`);
-      ctx.state['hopSource'] = e;
+      refsOf(ctx).source = e;
+      ctx.state['hopSource'] = { type: e.typeId, id: e.id };
       await ctx.run(HOP.BOARD_GRACE_TICKS + 5);
     },
 
@@ -87,7 +95,8 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
         if (!c.addRider(q, ctx.sim.engine.tick).ok) throw new Error(`fillTrain: ${c.typeId} refused a rider`);
         riders.push(q);
       }
-      ctx.state['trainRiders'] = riders;
+      refsOf(ctx).riders = riders;
+      ctx.state['trainRiders'] = riders.map(q => q.nameTag);
       ctx.note(`fillTrain: ${riders.length} players aboard ${cars.length} cars`);
     },
 
@@ -99,7 +108,7 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
      * `{ expect: 'board' | 'none', side, ticks }`.
      */
     async flyIntoTrain(step: AnyStep, ctx: StepContext) {
-      const source = ctx.state['hopSource'] as SimEntity | undefined;
+      const source = refsOf(ctx).source;
       const p = ctx.player;
       if (!source || p.ridingOn !== source) throw new Error('flyIntoTrain: the child is not on the spawned mount');
       const expectBoard = step['expect'] !== 'none';
@@ -167,7 +176,7 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
       ctx.state['hop'] = { hopTick, hops, at: pt(at), trainSpeed: r3(bestV * 20), ridden: p.ridingOn?.typeId, riddenRank: p.ridingOn ? rankOf(p.ridingOn) : undefined };
       if (!expectBoard) {
         if (hopTick >= 0) ctx.violate({ invariant: 'hop-no-full', message: `the child hopped onto ${p.ridingOn?.typeId} though every car held a player`, evidence: { ridden: p.ridingOn?.typeId } });
-        const riders = (ctx.state['trainRiders'] as SimEntity[] | undefined) ?? [];
+        const riders = refsOf(ctx).riders ?? [];
         const moved = riders.filter(q => !q.ridingOn || !q.ridingOn.families().includes(COASTER_FAMILY));
         if (moved.length) ctx.violate({ invariant: 'hop-no-full', message: `${moved.length} train riders were moved off their cars` });
         ctx.note(`flyIntoTrain: flew through the full train; still on ${p.ridingOn?.typeId}`);
@@ -231,7 +240,10 @@ export function hopHandlers(packs: { flyer?: CraftmaticPack; car?: CraftmaticPac
       await ctx.run(HOP.BOARD_GRACE_TICKS);
       const from = { ...car.location };
       await CORE_HANDLERS['drive']!({ kind: 'drive', hold: { forward: 1, ticks: 60 } }, ctx);
-      ctx.note(`slideIntoParked: drove ${r3(Math.hypot(car.location.x - from.x, car.location.z - from.z))} blocks from the slide's foot`);
+      const ahead = Math.hypot(car.location.x - from.x, car.location.z - from.z), mid = { ...car.location };
+      await CORE_HANDLERS['drive']!({ kind: 'drive', hold: { forward: -1, ticks: 60 } }, ctx);
+      // A note, not a check: where the car can go from a slide's foot is the MODEL's (a dollhouse room may hold it in).
+      ctx.note(`slideIntoParked: drove ${r3(ahead)} blocks ahead and ${r3(Math.hypot(car.location.x - mid.x, car.location.z - mid.z))} in reverse from the slide's foot`);
     },
   };
 }
@@ -275,7 +287,8 @@ export function hopCases(addons: { coaster?: Addon; flyer?: Addon; slide?: Addon
         items: [slide.placement.itemId], ...common,
         steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'slideIntoParked' }],
       },
-      addons: [addons.slide, addons.car], handlers: { ...craftmaticHandlers(slide, addons.slide), ...hopHandlers({ slide, car }) },
+      // The car may be the slide pack's own (10797 has both): one add-on then, loaded once.
+      addons: addons.car === addons.slide ? [addons.slide] : [addons.slide, addons.car], handlers: { ...craftmaticHandlers(slide, addons.slide), ...hopHandlers({ slide, car }) },
     });
   }
   return out;

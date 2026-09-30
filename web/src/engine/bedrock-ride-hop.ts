@@ -329,7 +329,7 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
       const shape = { halfLength: src.halfLength * f, halfWidth: src.halfWidth * f, height: src.height * f, rider: { r: dx * c + dz * s, u: riderAt.y - pose.y, f: -dx * s + dz * c } };
       const exclude = new Set<string>([v.id]);
       if (claim && claim.from && now - claim.tick < K.BACK_COOLDOWN_TICKS) exclude.add(claim.from);
-      const list = kit.candidates(v.dimension, pose, shape.halfLength + K.SCAN_BLOCKS * Math.max(1, f), exclude);
+      const list = kit.candidates(v.dimension, { x: pose.x, y: pose.y, z: pose.z }, shape.halfLength + K.SCAN_BLOCKS * Math.max(1, f), exclude);
       const seen = new Map<string, { x: number; y: number; z: number }>();
       const hits: Array<{ e: any; d: number }> = [];
       for (const e of list) {
