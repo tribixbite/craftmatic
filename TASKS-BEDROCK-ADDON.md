@@ -357,6 +357,11 @@ moved, ~5 min), craftmatic `bun scripts/new-set.ts <sku> --commit --browser`
 (live index + models, index commit, Chrome deep-link render via
 `_live_set_check.mjs`, pack + gates + zip), `scripts/new-set-watch.ps1 <sku>`
 for `schtasks` (hourly; lock + DONE; one run for 11390 exited 3 as designed).
+No other new set to test on (2026-09-30): DBIX skulist 1,961 = held 1,961
+(`dbix_refresh.py --check`: NEW 0), and a direct probe of the 160 unheld
+2025-26 sets of 150+ parts in Rebrickable (clego
+`python discovery/probe_recent_unheld.py`, `3cfc590d`; method checked on
+40900 = 5 served) found 0 served. Re-run both weekly until 11390 lands.
 App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
 - PROD-proved on 40900 (`f03497b9`: drawn in 11 s,
 `output/new-set-40900-prod/live-40900.png`; pack + gates + zip in
