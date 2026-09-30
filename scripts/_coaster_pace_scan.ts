@@ -1,6 +1,7 @@
 /**
  * Coaster pace / wand-size / energy scan over a corpus coaster, through the
- * SERIALISED ride runtime (the pack's own `scripts/coaster.js` text) on host.
+ * SERIALISED ride runtime (the pack's own `scripts/coaster.js` text) on the simulator
+ * (`coasterReplayWorld`, scripts/_coaster_replay.ts).
  * The measurements behind docs/physics-architecture.md §1, §8 and §10.
  *
  *   bun scripts/_coaster_pace_scan.ts metrics [--paces=1.3,1.4,1.6] [--tangent]
@@ -28,6 +29,9 @@ import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
 import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.ts';
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.ts';
+import { COASTER_TEST_ORIGIN } from '../web/src/sim/adapters/craftmatic/coaster.ts';
+import type { SimEntity } from '../web/src/sim/entity/entity.ts';
+import { coasterReplayWorld, type ReplayEntity } from './_coaster_replay.ts';
 
 const args = new Map(process.argv.slice(3).map(a => { const [k, v] = a.replace(/^--/, '').split('='); return [k!, v ?? 'true'] as const; }));
 const MODE = process.argv[2] ?? 'metrics';
@@ -46,36 +50,29 @@ function physicsAt(p: number): CoasterPhysics {
   return paced as CoasterPhysics;
 }
 
-/** A fake Bedrock entity: dynamic properties, teleports recorded, a rideable component. Loose types: it stands in for the engine's. */
-interface FakeEntity { entity: any; properties: Map<string, unknown>; riders: any[]; teleports: Array<{ rotation?: { x: number; y: number } }> }
+/** One coaster entity of the scan: the engine's entity, the facade the runtime holds, its saved state and every rotation it was teleported to. */
+interface ScanEntity { sim: SimEntity; entity: any; properties: Map<string, unknown>; teleports: Array<{ rotation?: { x: number; y: number } }> }
 
-/** The serialised runtime over fake entities, one placement at `SCALE` (as test/bedrock-coaster.test.ts `liftHost`). */
+/** The serialised runtime on the simulator (`coasterReplayWorld`), one placement at `SCALE` (as test/bedrock-coaster.test.ts `liftHost`). */
 function host(route: CoasterRoute, pace: number) {
   const bare = coasterRuntimeConfig('craftmatic:scan_cart', [route]);
   const types = Object.fromEntries(Object.entries(bare.types).map(([id, t]) => [id, t.role === 'car' && WHEELBASE !== undefined ? { ...t, wheelbase: WHEELBASE } : t]));
   const config: CoasterRuntimeConfig = { ...bare, types, physics: physicsAt(pace) };
   const runtime = config.routes[0]!;
-  const make = (id: string, typeId: string, index?: number): FakeEntity => {
-    const properties = new Map<string, unknown>([['craftmatic:coaster_origin', { x: 100, y: 64, z: 200 }], ['craftmatic:coaster_rotation', 0], ['craftmatic:coaster_scale', SCALE], ['craftmatic:coaster_route', 0]]);
-    if (index !== undefined) properties.set('craftmatic:coaster_car', index);
-    const riders: any[] = [], teleports: FakeEntity['teleports'] = [], rotation = { x: 0, y: 0 };
-    const entity = {
-      id, typeId, getDynamicProperty: (k: string) => properties.get(k), setDynamicProperty: (k: string, v: unknown) => properties.set(k, v), setProperty: () => {},
-      getRotation: () => ({ ...rotation }), isValid: () => true, dimension: { getBlock: () => ({}) },
-      getComponent: (n: string) => n === 'minecraft:rideable' ? { getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } } : undefined,
-      tryTeleport: (_p: unknown, o?: { rotation?: { x: number; y: number } }) => { teleports.push({ ...(o?.rotation ? { rotation: { ...o.rotation } } : {}) }); if (o?.rotation) Object.assign(rotation, o.rotation); return true; },
-    };
-    return { entity, properties, riders, teleports };
+  // A client without `LinearSpline`, as the scan has always run: the camera stays on its per-tick path.
+  const world = coasterReplayWorld(coasterScript(config), { scale: SCALE, spline: false });
+  const scan = (e: ReplayEntity): ScanEntity => {
+    const teleports: ScanEntity['teleports'] = [];
+    const tryTeleport = e.api.tryTeleport;
+    e.api.tryTeleport = (p: unknown, o?: { rotation?: { x: number; y: number } }) => { teleports.push({ ...(o?.rotation ? { rotation: { ...o.rotation } } : {}) }); return tryTeleport(p, o); };
+    return { sim: e.sim, entity: e.api, properties: e.sim.dynamic, teleports };
   };
-  const cars = runtime.cars.slots!.map((s, k) => make(`car${k}`, s.type, k));
-  const others = [runtime.lift ? make('platform', runtime.lift.type) : undefined, runtime.lift?.counterweightType ? make('weight', runtime.lift.counterweightType) : undefined].filter((e): e is FakeEntity => !!e);
-  const all = [...cars, ...others];
-  const world = { getDimension: (n: string) => ({ getEntities: () => n === 'overworld' ? all.map(m => m.entity) : [] }) };
-  let tick = (): void => {};
-  new Function('world', 'system', coasterScript(config).replace(/^import .*;\n/, ''))(world, { runInterval: (cb: () => void) => { tick = cb; } });
+  const cars = world.entities.filter(e => /^r0c\d+$/.test(e.id)).map(scan);
+  for (const e of world.entities) if (!/^r0c\d+$/.test(e.id)) scan(e);
+  world.start();
   const lead = cars[0]!;
   return {
-    config, route: runtime, cars, lead, tick: () => tick(),
+    config, route: runtime, cars, lead, world: world.h, tick: () => world.h.run(1),
     phase: () => String(lead.properties.get('craftmatic:coaster_phase') ?? 'track'),
     distance: () => Number(lead.properties.get('craftmatic:coaster_distance')),
     speed: () => Number(lead.properties.get('craftmatic:coaster_speed')),
@@ -107,13 +104,14 @@ const turn = (a: number, b: number): number => Math.abs(((b - a) % 360 + 540) % 
 function cameraMetrics(route: CoasterRoute, pace: number): string {
   const h = host(route, pace);
   const views: Array<{ x: number; y: number }> = [];
-  const rider = {
-    id: 'player', typeId: 'minecraft:player', onScreenDisplay: { setActionBar: () => {} }, addEffect: () => {}, removeEffect: () => {},
-    camera: { setCamera: (_preset: string, options: { rotation: { x: number; y: number } }) => { views.push(options.rotation); }, clear: () => {} },
-    // The client's rider yaw trails the car's by `lookLag` teleports (as the test's `cameraRider`).
-    getRotation: () => { const t = h.lead.teleports; return { x: 0, y: t.length ? Number(t[Math.max(0, t.length - 1 - COASTER_RIDER_VIEW.lookLag)]!.rotation?.y ?? 0) : 0 }; },
-  };
-  h.tick(); h.lead.riders.push(rider);
+  // A real player; its camera views are recorded as the runtime sets them.
+  const riderSim = h.world.addPlayer('player', { x: COASTER_TEST_ORIGIN.x, y: 0, z: COASTER_TEST_ORIGIN.z });
+  const rider = h.world.api(riderSim);
+  const setCamera = rider.camera.setCamera;
+  rider.camera.setCamera = (preset: string, options: { rotation: { x: number; y: number } }) => { views.push(options.rotation); return setCamera(preset, options); };
+  // The client's rider yaw trails the car's by `lookLag` teleports (as the test's `cameraRider`; quirk `rider-yaw-lag`, device-only).
+  rider.getRotation = () => { const t = h.lead.teleports; return { x: 0, y: t.length ? Number(t[Math.max(0, t.length - 1 - COASTER_RIDER_VIEW.lookLag)]!.rotation?.y ?? 0) : 0 }; };
+  h.tick(); h.world.seat(riderSim, h.lead.sim);
   const wheelbase = h.config.types[h.route.cars.slots![0]!.type]!.wheelbase || 0;
   let off = 0, worstFromVertical = 0, worstError = 0;
   for (let t = 0; t < 1400; t++) {

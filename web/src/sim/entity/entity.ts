@@ -39,6 +39,13 @@ export class SimEntity {
   velocity: Vec3 = { x: 0, y: 0, z: 0 };
   onGround = false;
   nameTag = '';
+  /**
+   * A Creative player flying (double-tapped Jump on the device): it hangs where
+   * it is, no gravity, not pushed out of blocks. How a flying player MOVES is
+   * not modelled (# TODO(sim-flight): flight speed and climb/descend); a test or
+   * scenario that stands a player at an exact point in the air flies it there.
+   */
+  flying = false;
   valid = true;
   readonly tags = new Set<string>();
   readonly dynamic = new Map<string, unknown>();

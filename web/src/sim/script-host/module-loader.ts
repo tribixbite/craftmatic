@@ -51,7 +51,11 @@ export function rewriteModule(source: string): Rewritten {
       return '';
     }
     const decl = /^(\s*)export\s+(default\s+)?((?:async\s+)?function\*?\s+(\w+)|(?:const|let|var|class)\s+(\w+))/.exec(line);
-    if (decl) { exported.push(decl[4] ?? decl[5]!); return line.replace(/export\s+(default\s+)?/, ''); }
+    if (decl) { const name = decl[4] ?? decl[5]!; exported.push(decl[2] ? `default:${name}` : name); return line.replace(/export\s+(default\s+)?/, ''); }
+    // `export default <expression>` (a module whose default export is a value, `export default {};`): the value is
+    // the module's `default`, evaluated where the statement stands (an expression may run on over later lines).
+    const defaultExpr = /^(\s*)export\s+default\s+(?!(?:async\s+)?function\b|class\b)/.exec(line);
+    if (defaultExpr) return line.replace(/export\s+default\s+/, '__exports["default"] = ');
     const list = /^\s*export\s*\{([^}]*)\}\s*;?\s*$/.exec(line);
     if (list) {
       for (const part of list[1]!.split(',').map(s => s.trim()).filter(Boolean)) {

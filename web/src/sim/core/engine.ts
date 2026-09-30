@@ -39,6 +39,8 @@ export interface EngineEvents {
   scriptEventReceive: { id: string; message: string; sourceEntity?: SimEntity };
   entityRemove: { entity: SimEntity };
   entitySpawn: { entity: SimEntity };
+  /** An entity that was in an unloaded chunk came into a loaded one (a ticking area, a player walking near): `world.afterEvents.entityLoad`. */
+  entityLoad: { entity: SimEntity };
   /** A body touched down: how far it fell (from the top of the fall) and whether slow falling was active at any point of it. */
   landed: { entity: SimEntity; fallDistance: number; slowFell: boolean; at: Vec3 };
   /** A rider left its mount (sneak, removal, a teleport), with where it was. */
@@ -121,6 +123,25 @@ export class SimEngine {
   /** Advance `n` ticks. */
   async run(n: number): Promise<void> { for (let i = 0; i < n; i++) await this.step(); }
 
+  /**
+   * Advance one tick WITHOUT waiting for the promises a system's tick started:
+   * each system runs up to its first `await` (the script host's after-events
+   * and scheduler are synchronous; only its settle of script promises is not).
+   * For worlds whose scripts do all their work in synchronous callbacks - a
+   * runtime's `runInterval` - it is the same tick as `step()`, and a caller
+   * can drive thousands of ticks without an `await` each. A promise a script
+   * did start settles at the caller's next `await`, not inside the tick: use
+   * `step()` for anything that shows forms or awaits `system.waitTicks`.
+   */
+  stepSync(): void {
+    this.tick++;
+    this.timeline.tick = this.tick;
+    for (const s of this.systems) void s.tick(this);
+  }
+
+  /** `stepSync` `n` times. */
+  runSync(n: number): void { for (let i = 0; i < n; i++) this.stepSync(); }
+
   // ─── World ─────────────────────────────────────────────────────────────────
 
   /** A dimension's voxels (created on first use). Accepts `overworld` or `minecraft:overworld`. */
@@ -142,7 +163,16 @@ export class SimEngine {
         for (let cz = Math.floor(Math.min(a.z0, a.z1)) >> 4; cz <= Math.floor(Math.max(a.z0, a.z1)) >> 4; cz++) s.add(`${cx},${cz}`);
     }
     for (const [id, d] of this.dimensions) d.setLoaded(byDim.get(id) ?? new Set());
+    // An entity whose chunk was unloaded and is loaded again fires `entityLoad` (a spawn into a loaded chunk does not).
+    for (const e of this.entities.values()) {
+      if (!e.valid || e.isPlayer) continue;
+      if (!this.isEntityLoaded(e)) this.unloadedIds.add(e.id);
+      else if (this.unloadedIds.delete(e.id)) this.emit('entityLoad', { entity: e });
+    }
   }
+
+  /** Entities last seen in an unloaded chunk (the `entityLoad` edge). */
+  private readonly unloadedIds = new Set<string>();
 
   /** Whether an entity's chunk is loaded (entities outside do not tick and scripts cannot see them, quirk `unloaded-entity-invisible`). */
   isEntityLoaded(e: SimEntity): boolean { return this.dimension(e.dimension).isLoaded(e.location.x, e.location.z); }
@@ -150,10 +180,12 @@ export class SimEngine {
   // ─── Entities ──────────────────────────────────────────────────────────────
 
   /** Spawn an entity of a loaded type; throws as the game does for an unknown type. */
-  spawnEntity(typeId: string, dimension: string, at: Vec3): SimEntity {
+  spawnEntity(typeId: string, dimension: string, at: Vec3, id?: string): SimEntity {
     const def = this.definitions.get(typeId);
     if (!def) throw new Error(`Invalid entity type: ${typeId} is not a valid entity type`);
-    const e = new SimEntity(typeId, this.dimension(dimension).id, at, this.tick, def);
+    // An explicit id (a trace or digest that must repeat names its entities, as `addPlayer` does); else the engine's own.
+    if (id !== undefined && this.entities.has(id)) throw new Error(`spawnEntity: an entity ${id} already exists`);
+    const e = new SimEntity(typeId, this.dimension(dimension).id, at, this.tick, def, false, id);
     // The game fires the type's `minecraft:entity_spawned` event on every spawn (its groups are in from the start).
     const spawned = e.triggerEvent('minecraft:entity_spawned');
     for (const k of spawned.unmodelled) this.timeline.unmodelled(`entity-event:${k}`);
@@ -179,6 +211,7 @@ export class SimEngine {
     e.ridingOn?.removeRider(e);
     e.valid = false;
     this.entities.delete(e.id);
+    this.unloadedIds.delete(e.id);
     this.emit('entityRemove', { entity: e });
   }
 

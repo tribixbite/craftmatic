@@ -1,6 +1,6 @@
 /**
  * Rider-camera probe: replay a pack's SHIPPED ride runtime (`scripts/coaster.js`)
- * on the replay's mock host with a rider whose head FOLLOWS the car (Bedrock
+ * on the replay's simulator world (`coasterReplayWorld`) with a rider whose head FOLLOWS the car (Bedrock
  * turns a rider with its vehicle, so a rider who never touches the screen
  * reports the car's yaw), and print everything the runtime asks of the camera
  * tick by tick: every `setCamera` (yaw, pitch, ease) and every `playAnimation`
@@ -17,78 +17,46 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { coasterScript, type CoasterRuntimeConfig } from '../web/src/engine/bedrock-coaster.ts';
+import { COASTER_TEST_ORIGIN } from '../web/src/sim/adapters/craftmatic/coaster.ts';
+import { coasterReplayWorld } from './_coaster_replay.ts';
 
 interface CamEvent { tick: number; kind: 'set' | 'anim' | 'clear'; yaw?: number; pitch?: number; ease?: number; x?: number; y?: number; z?: number; keys?: Array<{ t: number; yaw: number; pitch: number; roll: number; alpha: number }>; total?: number; points?: number }
 
 export function probeCoasterCamera(script: string, ticks: number, boardTick = 200): { events: CamEvent[]; car: Map<number, { yaw: number; pitch: number; x: number; y: number; z: number }> } {
-  const configMatch = /^const CONFIG = (\{.*\});$/m.exec(script);
-  if (!configMatch) throw new Error('coaster.js: no `const CONFIG = {...};` line');
-  const config = JSON.parse(configMatch[1]!) as { typeId: string; routes: any[]; types: Record<string, { role: string }> };
+  const { h, entities, start } = coasterReplayWorld(script);
   const events: CamEvent[] = [];
   const car = new Map<number, { yaw: number; pitch: number; x: number; y: number; z: number }>();
-  let tickNo = 0;
-  const entities: any[] = [];
-  const makeEntity = (id: string, typeId: string, props: Record<string, unknown>) => {
-    const properties = new Map<string, unknown>(Object.entries(props));
-    const riders: any[] = [];
-    const rotation = { x: 0, y: 0 };
-    const e: any = {
-      id, typeId,
-      getDynamicProperty: (k: string) => properties.get(k),
-      setDynamicProperty: (k: string, v: unknown) => { properties.set(k, v); },
-      setProperty: (k: string, v: unknown) => { if (id === 'r0c0' && k === 'craftmatic:coaster_pitch') pitchProp = Number(v); },
-      getRotation: () => ({ ...rotation }),
-      isValid: () => true,
-      getComponent: (name: string) => name === 'minecraft:rideable' ? { getRiders: () => [...riders], ejectRiders: () => { riders.length = 0; } } : undefined,
-      tryTeleport: (p: any, o: any) => {
-        if (o?.rotation) { rotation.x = o.rotation.x; rotation.y = o.rotation.y; }
-        if (id === 'r0c0') car.set(tickNo, { yaw: rotation.y, pitch: pitchProp, x: p.x, y: p.y, z: p.z });
-        return true;
-      },
-      dimension: { getBlock: () => ({}) },
-    };
-    e.riders = riders; e.properties = properties; e.rotation = rotation;
-    entities.push(e);
-    return e;
-  };
-  let pitchProp = 0;
-  const origin = { x: 100, y: 64, z: 200 };
-  config.routes.forEach((route, r) => {
-    const base = { 'craftmatic:coaster_origin': origin, 'craftmatic:coaster_rotation': 0, 'craftmatic:coaster_scale': 1, 'craftmatic:coaster_route': r };
-    const slots: Array<{ type: string }> = route.cars?.slots ?? Array.from({ length: (route.cars?.count ?? 1) * (route.cars?.trains ?? 1) }, () => ({ type: config.typeId }));
-    slots.forEach((slot, k) => makeEntity(`r${r}c${k}`, slot.type, { ...base, 'craftmatic:coaster_car': k }));
-    if (route.lift) {
-      makeEntity(`r${r}platform`, route.lift.type, base);
-      if (route.lift.counterweightType) makeEntity(`r${r}cw`, route.lift.counterweightType, base);
-    }
-  });
+  let tickNo = 0, pitchProp = 0;
   const car0 = entities[0];
-  const rider: any = {
-    id: 'rider0', typeId: 'minecraft:player', name: 'rider0',
-    // The head follows the car: what Bedrock reports for a rider who does not look around.
-    getRotation: () => ({ x: 0, y: car0.rotation.y }), getHeadLocation: () => ({ x: 0, y: 0, z: 0 }),
-    onScreenDisplay: { setActionBar: () => undefined },
-    camera: {
-      setCamera: (_p: string, o: any) => { events.push({ tick: tickNo, kind: 'set', yaw: o?.rotation?.y, pitch: o?.rotation?.x, ease: o?.easeOptions?.easeTime, x: o?.location?.x, y: o?.location?.y, z: o?.location?.z }); },
-      clear: () => { events.push({ tick: tickNo, kind: 'clear' }); },
-      playAnimation: (spline: any, o: any) => {
-        const rot = o?.animation?.rotationKeyFrames ?? [], prog = o?.animation?.progressKeyFrames ?? [];
-        events.push({ tick: tickNo, kind: 'anim', total: o?.totalTimeSeconds, points: spline?.controlPoints?.length,
-          keys: rot.map((k: any, i: number) => ({ t: k.timeSeconds, yaw: k.rotation.y, pitch: -k.rotation.x, roll: k.rotation.z, alpha: prog[i]?.alpha })) });
-      },
-    },
-    addEffect: () => undefined, removeEffect: () => undefined,
-    inputInfo: { getMovementVector: () => ({ x: 0, y: 0 }), getButtonState: () => 'Released' },
+  if (car0) {
+    // The lead car's pose on every tick it moves: its yaw after the teleport and its track pitch property.
+    const setProperty = car0.api.setProperty, tryTeleport = car0.api.tryTeleport;
+    car0.api.setProperty = (k: string, v: unknown) => { if (k === 'craftmatic:track_pitch') pitchProp = Number(v); return setProperty(k, v); };
+    car0.api.tryTeleport = (p: any, o: any) => {
+      const ok = tryTeleport(p, o);
+      if (ok) car.set(tickNo, { yaw: car0.sim.rotation.y, pitch: pitchProp, x: p.x, y: p.y, z: p.z });
+      return ok;
+    };
+  }
+  // The rider: a real player whose camera calls are recorded, then applied by the simulator.
+  const riderSim = h.addPlayer('rider0', { x: COASTER_TEST_ORIGIN.x, y: 0, z: COASTER_TEST_ORIGIN.z });
+  const rider = h.api(riderSim), camera = rider.camera;
+  const setCamera = camera.setCamera, clear = camera.clear, playAnimation = camera.playAnimation;
+  camera.setCamera = (p: string, o: any) => { events.push({ tick: tickNo, kind: 'set', yaw: o?.rotation?.y, pitch: o?.rotation?.x, ease: o?.easeOptions?.easeTime, x: o?.location?.x, y: o?.location?.y, z: o?.location?.z }); return setCamera(p, o); };
+  camera.clear = () => { events.push({ tick: tickNo, kind: 'clear' }); return clear(); };
+  camera.playAnimation = (spline: any, o: any) => {
+    const rot = o?.animation?.rotationKeyFrames ?? [], prog = o?.animation?.progressKeyFrames ?? [];
+    events.push({ tick: tickNo, kind: 'anim', total: o?.totalTimeSeconds, points: spline?.controlPoints?.length,
+      keys: rot.map((k: any, i: number) => ({ t: k.timeSeconds, yaw: k.rotation.y, pitch: -k.rotation.x, roll: k.rotation.z, alpha: prog[i]?.alpha })) });
+    return playAnimation(spline, o);
   };
-  const world = { getDimension: (name: string) => ({ getEntities: () => name === 'overworld' ? entities : [] }), getAllPlayers: () => [rider], getPlayers: () => [rider] };
-  let tick = () => {};
-  const system = { runInterval: (cb: () => void) => { tick = cb; }, runTimeout: () => 0, afterEvents: { scriptEventReceive: { subscribe: () => undefined } } };
-  class LinearSpline { controlPoints: unknown[] = []; }
-  const body = script.replace(/^import .*;\n/, '');
-  new Function('world', 'system', 'LinearSpline', body)(world, system, LinearSpline);
+  // The head follows the car: what Bedrock reports for a rider who does not look around
+  // (the reported yaw is the client's, quirk `rider-yaw-lag`, device-only in the simulator).
+  rider.getRotation = () => ({ x: 0, y: car0 ? car0.sim.rotation.y : 0 });
+  start();
   for (tickNo = 1; tickNo <= ticks; tickNo++) {
-    if (tickNo === boardTick && car0) car0.riders.push(rider);
-    tick();
+    if (tickNo === boardTick && car0) h.seat(riderSim, car0.sim);
+    h.run(1);
   }
   return { events, car };
 }

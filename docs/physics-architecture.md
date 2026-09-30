@@ -329,10 +329,14 @@ collider column (cost = distance + 1.5 x drop + 3 x rise, at least
 `minRoamCells` of room preferred). No collider is added for it. The placement
 runtime's own lift (`spawnLift` mirrors it) then has nothing to do; before
 this it raised such figures 1.2-2.6 blocks onto the roof above them.
-`web/src/engine/figure-life-sim.ts` runs the SERIALISED
-runtime on host against a stand-in world (per-axis blocking, 0.6 auto-step,
-a 0.4-block/tick drop to the floor, ground friction 0.546); it answers "do
-the figures roam and stay home", not Bedrock's physics. Device truth: the
+`web/src/sim/adapters/craftmatic/figure-life.ts` runs the SERIALISED
+runtime on the headless simulator over the pack's collider cells (the kit's
+real block definitions), figures as mobs under `minecraft:physics` moved by
+the simulator's one integrator (`tickBody`: gravity, the per-axis sweep, the
+9/16 step, ground friction); it answers "do the figures roam and stay home"
+offline. Until 2026-09-30 it ran over a stand-in world
+(`engine/figure-life-sim.ts`, folded: a 0.6 auto-step, a 0.4-block/tick drop).
+Device truth: the
 `figures_<id>` GameTest (`web/src/engine/gametest-pack.ts`). Tests:
 `test/bedrock-figure-life.test.ts`; census `scripts/_figure_roam_census.ts`.
 
@@ -464,7 +468,7 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   (a per-interval delta read up to 4x on the Saga); a step over
   `DRIVER_TELEPORT_BLOCKS` is a teleport. mph = blocks/tick × 20 × 2.236936
   (1 block = 1 m). Tests: `test/vehicle-driver.test.ts` (the serialised
-  runtime on a fake world: the pitch dive, the hint, a bursty and a smooth
+  runtime on the headless simulator: the pitch dive, the hint, a bursty and a smooth
   mover, a teleport).
 - The wand's size changes `minecraft:scale`, the collision box and the seats
   (`bedrock-placement-pack.ts`); the speeds are the same at every size, the
@@ -476,7 +480,7 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   add-on guide "Where the player sits").
 
 Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint and
-headlight helpers, the animation, and the serialised runtime on a fake world:
+headlight helpers, the animation, and the serialised runtime on the headless simulator:
 a trunk at a car's corner, a post at a wingtip, a collider plate floor, a
 hover craft over water, headlights by night and day, the time machine's top
 speed), `test/playable-addon.test.ts`, `test/playable-golden-models.test.ts`,
@@ -503,7 +507,7 @@ boards it: on a touch screen a tap is a hit (`entityHitEntity`), not the
 held-press interact that mounts a vanilla rideable, so the runtime seats the
 tapping player itself (10788's slide boarded nobody over three taps until
 2026-09-29c). Tests: `test/bedrock-rides.test.ts` (path reading, lift detection
-and the serialised runtime on a fake world, the tap on a seat included).
+and the serialised runtime on the headless simulator, the tap on a seat included).
 
 An ORBIT (kind `orbit`, 2026-09-29) is the same runtime carrying the set's
 own FIGURE, not a player: a flyer mount's companion (§4.6,
@@ -521,7 +525,7 @@ kink) and turns its rider with it, and a figure knocked off is put back
 (`ORBIT_RESEAT_REACH`, every `ORBIT_RESEAT_TICKS`). Nothing about it is
 dynamic and it has no Froude term: the speed is world-absolute times the
 wand factor like the other rides. Tests: `test/bedrock-flyer.test.ts` (the
-path's radius, band, sense and closure; the runtime on a fake world: the
+path's radius, band, sense and closure; the runtime on the headless simulator: the
 lap, the car offset, the re-seat).
 
 ### 4.8 Hop: fly or drive into another mount — `web/src/engine/bedrock-ride-hop.ts`
@@ -625,10 +629,13 @@ Each device runtime is a function turned into the pack's script text with
 4. A value the client needs goes through an actor property; a float property
    is written with `bedrockFloat()` (an integer literal kills the whole
    component on device).
-5. The host tests run the SAME serialised text with `new Function('world',
-   'system', script)` against fake entities — `liftHost` / `rideHost` in
-   `test/bedrock-coaster.test.ts`, `simulateFigureLife`, the pinball runtime
-   via `_pinballRuntimeForTests` — so rule 1 is caught offline.
+5. The host tests run the SAME serialised text as a pack entry on the
+   headless simulator (`test/_sim-host.ts`: its one `@minecraft/server` mock,
+   the pack's own entity and block definitions, its physics) — `liftHost` /
+   `rideHost` in `test/bedrock-coaster.test.ts`, `simulateFigureLife`, the
+   pinball, vehicle, rides and interactives hosts — so rule 1 is caught
+   offline, and a member the runtime reaches that the simulator does not
+   model fails the test (strict mode) instead of passing a fake.
 
 ## 6. Who shares what (DRY map)
 
@@ -642,12 +649,12 @@ Each device runtime is a function turned into the pack's script text with
 | `rideSubstep` (the rail speed step: coaster and driven train) | serialised argument of `coasterRuntime` | `stepCoasterPreviewTick` | `test/rail-track.test.ts` (bit-identical to the shipped coaster formula), `scripts/_coaster_replay.ts` |
 | `RAIL_TRAIN_PHYSICS` | per route, `CoasterRuntimeRoute.physics` | via `route.physics` | `test/rail-track.test.ts` |
 | `createPinballSim` | serialised | `addon-preview.ts` | `test/pinball.test.ts`, `pinball-table.ts` (lane probing) |
-| figure planner functions | serialised | — | `figure-life-sim.ts`, census script |
+| figure planner functions | serialised | — | the simulator's `figure-life.ts` (adapter), census script |
 | `tickPlayer`, `moveBox` (`web/src/sim/physics/body.ts`) | — (Bedrock is the player) | `addon-preview.ts` (through `addon-walk.ts`) | `interactive-walk.ts`, `scripts/_addon_walk.ts`, the headless simulator's player (`web/src/sim/physics/systems.ts`) |
 | `tickBody` (`web/src/sim/physics/body.ts`) | — (Bedrock moves the mob) | — | the simulator's mobs under `minecraft:physics` (a figure walked by `applyImpulse`) |
 | every serialised runtime above | serialised | — | the headless simulator runs them UNMODIFIED, all of a pack's scripts in one context, against its `@minecraft/server` mock (docs/sim-engine.md) |
 | `carStep`, `flightStep`, `boatStep` (`CAR`, `HOVER`, `FLIGHT`, `BOAT` via `config.car` / `config.hover` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
-| `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on a fake world) |
+| `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on the headless simulator) |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts`, `test/bedrock-flyer.test.ts` (the flyer's bob) |
 | `findMounts`, `orbitPathLdu` (`FLYER`) | export time: the orbit on the seat's `ridePath`, followed by `ridesRuntime` | — | `test/bedrock-flyer.test.ts`, `test/nimbus-fixture.test.ts` |
 | `hopContact`, `hopKit` (`HOP`, `HOP_TAGS`) | serialised into `hop.js` (every driveable) and `rides.js` (a slide's set-down); the coaster writes `HOP_TAGS` on its cars; `vehicles.js` reads `VEHICLE_DYNAMIC.hold` | — | `test/bedrock-ride-hop.test.ts` (pure, and the serialised runtimes in the simulator) |
@@ -812,8 +819,6 @@ literal inside a function body (`§` marks the number).
 | `FIGURE_TUNING.radius` | `web/src/engine/bedrock-figure-life.ts` | 7 | blocks | Stroll radius around home at 100 %. |
 | `FIGURE_TUNING.band` | `web/src/engine/bedrock-figure-life.ts` | 1.2 | blocks | Height band around the home floor. |
 | `FIGURE_TUNING.doorwayClearance` | `web/src/engine/bedrock-figure-life.ts` | 1.25 | blocks | Never stop this close to a door leaf. |
-| sim ground friction | `web/src/engine/figure-life-sim.ts` `e.v.x *= §;` | 0.546 | per tick | Minecraft ground friction (as the walker). |
-| sim drop per tick | `web/src/engine/figure-life-sim.ts` `e.location.y - §)` | 0.4 | blocks/tick | Stand-in fall to the floor below; not gravity. |
 | `SCRIPTED_NATIVE_SPEED` | `web/src/engine/playable-addon.ts` | 0 | Bedrock movement / flying_speed | A scripted vehicle's native speeds: only the script moves it. |
 | `ROTOR_FLYING_SPEED` | `web/src/engine/playable-addon.ts` | 0.3 | Bedrock flying_speed | A rotorcraft's, the Happy Ghast's controller: 38.3 blocks/s forward measured on the Nimbus at this value (Pixel 2026-09-29, CMVT fast, 85.7 mph HUD against 85.9 true) - not the "~5 blocks/s" an earlier round read off a ramped stick. |
 | `FLYER.FLYING_SPEED` | `web/src/engine/bedrock-flyer.ts` | 0.0725 | Bedrock flying_speed | A flyer mount's cruise, for a five-year-old round a ten-block model. Two Pixel measurements (CMVT fast, 2026-09-29): 38.3 blocks/s at 0.3 and 13.1 at 0.09 - not proportional (11.5 predicted), so v ≈ 120·fs + 2.3 blocks/s and 0.0725 is ~11 blocks/s (25 mph). Confirm on the next round; the same at every wand size. |
@@ -1138,7 +1143,6 @@ one of these files fails the check until its row is written.
 | `pinballScript` | function | Serialises `pinballRuntime`, `createPinballSim`, `fitPinballZone` (§5). |
 | `pinballRuntimeConfig` | function | The runtime's JSON config (sim table, plane map, zones, camera). |
 | `PinballRuntimeConfig` | interface | Its type. |
-| `_pinballRuntimeForTests` | re-export | The runtime, for the host test. |
 | `planPinball`, `planPinballZones`, `fitPinballZone` | function | Where the table, its tap zones and pick boxes go (fit is SERIALISED). |
 | `PinballMap`, `PinballFlipperPlan`, `PinballButtonPlan`, `PinballPlungerPlan`, `PinballZoneSpec`, `PinballZonePlan`, `PinballPlan` | interface | Plane map (LDU table plane → model blocks) and plan types. |
 | `PINBALL_TAP_REACH`, `PLUNGER_DEPTH`, `PICK_PITCHES` | const | Zone reach (blocks), the plunger target's depth (fraction of the reach; farther than the buttons', so a button wins where the two meet on screen) and pick pitches (degrees). |
@@ -1222,8 +1226,7 @@ one of these files fails the check until its row is written.
 | `isSlideDescription`, `isLiftGuideDescription`, `isLiftCarDescription`, `isLiftColumnDescription` | function | Library-description tests for a slide mould, a lift guide, an elevator platform (the car) and a part of the column it runs in (a guide or a grooved frame). |
 | `slidePathLdu`, `findSlides` | function | Host only: a slide's running line from its top surface's BED (rim cells dropped). |
 | `findLifts` | function | Host only: an elevator platform in its column of frames/guides, the stand point on it and a stop per room floor it can reach, with a step-off point on each floor. |
-| `_ridesRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`ridesRuntime`) that carries a seated player along a slide or lift, and a figure round an orbit. |
-| `ridesScript` | function | Serialises it into `BP/scripts/rides.js`. |
+| `ridesScript` | function | SERIALISED. `BP/scripts/rides.js`: the per-tick runtime (`ridesRuntime`) that carries a seated player along a slide or lift, and a figure round an orbit, with its collider body probe. Its tests run this text on the headless simulator. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-flyer.ts -->
@@ -1235,8 +1238,7 @@ one of these files fails the check until its row is written.
 | `findMounts` | function | Host only: the connected cluster under a figure's feet in the canon style's colours, translucent parts never joining. |
 | `orbitPathLdu` | function | Host only: the companion's closed lap (§4.7). |
 | `FlyerRuntimeMount`, `FlyerRuntimeConfig` | interface | One summonable mount (its cloud type and the types a tap on which summons it) and the runtime's config. |
-| `_flyerRuntimeForTests` | re-export | SERIALISED. The runtime (`flyerRuntime`) that summons a cloud on a tap, fades empty ones and floats down a rider who leaves one in the air. |
-| `flyerScript` | function | Serialises it into `BP/scripts/flyer.js`. |
+| `flyerScript` | function | SERIALISED. `BP/scripts/flyer.js`: the runtime (`flyerRuntime`) that summons a cloud on a tap, fades empty ones and floats down a rider who leaves one in the air. Its tests run this text on the headless simulator. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/bedrock-ride-hop.ts -->
@@ -1249,14 +1251,13 @@ one of these files fails the check until its row is written.
 | `hopContact` | function | SERIALISED. The swept relative contact test in the vehicle's frame. |
 | `HopKitConfig`, `HopKit`, `HopRuntimeConfig` | interface | The kit's config (namespaces, tags, constants), the kit's API, `hop.js`'s CONFIG (this pack's sources, the hold property, the sound). |
 | `hopKit` | function | SERIALISED into `hop.js` and `rides.js`: mountable targets, a train's front-most free car, the claim, the boarding. |
-| `_hopRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`hopRuntime`) that hops a player off this pack's driveables. |
-| `hopKitConfig`, `hopRuntimeConfig`, `hopScript` | function | The configs for a pack, and the serialisation into `BP/scripts/hop.js`. |
+| `hopKitConfig`, `hopRuntimeConfig`, `hopScript` | function | The configs for a pack, and the serialisation into `BP/scripts/hop.js`: the per-tick runtime (`hopRuntime`, SERIALISED) that hops a player off this pack's driveables. Its tests run this text on the headless simulator. |
 <!-- /physics-spec:exports -->
 
-<!-- physics-spec:exports web/src/engine/figure-life-sim.ts -->
+<!-- physics-spec:exports web/src/sim/adapters/craftmatic/figure-life.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `simulateFigureLife` | function | Runs the SERIALISED figure runtime on host over a collider grid (stand-in collision and fall). |
+| `simulateFigureLife` | function | Runs the SERIALISED figure runtime on the headless simulator over a pack's collider cells (the simulator's physics: `tickBody`). |
 | `SimFigure`, `SimSeat`, `SimWorld`, `SimSample` | interface | Types. |
 <!-- /physics-spec:exports -->
 

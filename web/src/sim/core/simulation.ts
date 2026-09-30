@@ -53,6 +53,17 @@ export class Simulation {
   /** Advance `n` ticks. */
   run(n: number): Promise<void> { return this.engine.run(n); }
 
+  /** Advance `n` ticks without awaiting script promises (`SimEngine.stepSync`: synchronous runtimes only). */
+  runSync(n: number): void { this.engine.runSync(n); }
+
+  /**
+   * Reopen the world: every script is loaded again from its first line into a
+   * fresh context (no subscriptions, no timers, no module state) over the SAME
+   * world - blocks, entities, dynamic properties - as a world reload or a
+   * `/reload` leaves it (`ScriptHost.reloadScripts`).
+   */
+  reloadScripts(): void { this.host.reloadScripts(this.addons); }
+
   /** The item ids of every wand-like item the loaded packs define (`items/*.json`). */
   itemIds(): string[] {
     const out: string[] = [];

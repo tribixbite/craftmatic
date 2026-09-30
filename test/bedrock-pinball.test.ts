@@ -1,13 +1,16 @@
 /**
  * The pinball add-on runtime (bedrock-pinball.ts), run as the device runs it:
- * the serialised script evaluated with mocked `world` and `system`.
+ * the serialised script on the headless simulator (test/_sim-host.ts).
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
   consoleAssets, fitPinballZone, pinballPropBehavior, pinballScript, pinballZoneTexture, rotationBetween, flipperRig, moveRig,
   ballAnimation, plungerAnimation, buttonPressAnimation, zoneAssets, BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_BUTTON_TRAVEL, type PinballRuntimeConfig,
+  ballProperties, flipperProperties, plungerProperties, pressProperties,
 } from '../web/src/engine/bedrock-pinball.js';
 import type { PinballSimTable } from '../web/src/engine/pinball-physics.js';
+import type { SimEntity } from '../web/src/sim/entity/entity.js';
+import { simHost } from './_sim-host.js';
 
 function boxSim(): PinballSimTable {
   const cell = 4, rows = 220, cols = 100;
@@ -55,109 +58,104 @@ function config(ballMode: PinballRuntimeConfig['ballMode'] = 'animate'): Pinball
   };
 }
 
-/** The seated head sits this far above the pad's position (the engine's seat offset + sitting eye). */
-const HEAD_ABOVE_SEAT = 1.35;
 
-/** A player inventory: 36 slots, `items[k]` a type id or undefined. */
-function inventory(items: Array<string | undefined>) {
-  const slots = [...items];
-  while (slots.length < 36) slots.push(undefined);
-  return {
-    slots,
-    container: {
-      size: 36,
-      getItem: (k: number) => (slots[k] ? { typeId: slots[k] } : undefined),
-      moveItem: (from: number, to: number) => { slots[to] = slots[from]; slots[from] = undefined; },
-    },
-  };
+/** A hotbar and inventory, `items[k]` a type id or undefined (the rest of the 36 slots empty). */
+function inventory(items: Array<string | undefined>): Array<string | undefined> { return [...items]; }
+
+/** A spied facade member: the facade keeps doing what the simulator does; the spy records the calls. */
+function spyOn<T extends Record<string, any>>(o: T, member: string): any {
+  const real = o[member];
+  const fn = vi.fn((...args: unknown[]) => real(...args));
+  (o as Record<string, unknown>)[member] = fn;
+  return fn;
 }
 
-function harness(engine: { headSide?: number; yawOffset?: number; inventory?: ReturnType<typeof inventory>; ballMode?: PinballRuntimeConfig['ballMode']; tweak?: (cfg: PinballRuntimeConfig) => void } = {}) {
+/**
+ * The pinball runtime (`scripts/pinball.js`) on the headless simulator
+ * (test/_sim-host.ts), every part declared as the exporter declares it (its
+ * family, its actor properties, the console's seat), one player whose stick,
+ * Jump and hotbar the test holds. Every part's `teleport`, `tryTeleport`,
+ * `setProperty` and `remove` are spies (`actorProps` records what the runtime
+ * WROTE), and so are the rider's camera, input permissions, screen, effects,
+ * teleport and rotation. Taps are delivered the way the input module delivers
+ * them: a hit inside the tick's event phase (`host.deliver`), a held press as
+ * the cancelable before-event (`host.before`).
+ *
+ * `headSide` moves the console's seat so the rider's head sits that far along
+ * world +x of the pad; `yawOffset` starts the rider turned from the seat's
+ * yaw: the engine's pose, which the runtime must measure rather than assume.
+ */
+function harness(engine: { headSide?: number; yawOffset?: number; inventory?: Array<string | undefined>; ballMode?: PinballRuntimeConfig['ballMode']; tweak?: (cfg: PinballRuntimeConfig) => void } = {}) {
   const cfg = config(engine.ballMode);
   engine.tweak?.(cfg);
   const origin = { x: 100, y: 64, z: 200 };
   const props: Record<string, unknown> = { 'craftmatic:pinball_origin': origin, 'craftmatic:pinball_rotation': 0, 'craftmatic:pinball_scale': 1 };
-  const mk = (typeId: string, at = { x: 0, y: 0, z: 0 }) => {
-    const dyn: Record<string, unknown> = { ...props };
+  const prop = (t: string, box: { width: number; height: number }, p?: Record<string, unknown>) => pinballPropBehavior(t, box, p) as Record<string, unknown>;
+  const con = consoleAssets(cfg.consoleType).behavior as any;
+  // The seat is in the console's frame, turned by its yaw (180): -x in the frame is +x in the world.
+  const seat = con['minecraft:entity'].components['minecraft:rideable'];
+  con['minecraft:entity'].components['minecraft:rideable'] = { ...seat, seats: { ...seat.seats, position: [-(engine.headSide ?? 0), seat.seats.position[1], seat.seats.position[2]] } };
+  const zone = (t: string, role: 'flipper' | 'plunger' | 'pick') => zoneAssets(t, BOX, role).behavior as Record<string, unknown>;
+  const h = simHost({
+    script: pinballScript(cfg), deferScripts: true,
+    entities: {
+      [cfg.consoleType]: con,
+      [cfg.ballType]: prop(cfg.ballType, { width: 0.3, height: 0.3 }, ballProperties()),
+      [cfg.flipperTypes[0]!]: prop(cfg.flipperTypes[0]!, { width: 0.5, height: 0.3 }, flipperProperties()),
+      [cfg.flipperTypes[1]!]: prop(cfg.flipperTypes[1]!, { width: 0.5, height: 0.3 }, flipperProperties()),
+      [cfg.plungerType!]: prop(cfg.plungerType!, { width: 0.5, height: 0.3 }, plungerProperties()),
+      [cfg.cabinetButtonTypes.left!]: prop(cfg.cabinetButtonTypes.left!, { width: 0.3, height: 0.3 }, pressProperties()),
+      [cfg.cabinetButtonTypes.right!]: prop(cfg.cabinetButtonTypes.right!, { width: 0.3, height: 0.3 }, pressProperties()),
+      [cfg.buttonType]: zone(cfg.buttonType, 'flipper'), [cfg.plungerButtonType!]: zone(cfg.plungerButtonType!, 'plunger'),
+      [cfg.pickType!]: zone(cfg.pickType!, 'pick'), [cfg.plungerPickType!]: zone(cfg.plungerPickType!, 'pick'),
+    },
+  });
+  /** Every non-player entity: spies on what the runtime does to it, and the actor properties it wrote. */
+  const record = (sim: SimEntity): any => {
+    const e = h.api(sim);
+    if (e.actorProps) return e;
     const actorProps: Record<string, number> = {};
-    const e: any = {
-      typeId, id: typeId, location: { ...at }, removed: false, actorProps,
-      getDynamicProperty: vi.fn((k: string) => dyn[k]), setDynamicProperty: vi.fn((k: string, v: unknown) => { dyn[k] = v; }),
-      teleport: vi.fn((p: any) => { e.location = p; }),
-      tryTeleport: vi.fn((p: any) => { e.location = p; return true; }),
-      getRotation: () => ({ x: 0, y: 180 }),
-      setProperty: vi.fn((k: string, v: number) => { actorProps[k] = v; }),
-      getComponent: vi.fn(),
-      isValid: () => !e.removed,
-      remove: vi.fn(() => { e.removed = true; }),
-    };
+    for (const m of ['teleport', 'tryTeleport', 'remove']) spyOn(e, m);
+    const setProperty = e.setProperty;
+    e.setProperty = vi.fn((k: string, v: number) => { setProperty(k, v); actorProps[k] = v; });
+    Object.defineProperty(e, 'actorProps', { configurable: true, value: actorProps });
+    Object.defineProperty(e, 'removed', { configurable: true, get: () => !sim.valid });
     return e;
   };
   const home = { x: 102, y: 64, z: 209 };
-  const con = mk(cfg.consoleType, home), ball = mk(cfg.ballType), fl = mk(cfg.flipperTypes[0]!), fr = mk(cfg.flipperTypes[1]!), plunger = mk(cfg.plungerType!);
+  const mk = (typeId: string, at = { x: 0, y: 0, z: 0 }, yaw = 0) => record(h.spawn(typeId, at, { dynamic: props, yaw }));
+  const conE = mk(cfg.consoleType, home, 180), ball = mk(cfg.ballType), fl = mk(cfg.flipperTypes[0]!), fr = mk(cfg.flipperTypes[1]!), plunger = mk(cfg.plungerType!);
   const cbl = mk(cfg.cabinetButtonTypes.left!), cbr = mk(cfg.cabinetButtonTypes.right!);
-  let riders: any[] = [];
-  con.getComponent.mockImplementation((name: string) => name === 'minecraft:rideable' ? { getRiders: () => riders } : undefined);
-  const input = { x: 0, y: 0, jump: false };
-  const player: any = {
-    typeId: 'minecraft:player', id: 'p1',
-    inputInfo: { getMovementVector: () => ({ x: input.x, y: input.y }), getButtonState: () => (input.jump ? 'Pressed' : 'Released') },
-    isJumping: false,
-    // The rider rides the pad: its head follows the pad's position.
-    // `headSide` shifts the head along +x whatever the seat does, and
-    // `yawOffset` turns the rider from the seat's yaw: the engine's pose, which
-    // the runtime must measure rather than assume.
-    getHeadLocation: () => ({ x: con.location.x + (engine.headSide ?? 0), y: con.location.y + HEAD_ABOVE_SEAT, z: con.location.z }),
-    head: undefined as { x: number; y: number } | undefined,
-    getRotation(): { x: number; y: number } {
-      return this.head ?? { x: 0, y: (con.tryTeleport.mock.calls.at(-1)?.[1]?.rotation?.y ?? 180) + (engine.yawOffset ?? 0) };
-    },
-    setRotation: vi.fn(function (this: any, r: { x: number; y: number }) { this.head = { ...r }; }),
-    inputPermissions: { setPermissionCategory: vi.fn() },
-    selectedSlotIndex: 0,
-    tags: new Set<string>(),
-    addTag(t: string) { this.tags.add(t); return true; },
-    removeTag(t: string) { return this.tags.delete(t); },
-    camera: { setCamera: vi.fn(), clear: vi.fn() },
-    onScreenDisplay: { setActionBar: vi.fn(), setTitle: vi.fn() },
-    addEffect: vi.fn(),
-    removeEffect: vi.fn(),
-    teleport: vi.fn(),
-    dyn: {} as Record<string, unknown>,
-    getDynamicProperty(k: string) { return this.dyn[k]; },
-    setDynamicProperty(k: string, v: unknown) { if (v === undefined) delete this.dyn[k]; else this.dyn[k] = v; },
-    getComponent: (name: string) => (name === 'minecraft:inventory' && engine.inventory ? { container: engine.inventory.container } : undefined),
+  const conSim = h.simOf(conE)!;
+  // The player hangs 8 blocks off the pad (out of the "how to start" hint's reach) until seated.
+  const psim = h.addPlayer('Player', { x: home.x, y: home.y, z: home.z + 8 }, { yaw: 180 + (engine.yawOffset ?? 0) });
+  (engine.inventory ?? []).forEach((id, k) => { h.host.playerState(psim).items[k] = id; });
+  psim.flying = true;
+  const player = h.api(psim);
+  for (const m of ['addEffect', 'removeEffect', 'teleport', 'setRotation']) spyOn(player, m);
+  spyOn(player.camera, 'setCamera'); spyOn(player.camera, 'clear');
+  spyOn(player.inputPermissions, 'setPermissionCategory');
+  spyOn(player.onScreenDisplay, 'setActionBar'); spyOn(player.onScreenDisplay, 'setTitle');
+  // The test reads the player's tags as a set, and turns its head (the client's reported pitch and yaw) by `head`.
+  Object.defineProperty(player, 'tags', { configurable: true, get: () => psim.tags });
+  Object.defineProperty(player, 'head', { configurable: true, get: () => ({ ...psim.rotation }), set: (r: { x: number; y: number }) => { psim.rotation = { x: r.x, y: r.y }; } });
+  /** The stick and Jump, as the phone's controls (x = strafe, y = forward, as `getMovementVector` reports them). */
+  const input = {
+    get x() { return h.sim.controls.get(psim.id).strafe; }, set x(v: number) { h.controls(psim, { strafe: v }); },
+    get y() { return h.sim.controls.get(psim.id).forward; }, set y(v: number) { h.controls(psim, { forward: v }); },
+    get jump() { return h.sim.controls.get(psim.id).jump; }, set jump(v: boolean) { h.controls(psim, { jump: v }); },
   };
-  let tick: () => void = () => {};
+  const dim = h.dimension();
+  const getEntities = spyOn(dim, 'getEntities');
+  spyOn(dim, 'playSound');
+  const scriptEventSubscribe = spyOn(h.system.afterEvents.scriptEventReceive, 'subscribe');
+  // What the runtime spawns (the tap targets and pick boxes), in order, with the same spies.
   const spawned: any[] = [];
-  let hit: (ev: any) => void = () => {};
-  let interact: (ev: any) => void = () => {};
-  const getEntities = vi.fn((q: any) => (q?.families?.[0] === cfg.buttonFamily ? spawned.filter(e => !e.removed) : [con, ball, fl, fr, plunger, cbl, cbr]));
-  const dim = {
-    id: 'minecraft:overworld',
-    getEntities,
-    spawnEntity: vi.fn((typeId: string, at: any) => {
-      const e = mk(typeId, at);
-      e.id = `zone${spawned.length}`;
-      spawned.push(e);
-      return e;
-    }),
-    playSound: vi.fn(),
-  };
-  const world = {
-    getDimension: (name: string) => (name === 'overworld' ? dim : { getEntities: () => [] }),
-    getPlayers: (q?: any) => (q?.tags ? [player].filter(pl => q.tags.every((t: string) => pl.tags.has(t))) : []),
-    afterEvents: { entityHitEntity: { subscribe: (cb: any) => { hit = cb; } } },
-    beforeEvents: { playerInteractWithEntity: { subscribe: (cb: any) => { interact = cb; } } },
-  };
-  const scriptEventSubscribe = vi.fn();
-  const system = { run: (cb: () => void) => cb(), runInterval: (cb: () => void) => { tick = cb; }, afterEvents: { scriptEventReceive: { subscribe: scriptEventSubscribe } } };
-  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-  const script = pinballScript(cfg).replace(/^import .*;\n/, '');
-  new Function('world', 'system', script)(world, system);
+  h.engine.on('entitySpawn', ({ entity }) => { if (!entity.isPlayer) spawned.push(record(entity)); });
+  h.start();
   const live = () => spawned.filter(e => !e.removed);
   /** The tap targets (outlines) by role. */
-  const zone = (role: 'left' | 'right' | 'plunger') => {
+  const zoneOf = (role: 'left' | 'right' | 'plunger') => {
     const z = live().filter(e => e.typeId === cfg.buttonType);
     return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerButtonType) : z[role === 'left' ? 0 : 1];
   };
@@ -166,14 +164,22 @@ function harness(engine: { headSide?: number; yawOffset?: number; inventory?: Re
     const z = live().filter(e => e.typeId === cfg.pickType);
     return role === 'plunger' ? live().find(e => e.typeId === cfg.plungerPickType) : z[role === 'left' ? 0 : 1];
   };
+  const hitWith = (by: SimEntity, target: any): void => { h.host.deliver('entityHitEntity', { damagingEntity: h.api(by), hitEntity: target }); };
+  let others = 0;
   return {
-    cfg, origin, home, con, ball, fl, fr, plunger, cbl, cbr, player, input, dim, spawned, zone, pick, warn, getEntities, scriptEventSubscribe,
-    hit: (role: 'left' | 'right' | 'plunger', by: any = player) => hit({ damagingEntity: by, hitEntity: zone(role) }),
-    hitEntity: (e: any) => hit({ damagingEntity: player, hitEntity: e }),
-    hitPick: (role: 'left' | 'right' | 'plunger') => hit({ damagingEntity: player, hitEntity: pick(role) }),
-    press: (role: 'left' | 'right' | 'plunger') => { const ev: any = { player, target: zone(role), cancel: false }; interact(ev); return ev; },
-    sit: () => { riders = [player]; }, stand: () => { riders = []; },
-    run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
+    cfg, origin, home, con: conE, ball, fl, fr, plunger, cbl, cbr, player, input, dim, spawned, zone: zoneOf, pick, getEntities, scriptEventSubscribe, host: h,
+    /** The player's 36 slots. */
+    slots: (): Array<string | undefined> => Array.from({ length: 36 }, (_, k) => h.host.playerState(psim).items[k]),
+    /** Warnings the runtime wrote (its content-log lines). */
+    warnings: (): string[] => h.lines('console').filter(l => l.startsWith('[warn]')),
+    /** Another player in the world (not the rider). */
+    otherPlayer: (): SimEntity => { const p = h.addPlayer(`Other${++others}`, { x: home.x + 3, y: home.y, z: home.z + 3 }); p.flying = true; return p; },
+    hit: (role: 'left' | 'right' | 'plunger', by: SimEntity = psim) => hitWith(by, zoneOf(role)),
+    hitEntity: (e: any) => hitWith(psim, e),
+    hitPick: (role: 'left' | 'right' | 'plunger') => hitWith(psim, pick(role)),
+    press: (role: 'left' | 'right' | 'plunger') => ({ cancel: h.host.before('playerInteractWithEntity', { player, target: zoneOf(role) }) }),
+    sit: () => { h.seat(psim, conSim); }, stand: () => { h.unseat(psim); },
+    run: (n: number) => { h.run(n); },
   };
 }
 
@@ -337,8 +343,8 @@ describe('pinball runtime (host simulation)', () => {
     h.run(20);
     expect(h.cbl.actorProps['craftmatic:press']).toBe(0);
     expect(flipOf(h.fl)).toBeLessThan(1);
-    // A long press arrives in a read-only before-event: the raise goes through system.run.
-    h.press('right');
+    // A long press arrives in a read-only before-event: the raise goes through system.run (the next tick's script phase).
+    h.press('right'); h.run(1);
     expect(flipOf(h.fr)).toBeGreaterThan(30);
     expect(h.cbr.actorProps['craftmatic:press']).toBe(1);
   });
@@ -354,7 +360,7 @@ describe('pinball runtime (host simulation)', () => {
     expect(h.player.selectedSlotIndex).toBe(6);
     h.stand(); h.run(1);
     expect(h.player.selectedSlotIndex).toBe(4);
-    expect(inv.slots.slice(0, 9)).toEqual([undefined, 'a', 'b', 'c', 'd', 'e', undefined, 'g', 'h']);
+    expect(h.slots().slice(0, 9)).toEqual([undefined, 'a', 'b', 'c', 'd', 'e', undefined, 'g', 'h']);
   });
 
   it('with a full hotbar, moves the middle item to a free inventory slot and puts it back exactly on leaving', () => {
@@ -363,12 +369,12 @@ describe('pinball runtime (host simulation)', () => {
     const h = harness({ inventory: inv });
     h.run(1); h.sit(); h.run(12);
     expect(h.player.selectedSlotIndex).toBe(4);
-    expect(inv.slots[4]).toBeUndefined();
-    expect(inv.slots[10]).toBe('e');
-    expect(h.player.dyn['craftmatic:pinball_stash']).toBeDefined();
+    expect(h.slots()[4]).toBeUndefined();
+    expect(h.slots()[10]).toBe('e');
+    expect(h.player.getDynamicProperty('craftmatic:pinball_stash')).toBeDefined();
     h.stand(); h.run(1);
-    expect(inv.slots.slice(0, 11)).toEqual([...items, undefined]);
-    expect(h.player.dyn['craftmatic:pinball_stash']).toBeUndefined();
+    expect(h.slots().slice(0, 11)).toEqual([...items, undefined]);
+    expect(h.player.getDynamicProperty('craftmatic:pinball_stash')).toBeUndefined();
   });
 
   it('a flipper tap while the ball waits does NOT launch it (the plunger does)', () => {
@@ -379,7 +385,7 @@ describe('pinball runtime (host simulation)', () => {
 
   it('a tap from another player does nothing', () => {
     const h = seated();
-    h.hit('left', { id: 'p2', typeId: 'minecraft:player' }); h.run(4);
+    h.hit('left', h.otherPlayer()); h.run(4);
     expect(neverRaised(h.fl)).toBe(true);
   });
 
@@ -515,10 +521,10 @@ describe('pinball runtime (host simulation)', () => {
   it('scans the world for pinball actors only every 20 ticks, and logs nothing while it plays', () => {
     const h = seated();
     h.getEntities.mockClear();
-    h.warn.mockClear();
+    const warned = h.warnings().length;
     h.run(200);
-    expect(h.warn).not.toHaveBeenCalled();
-    const actorScans = h.getEntities.mock.calls.filter(c => c[0]?.families?.[0] === 'craftmatic_pinball').length;
+    expect(h.warnings().slice(warned)).toEqual([]);
+    const actorScans = h.getEntities.mock.calls.filter((c: any[]) => c[0]?.families?.[0] === 'craftmatic_pinball').length;
     expect(actorScans).toBeLessThanOrEqual(11);
   });
 
@@ -590,8 +596,8 @@ describe('pinball runtime (host simulation)', () => {
 
   it('removes targets no game owns (left over from a script reload)', () => {
     const h = harness();
-    const stray: any = { id: 'stray', typeId: 'craftmatic:zone', location: { x: 0, y: 0, z: 0 }, removed: false, remove: vi.fn() };
-    h.spawned.push(stray);
+    // A target in the world that no game of this script owns (its `remove` is the harness's spy).
+    const stray = h.host.api(h.host.spawn('craftmatic:zone', { x: 0, y: 0, z: 0 }));
     h.run(40);
     expect(stray.remove).toHaveBeenCalled();
   });

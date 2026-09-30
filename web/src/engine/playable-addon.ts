@@ -19,7 +19,7 @@ import type { VehicleSeatReport } from './seat-census.js';
 import { normaliseYaw, sceneGridPoint, yawForFacing, type AccessScaleRecommendation, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { MINIDOLL_CLIENT_ANIMATIONS, MINIFIG_ANIMATIONS, MINIFIG_BONES, MINIFIG_CLIENT_ANIMATIONS, figureClientAnimations } from './minifig-rig.js';
 import { minifigFromSpec } from './minifig-rig.js';
-import { minifigWandScript } from './bedrock-minifig-wand.js';
+import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior } from './bedrock-building-shell.js';
@@ -962,7 +962,7 @@ export function seatBehavior(id: string): unknown {
  * stands on its platform (100 LDU = 1.9 wide), whose car is tapped as well.
  */
 const RIDE_SEAT_TAP_BOX = { width: 1.0, height: 0.6 } as const;
-function rideSeatBehavior(id: string): unknown {
+export function rideSeatBehavior(id: string): unknown {
     const rideable = { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 0 } };
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: true, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_ride'] },
@@ -985,7 +985,7 @@ function rideSeatBehavior(id: string): unknown {
  * as on a chair (`seatBehavior`), so the seated figure's hips rest on the
  * mount's top, where the seat is placed. The ride runtime moves it.
  */
-function companionSeatBehavior(id: string): unknown {
+export function companionSeatBehavior(id: string): unknown {
     const rideable = { seat_count: 1, family_types: ['craftmatic_figure'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: [0, -0.3, 0], lock_rider_rotation: 0 } };
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_ride', 'craftmatic_companion'] },
@@ -1006,7 +1006,7 @@ function companionSeatBehavior(id: string): unknown {
  * seat and its figure ride through nothing), a tappable box (a tap on it
  * summons the player's own mount), unhurt, never a spawn egg.
  */
-function mountCarBehavior(id: string, collisionBox: { width: number; height: number }): unknown {
+export function mountCarBehavior(id: string, collisionBox: { width: number; height: number }): unknown {
     return withSizeGroups({ format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: `${PACK_NAMESPACE}:${id}`, is_spawnable: false, is_summonable: true }, components: {
         'minecraft:type_family': { family: ['craftmatic_prop', 'craftmatic_companion'] },
         'minecraft:nameable': {}, 'minecraft:persistent': {},
@@ -1785,7 +1785,6 @@ function vehicleDriverRuntime(config: VehicleDriverConfig) {
   } catch {}
 }
 
-export { vehicleDriverRuntime as _vehicleDriverRuntimeForTests };
 export type { VehicleDriverConfig };
 
 /** The driver's config for a pack: its vehicles and every constant it runs on. */
@@ -1796,7 +1795,8 @@ export function vehicleDriverConfig(vehicles: VehicleDriverConfig['vehicles']): 
   };
 }
 
-const vehicleDriverScript = (config: VehicleDriverConfig) =>
+/** `scripts/vehicle-driver.js`: the config and the runtime (the text a pack ships). */
+export const vehicleDriverScript = (config: VehicleDriverConfig): string =>
   `import { world, system } from "@minecraft/server";\n(${vehicleDriverRuntime.toString()})(${JSON.stringify(config)});\n`;
 
 /**
@@ -2416,11 +2416,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // it the entity's WHOLE property component, so every `q.property` failed
         // and the wand could not set `craftmatic:draft`. A slot with one entry
         // (or none) keeps [0, 1]; the wand only ever writes listed indices.
-        const intRange = (count: number): [number, number] => [0, Math.max(1, count - 1)];
-        const properties: Record<string, unknown> = {}; for (const [slot, entries] of Object.entries(library.minifig)) { properties[`craftmatic:${slot}`] = { type: 'int', range: intRange(entries.length), default: 0, client_sync: true }; properties[`craftmatic:c_${slot}`] = { type: 'int', range: intRange(colours.length), default: 0, client_sync: true }; }
-        properties['craftmatic:family'] = { type: 'int', range: intRange(1), default: 0, client_sync: true }; properties['craftmatic:draft'] = { type: 'bool', default: false, client_sync: true };
-        properties[POSE_PROPERTY] = { type: 'int', range: intRange(CREATOR_POSES.length), default: 0, client_sync: true };
-        const creatorBehavior = { format_version: ENTITY_FORMAT_VERSION, 'minecraft:entity': { description: { identifier: figureId, is_spawnable: true, is_summonable: true, properties }, components: { 'minecraft:type_family': { family: ['craftmatic_figure'] }, 'minecraft:nameable': {}, 'minecraft:persistent': {}, 'minecraft:physics': { has_gravity: true, has_collision: true }, 'minecraft:collision_box': { width: .6, height: 1.8 }, 'minecraft:health': { value: 20, max: 20 } }, component_groups: { 'craftmatic:npc': { 'minecraft:movement': { value: .18 }, 'minecraft:movement.basic': {}, 'minecraft:navigation.walk': { can_open_doors: true, can_pass_doors: true }, 'minecraft:behavior.look_at_player': { priority: 7, look_distance: 6, probability: .08 }, 'minecraft:behavior.random_look_around': { priority: 8 } } }, events: { 'craftmatic:release': { add: { component_groups: ['craftmatic:npc'] } }, 'craftmatic:npc_off': { remove: { component_groups: ['craftmatic:npc'] } } } } };
+        // `creatorFigureBehavior` (bedrock-minifig-wand.ts) builds it, shared with the simulator tests.
+        const creatorBehavior = creatorFigureBehavior(creatorConfig, ENTITY_FORMAT_VERSION);
         // A released creator figure walks with the set's own figures (scripts/figures.js,
         // bedrock-figure-life.ts): no vanilla stroll, which never pathed over the
         // collider floors and wandered off a model. The runtime skips a figure

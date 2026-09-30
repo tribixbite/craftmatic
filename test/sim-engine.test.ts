@@ -241,6 +241,25 @@ describe('the script host', () => {
     expect((await run([/percent · done$/])).violations.map(v => v.invariant)).not.toContain('actionbar-not-stolen');
   });
 
+  it('system.run from an event handler runs at the end of the same tick; from other code, in the next tick (Microsoft\'s contract)', async () => {
+    const bytes = await miniAddon({
+      'main.js': [
+        "import { world, system } from '@minecraft/server';",
+        "system.afterEvents.scriptEventReceive.subscribe(ev => { const at = system.currentTick; system.run(() => console.warn(ev.id + ' handler ' + at + ' ran ' + system.currentTick)); });",
+        "system.runTimeout(() => { const at = system.currentTick; system.run(() => console.warn('timeout ' + at + ' ran ' + system.currentTick)); }, 3);",
+      ].join('\n'),
+    });
+    const sim = new Simulation();
+    await sim.loadAddonBytes(bytes, 'mini');
+    sim.addPlayer();
+    await sim.run(2);
+    sim.engine.emit('scriptEventReceive', { id: 'test:ping', message: '' });
+    await sim.run(4);
+    const lines = sim.engine.timeline.of('console').map(e => e.text);
+    expect(lines).toContain('[warn] test:ping handler 3 ran 3');
+    expect(lines).toContain('[warn] timeout 3 ran 4');
+  });
+
   it('getBlock outside the loaded area is undefined, never air', async () => {
     const bytes = await miniAddon({ 'main.js': "import { world, system } from '@minecraft/server';\nsystem.run(() => { const d = world.getDimension('overworld'); console.warn('near ' + (d.getBlock({ x: 0, y: -61, z: 0 })?.typeId) + ' far ' + (d.getBlock({ x: 5000, y: -61, z: 0 }) === undefined)); });\n" });
     const r = await runScenario({ name: 'unloaded', steps: [{ kind: 'wait', ticks: 3 }] }, [await readAddon(bytes, 'mini')], { keepTimeline: true });

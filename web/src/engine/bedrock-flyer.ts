@@ -357,8 +357,6 @@ function flyerRuntime(config: FlyerRuntimeConfig): void {
   }, 10);
 }
 
-export { flyerRuntime as _flyerRuntimeForTests };
-
 /** `scripts/flyer.js`: the config and the runtime. */
 export function flyerScript(config: FlyerRuntimeConfig): string {
   return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${flyerRuntime.toString()})(CONFIG);\n`;

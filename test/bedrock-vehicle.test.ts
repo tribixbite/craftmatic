@@ -4,7 +4,8 @@
  */
 import { describe, expect, it } from 'vitest';
 import { vehicleWheelAssemblies, type VehicleWheelBone } from '../web/src/engine/ldraw-entity-compiler.js';
-import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType } from '../web/src/engine/bedrock-vehicle.js';
+import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
+import { simHost, solidBelow } from './_sim-host.js';
 
 /** Fly `ticks` ticks over flat ground at y = 0 (nothing in the way), returning every state. */
 function fly(s: FlightState, input: (t: number, s: FlightState) => FlightInput, ticks: number, ground: number | null = 0): { states: FlightState[]; events: string[] } {
@@ -265,7 +266,7 @@ describe('car model', () => {
   });
 });
 
-// ─── The pack runtime on a fake world (the serialised text, as the device runs it) ───
+// ─── The pack runtime on a fake world (the serialised text on the simulator, as the device runs it) ───
 
 /** The runtime's config for a set of types, with the pack's real constants. */
 function hostConfig(types: Record<string, ScriptedVehicleType>, extra: Partial<ScriptedVehicleConfig> = {}): ScriptedVehicleConfig {
@@ -276,64 +277,67 @@ interface HostOptions {
   type: ScriptedVehicleType;
   /** Where the vehicle starts, and its yaw (Bedrock: -90 faces +x). */
   at: { x: number; y: number; z: number }; yaw?: number;
-  /** Block ids by "x,y,z" over the default world: stone below y = 64, air above. */
-  blocks?: Record<string, string>;
-  /** A block id for a whole cell range (x0..x1, y0..y1, z0..z1 inclusive), applied before `blocks`. */
+  /**
+   * A block id for a whole cell range (x0..x1, y0..y1, z0..z1 inclusive) over
+   * the default world (stone below y = 64, air above), later fills over
+   * earlier ones; a collider is written `craftmatic:collider[lo=L,hi=H]`.
+   */
   fills?: Array<{ from: [number, number, number]; to: [number, number, number]; id: string }>;
   time?: number;
   colliders?: ScriptedVehicleConfig['colliders'];
-  /** Blocks at x beyond this are not loaded (getBlock returns undefined). */
+  /** Blocks at x beyond this read as not loaded (the API's `getBlock` answers undefined there). */
   unloadedBeyondX?: number;
 }
 
+/** The scripted vehicle's type as the pack declares it: the vehicle family, its flight properties, one player seat. */
+const VEHICLE_TYPE = {
+  properties: flightProperties() as Record<string, Record<string, unknown>>,
+  components: {
+    'minecraft:type_family': { family: ['craftmatic_vehicle'] },
+    'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0] }] },
+  },
+};
+
 /**
- * Run `scripts/vehicles.js` (the serialised runtime) against a fake world: one
- * vehicle, one player riding it whose stick the test sets, blocks from a map.
- * Records the vehicle's poses, and every block the runtime SETS (headlights).
+ * Run `scripts/vehicles.js` (the serialised runtime) on the headless
+ * simulator (test/_sim-host.ts): one scripted vehicle, one player seated on
+ * it whose stick the test holds, the world stone below y = 64. Records the
+ * vehicle's poses (every `teleport` the runtime makes) and every block the
+ * runtime SETS (headlights).
  */
 function vehicleHost(o: HostOptions) {
   const typeId = 'craftmatic:t_vehicle';
+  const h = simHost({
+    script: scriptedVehicleScript(hostConfig({ [typeId]: o.type }, o.colliders ? { colliders: o.colliders } : {})),
+    entities: { [typeId]: VEHICLE_TYPE }, colliders: !!o.colliders, terrain: solidBelow(64), timeOfDay: o.time ?? 6000,
+  });
+  for (const f of o.fills ?? []) {
+    const m = /^(.*)\[lo=(\d+),hi=(\d+)\]$/.exec(f.id);
+    h.fill({ x: f.from[0], y: f.from[1], z: f.from[2] }, { x: f.to[0], y: f.to[1], z: f.to[2] }, m ? m[1]! : f.id, m ? { 'craftmatic:lo': Number(m[2]), 'craftmatic:hi': Number(m[3]) } : {});
+  }
+  // Every block the RUNTIME sets from here on (the fills above are the test's).
   const placed = new Map<string, string>();
-  const blockId = (x: number, y: number, z: number): string => {
-    const k = `${x},${y},${z}`;
-    if (placed.has(k)) return placed.get(k)!;
-    if (o.blocks?.[k]) return o.blocks[k]!;
-    for (const f of o.fills ?? []) if (x >= f.from[0] && x <= f.to[0] && y >= f.from[1] && y <= f.to[1] && z >= f.from[2] && z <= f.to[2]) return f.id;
-    return y < 64 ? 'minecraft:stone' : 'minecraft:air';
-  };
-  const block = (p: { x: number; y: number; z: number }): any => {
-    if (o.unloadedBeyondX !== undefined && p.x > o.unloadedBeyondX) return undefined;
-    const id = blockId(p.x, p.y, p.z);
-    const m = /^(.*)\[lo=(\d+),hi=(\d+)\]$/.exec(id);
-    return {
-      typeId: m ? m[1] : id, isAir: id === 'minecraft:air', isLiquid: id === 'minecraft:water',
-      permutation: { getState: (s: string) => (m ? (s.endsWith(':lo') ? Number(m[2]) : Number(m[3])) : s === 'minecraft:vertical_half' ? (id.endsWith('_slab') ? 'bottom' : undefined) : undefined) },
-      setType: (t: string) => { placed.set(`${p.x},${p.y},${p.z}`, t); },
-    };
-  };
-  let stick = { x: 0, y: 0 }, jump = false, riding = true;
-  const bars: string[] = [];
-  const player = { typeId: 'minecraft:player', inputInfo: { getMovementVector: () => ({ ...stick }), getButtonState: () => (jump ? 'Pressed' : 'Released') }, onScreenDisplay: { setActionBar: (s: string) => { bars.push(s); } } };
-  const dynamic = new Map<string, unknown>();
+  h.engine.dimension('overworld').onWrite = (x, y, z, p) => { placed.set(`${x},${y},${z}`, p.typeId); };
+  if (o.unloadedBeyondX !== undefined) {
+    // Fault injection at the API: the chunk ahead is not loaded, so `getBlock` answers undefined there
+    // (quirk `unloaded-block-undefined`). A real unload cannot be staged with a rider aboard: the rider loads its own chunks.
+    const dim = h.dimension(), getBlock = dim.getBlock, edge = o.unloadedBeyondX;
+    dim.getBlock = (p: { x: number; y: number; z: number }) => (p.x > edge ? undefined : getBlock(p));
+  }
+  const vehicle = h.spawn(typeId, o.at, { yaw: o.yaw ?? -90 });
+  const entity = h.api(vehicle);
   const poses: Array<{ x: number; y: number; z: number; yaw: number }> = [];
-  const dim: any = { id: 'overworld', getBlock: block, getEntities: (q: { type?: string; families?: string[] }) => (q.type === typeId || q.families?.includes('craftmatic_vehicle') ? [entity] : []), playSound: () => {}, runCommand: () => ({}) };
-  const entity: any = {
-    id: 'v1', typeId, location: { ...o.at }, rot: { x: 0, y: o.yaw ?? -90 }, dimension: dim,
-    getRotation() { return { ...this.rot }; },
-    teleport(p: any, opt: any) { this.location = { ...p }; if (opt?.rotation) this.rot = { ...opt.rotation }; poses.push({ ...p, yaw: this.rot.y }); },
-    setProperty: () => {}, getDynamicProperty: (k: string) => dynamic.get(k), setDynamicProperty: (k: string, v: unknown) => { if (v === undefined) dynamic.delete(k); else dynamic.set(k, v); },
-    getComponent: (name: string) => (name === 'minecraft:rideable' ? { getRiders: () => (riding ? [player] : []) } : undefined),
-  };
-  let tick = (): void => {};
-  const world = { getDimension: (id: string) => { if (id !== 'overworld') throw new Error('no such dimension'); return dim; }, getTimeOfDay: () => o.time ?? 6000 };
-  const system = { runInterval: (fn: () => void) => { tick = fn; }, afterEvents: { scriptEventReceive: { subscribe: () => {} } } };
-  const script = scriptedVehicleScript(hostConfig({ [typeId]: o.type }, o.colliders ? { colliders: o.colliders } : {}));
-  new Function('world', 'system', script.replace(/^import .*;\n/, ''))(world, system);
+  const teleport = entity.teleport;
+  entity.teleport = (p: { x: number; y: number; z: number }, opt?: Record<string, unknown>) => { teleport(p, opt); poses.push({ ...p, yaw: vehicle.rotation.y }); };
+  const player = h.addPlayer('Driver', o.at);
+  h.seat(player, vehicle);
   return {
-    entity, poses, placed, dynamic, bars,
-    set: (x: number, y: number, j = false) => { stick = { x, y }; jump = j; },
-    dismount: () => { riding = false; },
-    run: (n: number) => { for (let i = 0; i < n; i++) tick(); },
+    entity, poses, placed, dynamic: vehicle.dynamic,
+    /** Every action-bar line the driver was shown. */
+    get bars(): string[] { return h.lines('actionbar', 'Driver'); },
+    set: (x: number, y: number, j = false) => { h.controls(player, { strafe: x, forward: y, jump: j }); },
+    dismount: () => { h.unseat(player); },
+    run: (n: number) => { h.run(n); },
   };
 }
 
@@ -389,7 +393,7 @@ describe('swept footprint (sweepFootprint)', () => {
   });
 });
 
-describe('the vehicle runtime against blocks (scripts/vehicles.js on a fake world)', () => {
+describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulator)', () => {
   const car: ScriptedVehicleType = { mode: 'car', noseReach: 2, halfWidth: 1.2, height: 1.5 };
   it('stops a car at a trunk by its corner, where the old centre-line probe drove through it', () => {
     const trunk = { fills: [{ from: [12, 64, 1] as [number, number, number], to: [12, 69, 1] as [number, number, number], id: 'minecraft:oak_log' }] };

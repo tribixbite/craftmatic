@@ -1477,5 +1477,3 @@ export function pinballScript(config: PinballRuntimeConfig): string {
   return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${pinballRuntime.toString()})(CONFIG, ${createPinballSim.toString()}, ${fitPinballZone.toString()});\n`;
 }
 
-/** Exported for the host-simulation test. */
-export { pinballRuntime as _pinballRuntimeForTests };

@@ -3331,8 +3331,10 @@ The doors tests in the same runs still match the offline walk (910004 3/3,
 proved only by the host simulation.
 
 **Offline:** `bun scripts/_figure_roam_census.ts <pack.mcaddon>...` runs the
-shipped `figures.js` in `engine/figure-life-sim.ts`. That is a host world of
-the pack's collider grid with a stand-in for Bedrock's collision. The census
+shipped `figures.js` on the headless simulator (`sim/adapters/craftmatic/figure-life.ts`):
+the pack's collider grid as its real blocks, the figures under the simulator's
+mob physics (a stand-in collision before 2026-09-30; the counts below are from
+that). The census
 prints each figure's spawn lift, headroom, reachable cells and simulated
 path. For 41732 and 76457 its "moved" counts matched the device: 6/7 and
 11/12. For 910004 it gives 3/4 against 2/4 on the device. Over all 40
