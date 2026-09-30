@@ -123,7 +123,7 @@ on the same commit: 40/40 exported and valid, `_ix_passability` 0 FAIL,
 sim child play 198/200 (`output/favsweep-3664f4f3*`).
 - [ ] Device check of this round: 42639 / 60380 driver views; the
   simulator's ASSUMED rules (`teleport-into-floor`, `dismount-free-spot`, tap
-  reach 5); 10326 Door 1 ledge (user decision pending); 10261 no retake
+  reach 5); 10326 Door 1 ledge (KEPT, user 2026-09-30); 10261 no retake
   line; flyer cruise at 0.0725 (~11 blocks/s expected); the 10303 loop-1
   exit swing (Saga, intermittent).
 
@@ -202,8 +202,8 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   upper floor); the harness now says SEALED. (D) a `craftmatic:fig_seating`
   mark stops the retake runtime while the placement is still seating.
   Only verdict change in 116 rows: 910004 Door 3 OK/STEP -> SEALED.
-  - [ ] Decide: the new passage rule keeps 10326's 1/8-block lip as a whole
-    collider cell, an invisible 1-block ledge at door height over the pit.
+  - [x] Decided 2026-09-30 (user): KEEP 10326's invisible 1-block ledge.
+    Standing rule: prefer the option that unlocks exploration/interactivity.
   - [ ] Device: 10326 Door 1 walk-out onto that ledge; 41732 Door 3 both
     ways; a 10261 placement with no FIGURE_RETAKE line.
 - [x] Saga 29d (`29d/saga/`; content logs 0/0 in all 12): 10788 slide by
@@ -872,8 +872,6 @@ with `_mcaddon_check` valid.
   1-block ledge at the doorway's level, then the model's edge), 41732 Door 3
   both ways (stoop kept), 10261 placement: no FIGURE_RETAKE_NO_SEAT in the
   content log, the kiosk figure seated.
-- [ ] Decide on 10326's ledge: the passage keeps a cell under the step line
-  whole even where its geometry is a 1/8-block lip (rule 1's flip side).
 - [ ] 10022 Door 1 reads OK at 150/200 % via a ledge on the car's side
   (main: ONE-WAY); not judged against the model.
 
