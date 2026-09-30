@@ -25,7 +25,8 @@ import {
   INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, INTERACTIVE_SIZE_PROPERTY, INTERACTIVE_TURN_PROPERTY, interactiveRuntimeItem, passSizeFor, planInteractiveColliders,
   type InteractiveRuntimeConfig, type SceneInteractive,
 } from '../web/src/engine/bedrock-interactives.js';
-import { doorwayColumnLines, doorwayHoles, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
+import { doorwayColumnLines, doorwayHoles, jumpHelps, verdictOf, walkThroughDoorway } from '../web/src/engine/interactive-walk.js';
+import { WalkWorld } from '../web/src/engine/addon-walk.js';
 import { DOORWAY_PASS_HEIGHT_LDU, DOORWAY_PASS_WIDTH_LDU } from '../web/src/engine/addon-scale.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
@@ -305,5 +306,36 @@ describe('the passage is measured from the doorway\'s floor, not the row the lea
     const open = walkThroughDoorway(pack, 0, 100, 0, true);
     expect(open.directions.find(d => d.from === 1)).toMatchObject({ outcome: 'passed' });
     expect(doorwayHoles(doorwayColumnLines(pack, 0, 100, 0), 100).filter(h => h.from === 1)).toEqual([]);
+  });
+});
+
+describe('the walks jump only where a jump helps (31141\'s 45-degree Door 4)', () => {
+  /**
+   * A floor at 1.0 over an 8 x 8 plate; along z 5 a wall three blocks high,
+   * and at x 5 a riser: `rise` sixteenths over the floor. The walks jumped on
+   * ANY clipped move, so a player whose momentum brushed a jamb jumped through
+   * the leaf plane and was counted as not walking through at the doorway's
+   * floor (31141's Door 4 once the stoop outside it was kept).
+   */
+  const worldWith = (rise16: number) => {
+    const cells: SourceCell[] = [];
+    for (let x = 0; x < 8; x++) for (let z = 0; z < 8; z++) cells.push({ x, y: 0, z, lo: 0, hi: 16 });
+    for (let x = 0; x < 8; x++) for (let y = 1; y <= 3; y++) cells.push({ x, y, z: 5, lo: 0, hi: 16 });
+    if (rise16 > 0) for (let z = 0; z < 5; z++) cells.push({ x: 5, y: 1, z, lo: 0, hi: rise16 });
+    return new WalkWorld({ cells, dims: { width: 8, height: 5, length: 8 }, sizePct: 100, rotation: 0, treads: 'none' });
+  };
+  const standing = (x: number, z: number) => ({ x, y: 1, z, vx: 0, vy: 0, vz: 0, onGround: true, sneaking: false, tick: 0 });
+  it('slides along a wall that runs up past the jump', () => {
+    // Pressed against the wall at z 5 (box edge at 4.99), moving diagonally into it.
+    expect(jumpHelps(worldWith(0), standing(2.5, 4.69), Math.SQRT1_2, Math.SQRT1_2)).toBe(false);
+  });
+  it('jumps a riser within the jump, and not one past it', () => {
+    // At the riser's foot (box edge at 4.99), walking +x into a 1-block step, then into a 1.5-block one.
+    expect(jumpHelps(worldWith(16), standing(4.69, 2.5), 1, 0)).toBe(true);
+    const tall = worldWith(16);
+    const twoRows: SourceCell[] = [];
+    for (let z = 0; z < 5; z++) twoRows.push({ x: 5, y: 2, z, lo: 0, hi: 8 });
+    const past = new WalkWorld({ cells: [...(tall.options.cells as SourceCell[]), ...twoRows], dims: { width: 8, height: 5, length: 8 }, sizePct: 100, rotation: 0, treads: 'none' });
+    expect(jumpHelps(past, standing(4.69, 2.5), 1, 0)).toBe(false);
   });
 });

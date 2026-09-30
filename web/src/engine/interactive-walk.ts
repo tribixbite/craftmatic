@@ -112,6 +112,24 @@ export function boxFree(world: WalkWorld, x: number, y: number, z: number): bool
   return true;
 }
 
+/** How far ahead (blocks) `jumpHelps` looks for what stopped a move. */
+const JUMP_PROBE = 0.3;
+
+/**
+ * Whether a jump helps a player on the ground moving along (dx, dz), a unit
+ * direction: the box a short reach ahead is blocked at the feet and free a
+ * jump up (a sill, a step, a raised floor). A wall that runs up past the jump
+ * is slid along, not jumped at - a real player brushing a jamb keeps walking.
+ * The walks jumped on ANY clipped move, so a doorway approached at a slant
+ * with a wall beside it (31141's 45-degree Door 4, a floor stepping down to
+ * the sill beside a wall) jumped through the leaf plane and counted as not
+ * walked through at the doorway's floor.
+ */
+export function jumpHelps(world: WalkWorld, s: PlayerState, dx: number, dz: number): boolean {
+  const ax = s.x + dx * JUMP_PROBE, az = s.z + dz * JUMP_PROBE;
+  return !boxFree(world, ax, s.y + 1e-3, az) && boxFree(world, ax, s.y + JUMP_RISE + 1e-3, az);
+}
+
 /** Settle a player dropped at (x, y, z): tick with no input until it rests; undefined if it falls more than `maxDrop`. */
 function settle(world: WalkWorld, x: number, y: number, z: number, maxDrop: number): PlayerState | undefined {
   let s: PlayerState = { x, y, z, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
@@ -659,7 +677,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       const before = along(s);
       const r = tickPlayer(world, s, { move: { x: dx / l, z: dz / l }, jump, sneak: false });
       s = r.state;
-      jump = (r.collided.x || r.collided.z) && s.onGround; if (jump) jumps++;
+      jump = (r.collided.x || r.collided.z) && s.onGround && jumpHelps(world, s, dx / l, dz / l); if (jump) jumps++;
       // The feet crossed the leaf plane this tick: was it inside the doorway?
       // At the doorway's level: within the slack of its floor, above as below (not under a raised doorway).
       if (before < 0 && along(s) >= 0 && Math.abs(lateral(s)) <= halfSpan && Math.abs(s.y - centre.y) <= DOOR_FLOOR_SLACK * k) throughSpan = true;
@@ -740,7 +758,7 @@ export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct
     if (settled) for (let t = 0; t < MAX_TICKS; t++) {
       const r = tickPlayer(world, s, { move: { x: -from * n.x, z: -from * n.z }, jump, sneak: false });
       s = r.state;
-      jump = (r.collided.x || r.collided.z) && s.onGround;
+      jump = (r.collided.x || r.collided.z) && s.onGround && jumpHelps(world, s, -from * n.x, -from * n.z);
       lowest = Math.min(lowest, s.y);
       const a = along(s);
       if (Math.abs(a) <= HOLE_REACH * k) lowestNear = Math.min(lowestNear, s.y);

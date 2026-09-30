@@ -12,7 +12,7 @@
  * and the home record are the shipped code, not a copy.
  */
 import type { SourceCell } from './bedrock-collider-scale.js';
-import { FIGURE_HOME_PROPERTY, figureLifeScript, type FigureHome, type FigureLifeConfig } from './bedrock-figure-life.js';
+import { FIGURE_HOME_PROPERTY, FIGURE_SEATING_PROPERTY, figureLifeScript, type FigureHome, type FigureLifeConfig } from './bedrock-figure-life.js';
 
 export interface SimFigure {
   typeId: string;
@@ -25,6 +25,8 @@ export interface SimFigure {
   noHome?: boolean;
   /** A creator figure the wand holds as a draft (`craftmatic:draft` true) until this tick. */
   draftUntil?: number;
+  /** The placement's seating mark (`FIGURE_SEATING_PROPERTY`) is on this figure until this tick (the placement still spawning). */
+  seatingUntil?: number;
 }
 
 export interface SimSeat {
@@ -121,6 +123,7 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     const hp = fig.home ?? fig.at;
     const home: FigureHome = { home: [hp.x, hp.y, hp.z], area: areaOf, ground: world.ground, f, mode: fig.mode ?? 'roam' };
     if (!fig.noHome) props.set(FIGURE_HOME_PROPERTY, JSON.stringify(home));
+    if (fig.seatingUntil !== undefined) props.set(FIGURE_SEATING_PROPERTY, Date.now());
     entities.push({ id: `fig${k}`, typeId: fig.typeId, location: { ...fig.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props, family: 'craftmatic_figure', valid: true, body: config.bodyHeights[fig.typeId] ?? config.bodyHeight, ...(fig.draftUntil !== undefined ? { draftUntil: fig.draftUntil } : {}) });
   }
   // A seat with `spawnAt` is not in the world until that tick (a placement still spawning its seats).
@@ -185,6 +188,8 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     for (let t = 0; t < ticks; t++) {
       now = t;
       for (let i = pendingSeats.length - 1; i >= 0; i--) if (pendingSeats[i]!.at <= t) entities.push(pendingSeats.splice(i, 1)[0]!.e);
+      // The placement's seating pass is done with a figure: its mark goes (the placement clears it with `undefined`).
+      for (const [k, fig] of world.figures.entries()) if (fig.seatingUntil === t) figs[k]?.props.delete(FIGURE_SEATING_PROPERTY);
       interval();
       for (const [k, e] of figs.entries()) {
         if (e.riding) { e.location = { ...e.riding.location }; e.v = { x: 0, y: 0, z: 0 }; }

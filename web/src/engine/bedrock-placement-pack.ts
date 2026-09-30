@@ -1342,6 +1342,10 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
             try {
               entity.setDynamicProperty('craftmatic:fig', JSON.stringify({ home: [q.x, spawnY, q.z], area: [bounds.from.x, bounds.from.z, bounds.to.x + 1, bounds.to.z + 1], ground: st.anchor.y, f: factor(st), mode: actor.rideOf !== undefined ? 'seated' : 'roam' }));
             } catch {}
+            // A source-seated figure is seated by the pass after every actor is out; until then its
+            // seat may not exist (10261 spawns its kiosk figure long before the seat), so the figure
+            // runtime must not retake or report it (bedrock-figure-life.ts FIGURE_SEATING_PROPERTY).
+            if (actor.rideOf !== undefined) try { entity.setDynamicProperty('craftmatic:fig_seating', Date.now()); } catch {}
           }
           if (actor.coasterRouteIndex !== undefined) {
             // Store the transformed model origin, not the cart's start point.
@@ -1423,9 +1427,12 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
       // carries a ride (`actor.ride`: an orbit's) is adopted by scripts/rides.js, which
       // puts its own figure back on whenever it is off, so a refusal there says nothing.
       const SEAT_RETRIES = 2, SEAT_RETRY_TICKS = 2;
+      /** The seating pass is done with this figure: the figure runtime may retake its seat from now on. */
+      const seatingDone = (figure: any): void => { try { figure.setDynamicProperty('craftmatic:fig_seating', undefined); } catch {} };
       for (let j = 0; j < config.actors.length; j++) {
         const actor = config.actors[j];
-        if (actor.rideOf === undefined || !spawned[j] || !spawned[actor.rideOf]) continue;
+        if (actor.rideOf === undefined || !spawned[j]) continue;
+        if (!spawned[actor.rideOf]) { seatingDone(spawned[j]); continue; }
         const seatEntity = spawned[actor.rideOf], figure = spawned[j];
         const adopted = config.actors[actor.rideOf].ride !== undefined;
         let failure = '';
@@ -1439,8 +1446,9 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         };
         let tries = 0;
         const attempt = (): void => {
-          if (board()) return;
+          if (board()) { seatingDone(figure); return; }
           if (tries++ < SEAT_RETRIES) { system.runTimeout(attempt, SEAT_RETRY_TICKS); return; }
+          seatingDone(figure);
           if (!adopted) tell(p, `§e${actor.label} could not take its seat (${failure}, ${tries} tries); it stands instead.`);
         };
         attempt();
@@ -1464,6 +1472,8 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
         if (previous) for (const b of previous.backups) try { world.structureManager.delete(b.name); } catch {}
         setHistory(p, { dimension: dim.id, backups, entities, bounds, tag });
       }
+      // A stopped placement seats nobody: its figures' seating marks go, so their runtime retakes as usual.
+      for (const s of spawned) try { s?.setDynamicProperty('craftmatic:fig_seating', undefined); } catch {}
       tell(p, `§cPlacement stopped: ${e.message || e}`);
     }
     finally { await unload(); active = undefined; }
