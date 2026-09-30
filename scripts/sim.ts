@@ -7,12 +7,16 @@
  *   bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|<file.ts>]
  *        [--json=<out.json>] [--md=<out.md>] [--quick] [--only=<scenario substring>] [--shots=<dir>]
  *        [--new=<dir>]   (regressions: the current tree's packs, `<dir>/<stem>.mcaddon`)
+ *   bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>] [--json=] [--md=]
  *
  *   child-play   (default) every craftmatic pack's generated scenarios: place at
  *                100/150 percent and turns 0/90, tap every part, walk every
  *                doorway, ride, drive, fly, let figures live 5 minutes, Undo.
  *   regressions  the 2026-09-29 device-bug set: each on the pack the device ran
  *                and on `--new=<dir>`'s build; packs on the command line are ignored.
+ *   hop          several packs in ONE world (web/src/sim/adapters/craftmatic/hop.ts):
+ *                a flyer's cloud flown into a moving coaster train (and into a full
+ *                one), a car parked at a slide's foot slid into.
  *   <file.ts>    a module exporting `scenarios(pack: CraftmaticPack): Scenario[]`.
  *   --shots      child-play also takes first-person pictures (after placing, after
  *                the figures lived) and writes them there as PNG.
@@ -29,6 +33,7 @@ import { markdownReport, regressionMarkdown, unmodelledTotals, type PackReport, 
 import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/adapters/craftmatic/child-play.ts';
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
 import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.ts';
+import { hopCases } from '../web/src/sim/adapters/craftmatic/hop.ts';
 import type { Scenario } from '../web/src/sim/scenario/types.ts';
 
 const args = process.argv.slice(2);
@@ -76,6 +81,30 @@ if (mode === 'regressions') {
   const md = regressionMarkdown(rows);
   if (flag('md')) writeFileSync(flag('md')!, md);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(rows, null, 1));
+  process.exit(failed ? 1 : 0);
+}
+
+if (mode === 'hop') {
+  const named = async (n: string): Promise<Awaited<ReturnType<typeof load>> | undefined> => { const f = flag(n); return f ? load(f) : undefined; };
+  const slide = await named('slide');
+  // `--car=same`: the slide pack's own car (a set with both, 10797).
+  const cases = hopCases({ coaster: await named('coaster'), flyer: await named('flyer'), slide, car: flag('car') === 'same' ? slide : await named('car') });
+  if (!cases.length) { console.error('--scenario=hop needs --coaster= and --flyer=, and/or --slide= and --car='); process.exit(2); }
+  const report: PackReport = { pack: 'hop', results: [], ms: 0 };
+  const t0 = performance.now();
+  for (const c of cases) {
+    if (only && !c.scenario.name.includes(only)) continue;
+    const r = await runScenario(c.scenario, c.addons, { handlers: c.handlers });
+    report.results.push(r);
+    if (r.status === 'fail' || r.status === 'error') failed++;
+    console.log(statusLine(r));
+    for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 220)}`);
+    for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
+    for (const n of r.notes) console.log(`      ${n.slice(0, 260)}`);
+  }
+  report.ms = Math.round(performance.now() - t0);
+  if (flag('md')) writeFileSync(flag('md')!, markdownReport([report]));
+  if (flag('json')) writeFileSync(flag('json')!, JSON.stringify([report], null, 1));
   process.exit(failed ? 1 : 0);
 }
 

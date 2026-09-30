@@ -56,6 +56,7 @@ import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh, Vec3 } from './ldraw-part-geometry.js';
 import { colliderBodyProbe, colliderFormKit, type ColliderBodyProbe } from './collider-form.js';
 import { COLLIDER_HI_STATE, COLLIDER_LO_STATE } from './bedrock-building-shell.js';
+import { hopKit, type HopKit, type HopKitConfig } from './bedrock-ride-hop.js';
 
 /** Every tuned number of the rides, with its unit. */
 export const RIDE = {
@@ -491,6 +492,8 @@ export interface RideRuntimeConfig {
    */
   rides: Array<{ kind: RideKind; carType?: string; startStop?: number; seatType?: string; riderType?: string }>;
   constants: typeof RIDE;
+  /** The hop kit's config (bedrock-ride-hop.ts): a slide's set-down boards a mountable parked at its foot. */
+  hop?: HopKitConfig;
 }
 
 declare const world: any;
@@ -500,7 +503,7 @@ declare const system: any;
  * The rides' runtime. Serialised whole into `scripts/rides.js` (`ridesScript`),
  * so it may use only its arguments and the Script API globals.
  */
-function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe): void {
+function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?: HopKit): void {
   const R = config.constants;
   const K = { index: 'craftmatic:ride', path: 'craftmatic:ride_path', exits: 'craftmatic:ride_exits', scale: 'craftmatic:ride_scale', stop: 'craftmatic:ride_stop', dir: 'craftmatic:ride_dir' };
   type P = { x: number; y: number; z: number };
@@ -620,7 +623,20 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe): void
     // ends against the bus's bodywork, and the nearest room to stand is 1.25 blocks aside, at the foot's level.
     let at = { x: off.x, y: off.y + 0.05, z: off.z };
     if (body) { try { at = body.settle(run.seat.dimension, at, 1.5 * Math.max(1, run.f), 3); } catch { /* keep the planned point */ } }
-    for (const r of riders) { try { r.teleport(at, { keepVelocity: false }); } catch { /* left */ } }
+    // A HOP at a slide's foot (bedrock-ride-hop.ts): a mountable with a free seat parked where the rider is
+    // set down (a car at the bottom of the slide, a coaster car, a chair) takes the rider instead - they slide
+    // into it. Searched `HOP.SETDOWN_REACH_BLOCKS` about the set-down point (times the size, at least 1).
+    const boarded = new Set<string>();
+    if (hop && config.hop && run.kind === 'slide') {
+      const reach = config.hop.constants.SETDOWN_REACH_BLOCKS * Math.max(1, run.f);
+      for (const r of riders) {
+        if (r?.typeId !== 'minecraft:player') continue;
+        let target: any;
+        try { target = hop.nearestAt(run.seat.dimension, at, reach, new Set([run.seat.id])); } catch { target = undefined; }
+        if (target && hop.board(r, target)) boarded.add(r.id);
+      }
+    }
+    for (const r of riders) { if (boarded.has(r.id)) continue; try { r.teleport(at, { keepVelocity: false }); } catch { /* left */ } }
     if (run.kind === 'lift') { try { run.seat.setDynamicProperty(K.stop, run.target); } catch { /* gone */ } running.delete(run.seat.id); }
     else run.done = system.currentTick;
   };
@@ -714,5 +730,6 @@ export { ridesRuntime as _ridesRuntimeForTests };
 
 /** `scripts/rides.js`: the config and the runtime. */
 export function ridesScript(config: RideRuntimeConfig): string {
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(COLLIDER_LO_STATE)}, ${JSON.stringify(COLLIDER_HI_STATE)}));\n`;
+  const hopArg = config.hop ? `, (${hopKit.toString()})(CONFIG.hop)` : '';
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${ridesRuntime.toString()})(CONFIG, (${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(COLLIDER_LO_STATE)}, ${JSON.stringify(COLLIDER_HI_STATE)})${hopArg});\n`;
 }

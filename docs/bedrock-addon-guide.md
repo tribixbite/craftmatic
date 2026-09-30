@@ -4736,3 +4736,74 @@ If the real cloud is a colour the family does not name (say Flame Yellowish
 Orange 191 is fine, but a pearl gold 297 is not), add its code to
 `MOUNT_STYLE_COLOURS.cloud.codes` in `set-canon.ts`; if the cloud is more
 than 80 parts, raise `FLYER.MOUNT_MAX_PARTS` (and its §9 row).
+
+## Hop: fly or drive into another mount and ride it (2026-09-30)
+
+The user asked for it for their five-year-old: "If you fly or drive into
+another mountable object like a roller coaster car or chair or slide or
+vehicle (not already fully occupied by player(s)) you should be auto mounted
+to the new entity ... fly a plane into an in-motion roller coaster car and be
+auto-mounted in the first available seat closest to the front. The plane can
+hover where you dismounted ... If you park a car at the bottom of a slide you
+should be able to slide into it."
+
+Code: `web/src/engine/bedrock-ride-hop.ts` (the contact test, the kit, the
+runtime `scripts/hop.js`), wired in `playable-addon.ts` (`hopSourceOf`,
+`scriptedHopSource`; `hop.js` ships with every pack that has a scripted or
+native driveable), `bedrock-vehicle.ts` (`VEHICLE_DYNAMIC.hold`: a scripted
+aircraft left by a hop hovers), `bedrock-coaster.ts` (every car carries its
+train and its rank from the front, `HOP_TAGS`), `bedrock-rides.ts` (a slide's
+set-down boards a mountable parked at its foot), `bedrock-flyer.ts` (no
+float-down for a rider who hopped onto another mount) and `vehicle-camera.js`
+(no second camera clear over the new mount's camera). Constants and their
+reasons: `docs/physics-architecture.md` §4.8, §9.
+
+**What the child sees.** Riding any of the pack's vehicles - car, boat, hover
+craft, plane, helicopter, a summoned cloud - they steer into something they
+could sit in that has a seat no player holds: a chair or bench, a coaster car
+(standing or running), a slide's seat, a lift, another vehicle. They are on it
+at once, with a chime; on a coaster train, in the FRONT-most car with a free
+seat, whichever car they touched. The vehicle they left waits: a plane hovers
+in the air where it was (and flies on at the speed it had when they get back
+in), a car, boat or hover craft stops, a helicopter or a cloud hovers (a cloud
+still fades after its minute alone). A slide whose run-out ends at a parked
+car (or any mountable) with a free seat drops the rider into it.
+
+**Guards.** No hop in the first second aboard anything (boarding a car parked
+beside a chair does not throw the child into the chair); never straight back
+into the vehicle just left (5 s); a slow drift past (under 0.5 blocks/s
+relative) never hops, so a car parked by a chair stays a car; a seat a player
+holds is never taken, a seat a figure holds is (the figure stands up, as it
+does for a player walking up); a seat that refuses the rider puts them back
+where they were, never mid-air. Only the pack that owns the vehicle being
+ridden acts, whatever other packs are active; the target may be any
+craftmatic pack's.
+
+**Seats.** `addRider` cannot choose a seat: Bedrock gives the next one in the
+definition's order (quirk `rider-seat-order`, assumed). The front-most seat
+is chosen across the train's cars; inside one vehicle the driver's seat is
+listed first by the compiler, so an empty car is driven by whoever hops in.
+
+**Proved offline** (`test/bedrock-ride-hop.test.ts`; the simulator's `hop`
+scenarios, docs/sim-engine.md "Hop"): a scripted plane that takes off and
+catches a three-car train from behind sits in the front car and then hovers
+unmoved for 3 s, and flies on when re-boarded; an empty plane nobody hopped
+off still glides down; a train full of players is flown through; a figure
+yields its chair; two packs owning the same plane hop once; the back-hop
+cooldown holds for 5 s and then allows it; the Nimbus flown into 10261's train
+running at 17.6 blocks/s meets its second car and seats the child in the
+first, the coaster's camera takes the view the next tick, the cloud stays put;
+42639's car parked at 10788's slide foot takes the rider (it cannot then move:
+that slide ends on an upper floor), and 10797's own car parked at its slide's
+foot takes the rider, who drives off 11 blocks. Across the ordinary child play
+of 11 packs (10261, 10303, 10326, 10788, 10797, 42172, 42639, 60380, 76457,
+910004, the Nimbus) no hop happened that the child did not aim for
+(`output/hop-0930/hop-census-196360e2.txt`).
+
+**Device-unproven** (the tracker's "Hop" section): which seat `addRider`
+gives on a multi-seat vehicle, an `addRider` in the tick after an
+`ejectRider`, the box `getAABB` reports for a scaled or seated entity
+(quirks `rider-seat-order`, `add-rider-after-eject`, `aabb-is-collision-box`);
+whether the coaster's camera takes over without a flash when the chase camera
+is handed back mid-run; the chime (`note.chime`). The flyer GameTest
+(`flyer_<id>`) now sweeps a second cloud through the first and records `hop`.

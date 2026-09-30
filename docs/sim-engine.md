@@ -20,6 +20,8 @@ bun scripts/sim.ts <packs> --md=out.md --json=out.json   # with reports
 bun scripts/sim.ts <packs> --shots=<dir>                 # plus first-person PNGs
 bun scripts/sim.ts --scenario=regressions --new=<dir>    # the device-bug regression set
 bun scripts/sim.ts <packs> --scenario=my-scenarios.ts    # your own scenarios
+bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>]
+                                                         # several packs in ONE world: the hop
 ```
 
 ## Where it sits: the tiers of evidence
@@ -58,6 +60,7 @@ web/src/sim/
   adapters/craftmatic/
                pack-facts · wand (place, undo) · play (rides, vehicles, flyers, doorways, figures)
                child-play (the generated scenarios) · regressions (the device-bug set)
+               hop (several packs in one world: fly or drive into another mount)
                appearance (the pack's drawn geometry) · drawn · snapshot
 ```
 
@@ -108,6 +111,7 @@ edit of the loop.
 - `render/rasterizer.ts`: `rasterize(quads, paint, camera)`.
 - `adapters/craftmatic`: `readCraftmaticPack`, `wandHandlers`, `playHandlers`,
   `craftmaticHandlers`, `childPlay`, `childPlayScenarios`, `REGRESSIONS`,
+  `hopHandlers`, `hopCases`,
   `packAppearance`, `drawnBoxes`, `forwardViewWorld`, `firstPersonSnapshot`, `renderActors`.
 
 ## Scripts: one context, unmodified
@@ -183,15 +187,18 @@ without slow falling), `nothing-below-ground` (fell through the world),
 `no-script-error`, `no-content-log-error` (refused definitions),
 `no-unexpected-line` (chat / action bar / console lines that read as faults,
 unless the scenario allows them), `actionbar-not-stolen` (another script
-replaced a line within a second, unless the player got off something in
-between). A step may `quiet([...])` invariants while it does something they
+replaced a line within a second, unless the player got off something, or
+changed mount, in between - a line shown in the tick of the change is the
+old mount's). A step may `quiet([...])` invariants while it does something they
 would flag on purpose (a device line that starts in the air).
 
 Craftmatic steps (`adapters/craftmatic`): `place` / `undo` (the wand, read
 like a child reads it; Undo checks the placement's box block for block and
 every entity the placement tagged), `tapInteractives`, `doorwayLines`,
 `rideSlide`, `rideLift`, `driveVehicle`, `driveUnderFixture`, `flyMount`,
-`figuresLive`, `visitSeatedFigures`, `snapshot`.
+`figuresLive`, `visitSeatedFigures`, `snapshot`;
+the hop's (`adapters/craftmatic/hop.ts`): `mountSpawned`, `fillTrain`,
+`flyIntoTrain`, `slideIntoParked`.
 
 ### Adding a scenario
 
@@ -229,7 +236,12 @@ lines from both sides, Undo; and `play-100-0` - ride every ride by a tap,
 drive every vehicle 30 s (under the model's overhangs, then a course) and sneak
 off, summon and fly a flyer mount and sneak off in the air, let the figures
 live 5 simulated minutes, visit the seated ones (they yield and retake),
-Undo.
+Undo. A flyer's cloud is a vehicle type the placement never places (it is
+summoned), so it is flown by `flyMount` and not driven; a figure on a mount
+(the companion on its orbit, a seated figure) is where its mount takes it
+and is left out of `figures-stay` (both fixed 2026-09-30: the Nimbus
+fixture's play had stopped at "no craftmatic:dragonball_cloud" and then
+flagged the orbit running outside the model).
 
 **Doorway attribution.** The lines walk the HARNESS's doorway
 (`doorwayGeometry` in interactive-walk.ts: the columns of the leaf's closed
@@ -262,6 +274,28 @@ re-lay's shift 19 (the doorways among them the harness calls SEALED at 100 %
 too: 11371 Doors 1/8, 21318 Door 2, 75397 and 80049's gates, 910004 Doors 2/4),
 the harness's doorway geometry 1 (60380 Door 1: its leaf hangs DOWN from the
 corner the lines read as its floor). None was a pack fault.
+
+## Hop: several packs in one world (`adapters/craftmatic/hop.ts`)
+
+The hop (web/src/engine/bedrock-ride-hop.ts, physics spec §4.8) is a
+behaviour BETWEEN packs - a flyer of one pack flown into a coaster of
+another - so its scenarios load several add-ons into one world, every script
+of every pack running, as on a phone with a few packs active:
+
+| scenario | packs | checks |
+|---|---|---|
+| `hop-flyer-into-coaster` | 10261, the Nimbus fixture, 42639 (a third pack with its own `hop.js`) | the 10261 train's lead car's path is recorded for a lap, the fastest point picked; on the next pass the cloud is set 7 blocks off the track and flown onto it timed to meet a car BEHIND the lead: `hop-boards` (on a coaster car), `hop-front-most` (no free car ahead of it), `hop-once` (one hop sound), `hop-camera` (the coaster's camera within 10 ticks), `hop-source-waits` (the cloud still where it was left 2 s later), and the child still aboard 10 s on |
+| `hop-coaster-full` | 10261, the Nimbus fixture | a player in every car (`fillTrain`), the same fly-in: `hop-no-full` (nobody hops, nobody is moved) |
+| `hop-slide-into-car` | 10788 + 42639, or 10797 alone (`--car=same`: the set's own car) | the car parked a block past the slide's set-down: `hop-slide-into-car` (the rider ends in the car), then drives ahead and in reverse (a note: 10788's slide ends on an upper floor, where 42639's car cannot move; 10797's car drove off 11 blocks) |
+
+The pure contact test and the runtimes on small hand-built packs (a scripted
+plane catching a train's rear car and sitting in its front one, hovering where
+left; a full train; a figure yielding its chair; two packs owning the plane;
+the back-hop cooldown; a car at a slide's foot) are `test/bedrock-ride-hop.test.ts`.
+The assumed device facts are quirks `rider-seat-order`, `add-rider-after-eject`,
+`aabb-is-collision-box` and `dynamic-properties-per-pack` (the simulator shares
+one dynamic-property map between packs; the hop uses tags for anything another
+pack reads, so it does not depend on that gap).
 
 ## Calibrating from a device round
 
@@ -328,6 +362,9 @@ branch needs a geometry the simulator has not been given.
   body fits, so a pack that still does it is reported.
 - **Before-events** do not enforce the read-only restriction scripts meet on
   the device; **numeric enums** are names.
+- **Dynamic properties are shared between packs** here; on the device each
+  pack sees only its own (quirk `dynamic-properties-per-pack`). A script that
+  reads another pack's property works here and not there.
 - **Performance** is not the device's: a tick is as fast as the host runs it.
 
 ## Folding the older hosts in

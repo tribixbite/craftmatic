@@ -647,10 +647,13 @@ export const FLIGHT_INPUT_EVENT = 'craftmatic:flight_input';
 export const VEHICLE_TELEMETRY_EVENT = 'craftmatic:vehicle_telemetry';
 /**
  * Dynamic properties another runtime may set on a scripted vehicle: its top
- * speed in blocks/s (the time machine raises it to its armed speed) and a
- * line appended to the HUD (the time circuit's state).
+ * speed in blocks/s (the time machine raises it to its armed speed), a line
+ * appended to the HUD (the time circuit's state), the cell of its headlight,
+ * and `hold`: its rider HOPPED onto another mount (bedrock-ride-hop.ts), so
+ * an aircraft hovers where it was left and a car, hover craft or boat stops,
+ * until a rider is aboard again.
  */
-export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftmatic:vehicle_hud', headlight: 'craftmatic:headlight' } as const;
+export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftmatic:vehicle_hud', headlight: 'craftmatic:headlight', hold: 'craftmatic:hop_hold' } as const;
 
 /** One scripted vehicle type as the runtime sees it. */
 export interface ScriptedVehicleType {
@@ -871,6 +874,18 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         }
         const o = overrides.get(e.id);
         if (o) { input.x = o.x; input.y = o.y; input.jump = o.jump; input.rider = true; if (--o.ticks <= 0) overrides.delete(e.id); }
+        // Left by a HOP (its rider flew or drove into another mount, bedrock-ride-hop.ts): an aircraft
+        // hovers where it was left, holding its state (a rider back aboard flies on at the speed it had);
+        // a car, hover craft or boat stops where it is. A rider aboard again ends the hold.
+        let held = false;
+        try { held = e.getDynamicProperty(DYN.hold) === true; } catch { /* none */ }
+        if (held && input.rider) { try { e.setDynamicProperty(DYN.hold, undefined); } catch { /* gone */ } held = false; }
+        if (held) {
+          if (kind.mode === 'plane') { states.set(e.id, st); continue; }
+          st.speed = 0;
+          if (st.vy !== undefined) st.vy = 0;
+          try { e.setDynamicProperty(DYN.hold, undefined); } catch { /* gone */ }
+        }
         const noseReach = kind.noseReach * k;
         // Headlights: a driver at night, moving or lately moved.
         st.parked = Math.abs(st.speed) > 0.2 || Math.abs(input.y) > 0.15 ? 0 : (st.parked || 0) + 1;

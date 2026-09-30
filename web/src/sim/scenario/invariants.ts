@@ -135,11 +135,13 @@ function actionbarNotStolen(): Invariant {
   const last = new Map<string, TimelineEntry>();
   let seen = 0, riding: unknown, changedAt = -Infinity;
   return {
-    id: 'actionbar-not-stolen', description: `An action-bar line one script shows stands ${ACTIONBAR_HOLD_TICKS} ticks before another script replaces it (unless the player got off something in between).`,
+    id: 'actionbar-not-stolen', description: `An action-bar line one script shows stands ${ACTIONBAR_HOLD_TICKS} ticks before another script replaces it (unless the player got off something, or changed mount, in between).`,
     tick(ctx) {
-      // A new line after the player got OFF something answers that ("Floating down"); it steals nothing. Getting ON
-      // is not exempt: a ride's HUD writing over the hint that told the child how to ride is the fault (the Nimbus, 29c).
-      if (ctx.player.ridingOn !== riding) { if (riding && !ctx.player.ridingOn) changedAt = ctx.engine.tick; riding = ctx.player.ridingOn; }
+      // A new line after the player got OFF something answers that ("Floating down"); it steals nothing, and nor does
+      // the line of a mount the player HOPPED onto straight from another (bedrock-ride-hop.ts: a slide's "Wheee!" gives
+      // way to the car the child slid into). Getting ON from foot is not exempt: a ride's HUD writing over the hint
+      // that told the child how to ride is the fault (the Nimbus, 29c).
+      if (ctx.player.ridingOn !== riding) { if (riding) changedAt = ctx.engine.tick; riding = ctx.player.ridingOn; }
       const entries = ctx.engine.timeline.entries;
       for (; seen < entries.length; seen++) {
         const e = entries[seen]!;
@@ -147,7 +149,8 @@ function actionbarNotStolen(): Invariant {
         const prev = last.get(e.target);
         last.set(e.target, e);
         if (!prev || !prev.source || !e.source || prev.source === e.source || !plainText(prev.text).trim()) continue;
-        if (changedAt > prev.tick && changedAt <= e.tick) continue;
+        // The change is seen after the tick it happened in: a line shown in that same tick was the old mount's.
+        if (changedAt >= prev.tick && changedAt <= e.tick) continue;
         if (ctx.yieldingLines?.some(r => r.test(plainText(prev.text)))) continue;
         if (e.tick - prev.tick < ACTIONBAR_HOLD_TICKS && plainText(e.text) !== plainText(prev.text)) {
           ctx.report({ invariant: 'actionbar-not-stolen', message: `${e.source} replaced ${prev.source}'s "${plainText(prev.text).slice(0, 80)}" after ${e.tick - prev.tick} ticks with "${plainText(e.text).slice(0, 80)}"`, evidence: { shown: prev.tick, replaced: e.tick, by: e.source, from: prev.source } });
