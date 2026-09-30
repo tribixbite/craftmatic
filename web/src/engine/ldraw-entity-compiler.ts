@@ -2124,7 +2124,10 @@ function findDriverSeat(placed: ParsedBrick[], meshes: Map<string, LdrawPartMesh
     const e = isShipWheel(w.part, desc(w)) ? HELM_EYE_LDU : CAR_WHEEL_EYE_LDU;
     return [w.x + aft[0]! * e.aft, w.y - e.up, w.z + aft[1]! * e.aft];
   };
-  const wheels = placed.filter(b => isSteering(b.part, desc(b)) && aboveKeel(wheelEye(b)));
+  // The WHEEL itself over the keel, not only its eye: 60221's scooter wheel sits 5.6 LDU under the
+  // hull's bottom and its eye 20 over it cleared the keel once the eye stopped following the
+  // wheel's tilted axes (2026-09-30), seating the driver in the stowed scooter again.
+  const wheels = placed.filter(b => isSteering(b.part, desc(b)) && aboveKeel([b.x, b.y, b.z]) && aboveKeel(wheelEye(b)));
 
   // 1. A figure in the vehicle: a whole one (a bust - 10365's figurehead - is
   //    decoration), inside the footprint, feet above the floor. With a wheel,

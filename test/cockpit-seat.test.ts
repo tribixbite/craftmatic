@@ -273,6 +273,15 @@ describe('the cockpit evidence', () => {
     expect(car.source).toBe('steering-wheel');
   });
 
+  it('ignores a boat\'s steering wheel under the keel even when the eye over it clears the keel (60221\'s stowed scooter)', async () => {
+    const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
+    // The hull's bottom is y 60 (LDraw y down); the wheel 5 LDU under it, its eye 20 over it (y 45) above the keel.
+    // The figure is out of the wheel's reach: a wheel that counted would take the controls from it.
+    const placed = [...hull, ...fig(-120, -120, 0, { sitting: true }), { part: '3829c01.dat', color: 0, x: 150, y: 65, z: 0 }];
+    const boat = findCockpit(placed as never, KIT, { ...frame, kind: 'boat' });
+    expect(boat.source).toBe('seated-figure');
+  });
+
   it('gives a car\'s controls to the figure at the wheel, not the one in the back', async () => {
     const { findCockpit } = await import('../web/src/engine/ldraw-entity-compiler.js');
     const placed = [...hull, { part: '3829c01.dat', color: 0, x: -100, y: -80, z: 0 }, ...fig(-70, -120, 0, { sitting: true }), ...fig(140, -120, 0, { sitting: true })];
