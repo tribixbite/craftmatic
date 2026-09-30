@@ -695,6 +695,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
 
 /** How far out (blocks at 100 %, scaled) a column line starts from the leaf's plane on each side. */
 export const LINE_OUT = 1.5;
+/** The nearest (blocks at 100 %, scaled) a column line may start to the leaf's plane when the spot `LINE_OUT` out has no room. */
+export const LINE_MIN_OUT = 0.5;
 /**
  * How far from the leaf's plane (blocks at 100 %, scaled) a fall on a line
  * counts as the DOORWAY's hole: the leaf's own column and the one beside it
@@ -751,13 +753,17 @@ export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct
     const cx = column.x + 0.5, cz = column.z + 0.5;
     const along = (p: { x: number; z: number }): number => ((p.x - cx) * n.x + (p.z - cz) * n.z) * -from;
     const sx = cx + n.x * from * LINE_OUT * k, sz = cz + n.z * from * LINE_OUT * k;
-    // Dropped where the player's box is FREE, up to a jump over the doorway's floor: dropped at the
-    // doorway's floor into a step that tops out above it (76417's roof beside Gate 1 at 150 %, 0.5 up),
-    // the box started inside the step, fell through it - the walker ignores a box it already overlaps -
-    // and the line reported a 19-block HOLE no player can reach.
-    let dropY = centre.y + 0.01;
-    while (!boxFree(world, sx, dropY, sz) && dropY < centre.y + JUMP_RISE * k) dropY += 1 / 16;
-    const settled = boxFree(world, sx, dropY, sz) ? settle(world, sx, dropY, sz, MAX_DROP * k + (dropY - centre.y)) : undefined;
+    // Dropped where the player's box is FREE: the farthest point out on the line (from `LINE_OUT` in to
+    // `LINE_MIN_OUT`) with room within a jump over the doorway's floor. Dropped blindly at the doorway's
+    // floor, the box started inside a step topping out above it (76417's roof beside Gate 1 at 150 %,
+    // 0.5 up), fell through it - the walker ignores a box it already overlaps - and the line reported a
+    // 19-block HOLE nobody can reach; inside 10326's Door 1 it started in the wall 1.5 blocks in.
+    let from0: { x: number; y: number; z: number } | undefined;
+    for (let out = LINE_OUT * k; out >= LINE_MIN_OUT * k - 1e-9 && !from0; out -= 1 / 8) {
+      const px = cx + n.x * from * out, pz = cz + n.z * from * out;
+      for (let up = 0.01; up <= JUMP_RISE * k + 1e-9; up += 1 / 16) if (boxFree(world, px, centre.y + up, pz)) { from0 = { x: px, y: centre.y + up, z: pz }; break; }
+    }
+    const settled = from0 ? settle(world, from0.x, from0.y, from0.z, MAX_DROP * k + (from0.y - centre.y)) : undefined;
     let s: PlayerState = settled ?? { x: sx, y: centre.y + 0.01, z: sz, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
     // A start that found no floor within `MAX_DROP` is a pit at least that deep.
     let lowest = settled ? s.y : centre.y - MAX_DROP * k, lowestNear = centre.y, best = -Infinity, jump = false, stall = 0, last = -Infinity;
