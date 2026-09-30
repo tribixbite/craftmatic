@@ -891,24 +891,29 @@ re-run after the last fixes). Evidence `output/sim-regress-449abd0e/`
   reproduced: 10797's car under an overhang (the Saga's overhang is not
   recorded; neither the model's overhangs nor a fixture of the host test's
   geometry made the old ground scan fail).
-- Favourites child play (200 scenarios, 88.6 s): 144 pass, 56 fail, zero
-  unmodelled API. Triage, none device-checked:
-  - [ ] 66 doorway-line findings in 15 packs, mostly at 150 %: the straight
-    line through a leaf column meets a full collider column the harness's
-    route avoids (10326 Door 4/5 at 150/0: the placement lays (15,-60..-57,6)
-    full and the opened door never clears it; `_ix_passability` says OK).
-    Decide whether the opening at 150 % is narrower than the leaf.
-  - [ ] Taps: 21 parts in 12 packs no tap from any spot changes (levers,
-    turnables, cupboards; several refuse "behind a wall"); 71040 Door 1's tap
-    picks Door 2.
-  - [ ] 42652 slides: rider 0.2+ over the drawn chute and dropped after the
-    run-out; 41703 slide drop; 10788 lift/slide exits 0.34 inside a floor
-    slab (the device showed the player standing: quirk
-    `teleport-into-floor-lifts`, partial).
-  - [ ] Driver view under 90 %: 42639 car 2/15, 60380 car 11/15, 910047 boat 13/15.
-  - [ ] Seated figures that yield and do not retake within 45 s: 10303 fig4, 910032 fig3.
-  - [ ] 31141: 3 blocks of the box differ after Undo; 11374: pinball's HUD
-    replaces the wand's "done" line after 13 ticks.
-- [ ] `TODO(sim-fold)`: fold `interactive-walk.ts`, `figure-life-sim.ts` and
-  the other test hosts (`_ix-host`, the vehicle/rides/flyer/coaster hosts)
-  onto the simulator; `test/_placement-host.ts` already runs on it.
+- Favourites child play triaged (2026-09-30, worktree `agent-a92b1e56f92bc2094`,
+  commits `e7355bff`..HEAD; evidence `output/sim-triage-0930/` in that tree:
+  `base-sim-on-base-packs.json` = before, `final-child-play.json|md` = after,
+  `probes/` the scripts). Before 144 pass / 56 fail, after 197 / 3 (packs
+  built from `4db40e56`, the three ride packs from `72c8c619`; `_ix_passability` 0 FAIL, 40/40
+  `_mcaddon_check` OK). Classes and fixes in docs/sim-engine.md "Doorway
+  attribution" and the commit messages. Open:
+  - [ ] Driver view 42639 car (2/15) and 60380 car (11/15): seats with
+    evidence (the set's own seat), which the view guard does not judge by
+    design (42172 scored 0.4 and was device-good). Device look needed.
+  - [ ] 29d set rebuilt (`packs-29d-rebuild2`): 10797 slide set-down still
+    0.18 inside `collider_f9`; 11204 slide 0.443 over the drawn chute (not
+    the run-out: check its frame like 42652's); 10796 slide 0.206 (limit 0.2,
+    `TODO(sim-slide)`); 10796 car_2 driven ~100 blocks off stays after Undo
+    (Undo sees loaded entities only); 10796 cars 13/15 and 10/15 views.
+  - [ ] Regression `door1-10326` no longer reproduces on current builds with
+    either the old or the new simulator (the 29c ledge at the doorway's level):
+    its `expectNew` needs a decision. `nimbus-*` need a rebuilt fixture pack.
+  - [ ] Device-only: `teleport-into-floor` (29d Pixel read y -56, not the slab
+    top: a GameTest teleporting 0.2-0.4 into a slab settles it) and
+    `dismount-free-spot` (assumed).
+- [ ] `TODO(sim-fold)`: the device lines now take the harness's doorway and
+  jump rule; still to fold: one walker for `interactive-walk.ts` and the
+  simulator, `figure-life-sim.ts`, the test hosts (`_ix-host`, the
+  vehicle/rides/flyer/coaster hosts); `test/_placement-host.ts` already runs
+  on the simulator.
