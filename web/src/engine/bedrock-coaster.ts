@@ -134,6 +134,7 @@ import type { CoasterAssemblies, CoasterCar, CoasterPlatformLift } from './coast
 import type { CoasterTrackExtraction } from './coaster-track.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { FLIGHT_INPUT_EVENT } from './bedrock-vehicle.js';
+import { HOP_TAGS } from './bedrock-ride-hop.js';
 
 declare const world: any;
 declare const system: any;
@@ -367,6 +368,12 @@ export interface CoasterRuntimeConfig {
    * when a route is a railway line.
    */
   inputEvent?: string;
+  /**
+   * The tags a car of a train carries for a HOP (bedrock-ride-hop.ts `HOP_TAGS`): its train's key and its rank
+   * from the front in the direction of travel, so a player flown into any car of a moving train is seated in
+   * the front-most car with a free seat. Absent: no tags (an older hand-built config).
+   */
+  hopTags?: { train: string; rank: string };
 }
 
 /**
@@ -1467,7 +1474,7 @@ export function coasterRuntimeConfig(typeId: string, routes: CoasterRoute[]): Co
       ...(railway ? { physics: RAIL_TRAIN_PHYSICS } : {}),
     };
   });
-  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW },
+  return { typeId, routes: runtimeRoutes, types, physics: COASTER_PHYSICS, camera: { ...COASTER_RIDER_VIEW }, hopTags: { train: HOP_TAGS.train, rank: HOP_TAGS.rank },
     ...(runtimeRoutes.some(route => route.physics?.DRIVER) ? { inputEvent: FLIGHT_INPUT_EVENT } : {}) };
 }
 
@@ -2174,6 +2181,8 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
   const viewers = new Map<string, any>();
   /** Each rider's rotation and their car's, read together at the start of the tick. */
   const headings = new Map<string, { head: any; car: number }>();
+  /** The hop tags last written per car id (`config.hopTags`): written only when the train or the rank changes. */
+  const hopTagged = new Map<string, string>();
   const lookLag = Math.max(0, Math.min(19, Math.round(camera.lookLag))), lookRatchet = !!camera.ratchet;
   // How many ticks the inversion animation's camera trails the server's train
   // (`COASTER_RIDER_VIEW.animLag`; a config without one keeps the measured 3.5). Fractional: a
@@ -3012,6 +3021,23 @@ function coasterRuntime(config: CoasterRuntimeConfig, sample: typeof sampleCoast
           frame.car.entity.setDynamicProperty(key + 'direction', nextDirection);
           frame.car.entity.setDynamicProperty(key + 'speed', speed);
           if (lift) { frame.car.entity.setDynamicProperty(key + 'phase', phase); frame.car.entity.setDynamicProperty(key + 'lift', owns ? progress : 0); }
+        }
+        // HOP tags (bedrock-ride-hop.ts): the train's key (its lead car's id) and each car's rank from the
+        // FRONT in the direction of travel - slot 0 leads when the train runs up the arc, the last slot when
+        // it runs down it - so a player flown into any car is seated in the front-most one with a free seat.
+        if (config.hopTags) {
+          const hop = config.hopTags;
+          for (const frame of frames) {
+            const rank = nextDirection === 1 ? frame.car.slot : count - 1 - frame.car.slot;
+            const want = `${hop.train}${lead.id}|${hop.rank}${rank}`;
+            if (hopTagged.get(frame.car.id) === want) continue;
+            try {
+              for (const t of frame.car.entity.getTags()) if (t.startsWith(hop.train) || t.startsWith(hop.rank)) frame.car.entity.removeTag(t);
+              frame.car.entity.addTag(`${hop.train}${lead.id}`);
+              frame.car.entity.addTag(`${hop.rank}${rank}`);
+              hopTagged.set(frame.car.id, want);
+            } catch { /* retried next tick */ }
+          }
         }
         train.centre = next;
         train.phase = phase;

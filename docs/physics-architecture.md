@@ -524,6 +524,75 @@ wand factor like the other rides. Tests: `test/bedrock-flyer.test.ts` (the
 path's radius, band, sense and closure; the runtime on a fake world: the
 lap, the car offset, the re-seat).
 
+### 4.8 Hop: fly or drive into another mount — `web/src/engine/bedrock-ride-hop.ts`
+
+The user's words (2026-09-30): fly or drive into another mountable - a
+coaster car, a chair, a slide's seat, a vehicle - that is not fully taken by
+players, and you are on it; "fly a plane into an in-motion roller coaster car
+and be auto-mounted in the first available seat closest to the front"; "park
+a car at the bottom of a slide ... slide into it". A KINEMATIC contact test,
+no forces: nothing is pushed, the player changes mount.
+
+- **Contact** (`hopContact`, pure): per tick, the target's box centre is
+  read in the RIDDEN vehicle's frame (right, up, forward: Bedrock yaw, 0 facing
+  +Z) at the previous and the current tick, so the relative motion of both is
+  one segment. The segment is carried `HOP.LEAD_TICKS` further and sampled
+  every `HOP.SAMPLE_BLOCKS`; a sample inside the vehicle's footprint (half
+  length and width from the pack, times its `minecraft:scale`, `0..height`)
+  or the rider's box (0.6 x 1.8 at the rider's feet), each grown by
+  `HOP.REACH_BLOCKS` plus the target's horizontal extent as a radius, is a
+  contact. A coaster car passing a flown plane at a block a tick crosses the
+  footprint between two samples and is still caught; a relative speed under
+  `HOP.MIN_CLOSING_BLOCKS_PER_S` never hops, so a car parked beside a chair
+  stays a car. Two samples are needed: a target first seen this tick is
+  tested from the next.
+- **Who acts**: `BP/scripts/hop.js` handles only a player riding one of ITS
+  pack's driveables (`HopRuntimeConfig.sources`, by identifier), so of many
+  packs in one world exactly one owns each hop; the claim tag
+  (`HOP_TAGS.claim`, a TAG because dynamic properties are per pack) makes a
+  second copy of the same pack skip that player. Targets may be any pack's
+  (`HOP_TAGS` namespaces): boarding uses only the standard rideable component.
+- **Guards**: nothing in the first `HOP.BOARD_GRACE_TICKS` aboard (whether
+  boarded or hopped onto); never back into the mount just left for
+  `HOP.BACK_COOLDOWN_TICKS`; never onto a seat a player holds (a figure's
+  seat is taken: the figure is ejected, as figures.js stands one up for a
+  player anyway). A refused `addRider` puts the rider back on the mount they
+  left (quirk `add-rider-after-eject`, assumed).
+- **Front-most seat**: `addRider` cannot choose a seat (quirk
+  `rider-seat-order`, assumed), so the choice is across entities: the coaster
+  tags every car with its train (`HOP_TAGS.train`, the lead car's id) and its
+  rank from the front in the direction of travel (`HOP_TAGS.rank`, rewritten
+  when the train reverses); a contact with any car of a train boards the
+  front-most car with a free seat within `HOP.TRAIN_REACH_BLOCKS`. Within one
+  entity the compiler lists the driver's seat first.
+- **The vehicle left behind** (`HopSource.vacate`): a scripted aircraft HOVERS
+  where it was left - `BP/scripts/vehicles.js` skips its integration while the
+  `VEHICLE_DYNAMIC.hold` property is set, keeping its state, so a rider back
+  aboard flies on at the speed it had; a scripted car, hover craft or boat
+  stops (its speed zeroed once); a native mount (rotorcraft, a flyer's cloud)
+  is held by Bedrock's hover controller (an empty Nimbus hovers, Saga
+  2026-09-29) and a summoned cloud still fades after `FLYER.EMPTY_DESPAWN_TICKS`.
+  Hover rather than land: the user allowed either, and a hovering plane is one
+  a child can hop back into.
+- **A slide's set-down** (`ridesRuntime` with the kit): the run-out's end,
+  settled by `colliderBodyProbe`, is searched `HOP.SETDOWN_REACH_BLOCKS` (times
+  the size, at least 1) for a mountable's box; the rider is boarded onto the
+  nearest (front-most of its train) instead of being set down.
+- **The new mount's runtime** sees the rider as it sees any boarding: the
+  coaster starts its camera on the first tick a car reports a rider
+  (`aimRider` creates the viewer, the loop animation is planned at the next
+  inversion, the exit hint is the lang file's). The hop hands the chase camera
+  and control scheme back at once, and `vehicle-camera.js` does not clear
+  again inside the grace (it would wipe the new mount's camera).
+
+Tests: `test/bedrock-ride-hop.test.ts` (the contact test; the serialised
+`hop.js`, `vehicles.js` and `rides.js` in the headless simulator: a plane
+catches a train's rear car and sits in the front one, then hovers; a riderless
+plane that nobody hopped off glides down; a train full of players is flown
+through; a figure yields its chair; two packs owning the plane hop once; the
+back-hop cooldown; a car at a slide's foot). Built packs: the simulator's
+`hop` scenarios (docs/sim-engine.md).
+
 ## 5. Serialised runtimes: the rules
 
 Each device runtime is a function turned into the pack's script text with
@@ -539,6 +608,7 @@ Each device runtime is a function turned into the pack's script text with
 | `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `isNightTime`, `headlightCell` |
 | `BP/scripts/rides.js` | `ridesScript` | `ridesRuntime` (module-private; slides, lifts and orbits) |
 | `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds, floats a rider who leaves one in the air) |
+| `BP/scripts/hop.js` | `hopScript` | `hopRuntime` (module-private), `hopKit`, `hopContact`; `rides.js` also carries `hopKit` (a slide's set-down) |
 
 1. A serialised function may reference NOTHING outside its own body and its
    parameters: no import, no module-level `const`, no other function of the
@@ -580,6 +650,7 @@ Each device runtime is a function turned into the pack's script text with
 | `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on a fake world) |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts`, `test/bedrock-flyer.test.ts` (the flyer's bob) |
 | `findMounts`, `orbitPathLdu` (`FLYER`) | export time: the orbit on the seat's `ridePath`, followed by `ridesRuntime` | — | `test/bedrock-flyer.test.ts`, `test/nimbus-fixture.test.ts` |
+| `hopContact`, `hopKit` (`HOP`, `HOP_TAGS`) | serialised into `hop.js` (every driveable) and `rides.js` (a slide's set-down); the coaster writes `HOP_TAGS` on its cars; `vehicles.js` reads `VEHICLE_DYNAMIC.hold` | — | `test/bedrock-ride-hop.test.ts` (pure, and the serialised runtimes in the simulator) |
 
 ## 7. Adding a vehicle class or a physics module
 
@@ -832,6 +903,16 @@ literal inside a function body (`§` marks the number).
 | `FLYER.DISMOUNT_SLOW_FALL_TICKS` | `web/src/engine/bedrock-flyer.ts` | 600 | ticks | 30 s of slow falling (Bedrock: ~3 blocks/s, no fall damage) covers a 90-block drop; the Saga rider fell 229 blocks from ALT 169 in one sneak, and a longer float only lands later. |
 | `DRIVER_SPEED_WINDOW_TICKS` | `web/src/engine/playable-addon.ts` | 20 | ticks | The HUD speed is the mean between the first and the last position CHANGE of the last second: a native mount's server position moves in bursts (one 2-tick delta read 0 / 24.9 / 60.2 / 99.0 mph at ~10 blocks/s on the Saga), and any burst cadence up to a second averages out; a second is also how long a stop takes to read 0. |
 | `DRIVER_TELEPORT_BLOCKS` | `web/src/engine/playable-addon.ts` | 5 | blocks per 2 ticks | A longer step between two samples is a teleport (the wand, a reload), not motion: 50 blocks/s, past the rotor's climb and cruise. |
+| `HOP.REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks | Slack around the footprint and the rider's box: a child steering past a car's corner at arm's length still gets in. Not scaled: a player's reach, not the model's. |
+| `HOP.LEAD_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 2 | ticks | The last tick's relative motion carried this far ahead: a train at a block a tick is met a little early (0.1 s), never missed between two ticks. |
+| `HOP.SAMPLE_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.25 | blocks | The swept segment's sample spacing: under half the smallest target's box (a 0.6-block seat). |
+| `HOP.MIN_CLOSING_BLOCKS_PER_S` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks/s | Under this relative speed nothing hops: parked beside a chair stays in the car; a walk-pace nudge (1 block/s) hops. |
+| `HOP.BOARD_GRACE_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 20 | ticks | No hop in the first second aboard: boarding a car parked by a chair, or landing in a coaster car, is not an instant second hop. |
+| `HOP.BACK_COOLDOWN_TICKS` | `web/src/engine/bedrock-ride-hop.ts` | 100 | ticks | The mount just left is not a target for 5 s: a plane hovering beside the track is not re-boarded as the coaster passes it on the same lap. |
+| `HOP.SCAN_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 4 | blocks at 100 % | Targets are queried this far past the vehicle's half length (times its size): past the reach and a lead at coaster speed. |
+| `HOP.SETDOWN_REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 1.5 | blocks at 100 % | A car's box within this of a slide's set-down takes the rider: "parked at the bottom" is a car's length off the foot at most. The set-down search reaches as far (§4.7). |
+| `HOP.TRAIN_REACH_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 16 | blocks | The front-most car is looked for this far from the touched one: a seven-car train of 1.7-block cars is ~12 long. |
+| `HOP.DEFAULT_EXTENT_BLOCKS` | `web/src/engine/bedrock-ride-hop.ts` | 0.5 | blocks | A target's half extent when `getAABB` gives none: a one-block seat. |
 | `FLYER_BOB.AMPLITUDE_UNITS` | `web/src/engine/bedrock-vehicle.ts` | 1 | geometry units (1/16 block) | The idle bob's amplitude: visible, never enough to move the seat visibly under the rider. |
 | `FLYER_BOB.DEGREES_PER_SECOND` | `web/src/engine/bedrock-vehicle.ts` | 120 | degrees/s of the sine | One breath every 3 s. |
 <!-- /physics-spec:constants -->
@@ -900,6 +981,14 @@ an earlier "~5 forward" was read off a ramped touch stick).
   not the model's silhouette: a car's corner is square, a wing's sweep is
   its span. Other ENTITIES are not collided with (another car, a figure);
   only blocks, the shell's collider blocks by their sixteenths included.
+  (Touching another MOUNTABLE is a hop, §4.8: the player changes mount; the
+  vehicles still pass through each other.)
+- **The hop is offline-proved only** (§4.8): the seat order `addRider`
+  gives, an `addRider` just after an `ejectRider`, what `getAABB` reports and
+  whether a coaster's camera takes over cleanly mid-run are assumed (quirks
+  `rider-seat-order`, `add-rider-after-eject`, `aabb-is-collision-box`).
+  # TODO(hop): fly the Nimbus into 10261's moving train on a phone and read
+  the seat, the camera and the cloud left hovering.
 - **Headlights are one light block** ahead of the nose, placed and removed
   as the vehicle crosses cells: the light is a sphere around that cell, not
   a beam, and a solid cell ahead keeps the previous one.
@@ -1144,6 +1233,20 @@ one of these files fails the check until its row is written.
 | `FlyerRuntimeMount`, `FlyerRuntimeConfig` | interface | One summonable mount (its cloud type and the types a tap on which summons it) and the runtime's config. |
 | `_flyerRuntimeForTests` | re-export | SERIALISED. The runtime (`flyerRuntime`) that summons a cloud on a tap, fades empty ones and floats down a rider who leaves one in the air. |
 | `flyerScript` | function | Serialises it into `BP/scripts/flyer.js`. |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/bedrock-ride-hop.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `HOP` | const | Every hop number: the reach, the lead and its sampling, the closing speed, the grace and the back-hop cooldown, the scan, set-down and train reaches (§4.8, §9). |
+| `HOP_TAGS` | const | The claim tag on a player (tick and the mount left) and a train car's train and rank tags. |
+| `HopParams`, `HopVacate` | type | The constants' type; how a vehicle waits once left (`hover`, `stop`, `native`). |
+| `HopSource`, `HopPose`, `HopBox`, `HopShape` | interface | A driveable's footprint and vacate rule; a pose; a world box (centre, half extents); the contact test's view of the ridden vehicle and its rider. |
+| `hopContact` | function | SERIALISED. The swept relative contact test in the vehicle's frame. |
+| `HopKitConfig`, `HopKit`, `HopRuntimeConfig` | interface | The kit's config (namespaces, tags, constants), the kit's API, `hop.js`'s CONFIG (this pack's sources, the hold property, the sound). |
+| `hopKit` | function | SERIALISED into `hop.js` and `rides.js`: mountable targets, a train's front-most free car, the claim, the boarding. |
+| `_hopRuntimeForTests` | re-export | SERIALISED. The per-tick runtime (`hopRuntime`) that hops a player off this pack's driveables. |
+| `hopKitConfig`, `hopRuntimeConfig`, `hopScript` | function | The configs for a pack, and the serialisation into `BP/scripts/hop.js`. |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/figure-life-sim.ts -->

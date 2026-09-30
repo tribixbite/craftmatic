@@ -320,6 +320,8 @@ function flyerRuntime(config: FlyerRuntimeConfig): void {
   // (@minecraft/server 2.9.0: WorldAfterEvents lists none), so the riders are polled.
   const aboard = new Map<string, any>();
   const floatDown = (player: any): void => {
+    // Off the cloud and onto another mount (a hop, bedrock-ride-hop.ts: flown into a coaster car or a chair): not falling.
+    try { if (player.getComponent('minecraft:riding')?.entityRidingOn) return; } catch { /* not riding */ }
     let dim: any, loc: any;
     try { dim = player.dimension; loc = player.location; } catch { return; }
     if (groundUnder(dim, loc)) return;
