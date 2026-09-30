@@ -36,8 +36,13 @@ export class BlockPalette {
   get(id: number): Permutation { return this.byId[id]!; }
 }
 
-/** What fills fresh terrain: the block at a position. `verticalOnly` generators depend on y alone and are cached per height. */
-export type TerrainGenerator = ((x: number, y: number, z: number) => { typeId: string; states?: BlockStates }) & { verticalOnly?: boolean };
+/**
+ * What fills fresh terrain: the block at a position. `verticalOnly` generators depend on y alone and are
+ * cached per height. `materialiseOnRead` generators (a position-dependent world read from another model -
+ * the walk worlds' re-laid collider grid) fill a whole section on its FIRST READ and are never asked about
+ * that section again, so a block read is two lookups however costly the generator is.
+ */
+export type TerrainGenerator = ((x: number, y: number, z: number) => { typeId: string; states?: BlockStates }) & { verticalOnly?: boolean; materialiseOnRead?: boolean };
 
 /** The phones' QA worlds: superflat, bedrock at -64, dirt -63..-62, grass -61, standing height -60. */
 export const FLAT_GROUND_Y = -60;
@@ -59,10 +64,15 @@ export interface WorldSolid extends Box {
 /** One dimension's blocks. */
 export class VoxelWorld {
   readonly heightRange: { min: number; max: number };
-  private readonly sections = new Map<string, Uint32Array>();
+  /** Sections by `sectionKey` (a number: a string key per block read was the walk harness's hot spot). */
+  private readonly sections = new Map<number, Uint32Array>();
+  /** Shapes by permutation id (`BlockTypes.shape` builds a string key per call). */
+  private readonly shapeById: Array<BlockShape | undefined> = [];
   private readonly generatorCache = new Map<number, number>();
   /** Loaded chunk columns, `cx,cz`. Recomputed by the engine each tick. */
   private loaded = new Set<string>();
+  /** Every column loaded (`setAllLoaded`). */
+  private allLoaded = false;
   /** Every block write, for scenarios that want to know what changed (undo checks). */
   readonly writes = new Map<string, number>();
   /** Called after every write (a recorder, a test host). */
@@ -73,9 +83,15 @@ export class VoxelWorld {
   }
 
   /** Mark the loaded chunk columns (the engine calls this each tick from players and ticking areas). */
-  setLoaded(columns: Set<string>): void { this.loaded = columns; }
+  setLoaded(columns: Set<string>): void { this.loaded = columns; this.allLoaded = false; }
+  /**
+   * Load every column, for good: a world with no players and no loading rule
+   * (the walk preview's and the doorway harness's collider world, which a
+   * walk may leave in any direction). An engine never calls this.
+   */
+  setAllLoaded(): void { this.allLoaded = true; }
   /** Whether the block's chunk column is loaded. */
-  isLoaded(x: number, z: number): boolean { return this.loaded.has(`${Math.floor(x) >> 4},${Math.floor(z) >> 4}`); }
+  isLoaded(x: number, z: number): boolean { return this.allLoaded || this.loaded.has(`${Math.floor(x) >> 4},${Math.floor(z) >> 4}`); }
   /** The loaded chunk columns. */
   loadedColumns(): ReadonlySet<string> { return this.loaded; }
 
@@ -85,7 +101,7 @@ export class VoxelWorld {
   }
 
   private section(x: number, y: number, z: number, create: boolean): Uint32Array | undefined {
-    const key = `${x >> 4},${y >> 4},${z >> 4}`;
+    const key = sectionKey(x >> 4, y >> 4, z >> 4);
     let s = this.sections.get(key);
     if (!s && create) {
       s = new Uint32Array(4096);
@@ -100,7 +116,7 @@ export class VoxelWorld {
   rawId(x: number, y: number, z: number): number {
     x = Math.floor(x); y = Math.floor(y); z = Math.floor(z);
     if (y < this.heightRange.min || y >= this.heightRange.max) return 0;
-    const s = this.section(x, y, z, false);
+    const s = this.section(x, y, z, this.generator.materialiseOnRead === true);
     if (s) return s[((x & 15) * 16 + (y & 15)) * 16 + (z & 15)]!;
     if (!this.generator.verticalOnly) return this.generated(x, y, z);
     let id = this.generatorCache.get(y);
@@ -121,11 +137,15 @@ export class VoxelWorld {
     this.onWrite?.(x, y, z, p);
   }
 
-  /** The shape of the block at a position. */
-  shapeAt(x: number, y: number, z: number): BlockShape {
-    const p = this.permutationAt(x, y, z);
-    return this.types.shape(p.typeId, p.states);
+  /** The shape of a permutation id (memoised per id). */
+  shapeOf(id: number): BlockShape {
+    let s = this.shapeById[id];
+    if (!s) { const p = this.palette.get(id); this.shapeById[id] = s = this.types.shape(p.typeId, p.states); }
+    return s;
   }
+
+  /** The shape of the block at a position. */
+  shapeAt(x: number, y: number, z: number): BlockShape { return this.shapeOf(this.rawId(x, y, z)); }
 
   /**
    * The solid boxes a box moving by `(dx, dy, dz)` could meet (the physics'
@@ -140,10 +160,12 @@ export class VoxelWorld {
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) {
       if (!this.isLoaded(x, z)) { out.push({ x0: x, y0: y0, z0: z, x1: x + 1, y1: y1 + 1, z1: z + 1, unloaded: true }); continue; }
       for (let y = y0; y <= y1; y++) {
-        const p = this.permutationAt(x, y, z);
-        if (p.id === 0) continue;
-        const shape = this.types.shape(p.typeId, p.states);
-        for (const b of shape.collision) out.push({ x0: x + b.x0, y0: y + b.y0, z0: z + b.z0, x1: x + b.x1, y1: y + b.y1, z1: z + b.z1, block: { x, y, z, typeId: p.typeId } });
+        const id = this.rawId(x, y, z);
+        if (id === 0) continue;
+        const shape = this.shapeOf(id);
+        if (!shape.collision.length) continue;
+        const typeId = this.palette.get(id).typeId;
+        for (const b of shape.collision) out.push({ x0: x + b.x0, y0: y + b.y0, z0: z + b.z0, x1: x + b.x1, y1: y + b.y1, z1: z + b.z1, block: { x, y, z, typeId } });
       }
     }
     return out;
@@ -161,9 +183,9 @@ export class VoxelWorld {
   /** The highest collision top at or below `y` under the point (x, z), or -Infinity: where a body dropped there lands. */
   supportBelow(x: number, y: number, z: number, maxDepth = 400): number {
     for (let by = Math.floor(y); by >= Math.max(this.heightRange.min, Math.floor(y) - maxDepth); by--) {
-      const p = this.permutationAt(x, by, z);
-      if (p.id === 0) continue;
-      const shape = this.types.shape(p.typeId, p.states);
+      const id = this.rawId(x, by, z);
+      if (id === 0) continue;
+      const shape = this.shapeOf(id);
       let top = -Infinity;
       const fx = x - Math.floor(x), fz = z - Math.floor(z);
       for (const b of shape.collision) if (fx >= b.x0 && fx <= b.x1 && fz >= b.z0 && fz <= b.z1 && by + b.y1 <= y + 1e-6) top = Math.max(top, by + b.y1);
@@ -171,6 +193,15 @@ export class VoxelWorld {
     }
     return -Infinity;
   }
+}
+
+/**
+ * A section's map key from its section coordinates, as one number: x and z
+ * sections within ±2^21 (±33 M blocks, past the world border) and y sections
+ * within ±32 (±512 blocks), packed into 49 bits.
+ */
+function sectionKey(sx: number, sy: number, sz: number): number {
+  return ((sx + 2097152) * 64 + (sy + 32)) * 4194304 + (sz + 2097152);
 }
 
 /** The chunk columns within `radius` chunks of a point. */
