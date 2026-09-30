@@ -238,6 +238,30 @@ describe('the serialised runtime', () => {
     expect(t!.slice(720).every(p => p.riding)).toBe(true);
   });
 
+  it('tells the content log of a missing seat on the second retake check in a row, not while a placement is still spawning its seats', () => {
+    // A seated figure is adopted the tick it spawns; a large placement (10261, ~2 min) spawns its
+    // seats later. Both phones logged FIGURE_RETAKE_NO_SEAT for 10261's kiosk figure at that first
+    // check, before its seat existed, and the figure sat on it afterwards (Saga round 2026-09-29c).
+    const tuning = { ...FIGURE_TUNING, idleMin: 20, idleMax: 30 }; // the first check at tick 21..31, the second 100 later
+    const late: string[] = [];
+    const seatComes: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
+      seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 }, spawnAt: 60 }],
+      figures: [{ typeId: 'craftmatic:a_fig1', at: { x: 2.5, y: 0.6, z: 2.5 }, mode: 'seated' }],
+      onWarn: l => late.push(l) };
+    const [t] = simulateFigureLife(seatComes, { ...config, tuning }, 400, 5);
+    expect(late.filter(l => l.includes('FIGURE_RETAKE'))).toEqual([]);
+    // Seated on it by the second check.
+    expect(t!.slice(200).every(p => p.riding)).toBe(true);
+    // No seat ever: the line once, on the second miss (two checks, 10 s), never on the first.
+    const never: string[] = [];
+    simulateFigureLife({ ...seatComes, seats: [], onWarn: l => never.push(l) }, { ...config, tuning }, 400, 5);
+    expect(never.filter(l => l.includes('FIGURE_RETAKE_NO_SEAT'))).toHaveLength(1);
+    expect(never[0]).toMatch(/FIGURE_RETAKE_NO_SEAT craftmatic:a_fig1 near 3,1,3 \(2 checks, 10 s\)/);
+    const early: string[] = [];
+    simulateFigureLife({ ...seatComes, seats: [], onWarn: l => early.push(l) }, { ...config, tuning }, 100, 5);
+    expect(early).toEqual([]);
+  });
+
   it('retakes a seat whose entity sits 2 blocks under the figure\'s home (10261\'s kiosk, round 2026-09-29b)', () => {
     const w: SimWorld = { cells: room(), area: [0, 0, 9, 7], ground: 0,
       seats: [{ typeId: 'craftmatic:a_seat', at: { x: 2.5, y: 0.6, z: 2.5 } }],

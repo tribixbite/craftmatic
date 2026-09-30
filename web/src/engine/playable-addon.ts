@@ -2454,7 +2454,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 }
             }
             const colliders = buildColliderGrid(scenery, [...(sgeo.partBoxesLdu ?? []), ...staticIxBoxes], options.shell.frame, options.colliderKeepClear);
-            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame) : [];
+            // The part geometry per cell goes along so a threshold tread or stair stands on a floor, never on a wall's rim (`standingTop16`).
+            const ixPlans: Array<InteractiveColliderPlan | null> = compiledIx.length ? planInteractiveColliders(colliders.grid, compiledIx.map(c => c.it), options.shell.frame, colliders.layers) : [];
             if (options.colliderClearance !== false) {
                 // Clearance (collider-clearance.ts, docs/bedrock-interactivity.md):
                 // pull every wall back to its own geometry where it is certain,

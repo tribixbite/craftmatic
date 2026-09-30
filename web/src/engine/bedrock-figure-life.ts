@@ -471,6 +471,12 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
   const T = config.tuning;
   /** How far from its home (blocks) a seated figure looks for the seat to retake: 10261's kiosk seat entity sits ~2 below its home. */
   const RETAKE_REACH = 4;
+  /**
+   * Retake checks in a row (5 s apart) that find no seat near home before the
+   * content log hears of it: the first miss is a placement still spawning
+   * its seats (the figure is adopted the tick it appears), not a fault.
+   */
+  const RETAKE_MISSES_TO_WARN = 2;
   const types = new Set(config.figureTypes);
   const draftTypes = new Set(config.draftTypes ?? []);
   /** A creator figure the wand is dressing or editing (`craftmatic:draft`): not this runtime's to move. */
@@ -492,6 +498,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
     rehomed?: boolean;
     /** A seated figure's retake was refused or found no seat, and the content log was told once. */
     retakeWarned?: boolean;
+    /** Retake checks in a row that found no seat near home (reset when one is there). */
+    retakeMisses?: number;
     /** The seat entity a seated figure rode, retaken by id once a player gives it back. */
     seatId?: string;
   }
@@ -773,10 +781,21 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
             try { e.teleport(seats[0].location); } catch { /* unloaded */ }
             const ok = r.addRider(e);
             if (!ok && !l.retakeWarned) { l.retakeWarned = true; console.warn(`FIGURE_RETAKE_REFUSED ${e.typeId} seat ${seats[0].typeId} at ${Math.round(seats[0].location.x)},${Math.round(seats[0].location.y)},${Math.round(seats[0].location.z)}`); }
-          } else if (!seats.length && !l.retakeWarned) {
-            l.retakeWarned = true;
-            console.warn(`FIGURE_RETAKE_NO_SEAT ${e.typeId} near ${h.home.map(Math.round).join(',')}`);
+          } else if (!seats.length) {
+            // No seat near home. The first miss is expected: a figure is adopted as
+            // soon as it spawns, and a large placement (10261, ~2 min) is still
+            // spawning its seats when the first check runs - both phones logged a
+            // FIGURE_RETAKE_NO_SEAT for 10261's kiosk figure ~2 min into every
+            // placement while the seat entity was yet to come, and the figure sat
+            // on it minutes later (Saga round 2026-09-29c). The line is written on
+            // the SECOND miss in a row (10 s with no seat), once per figure.
+            l.retakeMisses = (l.retakeMisses ?? 0) + 1;
+            if (l.retakeMisses >= RETAKE_MISSES_TO_WARN && !l.retakeWarned) {
+              l.retakeWarned = true;
+              console.warn(`FIGURE_RETAKE_NO_SEAT ${e.typeId} near ${h.home.map(Math.round).join(',')} (${l.retakeMisses} checks, ${Math.round(l.retakeMisses * 100 / 20)} s)`);
+            }
           }
+          if (seats.length) l.retakeMisses = 0;
         } catch (err) { if (!l.retakeWarned) { l.retakeWarned = true; console.warn(`FIGURE_RETAKE_ERROR ${e.typeId} ${String(err)}`); } }
       }
       return;

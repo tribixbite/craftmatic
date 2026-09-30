@@ -243,7 +243,7 @@ interface LatticeNode { a: number; l: number; t: number; prev: LatticeNode | nul
  * doorway (within a quarter block of the plane, within `slack` of the
  * doorway's floor), as the column searches (`crossesAtDoor`).
  */
-function doorwayLattice(world: WalkWorld, centre: { x: number; y: number; z: number }, n: { x: number; z: number }, halfSpan: number, k: number, slack: number) {
+function doorwayLattice(world: WalkWorld, centre: { x: number; y: number; z: number }, n: { x: number; z: number }, halfSpan: number, k: number, slack: number, avoid: (x: number, z: number) => boolean = () => false, beside: (x: number, z: number) => boolean = () => false) {
   const u = { x: -n.z, z: n.x };
   const reach = Math.ceil(LATTICE_REACH * k / LATTICE_STEP);
   const lat = Math.floor(Math.max(0, halfSpan - PLAYER_WIDTH_BLOCKS / 2) / LATTICE_STEP);
@@ -299,16 +299,18 @@ function doorwayLattice(world: WalkWorld, centre: { x: number; y: number; z: num
     return out;
   };
   /**
-   * Breadth-first from `from` over moves of at most `drop` down; `accept`
-   * ends the search at the first node it takes (returned), undefined when none.
+   * Breadth-first from `from` over moves of at most `drop` down (only those
+   * `keep` takes); `accept` ends the search at the first node it takes
+   * (returned), undefined when none.
    */
-  const search = (from: readonly LatticeNode[], drop: number, accept: (m: LatticeNode) => boolean, outward = false): LatticeNode | undefined => {
+  const search = (from: readonly LatticeNode[], drop: number, accept: (m: LatticeNode) => boolean, outward = false, keep: (m: LatticeNode) => boolean = () => true): LatticeNode | undefined => {
     const seen = new Set(from.map(key));
     const q = [...from];
     for (let h = 0; h < q.length; h++) {
       const node = q[h]!;
       if (accept(node)) return node;
       for (const m of moves(node, drop, outward)) {
+        if (!keep(m)) continue;
         const kk = key(m);
         if (seen.has(kk)) continue;
         seen.add(kk);
@@ -352,11 +354,45 @@ function doorwayLattice(world: WalkWorld, centre: { x: number; y: number; z: num
     for (let p: LatticeNode | null = end; p; p = p.prev) path.unshift(p);
     return path.filter((_, i) => i % 3 === 0 || i === path.length - 1).map(m => { const p = at(m.a, m.l); return { x: p.x, y: m.t, z: p.z }; });
   };
-  return { at, starts, search, snap, route };
+  /**
+   * Whether a player standing at `node` can go ON from there: a two-way
+   * lattice walk (rises and drops within the jump) that never comes nearer
+   * the leaf's plane, never enters an avoided column (a leaf's), and reaches
+   * a point a whole block away. A node with none is a dead end: 910004's
+   * Door 3 opens onto a 0.75-block alcove between the leaf and a step up
+   * under the ceiling's edge (furniture a stud inside the door), where the
+   * walk stood and called the doorway OK while the room beyond was never
+   * reached (Saga round 2026-09-29c). The result is memoised per node.
+   */
+  const continued = new Map<string, boolean>();
+  const continues = (node: LatticeNode): boolean => {
+    const k0 = key(node);
+    const memo = continued.get(k0);
+    if (memo !== undefined) return memo;
+    const from = at(node.a, node.l), a0 = Math.abs(node.a), sgn = Math.sign(node.a);
+    if (beside(Math.floor(from.x), Math.floor(from.z))) { continued.set(k0, true); return true; }
+    const ok = search([{ ...node, prev: null }], JUMP_RISE, m => {
+      const p = at(m.a, m.l);
+      return Math.hypot(p.x - from.x, p.z - from.z) >= 1 - 1e-9;
+    }, false, m => Math.abs(m.a) >= a0 && Math.sign(m.a) === sgn && !avoid(Math.floor(at(m.a, m.l).x), Math.floor(at(m.a, m.l).z))) !== undefined;
+    continued.set(k0, ok);
+    return ok;
+  };
+  return { at, starts, search, snap, route, continues };
 }
 
 type GraphNode = { x: number; z: number; t: number; prev: GraphNode | null };
 const nodeKey = (n: { x: number; z: number; t: number }): string => `${n.x},${n.z},${Math.round(n.t * 16)}`;
+
+/** A doorway at a size and turn: the leaf's closed blocks (`own`), their centre (its floor the lowest closed bottom) and the walk's normal. */
+function doorwayGeometry(pack: DoorwayWalkPack, item: InteractiveRuntimeConfig['items'][number], f: number, rotation: QuarterTurn) {
+  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation, COLLIDER_KIT).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
+  const centre = own.length
+    ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }
+    : { x: 0, y: 0, z: 0 };
+  const n = turnDirection({ x: item.normal?.[0] ?? 0, z: item.normal?.[2] ?? 1 }, pack.dims, rotation);
+  return { own, centre, n };
+}
 
 /** Walk one doorway (by its index in `pack.interactives.items`) at a size and turn, open or closed. */
 export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn, open: boolean, openOthers = false, trace?: DoorwayWalkTrace): DoorwayWalkResult {
@@ -380,11 +416,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   };
   const passableAtSize = item.passSize !== undefined && item.passSize > 0 && sizePct >= item.passSize;
   // The doorway: the leaf's closed blocks at this size and turn.
-  const own = [...ixWorldBlocks(item.blocking, pack.dims, f, rotation, COLLIDER_KIT).entries()].map(([key, span]) => { const [x, y, z] = key.split(',').map(Number) as [number, number, number]; return { x, y, z, lo: span[0], hi: span[1] }; });
-  const centre = own.length
-    ? { x: own.reduce((a, b) => a + b.x + 0.5, 0) / own.length, y: Math.min(...own.map(b => b.y + b.lo / 16)), z: own.reduce((a, b) => a + b.z + 0.5, 0) / own.length }
-    : { x: 0, y: 0, z: 0 };
-  const n = turnDirection({ x: item.normal?.[0] ?? 0, z: item.normal?.[2] ?? 1 }, pack.dims, rotation);
+  const { own, centre, n } = doorwayGeometry(pack, item, f, rotation);
   const base = { index, label: item.label, sizePct, rotation, open, passableAtSize, centre, normal: n };
   if (!own.length) return { ...base, outcome: 'no-approach', directions: [] };
   const doorColumns = new Set(own.map(b => `${b.x},${b.z}`));
@@ -418,6 +450,31 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   // past the leaf plane on each side is where a player stands to go through.
   const openWorld = worldFor(true, true);
   const og = surfaceGraph(openWorld, window, k);
+  /**
+   * The columns every OTHER doorway's closed leaf fills: a spot beside one
+   * goes on through that door (a vestibule between two doors, 10022's
+   * passenger car; the other door is closed in this walk's world).
+   */
+  const otherDoorColumns = new Set<string>();
+  cfg.items.forEach((it, i) => {
+    if (group.has(i) || it.passSize === undefined) return;
+    for (const key of ixWorldBlocks(it.blocking, pack.dims, f, rotation, COLLIDER_KIT).keys()) { const [x, , z] = key.split(','); otherDoorColumns.add(`${x},${z}`); }
+  });
+  const besideOtherDoor = (x: number, z: number): boolean => otherDoorColumns.has(`${x + 1},${z}`) || otherDoorColumns.has(`${x - 1},${z}`) || otherDoorColumns.has(`${x},${z + 1}`) || otherDoorColumns.has(`${x},${z - 1}`);
+  /**
+   * Whether a player standing on `node` can go ON from there: a two-way move
+   * to a column that is no leaf's and no nearer the leaf's plane (onward or
+   * sideways - a corridor along the wall, a balcony). A spot with none is a
+   * dead end, not an approach: 910004's Door 3 opens onto a 0.75-block
+   * alcove between the leaf and a step up under the ceiling's edge (furniture
+   * a stud inside the door); the walk stood there and called the doorway OK
+   * while the room beyond was never reached (Saga round 2026-09-29c).
+   */
+  const continues = (node: GraphNode): boolean => {
+    if (besideOtherDoor(node.x, node.z)) return true;
+    const s0 = side(node), a0 = Math.abs(s0);
+    return og.moves(node.x, node.z, node.t, true).some(m => !groupColumns.has(`${m.x},${m.z}`) && Math.sign(side(m)) === Math.sign(s0) && Math.abs(side(m)) >= a0 - 1e-6);
+  };
   const starts: GraphNode[] = [];
   for (const key of doorColumns) {
     const [x, z] = key.split(',').map(Number) as [number, number];
@@ -435,9 +492,10 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     // Nor is a column a leaf of the doorway fills while closed: a leaf turned off the grid spans columns
     // along its normal, and a double door's partner stands beside it (76269's Door 2); a player put there
     // stands inside the closed door.
+    // And a spot a player can go on from (`continues`): a dead-end alcove is searched past, not stood in.
     const level = Math.abs(node.t - centre.y) <= JUMP_RISE * k + 1e-6 && !groupColumns.has(`${node.x},${node.z}`);
-    if (level && s <= -SIDE_CLEARANCE * k && !near['-1']) { near['-1'] = node; continue; }
-    if (level && s >= SIDE_CLEARANCE * k && !near['1']) { near['1'] = node; continue; }
+    if (level && s <= -SIDE_CLEARANCE * k && !near['-1'] && continues(node)) { near['-1'] = node; continue; }
+    if (level && s >= SIDE_CLEARANCE * k && !near['1'] && continues(node)) { near['1'] = node; continue; }
     // Two-way moves only (an approach spot must be one a player can walk INTO
     // the doorway from), and only along the CORRIDOR straight through the
     // doorway: a spot reached by leaving the doorway sideways and going round
@@ -465,7 +523,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
     for (let h = 0; h < q.length; h++) {
       const node = q[h]!;
       const s = side(node);
-      if (missing === '-1' ? s <= -SIDE_CLEARANCE * k : s >= SIDE_CLEARANCE * k) { near[missing] = node; oneWay = Number(missing) as -1 | 1; break; }
+      if ((missing === '-1' ? s <= -SIDE_CLEARANCE * k : s >= SIDE_CLEARANCE * k) && continues(node)) { near[missing] = node; oneWay = Number(missing) as -1 | 1; break; }
       for (const m of og.moves(node.x, node.z, node.t)) {
         if (!crossesAtDoor(node, m)) continue;
         // Outward only, down or level: a rise on the way out would be a two-way move the first pass had.
@@ -504,7 +562,7 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   // spot on a side: the same rules (two-way first, a side reached one-way
   // only by dropping past the jump, a spot clear with every leaf closed and
   // not in a closed leaf's column) over the exact boxes.
-  const fineLattice = doorwayLattice(openWorld, centre, n, halfSpan, k, DOOR_FLOOR_SLACK * k);
+  const fineLattice = doorwayLattice(openWorld, centre, n, halfSpan, k, DOOR_FLOOR_SLACK * k, (x, z) => groupColumns.has(`${x},${z}`), besideOtherDoor);
   const fineNear: Record<'-1' | '1', LatticeNode | undefined> = { '-1': undefined, '1': undefined };
   // A side the column graph reached only one-way is tried two-way on the lattice as well.
   const columnOneWay = oneWay;
@@ -516,6 +574,8 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
       if (m.a * LATTICE_STEP * sd < SIDE_CLEARANCE * k - 1e-9 || Math.abs(m.t - centre.y) > JUMP_RISE * k + 1e-6) return undefined;
       const q = fineLattice.at(m.a, m.l);
       if (groupColumns.has(`${Math.floor(q.x)},${Math.floor(q.z)}`) || !boxFree(closedWorld, q.x, m.t + 0.01, q.z)) return undefined;
+      // As the column approach: a spot a player can go on from, not a dead-end alcove.
+      if (!fineLattice.continues(m)) return undefined;
       const st = settle(openWorld, q.x, m.t + 0.01, q.z, 0.25);
       return st && boxFree(closedWorld, st.x, st.y, st.z) ? st : undefined;
     };
@@ -613,6 +673,90 @@ export function walkThroughDoorway(pack: DoorwayWalkPack, index: number, sizePct
   }
   const outcome = directions.some(d => d.outcome === 'passed') ? 'passed' : directions.some(d => d.outcome === 'blocked') ? 'blocked' : 'no-approach';
   return { ...base, outcome, directions, ...(oneWay ? { oneWay } : {}) };
+}
+
+/** How far out (blocks at 100 %, scaled) a column line starts from the leaf's plane on each side. */
+export const LINE_OUT = 1.5;
+/**
+ * How far from the leaf's plane (blocks at 100 %, scaled) a fall on a line
+ * counts as the DOORWAY's hole: the leaf's own column and the one beside it
+ * on each side. Further out is the model's ground (a stoop's edge, a roof
+ * gate's parapet: 41732's Door 3 stands a block from a 2.7-block step down
+ * to the street, 76417's Gate 1 two blocks from the roof's edge).
+ */
+export const HOLE_REACH = 1.0;
+
+/** One straight walk through a doorway along one of its columns, from one side. */
+export interface DoorwayColumnLine {
+  /** The leaf column (world blocks from the pin) and the side the walk starts on (along the normal). */
+  column: { x: number; z: number };
+  from: -1 | 1;
+  /** Where the player settled to start, or null when it found no floor within `MAX_DROP` (a pit). */
+  start: { x: number; y: number; z: number } | null;
+  end: { x: number; y: number; z: number };
+  /** The lowest the feet went on the line, and how far that is under the doorway's floor (positive = down). */
+  lowest: number;
+  drop: number;
+  /** The same within `HOLE_REACH` of the leaf's plane: the doorway's own fall. */
+  dropNear: number;
+  /** Whether the feet crossed the leaf plane by `CROSS_MARGIN` going the right way. */
+  crossed: boolean;
+}
+
+/**
+ * The DEVICE's line, offline: walk the per-tick player straight through a
+ * doorway along each of its leaf columns' centre lines, from `LINE_OUT` out
+ * on each side (the door open, feet dropped onto whatever is there), and say
+ * how far the feet fall under the doorway's floor on the way. The verdict
+ * walk finds ONE approach and ONE route and stops at the first that passes;
+ * a leaf two columns wide with a floor in front of one column and a pit in
+ * front of the other reads OK from the floor while a player through the
+ * other column falls - 10326's Door 1 on the Saga (round 2026-09-29c: 2.25
+ * blocks down at the threshold, both ways, x 10.67 where the walk had
+ * stood at x 11.5). A `drop` past the jump on an OK doorway is a HOLE the
+ * verdict did not see; `scripts/_ix_passability.ts` prints it.
+ */
+export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn): DoorwayColumnLine[] {
+  const cfg = pack.interactives, item = cfg.items[index]!;
+  const f = sizePct / 100, k = Math.max(1, f);
+  const group = new Set([index, ...(item.pairs ?? [])]);
+  const { own, centre, n } = doorwayGeometry(pack, item, f, rotation);
+  if (!own.length) return [];
+  // The open world with this doorway's group lifted (its leaves gone), every other doorway closed.
+  const options: WalkWorldOptions = { cells: pack.cells, dims: pack.dims, sizePct, rotation, treads: 'shipped', ...(pack.shippedTreads ? { shippedTreads: pack.shippedTreads } : {}) };
+  const world = pack.makeWorld ? pack.makeWorld(options) : new WalkWorld(options);
+  world.setOverlayBlocks(ixClosedBlocks(cfg.items.map((it, i) => group.has(i) ? { ...it, blocking: [] } : it), pack.dims, f, rotation, i => group.has(i)));
+  const columns = [...new Map(own.map(b => [`${b.x},${b.z}`, { x: b.x, z: b.z }])).values()];
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  const out: DoorwayColumnLine[] = [];
+  for (const column of columns) for (const from of [-1, 1] as const) {
+    const cx = column.x + 0.5, cz = column.z + 0.5;
+    const along = (p: { x: number; z: number }): number => ((p.x - cx) * n.x + (p.z - cz) * n.z) * -from;
+    const sx = cx + n.x * from * LINE_OUT * k, sz = cz + n.z * from * LINE_OUT * k;
+    const settled = settle(world, sx, centre.y + 0.01, sz, MAX_DROP * k);
+    let s: PlayerState = settled ?? { x: sx, y: centre.y + 0.01, z: sz, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
+    // A start that found no floor within `MAX_DROP` is a pit at least that deep.
+    let lowest = settled ? s.y : centre.y - MAX_DROP * k, lowestNear = centre.y, best = -Infinity, jump = false, stall = 0, last = -Infinity;
+    if (settled) for (let t = 0; t < MAX_TICKS; t++) {
+      const r = tickPlayer(world, s, { move: { x: -from * n.x, z: -from * n.z }, jump, sneak: false });
+      s = r.state;
+      jump = (r.collided.x || r.collided.z) && s.onGround;
+      lowest = Math.min(lowest, s.y);
+      const a = along(s);
+      if (Math.abs(a) <= HOLE_REACH * k) lowestNear = Math.min(lowestNear, s.y);
+      best = Math.max(best, a);
+      if (a >= LINE_OUT * k) break;
+      if (a > last + 1e-3) { last = a; stall = 0; } else if (++stall > STALL_TICKS) break;
+    }
+    out.push({ column, from, start: settled ? { x: r2(settled.x), y: r2(settled.y), z: r2(settled.z) } : null, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) }, lowest: r2(lowest), drop: r2(centre.y - lowest), dropNear: r2(centre.y - lowestNear), crossed: best >= CROSS_MARGIN });
+  }
+  return out;
+}
+
+/** The lines of an OK doorway whose feet fell past the jump within `HOLE_REACH` of the leaf: holes the verdict walk did not stand over. */
+export function doorwayHoles(lines: readonly DoorwayColumnLine[], sizePct: number): DoorwayColumnLine[] {
+  const k = Math.max(1, sizePct / 100);
+  return lines.filter(l => l.dropNear > JUMP_RISE * k + 1e-6);
 }
 
 export type Verdict = 'OK' | 'ONE-WAY' | 'SMALL' | 'FAIL' | 'NO-APPROACH' | 'SEALED' | 'STEP';

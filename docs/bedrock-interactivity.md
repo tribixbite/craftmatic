@@ -225,8 +225,11 @@ and a 20 LDU frame straddling a cell boundary fills whole cells. So:
    the rows its box spans. They become air, and are recorded with the leaf's own
    lo/hi sixteenths as the doorway's **blocking** cells. A door or gate also
    opens the **passage**: along the leaf's normal, both ways, up to three cells,
-   until a column a player can stand in (its floor row at most a 9/16 step, the
-   row above free, the next free below its middle).
+   until a column a player can stand in - no collider in the band from a 9/16
+   step over the DOORWAY's floor to 2.5 blocks over it; the columns between
+   are trimmed to what lies outside that band (since 2026-09-29; the earlier
+   row-based rule cleared a floor level with a high-hung leaf, see "The
+   doorway's floor, a floor's top, and the device's line").
 2. **Closed**: the runtime lays the blocking cells as `craftmatic:collider`
    blocks over the static state around them (the doorway's **neighbour** cells,
    ±3 cells, shipped with it), with `ixWorldBlocks` — exactly the collider
@@ -720,6 +723,84 @@ floor a 0.6 x 1.8 box fits at one block out, relative to the door's floor,
   `--kit8` before rule 3, unsealed only 910049's gate at 100 % - which rule 3
   passes - and 76269's Door 1 at 150 %, so the 43-id vocabulary stays);
   11371 Door 1, whose trims are refused near a leak.
+
+### The doorway's floor, a floor's top, and the device's line (Saga round 2026-09-29c)
+
+Two doors the walk called OK at 100 % were not, on the Saga, and both faults
+were the walk's and the cut's reading of a FLOOR (evidence
+`output/doors-fix-0929/` in the doors worktree: `passability-before-100-0.json`,
+the round-source rebuilds `packs-round/` = the 29d packs cell for cell,
+`geo-round/` their geometry, `regression-*.json` over the 29d round packs):
+
+- **10326 Door 1** (walk in from the porch: 2.25 blocks down at the
+  threshold, both ways, at x 10.67). The museum's front has no steps in the
+  source: in front of the leaf's x 10 column nothing stands between the base
+  plate (0.25) and the threshold (2.875); in front of x 11 the base's front
+  wall, a 4/16 band with a 2/16 plate at its foot. The half-way tread was
+  laid on that cell's FULL top (2.0), clearance then trimmed the cell to its
+  floor + wall form, and the tread hung 0.9 block over the plate - a step
+  from nowhere the walk stood on (start `11.5, 2.44, 0.5`) while the device
+  player, at x 10.67, fell into the pit. The same inside: a tread on a 2/16
+  z-sliver's full top. Both treads gone, the walk stands on the wall's kept
+  rim (a landing, rule 4's exception) and needs a jump; the pit at x 10 is the
+  model's and the line report below says so.
+- **910004 Door 3** (walk-out stopped one cell before the doorway). Inside
+  the door the chalet has a reddish-brown platform 0.8 block high (x 2.75..5,
+  y 4.2..5.0, colour 70) with a 0.5-block step at the door (x 2.19..3) under
+  the upper floor at 6.44: a 0.75 x 1-block alcove a stud deep between the
+  leaf and the furniture. The walk stood in the alcove (`2.38, 4.69, 2.5`)
+  and called the door OK; `_ix_sealed_causes.ts --drawn` on the same pack
+  says `model:solid` (no standing place one block in). The device's start
+  (x 3.26, "inside") is ON the platform under a 1.44-block ceiling, a spot no
+  walking player reaches; the stop at x 2.55 is the ceiling's edge band.
+- **41732 Door 3**, found by the new line report on the 29d pack: the model's
+  stoop in front of the leaf column (a slope part topping out 2/16 over the
+  threshold, 7.875) was cleared WHOLE by the passage cut, leaving a
+  2.7-block pit to the street in the leaf's own column; the walk passed
+  through the stoop's neighbour column beside it.
+
+Four rules, pinned in `test/doorway-reach.test.ts` and `test/bedrock-interactives.test.ts`:
+
+1. **The passage is measured from the doorway's floor** (`planInteractiveColliders`),
+   not from the row the leaf's bottom is in. A column is standable when no
+   collider reaches into the band from a 9/16 step over the doorway's floor
+   to 2.5 blocks over it (`PASSAGE_STEP16`, `PASSAGE_CLEAR16`), and opening
+   a column trims each cell to what lies outside the band (a floor under it
+   where the cell's geometry has one, a lintel over it) instead of clearing
+   the cell whole. The row rule ("row y0 at most a step high") read a floor
+   LEVEL with a leaf hung 14/16 up its row as an obstacle: 41732's stoop,
+   the museum's floor behind Door 1. For a leaf at a row boundary the rules
+   agree exactly.
+2. **A tread or stair stands on a floor, never on a wall's rim**
+   (`standingTop16`): the planners get the cells' geometry (`layers`) and
+   read a cell's standing top from its cover - a floor + wall form's floor,
+   a wall + ceiling form's slab, a full cell's top; a wall band has none. A
+   stair run that meets a rim under the doorway's floor is refused ("not
+   open air"). Without geometry (old callers) every span top is a floor, as
+   before.
+3. **An approach is a spot a player can go on from** (`continues`, column
+   graph and lattice): a two-way move to a column that is no leaf's and no
+   nearer the leaf's plane - onward or sideways (a corridor along the wall,
+   a balcony still count). A one-column alcove is SEALED. Over the 40
+   favourites' 29d packs (sizes 100/150, turns 0/90, 116 rows) this changed
+   four rows, all 910004's Door 3: OK -> SEALED at 100 %, STEP -> SEALED at
+   150 %; 0 FAIL before and after.
+4. **The device's line is walked too** (`doorwayColumnLines`, printed by
+   `_ix_passability.ts` as `HOLE`): for an OK doorway the per-tick player is
+   walked straight through EACH leaf column from 1.5 blocks out on each
+   side, and a fall past the jump within a block of the leaf's plane
+   (`HOLE_REACH`) is reported with its depth; the verdict does not change
+   (the walk's OK is true through the column it used). Over the 29d packs:
+   10326 Door 1 (the pit, 2.63 at 100 %), 41732 Door 3 (2.69 at 100 %, the
+   cleared stoop; rebuilt with rule 1 the stoop stays), and at 150 % only
+   41732 Door 1 (5.94 from inside) and 76417 Gate 1 (17-19 from outside),
+   both unexamined: a fall on the far side of the approach spot, not the
+   doorway's own floor - read `lines` in the JSON before believing either.
+
+Device-unproven: every rebuilt pack here (`packs-after2/`). The Saga's
+10326 line at x 10.67 still falls (the model's pit; the harness now says so),
+910004 Door 3 is the model's, 41732 Door 3's stoop is kept by rule 1 but the
+device has not walked it.
 
 ### Known limits
 

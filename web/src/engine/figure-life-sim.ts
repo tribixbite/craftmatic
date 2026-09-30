@@ -27,7 +27,11 @@ export interface SimFigure {
   draftUntil?: number;
 }
 
-export interface SimSeat { typeId: string; at: { x: number; y: number; z: number } }
+export interface SimSeat {
+  typeId: string; at: { x: number; y: number; z: number };
+  /** The tick the seat entity appears (a placement still spawning its seats); default: from the start. */
+  spawnAt?: number;
+}
 
 export interface SimWorld {
   /** Collider cells, world blocks (lo/hi sixteenths). */
@@ -45,6 +49,8 @@ export interface SimWorld {
   /** The tick the player walks away (is gone from the world); default: stays the whole run. */
   playerLeavesAt?: number;
   f?: number;
+  /** Every `console.warn` line the runtime writes (its content-log diagnostics: FIGURE_RETAKE_*), in order. */
+  onWarn?: (line: string) => void;
 }
 
 export interface SimSample { x: number; y: number; z: number; riding: boolean }
@@ -117,7 +123,12 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     if (!fig.noHome) props.set(FIGURE_HOME_PROPERTY, JSON.stringify(home));
     entities.push({ id: `fig${k}`, typeId: fig.typeId, location: { ...fig.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props, family: 'craftmatic_figure', valid: true, body: config.bodyHeights[fig.typeId] ?? config.bodyHeight, ...(fig.draftUntil !== undefined ? { draftUntil: fig.draftUntil } : {}) });
   }
-  for (const [k, seat] of (world.seats ?? []).entries()) entities.push({ id: `seat${k}`, typeId: seat.typeId, location: { ...seat.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props: new Map(), family: 'craftmatic_seat', valid: true, body: 0.5 });
+  // A seat with `spawnAt` is not in the world until that tick (a placement still spawning its seats).
+  const pendingSeats: Array<{ at: number; e: E }> = [];
+  for (const [k, seat] of (world.seats ?? []).entries()) {
+    const e: E = { id: `seat${k}`, typeId: seat.typeId, location: { ...seat.at }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props: new Map(), family: 'craftmatic_seat', valid: true, body: 0.5 };
+    if (seat.spawnAt !== undefined && seat.spawnAt > 0) pendingSeats.push({ at: seat.spawnAt, e }); else entities.push(e);
+  }
   for (const [k, leaf] of (world.leaves ?? []).entries()) entities.push({ id: `leaf${k}`, typeId: 'craftmatic:leaf', location: { ...leaf }, v: { x: 0, y: 0, z: 0 }, yaw: 0, props: new Map(), family: 'craftmatic_interactive', valid: true, body: 0 });
   // Seated-in-set figures start on their seat.
   for (const e of entities) {
@@ -137,6 +148,9 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
   const body = script.replace(/^import .*;\s*$/m, '').replace('({ world, system }, CONFIG,', '(__mc, CONFIG,');
   const realRandom = Math.random;
   Math.random = random;
+  // The runtime's content-log lines (`console.warn`) go to the caller's `onWarn` instead of the host console.
+  const realWarn = console.warn;
+  if (world.onWarn) console.warn = (...args: unknown[]): void => { world.onWarn!(args.map(String).join(' ')); };
   try {
     new Function('__mc', body)(mc);
     if (!interval) throw new Error('figures.js registered no interval');
@@ -170,6 +184,7 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     };
     for (let t = 0; t < ticks; t++) {
       now = t;
+      for (let i = pendingSeats.length - 1; i >= 0; i--) if (pendingSeats[i]!.at <= t) entities.push(pendingSeats.splice(i, 1)[0]!.e);
       interval();
       for (const [k, e] of figs.entries()) {
         if (e.riding) { e.location = { ...e.riding.location }; e.v = { x: 0, y: 0, z: 0 }; }
@@ -199,5 +214,6 @@ export function simulateFigureLife(world: SimWorld, config: Omit<FigureLifeConfi
     return tracks;
   } finally {
     Math.random = realRandom;
+    console.warn = realWarn;
   }
 }

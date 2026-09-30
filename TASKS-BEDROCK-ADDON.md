@@ -757,3 +757,35 @@ tests first (`test/vehicle-driver.test.ts`, `test/placement-seating.test.ts`,
   A/B `interactive_sounds.block_sounds.normal` (vanilla's entry verbatim +
   `fly: ""`) and a real silent sound definition; if neither, remove the
   entry and the gate (`TODO(fly-sound)` in playable-addon.ts).
+
+## Doors fix after Saga round 29c (worktree `agent-a9d41e0a221ddc20b`, 2026-09-29)
+
+Findings and fixes are in `docs/bedrock-interactivity.md`, "The doorway's
+floor, a floor's top, and the device's line"; evidence under the worktree's
+`output/doors-fix-0929/` (`tools/` has the probes: `dump_door.ts`,
+`walk_axis.ts`, `probe_column.ts`, `geo_cells.ts`, `drawn_in_box.ts`).
+- 10326 Door 1's "hole at the threshold" is the MODEL's pit in front of the
+  leaf's x 10 column (no steps in the source, the base plate 2.6 under the
+  threshold); the walk called it OK from a tread laid on the base wall's rim
+  (gone now: `standingTop16`). Rebuilt, the walk is OK with a jump from the
+  wall's kept rim at x 11 and prints `HOLE 10,1 from -: 2.63 down`.
+- 910004 Door 3 is the model's: a reddish-brown platform (colour 70) 0.8
+  high a stud inside the door under the upper floor at 6.44; the walk says
+  SEALED now (an approach must continue), `--drawn` says `model:solid`.
+- 41732 Door 3's stoop was cleared whole by the row-based passage rule (a
+  2.7-block pit in the leaf's column, found by the new `HOLE` line); the
+  passage is measured from the doorway's floor now and the stoop stays.
+- FIGURE_RETAKE_NO_SEAT is written on the SECOND consecutive miss (10 s), so
+  a placement still spawning its seats (10261, ~2 min) no longer logs it;
+  910004 fig5's seat (entity 28 at 9.12, 1.05, 0.87) is in the pack, 0.5
+  over its home - the 17:00:12 line was the same first-check race. "figure 4
+  could not take its seat" is the placement's `SEAT_RETRIES` (2 retries, 2
+  ticks apart) giving up on fig4's seat (entity 27) on the second placement;
+  the retake loop seats it later. The reason text was not captured.
+- [ ] Device: walk 41732 Door 3 (both ways) and 10326 Door 1 at x 11.5 (jump
+  in over the rim) on a pack built from this branch; 910004 Door 3 needs no
+  device time (the model's).
+- [ ] `HOLE` rows at 150 % on the 29d packs (41732 Door 1 from inside 5.94,
+  76417 Gate 1 from outside 17-19): read `lines` in
+  `output/doors-fix-0929/regression-after-harness.json` before believing
+  either; likely the model beyond the approach spot.

@@ -236,6 +236,19 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   above its floor, is a hole the wand's size multiplies — at 300-400 % players
   walked over and under closed doors. Judge any change with
   `bun scripts/_ix_passability.ts` / `_ix_sweep_report.ts`, never by eye.
+- **A FULL collider cell's top is not a floor, and the passage is measured
+  from the DOORWAY's floor** (Saga round 2026-09-29c). A threshold tread laid
+  on a wall's rim before clearance trimmed the wall away hung 0.9 block over
+  the plate (10326 Door 1: the walk stood on it, the device player fell 2.6
+  into the pit beside it); the row-based passage rule cleared a floor LEVEL
+  with a leaf hung 14/16 up its row (41732 Door 3's stoop became a 2.7-block
+  pit). Treads and stairs read `standingTop16` (the cell's geometry cover),
+  the passage a band over the doorway's floor, and an approach must CONTINUE
+  (a one-column alcove is SEALED: 910004 Door 3). `_ix_passability.ts` also
+  walks the device's line through EACH leaf column and prints `HOLE` where
+  the feet fall past the jump; the verdict is true only for the column the
+  walk used. docs/bedrock-interactivity.md "The doorway's floor, a floor's
+  top, and the device's line".
 - **A Bedrock camera cannot roll per tick** (Pixel, 26.51): `setCamera` takes
   yaw and a pitch within ±90 only (outside throws); roll exists only as
   `playAnimation` keyframe `rotation.z`, keyframes must be >0.05 s apart, a
