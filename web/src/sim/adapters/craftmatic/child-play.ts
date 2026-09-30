@@ -166,7 +166,9 @@ export function childPlayScenarios(pack: CraftmaticPack, options: { quick?: bool
     if (r.kind === 'slide') play.push({ kind: 'rideSlide', index: r.index, board: 'tap' });
     if (r.kind === 'lift') play.push({ kind: 'rideLift', index: r.index, trips: 3 });
   }
-  for (const t of pack.vehicleTypes) play.push({ kind: 'driveVehicle', type: t, ticks: options.quick ? 200 : 600 });
+  // A flyer's cloud is a vehicle type too, but none is placed: it is SUMMONED by a tap, and `flyMount` flies it.
+  const summoned = new Set(pack.flyers.map(f => f.cloudType));
+  for (const t of pack.vehicleTypes) if (!summoned.has(t)) play.push({ kind: 'driveVehicle', type: t, ticks: options.quick ? 200 : 600 });
   if (pack.flyers.length) play.push({ kind: 'flyMount' });
   play.push({ kind: 'figuresLive', ticks: options.quick ? 1200 : FIGURE_LIFE_TICKS });
   if (options.shots) play.push({ kind: 'snapshot', name: 'figures-lived' });

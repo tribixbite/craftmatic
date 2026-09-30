@@ -368,7 +368,7 @@ export function hopKitConfig(namespace: string): HopKitConfig {
 
 /** `scripts/hop.js` CONFIG for a pack's driveables. */
 export function hopRuntimeConfig(namespace: string, sources: Record<string, HopSource>): HopRuntimeConfig {
-  return { sources, kit: hopKitConfig(namespace), holdProperty: VEHICLE_DYNAMIC.hold, sound: 'random.pop' };
+  return { sources, kit: hopKitConfig(namespace), holdProperty: VEHICLE_DYNAMIC.hold, sound: 'note.chime' };
 }
 
 /** `scripts/hop.js`: the config, the kit and the contact test with their own text. */

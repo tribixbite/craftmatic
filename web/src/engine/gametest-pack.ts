@@ -166,7 +166,9 @@ export interface GametestTrain {
  * cloud alongside; a simulated player taps the figure and must be aboard a
  * NEW cloud beside it, flies it forward, holds Jump (the climb is recorded,
  * not judged: a simulated Jump never climbed the rotor either, 2026-09-25),
- * must not sink hands off, gets off (the cloud must stay), summons more than
+ * must not sink hands off, is carried off by a second cloud swept through it
+ * (a HOP, bedrock-ride-hop.ts: aboard the second, the first left where it was),
+ * gets off (the cloud must stay), summons more than
  * the cap (the count must not pass it), and every empty cloud must fade after
  * `despawnTicks` while the companion keeps its own.
  */
@@ -1753,6 +1755,28 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       await test.idle(40);
       row.hold = Math.round((loc(cloud)!.y - hy) * 100) / 100;
       checks.holdsAltitude = row.hold > -0.5;
+      // HOP (bedrock-ride-hop.ts): a second cloud swept through this one at 10 blocks/s takes the rider aboard; the
+      // first stays where it was left. Device-unproven: the seat addRider picks after an eject, and whether a
+      // simulated player is handled like a player by the hop runtime.
+      const here = loc(cloud)!;
+      let other: any;
+      try { other = dim.spawnEntity(fl.cloudType, add(here, { x: 6, y: 0, z: 0 })); } catch (err) { row.hopSpawnError = String(err); }
+      if (other) {
+        await test.idle(4);
+        let on = false;
+        for (let i = 0; i <= 24 && !on; i++) {
+          try { other.teleport(add(here, { x: 6 - i * 0.5, y: 0, z: 0 })); } catch { break; }
+          await test.idle(1);
+          on = ridersOf(other).some((r: any) => r.name === sim.name);
+        }
+        await test.idle(10);
+        row.hop = { boarded: on, firstMoved: Math.round(dist(loc(cloud), here) * 100) / 100 };
+        checks.hops = on && dist(loc(cloud), here) < 0.5;
+        // Back onto the first cloud for the rest of the test (the dismount check below reads it).
+        if (on) { try { other.getComponent('minecraft:rideable')?.ejectRider?.(sim); cloud.getComponent('minecraft:rideable')?.addRider?.(sim); } catch { /* stays */ } }
+        try { other.remove(); } catch { /* gone */ }
+        await test.idle(4);
+      }
       const where = loc(cloud)!;
       try { cloud.getComponent('minecraft:rideable')?.ejectRiders?.(); } catch { /* none */ }
       await test.idle(20);

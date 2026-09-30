@@ -164,7 +164,7 @@ describe('the hop runtime, serialised, in the simulator', () => {
     expect(plane.dynamic.get(VEHICLE_DYNAMIC.hold)).toBe(true);
     const claim = [...child.tags].find(t => t.startsWith(HOP_TAGS.claim));
     expect(claim).toBe(`${HOP_TAGS.claim}${hopped}:${plane.id}`);
-    expect(sim.host.stats.get('sound random.pop')).toBe(1);
+    expect(sim.host.stats.get('sound note.chime')).toBe(1);
     // The plane hovers where it was left: 3 s later it has not moved.
     const left = { ...plane.location };
     for (let t = 0; t < 60; t++) { moveTrain(cars, 8 / 20); await sim.run(1); }
@@ -223,7 +223,7 @@ describe('the hop runtime, serialised, in the simulator', () => {
     const cars = train(sim, 0.5, FLAT_GROUND_Y, -12);
     for (let t = 0; t < 80 && child.ridingOn === plane; t++) { moveTrain(cars, 0.5); await sim.run(1); }
     expect(child.ridingOn).toBe(cars[0]);
-    expect(sim.host.stats.get('sound random.pop')).toBe(1);
+    expect(sim.host.stats.get('sound note.chime')).toBe(1);
     expect([...child.tags].filter(t => t.startsWith(HOP_TAGS.claim))).toHaveLength(1);
     // Nothing reported an error on the way.
     expect(sim.engine.timeline.of('script-error')).toHaveLength(0);

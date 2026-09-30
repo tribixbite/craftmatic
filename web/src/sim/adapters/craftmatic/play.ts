@@ -306,7 +306,8 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       for (let t = 0; t < ticks; t += 20) {
         await ctx.run(20);
         for (const fg of figs) {
-          if (!fg.valid || out.has(fg.id)) continue;
+          // A figure on a mount is where its mount takes it: the flyer companion's orbit runs outside the model on purpose.
+          if (!fg.valid || out.has(fg.id) || fg.ridingOn) continue;
           const l = fg.location;
           if (l.x < placed.from.x - 1 || l.x > placed.to.x + 2 || l.z < placed.from.z - 1 || l.z > placed.to.z + 2 || l.y < placed.from.y - 1) {
             out.add(fg.id);
