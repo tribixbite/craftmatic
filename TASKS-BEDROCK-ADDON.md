@@ -125,13 +125,28 @@ Build: `bash output/device-round-2026-09-30f/build.sh`, check:
 30f build (`stale-premirror-*`, 09e2e8a4) predates the x-mirror fix: never ship it.
 Sim on these packs: regressions 10 OK / 1 not reproduced (gabby-car-overhang,
 as before); `--scenario=hop` (10261 + Nimbus, 10788 + 42639) all pass.
-- [ ] Device round (both phones, `--exclusive`): hop (Nimbus into 10261's
-  moving train: which car/seat, camera handover flash, cloud hovers; a car at
-  10788's / 10797's slide foot); 42639 / 60380 driver views; clearance walls
-  now on the right half (walk a few doorways: 10326, 41732 Door 3, 76457);
-  10261 no retake line; flyer cruise at 0.0725 (~11 blocks/s expected); the
-  10303 loop-1 exit swing (Saga, intermittent). 10326 Door 1 ledge KEPT
-  (user 2026-09-30, standing rule: prefer exploration/interactivity).
+Device round DONE 2026-09-30 (Pixel + Saga, 23/23 bound, content logs 0
+errors / 0 FIGURE_RETAKE / 0 fly lines; evidence `output/device-round-2026-09-30f/{pixel,saga}/_notes.txt`):
+hop works (cloud onto 10261's lift-hill train and a 18.9 b/s train into a
+hovering cloud both seat the front car; empty cloud hovers; no flash, 1-2
+frames through the painted riders' heads; 10797 slide into its parked car ->
+driver seat, drove 50 blocks); 60380 driver view OK; clearance after the
+x-mirror fix: no invisible walls / pass-throughs (10326 D1, 41732 D3, 76457
+D3); 10261 kiosk seated, no retake line; Nimbus 10.55 b/s at 0.0725.
+- [ ] 42639 COCKPIT view (hotbar 9) ~2/3 covered by the car's own teal body
+  (`pixel/47b-47e`); chase view fine. The sim's driver-sees-ahead (2/15) was
+  right - it is a defect, not the view guard's blind spot.
+- [ ] 10303: a one-frame jump at the bottom of the first drop EVERY lap (the
+  loop-1 ENTRY handover, under the car -> behind it); the loop-1 exit swing
+  1/5 (0.17 s to the car's side). Saga.
+- [ ] Hop device gaps: a full train (needs a second player), which seat a
+  rider takes when seat 0 is held, 10788 + 42639 slide foot; the Saga not run.
+- [ ] Cars coast ~2.5 b/s per s after the stick is released (16 b/s -> 70
+  blocks to stop, `pixel/car-coast-cmvt.txt`): judge for a 5-year-old.
+- [ ] Leftover on the Saga: deploy staging dir
+  `/data/local/tmp/craftmatic-deploy-20260930-111450-114536` (delete file by
+  file only, never recursively).
+- Next round carries the access steps (`a806594b`, not device-proved).
 
 ## Round 2026-09-29c (`e2c21112`) - faces closed, Gabby play, kiosk retake, Nimbus
 
