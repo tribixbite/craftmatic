@@ -3368,6 +3368,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         tiles: plan.map(tile => ({ identifier: `${PACK_NAMESPACE}:${tile.name}`, dx: tile.x, dy: tile.y, dz: tile.z, width: tile.width, height: tile.height, length: tile.length, nonAir: tile.nonAir })), actors, previewPoints,
         preview: { typeId: ghost.typeId },
         ...(placementColliders ? { colliders: placementColliders } : {}),
+        // A doorway's threshold keeps the steps that climb to it from either side (`planColliderTreads` `doorCells`).
+        ...(interactiveConfig ? { doorCells: interactiveConfig.items.flatMap(item => item.blocking) } : {}),
         ...(timeMachineConfig ? { vehicleControls: true } : {}),
         ...(options.interactionNote || ixWalkNote ? { interactionNote: bedrockInGameText([options.interactionNote, ixWalkNote].filter(Boolean).join(' ')) } : {}),
         // The wand names the measured walk-through step and quotes the reason
