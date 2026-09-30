@@ -18,7 +18,7 @@
  */
 
 /** The engine module a quirk bears on. */
-export type QuirkArea = 'world' | 'entity' | 'physics' | 'script-host' | 'input' | 'render' | 'camera' | 'ui' | 'commands';
+export type QuirkArea = 'world' | 'entity' | 'physics' | 'script-host' | 'input' | 'render' | 'camera' | 'ui' | 'commands' | 'sound';
 
 export interface Quirk {
   id: QuirkId;
@@ -42,7 +42,8 @@ export type QuirkId =
   | 'hover-climb-descend' | 'hover-descend-needs-jump' | 'camera-pitch-limit' | 'camera-roll-animation-only'
   | 'client-entity-lag' | 'rider-yaw-lag' | 'actor-draw-ceiling' | 'cull-by-collision-box' | 'box-uv-sub-unit-faces'
   | 'coplanar-hatching' | 'slow-falling-gravity' | 'fill-volume-limit' | 'structure-load-keeps-states'
-  | 'no-dismount-event' | 'dynamic-property-string-limit' | 'simulation-distance' | 'native-mount-bursts' | 'teleport-into-floor-lifts';
+  | 'no-dismount-event' | 'dynamic-property-string-limit' | 'simulation-distance' | 'native-mount-bursts' | 'teleport-into-floor-lifts'
+  | 'fly-sound-block-normal';
 
 const QUIRKS: readonly Quirk[] = [
   { id: 'add-rider-spawn-tick', rule: '`Rideable.addRider` can refuse a rider in the tick either entity spawned; a retry a couple of ticks later succeeds.', evidence: 'Pixel 2026-09-29: the orbit companion refused at placement and was seated seconds later by rides.js (TASKS-BEDROCK-ADDON.md "Nimbus follow-ups", `SEAT_RETRIES` in bedrock-placement-pack.ts)', appliesTo: ['entity'], simulated: 'modelled' },
@@ -79,6 +80,7 @@ const QUIRKS: readonly Quirk[] = [
   { id: 'simulation-distance', rule: 'Chunks within the simulation distance of a player (and inside ticking areas) are loaded; outside them blocks read undefined and entities freeze.', evidence: 'CLAUDE.md "An unloaded block is not air" (a GameTest vehicle ~100 blocks out stopped being readable)', appliesTo: ['world'], simulated: 'partial', values: { chunks: 6 }, gap: 'the phones\' exact simulation distance is not measured; 6 chunks (96 blocks) matches the ~100-block GameTest loss' },
   { id: 'native-mount-bursts', rule: 'A client-driven mount reports ~0 velocity and its server position moves in bursts (CMVT cadence ~4 ticks).', evidence: 'physics spec §4.6 (`DRIVER_SPEED_WINDOW_TICKS`; Saga 2-tick deltas 0/24.9/60.2/99.0 mph)', appliesTo: ['physics'], simulated: 'partial', values: { burstTicks: 4 }, gap: 'the engine moves the mount every tick (smooth); the driver HUD\'s burst averaging is not exercised' },
   { id: 'teleport-into-floor-lifts', rule: 'A player teleported with its feet a little inside a floor (less than a step, 9/16) stands on that floor\'s top, not inside it.', evidence: 'Saga round 29c (TASKS-BEDROCK-ADDON.md "Saga 29c": the 10788 lift\'s exits, which the simulator finds 0.34 inside the room floor\'s slab, and the play round\'s `output/gabby-play-0929/saga/v17` showing the player standing on the floor)', appliesTo: ['physics'], simulated: 'partial', values: { maxLiftBlocks: 0.5625 }, gap: 'inferred from where the player was seen standing, not from a probe of the push itself; deeper overlaps are left as they are' },
+  { id: 'fly-sound-block-normal', rule: 'Any entity moved through the air (a hover mount, a ride car carried along its path, a figure) raises a `fly` sound event the client resolves through the block-MATERIAL table: with no sound it logs `[Sound][verbose] No sound found for block type \'normal\' and event type \'fly\'`. Only the RP `sounds.json` `interactive_sounds.block_sounds.normal.events.fly` silences it; per-entity entries (`entity_sounds`, `interactive_sounds.entity_sounds`, even naming a real silent sound) do nothing. Whether a pack\'s `normal` replaces or merges into vanilla\'s is unknown, so the pack carries vanilla\'s events verbatim (`flySoundEvents`).', evidence: 'Saga 26.52 A/B 2026-09-29/30 (`output/fly-sound-ab-0929/saga/_notes.txt`, README.md): baseline 355 lines in a 60 s flight and 45-72/min by the orbit alone; variant A (block_sounds.normal + fly "") 0 in every window (orbit idle 3 min, perch, 60 s flight, 3 min mounted idle); variant B (silent sound per entity) 404 in 60 s of flight; the per-entity interactive entry changed nothing on the Pixel (round 29d) or the Saga', appliesTo: ['sound'], simulated: 'device-only', values: { baselineFlyLinesPerFlightMinute: 355, variantAFlyLines: 0, variantBFlyLinesPerFlightMinute: 404 } },
 ];
 
 const BY_ID = new Map<QuirkId, Quirk>(QUIRKS.map(q => [q.id, q]));

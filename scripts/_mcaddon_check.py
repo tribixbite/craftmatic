@@ -70,7 +70,6 @@ def check(path):
     ident_ok = re.compile(r'^[a-z][a-z0-9_]*:[a-z][a-z0-9_]*$')
     n_server = 0
     rideables = []
-    hovering = []
     for n in [x for x in names if '/entities/' in x and x.endswith('.json')]:
         d = json.loads(z.read(n).decode('utf-8-sig'))
         ident = ((d.get('minecraft:entity') or {}).get('description') or {}).get('identifier')
@@ -91,8 +90,6 @@ def check(path):
                     problems.append(f'{n}: {where} uses {dropped!r}, which format 1.26.30 dropped (the entity fails to load)')
             if 'minecraft:rideable' in comps and ident not in rideables:
                 rideables.append(ident)
-            if ('minecraft:can_fly' in comps or 'minecraft:movement.hover' in comps) and ident not in hovering:
-                hovering.append(ident)
         # An int/float actor property whose range is not wider than one value:
         # Bedrock refuses it ("range max is less than range min" for [0, 0],
         # Pixel 2026-09-25) and with it the entity's WHOLE property component,
@@ -116,29 +113,33 @@ def check(path):
         if missing:
             problems.append(f'{lf}: no action.hint.exit line for {len(missing)} rideable entit{"y" if len(missing) == 1 else "ies"} ({", ".join(missing[:4])}{", ..." if len(missing) > 4 else ""}): the raw key shows while riding')
     if rideables: notes.append(f'{len(rideables)} rideable entities, dismount hints checked in {len(langs)} language file(s)')
-    # Every hovering entity (`minecraft:can_fly` / `minecraft:movement.hover`: rotorcraft,
-    # flyer mounts, scripted vehicles) carries a `fly` event in the RP sounds.json's
-    # INTERACTIVE table (`interactive_sounds.entity_sounds.entities.<id>.events.fly`, a
-    # block-material map; `default: ""` is silent over every material). Bedrock's hover
-    # mover raises `fly` every few ticks and the content log fills with `[Sound][verbose]
-    # No sound found for block type 'normal' and event type 'fly'` (711 lines, Pixel
-    # 2026-09-29): the line names the block-material table, the one `step`/`jump`/`land`
-    # over a block are resolved through. The plain `entity_sounds` entry (`fly: ""`) was
-    # measured NOT to silence it on the Pixel and is no longer written. This gate proves
-    # only that the pack CARRIES the interactive entry for every hovering entity; whether
-    # it silences the line is device-unproven (playable-addon.ts `flySoundEvents`,
-    # TODO(fly-sound)). A log symptom, not a load failure.
-    if hovering:
+    # Any entity moved through the air (a flyer, a rotor, a ride car carried along
+    # its path, a figure) makes the client log `[Sound][verbose] No sound found for
+    # block type 'normal' and event type 'fly'` - 355 lines in a minute of flight on
+    # the Saga. The line is resolved through the block-MATERIAL table: the RP
+    # sounds.json's `interactive_sounds.block_sounds.normal.events.fly: ""` silenced
+    # every window of the Saga A/B (2026-09-29/30, output/fly-sound-ab-0929/saga/),
+    # while per-entity entries (`entity_sounds` or `interactive_sounds.entity_sounds`)
+    # changed nothing. The entry must also carry vanilla's own `normal` events
+    # (step/jump/land/fall) in case a pack's key REPLACES vanilla's (unknown,
+    # playable-addon.ts `flySoundEvents`, TODO(fly-sound)): without them footsteps on
+    # stone could go silent. A log symptom, not a load failure, but gated so no pack
+    # with an entity ships without it.
+    VANILLA_NORMAL_EVENTS = ('default', 'fall', 'jump', 'land', 'step')
+    if n_server:
         sound_files = [x for x in names if re.search(r'_RP/sounds\.json$', x)]
-        fly_ok = set()
+        normal = None
         for sf in sound_files:
-            ents = (((json.loads(z.read(sf).decode('utf-8-sig')).get('interactive_sounds') or {}).get('entity_sounds') or {}).get('entities') or {})
-            fly_ok |= {k for k, v in ents.items() if isinstance(v, dict) and isinstance((v.get('events') or {}).get('fly'), dict) and 'default' in v['events']['fly']}
-        missing = [h for h in hovering if h not in fly_ok]
-        if missing:
-            problems.append(f'{len(missing)} hovering entit{"y has" if len(missing) == 1 else "ies have"} no interactive `fly` sound event in {sound_files or "an RP sounds.json"} ({", ".join(missing[:4])}{", ..." if len(missing) > 4 else ""}): the pack does not carry the fly-sound hook (device-unproven, TODO(fly-sound))')
+            normal = ((((json.loads(z.read(sf).decode('utf-8-sig')).get('interactive_sounds') or {}).get('block_sounds') or {}).get('normal')) or normal)
+        events = normal.get('events') if isinstance(normal, dict) else None
+        if not isinstance(events, dict) or events.get('fly') != '':
+            problems.append(f'{n_server} entities but no silent interactive_sounds.block_sounds.normal.events.fly in {sound_files or "an RP sounds.json"}: the content log fills with "event type \'fly\'" lines')
         else:
-            notes.append(f'{len(hovering)} hovering entities carry the interactive fly sound hook (device-unproven)')
+            lost = [e for e in VANILLA_NORMAL_EVENTS if e not in events]
+            if lost:
+                problems.append(f'interactive_sounds.block_sounds.normal lacks vanilla\'s {", ".join(lost)} event(s): if the key replaces vanilla\'s, those sounds go silent')
+            else:
+                notes.append('RP silences the block-material fly sound (block_sounds.normal carries vanilla\'s events + fly "")')
     # geometries the pack defines
     geo_ids = set()
     # Bedrock floors a box-UV cube's DECLARED size and does not draw a side face whose
