@@ -191,19 +191,20 @@ passability 100 %/rot 0: 22 OK, 6 SEALED, 0 FAIL.
   or base plates, not investigated); 10796 cockpit sees ahead; 11204 slide;
   10786 boat aground as expected. 10303 loops pitch over; the 29b exit cut
   NOT reproduced (n=1 lap). Undo left nothing, incl. ridden cars.
-- [ ] Saga 29c doorway defects (first agent cut off by a spend limit; its work is snapshot `cb8e851a` in worktree `agent-a9d41e0a221ddc20b`, a new agent finishes and verifies it there):
-  (A) 10326 Door 1: a 2.25-block HOLE at the threshold (walk in from the
-  porch drops to -59.75 under the lintel; out lands on the ground) - the
-  doorway cut removed the floor cells under the leaf; `_ix_passability`
-  said OK, so the harness walks a different line - close that gap too.
-  (B) 910004 Door 3: walk-out stops one cell before the doorway:
-  `collider_w6` at head height in (6794,-55,5001), the approach cell.
-  (D) spurious `FIGURE_RETAKE_NO_SEAT` ~2 min into every 10261 placement,
-  before the seats exist; also `winterchalet_910004_fig5` + "figure 4
-  could not take its seat" on a second 910004 placement.
-  (E) 10788 lift tap did not board from floors 2/3 (5 taps; `/ride` did) -
-  the 29d Saga round probes what the ray hits.
-- [ ] Saga 29d (first agent cut off by a spend limit at 17:28; a new agent took over its lock and resumes from `29d/saga/`): slide by tap, lift taps on
+- [x] Saga 29c doorway defects MERGED `c4c34b1c` (2,842 tests; details in
+  the doors section at the end of this file): (A) 10326 Door 1's drop is the
+  MODEL's - the door sits 2.6 blocks above the base plate with nothing drawn
+  in front; the harness had passed it on a tread laid on a wall rim, now
+  removed, and walks each leaf column printing HOLE. (B) 910004 Door 3 is the
+  model's too: 1.25-1.75 blocks of headroom inside (a platform under the
+  upper floor); the harness now says SEALED. (D) a `craftmatic:fig_seating`
+  mark stops the retake runtime while the placement is still seating.
+  Only verdict change in 116 rows: 910004 Door 3 OK/STEP -> SEALED.
+  - [ ] Decide: the new passage rule keeps 10326's 1/8-block lip as a whole
+    collider cell, an invisible 1-block ledge at door height over the pit.
+  - [ ] Device: 10326 Door 1 walk-out onto that ledge; 41732 Door 3 both
+    ways; a 10261 placement with no FIGURE_RETAKE line.
+- [ ] Saga 29d (resumed by a new agent after a spend-limit cut-off; `29d/saga/`): slide by tap, lift taps on
   floors 2/3 with block probes, Nimbus follow-ups (no false seat line,
   cruise at 0.09 measured, remount hint, dive, float-down, `fly` count with
   the interactive entry), three 10303 laps for the exit cut, fig6.
