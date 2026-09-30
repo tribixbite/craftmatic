@@ -87,13 +87,15 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         if (driver?.valid && driver.isPlayer) {
           const c = controls.get(driver.id);
           m.rotation.y = driver.rotation.y;
-          const speed = (quirkValue('hover-controller-speed', 'blocksPerSecondPerFlyingSpeed') * fs + quirkValue('hover-controller-speed', 'offsetBlocksPerSecond')) / TICKS_PER_SECOND;
+          // The measured fit holds between the measured values (0.09, 0.3); a flying speed of 0 (a scripted
+          // vehicle's native speed) does not move the mount natively (physics spec §4.6).
+          const speed = fs > 0 ? (quirkValue('hover-controller-speed', 'blocksPerSecondPerFlyingSpeed') * fs + quirkValue('hover-controller-speed', 'offsetBlocksPerSecond')) / TICKS_PER_SECOND : 0;
           const mag = Math.min(1, Math.hypot(c.forward, c.strafe));
           if (mag > 0) { const w = stickToWorld(c, driver.rotation.y); const l = Math.hypot(w.x, w.z) || 1; vx = w.x / l * speed * mag; vz = w.z / l * speed * mag; }
           if (c.jump) {
             // Jump drives `vertical_movement_action`: +climb, or -descend when the descend group is in (quirk `hover-descend-needs-jump`).
-            const action = (m.components['minecraft:vertical_movement_action'] as { vertical_velocity?: number } | undefined)?.vertical_velocity ?? 0.5;
-            vy = action >= 0 ? quirkValue('hover-climb-descend', 'climbBlocksPerSecond') / TICKS_PER_SECOND : -quirkValue('hover-climb-descend', 'descendBlocksPerSecond') / TICKS_PER_SECOND;
+            const action = (m.components['minecraft:vertical_movement_action'] as { vertical_velocity?: number } | undefined)?.vertical_velocity ?? 0;
+            vy = action > 0 ? quirkValue('hover-climb-descend', 'climbBlocksPerSecond') / TICKS_PER_SECOND : action < 0 ? -quirkValue('hover-climb-descend', 'descendBlocksPerSecond') / TICKS_PER_SECOND : 0;
           }
         }
         if (!vx && !vy && !vz) continue;
