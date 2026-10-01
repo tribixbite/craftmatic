@@ -1224,3 +1224,38 @@ cases OK; FAIL lines are only packs not built this round), the audit
   rotated-cube bounds), 10295 and 60367 sub3/sub6 (pillars/cabin walls
   within a block no in-cabin point clears), 60266 (fallback eye sees ahead,
   a panel at its right).
+
+## User shots triage (2026-10-01, worktree `agent-ae8894e29e46f765f`)
+
+Four phone shots (`output/user-shots-0930/1-4.jpg`, round 30f-30i packs); evidence
+`output/user-shots-triage-0930/` (main checkout), packs `packs-03ede33b/` (4) and
+`round-f320f3ca/` (full round list, labels as 30i, uuids unchanged).
+- FIXED `6980474e` 42172 body striped / wheel seen through: box-UV floor on a
+  vehicle (22 % of the car's surface dropped; every kind now box-UV safe,
+  `drawnCubeBox`; `42172-device-before-after.png`).
+- FIXED `20cd821a` 10788's orange piece on the grass = the brick separator
+  (96874) DBIX places beside the model; dropped from every export.
+- FIXED `03ede33b` the huge name tag (every placed entity had nameTag = label)
+  and the label's double space (display only; uuid unchanged).
+- MODEL, not a bug: 10788's slide sits inside the playroom against its side
+  window as in the real set (`10788-slide-vs-reference.png`); 76417's street plate
+  is flat (y 17.06, perspective), its "floating black stack" is shell geometry
+  connected to the street in the source (no figure part; the street lamp
+  island 4740/37776/18041/3062b next to it touches nothing in the source).
+- [ ] 76457 figures + wands/broom/tray on the grass = the DBIX display LINE-UP
+  (12 figures in a row past the last building on no part, display wands lying
+  at y 0 in front of each, `76457-lineup.png`); Harry's "chest wand" is one of
+  those. Follow-up design: relocate a line-up (>= 3 figures on no part, in a
+  row) onto the model's reachable floors and give or drop its display props;
+  blocker: fig2/9/12 robes are not taken by the rig (legs synthesised, robe left
+  in the shell) - fix that first or the robes stay on the grass.
+- [ ] 42172 "sunk in sand": the car spawns at the pin's floor; the pit is the
+  wand clearing the footprint box. Consider not clearing terrain for a
+  vehicle-only pack (vehicle runtime owner).
+- Before, round 30i (`box-uv-before-30i.txt`, worst entity per pack): 1.4-34.8 %
+  of visible surface dropped (60380 34.8, 10797 30.6, 42172 22.0, 10303 20.0).
+  After: `round-f320f3ca/` 22/22 + creator pass `_mcaddon_check` (which now fails
+  ANY sub-unit box-UV cube); sim regressions all OK, same verdicts as 30i
+  (`sim-regressions.log`). Not deployed.
+- [ ] Device look at a shell/vehicle with box-UV-safe cubes (offline 0.0 % lost;
+  only figures were device-proved). Ship `round-f320f3ca/` as the next round.
