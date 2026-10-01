@@ -163,6 +163,21 @@ export const REGRESSIONS: RegressionCase[] = [
     judge: r => doorJudge(r, 'Door 3', 'STOP'),
   },
   {
+    id: 'gate1-invisible-floor-76417', title: '76417 Gate 1: opens onto an invisible floor over a 17-block drop; walking on, the player falls to the grass',
+    evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-30i"; `output/device-round-2026-09-30i/saga/_notes.txt` (s41-s46: stands at 5393.56,-43.12,5381.44 = corner + 13.56,16.88,1.44 over nothing drawn; walking on, ends on the grass at y -60); docs/bedrock-interactivity.md "Yaw-turned parts" and "A doorway over a drop"',
+    oldPack: `${ROUND}/device-round-2026-09-30i/packs-fd91cf23/76417-gringotts-wizarding-bank-collectors-edition.mcaddon`, newStem: '76417-gringotts-wizarding-bank-collectors-edition', expectNew: 'pass',
+    // The Saga's standing spot exactly (corner pinned at 5380,-60,5380), then the gate's own lines: the old pack stands
+    // the player on the bounding box of shell bone r321 (a baseplate turned 45 degrees about the vertical); the new
+    // one has no floor there and must not let a line through the gate fall (a guard over the model's drop).
+    scenario: pack => ({ name: 'gate1-invisible-floor-76417', steps: [...place, { kind: 'standOver', label: 'Gate 1 outside', feet: { x: 13.56, y: 16.88, z: 1.44 } }, { kind: 'doorwayLines', only: [doorIndex(pack, 'Gate 1')] }], allowLines: allow }),
+    judge: r => {
+      const v = violated(r, 'invisible-floor');
+      if (v) return { reproduced: true, attribution: 'pack', evidence: v };
+      const hole = doorJudge(r, 'Gate 1', 'HOLE');
+      return hole.reproduced ? { ...hole, evidence: `the gate's lines fall: ${hole.evidence}` } : { reproduced: false, evidence: `${r.notes.find(n => /^Gate 1 outside|\] Gate 1 outside/.test(n)) ?? 'no standing note'}; ${hole.evidence}` };
+    },
+  },
+  {
     id: 'retake-no-seat-10261', title: '10261: a spurious FIGURE_RETAKE_NO_SEAT during the placement, before the seats exist',
     evidence: 'TASKS-BEDROCK-ADDON.md "Round 2026-09-29c" defect (D); fix db994f40 (seated figures wait for the placement\'s seating pass, `craftmatic:fig_seating`)',
     oldPack: `${ROUND}/device-round-2026-09-29d/packs-3abc14f7/10261-roller-coaster.mcaddon`, newStem: '10261-roller-coaster', expectNew: 'pass',

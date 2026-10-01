@@ -715,6 +715,8 @@ export interface InteractiveColliderPlan {
   stairs: string[];
   /** The columns (x, z) its access stairs were laid in: the pipeline asks whether any lies in the margin it widened. */
   stairColumns?: Array<[number, number]>;
+  /** The guard cells laid where a side opens onto a drop (`planDropGuards`): full-width colliders with no geometry. */
+  guardCells?: IxCell[];
   /**
    * The doorway's APPROACH: the columns in front of and behind its leaf, along
    * the leaf's normal up to `PASSAGE_REACH_CELLS`, where a player stands to
@@ -1002,6 +1004,8 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [], approach: [...approach.values()], floor16 });
   }
   if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll, layers, avoid);
+  // After the stairs: a side a stair now serves walks down it, and only a drop nothing serves is guarded.
+  if (stairCandidates.length) planDropGuards(grid, plans, stairCandidates, leafColumnsAll, avoid);
   captureDoorwayNeighbours(grid, plans);
   return plans;
 }
@@ -1329,6 +1333,118 @@ export function planThresholdStairs(grid: BlockGrid, plans: Array<InteractiveCol
     const plan = plans[c.item];
     if (plan) { plan.stairTreads += laid; (plan.stairColumns ??= []).push(...treads.map(t => [t.x, t.z] as [number, number])); }
     note(c, `laid ${treads.length} treads over a rise of ${rise16}/16${turns ? ` (${turns} turn${turns === 1 ? '' : 's'} along the facade)` : ''}`);
+  }
+}
+
+/**
+ * A drop a doorway side is guarded against (sixteenths): more than the
+ * tallest access stair (`STAIR_MAX_RISE16`, 4 blocks) - a fall that hurts and
+ * that no stair serves.
+ */
+export const GUARD_DROP16 = STAIR_MAX_RISE16;
+/** A guard's height over the floor it stands beside (sixteenths, 1.5 blocks: over a jump, so it is never hopped). */
+export const GUARD_HEIGHT16 = 24;
+/** How far (cells, Chebyshev) from its leaf column a doorway side's landing is followed and guarded. */
+export const GUARD_REACH = PASSAGE_REACH_CELLS;
+
+/**
+ * Invisible guards where a doorway opens onto a drop (docs/bedrock-interactivity.md
+ * "A doorway over a drop"). 76417's Gate 1 is a barred gate in the bank's
+ * outer wall, 17 blocks over the grass with nothing drawn outside it: opened,
+ * it led a child onto an invisible floor (the bounding box of a turned
+ * baseplate) and off its edge (Saga round 2026-09-30i), and with that floor
+ * gone it opened straight onto the drop. A drop that deep has no access stair
+ * (`STAIR_MAX_RISE16`), so the gate leads nowhere - but it may not lead into
+ * the air.
+ *
+ * For each doorway side (a stair candidate: leaf column, normal, side) the
+ * LANDING is followed from the leaf column out, column to face-sharing
+ * column on that side within `GUARD_REACH`: a column is part of it when its
+ * floor (the highest collider top within a jump over the level walked at, the
+ * ground when none) is within a jump of the column it is reached from and its
+ * body band is clear. A column on the side whose floor lies more than
+ * `GUARD_DROP16` under the landing beside it is a drop: a guard fills its
+ * empty cells from that landing's floor to `GUARD_HEIGHT16` over it - a full
+ * collider with no geometry, which clearance leaves alone. A stair laid down
+ * from the doorway is walked like any floor (its risers are within a jump),
+ * so a side with a stair gets no guard where the stair runs.
+ *
+ * Never guarded: a column past the grid's edge (the margin is widened for
+ * stairs only - `TODO(drop-guards)` if a door at the edge needs one), a leaf
+ * column, a doorway's closed cell, a cell of `avoid` (rides, track, vehicles,
+ * figures, seats), or a cell that is not air. Every guard is reported in the
+ * doorway's `stairs` notes and its cells in `guardCells`.
+ */
+export function planDropGuards(grid: BlockGrid, plans: Array<InteractiveColliderPlan | null>, candidates: readonly StairCandidate[], leafColumns: ReadonlyMap<string, number>, avoid?: ReadonlySet<string>): void {
+  const W = grid.width, H = grid.height, L = grid.length;
+  const blockingKeys = new Set<string>();
+  for (const plan of plans) for (const c of plan?.blocking ?? []) blockingKeys.add(`${c[0]},${c[1]},${c[2]}`);
+  const spanOf = (x: number, y: number, z: number): [number, number] | null => {
+    const s = grid.get(x, y, z);
+    if (!s.startsWith(COLLIDER_BLOCK_ID)) return s === 'minecraft:air' ? null : [0, 16];
+    const f = parseFormState(s);
+    return f ? [f.lo, f.hi] : [0, 16];
+  };
+  /**
+   * Column (x, z) seen from a player walking at `level16`: 'wall' when a solid reaches into its body band
+   * (a step over the level up to a standing player's head), else its floor - the highest top within a jump
+   * over the level, the ground (0) when nothing is under it.
+   */
+  const columnAt = (x: number, z: number, level16: number): 'wall' | number => {
+    for (let y = Math.min(H - 1, Math.floor((level16 + STAIR_HEAD16 - 1) / 16)); y >= 0; y--) {
+      const s = spanOf(x, y, z);
+      if (!s) continue;
+      const top = y * 16 + s[1], bottom = y * 16 + s[0];
+      if (bottom >= level16 + STAIR_HEAD16) continue; // over the head
+      if (top > level16 + ACCESS_JUMP16) return 'wall';
+      return top;
+    }
+    return 0;
+  };
+  const guarded = new Set<string>();
+  for (const c of candidates) {
+    const plan = plans[c.item];
+    if (!plan) continue;
+    const [gx, gz] = c.gn;
+    // On the side: the column's centre lies past the leaf column's centre along the side's normal.
+    const onSide = (x: number, z: number): boolean => ((x - c.cx) * gx + (z - c.cz) * gz) * c.dir > 0.25;
+    const door16 = Math.round(c.door * 16);
+    const level = new Map<string, number>([[`${c.cx},${c.cz}`, door16]]);
+    const queue: Array<[number, number]> = [[c.cx, c.cz]];
+    const drops: Array<{ x: number; z: number; from16: number }> = [];
+    let pastEdge = 0;
+    for (let h = 0; h < queue.length; h++) {
+      const [px, pz] = queue[h]!, at16 = level.get(`${px},${pz}`)!;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const x = px + dx, z = pz + dz, key = `${x},${z}`;
+        if (level.has(key) || !onSide(x, z) || Math.max(Math.abs(x - c.cx), Math.abs(z - c.cz)) > GUARD_REACH || leafColumns.has(key)) continue;
+        if (x < 0 || z < 0 || x >= W || z >= L) { if (at16 > GUARD_DROP16) pastEdge++; continue; }
+        const col = columnAt(x, z, at16);
+        if (col === 'wall') continue;
+        if (at16 - col > GUARD_DROP16) { drops.push({ x, z, from16: at16 }); continue; }
+        if (Math.abs(at16 - col) > ACCESS_JUMP16) continue; // a fall a stair could serve, or a rise: not this landing
+        level.set(key, col);
+        queue.push([x, z]);
+      }
+    }
+    if (!drops.length && !pastEdge) continue;
+    let laid = 0;
+    for (const { x, z, from16 } of drops) {
+      const top16 = from16 + GUARD_HEIGHT16;
+      const rows: number[] = [];
+      for (let y = Math.max(0, Math.floor(from16 / 16)); y < H && y * 16 < top16; y++) rows.push(y);
+      if (rows.some(y => blockingKeys.has(`${x},${y},${z}`) || avoid?.has(`${x},${y},${z}`))) continue;
+      for (const y of rows) {
+        if (grid.get(x, y, z) !== 'minecraft:air' || guarded.has(`${x},${y},${z}`)) continue;
+        const lo = Math.max(0, from16 - y * 16), hi = Math.min(16, top16 - y * 16);
+        if (hi <= lo) continue;
+        grid.set(x, y, z, colliderState(lo, hi));
+        guarded.add(`${x},${y},${z}`);
+        (plan.guardCells ??= []).push([x, y, z, lo, hi]);
+        laid++;
+      }
+    }
+    plan.stairs.push(`${c.cx},${c.cz} side ${c.dir > 0 ? '+' : '-'}: ${laid ? `guarded a drop of more than ${GUARD_DROP16 / 16} blocks (${laid} cell${laid === 1 ? '' : 's'} over ${drops.length} column${drops.length === 1 ? '' : 's'})` : 'a drop it could not guard'}${pastEdge ? `; ${pastEdge} column${pastEdge === 1 ? '' : 's'} past the grid's edge unguarded` : ''}`);
   }
 }
 

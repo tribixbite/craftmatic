@@ -335,6 +335,37 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
       ctx.violate({ invariant: 'tap-in-plain-view', message: `${label}: a tap from ${JSON.stringify(stood)} (anchor-relative) did not move it - ${what}`, evidence: { feet: stood, at, refused: refused === undefined ? null : String(refused) } });
     },
 
+    /**
+     * A device round's standing spot, replayed: `{ label, feet }` (blocks from the placement's anchor, the
+     * device's pinned corner). The player is put there and settles; standing within a step of the spot while
+     * the model draws nothing within a jump under its feet is standing on an INVISIBLE FLOOR over the model's
+     * drop - a child walks on and off its edge (76417's Gate 1, Saga round 2026-09-30i): `invisible-floor`.
+     * A spot inside a collider (a guard over the drop) is noted, not stood on.
+     */
+    async standOver(step: AnyStep, ctx: StepContext) {
+      const placed = placedOf(ctx), feet = step['feet'] as Vec3, label = String(step['label'] ?? 'the spot'), a = placed.anchor;
+      const k = Math.max(1, placed.sizePct / 100), statics = staticDrawn(ctx, appearance, pack);
+      const p = ctx.player, w = ctx.sim.engine.dimension(p.dimension);
+      const q = { x: a.x + feet.x, y: a.y + feet.y, z: a.z + feet.z };
+      const stood = (v: Vec3): Vec3 => pt({ x: v.x - a.x, y: v.y - a.y, z: v.z - a.z });
+      if (w.overlapping({ x0: q.x - 0.3, y0: q.y + 0.01, z0: q.z - 0.3, x1: q.x + 0.3, y1: q.y + 1.8, z1: q.z + 0.3 }, 0.001)) {
+        ctx.note(`${label}: the spot ${JSON.stringify(feet)} is inside a collider; nobody stands there`);
+        return;
+      }
+      ctx.quiet(['no-unprotected-fall', 'player-not-in-solid']);
+      teleport(ctx.sim.host, p, { x: q.x, y: q.y + 0.01, z: q.z });
+      p.onGround = false;
+      for (let t = 0; t < 60 && !p.onGround; t++) await ctx.run(1);
+      await ctx.run(2);
+      ctx.quiet([]);
+      const y = p.location.y;
+      if (p.onGround && y >= q.y - STEP_HEIGHT && modelDropUnder(statics, { x: p.location.x, z: p.location.z }, y, k)) {
+        ctx.violate({ invariant: 'invisible-floor', message: `${label}: the player stands at ${JSON.stringify(stood(p.location))} (anchor-relative) on colliders with nothing drawn within a jump under its feet`, evidence: { feet: stood(p.location), spot: feet } });
+        return;
+      }
+      ctx.note(`${label}: from ${JSON.stringify(feet)} the player ${p.onGround && y >= q.y - STEP_HEIGHT ? 'stands on a drawn floor' : `came down to ${JSON.stringify(stood(p.location))}`}`);
+    },
+
     /** Let the figures live: `{ ticks }`; each must stay inside the model's box. */
     async figuresLive(step: AnyStep, ctx: StepContext) {
       const placed = placedOf(ctx), ticks = Number(step['ticks'] ?? 6000);
@@ -546,6 +577,16 @@ function stopCause(tread: readonly string[]): string {
   return tread.length ? `the pack's TREAD at ${tread.join(' ')} blocks it` : 'nothing is drawn there, the pack\'s colliders block it';
 }
 
+/**
+ * Whether the MODEL has no floor under a footprint: nothing drawn tops out between a jump (`JUMP_PEAK`, scaled)
+ * under `floorY` and a little over it. A pack collider that stops a line there, or takes the room to stand
+ * there, guards the model's own drop (`planDropGuards`: 76417's Gate 1 opens 17 blocks over the grass) - the
+ * line would have fallen; the attribution is the model's, as a HOLE there is.
+ */
+function modelDropUnder(statics: readonly DrawnBox[], q: { x: number; z: number }, floorY: number, k: number): boolean {
+  return !statics.some(d => { const top = drawnTopOver(d, q.x - 0.3, q.x + 0.3, q.z - 0.3, q.z + 0.3); return top !== undefined && top >= floorY - JUMP_PEAK * k && top <= floorY + 0.1; });
+}
+
 /** How a stop's obstacle is the model's: as drawn, or within the re-lay's rounding of what is drawn. */
 function modelsObstacle(w: VoxelWorld, statics: readonly DrawnBox[], probe: Box, rounding: number): 'drawn' | 'relay' | undefined {
   if (colliderIsModels(w, statics, probe)) return 'drawn';
@@ -587,6 +628,7 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
     const how = modelsObstacle(w, statics, standBox, rounding);
     const tread = treadsIn(w, treads, standBox);
     if (how) { ctx.note(`${where}: no room to stand ${LINE_MIN_OUT}-${LINE_OUT} blocks out - the MODEL's: ${sealedText(how, rounding, placed.sizePct)}`); finding(ctx, { kind: 'STOP', where, model: true, noRoom: true, ...(how === 'relay' ? { relay: true } : {}) }); return { crossed: false }; }
+    if (modelDropUnder(statics, q, floorY, k)) { ctx.note(`${where}: no room to stand ${LINE_MIN_OUT}-${LINE_OUT} blocks out - the MODEL's drop: nothing is drawn within a jump under the doorway's floor there (GUARD)`); finding(ctx, { kind: 'STOP', where, model: true, noRoom: true, guard: true }); return { crossed: false }; }
     const message = `${where}: no room to stand on this side; ${stopCause(tread)}`;
     finding(ctx, { kind: 'STOP', where, model: false, noRoom: true, pendingMessage: message, ...(tread.length ? { tread } : {}) });
     return { crossed: false, pending: { message, evidence: { treads: tread } } };
@@ -660,6 +702,14 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
   if (how) {
     ctx.note(`${text} - the MODEL's: ${sealedText(how, rounding, placed.sizePct)}`);
     finding(ctx, { kind: 'STOP', where, model: true, start: pt(start), stoppedAt: pt(at), block: hit?.block, ...(how === 'relay' ? { relay: true } : {}) });
+    return { crossed: false };
+  }
+  // Past the stopping face: the player's centre sits half its width (0.3) short of the face, so a footprint centred
+  // 0.65 on lies wholly past it (the cell a guard fills), and the floor the player stands on is not read.
+  const beyond = { x: at.x - n.x * side * 0.65, z: at.z - n.z * side * 0.65 };
+  if (!tread.length && modelDropUnder(statics, beyond, floorY, k)) {
+    ctx.note(`${text} - the MODEL's drop: nothing is drawn within a jump under the doorway's floor ahead, the pack's collider guards it (GUARD)`);
+    finding(ctx, { kind: 'STOP', where, model: true, guard: true, start: pt(start), stoppedAt: pt(at), block: hit?.block });
     return { crossed: false };
   }
   const message = `${text}; ${stopCause(tread)}`;
