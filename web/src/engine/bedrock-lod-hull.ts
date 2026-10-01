@@ -70,7 +70,7 @@
 
 import type { CompiledMesh } from './ldraw-entity-compiler.js';
 import type { LdrawEntityMaterial } from './ldraw-entity-materials.js';
-import { apply, pivotRotation } from './bedrock-geometry-faces.js';
+import { apply, drawnCubeBox, pivotRotation } from './bedrock-geometry-faces.js';
 
 /** Model units in one block, the unit a geometry cube's origin/size is in. */
 export const UNITS_PER_BLOCK = 16;
@@ -180,9 +180,11 @@ function cubeBoxes(doc: GeoDocument, colourOf: Map<string, number>): Array<Aabb 
     for (const bone of mesh.bones) { rotationOf.set(bone.name, bone.rotation); pivotOf.set(bone.name, bone.pivot); parentOf.set(bone.name, bone.parent); }
     for (const bone of mesh.bones) for (const cube of bone.cubes ?? []) {
       let points: Vec3[] = [];
-      for (const x of [cube.origin[0]!, cube.origin[0]! + cube.size[0]!])
-        for (const y of [cube.origin[1]!, cube.origin[1]! + cube.size[1]!])
-          for (const z of [cube.origin[2]!, cube.origin[2]! + cube.size[2]!]) points.push([x, y, z]);
+      // The DRAWN box: a box-UV-safe cube declares one unit more on every side (`boxUvSafeCube`).
+      const { origin, size } = drawnCubeBox(cube);
+      for (const x of [origin[0], origin[0] + size[0]])
+        for (const y of [origin[1], origin[1] + size[1]])
+          for (const z of [origin[2], origin[2] + size[2]]) points.push([x, y, z]);
       const spin = (r: readonly number[] | undefined, pivot: readonly number[] | undefined): void => {
         if (!r || !pivot) return;
         points = points.map(q => {

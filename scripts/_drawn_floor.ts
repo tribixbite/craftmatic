@@ -19,7 +19,7 @@
  */
 import { readFileSync } from 'node:fs';
 import { unzipSync, strFromU8 } from 'fflate';
-import { apply, boneTransforms, mul, pivotRotation, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.ts';
+import { apply, boneTransforms, drawnCubeBox, mul, pivotRotation, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 interface Bone { name: string; parent?: string; pivot?: Vec3; rotation?: Vec3; cubes?: Array<{ origin: Vec3; size: Vec3; pivot?: Vec3; rotation?: Vec3 }> }
 
@@ -62,10 +62,12 @@ for (const [name, data] of all) {
     for (const bone of geo.bones) {
       const m = world.get(bone.name)!;
       for (const c of bone.cubes ?? []) {
-        rawLo = Math.min(rawLo, c.origin[1]);
+        // The DRAWN box (a box-UV-safe cube declares one unit more on every side).
+        const { origin, size } = drawnCubeBox(c);
+        rawLo = Math.min(rawLo, origin[1]);
         const toWorld = c.rotation ? mul(m, pivotRotation(c.rotation, c.pivot ?? [0, 0, 0])) : m;
         for (const dx of [0, 1]) for (const dy of [0, 1]) for (const dz of [0, 1]) {
-          const p = apply(toWorld, [c.origin[0] + dx * c.size[0], c.origin[1] + dy * c.size[1], c.origin[2] + dz * c.size[2]]);
+          const p = apply(toWorld, [origin[0] + dx * size[0], origin[1] + dy * size[1], origin[2] + dz * size[2]]);
           for (let i = 0; i < 3; i++) { lo[i] = Math.min(lo[i]!, p[i]!); hi[i] = Math.max(hi[i]!, p[i]!); }
         }
       }

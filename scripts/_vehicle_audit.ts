@@ -26,6 +26,7 @@ import { indexedTryOrder, type IndexModel } from '../web/src/engine/lego-sources
 import { extractMatching } from '../web/src/engine/zip-utils.ts';
 import { RIDER_EYE_ABOVE_SEAT } from '../web/src/engine/cockpit-seat.ts';
 import { FAVOURITES } from './favourite-sets.ts';
+import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 const INDEX = 'C:/git/clego/lego-models-index.json';
 const CORPUS = 'C:/git/clego/lego_sets';
@@ -158,7 +159,8 @@ async function packVehicles(bytes: Buffer, diagnostics: Record<string, any>): Pr
     let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
     for (const g of [...files.keys()].filter(n => new RegExp(`/models/entity/${cid}\\.geo\\.json$`).test(n))) {
       for (const geo of read(g)['minecraft:geometry'] ?? []) for (const bone of geo.bones ?? []) for (const cube of bone.cubes ?? []) {
-        for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, cube.origin[k]); max[k] = Math.max(max[k]!, cube.origin[k] + cube.size[k]); }
+        const { origin, size } = drawnCubeBox(cube);
+        for (let k = 0; k < 3; k++) { min[k] = Math.min(min[k]!, origin[k]!); max[k] = Math.max(max[k]!, origin[k]! + size[k]!); }
       }
     }
     const size = Number.isFinite(min[0]) ? { width: r2((max[0]! - min[0]!) / 16), height: r2((max[1]! - min[1]!) / 16), length: r2((max[2]! - min[2]!) / 16) } : null;

@@ -125,7 +125,7 @@ import type { PartGeometryProvider, Vec3 } from './ldraw-part-geometry.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { withSizeGroups, type PlacementActor } from './bedrock-placement-pack.js';
 import { bedrockJsonText, floatActorProperty } from './bedrock-json.js';
-import { compileLdrawEntityGeometry, ldrawToRenderRotation, type CompiledLdrawGeometry } from './ldraw-entity-compiler.js';
+import { boxUvSafeCube, compileLdrawEntityGeometry, ldrawToRenderRotation, type CompiledLdrawGeometry } from './ldraw-entity-compiler.js';
 import type { EntityRig } from './minifig-rig.js';
 import type { LegoEntityQuality, LegoEntityQualityName } from './ldraw-part-prototype.js';
 import { SEATED_EYE_HEIGHT_BLOCKS } from './lego-scale.js';
@@ -1524,7 +1524,7 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
         visible_bounds_width: 8 * modelScale, visible_bounds_height: 8 * modelScale, visible_bounds_offset: [0, 0, 0] },
       // Separate pitch/roll bones make composition explicit, independent of
       // the engine's Euler order. The entity itself only rotates in yaw.
-      bones: [{ name: 'track_pitch', pivot: [0, 0, 0], cubes: [] as Array<{ origin: number[]; size: number[]; uv: number[] }> },
+      bones: [{ name: 'track_pitch', pivot: [0, 0, 0], cubes: [] as Array<{ origin: number[]; size: number[]; uv: number[]; inflate?: number }> },
       { name: 'cart', parent: 'track_pitch', pivot: [0, 0, 0], cubes: [
         { origin: [-11, 0, -10], size: [22, 2, 20], uv: [0, 0] },
         { origin: [-11, 2, -10], size: [1, 4, 20], uv: [0, 0] },
@@ -1535,7 +1535,12 @@ export function coasterCartAssets(typeId: string, modelScale = 1) {
         // The running datum is 32 LDU above sleepers, rail tops 10 LDU:
         // wheels reach down 22 LDU = 6.6 entity units, avoiding a floating tub.
         ...[-11, 7].flatMap(x => [-8, 4].map(z => ({ origin: [x, -6.6, z], size: [4, 6.6, 4], uv: [0, 0] }))),
-      ].map(cube => ({ ...cube, origin: cube.origin.map(v => v * modelScale), size: cube.size.map(v => v * modelScale) })) }],
+      ].map(cube => {
+        // Scaled below 1x a side drops under one unit; declare it box-UV safe (`boxUvSafeCube`).
+        const scaled = { ...cube, origin: cube.origin.map(v => v * modelScale) as [number, number, number], size: cube.size.map(v => v * modelScale) as [number, number, number] } as { origin: [number, number, number]; size: [number, number, number]; uv: number[]; inflate?: number };
+        boxUvSafeCube(scaled);
+        return scaled;
+      }) }],
     }] },
     animations: { format_version: '1.8.0', animations: { [animationId]: {
       loop: true, bones: {

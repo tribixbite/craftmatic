@@ -3084,8 +3084,20 @@ holes the real parts do not have, in any pose: 0 in 87 of 92 figures.
 hair (10797, 11204, 42703 fig4, 76286 fig2, 10365 fig8; visible only along a
 diagonal): the voxelised head and hair shell leave a sub-cell gap that the
 head carve no longer plugs (without the carve the separation's grown hair
-faces hid it, at 10x the z-fight). Shells, vehicles and props still ship
-cubes under one unit (10261: 37 % of all faces): `TODO(box-uv)`.
+faces hid it, at 10x the z-fight).
+
+**Every kind since 2026-10-01.** The user's round-30i shot of 42172 showed
+the McLaren's body striped yellow and black with a wheel seen through it:
+the same floor rule on a vehicle. On the shipped pack 19,443 of the car's
+21,289 cubes declared a side under one unit and 22 % of its visible surface
+was dropped under rule `v` (`bun scripts/_box_uv_loss.ts <packs>`, any
+entity; `_pack_render.ts --uvfloor=v` draws what the device draws:
+`output/user-shots-triage-0930/42172-before-device-side.png` reproduces the
+shot). `boxUvFloorSafe` now defaults on for every kind, and every reader of
+a shipped cube goes through `drawnCubeBox` (bedrock-geometry-faces.ts): the
+LOD hull had read inflated cubes a unit too large; colliders and seats read
+the compiler's render cuboids, never the JSON. `_mcaddon_check.py` gates
+every entity geometry.
 
 **Tools.** `bun scripts/_figure_compile_holes.ts <source> [--plain]
 [--uvfloor=v]` compiles every NPC figure in-process and reports, per figure,

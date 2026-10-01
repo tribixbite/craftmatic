@@ -128,6 +128,10 @@ it('executes the exported wand through pin, rotate, preview, confirmed placement
   expect(snapshots).toHaveLength(2);
   expect(dimension.spawnEntity).toHaveBeenCalledWith('craftmatic:car', { x: 28.5, y: 21, z: 30.5 });
   expect(entity().setRotation).toHaveBeenCalledWith({ x: 0, y: 90 });
+  // No floating name tag over a placed entity (it ran across the screen up close, round 30i);
+  // the label is still there for scripts.
+  expect(entity().nameTag).toBe('');
+  expect(entity().getDynamicProperty('craftmatic:label')).toBe('Car');
   expect(loaded()).toBe(false);
   const successfulAddNames = areaCommands().filter(command => command.startsWith('tickingarea add ')).map(command => command.split(' ')[8]);
   const removedAreaNames = areaCommands().filter(command => command.startsWith('tickingarea remove ')).map(command => command.split(' ')[2]);

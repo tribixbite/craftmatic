@@ -444,7 +444,8 @@ describe('playable Bedrock add-on',()=>{
     const script = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_jet_BP/scripts/main.js'));
     expect(script).toContain("getEffect('minecraft:night_vision')");
     expect(script).toContain("addEffect('minecraft:night_vision',12000");
-    expect(script).toContain("(vehicle.nameTag||vehicle.typeId)+' @ '");
+    // Placed entities carry no name tag (it ran across the screen); the label is a dynamic property.
+    expect(script).toContain("(vehicle.getDynamicProperty?.('craftmatic:label')||vehicle.nameTag||vehicle.typeId)+' @ '");
   });
 
   it('adds configurable 10300 time circuits to a SCRIPTED car (the camel is gone)', async () => {
