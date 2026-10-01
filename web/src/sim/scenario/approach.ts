@@ -63,6 +63,12 @@ export interface ApproachOptions {
    * tap ray reaches through a collider (a collider has no selection box, so the ray passes it).
    */
   inFront?: boolean;
+  /**
+   * Spots where the child may NOT stand (the feet given): a door that answers "something is standing in the
+   * door - step out to close it" is closed from outside its doorway, so the child steps out of the doorway's
+   * closed cells before it taps again.
+   */
+  notWhere?: (feet: Vec3) => boolean;
 }
 
 /** The last stretch (blocks) of a sight line that is the target's own frame, never a wall. */
@@ -124,6 +130,7 @@ export function approachSpots(engine: SimEngine, player: SimEntity, target: SimE
   for (const c of candidates) {
     if (found.length >= limit) break;
     if (exclude.some(e => Math.hypot(e.x - c.feet.x, e.z - c.feet.z) < 1)) continue;
+    if (options.notWhere?.(c.feet)) continue;
     player.location = { ...c.feet };
     lookAt(player, c.aim);
     if (pick(engine, player).entity === target) found.push({ feet: c.feet, aim: c.aim, distance: c.distance });

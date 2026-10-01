@@ -177,6 +177,12 @@ describe('the script host', () => {
     // From there the tap picks it.
     p.location = { ...spot!.feet };
     expect(tap(sim.engine, p, target).entity).toBe(target);
+    // A child told to step out of a doorway never picks a spot the doorway holds (`notWhere`): every spot
+    // within 2 blocks of the part refused, the next is farther out.
+    const out = findApproach(sim.engine, p, target, undefined, [], { notWhere: f => Math.hypot(f.x - 12.5, f.z - 0.5) < 2 });
+    expect(out).toBeDefined();
+    expect(Math.hypot(out!.feet.x - 12.5, out!.feet.z - 0.5)).toBeGreaterThanOrEqual(2);
+    expect(findApproach(sim.engine, p, target, undefined, [], { notWhere: () => true })).toBeUndefined();
   });
 
   it('a rider that gets off is set on the floor one block to -z, then +z, then a diagonal; walled in, at the seat 0.2 up (quirk dismount-free-spot, Pixel GameTest 2026-09-30)', async () => {

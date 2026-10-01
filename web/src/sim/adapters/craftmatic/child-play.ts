@@ -78,7 +78,7 @@ function extraHandlers(pack: CraftmaticPack, appearance: AddonAppearance): Recor
         const label = pack.interactives?.items[idx]?.label ?? part.typeId;
         const state = (): string => JSON.stringify([part.dynamic.get(IX_KEYS.open), part.properties.get('craftmatic:angle')]);
         const before = state();
-        if (!await tapPart(ctx, part, label, () => state() !== before)) {
+        if (!await tapPart(ctx, part, label, () => state() !== before, pack)) {
           const refused = part.dynamic.get('craftmatic:ix_refused');
           const text = `no tap on ${label} from any spot within reach changed it${refused ? ` (the part refused: ${String(refused)})` : ''}`;
           // A refusal ("behind a wall") is the runtime's line of sight over its colliders. When the MODEL's own drawn

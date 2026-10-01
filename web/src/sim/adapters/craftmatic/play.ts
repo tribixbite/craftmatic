@@ -276,12 +276,12 @@ export function playHandlers(pack: CraftmaticPack, appearance: AddonAppearance):
         if (it.passSize === undefined || !it.leaf || !it.passSize || placed.sizePct < it.passSize) continue;
         const leafEntity = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === i });
         if (!leafEntity) { ctx.note(`${it.label}: no entity`); continue; }
-        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, leafEntity, it.label, () => leafEntity.dynamic.get(IX_KEYS.open) === true);
+        if (leafEntity.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, leafEntity, it.label, () => leafEntity.dynamic.get(IX_KEYS.open) === true, pack);
         if (leafEntity.dynamic.get(IX_KEYS.open) !== true) { ctx.note(`${it.label}: no tap from any spot within reach opened it; its lines are not walked`); continue; }
         // A double door's other leaf must be open too (the pair moves together, but a leaf tapped on its own can leave it shut).
         for (const j of it.pairs ?? []) {
           const other = findEntity(ctx.sim, ctx.player, { where: e => e.dynamic.get(IX_KEYS.index) === j });
-          if (other && other.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, other, ix.items[j]?.label ?? `part ${j}`, () => other.dynamic.get(IX_KEYS.open) === true);
+          if (other && other.dynamic.get(IX_KEYS.open) !== true) await tapPart(ctx, other, ix.items[j]?.label ?? `part ${j}`, () => other.dynamic.get(IX_KEYS.open) === true, pack);
           if (other && other.dynamic.get(IX_KEYS.open) !== true) ctx.note(`${it.label}: its pair ${ix.items[j]?.label ?? j} stays shut`);
         }
         // The harness's doorway (`doorwayGeometry`): the columns of the leaf's closed blocks at this size and turn,
@@ -473,12 +473,21 @@ export function staticDrawn(ctx: StepContext, appearance: AddonAppearance, pack:
  * that picks it, then - when the runtime refused (a part tapped from behind its
  * wall says so on the action bar) - from the next spot, up to four. Returns
  * whether `changed` became true.
+ *
+ * With `pack`, a doorway that refuses to close on the child ("something is standing in the door - step out to
+ * close it") is tapped again from OUTSIDE its closed cells: the child steps out of the doorway, as told. Until
+ * 2026-09-30 every next spot was picked by distance alone, and where the colliders leave the doorway open
+ * around a diagonal leaf (76417's Door 3 turned 90, once its yaw-turned walls stopped laying their bounding
+ * boxes) all four spots stood in it.
  */
-export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean): Promise<boolean> {
+export async function tapPart(ctx: StepContext, part: SimEntity, label: string, changed: () => boolean, pack?: CraftmaticPack): Promise<boolean> {
   const tried: Vec3[] = [], log: string[] = [];
   for (let attempt = 0; attempt < 4; attempt++) {
-    // After a refusal the child steps IN FRONT of the part (where nothing solid hides it), as the refusal tells it to.
-    const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried, { inFront: true });
+    // After a refusal the child steps IN FRONT of the part (where nothing solid hides it), as the refusal tells it to,
+    // and out of the doorway when that is what the refusal says.
+    const refused = String(part.dynamic.get('craftmatic:ix_refused') ?? '');
+    const notWhere = pack && /step out to close it/.test(refused) ? inDoorway(ctx, pack, part) : undefined;
+    const spot = attempt === 0 ? undefined : findApproach(ctx.sim.engine, ctx.player, part, undefined, tried, { inFront: true, ...(notWhere ? { notWhere } : {}) });
     if (attempt > 0) { if (!spot) break; teleport(ctx.sim.host, ctx.player, spot.feet); await ctx.run(1); }
     await CORE_HANDLERS['tap']!({ kind: 'tap', target: { where: (e: SimEntity) => e === part, label } }, ctx);
     tried.push({ ...ctx.player.location });
@@ -489,6 +498,21 @@ export async function tapPart(ctx: StepContext, part: SimEntity, label: string, 
   }
   ctx.note(`${label}: no tap changed it; ${log.join('; ') || 'no spot to tap from'}`);
   return false;
+}
+
+/**
+ * Whether a player standing with its feet at a point overlaps the closed cells of the doorway `part` is a leaf
+ * of, or of a leaf paired with it (the runtime refuses to close a pair on anyone standing in either), at the
+ * placed size and turn; undefined for a part that is no doorway.
+ */
+function inDoorway(ctx: StepContext, pack: CraftmaticPack, part: SimEntity): ((feet: Vec3) => boolean) | undefined {
+  const ix = pack.interactives, index = Number(part.dynamic.get(IX_KEYS.index));
+  const it = ix?.items[index];
+  if (!ix || !it?.leaf || !it.blocking.length) return undefined;
+  const placed = placedOf(ctx), f = placed.sizePct / 100, a = placed.anchor;
+  const blocks = [it, ...(it.pairs ?? []).map(j => ix.items[j]).filter(o => !!o?.leaf && !!o.blocking.length)]
+    .flatMap(o => doorwayGeometry({ dims: ix.dims }, o!, f, placed.rotation as QuarterTurn).own);
+  return feet => blocks.some(b => feet.x + 0.3 > a.x + b.x && feet.x - 0.3 < a.x + b.x + 1 && feet.z + 0.3 > a.z + b.z && feet.z - 0.3 < a.z + b.z + 1 && feet.y + 1.8 > a.y + b.y && feet.y < a.y + b.y + 1);
 }
 
 /** A doorway finding for the report (the model's, or the pack's). */
