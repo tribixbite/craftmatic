@@ -9,6 +9,31 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### Handoff (2026-10-01, main `bcfae5bc`; agents stopped on the monthly spend limit)
+Merged on main but in NO round yet (last round sent = 30i `fd91cf23`):
+yaw-turned collider corners + drop guards (76417 Gate 1), box-UV-safe cubes
+on EVERY entity (McLaren streaks: 22 % of its surface undrawn), brick
+separators dropped from exports, no floating name tags, and the spaceship
+controls / never-stuck / free look (section below). All gates green on
+`bcfae5bc` (2,964 tests, both typechecks, physics spec).
+Next, in order:
+1. Build round 30j: `mkdir output/device-round-2026-10-01j`, copy
+   `output/device-round-2026-09-30i/{build.sh,check.py}` with the folder names
+   changed (check.py REF = 30i `packs-fd91cf23`/`creator-fd91cf23`), run
+   `bash .../build.sh` from the clean tree, then `python .../check.py <packs> <creator>`
+   (expect parts to DIFFER: separators gone; uuids equal), then
+   `bun scripts/sim.ts --scenario=regressions --new=<packs>`, `--scenario=hop`
+   (needs `--coaster= --flyer= --slide= --car=`), `--scenario=vehicles` on
+   7140 / 76286 / 42172 (the controls' course: NEVER RUN on built packs - the
+   agent died before building; record before/after numbers).
+2. Zip (`craftmatic-packs-<sha>.zip` + sha256 + pack-hashes.tsv, same as 30i)
+   and send.
+3. Device round: the "Spaceship controls" checklist below + McLaren body
+   solid + no name tags + 76417 Gate 1 stops you in the doorway + 10261
+   lift-hill route at 200 %. Saga reachable (192.168.1.243:5555); the PIXEL
+   needs the user (wireless debugging re-pair) and holds `output/.phone-lock`.
+
+
 | surface | command | URL |
 |---|---|---|
 | Web app (LEGO tab, viewer, **Walk add-on**) | `bun dev:web --host` | http://localhost:4000 |
@@ -41,9 +66,10 @@ should semi gradually automatically turn to point in the direction of travel
 "Never stuck", "Free look") and §9; add-on guide "Spaceship controls, never
 stuck, free look"; sim doc "The vehicle course".
 
-Packs: `output/spaceship-controls-0930/packs-<sha>/` (built ONE AT A TIME from
-the committed worktree; labels as round 30i, so the uuids are unchanged).
-Course numbers: `output/spaceship-controls-0930/{before,after}/course.md`.
+NOT YET BUILT OR COURSE-MEASURED: the agent stopped (spend limit) before
+building packs; its last uncommitted edits (brake 24, course lane gap) were
+salvaged as `391fc228` and merged (`bcfae5bc`). Measure with
+`bun scripts/sim.ts --scenario=vehicles` on round 30j's packs.
 
 ### Device checklist (one round, Pixel or Saga; world with the round's packs bound `--exclusive`)
 
