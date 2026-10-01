@@ -19,6 +19,7 @@
  * 21063 reference sha256 gate depends on it.
  */
 
+import { withoutBuildTools } from './build-tools.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import type { LdrawPartMesh } from './ldraw-part-geometry.js';
 import { voxelizeLDrawGeometry, seedDatTexts } from './ldraw-geometry.js';
@@ -244,6 +245,13 @@ export async function runSchemPipeline(
   input: SchemWorkerInput,
   onProgress: ProgressFn = () => {},
 ): Promise<SchemPipelineResult> {
+  // A brick separator is a tool from the box, not model content
+  // (build-tools.ts): left out of every format before anything reads the bricks.
+  let buildToolsRemoved = 0;
+  if (input.source.kind === 'bricks') {
+    const kept = withoutBuildTools(input.source.bricks);
+    if (kept.removed) { buildToolsRemoved = kept.removed; input = { ...input, source: { ...input.source, bricks: kept.bricks } }; }
+  }
   const profile = getBlockProfile(input.profile);
   let grid: BlockGrid;
   let sourceOrigin: VoxelizeResult['gridOrigin'];
@@ -348,6 +356,7 @@ export async function runSchemPipeline(
     const label = input.packLabel ?? input.packStem ?? 'Imported build';
     const components = [];
     const warnings: string[] = bedrockExportNotes(grid);
+    if (buildToolsRemoved) warnings.push(`Left out ${buildToolsRemoved} brick separator${buildToolsRemoved === 1 ? '' : 's'}: a tool from the box, not part of the model.`);
     const screens = [];
     const figures: Array<{ bricks: ParsedBrick[]; x: number; y: number; z: number; facingLdu: [number, number]; seatIndex?: number; mountIndex?: number }> = [];
     /** Flyer mounts the set's canon names and the detector found (set-canon.ts, bedrock-flyer.ts), and the ones it did not. */
