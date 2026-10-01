@@ -469,11 +469,19 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   face whose height floors to 0** (Pixel probe 2026-09-29: a 3 x 0.6 x 0.6
   cube had no front face, 0.6 x 3 x 0.6 did). At 0.3 units/LDU a figure's
   2 LDU grain is 0.6 units, so every figure showed its white body through its
-  print and the sky through its hair - the "unclosed faces" report. Figures
-  now declare every cube under one unit as size + 2 with `inflate: -1`
-  (`boxUvSafeCube`, same drawn box); anything reading `.geo.json` cubes must
-  subtract `inflate`. Shells/vehicles still ship sub-unit cubes (`TODO(box-uv)`).
-  Offline the device rule is `UvFloorModel` `v`: `bun scripts/_figure_compile_holes.ts`.
+  print and the sky through its hair - the "unclosed faces" report. EVERY
+  entity (figures since 2026-09-29; shells, vehicles, props since 2026-10-01,
+  after 42172's body showed its wheels through yellow/black streaks, 22 % of
+  its surface dropped) declares every cube under one unit as size + 2 with
+  `inflate: -1` (`boxUvSafeCube`, same drawn box). Read a shipped cube's box
+  through `drawnCubeBox` (bedrock-geometry-faces.ts), never `origin`/`size`.
+  Offline the device rule is `UvFloorModel` `v`: `bun scripts/_box_uv_loss.ts
+  <packs>` per entity, `_pack_render.ts --uvfloor=v` draws what the phone draws.
+- **A placed entity carries NO name tag** (round 30i): Bedrock draws a
+  looked-at tag at a fixed world size, so up close it ran across the screen.
+  The label is the dynamic property `craftmatic:label`. **A brick separator
+  (4654/630/96874) is dropped from every export** (`build-tools.ts`): 868 DBIX
+  sources place one beside the model.
 - **Two colours on one plane hatch on the device.** Every entity passes
   `separateCoplanarFaces` at export (winner pushed out 1/107 block);
   `bun scripts/_render_fault_audit.ts <pack>` counts what is left and

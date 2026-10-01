@@ -604,10 +604,8 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   `output/fig-faces-0929/packs-f706452e/` (worktree `agent-a173ac725…`) are
   bound in world 924; before/after on the Pixel in `output/fig-faces-0929/pixel/`
   (`fig6-*-before-after.jpg`). Guide: "Unclosed faces: Bedrock floors a box-UV
-  cube's size". Open: (a) `TODO(box-uv)` shells/vehicles/props ship sub-unit
-  cubes too (10261: 37 % of all faces) - enable `boxUvFloorSafe` for every kind
-  after checking the LOD hull and seat/collider readers against `inflate`, then
-  a device look at a shell; (b) 1-2 LDU² head/hair slits on 5 figures (10797,
+  cube's size". Open: (a) shells/vehicles/props box-UV safe since `6980474e`
+  (user-shots triage 2026-10-01): a device look at a shell is still owed; (b) 1-2 LDU² head/hair slits on 5 figures (10797,
   11204, 42703 fig4, 76286 fig2, 10365 fig8), diagonal views only; (c) the user's
   own look at the rebuilt figures. MERGED to main after the Gabby and Nimbus
   merges (gates re-run on main).

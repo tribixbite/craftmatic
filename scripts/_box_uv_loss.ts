@@ -65,7 +65,11 @@ for (const file of files.sort()) {
     if (!cubes) continue;
     const extent = Math.max(hi[0]! - lo[0]!, hi[1]! - lo[1]!, hi[2]! - lo[2]!);
     const pixel = fixedPx ?? Math.max(0.1, extent / 600);
-    const res = droppedVisibleArea(entry, uvFloor, { pixel, views: AXIS_VIEWS });
+    // An entity whose rest pose draws no face (every cube hidden or zero-sized) has unbounded raster
+    // bounds; it loses nothing to the floor rule either.
+    let res = { area: 0, share: 0 };
+    try { res = droppedVisibleArea(entry, uvFloor, { pixel, views: AXIS_VIEWS }); }
+    catch (err) { if (!(err instanceof RangeError)) throw err; console.log(`  ${e.typeId}: no drawn face in the rest pose, counted as 0 lost`); }
     rows.push({ typeId: e.typeId, kind: e.kind, cubes, thinCubes: thin, lostShare: res.share, lostArea: res.area, pixel });
     console.log(`  ${e.typeId.replace(/^craftmatic:/, '').padEnd(52)} ${String(e.kind).padEnd(9)} cubes ${String(cubes).padStart(6)}  thin ${String(thin).padStart(6)}  lost ${(100 * res.share).toFixed(1).padStart(5)} %  (${(res.area / 256).toFixed(2)} block faces, px ${pixel.toFixed(2)})`);
   }
