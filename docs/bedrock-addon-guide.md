@@ -354,9 +354,10 @@ Built and gated offline (`output/bedrock-entity-qa/round-2026-09-16b/`,
 - **Colliders** (`buildColliderGrid`): integer states `craftmatic:lo` (0..15)
   and `craftmatic:hi` (1..16), sixteenths; 136 permutations each setting
   `minecraft:collision_box` origin/size; measured per cell from the shell's
-  `partBoxesLdu` (every body cuboid's LDraw AABB), so a cell whose only
-  content is an 8 LDU baseplate collides 0..3/16 and the player stands ON
-  the drawn plate. Full block when no box reaches a solid cell (gap fill).
+  `partBoxesLdu` (every body cuboid's LDraw AABB; a TILTED part's cuboid
+  is laid from its own oriented box, `obb` / `isTiltedBox`), so a cell whose
+  only content is an 8 LDU baseplate collides 0..3/16 and the player stands
+  ON the drawn plate. Full block when no box reaches a solid cell (gap fill).
   Alpha-tested clear texture (`textures/blocks/craftmatic_collider.png`,
   registered in `blocks.json` + `terrain_texture.json`), `light_dampening: 0`
   (daylight reaches the interior; the shell is lit from its origin block),

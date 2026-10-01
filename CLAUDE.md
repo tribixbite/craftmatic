@@ -418,15 +418,16 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   x-banded clearance forms (`_w1`..`_w7`, x-shaped `_f`/`_c`) on the wrong
   half of the block; the simulator reads JSON the way the device does
   (quirk `block-collision-x-mirrored`).
-- **A tilted part's collider is its AXIS-ALIGNED box** (`buildColliderGrid`
-  lays each cuboid's world AABB): 10326's handrail, tilted 42.7 degrees, left
-  an invisible band at head height in the corridor to Door 3, and a device
-  spot reached by `/tp` sat inside it - the tap's sight line started in a
-  collider and was refused "behind a wall" (round 30h). The runtime now skips
-  a form the player's own box overlaps; the band itself is
-  `TODO(tilted-colliders)`. Before reading a device finding at a `/tp` spot,
-  check whether the spot is inside a collider (`_ix_tap_probe --clipped`,
-  the sim's `tapPartFrom` refusal record names the cell).
+- **A TILTED part's colliders are laid from its own box; a yaw-turned
+  part's from its bounding box** (`isTiltedBox`, `buildColliderGrid`,
+  2026-09-30). The AABB of 10326's handrail (tilted 42.7 degrees) was an
+  invisible band at head height. Exact colliders for EVERY turned part were
+  measured and rejected: parts turned 45 degrees about the vertical are
+  76435's climb (reach 415.9 -> 303.2) and 76417's diamond baseplate floor.
+  The sim reads a turned drawn cube by its shape (`drawnReaches` /
+  `drawnTopOver`), never its corner box. Before reading a device finding at
+  a `/tp` spot, check whether the spot is inside a collider (`_ix_tap_probe
+  --clipped`, the sim's `tapPartFrom` refusal record names the cell).
 - **A doorway a minifig uses is the player's at 100 %** (2026-09-29): its
   `passSize` is a minifig's envelope (40 x 96 LDU at the model's scale), not
   a 1 x 2-block hole. To ask why a doorway is not walkable, run

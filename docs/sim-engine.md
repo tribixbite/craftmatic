@@ -298,7 +298,9 @@ collider's superset slack of the box (a stop); otherwise the PACK's (its
 colliders disagree with what the model draws). What "the model draws" means
 for the colliders: the static actors AND every moving part that is not a
 passage (window, cabinet, lever, turnable, hinged section) at its closed pose,
-never figures. Above 100 % the slack widens horizontally by the re-lay's shift
+never figures; a turned cube is read by its own shape (`DrawnBox.solid`,
+`drawnReaches` / `drawnTopOver`), not its corner box, which holds air beside
+it (a baseplate turned 45 degrees is a diamond in a square, 2026-09-30). Above 100 % the slack widens horizontally by the re-lay's shift
 (`relayRounding`: a column belongs to the cell holding its centre, half a block
 at 150 %), and a fall where the drawn floor itself ends within that shift is
 the model's edge moved (RELAY). A stop the pack is blamed for is a violation

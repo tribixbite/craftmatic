@@ -139,10 +139,21 @@ a dark fin covers the top ~20 %); 42639 FIXED (door top under the horizon, at
   Device-only: the same tap (feet 5384.6,-59.8,5382.4 by /tp, look at
   5386.5,-58.8,5382.35) opens; and walk the corridor by stick to see where
   the head meets the band (expect z ~5383.05).
-- [ ] Tilted-part colliders are their AXIS-ALIGNED box (`buildColliderGrid`):
-  an invisible band under 10326's handrail at head height, x 5382-5386,
-  z 5382-5382.75. `TODO(tilted-colliders)`: lay a turned cuboid from its
-  oriented box; needs its own passability + clearance sweep (every model).
+- [ ] Tilted-part colliders: FIXED OFFLINE (`1a21dd38`, docs/bedrock-interactivity.md
+  "Tilted parts are laid from their own box"): a TILTED cuboid is laid from its
+  oriented box, a yaw-turned one keeps its AABB (exact-for-all measured and
+  rejected: 76435 reach 415.9 -> 303.2). Favourites: reach @100 20,081 -> 20,819,
+  rooms 648 -> 708, 3 SEALED -> OK + 2 SEALED -> STEP, 0 OK regressed, sim
+  child play 0/200 fail (base 5/200 under the exact drawn reading). Packs
+  (round sources + labels, 8/8 `_mcaddon_check` OK; regressions 13 OK +
+  overhang not reproduced): `.claude/worktrees/agent-acc3de06ad386c5b6/output/tilted-colliders-0930/packs-1a21dd38/`
+  (10326 sha256 5a2a6441...). Device-only: walk the corridor to Door 3 by
+  stick - expect the head clear under the handrail to z ~5382.3 (x 5384.3-5385.8),
+  where round 30h stopped at ~5383.05; Door 3 tap from there.
+- [ ] `TODO(tilted-colliders)` follow-ups: (a) a yaw-turned cuboid's walls laid
+  exactly while keeping the tops a climb uses - exact-for-all unlocked 19 more
+  doorway rows (21318 D1-2, 11371 D6, 42670 garage, 76417 D1); (b) the sim's
+  `heightOverDrawn` still reads a turned cube's corner box (10788 slide limit).
 - Tap widening ACCEPTED under the standing rule (prefer interactivity):
   from CLIPPED spots 4,955 pairs flipped refused -> accepted (4,680 inside
   drawn geometry); free standing spots identical (3,697 before and after).

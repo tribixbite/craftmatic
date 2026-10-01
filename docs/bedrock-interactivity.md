@@ -1086,12 +1086,9 @@ collider form; `output/door-tap-0930/tap-sweep.sh`, `sweep-compare.py`,
   looked at. The 8 packs built at `99f5090d`: free 562 = 562, clipped
   1,515 -> 2,176.
 
-Not fixed - the cause: a tilted part's collider is its bounding box, so a
-child walking under the museum's handrail bumps its head on air.
-`TODO(tilted-colliders)`: lay a turned cuboid's colliders from its own
-oriented box (sliced per column) instead of its world AABB. It changes the
-colliders under every tilted part in every model, so it needs its own
-passability and clearance sweep.
+The cause - a tilted part's collider was its bounding box, so a child
+walking under the museum's handrail bumped its head on air - is fixed since
+`1a21dd38`: "Tilted parts are laid from their own box" below.
 
 **Door 2 is a door you use from a block away.** The walk rated it OK from
 start points 0.9 out, but on the Saga a child 2.1 blocks west or 2.5 east
@@ -1124,6 +1121,81 @@ device's pocket reached about 1.65 from the leaf's centre), 11371 Door 7 -
 Door 3 - (1.29). Only 10326's is device-observed. (On the 45-commit-older
 `favsweep-3664f4f3` packs 31141's Doors 2-4 read pockets and Door 5 did not:
 its colliders changed since.)
+
+### Tilted parts are laid from their own box (2026-09-30)
+
+`buildColliderGrid` laid every body cuboid's world AABB. Under a part turned
+off the vertical that box holds air the part never reaches: 10326's two
+handrail bars (tilted 42.7 degrees, 72 and 84 units long) made a band at head
+height over the corridor to Door 3 (z 2..2.75 over y 1..2, x 2..6 from the
+pinned corner). The compiler now hands each turned cuboid's oriented box to
+the grid (`partBoxesLdu[].obb`: the part-local cuboid and the placement that
+turns it), and the grid lays a TILTED one (`isTiltedBox`: its own up axis
+leaves the vertical by more than `TILT_EPS`) from the cuboid itself: only the
+cells it reaches past the same 0.02 / 0.001 margins the AABB path skips, each
+over the height it spans in that cell, with an exact footprint per sixteenth
+layer (`clipParallelepiped`, engine/oriented-box.ts: the bounds of a
+parallelepiped clipped to a box). Clearance then trims those layers like any
+other geometry. A ramp or a sloped roof keeps a top in every column it
+crosses - its own highest point there - instead of one flat plateau at the
+summit over a solid wedge.
+
+**The rule was decided by measurement** (`output/tilted-colliders-0930/` in
+the worktree that made it; 40 favourites exported from a clean archive of
+`89a86310` and from each candidate, each set from the index's first pick):
+
+| over the 40 favourites | base (AABB) | every turned cuboid exact (`251fd1bf`) | tilted only (`1a21dd38`) |
+|---|---|---|---|
+| collider cells | 61,471 | 58,088 (-3,388, +5) | 59,315 (-2,157, +1) |
+| summed form height (sixteenths) | 626,873 | 578,075 | 586,460 |
+| reach at 100 % (square blocks) | 20,081.1 | 20,190.4 | 20,818.5 |
+| reach at 200 % | 22,084.3 | 21,983.1 | 22,262.5 |
+| rooms reached at 100 % / 200 % | 648 / 1,027 | 691 / 1,031 | 708 / 1,083 |
+| passability rows SEALED -> OK / STEP (of 332) | - | 22 / 2 | 3 / 2 |
+| OK rows that regressed; HOLE rows | - ; 4 | 0 ; 5 | 0 ; 4 |
+| sim child play, 200 scenarios (exact drawn reading) | 5 fail | 1 fail | 0 fail |
+
+Laying EVERY turned cuboid exactly unlocked 19 more doorway rows (21318
+Doors 1-2, 11371 Door 6, 42670's garage door, 76417 Door 1: walls of parts
+turned about the vertical) but cost 76435 its upper floor (reach 415.9 ->
+303.2 at 100 %, 13 of 33 rooms: the climb runs over parts turned 45 degrees
+about the vertical whose bounding boxes were the steps) and put 76417's Gate
+1 on the bare corner of a baseplate turned 45 degrees (a 13.9-block fall the
+sim caught), and 11371's Doors 5/6 at 150 % turn 90 onto a 0.56-block ledge
+the re-lay moves. Only a tilt makes the vertical band, so a cuboid turned
+about the vertical alone keeps its bounding box, whose vertical extent is
+exact already. 20,041 of the favourites' 33,629 turned shell placements are
+tilted (393,265 cuboids laid exactly, sparing 2,148 cells nothing reaches);
+every one of the 40 sets has some. Per set at 100 %, reach fell by more than
+3 square blocks only in 910047 (648.8 -> 641.6) and 71043 (883.3 -> 878.5);
+at 200 %, 10261 (1,994.6 -> 1,787.7: its tilted track and supports re-laid
+at double height climb differently - 2,225 column-levels lost, 778 gained)
+and 10354 (1,360.3 -> 1,342.7). 75397 gained the most (698.9 -> 1,119.3, 3
+-> 34 rooms).
+
+The museum corridor (round source, label "Natural History Museum 10326"):
+a standing player fits under the handrail at x 4.3-5.8 down to z 2.3 (2.1
+at x 5.3-5.8), where the base stopped at z 3.1 - the band's face, the
+device's 3.05 (`stand-map.ts`, `_walk_line.ts --x=4.4..5.7 --from=3.5
+--to=2.0 --y=0.9`: base stops at z 3.05-3.30, now 2.05-2.30 at the wall).
+Door 3 is OK at 100 % (was SEALED), STEP at 200 %. Regressions 13 OK +
+`gabby-car-overhang` not reproduced, as before.
+
+**The simulator reads a turned drawn cube by its own shape.** Its doorway
+line asked "does the model draw a floor here" of each cube's CORNER box, so
+air beside a turned cube read as floor and a collider grid that follows the
+geometry read as a hole (76417's Gate 1 diamond). `DrawnBox.solid` carries a
+turned cube's parallelepiped; the floor test reads `drawnTopOver` and "is
+this collider the model's" reads `drawnReaches`. Judged that way the BASE
+packs fail 5 of 200 child-play scenarios (10326 Door 3 at 150 % turn 90 and
+910004 Door 5 four times: colliders where nothing is drawn); the tilted rule
+fails none. `heightOverDrawn` (slide seats over their chute) still reads the
+corner box: `TODO(tilted-colliders)`, its 0.2 limit was measured that way.
+
+`TODO(tilted-colliders)`: a cuboid turned about the vertical still lays its
+bounding box; laying its walls exactly while keeping the tops a climb uses
+would take the 19 doorway rows above without 76435's loss. Device-only: the
+corridor walk by stick under the handrail, and Door 3's tap from the corridor.
 
 ### Known limits
 
