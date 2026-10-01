@@ -163,7 +163,9 @@ export function installPhysics(engine: SimEngine, controls: ControlState): void 
         let vx = 0, vy = 0, vz = 0;
         if (driver?.valid && driver.isPlayer) {
           const c = controls.get(driver.id);
-          m.rotation.y = driver.rotation.y;
+          // A native mount turns to its rider's look; a scripted vehicle (flying speed 0) is turned by its
+          // script alone, whatever its rider looks at (quirk `rider-free-look`, assumed).
+          if (fs > 0) m.rotation.y = driver.rotation.y;
           // The measured fit holds between the measured values (0.09, 0.3); a flying speed of 0 (a scripted
           // vehicle's native speed) does not move the mount natively (physics spec §4.6).
           const speed = fs > 0 ? (quirkValue('hover-controller-speed', 'blocksPerSecondPerFlyingSpeed') * fs + quirkValue('hover-controller-speed', 'offsetBlocksPerSecond')) / TICKS_PER_SECOND : 0;

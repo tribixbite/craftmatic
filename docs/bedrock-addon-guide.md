@@ -4909,10 +4909,10 @@ is chosen across the train's cars; inside one vehicle the driver's seat is
 listed first by the compiler, so an empty car is driven by whoever hops in.
 
 **Proved offline** (`test/bedrock-ride-hop.test.ts`; the simulator's `hop`
-scenarios, docs/sim-engine.md "Hop"): a scripted plane that takes off and
+scenarios, docs/sim-engine.md "Hop"): a scripted ship that lifts off and
 catches a three-car train from behind sits in the front car and then hovers
-unmoved for 3 s, and flies on when re-boarded; an empty plane nobody hopped
-off still glides down; a train full of players is flown through; a figure
+unmoved for 3 s, and flies on when re-boarded; an empty ship nobody hopped
+off still sinks to the ground and parks; a train full of players is flown through; a figure
 yields its chair; two packs owning the same plane hop once; the back-hop
 cooldown holds for 5 s and then allows it; the Nimbus flown into 10261's train
 running at 17.6 blocks/s meets its second car and seats the child in the

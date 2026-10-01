@@ -36,8 +36,9 @@ import { RIDE, ridesScript, type RideKind, type RideRuntimeConfig } from './bedr
 import { HOP, HOP_TAGS, hopKitConfig, hopRuntimeConfig, hopScript, type HopSource, type HopVacate } from './bedrock-ride-hop.js';
 import { BALL_INITIALIZE, BALL_PRE_ANIMATION, PINBALL_ZONE_TEXTURE, pressFlashOverlay, ballAnimation, ballProperties, buttonPressAnimation, consoleAssets, consoleHideAnimation, pressProperties, flipperAnimation, flipperProperties, pinballPropBehavior, pinballRuntimeConfig, pinballScript, pinballZoneTexture, plungerAnimation, plungerProperties, zoneAssets, PINBALL_INTERACT_TEXT, type PinballPlan, type PinballRuntimeConfig } from './bedrock-pinball.js';
 import { bedrockJsonText } from './bedrock-json.js';
-import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
+import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript, vehicleClientAnimation, vehicleMotionOf, type ScriptedVehicleConfig, type ScriptedVehicleType, type VehicleMotion } from './bedrock-vehicle.js';
 import { doorwayWalkSummary } from './interactive-walk.js';
+import { FREE_LOOK, freeLookStart, freeLookStep, type FreeLookParams } from './vehicle-free-look.js';
 import { figureLifeScript, FIGURE_TUNING, resolveFigureSpawn, separateFigureSpawns, type FigureSpawn, type SpanLookup } from './bedrock-figure-life.js';
 import { INTERACTIVE_FAMILY, INTERACTIVE_PROPERTY, OPEN_DEG, PASSAGE_KINDS, SWING_SECONDS, interactiveAnimation, interactiveBehavior, interactiveLangLines, interactiveRig, interactiveRuntimeItem, interactivesScript, interactiveHitboxes, interactiveNoun, separateHitboxes, INTERACTIVE_TURN_PROPERTY, INTERACTIVE_SIZE_PROPERTY, type InteractiveHitboxes, linkSharedDoorways, pairDoubleDoors, planInteractiveColliders, accessAvoidCells, captureDoorwayNeighbours, type InteractiveColliderPlan, INTERACTIVE_REACH_NOTE, type InteractiveRuntimeConfig, type InteractiveRuntimeItem, type SceneInteractive } from './bedrock-interactives.js';
 declare const world: any;
@@ -649,7 +650,9 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     // sized to the vehicle so the player's own camera toggle is usable too.
     // A brick-compiled entity is at player scale (0.2 blocks per stud); the
     // scene grid is 12x that, so its size only stands in for the grid fallback.
-    const cameraSeat = { third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
+    // A scripted vehicle's rider may look all round (free look, vehicle-free-look.ts: the camera orbits by the
+    // rider's drag and eases back behind the nose); a native mount flies where its rider looks, held to the seat.
+    const cameraSeat = { lock_rider_rotation: scripted ? FREE_LOOK.SEAT_LOCK_DEG : 0, third_person_camera_radius: chaseRadius(entitySize ?? { width: layout.width, height: layout.height, length: layout.length }), camera_relax_distance_smoothing: 6 };
     // Passenger seats the model itself has (its free seat moulds, ldraw-entity-compiler `passengerSeats`):
     // the driver in seat 0, each passenger where the source put a seat; a model the rider sits ON sits them on it too.
     const measured = (passengerSeats ?? []).map(([x, y, z]) => [x, y, z] as [number, number, number]);
@@ -685,10 +688,10 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
     const rideableComponent: Record<string, unknown> = measuredPassengers.length
         ? {
             seat_count: 1 + measuredPassengers.length, controlling_seat: 0, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true,
-            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position: toEntity(position), lock_rider_rotation: 0, ...cameraSeat })),
+            seats: [[seatX, seatY, seatZ] as [number, number, number], ...measuredPassengers].map((position, i) => ({ min_rider_count: i, max_rider_count: 1 + measuredPassengers.length, position: toEntity(position), ...cameraSeat })),
         }
         : seatCount <= 1
-        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: toEntity([seatX, seatY, seatZ]), lock_rider_rotation: 0, ...cameraSeat } }
+        ? { seat_count: 1, family_types: ['player'], interact_text: 'action.interact.mount', crouching_skip_interact: true, seats: { position: toEntity([seatX, seatY, seatZ]), ...cameraSeat } }
         : {
             seat_count: seatCount,
             controlling_seat: 0,
@@ -702,14 +705,14 @@ function behaviorEntity(id: string, kind: PlayableKind, grid: BlockGrid, sceneSc
                 const passX = layout.longitudinalAxis === 'x' ? seatX : seatX + latOffset;
                 const passZ = layout.longitudinalAxis === 'x' ? seatZ - latOffset : seatZ;
                 const seatList: Array<Record<string, unknown>> = [
-                    { min_rider_count: 0, max_rider_count: 1, position: toEntity([driverX, seatY, driverZ]), lock_rider_rotation: 0, ...cameraSeat },
-                    { min_rider_count: 1, max_rider_count: 2, position: toEntity([passX, seatY, passZ]), lock_rider_rotation: 0, ...cameraSeat },
+                    { min_rider_count: 0, max_rider_count: 1, position: toEntity([driverX, seatY, driverZ]), ...cameraSeat },
+                    { min_rider_count: 1, max_rider_count: 2, position: toEntity([passX, seatY, passZ]), ...cameraSeat },
                 ];
                 if (seatCount >= 4) {
                     const backZOffset = Math.min(1.2, Math.max(0.6, layout.length * 0.25));
                     seatList.push(
-                        { min_rider_count: 2, max_rider_count: 3, position: toEntity([driverX, seatY, driverZ + backZOffset]), lock_rider_rotation: 0, ...cameraSeat },
-                        { min_rider_count: 3, max_rider_count: 4, position: toEntity([passX, seatY, passZ + backZOffset]), lock_rider_rotation: 0, ...cameraSeat },
+                        { min_rider_count: 2, max_rider_count: 3, position: toEntity([driverX, seatY, driverZ + backZOffset]), ...cameraSeat },
+                        { min_rider_count: 3, max_rider_count: 4, position: toEntity([passX, seatY, passZ + backZOffset]), ...cameraSeat },
                     );
                 }
                 return seatList;
@@ -1863,7 +1866,7 @@ export function boomCameraPreset(cid: string, size: { width: number; height: num
  * the orbit presets) the vanilla `minecraft:third_person` preset stands in.
  */
 /** Per-vehicle camera config serialised into the pack. */
-interface VehicleCameraConfig {
+export interface VehicleCameraConfig {
     typeId: string; preset: string; kind: 'car' | 'plane' | 'boat'; radius: number; height: number; pivotY: number;
     /** Flown by scripts/aircraft.js: the camera follows the AIRCRAFT's heading and nose (its pitch property), and the rider keeps the default control scheme so the stick's left/right reaches the script as input. */
     scripted?: boolean;
@@ -1883,19 +1886,37 @@ interface VehicleCameraConfig {
     eyeY?: number;
 }
 
+/** What the camera runtime is told: its vehicles, the scripted vehicles' pitch property, the hop's claim, and the free look's numbers and outputs. */
+export interface VehicleCameraRuntimeConfig {
+    vehicles: VehicleCameraConfig[];
+    pitchProperty?: string;
+    hop?: { claimTag: string; graceTicks: number };
+    /** FREE_LOOK (vehicle-free-look.ts). */
+    freeLook: FreeLookParams;
+    /** The vehicle's dynamic property the view's pitch is written to (`VEHICLE_DYNAMIC.lookPitch`). */
+    lookPitchProperty: string;
+    /** `/scriptevent craftmatic:vehicle_telemetry on|fast|off`: a `CMCAM` content-log line per rider. */
+    telemetryEvent: string;
+}
+
 /**
  * Runs in the pack. Measured on the Pixel (1.26.45, 2026-09-15): a camera
  * preset's `control_scheme` key is ignored, but `/controlscheme` works, and
  * under `player_relative` the joystick's left/right ROTATES the rider (the
- * heading `input_ground_controlled` drives along) instead of strafing. Neither
- * `follow_orbit` nor `fixed_boom` turns with the rider, so a ground vehicle
- * gets a script-driven `minecraft:free` chase camera placed behind the rider's
- * yaw every tick (eased), which is what keeps the view on the vehicle's tail
- * through a turn. Aircraft keep the orbit preset: their look pitch is the
- * climb/dive input under `free_camera_controlled`. Everything is cleared on
- * dismount. If the free camera is rejected, the vanilla third person stands in.
+ * heading a native mount flies along) instead of strafing. Neither
+ * `follow_orbit` nor `fixed_boom` turns with the rider, so every scripted
+ * vehicle gets a script-driven `minecraft:free` chase camera placed behind it
+ * every tick (eased). Since 2026-09-30 that camera has FREE LOOK
+ * (vehicle-free-look.ts): a drag orbits it round the vehicle (yaw and pitch),
+ * and a second after the last drag, while the vehicle moves, it eases back
+ * behind the nose; in the cockpit view (hotbar slot 9) the rider's own look
+ * is free and its yaw eases back the same way. Native mounts (a rotorcraft,
+ * a flyer's cloud) fly where the rider looks, so their camera follows the
+ * rider's look as before - the view IS the direction of travel. Everything is
+ * cleared on dismount. If the free camera is rejected, the vanilla third
+ * person stands in.
  */
-function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchProperty?: string; hop?: { claimTag: string; graceTicks: number } }) {
+function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof freeLookStep, lookStart: typeof freeLookStart) {
   const byType = new Map(config.vehicles.map((v: any) => [v.typeId, v] as const));
   /**
    * Whether the player HOPPED off within the grace (scripts/hop.js, bedrock-ride-hop.ts): the hop handed
@@ -1911,6 +1932,14 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     } catch { return false; }
   };
   const tracked = new Map<string, { typeId: string; chase: boolean }>();
+  /** Each rider's free look (vehicle-free-look.ts), the vehicle position it last saw (for the speed), and the yaw it set on the rider. */
+  const looks = new Map<string, { look: any; at?: { x: number; y: number; z: number }; selfYaw: number; lookPitch?: number }>();
+  const telemetry = { on: false, every: 20 };
+  try {
+    system.afterEvents.scriptEventReceive.subscribe((ev: any) => {
+      if (ev.id === config.telemetryEvent) { const m = String(ev.message || '').trim(); telemetry.on = m !== 'off'; telemetry.every = m === 'fast' ? 4 : 20; }
+    }, { namespaces: ['craftmatic'] });
+  } catch {}
   const dimensions = () => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   const applyPreset = (player: any, preset: string): boolean => {
     try { player.camera.setCamera(preset); return true; } catch {}
@@ -1925,13 +1954,16 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
   const NATIVE_SCHEME = 'player_relative';
   /** A seated player's head top over its eye, and the clearance the chase camera's line of sight keeps over it, blocks. */
   const HEAD_ABOVE_EYE = 0.22, HEAD_CLEAR = 0.25;
-  const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean): boolean => {
+  const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean, offset: { yaw: number; pitch: number }): boolean => {
     let yaw = 0, pitch = 0;
     try { const r = player.getRotation(); yaw = r.y; pitch = r.x; } catch {}
     if (cfg.scripted) {
-      // A scripted aircraft: the view is the AIRCRAFT's heading and nose, not the rider's look.
+      // A scripted vehicle: the view is the vehicle's heading and nose turned by the rider's free look
+      // (a drag orbits it; it eases back behind the nose a second after the last drag while moving).
       try { yaw = vehicle.getRotation().y; } catch {}
       try { pitch = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch { pitch = 0; }
+      yaw += offset.yaw;
+      pitch = Math.max(-80, Math.min(80, pitch + offset.pitch));
     }
     const rad = yaw * Math.PI / 180;
     // Bedrock yaw: 0 faces +Z, 90 faces -X; forward = (-sin, cos).
@@ -1953,6 +1985,8 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
         const headTop = v.y + cfg.eyeY * size + HEAD_ABOVE_EYE + HEAD_CLEAR;
         location.y = Math.max(location.y, 2 * headTop - facingLocation.y);
       }
+      // A view dragged upward swings the boom low: keep the camera over the vehicle's base.
+      location.y = Math.max(location.y, v.y + 0.5);
     } else if (cfg.kind === 'plane') {
       // Aircraft: the camera looks along the rider's exact yaw AND pitch, so
       // `free_camera_controlled` (flies where the camera looks) and the
@@ -1994,6 +2028,46 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
     }
     for (const [id, { player, vehicle, cfg }] of riding) {
       const t = tracked.get(id);
+      // The free look (scripted vehicles): read the rider's look and the vehicle's motion, move or ease the offsets.
+      let fl = looks.get(id);
+      if (!t || t.typeId !== cfg.typeId || !fl) { fl = { look: lookStart(), selfYaw: 0 }; looks.set(id, fl); }
+      let offset = { yaw: 0, pitch: 0 }, dragging = false, recentring = false;
+      let cockpit = false;
+      try { cockpit = player.selectedSlotIndex === 8; } catch {}
+      if (cfg.scripted) {
+        let pr: any = { x: 0, y: 0 }, vy = 0, at: any;
+        try { pr = player.getRotation(); } catch {}
+        try { vy = vehicle.getRotation().y; at = vehicle.location; } catch {}
+        const speed = fl.at && at ? Math.hypot(at.x - fl.at.x, at.z - fl.at.z) * 20 : 0;
+        fl.at = at ? { x: at.x, y: at.y, z: at.z } : fl.at;
+        const step = look(fl.look, { playerYaw: Number(pr.y) || 0, playerPitch: Number(pr.x) || 0, vehicleYaw: vy, speed, selfYaw: fl.selfYaw }, config.freeLook, 0.05);
+        fl.look = step.state; fl.selfYaw = 0;
+        dragging = step.dragging; recentring = step.recentring;
+        offset = { yaw: fl.look.yaw, pitch: fl.look.pitch };
+        if (cockpit) {
+          // First person: the rider's own look IS the view. Ease its yaw back by turning the rider (yaw
+          // applies on a seated player; pitch does not, pinball 2026-09-25) and keep the offsets on it,
+          // so the chase camera takes over from the same view.
+          const rel = ((Number(pr.y) - vy + 540) % 360) - 180;
+          if (recentring && Math.abs(rel) > config.freeLook.MIN_STEP_DEG) {
+            const k = 1 - Math.exp(-0.05 / config.freeLook.RECENTRE_SECONDS);
+            const next = rel - Math.sign(rel) * Math.max(Math.abs(rel) * k, config.freeLook.MIN_STEP_DEG);
+            try { player.setRotation({ x: Number(pr.x) || 0, y: vy + next }); fl.selfYaw = next - rel; } catch {}
+          }
+          fl.look = { ...fl.look, yaw: rel + fl.selfYaw };
+        }
+        // The view's pitch for a ship's "look down + Jump" (bedrock-vehicle.ts `flightStep`): the chase
+        // camera's dragged pitch over the vehicle's nose, or in first person the rider's own.
+        let nose = 0;
+        try { nose = -Number(vehicle.getProperty(config.pitchProperty)) || 0; } catch {}
+        const viewPitch = Math.round((cockpit ? Number(pr.x) || 0 : nose + fl.look.pitch) * 10) / 10;
+        if (fl.lookPitch === undefined || Math.abs(viewPitch - fl.lookPitch) >= 0.5) {
+          try { vehicle.setDynamicProperty(config.lookPitchProperty, viewPitch); fl.lookPitch = viewPitch; } catch {}
+        }
+        if (telemetry.on && Number(system.currentTick) % telemetry.every === 0) {
+          try { console.warn(`CMCAM ${JSON.stringify({ type: vehicle.typeId, t: Number(system.currentTick), mode: cockpit ? 'cockpit' : 'chase', riderYaw: Math.round(Number(pr.y) * 10) / 10, riderPitch: Math.round(Number(pr.x) * 10) / 10, vehicleYaw: Math.round(vy * 10) / 10, yawOff: Math.round(fl.look.yaw * 10) / 10, pitchOff: Math.round(fl.look.pitch * 10) / 10, dragging, recentring, speed: Math.round(speed * 10) / 10, viewPitch })}`); } catch {}
+        }
+      }
       // Every vehicle, aircraft included, is steered with the joystick under
       // `player_relative` (left/right turns the rider) and watched from the
       // script-driven chase camera. Before 2026-09-16 an aircraft kept the
@@ -2019,15 +2093,13 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
       // Hotbar slot 9 is the COCKPIT view: the chase camera steps aside and the
       // rider sees from the seat (their own first person). Sneak is Dismount and
       // Jump is the vehicle's, so a hotbar slot is the one free touch input.
-      let cockpit = false;
-      try { cockpit = player.selectedSlotIndex === 8; } catch {}
       const now = tracked.get(id);
       if (cockpit) {
         if (now && now.chase) { try { player.camera.clear(); } catch {} now.chase = false; }
         continue;
       }
       if (now) now.chase = true;
-      if (!chase(player, vehicle, cfg, size, !hidden.has(id)) && !t) applyPreset(player, cfg.preset);
+      if (!chase(player, vehicle, cfg, size, !hidden.has(id), offset) && !t) applyPreset(player, cfg.preset);
     }
     schemeTick++;
     if (tracked.size) {
@@ -2040,14 +2112,16 @@ function vehicleCameraRuntime(config: { vehicles: VehicleCameraConfig[]; pitchPr
         if (player && hidden.has(id)) { try { player.removeEffect('invisibility'); } catch {} }
         hidden.delete(id);
         tracked.delete(id);
+        looks.delete(id);
       }
     }
   }, 1);
-  try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => tracked.delete(ev.playerId)); } catch {}
+  try { world.afterEvents?.playerLeave?.subscribe?.((ev: any) => { tracked.delete(ev.playerId); looks.delete(ev.playerId); }); } catch {}
 }
 
-const vehicleCameraScript = (config: { vehicles: VehicleCameraConfig[]; pitchProperty?: string; hop?: { claimTag: string; graceTicks: number } }) =>
-  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)});\n`;
+/** `scripts/vehicle-camera.js`: the chase camera and free look runtime with its config (exported for the runtime tests). */
+export const vehicleCameraScript = (config: VehicleCameraRuntimeConfig) =>
+  `import { world, system } from "@minecraft/server";\n(${vehicleCameraRuntime.toString()})(${JSON.stringify(config)}, ${freeLookStep.toString()}, ${freeLookStart.toString()});\n`;
 
 function blockRgb(state: string): [
     number,
@@ -3390,13 +3464,13 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript(vehicleDriverConfig(driverVehicles))) });
     if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
-    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS } })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
     // HOP (bedrock-ride-hop.ts): fly or drive one of this pack's driveables into another mountable and ride that.
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;
     if (hasHop) files.push({ name: `${bp}scripts/hop.js`, data: text(hopScript(hopRuntimeConfig(PACK_NAMESPACE, hopSources))) });
     if (Object.keys(scriptedTypes).length) files.push({ name: `${bp}scripts/vehicles.js`, data: text(scriptedVehicleScript({
-        types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, headlights: HEADLIGHTS,
+        types: scriptedTypes, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, move: MOVE, headlights: HEADLIGHTS,
         props: FLIGHT_PROPS, dynamic: VEHICLE_DYNAMIC,
         // The shell's colliders are solid only over their lo..hi sixteenths: a car drives ON a plate floor, not a block above it.
         ...(placementColliders ? { colliders: { block: placementColliders.block, loState: placementColliders.loState, hiState: placementColliders.hiState } } : {}),

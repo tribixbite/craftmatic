@@ -4,90 +4,99 @@
  */
 import { describe, expect, it } from 'vitest';
 import { vehicleWheelAssemblies, type VehicleWheelBone } from '../web/src/engine/ldraw-entity-compiler.js';
-import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, VEHICLE_DYNAMIC, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
+import { BOAT, boatStep, CAR, carStep, type CarState, type CarTerrain, FLIGHT, FLIGHT_PROPS, flightStep, FOOTPRINT, HEADLIGHTS, HOVER, HOVER_WORDS, MOVE, resolveMove, VEHICLE_DYNAMIC, headlightCell, isNightTime, scriptedVehicleScript, sweepFootprint, vehicleClientAnimation, vehicleMotionOf, type BoatState, type BoatWater, type FlightInput, type FlightState, type ScriptedVehicleConfig, type ScriptedVehicleType, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
 
 /** Fly `ticks` ticks over flat ground at y = 0 (nothing in the way), returning every state. */
 function fly(s: FlightState, input: (t: number, s: FlightState) => FlightInput, ticks: number, ground: number | null = 0): { states: FlightState[]; events: string[] } {
   const states: FlightState[] = [], events: string[] = [];
   for (let t = 0; t < ticks; t++) {
-    const r = flightStep(s, input(t, s), { ground, groundAhead: ground, blocked: false }, FLIGHT, 0.05);
+    const r = flightStep(s, input(t, s), { ground }, FLIGHT, 0.05);
     s = r.state; states.push(s);
     if (r.event) events.push(`${t}:${r.event}`);
   }
   return { states, events };
 }
-const parked: FlightState = { x: 0, y: 0, z: 0, yaw: -90, pitch: 0, speed: 0, throttle: 0, onGround: true, stalled: false, bank: 0 };
-const held = (x: number, y: number, jump: boolean) => (): FlightInput => ({ x, y, jump, rider: true });
+const parked: FlightState = { x: 0, y: 0, z: 0, yaw: -90, pitch: 0, speed: 0, vy: 0, onGround: true, bank: 0, jumpHeld: false, diving: false };
+const aloft: FlightState = { ...parked, y: 20, onGround: false };
+const held = (x: number, y: number, jump: boolean, lookPitch?: number) => (): FlightInput => ({ x, y, jump, rider: true, ...(lookPitch === undefined ? {} : { lookPitch }) });
 
-describe('fixed-wing flight model', () => {
+describe('spaceship flight model (every scripted aircraft)', () => {
   it('stays parked with nobody at the controls and with a rider who does nothing', () => {
     expect(fly(parked, () => ({ x: 0, y: 0, jump: false, rider: false }), 40).states.at(-1)).toMatchObject({ x: 0, y: 0, speed: 0, onGround: true });
     expect(fly(parked, held(0, 0, false), 40).states.at(-1)).toMatchObject({ speed: 0, onGround: true });
   });
-  it('takes off on Jump alone, within about ten blocks of run, heading +x at yaw -90', () => {
-    const { states, events } = fly(parked, held(0, 0, true), 100);
-    const lift = events.find(e => e.endsWith('takeoff'));
-    expect(lift).toBeDefined();
-    const at = states[Number(lift!.split(':')[0])]!;
-    expect(at.x).toBeGreaterThan(4);
-    expect(at.x).toBeLessThan(16);
-    expect(Math.abs(at.z)).toBeLessThan(0.01);
-    expect(states.at(-1)!.y).toBeGreaterThan(1);
+  it('goes STRAIGHT UP on Jump from the ground, with no take-off run', () => {
+    const { states, events } = fly(parked, held(0, 0, true), 40);
+    expect(events[0]).toBe('0:takeoff');
+    const end = states.at(-1)!;
+    expect(end.y).toBeGreaterThan(FLIGHT.CLIMB_SPEED * 2 * 0.8);
+    expect(Math.hypot(end.x, end.z)).toBeLessThan(1e-9);
   });
-  it('rotates earlier when the stick is pulled back at take-off speed, and brakes below it', () => {
-    const pulled = fly(parked, (t) => ({ x: 0, y: t > 20 ? -1 : 0, jump: true, rider: true }), 100).events.find(e => e.endsWith('takeoff'));
-    const alone = fly(parked, held(0, 0, true), 100).events.find(e => e.endsWith('takeoff'));
-    expect(Number(pulled!.split(':')[0])).toBeLessThan(Number(alone!.split(':')[0]));
-    const rolling: FlightState = { ...parked, speed: 6, throttle: 0 };
-    const braked = fly(rolling, held(0, -1, false), 10).states.at(-1)!.speed;
-    const coasted = fly(rolling, held(0, 0, false), 10).states.at(-1)!.speed;
-    expect(braked).toBeLessThan(coasted);
+  it('HOVERS hands off: no stall, no sink, no glide (a rider aboard)', () => {
+    const end = fly(aloft, held(0, 0, false), 200).states.at(-1)!;
+    expect(end).toMatchObject({ x: 0, y: 20, z: 0, speed: 0, onGround: false });
+    // From full speed hands off it stops within BRAKE's time and holds its height.
+    const fast = fly({ ...aloft, speed: FLIGHT.MAX_SPEED }, held(0, 0, false), 60).states.at(-1)!;
+    expect(fast.speed).toBe(0);
+    expect(fast.y).toBe(20);
   });
-  it('climbs with the stick back, dives with it forward, and holds cruise hands off', () => {
-    const cruise: FlightState = { ...parked, y: 30, speed: 20, throttle: FLIGHT.CRUISE_THROTTLE, onGround: false };
-    expect(fly(cruise, held(0, -1, false), 40).states.at(-1)!.y).toBeGreaterThan(33);
-    expect(fly(cruise, held(0, 1, false), 40).states.at(-1)!.y).toBeLessThan(27);
-    const level = fly(cruise, held(0, 0, false), 200).states.at(-1)!;
-    expect(Math.abs(level.y - 30)).toBeLessThan(1);
-    expect(level.speed).toBeGreaterThan(FLIGHT.STALL_SPEED * 2);
+  it('flies forward on the stick and straight BACKWARDS on the stick pulled back, along the heading (yaw -90 is +x)', () => {
+    const ahead = fly(aloft, held(0, 1, false), 60).states.at(-1)!;
+    expect(ahead.x).toBeGreaterThan(10);
+    expect(ahead.speed).toBeCloseTo(FLIGHT.MAX_SPEED, 5);
+    expect(ahead.y).toBe(20);
+    const back = fly(aloft, held(0, -1, false), 60).states.at(-1)!;
+    expect(back.x).toBeLessThan(-4);
+    expect(back.speed).toBeCloseTo(-FLIGHT.REVERSE_SPEED, 5);
+    expect(back.y).toBe(20);
   });
-  it('turns right on a right stick (x = -1 in Minecraft), banking right while it does', () => {
-    const cruise: FlightState = { ...parked, y: 30, speed: 20, throttle: FLIGHT.CRUISE_THROTTLE, onGround: false };
-    const turned = fly(cruise, held(FLIGHT.STICK_X_RIGHT, 0, false), 20).states.at(-1)!;
-    expect(turned.yaw).toBeGreaterThan(-90 + 30);
-    expect(turned.bank).toBeGreaterThan(10);
+  it('goes STRAIGHT DOWN on Jump with the stick pulled back, and lands on the ground', () => {
+    const { states, events } = fly(aloft, held(0, -1, true), 120);
+    const end = states.at(-1)!;
+    expect(end).toMatchObject({ y: 0, onGround: true });
+    expect(Math.abs(end.x)).toBeLessThan(1e-9);
+    expect(events.some(e => e.endsWith(':landing'))).toBe(true);
+    expect(Math.min(...states.map(s => s.vy))).toBeCloseTo(-FLIGHT.DESCEND_SPEED, 5);
   });
-  it('stalls when too slow: the nose drops and it sinks', () => {
-    const slow: FlightState = { ...parked, y: 30, speed: 4, pitch: 20, throttle: 0, onGround: false };
-    const { states, events } = fly(slow, held(0, -1, false), 20);
-    expect(events[0]).toBe('0:stall');
-    expect(states.at(-1)!.pitch).toBeLessThan(0);
-    expect(states.at(-1)!.y).toBeLessThan(30);
+  it('goes down on a Jump PRESSED while the view looks down, and keeps going down while it is held', () => {
+    // Pressed looking down past DIVE_PITCH_DEG: down, even after the view comes back up (the camera's ease).
+    const down = fly(aloft, (t) => ({ x: 0, y: 0, jump: true, rider: true, lookPitch: t < 2 ? FLIGHT.DIVE_PITCH_DEG + 10 : 0 }), 30).states.at(-1)!;
+    expect(down.y).toBeLessThan(20 - 2);
+    // Pressed looking level: up, even if the view later drops.
+    const up = fly(aloft, (t) => ({ x: 0, y: 0, jump: true, rider: true, lookPitch: t < 2 ? 0 : 60 }), 30).states.at(-1)!;
+    expect(up.y).toBeGreaterThan(20 + 2);
+    // Let go and press again level: up again.
+    const again = fly(aloft, (t) => ({ x: 0, y: 0, jump: t < 10 || t >= 12, rider: true, lookPitch: t < 10 ? 60 : 0 }), 40).states.at(-1)!;
+    expect(again.vy).toBeGreaterThan(0);
   });
-  it('lands on the ground under it, gently or hard, and then rolls to a stop', () => {
-    // A little forward stick until the wheels touch, then hands off.
-    const approach: FlightState = { ...parked, y: 5, speed: 14, pitch: -4, throttle: 0.3, onGround: false };
-    const { states, events } = fly(approach, (_t, s) => ({ x: 0, y: s.onGround ? 0 : 0.3, jump: false, rider: true }), 400);
-    const touch = states.findIndex(s => s.onGround);
-    expect(states[touch - 1]!.speed).toBeGreaterThan(FLIGHT.STALL_SPEED);
-    expect(Math.hypot(states.at(-1)!.x - states[touch]!.x, states.at(-1)!.z - states[touch]!.z)).toBeLessThan(40);
+  it('turns on the stick at rest too (a right stick is x = -1 in Minecraft), banking into the turn aloft', () => {
+    const pivot = fly(aloft, held(FLIGHT.STICK_X_RIGHT, 0, false), 20).states.at(-1)!;
+    expect(pivot.yaw).toBeCloseTo(-90 + FLIGHT.TURN_RATE, 0);
+    expect(pivot.bank).toBeGreaterThan(10);
+    expect(Math.hypot(pivot.x, pivot.z)).toBeLessThan(1e-9);
+  });
+  it('with nobody aboard it brakes and sinks gently to the ground, and parks', () => {
+    const { states, events } = fly({ ...aloft, speed: 10 }, () => ({ x: 0, y: 0, jump: false, rider: false }), 200);
     expect(events.some(e => e.endsWith(':landing'))).toBe(true);
     expect(states.at(-1)).toMatchObject({ y: 0, onGround: true, speed: 0 });
-    const dive: FlightState = { ...parked, y: 12, speed: 30, pitch: -40, throttle: 1, onGround: false };
-    expect(fly(dive, held(0, 1, true), 40).events.some(e => e.endsWith(':hard_landing'))).toBe(true);
+    expect(Math.min(...states.map(s => s.vy))).toBeGreaterThanOrEqual(-FLIGHT.IDLE_SINK - 1e-9);
   });
-  it('stops at a block in the way', () => {
-    const r = flightStep({ ...parked, speed: 8 }, { x: 0, y: 0, jump: true, rider: true }, { ground: 0, groundAhead: 0, blocked: true }, FLIGHT, 0.05);
-    expect(r.event).toBe('crash');
-    expect(r.state).toMatchObject({ x: 0, z: 0, speed: 0 });
+  it('glides over a rise of a step under it on the ground, and hovers off an edge', () => {
+    // Moving onto a step 1 block up: the ground under it rises and it stands on it.
+    const step = flightStep({ ...parked, speed: 5 }, { x: 0, y: 1, jump: false, rider: true }, { ground: 1 }, FLIGHT, 0.05).state;
+    expect(step).toMatchObject({ y: 1, onGround: true });
+    // Off an edge with a rider aboard: it holds its height (a spaceship does not fall).
+    const edge = fly({ ...parked, speed: 5 }, held(0, 1, false), 20, -10).states.at(-1)!;
+    expect(edge).toMatchObject({ y: 0, onGround: false });
   });
-  it('serialises the runtime with the model in it and nothing outside it', () => {
+  it('serialises the runtime with the models in it and nothing outside it', () => {
     const js = scriptedVehicleScript(hostConfig({ 'craftmatic:p': { mode: 'plane', noseReach: 4, halfWidth: 3, height: 2 } }));
     expect(js).toContain('function flightStep');
     expect(js).toContain('function boatStep');
     expect(js).toContain('function carStep');
     expect(js).toContain('function sweepFootprint');
+    expect(js).toContain('function resolveMove');
     expect(js).toContain('function isNightTime');
     expect(js).toContain('function headlightCell');
     expect(js).not.toMatch(/__name|import_/);
@@ -208,12 +217,12 @@ describe('boat model', () => {
   });
 });
 
-/** Drive `ticks` ticks over ground whose height at world x is `groundAt(x)` (flat 0 by default). */
-function drive(s: CarState, input: (t: number, s: CarState) => FlightInput, ticks: number, groundAt: (x: number) => number = () => 0, wall = (_s: CarState) => false) {
+/** Drive `ticks` ticks over ground whose height at world x is `groundAt(x)` (flat 0 by default). Walls are the runtime's (`resolveMove`), not the step's. */
+function drive(s: CarState, input: (t: number, s: CarState) => FlightInput, ticks: number, groundAt: (x: number) => number = () => 0) {
   const states: CarState[] = [], events: string[] = [];
   for (let t = 0; t < ticks; t++) {
     const nose = s.x + 1.5, tail = s.x - 1.5;
-    const terrain: CarTerrain = { ground: groundAt(s.x), groundFront: groundAt(nose), groundRear: groundAt(tail), blockedFront: wall(s) || groundAt(nose) - s.y > CAR.STEP_UP, blockedRear: false, inWater: false, wheelbase: 3 };
+    const terrain: CarTerrain = { ground: groundAt(s.x), groundFront: groundAt(nose), groundRear: groundAt(tail), inWater: false, wheelbase: 3 };
     const r = carStep(s, input(t, s), terrain, CAR, 0.05);
     s = r.state; states.push(s);
     if (r.event) events.push(`${t}:${r.event}`);
@@ -240,21 +249,21 @@ describe('car model', () => {
     expect(back.speed).toBeCloseTo(-CAR.REVERSE_SPEED, 5);
     expect(back.x).toBeLessThan(0);
   });
-  it('steers right on a right stick while moving (not at rest), reverses the steering backing up, and leans out of the turn', () => {
-    expect(drive(parkedCar, held(CAR.STICK_X_RIGHT, 0, false), 20).states.at(-1)!.yaw).toBe(-90);
+  it('steers right on a right stick while moving, pivots slowly at rest, reverses the steering backing up, and leans out of the turn', () => {
+    // At a standstill it pivots on the spot (out of a corner or a wedge), at PIVOT_RATE, without moving.
+    const pivot = drive(parkedCar, held(CAR.STICK_X_RIGHT, 0, false), 20).states.at(-1)!;
+    expect(pivot.yaw).toBeCloseTo(-90 + CAR.PIVOT_RATE, 5);
+    expect(Math.hypot(pivot.x, pivot.z)).toBe(0);
     const turning = drive({ ...parkedCar, speed: 8 }, held(CAR.STICK_X_RIGHT, 1, false), 20).states.at(-1)!;
     expect(turning.yaw).toBeGreaterThan(-90 + 30);
     expect(turning.bank).toBeLessThan(0);
     const backing = drive({ ...parkedCar, speed: -4 }, held(CAR.STICK_X_RIGHT, -1, false), 20).states.at(-1)!;
     expect(backing.yaw).toBeLessThan(-90);
   });
-  it('climbs a one-block step, stops at a two-block wall, and falls off an edge', () => {
+  it('climbs a one-block step and falls off an edge (a wall is the runtime\'s: see "the vehicle runtime against blocks")', () => {
     const step = drive(parkedCar, held(0, 1, false), 60, x => (x > 4 ? 1 : 0));
     expect(step.states.at(-1)!.y).toBe(1);
     expect(step.states.at(-1)!.x).toBeGreaterThan(8);
-    const wall = drive(parkedCar, held(0, 1, false), 60, x => (x > 4 ? 2 : 0));
-    expect(wall.events.some(e => e.endsWith('blocked'))).toBe(true);
-    expect(wall.states.at(-1)!.x).toBeLessThan(4);
     const edge = drive({ ...parkedCar, speed: 10, y: 3 }, held(0, 1, false), 30, x => (x < 2 ? 3 : 0));
     expect(edge.states.at(-1)).toMatchObject({ y: 0, onGround: true });
     expect(edge.events.some(e => e.endsWith('landed'))).toBe(true);
@@ -270,7 +279,7 @@ describe('car model', () => {
 
 /** The runtime's config for a set of types, with the pack's real constants. */
 function hostConfig(types: Record<string, ScriptedVehicleType>, extra: Partial<ScriptedVehicleConfig> = {}): ScriptedVehicleConfig {
-  return { types, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, headlights: HEADLIGHTS, props: FLIGHT_PROPS, dynamic: VEHICLE_DYNAMIC, inputEvent: 'craftmatic:flight_input', telemetryEvent: 'craftmatic:vehicle_telemetry', ...extra };
+  return { types, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER, footprint: FOOTPRINT, move: MOVE, headlights: HEADLIGHTS, props: FLIGHT_PROPS, dynamic: VEHICLE_DYNAMIC, inputEvent: 'craftmatic:flight_input', telemetryEvent: 'craftmatic:vehicle_telemetry', ...extra };
 }
 
 interface HostOptions {
@@ -393,39 +402,167 @@ describe('swept footprint (sweepFootprint)', () => {
   });
 });
 
+describe('the collision response (resolveMove): never stuck', () => {
+  const cells = (list: string[]) => (x: number, y: number, z: number): boolean => list.includes(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`);
+  const fp = { halfLength: 2, halfWidth: 1.2, lo: 0.2, hi: 1.5 };
+  // Heading +x: the nose goes from x 1.5 to 2.1, into cell x = 2.
+  const from = { x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 };
+  const to = { ...from, x: 0.1 };
+  const car = { climb: 0, climbFirst: false };
+  it('takes a clear move as it is', () => {
+    expect(resolveMove(from, to, fp, () => false, FOOTPRINT, MOVE, car, sweepFootprint)).toMatchObject({ how: 'clear', kept: 1, pose: to });
+  });
+  it('steps AWAY from a trunk met by one half of the footprint, keeping its forward progress', () => {
+    // A trunk at the +z corner (the vehicle's right, heading +x), 0.3 into its width: it steps to -z and keeps going.
+    const shallow = { ...from, z: 0.1 };
+    const r = resolveMove(shallow, { ...shallow, x: 0.1 }, fp, cells(['2,64,1']), FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(r.how).toBe('deflect');
+    expect(r.pose.x).toBeCloseTo(0.1, 9);
+    expect(r.pose.z).toBeCloseTo(0.1 - MOVE.DEFLECT_SHARE * 0.6, 9);
+    // 0.7 into its width (more than one sidestep clears): it steps sideways where it stands, then on.
+    const deep = resolveMove(from, to, fp, cells(['2,64,1']), FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(deep.how).toBe('deflect');
+    expect(deep.pose.x).toBe(-0.5);
+    expect(deep.pose.z).toBeLessThan(0.5);
+  });
+  it('does not step sideways along a wall across the whole way (both halves blocked): it slides or stops', () => {
+    const wall = (x: number, y: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64;
+    const r = resolveMove(from, to, fp, wall, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(r.how).toBe('blocked');
+    expect(r.pose).toMatchObject({ x: -0.5, z: 0.5 });
+  });
+  it('slides along a wall met at an angle, keeping the share of the move along it', () => {
+    // A wall along x at z = 2 (cells z = 2), the move 30 degrees toward it.
+    const wall = (_x: number, y: number, z: number): boolean => Math.floor(z) === 2 && Math.floor(y) === 64;
+    const f = { x: 0, y: 64, z: 0.7, yaw: -60, pitch: 0 };
+    const d = 0.6, r0 = -60 * Math.PI / 180;
+    const t = { ...f, x: f.x - Math.sin(r0) * d, z: f.z + Math.cos(r0) * d };
+    const r = resolveMove(f, t, { ...fp, halfWidth: 0.5 }, wall, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(r.how).toBe('slide');
+    expect(r.pose.z).toBe(f.z);
+    expect(r.pose.x).toBeGreaterThan(f.x);
+    expect(r.kept).toBeGreaterThan(0.5);
+    expect(r.kept).toBeLessThan(1);
+  });
+  it('climbs (a ship: over it first) or rises (straight up at the face) with a climb allowance; keeps the turn when only the turn is clear', () => {
+    const low = (x: number, y: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64;
+    const ship = { climb: 0.4, climbFirst: true };
+    const shipFp = { ...fp, lo: 0.1 };
+    // Against a one-block wall: lifted 0.4 the band's bottom (64.5) is still in it, so it rises in place.
+    const rise = resolveMove(from, to, shipFp, low, FOOTPRINT, MOVE, ship, sweepFootprint);
+    expect(rise.how).toBe('rise');
+    expect(rise.pose.x).toBe(-0.5);
+    expect(rise.pose.y).toBeCloseTo(64.4, 9);
+    // From 64.6 lifted 0.4 the band's bottom (65.1) clears the wall's top at 65: over it, forward.
+    const high = { ...from, y: 64.6 };
+    const over = resolveMove(high, { ...high, x: 0.1 }, shipFp, low, FOOTPRINT, MOVE, ship, sweepFootprint);
+    expect(over.how).toBe('climb');
+    expect(over.pose.x).toBe(0.1);
+    expect(over.pose.y).toBeCloseTo(65, 9);
+    // A turn with the move: blocked forward, the turn alone clear - it keeps the turn.
+    const wall = (x: number, y: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64;
+    const r = resolveMove(from, { ...to, yaw: -80 }, fp, wall, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(r.how).toBe('blocked');
+    expect(r.pose).toMatchObject({ x: -0.5, z: 0.5, yaw: -80 });
+  });
+});
+
 describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulator)', () => {
   const car: ScriptedVehicleType = { mode: 'car', noseReach: 2, halfWidth: 1.2, height: 1.5 };
-  it('stops a car at a trunk by its corner, where the old centre-line probe drove through it', () => {
+  /** Whether a pose's footprint rectangle (heading +x) overlaps a block cell [cx, cx+1] x [cz, cz+1] over the band's heights. */
+  const overlapsCell = (p: { x: number; z: number }, half: { l: number; w: number }, cx: number, cz: number): boolean =>
+    p.x + half.l > cx + 1e-3 && p.x - half.l < cx + 1 - 1e-3 && p.z + half.w > cz + 1e-3 && p.z - half.w < cz + 1 - 1e-3;
+  it('steps a car round a trunk it meets with its corner, never through it (the old sweep stopped it dead there; the centre line drove through)', () => {
     const trunk = { fills: [{ from: [12, 64, 1] as [number, number, number], to: [12, 69, 1] as [number, number, number], id: 'minecraft:oak_log' }] };
     const wide = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, ...trunk });
     wide.set(0, 1);
     wide.run(100);
-    // The nose (x + 2) stops at the trunk's face, x = 12.
-    expect(wide.entity.location.x + car.noseReach).toBeLessThanOrEqual(12.05);
-    expect(wide.entity.location.x + car.noseReach).toBeGreaterThan(11);
-    // A centre-line-only car (no half width) passes the same trunk.
-    const narrow = vehicleHost({ type: { ...car, halfWidth: 0.05 }, at: { x: 0.5, y: 64, z: 0.5 }, ...trunk });
-    narrow.set(0, 1);
-    narrow.run(100);
-    expect(narrow.entity.location.x).toBeGreaterThan(14);
+    // It got past the trunk, stepped AWAY from the side it hit (the trunk is at +z: it moved to -z) ...
+    expect(wide.entity.location.x).toBeGreaterThan(16);
+    expect(wide.entity.location.z).toBeLessThan(0.5 - 0.5);
+    // ... and no pose put its body into the trunk's cell.
+    expect(wide.poses.filter(p => overlapsCell(p, { l: car.noseReach, w: car.halfWidth }, 12, 1))).toEqual([]);
   });
-  it('stops a taxiing aircraft by a wingtip', () => {
+  it('steps a ship round a post met by its wingtip, never through it', () => {
     const plane: ScriptedVehicleType = { mode: 'plane', noseReach: 3, halfWidth: 4, height: 2.5 };
     const host = vehicleHost({ type: plane, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [9, 64, 4], to: [9, 70, 4], id: 'minecraft:oak_log' }] });
-    host.set(0, 0, true);
-    host.run(120);
-    // The wingtip reaches z = 4.5: the post at x = 9 stops the leading edge (x + 3) at 9.
-    expect(host.entity.location.x + plane.noseReach).toBeLessThanOrEqual(9.05);
-    expect(host.entity.location.x).toBeGreaterThan(2);
+    host.set(0, 1);
+    host.run(80);
+    expect(host.entity.location.x).toBeGreaterThan(14);
+    // Under the post's top (71) no pose overlaps it: it stepped round (or rose over) it.
+    expect(host.poses.filter(p => p.y + 1.05 < 71 && overlapsCell(p, { l: plane.noseReach, w: plane.halfWidth }, 9, 4))).toEqual([]);
   });
-  it('takes off a long aircraft without its tail striking the runway as it rotates (the band tilts about its low end)', () => {
-    // The Milano: 16 long, 30 wide, 8.8 tall. Tilted about its centre at 12 degrees its tail dipped 1.7 blocks
-    // into the ground and every take-off roll stopped dead (Pixel GameTest, 2026-09-25).
+  it('lifts a ship straight up off the ground on Jump, the long Milano too (no take-off run, no tail strike)', () => {
+    // The Milano: 16 long, 30 wide, 8.8 tall.
     const milano: ScriptedVehicleType = { mode: 'plane', noseReach: 8, halfWidth: 15, height: 8.8 };
     const host = vehicleHost({ type: milano, at: { x: 0.5, y: 64, z: 0.5 } });
     host.set(0, 0, true);
+    host.run(60);
+    expect(host.entity.location.y).toBeGreaterThan(64 + FLIGHT.CLIMB_SPEED * 2);
+    expect(Math.abs(host.entity.location.x - 0.5)).toBeLessThan(1e-6);
+    expect(host.bars.some(b => /JUMP: UP/.test(b))).toBe(true);
+  });
+  it('lifts a ship over a wall it is flown into, without Jump (the old one stopped dead at it)', () => {
+    const plane: ScriptedVehicleType = { mode: 'plane', noseReach: 2, halfWidth: 1.5, height: 1.5 };
+    // A six-high wall across the path at x = 10.
+    const host = vehicleHost({ type: plane, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [10, 64, -6], to: [10, 69, 6], id: 'minecraft:stone' }] });
+    host.set(0, 1);
+    host.run(160);
+    expect(host.entity.location.x).toBeGreaterThan(14);
+    expect(Math.max(...host.poses.map(p => p.y))).toBeGreaterThanOrEqual(70 - 1e-6);
+    expect(host.poses.filter(p => p.y < 70 - 1e-6 && overlapsCell(p, { l: plane.noseReach, w: plane.halfWidth }, 10, 0))).toEqual([]);
+  });
+  it('stops a ship going straight up under a roof instead of passing through it', () => {
+    const plane: ScriptedVehicleType = { mode: 'plane', noseReach: 2, halfWidth: 1.5, height: 1.5 };
+    const host = vehicleHost({ type: plane, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [-5, 70, -5], to: [5, 70, 5], id: 'minecraft:stone' }] });
+    host.set(0, 0, true);
+    host.run(80);
+    // Its top (y + 1.5 - 0.1, the band's top) stays under the roof's underside at 70.
+    expect(Math.max(...host.poses.map(p => p.y))).toBeLessThanOrEqual(70 - 1.4 + 1e-6);
+  });
+  it('sinks an empty ship gently to the ground and parks it (an abandoned ship stays within reach)', () => {
+    const plane: ScriptedVehicleType = { mode: 'plane', noseReach: 2, halfWidth: 1.5, height: 1.5 };
+    const host = vehicleHost({ type: plane, at: { x: 0.5, y: 64, z: 0.5 } });
+    host.set(0, 0, true);
+    host.run(40);
+    expect(host.entity.location.y).toBeGreaterThan(68);
+    host.dismount();
     host.run(200);
-    expect(Math.max(...host.poses.map(p => p.y))).toBeGreaterThan(66);
+    expect(host.entity.location.y).toBeCloseTo(64, 5);
+  });
+  it('drives a car out of a two-deep pit by scrambling up its far wall (the old car sat in it for ever)', () => {
+    // A pit 2 deep (floor 62), 6 long along +x (x 6..11), wide across the path.
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [6, 62, -6], to: [11, 63, 6], id: 'minecraft:air' }] });
+    host.set(0, 1);
+    host.run(200);
+    expect(Math.min(...host.poses.map(p => p.y))).toBeLessThan(63);
+    expect(host.entity.location.x).toBeGreaterThan(16);
+    expect(host.entity.location.y).toBeCloseTo(64, 5);
+  });
+  it('slides a car along a wall it meets at an angle instead of stopping dead', () => {
+    // A wall along x (z = 3), the car heading 20 degrees off +x toward it (yaw -70 turns toward +z).
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, yaw: -70, fills: [{ from: [-10, 64, 3], to: [200, 66, 3], id: 'minecraft:stone' }] });
+    host.set(0, 1);
+    host.run(120);
+    expect(host.entity.location.x).toBeGreaterThan(14);
+    // Never into the wall: the car's widest reach across (its rectangle turned 20 degrees) stays under z = 3.
+    const reach = car.noseReach * Math.sin(20 * Math.PI / 180) + car.halfWidth * Math.cos(20 * Math.PI / 180);
+    expect(Math.max(...host.poses.map(p => p.z))).toBeLessThanOrEqual(3 - reach + 0.05);
+  });
+  it('stops a car at a wall too high to climb, and it backs and pivots out', () => {
+    const host = vehicleHost({ type: car, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [10, 64, -6], to: [10, 68, 6], id: 'minecraft:stone' }] });
+    host.set(0, 1);
+    host.run(100);
+    const stopped = host.entity.location.x;
+    expect(stopped + car.noseReach).toBeLessThanOrEqual(10.05);
+    expect(host.entity.location.y).toBeLessThanOrEqual(64 + CAR.RISE_MAX + 1e-6);
+    expect(host.bars.at(-1)).toMatch(/BLOCKED/);
+    // Back off, pivot a quarter turn at rest, and drive away along the wall.
+    host.set(0, -1); host.run(30);
+    host.set(CAR.STICK_X_RIGHT, 0); host.run(50);
+    host.set(0, 1); host.run(40);
+    expect(Math.hypot(host.entity.location.x - stopped, host.entity.location.z - 0.5)).toBeGreaterThan(5);
+    expect(host.entity.location.y).toBeCloseTo(64, 5);
   });
   it('drives ON a collider plate floor, at its sixteenth, not a block above it', () => {
     const colliders = { block: 'craftmatic:collider', loState: 'craftmatic:lo', hiState: 'craftmatic:hi' };

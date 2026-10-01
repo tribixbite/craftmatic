@@ -14,6 +14,10 @@
  *                doorway, ride, drive, fly, let figures live 5 minutes, Undo.
  *   regressions  the 2026-09-29 device-bug set: each on the pack the device ran
  *                and on `--new=<dir>`'s build; packs on the command line are ignored.
+ *   vehicles     every scripted car, hover craft and ship of each pack on the
+ *                vehicle course (web/src/sim/adapters/craftmatic/vehicle-course.ts):
+ *                stick forward into a step, a hill, a kerb, a wall, a tree, an
+ *                angled wall and two pits; a ship's spaceship controls; the free look.
  *   hop          several packs in ONE world (web/src/sim/adapters/craftmatic/hop.ts):
  *                a flyer's cloud flown into a moving coaster train (and into a full
  *                one), a car parked at a slide's foot slid into.
@@ -34,6 +38,7 @@ import { childPlay, craftmaticHandlers, type Snapshot } from '../web/src/sim/ada
 import { readCraftmaticPack, type CraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.ts';
 import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.ts';
 import { hopCases } from '../web/src/sim/adapters/craftmatic/hop.ts';
+import { courseMarkdown, vehicleCourseHandlers, vehicleScenarios, type CourseRow } from '../web/src/sim/adapters/craftmatic/vehicle-course.ts';
 import type { Scenario } from '../web/src/sim/scenario/types.ts';
 
 const args = process.argv.slice(2);
@@ -108,7 +113,42 @@ if (mode === 'hop') {
   process.exit(failed ? 1 : 0);
 }
 
-if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>]'); process.exit(2); }
+if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>]'); process.exit(2); }
+
+if (mode === 'vehicles') {
+  const reports: PackReport[] = [], rows: CourseRow[] = [];
+  for (const file of packs) {
+    const t0 = performance.now();
+    const report: PackReport = { pack: basename(file), results: [], ms: 0 };
+    try {
+      const addon = await load(file);
+      const pack = readCraftmaticPack(addon);
+      if (!pack) { report.error = 'not a craftmatic pack'; reports.push(report); continue; }
+      report.label = pack.placement.label;
+      const scenarios = vehicleScenarios(pack).filter(s => !only || s.name.includes(only));
+      console.log(`${report.pack}: ${scenarios.length} scripted vehicle(s)`);
+      for (const s of scenarios) {
+        const fresh = await load(file);
+        const p = readCraftmaticPack(fresh)!;
+        const r = await runScenario(s, [fresh], { handlers: { ...craftmaticHandlers(p, fresh), ...vehicleCourseHandlers(p) } });
+        report.results.push(r);
+        rows.push(...((r.state['course'] as CourseRow[] | undefined) ?? []));
+        if (r.status === 'fail' || r.status === 'error') failed++;
+        console.log(statusLine(r));
+        for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 220)}`);
+        for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
+        for (const n of r.notes) console.log(`      ${n.slice(0, 400)}`);
+      }
+    } catch (e) { report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
+    report.ms = Math.round(performance.now() - t0);
+    reports.push(report);
+  }
+  const table = courseMarkdown(rows, 'The vehicle course (stick forward only)');
+  console.log(`\n${table}`);
+  if (flag('md')) writeFileSync(flag('md')!, `${table}\n${markdownReport(reports)}`);
+  if (flag('json')) writeFileSync(flag('json')!, JSON.stringify({ course: rows, reports }, null, 1));
+  process.exit(failed ? 1 : 0);
+}
 
 let custom: ((pack: CraftmaticPack) => Scenario[]) | undefined;
 if (mode !== 'child-play') {
