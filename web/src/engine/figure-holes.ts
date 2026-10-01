@@ -13,7 +13,7 @@
  *
  * Pure (no DOM): shared by `scripts/_figure_holes.ts` and the figure tests.
  */
-import { apply, boneTransforms, mul, worldFaces, type Affine, type AuditActor, type GeoEntryLike, type Vec3 } from './bedrock-geometry-faces.js';
+import { apply, boneTransforms, drawnCubeBox, mul, worldFaces, type Affine, type AuditActor, type GeoEntryLike, type Vec3 } from './bedrock-geometry-faces.js';
 import type { LdrawPartMesh } from './ldraw-part-geometry.js';
 import type { ParsedBrick } from './ldraw-parser.js';
 import { assembleMinifig } from './minifig-rig.js';
@@ -483,10 +483,8 @@ export function entryFromCompiled(compiled: { value: unknown; meshes: ReadonlyAr
       for (const c of b.cubes ?? []) {
         const faceKey = c.uv && typeof c.uv === 'object' && !Array.isArray(c.uv) ? Object.keys(c.uv)[0] as 'north' : undefined;
         // The drawn box, as the pack reader (addon-appearance.ts) gives it; the declared size is what the UV floors.
-        const k = c.inflate ?? 0;
-        const origin: Vec3 = k ? [c.origin[0] - k, c.origin[1] - k, c.origin[2] - k] : c.origin;
-        const size: Vec3 = k ? [c.size[0] + 2 * k, c.size[1] + 2 * k, c.size[2] + 2 * k] : c.size;
-        cubes.push({ bone: b.name, origin, size, ...(k ? { uvSize: c.size } : {}), ...(c.rotation && c.pivot ? { rotation: c.rotation, pivot: c.pivot } : {}), ...(faceKey ? { faceUv: { face: faceKey, uv: [0, 0], size: [1, 1] } } : {}) });
+        const { origin, size, inflated } = drawnCubeBox(c);
+        cubes.push({ bone: b.name, origin, size, ...(inflated ? { uvSize: c.size } : {}), ...(c.rotation && c.pivot ? { rotation: c.rotation, pivot: c.pivot } : {}), ...(faceKey ? { faceUv: { face: faceKey, uv: [0, 0], size: [1, 1] } } : {}) });
       }
     }
     return { ldrawColor: m.faceAtlas ? null : m.material.colorId, alpha: m.material.alpha, cubes, ...(m.faceAtlas ? { texture: { path: 'faces' } } : {}) };

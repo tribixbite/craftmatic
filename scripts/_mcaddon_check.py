@@ -143,14 +143,13 @@ def check(path):
     # geometries the pack defines
     geo_ids = set()
     # Bedrock floors a box-UV cube's DECLARED size and does not draw a side face whose
-    # height floors to 0 (Pixel probe 2026-09-29, output/fig-faces-0929/probe/): a figure
-    # (and a creator slot) must declare every box-UV cube at least 1 unit on each axis
-    # (`boxUvSafeCube`: size + 2 with inflate -1). Other entities are counted, not gated.
-    # TODO(box-uv): gate every entity once the compiler applies the fix to all kinds.
-    thin_figure, thin_other = 0, 0
+    # height floors to 0 (Pixel probe 2026-09-29, output/fig-faces-0929/probe/): every
+    # entity geometry must declare every box-UV cube at least 1 unit on each axis
+    # (`boxUvSafeCube`: size + 2 with inflate -1). Figures since 2026-09-29; shells,
+    # vehicles and props since 2026-10-01 (42172's body showed its wheels through it).
+    thin_by_file = {}
     for n in [x for x in names if x.endswith('.geo.json')]:
         d = json.loads(z.read(n).decode('utf-8-sig'))
-        figure_geo = bool(re.search(r'_fig\d+\.geo\.json$|_mf_', n))
         for g in d.get('minecraft:geometry', []):
             gid = (g.get('description') or {}).get('identifier')
             if gid: geo_ids.add(gid)
@@ -158,10 +157,10 @@ def check(path):
                 for c in b.get('cubes') or []:
                     if not isinstance(c.get('uv'), list): continue
                     if any(s < 1 for s in c.get('size', [1, 1, 1])):
-                        if figure_geo: thin_figure += 1
-                        else: thin_other += 1
-    if thin_figure: problems.append(f'{thin_figure} figure box-UV cubes declare a size under 1 unit: the device drops their faces (declare size + 2 with inflate -1)')
-    if thin_other: notes.append(f'{thin_other} non-figure box-UV cubes declare a size under 1 unit (faces the device may not draw)')
+                        thin_by_file[n] = thin_by_file.get(n, 0) + 1
+    if thin_by_file:
+        worst = sorted(thin_by_file.items(), key=lambda kv: -kv[1])[:3]
+        problems.append(f'{sum(thin_by_file.values())} box-UV cubes in {len(thin_by_file)} geometr{"y" if len(thin_by_file) == 1 else "ies"} declare a size under 1 unit: the device drops their faces (declare size + 2 with inflate -1); worst: ' + ', '.join(f'{k.rsplit("/", 1)[-1]} {v}' for k, v in worst))
     tex_files = {x.rsplit('.', 1)[0] for x in names if x.endswith(('.png', '.tga'))}
     ents = [x for x in names if '/entity/' in x and x.endswith('.json')]
     n_client = 0

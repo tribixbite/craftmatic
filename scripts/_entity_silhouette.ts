@@ -23,6 +23,7 @@ import { synthesizeLSynth } from '../web/src/engine/lsynth.ts';
 import { seedDatTexts, setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { createPartGeometryProvider, type Vec3 } from '../web/src/engine/ldraw-part-geometry.ts';
 import { compileLdrawEntityGeometry } from '../web/src/engine/ldraw-entity-compiler.ts';
+import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.ts';
 import { discoverPlayableComponents } from '../web/src/engine/playable-components.ts';
 import { encodePngRgba } from '../web/src/engine/lego-resource-pack.ts';
 
@@ -129,7 +130,8 @@ for (const mesh of geo['minecraft:geometry']) for (const bone of mesh.bones) {
   const M = bone.rotation ? rot3(bone.rotation) : IDENT;
   for (const cube of bone.cubes) {
     cubeCount++;
-    const [ox, oy, oz] = cube.origin as [number, number, number], [sx, sy, sz] = cube.size as [number, number, number];
+    const drawn = drawnCubeBox(cube);
+    const [ox, oy, oz] = drawn.origin, [sx, sy, sz] = drawn.size;
     const min: Vec3 = [-(ox + sx), oy, oz], max: Vec3 = [-ox, oy + sy, oz + sz];
     const corner = (x: number, y: number, z: number): Vec3 => {
       const v: Vec3 = [x - pivot[0], y - pivot[1], z - pivot[2]];

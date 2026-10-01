@@ -5,6 +5,7 @@ import { LDRAW_COLOR_RGB } from '../web/src/engine/ldraw-colors.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { interactiveRig } from '../web/src/engine/bedrock-interactives.js';
 import type { CompiledMesh } from '../web/src/engine/ldraw-entity-compiler.js';
+import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 
 // ─── A tiny synthetic library ─────────────────────────────────────────────────
@@ -359,11 +360,32 @@ describe('compileLdrawEntityGeometry', () => {
     const cubes = allCubes(r.value as Geo);
     expect(cubes.length).toBeGreaterThan(3);
     expect(cubes.length).toBeLessThanOrEqual(r.diagnostics.quality.maxPartCubes);
-    const vol = cubes.reduce((n, c) => n + c.size[0]! * c.size[1]! * c.size[2]!, 0);
+    // The DRAWN volume: a cube under one unit is declared size + 2 with inflate -1 (`boxUvSafeCube`).
+    const vol = cubes.map(c => drawnCubeBox(c).size).reduce((n, s) => n + s[0] * s[1] * s[2], 0);
     const aabb = 20 * 24 * 40 * Math.pow(BEDROCK_UNITS_PER_LDU, 3);
     expect(vol / aabb).toBeGreaterThan(0.4);
     expect(vol / aabb).toBeLessThan(0.65);
     expect(r.diagnostics.aabbFallbackParts).toEqual([]);
+  });
+
+  it('declares every box-UV cube of a NON-figure entity at least one unit (the device floors it), drawing the same boxes', async () => {
+    // A tile's grain is 2 LDU = 0.6 units: sub-unit sides everywhere. Bedrock floors a box-UV
+    // cube's declared size and drops a side whose height floors to 0 (Pixel 2026-09-29); 42172's
+    // body showed its wheels through it on the device (user shot 2026-09-30).
+    const bricks: ParsedBrick[] = [{ part: '3040b.dat', color: 2, x: 0, y: 0, z: 0 }, { part: '3024.dat', color: 4, x: 40, y: 0, z: 0 }];
+    for (const kind of ['car', 'prop'] as const) {
+      const safe = await compileLdrawEntityGeometry('t', kind, bricks, { partGeometry: provider(), facing: '+z' });
+      const plain = await compileLdrawEntityGeometry('t', kind, bricks, { partGeometry: provider(), facing: '+z', boxUvFloorSafe: false });
+      const safeCubes = allCubes(safe.value as Geo), plainCubes = allCubes(plain.value as Geo);
+      expect(safe.diagnostics.boxUvInflated).toBeGreaterThan(0);
+      for (const c of safeCubes) if (Array.isArray(c.uv)) expect(Math.min(...c.size)).toBeGreaterThanOrEqual(1);
+      // Same cube count, same drawn boxes, in the same order.
+      expect(safeCubes.length).toBe(plainCubes.length);
+      safeCubes.forEach((c, k) => {
+        const d = drawnCubeBox(c), q = plainCubes[k]!;
+        for (let i = 0; i < 3; i++) { expect(d.origin[i]).toBeCloseTo(q.origin[i]!, 6); expect(d.size[i]).toBeCloseTo(q.size[i]!, 6); }
+      });
+    }
   });
 
   it('puts a rotated part in its own bone with a ZYX Euler, Bedrock signs, pivot at the part origin', async () => {

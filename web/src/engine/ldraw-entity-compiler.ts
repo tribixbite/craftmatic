@@ -690,12 +690,15 @@ export interface CompileLdrawEntityOptions {
   /**
    * Declare every box-UV cube at least `BOX_UV_MIN_DECLARED_SIZE` on each
    * axis (`boxUvSafeCube`: size + 2 with inflate -1, the same drawn box), so
-   * the device draws all six of its faces. Default: on for FIGURES, whose
-   * 2 LDU grain is 0.6 units and lost faces everywhere (user report
-   * 2026-09-29). Other kinds keep plain boxes for now.
-   * TODO(box-uv): shells, vehicles and props have the same exposure (10261:
-   * 37 % of all faces have a side under one unit) - enable after their
-   * readers (LOD hull, collider and seat probes) are checked against inflate.
+   * the device draws all six of its faces. Default: on for EVERY kind.
+   * Figures first (2 LDU grain = 0.6 units; user report 2026-09-29); shells,
+   * vehicles and props since 2026-10-01: the McLaren (42172) showed its wheels
+   * through bodywork striped yellow/black on the device, 22 % of its visible
+   * surface dropped under the measured rule (`scripts/_box_uv_loss.ts`).
+   * Every reader of shipped cubes takes the drawn box through `drawnCubeBox`
+   * (bedrock-geometry-faces.ts): the LOD hull, the preview/sim appearance,
+   * the hole and floor tools. Colliders and seats read the compiler's own
+   * render cuboids, never the JSON.
    */
   boxUvFloorSafe?: boolean;
   /**
@@ -3019,7 +3022,7 @@ export async function compileLdrawEntityGeometry(
   // Last, once the separation has settled every cube's box: a cube declared
   // under one unit on any axis loses faces on the device (`boxUvSafeCube`).
   let boxUvInflated = 0;
-  if (options.boxUvFloorSafe ?? kind === 'figure') {
+  if (options.boxUvFloorSafe ?? true) {
     for (const group of ordered) for (const it of group.items) if (boxUvSafeCube(it.cube)) boxUvInflated++;
   }
   for (const group of ordered) {

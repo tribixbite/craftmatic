@@ -17,12 +17,15 @@
  *          [--dir=x,y,z]   view direction for --frame (default 1,-0.6,1.4)
  *          [--geo-from=<older.mcaddon>]   draw that pack's geometry under this pack's controllers
  *                                          (an older pack with the same ids higher in the world's stack)
+ *          [--uvfloor=v]   leave out the box-UV faces the device does not draw (`UvFloorModel`,
+ *                          figure-holes.ts; `v` is the Pixel-measured rule): what the phone shows
  */
 import { readFileSync } from 'node:fs';
 import sharp from 'sharp';
 import { buildAddonPreviewModel, readAddonPreviewFiles, placedPoint, entitySpawnsAt } from '../web/src/ui/addon-preview-data.ts';
 import { worldFaces, type AuditActor, type Vec3 } from '../web/src/engine/bedrock-geometry-faces.ts';
 import { renderActors } from '../web/src/sim/adapters/craftmatic/snapshot.ts';
+import { boxUvFaceDrawn, type UvFloorModel } from '../web/src/engine/figure-holes.ts';
 
 const args = process.argv.slice(2);
 const flag = (n: string): string | undefined => args.find(a => a.startsWith(`--${n}=`))?.slice(n.length + 3);
@@ -57,7 +60,9 @@ for (const e of model.entities) {
   const entry = model.appearance.byType.get(e.typeId);
   if (entry) actors.push({ typeId: e.typeId, kind: e.kind, entry, at: placedPoint(e, model.dims, 100, 0), yawDeg: e.yaw });
 }
-const faces = worldFaces(actors, { far: args.includes('--far') });
+const uvFloor = (flag('uvfloor') ?? 'none') as UvFloorModel;
+const faces = worldFaces(actors, { far: args.includes('--far') })
+  .filter(f => boxUvFaceDrawn(actors[f.actor]!.entry.groups[f.group]!.cubes[f.cube]!, f.face, uvFloor));
 
 // Face atlases, decoded once.
 const atlases = new Map<string, { w: number; h: number; rgba: Uint8Array }>();

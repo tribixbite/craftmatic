@@ -45,6 +45,26 @@ export interface GeoCubeLike {
   uvSize?: [number, number, number];
 }
 
+/**
+ * The box a geometry JSON cube DRAWS: `inflate` grows the declared box on
+ * every side, so the drawn box is `origin - inflate`, `size + 2 * inflate`.
+ * The compiler declares every box-UV cube under one unit as size + 2 with
+ * inflate -1 (`boxUvSafeCube`, ldraw-entity-compiler.ts) - the same drawn box,
+ * but anything reading `origin`/`size` straight from a `.geo.json` would see it
+ * one unit larger on every side. Every reader of shipped cubes goes through
+ * this. `declared` is the size the device lays the box UV out from.
+ */
+export function drawnCubeBox(cube: { origin: readonly number[]; size: readonly number[]; inflate?: unknown }): { origin: [number, number, number]; size: [number, number, number]; declared: [number, number, number]; inflated: boolean } {
+  const k = typeof cube.inflate === 'number' && Number.isFinite(cube.inflate) ? cube.inflate : 0;
+  const o = cube.origin, s = cube.size;
+  return {
+    origin: [o[0]! - k, o[1]! - k, o[2]! - k],
+    size: [s[0]! + 2 * k, s[1]! + 2 * k, s[2]! + 2 * k],
+    declared: [s[0]!, s[1]!, s[2]!],
+    inflated: k !== 0,
+  };
+}
+
 /** One colour's cubes (one swatch, or a face atlas). Structurally the preview's `AppearanceGroup`. */
 export interface GeoGroupLike {
   ldrawColor: number | null;

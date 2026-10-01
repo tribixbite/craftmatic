@@ -33,6 +33,7 @@
 import { readFileSync, readdirSync, existsSync, statSync, writeFileSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { mergeAlignedCuboids, cullHiddenCuboids, BEDROCK_UNITS_PER_LDU } from '../web/src/engine/ldraw-entity-compiler.ts';
+import { drawnCubeBox } from '../web/src/engine/bedrock-geometry-faces.ts';
 
 type Vec3 = [number, number, number];
 
@@ -147,8 +148,9 @@ function loadEntity(rp: string, file: string): Entity {
       for (const c of b.cubes ?? []) {
         nCubes++;
         const aa = !rotatedBone && !c.rotation;
-        let min: Vec3 = [...c.origin] as Vec3;
-        let max: Vec3 = [c.origin[0] + c.size[0], c.origin[1] + c.size[1], c.origin[2] + c.size[2]];
+        const drawn = drawnCubeBox(c);
+        let min: Vec3 = [...drawn.origin] as Vec3;
+        let max: Vec3 = [drawn.origin[0] + drawn.size[0], drawn.origin[1] + drawn.size[1], drawn.origin[2] + drawn.size[2]];
         if (!aa) {
           // World AABB: rotate the 8 corners about the cube pivot (stud facet)
           // and/or the bone pivot. Over-estimates the solid on purpose.

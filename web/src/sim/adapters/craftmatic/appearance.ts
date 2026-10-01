@@ -27,6 +27,7 @@
  * is the one in question.
  */
 import { resolveLdrawEntityMaterial } from '../../../engine/ldraw-entity-materials.js';
+import { drawnCubeBox } from '../../../engine/bedrock-geometry-faces.js';
 
 /** A bone, as the geometry declares it. Pivot and rotation are in model units/degrees. */
 export interface AppearanceBone {
@@ -238,12 +239,10 @@ function indexGeometries(sources: AppearanceSources, notes: string[]): Map<strin
           // out from the DECLARED size (`boxUvSafeCube` in ldraw-entity-compiler.ts
           // relies on exactly that), so the entry keeps the drawn box as
           // origin/size and the declared size as `uvSize`.
-          const inflate = typeof c.inflate === 'number' && Number.isFinite(c.inflate) ? c.inflate : 0;
-          const origin: [number, number, number] = inflate ? [declaredOrigin[0] - inflate, declaredOrigin[1] - inflate, declaredOrigin[2] - inflate] : declaredOrigin;
-          const size: [number, number, number] = inflate ? [declaredSize[0] + 2 * inflate, declaredSize[1] + 2 * inflate, declaredSize[2] + 2 * inflate] : declaredSize;
+          const { origin, size, inflated } = drawnCubeBox({ origin: declaredOrigin, size: declaredSize, inflate: c.inflate });
           cubes.push({
             bone: name, origin, size,
-            ...(inflate ? { uvSize: declaredSize } : {}),
+            ...(inflated ? { uvSize: declaredSize } : {}),
             ...(optVec3(c.rotation) ? { rotation: optVec3(c.rotation)! } : {}),
             ...(optVec3(c.pivot) ? { pivot: optVec3(c.pivot)! } : {}),
             ...(faceUvOf(c.uv) ? { faceUv: faceUvOf(c.uv)! } : {}),
