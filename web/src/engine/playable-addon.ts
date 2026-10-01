@@ -1286,6 +1286,11 @@ function collisionBoxOf(behavior: unknown): CollisionBox | undefined {
 export function bedrockInGameText(s: string): string {
     return s.replace(/\s*%/g, ' percent');
 }
+
+/** A model label as players read it: whitespace runs collapsed to one space, trimmed. */
+export function displayLabel(s: string): string {
+    return s.replace(/\s+/g, ' ').trim();
+}
 /**
  * How a client entity's geometries are split between the full model and its LOD
  * hull. `fullCount` bindings come first (the model), the rest are the hull.
@@ -1388,11 +1393,11 @@ function* toggleNearby(origin, dimension, kind, player) {
 world.afterEvents.playerInteractWithEntity.subscribe(async ev=>{
   if(ev.target.typeId!==SCREEN_TYPE)return;
   let response;
-  try{response=await new ActionFormData().title(ev.target.nameTag||'Craftmatic computer').body('Connected build controls').button('Toggle lights').button('Toggle doors').button('Scanner vision').button('Vehicle status').show(ev.player);}
+  try{response=await new ActionFormData().title(ev.target.getDynamicProperty?.('craftmatic:label')||ev.target.nameTag||'Craftmatic computer').body('Connected build controls').button('Toggle lights').button('Toggle doors').button('Scanner vision').button('Vehicle status').show(ev.player);}
   catch{ev.player.sendMessage('Computer controls are unavailable right now.');return;}
   if(response.canceled)return;
   if(response.selection===2){try{if(ev.player.getEffect('minecraft:night_vision')){ev.player.removeEffect('minecraft:night_vision');ev.player.sendMessage('Scanner vision disabled.');}else{ev.player.addEffect('minecraft:night_vision',12000,{showParticles:false});ev.player.sendMessage('Scanner vision enabled for 10 minutes.');}}catch{ev.player.sendMessage('Scanner vision is unavailable right now.');}return;}
-  if(response.selection===3){const vehicles=ev.target.dimension.getEntities({location:ev.target.location,maxDistance:64,families:['craftmatic_vehicle']});if(!vehicles.length){ev.player.sendMessage('No vehicles online within 64 blocks.');return;}ev.player.sendMessage('Vehicles online: '+vehicles.length);for(const vehicle of vehicles){const p=vehicle.location;ev.player.sendMessage((vehicle.nameTag||vehicle.typeId)+' @ '+Math.floor(p.x)+', '+Math.floor(p.y)+', '+Math.floor(p.z));}return;}
+  if(response.selection===3){const vehicles=ev.target.dimension.getEntities({location:ev.target.location,maxDistance:64,families:['craftmatic_vehicle']});if(!vehicles.length){ev.player.sendMessage('No vehicles online within 64 blocks.');return;}ev.player.sendMessage('Vehicles online: '+vehicles.length);for(const vehicle of vehicles){const p=vehicle.location;ev.player.sendMessage((vehicle.getDynamicProperty?.('craftmatic:label')||vehicle.nameTag||vehicle.typeId)+' @ '+Math.floor(p.x)+', '+Math.floor(p.y)+', '+Math.floor(p.z));}return;}
   system.runJob(toggleNearby(ev.target.location,ev.target.dimension,response.selection===0?'lights':'doors',ev.player));
 });`;
 
@@ -2097,7 +2102,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // A pack of figures alone (a custom minifig from minifigFromSpec) has no blocks and is still a pack.
     if (!grid.countNonAir() && !options.components?.some(c => c.grid.countNonAir()) && !options.figures?.length && !options.minifigCreator)
         throw new Error('Nothing to export — the model has no blocks.');
-    const label = options.label ?? options.stem, id = safe(options.stem), mode = options.vehicleMode ?? 'auto';
+    // The label as players read it (wand titles, forms, the item name): runs of
+    // whitespace collapsed, so a punctuation-stripped label ("Bank  Collectors",
+    // round 30i) reads once-spaced. The uuid is unaffected: `packIdentity`
+    // reduces the label to its words either way.
+    const label = displayLabel(options.label ?? options.stem), id = safe(options.stem), mode = options.vehicleMode ?? 'auto';
     // One scale for everything compiled from parts (engine/addon-scale.ts).
     const modelScale = Number.isFinite(options.modelScale) && options.modelScale! > 0 ? options.modelScale! : 1;
     const unitsPerLdu = BEDROCK_UNITS_PER_LDU * modelScale;

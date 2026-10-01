@@ -1333,10 +1333,14 @@ function placementRuntime(config: any, openVehicleControls: ((player: any) => Pr
             if (feet - q.y <= budget + 1e-9) spawnY = feet;
           }
           const entity = dim.spawnEntity(actor.typeId, { x: q.x, y: spawnY, z: q.z });
-          // A ride's cars, lift and counterweight carry no name tag: Bedrock draws a
-          // looked-at entity's tag, and a rider looking ahead through a loop had
-          // "Track 1 Car 2" across the view (Saga, 2026-09-26).
-          if (actor.coasterRouteIndex === undefined) entity.nameTag = actor.label;
+          // No placed entity carries a name tag. Bedrock draws a looked-at entity's
+          // tag at a fixed world size, so near the model it ran across the whole
+          // screen ("Hogsmeade Village Collectors Edition 76457", the user's shots of
+          // round 30i), and every figure, door and car showed "<label> figure 3" over
+          // it; a rider looking ahead through a loop had "Track 1 Car 2" across the
+          // view (Saga, 2026-09-26). The label stays readable to scripts as a
+          // dynamic property (the control screen's form title, vehicle status).
+          try { entity.setDynamicProperty('craftmatic:label', actor.label); } catch {}
           // A moving part keeps yaw 0: its rig's root turns it (the interactives
           // runtime sets the turn), so its world-aligned tap boxes stay true.
           entity.setRotation({ x: 0, y: actor.interactive !== undefined ? 0 : (actor.yaw || 0) + st.rotation }); entities.push(entity.id); spawned[j] = entity;
