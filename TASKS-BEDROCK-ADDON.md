@@ -120,11 +120,25 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 (sha256 c45d6b95787b25b9701949b9fa085683ef5f5cc8aef090d195b1b388f46d2a47;
 23 packs, labels as 30h; `check.txt` 23/23 OK, uuids = 30h, parts = 30h).
 Sim: regressions all OK + gabby-car-overhang not reproduced; hop passes.
-- [ ] Saga round: 10326 corridor to Door 3 by stick (head clear to about
-  z 5382.3 at x 5384.3-5385.8 with the museum at 5380,-60,5380), then tap Door 3
-  from there and from 1.9 blocks; Door 3 walk in/out; a few doorways of
-  76435 / 76417 / 10261 (tilted-part colliders changed in every model: no
-  invisible walls, no fall-throughs); 10261 at 200 % climbable as before?
+Saga round DONE 2026-09-30 21:41-22:47 (`output/device-round-2026-09-30i/saga/_notes.txt`;
+content log 0 errors / 0 FIGURE_RETAKE / 0 fly / 0 overridden): 10326 corridor
+head clear to z 5382.30 (x 5385.0) / 5382.05 (x 5385.6) as predicted (30h
+5383.05); Door 3 taps open from 2.0 and 1.5 blocks, walk in/out by stick;
+76417 Doors 2/3 walk through, no invisible walls.
+- [ ] 76417 Gate 1 opens onto an INVISIBLE FLOOR over a 17-block drop
+  (5393.56,-43.12,5381.44 = corner + 13.56,16.88,1.44): shell bone `r321`, a
+  plate turned 45 deg about the vertical, still lays its AABB, whose corners
+  are colliders over air; walking on, the player falls to the grass.
+  Offline: `bun output/device-round-2026-09-30i/saga/tools/drawn_at.ts <76417 pack> 13 14 0 35 1 2`
+  (0 drawn cuboids in that column). `TODO(tilted-colliders)` (a): yaw-only
+  turns keep the AABB because 76435's climb uses those boxes as steps.
+- [ ] 10261 at 200 %: no device climb route found above the base (front-edge
+  columns x 5430-5448 and the east walkway x 5462 stand > 1 block); no earlier
+  round recorded one. Find a route offline first (reach 1,995 -> 1,788).
+- Saga incident: after Save & Quit the screen froze on "Loading..." > 5 min
+  (world saved); `am force-stop` + relaunch recovered it, bindings intact.
+- World 925 holds a marked 10261 seat ("Add seat here (1/12)") from an
+  earlier session.
 
 ## Round 2026-09-30h (`59fb347c`) - museum back doors, cockpit fallback
 
