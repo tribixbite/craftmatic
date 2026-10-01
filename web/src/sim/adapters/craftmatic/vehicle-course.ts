@@ -258,6 +258,8 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       };
       const up = await phase('up', 40, { jump: true });
       if (!(up.dy > 4 && up.flat < 0.3)) fail('Jump', `should go straight up, went dy ${up.dy}, ${up.flat} sideways`);
+      // Let go: up to a block of drift while the climb stops (VERTICAL_ACCEL), then it must hold.
+      await phase('settle_up', 10, {});
       const hover = await phase('hover', 40, {});
       if (!(Math.abs(hover.dy) < 0.1 && hover.flat < 0.3)) fail('hands off', `should hover, moved dy ${hover.dy}, ${hover.flat} sideways`);
       const fwd = await phase('forward', 40, { forward: 1 });
@@ -265,6 +267,7 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       await phase('stop', 30, {});
       const back = await phase('backward', 40, { forward: -1 });
       if (!(back.along < -2)) fail('stick back', `should fly straight backwards, went ${back.along} along`);
+      await phase('stop_back', 30, {});
       const turn = await phase('turn', 30, { strafe: -1 });
       if (!(turn.yaw > 30 && turn.flat < 0.3)) fail('stick right at rest', `should turn on the spot, turned ${turn.yaw} and moved ${turn.flat}`);
       const down = await phase('back_jump', 100, { forward: -1, jump: true });

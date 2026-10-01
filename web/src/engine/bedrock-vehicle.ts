@@ -611,8 +611,9 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  *     least `MIN_SIDESTEP`), forward progress kept, or that sidestep alone
  *     where the forward part is still blocked;
  *   - `slide`: one world axis of the move only (Minecraft's walls run along
- *     the axes), the speed scaled by the share of the move it keeps - along a
- *     wall met at an angle;
+ *     the axes), else the move turned up to `GLANCE_MAX_DEG` toward a slanted
+ *     wall's line and shortened by the cosine; the speed scaled by the share
+ *     of the move it keeps - along a wall met at an angle;
  *   - `rise`: straight up by the climb allowance where it stands (the face of
  *     a wall too high to climb in one move);
  *   - `blocked`: none is clear. The vertical move and the turn are kept when
@@ -625,7 +626,7 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  * is `sweepFootprint`, passed in (a serialised function references nothing
  * outside itself).
  */
-export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002 } as const;
+export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5 } as const;
 export type MoveParams = { readonly [K in keyof typeof MOVE]: number };
 export type MoveResolution = 'clear' | 'climb' | 'deflect' | 'slide' | 'rise' | 'blocked';
 
@@ -673,7 +674,42 @@ export function resolveMove(
     ];
     axes.sort((a, b) => b[0] - a[0]);
     for (const [moved, p] of axes) if (moved >= M.MIN_PROGRESS && clear(p).ok) return p;
-    return undefined;
+    // A wall across the way at a SLANT (a diagonal of blocks): one EDGE of the footprint has more room ahead
+    // than the other (its outer quarter swept on its own up to `GLANCE_PROBE` blocks along the move: whole
+    // halves both reach the diagonal's middle cells and read the same); the move is
+    // turned toward the roomier side, `GLANCE_STEP_DEG` at a time up to `GLANCE_MAX_DEG`, shortened by the
+    // cosine - the share of the push a real scrape along it keeps. A wall square across the way leaves both
+    // halves the same room: no glance, so a car nosed into a wall does not crawl sideways along it.
+    if (len < M.MIN_PROGRESS) return undefined;
+    const ux = dx / len, uz = dz / len;
+    const edgeFp = { ...fp, halfWidth: fp.halfWidth / 4 }, q = fp.halfWidth * 0.75;
+    const room = (s: number): number => {
+      let best = 0;
+      for (let f = M.GLANCE_PROBE / 4; f <= M.GLANCE_PROBE + 1e-9; f += M.GLANCE_PROBE / 4) {
+        const r = sweep(aside(from, s), aside({ ...from, x: from.x + ux * f, z: from.z + uz * f }, s), edgeFp, solid, P);
+        checks += r.checks;
+        if (r.blocked) break;
+        best = f;
+      }
+      return best;
+    };
+    const right = room(q), left = room(-q);
+    if (Math.abs(right - left) < M.GLANCE_PROBE / 4 - 1e-9) return undefined;
+    // The vehicle's right in the world (Bedrock: (-cos yaw, -sin yaw)); turn the move toward the roomier half.
+    const ry = from.yaw * Math.PI / 180, rx = -Math.cos(ry), rz = -Math.sin(ry), toward = right > left ? 1 : -1;
+    for (let deg = M.GLANCE_STEP_DEG; deg <= M.GLANCE_MAX_DEG + 1e-9; deg += M.GLANCE_STEP_DEG) {
+      const t = deg * Math.PI / 180, c = Math.cos(t), sn = Math.sin(t);
+      const turned = [1, -1].map(sgn => ({ x: (dx * c - dz * sn * sgn) * c, z: (dx * sn * sgn + dz * c) * c }))
+        .filter(d => (d.x * rx + d.z * rz) * toward > 0);
+      for (const d of turned) {
+        const p = { ...to, x: from.x + d.x, z: from.z + d.z };
+        if (clear(p).ok) return p;
+      }
+    }
+    // Pinned by a stair corner of the diagonal (every turned move meets it): edge sideways toward the room.
+    const step = toward * Math.max(M.DEFLECT_SHARE * len, M.MIN_SIDESTEP);
+    const side = { ...to, x: from.x + rx * step, z: from.z + rz * step };
+    return clear(side).ok ? side : undefined;
   };
   const order: Array<[MoveResolution, () => FootprintPose | undefined]> = opts.climbFirst
     ? [['climb', tryClimb], ['deflect', tryDeflect], ['slide', trySlide]]
@@ -1050,8 +1086,11 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           ground = groundUnder(dim, st.x, st.z, st.y, F.STEP_UP, st.onGround ? 3 : 48, true);
           r = flight(st, input, { ground }, F, 0.05);
           r.state.wheel = st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0);
-          // Resting on the ground it glides over a step; aloft the whole airframe must clear.
-          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: r.state.onGround ? F.STEP_UP + 0.05 : 0.1, hi: Math.max(0.2, kind.height * k - 0.1) };
+          // The whole airframe must clear, on the ground too: a ship lifts itself over a step (`resolveMove`'s climb)
+          // rather than sliding its hull through it. A band that skipped the step's height on the ground let half the
+          // Milano's hull through a one-block step, and points already inside were then never counted aloft (the
+          // sweep blocks only on ENTERING a solid; simulator vehicle course, 2026-09-30).
+          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: 0.1, hi: Math.max(0.2, kind.height * k - 0.1) };
           // A ship pushed into a hill or a wall lifts itself over it (a rider's ship only: an empty one sinks to park).
           if (input.rider) { climb = F.AUTO_CLIMB * 0.05; climbFirst = true; }
         } else if (kind.mode === 'car' || kind.mode === 'hover') {

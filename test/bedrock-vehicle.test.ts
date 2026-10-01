@@ -444,6 +444,28 @@ describe('the collision response (resolveMove): never stuck', () => {
     expect(r.kept).toBeGreaterThan(0.5);
     expect(r.kept).toBeLessThan(1);
   });
+  it('glances along a slanted wall across the whole way (a diagonal of blocks): the move turned toward the wall\'s line, shortened', () => {
+    // Cells x = round((6 - z) tan 30) for z in -6..6: a wall across the lane, 60 degrees off the drive (+x).
+    const diag = new Set<string>();
+    for (let z = -6; z <= 6; z++) diag.add(`${Math.round((6 - z) * Math.tan(Math.PI / 6))},64,${z}`);
+    const solid = (x: number, y: number, z: number): boolean => diag.has(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`);
+    const wide = { ...fp, halfLength: 1, halfWidth: 1.5 };
+    // Nose (x + 1) at 1.9, its +z corner (z 2) just short of the wall's nearest cell (2, 2); the wall recedes to -z.
+    const f = { x: 0.9, y: 64, z: 0.5, yaw: -90, pitch: 0 };
+    // Pushed straight ahead (+x) every step, it works along the wall's line toward the roomier (-z) end, past it,
+    // and on: a deflect at the first corner, glancing slides along the diagonal after it - never into the wall.
+    let pose = f;
+    const hows = new Set<string>();
+    for (let i = 0; i < 80 && pose.x < 9; i++) {
+      const r = resolveMove(pose, { ...pose, x: pose.x + 0.6 }, wide, solid, FOOTPRINT, MOVE, car, sweepFootprint);
+      hows.add(r.how);
+      pose = r.pose;
+    }
+    expect(pose.x).toBeGreaterThanOrEqual(9);
+    expect(pose.z).toBeLessThan(-6);
+    expect(hows.has('slide')).toBe(true);
+    expect(hows.has('blocked')).toBe(false);
+  });
   it('climbs (a ship: over it first) or rises (straight up at the face) with a climb allowance; keeps the turn when only the turn is clear', () => {
     const low = (x: number, y: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64;
     const ship = { climb: 0.4, climbFirst: true };

@@ -476,7 +476,10 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   the block: a trunk met with a corner, a post with a wingtip; the move
   stepped sideways away from it by `DEFLECT_SHARE` of its length, at least
   `MIN_SIDESTEP`, forward kept, or the sidestep alone); SLIDE (one world axis
-  of the move - Minecraft's walls run along the axes - the speed scaled by the
+  of the move - Minecraft's walls run along the axes - or, where one EDGE of
+  the footprint has more room ahead than the other (a slanted wall of
+  blocks), the move turned toward it up to `GLANCE_MAX_DEG` and shortened by
+  the cosine, or edged sideways off a stair corner; the speed scaled by the
   share kept: along a wall met at an angle); RISE (straight up by the climb
   allowance where it stands: the face of a wall); else BLOCKED, keeping the
   turn and the vertical move where they are clear on their own, a
@@ -959,6 +962,9 @@ literal inside a function body (`§` marks the number).
 | `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
 | `MOVE.MIN_SIDESTEP` | `web/src/engine/bedrock-vehicle.ts` | 0.1 | blocks/tick | The sidestep's least size, so a car crawling into a tree still edges round it. |
 | `MOVE.MIN_PROGRESS` | `web/src/engine/bedrock-vehicle.ts` | 0.002 | blocks | A retry that moves less than this is not tried. |
+| `MOVE.GLANCE_STEP_DEG` | `web/src/engine/bedrock-vehicle.ts` | 20 | degrees | A slanted wall across the way (a diagonal of blocks): the move is turned toward the roomier edge in these steps. |
+| `MOVE.GLANCE_MAX_DEG` | `web/src/engine/bedrock-vehicle.ts` | 60 | degrees | The most it turns (keeping cos 60 = half the push); pinned by a stair corner past that, it edges sideways by the sidestep. A wall at 30 degrees off square across a car's way stopped 10797's and 60380's cars dead until this (simulator vehicle course, 2026-09-30). |
+| `MOVE.GLANCE_PROBE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | How far ahead each edge's room is probed (in quarters): a square wall leaves both edges the same room, so a car nosed into one does not crawl sideways along it. |
 | `FREE_LOOK.SEAT_LOCK_DEG` | `web/src/engine/vehicle-free-look.ts` | 181 | degrees | A scripted vehicle seat's `lock_rider_rotation`: the component's documented default and "no limit"; the coaster's seats have it and their riders look round. Was 0 (yaw held to the seat). |
 | `FREE_LOOK.IDLE_TICKS` | `web/src/engine/vehicle-free-look.ts` | 20 | ticks | One second with no drag before the view starts back to the nose ("semi gradually"): a child lifting a thumb to drag again is not fought. |
 | `FREE_LOOK.RECENTRE_SECONDS` | `web/src/engine/vehicle-free-look.ts` | 0.6 | s | The ease back's time constant: 63 % in 0.6 s, 95 % in 1.8 s - inside the 1-2 s the brief asked for. |
