@@ -418,12 +418,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   x-banded clearance forms (`_w1`..`_w7`, x-shaped `_f`/`_c`) on the wrong
   half of the block; the simulator reads JSON the way the device does
   (quirk `block-collision-x-mirrored`).
-- **A TILTED part's colliders are laid from its own box; a yaw-turned
-  part's from its bounding box** (`isTiltedBox`, `buildColliderGrid`,
-  2026-09-30). The AABB of 10326's handrail (tilted 42.7 degrees) was an
-  invisible band at head height. Exact colliders for EVERY turned part were
-  measured and rejected: parts turned 45 degrees about the vertical are
-  76435's climb (reach 415.9 -> 303.2) and 76417's diamond baseplate floor.
+- **Every turned part's colliders are laid from its own box; a yaw-turned
+  part also keeps the bounding-box corners that are STEPS** (`isTiltedBox`,
+  `yawStepKept`, `buildColliderGrid`, 2026-09-30). The AABB of 10326's
+  handrail (tilted 42.7 degrees) was an invisible band at head height; the
+  AABB corners of 76417's turned baseplate were an invisible floor over a
+  17-block drop outside Gate 1 (Saga 30i). A yaw corner stays only where its
+  top is within a jump of what is DRAWN under it (or the ground): 76435's
+  climb is such corners. Losing reach under this rule means the old route
+  walked over nothing drawn - check with `output/device-round-2026-09-30i/saga/tools/drawn_at.ts` (main checkout) before restoring it.
+  A doorway side over a drop no stair serves (> 4 blocks) gets an invisible
+  guard (`planDropGuards`); the sim attributes a stop on it to the model.
   The sim reads a turned drawn cube by its shape (`drawnReaches` /
   `drawnTopOver`), never its corner box. Before reading a device finding at
   a `/tp` spot, check whether the spot is inside a collider (`_ix_tap_probe

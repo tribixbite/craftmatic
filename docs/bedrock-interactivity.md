@@ -1163,8 +1163,8 @@ about the vertical whose bounding boxes were the steps) and put 76417's Gate
 1 on the bare corner of a baseplate turned 45 degrees (a 13.9-block fall the
 sim caught), and 11371's Doors 5/6 at 150 % turn 90 onto a 0.56-block ledge
 the re-lay moves. Only a tilt makes the vertical band, so a cuboid turned
-about the vertical alone keeps its bounding box, whose vertical extent is
-exact already. 20,041 of the favourites' 33,629 turned shell placements are
+about the vertical alone kept its bounding box, whose vertical extent is
+exact already (superseded the same day: "Yaw-turned parts" below). 20,041 of the favourites' 33,629 turned shell placements are
 tilted (393,265 cuboids laid exactly, sparing 2,148 cells nothing reaches);
 every one of the 40 sets has some. Per set at 100 %, reach fell by more than
 3 square blocks only in 910047 (648.8 -> 641.6) and 71043 (883.3 -> 878.5);
@@ -1192,10 +1192,123 @@ packs fail 5 of 200 child-play scenarios (10326 Door 3 at 150 % turn 90 and
 fails none. `heightOverDrawn` (slide seats over their chute) still reads the
 corner box: `TODO(tilted-colliders)`, its 0.2 limit was measured that way.
 
-`TODO(tilted-colliders)`: a cuboid turned about the vertical still lays its
-bounding box; laying its walls exactly while keeping the tops a climb uses
-would take the 19 doorway rows above without 76435's loss. Device-only: the
-corridor walk by stick under the handrail, and Door 3's tap from the corridor.
+Device-only: the corridor walk by stick under the handrail, and Door 3's tap
+from the corridor (both passed on the Saga, round 2026-09-30i).
+
+### Yaw-turned parts: their own box, plus the corners that are steps (2026-09-30)
+
+The Saga (round 30i) walked out of 76417's Gate 1 onto an INVISIBLE FLOOR 17
+blocks over the grass, and off its edge: shell bone `r321`, a baseplate turned
+45 degrees about the vertical under the bank's floor, still laid its bounding
+box, and the box's corners outside the plate's diamond were colliders over
+nothing drawn. A yaw-turned cuboid is now laid from its own box like a tilted
+one, and its bounding box is judged column by column (`buildColliderGrid`):
+
+- the bounding-box pieces in a column merge into RUNS (touching spans);
+- a run stays a collider when its top is within a jump
+  (`YAW_STEP_MAX_BLOCKS`, 1.25) of the highest DRAWN surface at or under its
+  bottom in that column - every cuboid's own geometry, recorded per cuboid so
+  none is its own support - or of the ground (`yawStepKept`). Kept runs
+  support the runs over them (a stair of turned treads climbs run on run);
+- otherwise it is dropped: a floor over a drop (76417's corner), or a wall's
+  corner taller than a jump (an invisible pillar beside a doorway).
+
+76435's climb is the case for the steps: its stair's risers are 1.19 and
+1.44 blocks without the corners and 0.44-0.75 with them, each corner a riser
+over the tread drawn under it. The export warning counts cuboids, runs kept
+and dropped.
+
+**Measured over the 40 favourites** (`output/yaw-colliders-0930/` in the
+worktree that made it; each set from the index's first pick; base = a clean
+archive of `90b6c0b0` with its own `bun install`, A = `f164960e` (this rule),
+B = `5ee3a3d6` (A + the drop guards below); `tools/collider-diff.ts`,
+`scripts/_clearance_report.ts --sizes=100,200`, `_ix_passability.ts` at
+100-400 %, turns 0 and 90, `tools/verdict_diff.py`, `scripts/sim.ts` with the
+tree's simulator at `93b8a099` for all three):
+
+| over the 40 favourites | base (yaw AABB) | A: yaw rule | B: + guards |
+|---|---|---|---|
+| collider cells | 59,315 | 58,365 (-952, +2) | 58,528 (+163 guard cells) |
+| summed form height (sixteenths) | 586,460 | 580,521 | 582,235 |
+| reach at 100 % (square blocks) | 20,818.5 | 20,614.3 | 20,617.3 |
+| reach at 200 % | 22,262.5 | 22,152.6 | 22,158.2 |
+| rooms reached at 100 % / 200 % | 708 / 1,083 | 695 / 1,067 | 696 / 1,068 |
+| passability rows SEALED -> OK (of 830) | - | 27 | 27 |
+| OK rows that regressed | - | 6 | 8 (+ Gate 1 at 100 %, both turns) |
+| sim child play, 200 scenarios | 0 fail | 1 fail | 0 fail |
+
+181,379 yaw-turned cuboids over the 40 (B): 4,472 runs kept as steps, 3,269
+dropped. Unlocked: 76417 Door 1 (SEALED -> OK at every size and turn),
+11371 Door 6 (100-300 %), 21318 Door 3 (100-400 %) - three of the five
+doorways "exact for all" unlocked, and 76435 keeps its climb (reach 416.4 ->
+416.0 at 100 %, rooms 33 -> 35). Regressed: 11371 Door 5 OK -> STEP at
+300/400 % (both turns), 21318 Door 1 OK -> SEALED at 150 % (both turns),
+76417 Door 3 STEP -> ONE-WAY at 300 %.
+
+**Every reach lost is a walk over nothing drawn.** The four sets that lose
+more than 10 square blocks at 100 % lose them at an invisible floor:
+60446 (360.1 -> 277.9: the climb's first riser stood on a corner at
+(2.1, 2.25, 12.4-13.1) - `drawn_at.ts` finds 0 cuboids there), 21318 (631.8 ->
+585.3: the upper floor was crossed at (18.1, 10.94, 10.4-10.6), 0 cuboids,
+over a 10-block drop), 10261 (1,905.7 -> 1,839.6: (37.6, 13.25, 9.9), 0
+cuboids) and 71043 (878.5 -> 859.5). `reach-path.ts <base> <new> --to=x,z,level`
+prints the route the base walked and where the new pack loses it.
+
+The one child-play failure in A was 11371 Doors 5/6 at 150 % turn 90: the
+porch line (2.5 out) fell 4.9-6.6 blocks where the model draws a narrow
+ledge the 150 % re-lay leaves without a collider at that turn (the same
+case the "exact for all" trial met). In B the doors' drop guards stand
+there and the line stops, attributed to the model. `TODO(yaw-colliders)`:
+a narrow yaw-turned ledge re-laid at 150 % turn 90 can lose its collider.
+
+Rules tried and rejected (`exp-v2`, `exp-v3`, six sets): judging a run by the
+highest drawn top under its TOP and keeping only the cap over it changed
+nothing measurable; keeping a run that BRIDGES two drawn floors (both sides
+along x or z within the auto-step) kept wall corners between wall tops and
+re-sealed 76417 Door 1.
+
+### A doorway over a drop (2026-09-30)
+
+With its invisible floor gone, 76417's Gate 1 - a barred gate in the bank's
+outer wall, the bank standing 17 blocks up on the rock that holds the vault
+track, nothing drawn outside it at any height (`drawn_at.ts`: 0 cuboids in
+the columns past it) - opened straight into the air: the simulator's lines
+through it fell 13.9 and 15 blocks. No access stair reaches that high
+(`STAIR_MAX_RISE16`, 4 blocks), and the model has no floor out there to
+restore, so the gate leads nowhere: it opens and shows the view, and a child
+may not walk off it.
+
+`planDropGuards` (after the access stairs) follows each doorway side's
+LANDING out from the leaf column, column to face-sharing column on that side
+within `GUARD_REACH` (3), while each column's floor is within a jump of the
+last; a column on the side whose floor lies more than `GUARD_DROP16` (4
+blocks) under the landing beside it gets a guard - its empty cells filled
+from the landing's floor to `GUARD_HEIGHT16` (1.5 blocks, over a jump) above
+it. Never in a leaf column, a closed cell, an avoided cell (rides, track,
+figures, seats, vehicles) or past the grid (`TODO(drop-guards)`: a door at
+the grid's edge over a drop is reported, not guarded - 910004 Doors 3 and 5,
+910032 Door 5). The doorway's `stairs` notes say what was guarded;
+`output/yaw-colliders-0930/guard_notes.ts <dir>` lists them.
+
+Over the favourites (B): 35 doorway sides in 14 sets got a guard note,
+163 guard cells laid in 12 sets, 7 drops not guardable. Clearance leaves 26 neighbouring cells
+untrimmed it trimmed before. The only verdicts that change are Gate 1's at
+100 % (OK -> SEALED, both turns: honest - nowhere to walk) and two rows
+that gain a SHORT-APPROACH flag (41732 Door 6, 80049 Door 2 at 100 %);
+reach is unchanged (20,614.3 -> 20,617.3). At 200 % the leaf column and the
+guard leave a one-block alcove outside Gate 1, and the gate reads OK there.
+
+The simulator attributes a stop on a guard to the model's drop
+(`modelDropUnder`: nothing drawn within a jump under the doorway's floor
+past the stopping face), and `standOver` replays a device standing spot: the
+regression case `gate1-invisible-floor-76417` stands the player on the round
+30i pack at the Saga's spot (corner + 13.56, 16.88, 1.44) - REPRODUCED, on
+colliders with nothing drawn under - and on the new pack the spot is inside
+the guard and no Gate 1 line falls.
+
+**Device-only:** Gate 1 opened on the Saga (the guard is invisible: does a
+child read an open gate it cannot walk through as broken?), and the 76417
+diamond edge at the bank's other doors (Doors 2/3 walked fine in 30i).
 
 ### Known limits
 

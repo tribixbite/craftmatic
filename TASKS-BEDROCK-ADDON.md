@@ -125,16 +125,30 @@ content log 0 errors / 0 FIGURE_RETAKE / 0 fly / 0 overridden): 10326 corridor
 head clear to z 5382.30 (x 5385.0) / 5382.05 (x 5385.6) as predicted (30h
 5383.05); Door 3 taps open from 2.0 and 1.5 blocks, walk in/out by stick;
 76417 Doors 2/3 walk through, no invisible walls.
-- [ ] 76417 Gate 1 opens onto an INVISIBLE FLOOR over a 17-block drop
-  (5393.56,-43.12,5381.44 = corner + 13.56,16.88,1.44): shell bone `r321`, a
-  plate turned 45 deg about the vertical, still lays its AABB, whose corners
-  are colliders over air; walking on, the player falls to the grass.
-  Offline: `bun output/device-round-2026-09-30i/saga/tools/drawn_at.ts <76417 pack> 13 14 0 35 1 2`
-  (0 drawn cuboids in that column). `TODO(tilted-colliders)` (a): yaw-only
-  turns keep the AABB because 76435's climb uses those boxes as steps.
-- [ ] 10261 at 200 %: no device climb route found above the base (front-edge
-  columns x 5430-5448 and the east walkway x 5462 stand > 1 block); no earlier
-  round recorded one. Find a route offline first (reach 1,995 -> 1,788).
+- [ ] 76417 Gate 1 (invisible floor over a 17-block drop, shell bone `r321`):
+  FIXED OFFLINE (`f164960e` yaw rule + `5ee3a3d6` drop guards + `93b8a099` sim
+  tap fix; docs/bedrock-interactivity.md "Yaw-turned parts" and "A doorway over
+  a drop"). The gate is a barred gate in the bank's outer wall with NOTHING
+  drawn outside it at any height, so it now opens onto an invisible guard
+  (1.5 blocks) and leads nowhere (harness: Gate 1 SEALED at 100 %, an alcove
+  at 200 %). Sim regression `gate1-invisible-floor-76417`: old REPRODUCED, new
+  OK (14 OK + overhang not reproduced). Packs (round sources + labels, 9/9
+  `_mcaddon_check` OK): `.claude/worktrees/agent-aade32afa991bc8e0/output/yaw-colliders-0930/packs-93b8a099/`
+  (76417 sha256 9d3d79ee29b07def...). Device-only: open Gate 1 and walk at
+  it by stick - expect to stop in the doorway, no fall; does a child read
+  it as broken? Doors 2/3 and the new Door 1 (SEALED -> OK) walked through.
+- [ ] 10261 at 200 %: a climb route DOES exist offline (round pack, and the
+  new pack): from the west ground onto the base at corner + (6, 1-2, 24),
+  east to x 14, south along x 14.1 from z 22 to z 8 (top 1.5 -> 4.0), then
+  east UP THE LIFT HILL along z 5.6 from x 15.6 (4.0) to x 53.5 (32.6 at
+  200 %; corner 5380,-60,5380 -> world 5395.6..5433.5, y -56..-27.4,
+  z 5385.6). The device tried the front edge at x 5430-5448, not the foot.
+  Before `1a21dd38` the same route went on to the top (68.9, 42.0, 6.1); the
+  exact tilted track now has ONE riser of 1.375 at x 53.5 -> 54.0 (0.69 at
+  100 %, z 4.5-6.5) that the scaled tread planner leaves unrestored
+  (`no-run`). `TODO(tilted-colliders)`: restore it (100 % and 150 % reach the
+  top). Probe: `output/yaw-colliders-0930/reach-levels.ts <pack> --size=200`,
+  `reach-path.ts <pack> --to=51,5,32 --size=200`.
 - Saga incident: after Save & Quit the screen froze on "Loading..." > 5 min
   (world saved); `am force-stop` + relaunch recovered it, bindings intact.
 - World 925 holds a marked 10261 seat ("Add seat here (1/12)") from an
@@ -176,10 +190,14 @@ a dark fin covers the top ~20 %); 42639 FIXED (door top under the horizon, at
   (10326 sha256 5a2a6441...). Device-only: walk the corridor to Door 3 by
   stick - expect the head clear under the handrail to z ~5382.3 (x 5384.3-5385.8),
   where round 30h stopped at ~5383.05; Door 3 tap from there.
-- [ ] `TODO(tilted-colliders)` follow-ups: (a) a yaw-turned cuboid's walls laid
-  exactly while keeping the tops a climb uses - exact-for-all unlocked 19 more
-  doorway rows (21318 D1-2, 11371 D6, 42670 garage, 76417 D1); (b) the sim's
-  `heightOverDrawn` still reads a turned cube's corner box (10788 slide limit).
+- [ ] Follow-ups: `TODO(tilted-colliders)` the sim's `heightOverDrawn` still
+  reads a turned cube's corner box (10788 slide limit); `TODO(yaw-colliders)`
+  11371 Doors 5/6 at 150 % turn 90 lose a narrow yaw ledge in the re-lay (A's
+  one sim failure; B's guard stands there); OK rows the yaw rule regressed:
+  11371 Door 5 OK -> STEP at 300/400 %, 21318 Door 1 OK -> SEALED at 150 %;
+  still SEALED that "exact for all" opened: 21318 Doors 1-2 at 100 %, 42670's garage door;
+  `TODO(drop-guards)` a door at the grid's edge over a drop is not guarded
+  (910004 Doors 3/5, 910032 Door 5).
 - Tap widening ACCEPTED under the standing rule (prefer interactivity):
   from CLIPPED spots 4,955 pairs flipped refused -> accepted (4,680 inside
   drawn geometry); free standing spots identical (3,697 before and after).
