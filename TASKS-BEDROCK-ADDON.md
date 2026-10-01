@@ -114,6 +114,18 @@ on the stud, dropped parts carried). R2 + prod read back by sha256, index
 - [ ] In-app `.lxf` path has no headgear-seating or beekeeper-colour rule
   (`TODO(doll-headgear)` in `gen-ldd-part-map.py`; `lxf-parser.ts`).
 
+## Round 2026-09-30i (`fd91cf23`) - door tap from inside a collider, tilted colliders
+
+**Sent** (zip, not deployed yet): `output/device-round-2026-09-30i/craftmatic-packs-fd91cf23.zip`
+(sha256 c45d6b95787b25b9701949b9fa085683ef5f5cc8aef090d195b1b388f46d2a47;
+23 packs, labels as 30h; `check.txt` 23/23 OK, uuids = 30h, parts = 30h).
+Sim: regressions all OK + gabby-car-overhang not reproduced; hop passes.
+- [ ] Saga round: 10326 corridor to Door 3 by stick (head clear to about
+  z 5382.3 at x 5384.3-5385.8 with the museum at 5380,-60,5380), then tap Door 3
+  from there and from 1.9 blocks; Door 3 walk in/out; a few doorways of
+  76435 / 76417 / 10261 (tilted-part colliders changed in every model: no
+  invisible walls, no fall-throughs); 10261 at 200 % climbable as before?
+
 ## Round 2026-09-30h (`59fb347c`) - museum back doors, cockpit fallback
 
 **Sent** (zip, not deployed yet): `output/device-round-2026-09-30h/craftmatic-packs-59fb347c.zip`
