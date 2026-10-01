@@ -14,6 +14,7 @@ import type { Box, Vec3 } from '../../core/vec.js';
 import { rayBox } from '../../core/vec.js';
 import type { SimEntity } from '../../entity/entity.js';
 import { AHEAD, SIDES, VIEW, driverSeesOut, sideFan } from '../../../engine/cockpit-seat.js';
+import { clipParallelepiped, isAxisAligned, parallelepipedFromCorners, type Parallelepiped } from '../../../engine/oriented-box.js';
 
 /** Read an add-on's appearance (every entity type's drawn geometry). */
 export function packAppearance(addon: Addon): AddonAppearance {
@@ -23,8 +24,33 @@ export function packAppearance(addon: Addon): AddonAppearance {
   return buildAddonAppearance(sources);
 }
 
-/** A drawn cube's world box (blocks) and whether it is see-through (glass). */
-export interface DrawnBox { box: Box; glass: boolean }
+/**
+ * A drawn cube's world box (blocks) and whether it is see-through (glass). A TURNED cube (a rotated bone or
+ * cube) also carries `solid`, the cube itself: its corner box holds air beside it (a baseplate turned 45
+ * degrees is a diamond in a square), so a test of what the model draws reads `drawnReaches`, not `box`.
+ */
+export interface DrawnBox { box: Box; glass: boolean; solid?: Parallelepiped }
+
+/** Whether a drawn cube reaches into a box by more than `eps` on every axis: its corner box, then the cube itself when turned. */
+export function drawnReaches(d: DrawnBox, q: Box, eps = 0): boolean {
+  const b = d.box;
+  if (!(b.x1 > q.x0 + eps && b.x0 < q.x1 - eps && b.y1 > q.y0 + eps && b.y0 < q.y1 - eps && b.z1 > q.z0 + eps && b.z0 < q.z1 - eps)) return false;
+  if (!d.solid) return true;
+  const c = clipParallelepiped(d.solid, [q.x0, q.y0, q.z0], [q.x1, q.y1, q.z1]);
+  return !!c && c.max[0] - c.min[0] > eps && c.max[1] - c.min[1] > eps && c.max[2] - c.min[2] > eps;
+}
+
+/**
+ * The highest point a drawn cube reaches over a footprint (x0..x1, z0..z1), or undefined when it is not over
+ * it: the corner box's top for an aligned cube, the cube's own top inside the footprint for a turned one.
+ */
+export function drawnTopOver(d: DrawnBox, x0: number, x1: number, z0: number, z1: number): number | undefined {
+  const b = d.box;
+  if (!(b.x1 > x0 && b.x0 < x1 && b.z1 > z0 && b.z0 < z1)) return undefined;
+  if (!d.solid) return b.y1;
+  const c = clipParallelepiped(d.solid, [x0, b.y0, z0], [x1, b.y1, z1]);
+  return c && c.max[0] > c.min[0] && c.max[2] > c.min[2] ? c.max[1] : undefined;
+}
 
 /** The world boxes of an entity's near geometry at its pose (a turned cube is its corners' box). */
 export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number, scale = 1): DrawnBox[] {
@@ -41,7 +67,9 @@ export function drawnBoxes(entry: AddonAppearanceEntry, at: Vec3, yawDeg: number
     for (const c of g.cubes) {
       const k = cubeCorners(c, mul(place, bones.get(c.bone) ?? IDENTITY));
       const xs = k.map(p => p[0] / 16), ys = k.map(p => p[1] / 16), zs = k.map(p => p[2] / 16);
-      out.push({ box: { x0: Math.min(...xs), y0: Math.min(...ys), z0: Math.min(...zs), x1: Math.max(...xs), y1: Math.max(...ys), z1: Math.max(...zs) }, glass: g.alpha < 1 });
+      const box = { x0: Math.min(...xs), y0: Math.min(...ys), z0: Math.min(...zs), x1: Math.max(...xs), y1: Math.max(...ys), z1: Math.max(...zs) };
+      const solid = parallelepipedFromCorners(k.map(p => [p[0] / 16, p[1] / 16, p[2] / 16]));
+      out.push(solid && !isAxisAligned(solid) ? { box, glass: g.alpha < 1, solid } : { box, glass: g.alpha < 1 });
     }
   }
   return out;

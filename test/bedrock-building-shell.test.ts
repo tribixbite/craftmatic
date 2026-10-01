@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, shellBehavior, shellCollisionBox,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isTiltedBox, shellBehavior, shellCollisionBox,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
@@ -138,15 +138,35 @@ describe('buildColliderGrid', () => {
     });
   });
 
-  it('lays an UNturned box given as an oriented box exactly as its AABB', () => {
+  it('lays a box turned a quarter about X (tilted, yet axis-aligned) exactly as its AABB: the exact path rounds as the AABB path does', () => {
     const grid = new BlockGrid(3, 3, 3);
-    const I3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     const box = { min: [3, -1.3 * C, -2.2 * C] as [number, number, number], max: [1.7 * C, -0.2 * C, -0.4 * C] as [number, number, number] };
+    // R = a quarter turn about X; the local box is the world box taken back through R^T (world = R·local).
+    const R = [1, 0, 0, 0, 0, -1, 0, 1, 0];
+    const back = (v: readonly number[]): number[] => [v[0]!, v[2]!, -v[1]!];
+    const c0 = back(box.min), c1 = back(box.max);
+    const local = { min: [0, 1, 2].map(i => Math.min(c0[i]!, c1[i]!)) as [number, number, number], max: [0, 1, 2].map(i => Math.max(c0[i]!, c1[i]!)) as [number, number, number] };
+    expect(isTiltedBox({ R, t: [0, 0, 0], ...local })).toBe(true);
     const a = buildColliderGrid(grid, [box], frame);
-    const b = buildColliderGrid(grid, [{ ...box, obb: { R: I3, t: [0, 0, 0] as [number, number, number], min: box.min, max: box.max } }], frame);
+    const b = buildColliderGrid(grid, [{ ...box, obb: { R, t: [0, 0, 0] as [number, number, number], ...local } }], frame);
+    expect(b.stats.turnedBoxes).toBe(1);
     for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) expect(b.grid.get(x, y, z)).toBe(a.grid.get(x, y, z));
     expect([...b.layers.keys()].sort()).toEqual([...a.layers.keys()].sort());
     for (const [i, l] of a.layers) expect([...b.layers.get(i)!]).toEqual([...l]);
+  });
+
+  it('keeps the bounding box of a cuboid turned about the VERTICAL only (a yaw is not a tilt)', () => {
+    // A plate turned 45 degrees about Y: a diamond in its square. Its bounding box stays the collider
+    // (76435's climb and 76417's turned baseplate stand on such boxes; see `isTiltedBox`).
+    const grid = new BlockGrid(4, 2, 4);
+    const k = Math.SQRT1_2, R = [k, 0, k, 0, 1, 0, -k, 0, k];
+    const obb = { R, t: [2 * C, 0, -2 * C] as [number, number, number], min: [-1.4 * C, -8, -1.4 * C] as [number, number, number], max: [1.4 * C, 0, 1.4 * C] as [number, number, number] };
+    expect(isTiltedBox(obb)).toBe(false);
+    const half = 1.4 * C * Math.SQRT2;
+    const aabb = { min: [2 * C - half, -8, -2 * C - half] as [number, number, number], max: [2 * C + half, 0, -2 * C + half] as [number, number, number] };
+    const a = buildColliderGrid(grid, [aabb], frame), b = buildColliderGrid(grid, [{ ...aabb, obb }], frame);
+    expect(b.stats.turnedBoxes).toBe(0);
+    for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) expect(b.grid.get(x, 0, z)).toBe(a.grid.get(x, 0, z));
   });
 
   it('clips a parallelepiped against a box exactly (against dense sampling)', () => {

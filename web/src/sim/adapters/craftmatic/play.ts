@@ -35,7 +35,7 @@ import { JUMP_PEAK, STEP_HEIGHT } from '../../physics/body.js';
 import { LINE_MIN_OUT, LINE_OUT, doorwayGeometry, jumpHelps } from '../../../engine/interactive-walk.js';
 import type { AddonAppearance } from './appearance.js';
 import type { VoxelWorld } from '../../world/voxel-world.js';
-import { driverViewWorld, entityDrawn, type DrawnBox } from './drawn.js';
+import { driverViewWorld, drawnReaches, drawnTopOver, entityDrawn, type DrawnBox } from './drawn.js';
 import { modelToWorld, type CraftmaticPack, type Placed } from './pack-facts.js';
 import { PLACED_KEY } from './wand.js';
 import { treadBlocksFor } from '../../../engine/bedrock-placement-pack.js';
@@ -62,6 +62,8 @@ const rideSeat = (ctx: StepContext, pack: CraftmaticPack, index: number): SimEnt
  * seat sunk into its chute). Undefined when nothing is drawn there. The
  * collider grid cannot answer this: a chute's rims and bed share a cell.
  */
+// TODO(tilted-colliders): this reads a turned cube's CORNER box top (a sloped chute's highest corner), not its
+// surface under the seat (`drawnTopOver`); the 10788 slide limits were measured against it, so it stays until re-measured.
 function heightOverDrawn(boxes: readonly DrawnBox[], p: Vec3, radius: number): number | undefined {
   let top = -Infinity;
   for (const { box: b } of boxes) {
@@ -512,7 +514,8 @@ function treadsIn(w: VoxelWorld, treads: ReadonlySet<string>, probe: Box): strin
 /** The device round's "porch": a teleport this far out (blocks at 100 %) at the doorway's height, then a walk in. */
 export const PORCH_OUT = 2.5;
 
-const boxHits = (boxes: readonly DrawnBox[], q: Box): boolean => boxes.some(({ box: b }) => b.x1 > q.x0 && b.x0 < q.x1 && b.y1 > q.y0 && b.y0 < q.y1 && b.z1 > q.z0 && b.z0 < q.z1);
+/** Whether any drawn cube reaches into `q` (a turned cube by its own shape, `drawnReaches`). */
+const boxHits = (boxes: readonly DrawnBox[], q: Box): boolean => boxes.some(d => drawnReaches(d, q));
 
 /**
  * What one device line did. A HOLE is judged at once (a fall anywhere a child walks is a fall); a STOP the pack
@@ -630,7 +633,8 @@ async function deviceLine(ctx: StepContext, statics: readonly DrawnBox[], treads
     // further on, the drop is the model's own edge, moved by the re-lay (31141's upper doors open over the street).
     const drawnFloorAt = (d: number): boolean => {
       const q = { x: lostAt.x - n.x * side * d, z: lostAt.z - n.z * side * d };
-      return statics.some(({ box: b }) => b.y1 >= floorY - STEP_HEIGHT && b.y1 <= floorY + 0.1 && b.x1 > q.x - 0.3 && b.x0 < q.x + 0.3 && b.z1 > q.z - 0.3 && b.z0 < q.z + 0.3);
+      // A turned cube's top is read over the footprint itself (`drawnTopOver`): its corner box is not a floor.
+      return statics.some(d => { const top = drawnTopOver(d, q.x - 0.3, q.x + 0.3, q.z - 0.3, q.z + 0.3); return top !== undefined && top >= floorY - STEP_HEIGHT && top <= floorY + 0.1; });
     };
     const drawnFloor = drawnFloorAt(0.3);
     const edgeMoved = drawnFloor && rounding > 0 && !drawnFloorAt(0.3 + rounding);

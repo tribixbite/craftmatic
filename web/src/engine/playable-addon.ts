@@ -2626,7 +2626,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                 { name: `${rp}textures/blocks/craftmatic_collider.png`, data: transparentPng() },
             );
             Object.assign(terrainTextures, COLLIDER_TERRAIN_TEXTURE);
-            warnings.push(`${label}: brick-accurate building - ${sgeo.diagnostics.cubeCount} cuboids at ${sgeo.diagnostics.quality.microcellLdu} LDU over ${colliders.stats.colliders} invisible collider blocks (${colliders.stats.partial} part-height, ${colliders.stats.kept} doors/lights kept; laid from the shell's own geometry: ${colliders.stats.emptyVoxelsDropped} voxel cells with nothing to see dropped, ${colliders.stats.geometryBlocksAdded} geometry blocks the voxels missed added; ${colliders.stats.turnedBoxes} turned cuboids laid from their own box, sparing ${colliders.stats.turnedCellsSpared} cells their bounding boxes held).`);
+            warnings.push(`${label}: brick-accurate building - ${sgeo.diagnostics.cubeCount} cuboids at ${sgeo.diagnostics.quality.microcellLdu} LDU over ${colliders.stats.colliders} invisible collider blocks (${colliders.stats.partial} part-height, ${colliders.stats.kept} doors/lights kept; laid from the shell's own geometry: ${colliders.stats.emptyVoxelsDropped} voxel cells with nothing to see dropped, ${colliders.stats.geometryBlocksAdded} geometry blocks the voxels missed added; ${colliders.stats.turnedBoxes} tilted cuboids laid from their own box, sparing ${colliders.stats.turnedCellsSpared} cells their bounding boxes held).`);
         } catch (e) {
             warnings.push(`${label}: the brick-accurate building could not be compiled (${e instanceof Error ? e.message : String(e)}); exported as blocks.`);
         }
