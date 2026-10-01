@@ -484,7 +484,9 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   allowance where it stands: the face of a wall); else BLOCKED, keeping the
   turn and the vertical move where they are clear on their own, a
   `blocked` / `beached` event (a soft sound once per contact; the ship's old
-  `crash` explosion is gone). A car or hover craft has a climb allowance
+  `crash` explosion is gone). The order: a ship climb, deflect, rise, slide
+  (over a hill or a slanted wall rather than along it); a car or hover craft
+  deflect, slide, climb, rise. A car or hover craft has a climb allowance
   while the stick pushes, up to `RISE_MAX` over where its climb began, once
   per push (`climbSpent`); after a climb it HOLDS that height for up to
   `CLIMB_HOLD_TICKS` while it drives on, until its wheels find the top - so it
@@ -1114,6 +1116,15 @@ an earlier "~5 forward" was read off a ramped touch stick).
   thinned wall is a full one to a vehicle. Boats only deflect and slide (no
   climb; they beach). # TODO(colliders): read every form's boxes (the kit's
   `formBoxes`) in `spanOf`.
+- **A tall vehicle's band is probed at only `FOOTPRINT.MAX_LEVELS` (4)
+  heights**: on the Milano (8.5 tall) they are 2.7 blocks apart, so a
+  one-block slab hung in the band's height (a tree's crown, a bridge deck)
+  can pass between two levels - the simulator course measured the Milano's
+  band in a crown for 28 ticks and the X-wing's (climbing) for 3. Not a
+  "stuck" case, a visual clip. # TODO(footprint-levels): levels at most a
+  block apart for an aircraft, if the Pixel's per-tick cost allows (a
+  36-block barge's 890 checks cost 20-24 ms there before the leading-edge
+  trim).
 - **Headlights are one light block** ahead of the nose, placed and removed
   as the vehicle crosses cells: the light is a sphere around that cell, not
   a beam, and a solid cell ahead keeps the previous one.

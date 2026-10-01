@@ -620,8 +620,9 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  *     they are clear on their own, so a vehicle against a wall still turns
  *     away and still comes down.
  *
- * `climbFirst` orders `climb` before `deflect` (a ship: over a hill rather
- * than round it); a ground vehicle deflects and slides first. A candidate
+ * `climbFirst` orders a ship's tries climb, deflect, rise, slide (over a
+ * hill or a slanted wall rather than along it, round a trunk); a ground
+ * vehicle deflects and slides first, then climbs and rises. A candidate
  * that moves less than `MIN_PROGRESS` is skipped. Pure, serialised; `sweep`
  * is `sweepFootprint`, passed in (a serialised function references nothing
  * outside itself).
@@ -711,16 +712,19 @@ export function resolveMove(
     const side = { ...to, x: from.x + rx * step, z: from.z + rz * step };
     return clear(side).ok ? side : undefined;
   };
+  const tryRise = (): FootprintPose | undefined => {
+    if (!(opts.climb > 0)) return undefined;
+    const p = { x: from.x, y: from.y + opts.climb, z: from.z, yaw: from.yaw, pitch: to.pitch };
+    return clear(p).ok ? p : undefined;
+  };
+  // A ship goes OVER what it meets (climb, then up the face) before it scrapes along it; a trunk met with a
+  // wingtip is still stepped round first. A ground vehicle steps round and slides before it scrambles up.
   const order: Array<[MoveResolution, () => FootprintPose | undefined]> = opts.climbFirst
-    ? [['climb', tryClimb], ['deflect', tryDeflect], ['slide', trySlide]]
-    : [['deflect', tryDeflect], ['slide', trySlide], ['climb', tryClimb]];
+    ? [['climb', tryClimb], ['deflect', tryDeflect], ['rise', tryRise], ['slide', trySlide]]
+    : [['deflect', tryDeflect], ['slide', trySlide], ['climb', tryClimb], ['rise', tryRise]];
   for (const [how, attempt] of order) {
     const p = attempt();
-    if (p) return { pose: p, how, kept: how === 'slide' ? Math.max(0, Math.min(1, progress(p))) : 1, checks, ...(at ? { at } : {}) };
-  }
-  if (opts.climb > 0) {
-    const p = { x: from.x, y: from.y + opts.climb, z: from.z, yaw: from.yaw, pitch: to.pitch };
-    if (clear(p).ok) return { pose: p, how: 'rise', kept: 0, checks, ...(at ? { at } : {}) };
+    if (p) return { pose: p, how, kept: how === 'slide' ? Math.max(0, Math.min(1, progress(p))) : how === 'rise' ? 0 : 1, checks, ...(at ? { at } : {}) };
   }
   // Blocked: keep the turn and the vertical move where they are clear on their own.
   const fallbacks: FootprintPose[] = [
