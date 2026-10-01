@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { createZip } from '../web/src/engine/zip-utils.js';
 import { bedrockJsonText } from '../web/src/engine/bedrock-json.js';
 import { HOP, HOP_TAGS, hopContact, hopKitConfig, hopRuntimeConfig, hopScript, type HopShape, type HopSource } from '../web/src/engine/bedrock-ride-hop.js';
-import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript } from '../web/src/engine/bedrock-vehicle.js';
+import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript } from '../web/src/engine/bedrock-vehicle.js';
 import { RIDE, ridesScript } from '../web/src/engine/bedrock-rides.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
 import { readAddon, type Addon } from '../web/src/sim/pack/pack.js';
@@ -88,7 +88,7 @@ const SOURCES: Record<string, HopSource> = {
 };
 const VEHICLES = scriptedVehicleScript({
   types: { [PLANE]: { mode: 'plane', noseReach: 1.5, halfWidth: 1.5, height: 1 } }, flight: FLIGHT, boat: BOAT, car: CAR, hover: HOVER,
-  footprint: FOOTPRINT, headlights: HEADLIGHTS, props: FLIGHT_PROPS, dynamic: VEHICLE_DYNAMIC, inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
+  footprint: FOOTPRINT, move: MOVE, headlights: HEADLIGHTS, props: FLIGHT_PROPS, dynamic: VEHICLE_DYNAMIC, inputEvent: FLIGHT_INPUT_EVENT, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
 });
 const HOP_JS = hopScript(hopRuntimeConfig('craftmatic', SOURCES));
 const RIDES_JS = ridesScript({ seatType: SEAT, rides: [{ kind: 'slide' }], constants: RIDE, hop: hopKitConfig('craftmatic') });
@@ -125,7 +125,7 @@ function moveTrain(cars: SimEntity[], dz: number, y?: number): void {
   for (const c of cars) { c.location = { x: c.location.x, y: y ?? c.location.y, z: c.location.z + dz }; c.placeRiders(); }
 }
 
-/** Take the plane off: full throttle down the runway, then climb on full power; returns once it is `height` up. */
+/** Take the ship off: Jump lifts it straight up; returns once it is `height` up. */
 async function takeOff(sim: Simulation, child: SimEntity, plane: SimEntity, height: number): Promise<void> {
   sim.controls.set(child.id, { forward: 0, strafe: 0, jump: true });
   for (let t = 0; t < 400 && plane.location.y < FLAT_GROUND_Y + height; t++) await sim.run(1);
@@ -139,9 +139,9 @@ describe('the hop runtime, serialised, in the simulator', () => {
     await sim.run(2);
     expect(plane.addRider(child, sim.engine.tick)).toEqual({ ok: true });
     await takeOff(sim, child, plane, 4);
-    // Level flight on cruise power; the plane flies along +Z (yaw 0).
-    sim.controls.set(child.id, { jump: false });
-    await sim.run(10);
+    // Level flight on the stick: the ship flies along +Z (yaw 0) and holds its height.
+    sim.controls.set(child.id, { jump: false, forward: 1 });
+    await sim.run(30);
     const speed = () => (plane.location.z - z0) / 10;
     const z0 = plane.location.z;
     await sim.run(10);
@@ -178,19 +178,22 @@ describe('the hop runtime, serialised, in the simulator', () => {
     expect(plane.location.z - left.z).toBeGreaterThan(2);
   }, 30000);
 
-  it('a riderless plane that nobody hopped off glides down (the hold is the hop\'s, not every empty plane\'s)', async () => {
+  it('a riderless ship that nobody hopped off brakes and sinks to the ground (the hold is the hop\'s, not every empty ship\'s)', async () => {
     const { sim, child } = await world([await pack('hopA', { 'vehicles.js': VEHICLES, 'hop.js': HOP_JS })]);
     const plane = spawn(sim, PLANE, 0.5, FLAT_GROUND_Y, 0.5);
     await sim.run(2);
     plane.addRider(child, sim.engine.tick);
     await takeOff(sim, child, plane, 4);
+    sim.controls.set(child.id, { jump: false, forward: 1 });
+    await sim.run(40);
     plane.removeRider(child);
     const y0 = plane.location.y, z0 = plane.location.z;
-    // Throttle to idle: it flies on, slows, stalls and comes down (level, it slows on drag alone and stalls after ~10 s; 20 s is past it).
-    // The child follows on the ground: a plane past the loaded area holds still (an unloaded block is not air).
+    // Nobody aboard: it brakes to a stop and sinks gently to the ground, where it parks.
+    // The child follows on the ground: a ship past the loaded area holds still (an unloaded block is not air).
     for (let t = 0; t < 400; t++) { child.location = { x: plane.location.x, y: FLAT_GROUND_Y, z: plane.location.z }; await sim.run(1); }
-    expect(plane.location.z).toBeGreaterThan(z0 + 5);
+    expect(plane.location.z).toBeGreaterThan(z0 + 3);
     expect(plane.location.y).toBeLessThan(y0);
+    expect(plane.location.y).toBeCloseTo(FLAT_GROUND_Y, 5);
   }, 30000);
 
   it('a train whose every seat a player holds is flown through, not boarded; a figure yields its chair', async () => {

@@ -29,6 +29,72 @@ in the main checkout, 19 sets; the 14 round labels are in
 `output/device-round-2026-09-26b/new-manifests.txt`, the Gabby five use `Name (set-1)`;
 the creator pack is `bun scripts/_minifig_ref.ts <out> --creator=starter "--label=Minifig Creator"`).
 
+## Spaceship controls, never stuck, free look (2026-09-30, worktree `agent-aa3c86aa63d783781`)
+
+User: "Flight u/x and controls needs to be more like spaceship less like
+flight simulator - it's too easy to get fully stuck in place by hills /
+blocks and there should be a way to go straight up or backwards for milano
+and x wing and other ships - and all vehicles should allow you to move the
+camera around instead of locking you in place. If you stop moving camera it
+should semi gradually automatically turn to point in the direction of travel
+(forward) while moving." Design and numbers: physics spec §4.6 ("Ship",
+"Never stuck", "Free look") and §9; add-on guide "Spaceship controls, never
+stuck, free look"; sim doc "The vehicle course".
+
+Packs: `output/spaceship-controls-0930/packs-<sha>/` (built ONE AT A TIME from
+the committed worktree; labels as round 30i, so the uuids are unchanged).
+Course numbers: `output/spaceship-controls-0930/{before,after}/course.md`.
+
+### Device checklist (one round, Pixel or Saga; world with the round's packs bound `--exclusive`)
+
+Turn telemetry on first: `/scriptevent craftmatic:vehicle_telemetry fast`
+(content log: `CMVT` = vehicle state with `how` = the collision response,
+`CMCAM` = free look). Record the screen.
+
+1. **7140 X-wing, at rest on the ground**: hold Jump - it goes STRAIGHT UP,
+   no roll forward (HUD `FLY ... [UP]`); let go - it hovers, no sinking.
+2. Stick forward - flies forward level; let go - stops within ~1.5 s and
+   hovers; stick back - flies straight BACKWARDS (`[BACK]`).
+3. Stick right with nothing else - turns on the spot (the right way).
+4. Pull the stick back AND hold Jump - straight DOWN to the ground.
+5. Drag the screen down (look at the ground) then tap/hold Jump - DOWN;
+   drag back level, Jump - UP. (Assumed: the drag reaches the script.)
+6. Fly at a hill or a building wall with the stick forward only - it lifts
+   itself over (`[LIFTING OVER]`), never stops dead, never goes inside.
+7. Fly with a wingtip into a tree - it steps round it.
+8. Sneak off in the air - the ship floats down and parks on the ground;
+   the player gets slow falling only from the Nimbus (not changed here).
+9. **76286 Milano**: 1-4 again (the long, wide ship).
+10. **42172 car**: drive into a two-block kerb / out of a two-block hole -
+    it scrambles up (`[CLIMBING]`); drive into a tall wall - it stops
+    (`[BLOCKED: TURN OR BACK UP]`); stopped, stick left/right - it turns on
+    the spot; brush a wall at a shallow angle - it slides along.
+11. **Free look, every vehicle (42172, 7140, 10797's car, 60221's yacht)**:
+    at rest drag the screen sideways - the camera orbits the vehicle; let
+    go - it STAYS. Drive - about a second later it swings back behind the
+    nose (~2 s). Drag while driving - it follows the finger, no fight.
+    **Watch the vehicle itself while dragging at rest: it must not twitch or
+    turn** (CMVT `yaw` constant). If it does, note it: the engine turns a
+    zero-speed vehicle toward the rider's look (quirk `rider-free-look`,
+    point 2 of the add-on guide's "Assumed") - fallback: seat lock back to 0.
+12. Hotbar slot 9 (cockpit view): drag to look round, drive - the view's
+    yaw eases back to the front; slot 1 - the chase camera is behind the
+    nose again.
+13. **Regression**: Nimbus summon / fly / back + Jump / look down + Jump
+    unchanged; 10261 coaster camera unchanged; hop a ship into 10261's train
+    (the ship hovers where left).
+
+Record per point: pass/fail, the CMVT/CMCAM lines around it, a clip.
+
+### Open after this round
+- # TODO(free-look): the three assumed facts (quirk `rider-free-look`); the
+  checklist's 5, 11, 12 settle them.
+- # TODO(colliders): the scripted runtime reads only the base collider's
+  `lo`/`hi`; the 42 trimmed forms read as full blocks (physics spec §11).
+- # TODO(sim-boat-course): a water lane for boats in the vehicle course.
+- Ship speeds (`FLIGHT.MAX_SPEED` 18, climb 8) are a judgement for a child;
+  tune on the device.
+
 ## Phones
 
 - **Pixel 8 Pro** (`adb devices -l`; mDNS serial `adb-39141FDJG007G5-…`,

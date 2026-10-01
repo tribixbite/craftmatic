@@ -48,7 +48,7 @@ export interface PlayerExtra {
   items: Array<string | undefined>;
   controlScheme?: string;
   /** Camera state the scripts set (`setCamera` preset and rotation), for the rider-pose checks. */
-  camera: { preset?: string; rotation?: { x: number; y: number }; location?: Vec3; animation?: string; tick: number };
+  camera: { preset?: string; rotation?: { x: number; y: number }; location?: Vec3; facing?: Vec3; animation?: string; tick: number };
   permissions: Map<string, boolean>;
 }
 
@@ -269,8 +269,9 @@ function playerMembers(host: FacadeHost, sim: SimEntity, _live: () => SimEntity)
       c.preset = preset; c.tick = host.engine.tick;
       if (opts?.rotation) c.rotation = { ...opts.rotation };
       if (opts?.location) c.location = copy(opts.location);
+      if (opts?.facingLocation) c.facing = copy(opts.facingLocation); else delete c.facing;
     },
-    clear: () => { const c = st().camera; delete c.preset; delete c.rotation; delete c.location; delete c.animation; c.tick = host.engine.tick; },
+    clear: () => { const c = st().camera; delete c.preset; delete c.rotation; delete c.location; delete c.facing; delete c.animation; c.tick = host.engine.tick; },
     fade: () => { timeline.add('event', 'camera.fade', { ...withSource(timeline), target: sim.nameTag }); },
     playAnimation: (_spline: unknown, opts?: { totalTimeSeconds?: number }) => { const c = st().camera; c.animation = `spline ${opts?.totalTimeSeconds ?? '?'}s`; c.tick = host.engine.tick; },
     get isValid() { return sim.valid; },

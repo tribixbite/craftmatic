@@ -359,8 +359,14 @@ camera.
   `inputInfo`). Phases per class (car, hover craft, boat, plane), then the
   footprint check: a 6-block log post is set with `test.setBlockType` ahead
   of the vehicle, off its centre line by most of its half width, and the
-  vehicle must stop with its leading edge at it (`stopsAtPost`); the post is
-  removed after (the pool refilled). A hover craft also runs off the land
+  vehicle must never pass THROUGH it: it stops at it, steps clear round it,
+  or (a ship) lifts over it (`clearsPost`; `stopsAtPost` until the collision
+  response of 2026-09-30); the post is removed after (the pool refilled). A
+  ship's phases are its spaceship controls (`goesStraightUp`, `hovers`,
+  `reverseMoves`, `turnsInPlace`, `goesStraightDown`, ...). Offline, the
+  simulator's vehicle course (`bun scripts/sim.ts <packs> --scenario=vehicles`,
+  docs/sim-engine.md) drives every scripted vehicle into a step, a hill, a
+  kerb, a wall, a tree, a slanted wall and two pits. A hover craft also runs off the land
   onto the pool (`floatsOverWater`).
 - `train_<id>_<n>` for every driven railway route (`physics.DRIVER` in
   `scripts/coaster.js`): the model is placed, a simulated player boards the

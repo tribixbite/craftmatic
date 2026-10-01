@@ -53,7 +53,7 @@ value.** Numbers (2026-09-25):
 | Pinball | 1,100 LDU/s² down the table plane | LDU in the table plane, seconds | A ball rolling on the real 8.6° playfield accelerates 2,630 LDU/s² (5/7 g sin θ; 3,680 if it slid). 1,100 is that slowed to 0.65 of real time. A game constant, not the world's gravity: it does not read the tilt and does not change with wand size. |
 | Walk-preview player | 0.08 blocks/tick² with 0.98 drag | world blocks, ticks | Minecraft's own player numbers; the integrator reproduces the 1.2522-block jump in 12 ticks. |
 | Figures | Bedrock's engine (entity `has_gravity`) | world | On device the engine applies Minecraft's own mob gravity. The host simulator only drops a figure 0.4 blocks a tick to the floor below: a stand-in, not gravity. |
-| Vehicles | Bedrock's engine | world | Cars and boats have `has_gravity: true` (mob gravity); aircraft have none (hover). No custom physics is integrated. |
+| Vehicles | the scripted runtime (cars, hover craft, boats, ships); Bedrock's engine (rotorcraft, flyers) | world blocks, seconds | Scripted vehicles have no engine gravity: `carStep` falls at `CAR.GRAVITY` 20 blocks/s² (Minecraft's own 16-32 band), a hover craft sinks at 6, a boat falls at 20; a SHIP has none at all - it hovers (spaceship controls, §4.6). Native mounts hover with no gravity. |
 
 **Why the coaster is not at 9.8.** Real gravity was ridden on the Pixel
 (2026-09-24) and read "about 50 % too slow"; pace 1.6 (25.1 blocks/s²) read
@@ -414,18 +414,41 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   yet on a device: the slower cruise, the hint on a remount of the same cloud
   (the driver now forgets its rider when the seat is empty), the seat retry
   at placement (`bedrock-placement-pack.ts`, `SEAT_RETRIES`).
-- **Car, hover craft, fixed wing and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
+- **Ship — SCRIPTED, spaceship controls** (`flightStep`, 2026-09-30), every
+  scripted aircraft: a fixed wing, the X-wing (7140), the Milano (76286), any
+  ship or spacecraft (`vehicleMotionOf`: a `plane` kind that is not a
+  rotorcraft). The user: "more like spaceship less like flight simulator ...
+  there should be a way to go straight up or backwards". The stick's
+  forward/back is thrust along the heading, forward to `MAX_SPEED` and
+  straight BACKWARDS to `REVERSE_SPEED`; hands off it stops (`BRAKE`) and
+  hovers where it is - no lift, stall, glide, take-off run or landing roll.
+  Left/right turns it, at rest too. Jump goes straight UP; Jump with the
+  stick pulled back past `DESCEND_STICK`, or a Jump PRESSED while the
+  rider's view looks down past `DIVE_PITCH_DEG` (the free look's pitch,
+  `VEHICLE_DYNAMIC.lookPitch`, latched until Jump is let go), goes straight
+  DOWN - the Nimbus's own "back + Jump" and "look down + Jump", since Sneak
+  is the dismount and no other touch input is free. It settles on the
+  ground or water under it and glides over a block's rise there; off an
+  edge it hovers. With nobody aboard it brakes and sinks gently
+  (`IDLE_SINK`) to the ground and parks; a hop's hold keeps it hovering
+  (§4.8). The body pitches with its climb and dive and banks into a turn
+  (attitude only). The flight model it replaced (throttle on Jump, elevator
+  on the stick, stall below 7 blocks/s, a 10-blocks/s take-off run) is in
+  git history at `90b6c0b0`.
+- **Car, hover craft, ship and boat — SCRIPTED** (`BP/scripts/vehicles.js` in the pack,
   `scriptedVehicleRuntime`). Every native speed is `SCRIPTED_NATIVE_SPEED` (0)
   and gravity is off; the Happy Ghast rider components stay only so Jump is an
   input, not a dismount (measured: a real rider held Jump and stayed seated).
   Each tick the runtime reads the controlling rider's `inputInfo` (or the
   `FLIGHT_INPUT_EVENT` hook), probes the blocks it needs, runs the pure
   `carStep` / `flightStep` / `boatStep`, sweeps the vehicle's footprint over
-  the new pose (`sweepFootprint`, below), teleports the entity (the rider rides along, as on
+  the new pose and resolves a block in the way (`sweepFootprint`, `resolveMove`, below), teleports the entity (the rider rides along, as on
   the coaster) and writes pitch, bank and wheel roll to the `FLIGHT_PROPS`
-  actor properties. Constants in `FLIGHT` / `BOAT` / `CAR` / `HOVER` (§9). Why: the camel boat
+  actor properties. Constants in `FLIGHT` / `BOAT` / `CAR` / `HOVER` / `MOVE` (§9). Why: the camel boat
   over `minecraft:buoyant` crawled at 1.6-1.8 blocks/s on water whatever its
-  movement, and the hover plane had no take-off, stall or landing.
+  movement, and the native hover controller gave a plane no way to be flown
+  by the stick (2026-09-25; the flight model that replaced it is itself
+  replaced by spaceship controls, above).
 - **Blocks are solid SPANS.** A probe reads each block's solid span: a
   shell collider block's `lo..hi` sixteenths (a car drives ON a plate floor,
   not a block above it), a bottom slab's lower half, a top slab's upper
@@ -442,9 +465,57 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   waterline; an aircraft: its whole airframe aloft, above its gear on the
   ground), tilted by its pitch, at every ≤ 0.8-block substep between the old
   and the new pose. A probe blocks only when it ENTERS a solid (it was clear at
-  the old pose), so a vehicle placed half in a wall drives out. A blocked move
-  keeps the turn if the turn alone is clear, stops the vehicle, and is a
-  `blocked` / `beached` / `crash` event (its sound once per contact).
+  the old pose), so a vehicle placed half in a wall drives out.
+- **Never stuck** (`resolveMove`, `MOVE`, 2026-09-30: "it's too easy to get
+  fully stuck in place by hills / blocks"). Until then a blocked move stopped
+  the vehicle where it stood whatever the angle. Now a blocked move is tried
+  again, the first clear shape taken: CLIMB (the move raised by the tick's
+  climb allowance: a ship pushed into a hill or a wall lifts over it at
+  `FLIGHT.AUTO_CLIMB`, ship first); DEFLECT (only when ONE half of the
+  footprint - left or right of the centre line, each swept on its own - meets
+  the block: a trunk met with a corner, a post with a wingtip; the move
+  stepped sideways away from it by `DEFLECT_SHARE` of its length, at least
+  `MIN_SIDESTEP`, forward kept, or the sidestep alone); SLIDE (one world axis
+  of the move - Minecraft's walls run along the axes - or, where one EDGE of
+  the footprint has more room ahead than the other (a slanted wall of
+  blocks), the move turned toward it up to `GLANCE_MAX_DEG` and shortened by
+  the cosine, or edged sideways off a stair corner; the speed scaled by the
+  share kept: along a wall met at an angle); RISE (straight up by the climb
+  allowance where it stands: the face of a wall); else BLOCKED, keeping the
+  turn and the vertical move where they are clear on their own, a
+  `blocked` / `beached` event (a soft sound once per contact; the ship's old
+  `crash` explosion is gone). The order: a ship climb, deflect, rise, slide
+  (over a hill or a slanted wall rather than along it); a car or hover craft
+  deflect, slide, climb, rise. A car or hover craft has a climb allowance
+  while the stick pushes, up to `RISE_MAX` over where its climb began, once
+  per push (`climbSpent`); after a climb it HOLDS that height for up to
+  `CLIMB_HOLD_TICKS` while it drives on, until its wheels find the top - so it
+  climbs out of a two-block pit and onto a two-block kerb (`RISE_MAX` +
+  `STEP_UP` = 2.15); a higher wall stops it, and it backs off or pivots
+  (`PIVOT_RATE`: a car turns on the spot at rest). A boat deflects and slides
+  only.
+- **Free look on every scripted vehicle** (`web/src/engine/vehicle-free-look.ts`,
+  2026-09-30: "all vehicles should allow you to move the camera around ... If
+  you stop moving camera it should semi gradually automatically turn to point
+  in the direction of travel"). The seat's `lock_rider_rotation` is
+  `FREE_LOOK.SEAT_LOCK_DEG` (181, the component's default and "no limit"; it
+  was 0, holding the rider's yaw to the seat), and the chase camera
+  (`vehicleCameraRuntime`) orbits the vehicle by offsets `freeLookStep` keeps:
+  a drag - the rider's reported look change, net of the vehicle's own turn
+  whether the device carries the rider round with it (`RIDER_YAW_LAG_TICKS`
+  late) or not - moves them; `IDLE_TICKS` after the last drag, while the
+  vehicle moves faster than `MOVING_SPEED`, they ease back to the nose with
+  the time constant `RECENTRE_SECONDS` (95 % in 1.8 s); at rest they hold.
+  Nothing moves the player in the chase view, so the ease cannot fight the
+  client. In the cockpit view (hotbar slot 9, first person) the rider's own
+  yaw is eased back with `setRotation` (yaw applies on a seated player,
+  pinball 2026-09-25; pitch does not, so the cockpit's pitch stays where the
+  child left it). The camera writes the view's pitch to the vehicle
+  (`VEHICLE_DYNAMIC.lookPitch`) for the ship's "look down + Jump", and logs
+  `CMCAM` lines with telemetry on. A rotorcraft or a flyer (native mounts)
+  already flies where its rider looks: its view is the direction of travel,
+  its seat keeps `lock_rider_rotation` 0. The device facts this rests on are
+  assumed (quirk `rider-free-look`, §11).
 - **Headlights** (`HEADLIGHTS`, `isNightTime`, `headlightCell`): at night,
   with a rider, one `minecraft:light_block_14` stands `AHEAD` blocks past the
   nose, moved as the vehicle crosses cells, removed when the rider leaves, the
@@ -483,11 +554,17 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   made invisible at sizes where the body does not fit (`cockpit-seat.ts`;
   add-on guide "Where the player sits").
 
-Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint and
-headlight helpers, the animation, and the serialised runtime on the headless simulator:
-a trunk at a car's corner, a post at a wingtip, a collider plate floor, a
-hover craft over water, headlights by night and day, the time machine's top
-speed), `test/playable-addon.test.ts`, `test/playable-golden-models.test.ts`,
+Tests: `test/bedrock-vehicle.test.ts` (the steppers, the footprint, the
+collision response and headlight helpers, the animation, and the serialised
+runtime on the headless simulator: a car stepping round a trunk at its
+corner, a ship round a post at its wingtip and over a six-high wall, straight
+up and under a roof, an empty ship parking, a car out of a two-deep pit,
+along an angled wall, stopped by a five-high wall and pivoting out, a
+collider plate floor, a hover craft over water, headlights by night and day,
+the time machine's top speed), `test/vehicle-free-look.test.ts` (the drag and
+the ease, pure and the camera runtime on the simulator), the simulator's
+`vehicles` course over built packs (`bun scripts/sim.ts <packs>
+--scenario=vehicles`, docs/sim-engine.md), `test/playable-addon.test.ts`, `test/playable-golden-models.test.ts`,
 `test/vehicle-facing.test.ts`, `test/scene-vehicles.test.ts`, and the device
 course `vehicle_<id>_<n>` (with a post off the centre line inside the
 footprint, and a hover craft's run over the pool) and train test
@@ -573,10 +650,12 @@ no forces: nothing is pushed, the player changes mount.
   when the train reverses); a contact with any car of a train boards the
   front-most car with a free seat within `HOP.TRAIN_REACH_BLOCKS`. Within one
   entity the compiler lists the driver's seat first.
-- **The vehicle left behind** (`HopSource.vacate`): a scripted aircraft HOVERS
+- **The vehicle left behind** (`HopSource.vacate`): a scripted ship HOVERS
   where it was left - `BP/scripts/vehicles.js` skips its integration while the
   `VEHICLE_DYNAMIC.hold` property is set, keeping its state, so a rider back
-  aboard flies on at the speed it had; a scripted car, hover craft or boat
+  aboard flies on from the speed it had (hands off it then brakes to a hover);
+  a ship whose rider got off WITHOUT a hop sinks gently to the ground and parks
+  (`FLIGHT.IDLE_SINK`); a scripted car, hover craft or boat
   stops (its speed zeroed once); a native mount (rotorcraft, a flyer's cloud)
   is held by Bedrock's hover controller (an empty Nimbus hovers, Saga
   2026-09-29) and a summoned cloud still fades after `FLYER.EMPTY_DESPAWN_TICKS`.
@@ -596,7 +675,7 @@ no forces: nothing is pushed, the player changes mount.
 Tests: `test/bedrock-ride-hop.test.ts` (the contact test; the serialised
 `hop.js`, `vehicles.js` and `rides.js` in the headless simulator: a plane
 catches a train's rear car and sits in the front one, then hovers; a riderless
-plane that nobody hopped off glides down; a train full of players is flown
+ship that nobody hopped off sinks to the ground and parks; a train full of players is flown
 through; a figure yields its chair; two packs owning the plane hop once; the
 back-hop cooldown; a car at a slide's foot). Built packs: the simulator's
 `hop` scenarios (docs/sim-engine.md).
@@ -612,8 +691,8 @@ Each device runtime is a function turned into the pack's script text with
 | `BP/scripts/coaster.js` | `coasterScript` | `coasterRuntime` (module-private), `sampleCoasterPath`, `coasterCarAttitude`, `coasterRiderView`, `coasterRiderLook` |
 | pinball script | `pinballScript` | `pinballRuntime`, `createPinballSim`, `fitPinballZone` |
 | `BP/scripts/figures.js` | `figureLifeScript` | `figureLifeRuntime`, `standFeetAt`, `exploreWalkable`, `pathTo`, `blockSpan`, `startCell`, `refugeCell` |
-| vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime`, `timeMachineRuntime` |
-| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `isNightTime`, `headlightCell` |
+| vehicle scripts | `playable-addon.ts` | `vehicleDriverRuntime`, `vehicleCameraRuntime` (with `freeLookStep`, `freeLookStart`), `timeMachineRuntime` |
+| `BP/scripts/vehicles.js` | `scriptedVehicleScript` | `scriptedVehicleRuntime`, `carStep`, `flightStep`, `boatStep`, `sweepFootprint`, `resolveMove`, `isNightTime`, `headlightCell` |
 | `BP/scripts/rides.js` | `ridesScript` | `ridesRuntime` (module-private; slides, lifts and orbits) |
 | `BP/scripts/flyer.js` | `flyerScript` | `flyerRuntime` (module-private; summons and fades the player's clouds, floats a rider who leaves one in the air) |
 | `BP/scripts/hop.js` | `hopScript` | `hopRuntime` (module-private), `hopKit`, `hopContact`; `rides.js` also carries `hopKit` (a slide's set-down) |
@@ -658,7 +737,8 @@ Each device runtime is a function turned into the pack's script text with
 | `tickBody` (`web/src/sim/physics/body.ts`) | — (Bedrock moves the mob) | — | the simulator's mobs under `minecraft:physics` (a figure walked by `applyImpulse`) |
 | every serialised runtime above | serialised | — | the headless simulator runs them UNMODIFIED, all of a pack's scripts in one context, against its `@minecraft/server` mock (docs/sim-engine.md) |
 | `carStep`, `flightStep`, `boatStep` (`CAR`, `HOVER`, `FLIGHT`, `BOAT` via `config.car` / `config.hover` / `config.flight` / `config.boat`) | serialised | — | `test/bedrock-vehicle.test.ts` |
-| `sweepFootprint` (`FOOTPRINT`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on the headless simulator) |
+| `sweepFootprint` (`FOOTPRINT`), `resolveMove` (`MOVE`), `isNightTime`, `headlightCell` (`HEADLIGHTS`) | serialised | — | `test/bedrock-vehicle.test.ts` (pure, and the runtime on the headless simulator), the simulator's `vehicles` course (`adapters/craftmatic/vehicle-course.ts`) |
+| `freeLookStep`, `freeLookStart` (`FREE_LOOK`) | serialised into `vehicle-camera.js` | — | `test/vehicle-free-look.test.ts` (pure, and the camera runtime on the headless simulator) |
 | `vehicleClientAnimation` | client Molang, not a script | — | `test/bedrock-vehicle.test.ts`, `test/bedrock-flyer.test.ts` (the flyer's bob) |
 | `findMounts`, `orbitPathLdu` (`FLYER`) | export time: the orbit on the seat's `ridePath`, followed by `ridesRuntime` | — | `test/bedrock-flyer.test.ts`, `test/nimbus-fixture.test.ts` |
 | `hopContact`, `hopKit` (`HOP`, `HOP_TAGS`) | serialised into `hop.js` (every driveable) and `rides.js` (a slide's set-down); the coaster writes `HOP_TAGS` on its cars; `vehicles.js` reads `VEHICLE_DYNAMIC.hold` | — | `test/bedrock-ride-hop.test.ts` (pure, and the serialised runtimes in the simulator) |
@@ -826,19 +906,20 @@ literal inside a function body (`§` marks the number).
 | `SCRIPTED_NATIVE_SPEED` | `web/src/engine/playable-addon.ts` | 0 | Bedrock movement / flying_speed | A scripted vehicle's native speeds: only the script moves it. |
 | `ROTOR_FLYING_SPEED` | `web/src/engine/playable-addon.ts` | 0.3 | Bedrock flying_speed | A rotorcraft's, the Happy Ghast's controller: 38.3 blocks/s forward measured on the Nimbus at this value (Pixel 2026-09-29, CMVT fast, 85.7 mph HUD against 85.9 true) - not the "~5 blocks/s" an earlier round read off a ramped stick. |
 | `FLYER.FLYING_SPEED` | `web/src/engine/bedrock-flyer.ts` | 0.0725 | Bedrock flying_speed | A flyer mount's cruise, for a five-year-old round a ten-block model. Two Pixel measurements (CMVT fast, 2026-09-29): 38.3 blocks/s at 0.3 and 13.1 at 0.09 - not proportional (11.5 predicted), so v ≈ 120·fs + 2.3 blocks/s and 0.0725 is ~11 blocks/s (25 mph). Confirm on the next round; the same at every wand size. |
-| `FLIGHT.ROTATE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 10 | blocks/s | Take-off speed; about 15 blocks of run at full power on the device (Milano GameTest). |
-| `FLIGHT.STALL_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 7 | blocks/s | Below it the wing sinks and the nose drops. |
-| `FLIGHT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 32 | blocks/s | Airspeed ceiling. |
-| `FLIGHT.THRUST` | `web/src/engine/bedrock-vehicle.ts` | 10 | blocks/s² at full throttle | With `DRAG`: 30 blocks/s at full power, 23.2 at cruise (23.2 read by a real rider on the Pixel). |
-| `FLIGHT.DRAG` | `web/src/engine/bedrock-vehicle.ts` | 0.0111 | 1/block | Quadratic drag. |
-| `FLIGHT.CRUISE_THROTTLE` | `web/src/engine/bedrock-vehicle.ts` | 0.6 | fraction | Engine power hands off, aloft: nobody holds Jump to stay up. |
-| `FLIGHT.APPROACH_THROTTLE` | `web/src/engine/bedrock-vehicle.ts` | 0.25 | fraction | Within `APPROACH_HEIGHT` of the ground: pushing the nose down lands rather than speeds up. |
-| `FLIGHT.APPROACH_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks | Height under which approach power applies. |
-| `FLIGHT.PITCH_RATE` | `web/src/engine/bedrock-vehicle.ts` | 45 | degrees/s | Elevator authority at full stick. |
-| `FLIGHT.PITCH_MAX` | `web/src/engine/bedrock-vehicle.ts` | 40 | degrees | Steepest climb or dive. |
-| `FLIGHT.TURN_RATE` | `web/src/engine/bedrock-vehicle.ts` | 55 | degrees/s | Full-stick turn at or above take-off speed (162 degrees in 3 s measured). |
-| `FLIGHT.AUTO_BRAKE` | `web/src/engine/bedrock-vehicle.ts` | 5 | blocks/s² | Wheel brakes on the ground with the throttle released. |
-| `FLIGHT.HARD_LANDING` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s down | Touch-down sink rate that counts as a hard landing (speed × 0.4). |
+| `FLIGHT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 18 | blocks/s | A ship's full forward thrust (40 mph): the old flight model's 23 cruise and 32 ceiling left a child round a ten-block model in a second; the car's 19 is a speed the same child already drives. Device feel unproven (TASKS "Spaceship controls"). |
+| `FLIGHT.REVERSE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight backwards on the stick pulled back ("there should be a way to go ... backwards"). |
+| `FLIGHT.ACCEL` | `web/src/engine/bedrock-vehicle.ts` | 12 | blocks/s² | 0 to full in 1.5 s. |
+| `FLIGHT.BRAKE` | `web/src/engine/bedrock-vehicle.ts` | 24 | blocks/s² | Hands off (or the stick against the motion) it stops from full in 0.75 s, 6.8 blocks on, and HOVERS: no glide, no stall. At 14 the simulator's ship ran 11 blocks on after letting go - a glide, not a stop. |
+| `FLIGHT.TURN_RATE` | `web/src/engine/bedrock-vehicle.ts` | 80 | degrees/s | Full stick turns it, at rest too (a pivot on the spot): a quarter turn in about a second. |
+| `FLIGHT.CLIMB_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight up on Jump. The Nimbus's native climb measured ~20-22 blocks/s (Saga/Pixel 2026-09-29); a ship's is slower so a tap lifts it a few blocks, not a storey. |
+| `FLIGHT.DESCEND_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight down on back + Jump, or a Jump pressed while the view looks down. |
+| `FLIGHT.VERTICAL_ACCEL` | `web/src/engine/bedrock-vehicle.ts` | 24 | blocks/s² | Up or down reaches its speed in a third of a second and stops as fast. |
+| `FLIGHT.IDLE_SINK` | `web/src/engine/bedrock-vehicle.ts` | 3 | blocks/s | Nobody aboard (a sneak off in the air): it sinks gently to the ground and parks, within reach of the child who left it. |
+| `FLIGHT.AUTO_CLIMB` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | A ship pushed into a hill or a wall lifts itself over it at this rate (`resolveMove` `climb` / `rise`). |
+| `FLIGHT.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Resting on the ground, it glides over a rise of a block; aloft the whole airframe must clear. |
+| `FLIGHT.PITCH_MAX` | `web/src/engine/bedrock-vehicle.ts` | 20 | degrees | Most the body tips (nose up climbing, down diving or accelerating): attitude only, drawn by the animation. |
+| `FLIGHT.DIVE_PITCH_DEG` | `web/src/engine/bedrock-vehicle.ts` | 25 | degrees (view pitch, + = down) | A Jump PRESSED while the rider's view looks down past this goes down until Jump is let go - the Nimbus's `FLYER.DIVE_PITCH_DEG`, the same 25 (a chase camera's line of sight is not a dive, a deliberate drag down is). |
+| `FLIGHT.DESCEND_STICK` | `web/src/engine/bedrock-vehicle.ts` | -0.5 | stick deflection | Jump with the stick pulled back past half goes down (the Nimbus's back + Jump) and gives no reverse thrust while it does. |
 | `FLIGHT.STICK_X_RIGHT` | `web/src/engine/bedrock-vehicle.ts` | -1 | sign | Measured: the stick pushed RIGHT reads `getMovementVector().x` = -0.46 (Pixel, 2026-09-25). |
 | `CAR.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 19 | blocks/s | Full stick (42 mph), what the camel gave at movement 0.45. |
 | `CAR.REVERSE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 5 | blocks/s | Full reverse. |
@@ -847,8 +928,11 @@ literal inside a function body (`§` marks the number).
 | `CAR.COAST` | `web/src/engine/bedrock-vehicle.ts` | 2.5 | blocks/s² | Hands off: rolls on instead of the camel's dead stop. |
 | `CAR.BOOST_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 26 | blocks/s | Jump boost for `BOOST_SECONDS` 1.5, then `BOOST_COOLDOWN` 3. |
 | `CAR.STEER_RATE` | `web/src/engine/bedrock-vehicle.ts` | 110 | degrees/s | Full lock at `STEER_FULL_SPEED` 5 blocks/s, divided by 1 + speed / `STEER_FADE` 12: about 43 degrees/s at top speed. |
-| `CAR.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1.05 | blocks | Highest step climbed (a full block, as the camel's 1.25 auto-step allowed); higher is a wall. |
-| `CAR.CLIMB_RATE` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s | How fast it eases up a step. |
+| `CAR.PIVOT_RATE` | `web/src/engine/bedrock-vehicle.ts` | 45 | degrees/s | At a standstill the stick's left/right turns it on the spot, fading out by `STEER_FULL_SPEED`: a car nosed into a corner or wedged between two walls can always be turned out (2026-09-30). |
+| `CAR.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1.05 | blocks | Highest step climbed (a full block, as the camel's 1.25 auto-step allowed); higher is a wall to scramble up (`RISE_MAX`). |
+| `CAR.CLIMB_RATE` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s | How fast it eases up a step, and scrambles up a wall it is pushed into. |
+| `CAR.RISE_MAX` | `web/src/engine/bedrock-vehicle.ts` | 1.1 | blocks | Most a car scrambles up a wall in one push; with `STEP_UP` it climbs out of a two-block pit or onto a two-block kerb (2.15). A higher wall stops it. |
+| `CAR.CLIMB_HOLD_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 40 | ticks | While the stick still pushes, a car that scrambled up holds that height this long (2 s) for its wheels to reach the top, its centre still over the pit. |
 | `CAR.WATER_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks/s | Crawl through water. |
 | `CAR.STICK_X_RIGHT` | `web/src/engine/bedrock-vehicle.ts` | -1 | sign | Same measured sign as the aircraft's. |
 | `FLIGHT.STICK_FULL` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | stick deflection | Counts as full in all three models (`CAR`, `BOAT` the same): a touch stick pushed to its rim reads 0.816 on the Pixel, which held a car at 15.5 of its 19 blocks/s. |
@@ -868,6 +952,8 @@ literal inside a function body (`§` marks the number).
 | `HOVER.COAST` | `web/src/engine/bedrock-vehicle.ts` | 1.2 | blocks/s² | Hands off it glides (a car coasts down at 2.5). |
 | `HOVER.STEER_RATE` | `web/src/engine/bedrock-vehicle.ts` | 70 | degrees/s | Gentler than a car's 110. |
 | `HOVER.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1.6 | blocks | It floats over a block and a half of rise. |
+| `HOVER.PIVOT_RATE` | `web/src/engine/bedrock-vehicle.ts` | 40 | degrees/s | Turns on the spot at rest, as a car does. |
+| `HOVER.RISE_MAX` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Most it lifts over a wall in one push (2.6 with its `STEP_UP`). |
 | `HOVER.GRAVITY` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s² | It sinks slowly off an edge. |
 | `HOVER.RIDE_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Height above the ground or the water's surface. |
 | `FOOTPRINT.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 0.9 | blocks | Most two perimeter probes are apart: under one block, so a one-block trunk cannot slip between them. |
@@ -875,6 +961,21 @@ literal inside a function body (`§` marks the number).
 | `FOOTPRINT.MAX_LEVELS` | `web/src/engine/bedrock-vehicle.ts` | 4 | heights | Heights tested between the band's `lo` and `hi`. |
 | `FOOTPRINT.SWEEP_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | blocks | Most a probe travels between two tested poses: a 32 blocks/s aircraft moves 1.6 a tick. |
 | `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
+| `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
+| `MOVE.MIN_SIDESTEP` | `web/src/engine/bedrock-vehicle.ts` | 0.1 | blocks/tick | The sidestep's least size, so a car crawling into a tree still edges round it. |
+| `MOVE.MIN_PROGRESS` | `web/src/engine/bedrock-vehicle.ts` | 0.002 | blocks | A retry that moves less than this is not tried. |
+| `MOVE.GLANCE_STEP_DEG` | `web/src/engine/bedrock-vehicle.ts` | 20 | degrees | A slanted wall across the way (a diagonal of blocks): the move is turned toward the roomier edge in these steps. |
+| `MOVE.GLANCE_MAX_DEG` | `web/src/engine/bedrock-vehicle.ts` | 60 | degrees | The most it turns (keeping cos 60 = half the push); pinned by a stair corner past that, it edges sideways by the sidestep. A wall at 30 degrees off square across a car's way stopped 10797's and 60380's cars dead until this (simulator vehicle course, 2026-09-30). |
+| `MOVE.GLANCE_PROBE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | How far ahead each edge's room is probed (in quarters): a square wall leaves both edges the same room, so a car nosed into one does not crawl sideways along it. |
+| `FREE_LOOK.SEAT_LOCK_DEG` | `web/src/engine/vehicle-free-look.ts` | 181 | degrees | A scripted vehicle seat's `lock_rider_rotation`: the component's documented default and "no limit"; the coaster's seats have it and their riders look round. Was 0 (yaw held to the seat). |
+| `FREE_LOOK.IDLE_TICKS` | `web/src/engine/vehicle-free-look.ts` | 20 | ticks | One second with no drag before the view starts back to the nose ("semi gradually"): a child lifting a thumb to drag again is not fought. |
+| `FREE_LOOK.RECENTRE_SECONDS` | `web/src/engine/vehicle-free-look.ts` | 0.6 | s | The ease back's time constant: 63 % in 0.6 s, 95 % in 1.8 s - inside the 1-2 s the brief asked for. |
+| `FREE_LOOK.MIN_STEP_DEG` | `web/src/engine/vehicle-free-look.ts` | 0.15 | degrees/tick | The ease's slowest step, so it lands on the nose instead of creeping. |
+| `FREE_LOOK.MOVING_SPEED` | `web/src/engine/vehicle-free-look.ts` | 0.5 | blocks/s | Under it the vehicle is at rest and the view stays where the child left it ("while moving"). |
+| `FREE_LOOK.DRAG_EPS_DEG` | `web/src/engine/vehicle-free-look.ts` | 0.4 | degrees/tick | A look change under this is noise; a drag reads ~0.21 degrees per pixel (pinball, Pixel 2026-09-25), so two pixels a tick is a drag. |
+| `FREE_LOOK.PITCH_UP_MAX` | `web/src/engine/vehicle-free-look.ts` | 35 | degrees | Furthest the view is dragged up over the vehicle's own pitch: the chase boom swings under the vehicle past it. |
+| `FREE_LOOK.PITCH_DOWN_MAX` | `web/src/engine/vehicle-free-look.ts` | 70 | degrees | Furthest the view is dragged down: nearly straight down on the vehicle. |
+| `FREE_LOOK.RIDER_YAW_LAG_TICKS` | `web/src/engine/vehicle-free-look.ts` | 6 | ticks | A carried rider's reported yaw trails its vehicle (quirk `rider-yaw-lag`); the drag reading compares it with the vehicle's yaw that long ago. |
 | `HEADLIGHTS.LEVEL` | `web/src/engine/bedrock-vehicle.ts` | 14 | light level | One `minecraft:light_block_14`: bright enough to read the road ahead at night. |
 | `HEADLIGHTS.AHEAD` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks | Past the nose, along the heading. |
 | `HEADLIGHTS.PARK_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 100 | ticks | A light switches off after 5 s parked. |
@@ -998,6 +1099,32 @@ an earlier "~5 forward" was read off a ramped touch stick).
   `rider-seat-order`, `add-rider-after-eject`, `aabb-is-collision-box`).
   # TODO(hop): fly the Nimbus into 10261's moving train on a phone and read
   the seat, the camera and the cloud left hovering.
+- **Free look is offline-proved only** (§4.6): that `lock_rider_rotation`
+  181 lets a scripted vehicle's rider turn its yaw by a drag under the
+  script's free camera, whether the device carries that yaw round with the
+  vehicle (and how late), and that `setRotation` eases a seated rider's yaw
+  in the cockpit view are assumed (quirk `rider-free-look`; pinball measured
+  the pitch reported by a drag and the yaw `setRotation` applies). The pitch
+  of the cockpit view cannot be eased (`setRotation` pitch is ignored on the
+  phone). # TODO(free-look): the device probe in TASKS "Spaceship controls".
+- **Never stuck is block-only and has a ceiling.** `resolveMove` steps round
+  a one-sided obstacle, slides along an axis and climbs `RISE_MAX` +
+  `STEP_UP` (a car: 2.15 blocks); a pit deeper than that, a wall higher, or a
+  slot narrower than the vehicle still holds a car (it pivots and reverses
+  out). The collider kit's trimmed forms (`craftmatic:collider_*`) read as
+  full blocks here (only the base collider's `lo`/`hi` are read), so a
+  thinned wall is a full one to a vehicle. Boats only deflect and slide (no
+  climb; they beach). # TODO(colliders): read every form's boxes (the kit's
+  `formBoxes`) in `spanOf`.
+- **A tall vehicle's band is probed at only `FOOTPRINT.MAX_LEVELS` (4)
+  heights**: on the Milano (8.5 tall) they are 2.7 blocks apart, so a
+  one-block slab hung in the band's height (a tree's crown, a bridge deck)
+  can pass between two levels - the simulator course measured the Milano's
+  band in a crown for 28 ticks and the X-wing's (climbing) for 3. Not a
+  "stuck" case, a visual clip. # TODO(footprint-levels): levels at most a
+  block apart for an aircraft, if the Pixel's per-tick cost allows (a
+  36-block barge's 890 checks cost 20-24 ms there before the leading-edge
+  trim).
 - **Headlights are one light block** ahead of the nose, placed and removed
   as the vehicle crosses cells: the light is a sphere around that cell, not
   a beam, and a solid cell ahead keeps the previous one.
@@ -1016,16 +1143,16 @@ one of these files fails the check until its row is written.
 | `vehicleMotionOf` | function | A playable kind and its title → its motion class (a hover craft or a rotorcraft by its title). |
 | `VEHICLE_BODY_MOTION` | const | Lean, squat and steer gains of the Molang drive animation, per motion class. |
 | `vehicleClientAnimation` | function | The drive animation (wheel spin, steer, body lean) and its client-entity script lines (§4.6). |
-| `FLIGHT` | const | Every fixed-wing constant (§9); JSON-serialised into `config.flight`. |
-| `FlightParams` | type | Type of `FLIGHT`. |
-| `FlightState`, `FlightInput`, `FlightTerrain` | interface | The fixed wing's state, the rider's input and the probed ground. |
-| `FlightEvent` | type | `takeoff` / `landing` / `hard_landing` / `crash` / `stall`. |
-| `flightStep` | function | SERIALISED. One fixed-wing step (throttle, elevator, turn, stall, landing). |
+| `FLIGHT` | const | Every ship constant (§9: spaceship controls for every scripted aircraft); JSON-serialised into `config.flight`. |
+| `FlightParams` | type | `FLIGHT` as numbers. |
+| `FlightState`, `FlightInput`, `FlightTerrain` | interface | The ship's state (with its Jump latch), the rider's input (with the view's pitch) and the probed ground. |
+| `FlightEvent` | type | `takeoff` / `landing`. |
+| `flightStep` | function | SERIALISED. One ship step (thrust forward and back, turn at rest, straight up and down, hover, settle and park). |
 | `CAR` | const | Every car constant (§9); JSON-serialised into `config.car`. |
 | `CarParams` | type | `CAR` as numbers. |
-| `CarState`, `CarTerrain` | interface | The car's state and the probed ground (centre, nose, tail, walls, water). |
-| `CarEvent` | type | `blocked` / `boost` / `landed`. |
-| `carStep` | function | SERIALISED. One car step (throttle, brake, reverse, steering, boost, steps, walls, falls). |
+| `CarState`, `CarTerrain` | interface | The car's state and the probed ground (centre, nose, tail, water). |
+| `CarEvent` | type | `boost` / `landed` (a wall is the runtime's `blocked`). |
+| `carStep` | function | SERIALISED. One car step (throttle, brake, reverse, steering and the pivot at rest, boost, steps, falls). |
 | `BOAT` | const | Every boat constant (§9); JSON-serialised into `config.boat`. |
 | `BoatParams` | type | `BOAT` as numbers (a per-type `draft` in the config overrides `DRAFT`). |
 | `BoatState`, `BoatWater` | interface | The boat's state and the probed water and shore. |
@@ -1037,17 +1164,31 @@ one of these files fails the check until its row is written.
 | `FootprintParams` | type | `FOOTPRINT` as numbers. |
 | `FootprintPose`, `VehicleFootprint` | interface | A pose (position, yaw, pitch) and a footprint (half length, half width, the clear band). |
 | `sweepFootprint` | function | SERIALISED. Sweeps the footprint from one pose to the next; the first probe that ENTERS a solid blocks. |
+| `MOVE` | const | The collision response's constants (§9); `config.move`. |
+| `MoveParams` | type | `MOVE` as numbers. |
+| `MoveResolution` | type | `clear` / `climb` / `deflect` / `slide` / `rise` / `blocked`. |
+| `resolveMove` | function | SERIALISED. A blocked move tried again as a climb, a sidestep round a one-sided obstacle, a slide along an axis, a rise; else blocked, keeping a clear turn and vertical move (§4.6 "Never stuck"). |
 | `HEADLIGHTS` | const | The headlight's constants (§9); `config.headlights`. |
 | `HeadlightParams` | type | `HEADLIGHTS` as numbers. |
 | `isNightTime`, `headlightCell` | function | SERIALISED. Night by the time of day; the cell ahead of the nose the light stands in. |
 | `FLIGHT_PROPS` | const | Actor property names the runtime writes and the animation reads. |
 | `flightProperties` | function | Their float declarations for the entity. |
 | `FLIGHT_INPUT_EVENT`, `VEHICLE_TELEMETRY_EVENT` | const | Scriptevent ids: the test/tuning input hook (scripted vehicles AND driven trains), telemetry on/off (not physics). |
-| `VEHICLE_DYNAMIC` | const | Dynamic property names another runtime sets on a scripted vehicle (top speed, HUD line) and the headlight's saved cell. |
+| `VEHICLE_DYNAMIC` | const | Dynamic property names another runtime sets on a scripted vehicle (top speed, HUD line, the hop's hold, the view's pitch) and the headlight's saved cell. |
 | `ScriptedVehicleType` | interface | One type as the runtime sees it: mode, half length, half width, height, draft, per-type car overrides. |
 | `ScriptedVehicleConfig` | interface | The JSON the runtime reads. |
 | `scriptedVehicleRuntime` | function | SERIALISED. Per tick: input, probes (solid spans: collider sixteenths, slabs), step, swept footprint, headlight, teleport, properties, HUD. |
 | `scriptedVehicleScript` | function | Serialises the runtime, the three steppers and the helpers into `BP/scripts/vehicles.js` (§5). |
+<!-- /physics-spec:exports -->
+
+<!-- physics-spec:exports web/src/engine/vehicle-free-look.ts -->
+| Export | Kind | Role |
+|---|---|---|
+| `FREE_LOOK` | const | Every free-look number (§9); the camera runtime's `config.freeLook`. |
+| `FreeLookParams` | type | `FREE_LOOK` as numbers. |
+| `FreeLookState`, `FreeLookInput` | interface | A rider's view offsets (yaw, pitch) and idle count; one tick's reading (the rider's look, the vehicle's yaw and speed, the yaw the runtime set itself). |
+| `freeLookStart` | function | SERIALISED. A centred, idle view. |
+| `freeLookStep` | function | SERIALISED. One tick: a drag (net of the vehicle's own turn, carried or not) moves the view; a second after the last drag, while moving, it eases back behind the nose (§4.6 "Free look"). |
 <!-- /physics-spec:exports -->
 
 <!-- physics-spec:exports web/src/engine/lego-scale.ts -->

@@ -385,9 +385,10 @@ function vehicleHarness(opts: { drives: boolean; kind: 'car' | 'boat' | 'plane' 
     // A scripted vehicle turns right on x = -1 while its hook input lasts.
     if (opts.scripted) { if (hookTicks > 0) { hookTicks--; veh.rot.y += -input.x * 3; } else { input = { x: 0, y: 0 }; hookJump = false; } }
     const rad = veh.rot.y * Math.PI / 180;
-    // A scripted plane's throttle is Jump alone: it rolls forward on it.
-    const push = opts.scripted && opts.kind === 'plane' && hookJump && !input.y ? 1 : input.y;
-    let next = { x: veh.location.x - Math.sin(rad) * push * 0.4, y: veh.location.y + (jumping && opts.kind === 'plane' ? 0.3 : 0), z: veh.location.z + Math.cos(rad) * push * 0.4 };
+    // A scripted ship (spaceship controls): the stick thrusts along the heading; Jump goes up, Jump with the stick back goes down.
+    const down = opts.kind === 'plane' && hookJump && input.y < -0.5;
+    const push = down ? 0 : input.y;
+    let next = { x: veh.location.x - Math.sin(rad) * push * 0.4, y: veh.location.y + (opts.kind === 'plane' && (jumping || hookJump) ? (down ? -0.3 : 0.3) : 0), z: veh.location.z + Math.cos(rad) * push * 0.4 };
     // A hover craft over the pool floats a block lower, on the water.
     if (opts.kind === 'hover' && next.z - origin.z >= GT_VEHICLE_LAYOUT.poolZ0) next = { ...next, y: origin.y + GT_VEHICLE_LAYOUT.waterTop };
     // The runtime's swept footprint: the vehicle (4 long, heading +x) stops with its nose at a post.
@@ -454,7 +455,7 @@ describe('the vehicle test', () => {
     expect(h.sent.map((m: any) => [m.x, m.y, m.jump, m.ticks])).toEqual([[0, 1, false, 80], [-1, 1, false, 60], [0, -1, false, 40], [0, 1, true, 60], [0, 1, false, 120], [0, -1, false, 40], [0, 0.6, false, 80]]);
     expect(phases.find(p => p.phase === 'rudder_right').yawChange).toBeGreaterThan(30);
   });
-  it('stands a post off the centre line, inside the footprint, and checks the vehicle stops at it', async () => {
+  it('stands a post off the centre line, inside the footprint, and checks the vehicle never passes through it', async () => {
     for (const kind of ['car', 'boat', 'plane'] as const) {
       const h = vehicleHarness({ drives: true, kind, scripted: true });
       await h.run('vehicle_demo_1_1');
@@ -463,10 +464,12 @@ describe('the vehicle test', () => {
       expect(verdict.post.offset).toBe(0.65);
       expect(verdict.post.clearAlong).toBeGreaterThanOrEqual(4.5);
       expect(verdict.phases.post.along).toBeCloseTo(verdict.post.clearAlong, 5);
-      expect(verdict.checks.stopsAtPost).toBe(true);
+      expect(verdict.post.how).toBe('stopped');
+      expect(verdict.checks.clearsPost).toBe(true);
+      // Straight through it (no sidestep, not over it): the check fails, naming it.
       const through = vehicleHarness({ drives: true, kind, scripted: true, passesPosts: true });
       await through.run('vehicle_demo_1_1');
-      expect(through.outcome.failure).toMatch(/stopsAtPost/);
+      expect(through.outcome.failure).toMatch(/clearsPost/);
     }
   });
   it('drives a hover craft over the land lane and then off it onto the pool', async () => {
@@ -487,12 +490,15 @@ describe('the vehicle test', () => {
     expect(h.outcome.failure).toMatch(/staysInReach/);
     expect(h.logs.some(l => /"skipped":"vehicle lost in/.test(l))).toBe(true);
   });
-  it('flies the plane course in a circle: the roll ends once airborne, then climb, turn, cruise and approach all hold right stick', async () => {
+  it('flies the ship course: straight up, hover, forward, straight back, a turn on the spot, back + Jump straight down', async () => {
     const h = vehicleHarness({ drives: true, kind: 'plane', scripted: true });
     await h.run('vehicle_demo_1_1');
     const inputs = h.sent.map((m: any) => [m.x, m.y, m.jump, m.ticks]);
-    expect(inputs.slice(0, 4)).toEqual([[0, 0, true, 120], [0, -1, true, 30], [-1, 0, false, 60], [-0.5, 0, false, 40]]);
-    expect(inputs.filter(i => i[0] === -0.5 && i[1] === 0.35)).toHaveLength(15);
+    expect(inputs.slice(0, 5)).toEqual([[0, 0, true, 40], [0, 1, false, 40], [0, -1, false, 40], [-1, 0, false, 40], [0, -1, true, 120]]);
+    const phases = h.logs.filter(l => l.startsWith('CMGT VEHICLE_PHASE ')).map(l => JSON.parse(l.slice('CMGT VEHICLE_PHASE '.length)));
+    expect(phases.map(p => p.phase)).toEqual(['settle', 'up', 'hover', 'forward', 'stop', 'backward', 'turn_in_place', 'down', 'post']);
+    const verdict = JSON.parse(h.logs.find(l => l.startsWith('CMGT VEHICLE '))!.slice('CMGT VEHICLE '.length));
+    expect(verdict.checks).toMatchObject({ goesStraightUp: true, hovers: true, forwardMoves: true, stopsHandsOff: true, reverseMoves: true, turnsInPlace: true, goesStraightDown: true });
   });
   it('fails naming what did not happen when the vehicle does not move', async () => {
     const h = vehicleHarness({ drives: false, kind: 'plane' });

@@ -3,6 +3,7 @@ import { inflateSync } from 'node:zlib';
 import { BlockGrid } from '../src/schem/types.js';
 import { buildPlayableAddon, measureCoasterTrain, rideableExitHintLines, flySoundEvents, VANILLA_INTERACTIVE_NORMAL_BLOCK_SOUNDS, ROTOR_FLYING_SPEED, COASTER_SAME_CAR_ARC, DRIVER_SPEED_WINDOW_TICKS } from '../web/src/engine/playable-addon.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
+import { FREE_LOOK } from '../web/src/engine/vehicle-free-look.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { packIdentity } from '../web/src/engine/mcpack.js';
 import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceProvenance } from '../web/src/engine/pipeline-version.js';
@@ -165,7 +166,8 @@ describe('playable Bedrock add-on',()=>{
     expect(components['minecraft:rideable'].seats.position[0]).toBe(0);
     expect(components['minecraft:rideable'].seats.position[1]).toBeCloseTo(1.26);
     expect(components['minecraft:rideable'].seats.position[2]).toBeCloseTo(.264);
-    expect(components['minecraft:rideable'].seats.lock_rider_rotation).toBe(0);
+    // A scripted car's rider may look all round (free look): the seat does not hold the rider's yaw.
+    expect(components['minecraft:rideable'].seats.lock_rider_rotation).toBe(FREE_LOOK.SEAT_LOCK_DEG);
     expect(components['minecraft:variable_max_auto_step']).toBeUndefined();
     // scripts/vehicles.js drives it (carStep, the swept footprint, headlights); the rotorcraft-only driver script is not shipped.
     expect(entries).not.toContain('Craftmatic_batmobile_BP/scripts/vehicle-driver.js');
@@ -622,6 +624,9 @@ describe('playable Bedrock add-on',()=>{
     // The helicopter (a rotor) keeps flying_speed 0.3; the flyer's slower cruise is the fixture test's.
     const heliEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_BP/entities/rescue_helicopter_rescue_helicopter.json')));
     expect(heliEntity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: 0.3 });
+    // A native mount flies where its rider looks: its seat still holds the rider (free look is the scripted vehicles').
+    const heliSeats = heliEntity['minecraft:entity'].components['minecraft:rideable'].seats;
+    for (const s of Array.isArray(heliSeats) ? heliSeats : [heliSeats]) expect(s.lock_rider_rotation).toBe(0);
   });
 
   it('flySoundEvents writes vanilla\'s interactive `normal` block sounds verbatim + `fly: ""` for ANY pack with an entity (not only hovering ones), and is null without one', () => {

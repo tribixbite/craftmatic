@@ -151,45 +151,49 @@ export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheel
   };
 }
 
-// ─── Fixed-wing flight model ───────────────────────────────────────────────────
+// ─── Spaceship flight model (every scripted aircraft) ─────────────────────────
 
 /**
- * Arcade flight for a fixed-wing aircraft, in world blocks and seconds. The
- * native Happy Ghast controller the aircraft used to ride on hovers: it has no
- * take-off speed, no stall and no landing, and its only vertical inputs were
- * Jump and looking up or down. This model is run by a script instead
- * (`scriptedVehicleRuntime`, one step per tick, the entity teleported like a coaster
- * car), and every number in it is here, in one place:
+ * Direct, spaceship-style control for every scripted aircraft (a fixed wing,
+ * the X-wing, the Milano, any ship or spacecraft), in world blocks and
+ * seconds. The user's words (2026-09-30): "more like spaceship less like
+ * flight simulator ... there should be a way to go straight up or backwards".
+ * Until then this was a flight model (take-off run, elevator pitch, stall,
+ * landing) that a five-year-old on a touch phone could not fly. Now:
  *
- *   - Jump is the THROTTLE: hold it for full power. Let go and the engine
- *     settles at cruise power in the air (you never have to hold it to stay
- *     up), at approach power within `APPROACH_HEIGHT` of the ground (so
- *     pushing the nose down there lands rather than speeds up), and at idle on
- *     the ground, where the wheel brakes then slow you (`AUTO_BRAKE`).
- *   - The stick's forward/back is the ELEVATOR: back lifts the nose (climb),
- *     forward lowers it (dive); hands off, the nose eases back to level (or,
- *     climbing out on full power near the ground, to `CLIMB_OUT_PITCH`). On
- *     the ground, back with the throttle released is the brake; back at or
- *     above `ROTATE_SPEED` rotates the aircraft into the air (it also lifts
- *     off by itself at `AUTO_ROTATE` times that speed, so holding Jump alone
- *     takes off).
- *   - The stick's left/right banks and turns (and steers on the ground).
- *   - Below `STALL_SPEED` the wing stops lifting: the nose drops and it sinks
- *     until the speed is back. Touching down faster than `HARD_LANDING`
- *     downward is a hard landing; flying into a block is a crash (it stops).
+ *   - the stick's forward/back is THRUST along the heading: forward up to
+ *     `MAX_SPEED`, back straight BACKWARDS up to `REVERSE_SPEED`; hands off it
+ *     slows to a stop (`BRAKE`) and HOVERS where it is - no stall, no glide,
+ *     no take-off run, no lift that needs speed;
+ *   - the stick's left/right TURNS it, at rest too (`TURN_RATE`);
+ *   - Jump goes STRAIGHT UP (`CLIMB_SPEED`); Jump with the stick pulled back
+ *     past `DESCEND_STICK`, or Jump pressed while the view looks down past
+ *     `DIVE_PITCH_DEG` (the rider's camera, `VEHICLE_DYNAMIC.lookPitch`),
+ *     goes STRAIGHT DOWN (`DESCEND_SPEED`) - the Nimbus's own "back + Jump"
+ *     and "look down + Jump" (Sneak is the dismount and cannot be an input);
+ *   - it settles onto the ground or water under it when it comes down there
+ *     and lifts off again on Jump; on the ground it glides over a rise of up
+ *     to `STEP_UP`;
+ *   - with nobody aboard it brakes and sinks gently (`IDLE_SINK`) to the
+ *     ground and parks, so an abandoned ship is never out of reach;
+ *   - the body pitches with its climb and dive and banks into a turn
+ *     (attitude only, drawn by the animation; nothing depends on it).
  *
- * Speeds suit a minifig-scale model on a Minecraft map: 10 blocks/s to take
- * off (about 6 blocks of run at full power), about 23 at cruise, 32 at most.
+ * A block in the way is the runtime's (`resolveMove`): a ship lifts itself
+ * over a hill or a wall it is pushed into (`AUTO_CLIMB`), steps sideways round
+ * a trunk it meets with a corner, and slides along a wall it meets at an
+ * angle, instead of stopping dead.
  */
 export const FLIGHT = {
-  ROTATE_SPEED: 10, AUTO_ROTATE: 1.4, STALL_SPEED: 7, MAX_SPEED: 32,
-  THRUST: 10, DRAG: 0.0111, GRAVITY: 9.8, SINK_MAX: 8,
-  CRUISE_THROTTLE: 0.6, APPROACH_THROTTLE: 0.25, APPROACH_HEIGHT: 6, THROTTLE_UP: 0.8, THROTTLE_DOWN: 1.6,
-  ROLL_FRICTION: 0.6, BRAKE: 6, AUTO_BRAKE: 5,
-  PITCH_RATE: 45, PITCH_MAX: 40, PITCH_MIN: -40, LEVEL_RATE: 8, LIFTOFF_PITCH: 4, GROUND_PITCH_MAX: 12, CLIMB_OUT_PITCH: 10,
-  STALL_PITCH: -25, STALL_DROP_RATE: 30,
-  TURN_RATE: 55, TAXI_TURN: 60, BANK_PER_TURN: 0.55, BANK_MAX: 35,
-  HARD_LANDING: 8, STEP_UP: 1,
+  MAX_SPEED: 18, REVERSE_SPEED: 8, ACCEL: 12, BRAKE: 24,
+  TURN_RATE: 80,
+  CLIMB_SPEED: 8, DESCEND_SPEED: 8, VERTICAL_ACCEL: 24, IDLE_SINK: 3,
+  AUTO_CLIMB: 8, STEP_UP: 1,
+  PITCH_PER_CLIMB: 2.5, PITCH_PER_ACCEL: 0.8, PITCH_MAX: 20, BANK_PER_TURN: 0.25, BANK_MAX: 25, ATTITUDE_RATE: 60,
+  /** Stick back past this (with Jump held) goes down instead of up. */
+  DESCEND_STICK: -0.5,
+  /** A view looking down past this many degrees when Jump is PRESSED goes down until Jump is let go. */
+  DIVE_PITCH_DEG: 25,
   /** Sign of `inputInfo.getMovementVector().x` that means RIGHT (Minecraft's +x strafe is LEFT). */
   STICK_X_RIGHT: -1,
   /** Stick deflection under which an axis counts as centred. */
@@ -197,94 +201,79 @@ export const FLIGHT = {
   /** Deflection that counts as FULL: a touch stick pushed to its rim reads 0.816 on the Pixel (2026-09-25). */
   STICK_FULL: 0.8,
 } as const;
-export type FlightParams = typeof FLIGHT;
-
-/** One aircraft's flight state: world position, heading and nose angle (degrees, Bedrock yaw), airspeed, throttle 0..1, bank for the animation. */
-export interface FlightState { x: number; y: number; z: number; yaw: number; pitch: number; speed: number; throttle: number; onGround: boolean; stalled: boolean; bank: number }
-/** The controlling rider's input this tick: the stick (`getMovementVector`, forward = +y) and Jump; `rider` false = nobody aboard. */
-export interface FlightInput { x: number; y: number; jump: boolean; rider: boolean }
-/** The ground under and ahead of the aircraft: the top of the first solid or liquid block below (null: none within reach), and whether a block stands in its way. */
-export interface FlightTerrain { ground: number | null; groundAhead: number | null; blocked: boolean }
-export type FlightEvent = 'takeoff' | 'landing' | 'hard_landing' | 'crash' | 'stall';
+export type FlightParams = { readonly [K in keyof typeof FLIGHT]: number };
 
 /**
- * Advance one aircraft by `dt` seconds. Pure (the device runs this very text,
- * serialised into `scriptedVehicleRuntime`), so every behaviour above is unit-tested
- * off the device. Returns the new state and what happened, if anything.
+ * One ship's state: world position, heading (degrees, Bedrock yaw), speed along
+ * the heading (negative = backwards), vertical speed, whether it rests on the
+ * ground, the attitude its animation shows, and the Jump latch (`jumpHeld`:
+ * Jump was down last tick; `diving`: this press of Jump goes down).
+ */
+export interface FlightState { x: number; y: number; z: number; yaw: number; pitch: number; speed: number; vy: number; onGround: boolean; bank: number; jumpHeld: boolean; diving: boolean }
+/**
+ * The controlling rider's input this tick: the stick (`getMovementVector`,
+ * forward = +y) and Jump; `rider` false = nobody aboard. `lookPitch` is where
+ * the rider's VIEW looks (degrees, + = down), when a camera runtime reports it.
+ */
+export interface FlightInput { x: number; y: number; jump: boolean; rider: boolean; lookPitch?: number }
+/** The ground under the ship: the top of the first solid or liquid block below (null: none within reach). */
+export interface FlightTerrain { ground: number | null }
+export type FlightEvent = 'takeoff' | 'landing';
+
+/**
+ * Advance one ship by `dt` seconds. Pure (the device runs this very text,
+ * serialised into `scriptedVehicleRuntime`), so every behaviour above is
+ * unit-tested off the device. Collisions are not here: the runtime sweeps
+ * the footprint over the new pose and resolves it (`resolveMove`).
  */
 export function flightStep(s: FlightState, input: FlightInput, terrain: FlightTerrain, P: FlightParams, dt: number): { state: FlightState; event?: FlightEvent } {
   const clamp = (v: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, v));
   const toward = (v: number, target: number, rate: number): number => (v < target ? Math.min(target, v + rate) : Math.max(target, v - rate));
   const dz = (v: number): number => (Math.abs(v) < P.DEADZONE ? 0 : Math.max(-1, Math.min(1, v / P.STICK_FULL)));
-  const right = dz(input.rider ? input.x : 0) * P.STICK_X_RIGHT;
-  // Elevator: the stick pulled BACK (y < 0) is nose up.
-  const noseUp = -dz(input.rider ? input.y : 0);
-  const jump = input.rider && input.jump;
-  const rad = (d: number): number => d * Math.PI / 180;
-  const height = terrain.ground === null ? Infinity : s.y - terrain.ground;
+  const rider = input.rider;
+  const right = dz(rider ? input.x : 0) * P.STICK_X_RIGHT;
+  const stick = dz(rider ? input.y : 0);
+  const jump = rider && input.jump;
   let event: FlightEvent | undefined;
-
-  // Throttle: Jump is full power; otherwise cruise aloft, approach power when
-  // pointing down near the ground, idle on the ground or with nobody aboard.
-  const target = jump ? 1 : !input.rider || s.onGround ? 0 : height < P.APPROACH_HEIGHT ? P.APPROACH_THROTTLE : P.CRUISE_THROTTLE;
-  const throttle = toward(s.throttle, target, (target > s.throttle ? P.THROTTLE_UP : P.THROTTLE_DOWN) * dt);
-  let { yaw, pitch, speed } = s;
-  let onGround = s.onGround, stalled = false;
-  const turnRate = right * (onGround ? P.TAXI_TURN * Math.min(1, speed / 3) : P.TURN_RATE * Math.min(1, speed / P.ROTATE_SPEED));
-
-  if (onGround) {
-    yaw += turnRate * dt;
-    // Auto-rotation needs the throttle held: a landing roll at speed must not bounce back into the air.
-    const rotate = speed >= P.ROTATE_SPEED && (noseUp > 0 || (jump && speed >= P.ROTATE_SPEED * P.AUTO_ROTATE));
-    pitch = rotate ? Math.min(P.GROUND_PITCH_MAX, pitch + P.PITCH_RATE * dt) : toward(pitch, 0, P.PITCH_RATE * dt);
-    let accel = throttle * P.THRUST - P.DRAG * speed * speed - (speed > 0 ? P.ROLL_FRICTION : 0);
-    // Stick back is the brake only with the throttle released: pulling back early on a take-off run must not slow it.
-    if (noseUp > 0 && !jump && speed < P.ROTATE_SPEED) accel -= P.BRAKE;
-    if (!jump && throttle < 0.05) accel -= P.AUTO_BRAKE;
-    speed = clamp(speed + accel * dt, 0, P.MAX_SPEED);
-    if (pitch >= P.LIFTOFF_PITCH && speed >= P.ROTATE_SPEED * 0.95) { onGround = false; event = 'takeoff'; }
-  } else {
-    if (speed < P.STALL_SPEED) {
-      stalled = true;
-      if (!s.stalled) event = 'stall';
-      pitch = toward(pitch, P.STALL_PITCH, P.STALL_DROP_RATE * dt);
-    } else if (noseUp) {
-      pitch = clamp(pitch + noseUp * P.PITCH_RATE * dt, P.PITCH_MIN, P.PITCH_MAX);
-    } else {
-      // Hands off the nose eases level - except climbing out on full power close to the ground, where it holds a gentle climb.
-      pitch = toward(pitch, jump && height < P.APPROACH_HEIGHT ? P.CLIMB_OUT_PITCH : 0, P.LEVEL_RATE * dt);
-    }
-    yaw += turnRate * dt;
-    speed = clamp(speed + (throttle * P.THRUST - P.DRAG * speed * speed - P.GRAVITY * Math.sin(rad(pitch))) * dt, 0, P.MAX_SPEED);
-  }
+  // Jump's direction is decided as it is PRESSED by the view (look down = down) and
+  // held until it is let go; the stick pulled back while it is held also goes down.
+  const pressed = jump && !s.jumpHeld;
+  const lookDown = (input.lookPitch ?? 0) > P.DIVE_PITCH_DEG;
+  const diving = jump && (pressed ? lookDown : s.diving);
+  const backDown = jump && stick <= P.DESCEND_STICK;
+  const down = diving || backDown;
+  // Thrust along the heading: forward, or straight backwards; hands off it stops and hovers.
+  // While the stick is pulled back to go DOWN it gives no reverse thrust.
+  const thrust = backDown ? 0 : stick;
+  const target = thrust > 0 ? thrust * P.MAX_SPEED : thrust * P.REVERSE_SPEED;
+  const braking = thrust === 0 || (Math.abs(s.speed) > 0.1 && Math.sign(thrust) !== Math.sign(s.speed));
+  const before = s.speed;
+  const speed = toward(s.speed, target, (braking ? P.BRAKE : P.ACCEL) * dt);
+  // Turn at any speed, at rest too: a ship pivots on the spot.
+  const turnRate = right * P.TURN_RATE;
+  let yaw = s.yaw + turnRate * dt;
   yaw = ((yaw + 180) % 360 + 360) % 360 - 180;
-  const bank = toward(s.bank, onGround ? 0 : clamp(turnRate * P.BANK_PER_TURN, -P.BANK_MAX, P.BANK_MAX), 60 * dt);
-
-  // Move along the heading and the nose; below stall speed the wing loses lift and it sinks.
-  const lift = clamp((speed / P.STALL_SPEED) ** 2, 0, 1);
-  const horizontal = speed * Math.cos(rad(pitch));
-  const vy = onGround ? 0 : speed * Math.sin(rad(pitch)) - (1 - lift) * P.SINK_MAX;
-  const fx = -Math.sin(rad(yaw)), fz = Math.cos(rad(yaw));
-  let x = s.x + fx * horizontal * dt, z = s.z + fz * horizontal * dt, y = s.y + vy * dt;
-
-  if (terrain.blocked && horizontal > 0) {
-    // Into a block: stop where it is. In the air it then stalls and comes down.
-    x = s.x; z = s.z; speed = 0; event = 'crash';
-  }
-  if (onGround) {
-    // Follow the ground: up a step of at most STEP_UP, down any small drop; off an edge it is airborne.
-    const g = terrain.groundAhead ?? terrain.ground;
-    if (g !== null && g - s.y > P.STEP_UP) { x = s.x; z = s.z; speed = 0; event = 'crash'; }
-    else if (g !== null && g >= s.y - 0.5) y = g;
-    else { onGround = false; y = s.y; }
-  } else if (terrain.ground !== null && y <= terrain.ground) {
-    const hard = vy < -P.HARD_LANDING;
-    y = terrain.ground; onGround = true; pitch = clamp(pitch, 0, P.GROUND_PITCH_MAX);
-    if (hard) speed *= 0.4;
-    event = hard ? 'hard_landing' : 'landing';
-    stalled = false;
-  }
-  return { state: { x, y, z, yaw, pitch, speed, throttle, onGround, stalled, bank }, ...(event ? { event } : {}) };
+  // Vertical: Jump up or down; hands off it holds its height; nobody aboard, it sinks gently and parks.
+  const vTarget = jump ? (down ? -P.DESCEND_SPEED : P.CLIMB_SPEED) : rider ? 0 : -P.IDLE_SINK;
+  let vy = toward(s.vy, vTarget, P.VERTICAL_ACCEL * dt);
+  let onGround = s.onGround;
+  if (onGround && vy > 0) { onGround = false; event = 'takeoff'; }
+  const rad = yaw * Math.PI / 180;
+  const x = s.x - Math.sin(rad) * speed * dt, z = s.z + Math.cos(rad) * speed * dt;
+  let y = s.y + vy * dt;
+  const g = terrain.ground;
+  if (g !== null && y <= g) {
+    // Down onto the ground or the water, or a rise under it while it rests there: it stands on it.
+    if (!onGround && s.y > g + 0.01) event = 'landing';
+    y = g; vy = 0; onGround = true;
+  } else if (onGround && g !== null && g < s.y - 0.05) {
+    // Off an edge while resting: it hovers there (a rider) or sinks on (nobody aboard).
+    onGround = false;
+  } else if (onGround && g === null) onGround = false;
+  const accel = (speed - before) / dt;
+  const pitch = toward(s.pitch, clamp(vy * P.PITCH_PER_CLIMB - accel * P.PITCH_PER_ACCEL, -P.PITCH_MAX, P.PITCH_MAX), P.ATTITUDE_RATE * dt);
+  const bank = toward(s.bank, onGround ? 0 : clamp(turnRate * P.BANK_PER_TURN, -P.BANK_MAX, P.BANK_MAX), P.ATTITUDE_RATE * dt);
+  return { state: { x, y, z, yaw, pitch, speed, vy, onGround, bank, jumpHeld: jump, diving }, ...(event ? { event } : {}) };
 }
 
 // ─── Boats ─────────────────────────────────────────────────────────────────────
@@ -384,19 +373,28 @@ export function boatStep(s: BoatState, input: FlightInput, water: BoatWater, P: 
  *   - the stick's forward/back is throttle and brake, then reverse from a
  *     stop; hands off it coasts down (`COAST`); with nobody aboard it brakes (`BRAKE`);
  *   - left/right steers, with full lock by `STEER_FULL_SPEED` and less of it
- *     at speed (`STEER_FADE`), reversed when backing up;
+ *     at speed (`STEER_FADE`), reversed when backing up; at a standstill it
+ *     PIVOTS slowly on the spot (`PIVOT_RATE`), so a car nosed into a corner
+ *     or wedged between two walls can always be turned out of it;
  *   - Jump is a short boost (`BOOST_SPEED` for `BOOST_SECONDS`, then
  *     `BOOST_COOLDOWN`);
  *   - it follows the ground: up a step of at most `STEP_UP` (eased at
- *     `CLIMB_RATE`), off an edge it falls, a wall (a rise over `STEP_UP` at
- *     the nose, or a block at head height) stops it, and in water it crawls
- *     at `WATER_SPEED`; the body pitches with the slope under its wheels.
+ *     `CLIMB_RATE`), off an edge it falls, and in water it crawls at
+ *     `WATER_SPEED`; the body pitches with the slope under its wheels.
+ *
+ * Walls are the runtime's (`resolveMove`, since 2026-09-30): a car pushed
+ * into a wall of up to `RISE_MAX` + `STEP_UP` scrambles up it at `CLIMB_RATE`
+ * and holds that height for up to `CLIMB_HOLD_TICKS` while it drives on
+ * (out of a two-block pit, onto a kerb of blocks), steps sideways round a
+ * trunk it meets with a corner, and slides along a wall it meets at an
+ * angle. A higher wall stops it; reverse or the pivot turns it away.
  */
 export const CAR = {
   MAX_SPEED: 19, REVERSE_SPEED: 5, ACCEL: 7, BRAKE: 14, COAST: 2.5,
   BOOST_SPEED: 26, BOOST_SECONDS: 1.5, BOOST_COOLDOWN: 3,
-  STEER_RATE: 110, STEER_FULL_SPEED: 5, STEER_FADE: 12,
+  STEER_RATE: 110, STEER_FULL_SPEED: 5, STEER_FADE: 12, PIVOT_RATE: 45,
   STEP_UP: 1.05, CLIMB_RATE: 6, GRAVITY: 20, WATER_SPEED: 2,
+  RISE_MAX: 1.1, CLIMB_HOLD_TICKS: 40,
   LEAN_PER_TURN: 0.04, LEAN_MAX: 4, SQUAT_PER_ACCEL: 0.35, SQUAT_MAX: 3,
   STICK_X_RIGHT: -1, DEADZONE: 0.15, STICK_FULL: 0.8,
 } as const;
@@ -405,9 +403,9 @@ export type CarParams = { readonly [K in keyof typeof CAR]: number };
 
 /** One car's state: position, heading, speed along the heading (negative = reversing), vertical speed, the boost timers, and the attitude its animation shows. */
 export interface CarState { x: number; y: number; z: number; yaw: number; speed: number; vy: number; onGround: boolean; boost: number; cooldown: number; pitch: number; bank: number }
-/** The ground the car stands on: the top of the solid ground under its centre, nose and tail (null: none within reach), a wall at its nose / tail, and whether its wheels are in water. */
-export interface CarTerrain { ground: number | null; groundFront: number | null; groundRear: number | null; blockedFront: boolean; blockedRear: boolean; inWater: boolean; wheelbase: number }
-export type CarEvent = 'blocked' | 'boost' | 'landed';
+/** The ground the car stands on: the top of the solid ground under its centre, nose and tail (null: none within reach), whether its wheels are in water, and its wheelbase (blocks). */
+export interface CarTerrain { ground: number | null; groundFront: number | null; groundRear: number | null; inWater: boolean; wheelbase: number }
+export type CarEvent = 'boost' | 'landed';
 
 /** Advance one car by `dt` seconds (pure; the device runs this text). */
 export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P: CarParams, dt: number): { state: CarState; event?: CarEvent } {
@@ -432,13 +430,14 @@ export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P:
     // coasted 200 blocks from 91 mph on the Pixel (2026-09-25) and left the loaded terrain.
     const rate = throttle === 0 ? (input.rider ? P.COAST : P.BRAKE) : braking ? P.BRAKE : P.ACCEL * (boost > 0 ? 2 : 1);
     speed = toward(speed, target, rate * dt);
-    // Steering bites with speed (full lock by STEER_FULL_SPEED), fades at speed, and reverses backing up.
-    const bite = clamp(Math.abs(speed) / P.STEER_FULL_SPEED, 0, 1) / (1 + Math.abs(speed) / P.STEER_FADE);
-    turnRate = right * P.STEER_RATE * bite * (speed < 0 ? -1 : 1);
+    // Steering bites with speed (full lock by STEER_FULL_SPEED), fades at speed, and reverses backing up;
+    // near a standstill the pivot takes over, so a stopped car still turns (out of a corner or a wedge).
+    const slow = clamp(Math.abs(speed) / P.STEER_FULL_SPEED, 0, 1);
+    const bite = slow / (1 + Math.abs(speed) / P.STEER_FADE);
+    turnRate = right * Math.max(P.STEER_RATE * bite, P.PIVOT_RATE * (1 - slow)) * (speed < -0.1 ? -1 : 1);
   }
   let yaw = s.yaw + turnRate * dt;
   yaw = ((yaw + 180) % 360 + 360) % 360 - 180;
-  if ((speed > 0 && terrain.blockedFront) || (speed < 0 && terrain.blockedRear)) { speed = 0; event = 'blocked'; }
   const rad = yaw * Math.PI / 180;
   let x = s.x - Math.sin(rad) * speed * dt, z = s.z + Math.cos(rad) * speed * dt;
   const g = terrain.ground;
@@ -477,8 +476,9 @@ export function carStep(s: CarState, input: FlightInput, terrain: CarTerrain, P:
 export const HOVER = {
   MAX_SPEED: 12, REVERSE_SPEED: 4, ACCEL: 4, BRAKE: 8, COAST: 1.2,
   BOOST_SPEED: 18, BOOST_SECONDS: 2, BOOST_COOLDOWN: 4,
-  STEER_RATE: 70, STEER_FULL_SPEED: 2, STEER_FADE: 20,
+  STEER_RATE: 70, STEER_FULL_SPEED: 2, STEER_FADE: 20, PIVOT_RATE: 40,
   STEP_UP: 1.6, CLIMB_RATE: 3, GRAVITY: 6, WATER_SPEED: 12,
+  RISE_MAX: 1, CLIMB_HOLD_TICKS: 40,
   LEAN_PER_TURN: 0.08, LEAN_MAX: 6, SQUAT_PER_ACCEL: 0.8, SQUAT_MAX: 4,
   STICK_X_RIGHT: -1, DEADZONE: 0.15, STICK_FULL: 0.8,
   /** Height the hull floats above the ground or the water, blocks. */
@@ -591,6 +591,151 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   return { blocked: false, checks };
 }
 
+// ─── Collision response: never stuck ───────────────────────────────────────────
+
+/**
+ * What the runtime does when the swept footprint blocks a move (2026-09-30:
+ * "it's too easy to get fully stuck in place by hills / blocks"). Until then a
+ * blocked move stopped the vehicle dead where it stood, whatever the angle -
+ * a car brushing a wall at 10 degrees, a wingtip clipping a trunk, a ship
+ * nosing into a grassy slope all froze. Now the move is tried again in these
+ * shapes, the first clear one taken:
+ *
+ *   - `climb`: the move raised by the runtime's climb allowance (a ship lifts
+ *     itself over a hill or a wall it is pushed into; a car scrambles onto a
+ *     kerb), forward progress kept;
+ *   - `deflect`: when only ONE half of the footprint (left or right of the
+ *     centre line, each swept on its own) meets the block - a trunk or a post
+ *     met with a corner or a wingtip, not a wall across the way - the move
+ *     stepped sideways away from it by `DEFLECT_SHARE` of its length (at
+ *     least `MIN_SIDESTEP`), forward progress kept, or that sidestep alone
+ *     where the forward part is still blocked;
+ *   - `slide`: one world axis of the move only (Minecraft's walls run along
+ *     the axes), else the move turned up to `GLANCE_MAX_DEG` toward a slanted
+ *     wall's line and shortened by the cosine; the speed scaled by the share
+ *     of the move it keeps - along a wall met at an angle;
+ *   - `rise`: straight up by the climb allowance where it stands (the face of
+ *     a wall too high to climb in one move);
+ *   - `blocked`: none is clear. The vertical move and the turn are kept when
+ *     they are clear on their own, so a vehicle against a wall still turns
+ *     away and still comes down.
+ *
+ * `climbFirst` orders a ship's tries climb, deflect, rise, slide (over a
+ * hill or a slanted wall rather than along it, round a trunk); a ground
+ * vehicle deflects and slides first, then climbs and rises. A candidate
+ * that moves less than `MIN_PROGRESS` is skipped. Pure, serialised; `sweep`
+ * is `sweepFootprint`, passed in (a serialised function references nothing
+ * outside itself).
+ */
+export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5 } as const;
+export type MoveParams = { readonly [K in keyof typeof MOVE]: number };
+export type MoveResolution = 'clear' | 'climb' | 'deflect' | 'slide' | 'rise' | 'blocked';
+
+export function resolveMove(
+  from: FootprintPose, to: FootprintPose, fp: VehicleFootprint, solid: (x: number, y: number, z: number) => boolean,
+  P: FootprintParams, M: MoveParams, opts: { climb: number; climbFirst: boolean }, sweep: typeof sweepFootprint,
+): { pose: FootprintPose; how: MoveResolution; kept: number; checks: number; at?: [number, number, number] } {
+  let checks = 0;
+  const clear = (p: FootprintPose): { ok: boolean; at?: [number, number, number] } => {
+    const r = sweep(from, p, fp, solid, P);
+    checks += r.checks;
+    return r.blocked ? { ok: false, ...(r.at ? { at: r.at } : {}) } : { ok: true };
+  };
+  const first = clear(to);
+  if (first.ok) return { pose: to, how: 'clear', kept: 1, checks };
+  const at = first.at;
+  const dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz);
+  const progress = (p: FootprintPose): number => (len > 1e-9 ? ((p.x - from.x) * dx + (p.z - from.z) * dz) / (len * len) : 0);
+  const tryClimb = (): FootprintPose | undefined => {
+    if (!(opts.climb > 0) || len < M.MIN_PROGRESS) return undefined;
+    const p = { ...to, y: to.y + opts.climb };
+    return clear(p).ok ? p : undefined;
+  };
+  /** A pose moved `s` blocks along its own right (Bedrock: (-cos yaw, -sin yaw)). */
+  const aside = (p: FootprintPose, s: number): FootprintPose => {
+    const r = p.yaw * Math.PI / 180;
+    return { ...p, x: p.x - Math.cos(r) * s, z: p.z - Math.sin(r) * s };
+  };
+  const tryDeflect = (): FootprintPose | undefined => {
+    if (len < M.MIN_PROGRESS) return undefined;
+    // Which half meets the block: each half of the footprint swept on its own (centred a quarter width out).
+    const halfFp = { ...fp, halfWidth: fp.halfWidth / 2 }, q = fp.halfWidth / 2;
+    const blockedHalf = (s: number): boolean => { const r = sweep(aside(from, s), aside(to, s), halfFp, solid, P); checks += r.checks; return r.blocked; };
+    const right = blockedHalf(q), left = blockedHalf(-q);
+    // Both halves: a wall across the way (a slide's or a climb's); neither: nothing to step round.
+    if (right === left) return undefined;
+    const shift = (right ? -1 : 1) * M.DEFLECT_SHARE * Math.max(len, M.MIN_SIDESTEP);
+    for (const p of [aside(to, shift), aside({ ...to, x: from.x, z: from.z }, shift)]) if (clear(p).ok) return p;
+    return undefined;
+  };
+  const trySlide = (): FootprintPose | undefined => {
+    const axes: Array<[number, FootprintPose]> = [
+      [Math.abs(dx), { ...to, z: from.z }],
+      [Math.abs(dz), { ...to, x: from.x }],
+    ];
+    axes.sort((a, b) => b[0] - a[0]);
+    for (const [moved, p] of axes) if (moved >= M.MIN_PROGRESS && clear(p).ok) return p;
+    // A wall across the way at a SLANT (a diagonal of blocks): one EDGE of the footprint has more room ahead
+    // than the other (its outer quarter swept on its own up to `GLANCE_PROBE` blocks along the move: whole
+    // halves both reach the diagonal's middle cells and read the same); the move is
+    // turned toward the roomier side, `GLANCE_STEP_DEG` at a time up to `GLANCE_MAX_DEG`, shortened by the
+    // cosine - the share of the push a real scrape along it keeps. A wall square across the way leaves both
+    // halves the same room: no glance, so a car nosed into a wall does not crawl sideways along it.
+    if (len < M.MIN_PROGRESS) return undefined;
+    const ux = dx / len, uz = dz / len;
+    const edgeFp = { ...fp, halfWidth: fp.halfWidth / 4 }, q = fp.halfWidth * 0.75;
+    const room = (s: number): number => {
+      let best = 0;
+      for (let f = M.GLANCE_PROBE / 4; f <= M.GLANCE_PROBE + 1e-9; f += M.GLANCE_PROBE / 4) {
+        const r = sweep(aside(from, s), aside({ ...from, x: from.x + ux * f, z: from.z + uz * f }, s), edgeFp, solid, P);
+        checks += r.checks;
+        if (r.blocked) break;
+        best = f;
+      }
+      return best;
+    };
+    const right = room(q), left = room(-q);
+    if (Math.abs(right - left) < M.GLANCE_PROBE / 4 - 1e-9) return undefined;
+    // The vehicle's right in the world (Bedrock: (-cos yaw, -sin yaw)); turn the move toward the roomier half.
+    const ry = from.yaw * Math.PI / 180, rx = -Math.cos(ry), rz = -Math.sin(ry), toward = right > left ? 1 : -1;
+    for (let deg = M.GLANCE_STEP_DEG; deg <= M.GLANCE_MAX_DEG + 1e-9; deg += M.GLANCE_STEP_DEG) {
+      const t = deg * Math.PI / 180, c = Math.cos(t), sn = Math.sin(t);
+      const turned = [1, -1].map(sgn => ({ x: (dx * c - dz * sn * sgn) * c, z: (dx * sn * sgn + dz * c) * c }))
+        .filter(d => (d.x * rx + d.z * rz) * toward > 0);
+      for (const d of turned) {
+        const p = { ...to, x: from.x + d.x, z: from.z + d.z };
+        if (clear(p).ok) return p;
+      }
+    }
+    // Pinned by a stair corner of the diagonal (every turned move meets it): edge sideways toward the room.
+    const step = toward * Math.max(M.DEFLECT_SHARE * len, M.MIN_SIDESTEP);
+    const side = { ...to, x: from.x + rx * step, z: from.z + rz * step };
+    return clear(side).ok ? side : undefined;
+  };
+  const tryRise = (): FootprintPose | undefined => {
+    if (!(opts.climb > 0)) return undefined;
+    const p = { x: from.x, y: from.y + opts.climb, z: from.z, yaw: from.yaw, pitch: to.pitch };
+    return clear(p).ok ? p : undefined;
+  };
+  // A ship goes OVER what it meets (climb, then up the face) before it scrapes along it; a trunk met with a
+  // wingtip is still stepped round first. A ground vehicle steps round and slides before it scrambles up.
+  const order: Array<[MoveResolution, () => FootprintPose | undefined]> = opts.climbFirst
+    ? [['climb', tryClimb], ['deflect', tryDeflect], ['rise', tryRise], ['slide', trySlide]]
+    : [['deflect', tryDeflect], ['slide', trySlide], ['climb', tryClimb], ['rise', tryRise]];
+  for (const [how, attempt] of order) {
+    const p = attempt();
+    if (p) return { pose: p, how, kept: how === 'slide' ? Math.max(0, Math.min(1, progress(p))) : how === 'rise' ? 0 : 1, checks, ...(at ? { at } : {}) };
+  }
+  // Blocked: keep the turn and the vertical move where they are clear on their own.
+  const fallbacks: FootprintPose[] = [
+    { x: from.x, y: to.y, z: from.z, yaw: to.yaw, pitch: to.pitch },
+    { x: from.x, y: to.y, z: from.z, yaw: from.yaw, pitch: to.pitch },
+    { x: from.x, y: from.y, z: from.z, yaw: to.yaw, pitch: to.pitch },
+  ];
+  for (const p of fallbacks) if (clear(p).ok) return { pose: p, how: 'blocked', kept: 0, checks, ...(at ? { at } : {}) };
+  return { pose: { ...from, pitch: to.pitch }, how: 'blocked', kept: 0, checks, ...(at ? { at } : {}) };
+}
+
 // ─── Headlights ────────────────────────────────────────────────────────────────
 
 /**
@@ -651,9 +796,11 @@ export const VEHICLE_TELEMETRY_EVENT = 'craftmatic:vehicle_telemetry';
  * appended to the HUD (the time circuit's state), the cell of its headlight,
  * and `hold`: its rider HOPPED onto another mount (bedrock-ride-hop.ts), so
  * an aircraft hovers where it was left and a car, hover craft or boat stops,
- * until a rider is aboard again.
+ * until a rider is aboard again. `lookPitch`: where the driver's VIEW looks
+ * (degrees, + = down), written every tick by the camera runtime
+ * (vehicle-free-look.ts) - a ship's Jump pressed while it looks down goes down.
  */
-export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftmatic:vehicle_hud', headlight: 'craftmatic:headlight', hold: 'craftmatic:hop_hold' } as const;
+export const VEHICLE_DYNAMIC = { topSpeed: 'craftmatic:top_speed', hud: 'craftmatic:vehicle_hud', headlight: 'craftmatic:headlight', hold: 'craftmatic:hop_hold', lookPitch: 'craftmatic:look_pitch' } as const;
 
 /** One scripted vehicle type as the runtime sees it. */
 export interface ScriptedVehicleType {
@@ -679,6 +826,7 @@ export interface ScriptedVehicleConfig {
   car: CarParams;
   hover: HoverParams;
   footprint: FootprintParams;
+  move: MoveParams;
   headlights: HeadlightParams;
   props: typeof FLIGHT_PROPS;
   dynamic: typeof VEHICLE_DYNAMIC;
@@ -691,20 +839,21 @@ export interface ScriptedVehicleConfig {
 /**
  * Runs in the pack: one pure step per tick for every scripted vehicle
  * (`carStep` for a car, `carStep` on `HOVER` for a hover craft, `flightStep`
- * for an aircraft, `boatStep` for a boat), the swept footprint over the new
- * pose (`sweepFootprint`), then a teleport to it (the rider rides along, as on
- * the coaster: 20 Hz teleports are interpolated by the client) and the
- * attitude written to the actor properties its drive animation reads. Nobody
- * aboard: an aircraft flies its state out (it glides down and lands), a boat
- * drifts to a stop; parked, they stay put. The HUD shows speed and what to do
- * next; at night a light block runs ahead of the nose (`HEADLIGHTS`).
+ * for a ship, `boatStep` for a boat), the swept footprint over the new pose
+ * and its collision response (`resolveMove`: climb, deflect, slide, rise),
+ * then a teleport to it (the rider rides along, as on the coaster: 20 Hz
+ * teleports are interpolated by the client) and the attitude written to the
+ * actor properties its drive animation reads. Nobody aboard: a ship brakes
+ * and sinks gently to the ground, a boat drifts to a stop, a car brakes;
+ * parked, they stay put. The HUD shows speed and what to do next; at night a
+ * light block runs ahead of the nose (`HEADLIGHTS`).
  *
  * Block probes read a SOLID SPAN per block: a collider block's `lo..hi`
  * sixteenths, a bottom slab's lower half, a top slab's upper half, a full
  * block otherwise; plants, torches, snow layers and light blocks are passed.
  */
-export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell): void {
-  const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, HL = config.headlights, DYN = config.dynamic;
+export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: typeof flightStep, boat: typeof boatStep, car: typeof carStep, sweep: typeof sweepFootprint, night: typeof isNightTime, lightCell: typeof headlightCell, resolve: typeof resolveMove): void {
+  const F = config.flight, B = config.boat, C = config.car, H = config.hover, FP = config.footprint, MV = config.move, HL = config.headlights, DYN = config.dynamic;
   const COL = config.colliders;
   const typeIds = Object.keys(config.types);
   const states = new Map<string, any>();
@@ -771,7 +920,29 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     return null;
   };
   const solidTop = (dim: any, x: number, y: number, z: number, depth: number): number | null => topBelow(dim, x, y, z, depth, false);
-  const surfaceTop = (dim: any, x: number, y: number, z: number, depth: number): number | null => topBelow(dim, x, y, z, depth, true);
+  /**
+   * The ground under a vehicle whose base is at `footY`: scanning down from a step's
+   * height over the base, a span whose top is a climbable step or lower is the ground; a
+   * higher span whose underside is over the base is an OVERHANG it passes under, not
+   * ground; a higher span the base is inside is a wall, reported by its top. With water
+   * counted, a water block's surface is ground too (a ship settles on it, a hover craft
+   * floats over it). Null: nothing within `depth`, or unloaded. Reading an overhang's
+   * top as ground turned into "no ground": 10797's doll car (1 block tall) drove under a
+   * collider and fell through the world to y -104 (Saga, 2026-09-29).
+   */
+  const groundUnder = (dim: any, px: number, pz: number, footY: number, stepUp: number, depth: number, water: boolean): number | null => {
+    const top = Math.floor(footY + stepUp + 0.2);
+    for (let by = top; by >= top - depth; by--) {
+      const b = blockOf(dim, px, by, pz);
+      if (!b) return null;
+      if (water && isWater(b)) return by + 0.9;
+      const s = spanOf(b);
+      if (!s) continue;
+      const lo = by + s[0], hi = by + s[1];
+      if (hi <= footY + stepUp + 1e-6 || lo <= footY + 0.05) return hi;
+    }
+    return null;
+  };
   /**
    * A boat's water: the surface under it (the top of the highest water block
    * within a block of its WATERLINE, origin + draft), the ground under it,
@@ -789,7 +960,6 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
     const landAt = (d: number): boolean => { const px = st.x + fx * d, pz = st.z + fz * d; return solidAt(dim, px, line - 0.1, pz) || solidAt(dim, px, line + 0.4, pz); };
     return { surface, ground: surface === null ? solidTop(dim, st.x, st.y + 0.5, st.z, 48) : null, shoreAhead: landAt(reach + 0.3), shoreAstern: landAt(-(reach + 0.3)) };
   };
-  const blockedAhead = (dim: any, x: number, y: number, z: number): boolean => solidAt(dim, x, y + 0.5, z) && solidAt(dim, x, y + 1.5, z);
   /** Remove the light a vehicle holds (only if it is still a light block: never someone's block placed since). */
   const clearLight = (e: any, st: any): void => {
     let at: string | undefined = st?.light;
@@ -848,9 +1018,9 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           // First sight, or moved by something else (the wand, a /tp, a test, a time jump): start from where it stands.
           const light = st?.light;
           if (kind.mode === 'plane') {
-            const g = surfaceTop(dim, loc.x, loc.y + 0.5, loc.z, 4);
+            const g = groundUnder(dim, loc.x, loc.z, loc.y, 0.5, 4, true);
             const onGround = g !== null && Math.abs(loc.y - g) < 1;
-            st = { x: loc.x, y: onGround ? g : loc.y, z: loc.z, yaw: rot.y, pitch: 0, speed: 0, throttle: 0, onGround, stalled: false, bank: 0, wheel: 0 };
+            st = { x: loc.x, y: onGround ? g : loc.y, z: loc.z, yaw: rot.y, pitch: 0, speed: 0, vy: 0, onGround, bank: 0, jumpHeld: false, diving: false, wheel: 0 };
           } else if (kind.mode === 'car' || kind.mode === 'hover') {
             st = { x: loc.x, y: loc.y, z: loc.z, yaw: rot.y, speed: 0, vy: 0, onGround: true, boost: 0, cooldown: 0, pitch: 0, bank: 0, wheel: 0 };
           } else {
@@ -867,10 +1037,17 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         let riders: any[] = [];
         try { riders = e.getComponent('minecraft:rideable')?.getRiders?.() ?? []; } catch { /* none */ }
         const driver = riders.find((r: any) => r && r.typeId === 'minecraft:player');
-        const input = { x: 0, y: 0, jump: false, rider: !!driver };
+        const input: { x: number; y: number; jump: boolean; rider: boolean; lookPitch?: number } = { x: 0, y: 0, jump: false, rider: !!driver };
         if (driver) {
           try { const v = driver.inputInfo?.getMovementVector?.(); input.x = v?.x ?? 0; input.y = v?.y ?? 0; } catch { /* no input */ }
           try { input.jump = !!(driver.isJumping || driver.inputInfo?.getButtonState?.('Jump') === 'Pressed'); } catch { /* no input */ }
+          // Where the driver's VIEW looks (the camera runtime's free look), else the rider's own pitch.
+          if (kind.mode === 'plane') {
+            let look: unknown;
+            try { look = e.getDynamicProperty(DYN.lookPitch); } catch { /* none */ }
+            if (typeof look === 'number' && Number.isFinite(look)) input.lookPitch = look;
+            else { try { input.lookPitch = Number(driver.getRotation().x) || 0; } catch { /* none */ } }
+          }
         }
         const o = overrides.get(e.id);
         if (o) { input.x = o.x; input.y = o.y; input.jump = o.jump; input.rider = true; if (--o.ticks <= 0) overrides.delete(e.id); }
@@ -905,15 +1082,21 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         }
         let r: any, ground: number | null = null;
         let fp: { halfLength: number; halfWidth: number; lo: number; hi: number } | undefined;
+        // The collision response's climb allowance this tick (blocks) and its order (`resolveMove`).
+        let climb = 0, climbFirst = false;
         if (kind.mode === 'plane') {
           // Parked, nobody at the controls: nothing to integrate.
-          if (!input.rider && st.onGround && st.speed < 0.05) { states.set(e.id, st); continue; }
-          const ahead = { x: st.x + fx * reach, z: st.z + fz * reach };
-          ground = surfaceTop(dim, st.x, st.y, st.z, st.onGround ? 3 : 48);
-          r = flight(st, input, { ground, groundAhead: st.onGround ? surfaceTop(dim, ahead.x, st.y + 1.2, ahead.z, 3) : null, blocked: blockedAhead(dim, ahead.x, st.y, ahead.z) }, F, 0.05);
+          if (!input.rider && st.onGround && Math.abs(st.speed) < 0.05) { states.set(e.id, st); continue; }
+          ground = groundUnder(dim, st.x, st.z, st.y, F.STEP_UP, st.onGround ? 3 : 48, true);
+          r = flight(st, input, { ground }, F, 0.05);
           r.state.wheel = st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0);
-          // On the ground the gear rolls over a step; aloft the whole airframe must clear.
-          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: r.state.onGround ? F.STEP_UP + 0.05 : 0.1, hi: Math.max(0.2, kind.height * k - 0.1) };
+          // The whole airframe must clear, on the ground too: a ship lifts itself over a step (`resolveMove`'s climb)
+          // rather than sliding its hull through it. A band that skipped the step's height on the ground let half the
+          // Milano's hull through a one-block step, and points already inside were then never counted aloft (the
+          // sweep blocks only on ENTERING a solid; simulator vehicle course, 2026-09-30).
+          fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: 0.1, hi: Math.max(0.2, kind.height * k - 0.1) };
+          // A ship pushed into a hill or a wall lifts itself over it (a rider's ship only: an empty one sinks to park).
+          if (input.rider) { climb = F.AUTO_CLIMB * 0.05; climbFirst = true; }
         } else if (kind.mode === 'car' || kind.mode === 'hover') {
           // Parked, nobody at the wheel, on the ground: nothing to integrate.
           if (!input.rider && st.onGround && Math.abs(st.speed) < 0.02) { states.set(e.id, st); continue; }
@@ -933,30 +1116,35 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           // and fell through the world to y -104 (Saga, 2026-09-29).
           const footY = st.y - lift;
           const below = (px: number, pz: number, depth: number): number | null => {
-            const top = Math.floor(footY + P.STEP_UP + 0.2);
-            for (let by = top; by >= top - depth; by--) {
-              const b = blockOf(dim, px, by, pz);
-              if (!b) return null;
-              if (hover && isWater(b)) return by + 0.9 + lift;
-              const s = spanOf(b);
-              if (!s) continue;
-              const lo = by + s[0], hi = by + s[1];
-              if (hi <= footY + P.STEP_UP + 1e-6 || lo <= footY + 0.05) return hi + lift;
-            }
-            return null;
+            const g = groundUnder(dim, px, pz, footY, P.STEP_UP, depth, hover);
+            return g === null ? null : g + lift;
           };
           ground = below(st.x, st.z, st.onGround ? 4 : 48);
           const groundFront = below(noseX, noseZ, 4), groundRear = below(tailX, tailZ, 4);
-          // The wall probe stands inside the body: a step's height over the base, up to 0.45 over
-          // it on a car tall enough (a doll car's roof is under a 1.5-block probe).
-          const probe = Math.max(P.STEP_UP + 0.05, Math.min(P.STEP_UP + 0.45, kind.height * k - 0.1));
-          const wall = (px: number, pz: number, g: number | null): boolean => (g !== null && g - st.y > P.STEP_UP) || solidAt(dim, px, footY + probe, pz);
+          // Scrambling up a wall (`resolveMove` climbed or rose last tick): while the stick still pushes,
+          // the car HOLDS the height it climbed to until its wheels find ground there - its centre is
+          // still over the pit or the road it climbed out of - for at most `CLIMB_HOLD_TICKS`.
+          const pushing = Math.abs(input.y) >= P.DEADZONE;
+          const standing = ground !== null && ground >= st.y - 0.05;
+          // Letting go ends a climb (and a spent one: the next push may try again); standing on ground
+          // again ends it too, and a new climb counts its height from there.
+          if (!pushing) st.climbSpent = false;
+          if (st.climbHold > 0 && (!pushing || standing)) st.climbHold = 0;
+          if (standing) st.climbBase = undefined;
+          const holding = st.climbHold > 0;
           r = car(st, input, {
-            // A wall under the centre (the base inside a solid) is not "no ground": it holds its height.
-            ground: ground !== null && ground - st.y > P.STEP_UP ? st.y : ground,
-            groundFront, groundRear, blockedFront: wall(noseX, noseZ, groundFront), blockedRear: wall(tailX, tailZ, groundRear),
+            // A wall under the centre (the base inside a solid) is not "no ground": it holds its height; nor is
+            // the drop under a car still scrambling over a wall's top.
+            ground: ground !== null && ground - st.y > P.STEP_UP ? st.y : holding && (ground === null || ground < st.y) ? st.y : ground,
+            groundFront, groundRear,
             inWater: !hover && isWater(blockOf(dim, st.x, st.y + 0.2, st.z)), wheelbase: 2 * reach,
           }, P, 0.05);
+          // A car pushed into a wall scrambles up it, to `RISE_MAX` over where it started climbing - once
+          // per push: a wall still in the way at the top is too high, and it drops back (`climbSpent`).
+          // The last step is cut to what is left of `RISE_MAX`, so the climb ends exactly there (three whole steps of
+          // 0.3 stopped 42172 at 0.9, its band's bottom a float's width inside a two-block kerb's top, simulator 2026-09-30).
+          const left = P.RISE_MAX - (st.y - (st.climbBase ?? st.y));
+          if (pushing && !st.climbSpent && left > 0.01) climb = Math.min(P.CLIMB_RATE * 0.05, left);
           // Signed distance rolled, as degrees of a one-block wheel (wrapped into the property's range).
           r.state.wheel = hover ? 0 : (((st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0)) % 100000) + 100000) % 100000;
           fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: P.STEP_UP - lift + 0.05, hi: Math.max(P.STEP_UP - lift + 0.1, kind.height * k - 0.1) };
@@ -969,26 +1157,40 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           fp = { halfLength: noseReach, halfWidth: kind.halfWidth * k, lo: draft + 0.05, hi: Math.max(draft + 0.5, Math.min(kind.height * k, draft + 3)) };
         }
         const ns = r.state;
-        // The swept footprint: a corner, a wingtip or the hull's side entering a block stops it there.
-        let sweepChecks = 0;
+        // The swept footprint and its response: a corner, a wingtip or the hull's side meeting a block is
+        // not a dead stop - the move climbs, steps round, slides along or rises (`resolveMove`); only a
+        // move none of those clears is blocked.
+        let sweepChecks = 0, how = 'clear';
         if (fp && (Math.hypot(ns.x - st.x, ns.z - st.z) > 1e-4 || Math.abs(ns.yaw - st.yaw) > 1e-3 || Math.abs(ns.y - st.y) > 1e-4)) {
           const solid = (x: number, y: number, z: number): boolean => solidAt(dim, x, y, z);
-          const from = { x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: st.pitch || 0 };
-          const hit = sweep(from, { x: ns.x, y: ns.y, z: ns.z, yaw: ns.yaw, pitch: ns.pitch || 0 }, fp, solid, FP);
-          sweepChecks = hit.checks;
-          if (hit.blocked) {
-            // Keep the turn if the turn alone is clear; otherwise hold the old heading too.
-            const turnOnly = sweep(from, { x: st.x, y: ns.y, z: st.z, yaw: ns.yaw, pitch: ns.pitch || 0 }, fp, solid, FP);
-            sweepChecks += turnOnly.checks;
-            ns.x = st.x; ns.z = st.z;
-            if (turnOnly.blocked) ns.yaw = st.yaw;
-            if (ns.speed !== undefined) ns.speed = 0;
-            r.event = kind.mode === 'plane' ? 'crash' : kind.mode === 'boat' ? 'beached' : 'blocked';
-            r.hit = hit.at;
+          // A ship's band tilts with its nose (an airframe pitched up clears what is under its tail); a car's and a
+          // hover craft's stays LEVEL: a car pitched nose-up on a kerb's edge would let its nose pass while its
+          // body between the wheels went through the edge (42172 on a two-block kerb, simulator 2026-09-30).
+          const tilt = kind.mode === 'plane' || kind.mode === 'boat';
+          const from = { x: st.x, y: st.y, z: st.z, yaw: st.yaw, pitch: tilt ? st.pitch || 0 : 0 };
+          const res = resolve(from, { x: ns.x, y: ns.y, z: ns.z, yaw: ns.yaw, pitch: tilt ? ns.pitch || 0 : 0 }, fp, solid, FP, MV, { climb, climbFirst }, sweep);
+          sweepChecks = res.checks;
+          how = res.how;
+          if (how !== 'clear') {
+            if (Math.abs(res.pose.y - ns.y) > 1e-6 && ns.vy !== undefined) ns.vy = 0;
+            ns.x = res.pose.x; ns.y = res.pose.y; ns.z = res.pose.z; ns.yaw = res.pose.yaw;
+            ns.speed = how === 'slide' ? ns.speed * res.kept : how === 'climb' || how === 'deflect' ? ns.speed : 0;
+            if (how === 'blocked') r.event = kind.mode === 'boat' ? 'beached' : 'blocked';
+            r.hit = res.at;
           }
         }
+        // A car that climbed or rose this tick holds that height while it drives on (`CLIMB_HOLD_TICKS`).
+        // Blocked at the top of a climb: the wall is too high; the hold ends (it drops back) and the push is spent.
+        if (kind.mode === 'car' || kind.mode === 'hover') {
+          const spent = how === 'blocked' && (!!st.climbSpent || climb > 0 || (st.climbHold || 0) > 0);
+          if (how === 'climb' || how === 'rise') { ns.climbBase = st.climbBase ?? st.y; ns.climbHold = (kind.mode === 'hover' ? H : C).CLIMB_HOLD_TICKS; }
+          else { ns.climbHold = spent ? 0 : Math.max(0, (st.climbHold || 0) - 1); ns.climbBase = st.climbBase; }
+          // Spent stays spent while the stick still pushes and the car has not got anywhere: dropped back from a wall
+          // too high, it must not bob up it again and again; backing off, turning away or letting go clears it.
+          ns.climbSpent = spent || (!!st.climbSpent && Math.hypot(ns.x - st.x, ns.z - st.z) < 0.05);
+        }
         states.set(e.id, ns);
-        ns.light = st.light; ns.parked = st.parked; ns.scale = st.scale;
+        ns.light = st.light; ns.parked = st.parked; ns.scale = st.scale; ns.how = how;
         // Ticks the current driver has been aboard (the controls hint shows only at first).
         ns.aboard = driver ? (st.aboard || 0) + 1 : 0;
         // A boat rides a gentle swell and a hover craft bobs on its cushion (drawn only: the state keeps the calm line).
@@ -1001,10 +1203,11 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         try { e.setProperty(config.props.bank, Math.max(-90, Math.min(90, ns.bank + swell.roll))); } catch { /* not declared */ }
         try { e.setProperty(config.props.wheel, ns.wheel % 100000); } catch { /* not declared */ }
         if (r.event) {
-          const sound = r.event === 'blocked' ? 'random.anvil_land' : r.event === 'crash' || r.event === 'hard_landing' ? 'random.explode' : r.event === 'stall' ? 'note.bass' : r.event === 'beached' ? 'dig.sand' : r.event === 'boost' || r.event === 'launched' ? 'random.splash' : 'random.orb';
+          // Soft sounds: a five-year-old bumps into things all the time (no explosion for a ship that meets a wall).
+          const sound = r.event === 'blocked' ? 'random.anvil_land' : r.event === 'beached' ? 'dig.sand' : r.event === 'boost' || r.event === 'launched' ? 'random.splash' : 'random.orb';
           // A held stick against a wall would repeat the thud every tick: once per contact.
           if (r.event !== st.lastEvent || tick - (st.lastEventTick || 0) > 20) {
-            try { e.dimension.playSound(sound, { x: ns.x, y: ns.y, z: ns.z }, { volume: r.event === 'crash' ? 0.4 : 0.7 }); } catch { /* no sound */ }
+            try { e.dimension.playSound(sound, { x: ns.x, y: ns.y, z: ns.z }, { volume: r.event === 'blocked' ? 0.4 : 0.7 }); } catch { /* no sound */ }
             ns.lastEventTick = tick;
           } else ns.lastEventTick = st.lastEventTick;
           ns.lastEvent = r.event;
@@ -1021,22 +1224,23 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             riderAt = { eyeX: hx, eyeY: Math.round((head.y - at.y) * 100) / 100, eyeZ: hz, feetX: fx2, feetY: Math.round((feet.y - at.y) * 100) / 100, feetZ: fz2 };
           } catch { riderAt = null; }
         }
-        if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, riderAt, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, hit: r.hit ?? null, rider: !!driver, light: ns.light ?? null, night: isNight, sweepChecks, msPerTick: busyTicks ? Math.round(busyMs / busyTicks * 100) / 100 : 0 })}`);
+        if (telemetry && tick % 20 === 0) console.warn(`CMVT ${JSON.stringify({ type, id: e.id, t: tick, riderAt, x: Math.round(ns.x * 100) / 100, y: Math.round(ns.y * 100) / 100, z: Math.round(ns.z * 100) / 100, yaw: Math.round(ns.yaw), speed: Math.round(ns.speed * 100) / 100, vy: ns.vy === undefined ? null : Math.round(ns.vy * 100) / 100, pitch: Math.round(ns.pitch), input, event: r.event ?? null, how, hit: r.hit ?? null, rider: !!driver, light: ns.light ?? null, night: isNight, sweepChecks, msPerTick: busyTicks ? Math.round(busyMs / busyTicks * 100) / 100 : 0 })}`);
         if (driver && tick % 4 === 0) {
           let hud: string;
           if (kind.mode === 'plane') {
             const alt = ground === null ? '--' : String(Math.max(0, Math.round(ns.y - ground)));
-            const hint = ns.onGround
-              ? (ns.speed >= F.ROTATE_SPEED ? '§a[PULL BACK: TAKE OFF]§r' : ns.throttle > 0.05 ? '§e[TAKE-OFF RUN: KEEP JUMP HELD]§r' : '§7[HOLD JUMP: THROTTLE · STICK: STEER]§r')
-              : ns.stalled ? '§c[STALL: STICK FORWARD]§r' : '§7[STICK BACK: CLIMB · FORWARD: DIVE · JUMP: FULL POWER]§r';
-            hud = `§lPLANE§r §e${(ns.speed * MPH).toFixed(0)} mph§r · §bALT ${alt}§r · THR ${Math.round(ns.throttle * 100)} · ${hint}`;
+            // The controls hint only at first (the bar covers the middle of a phone's screen); then what it is doing.
+            const going = ns.vy > 0.5 ? ' §a[UP]§r' : ns.vy < -0.5 && input.rider ? ' §a[DOWN]§r' : '';
+            const hint = ns.aboard < HUD_HINT_TICKS ? '§7[STICK: FLY + TURN · JUMP: UP · BACK + JUMP: DOWN · DRAG: LOOK]§r'
+              : r.event === 'blocked' ? '§c[BLOCKED: TURN OR BACK UP]§r' : how === 'climb' || how === 'rise' ? '§e[LIFTING OVER]§r' : '';
+            hud = `§lFLY§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[BACK]' : ''}§r · §bALT ${alt}§r${going}${hint ? ` · ${hint}` : ''}`;
           } else if (kind.mode === 'car' || kind.mode === 'hover') {
             // The controls hint only for the first `HUD_HINT_TICKS` aboard: the bar sits across the middle
             // of a phone's screen, over the car the chase camera frames (Gabby's doll cars, Saga 2026-09-29).
-            const hint = r.event === 'blocked' || (ns.speed === 0 && Math.abs(input.y) > 0.15) ? '§c[BLOCKED: BACK UP]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: DRIVE + STEER · JUMP: BOOST]§r' : '';
+            const hint = r.event === 'blocked' ? '§c[BLOCKED: TURN OR BACK UP]§r' : how === 'climb' || how === 'rise' ? '§e[CLIMBING]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: DRIVE + STEER · JUMP: BOOST · DRAG: LOOK]§r' : '';
             hud = `§l${kind.mode === 'hover' ? 'HOVER' : 'CAR'}§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r${hint ? ` · ${hint}` : ''}`;
           } else {
-            const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST]§r' : '';
+            const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST · DRAG: LOOK]§r' : '';
             hud = `§lBOAT§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[ASTERN]' : ''}§r${hint ? ` · ${hint}` : ''}`;
           }
           if (ns.light) hud += ' · §e[LIGHTS]§r';
@@ -1052,5 +1256,5 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
 
 /** `scripts/vehicles.js`: the runtime with the pure models' and helpers' own text. */
 export function scriptedVehicleScript(config: ScriptedVehicleConfig): string {
-  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()});\n`;
+  return `import { world, system } from "@minecraft/server";\n(${scriptedVehicleRuntime.toString()})(${JSON.stringify(config)}, ${flightStep.toString()}, ${boatStep.toString()}, ${carStep.toString()}, ${sweepFootprint.toString()}, ${isNightTime.toString()}, ${headlightCell.toString()}, ${resolveMove.toString()});\n`;
 }

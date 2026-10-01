@@ -1515,11 +1515,14 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
     const checks: Record<string, boolean> = { mounted: row.mounted };
     const dist = (p: any): number => Math.hypot(p?.along ?? 0, p?.side ?? 0);
     /**
-     * The swept footprint (bedrock-vehicle.ts `sweepFootprint`): a 6-block log
-     * post stands ahead of the vehicle, off its centre line by most of its half
-     * width - where the old centre-line probes never looked (a wingtip, a wide
-     * hull, a car's corner went through trees and piers). The vehicle must stop
-     * at the post, not pass it. The post is removed (the pool refilled) after.
+     * The swept footprint and its response (bedrock-vehicle.ts `sweepFootprint`,
+     * `resolveMove`): a 6-block log post stands ahead of the vehicle, off its
+     * centre line by most of its half width - where the old centre-line probes
+     * never looked (a wingtip, a wide hull, a car's corner went through trees
+     * and piers). The vehicle must never pass THROUGH it: it stops at it, or
+     * (since 2026-09-30, "never stuck") steps sideways round it far enough that
+     * its side clears the post, or a ship lifts over it (`clearsPost`). The post
+     * is removed (the pool refilled) after.
      */
     const postPhase = async (startRel: Vec3, yaw: number, water: boolean): Promise<void> => {
       const halfW = Math.max(0.3, v.size.width / 2), halfL = v.size.length / 2;
@@ -1530,34 +1533,45 @@ export function gametestRuntime(mods: RuntimeModules, plan: GametestPlan, arena:
       for (let dy = 0; dy < 6; dy++) cells.push({ x: postX, y: baseY + dy, z: postZ });
       for (const p of cells) { try { test.setBlockType('minecraft:oak_log', p); } catch (err) { row.postError = String(err); } }
       await reset(startRel, yaw);
-      await phase('post', 80, (t) => { if (t === 0) drive(0, v.kind === 'plane' ? 0 : 0.6, v.kind === 'plane', 80); });
+      await phase('post', 80, (t) => { if (t === 0) drive(0, 0.6, false, 80); });
       const clearAlong = Math.round((postX - startRel.x - halfL) * 100) / 100;
-      row.post = { x: postX, z: postZ, offset: Math.round(offset * 100) / 100, clearAlong };
+      // The sidestep that clears the post (a positive `side` is to the vehicle's right, -z heading +x): its +z edge
+      // under the post's -z face, or its -z edge past the post's +z face.
+      const clearRight = Math.round((startRel.z + halfW - postZ) * 100) / 100, clearLeft = Math.round((postZ + 1 - (startRel.z - halfW)) * 100) / 100;
+      row.post = { x: postX, z: postZ, offset: Math.round(offset * 100) / 100, clearAlong, clearRight, clearLeft };
       for (const p of cells) { try { test.setBlockType(water && p.y < f.y + L.waterTop ? 'minecraft:water' : 'minecraft:air', p); } catch { /* left */ } }
-      const along = row.phases.post?.along ?? 0;
-      // It moved toward the post and stopped with its leading edge at it (half a block of slack for the tick it stopped on).
-      checks.stopsAtPost = along > 1 && along < clearAlong + 0.5;
+      const ph = row.phases.post ?? {};
+      const along = ph.along ?? 0, side = ph.side ?? 0;
+      // It moved toward the post and stopped with its leading edge at it (half a block of slack for the tick it stopped on) ...
+      const stopped = along > 1 && along < clearAlong + 0.5;
+      // ... or passed it stepped clear to one side, or (a ship) over its top.
+      const passed = along >= clearAlong + 0.5 && (side >= clearRight - 0.05 || -side >= clearLeft - 0.05 || (ph.maxDy ?? 0) >= 6 - 0.05);
+      row.post.how = stopped ? 'stopped' : passed ? 'round' : 'through';
+      checks.clearsPost = stopped || passed;
     };
 
     await phase('settle', 40, () => {});
     if (v.kind === 'plane' && v.scripted) {
-      // Take-off on Jump alone (the roll ends once it is 1.5 blocks up), a short
-      // climb, then circling right - the turn, a half-stick cruise and a
-      // descending approach - so it lands within reach of the arena. Flown
-      // straight, the Milano was 110 blocks out by the climb and stopped being
-      // readable (Pixel GameTest, 2026-09-25).
-      await phase('takeoff_roll', 120, (t) => { if (t === 0) drive(0, 0, true, 120); }, s => s.dy > 1.5);
-      await phase('climb', 30, (t) => { if (t === 0) drive(0, -1, true, 30); });
-      await phase('turn_right', 60, (t) => { if (t === 0) drive(-1, 0, false, 60); });
-      await phase('cruise', 40, (t) => { if (t === 0) drive(-0.5, 0, false, 40); });
-      await phase('approach', 300, (t) => { if (t % 20 === 0) drive(-0.5, 0.35, false, 20); });
-      await phase('rollout', 120, () => {});
+      // Spaceship controls (bedrock-vehicle.ts `flightStep`, 2026-09-30): Jump straight up, a hover with
+      // hands off, forward, straight back, a turn on the spot, then back + Jump straight down to the
+      // ground. It stays within a few blocks of the arena throughout (the old flight model's circuit
+      // took the Milano 110 blocks out, where it stopped being readable, Pixel 2026-09-25).
+      await phase('up', 40, (t) => { if (t === 0) drive(0, 0, true, 40); });
+      await phase('hover', 40, () => {});
+      await phase('forward', 40, (t) => { if (t === 0) drive(0, 1, false, 40); });
+      await phase('stop', 30, () => {});
+      await phase('backward', 40, (t) => { if (t === 0) drive(0, -1, false, 40); });
+      await phase('turn_in_place', 40, (t) => { if (t === 0) drive(-1, 0, false, 40); });
+      await phase('down', 120, (t) => { if (t === 0) drive(0, -1, true, 120); });
       const ph = row.phases;
-      checks.takesOff = (ph.takeoff_roll?.maxDy ?? 0) > 1;
-      checks.climbs = (ph.climb?.dy ?? 0) > 3;
-      checks.turnsRight = (ph.turn_right?.yawChange ?? 0) > 30;
-      checks.landsAndStops = (ph.rollout?.endSpeed ?? 9) < 0.5 && Math.abs(ph.rollout?.dy ?? 9) < 0.5;
-      // A wingtip on the take-off run.
+      checks.goesStraightUp = (ph.up?.dy ?? 0) > 4 && dist(ph.up) < 0.5;
+      checks.hovers = Math.abs(ph.hover?.dy ?? 9) < 0.3 && dist(ph.hover) < 0.5;
+      checks.forwardMoves = (ph.forward?.along ?? 0) > 5;
+      checks.stopsHandsOff = (ph.stop?.endSpeed ?? 9) < 0.5;
+      checks.reverseMoves = (ph.backward?.along ?? 0) < -2;
+      checks.turnsInPlace = (ph.turn_in_place?.yawChange ?? 0) > 30 && dist(ph.turn_in_place) < 0.5;
+      checks.goesStraightDown = (ph.down?.dy ?? 0) < -3;
+      // A wingtip on the ground run.
       await postPhase(spawnRel, yaw0, false);
     } else if (v.kind === 'boat' && v.scripted) {
       await phase('ahead', 80, (t) => { if (t === 0) drive(0, 1, false, 80); });
