@@ -909,7 +909,7 @@ literal inside a function body (`§` marks the number).
 | `FLIGHT.MAX_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 18 | blocks/s | A ship's full forward thrust (40 mph): the old flight model's 23 cruise and 32 ceiling left a child round a ten-block model in a second; the car's 19 is a speed the same child already drives. Device feel unproven (TASKS "Spaceship controls"). |
 | `FLIGHT.REVERSE_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight backwards on the stick pulled back ("there should be a way to go ... backwards"). |
 | `FLIGHT.ACCEL` | `web/src/engine/bedrock-vehicle.ts` | 12 | blocks/s² | 0 to full in 1.5 s. |
-| `FLIGHT.BRAKE` | `web/src/engine/bedrock-vehicle.ts` | 14 | blocks/s² | Hands off (or the stick against the motion) it stops from full in 1.3 s and HOVERS: no glide, no stall. |
+| `FLIGHT.BRAKE` | `web/src/engine/bedrock-vehicle.ts` | 24 | blocks/s² | Hands off (or the stick against the motion) it stops from full in 0.75 s, 6.8 blocks on, and HOVERS: no glide, no stall. At 14 the simulator's ship ran 11 blocks on after letting go - a glide, not a stop. |
 | `FLIGHT.TURN_RATE` | `web/src/engine/bedrock-vehicle.ts` | 80 | degrees/s | Full stick turns it, at rest too (a pivot on the spot): a quarter turn in about a second. |
 | `FLIGHT.CLIMB_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight up on Jump. The Nimbus's native climb measured ~20-22 blocks/s (Saga/Pixel 2026-09-29); a ship's is slower so a tap lifts it a few blocks, not a storey. |
 | `FLIGHT.DESCEND_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight down on back + Jump, or a Jump pressed while the view looks down. |

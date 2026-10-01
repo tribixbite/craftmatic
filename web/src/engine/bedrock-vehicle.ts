@@ -185,7 +185,7 @@ export function vehicleClientAnimation(cid: string, motion: VehicleMotion, wheel
  * angle, instead of stopping dead.
  */
 export const FLIGHT = {
-  MAX_SPEED: 18, REVERSE_SPEED: 8, ACCEL: 12, BRAKE: 14,
+  MAX_SPEED: 18, REVERSE_SPEED: 8, ACCEL: 12, BRAKE: 24,
   TURN_RATE: 80,
   CLIMB_SPEED: 8, DESCEND_SPEED: 8, VERTICAL_ACCEL: 24, IDLE_SINK: 3,
   AUTO_CLIMB: 8, STEP_UP: 1,

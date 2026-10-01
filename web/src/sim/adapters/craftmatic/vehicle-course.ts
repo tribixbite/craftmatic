@@ -186,7 +186,9 @@ export function vehicleCourseHandlers(pack: CraftmaticPack): Record<string, Step
       const only = step['obstacles'] as CourseObstacle[] | undefined;
       const w = ctx.sim.engine.dimension('overworld');
       const stone = ctx.sim.host.resolvePermutation('minecraft:stone'), air = ctx.sim.host.resolvePermutation('minecraft:air');
-      const laneGap = Math.ceil(2 * f.halfWidth) + 24;
+      // Lanes far enough apart that a vehicle stepped round the END of one lane's obstacle (its half width past the
+      // obstacle's edge) never meets the next lane's: the Milano (30 wide) slid into the tree lane at 2W + 24.
+      const laneGap = Math.ceil(4 * f.halfWidth) + 24;
       const rows: CourseRow[] = [];
       let lane = 0;
       // The band that must stay clear (bedrock-vehicle.ts: a car's over its step, a ship's whole airframe aloft).
