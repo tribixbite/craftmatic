@@ -23,8 +23,8 @@ Next, in order:
    `bash .../build.sh` from the clean tree, then `python .../check.py <packs> <creator>`
    (expect parts to DIFFER: separators gone; uuids equal), then
    `bun scripts/sim.ts --scenario=regressions --new=<packs>`, `--scenario=hop`
-   (needs `--coaster= --flyer= --slide= --car=`), `--scenario=vehicles` on
-   7140 / 76286 / 42172 (the controls' course: NEVER RUN on built packs - the
+   (needs `--coaster= --flyer= --slide= --car=`), and
+   `bun scripts/sim.ts <7140 76286 42172 packs> --scenario=vehicles` (the controls' course: NEVER RUN on built packs - the
    agent died before building; record before/after numbers).
 2. Zip (`craftmatic-packs-<sha>.zip` + sha256 + pack-hashes.tsv, same as 30i)
    and send.
@@ -69,7 +69,7 @@ stuck, free look"; sim doc "The vehicle course".
 NOT YET BUILT OR COURSE-MEASURED: the agent stopped (spend limit) before
 building packs; its last uncommitted edits (brake 24, course lane gap) were
 salvaged as `391fc228` and merged (`bcfae5bc`). Measure with
-`bun scripts/sim.ts --scenario=vehicles` on round 30j's packs.
+`bun scripts/sim.ts <packs> --scenario=vehicles` on round 30j's packs.
 
 ### Device checklist (one round, Pixel or Saga; world with the round's packs bound `--exclusive`)
 
