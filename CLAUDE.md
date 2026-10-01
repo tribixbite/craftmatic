@@ -316,6 +316,17 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   (measured), and removing a component group removes its components even where
   the base declares them (a `size_100` that only removed groups left vehicles
   unrideable). Seats: `cockpit-seat.ts`, add-on guide "Where the player sits".
+- **Scripted vehicles (cars, hover craft, boats, ships) have FREE LOOK and
+  never stop dead** (2026-09-30): their seats are `lock_rider_rotation` 181
+  (a native rotorcraft/flyer keeps 0: it flies where its rider looks), the
+  chase camera orbits by the rider's drag and eases back behind the nose
+  (`vehicle-free-look.ts`); a blocked move climbs, sidesteps, slides or
+  glances before it stops (`resolveMove`); every scripted aircraft flies
+  with spaceship controls (`flightStep`: thrust back and forth, Jump up,
+  back + Jump down, hover). That a drag reaches the script on such a seat
+  and does not turn the vehicle is ASSUMED (quirk `rider-free-look`); the
+  device checklist is TASKS "Spaceship controls". Offline:
+  `bun scripts/sim.ts <packs> --scenario=vehicles`.
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`

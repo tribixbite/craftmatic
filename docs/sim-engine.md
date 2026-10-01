@@ -19,6 +19,7 @@ bun scripts/sim.ts <pack.mcaddon | dir>…                 # child play over eve
 bun scripts/sim.ts <packs> --md=out.md --json=out.json   # with reports
 bun scripts/sim.ts <packs> --shots=<dir>                 # plus first-person PNGs
 bun scripts/sim.ts --scenario=regressions --new=<dir>    # the device-bug regression set
+bun scripts/sim.ts <packs> --scenario=vehicles             # every scripted vehicle on the stuck course + controls + free look
 bun scripts/sim.ts <packs> --scenario=my-scenarios.ts    # your own scenarios
 bun scripts/sim.ts --scenario=hop --coaster=<10261> --flyer=<nimbus> [--car=<42639>|same] [--slide=<10788>]
                                                          # several packs in ONE world: the hop
@@ -340,6 +341,43 @@ The assumed device facts are quirks `rider-seat-order`, `add-rider-after-eject`,
 `aabb-is-collision-box` and `dynamic-properties-per-pack` (the simulator shares
 one dynamic-property map between packs; the hop uses tags for anything another
 pack reads, so it does not depend on that gap).
+
+## The vehicle course (`adapters/craftmatic/vehicle-course.ts`)
+
+`bun scripts/sim.ts <packs> --scenario=vehicles [--md=] [--json=]`: every
+SCRIPTED car, hover craft and ship of each pack (read from its
+`scripts/vehicles.js` config) is spawned on the superflat ground away from
+the model, the child seated on it, and driven into eight obstacles, each in
+its own lane, holding the stick FORWARD and nothing else for up to 10 s - a
+one-block step, a hill (a block every two, four high), a two-block kerb, a
+three-block wall, a trunk met with the footprint's corner, a three-block
+wall at 30 degrees, a two-deep and a three-deep pit (2026-09-30, "it's too
+easy to get fully stuck in place by hills / blocks"). A ship runs the course
+a second time holding Jump too (the old flight model's throttle; the new
+one's "up"). Per obstacle: passed, ticks, ticks pushing without moving, the
+height reached, ticks the vehicle's clear band went INTO a block (the band
+the runtime sweeps: over a car's step, a ship's whole airframe; 0.1 block of
+slack, `CLIP_SLACK`), and after a stop whether backing off, turning on the
+spot and driving away moved it 3 blocks. Then `shipControls` (straight up,
+hover, forward, straight back, a turn on the spot, back + Jump down, a drag
+down then Jump down) and `cameraRecentre` (a 90-degree drag at rest, 2 s at
+rest, 3 s driving: the camera's offset from the nose, read from the free
+camera's location and facing point).
+
+Violations: `vehicle-not-stuck` (a ship must pass everything; a car or hover
+craft all but the three-block wall and the three-deep pit), `vehicle-escapes`,
+`vehicle-no-clip`, `ship-controls`, `free-look`. The course quiets
+`player-not-in-solid` and `nothing-below-ground` while the child rides (a low
+car's seated rider has its feet under the road; the pits are dug under the
+flat world on purpose) and judges the vehicle by its own band instead.
+Boats (no water lane yet, `TODO(sim-boat-course)`) and native mounts (the
+simulator's hover controller is a stand-in) are left out.
+
+What it cannot show: whether a DRAG on the device turns the rider's look on
+a lock-181 seat, whether the engine turns a scripted vehicle toward that look,
+and how late a carried rider's yaw is (quirk `rider-free-look`): the camera
+step moves the rider's look as a drag would and the simulator neither
+carries nor turns.
 
 ## Calibrating from a device round
 

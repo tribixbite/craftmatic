@@ -3545,6 +3545,88 @@ mid-height default (inside a loco body); an articulated loco or a train with
 no coupler parts is one rigid body (fine on the straight display lines
 above, wrong on curves).
 
+## Spaceship controls, never stuck, free look (2026-09-30)
+
+The user's words, for the five-year-old on a touch phone: "Flight u/x and
+controls needs to be more like spaceship less like flight simulator - it's
+too easy to get fully stuck in place by hills / blocks and there should be
+a way to go straight up or backwards for milano and x wing and other ships -
+and all vehicles should allow you to move the camera around instead of
+locking you in place. If you stop moving camera it should semi gradually
+automatically turn to point in the direction of travel (forward) while
+moving." Code: `web/src/engine/bedrock-vehicle.ts` (`flightStep`,
+`resolveMove`, the runtime), `web/src/engine/vehicle-free-look.ts`, the
+camera runtime in `playable-addon.ts`; numbers and reasons in
+`docs/physics-architecture.md` §4.6 and §9.
+
+### The controls a child uses
+
+| vehicle | stick forward / back | stick left / right | Jump | other |
+|---|---|---|---|---|
+| ship (every scripted aircraft: 7140, 76286, ...) | fly forward / straight BACKWARDS | turn, at rest too | straight UP | back + Jump, or a Jump pressed while the view looks down (25 degrees), straight DOWN; hands off it stops and hovers; got out of in the air, it floats down and parks |
+| car, hover craft | drive / brake, reverse | steer; stopped, turn on the spot | boost | slides along walls, steps round trees, scrambles up to 2.15 blocks (two-block kerbs and pits) |
+| boat | throttle / astern | rudder | boost | deflects round posts, slides along piers |
+| every scripted vehicle | | | | DRAG the screen to look around; let go and while moving the view swings back behind the nose after 1 s (95 % in ~1.8 s more); at rest it stays; hotbar slot 9 is the view from the seat (its yaw eases back the same way) |
+| rotorcraft, Nimbus (native) | unchanged: they fly where the rider looks, so the view IS the direction of travel | | | |
+
+Sneak stays the dismount on every vehicle, so "down" had to be a
+combination: the Nimbus's own back + Jump and look down + Jump, so one rule
+holds on every flying thing in a pack. The HUD hint (first 5 s aboard) now
+says `STICK: FLY + TURN · JUMP: UP · BACK + JUMP: DOWN · DRAG: LOOK`; a
+ship's HUD word is `FLY`, with `[UP]` / `[DOWN]` / `[LIFTING OVER]`; a car
+shows `[CLIMBING]` while it scrambles and `[BLOCKED: TURN OR BACK UP]` only
+where nothing gets it through. The old ship's explosion sound on a crash is
+gone (a child bumps into things all the time): a soft thud.
+
+### What changed under it
+
+- **`flightStep`** is no longer a flight model (throttle, elevator, stall,
+  take-off run, landing roll): thrust along the heading, a turn rate, a
+  vertical speed. The old model's numbers are in git history at `90b6c0b0`.
+- **`resolveMove`**: a move the swept footprint blocks is retried as a
+  climb (ships first), a sidestep when only one half of the footprint meets
+  the block, a slide along one world axis, a rise in place; only then
+  blocked (keeping a clear turn or vertical move). A car's sweep band is now
+  LEVEL (a nose-up car on a kerb's edge let its body through the edge); a
+  ship's still tilts.
+- **Free look**: scripted seats `lock_rider_rotation` 181 (was 0); the chase
+  camera orbits by offsets `freeLookStep` keeps from the rider's look
+  changes, net of the vehicle's own turn whether the device carries the
+  rider's yaw round or not. Nothing moves the player in the chase view, so
+  the ease cannot fight the client. The camera writes the view's pitch to the
+  vehicle (`craftmatic:look_pitch`) for the ship's look-down + Jump.
+
+### Assumed, not measured (quirk `rider-free-look`)
+
+1. A drag on a scripted vehicle's seat with lock 181 turns the rider's yaw
+   (pinball measured the PITCH a drag reports on a lock-0 seat; nobody has
+   dragged a scripted vehicle's seat).
+2. The engine does NOT turn the zero-speed scripted vehicle toward the
+   rider's look (`player_ride_tamed` turns a horse that way). If it does,
+   the script's per-tick teleport snaps it back: visible jitter while
+   dragging. Fallback if seen: set the seat back to 0 for that class and
+   take the drag from the pitch only.
+3. `setRotation` on the seated rider applies its yaw in the cockpit view
+   (measured in pinball for a lock-0 seat).
+
+The simulator cannot settle any of these (a simulated player's look is not
+touch input, so no GameTest can drag); the device checklist in
+`TASKS-BEDROCK-ADDON.md` "Spaceship controls" does, with
+`/scriptevent craftmatic:vehicle_telemetry fast` (`CMCAM` lines: `riderYaw`,
+`yawOff`, `pitchOff`, `dragging`, `recentring`; `CMVT` lines: the vehicle's
+`yaw`, `how` = the collision response).
+
+### The GameTest course
+
+`vehicle_<id>_<n>` for a ship now runs `up` (Jump 2 s), `hover`, `forward`,
+`stop`, `backward`, `turn_in_place`, `down` (back + Jump 6 s) and checks
+`goesStraightUp`, `hovers`, `forwardMoves`, `stopsHandsOff`,
+`reverseMoves`, `turnsInPlace`, `goesStraightDown`. The post check is
+`clearsPost` for every class: the vehicle stops at the post, or passes it
+stepped clear to one side, or (a ship) over its top - never through it
+(`stopsAtPost` until 2026-09-30, when the collision response began stepping
+round posts).
+
 ## Vehicle operation: cars, boats, planes, measured (2026-09-25)
 
 Code: `web/src/engine/bedrock-vehicle.ts` (flight and boat models, the drive
@@ -3603,9 +3685,12 @@ pinball 2026-09-24).
   speeder): driven like a car, floating a block over land and water alike.
 - **Boat**: stick forward/back is throttle and astern, left/right the rudder;
   Jump boosts.
-- **Plane**: Jump is the throttle; stick back climbs (and at take-off speed
-  lifts off), forward dives, left/right banks and turns. On the ground,
-  stick back with the throttle released brakes.
+- **Plane / ship** (since 2026-09-30, "Spaceship controls" above): stick
+  forward flies forward, back flies straight backwards, left/right turns
+  (at rest too); Jump straight up; back + Jump, or a Jump pressed while the
+  view looks down, straight down; hands off it hovers. The flight model
+  this replaced (Jump throttle, elevator, stall) is described in the table
+  above as it was measured on 2026-09-25.
 - **Helicopter**: stick to fly and turn, Jump climbs, stick back + Jump
   descends, and so does look down (past 25 degrees) + Jump.
 - **Stick sign, measured**: pushing the stick RIGHT reads
@@ -3613,7 +3698,9 @@ pinball 2026-09-24).
   strafe is LEFT). `FLIGHT.STICK_X_RIGHT` / `BOAT.STICK_X_RIGHT` = -1.
 - **Camera**: every rider gets the script's chase camera; hotbar **slot 9**
   swaps it for the cockpit view (the rider's own first person), any other
-  slot brings it back. A scripted vehicle's boom follows the VEHICLE's
+  slot brings it back. Since 2026-09-30 a drag orbits it (free look) and it
+  eases back behind the nose a second after the last drag while moving
+  ("Spaceship controls, never stuck, free look" above). A scripted vehicle's boom follows the VEHICLE's
   heading and trails along its nose in 3D (a climbing aircraft stayed under
   the frame's edge with a level boom), and the rider keeps the game's
   default control scheme so the stick's left/right reaches the script as
