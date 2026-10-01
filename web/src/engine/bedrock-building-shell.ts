@@ -32,6 +32,7 @@
 import { withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
+import type { OrientedBoxLdu } from './ldraw-entity-compiler.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
 import { ldrawToRenderRotation } from './ldraw-entity-compiler.js';
 import { PACK_NAMESPACE } from './mcpack.js';
@@ -104,6 +105,144 @@ export interface ColliderGridStats {
   emptyVoxelsDropped: number;
   /** Blocks the visible geometry occupies that the voxel grid had left air, made colliders. */
   geometryBlocksAdded: number;
+  /** Body cuboids of TURNED parts laid from their oriented box (`ColliderSourceBox.obb`), not their bounding box. */
+  turnedBoxes: number;
+  /**
+   * Cells the bounding boxes of those turned cuboids would have made colliders that no geometry
+   * reaches (the invisible bands the old rule laid; 0 when there are no turned parts).
+   */
+  turnedCellsSpared: number;
+}
+
+/**
+ * One body cuboid a collider grid is laid from: its LDraw AABB (source frame)
+ * and, for a turned part, the oriented cuboid itself (`obb`), which is laid
+ * INSTEAD of the AABB (see `buildColliderGrid`).
+ */
+export interface ColliderSourceBox { min: Vec3; max: Vec3; obb?: OrientedBoxLdu }
+
+/**
+ * A parallelepiped in grid coordinates, `o + a·e0 + b·e1 + c·e2` for a, b, c
+ * in [0, 1], with the inverse of the edge matrix (columns e0 e1 e2, row-major)
+ * to take a point to its (a, b, c). An oriented LDraw cuboid mapped through
+ * `sceneGridPoint` (an axis scale that may differ in y) is one.
+ */
+export interface GridParallelepiped { o: Vec3; e: readonly [Vec3, Vec3, Vec3]; inv: readonly number[] }
+
+/** Numerical slack of the clipping tests below, in blocks (and in the parallelepiped's unit parameters). */
+const CLIP_EPS = 1e-7;
+
+/**
+ * An oriented LDraw cuboid in the collider grid's frame, or null when it is
+ * degenerate (a zero-thickness box: the caller lays its AABB instead).
+ */
+export function gridParallelepiped(frame: SceneGridFrame, box: OrientedBoxLdu): GridParallelepiped | null {
+  const { R, t, min, max } = box;
+  const world = (v: Vec3): Vec3 => [
+    R[0]! * v[0] + R[1]! * v[1] + R[2]! * v[2] + t[0],
+    R[3]! * v[0] + R[4]! * v[1] + R[5]! * v[2] + t[1],
+    R[6]! * v[0] + R[7]! * v[1] + R[8]! * v[2] + t[2],
+  ];
+  const o = sceneGridPoint(frame, world(min));
+  const edge = (k: 0 | 1 | 2): Vec3 => {
+    const v: Vec3 = [min[0], min[1], min[2]];
+    v[k] = max[k];
+    const q = sceneGridPoint(frame, world(v));
+    return [q[0] - o[0], q[1] - o[1], q[2] - o[2]];
+  };
+  const e: [Vec3, Vec3, Vec3] = [edge(0), edge(1), edge(2)];
+  // Columns e0 e1 e2: m = [[e0x e1x e2x], [e0y e1y e2y], [e0z e1z e2z]].
+  const m = [e[0][0], e[1][0], e[2][0], e[0][1], e[1][1], e[2][1], e[0][2], e[1][2], e[2][2]];
+  const c00 = m[4]! * m[8]! - m[5]! * m[7]!, c01 = m[5]! * m[6]! - m[3]! * m[8]!, c02 = m[3]! * m[7]! - m[4]! * m[6]!;
+  const det = m[0]! * c00 + m[1]! * c01 + m[2]! * c02;
+  const scale = Math.hypot(...e[0]) * Math.hypot(...e[1]) * Math.hypot(...e[2]);
+  if (!(scale > 0) || Math.abs(det) <= 1e-9 * scale) return null;
+  const inv = [
+    c00 / det, (m[2]! * m[7]! - m[1]! * m[8]!) / det, (m[1]! * m[5]! - m[2]! * m[4]!) / det,
+    c01 / det, (m[0]! * m[8]! - m[2]! * m[6]!) / det, (m[2]! * m[3]! - m[0]! * m[5]!) / det,
+    c02 / det, (m[1]! * m[6]! - m[0]! * m[7]!) / det, (m[0]! * m[4]! - m[1]! * m[3]!) / det,
+  ];
+  return { o, e, inv };
+}
+
+/**
+ * The axis-aligned bounds of (parallelepiped ∩ box `lo..hi`), exactly, or null
+ * when they do not meet. Both are convex, so every vertex of the intersection
+ * is one of: a parallelepiped corner inside the box, a box corner inside the
+ * parallelepiped, a parallelepiped edge crossing a box face, or a box edge
+ * crossing a parallelepiped face. The bounds of those points are the bounds
+ * of the intersection.
+ */
+export function clipParallelepiped(p: GridParallelepiped, lo: Vec3, hi: Vec3): { min: Vec3; max: Vec3 } | null {
+  const mn: Vec3 = [Infinity, Infinity, Infinity], mx: Vec3 = [-Infinity, -Infinity, -Infinity];
+  const add = (x: number, y: number, z: number): void => {
+    if (x < mn[0]) mn[0] = x; if (x > mx[0]) mx[0] = x;
+    if (y < mn[1]) mn[1] = y; if (y > mx[1]) mx[1] = y;
+    if (z < mn[2]) mn[2] = z; if (z > mx[2]) mx[2] = z;
+  };
+  const inBox = (q: Vec3, skip = -1): boolean => {
+    for (let k = 0; k < 3; k++) if (k !== skip && (q[k]! < lo[k]! - CLIP_EPS || q[k]! > hi[k]! + CLIP_EPS)) return false;
+    return true;
+  };
+  const { o, e, inv } = p;
+  // Parallelepiped corners, and its 12 edges against the box's 6 faces.
+  for (let c = 0; c < 8; c++) {
+    const a = c & 1, b = (c >> 1) & 1, g = (c >> 2) & 1;
+    const q: Vec3 = [o[0] + a * e[0][0] + b * e[1][0] + g * e[2][0], o[1] + a * e[0][1] + b * e[1][1] + g * e[2][1], o[2] + a * e[0][2] + b * e[1][2] + g * e[2][2]];
+    if (inBox(q)) add(q[0], q[1], q[2]);
+    // The edges leaving this corner along each axis the corner sits at 0 on (12 edges in all).
+    for (let k = 0; k < 3; k++) {
+      if (((c >> k) & 1) === 1) continue;
+      const d = e[k]!;
+      for (let j = 0; j < 3; j++) {
+        if (Math.abs(d[j]!) < 1e-12) continue;
+        for (const s of [lo[j]!, hi[j]!]) {
+          const u = (s - q[j]!) / d[j]!;
+          if (u < -CLIP_EPS || u > 1 + CLIP_EPS) continue;
+          const r: Vec3 = [q[0] + u * d[0], q[1] + u * d[1], q[2] + u * d[2]];
+          r[j] = s;
+          if (inBox(r, j)) add(r[0], r[1], r[2]);
+        }
+      }
+    }
+  }
+  // Box corners inside the parallelepiped, and the box's 12 edges against its 6 faces (in its parameters).
+  const param = (q: Vec3): Vec3 => {
+    const d0 = q[0] - o[0], d1 = q[1] - o[1], d2 = q[2] - o[2];
+    return [inv[0]! * d0 + inv[1]! * d1 + inv[2]! * d2, inv[3]! * d0 + inv[4]! * d1 + inv[5]! * d2, inv[6]! * d0 + inv[7]! * d1 + inv[8]! * d2];
+  };
+  const inUnit = (a: Vec3, skip = -1): boolean => {
+    for (let k = 0; k < 3; k++) if (k !== skip && (a[k]! < -CLIP_EPS || a[k]! > 1 + CLIP_EPS)) return false;
+    return true;
+  };
+  for (let c = 0; c < 8; c++) {
+    const q: Vec3 = [(c & 1) ? hi[0] : lo[0], ((c >> 1) & 1) ? hi[1] : lo[1], ((c >> 2) & 1) ? hi[2] : lo[2]];
+    const a = param(q);
+    if (inUnit(a)) add(q[0], q[1], q[2]);
+    for (let j = 0; j < 3; j++) {
+      if (((c >> j) & 1) === 1) continue;
+      const len = hi[j]! - lo[j]!;
+      if (!(len > 0)) continue;
+      // Moving along box axis j changes the parameters by column j of `inv`, times the distance.
+      const da: Vec3 = [inv[j]! * len, inv[3 + j]! * len, inv[6 + j]! * len];
+      for (let k = 0; k < 3; k++) {
+        if (Math.abs(da[k]!) < 1e-12) continue;
+        for (const f of [0, 1]) {
+          const u = (f - a[k]!) / da[k]!;
+          if (u < -CLIP_EPS || u > 1 + CLIP_EPS) continue;
+          const b: Vec3 = [a[0] + u * da[0], a[1] + u * da[1], a[2] + u * da[2]];
+          if (!inUnit(b, k)) continue;
+          const r: Vec3 = [q[0], q[1], q[2]];
+          r[j] = q[j]! + Math.min(1, Math.max(0, u)) * len;
+          add(r[0], r[1], r[2]);
+        }
+      }
+    }
+  }
+  if (!(mn[0] <= mx[0])) return null;
+  // Clamp to the box: a point accepted within the slack may sit a hair outside it.
+  for (let k = 0; k < 3; k++) { mn[k] = Math.max(mn[k]!, lo[k]!); mx[k] = Math.min(mx[k]!, hi[k]!); }
+  return { min: mn, max: mx };
 }
 
 /**
@@ -132,7 +271,7 @@ export interface ColliderGridStats {
  * air even where a wall's geometry reaches them. With no boxes at all (the
  * shell did not report them) the voxel grid is used as before.
  */
-export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: Vec3; max: Vec3 }>, frame: SceneGridFrame, keepClear?: ReadonlySet<number>): { grid: BlockGrid; stats: ColliderGridStats; layers: CellLayers } {
+export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<ColliderSourceBox>, frame: SceneGridFrame, keepClear?: ReadonlySet<number>): { grid: BlockGrid; stats: ColliderGridStats; layers: CellLayers } {
   const out = new BlockGrid(grid.width, grid.height, grid.length);
   const lo = new Float32Array(grid.width * grid.height * grid.length).fill(1);
   const hi = new Float32Array(grid.width * grid.height * grid.length).fill(0);
@@ -146,31 +285,74 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<{ min: V
   // [4,12] collider and clearance refused the cell as one the doorway cut had changed (69 cells
   // of 10261, a set with no doorway, 2026-09-29).
   const layers: CellLayers = new Map();
+  /** Widen cell `i`'s vertical span to cellLo..cellHi (blocks within the cell) and return its layer record. */
+  const mark = (i: number, cellLo: number, cellHi: number): Uint8Array => {
+    if (cellLo < lo[i]!) lo[i] = cellLo;
+    if (cellHi > hi[i]!) hi[i] = cellHi;
+    let cell = layers.get(i);
+    if (!cell) layers.set(i, cell = newCellLayers());
+    return cell;
+  };
+  /** A footprint (blocks within the cell) over layers l0..l1 (sixteenths), rounded outward as the AABB path always was. */
+  const footprint = (cell: Uint8Array, fx0: number, fx1: number, l0: number, l1: number, fz0: number, fz1: number): void => {
+    addLayerBox(cell,
+      Math.max(0, Math.min(15, floor16(fx0))), Math.max(1, Math.min(16, ceil16(fx1))),
+      l0, l1,
+      Math.max(0, Math.min(15, floor16(fz0))), Math.max(1, Math.min(16, ceil16(fz1))));
+  };
+  // Cells the AABB of a TURNED cuboid would have laid (the rule before 2026-09-30), to count what it spares.
+  const turnedAabbCells = new Set<number>();
+  let turnedBoxes = 0;
   for (const b of boxes) {
     // LDraw Y is down: the box's max y is its lowest point, so the grid span runs from max→min.
     const a = sceneGridPoint(frame, [b.min[0], b.max[1], b.min[2]]);
     const c = sceneGridPoint(frame, [b.max[0], b.min[1], b.max[2]]);
-    const x0 = Math.max(0, Math.floor(Math.min(a[0], c[0]) + 0.02)), x1 = Math.min(grid.width - 1, Math.floor(Math.max(a[0], c[0]) - 0.02));
-    const z0 = Math.max(0, Math.floor(Math.min(a[2], c[2]) + 0.02)), z1 = Math.min(grid.length - 1, Math.floor(Math.max(a[2], c[2]) - 0.02));
     const yLo = Math.min(a[1], c[1]), yHi = Math.max(a[1], c[1]);
-    const y0 = Math.max(0, Math.floor(yLo + 0.001)), y1 = Math.min(grid.height - 1, Math.ceil(yHi - 0.001) - 1);
     const bx0 = Math.min(a[0], c[0]), bx1 = Math.max(a[0], c[0]), bz0 = Math.min(a[2], c[2]), bz1 = Math.max(a[2], c[2]);
+    // The cells the box covers: a cell it reaches by 0.02 or less in x/z (0.001 in y) is skipped.
+    const x0 = Math.max(0, Math.floor(bx0 + 0.02)), x1 = Math.min(grid.width - 1, Math.floor(bx1 - 0.02));
+    const z0 = Math.max(0, Math.floor(bz0 + 0.02)), z1 = Math.min(grid.length - 1, Math.floor(bz1 - 0.02));
+    const y0 = Math.max(0, Math.floor(yLo + 0.001)), y1 = Math.min(grid.height - 1, Math.ceil(yHi - 0.001) - 1);
+    const pp = b.obb ? gridParallelepiped(frame, b.obb) : null;
+    if (pp) {
+      // A TURNED cuboid (TODO(tilted-colliders), 2026-09-30): lay only the cells the cuboid itself
+      // passes through, each over the height the cuboid spans IN that cell, with a footprint per
+      // sixteenth layer. Its bounding box laid a band where nothing is drawn under every tilted part
+      // (10326's handrail: a child walking the corridor met air at head height). A ramp or a sloped
+      // roof keeps a top in every column it crosses: the cuboid's own highest point there.
+      turnedBoxes++;
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
+        turnedAabbCells.add(idx(x, y, z));
+        // Membership: the cuboid reaches into the cell past the same margins the AABB path skips.
+        if (!clipParallelepiped(pp, [x + 0.02, y + 0.001, z + 0.02], [x + 0.98, y + 0.999, z + 0.98])) continue;
+        const whole = clipParallelepiped(pp, [x, y, z], [x + 1, y + 1, z + 1]);
+        if (!whole) continue;
+        const cellLo = whole.min[1] - y, cellHi = whole.max[1] - y;
+        if (cellHi <= cellLo) continue;
+        const cell = mark(idx(x, y, z), cellLo, cellHi);
+        // One footprint per sixteenth the cuboid spans here (the same range the cell's lo/hi round to).
+        const l0 = Math.max(0, Math.min(15, floor16(cellLo))), l1 = Math.max(l0 + 1, Math.min(16, ceil16(cellHi)));
+        for (let l = l0; l < l1; l++) {
+          // The layer's slab, narrowed to the cuboid's span in the cell, so a slab only reached by rounding still answers.
+          const s0 = Math.max(y + l / 16, y + cellLo), s1 = Math.min(y + (l + 1) / 16, y + cellHi);
+          const slab = s1 > s0 ? clipParallelepiped(pp, [x, s0, z], [x + 1, s1, z + 1]) : null;
+          const f = slab ?? whole;
+          footprint(cell, f.min[0] - x, f.max[0] - x, l, l + 1, f.min[2] - z, f.max[2] - z);
+        }
+      }
+      continue;
+    }
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
-      const i = idx(x, y, z);
       const cellLo = Math.max(0, yLo - y), cellHi = Math.min(1, yHi - y);
       if (cellHi <= cellLo) continue;
-      if (cellLo < lo[i]!) lo[i] = cellLo;
-      if (cellHi > hi[i]!) hi[i] = cellHi;
-      let cell = layers.get(i);
-      if (!cell) layers.set(i, cell = newCellLayers());
+      const cell = mark(idx(x, y, z), cellLo, cellHi);
       const l = Math.max(0, Math.min(15, floor16(cellLo)));
-      addLayerBox(cell,
-        Math.max(0, Math.min(15, floor16(Math.max(bx0, x) - x))), Math.max(1, Math.min(16, ceil16(Math.min(bx1, x + 1) - x))),
-        l, Math.max(l + 1, Math.min(16, ceil16(cellHi))),
-        Math.max(0, Math.min(15, floor16(Math.max(bz0, z) - z))), Math.max(1, Math.min(16, ceil16(Math.min(bz1, z + 1) - z))));
+      footprint(cell, Math.max(bx0, x) - x, Math.min(bx1, x + 1) - x, l, Math.max(l + 1, Math.min(16, ceil16(cellHi))), Math.max(bz0, z) - z, Math.min(bz1, z + 1) - z);
     }
   }
-  const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0 };
+  let turnedCellsSpared = 0;
+  for (const i of turnedAabbCells) if (!(hi[i]! > lo[i]!)) turnedCellsSpared++;
+  const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0, turnedBoxes, turnedCellsSpared };
   const fromGeometry = boxes.length > 0;
   for (let x = 0; x < grid.width; x++) for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) {
     const state = grid.get(x, y, z);

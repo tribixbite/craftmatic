@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, colliderBlockDefinition, colliderCellIndex, colliderState, isSceneBlock, shellBehavior, shellCollisionBox,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, shellBehavior, shellCollisionBox,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
@@ -41,7 +41,7 @@ describe('buildColliderGrid', () => {
     expect(out.get(0, 1, 0)).toBe('minecraft:air');
     expect(out.get(1, 2, 0)).toBe(colliderState(13, 16));
     expect(out.get(2, 2, 2)).toBe('minecraft:air');
-    expect(stats).toEqual({ colliders: 3, partial: 2, kept: 1, emptyVoxelsDropped: 1, geometryBlocksAdded: 0 });
+    expect(stats).toEqual({ colliders: 3, partial: 2, kept: 1, emptyVoxelsDropped: 1, geometryBlocksAdded: 0, turnedBoxes: 0, turnedCellsSpared: 0 });
   });
 
   it('lays a collider wherever the shell draws geometry, even where the centred voxel grid left the block air', () => {
@@ -65,6 +65,126 @@ describe('buildColliderGrid', () => {
     const keepClear = new Set([colliderCellIndex(grid, 0, 0, 0)]);
     expect(buildColliderGrid(grid, wall, frame, keepClear).grid.get(0, 0, 0)).toBe('minecraft:air');
     expect(buildColliderGrid(grid, wall, frame).grid.get(0, 0, 0)).toBe(colliderState(0, 16));
+  });
+
+  it('lays a TURNED cuboid from its own box: a bar tilted 45 degrees leaves the cells under it open', () => {
+    // A 4 LDU bar climbing from grid (0, 0) to (4, 4) in x/y (LDraw y is down, so it climbs toward -y),
+    // centred in grid z cell 0. Its bounding box is the whole 4 x 4 square; the bar crosses only the diagonal.
+    // TODO(tilted-colliders) 10326: the museum's handrail laid exactly that square as an invisible band.
+    const grid = new BlockGrid(5, 5, 1);
+    const k = Math.SQRT1_2, L = 4 * C * Math.SQRT2;
+    const R = [k, k, 0, -k, k, 0, 0, 0, 1]; // +X -> (k, -k, 0): up and along x
+    const obb = { R, t: [0, 0, -C / 2] as [number, number, number], min: [0, -2, -2] as [number, number, number], max: [L, 2, 2] as [number, number, number] };
+    const corners = [0, 1].flatMap(a => [0, 1].flatMap(b => [0, 1].map(c => {
+      const v = [a ? L : 0, b ? 2 : -2, c ? 2 : -2];
+      return [R[0]! * v[0]! + R[1]! * v[1]! + R[2]! * v[2]!, R[3]! * v[0]! + R[4]! * v[1]! + R[5]! * v[2]!, R[6]! * v[0]! + R[7]! * v[1]! + R[8]! * v[2]! - C / 2];
+    })));
+    const min = [0, 1, 2].map(i => Math.min(...corners.map(q => q[i]!))) as [number, number, number];
+    const max = [0, 1, 2].map(i => Math.max(...corners.map(q => q[i]!))) as [number, number, number];
+    const turned = buildColliderGrid(grid, [{ min, max, obb }], frame);
+    const flat = buildColliderGrid(grid, [{ min, max }], frame);
+    // The old rule: every cell of the 4 x 4 square.
+    for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) expect(flat.grid.get(x, y, 0)).not.toBe('minecraft:air');
+    // The bar's diagonal collides; the corner under the bar and the corner over it are open.
+    for (let d = 0; d < 4; d++) expect(turned.grid.get(d, d, 0)).not.toBe('minecraft:air');
+    expect(turned.grid.get(3, 0, 0)).toBe('minecraft:air');
+    expect(turned.grid.get(2, 0, 0)).toBe('minecraft:air');
+    expect(turned.grid.get(0, 3, 0)).toBe('minecraft:air');
+    expect(turned.stats.turnedBoxes).toBe(1);
+    expect(turned.stats.turnedCellsSpared).toBeGreaterThanOrEqual(4);
+    // No cell the bar does not reach; every cell it does is laid (a 4 LDU bar is 0.12 block thick:
+    // its diagonal and the cells beside it that the thickness reaches into).
+    let laid = 0;
+    for (let x = 0; x < 5; x++) for (let y = 0; y < 5; y++) if (turned.grid.get(x, y, 0) !== 'minecraft:air') laid++;
+    expect(laid).toBeLessThanOrEqual(12);
+    // The cell's layers follow the bar: cell (1, 1) holds it rising across the cell, so its lowest layer's
+    // footprint sits at the cell's low-x side and its highest at the high-x side.
+    const cell = turned.layers.get(colliderCellIndex(grid, 1, 1, 0))!;
+    const levels = [...Array(16).keys()].filter(l => cell[4 * l] !== 255);
+    const first = levels[0]!, last = levels[levels.length - 1]!;
+    expect(cell[4 * first]!).toBeLessThan(cell[4 * last]!);
+    expect(cell[4 * first + 1]!).toBeLessThan(cell[4 * last + 1]!);
+  });
+
+  it('keeps a ramp walkable: a plate turned up 0.5 block per block has a top in every column, rising with it', () => {
+    const grid = new BlockGrid(5, 4, 1);
+    const angle = Math.atan(0.5), cs = Math.cos(angle), sn = Math.sin(angle);
+    const R = [cs, sn, 0, -sn, cs, 0, 0, 0, 1];
+    const L = 4 * C / cs;
+    const obb = { R, t: [0, 0, 0] as [number, number, number], min: [0, -8, -C] as [number, number, number], max: [L, 0, 0] as [number, number, number] };
+    const pts = [0, 1].flatMap(a => [0, 1].flatMap(b => [0, 1].map(c => {
+      const v = [a ? L : 0, b ? 0 : -8, c ? 0 : -C];
+      return [R[0]! * v[0]! + R[1]! * v[1]!, R[3]! * v[0]! + R[4]! * v[1]!, v[2]!];
+    })));
+    const min = [0, 1, 2].map(i => Math.min(...pts.map(q => q[i]!))) as [number, number, number];
+    const max = [0, 1, 2].map(i => Math.max(...pts.map(q => q[i]!))) as [number, number, number];
+    const { grid: out } = buildColliderGrid(grid, [{ min, max, obb }], frame);
+    const topOf = (x: number): number => {
+      let top = -1;
+      for (let y = 0; y < 4; y++) {
+        const m = /\[lo=(\d+),hi=(\d+)\]/.exec(out.get(x, y, 0));
+        if (m) top = y + Number(m[2]) / 16;
+      }
+      return top;
+    };
+    const tops = [0, 1, 2, 3].map(topOf);
+    // The plate's top surface rises 0.5 per block from 8 LDU over the floor; each column's collider top
+    // is the plate's highest point in that column (rounded up to a sixteenth), never the ramp's summit.
+    // (The far column ends at the plate's top corner, which the thickness pulls back by 8·sin/C.)
+    const surface = (x: number): number => 8 / C / cs + 0.5 * Math.min(x, 4 - 8 * sn / C);
+    tops.forEach((top, x) => {
+      expect(top).toBeGreaterThanOrEqual(surface(x + 1) - 1e-6);
+      expect(top).toBeLessThanOrEqual(surface(x + 1) + 1 / 16 + 1e-6);
+    });
+  });
+
+  it('lays an UNturned box given as an oriented box exactly as its AABB', () => {
+    const grid = new BlockGrid(3, 3, 3);
+    const I3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const box = { min: [3, -1.3 * C, -2.2 * C] as [number, number, number], max: [1.7 * C, -0.2 * C, -0.4 * C] as [number, number, number] };
+    const a = buildColliderGrid(grid, [box], frame);
+    const b = buildColliderGrid(grid, [{ ...box, obb: { R: I3, t: [0, 0, 0] as [number, number, number], min: box.min, max: box.max } }], frame);
+    for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) for (let z = 0; z < 3; z++) expect(b.grid.get(x, y, z)).toBe(a.grid.get(x, y, z));
+    expect([...b.layers.keys()].sort()).toEqual([...a.layers.keys()].sort());
+    for (const [i, l] of a.layers) expect([...b.layers.get(i)!]).toEqual([...l]);
+  });
+
+  it('clips a parallelepiped against a box exactly (against dense sampling)', () => {
+    let seed = 7;
+    const rand = (): number => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+    for (let trial = 0; trial < 40; trial++) {
+      // A random rotation (two axis turns) of a random cuboid, against the unit cell.
+      const ax = rand() * Math.PI, ay = rand() * Math.PI;
+      const Rx = [1, 0, 0, 0, Math.cos(ax), -Math.sin(ax), 0, Math.sin(ax), Math.cos(ax)];
+      const Ry = [Math.cos(ay), 0, Math.sin(ay), 0, 1, 0, -Math.sin(ay), 0, Math.cos(ay)];
+      const R = [0, 1, 2].flatMap(r => [0, 1, 2].map(c => Rx[r * 3]! * Ry[c]! + Rx[r * 3 + 1]! * Ry[3 + c]! + Rx[r * 3 + 2]! * Ry[6 + c]!));
+      const size: [number, number, number] = [0.1 + rand() * 1.5, 0.05 + rand() * 0.8, 0.1 + rand() * 1.2];
+      const t: [number, number, number] = [rand() * 1.4 - 0.2, -(rand() * 1.4 - 0.2), -(rand() * 1.4 - 0.2)];
+      const unit: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: 1, cellY: 1 };
+      const pp = gridParallelepiped(unit, { R, t, min: [0, 0, 0], max: size })!;
+      const lo: [number, number, number] = [0, 0, 0], hi: [number, number, number] = [1, 1, 1];
+      const got = clipParallelepiped(pp, lo, hi);
+      const smin = [Infinity, Infinity, Infinity], smax = [-Infinity, -Infinity, -Infinity];
+      const N = 24;
+      for (let i = 0; i <= N; i++) for (let j = 0; j <= N; j++) for (let k = 0; k <= N; k++) {
+        const q = [0, 1, 2].map(r => pp.o[r]! + i / N * pp.e[0][r]! + j / N * pp.e[1][r]! + k / N * pp.e[2][r]!);
+        if (q.some((v, r) => v < lo[r]! || v > hi[r]!)) continue;
+        for (let r = 0; r < 3; r++) { smin[r] = Math.min(smin[r]!, q[r]!); smax[r] = Math.max(smax[r]!, q[r]!); }
+      }
+      if (smin[0] === Infinity) continue; // the sampling saw nothing; nothing to compare
+      expect(got).not.toBeNull();
+      // Exact bounds contain every sample, and no sample is farther than the sampling step inside them.
+      const step = Math.max(...pp.e.map(e => Math.hypot(...e))) / N * 1.8;
+      for (let r = 0; r < 3; r++) {
+        expect(got!.min[r]!).toBeLessThanOrEqual(smin[r]! + 1e-9);
+        expect(got!.max[r]!).toBeGreaterThanOrEqual(smax[r]! - 1e-9);
+        expect(smin[r]! - got!.min[r]!).toBeLessThanOrEqual(step);
+        expect(got!.max[r]! - smax[r]!).toBeLessThanOrEqual(step);
+      }
+    }
+    // Disjoint: a box beside the unit cell.
+    const pp = gridParallelepiped({ x: 0, y: 0, z: 0, scale: 1, cellXZ: 1, cellY: 1 }, { R: [1, 0, 0, 0, 1, 0, 0, 0, 1], t: [2, 0, 0], min: [0, -1, -1], max: [1, 0, 0] })!;
+    expect(clipParallelepiped(pp, [0, 0, 0], [1, 1, 1])).toBeNull();
   });
 
   it('falls back to the voxel grid when the shell reported no boxes', () => {

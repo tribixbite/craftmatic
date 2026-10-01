@@ -599,8 +599,11 @@ export interface CompiledLdrawGeometry {
   originLiftBlocks: number;
   /** The level pose the extras share (their `bricks` are already levelled); null when the source was level. */
   levelPose: { rotation: number[]; centre: Vec3 } | null;
-  /** Whole-model compiles only: every body cuboid's LDraw AABB (source frame), what a collider grid is measured from. */
-  partBoxesLdu?: Array<{ min: Vec3; max: Vec3 }>;
+  /**
+   * Whole-model compiles only: every body cuboid's LDraw AABB (source frame), what a collider grid is measured
+   * from; a turned part's cuboid also carries its oriented box (`obb`), which the collider grid lays instead.
+   */
+  partBoxesLdu?: Array<{ min: Vec3; max: Vec3; obb?: OrientedBoxLdu }>;
   /** Figures only: the torso's exact horizontal facing in the SOURCE frame (x, z), and what the rig rebuilt. */
   figure?: { facingLdu: [number, number]; synthesized: string[]; dropped: string[]; system: FigureSystem };
   /** `vehicleRig` compiles only: the spinning road wheels (possibly none; the rig's `body` root is there either way). */
@@ -871,7 +874,16 @@ interface RenderCuboid {
 }
 
 /** World-LDraw AABB of a placed body cuboid, for stud exposure tests. */
-interface WorldBox { min: Vec3; max: Vec3; brick: number }
+/**
+ * A body cuboid's world box. `obb` is set for a TURNED part (one whose rotation
+ * is not a signed permutation): its local cuboid and the placement that turns
+ * it, so a collider can be laid from where the cuboid IS rather than from the
+ * axis-aligned box around it (`buildColliderGrid`, TODO(tilted-colliders)).
+ */
+interface WorldBox { min: Vec3; max: Vec3; brick: number; obb?: OrientedBoxLdu }
+
+/** A part-local cuboid `min..max` placed by `world = R·v + t` (R row-major, LDraw source frame). */
+export interface OrientedBoxLdu { R: readonly number[]; t: Vec3; min: Vec3; max: Vec3 }
 
 /** Two-decimal rounding that never yields −0 (a mirrored zero would otherwise print as `-0`). */
 const round = (v: number): number => { const r = Math.round(v * 100) / 100; return r === 0 ? 0 : r; };
@@ -2476,7 +2488,7 @@ export async function compileLdrawEntityGeometry(
           : c.color === 16 ? material : resolveLdrawEntityMaterial(c.color);
         // World LDraw box (for stud exposure): exact for aligned parts, the OBB's AABB otherwise.
         const world = aabbOfCorners(cornersOf(c.min, c.max).map(v => { const r = apply(R, v); return [r[0] + t[0], r[1] + t[1], r[2] + t[2]] as Vec3; }));
-        worldBoxes.push({ ...world, brick: brickIndex });
+        worldBoxes.push(aligned ? { ...world, brick: brickIndex } : { ...world, brick: brickIndex, obb: { R: [...R], t: [...t] as Vec3, min: [...c.min] as Vec3, max: [...c.max] as Vec3 } });
         if (aligned) {
           const rb = aabbOfCorners(cornersOf(world.min, world.max).map(v => apply(A, v)));
           renderCuboids.push({ ...rb, material: cubeMaterial, bone, aligned: true });
@@ -3136,7 +3148,7 @@ export async function compileLdrawEntityGeometry(
     originLdu: apply(At, [midX, floorY, midZ]),
     originLiftBlocks,
     levelPose: level.rotation ? { rotation: [...level.rotation], centre: [...level.centre] as Vec3 } : null,
-    ...(options.wholeModel ? { partBoxesLdu: worldBoxes.map(wb => ({ min: wb.min, max: wb.max })) } : {}),
+    ...(options.wholeModel ? { partBoxesLdu: worldBoxes.map(wb => (wb.obb ? { min: wb.min, max: wb.max, obb: wb.obb } : { min: wb.min, max: wb.max })) } : {}),
     ...(vehicleRig ? { wheelBones } : {}),
     diagnostics,
     warnings,
