@@ -878,7 +878,9 @@ interface RenderCuboid {
  * A body cuboid's world box. `obb` is set for a TURNED part (one whose rotation
  * is not a signed permutation): its local cuboid and the placement that turns
  * it, so a collider can be laid from where the cuboid IS rather than from the
- * axis-aligned box around it (`buildColliderGrid`, TODO(tilted-colliders)).
+ * axis-aligned box around it (`buildColliderGrid`: a tilted cuboid from its own
+ * box, a yaw-turned one from its own box plus the bounding-box corners that are
+ * steps, `yawStepKept`).
  */
 interface WorldBox { min: Vec3; max: Vec3; brick: number; obb?: OrientedBoxLdu }
 

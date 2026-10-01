@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isTiltedBox, shellBehavior, shellCollisionBox,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isTiltedBox, shellBehavior, shellCollisionBox, yawStepKept, YAW_STEP_MAX_BLOCKS,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
@@ -41,7 +41,7 @@ describe('buildColliderGrid', () => {
     expect(out.get(0, 1, 0)).toBe('minecraft:air');
     expect(out.get(1, 2, 0)).toBe(colliderState(13, 16));
     expect(out.get(2, 2, 2)).toBe('minecraft:air');
-    expect(stats).toEqual({ colliders: 3, partial: 2, kept: 1, emptyVoxelsDropped: 1, geometryBlocksAdded: 0, turnedBoxes: 0, turnedCellsSpared: 0 });
+    expect(stats).toEqual({ colliders: 3, partial: 2, kept: 1, emptyVoxelsDropped: 1, geometryBlocksAdded: 0, turnedBoxes: 0, turnedCellsSpared: 0, yawBoxes: 0, yawRunsKept: 0, yawRunsDropped: 0, yawCellsSpared: 0 });
   });
 
   it('lays a collider wherever the shell draws geometry, even where the centred voxel grid left the block air', () => {
@@ -155,18 +155,59 @@ describe('buildColliderGrid', () => {
     for (const [i, l] of a.layers) expect([...b.layers.get(i)!]).toEqual([...l]);
   });
 
-  it('keeps the bounding box of a cuboid turned about the VERTICAL only (a yaw is not a tilt)', () => {
-    // A plate turned 45 degrees about Y: a diamond in its square. Its bounding box stays the collider
-    // (76435's climb and 76417's turned baseplate stand on such boxes; see `isTiltedBox`).
-    const grid = new BlockGrid(4, 2, 4);
+  describe('a cuboid turned about the VERTICAL only (a yaw)', () => {
+    // A plate turned 45 degrees about Y: a diamond in its 4 x 4 square, centred on grid (2, 2) in x/z.
+    // Its half-diagonal is 1.98 blocks, so it never reaches the corner cells (0, 0), (3, 0), (0, 3), (3, 3).
     const k = Math.SQRT1_2, R = [k, 0, k, 0, 1, 0, -k, 0, k];
-    const obb = { R, t: [2 * C, 0, -2 * C] as [number, number, number], min: [-1.4 * C, -8, -1.4 * C] as [number, number, number], max: [1.4 * C, 0, 1.4 * C] as [number, number, number] };
-    expect(isTiltedBox(obb)).toBe(false);
     const half = 1.4 * C * Math.SQRT2;
-    const aabb = { min: [2 * C - half, -8, -2 * C - half] as [number, number, number], max: [2 * C + half, 0, -2 * C + half] as [number, number, number] };
-    const a = buildColliderGrid(grid, [aabb], frame), b = buildColliderGrid(grid, [{ ...aabb, obb }], frame);
-    expect(b.stats.turnedBoxes).toBe(0);
-    for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) expect(b.grid.get(x, 0, z)).toBe(a.grid.get(x, 0, z));
+    type V3 = [number, number, number];
+    /** The plate with its top `up` blocks over the grid floor (`thick` LDU thick), with its oriented box. */
+    const plate = (up: number, thick = 8): { min: V3; max: V3; obb: { R: number[]; t: V3; min: V3; max: V3 } } => ({
+      min: [2 * C - half, -up * C, -2 * C - half], max: [2 * C + half, -up * C + thick, -2 * C + half],
+      obb: { R, t: [2 * C, -up * C, -2 * C], min: [-1.4 * C, 0, -1.4 * C], max: [1.4 * C, thick, 1.4 * C] },
+    });
+    /** A floor drawn axis-aligned under the whole square, its top `up` blocks over the grid floor. */
+    const floorAt = (up: number): { min: V3; max: V3 } => ({ min: [0, -up * C, -4 * C], max: [4 * C, -up * C + 0.5 * C, 0] });
+    const yOf = (up: number): number => Math.floor(up - 1e-6);
+    const corners = [[0, 0], [3, 0], [0, 3], [3, 3]] as const;
+
+    it('keeps its bounding box where its corners are a step over the ground (76435\'s first riser)', () => {
+      const grid = new BlockGrid(4, 2, 4);
+      const b = plate(8 / C);
+      expect(isTiltedBox(b.obb)).toBe(false);
+      const a = buildColliderGrid(grid, [{ min: b.min, max: b.max }], frame), t = buildColliderGrid(grid, [b], frame);
+      expect(t.stats.turnedBoxes).toBe(0);
+      expect(t.stats.yawBoxes).toBe(1);
+      expect(t.stats.yawRunsDropped).toBe(0);
+      for (let x = 0; x < 4; x++) for (let z = 0; z < 4; z++) expect(t.grid.get(x, 0, z)).toBe(a.grid.get(x, 0, z));
+    });
+
+    it('drops the corners of a plate over a drop: no invisible floor in open air (76417 Gate 1)', () => {
+      const grid = new BlockGrid(4, 12, 4);
+      const t = buildColliderGrid(grid, [plate(10)], frame), y = yOf(10);
+      for (const [x, z] of corners) expect(t.grid.get(x, y, z)).toBe('minecraft:air');
+      for (const [x, z] of [[1, 1], [2, 2], [1, 2], [2, 1]] as const) expect(t.grid.get(x, y, z)).not.toBe('minecraft:air');
+      expect(t.stats.yawRunsDropped).toBeGreaterThanOrEqual(4);
+      expect(t.stats.yawCellsSpared).toBe(4);
+    });
+
+    it('keeps the corners a jump over a floor drawn under them (a stair of turned treads), not over a deeper one', () => {
+      const grid = new BlockGrid(4, 12, 4), y = yOf(10);
+      const t = buildColliderGrid(grid, [floorAt(9.5), plate(10)], frame);
+      for (const [x, z] of corners) expect(t.grid.get(x, y, z)).not.toBe('minecraft:air');
+      expect(t.stats.yawRunsDropped).toBe(0);
+      const d = buildColliderGrid(grid, [floorAt(8), plate(10)], frame);
+      for (const [x, z] of corners) expect(d.grid.get(x, y, z)).toBe('minecraft:air');
+    });
+
+    it('drops the corners of a wall taller than a jump: no invisible pillar beside a doorway', () => {
+      const grid = new BlockGrid(4, 3, 4);
+      const t = buildColliderGrid(grid, [plate(2, 2 * C)], frame);
+      for (const [x, z] of corners) for (let y = 0; y < 2; y++) expect(t.grid.get(x, y, z)).toBe('minecraft:air');
+      expect(t.grid.get(2, 1, 2)).not.toBe('minecraft:air');
+      expect(yawStepKept(2, 0)).toBe(false);
+      expect(yawStepKept(YAW_STEP_MAX_BLOCKS, 0)).toBe(true);
+    });
   });
 
   it('clips a parallelepiped against a box exactly (against dense sampling)', () => {

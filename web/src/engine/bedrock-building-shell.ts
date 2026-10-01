@@ -33,7 +33,7 @@ import { withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import type { OrientedBoxLdu } from './ldraw-entity-compiler.js';
-import { clipParallelepiped, parallelepiped, type Parallelepiped } from './oriented-box.js';
+import { clipParallelepiped, isAxisAligned, parallelepiped, type Parallelepiped } from './oriented-box.js';
 
 export { clipParallelepiped } from './oriented-box.js';
 import { sceneGridPoint, type SceneGridFrame } from './bedrock-scene-actors.js';
@@ -43,6 +43,7 @@ import type { LegoEntityQuality } from './ldraw-part-prototype.js';
 import { COLLIDER_KIT, COLLIDER_STATES } from './collider-form.js';
 import { addLayerBox, newCellLayers, type CellLayers } from './collider-clearance.js';
 import { ACTOR_DRAW_CEILING_BLOCKS } from './bedrock-lod-hull.js';
+import { JUMP_HEIGHT_BLOCKS } from './addon-scale.js';
 
 /** The custom collider block and its two sixteenth states. */
 export const COLLIDER_BLOCK_ID = `${PACK_NAMESPACE}:collider`;
@@ -115,6 +116,14 @@ export interface ColliderGridStats {
    * reaches (the invisible bands the old rule laid; 0 when there are no tilted parts).
    */
   turnedCellsSpared: number;
+  /** Body cuboids turned about the VERTICAL only (a yaw off the grid axes) laid from their own box (`yawStepKept`). */
+  yawBoxes: number;
+  /** Runs of bounding-box-only space under those cuboids kept as colliders: a step a jump over what is drawn under it. */
+  yawRunsKept: number;
+  /** Runs dropped: a floor over a drop of more than a jump, or a wall's corner taller than a jump (76417's Gate 1 corner). */
+  yawRunsDropped: number;
+  /** Cells the bounding boxes of the yaw-turned cuboids would have made colliders that end up holding nothing. */
+  yawCellsSpared: number;
 }
 
 /**
@@ -126,9 +135,10 @@ export interface ColliderSourceBox { min: Vec3; max: Vec3; obb?: OrientedBoxLdu 
 
 /**
  * Whether a turned cuboid is TILTED: its own up axis (LDraw -Y) leaves the
- * vertical by more than `TILT_EPS`. Only a tilted cuboid is laid from its
- * oriented box; one turned about the vertical alone (a yaw) keeps its
- * bounding box, whose vertical extent is already exact.
+ * vertical by more than `TILT_EPS`. A tilted cuboid is laid from its oriented
+ * box alone; one turned about the vertical only (a yaw) is laid from its
+ * oriented box PLUS the parts of its bounding box that are a step a player
+ * uses (`yawStepKept`).
  *
  * Decided by measurement over the 40 favourites (2026-09-30,
  * `output/tilted-colliders-0930/`): laying EVERY turned cuboid exactly took
@@ -142,6 +152,29 @@ export interface ColliderSourceBox { min: Vec3; max: Vec3; obb?: OrientedBoxLdu 
 export const TILT_EPS = 1e-3;
 export function isTiltedBox(box: OrientedBoxLdu): boolean {
   return Math.abs(box.R[4]!) < 1 - TILT_EPS;
+}
+
+/**
+ * The tallest a run of a yaw-turned cuboid's bounding-box-only space may stand
+ * over what is drawn under it (or the ground) and stay a collider: a jump
+ * (`JUMP_HEIGHT_BLOCKS`). Over more than that it is either a floor in open air
+ * - a player walks onto it and off its edge into the drop (76417's Gate 1
+ * opened onto the corner of a baseplate turned 45 degrees: invisible floor
+ * over a 17-block fall, Saga round 2026-09-30i) - or a wall's corner, an
+ * invisible pillar beside a doorway. Under it, it is a step the model's own
+ * climbs use (76435's stair: risers of 1.19 and 1.44 blocks without the
+ * corners, 0.44-0.75 with them).
+ */
+export const YAW_STEP_MAX_BLOCKS = JUMP_HEIGHT_BLOCKS;
+
+/**
+ * Whether a run of bounding-box-only space (blocks from the grid floor) is
+ * kept: its top is at most `YAW_STEP_MAX_BLOCKS` over `support`, the highest
+ * drawn surface at or under its bottom in the same column (the ground, 0,
+ * when nothing is drawn there).
+ */
+export function yawStepKept(top: number, support: number): boolean {
+  return top - support <= YAW_STEP_MAX_BLOCKS + 1e-6;
 }
 
 /**
@@ -220,9 +253,56 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<Collider
       l0, l1,
       Math.max(0, Math.min(15, floor16(fz0))), Math.max(1, Math.min(16, ceil16(fz1))));
   };
+  // What is DRAWN in each column (x, z): the vertical spans (blocks from the grid floor, flat pairs) of
+  // every cuboid's own geometry there - the support a yaw-turned cuboid's bounding-box corners are
+  // judged against (`yawStepKept`). Recorded at full precision, per cuboid, so a cuboid is never its
+  // own support and a stack of plates reads as the plates it is.
+  const drawn = new Map<number, number[]>();
+  const colKey = (x: number, z: number): number => x * grid.length + z;
+  const addDrawn = (x: number, z: number, y0: number, y1: number): void => {
+    const k = colKey(x, z);
+    let a = drawn.get(k);
+    if (!a) drawn.set(k, a = []);
+    a.push(y0, y1);
+  };
+  /**
+   * A turned cuboid laid from its own box (a parallelepiped `pp` in grid units) over the cells
+   * x0..x1, y0..y1, z0..z1 of its bounding box: only the cells the cuboid itself passes through,
+   * each over the height it spans IN that cell, with a footprint per sixteenth layer.
+   */
+  const layOriented = (pp: Parallelepiped, x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): void => {
+    for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
+      // Membership: the cuboid reaches into the cell past the same margins the AABB path skips.
+      if (!clipParallelepiped(pp, [x + 0.02, y + 0.001, z + 0.02], [x + 0.98, y + 0.999, z + 0.98])) continue;
+      const whole = clipParallelepiped(pp, [x, y, z], [x + 1, y + 1, z + 1]);
+      if (!whole) continue;
+      const cellLo = whole.min[1] - y, cellHi = whole.max[1] - y;
+      if (cellHi <= cellLo) continue;
+      addDrawn(x, z, y + cellLo, y + cellHi);
+      const cell = mark(idx(x, y, z), cellLo, cellHi);
+      // One footprint per sixteenth the cuboid spans here (the same range the cell's lo/hi round to).
+      const l0 = Math.max(0, Math.min(15, floor16(cellLo))), l1 = Math.max(l0 + 1, Math.min(16, ceil16(cellHi)));
+      for (let l = l0; l < l1; l++) {
+        // The layer's slab, narrowed to the cuboid's span in the cell, so a slab only reached by rounding still answers.
+        const s0 = Math.max(y + l / 16, y + cellLo), s1 = Math.min(y + (l + 1) / 16, y + cellHi);
+        const slab = s1 > s0 ? clipParallelepiped(pp, [x, s0, z], [x + 1, s1, z + 1]) : null;
+        const f = slab ?? whole;
+        footprint(cell, f.min[0] - x, f.max[0] - x, l, l + 1, f.min[2] - z, f.max[2] - z);
+      }
+    }
+  };
+  /** One cell's share of an axis-aligned box: its span and its footprint (blocks within the cell). */
+  interface AabbPiece { x: number; y: number; z: number; cellLo: number; cellHi: number; fx0: number; fx1: number; fz0: number; fz1: number }
+  const layAabbPiece = (p: AabbPiece): void => {
+    const cell = mark(idx(p.x, p.y, p.z), p.cellLo, p.cellHi);
+    const l = Math.max(0, Math.min(15, floor16(p.cellLo)));
+    footprint(cell, p.fx0, p.fx1, l, Math.max(l + 1, Math.min(16, ceil16(p.cellHi))), p.fz0, p.fz1);
+  };
   // Cells the AABB of a TURNED cuboid would have laid (the rule before 2026-09-30), to count what it spares.
-  const turnedAabbCells = new Set<number>();
-  let turnedBoxes = 0;
+  const turnedAabbCells = new Set<number>(), yawAabbCells = new Set<number>();
+  // The bounding-box pieces of the yaw-turned cuboids, per column: judged once everything drawn is known.
+  const yawPieces = new Map<number, AabbPiece[]>();
+  let turnedBoxes = 0, yawBoxes = 0;
   for (const b of boxes) {
     // LDraw Y is down: the box's max y is its lowest point, so the grid span runs from max→min.
     const a = sceneGridPoint(frame, [b.min[0], b.max[1], b.min[2]]);
@@ -233,47 +313,74 @@ export function buildColliderGrid(grid: BlockGrid, boxes: ReadonlyArray<Collider
     const x0 = Math.max(0, Math.floor(bx0 + 0.02)), x1 = Math.min(grid.width - 1, Math.floor(bx1 - 0.02));
     const z0 = Math.max(0, Math.floor(bz0 + 0.02)), z1 = Math.min(grid.length - 1, Math.floor(bz1 - 0.02));
     const y0 = Math.max(0, Math.floor(yLo + 0.001)), y1 = Math.min(grid.height - 1, Math.ceil(yHi - 0.001) - 1);
-    const pp = b.obb && isTiltedBox(b.obb) ? gridParallelepiped(frame, b.obb) : null;
-    if (pp) {
-      // A TILTED cuboid (2026-09-30): lay only the cells the cuboid itself passes through, each over
-      // the height the cuboid spans IN that cell, with a footprint per sixteenth layer. Its bounding
-      // box laid a band where nothing is drawn under every tilted part (10326's handrail: a child
-      // walking the corridor met air at head height). A ramp or a sloped roof keeps a top in every
-      // column it crosses: the cuboid's own highest point there. A cuboid turned about the vertical
-      // only keeps its bounding box (`isTiltedBox`).
+    const tilted = !!b.obb && isTiltedBox(b.obb);
+    const pp = b.obb ? gridParallelepiped(frame, b.obb) : null;
+    if (pp && tilted) {
+      // A TILTED cuboid (2026-09-30): its bounding box laid a band where nothing is drawn under every
+      // tilted part (10326's handrail: a child walking the corridor met air at head height). A ramp or
+      // a sloped roof keeps a top in every column it crosses: the cuboid's own highest point there.
       turnedBoxes++;
-      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
-        turnedAabbCells.add(idx(x, y, z));
-        // Membership: the cuboid reaches into the cell past the same margins the AABB path skips.
-        if (!clipParallelepiped(pp, [x + 0.02, y + 0.001, z + 0.02], [x + 0.98, y + 0.999, z + 0.98])) continue;
-        const whole = clipParallelepiped(pp, [x, y, z], [x + 1, y + 1, z + 1]);
-        if (!whole) continue;
-        const cellLo = whole.min[1] - y, cellHi = whole.max[1] - y;
-        if (cellHi <= cellLo) continue;
-        const cell = mark(idx(x, y, z), cellLo, cellHi);
-        // One footprint per sixteenth the cuboid spans here (the same range the cell's lo/hi round to).
-        const l0 = Math.max(0, Math.min(15, floor16(cellLo))), l1 = Math.max(l0 + 1, Math.min(16, ceil16(cellHi)));
-        for (let l = l0; l < l1; l++) {
-          // The layer's slab, narrowed to the cuboid's span in the cell, so a slab only reached by rounding still answers.
-          const s0 = Math.max(y + l / 16, y + cellLo), s1 = Math.min(y + (l + 1) / 16, y + cellHi);
-          const slab = s1 > s0 ? clipParallelepiped(pp, [x, s0, z], [x + 1, s1, z + 1]) : null;
-          const f = slab ?? whole;
-          footprint(cell, f.min[0] - x, f.max[0] - x, l, l + 1, f.min[2] - z, f.max[2] - z);
-        }
-      }
+      for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) turnedAabbCells.add(idx(x, y, z));
+      layOriented(pp, x0, x1, y0, y1, z0, z1);
       continue;
     }
+    const pieces: AabbPiece[] = [];
     for (let x = x0; x <= x1; x++) for (let z = z0; z <= z1; z++) for (let y = y0; y <= y1; y++) {
       const cellLo = Math.max(0, yLo - y), cellHi = Math.min(1, yHi - y);
       if (cellHi <= cellLo) continue;
-      const cell = mark(idx(x, y, z), cellLo, cellHi);
-      const l = Math.max(0, Math.min(15, floor16(cellLo)));
-      footprint(cell, Math.max(bx0, x) - x, Math.min(bx1, x + 1) - x, l, Math.max(l + 1, Math.min(16, ceil16(cellHi))), Math.max(bz0, z) - z, Math.min(bz1, z + 1) - z);
+      pieces.push({ x, y, z, cellLo, cellHi, fx0: Math.max(bx0, x) - x, fx1: Math.min(bx1, x + 1) - x, fz0: Math.max(bz0, z) - z, fz1: Math.min(bz1, z + 1) - z });
+    }
+    if (pp && !isAxisAligned(pp)) {
+      // A cuboid turned about the VERTICAL only, off the grid axes (2026-09-30): laid from its own box
+      // like a tilted one, and its bounding box's corners - space it does not reach - are judged
+      // below, column by column, as the steps they may be (`yawStepKept`).
+      yawBoxes++;
+      layOriented(pp, x0, x1, y0, y1, z0, z1);
+      for (const p of pieces) {
+        yawAabbCells.add(idx(p.x, p.y, p.z));
+        const k = colKey(p.x, p.z);
+        let list = yawPieces.get(k);
+        if (!list) yawPieces.set(k, list = []);
+        list.push(p);
+      }
+      continue;
+    }
+    // An axis-aligned cuboid (or a turned one that is its own bounding box): its box IS its geometry.
+    for (const p of pieces) { addDrawn(p.x, p.z, p.y + p.cellLo, p.y + p.cellHi); layAabbPiece(p); }
+  }
+  // The yaw-turned cuboids' bounding boxes, column by column (2026-09-30). The bounding-box pieces in
+  // a column merge into RUNS (touching spans, blocks); a run is laid as the bounding boxes laid it when
+  // its top is within a jump of the highest drawn surface at or under its bottom (or the ground) -
+  // a step the model's climbs use - and dropped otherwise: a floor over a drop, or a wall's corner
+  // taller than a jump. A run kept becomes support for the runs over it (a stair of turned treads
+  // climbs run on run). Runs are judged over WHOLE columns: what is drawn anywhere in the column's
+  // block supports the corner of a cuboid over it.
+  let yawRunsKept = 0, yawRunsDropped = 0;
+  for (const [k, list] of yawPieces) {
+    const spans = drawn.get(k) ?? [];
+    const pieces = [...list].sort((p, q) => (p.y + p.cellLo) - (q.y + q.cellLo));
+    const runs: Array<{ bottom: number; top: number; pieces: AabbPiece[] }> = [];
+    for (const p of pieces) {
+      const p0 = p.y + p.cellLo, p1 = p.y + p.cellHi, last = runs[runs.length - 1];
+      if (last && p0 <= last.top + 1e-3) { last.top = Math.max(last.top, p1); last.pieces.push(p); }
+      else runs.push({ bottom: p0, top: p1, pieces: [p] });
+    }
+    const kept: number[] = [];
+    for (const run of runs) {
+      // The highest drawn (or kept) surface at or under the run's bottom; the ground (0) is under every run.
+      let support = 0;
+      for (let i = 1; i < spans.length; i += 2) if (spans[i]! <= run.bottom + 1e-3 && spans[i]! > support) support = spans[i]!;
+      for (const top of kept) if (top <= run.bottom + 1e-3 && top > support) support = top;
+      if (!yawStepKept(run.top, support)) { yawRunsDropped++; continue; }
+      yawRunsKept++;
+      kept.push(run.top);
+      for (const p of run.pieces) layAabbPiece(p);
     }
   }
-  let turnedCellsSpared = 0;
+  let turnedCellsSpared = 0, yawCellsSpared = 0;
   for (const i of turnedAabbCells) if (!(hi[i]! > lo[i]!)) turnedCellsSpared++;
-  const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0, turnedBoxes, turnedCellsSpared };
+  for (const i of yawAabbCells) if (!(hi[i]! > lo[i]!)) yawCellsSpared++;
+  const stats: ColliderGridStats = { colliders: 0, partial: 0, kept: 0, emptyVoxelsDropped: 0, geometryBlocksAdded: 0, turnedBoxes, turnedCellsSpared, yawBoxes, yawRunsKept, yawRunsDropped, yawCellsSpared };
   const fromGeometry = boxes.length > 0;
   for (let x = 0; x < grid.width; x++) for (let y = 0; y < grid.height; y++) for (let z = 0; z < grid.length; z++) {
     const state = grid.get(x, y, z);
