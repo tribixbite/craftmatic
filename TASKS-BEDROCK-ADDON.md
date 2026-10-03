@@ -842,11 +842,11 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   remaining zero-extent geometry that the Walker had to fake visually; the
   regression is covered in `test/figure-holes.test.ts`. The rebuilt
   `output/device-round-20261002/10261-planar-fix.mcaddon` passed the addon,
-  box-UV-loss, and render-fault gates, and was installed exclusively on Saga
-  world 925 (`output/device-round-20261002/shots/saga-10261-menu.jpg` and
-  `saga-10261-scroll.jpg`). The world tile was visible after deployment, but
-  the current rotated Android input mapping did not open it reliably, so the
-  vertical-line cases remain device-unseen.
+  box-UV-loss, walker, and render-fault gates, and was installed exclusively on
+  Saga world 925. The Saga world was opened with the reliable 90 ms same-point
+  swipe, and `craftmatic:f_10261planar_10261_fig1` summoned successfully with
+  no visible vertical-line hole (`output/device-round-20261002/shots/
+  saga-10261-fig1.jpg`).
 - [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
   (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
   the export's separation pass works within one actor only.
