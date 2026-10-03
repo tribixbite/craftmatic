@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { boxUvSafeCube, compileLdrawEntityGeometry, cullHiddenCuboids } from '../web/src/engine/ldraw-entity-compiler.js';
+import { BOX_UV_MIN_DRAWN_SIZE, boxUvSafeCube, compileLdrawEntityGeometry, cullHiddenCuboids } from '../web/src/engine/ldraw-entity-compiler.js';
 import { boxUvFaceDrawn, droppedVisibleArea, entryFromCompiled, figureHoles, figureReferenceSurfaces } from '../web/src/engine/figure-holes.js';
 import { buildAddonAppearance } from '../web/src/ui/addon-appearance.js';
 import { worldFaces } from '../web/src/engine/bedrock-geometry-faces.js';
@@ -65,6 +65,16 @@ describe('box UV floor: what the device drops, and the declared-size fix', () =>
     // A face decal (per-face UV) names its own UV size: never touched.
     const decal = { origin: [0, 0, 0] as Vec3, size: [0.2, 0.2, 0.2] as Vec3, uv: { north: { uv: [0, 0], uv_size: [4, 4] } } };
     expect(boxUvSafeCube(decal)).toBe(false);
+  });
+
+  it('gives an exact planar cube a tiny positive drawn extent without moving its centre', () => {
+    const cube = { origin: [10, 20, 30] as Vec3, size: [4, 0, 6] as Vec3, uv: [0, 0] as [number, number] };
+    expect(boxUvSafeCube(cube)).toBe(true);
+    expect(cube.inflate).toBe(-1);
+    expect(cube.size).toEqual([6, 2 + BOX_UV_MIN_DRAWN_SIZE, 8]);
+    expect(cube.origin[0]).toBe(9);
+    expect(cube.origin[1]).toBeCloseTo(19 - BOX_UV_MIN_DRAWN_SIZE / 2, 2);
+    expect(cube.origin[2]).toBe(29);
   });
 
   it('reads an inflated cube back as the box it draws (pack reader), keeping the declared size for the UV', () => {

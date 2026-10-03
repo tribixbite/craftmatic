@@ -815,19 +815,31 @@ interface BedrockCube {
 export const BOX_UV_MIN_DECLARED_SIZE = 1;
 
 /**
- * Make a box-UV cube's every face drawable without changing the box it draws:
- * a cube with any size under `BOX_UV_MIN_DECLARED_SIZE` is DECLARED one unit
- * larger on every side (`size + 2`) and pulled back with `inflate: -1`, so the
- * UV is laid out from a size of at least 2 while the drawn box is unchanged
- * (the device probe's fixed row drew all eight test cubes at their true size).
+ * Bedrock also refuses to rasterise a box whose drawn extent is exactly zero.
+ * Keep a planar source surface visually planar while giving the device a
+ * positive extent to shade. This is deliberately much smaller than one LDU;
+ * it fixes a degenerate face without changing the part silhouette at the
+ * compiler's two-decimal JSON precision.
+ */
+export const BOX_UV_MIN_DRAWN_SIZE = 0.25;
+
+/**
+ * Make a box-UV cube's every face drawable. A cube with any size under
+ * `BOX_UV_MIN_DECLARED_SIZE` is declared larger on every side (`size + 2`)
+ * and pulled back with `inflate: -1`, so the UV is laid out from a size of at
+ * least 2 while the drawn box is unchanged (the device probe's fixed row drew
+ * all eight test cubes at their true size). An exact-zero extent is the one
+ * exception: Bedrock cannot rasterise it at all, so it receives a 0.25-unit
+ * drawn hair centred on the source plane.
  * A per-face-UV cube (a face decal) names its own UV size and is left alone.
  * Mutates `cube`; returns whether it changed it.
  */
 export function boxUvSafeCube(cube: { origin: [number, number, number]; size: [number, number, number]; uv: unknown; inflate?: number }): boolean {
   if (!Array.isArray(cube.uv) || cube.inflate !== undefined) return false;
-  if (!cube.size.some(s => s < BOX_UV_MIN_DECLARED_SIZE)) return false;
-  cube.origin = [round(cube.origin[0] - 1), round(cube.origin[1] - 1), round(cube.origin[2] - 1)];
-  cube.size = [round(cube.size[0] + 2), round(cube.size[1] + 2), round(cube.size[2] + 2)];
+  const drawn = cube.size.map(s => Math.max(s, BOX_UV_MIN_DRAWN_SIZE)) as [number, number, number];
+  if (!cube.size.some(s => s < BOX_UV_MIN_DECLARED_SIZE) && drawn.every((s, i) => s === cube.size[i])) return false;
+  cube.origin = cube.origin.map((o, i) => round(o - 1 - (drawn[i]! - cube.size[i]!) / 2)) as [number, number, number];
+  cube.size = drawn.map(s => round(s + 2)) as [number, number, number];
   cube.inflate = -1;
   return true;
 }
@@ -3159,6 +3171,4 @@ export async function compileLdrawEntityGeometry(
     warnings,
   };
 }
-
-
 

@@ -837,10 +837,11 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   NOT shown to be visible on a device either way: a sliver is back-face culled
   and mostly shares its neighbour's colour. Evidence `output/fold-0928/`
   (`sweep2/`, `ix.log`), probe `scripts/_planar_cuboid_probe.ts`.
-  The `fix/bedrock-fidelity` worktree commit `ecc2c265` (thicken exact-zero
-  cuboids outward by one cell) is NOT merged: it changes none of 10261's
-  placed parts (their slivers are >1e-9 thick) and where it acts it pushes a
-  flat part's plane a whole cell (2-8 LDU) past its own bounds.
+- [x] Exact-zero entity cuboids now receive a centred 0.25-unit drawn hair in
+  `boxUvSafeCube` before the UV-safe declaration is emitted. This removes the
+  remaining zero-extent geometry that the Walker had to fake visually; the
+  regression is covered in `test/figure-holes.test.ts`. Device proof is still
+  needed for the vertical-line cases.
 - [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
   (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
   the export's separation pass works within one actor only.
