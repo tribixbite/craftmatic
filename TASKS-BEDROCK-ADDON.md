@@ -840,8 +840,13 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
 - [x] Exact-zero entity cuboids now receive a centred 0.25-unit drawn hair in
   `boxUvSafeCube` before the UV-safe declaration is emitted. This removes the
   remaining zero-extent geometry that the Walker had to fake visually; the
-  regression is covered in `test/figure-holes.test.ts`. Device proof is still
-  needed for the vertical-line cases.
+  regression is covered in `test/figure-holes.test.ts`. The rebuilt
+  `output/device-round-20261002/10261-planar-fix.mcaddon` passed the addon,
+  box-UV-loss, and render-fault gates, and was installed exclusively on Saga
+  world 925 (`output/device-round-20261002/shots/saga-10261-menu.jpg` and
+  `saga-10261-scroll.jpg`). The world tile was visible after deployment, but
+  the current rotated Android input mapping did not open it reliably, so the
+  vertical-line cases remain device-unseen.
 - [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
   (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
   the export's separation pass works within one actor only.
