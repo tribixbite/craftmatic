@@ -35,12 +35,14 @@ the sole driver `/root/audit_device_qa`. Do not infer successful loading or
 acceptance from screenshot filenames. The directory name is historical;
 the installed candidate is **8929007e**, not 8e261f39.
 
-At the 2026-10-06 10:33 EDT handoff check, world 925 is loaded, the wand is
-set to 200 percent and turn 0, and exact origin 7379,-60,7390 is confirmed
-in `036-size200-pin-proof2.png` (root independently reviewed). Player is
-7422,-60,7411 with the wand form open, before Place. Placement,
-native culling/interaction/Undo acceptance, and final restoration are still
-pending. Device pack files and bindings have already changed. If interrupted,
+At the 2026-10-06 10:43 EDT handoff check, coaster placement is complete at
+200 percent, turn 0, exact origin7379,-60,7390 (root-reviewed form036).
+Player remains7422,-60,7411 while a free camera captures nearby geometry.
+Root reviewed043/044: nearby track/support/base geometry remains drawn at
+the farther camera, old-root distance77.046 versus prior absent75.82 bracket.
+This is a native improvement observation; station/census/interaction/Undo
+acceptance and final restoration are still pending. Device pack files and
+bindings have already changed. If interrupted,
 resume through the owner/checkpoint; do not leave the device in this state.
 The complete pre-placement world snapshot protects retained fixtures from
 the new placement's automatic retirement of the prior placement history.
