@@ -8,7 +8,8 @@
  * WHAT IT PROVES, AND WHAT IT DOES NOT. The player walks the EXACT collider
  * blocks the pack ships at the chosen size and quarter turn (the wand's own
  * re-lay arithmetic plus the shipped tread plan, engine/addon-walk.ts), so a
- * surface unreachable here is unreachable in game. It does NOT prove Bedrock's
+ * reachability here is a simulation result, requiring native confirmation.
+ * It does NOT prove Bedrock's
  * rendering, its entity culling, form text, ride physics or memory limits — a
  * device round still decides those, and the banner on screen says so.
  *
@@ -1740,7 +1741,7 @@ class AddonWalk implements AddonPreviewHandle {
       <div class="ap-look" tabindex="0" aria-label="Add-on walk view"></div>
       <div class="ap-labels"></div>
       <div class="ap-crosshair"></div>
-      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn: unreachable here is unreachable in game. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
+      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn. Reachability is simulated; confirm it in Minecraft. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
       <div class="ap-interact"></div>
       <div class="ap-hud">
         <div class="ap-panel ap-legend"></div>

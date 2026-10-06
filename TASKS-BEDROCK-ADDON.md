@@ -53,12 +53,25 @@ Acceptance measured:
 
 Open acceptance work:
 - Active round (2026-10-06): implementation and source checks complete;
-  clean exports and native acceptance PENDING. Product committed as 8e261f39.
-  audit_sim_gates now owns sequential clean exports/offline gates in new
-  detached worktree .worktrees/fidelity-export-8e261f39, with outputs in main
-  output/fidelity-audit-20261005/packs-8e261f39/. facet_gate is doing a read-only
-  handoff-doc audit. audit_device_qa is idle; no active device claim or new
-  device input. Main remains untouched.
+  clean exports/offline gates COMPLETE, native acceptance PENDING. Product
+  committed as 8e261f39. Detached .worktrees/fidelity-export-8e261f39 stays
+  clean, pipeline b3bfade8802e, dirty=false; outputs in main
+  output/fidelity-audit-20261005/packs-8e261f39/. audit_sim_gates finished.
+  facet_gate owns Walker visual checks; audit_device_qa owns read-only world
+  geometry/camera audit, then awaits native authorization from root. No active
+  device claim or new input. Main remains untouched. Latest UI wording change
+  clarifies simulated reachability needs Minecraft confirmation; web typecheck
+  passed. This does not change exported pack geometry/runtime.
+  Clean 10261 SHA b9467f08457da63793bd503f12307d51f702ae52c105ab1fd1cb0ac056f70b02
+  (1,202,002 bytes); 76417 SHA ec67b41ea1b5e9b1dd400f3d7b9f1b69224d5632e5dbd403806be899d339cb8f
+  (1,131,244 bytes). Structural 2/2, nonquick child play 10/10, no unmodelled
+  API/violations. Passability: coaster zero doorways (no doorway acceptance);
+  Gringotts 40 rows, 34 OK/2 SEALED/4 ONE-WAY, zero FAIL, sizes100–400/turns0,90.
+  Expected spatial actor counts4/2, no buried/rejected/oversized warning.
+  Aggregate body cube counts42391/47862, opaque/translucent counts, mesh totals
+  and material/PBR cube multisets exactly conserved against278adbf5; Gringotts
+  has two extra face decals. Evidence: 8e-spatial-shell-evidence.json,
+  8e-pack-sha256.txt and per-pack structural/sim/passability logs in new pack dir.
   `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
   one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
   PlacementActors with translated cube/bone pivots and local roots. No
@@ -131,9 +144,9 @@ No push/tag/release.
    and `git log -3`. Product commit 8e261f39 is verified; exporter follow-up
    `bun run test test/playable-addon.test.ts` passed 51/51. Both typechecks/full suite/build have
    already passed; do not repeat them absent a relevant change or failure.
-2. Reconcile audit_sim_gates and the existing clean detached
+2. Clean exports are completed: reconcile evidence in the existing clean detached
    `.worktrees/fidelity-export-8e261f39` and main `packs-8e261f39/` before
-   continuing exports. Do not launch a second writer. If the run is conclusively
+   continuing any export work. Do not launch a second writer. If a run is conclusively
    abandoned, retain its files and use a NEW directory name for any new run.
    Exports run only from a clean committed revision, separate from integration.
    Sequential coaster recipe from the clean worktree:
