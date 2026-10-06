@@ -40,9 +40,12 @@ independently checked, not treated as device-proven. Evidence logs are in
   starts inside real geometry and needs a legal pose in the recorded HUD cell.
   The old 10797 overhang fall remains unreproduced and is now NOT TESTED,
   nonzero exit, rather than a successful regression run.
-  The 10797 compiler probe tightens only cell `(22,2,4)` from full form 0 to
-  source-cover form 5, height 0..7/16, preserving floor/source/leak guards.
-  Focused collider/simulator tests: 58 passed; both typechecks/spec pass.
+  **Clean `e12e90cb` 10797 still fails both landing collisions.** The probe
+  tightened cell `(22,2,4)` from full form 0 to source-cover form 5, height
+  0..7/16, but its intersection calculation did not account for the runtime
+  X-mirrored collision frame. Broader exports are paused while this is fixed;
+  never cite the passing synthetic test as real-pack acceptance. Main
+  `e12e-10797-childplay.*` is the failing evidence.
 - Doorway audit: all 11 packs, 17 doors, 170 size/turn rows (100/150/200/300/400,
   0/90): zero FAIL, 96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short approaches.
   Main `a116-passability.{json,log}` records model limits rather than hiding them.
@@ -99,7 +102,12 @@ independently checked, not treated as device-proven. Evidence logs are in
   pixels/alpha and shares reflection lighting. Unsupported maps report diffuse
   fallback. Decoder checks CRC, framing, filters and bounded decompression;
   tests cover custom filenames, inline/image values and malformed assets.
-  # TODO: finish isolated Chrome visual acceptance and full-suite/rebuild gates.
+  Isolated Chrome/Node checks pass for 7140, 10261 close figure and 42172;
+  console/page errors empty, `walker-chrome-*-a116.png` in main evidence dir.
+  Three additional PNG tests pass with precomputed filtered RGB bytes
+  (including all Paeth choices), oversized dimensions and inflate overrun.
+  # TODO: resolve real-pack landing failure, rebuild acceptance, and inspect
+  thin bright lower-body seams in the Walker figure close view.
 - Walker now frames from rendered bounds and live holder yaw; figure-marker
   and appearance views at 200%/90° are byte-identical. Station reachability
   passes both walk models at 100%/200%, four turns each; whole-grid agreement
