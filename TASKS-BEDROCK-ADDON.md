@@ -54,13 +54,16 @@ Acceptance measured:
   on hollow topology, prints/materials and rotated collider correctness.
 
 Open acceptance work:
-- # TODO(coaster-ownership): 10261 car1 incorrectly captures station tiles
+- # TODO(coaster-ownership): verify the final native fix for station tiles
   1231–1233 and boarding-platform stripe 1302. The latter is the long tan
   panel visible in both Minecraft and Walker. Provenance-aware ownership now
   excludes these, preserves nested bodywork/rider props, and retains the flat
-  fallback. Focused and full gates pass. After committing,
-  verify car body/riders and restored station geometry in a fresh clean export
-  and native view. Probe: worktree output/coaster-assemblies/10261 Roller Coaster.json.
+  fallback. Focused and full gates pass. Clean c8 exports pass structural
+  2/2 and play 10/10 (10261 + 31084).
+  Walker A/B confirms the panel disappears while car/face remain; all ten
+  removed parts transfer to shell (4011→4021). Final native c8 view remains.
+  Probe: worktree output/coaster-assemblies/10261 Roller Coaster.json;
+  main evidence walker-coaster-ownership-c8-20261006/ and c8-two-*.
 - # TODO(native-landing): exercise clean 9ed44be0 10796/10797 slide and
   scenery-seat exits on Saga. Offline extra-corpus failures are resolved:
   slide paths now share the shell's exact grid frame; embedded boats may
@@ -75,8 +78,10 @@ Open acceptance work:
   original full car + only west→east decal key has a readable face; 139's
   rear remains normal. Compiler and Walker/audit convention fix is committed
   as 62fe6c26; clean exports pass and native captures 140/142/143 show all three
-  riders' faces readable from the front. Whole-set 200 percent acceptance is
-  running. A further
+  riders' faces readable from the front. Whole-set 200 percent captures
+  163/164 show complete station/cars/riders/shell from both sides. Free-camera
+  shell visibility is bracketed at 50.34 visible / 75.82 absent (160–162),
+  not an exact cutoff; geometry at close range is intact. A further
   Walker fix applies per-decal cube rotation before its parent, matching the
   already-correct box-UV path (independent rotated-corner test failed before).
   Thin-X padding alone failed (131, control

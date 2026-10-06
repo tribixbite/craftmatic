@@ -494,6 +494,17 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   the rider's ticket. 31084's front car retains its eleven nested shark-nose
   parts. Corpus and synthetic regressions check actual membership, not just
   the number of detected cars.
+- **A 200 percent shell still has a finite native draw distance.** Saga 26.52,
+  clean 62fe6c26 10261, anchor `(5779,-60,5790)`, rotation zero: the shell
+  root is `(5821.0755,-8,5809.6875)`. A free camera at `(5822,0,5760)`
+  (50.34 blocks from that root) draws the shell; `(5822,5,5735)` (75.82)
+  does not, including after eight seconds. Independent cars can remain.
+  These two samples bracket the transition; they do not measure an exact
+  70-block cutoff. Close station views from both sides draw shell, cars,
+  riders and platform together. Player distance stayed about 71.94 while
+  the nearer camera drew the shell, distinguishing camera from player culling.
+  Evidence: fidelity-audit worktree `output/device-zero-plane-20261005/`
+  captures 160–164. This is whole-shell distance culling, not partial spawning.
 - **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
   only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
   so a vehicle parked in a scenery build falls back to the road-wheel heuristic
