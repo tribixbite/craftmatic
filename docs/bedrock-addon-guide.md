@@ -3057,11 +3057,15 @@ and look poses.
 emission, after the coplanar separation): a box-UV cube declared under one
 unit on any axis is written as `origin - 1`, `size + 2`, `inflate: -1`. The
 drawn box is identical and the cube count unchanged; the UV is laid out from a
-size of at least 2. On by default for FIGURES (`boxUvFloorSafe`; the creator's
-slots are figures too). Readers: `addon-appearance.ts` reads an inflated cube
+size of at least 2. On by default for every entity (`boxUvFloorSafe`; the
+creator's slots are figures too). Do not clamp the drawn thickness here:
+this pass runs after coplanar separation, so enlarging even a thin nonzero
+detail can recreate overlaps. The October 5 regression checks preserve
+every emitted face corner with padding enabled versus disabled. Readers:
+`addon-appearance.ts` reads an inflated cube
 as the box it draws and keeps the declared size as `uvSize`; anything else that
 reads `.geo.json` cubes must subtract the inflate (the creator's slot-bounds
-test did not). `_mcaddon_check.py` fails a pack whose figure geometry declares
+test did not). `_mcaddon_check.py` fails a pack whose geometry declares
 a box-UV cube under one unit and counts the rest.
 
 **Also found: the hidden-cube cull across bones.** `cullHiddenCuboids` let a

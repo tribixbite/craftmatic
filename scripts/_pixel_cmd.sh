@@ -1,20 +1,53 @@
 #!/bin/bash
 # Android QA: type one chat command into Minecraft Bedrock on a connected device.
 #   ANDROID_SERIAL=<serial> scripts/_pixel_cmd.sh "/summon craftmatic:timemachine_car ~ ~ ~5"
-# Saga ignores plain input taps. A zero-distance swipe is the reliable equivalent.
+# Saga ignores plain input taps and corrupts bulk `input text`, so it needs the
+# measured one-character-at-a-time path from _saga_chat.sh.
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
-txt="${1:?usage: _pixel_cmd.sh \"/command\"}"
-txt="${txt// /%s}"
+command="${1:?usage: _pixel_cmd.sh \"/command\"}"
 serial_args=()
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then serial_args=(-s "$ANDROID_SERIAL"); fi
 tap() { adb "${serial_args[@]}" shell input swipe "$1" "$2" "$1" "$2" 90; }
+
+# Quote one argument for the device's POSIX shell. adb joins arguments into a
+# remote command line, so passing untrusted chat text as a host-side argv item
+# is not sufficient to protect quotes and shell metacharacters.
+remote_quote() {
+  local value="${1//\'/\'\\\'\'}"
+  printf "'%s'" "$value"
+}
+
+device_model="$(adb "${serial_args[@]}" shell getprop ro.product.model | tr -d '\r')"
+is_saga=false
 chat_x=1120
-if [[ "${ANDROID_SERIAL:-}" == 192.168.1.243:* ]]; then chat_x=1195; fi
+if [[ "${device_model,,}" == *saga* ]]; then
+  is_saga=true
+  chat_x=1195
+fi
+
 tap "$chat_x" 39;       sleep 1.2   # chat icon
 tap 1100 954;            sleep 0.6   # text field
-adb "${serial_args[@]}" shell input keycombination 113 29; sleep 0.2
-adb "${serial_args[@]}" shell input keyevent 67;  sleep 0.2
-adb "${serial_args[@]}" shell input text "$txt"; sleep 0.6
+
+if $is_saga; then
+  # Gboard puts the first injected character at the end. Type a sacrificial x,
+  # remove it at the end, then insert the leading slash at the beginning.
+  body="${command#/}"
+  remote_script='for i in $(seq 1 60); do input keyevent 67; done; for i in $(seq 1 30); do input keyevent 112; done; '
+  text="x$body"
+  for ((i = 0; i < ${#text}; i++)); do
+    char="${text:i:1}"
+    [[ "$char" == ' ' ]] && char='%s'
+    remote_script+="input text $(remote_quote "$char"); sleep 0.15; "
+  done
+  remote_script+="input keyevent 123; sleep 0.3; input keyevent 67; sleep 0.3; input keyevent 122; sleep 0.3; input text '/'; sleep 0.3; input keyevent 123"
+  adb "${serial_args[@]}" shell "$remote_script"
+else
+  txt="${command// /%s}"
+  adb "${serial_args[@]}" shell input keycombination 113 29; sleep 0.2
+  adb "${serial_args[@]}" shell input keyevent 67;  sleep 0.2
+  adb "${serial_args[@]}" shell "input text $(remote_quote "$txt")"; sleep 0.6
+fi
+
 adb "${serial_args[@]}" shell input keyevent 66;  sleep 1.2
 tap 45 39;               sleep 0.6   # Exit (chat sometimes stays open)

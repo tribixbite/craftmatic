@@ -9,6 +9,31 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
+### Active fidelity audit (2026-10-05)
+
+Worktree `C:/git/craftmatic/.worktrees/fidelity-audit-20261005`, branch
+`fix/fidelity-audit-20261005`, based on `b9966287`. Recent work is being
+independently checked, not treated as device-proven. Evidence logs are in
+`C:/git/craftmatic/output/fidelity-audit-*.log`.
+- UV padding preserves source extents again: `f1850431` enlarged **every**
+  dimension below 0.25 after coplanar separation, not just exact-zero faces.
+  Five regression cases fail before the correction and pass after; a real
+  minifig's emitted face corners agree with UV padding disabled.
+- Current checks: 2,949 tests passed, 34 skipped; both typechecks and web build
+  passed. Build retains the existing large-chunk warning.
+- # TODO(device-audit): controlled zero-plane probe, then fresh canonical
+  10261 shell/car and 42172 device views. The Oct 2 figure screenshot does
+  not establish full-shell rendering, culling, or the original missing-body fix.
+- # TODO(sim-audit): measure the vehicle course on packs containing scripted
+  vehicles. The Oct 2 10261-only run exercised zero vehicles. A regression
+  command missing its required packs is incomplete, not a pass.
+- Facet yield report corrected: 10303 requested 2-LDU baseline saves only
+  472 hypothetical cuboids (0.30%, 51 placements), not 10.7%. The 194 coarse
+  candidates are a separate comparison. Evidence: worktree
+  `output/round-facet-yield/10303.json`; all aggregate arithmetic reconciles.
+  # TODO(facets): silhouette IoU alone cannot preserve hollow topology,
+  prints/materials, or rotated collider/exposure boxes; integration stays gated.
+
 ### Handoff (2026-10-01, main `bcfae5bc`; agents stopped on the monthly spend limit)
 Merged on main but in NO round yet (last round sent = 30i `fd91cf23`):
 yaw-turned collider corners + drop guards (76417 Gate 1), box-UV-safe cubes
@@ -837,16 +862,12 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   NOT shown to be visible on a device either way: a sliver is back-face culled
   and mostly shares its neighbour's colour. Evidence `output/fold-0928/`
   (`sweep2/`, `ix.log`), probe `scripts/_planar_cuboid_probe.ts`.
-- [x] Exact-zero entity cuboids now receive a centred 0.25-unit drawn hair in
-  `boxUvSafeCube` before the UV-safe declaration is emitted. This removes the
-  remaining zero-extent geometry that the Walker had to fake visually; the
-  regression is covered in `test/figure-holes.test.ts`. The rebuilt
-  `output/device-round-20261002/10261-planar-fix.mcaddon` passed the addon,
-  box-UV-loss, walker, and render-fault gates, and was installed exclusively on
-  Saga world 925. The Saga world was opened with the reliable 90 ms same-point
-  swipe, and `craftmatic:f_10261planar_10261_fig1` summoned successfully with
-  no visible vertical-line hole (`output/device-round-20261002/shots/
-  saga-10261-fig1.jpg`).
+- [ ] Exact-zero faces: the Oct 2 thickening was not supported by an isolated
+  device probe and also thickened nonzero details. UV padding now preserves
+  all extents; a controlled Bedrock A/B is pending (active audit above).
+  `output/device-round-20261002/shots/saga-10261-fig1.jpg` proves one summoned
+  figure only. `_render_fault_audit.ts` reports overlaps; it is not a pass
+  gate (that pack still reported 357 coplanar pairs / 1.39 block faces).
 - [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
   (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
   the export's separation pass works within one actor only.
