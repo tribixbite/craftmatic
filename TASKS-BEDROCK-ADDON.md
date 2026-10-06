@@ -70,8 +70,15 @@ Open acceptance work:
   Upgrade investigation and compatibility fix complete (checks/commit passed,
   both clean packs passed). Saga claimed by audit_device_qa
   at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
-  captured baseline without input; now authorized to deploy clean89210261.
-  Confirm current mutation/restoration phase in native-progress.json.
+  captured baseline before input; clean89210261 is now installed, deviceMutation=true,
+  world925 bindings2610.614.624. Current UI is PLAY/worldselect with925 visible,
+  NOT yet loaded; screenshots007 etc are failed input-routing attempts, despite
+  filenames saying loaded. Owner will use proven protocol-B event4 physical
+  tap(800,1950) for portraitinputbehindlandscape, no more randomDPAD. Native
+  visual/interaction/Undo acceptance remains PENDING. Fresh touched-pack backup:
+  AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261006-100930/.
+  native-progress.json now embeds deploy command/stagingdir/currentbindings,
+  exact backup/restore hashes and nextaction; confirm live phase before acting.
   Main remains untouched. UI wording change committed951fe974
   clarifies simulated reachability needs Minecraft confirmation; web typecheck
   passed. This does not change exported pack geometry/runtime.
