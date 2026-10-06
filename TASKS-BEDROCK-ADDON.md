@@ -57,9 +57,12 @@ Open acceptance work:
   committed as 8e261f39. Detached .worktrees/fidelity-export-8e261f39 stays
   clean, pipeline b3bfade8802e, dirty=false; outputs in main
   output/fidelity-audit-20261005/packs-8e261f39/. audit_sim_gates finished.
-  facet_gate owns Walker visual checks; audit_device_qa owns read-only world
-  geometry/camera audit, then awaits native authorization from root. No active
-  device claim or new input. Main remains untouched. Latest UI wording change
+  facet_gate owns Walker visual checks; audit_device_qa completed world geometry
+  audit and is authorized to claim/capture Saga then run native QA. Consult its
+  live mailbox and audit-worktree output/bedrock-entity-qa/8e261f39-spatial-native/
+  progress checkpoint before touching the device; do not start a second driver.
+  audit_sim_gates is investigating saved-placement upgrade compatibility (read-only).
+  Main remains untouched. UI wording change committed951fe974
   clarifies simulated reachability needs Minecraft confirmation; web typecheck
   passed. This does not change exported pack geometry/runtime.
   Clean 10261 SHA b9467f08457da63793bd503f12307d51f702ae52c105ab1fd1cb0ac056f70b02
@@ -72,6 +75,16 @@ Open acceptance work:
   and material/PBR cube multisets exactly conserved against278adbf5; Gringotts
   has two extra face decals. Evidence: 8e-spatial-shell-evidence.json,
   8e-pack-sha256.txt and per-pack structural/sim/passability logs in new pack dir.
+  Actual coaster world-face comparison:254326 faces at yaw0/90 × scale1/2;
+  zero non-numeric/material/UV mismatches, maximum drift2.9996e-12 <1e-8.
+  Main shell-spatial-pack-audit-8e261f39.{ts,json} contains replay and roots.
+  Refined decisive camera7370.0755,-58.38,7429: oldroot74.244, chunk1root49.477,
+  chunk2root61.118, nearest exact face15.702 blocks. Recalculate if pin differs.
+  # TODO(upgrade-compatibility): replacing original shell type with _chunk_n
+  may affect pre-existing persistent placements on real imported upgrades;
+  inspect runtime restore/migration before claiming compatibility. NativeQA
+  retains old monolith definition/client/geo files as an intentional control
+  (no prune-stale), so it cannot by itself prove clean imported upgrades.
   `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
   one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
   PlacementActors with translated cube/bone pivots and local roots. No

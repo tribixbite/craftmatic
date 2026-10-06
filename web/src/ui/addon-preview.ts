@@ -7,8 +7,8 @@
  *
  * WHAT IT PROVES, AND WHAT IT DOES NOT. The player walks the EXACT collider
  * blocks the pack ships at the chosen size and quarter turn (the wand's own
- * re-lay arithmetic plus the shipped tread plan, engine/addon-walk.ts), so a
- * reachability here is a simulation result, requiring native confirmation.
+ * re-lay arithmetic plus the shipped tread plan, engine/addon-walk.ts).
+ * Reachability here is a simulation result, requiring native confirmation.
  * It does NOT prove Bedrock's
  * rendering, its entity culling, form text, ride physics or memory limits — a
  * device round still decides those, and the banner on screen says so.
