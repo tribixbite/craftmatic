@@ -297,6 +297,17 @@ No push/tag/release.
    local chunk draws, alignment and lighting at near/station views, natural
    mount/Sneak/walk, exact one entity per chunk, then complete Undo/collider
    restoration. Far camera 7422,5,7335 alone is not a decisive test.
+   After coaster acceptance and Undo, test final 892 Gringotts to isolate the
+   tall shell's vertical-root case. Capture a fresh backup of its touched
+   folders/bindings before deploying; record those extra restoration sources
+   in the live checkpoint. Candidate origin8000,-60,8000, 200 percent, turn0.
+   Player `/tp @s 8001.5 -60 8054.489344`; camera
+   `/camera @s set minecraft:free pos 8001.5 -58.38 8054.489344 facing 8006.52443 -57.831258 8049.325594`.
+   Oldroot78.099 / lowerchunk49.530 / nearest actual face7.226 blocks.
+   Main `gringotts-native-camera-probe.{ts,json}` contains the derivation.
+   Read the actual pin; confirm nearby lower facade, alignment/lighting,
+   walk interaction, exactly two chunks and complete Undo. This check is
+   planned, not accepted; no Gringotts device mutation is recorded yet.
    Save/quit before file restoration; app-only force-stop/relaunch allowed.
    Restore captured bindings, baseline pack bytes, options, camera/effects,
    telemetry/logging, position and focus; verify hashes and release own claim.
