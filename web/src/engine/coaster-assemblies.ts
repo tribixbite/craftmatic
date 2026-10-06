@@ -16,8 +16,11 @@
  *   wheel-described parts seated inside its bounds (10303: `26021` + 2 x
  *   `24869`), or a part whose own library description says it carries wheels
  *   (the `.io` composite `26021c01`) — together with the non-figure, non-track
- *   bricks whose origins stand in its footprint; it is a RIDE car when its
- *   origin projects within `CAR_ON_ROUTE_MAX_LDU` of an extracted route.
+ *   bricks whose origins stand in its footprint and, where an MPD records a
+ *   structured source path, belong to its car/rider assembly rather than the
+ *   surrounding track assembly; it is a RIDE car when its origin projects
+ *   within `CAR_ON_ROUTE_MAX_LDU` of an extracted route. A flat source keeps
+ *   the spatial rule because it carries no assembly boundary to measure.
  * - **Train**: the ride cars of one route ordered by arc, split wherever a gap
  *   exceeds twice the longer neighbour's length.
  * - **Chain lift**: sprocket / pulley / chain-link parts that are not car
@@ -658,25 +661,6 @@ export function detectCoasterAssemblies(
     carLocal.set(c, { rot, origin, footprint });
   }
   const chassisSet = new Set(chassisIndices);
-  bricks.forEach((b, i) => {
-    if (isFigureBrick(i) || isTrackMould(i)) return;
-    if (chassisSet.has(i)) { memberOf.set(i, i); return; }
-    let best = -1, bestScore = Infinity;
-    for (const c of chassisIndices) {
-      if (trainCars.has(c)) continue; // a railway car's members are its connected body, set below
-      const { rot, origin, footprint } = carLocal.get(c)!;
-      const local = apply(transpose(rot), sub(originOf(b), origin));
-      if (!inBox(footprint, local)) continue;
-      // Neighbouring cars' footprints overlap (10303: 141 LDU chassis at a 120 LDU pitch); the nearest chassis along travel wins.
-      const score = Math.abs(local[0]) + norm(local) * 1e-3;
-      if (score < bestScore) { bestScore = score; best = c; }
-    }
-    if (best >= 0) memberOf.set(i, best);
-  });
-  // A wheel mounted on a chassis belongs to that chassis even if another footprint scores it closer.
-  for (const [c, wheels] of wheelsByChassis) if (chassisSet.has(c)) for (const w of wheels) memberOf.set(w, c);
-  for (const [c, car] of trainCars) for (const i of car.members) memberOf.set(i, c);
-
   const riderOfChassis = new Map<number, number[]>(); // chassis → figure group indices
   figureGroups.forEach((g, k) => {
     const torso = bricks[g.torso]!;
@@ -687,6 +671,61 @@ export function detectCoasterAssemblies(
       if (inBox(seatBox, local)) { (riderOfChassis.get(c) ?? riderOfChassis.set(c, []).get(c)!).push(k); break; }
     }
   });
+  const riderSourcePaths = new Map<number, readonly (readonly string[])[]>();
+  for (const [c, groups] of riderOfChassis) {
+    riderSourcePaths.set(c, groups.map(k => bricks[figureGroups[k]!.torso]!.sourcePath).filter((path): path is string[] => !!path && path.length > 1));
+  }
+  const commonPathLength = (a: readonly string[], b: readonly string[]): number => {
+    let n = 0;
+    while (n < a.length && n < b.length && a[n] === b[n]) n++;
+    return n;
+  };
+  const trackByPath = new Map<string, boolean>();
+  const hasTrackDescendant = (prefix: readonly string[]): boolean => {
+    const key = prefix.join('\0');
+    const cached = trackByPath.get(key);
+    if (cached !== undefined) return cached;
+    const found = bricks.some((brick, index) => {
+      const path = brick.sourcePath;
+      return !!path && commonPathLength(prefix, path) === prefix.length && isTrackMould(index);
+    });
+    trackByPath.set(key, found);
+    return found;
+  };
+  const authoredMember = (candidate: ParsedBrick, chassis: ParsedBrick, riderPaths: readonly (readonly string[])[]): boolean => {
+    const path = candidate.sourcePath, chassisPath = chassis.sourcePath;
+    // A one-section LDR (and parsers without provenance) has no assembly
+    // boundary to consult, so it retains the measured spatial fallback.
+    if (!path || !chassisPath || path.length <= 1 || chassisPath.length <= 1) return true;
+    const under = (root: readonly string[]): boolean => commonPathLength(root, path) === root.length;
+    if (under(chassisPath) || riderPaths.some(under)) return true;
+    // A car may put its chassis and body in sibling child sections. Admit that
+    // shared assembly only when it is not also the authored track assembly:
+    // the latter contains the station and every other piece parked near a car.
+    // This is independent of STEP, which advances inside nested submodels and
+    // therefore cannot identify one assembly instance.
+    const common = commonPathLength(path, chassisPath);
+    return common > 1 && !hasTrackDescendant(path.slice(0, common));
+  };
+  bricks.forEach((b, i) => {
+    if (isFigureBrick(i) || isTrackMould(i)) return;
+    if (chassisSet.has(i)) { memberOf.set(i, i); return; }
+    let best = -1, bestScore = Infinity;
+    for (const c of chassisIndices) {
+      if (trainCars.has(c)) continue; // a railway car's members are its connected body, set below
+      const { rot, origin, footprint } = carLocal.get(c)!;
+      const local = apply(transpose(rot), sub(originOf(b), origin));
+      if (!inBox(footprint, local)) continue;
+      if (!authoredMember(b, bricks[c]!, riderSourcePaths.get(c) ?? [])) continue;
+      // Neighbouring cars' footprints overlap (10303: 141 LDU chassis at a 120 LDU pitch); the nearest chassis along travel wins.
+      const score = Math.abs(local[0]) + norm(local) * 1e-3;
+      if (score < bestScore) { bestScore = score; best = c; }
+    }
+    if (best >= 0) memberOf.set(i, best);
+  });
+  // A wheel mounted on a chassis belongs to that chassis even if another footprint scores it closer.
+  for (const [c, wheels] of wheelsByChassis) if (chassisSet.has(c)) for (const w of wheels) memberOf.set(w, c);
+  for (const [c, car] of trainCars) for (const i of car.members) memberOf.set(i, c);
 
   const cars: CoasterCar[] = [];
   const seatByMould = new Map<string, V>(); // chassis part → measured local seat, for sibling cars

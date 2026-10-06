@@ -480,6 +480,20 @@ arms are present but flung (median 276 LDU from a torso, 0 % within 25), so they
 fall outside `groupFigures`' 40 LDU horizontal radius and the rig supplies
 standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
 
+- **Coaster car footprints are not ownership proof.** In 10261's embedded MPD,
+  four station pieces had origins inside the front car's footprint, including
+  a 160-LDU boarding stripe that projected out of the moving car. Ordinary
+  coaster membership now consults MPD ancestry: retain chassis descendants
+  and seated-rider props; admit sibling body subassemblies only inside a
+  shared subtree without track moulds. Spatial scoring still separates
+  repeated instances because `sourcePath` contains names, not instance IDs.
+  STEP is not identity either: nested STEP directives advance the shared
+  counter. Flat/unstructured sources retain the spatial fallback, and a
+  track-free shared subtree remains a heuristic, not a connectivity proof.
+  The six 10261 bodies contain 16/13/14/13/13/16 parts; the third includes
+  the rider's ticket. 31084's front car retains its eleven nested shark-nose
+  parts. Corpus and synthetic regressions check actual membership, not just
+  the number of detected cars.
 - **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
   only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
   so a vehicle parked in a scenery build falls back to the road-wheel heuristic

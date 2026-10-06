@@ -13,8 +13,8 @@ Parallel agents append ONE section each at the end of this file.
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Current product baseline: 03646545; latest clean exports: 62fe6c26 (the later
-commit only corrects Walker decal-cube rotation). Evidence root:
+Current product baseline includes the coaster-ownership correction; latest
+clean exports: 62fe6c26, pending affected-pack rebuild below. Evidence root:
 C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
 worktree output/device-zero-plane-20261005/.
 
@@ -32,8 +32,9 @@ Acceptance measured:
 - Historical regressions: 14 accepted, zero failed, one NOT TESTED;
   CLI correctly exits 1 (62fe-regressions.*). Replay suite 41/41 and both
   typechecks pass after recovering the archived route.
-- Exact 03646545 full suite: 2,986 passed, 34 skipped; both typechecks
-  and web build pass. Main output/fidelity-audit-03646545-{tests,build}.log.
+- Coaster-ownership full suite: 2,987 passed, 34 skipped; both typechecks
+  and web build pass. Main output/fidelity-audit-coaster-ownership-{tests,build}.log.
+  The additional 31084 membership assertion passes its focused 3-test suite.
   Physics spec and focused seat/vehicle/slide tests also pass.
 - Saga captures 39 and 54/55 show complete McLaren/coaster; 97/98 show
   readable minifigure front/back. Controlled zero/thin faces render from
@@ -55,11 +56,11 @@ Acceptance measured:
 Open acceptance work:
 - # TODO(coaster-ownership): 10261 car1 incorrectly captures station tiles
   1231–1233 and boarding-platform stripe 1302. The latter is the long tan
-  panel visible in both Minecraft and Walker. Source provenance identifies
-  these as scenery, while the current spatial-origin test assigns them to
-  the trainfront chassis. Fix provenance-aware ownership with flattened-source
-  fallback; verify car body/riders and restored station geometry in a fresh
-  clean export. Probe: worktree output/coaster-assemblies/10261 Roller Coaster.json.
+  panel visible in both Minecraft and Walker. Provenance-aware ownership now
+  excludes these, preserves nested bodywork/rider props, and retains the flat
+  fallback. Focused and full gates pass. After committing,
+  verify car body/riders and restored station geometry in a fresh clean export
+  and native view. Probe: worktree output/coaster-assemblies/10261 Roller Coaster.json.
 - # TODO(native-landing): exercise clean 9ed44be0 10796/10797 slide and
   scenery-seat exits on Saga. Offline extra-corpus failures are resolved:
   slide paths now share the shell's exact grid frame; embedded boats may
@@ -73,7 +74,9 @@ Open acceptance work:
   Minecraft despite a readable face in Walker. Native 138 resolves it:
   original full car + only west→east decal key has a readable face; 139's
   rear remains normal. Compiler and Walker/audit convention fix is committed
-  as 62fe6c26; clean exports pass and native pack acceptance is running. A further
+  as 62fe6c26; clean exports pass and native captures 140/142/143 show all three
+  riders' faces readable from the front. Whole-set 200 percent acceptance is
+  running. A further
   Walker fix applies per-decal cube rotation before its parent, matching the
   already-correct box-UV path (independent rotated-corner test failed before).
   Thin-X padding alone failed (131, control
