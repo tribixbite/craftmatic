@@ -56,8 +56,11 @@ Open acceptance work:
   10786 boat can now rise out of an already occupied voxel while new ceiling
   voxels still block. Vehicle/slide/pipeline suites 97/97 and both typechecks
   pass. 10796's remaining solid failure follows a valid hop into a scenery
-  seat whose native eight-neighbor exits are all blocked; safe-exit work is
-  active in the figures runtime.
+  seat whose native eight-neighbor exits are all blocked. Its runtime now
+  repairs only blocked exits using a verified body-free, floor-supported
+  landing; no-safe restores an available seat, transfers remain untouched.
+  Seat-only packs support vanilla blocks too. Focused Vitest suites 84/84;
+  both typechecks and physics spec pass. Clean real-pack acceptance remains.
 - # TODO(device-audit): finish same-view 10261 figure in Vibrant Visuals
   and Fancy, train/rider close view and 200% view; restore settings/focus.
   Capture 100's distant face needs frontal follow-up before accepting it.

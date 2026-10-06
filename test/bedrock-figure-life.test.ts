@@ -8,8 +8,12 @@
 import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { host } from './_placement-host.js';
+import { simHost, solidBelow } from './_sim-host.js';
 import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
 import { simulateFigureLife, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
+import { seatBehavior } from '../web/src/engine/playable-addon.js';
+import { RIDE } from '../web/src/engine/bedrock-rides.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
 
 const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
   const m = new Map(cells.map(c => [`${c.x},${c.y},${c.z}`, c]));
@@ -155,6 +159,96 @@ describe('the serialised runtime', () => {
     const js = figureLifeScript({ ...config, interactiveFamily: 'craftmatic_interactive' });
     expect(js).not.toMatch(/__name|import_|bedrock_figure_life/);
     expect(js).toContain("import { world, system } from '@minecraft/server'");
+  });
+
+  const seatSafetyConfig = {
+    ...config,
+    figureTypes: [],
+    colliders: { block: COLLIDER_BLOCK_ID, loState: COLLIDER_LO_STATE, hiState: COLLIDER_HI_STATE },
+    seatSafety: { lift: RIDE.SETDOWN_LIFT_BLOCKS, reach: RIDE.SETDOWN_REACH_BLOCKS, drop: RIDE.SETDOWN_DROP_BLOCKS },
+  };
+  const seatSafetyHost = () => simHost({
+    script: figureLifeScript(seatSafetyConfig), colliders: true, terrain: solidBelow(0),
+    entities: {
+      'craftmatic:a_seat': seatBehavior('a_seat') as Record<string, unknown>,
+      'craftmatic:other_seat': seatBehavior('other_seat') as Record<string, unknown>,
+    },
+  });
+
+  it('moves a player from a scenery seat native dismount fallback to the first wider body-safe floor', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -1, y: 0, z: -1 }, { x: 1, y: 2, z: 1 }, COLLIDER_BLOCK_ID);
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+  });
+
+  it('leaves an already-free native dismount alone', () => {
+    const h = seatSafetyHost();
+    const seat = h.spawn('craftmatic:a_seat', { x: 5.5, y: 0, z: 5.5 });
+    const player = h.addPlayer('Rider', { x: 5.5, y: 0, z: 5.5 });
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 5.5, y: 0, z: 4.5 });
+    expect(h.lines('actionbar', 'Rider')).toEqual([]);
+  });
+
+  it('re-seats when no bounded safe floor exists, and leaves a transfer to another mount alone', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const other = h.spawn('craftmatic:other_seat', { x: 8.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBe(seat);
+    expect(h.lines('actionbar', 'Rider')).toContain('No safe place to get off here');
+    h.unseat(player); h.seat(player, other); h.run(1);
+    expect(player.ridingOn).toBe(other);
+    expect(player.location).toMatchObject({ x: other.location.x, z: other.location.z });
+  });
+
+  it('does not mistake a body-free point with no floor for a safe landing', () => {
+    const h = simHost({
+      script: figureLifeScript(seatSafetyConfig), colliders: true,
+      entities: { 'craftmatic:a_seat': seatBehavior('a_seat') as Record<string, unknown> },
+    });
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(player, seat); h.run(1);
+    // The remembered seat point is empty air. Move the live seat and rider into
+    // a collider before the next tick so settle returns that floorless point.
+    seat.location = { x: 10.5, y: 0, z: 0.5 };
+    h.unseat(player); player.location = { x: 10.5, y: 0.2, z: 0.5 };
+    h.setBlock(10, 0, 0, COLLIDER_BLOCK_ID);
+    h.run(1);
+    expect(player.ridingOn).toBe(seat);
+    expect(h.lines('actionbar', 'Rider')).toContain('No safe place to get off here');
+  });
+
+  it('preserves an unresolved pose when the remembered seat was taken, and ignores cross-dimension exits', () => {
+    const h = seatSafetyHost();
+    h.fill({ x: -3, y: 0, z: -3 }, { x: 3, y: 2, z: 3 }, COLLIDER_BLOCK_ID);
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const rider = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    const taker = h.addPlayer('Taker', { x: 8.5, y: 0, z: 0.5 });
+    h.seat(rider, seat); h.run(1);
+    h.unseat(rider); h.seat(taker, seat);
+    const unresolved = { x: 0.5, y: 0.2, z: 0.5 }; rider.location = { ...unresolved };
+    h.run(1);
+    expect(rider.ridingOn).toBeUndefined();
+    expect(rider.location).toEqual(unresolved);
+    expect(h.lines('console').some(l => l.includes('[craftmatic seat] no safe dismount'))).toBe(true);
+
+    h.unseat(taker); h.seat(rider, seat); h.run(1);
+    h.unseat(rider); rider.dimension = 'nether'; rider.location = { ...unresolved };
+    h.run(1);
+    expect(rider.ridingOn).toBeUndefined();
+    expect(rider.location).toEqual(unresolved);
   });
 
   const inRoom = (w: SimWorld, tracks: ReturnType<typeof simulateFigureLife>) => tracks.map(t => ({

@@ -668,6 +668,12 @@ no forces: nothing is pushed, the player changes mount.
   settled by `colliderBodyProbe`, is searched `HOP.SETDOWN_REACH_BLOCKS` (times
   the size, at least 1) for a mountable's box; the rider is boarded onto the
   nearest (front-most of its train) instead of being set down.
+- **A scenery seat's set-down** (`figureLifeRuntime` with the same body probe):
+  a native dismount that already fits is left alone. If Bedrock's fallback when
+  every neighboring spot is blocked put the player inside the shell, the runtime searches from
+  the remembered seat with `RIDE.SETDOWN_*`, and accepts only a body-free point
+  supported by a measured floor. With no such point it restores the still-free
+  seat; a transfer to another mount or dimension is never pulled back.
 - **The new mount's runtime** sees the rider as it sees any boarding: the
   coaster starts its camera on the first tick a car reports a rider
   (`aimRider` creates the viewer, the loop animation is planned at the next
@@ -1360,7 +1366,7 @@ one of these files fails the check until its row is written.
 | `ROOM_PROBE_CELLS` | const | Cells explored to rate a spawn spot's room (64). |
 | `separateFigureSpawns` | function | Host only, at export: a standing figure a source recorded within `FIGURE_MIN_SEPARATION` of another is moved to the nearest standable column clear of every figure (76435's figures 1 and 8). |
 | `FIGURE_MIN_SEPARATION` | const | 0.6 blocks: a figure's box width; closer than this two standing figures share a body. |
-| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. |
+| `FigurePlanner`, `FigureLifeConfig`, `FigureHome`, `WalkCell`, `FigureSpawn` | interface | Types. `FigureLifeConfig.seatSafety` carries the shared measured ride set-down limits into scenery-seat-only packs too. |
 | `SpanLookup` | type | Collision-span lookup. |
 | `FIGURE_HOME_PROPERTY` | const | Dynamic property holding a figure's home. |
 | `FIGURE_SEATING_PROPERTY` | const | Dynamic property (`Date.now()` ms) the placement sets on a source-seated figure until its own seating pass is done with it; the runtime neither retakes nor reports a missing seat meanwhile (10261 spawns its kiosk figure ~2 min before the seat, Saga 2026-09-29c). |

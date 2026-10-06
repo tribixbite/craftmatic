@@ -3507,10 +3507,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });
     // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
     const figureTypes = Object.keys(figureBodies);
-    if (figureTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
+    const scenerySeatTypes = [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))];
+    if (figureTypes.length || scenerySeatTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
         figureTypes, bodyHeights: figureBodies, bodyHeight: 1.8,
         ...(creatorConfig ? { draftTypes: [creatorConfig.figureType] } : {}),
-        seatTypes: [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))],
+        seatTypes: scenerySeatTypes,
+        ...(scenerySeatTypes.length ? { seatSafety: { lift: RIDE.SETDOWN_LIFT_BLOCKS, reach: RIDE.SETDOWN_REACH_BLOCKS, drop: RIDE.SETDOWN_DROP_BLOCKS } } : {}),
         interactiveFamily: INTERACTIVE_FAMILY,
         colliders: placementColliders ? { block: placementColliders.block, loState: placementColliders.loState, hiState: placementColliders.hiState } : undefined,
         tuning: FIGURE_TUNING,
@@ -3554,7 +3556,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(ridesConfig ? ["import './rides.js';"] : []),
         ...(flyerConfig ? ["import './flyer.js';"] : []),
         ...(hasHop ? ["import './hop.js';"] : []),
-        ...(figureTypes.length ? ["import './figures.js';"] : []),
+        ...(figureTypes.length || scenerySeatTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
     // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
     const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. It hovers in place when you let go. Dismount (sneak) leaves you where you are - in the air you float gently down - and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';

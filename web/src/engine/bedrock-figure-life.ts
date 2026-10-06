@@ -50,6 +50,8 @@
  * (test/bedrock-figure-life.test.ts, scripts/_figure_roam_census.ts).
  */
 
+import { COLLIDER_STATES, colliderBodyProbe, colliderFormKit, type ColliderBodyProbe } from './collider-form.js';
+
 /** Dynamic property holding a figure's home record (JSON string; see `FigureHome`). */
 export const FIGURE_HOME_PROPERTY = 'craftmatic:fig';
 
@@ -151,6 +153,8 @@ export interface FigureLifeConfig {
   /** Body height a figure needs clear, world blocks at 100 % (its collision box), per type; `bodyHeight` otherwise. */
   bodyHeights: Record<string, number>;
   bodyHeight: number;
+  /** Safe set-down search for players leaving this pack's scenery seats. Values come from the rides' measured policy. */
+  seatSafety?: { lift: number; reach: number; drop: number } | undefined;
   /**
    * Types whose entities carry the Minifig Creator's `craftmatic:draft`
    * property: while it is true the figure is being dressed or edited by the
@@ -485,9 +489,60 @@ export interface FigurePlanner {
  * The runtime, serialised into `scripts/figures.js`. It may reference nothing
  * outside itself and its arguments.
  */
-export function figureLifeRuntime(mc: { world: any; system: any }, config: FigureLifeConfig, planner: FigurePlanner, homeProperty: string): void {
+export function figureLifeRuntime(mc: { world: any; system: any }, config: FigureLifeConfig, planner: FigurePlanner, homeProperty: string, body?: ColliderBodyProbe): void {
   const { world, system } = mc;
   const T = config.tuning;
+  const watchedSeats = new Map<string, { seat: any; dimension: any; at: { x: number; y: number; z: number } }>();
+  const safeSeatDismounts = (): void => {
+    if (!body || !config.seatSafety || !config.seatTypes.length) return;
+    const S = config.seatSafety;
+    let players: any[] = [];
+    try { players = world.getAllPlayers(); } catch { return; }
+    const live = new Set(players.map((p: any) => p.id));
+    for (const id of watchedSeats.keys()) if (!live.has(id)) watchedSeats.delete(id);
+    for (const player of players) {
+      let riding: any;
+      try { riding = player.getComponent('minecraft:riding')?.entityRidingOn; } catch { riding = undefined; }
+      if (riding && config.seatTypes.includes(riding.typeId)) {
+        const l = riding.location;
+        watchedSeats.set(player.id, { seat: riding, dimension: player.dimension, at: { x: l.x, y: l.y, z: l.z } });
+        continue;
+      }
+      const left = watchedSeats.get(player.id);
+      if (!left) continue;
+      watchedSeats.delete(player.id);
+      if (riding) continue; // a hop/transfer already put the player on another mount
+      if (player.dimension?.id !== left.dimension?.id) continue;
+      let current: { x: number; y: number; z: number };
+      try { current = player.location; } catch { continue; }
+      try { if (body.bodyFree(player.dimension, current)) continue; } catch { /* search from the remembered seat */ }
+      const planned = { x: left.at.x, y: left.at.y + S.lift, z: left.at.z };
+      let safe = planned;
+      try { safe = body.settle(player.dimension, planned, S.reach, S.drop); } catch { safe = planned; }
+      let fits = false;
+      try {
+        const tolerance = 1 / 16; // collider forms and their floor tops are quantised to sixteenths
+        const floor = body.floorTop(player.dimension, safe.x, safe.z, safe.y + tolerance, tolerance * 2);
+        fits = floor !== undefined && Math.abs(floor - safe.y) <= tolerance && body.bodyFree(player.dimension, safe);
+      } catch { fits = false; }
+      if (fits) {
+        let moved = false;
+        try { moved = player.tryTeleport(safe, { dimension: player.dimension, checkForBlocks: true, keepVelocity: false }) === true; } catch { moved = false; }
+        if (moved) continue;
+      }
+      // With no validated destination, remain on the known seat instead of
+      // guessing through a wall. If it vanished or was taken, preserve the
+      // native pose and report that unresolved case explicitly.
+      let restored = false;
+      try {
+        const valid = typeof left.seat.isValid === 'function' ? left.seat.isValid() : left.seat.isValid;
+        const ride = valid ? left.seat.getComponent('minecraft:rideable') : undefined;
+        restored = !!ride && (ride.getRiders?.() ?? []).length === 0 && ride.addRider?.(player) === true;
+      } catch { restored = false; }
+      if (restored) { try { player.onScreenDisplay?.setActionBar?.('No safe place to get off here'); } catch { /* seated */ } }
+      else console.warn(`[craftmatic seat] no safe dismount for ${player.id}; seat unavailable at ${left.at.x},${left.at.y},${left.at.z}`);
+    }
+  };
   /** How far from its home (blocks) a seated figure looks for the seat to retake: 10261's kiosk seat entity sits ~2 below its home. */
   const RETAKE_REACH = 4;
   /**
@@ -903,6 +958,7 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
 
   system.runInterval(() => {
     tick++;
+    safeSeatDismounts();
     if (tick % 40 === 1) adopt();
     for (const [id, l] of lives) {
       let valid = false;
@@ -922,5 +978,8 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
 /** `scripts/figures.js`. */
 export function figureLifeScript(config: FigureLifeConfig): string {
   const planner = `{ standFeetAt: ${standFeetAt.toString()}, exploreWalkable: ${exploreWalkable.toString()}, pathTo: ${pathTo.toString()}, blockSpan: ${blockSpan.toString()}, startCell: ${startCell.toString()}, refugeCell: ${refugeCell.toString()} }`;
-  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${figureLifeRuntime.toString()})({ world, system }, CONFIG, ${planner}, ${JSON.stringify(FIGURE_HOME_PROPERTY)});\n`;
+  const body = config.seatSafety
+    ? `(${colliderBodyProbe.toString()})((${colliderFormKit.toString()})(), ${JSON.stringify(config.colliders?.loState ?? COLLIDER_STATES.lo)}, ${JSON.stringify(config.colliders?.hiState ?? COLLIDER_STATES.hi)})`
+    : 'undefined';
+  return `import { world, system } from '@minecraft/server';\nconst CONFIG = ${JSON.stringify(config)};\n(${figureLifeRuntime.toString()})({ world, system }, CONFIG, ${planner}, ${JSON.stringify(FIGURE_HOME_PROPERTY)}, ${body});\n`;
 }

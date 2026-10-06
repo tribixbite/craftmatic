@@ -10,10 +10,11 @@ import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceP
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { readAddon } from '../web/src/sim/pack/pack.js';
-import { simHost } from './_sim-host.js';
+import { simHost, solidBelow } from './_sim-host.js';
 import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
+import { RIDE } from '../web/src/engine/bedrock-rides.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -34,6 +35,32 @@ const pngAlphas = (bytes: ArrayBuffer | Uint8Array): number[] => {
 };
 
 describe('playable Bedrock add-on',()=>{
+  it('emits scenery-seat safety even when a pack has no figures', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Seat Only', seats: [{ x: 0.5, y: 0.5, z: 0.5, yaw: 0, label: 'Chair' }] });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_seat_only_BP/scripts/figures.js');
+    const figures = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_seat_only_BP/scripts/figures.js'));
+    const config = JSON.parse(/const CONFIG = (.*);\n/.exec(figures)![1]!) as { figureTypes: string[]; seatTypes: string[]; seatSafety: { reach: number }; colliders?: unknown };
+    expect(config.figureTypes).toEqual([]);
+    expect(config.seatTypes).toEqual(['craftmatic:seat_only_seat']);
+    expect(config.seatSafety.reach).toBe(RIDE.SETDOWN_REACH_BLOCKS);
+    expect(config.colliders).toBeUndefined();
+    expect(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_seat_only_BP/scripts/main.js'))).toContain("import './figures.js';");
+
+    // Run the exact exported script and entity without the optional custom
+    // collider kit: vanilla blocks must still get the rider safely outside.
+    const pack = (await readAddon(result.bytes)).packs.find(p => p.kind === 'behavior')!;
+    const seatFile = [...pack.files].find(([p]) => p === 'entities/seat_only_seat.json')!;
+    const h = simHost({ script: figures, entry: 'scripts/figures.js', files: { [seatFile[0]]: seatFile[1] }, terrain: solidBelow(0) });
+    h.fill({ x: -1, y: 0, z: -1 }, { x: 1, y: 2, z: 1 }, 'minecraft:stone');
+    const seat = h.spawn('craftmatic:seat_only_seat', { x: 0.5, y: 0, z: 0.5 });
+    const rider = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(rider, seat); h.run(1);
+    h.controls(rider, { sneak: true }); h.run(1);
+    expect(rider.ridingOn).toBeUndefined();
+    expect(rider.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+  });
+
   it('emits a standalone minifig creator entity, property-driven controller, wand and runtime', async () => {
     const provider = { getPartMesh: async (part: string) => ({ partId: part, resolvedAs: part, description: part === '973' ? 'Minifig Torso' : 'Minifig Head', triangles: [{ a: [0, 0, 0], b: [20, 0, 0], c: [0, 24, 0], color: 16 }], studs: [], bounds: { min: [0, 0, 0], max: [20, 24, 4] }, unresolvedRefs: [] }), report: () => ({ unresolved: [], printFallbacks: [], substitutions: [] }) };
     const library = minifigCreatorLibrary('starter');
