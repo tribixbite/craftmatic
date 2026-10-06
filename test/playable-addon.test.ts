@@ -895,7 +895,7 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(lang).toContain('item.spawn_egg.entity.craftmatic:shed_manual_seat.name=Shed Seat Spawn Egg');
   });
 
-  it('places locally rooted shells and counts their actors without multiplying the global cube budget', async () => {
+  it('places locally rooted shells and retains budgeted legacy assets for saved placements', async () => {
     const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
     const grid = new BlockGrid(83, 2, 3);
     grid.set(1, 0, 1, 'minecraft:red_concrete');
@@ -907,16 +907,22 @@ describe('playable add-on — brick-compiled entities', () => {
     });
     const buffer = ab(result.bytes), entries = listZipEntries(buffer);
     const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/craftmatic-diagnostics.json'))) as {
-      pack: { cuboids: number; entities: number }; spatialShell: { aggregateId: string; maxScale: number; actors: Array<{ id: string; cubes: number; radiusBlocks: number }> };
+      pack: { cuboids: number; entities: number }; spatialShell: { aggregateId: string; maxScale: number; legacy: { id: string; cubes: number; meshes: number }; actors: Array<{ id: string; cubes: number; radiusBlocks: number }> };
     };
     expect(diag.spatialShell.aggregateId).toBe('long_shell_shell');
     expect(diag.spatialShell.maxScale).toBe(2);
     expect(diag.spatialShell.actors).toHaveLength(2);
     const globalCubes = result.diagnostics.long_shell_shell!.cubeCount;
-    expect(diag.pack.cuboids).toBe(globalCubes);
+    expect(diag.spatialShell.legacy).toMatchObject({ id: 'long_shell_shell', cubes: globalCubes });
+    expect(diag.pack.cuboids).toBe(globalCubes * 2);
     expect(diag.spatialShell.actors.reduce((sum, actor) => sum + actor.cubes, 0)).toBe(globalCubes);
-    expect(diag.pack.entities).toBe(2);
+    expect(diag.pack.entities).toBe(3);
     const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/scripts/placement.js'));
+    expect(placement).not.toContain('"typeId":"craftmatic:long_shell_shell"');
+    expect(entries).toContain('Craftmatic_long_shell_BP/entities/long_shell_shell.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/entity/long_shell_shell.entity.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/models/entity/long_shell_shell.geo.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/render_controllers/long_shell_shell.render_controllers.json');
     const placed = diag.spatialShell.actors.map(chunk => {
       expect(entries).toContain(`Craftmatic_long_shell_BP/entities/${chunk.id}.json`);
       expect(entries).toContain(`Craftmatic_long_shell_RP/models/entity/${chunk.id}.geo.json`);

@@ -623,7 +623,14 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   (70-block estimated ceiling minus 16-block LOD margin). An indivisible oversized
   cube is retained and warned; a candidate root inside another chunk's drawn cube
   AABB rejects the partition and retains the original shell to avoid buried-root
-  lighting regressions. Measured 200-percent actor counts for 10261/10326/76417/
+  lighting regressions. Split exports also retain the original monolith behavior,
+  client, geometry and render assets as dormant compatibility definitions:
+  existing saves reference that type, and old Undo records lack anchor/size/turn
+  needed to migrate safely. New placement CONFIG spawns only chunks. Old saved
+  placements retain their old culling limitation; placing again uses local roots.
+  `spatialShell.legacy` identifies the retained geometry, which counts in shipped
+  cube/entity budgets in addition to the unchanged active shell compile.
+  Measured 200-percent actor counts for 10261/10326/76417/
   910004 are 4/1/2/1; imposing a 400-percent target would require 56/8/63/3 actors
   and introduce buried roots and oversized singletons. Native acceptance remains
   pending: test nearby ground-level geometry more than 70 blocks from the old

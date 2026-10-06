@@ -2262,7 +2262,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const figureBodies: Record<string, number> = {};
     const extraComponents: PlayableAddonResult['components'] = [];
     /** One global shell compile, potentially drawn by several locally rooted actors. */
-    let spatialShell: { aggregateId: string; maxScale: number; actors: Array<{ id: string; cubes: number; meshes: number; radiusBlocks: number; offsetBlocks: [number, number, number]; oversizedCubes: number }> } | undefined;
+    let spatialShell: { aggregateId: string; maxScale: number; legacy: { id: string; cubes: number; meshes: number; reason: string }; actors: Array<{ id: string; cubes: number; meshes: number; radiusBlocks: number; offsetBlocks: [number, number, number]; oversizedCubes: number }> } | undefined;
     const vehicleSeats: VehicleSeatReport[] = [];
     /**
      * Every entity this pack declares gets a `texts/en_US.lang` name (and, if
@@ -2577,9 +2577,21 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     ? `${options.shell.bricks.length} parts compiled as the building's visible geometry`
                     : `spatial shell ${index + 1}/${split.chunks.length}, partitioned from one ${options.shell.bricks.length}-part global compile` });
             }
-            if (split.chunks.some(chunk => chunk.id !== shellId)) spatialShell = { aggregateId: shellId, maxScale: STATIC_SHELL_CULL_MAX_SCALE,
-                actors: split.chunks.map(chunk => ({ id: chunk.id, cubes: chunk.geo.diagnostics.cubeCount, meshes: chunk.geo.meshes.length,
-                    radiusBlocks: chunk.radiusBlocks, offsetBlocks: chunk.offsetBlocks, oversizedCubes: chunk.oversizedCubes })) };
+            if (split.chunks.some(chunk => chunk.id !== shellId)) {
+                // Existing saves carry the original entity type and only Undo
+                // metadata, not an authoritative placement transform. Retain
+                // its finished geometry so a pack upgrade cannot erase an old
+                // shell. New placement CONFIG contains only the local chunks.
+                // # TODO(shell-migration): persist placement transforms before
+                // attempting automatic migration of legacy monolith actors.
+                emitCompiledEntity(shellId, sgeo, shellBehavior(shellId, sgeo.sizeBlocks), undefined, true);
+                addEntityName(`${PACK_NAMESPACE}:${shellId}`, `${label} bricks`, false);
+                spatialShell = { aggregateId: shellId, maxScale: STATIC_SHELL_CULL_MAX_SCALE,
+                    legacy: { id: shellId, cubes: sgeo.diagnostics.cubeCount, meshes: sgeo.meshes.length,
+                        reason: 'Dormant original shell assets preserve saved placements; new placements spawn only local chunks.' },
+                    actors: split.chunks.map(chunk => ({ id: chunk.id, cubes: chunk.geo.diagnostics.cubeCount, meshes: chunk.geo.meshes.length,
+                        radiusBlocks: chunk.radiusBlocks, offsetBlocks: chunk.offsetBlocks, oversizedCubes: chunk.oversizedCubes })) };
+            }
             // The model's moving parts, each its own hinged entity on the
             // shell's frame (bedrock-interactives.ts). A part that is not a
             // doorway keeps its closed geometry in the colliders (a cupboard,
@@ -3383,8 +3395,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Hull cuboids are RESIDENT beside the full model (add-on memory is
     // definition-side), so they count against the device budget like any other.
     const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
-    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
-    const entityCount = Object.keys(diagnostics).length + (spatialShell ? spatialShell.actors.length - 1 : 0) + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
+    // The aggregate diagnostics account for the chunks once. The retained
+    // legacy definition is additional shipped geometry, even though new
+    // placements never spawn it, and must not disappear from pack budgets.
+    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + (spatialShell?.legacy.cubes ?? 0) + fallbackCuboids + lodCuboids + coasterCuboids;
+    const entityCount = Object.keys(diagnostics).length + (spatialShell ? spatialShell.actors.length : 0) + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {

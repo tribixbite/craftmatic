@@ -61,7 +61,10 @@ Open acceptance work:
   audit and is authorized to claim/capture Saga then run native QA. Consult its
   live mailbox and audit-worktree output/bedrock-entity-qa/8e261f39-spatial-native/
   progress checkpoint before touching the device; do not start a second driver.
-  audit_sim_gates is investigating saved-placement upgrade compatibility (read-only).
+  audit_sim_gates finished upgrade investigation; root implemented a compatibility
+  fix (pending checks/commit/new clean exports). Saga claimed by audit_device_qa
+  at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
+  no deployment/input yet. Hold native deployment until new committed packs.
   Main remains untouched. UI wording change committed951fe974
   clarifies simulated reachability needs Minecraft confirmation; web typecheck
   passed. This does not change exported pack geometry/runtime.
@@ -80,11 +83,22 @@ Open acceptance work:
   Main shell-spatial-pack-audit-8e261f39.{ts,json} contains replay and roots.
   Refined decisive camera7370.0755,-58.38,7429: oldroot74.244, chunk1root49.477,
   chunk2root61.118, nearest exact face15.702 blocks. Recalculate if pin differs.
-  # TODO(upgrade-compatibility): replacing original shell type with _chunk_n
-  may affect pre-existing persistent placements on real imported upgrades;
-  inspect runtime restore/migration before claiming compatibility. NativeQA
-  retains old monolith definition/client/geo files as an intentional control
-  (no prune-stale), so it cannot by itself prove clean imported upgrades.
+  Upgrade audit proved old Undo records lack anchor/turn/size and no automatic
+  rebuild exists. New fix retains original monolith BP/client/geo/render assets
+  but never spawns them in new placement CONFIG. spatialShell.legacy labels and
+  budgets the dormant geometry; active chunks stay exactly unchanged. Archive
+  regression passes51/51 including original assets retained/current actors only
+  and increased shipped cube/entity budgets. Both typechecks,154 focused tests,
+  and web build(6.69s) passed; logs spatial-shell-legacy-{focused-tests,build}.log
+  in main evidence. Walker200-percent full/station A/B passed bothsets:
+  four/two shell holders, all29/24holders read, no browser errors or visible
+  seams/material/UV/print changes; baseline comparisons99.9052–99.9892% identical.
+  Main walker-spatial-8e261f39/run-stamp.json and clean PNGs/logs hold evidence;
+  owned4023 stopped,4000 preserved. Browser evidence does not prove native.
+  # TODO(shell-migration): old saved placements keep old culling limitation;
+  future migration needs authoritative transforms persisted before upgrading.
+  Native8e is paused (no deployment); newpack/archive hash gates required even
+  though previously compared active world geometry remains unchanged.
   `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
   one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
   PlacementActors with translated cube/bone pivots and local roots. No
@@ -184,8 +198,8 @@ No push/tag/release.
    AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261005-224548/.
    Candidate coaster anchor 7379,-60,7390, turn 0, 200 percent; read actual
    placement origin/roots after placing. Approximate old root 7421.0755,-8,
-   7409.6875. Decisive lower-corner camera 7366.0755,-58.38,7429 is about
-   77 blocks from the old root but 14 from nearby geometry; recalculate from
+   7409.6875. Refined lower-corner camera 7370.0755,-58.38,7429 is
+   74.244 blocks from the old root but 15.702 from nearby geometry; recalculate from
    the actual pack. Keep the player nearby to load chunks. Confirm nearby
    local chunk draws, alignment and lighting at near/station views, natural
    mount/Sneak/walk, exact one entity per chunk, then complete Undo/collider
