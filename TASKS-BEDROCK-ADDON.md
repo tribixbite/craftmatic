@@ -56,9 +56,10 @@ Acceptance measured:
 Open acceptance work:
 - Active round (2026-10-06): implementation and source checks complete;
   8e clean exports/offline gates COMPLETE, native acceptance PENDING. Product
-  compatibility fix committed8929007e; audit_sim_gates owns new sequential
-  exports/gates in .worktrees/fidelity-export-8929007e to main
-  output/fidelity-audit-20261005/packs-8929007e/. Do not launch duplicate writers.
+  compatibility fix committed8929007e; both new clean exports/gates COMPLETE.
+  .worktrees/fidelity-export-8929007e is clean; main
+  output/fidelity-audit-20261005/packs-8929007e/ owns final packs and reports.
+  No export writer remains active; do not rebuild without a relevant change.
   Detached .worktrees/fidelity-export-8e261f39 stays
   clean, pipeline b3bfade8802e, dirty=false; outputs in main
   output/fidelity-audit-20261005/packs-8e261f39/.
@@ -67,7 +68,7 @@ Open acceptance work:
   live mailbox and audit-worktree output/bedrock-entity-qa/8e261f39-spatial-native/
   progress checkpoint before touching the device; do not start a second driver.
   Upgrade investigation and compatibility fix complete (checks/commit passed,
-  new clean10261 passed,76417 export pending). Saga claimed by audit_device_qa
+  both clean packs passed). Saga claimed by audit_device_qa
   at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
   captured baseline without input; now authorized to deploy clean89210261.
   Confirm current mutation/restoration phase in native-progress.json.
@@ -111,6 +112,12 @@ Open acceptance work:
   assets byte-identical to8e; original4BP/client/geo/controllerassets byte-identical
   to278. CONFIG onlychunks1–4. Shippedbudget99703 =57312active+42391legacy,
   entities24 =23previous+1legacy. Evidence newpackdir892-legacy-shell-evidence.json.
+  Clean89276417 ready: SHAc10a8782e8103372452c38a74a94a258bcbb05edfb907894eb8ed0709bdd31c4,
+  1572572 bytes, same cleanpipeline. Structural1/1, nonquick5/5, doorway40rows
+  34OK/2SEALED/4ONE-WAY/0FAIL. All10activechunkfiles and204material/texture/UV
+  assets byte-identical8e; all6legacyBP/client/geo/controller/facePNG/texture_set
+  files byte-identical278. CONFIG onlychunks1–2. Budget106731=58869active+47862legacy,
+  entities24. 892-offline-summary.txt and892-pack-sha256.txt summarize exactgates.
   `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
   one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
   PlacementActors with translated cube/bone pivots and local roots. No
@@ -181,9 +188,10 @@ No push/tag/release.
 
 1. Integrate product/docs only in the fidelity-audit worktree; inspect `git status --short`
    and `git log -3`. Product commit8929007e is verified; exporter follow-up
-   `bun run test test/playable-addon.test.ts` passed 51/51. Both typechecks/full suite/build have
-   already passed; do not repeat them absent a relevant change or failure.
-2. New compatibility exports are active: reconcile agent/progress/evidence in
+   `bun run test test/playable-addon.test.ts` passed51/51. Fullsuite3008/31skipped
+   passed at8e; follow-up154focusedtests/both typechecks/build passed at892.
+   Do not repeat them absent a relevant change or failure.
+2. New compatibility exports are completed: reconcile progress/evidence in
    `.worktrees/fidelity-export-8929007e` and main `packs-8929007e/` before
    continuing any export work. Do not launch a second writer. If a run is conclusively
    abandoned, retain its files and use a NEW directory name for any new run.
