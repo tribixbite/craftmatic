@@ -40,7 +40,7 @@ export interface GeoCubeLike {
   size: [number, number, number];
   rotation?: [number, number, number];
   pivot?: [number, number, number];
-  faceUv?: { face: 'north' | 'south' | 'east' | 'west' | 'up' | 'down'; uv: [number, number]; size: [number, number] };
+  faceUv?: { face: BedrockFace; uv: [number, number]; size: [number, number] };
   /** The size the JSON declares when it carries an `inflate` (`origin`/`size` are then the drawn box). */
   uvSize?: [number, number, number];
 }
@@ -82,6 +82,7 @@ type AppearanceBone = GeoBoneLike;
 type AppearanceCube = GeoCubeLike;
 
 export type Vec3 = [number, number, number];
+export type BedrockFace = 'west' | 'east' | 'up' | 'down' | 'south' | 'north';
 /** Row-major 3x4 affine matrix: [r00 r01 r02 t0, r10 r11 r12 t1, r20 r21 r22 t2]. */
 export type Affine = number[];
 
@@ -160,15 +161,29 @@ export function boneTransforms(bones: readonly AppearanceBone[], overlay?: Reado
   return done;
 }
 
-/** The six faces of a unit cube as corner indices (bit0 = +x, bit1 = +y, bit2 = +z), outward CCW, with the local face name. */
-const FACES: ReadonlyArray<{ idx: [number, number, number, number]; name: 'west' | 'east' | 'up' | 'down' | 'south' | 'north' }> = [
-  // JSON faces are named for the game's frame, where X is mirrored: render +X is `west`.
-  { idx: [1, 3, 7, 5], name: 'west' },
-  { idx: [0, 4, 6, 2], name: 'east' },
-  { idx: [2, 6, 7, 3], name: 'up' },
-  { idx: [0, 1, 5, 4], name: 'down' },
-  { idx: [4, 5, 7, 6], name: 'south' },
-  { idx: [0, 2, 3, 1], name: 'north' },
+/**
+ * Geometry-JSON cube faces as corner indices (bit0 = +x, bit1 = +y,
+ * bit2 = +z), ordered outward CCW. Blockbench mirrors numeric X when it
+ * exports Bedrock geometry but preserves face keys: JSON `east` is therefore
+ * the numeric -X plane and JSON `west` the numeric +X plane. Native device QA
+ * confirmed that mapping with 10261's face atlas (2026-10-06).
+ */
+export const BEDROCK_FACE_CORNERS: Readonly<Record<BedrockFace, readonly [number, number, number, number]>> = {
+  west: [1, 3, 7, 5],
+  east: [0, 4, 6, 2],
+  up: [2, 6, 7, 3],
+  down: [0, 1, 5, 4],
+  south: [4, 5, 7, 6],
+  north: [0, 2, 3, 1],
+};
+
+const FACES: ReadonlyArray<{ idx: readonly [number, number, number, number]; name: BedrockFace }> = [
+  { idx: BEDROCK_FACE_CORNERS.west, name: 'west' },
+  { idx: BEDROCK_FACE_CORNERS.east, name: 'east' },
+  { idx: BEDROCK_FACE_CORNERS.up, name: 'up' },
+  { idx: BEDROCK_FACE_CORNERS.down, name: 'down' },
+  { idx: BEDROCK_FACE_CORNERS.south, name: 'south' },
+  { idx: BEDROCK_FACE_CORNERS.north, name: 'north' },
 ];
 
 /** The eight corners of a cube in the frame `m` maps into, after the cube's own pivot rotation. */
@@ -201,13 +216,15 @@ export interface WorldFace {
 /**
  * Texel coordinate of a local cube corner on a per-face-UV face. In JSON terms
  * (head-face.ts `orientFace`): north runs u along +X, south along -X, east
- * along +Z, west along -Z, and v runs down (-Y) on all four; up/down run u
+ * along -Z, west along +Z, and v runs down (-Y) on all four; up/down run u
  * along +X and v along +Z.
  */
-function decalUv(c: AppearanceCube, corner: number): [number, number] {
-  const f = c.faceUv!;
+export function bedrockFaceUv(
+  f: { face: BedrockFace; uv: readonly [number, number]; size: readonly [number, number] },
+  corner: number,
+): [number, number] {
   const x = corner & 1 ? 1 : 0, y = corner & 2 ? 1 : 0, z = corner & 4 ? 1 : 0;
-  const along = f.face === 'north' ? x : f.face === 'south' ? 1 - x : f.face === 'east' ? z : f.face === 'west' ? 1 - z : x;
+  const along = f.face === 'north' ? x : f.face === 'south' ? 1 - x : f.face === 'east' ? 1 - z : f.face === 'west' ? z : x;
   const down = f.face === 'up' || f.face === 'down' ? z : 1 - y;
   return [f.uv[0] + along * f.size[0], f.uv[1] + down * f.size[1]];
 }
@@ -273,7 +290,7 @@ export function worldFaces(actors: readonly AuditActor[], options: { far?: boole
           n = norm(n);
           n = [-n[0], -n[1], -n[2]];
           const face: WorldFace = { actor, group, cube, face: f.name, colour, normal: n, d: dot(n, q[0]), corners: q };
-          if (c.faceUv) face.uv = [decalUv(c, f.idx[0]), decalUv(c, f.idx[1]), decalUv(c, f.idx[2]), decalUv(c, f.idx[3])];
+          if (c.faceUv) face.uv = [bedrockFaceUv(c.faceUv, f.idx[0]), bedrockFaceUv(c.faceUv, f.idx[1]), bedrockFaceUv(c.faceUv, f.idx[2]), bedrockFaceUv(c.faceUv, f.idx[3])];
           out.push(face);
         }
       });

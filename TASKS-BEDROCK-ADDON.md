@@ -22,8 +22,10 @@ Acceptance measured:
   child-play scenarios, zero violations or unmodelled behaviors
   (9ed-all-structural.log, 9ed-all-childplay.*).
 - Three vehicle courses pass without clipping; three cross-pack transfers
-  pass (61df-course.*, 61df-hop.*). McLaren stops at a tall wall/deep pit;
+  pass (9ed-course.*, 9ed-hop.*). McLaren stops at a tall wall/deep pit;
   10788's upper-floor car transfer succeeds but cannot drive away.
+- Doorways: 17 doors, 170 size/rotation rows, zero FAIL (9ed-passability.*):
+  96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short-approach annotations.
 - Historical regressions: 14 accepted, zero failed, one NOT TESTED;
   CLI correctly exits 1 (9ed-regressions.*). Replay suite 41/41 and both
   typechecks pass after recovering the archived route.
@@ -58,7 +60,11 @@ Open acceptance work:
   and Fancy, train/rider close view and 200% view; restore settings/focus.
   Capture 100's distant face needs frontal follow-up before accepting it.
   101 resolves the standing figure view. Car1 in 102 has a blank face in
-  Minecraft despite a readable face in Walker; device diagnostics are active.
+  Minecraft despite a readable face in Walker. Native 138 resolves it:
+  original full car + only west→east decal key has a readable face; 139's
+  rear remains normal. Compiler and Walker/audit convention fix is being
+  checked before clean export. Thin-X padding alone failed (131, control
+  geometry visibly loaded); cutout alone renders both sides (136/137).
   Walker's inward decal-quad normals were a separate issue masked by
   DoubleSide. Outward winding now passes independent four-face normal
   checks (old code fails); materials retain DoubleSide. Chrome figure view
@@ -75,8 +81,7 @@ Open acceptance work:
   match September 30 backup hashes/mtimes; original app focus restored and
   own phone-lock claim released. October 5 preflight files were error text
   from omitting the world folder's trailing =, not backups. Evidence: pixel/.
-- # TODO(final-gates): finish native face diagnostics and 9ed44be0 doorway,
-  vehicle-course and transfer gates. For any further product fix, export
+- # TODO(final-gates): finish native face fix validation. For further fixes, export
   affected packs from a clean committed revision and rerun applicable gates.
   Restore diagnostic resources, settings, focus and own device claim; stop
   owned Vite servers on 4015/4017, preserve main server 4000. No push/tag/release.

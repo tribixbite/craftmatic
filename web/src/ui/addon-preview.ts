@@ -26,7 +26,7 @@
 
 import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
-import { pivotRotation } from '@engine/bedrock-geometry-faces.js';
+import { BEDROCK_FACE_CORNERS, bedrockFaceUv, pivotRotation } from '@engine/bedrock-geometry-faces.js';
 
 /**
  * A geometry rotation (JSON degrees) about `pivot` as a three.js matrix: the
@@ -130,23 +130,20 @@ export function faceDecalGeometry(
     if (!f || f.face === 'up' || f.face === 'down') continue;
     const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
     const x0 = ox, x1 = ox + sx, y0 = oy, y1 = oy + sy, z0 = oz, z1 = oz + sz;
-    // Top-left, top-right, bottom-left, bottom-right of the texel rectangle.
-    const corners: Array<[number, number, number]> =
-      f.face === 'north' ? [[x0, y1, z0], [x1, y1, z0], [x0, y0, z0], [x1, y0, z0]]
-        : f.face === 'south' ? [[x1, y1, z1], [x0, y1, z1], [x1, y0, z1], [x0, y0, z1]]
-          : f.face === 'east' ? [[x1, y1, z0], [x1, y1, z1], [x1, y0, z0], [x1, y0, z1]]
-            : [[x0, y1, z1], [x0, y1, z0], [x0, y0, z1], [x0, y0, z0]];
-    const u0 = f.uv[0] / tex.width, u1 = (f.uv[0] + f.size[0]) / tex.width;
-    const w0 = f.uv[1] / tex.height, w1 = (f.uv[1] + f.size[1]) / tex.height;
-    const cornerUv: Array<[number, number]> = [[u0, w0], [u1, w0], [u0, w1], [u1, w1]];
+    const cubeCorners: Array<[number, number, number]> = [];
+    for (let i = 0; i < 8; i++) cubeCorners.push([i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0]);
+    const faceCorners = BEDROCK_FACE_CORNERS[f.face];
     const bone = bones.get(c.bone) ?? new THREE.Matrix4();
-    // CCW from outside the cube: north -Z, south +Z, east +X, west -X.
-    // The holder's Z mirror has a negative determinant; Three.js accounts for
-    // that when choosing the WebGL front-face winding and transforming normals.
-    for (const k of [0, 1, 2, 1, 3, 2]) {
-      v.set(...corners[k]!).applyMatrix4(bone);
+    // Shared geometry-JSON order is CCW from outside the cube: north -Z,
+    // south +Z, east -X and west +X. The holder's Z mirror has a negative
+    // determinant; Three.js accounts for that when choosing WebGL winding and
+    // transforming normals.
+    for (const k of [0, 1, 2, 0, 2, 3]) {
+      const corner = faceCorners[k]!;
+      v.set(...cubeCorners[corner]!).applyMatrix4(bone);
       positions.push(v.x, v.y, v.z);
-      uvs.push(...cornerUv[k]!);
+      const uv = bedrockFaceUv(f, corner);
+      uvs.push(uv[0] / tex.width, uv[1] / tex.height);
     }
   }
   if (!positions.length) return null;
@@ -722,7 +719,8 @@ class AddonWalk implements AddonPreviewHandle {
    * UV names, textured from the atlas, alpha-tested. The corner a texel
    * rectangle's top-left lands on follows the rule the compiler lays the
    * atlas out by, in geometry-JSON terms: north u → +X, south u → −X,
-   * east u → +Z, west u → −Z, v → −Y (see `orientFace`).
+   * east u → −Z, west u → +Z, v → −Y. Numeric east is the −X
+   * plane and west the +X plane after Blockbench's export mirror.
    */
   private faceDecalMesh(group: AppearanceGroup, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
     const tex = group.texture!;

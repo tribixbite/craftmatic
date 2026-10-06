@@ -4,6 +4,7 @@ import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-mater
 import { encodePngRgba } from '../web/src/engine/lego-resource-pack.js';
 import { addonAppearanceMaterial, faceDecalGeometry } from '../web/src/ui/addon-preview.js';
 import { decodePngRgb8 } from '../web/src/engine/png-rgb8.js';
+import { worldFaces, type GeoEntryLike } from '../web/src/engine/bedrock-geometry-faces.js';
 import * as THREE from 'three';
 
 /**
@@ -184,7 +185,9 @@ describe('faceDecalGeometry', () => {
   it('winds every vertical face out of its cube', () => {
     const expected = {
       north: new THREE.Vector3(0, 0, -1), south: new THREE.Vector3(0, 0, 1),
-      east: new THREE.Vector3(1, 0, 0), west: new THREE.Vector3(-1, 0, 0),
+      // Blockbench mirrors numeric X during Bedrock export without swapping
+      // keys: native JSON east is -X and west is +X.
+      east: new THREE.Vector3(-1, 0, 0), west: new THREE.Vector3(1, 0, 0),
     } as const;
     for (const face of Object.keys(expected) as Array<keyof typeof expected>) {
       const geometry = faceDecalGeometry({ width: 8, height: 8 }, [{
@@ -198,6 +201,44 @@ describe('faceDecalGeometry', () => {
       const c = new THREE.Vector3().fromBufferAttribute(p, 2);
       const windingNormal = b.sub(a).cross(c.sub(a)).normalize();
       expect(windingNormal.dot(expected[face]), face).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('uses the audit face plane and UV corner for every vertical JSON face', () => {
+    const expectedPlane = { north: ['z', 3], south: ['z', 9], east: ['x', 1], west: ['x', 5] } as const;
+    const expectedUv = {
+      north: [[10, 32], [10, 20], [18, 20], [18, 32]],
+      south: [[18, 32], [10, 32], [10, 20], [18, 20]],
+      east: [[18, 32], [10, 32], [10, 20], [18, 20]],
+      west: [[10, 32], [10, 20], [18, 20], [18, 32]],
+    } as const;
+    for (const face of ['north', 'south', 'east', 'west'] as const) {
+      const cube = {
+        bone: 'body', origin: [1, 2, 3] as [number, number, number], size: [4, 5, 6] as [number, number, number],
+        faceUv: { face, uv: [10, 20] as [number, number], size: [8, 12] as [number, number] },
+      };
+      const geometry = faceDecalGeometry({ width: 100, height: 100 }, [cube], new Map())!;
+      const position = geometry.getAttribute('position');
+      const uv = geometry.getAttribute('uv');
+      const previewOrder = [0, 1, 2, 5]; // q0,q1,q2,q3 from the two triangles
+      const entry: GeoEntryLike = {
+        bones: [{ name: 'body', pivot: [0, 0, 0] }],
+        groups: [{ ldrawColor: null, alpha: 1, cubes: [cube] }],
+      };
+      const audited = worldFaces([{ typeId: 'face', kind: 'figure', entry, at: { x: 0, y: 0, z: 0 }, yawDeg: 0 }])[0]!;
+      const [axis, plane] = expectedPlane[face];
+      const axisIndex = axis === 'x' ? 0 : 2;
+      for (let i = 0; i < 4; i++) {
+        const p = previewOrder[i]!;
+        // worldFaces applies the geometry-JSON -> world Z mirror; undo it to
+        // compare the same JSON-space physical corner the preview consumes.
+        expect([position.getX(p), position.getY(p), position.getZ(p)], `${face} position ${i}`)
+          .toEqual([audited.corners[i]![0], audited.corners[i]![1], -audited.corners[i]![2]]);
+        expect([position.getX(p), position.getY(p), position.getZ(p)][axisIndex], `${face} physical plane`).toBe(plane);
+        expect(audited.uv![i], `${face} authored UV direction ${i}`).toEqual(expectedUv[face][i]);
+        expect(uv.getX(p), `${face} preview u ${i}`).toBeCloseTo(audited.uv![i]![0] / 100, 6);
+        expect(uv.getY(p), `${face} preview v ${i}`).toBeCloseTo(audited.uv![i]![1] / 100, 6);
+      }
     }
   });
 

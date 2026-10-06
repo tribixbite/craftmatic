@@ -3010,13 +3010,37 @@ only the face it looks out of, into one alpha-tested atlas per entity
 other cube. Orientation: the Pixel-proven frame is `world = (−x, y, −z)` of
 the render frame, a proper rotation, so a texture must read unmirrored from
 outside in the render frame - image right = `(−n) × up`; through the JSON's
-X mirror that is north u → +X, south u → −X, east u → +Z, west u → −Z,
+X mirror that is north u → +X, south u → −X, east u → −Z, west u → +Z,
 v → −Y (a player skin's face on its head's `north` face agrees). A face
 that looks up/down keeps its cuboid print. The Walk add-on reads the atlas
 and per-face UVs back and draws them; 42703's `92198p27` lopsided smile has
 the same handedness there as in the web viewer. The minifig creator opts
 out (`faceTextures: false`; its slots carry print layers). Diagnostics:
 `faceTextures: {printed, art, atlas}` per entity.
+
+**Native east/west convention (Saga, 2026-10-06).** Mirroring the cube's
+numeric X coordinates does not exchange face keys: render/editor +X remains
+`east`, −X remains `west`. After serialization, east is the numeric minimum-X
+plane and west the maximum-X plane. This follows Blockbench's
+[cube face coordinates](https://github.com/JannisX11/blockbench/blob/master/js/outliner/types/cube.js)
+and [Bedrock codec](https://github.com/JannisX11/blockbench/blob/master/js/formats/bedrock/bedrock.js):
+`compileCube` mirrors `origin[0]` while preserving each UV key. Treating the
+schema's cardinal direction prose as numeric serialized coordinates gave
+10261's coaster riders a blank face. Changing only the original decal's
+`west` key to `east` restored the face over the full head; padding its thin
+axis and changing material did not. Evidence: fidelity-audit-20261005 worktree
+`output/device-zero-plane-20261005/138-east-fullcar-front.png` and rear 139.
+The original cutout decal rendered from both sides when the head was hidden
+(136/137), so retain double-sided cutout behavior; the faulty surface was
+occluded in the full model. The audit and Walker now share physical corner
+and UV definitions (`BEDROCK_FACE_CORNERS`, `bedrockFaceUv`), rather than
+separately implementing contradictory mappings. North/south stay unchanged.
+
+For native diagnostics, a screenshot filename is not a camera-pose check:
+verify the car nose/limbs actually face the camera. Prove a changed resource
+loaded with an unmistakable geometry control before interpreting a negative
+result. Isolating a decal, then viewing it from both sides, separates missing
+resources from wrong-surface occlusion.
 
 **Found on the way:** a CLI build asked the local (2020) library's alias
 ladder BEFORE the prod mirror for the exact name, so `3626cp1t` - upstream
