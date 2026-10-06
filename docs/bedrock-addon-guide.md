@@ -3812,22 +3812,20 @@ gone (a child bumps into things all the time): a soft thud.
   the ease cannot fight the client. The camera writes the view's pitch to the
   vehicle (`craftmatic:look_pitch`) for the ship's look-down + Jump.
 
-### Assumed, not measured (quirk `rider-free-look`)
+### Native evidence and remaining assumptions (quirk `rider-free-look`)
 
-1. A drag on a scripted vehicle's seat with lock 181 turns the rider's yaw
-   (pinball measured the PITCH a drag reports on a lock-0 seat; nobody has
-   dragged a scripted vehicle's seat).
-2. The engine does NOT turn the zero-speed scripted vehicle toward the
-   rider's look (`player_ride_tamed` turns a horse that way). If it does,
-   the script's per-tick teleport snaps it back: visible jitter while
-   dragging. Fallback if seen: set the seat back to 0 for that class and
-   take the drag from the pitch only.
-3. `setRotation` on the seated rider applies its yaw in the cockpit view
-   (measured in pinball for a lock-0 seat).
+Saga's Milano chase-view test on a lock-181 seat records horizontal drag:
+`yawOff` changes 32.2 to -66.4 degrees while vehicle yaw stays 150.8.
+The released offset holds at rest; moving then enables `recentring` and
+reduces the offset toward zero. Evidence in the fidelity worktree:
+`output/device-zero-plane-20261005/ContentLog-milano-controls.txt` and
+`craftmatic-milano-controls.mp4`. This settles orbit/hold/recenter and the
+stationary vehicle heading for that class/view only. Pitch drag, turning
+rider-yaw lag, other vehicle classes and cockpit `setRotation` remain
+unmeasured; pinball's lock-0 yaw result is not a lock-181 cockpit test.
 
-The simulator cannot settle any of these (a simulated player's look is not
-touch input, so no GameTest can drag); the device checklist in
-`TASKS-BEDROCK-ADDON.md` "Spaceship controls" does, with
+The simulator cannot supply touch-input proof (a simulated player's look is
+not a drag). Use a native recording plus telemetry for the remaining cases:
 `/scriptevent craftmatic:vehicle_telemetry fast` (`CMCAM` lines: `riderYaw`,
 `yawOff`, `pitchOff`, `dragging`, `recentring`; `CMVT` lines: the vehicle's
 `yaw`, `how` = the collision response).
@@ -4309,11 +4307,11 @@ the body at the helm) would avoid it, but the only client-side camera that
 follows without the ~3.5-tick server lag is the first person; untested on
 the device.
 
-**Device-only still:** what the cockpit view looks like with Bedrock's
-lighting and the near-plane (the offline picture has no ground); the
-cockpit's look is FIXED to the car's heading on every compiled seat
-(`lock_rider_rotation: 0`; the device notes' "look drags do not move it") -
-unchanged and not judged here.
+**Device-only still:** cockpit lighting, near-plane and look behavior (the
+offline picture has no ground). At this historical cockpit-fallback round
+the compiled seat used `lock_rider_rotation: 0` and look was fixed to the car.
+Current scripted seats use 181 with free-look handling; Milano chase is
+measured above, but that does not close native cockpit acceptance.
 
 ### Traps found this round
 

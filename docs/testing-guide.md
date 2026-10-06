@@ -109,7 +109,9 @@ ships**: `web/src/engine/addon-walk.ts` over the runtime's own re-laid collider
 grid and the wand's own tread plan, at 20 Hz with Minecraft's numbers — a
 0.6 x 1.8 box, gravity 0.08 under 0.98 drag, a 0.42 jump peaking at 1.2522,
 4.317 blocks/s, and the reach walk's own 9/16 auto-step so the two models agree
-by construction. Unreachable here means unreachable in game.
+by construction. A blocked route is an offline defect to investigate; it is
+not independent proof of native behavior. Conversely, a browser pass cannot
+establish native mounting, dismount fallback, actor culling or interpolation.
 
 The key counts figures, seats, doors, track, vehicles, colliders and treads,
 each with show and highlight toggles for markers and perimeter boxes, alongside

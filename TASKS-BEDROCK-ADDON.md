@@ -47,7 +47,10 @@ Acceptance measured:
 
 Open acceptance work:
 - Active next round (2026-10-06, after ee240e3e): static-shell spatial
-  actors are under investigation; no product changes or new acceptance yet.
+  actors are being implemented; no new product acceptance yet. Root owns
+  playable-addon integration and guides; audit_sim_gates owns the pure
+  splitter/tests in bedrock-building-shell; facet_gate owns the conservative
+  candidate gate/probes/tests. No agent currently owns a device claim.
   Existing compiler mesh chunks share one root and cannot fix distant-root
   culling. PlacementActor arrays already supply scaled/rotated placement,
   persistent ownership, replace/Undo/reload cleanup; Walker and simulator
@@ -59,22 +62,35 @@ Open acceptance work:
   global plan. Keep original aggregate collider boxes and diagnostics.
   Preserve the single-shell path for small models.
   Validate drawn reach against the measured 70-block ceiling and 16-block
-  LOD margin, including 400-percent wand size and the above-roof light root.
-  Never discard an oversized indivisible source part; diagnose it. Measure
-  actor overhead and lost cross-group cube merging before defaulting.
+  LOD margin through 200-percent wand size and the above-roof light root.
+  Final-cube measurement: actor counts at 100/200/400 percent are 10261
+  1/4/56, 10326 1/1/8, 76417 1/2/63, 910004 1/1/3. At 200 percent no
+  roots are inside other geometry; at 400 percent 76417 has 30 buried roots
+  and four indivisible tall cubes exceed the target. Two long 10261 cubes
+  also exceed it. Do not impose a 400-percent partition on all placements.
+  Main evidence root shell-spatial-actor-{probe.ts,report.json}, report SHA
+  799af9855e4be55f4508c616e0e40d4757ff5300a411bd0482615e96aa11ed1e.
+  Retain oversized cubes and diagnose them; 300/400-percent culling remains
+  limited. Final-cube partition preserves existing cube merging and budget.
   Likely files: ldraw-entity-compiler.ts, bedrock-building-shell.ts and
   playable-addon.ts; tests must
   prove source conservation, reconstructed geometry, local-root culling,
   scaled/rotated placement and persistent Undo. Read-only agents
   audit_sim_gates (architecture review returned) and audit_facet_measurement
   (hollow/print/material integration review pending) hold no device claims.
-  Both checkouts are clean; Saga remains restored, unclaimed, with no new
+  Main remains untouched; our changes are in progress. Saga is restored,
+  unclaimed, with no new
   device input. No supported client-entity render-distance override exists
   in the reviewed official schema; do not invent one.
 - # TODO(facet-integration): broad curved-part integration remains gated on
   hollow topology, prints/materials and rotated colliders. Corrected 10303
   2-LDU measurement saves 472 hypothetical cubes (0.30%, 51 placements),
   not 10.7%; worktree output/round-facet-yield/10303.json.
+  Audit rejects the current whole-disc generator for hollow 85861, printed
+  98138pb177 and per-view-regressing 24866 despite mean silhouette wins.
+  4073/3062b/98138 are provisional only: topology/color/per-view gates must
+  pass before any render integration. facet_gate is implementing those gates
+  in the shared probe path, not enabling new compiler geometry yet.
 - # TODO(render-distance): the 200 percent coaster shell is visible at
   root distance 50.34 and absent at 75.82 while its cars remain. This is a
   bracket, not an exact cutoff; guide records camera/player-distance limits.

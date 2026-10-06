@@ -49,10 +49,10 @@ value.** Numbers (2026-09-25):
 | Model | Gravity | Frame | Physically right? |
 |---|---|---|---|
 | Coaster ride | 19.6 blocks/s² along the track tangent (`9.8 × pace²`, pace √2) | world blocks, real seconds | The law is right: `a = −g sin θ` for a point on frictionless rails, and a lossless run (no drag, rolling, ceiling, floor or chain) conserves `v²/2 + g h` to 1.1 % over 10303's drop and both loops, at 100 % and at 200 % (where the energy doubles, as the height does). The VALUE is 2 g: time-scaled, deliberately (below). |
-| Coaster preview | the same `COASTER_PHYSICS` object | the same | Same constants; formulas mirrored, not shared (§6). |
+| Coaster preview | the same `COASTER_PHYSICS` object | the same | Shares the pure `rideSubstep` integrator; preview route/state handling remains separate (§6). |
 | Pinball | 1,100 LDU/s² down the table plane | LDU in the table plane, seconds | A ball rolling on the real 8.6° playfield accelerates 2,630 LDU/s² (5/7 g sin θ; 3,680 if it slid). 1,100 is that slowed to 0.65 of real time. A game constant, not the world's gravity: it does not read the tilt and does not change with wand size. |
 | Walk-preview player | 0.08 blocks/tick² with 0.98 drag | world blocks, ticks | Minecraft's own player numbers; the integrator reproduces the 1.2522-block jump in 12 ticks. |
-| Figures | Bedrock's engine (entity `has_gravity`) | world | On device the engine applies Minecraft's own mob gravity. The host simulator only drops a figure 0.4 blocks a tick to the floor below: a stand-in, not gravity. |
+| Figures | Bedrock's engine (entity `has_gravity`) | world | On device the engine applies Minecraft's own mob gravity. The headless simulator runs its shared `tickBody` gravity, collision and friction; native engine behavior still needs device evidence. |
 | Vehicles | the scripted runtime (cars, hover craft, boats, ships); Bedrock's engine (rotorcraft, flyers) | world blocks, seconds | Scripted vehicles have no engine gravity: `carStep` falls at `CAR.GRAVITY` 20 blocks/s² (Minecraft's own 16-32 band), a hover craft sinks at 6, a boat falls at 20; a SHIP has none at all - it hovers (spaceship controls, §4.6). Native mounts hover with no gravity. |
 
 **Why the coaster is not at 9.8.** Real gravity was ridden on the Pixel
@@ -517,8 +517,10 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   (`VEHICLE_DYNAMIC.lookPitch`) for the ship's "look down + Jump", and logs
   `CMCAM` lines with telemetry on. A rotorcraft or a flyer (native mounts)
   already flies where its rider looks: its view is the direction of travel,
-  its seat keeps `lock_rider_rotation` 0. The device facts this rests on are
-  assumed (quirk `rider-free-look`, §11).
+  its seat keeps `lock_rider_rotation` 0. Saga's Milano chase-view recording
+  proves horizontal drag, hold at rest and recentering while moving on a
+  lock-181 scripted seat; other classes and cockpit look remain unmeasured
+  (quirk `rider-free-look`, §11).
 - **Headlights** (`HEADLIGHTS`, `isNightTime`, `headlightCell`): at night,
   with a rider, one `minecraft:light_block_14` stands `AHEAD` blocks past the
   nose, moved as the vehicle crosses cells, removed when the rider leaves, the
@@ -1095,12 +1097,15 @@ an earlier "~5 forward" was read off a ramped touch stick).
   above ~1.4 blocks a tick is unproven), and scale `DRAG` by 1/size.
 - **The car is a point mass.** No wheel inertia, no normal or lateral force:
   a car cannot derail or valley, which is why the inversion floor exists.
-- **The preview mirrors the integrator** (§4.2) instead of sharing it.
+- **Preview state handling remains separate** (§4.2): the numeric speed step
+  shares `rideSubstep`, while substep bounds, station brake and lift hand-off
+  are preview-owned. Sharing the core does not prove all route transitions match.
 - **Pinball gravity ignores the table's tilt** and the wand size: every
   table plays at 1,100 LDU/s². # TODO: derive it from `tiltDeg` (5/7 g sin θ
   × a fixed time scale) if a second table needs a different feel.
-- **Figures walk at speed × size below 100 %**, not × sqrt(size); the
-  host simulator's gravity is a constant 0.4-block/tick drop.
+- **Figures walk at speed × size below 100 %**, not × sqrt(size). The
+  headless simulator uses `tickBody`, rather than the retired constant-drop
+  stand-in; client interpolation and native movement still need device checks.
 - **Vehicle speeds are fixed numbers**, not derived from the model; they do
   not change with the wand size (the footprint and probes do: the runtime
   reads the entity's `minecraft:scale`). The swept footprint is a
@@ -1116,14 +1121,16 @@ an earlier "~5 forward" was read off a ramped touch stick).
   `rider-seat-order`, `add-rider-after-eject`, `aabb-is-collision-box`).
   # TODO(hop): fly the Nimbus into 10261's moving train on a phone and read
   the seat, the camera and the cloud left hovering.
-- **Free look is offline-proved only** (§4.6): that `lock_rider_rotation`
-  181 lets a scripted vehicle's rider turn its yaw by a drag under the
-  script's free camera, whether the device carries that yaw round with the
-  vehicle (and how late), and that `setRotation` eases a seated rider's yaw
-  in the cockpit view are assumed (quirk `rider-free-look`; pinball measured
-  the pitch reported by a drag and the yaw `setRotation` applies). The pitch
-  of the cockpit view cannot be eased (`setRotation` pitch is ignored on the
-  phone). # TODO(free-look): the device probe in TASKS "Spaceship controls".
+- **Milano chase free look has native evidence** (§4.6): Saga's
+  `output/device-zero-plane-20261005/ContentLog-milano-controls.txt` and
+  `craftmatic-milano-controls.mp4` in the fidelity worktree show a lock-181
+  seat accepting horizontal drag, holding the offset at rest and easing back
+  while moving. Vehicle yaw stays 150.8 degrees during the clean stationary
+  drag. This does not establish pitch drag, rider-yaw lag under turning,
+  other vehicle classes or cockpit `setRotation` behavior (quirk
+  `rider-free-look`). The cockpit's pitch cannot be eased (`setRotation`
+  pitch is ignored on the phone). # TODO(free-look): native cockpit and
+  other-class coverage remain open.
 - **Never stuck is block-only and has a ceiling.** `resolveMove` steps round
   a one-sided obstacle, slides along an axis and climbs `RISE_MAX` +
   `STEP_UP` (a car: 2.15 blocks); a pit deeper than that, a wall higher, or a
@@ -1275,7 +1282,7 @@ one of these files fails the check until its row is written.
 <!-- physics-spec:exports web/src/engine/coaster-preview.ts -->
 | Export | Kind | Role |
 |---|---|---|
-| `stepCoasterPreviewTick` | function | One tick of train 0 for the walk preview: MIRRORS the runtime integrator (§4.2). |
+| `stepCoasterPreviewTick` | function | One tick of train 0 for the walk preview, sharing `rideSubstep` with preview-owned route/state handling (§4.2). |
 | `initCoasterPreviewState` | function | Initial preview state at the station. |
 | `coasterCarEyePoint` | function | The rider's eye for the preview's board camera. |
 | `CoasterPreviewRouteInput`, `CoasterPreviewCarType`, `CoasterPreviewCarFrame`, `CoasterPreviewState`, `StepCoasterPreviewResult` | interface | Types. |
