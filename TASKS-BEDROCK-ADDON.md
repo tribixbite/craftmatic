@@ -42,9 +42,11 @@ Root reviewed043/044: nearby track/support/base geometry remains drawn at
 the farther camera, old-root distance77.046 versus prior absent75.82 bracket.
 Root also reviewed045/046 station alignment,047 chat showing each expected
 chunk once, and050 standing-worker face with readable print/no tall streak.
-The torso-front close-up remains open; exact packed-actor camera is
-`/camera @s set minecraft:free pos 7408.045394 -50.15 7422.542193 facing 7408.045394 -50.15 7419.30`
-for `roller_10261_fig4` (printed face outward+Z).
+The torso-front close-up remains open. Worker `roller_10261_fig4` root is
+7408.045394,-51.5,7419.280318, printed face outward+Z. Packed-camera view052
+at7408.045394,-50.15,7422.542193 is occluded by the gate and is not accepted.
+Move the free camera inside the gate before judging torso prints; proposed
+z7420.7 is unverified. Stop visual retries after one readable front capture.
 These are observations; full interaction/Undo acceptance, Gringotts testing
 and final restoration are still pending. Device pack files and
 bindings have already changed. If interrupted,
