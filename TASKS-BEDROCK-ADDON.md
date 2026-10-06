@@ -187,7 +187,8 @@ Open acceptance work:
   own phone-lock claim released. October 5 preflight files were error text
   from omitting the world folder's trailing =, not backups. Evidence: pixel/.
 For further fixes, export affected packs from a clean committed revision and
-rerun applicable gates. Native world 925 folder q-TUD3f7W6M=; no active claim.
+rerun applicable gates. Native world925 folder q-TUD3f7W6M=; Saga claim is held
+by audit_device_qa for the active892 round (read native-progress.json first).
 Owned Vite servers on 4015/4017/4019/4021 are stopped; preserve main server 4000.
 No push/tag/release.
 
@@ -223,8 +224,10 @@ No push/tag/release.
    Verify actual chunk IDs/roots, conserved aggregate cube counts and materials
    against baseline; use Node/Chrome Walker for visual alignment and 200-percent
    snapshots. Snapshot scale is fixed; native culling remains an estimate.
-4. Native Saga acceptance only after clean-pack/offline gates. Capture fresh
-   bindings/options/position/focus and claim output/.saga-lock before input.
+4. Native Saga acceptance only after clean-pack/offline gates. Continue through
+   the current sole device owner and checkpoint above; do not claim/drive it
+   concurrently. For a future round, capture fresh bindings/options/position/
+   focus and claim output/.saga-lock before input.
    World 925 folder is `q-TUD3f7W6M=` (trailing = essential). Restored baseline
    position is 5822,-60,5760, Creative/Fancy, empty hotbar, in-world focus;
    recapture rather than assume it persists. Backup reference:
