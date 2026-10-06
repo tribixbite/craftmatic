@@ -578,7 +578,21 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   for (let k = 0; k < nLevels; k++) levels.push(fp.lo + (nLevels === 1 ? 0 : span * k / (nLevels - 1)));
   const travel = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) + Math.abs(rad(dyaw)) * Math.hypot(L, W);
   const steps = Math.min(P.MAX_SUBSTEPS, Math.max(1, Math.ceil(travel / P.SWEEP_STEP)));
+  // `checks` is the number of target boundary samples tested. It intentionally
+  // does not count the old-pose confirmation or the lazy occupancy-cache
+  // lookups, so telemetry remains comparable across overlap outcomes.
   let checks = 0;
+  let occupiedAtFrom: Set<string> | undefined;
+  const cellKey = (p: readonly number[]): string => `${Math.floor(p[0]!)}:${Math.floor(p[1]!)}:${Math.floor(p[2]!)}`;
+  const originalOccupiedCells = (): Set<string> => {
+    if (occupiedAtFrom) return occupiedAtFrom;
+    occupiedAtFrom = new Set<string>();
+    for (const [a, s] of offsets) for (const h of levels) {
+      const p = pointAt(from, a, s, h);
+      if (solid(p[0], p[1], p[2])) occupiedAtFrom.add(cellKey(p));
+    }
+    return occupiedAtFrom;
+  };
   for (let k = 1; k <= steps; k++) {
     const t = k / steps;
     const pose: FootprintPose = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t, yaw: from.yaw + dyaw * t, pitch: from.pitch + (to.pitch - from.pitch) * t };
@@ -588,6 +602,11 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
       if (!solid(p[0], p[1], p[2])) continue;
       const q = pointAt(from, a, s, h);
       if (solid(q[0], q[1], q[2])) continue;
+      // A source-placed vehicle may start partly inside the model it was
+      // extracted from. While it rises and moves out, a trailing point may
+      // enter a voxel another part of the original boundary already occupied.
+      // Permit no new occupied voxel: a new crown or ceiling still blocks.
+      if (p[1] > q[1] + 1e-6 && originalOccupiedCells().has(cellKey(p))) continue;
       return { blocked: true, checks, at: p };
     }
   }

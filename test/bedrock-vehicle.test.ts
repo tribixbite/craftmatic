@@ -379,6 +379,21 @@ describe('swept footprint (sweepFootprint)', () => {
     expect(sweepFootprint(from, to, band, ledge, FOOTPRINT).blocked).toBe(true);
     expect(sweepFootprint(from, { ...to, y: from.y }, band, ledge, FOOTPRINT).blocked).toBe(false);
   });
+  it('lets an embedded hull rise out along a solid layer, but does not enter a new obstacle above it', () => {
+    // 10786's source-placed boat begins with several boundary samples in this
+    // voxel. On its first forward/rising tick another sample enters the same
+    // voxel; the old all-edge test treated that as a new obstruction.
+    const from = { x: 23, y: -60, z: 0, yaw: 0, pitch: -1.5 };
+    const to = { x: 23, y: -59.125, z: -0.03, yaw: 0, pitch: -2 };
+    const band = { halfLength: 3.47, halfWidth: 2.48, lo: 0.41, hi: 2.97 };
+    const embedded = solidCells(['23,-59,3']);
+    expect(sweepFootprint(from, to, band, embedded, FOOTPRINT).blocked).toBe(false);
+    const ceiling = solidCells(['23,-57,3']);
+    expect(sweepFootprint(from, to, band, ceiling, FOOTPRINT).blocked).toBe(true);
+    // Existing low penetration does not license an unrelated higher voxel.
+    const embeddedFloorAndCeiling = solidCells(['23,-59,3', '23,-57,3']);
+    expect(sweepFootprint(from, to, band, embeddedFloorAndCeiling, FOOTPRINT).blocked).toBe(true);
+  });
   it('tilts the band with the pitch: a nose-up climb clears a low block the level nose would hit', () => {
     const low = solidCells(['2,64,0']);
     const level = sweepFootprint({ x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { x: 0.3, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { ...fp, halfWidth: 0.3 }, low, FOOTPRINT);

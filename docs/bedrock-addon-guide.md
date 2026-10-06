@@ -2676,6 +2676,12 @@ on the ground beside the model, feet at LDraw y 8 = the underside) came out at
 the tile/plate tops under them, to the LDU). Doors keep `sceneGridPoint`: they
 are cut into the block grid and were device-verified.
 
+The same distinction applies to rides: a slide's running line is fixed to its
+rendered chute, so it uses `sceneGridPoint`; lifts, figures, and other actors
+use `sceneFloorPoint`. Row-zero voxel rounding can put the model underside a
+fraction of a block away from the shell grid, which is enough to make a slide
+seat visibly float even though both mappings start from the same LDraw point.
+
 **Not wired yet** (the pipeline, the pack diagnostics and the UI are other
 agents' files): `schem-pipeline.ts` should call `measureSceneAccess` +
 `recommendAccessScale` after `discoverSceneActors`, map figures and seats

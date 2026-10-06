@@ -50,10 +50,21 @@ Acceptance measured:
 Open acceptance work:
 - # TODO(extra-corpus): investigate 10786 player-in-solid, 10796 slide
   distance 0.206 plus player-in-solid, and 11204 slide distance 0.443.
-  Separate source assembly limitations from runtime defects.
+  Slide failures are a frame mismatch: paths used actor-ground Y while their
+  shell uses exact grid Y. Correct mapping measures 11204 .095 and 10796
+  .076 without new geometry; clean committed exports still required.
+  10786 boat can now rise out of an already occupied voxel while new ceiling
+  voxels still block. Vehicle/slide/pipeline suites 97/97 and both typechecks
+  pass. 10796's remaining solid failure follows a valid hop into a scenery
+  seat whose native eight-neighbor exits are all blocked; safe-exit work is
+  active in the figures runtime.
 - # TODO(device-audit): finish same-view 10261 figure in Vibrant Visuals
   and Fancy, train/rider close view and 200% view; restore settings/focus.
   Capture 100's distant face needs frontal follow-up before accepting it.
+  101 resolves the standing figure view. Car1 in 102 has a blank face in
+  Minecraft despite a readable face in Walker; device diagnostics are active.
+  Walker's inward decal-quad normals are a separate confirmed issue masked
+  by DoubleSide (both standing figure and car vanish with FrontSide).
   Milano controls/telemetry are captured; msPerTick is a rolling window
   mean, not individual tick latency. Open-air controls do not establish
   worst-case obstacle cost.
