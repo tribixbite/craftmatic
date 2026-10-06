@@ -13,23 +13,23 @@ Parallel agents append ONE section each at the end of this file.
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Current product baseline: 61df12e3. Evidence root:
+Current product baseline: 9ed44be0. Evidence root:
 C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
 worktree output/device-zero-plane-20261005/.
 
 Acceptance measured:
-- Clean packs-61df12e3: 15/15 structural gates; canonical 11 sets pass
-  55/55 nonquick child-play scenarios. Broader 15-set run is 72/75
-  (61df-all-childplay.*); extra failures are being investigated below.
+- Clean packs-9ed44be0: 15/15 structural gates and 75/75 nonquick
+  child-play scenarios, zero violations or unmodelled behaviors
+  (9ed-all-structural.log, 9ed-all-childplay.*).
 - Three vehicle courses pass without clipping; three cross-pack transfers
   pass (61df-course.*, 61df-hop.*). McLaren stops at a tall wall/deep pit;
   10788's upper-floor car transfer succeeds but cannot drive away.
 - Historical regressions: 14 accepted, zero failed, one NOT TESTED;
-  CLI correctly exits 1 (61df-regressions.*). Replay suite 41/41 and both
+  CLI correctly exits 1 (9ed-regressions.*). Replay suite 41/41 and both
   typechecks pass after recovering the archived route.
-- Previous full suite: 2,969 passed, 34 skipped; both typechecks, physics
-  spec and web build pass. Three subsequent PNG decoder tests also pass.
-  Rerun full gates after current replay/extra-set work settles.
+- Exact 9ed44be0 full suite: 2,982 passed, 34 skipped; both typechecks
+  and web build pass. Main output/fidelity-audit-9ed44be0-{tests,build}.log.
+  Physics spec and focused seat/vehicle/slide tests also pass.
 - Saga captures 39 and 54/55 show complete McLaren/coaster; 97/98 show
   readable minifigure front/back. Controlled zero/thin faces render from
   both sides (10/11). Capture 49's absent shell did not recur at 64-66 blocks;
@@ -48,19 +48,12 @@ Acceptance measured:
   on hollow topology, prints/materials and rotated collider correctness.
 
 Open acceptance work:
-- # TODO(extra-corpus): investigate 10786 player-in-solid, 10796 slide
-  distance 0.206 plus player-in-solid, and 11204 slide distance 0.443.
-  Slide failures are a frame mismatch: paths used actor-ground Y while their
-  shell uses exact grid Y. Correct mapping measures 11204 .095 and 10796
-  .076 without new geometry; clean committed exports still required.
-  10786 boat can now rise out of an already occupied voxel while new ceiling
-  voxels still block. Vehicle/slide/pipeline suites 97/97 and both typechecks
-  pass. 10796's remaining solid failure follows a valid hop into a scenery
-  seat whose native eight-neighbor exits are all blocked. Its runtime now
-  repairs only blocked exits using a verified body-free, floor-supported
-  landing; no-safe restores an available seat, transfers remain untouched.
-  Seat-only packs support vanilla blocks too. Focused Vitest suites 84/84;
-  both typechecks and physics spec pass. Clean real-pack acceptance remains.
+- # TODO(native-landing): exercise clean 9ed44be0 10796/10797 slide and
+  scenery-seat exits on Saga. Offline extra-corpus failures are resolved:
+  slide paths now share the shell's exact grid frame; embedded boats may
+  rise through only already-occupied voxels; blocked scenery-seat exits use
+  verified body-free, floor-supported landings or restore an available seat.
+  Clean exports pass all scenarios; native input/exit timing is separate.
 - # TODO(device-audit): finish same-view 10261 figure in Vibrant Visuals
   and Fancy, train/rider close view and 200% view; restore settings/focus.
   Capture 100's distant face needs frontal follow-up before accepting it.
@@ -82,9 +75,11 @@ Open acceptance work:
   match September 30 backup hashes/mtimes; original app focus restored and
   own phone-lock claim released. October 5 preflight files were error text
   from omitting the world folder's trailing =, not backups. Evidence: pixel/.
-- # TODO(final-gates): finish fixes, update tracker, inspect staged diff,
-  conventional commit, then export affected packs from that clean revision
-  and rerun applicable child-play/regression/doorway gates. No push/tag/release.
+- # TODO(final-gates): finish native face diagnostics and 9ed44be0 doorway,
+  vehicle-course and transfer gates. For any further product fix, export
+  affected packs from a clean committed revision and rerun applicable gates.
+  Restore diagnostic resources, settings, focus and own device claim; stop
+  owned Vite servers on 4015/4017, preserve main server 4000. No push/tag/release.
 
 Runtime landing fix in 61df searches two blocks with unchanged floor/body
 guards. The ineffective e12 compiler trim was removed. Faithful old runtime
