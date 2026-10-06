@@ -47,6 +47,11 @@ the new placement's automatic retirement of the prior placement history.
 Restore it while Minecraft is closed, then restore the separately captured
 original pack bytes, bindings and options. Exact paths/hashes/steps follow
 below and are embedded in `native-progress.json`.
+Verify all twelve snapshot files while the app is closed **before** replacing
+the candidate bindings. Then verify the final closed-world files against the
+snapshot except the two binding JSON files, which must match the captured
+original binding hashes. Preserve that report before relaunch; the database
+and level metadata may change normally after loading the restored world.
 Root verified the snapshot's twelve saved files against its manifest with
 zero mismatches and verified the tar SHA256. The project entry guide links
 directly here; the testing guide preserves snapshot and input-routing lessons.

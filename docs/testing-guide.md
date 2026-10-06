@@ -33,7 +33,11 @@ history. A pack/options backup alone cannot restore retired fixtures; old
 Undo records do not contain enough transforms to reconstruct them. Exercise
 the candidate's Undo first, then restore the snapshot while Minecraft is
 closed and restore original bindings separately if the snapshot was taken
-after binding the candidate. Verify file manifests/hashes and remove only
+after binding the candidate. Verify the complete snapshot manifest before
+overwriting its candidate bindings, then verify the final closed-world files
+against the snapshot with only the original binding hashes substituted.
+Save the report before relaunch, which can legitimately update world files.
+Verify pack/options hashes and remove only
 individually identified test-created files. Never recursively delete.
 
 Saga world-list input can be blocked by a rotated ActivityRecordInputSink.
