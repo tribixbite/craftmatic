@@ -446,10 +446,15 @@ reported in the step's note. `bun scripts/_cockpit_view.ts <packs> --out=<dir>`
 renders each vehicle's hotbar-9 view offline and prints both scores.
 
 Limits of this set: the slide's margin is small (the drawn slope is coarse;
-`TODO(sim-slide)`); where the Saga's 10797 car met its overhang is not
-recorded, and neither the model's own overhangs nor a fixture with the host
-test's geometry made the old runtime fall - the old ground scan's failing
-branch needs a geometry the simulator has not been given.
+`TODO(sim-slide)`). The archived Saga 10797 frames and subagent transcript
+recover the car route and swipes: mounted HUD 6986,-60,7017, then
+6986,-61,7018 and 6992,-63,7022; the car later reached 6992,-104,7021.
+The replay uses the archived pack's collider structure and aligns the rider
+with the car before the recorded forward/diagonal inputs. Neither ideal
+20 Hz timing nor shorter holds matching the observed movement reproduce
+the fall. The native mounted pose and tick cadence remain unknown; this
+case is **NOT TESTED**, not evidence that the simulator catches the bug.
+Exact archive and transcript paths are in the regression case's evidence.
 
 ## Not modelled (yet), and honest limits
 

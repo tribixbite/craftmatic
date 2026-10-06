@@ -11,132 +11,68 @@ Parallel agents append ONE section each at the end of this file.
 
 ### Active fidelity audit (2026-10-05)
 
-Worktree `C:/git/craftmatic/.worktrees/fidelity-audit-20261005`, branch
-`fix/fidelity-audit-20261005`, based on `b9966287`. Recent work is being
-independently checked, not treated as device-proven. Evidence logs are in
-`C:/git/craftmatic/output/fidelity-audit-*.log`.
-- UV padding preserves source extents again: `f1850431` enlarged **every**
-  dimension below 0.25 after coplanar separation, not just exact-zero faces.
-  Five regression cases fail before the correction and pass after; a real
-  minifig's emitted face corners agree with UV padding disabled.
-- Current checks on `a116cdf6`: 2,961 tests passed, 31 skipped; both
-  typechecks and web build passed. First-person snapshot culling then gained
-  3-D root distance and the shared collision-box cutoff; two raster tests fail
-  before the fix, all 40 sim-engine tests pass after (both typechecks pass).
-  Web build after the collision follow-up passed (existing large-chunk warning).
-  Latest material/slide/replay revision: full suite 2,969 passed, 34 skipped;
-  181 files passed, one skipped. Both typechecks, physics spec and web build
-  pass. Main logs: `output/fidelity-audit-final-{tests,build}.log`.
-- Walker QA harness now fails missing targets, and `figures --kind=appearance
-  --distance=0 --hide-panels` frames actual rendered bounds for vehicle-only
-  packs. McLaren front/left/back show the complete body; evidence in main
-  `output/fidelity-audit-20261005/walker/42172-appearance-*.png`.
-- Full 11-pack audit now available at main
-  `output/fidelity-audit-20261005/a116-all-{childplay,regressions-detailed}.*`:
-  54/55 child-play scenarios pass. Three regression corrections now await
-  clean rebuilt-pack acceptance:
-  10797 slide dismount has no free standing pose inside its 1.5-block search;
-  10788 replay targets an invisible seat instead of the car; 10326 replay
-  starts inside real geometry and needs a legal pose in the recorded HUD cell.
-  The old 10797 overhang fall remains unreproduced and is now NOT TESTED,
-  nonzero exit, rather than a successful regression run.
-  The compiler trim in `e12e90cb` did not fix the landing and was removed.
-  A faithful substitution of the old runtime's literal search radius 1.5→2
-  passes all five 10797 scenarios without changing colliders. The runtime
-  now searches two blocks; its floor/body guards stay intact. A meaningful
-  obstructed-landing runtime test passes, as do rides/clearance 33/33 tests,
-  physics spec and both typechecks. Clean rebuilt-pack acceptance is next.
-  Do not use the first `a116-reach2` config-only substitution as evidence:
-  a116 used a literal 1.5, so that substitution changed nothing.
-- Doorway audit: all 11 packs, 17 doors, 170 size/turn rows (100/150/200/300/400,
-  0/90): zero FAIL, 96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short approaches.
-  Main `a116-passability.{json,log}` records model limits rather than hiding them.
-  Three cross-pack hop scenarios pass (`a116-hop.*`); 10788's slide transfers
-  into the car but that upper-floor car cannot drive away (existing limit).
-- Controlled Saga probe: UV-padded zero-thickness faces render from both sides
-  (red=0, yellow=.01, green=.25, blue=1). Worktree
-  `output/device-zero-plane-20261005/{build-probe.ts,10-front.png,11-back.png}`.
-  Saga chat must drain the delete queue for 5 seconds, insert slash with
-  keyevent 76, then type the body without a sacrificial `x` (current Gboard
-  ignores `input text '/'`). One implementation backs both helper contracts;
-  field-only mode is verified before and after manual Enter (captures 44/45).
-- # TODO(device-audit): finish isolated 10261 figure/car close views, 200% view,
-  Milano telemetry/controls. Canonical
-  McLaren and full coaster shell now render in Saga captures 39 and 54/55
-  under worktree `output/device-zero-plane-20261005/`. Capture 49's absent
-  shell is not a reproducible measured cutoff: later 64–66-block views render.
-  Final `a116cdf6` pack McLaren also renders in Vibrant Visuals (capture 73);
-  UI capture 69 proves the mode and 78 proves Fancy restored. Both option
-  fields returned to 1 (Vibrant Visuals was 2).
-- Course audit of clean `880a7195` packs: 42172 hill clips 1 tick; 7140 tree
-  while climbing clips 3; 76286 tree clips 28. Fixed simultaneous vertical
-  movement checking and adaptive height spacing; five new regression tests
-  fail before and pass after. In-memory replacement of only `sweepFootprint`
-  makes all three courses pass without clips. Clean `354cb7b2` rebuilt packs
-  also pass all three courses unmodified: main
-  `output/fidelity-audit-20261005/final-course.{log,json,md}`.
-  # TODO: measure Milano device cost (more height probes).
-  Pixel is connected but locked; an unlock request is pending. Its failed
-  import did not change world 924 bindings: live files match the September 30
-  backup hashes and mtimes. The October 5 "preflight" files were error text
-  (world folder's trailing `=` omitted), not backups. Evidence is in main
-  `output/fidelity-audit-20261005/pixel/`; original app focus restored and this
-  audit's phone-lock claim released.
-- Child-play on these packs exposed two ship Undo failures (13/15 scenarios
-  pass): actors outside loaded chunks survive Undo. Also reproduced on
-  `880a7195`, so this is pre-existing. Persistent retired-actor cleanup now
-  passes reload, replacement-survival and 2,600-actor chunked-storage tests.
-  The updated child-play loads remote chunks and still rejects old Milano.
-  Final `packs-a116cdf6` pass 20/20 child-play scenarios and 3/3 vehicle
-  courses; 4/4 archives pass the strengthened structural gate. Geometry and
-  face pixels match `880a7195` byte-for-byte (`a116-geometry-identity.json`).
-- Material audit: old 10261 ships 45 texture sets but lacks RP `pbr` capability;
-  printed face atlases also lacked explicit ABS roughness. Export now derives
-  capability from completed output and emits inline ABS MER for faces while
-  preserving their pixels. Structural gate rejects the old coaster and checks
-  image references. Rebuilt 10261 has the capability and 56 texture sets
-  (45 swatches + 11 face atlases). Existing swatch MER channels,
-  references and full-detail transparency are correct. Legacy viewer RGB
-  still takes precedence over LDConfig RGB; palette migration remains a
-  deliberate, separately measured fidelity choice. Flat normal maps avoid
-  embossing the cuboid decomposition and should not receive invented seams.
-  Walker now reads actual manifest-gated uniform MER assets, preserves print
-  pixels/alpha and shares reflection lighting. Unsupported maps report diffuse
-  fallback. Decoder checks CRC, framing, filters and bounded decompression;
-  tests cover custom filenames, inline/image values and malformed assets.
-  Isolated Chrome/Node checks pass for 7140, 10261 close figure and 42172;
-  console/page errors empty, `walker-chrome-*-a116.png` in main evidence dir.
-  Three additional PNG tests pass with precomputed filtered RGB bytes
-  (including all Paeth choices), oversized dimensions and inflate overrun.
-  Thin bright lower-body seams were inspected: both legs have zero zero-sized
-  axes, volume overlaps or overlapping coplanar front/back faces. The same
-  lines persist in an identical no-PBR/Lambert view; these are emitted cuboid
-  boundaries, not a Walker depth/material regression (`leg-seams-{0,1}.png`).
-  # TODO: resolve real-pack landing failure and rebuild acceptance.
-- Walker now frames from rendered bounds and live holder yaw; figure-marker
-  and appearance views at 200%/90° are byte-identical. Station reachability
-  passes both walk models at 100%/200%, four turns each; whole-grid agreement
-  is 95.85–99.57%, not a universal pass. Main evidence:
-  `output/fidelity-audit-20261005/{walker/,10261-walk.log}`.
-- CLI now refuses zero-vehicle and missing-regression-pack runs as NOT TESTED.
-  The Oct 2 10261-only course exercised zero vehicles.
-- Facet yield report corrected: 10303 requested 2-LDU baseline saves only
-  472 hypothetical cuboids (0.30%, 51 placements), not 10.7%. The 194 coarse
-  candidates are a separate comparison. Evidence: worktree
-  `output/round-facet-yield/10303.json`; all aggregate arithmetic reconciles.
-  # TODO(facets): silhouette IoU alone cannot preserve hollow topology,
-  prints/materials, or rotated collider/exposure boxes; integration stays gated.
+Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
+fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
+Current product baseline: 61df12e3. Evidence root:
+C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
+worktree output/device-zero-plane-20261005/.
 
-### Next acceptance gates
+Acceptance measured:
+- Clean packs-61df12e3: 15/15 structural gates; canonical 11 sets pass
+  55/55 nonquick child-play scenarios. Broader 15-set run is 72/75
+  (61df-all-childplay.*); extra failures are being investigated below.
+- Three vehicle courses pass without clipping; three cross-pack transfers
+  pass (61df-course.*, 61df-hop.*). McLaren stops at a tall wall/deep pit;
+  10788's upper-floor car transfer succeeds but cannot drive away.
+- Historical regressions: 14 accepted, zero failed, one NOT TESTED;
+  CLI correctly exits 1 (61df-regressions.*). Replay suite 41/41 and both
+  typechecks pass after recovering the archived route.
+- Previous full suite: 2,969 passed, 34 skipped; both typechecks, physics
+  spec and web build pass. Three subsequent PNG decoder tests also pass.
+  Rerun full gates after current replay/extra-set work settles.
+- Saga captures 39 and 54/55 show complete McLaren/coaster; 97/98 show
+  readable minifigure front/back. Controlled zero/thin faces render from
+  both sides (10/11). Capture 49's absent shell did not recur at 64-66 blocks;
+  do not call it a measured culling cutoff.
+- Chrome/Node Walker checks on 7140, 10261 figure and 42172 have no
+  console/page errors (walker-chrome-*-a116.png). Walker reads actual pack
+  MER values with explicit fallback, preserves face pixels/alpha and uses
+  reflection lighting. Thin leg seams also occur in Lambert; measured
+  cuboid boundaries have no volume/coplanar overlaps.
+- Extent/UV preservation, persistent offscreen Undo cleanup, collision
+  sweeps, PBR capability/face materials and bounded PNG decoding have
+  regression coverage. History and details are in commits/guides.
+- Corrected facet measurement: 10303 at requested 2-LDU resolution saves
+  472 hypothetical cubes (0.30%, 51 placements), not 10.7%.
+  Worktree output/round-facet-yield/10303.json. Integration remains gated
+  on hollow topology, prints/materials and rotated collider correctness.
 
-Finish the three current audit fixes, commit, then export affected packs from
-that clean revision and rerun full child-play, all historical regressions,
-vehicle courses and doorway checks. Keep the unreproduced historical overhang
-case explicitly NOT TESTED. Complete native-only checks below on Saga;
-Pixel is connected but secure-locked. Do not distribute or publish this branch
-without an explicit request. The earlier "30j never built / course never run"
-handoff is superseded by the audit evidence above.
+Open acceptance work:
+- # TODO(extra-corpus): investigate 10786 player-in-solid, 10796 slide
+  distance 0.206 plus player-in-solid, and 11204 slide distance 0.443.
+  Separate source assembly limitations from runtime defects.
+- # TODO(device-audit): finish same-view 10261 figure in Vibrant Visuals
+  and Fancy, train/rider close view and 200% view; restore settings/focus.
+  Capture 100's distant face needs frontal follow-up before accepting it.
+  Milano controls/telemetry are captured; msPerTick is a rolling window
+  mean, not individual tick latency. Open-air controls do not establish
+  worst-case obstacle cost.
+- # TODO(regression): recovered historical 10797 overhang route still
+  does not reproduce the old device fall; keep NOT TESTED and nonzero exit.
+  Archive: main .claude/worktrees/agent-a743597866bba6650/output/gabby-play-0929/.
+  Exact transcript/route and cadence limits are in the regression case.
+- Pixel remains secure-locked, unlock request pending. World 924 bindings
+  match September 30 backup hashes/mtimes; original app focus restored and
+  own phone-lock claim released. October 5 preflight files were error text
+  from omitting the world folder's trailing =, not backups. Evidence: pixel/.
+- # TODO(final-gates): finish fixes, update tracker, inspect staged diff,
+  conventional commit, then export affected packs from that clean revision
+  and rerun applicable child-play/regression/doorway gates. No push/tag/release.
 
+Runtime landing fix in 61df searches two blocks with unchanged floor/body
+guards. The ineffective e12 compiler trim was removed. Faithful old runtime
+literal 1.5 to 2 substitution alone passes 10797 5/5; the earlier config-only
+substitution changed nothing and is invalid evidence.
 
 | surface | command | URL |
 |---|---|---|
