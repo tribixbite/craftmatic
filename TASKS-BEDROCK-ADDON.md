@@ -42,11 +42,13 @@ Root reviewed043/044: nearby track/support/base geometry remains drawn at
 the farther camera, old-root distance77.046 versus prior absent75.82 bracket.
 Root also reviewed045/046 station alignment,047 chat showing each expected
 chunk once, and050 standing-worker face with readable print/no tall streak.
-The torso-front close-up remains open. Worker `roller_10261_fig4` root is
-7408.045394,-51.5,7419.280318, printed face outward+Z. Packed-camera view052
-at7408.045394,-50.15,7422.542193 is occluded by the gate and is not accepted.
-Move the free camera inside the gate before judging torso prints; proposed
-z7420.7 is unverified. Stop visual retries after one readable front capture.
+Torso-front close-up054 is now independently root-reviewed: standing worker
+face and blue/light-blue torso are readable, no tall black glyph artifact.
+Worker `roller_10261_fig4` root7408.045394,-51.5,7419.280318, face outward+Z.
+Earlier view052 is gate-occluded and rejected; use054, not further retries.
+Root also reviewed016: retained legacy coaster shell/trains render intact
+after the final upgrade before new placement. Live checkpoint has exact
+cameras and current phase; visual/census checks are complete.
 These are observations; full interaction/Undo acceptance, Gringotts testing
 and final restoration are still pending. Device pack files and
 bindings have already changed. If interrupted,
