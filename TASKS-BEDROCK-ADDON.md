@@ -192,7 +192,11 @@ Open acceptance work:
   Do not tune inferred cadence solely to force this gate green.
   Archive: main .claude/worktrees/agent-a743597866bba6650/output/gabby-play-0929/.
   Exact transcript/route and cadence limits are in the regression case.
-- Pixel remains secure-locked, unlock request pending. World 924 bindings
+- Pixel read-only recheck2026-10-06 10:22:21EDT: connected, keyguardshowing=true,
+  screenoff/asleep, NotificationShade focus; underlying resumed app is
+  com.google.android.gms/.octarine.ui.OctarineActivity. No input/state changed.
+  It remains unavailable for second nativeQA; existing unlock request pending.
+  World 924 bindings
   match September 30 backup hashes/mtimes; original app focus restored and
   own phone-lock claim released. October 5 preflight files were error text
   from omitting the world folder's trailing =, not backups. Evidence: pixel/.
