@@ -39,13 +39,18 @@ if ! $field_only; then
 fi
 
 if $is_saga; then
-  # Bulk input drops/reorders characters on Saga. Clear with both delete
-  # directions, insert the slash key event to establish the editor state, then
+  # Bulk input drops/reorders characters on Saga. Clear the existing field,
+  # insert the slash key event to establish the editor state, then
   # type the body one character at a time; `input text '/'` is ignored by the
   # current Gboard.
   body="${command#/}"
-  adb "${serial_args[@]}" shell 'for i in $(seq 1 60); do input keyevent 67; done; for i in $(seq 1 30); do input keyevent 112; done'
-  # The key-event queue remains busy after the 90 deletes; starting sooner can
+  # Saga's Gboard ignores injected Ctrl+A in an already-focused field. Move to
+  # the end and clear up to 512 characters in one `input` process instead of
+  # relying on the cursor position or a short fixed window.
+  clear_keys=(123)
+  for ((i = 0; i < 512; i++)); do clear_keys+=(67); done
+  adb "${serial_args[@]}" shell input keyevent "${clear_keys[@]}"
+  # The key-event queue remains busy after clearing; starting sooner can
   # silently drop the first several characters ("function" became "on").
   sleep 5
   adb "${serial_args[@]}" shell "input keyevent 76; sleep 0.5"

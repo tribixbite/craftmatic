@@ -39,6 +39,15 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   X-wing at 4 LDU and a 1,906-part DeLorean at 8 LDU, both ≥ 0.95 six-view
   silhouette IoU (`scripts/_entity_silhouette.ts`); the spec's 4,096 pushed
   them to 8/16 LDU. `scripts/_playable_ref.ts` is the CLI export gate.
+- **Saga command-field clearing must be tested before submission.** Gboard
+  ignores injected Ctrl+A in an already-focused Minecraft field. The helper
+  sends MOVE_END plus 512 Backspaces in one `input keyevent` process, waits
+  for its queue to drain, then types the slash and body. This clears up to
+  512 characters regardless of cursor position. Verify an existing long,
+  unsubmitted buffer becomes exactly the new command; sending two commands
+  in succession proves nothing because Enter clears the field itself.
+  Native proof: fidelity-audit worktree `output/device-zero-plane-20261005/`
+  `helper-batch-long-buffer-raw.png` and `helper-batch-short-before-submit.png`.
 - **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
   to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
   set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into
