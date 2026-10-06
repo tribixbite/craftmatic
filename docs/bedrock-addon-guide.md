@@ -48,6 +48,17 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   in succession proves nothing because Enter clears the field itself.
   Native proof: fidelity-audit worktree `output/device-zero-plane-20261005/`
   `helper-batch-long-buffer-raw.png` and `helper-batch-short-before-submit.png`.
+- **Record the input, not just the setup.** A foreground `screenrecord`
+  invocation can consume its whole recording window before the next tool call
+  sends the tap. Start the recorder in a background process (on Windows,
+  `Start-Process -WindowStyle Hidden`), then send input in the same host
+  sequence. Check actual HUD changes before naming extracted frames
+  "transit" or "landing". Saga `10796-slide2.mp4` is explicitly unusable:
+  all 19.855 seconds precede the tap. `10796-slide-final.mp4` records the
+  physical press, travel, setdown and subsequent walking instead.
+  Clear test-only movement effects and free-camera overrides before judging
+  native player physics. `approachSpots` can supply a supported boarding pose;
+  an airborne teleport followed by a delayed screenshot cannot.
 - **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
   to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
   set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into

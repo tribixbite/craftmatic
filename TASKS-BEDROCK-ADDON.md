@@ -13,12 +13,16 @@ Parallel agents append ONE section each at the end of this file.
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Current product baseline includes the coaster-ownership correction; latest
-clean exports: 62fe6c26, pending affected-pack rebuild below. Evidence root:
+Current product baseline: c8b869bd; clean affected exports packs-c8b869bd
+(10261/31084), with the unchanged remainder in packs-62fe6c26. Evidence root:
 C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
 worktree output/device-zero-plane-20261005/.
 
 Acceptance measured:
+- Clean c8 affected packs: structural 2/2 and child play 10/10 (10261/31084).
+  Walker A/B and native capture 171 confirm complete car/face without stray
+  station panels. All ten removed car parts transfer to shell (4011→4021).
+  Evidence: c8-two-* and walker-coaster-ownership-c8-20261006/.
 - Clean packs-62fe6c26: 15/15 structural gates and 75/75 nonquick
   child-play scenarios, zero violations or unmodelled behaviors
   (62fe-all-structural.log, 62fe-all-childplay.*).
@@ -54,43 +58,23 @@ Acceptance measured:
   on hollow topology, prints/materials and rotated collider correctness.
 
 Open acceptance work:
-- # TODO(coaster-ownership): verify the final native fix for station tiles
-  1231–1233 and boarding-platform stripe 1302. The latter is the long tan
-  panel visible in both Minecraft and Walker. Provenance-aware ownership now
-  excludes these, preserves nested bodywork/rider props, and retains the flat
-  fallback. Focused and full gates pass. Clean c8 exports pass structural
-  2/2 and play 10/10 (10261 + 31084).
-  Walker A/B confirms the panel disappears while car/face remain; all ten
-  removed parts transfer to shell (4011→4021). Final native c8 view remains.
-  Probe: worktree output/coaster-assemblies/10261 Roller Coaster.json;
-  main evidence walker-coaster-ownership-c8-20261006/ and c8-two-*.
-- # TODO(native-landing): exercise clean 9ed44be0 10796/10797 slide and
-  scenery-seat exits on Saga. Offline extra-corpus failures are resolved:
+- # TODO(native-landing): finish clean 9ed44be0 10797 slide and blocked
+  scenery-seat exits on Saga. 10796 physical boarding/travel/setdown/walking
+  passes in 10796-slide-final.mp4, frames 192–197, anchor (6000,-60,6000),
+  100 percent/turn zero. Both added movement effects were cleared. Earlier
+  10796-slide2.mp4 ends before input and is NOT evidence of a ride.
+  Offline extra-corpus failures are resolved:
   slide paths now share the shell's exact grid frame; embedded boats may
   rise through only already-occupied voxels; blocked scenery-seat exits use
   verified body-free, floor-supported landings or restore an available seat.
   Clean exports pass all scenarios; native input/exit timing is separate.
 - # TODO(device-audit): finish same-view 10261 figure in Vibrant Visuals
-  and Fancy, train/rider close view and 200% view; restore settings/focus.
-  Capture 100's distant face needs frontal follow-up before accepting it.
-  101 resolves the standing figure view. Car1 in 102 has a blank face in
-  Minecraft despite a readable face in Walker. Native 138 resolves it:
-  original full car + only west→east decal key has a readable face; 139's
-  rear remains normal. Compiler and Walker/audit convention fix is committed
-  as 62fe6c26; clean exports pass and native captures 140/142/143 show all three
-  riders' faces readable from the front. Whole-set 200 percent captures
-  163/164 show complete station/cars/riders/shell from both sides. Free-camera
-  shell visibility is bracketed at 50.34 visible / 75.82 absent (160–162),
-  not an exact cutoff; geometry at close range is intact. A further
-  Walker fix applies per-decal cube rotation before its parent, matching the
-  already-correct box-UV path (independent rotated-corner test failed before).
-  Thin-X padding alone failed (131, control
-  geometry visibly loaded); cutout alone renders both sides (136/137).
-  Walker's inward decal-quad normals were a separate issue masked by
-  DoubleSide. Outward winding now passes independent four-face normal
-  checks (old code fails); materials retain DoubleSide. Chrome figure view
-  is readable with no console/page errors (walker-face-winding-south-view.png).
-  Material/preview suites: 44 passed, 3 skipped; web typecheck passes.
+  and Fancy; restore settings/focus. Standing figure 101 and all three
+  corrected car faces 140/142/143 are readable. Full 200 percent station
+  views 163/164 are complete. The 50.34-visible / 75.82-absent root-distance
+  bracket is documented in the guide, not an exact cutoff. Face orientation,
+  winding and cube-rotation diagnosis/failed controls live in the guide and
+  commits 62fe6c26/03646545; final native ownership fix is accepted in 171.
   Milano controls/telemetry are captured; msPerTick is a rolling window
   mean, not individual tick latency. Open-air controls do not establish
   worst-case obstacle cost.
@@ -102,10 +86,10 @@ Open acceptance work:
   match September 30 backup hashes/mtimes; original app focus restored and
   own phone-lock claim released. October 5 preflight files were error text
   from omitting the world folder's trailing =, not backups. Evidence: pixel/.
-- # TODO(final-gates): finish native face fix validation. For further fixes, export
+- # TODO(final-gates): finish remaining native acceptance. For further fixes, export
   affected packs from a clean committed revision and rerun applicable gates.
   Restore diagnostic resources, settings, focus and own device claim. Owned
-  Vite servers on 4015/4017/4019 are stopped; preserve main server 4000.
+  Vite servers on 4015/4017/4019/4021 are stopped; preserve main server 4000.
   No push/tag/release.
 
 Runtime landing fix in 61df searches two blocks with unchanged floor/body
