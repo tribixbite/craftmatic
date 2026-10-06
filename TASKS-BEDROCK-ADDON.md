@@ -63,8 +63,11 @@ Open acceptance work:
   Capture 100's distant face needs frontal follow-up before accepting it.
   101 resolves the standing figure view. Car1 in 102 has a blank face in
   Minecraft despite a readable face in Walker; device diagnostics are active.
-  Walker's inward decal-quad normals are a separate confirmed issue masked
-  by DoubleSide (both standing figure and car vanish with FrontSide).
+  Walker's inward decal-quad normals were a separate issue masked by
+  DoubleSide. Outward winding now passes independent four-face normal
+  checks (old code fails); materials retain DoubleSide. Chrome figure view
+  is readable with no console/page errors (walker-face-winding-south-view.png).
+  Material/preview suites: 44 passed, 3 skipped; web typecheck passes.
   Milano controls/telemetry are captured; msPerTick is a rolling window
   mean, not individual tick latency. Open-air controls do not establish
   worst-case obstacle cost.

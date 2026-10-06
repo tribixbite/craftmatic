@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, readAppearancePbrMaterials, swatchColorId } from '../web/src/ui/addon-appearance.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
 import { encodePngRgba } from '../web/src/engine/lego-resource-pack.js';
-import { addonAppearanceMaterial } from '../web/src/ui/addon-preview.js';
+import { addonAppearanceMaterial, faceDecalGeometry } from '../web/src/ui/addon-preview.js';
 import { decodePngRgb8 } from '../web/src/engine/png-rgb8.js';
 import * as THREE from 'three';
 
@@ -176,6 +176,41 @@ describe('pack-authored PBR material response', () => {
     expect(face.map).toBe(atlas);
     expect(face.emissiveMap).toBe(atlas);
     expect(face.alphaTest).toBe(0.5);
+    expect(face.side).toBe(THREE.DoubleSide);
+  });
+});
+
+describe('faceDecalGeometry', () => {
+  it('winds every vertical face out of its cube', () => {
+    const expected = {
+      north: new THREE.Vector3(0, 0, -1), south: new THREE.Vector3(0, 0, 1),
+      east: new THREE.Vector3(1, 0, 0), west: new THREE.Vector3(-1, 0, 0),
+    } as const;
+    for (const face of Object.keys(expected) as Array<keyof typeof expected>) {
+      const geometry = faceDecalGeometry({ width: 8, height: 8 }, [{
+        bone: 'body', origin: [1, 2, 3], size: [4, 5, 6],
+        faceUv: { face, uv: [0, 0], size: [8, 8] },
+      }], new Map());
+      expect(geometry, face).not.toBeNull();
+      const p = geometry!.getAttribute('position');
+      const a = new THREE.Vector3().fromBufferAttribute(p, 0);
+      const b = new THREE.Vector3().fromBufferAttribute(p, 1);
+      const c = new THREE.Vector3().fromBufferAttribute(p, 2);
+      const windingNormal = b.sub(a).cross(c.sub(a)).normalize();
+      expect(windingNormal.dot(expected[face]), face).toBeCloseTo(1, 6);
+    }
+  });
+
+  it('transforms a north-face normal outward through the preview holder Z mirror', () => {
+    const geometry = faceDecalGeometry({ width: 8, height: 8 }, [{
+      bone: 'body', origin: [0, 0, 0], size: [4, 5, 6],
+      faceUv: { face: 'north', uv: [0, 0], size: [8, 8] },
+    }], new Map())!;
+    const holder = new THREE.Matrix4().makeScale(1, 1, -1);
+    expect(holder.determinant()).toBeLessThan(0);
+    const local = new THREE.Vector3().fromBufferAttribute(geometry.getAttribute('normal'), 0);
+    const world = local.applyNormalMatrix(new THREE.Matrix3().getNormalMatrix(holder));
+    expect(world.toArray()).toEqual([0, 0, 1]);
   });
 });
 
