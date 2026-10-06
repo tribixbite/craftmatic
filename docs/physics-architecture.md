@@ -460,12 +460,15 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   a tree or a pier. Now the rectangle of the vehicle's half length and half
   width (`ScriptedVehicleType.noseReach` / `halfWidth`, from the shipped
   geometry, times the entity's `minecraft:scale`) is probed along its
-  perimeter at ≤ 0.9 blocks spacing and up to four heights of its clear band
+  perimeter and vertically through its clear band at ≤ 0.9 blocks spacing
   (a car: above its 1.05 step to its roof; a boat: from just above the
   waterline; an aircraft: its whole airframe aloft, above its gear on the
   ground), tilted by its pitch, at every ≤ 0.8-block substep between the old
   and the new pose. A probe blocks only when it ENTERS a solid (it was clear at
-  the old pose), so a vehicle placed half in a wall drives out.
+  the old pose), so a vehicle placed half in a wall drives out. At constant
+  height/pitch only outward-moving horizontal edges are checked. Any edge
+  changing height is checked too, including the tail during a forward descent;
+  otherwise a car drops its rear into a hill it has almost cleared.
 - **Never stuck** (`resolveMove`, `MOVE`, 2026-09-30: "it's too easy to get
   fully stuck in place by hills / blocks"). Until then a blocked move stopped
   the vehicle where it stood whatever the angle. Now a blocked move is tried
@@ -956,9 +959,8 @@ literal inside a function body (`§` marks the number).
 | `HOVER.RISE_MAX` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Most it lifts over a wall in one push (2.6 with its `STEP_UP`). |
 | `HOVER.GRAVITY` | `web/src/engine/bedrock-vehicle.ts` | 6 | blocks/s² | It sinks slowly off an edge. |
 | `HOVER.RIDE_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Height above the ground or the water's surface. |
-| `FOOTPRINT.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 0.9 | blocks | Most two perimeter probes are apart: under one block, so a one-block trunk cannot slip between them. |
+| `FOOTPRINT.SPACING` | `web/src/engine/bedrock-vehicle.ts` | 0.9 | blocks | Maximum ordinary perimeter and vertical probe spacing; covers one-block trunks and crowns. |
 | `FOOTPRINT.MAX_POINTS` | `web/src/engine/bedrock-vehicle.ts` | 128 | probes | A 36-block barge's 100-block perimeter still gets 0.9 spacing. |
-| `FOOTPRINT.MAX_LEVELS` | `web/src/engine/bedrock-vehicle.ts` | 4 | heights | Heights tested between the band's `lo` and `hi`. |
 | `FOOTPRINT.SWEEP_STEP` | `web/src/engine/bedrock-vehicle.ts` | 0.8 | blocks | Most a probe travels between two tested poses: a 32 blocks/s aircraft moves 1.6 a tick. |
 | `FOOTPRINT.MAX_SUBSTEPS` | `web/src/engine/bedrock-vehicle.ts` | 4 | poses/tick | Bounds the cost of a fast turn. |
 | `MOVE.DEFLECT_SHARE` | `web/src/engine/bedrock-vehicle.ts` | 0.7 | share of the tick's move | A vehicle whose one half meets a trunk or a post steps sideways by this share of its move: round a tree hit with a corner at full speed in two ticks. |
@@ -1087,7 +1089,7 @@ an earlier "~5 forward" was read off a ramped touch stick).
 - **Vehicle speeds are fixed numbers**, not derived from the model; they do
   not change with the wand size (the footprint and probes do: the runtime
   reads the entity's `minecraft:scale`). The swept footprint is a
-  rectangle (length × width) swept at up to `FOOTPRINT.MAX_LEVELS` heights,
+  rectangle (length × width) swept at ≤ 0.9-block height intervals,
   not the model's silhouette: a car's corner is square, a wing's sweep is
   its span. Other ENTITIES are not collided with (another car, a figure);
   only blocks, the shell's collider blocks by their sixteenths included.
@@ -1116,15 +1118,14 @@ an earlier "~5 forward" was read off a ramped touch stick).
   thinned wall is a full one to a vehicle. Boats only deflect and slide (no
   climb; they beach). # TODO(colliders): read every form's boxes (the kit's
   `formBoxes`) in `spanOf`.
-- **A tall vehicle's band is probed at only `FOOTPRINT.MAX_LEVELS` (4)
-  heights**: on the Milano (8.5 tall) they are 2.7 blocks apart, so a
-  one-block slab hung in the band's height (a tree's crown, a bridge deck)
-  can pass between two levels - the simulator course measured the Milano's
-  band in a crown for 28 ticks and the X-wing's (climbing) for 3. Not a
-  "stuck" case, a visual clip. # TODO(footprint-levels): levels at most a
-  block apart for an aircraft, if the Pixel's per-tick cost allows (a
-  36-block barge's 890 checks cost 20-24 ms there before the leading-edge
-  trim).
+- **Footprint sampling is not exact volume collision.** Vertical spacing now
+  covers full-block crowns at every height (October 5 audit reproduced the
+  old Milano's 28 clipped ticks and X-wing's 3), but sub-block slabs can still
+  fit between samples, very large perimeters spread the capped horizontal
+  probes, and a vertical move does not sample the footprint's entire interior.
+  # TODO(footprint-cost): measure tall/scaled ships on the phone after the
+  adaptive height sampling; block lookups are cached per tick, but a 36-block
+  barge's old 890 checks cost 20-24 ms before leading-edge trimming.
 - **Headlights are one light block** ahead of the nose, placed and removed
   as the vehicle crosses cells: the light is a sphere around that cell, not
   a beam, and a solid cell ahead keeps the previous one.

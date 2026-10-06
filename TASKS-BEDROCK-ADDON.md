@@ -19,14 +19,32 @@ independently checked, not treated as device-proven. Evidence logs are in
   dimension below 0.25 after coplanar separation, not just exact-zero faces.
   Five regression cases fail before the correction and pass after; a real
   minifig's emitted face corners agree with UV padding disabled.
-- Current checks: 2,949 tests passed, 34 skipped; both typechecks and web build
-  passed. Build retains the existing large-chunk warning.
-- # TODO(device-audit): controlled zero-plane probe, then fresh canonical
-  10261 shell/car and 42172 device views. The Oct 2 figure screenshot does
+- Current checks: 2,954 tests passed, 34 skipped; both typechecks passed.
+  Web build before the collision follow-up passed (existing large-chunk warning).
+- Walker QA harness now fails missing targets, and `figures --kind=appearance
+  --distance=0 --hide-panels` frames actual rendered bounds for vehicle-only
+  packs. McLaren front/left/back show the complete body; evidence in main
+  `output/fidelity-audit-20261005/walker/42172-appearance-*.png`.
+- Targeted historical regressions reproduce on their old packs and pass on
+  `880a7195`: `retake-no-seat-10261`, `cockpit-in-hull-76286` (2 of 15 cases).
+- Controlled Saga probe: UV-padded zero-thickness faces render from both sides
+  (red=0, yellow=.01, green=.25, blue=1). Worktree
+  `output/device-zero-plane-20261005/{build-probe.ts,10-front.png,11-back.png}`.
+  Saga chat must type the body without a sacrificial `x`, then insert the slash
+  with keyevent 76 (current Gboard ignores `input text '/'`). Helper live-tested
+  with say, four summons and two positioned views.
+- # TODO(device-audit): fresh canonical 10261 shell/car and 42172 device views.
+  The Oct 2 figure screenshot does
   not establish full-shell rendering, culling, or the original missing-body fix.
-- # TODO(sim-audit): measure the vehicle course on packs containing scripted
-  vehicles. The Oct 2 10261-only run exercised zero vehicles. A regression
-  command missing its required packs is incomplete, not a pass.
+- Course audit of clean `880a7195` packs: 42172 hill clips 1 tick; 7140 tree
+  while climbing clips 3; 76286 tree clips 28. Fixed simultaneous vertical
+  movement checking and adaptive height spacing; five new regression tests
+  fail before and pass after. In-memory replacement of only `sweepFootprint`
+  makes all three courses pass without clips. # TODO: rebuild from next clean
+  commit and repeat unmodified-pack course; measure Milano device cost (more
+  height probes). Worktree `output/fidelity-audit-20261005/runtime-sweep-results.json`.
+- CLI now refuses zero-vehicle and missing-regression-pack runs as NOT TESTED.
+  The Oct 2 10261-only course exercised zero vehicles.
 - Facet yield report corrected: 10303 requested 2-LDU baseline saves only
   472 hypothetical cuboids (0.30%, 51 placements), not 10.7%. The 194 coarse
   candidates are a separate comparison. Evidence: worktree
@@ -862,12 +880,11 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   NOT shown to be visible on a device either way: a sliver is back-face culled
   and mostly shares its neighbour's colour. Evidence `output/fold-0928/`
   (`sweep2/`, `ix.log`), probe `scripts/_planar_cuboid_probe.ts`.
-- [ ] Exact-zero faces: the Oct 2 thickening was not supported by an isolated
-  device probe and also thickened nonzero details. UV padding now preserves
-  all extents; a controlled Bedrock A/B is pending (active audit above).
-  `output/device-round-20261002/shots/saga-10261-fig1.jpg` proves one summoned
-  figure only. `_render_fault_audit.ts` reports overlaps; it is not a pass
-  gate (that pack still reported 357 coplanar pairs / 1.39 block faces).
+- The zero-plane probe in the active audit supersedes the Oct 2 thickening
+  claim. `_render_fault_audit.ts` reports overlaps; it is not a pass gate.
+  The clean canonical 10261 `880a7195` pack reports 175 pairs / 1.62 block
+  faces, mostly cross-actor station/car contacts; four audit packs have 0%
+  UV-floor surface loss and pass structural validation.
 - [ ] 10261: 49 cross-actor coplanar pairs where the parked cars' grey floor
   (26021) lies in the station track's red top plane (`_render_fault_audit.ts`);
   the export's separation pass works within one actor only.

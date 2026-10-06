@@ -25,7 +25,8 @@
  *   --shots      child-play also takes first-person pictures (after placing, after
  *                the figures lived) and writes them there as PNG.
  *
- * Exit 1 when a scenario fails (child-play, files) or a regression's verdict is FAIL.
+ * Exit 1 when a scenario fails (child-play, files), a regression's verdict is
+ * FAIL / NOT TESTED, or a selected scenario family has no applicable cases.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
@@ -61,9 +62,12 @@ let failed = 0;
 if (mode === 'regressions') {
   const newDir = flag('new');
   if (!newDir) { console.error('--scenario=regressions needs --new=<dir> (the current tree\'s packs)'); process.exit(2); }
+  const selected = REGRESSIONS.filter(c => !only || c.id.includes(only));
+  if (!selected.length) { console.error(`--scenario=regressions selected no cases${only ? ` for --only=${only}` : ''}`); process.exit(2); }
+  console.log(`Regression selection: ${selected.length}/${REGRESSIONS.length} case(s)${only ? ` (--only=${only})` : ''}`);
   const rows: RegressionRow[] = [];
-  for (const c of REGRESSIONS) {
-    if (only && !c.id.includes(only)) continue;
+  let notTested = 0;
+  for (const c of selected) {
     const run = async (file: string): Promise<RegressionRow['old']> => {
       if (!existsSync(file)) return { error: `missing ${file}` };
       const addon = await load(file);
@@ -75,10 +79,15 @@ if (mode === 'regressions') {
       return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), evidence: `${j.evidence}${failedSteps.length ? ` [step error: ${failedSteps.join('; ')}]` : ''}`, status: r.status, ms: r.ms };
     };
     const oldR = await run(c.oldPack), newR = await run(resolve(newDir, `${c.newStem}.mcaddon`));
+    const unavailable = [['old', oldR], ['new', newR]].filter((x): x is [string, { error: string }] => 'error' in x[1]);
     const oldOk = !('error' in oldR) && oldR.reproduced;
     const newOk = !('error' in newR) && (c.expectNew === 'pass' ? !newR.reproduced : newR.reproduced && newR.attribution === 'model');
-    const verdict = !oldOk ? `NOT REPRODUCED on the old pack${c.limits ? ` (${c.limits})` : ''}` : newOk ? 'OK' : 'FAIL';
-    if (verdict === 'FAIL') failed++;
+    const verdict = unavailable.length
+      ? `NOT TESTED (${unavailable.map(([side, result]) => `${side}: ${result.error}`).join('; ')})`
+      : !oldOk ? `NOT REPRODUCED on the old pack${c.limits ? ` (${c.limits})` : ''}`
+        : newOk ? 'OK' : 'FAIL';
+    if (verdict === 'FAIL' || verdict.startsWith('NOT TESTED')) failed++;
+    if (verdict.startsWith('NOT TESTED')) notTested++;
     rows.push({ id: c.id, title: c.title, evidence: c.evidence, expectNew: c.expectNew, old: oldR, new: newR, verdict, ...(c.limits ? { limits: c.limits } : {}) });
     console.log(`${c.id}: old ${'error' in oldR ? oldR.error : oldR.reproduced ? `REPRODUCED${oldR.attribution ? ` (${oldR.attribution})` : ''}` : 'not reproduced'}; new ${'error' in newR ? newR.error : newR.reproduced ? `REPRODUCED${newR.attribution ? ` (${newR.attribution})` : ''}` : 'not reproduced'} -> ${verdict}`);
     for (const [k, x] of [['old', oldR], ['new', newR]] as const) if (!('error' in x)) console.log(`    ${k}: ${x.evidence.slice(0, 300)}`);
@@ -86,6 +95,7 @@ if (mode === 'regressions') {
   const md = regressionMarkdown(rows);
   if (flag('md')) writeFileSync(flag('md')!, md);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(rows, null, 1));
+  console.log(`\n${rows.length} selected regression(s); ${failed - notTested} failed; ${notTested} not tested.`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -117,6 +127,7 @@ if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | di
 
 if (mode === 'vehicles') {
   const reports: PackReport[] = [], rows: CourseRow[] = [];
+  let selected = 0;
   for (const file of packs) {
     const t0 = performance.now();
     const report: PackReport = { pack: basename(file), results: [], ms: 0 };
@@ -126,6 +137,7 @@ if (mode === 'vehicles') {
       if (!pack) { report.error = 'not a craftmatic pack'; reports.push(report); continue; }
       report.label = pack.placement.label;
       const scenarios = vehicleScenarios(pack).filter(s => !only || s.name.includes(only));
+      selected += scenarios.length;
       console.log(`${report.pack}: ${scenarios.length} scripted vehicle(s)`);
       for (const s of scenarios) {
         const fresh = await load(file);
@@ -147,6 +159,10 @@ if (mode === 'vehicles') {
   console.log(`\n${table}`);
   if (flag('md')) writeFileSync(flag('md')!, `${table}\n${markdownReport(reports)}`);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify({ course: rows, reports }, null, 1));
+  if (!selected) {
+    console.error(`vehicles: NOT TESTED — no scripted vehicles matched${only ? ` --only=${only}` : ''} in ${reports.length} pack(s)`);
+    process.exit(1);
+  }
   process.exit(failed ? 1 : 0);
 }
 

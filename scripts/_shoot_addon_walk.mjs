@@ -54,6 +54,10 @@
  *     camera stands (default 2.4; a big-fig or a 150 % pack wants 3.5-4).
  *   --kind=<marker kind>: "figures" mode only — frame a marker of another
  *     kind the same way (`car` for a coaster car and its posed riders).
+ *     `appearance` frames an entity's actual rendered bounds, including a
+ *     vehicle-only pack whose main entity has no walk marker. Use
+ *     `--figure=<n|text>` to select among multiple appearance entities and
+ *     `--distance=0` to derive a fit distance from those bounds.
  *   --lift=<blocks>: "figures" mode only — raise the camera by that much
  *     (a coaster car's riders sit above the car's origin).
  *   --hide-panels: "figures" mode only — hide the walk's side panels so a
@@ -200,6 +204,59 @@ if (mode === 'flyout') {
   const placed = await page.evaluate(({ which, view, distance, kind, isolate, lift }) => {
     const w = window.__addonWalk;
     if (!w) return { ok: false, reason: 'no __addonWalk dev hook (not a DEV build?)' };
+    if (kind === 'appearance') {
+      const appearances = w.model.entities
+        .map((entity, index) => ({ entity, index, holder: w.entityHolders.get(index) }))
+        .filter(({ holder }) => holder);
+      const target = /^\d+$/.test(which)
+        ? appearances[Number(which)]
+        : appearances.find(({ entity }) => (entity.label ?? '').includes(which));
+      if (!target) return { ok: false, reason: `no appearance entity "${which}" in this pack (${appearances.length} entities with geometry)` };
+
+      const Vector3 = w.camera.position.constructor;
+      const Matrix4 = w.camera.matrixWorld.constructor;
+      const instance = new Matrix4();
+      const corner = new Vector3();
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+      target.holder.updateWorldMatrix(true, true);
+      target.holder.traverse(obj => {
+        if (!obj.isInstancedMesh) return;
+        obj.geometry.computeBoundingBox();
+        const box = obj.geometry.boundingBox;
+        if (!box) return;
+        obj.updateWorldMatrix(true, false);
+        for (let i = 0; i < obj.count; i++) {
+          obj.getMatrixAt(i, instance);
+          for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+            corner.set(x, y, z).applyMatrix4(instance).applyMatrix4(obj.matrixWorld);
+            minX = Math.min(minX, corner.x); minY = Math.min(minY, corner.y); minZ = Math.min(minZ, corner.z);
+            maxX = Math.max(maxX, corner.x); maxY = Math.max(maxY, corner.y); maxZ = Math.max(maxZ, corner.z);
+          }
+        }
+      });
+      if (!Number.isFinite(minX)) return { ok: false, reason: `appearance entity "${which}" has no rendered cube instances` };
+
+      if (isolate) for (const [i, holder] of w.entityHolders) holder.visible = i === target.index;
+      const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: (minZ + maxZ) / 2 };
+      const span = { x: maxX - minX, y: maxY - minY, z: maxZ - minZ };
+      const fitDistance = Math.max(span.x, span.y, span.z) * 1.35;
+      const d = distance > 0 ? distance : fitDistance;
+      const yaw = ((target.entity.yaw ?? 0) + (w.rotation ?? 0)) * Math.PI / 180;
+      const around = view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : -Math.PI / 2;
+      const fx = -Math.sin(yaw + around), fz = -Math.cos(yaw + around);
+      const eyeY = center.y + Math.max(0.5, span.y * 0.35) + lift;
+      w.noclip = true;
+      w.state = { ...w.state, x: center.x + fx * d, y: eyeY - 1.62, z: center.z + fz * d, vx: 0, vy: 0, vz: 0 };
+      w.prevState = w.state;
+      w.yaw = yaw + around + Math.PI;
+      w.pitch = -Math.atan2(eyeY - center.y, d);
+      return {
+        ok: true, label: target.entity.label, view, hasRealGeometry: true,
+        bounds: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ }, span },
+        distance: d, appearances: appearances.length,
+      };
+    }
     const figures = w.markers.filter(m => m.entity.kind === kind);
     const marker = /^\d+$/.test(which) ? figures[Number(which)] : figures.find(m => (m.entity.label ?? '').includes(which));
     if (!marker) return { ok: false, reason: `no ${kind} marker "${which}" in this pack (${figures.length} of that kind)` };
@@ -227,6 +284,11 @@ if (mode === 'flyout') {
   }, { which, view, distance, kind, isolate, lift });
   await page.waitForTimeout(400);
   await page.screenshot({ path: outPath });
+  if (!placed.ok) {
+    console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
+    await browser.close();
+    process.exit(1);
+  }
   await browser.close();
   console.log(JSON.stringify({ pack: packPath, mode, out: outPath, placed, errors: errors.slice(0, 5) }, null, 1));
 } else if (mode === 'doors') {

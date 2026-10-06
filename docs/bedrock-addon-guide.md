@@ -3068,6 +3068,14 @@ reads `.geo.json` cubes must subtract the inflate (the creator's slot-bounds
 test did not). `_mcaddon_check.py` fails a pack whose geometry declares
 a box-UV cube under one unit and counts the rest.
 
+**Exact-zero control (Saga, 2026-10-05).** Four solid-colour panels using
+`inflate: -1`, declared Z sizes 2/2.01/2.25/3 (effective 0/.01/.25/1), all
+rendered from both sides. A zero plane therefore does not need artificial
+thickness for UV padding to work. Reproduction and views: worktree
+`fidelity-audit-20261005/output/device-zero-plane-20261005/` (`build-probe.ts`,
+`10-front.png`, `11-back.png`). This is independent of whether a complete
+model has missing source parts or cross-actor coplanar surfaces.
+
 **Also found: the hidden-cube cull across bones.** `cullHiddenCuboids` let a
 cuboid be hidden by cuboids of ANOTHER animated bone; 7140's pilot showed the
 world through his hips at rest (the legs' sampled ring read as solid), and a

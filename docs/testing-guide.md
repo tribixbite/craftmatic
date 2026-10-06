@@ -22,6 +22,10 @@ Answer a question at the cheapest tier that can answer it:
    re-judges the device-bug regression set; `test/sim-engine.test.ts` runs it
    in `bun run test` where the round packs are on the machine. An `unknown`
    result means scripts reached API the mock does not model - never a pass.
+   A vehicle course selecting zero scripted vehicles exits nonzero as
+   `NOT TESTED`; selected regressions missing either pack do the same. Use
+   `--only` for an intentional subset and report that subset. Render-fault
+   audit output is a measurement of remaining overlaps, not a green gate.
    The runtime unit tests use the same engine: `test/_sim-host.ts`
    (`simHost`) loads one serialised runtime with its definitions as a pack
    and fails a test on a script error, an unmodelled member or a refused

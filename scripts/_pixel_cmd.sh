@@ -30,18 +30,21 @@ tap "$chat_x" 39;       sleep 1.2   # chat icon
 tap 1100 954;            sleep 0.6   # text field
 
 if $is_saga; then
-  # Gboard puts the first injected character at the end. Type a sacrificial x,
-  # remove it at the end, then insert the leading slash at the beginning.
+  # Bulk input drops/reorders characters on Saga. Clear with both delete
+  # directions, type the body one character at a time, then add the slash with
+  # its key event; `input text '/'` is ignored by the current Gboard.
   body="${command#/}"
-  remote_script='for i in $(seq 1 60); do input keyevent 67; done; for i in $(seq 1 30); do input keyevent 112; done; '
-  text="x$body"
+  adb "${serial_args[@]}" shell 'for i in $(seq 1 60); do input keyevent 67; done; for i in $(seq 1 30); do input keyevent 112; done'
+  sleep 1
+  remote_script=''
+  text="$body"
   for ((i = 0; i < ${#text}; i++)); do
     char="${text:i:1}"
     [[ "$char" == ' ' ]] && char='%s'
     remote_script+="input text $(remote_quote "$char"); sleep 0.15; "
   done
-  remote_script+="input keyevent 123; sleep 0.3; input keyevent 67; sleep 0.3; input keyevent 122; sleep 0.3; input text '/'; sleep 0.3; input keyevent 123"
   adb "${serial_args[@]}" shell "$remote_script"
+  adb "${serial_args[@]}" shell "input keyevent 122; sleep 0.3; input keyevent 76; sleep 0.3; input keyevent 123"
 else
   txt="${command// /%s}"
   adb "${serial_args[@]}" shell input keycombination 113 29; sleep 0.2
