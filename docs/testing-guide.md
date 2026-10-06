@@ -49,6 +49,18 @@ These two surfaces exist to answer them in seconds. Neither replaces the
 device: neither can prove Bedrock's rendering, its per-actor render cull, form
 text, ride physics, rider retention or memory.
 
+The current Walker dismount restores the saved pre-boarding player state;
+it does not exercise a scenery seat's native fallback or recovery watcher.
+Use a headless real-pack direct mount → Sneak → simulated walking scenario
+for that question. The 10796 regression in `test/bedrock-figure-life.test.ts` catches
+a landing that fits the body but traps it in a small pocket; static overlap
+checks and ordinary child-play alone missed it. An always-offline runtime
+fixture also guards the recovery policy when the source pack is unavailable.
+For native gravity/floor acceptance, explicitly set Survival and capture its
+health/hunger HUD. Saga's up/down arrow controls also appear in Survival;
+their shape alone does not identify Creative flying state. A Creative motion
+recording with uncaptured flight state proves collision escape, not gravity.
+
 ### The operator console — `bun run console` (`tools/console/`)
 
 http://127.0.0.1:4600. **`tools/console/inventory.ts` is the cheat sheet and the

@@ -9,104 +9,56 @@ Parallel agents append ONE section each at the end of this file.
 
 ## Start here
 
-### Active fidelity audit (2026-10-05)
+### Fidelity audit hand-off (2026-10-06)
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Previous accepted pack baseline: c8b869bd; clean affected exports packs-c8b869bd
-(10261/31084), with the unchanged remainder in packs-62fe6c26. Evidence root:
+Current source baseline: 278adbf5. Clean affected exports packs-278adbf5:
+10261, 10326, 10796, 10797, 31084, 42639, 76417, 910004; unchanged core
+remainder stays in packs-62fe6c26. Evidence root:
 C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
-worktree output/device-zero-plane-20261005/.
+worktree output/device-zero-plane-20261005/ (earlier rounds) and
+output/bedrock-entity-qa/278adbf5-native/ (current seat acceptance).
 
 Acceptance measured:
-- Clean c8 affected packs: structural 2/2 and child play 10/10 (10261/31084).
-  Walker A/B and native capture 171 confirm complete car/face without stray
-  station panels. All ten removed car parts transfer to shell (4011→4021).
-  Evidence: c8-two-* and walker-coaster-ownership-c8-20261006/.
-- Clean packs-62fe6c26: 15/15 structural gates and 75/75 nonquick
-  child-play scenarios, zero violations or unmodelled behaviors
-  (62fe-all-structural.log, 62fe-all-childplay.*).
-- Three vehicle courses pass without clipping; three cross-pack transfers
-  pass (62fe-course.*, 62fe-hop.*). McLaren stops at a tall wall/deep pit;
-  10788's upper-floor car transfer succeeds but cannot drive away.
-- Doorways: 17 doors, 170 size/rotation rows, zero FAIL (9ed-passability.*):
-  96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short-approach annotations.
-  Reuse is justified by byte equality of all 842 relevant BP runtime files
-  between 9ed and 62fe across the fifteen archives.
-- Historical regressions: 14 accepted, zero failed, one NOT TESTED;
-  CLI correctly exits 1 (62fe-regressions.*). Replay suite 41/41 and both
-  typechecks pass after recovering the archived route.
-- Coaster-ownership full suite: 2,987 passed, 34 skipped; both typechecks
-  and web build pass. Main output/fidelity-audit-coaster-ownership-{tests,build}.log.
-  The additional 31084 membership assertion passes its focused 3-test suite.
-  Physics spec and focused seat/vehicle/slide tests also pass.
-- Saga captures 39 and 54/55 show complete McLaren/coaster; 97/98 show
-  readable minifigure front/back. Controlled zero/thin faces render from
-  both sides (10/11). Capture 49's absent shell did not recur at 64-66 blocks;
-  do not call it a measured culling cutoff.
-- Chrome/Node Walker checks on 7140, 10261 figure and 42172 have no
-  console/page errors (walker-chrome-*-a116.png). Walker reads actual pack
-  MER values with explicit fallback, preserves face pixels/alpha and uses
-  reflection lighting. Thin leg seams also occur in Lambert; measured
-  cuboid boundaries have no volume/coplanar overlaps.
-- Extent/UV preservation, persistent offscreen Undo cleanup, collision
-  sweeps, PBR capability/face materials and bounded PNG decoding have
-  regression coverage. History and details are in commits/guides.
-- Corrected facet measurement: 10303 at requested 2-LDU resolution saves
-  472 hypothetical cubes (0.30%, 51 placements), not 10.7%.
-  Worktree output/round-facet-yield/10303.json. Integration remains gated
-  on hollow topology, prints/materials and rotated collider correctness.
+- Clean 278adbf5 exports: structural 8/8, nonquick child play 40/40,
+  doorway 180 rows/18 doors, zero FAIL/holes (96 OK, 10 STEP, 70 SEALED,
+  4 ONE-WAY, six short-approach notes). Reports in packs-278adbf5/278-*.
+  Headless simulator hold/Sneak/walk probes 10796/10797 pass. Direct watcher
+  probes 10261/10326 pass: open landing/walk versus safe remount with warning.
+  The latter two had no reachable physical hold approach; do not count those
+  approaches as tested. Historical affected subset: 8 OK/1 NOT TESTED.
+- Final source checks: 2,996 passed/31 skipped, both typechecks, physics spec
+  and web build pass; main output/fidelity-audit-seat-egress-final-{tests,build}.log.
+  Earlier core 15-pack gates, vehicle/transfer tests, renderer/face checks and
+  source-ownership acceptance are complete; evidence and limits live in the
+  add-on/testing guides and commit history. Eight current packs supersede
+  their older exports; there are sixteen distinct sets including 31084.
+- Both clean Gabby natural-seat exits pass in explicit Survival on Saga;
+  independently reviewed root-review1079{6,7}-survival-contact.png and videos
+  are in the current evidence directory. Installed runtime hashes match
+  the clean archives. Exact origins/turns and rejected controls are in the guide.
+  Final restoration report: current evidence directory final-restoration-report.json.
+  Baseline bindings and six pack folders match 20261005-224548; Creative,
+  Fancy, logging off, camera/effects/telemetry and recorded world 925 focus
+  restored; own claim released. New Gabby folders remain unbound and QA
+  placements retained. Blank(1)'s position before the accidental teleport
+  was uncaptured and remains changed; do not invent a restoration position.
 
 Open acceptance work:
-- # TODO(native-landing): verify the committed scenery-seat egress fix on Saga.
-  Current 9ed physical Sneak dismounts from HUD (6024,-60,6002) to
-  (6024,-59,6002) under purple overhead, then forward/jump and both side
-  directions cannot move for over twenty seconds. This is a failed native
-  acceptance, not a supported walk-away: videos 10796-natural-seat*.mp4,
-  contacts 247–249. Exact-pack simulation matches the sealed body-free
-  pocket; the watcher/config are correct. Fix requires a supported sampled
-  walking exit and makes settlement skip trapped candidates. Focused suite
-  40/40: old real-pack runtime physically shuffles 0.507 blocks, current
-  regenerated runtime walks 3.92 blocks. No native diagnostic mutation is
-  needed. Clean exports/gates/native repetition remain pending.
-  Final source checks: 2,996 passed/31 skipped, both typechecks, physics spec
-  and web build pass; main output/fidelity-audit-seat-egress-final-{tests,build}.log.
-  The added always-offline runtime test rejects a diagonal wholly inside a
-  sealed one-cell pocket; egress therefore requires one full block.
-  Clean 9ed44be0 10797 physical slide boarding/travel/setdown/walking passes
-  in 10797-slide-final.mp4, contact 219 and frames 220–224, anchor
-  (6200,-60,6200), 100 percent/turn zero. Natural stool physical Sneak exit
-  and supported walking pass in 10797-seat-exit.mp4/contact 226.
-  The isolated blocked 10796 seat stays mounted after Sneak, then exits and
-  walks after the cage is cleared (200/202). Native refusal may explain the
-  blocked result; the runtime's remount/message branch is not established.
-  Restore the original grass under the bounded test cage if still needed.
-  10796 physical boarding/travel/setdown/walking
-  passes in 10796-slide-final.mp4, frames 192–197, anchor (6000,-60,6000),
-  100 percent/turn zero. Both added movement effects were cleared. Earlier
-  10796-slide2.mp4 ends before input and is NOT evidence of a ride.
-  Offline extra-corpus failures are resolved:
-  slide paths now share the shell's exact grid frame; embedded boats may
-  rise through only already-occupied voxels; blocked scenery-seat exits use
-  verified body-free, floor-supported landings or restore an available seat.
-  Clean exports pass all scenarios; native input/exit timing is separate.
-- # TODO(device-audit): finish same-view 10261 figure in Vibrant Visuals
-  and Fancy; restore settings/focus. Standing figure 101 and all three
-  corrected car faces 140/142/143 are readable. Full 200 percent station
-  views 163/164 are complete. The 50.34-visible / 75.82-absent root-distance
-  bracket is documented in the guide, not an exact cutoff. Face orientation,
-  winding and cube-rotation diagnosis/failed controls live in the guide and
-  commits 62fe6c26/03646545; final native ownership fix is accepted in 171.
-  Milano controls/telemetry are captured; msPerTick is a rolling window
-  mean, not individual tick latency. Open-air controls do not establish
-  worst-case obstacle cost.
+- # TODO(facet-integration): broad curved-part integration remains gated on
+  hollow topology, prints/materials and rotated colliders. Corrected 10303
+  2-LDU measurement saves 472 hypothetical cubes (0.30%, 51 placements),
+  not 10.7%; worktree output/round-facet-yield/10303.json.
+- # TODO(render-distance): the 200 percent coaster shell is visible at
+  root distance 50.34 and absent at 75.82 while its cars remain. This is a
+  bracket, not an exact cutoff; guide records camera/player-distance limits.
+  Ground-level Fancy/Vibrant pair 258/265 is valid in world 925, with mode
+  UI 263/264. It proves readable geometry/mode changes, not photorealistic
+  gloss; the earlier elevated-camera interpretation was withdrawn.
 - # TODO(sim-regression): recovered historical 10797 overhang route still
   does not reproduce the old fall offline; keep NOT TESTED and nonzero exit.
-  Native A/B is now verified on Saga 26.52: fresh archived f37227ad at
-  (6985,-60,7012) falls to HUD (6989,-66,7020); clean 9ed at (6200,-60,6200)
-  drives to (6309,-59,6286), reaches 43 mph and stops on supported ground.
-  Same forward 3s/release 0.3s/forward-right 2.5s gesture; videos
-  10797-{archive,current}-car-route.mp4 and independently reviewed 243/228.
+  Native old-fail/current-pass A/B is verified; details are in the guide.
   Ideal replay ticks (60/6/50) differ materially from archived native travel;
   a shorter diagnostic probe matches initial displacement but not turn/fall.
   Native intervals/stick samples remain unmeasured. Probe parameters/results:
@@ -118,16 +70,10 @@ Open acceptance work:
   match September 30 backup hashes/mtimes; original app focus restored and
   own phone-lock claim released. October 5 preflight files were error text
   from omitting the world folder's trailing =, not backups. Evidence: pixel/.
-- # TODO(final-gates): finish remaining native acceptance. For further fixes, export
-  affected packs from a clean committed revision and rerun applicable gates.
-  Restore diagnostic resources, settings, focus and own device claim. Owned
-  Vite servers on 4015/4017/4019/4021 are stopped; preserve main server 4000.
-  No push/tag/release.
-
-Runtime landing fix in 61df searches two blocks with unchanged floor/body
-guards. The ineffective e12 compiler trim was removed. Faithful old runtime
-literal 1.5 to 2 substitution alone passes 10797 5/5; the earlier config-only
-substitution changed nothing and is invalid evidence.
+For further fixes, export affected packs from a clean committed revision and
+rerun applicable gates. Native world 925 folder q-TUD3f7W6M=; no active claim.
+Owned Vite servers on 4015/4017/4019/4021 are stopped; preserve main server 4000.
+No push/tag/release.
 
 | surface | command | URL |
 |---|---|---|

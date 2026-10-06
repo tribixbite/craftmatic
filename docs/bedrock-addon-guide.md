@@ -18,6 +18,12 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   supports entity texture sets and requires `pbr` plus engine ≥1.21.120;
   our packs already declare 1.26.40. Geometry/culling checks still apply in
   either graphics mode.
+  Saga world 925 matched ground-level coaster views 258/265 show readable
+  geometry in Vibrant Visuals and Fancy respectively; Video UI 263/264
+  verifies the modes (`output/device-zero-plane-20261005/` in the fidelity
+  worktree). Fancy appears sharper/brighter and Vibrant Visuals softer/hazier.
+  These are not an elevated free-camera pair: entering Settings cleared that
+  camera. They do not establish improved gloss or photorealistic materials.
 - Derive the RP's PBR capability from its finished texture-set files, not
   the initial component list: generated coaster actors are compiled later.
   Printed face atlases keep their exact RGBA/alpha-test path and declare
@@ -68,17 +74,54 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   exit and both 10796/10797 slides have continuous physical-input recordings
   in fidelity-audit `output/device-zero-plane-20261005/` (192/219/226).
 - **A body-free landing can still trap the player.** Natural 10796 Sneak
-  chose `(6024.385723,-58.5625,6002.698223)`, a sealed pocket with only
-  0.0125 blocks above a standing player's head. Native movement in contacts
-  247–249 stays in the same HUD cell; the real-pack simulator reproduces
-  that position. Scenery-seat recovery now requires a supported one-block
-  walking path, sampled through intervening collider boxes, and skips
+  leaves the native player in HUD cell `(6024,-59,6002)`; movement in contacts
+  247–249 cannot leave it. The real-pack simulator chooses the exact fallback
+  `(6024.385723,-58.5625,6002.698223)`, a sealed pocket with only 0.0125 blocks
+  above a standing player's head. Scenery-seat recovery requires a supported
+  one-block walking path, sampled through intervening collider boxes, and skips
   trapped settlement candidates. Ride/door settlement retains its default
-  policy. The regression checks a full block of actual walking: shipped
-  runtime permits only 0.507 blocks of shuffling, regenerated runtime 3.92.
+  policy. The headless regression checks a full block of simulated walking:
+  shipped runtime permits 0.507 blocks of shuffling, regenerated runtime 3.92.
   A half-block diagonal can fit wholly inside a sealed one-cell pocket from
   an off-centre start; the always-offline runtime regression guards this too.
-  Keep native acceptance pending until the clean fixed pack is tested.
+  Clean `278adbf5` Creative collision-escape recording uses a fresh placement at
+  `(6386,-60,6404)`, 100 percent/turn zero: approach shows the shell, mount
+  at HUD `(6410,-60,6406)`, physical Sneak exits to `(6410,-60,6408)`, then
+  walking reaches `(6410,-60,6415)` and remains at ground-level Y. Continuous proof:
+  fidelity-audit worktree `output/bedrock-entity-qa/278adbf5-native/`
+  `10796-fixed-fullscene.mp4` and `root-review10796-contact.png` (0–28.5 s).
+  Earlier `10796-fixed-seat.mp4`/291–293 is an isolated-seat control only;
+  its absent shell cannot establish the natural-seat regression.
+  Clean 10797 Creative also escapes in a fresh placement at `(6585,-60,6599)`,
+  100 percent/turn -90 degrees: physical mount/Sneak/walk reaches HUD
+  `(6580,-60,6607)` and stays at that Y through 28.5 seconds. The intermediate
+  exit screenshot 318 at Y -57 is not an already-settled ground landing;
+  continuous `10797-fixed-fullscene.mp4`/`root-review10797-contact.png`
+  records the transition and walking in the same evidence directory.
+  Flying state was not captured in these Creative recordings; they establish
+  collision escape/movement, not independent native gravity/floor acceptance.
+  Controlled Survival repetition passes for both preserved full scenes,
+  with health/hunger visible throughout and no camera/movement effects:
+  `10796-survival-seat.mp4`/332–335 repeats the seven-block ground walk;
+  `10797-survival-seat.mp4`/337–340 reaches `(6580,-60,6607)` after exit.
+  Independently reviewed `root-review1079{6,7}-survival-contact.png` shows
+  stable final ground positions for 18 and 16.5 seconds respectively.
+  The installed `figures.js` SHA-256 matches each clean `278adbf5` archive,
+  independently checked before these tests; world 925 binds versions
+  `2610.611.3249` and `2610.611.3324` respectively.
+  After acceptance, world 925's BP/RP bindings were restored byte-for-byte
+  from `output/bedrock-entity-qa/device-backups/20261005-224548/`; all 698
+  files across its six baseline development-pack folders match that backup,
+  with no missing or extra files. Eleven newer coaster RP files were removed
+  individually. The current evidence directory's `restoration-verification.json`
+  records those comparisons. New Gabby development packs remain unbound and
+  fresh placements remain as QA fixtures; this is not a production deployment.
+  Final Survival-repeat cleanup is captured in `final-restoration-report.json`:
+  Creative, Fancy, logging off, camera/effects cleared, telemetry off, world
+  925 at `(5822,-60,5760)` with empty slot, and own device claim released.
+  After relaunch the options differ only by `app_launched_count:58→59`.
+  Blank(1)'s pre-teleport position was not captured; its accidental move to
+  `(6400,-60,6400)` remains, rather than guessing a previous position.
 - **Keep native regression proof separate from simulator coverage.** Saga
   26.52 reproduces the archived f37227ad 10797 car fall with a fresh placement
   at `(6985,-60,7012)`, 100 percent/turn zero: forward three seconds, release
@@ -97,6 +140,16 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   unmeasured; do not tune inferred ticks or teleport through rounded rider
   HUD positions to manufacture a reproduction. Probe evidence:
   main `output/fidelity-audit-20261005/native-cadence-probe-20261006.json`.
+- **Verify the loaded world after every reload.** Correct on-disk bindings
+  do not prove the world selected by the UI: Saga's rotated input selected
+  Blank(1) while 925's files and manifests were correct. Confirm a known
+  pack function or entity resolves before placing or interpreting an empty
+  scene as a load/spawn defect. Preserve a screenshot of the selected world
+  and the actual preflight result; restore unintended changes to other worlds
+  from captured original state, without inventing a previous position.
+  For byte-exact restoration, reuse `_pixel_dev_deploy.py`'s
+  `Adb.write_in_place`/`read_bytes`; its subprocess arguments and root quoting
+  avoid PowerShell splitting `su -c` redirection and retain file metadata.
 - **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
   to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
   set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into
@@ -554,6 +607,11 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   the nearer camera drew the shell, distinguishing camera from player culling.
   Evidence: fidelity-audit worktree `output/device-zero-plane-20261005/`
   captures 160–164. This is whole-shell distance culling, not partial spawning.
+  October 6 review of Mojang's [official schemas](https://github.com/Mojang/bedrock-samples/blob/main/documentation/Schemas.html)
+  and Microsoft's [client-entity documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/cliententitydocumentation/cliententitydocumentationintroduction?view=minecraft-bedrock-stable)
+  found no supported model render-distance override. Do not emit a speculative
+  `render_distance_multiplier`: visible bounds control bounds, while similarly
+  named camera/nameplate/debug/ticking fields do not override entity model culling.
 - **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
   only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
   so a vehicle parked in a scenery build falls back to the road-wheel heuristic
