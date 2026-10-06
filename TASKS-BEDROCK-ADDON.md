@@ -19,8 +19,10 @@ independently checked, not treated as device-proven. Evidence logs are in
   dimension below 0.25 after coplanar separation, not just exact-zero faces.
   Five regression cases fail before the correction and pass after; a real
   minifig's emitted face corners agree with UV padding disabled.
-- Current checks: 2,954 tests passed, 34 skipped; both typechecks passed.
-  Web build before the collision follow-up passed (existing large-chunk warning).
+- Current checks: 2,956 tests passed, 34 skipped after deferred Undo cleanup;
+  both typechecks passed. Subsequent PBR/face changes pass 73 targeted tests;
+  startup-read regression passes the five Undo/reload tests.
+  Web build after the collision follow-up passed (existing large-chunk warning).
 - Walker QA harness now fails missing targets, and `figures --kind=appearance
   --distance=0 --hide-panels` frames actual rendered bounds for vehicle-only
   packs. McLaren front/left/back show the complete body; evidence in main
@@ -30,9 +32,10 @@ independently checked, not treated as device-proven. Evidence logs are in
 - Controlled Saga probe: UV-padded zero-thickness faces render from both sides
   (red=0, yellow=.01, green=.25, blue=1). Worktree
   `output/device-zero-plane-20261005/{build-probe.ts,10-front.png,11-back.png}`.
-  Saga chat must type the body without a sacrificial `x`, then insert the slash
-  with keyevent 76 (current Gboard ignores `input text '/'`). Helper live-tested
-  with say, four summons and two positioned views.
+  Saga chat must drain the delete queue for 5 seconds, insert slash with
+  keyevent 76, then type the body without a sacrificial `x` (current Gboard
+  ignores `input text '/'`). One implementation backs both helper contracts;
+  field-only mode is verified before and after manual Enter (captures 44/45).
 - # TODO(device-audit): fresh canonical 10261 shell/car and 42172 device views.
   The Oct 2 figure screenshot does
   not establish full-shell rendering, culling, or the original missing-body fix.
@@ -40,9 +43,36 @@ independently checked, not treated as device-proven. Evidence logs are in
   while climbing clips 3; 76286 tree clips 28. Fixed simultaneous vertical
   movement checking and adaptive height spacing; five new regression tests
   fail before and pass after. In-memory replacement of only `sweepFootprint`
-  makes all three courses pass without clips. # TODO: rebuild from next clean
-  commit and repeat unmodified-pack course; measure Milano device cost (more
-  height probes). Worktree `output/fidelity-audit-20261005/runtime-sweep-results.json`.
+  makes all three courses pass without clips. Clean `354cb7b2` rebuilt packs
+  also pass all three courses unmodified: main
+  `output/fidelity-audit-20261005/final-course.{log,json,md}`.
+  # TODO: measure Milano device cost (more height probes).
+  Pixel is connected but locked; an unlock request is pending. Its failed
+  import did not change world 924 bindings: live files match the September 30
+  backup hashes and mtimes. The October 5 "preflight" files were error text
+  (world folder's trailing `=` omitted), not backups. Evidence is in main
+  `output/fidelity-audit-20261005/pixel/`; original app focus restored and this
+  audit's phone-lock claim released.
+- Child-play on these packs exposed two ship Undo failures (13/15 scenarios
+  pass): actors outside loaded chunks survive Undo. Also reproduced on
+  `880a7195`, so this is pre-existing. Persistent retired-actor cleanup now
+  passes reload, replacement-survival and 2,600-actor chunked-storage tests.
+  The updated child-play loads remote chunks and still rejects old Milano.
+  # TODO: rebuild and repeat child-play on the final packs.
+- Material audit: old 10261 ships 45 texture sets but lacks RP `pbr` capability;
+  printed face atlases also lacked explicit ABS roughness. Export now derives
+  capability from completed output and emits inline ABS MER for faces while
+  preserving their pixels. Structural gate rejects the old coaster and checks
+  image references. # TODO: verify rebuilt archives. Existing swatch MER channels,
+  references and full-detail transparency are correct. Legacy viewer RGB
+  still takes precedence over LDConfig RGB; palette migration remains a
+  deliberate, separately measured fidelity choice. Flat normal maps avoid
+  embossing the cuboid decomposition and should not receive invented seams.
+- Walker now frames from rendered bounds and live holder yaw; figure-marker
+  and appearance views at 200%/90° are byte-identical. Station reachability
+  passes both walk models at 100%/200%, four turns each; whole-grid agreement
+  is 95.85–99.57%, not a universal pass. Main evidence:
+  `output/fidelity-audit-20261005/{walker/,10261-walk.log}`.
 - CLI now refuses zero-vehicle and missing-regression-pack runs as NOT TESTED.
   The Oct 2 10261-only course exercised zero vehicles.
 - Facet yield report corrected: 10303 requested 2-LDU baseline saves only
@@ -109,10 +139,12 @@ should semi gradually automatically turn to point in the direction of travel
 "Never stuck", "Free look") and §9; add-on guide "Spaceship controls, never
 stuck, free look"; sim doc "The vehicle course".
 
-NOT YET BUILT OR COURSE-MEASURED: the agent stopped (spend limit) before
-building packs; its last uncommitted edits (brake 24, course lane gap) were
-salvaged as `391fc228` and merged (`bcfae5bc`). Measure with
-`bun scripts/sim.ts <packs> --scenario=vehicles` on round 30j's packs.
+Clean packs `354cb7b2` now exercise the course and simulated controls for
+42172, 7140 and 76286, with zero clipping violations. Both ships clear 8/8
+obstacles; the car clears 6/8, stops and escapes the tall wall, and remains
+trapped in the three-block pit (the existing course policy allows that).
+The device checklist below remains separate evidence; simulation does not
+settle touch input, native free look or actual device cost.
 
 ### Device checklist (one round, Pixel or Saga; world with the round's packs bound `--exclusive`)
 

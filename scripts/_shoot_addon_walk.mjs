@@ -41,6 +41,7 @@
  *     recommendation, or 100 without one). Every position sampled off
  *     `window.__addonWalk` (console, ball, flippers) is read AFTER this, so
  *     it is correct at any size.
+ *   --turn=0|90|180|270: turn the laid model before sampling any position.
  *   --url=<base>: the dev server to drive (default http://localhost:4000).
  *     A worktree's own `bun dev:web -- --port N --strictPort` renders ITS
  *     code; the main checkout's server on 4000 renders the main checkout's.
@@ -50,14 +51,13 @@
  *   --view=front|back|left|right: "figures" mode only — put the camera on the
  *     side the figure faces (front, the default: faces and prints), behind
  *     it, or a quarter turn round either way.
- *   --distance=<blocks>: "figures" mode only — how far from the figure the
- *     camera stands (default 2.4; a big-fig or a 150 % pack wants 3.5-4).
+ *   --distance=<blocks>: "figures" mode only — how far from the rendered
+ *     entity the camera stands (default/0: fit its actual appearance bounds).
  *   --kind=<marker kind>: "figures" mode only — frame a marker of another
  *     kind the same way (`car` for a coaster car and its posed riders).
  *     `appearance` frames an entity's actual rendered bounds, including a
- *     vehicle-only pack whose main entity has no walk marker. Use
- *     `--figure=<n|text>` to select among multiple appearance entities and
- *     `--distance=0` to derive a fit distance from those bounds.
+ *     vehicle-only pack whose main entity has no walk marker.
+ *     `--figure=<n|text>` selects among multiple appearance entities.
  *   --lift=<blocks>: "figures" mode only — raise the camera by that much
  *     (a coaster car's riders sit above the car's origin).
  *   --hide-panels: "figures" mode only — hide the walk's side panels so a
@@ -145,6 +145,17 @@ if (sizeArg) {
   await page.waitForTimeout(1200);
 }
 
+const turnArg = flags.has('turn') ? Number(flags.get('turn')) : null;
+if (turnArg !== null) {
+  const clicked = await page.evaluate((turn) => {
+    const btn = document.querySelector(`.ap-tog[data-act="turn"][data-turn="${turn}"]`);
+    if (btn instanceof HTMLElement) { btn.click(); return true; }
+    return false;
+  }, turnArg);
+  if (!clicked) { console.error(`--turn=${turnArg}: expected 0, 90, 180 or 270`); process.exit(64); }
+  await page.waitForTimeout(1200);
+}
+
 const readState = () => page.evaluate(() => {
   const rows = [...document.querySelectorAll('.ap-tog[data-act="show"]')]
     .map(e => `${e.dataset.kind}:${e.getAttribute('aria-pressed') === 'true' ? 'on' : 'off'}`);
@@ -155,21 +166,110 @@ const readState = () => page.evaluate(() => {
   return { title, layers: rows, legend, hint, interact };
 });
 
+// Install one rendered-bounds camera on the DEV hook. Appearance shots,
+// marker close-ups and vehicle-only flyouts all use the same fit maths. The
+// white sphere at (0, 0.18, 0) is the walker's origin pin, not pack geometry;
+// clean evidence shots hide it along with the HUD/reach debug overlays.
+await page.evaluate(() => {
+  const w = window.__addonWalk;
+  if (!w) return;
+  w.__shotBounds = (index) => {
+    const holder = w.entityHolders.get(index);
+    if (!holder) return null;
+    const Vector3 = w.camera.position.constructor;
+    const Matrix4 = w.camera.matrixWorld.constructor;
+    const instance = new Matrix4();
+    const corner = new Vector3();
+    let minX = Infinity, minY = Infinity, minZ = Infinity;
+    let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+    holder.updateWorldMatrix(true, true);
+    holder.traverse(obj => {
+      if (!obj.isInstancedMesh) return;
+      obj.geometry.computeBoundingBox();
+      const box = obj.geometry.boundingBox;
+      if (!box) return;
+      obj.updateWorldMatrix(true, false);
+      for (let i = 0; i < obj.count; i++) {
+        obj.getMatrixAt(i, instance);
+        for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+          corner.set(x, y, z).applyMatrix4(instance).applyMatrix4(obj.matrixWorld);
+          minX = Math.min(minX, corner.x); minY = Math.min(minY, corner.y); minZ = Math.min(minZ, corner.z);
+          maxX = Math.max(maxX, corner.x); maxY = Math.max(maxY, corner.y); maxZ = Math.max(maxZ, corner.z);
+        }
+      }
+    });
+    if (!Number.isFinite(minX)) return null;
+    const min = { x: minX, y: minY, z: minZ }, max = { x: maxX, y: maxY, z: maxZ };
+    const span = { x: maxX - minX, y: maxY - minY, z: maxZ - minZ };
+    return {
+      min, max, span,
+      center: { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: (minZ + maxZ) / 2 },
+      diagonal: Math.hypot(span.x, span.y, span.z),
+    };
+  };
+  w.__shotFrame = ({ index, view, distance, lift, isolate }) => {
+    const bounds = w.__shotBounds(index);
+    if (!bounds) return { ok: false, reason: `entity ${index} has no rendered cube instances` };
+    if (isolate) for (const [i, holder] of w.entityHolders) holder.visible = i === index;
+    const entity = w.model.entities[index];
+    const d = distance > 0 ? distance : Math.max(bounds.span.x, bounds.span.y, bounds.span.z) * 1.35;
+    // The holder is the source of truth after both layout turns and live ride
+    // animation. A coaster car's serialized yaw stays at its spawn value while
+    // this rotation follows the track. Figure/car geometry faces opposite the
+    // root-frame convention used by static shell appearances.
+    const yaw = w.entityHolders.get(index).rotation.y;
+    const kindOffset = entity.kind === 'figure' || entity.kind === 'car' ? Math.PI : 0;
+    const around = (view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : view === 'three-quarter' ? Math.PI / 4 : -Math.PI / 2) + kindOffset;
+    const fx = -Math.sin(yaw + around), fz = -Math.cos(yaw + around);
+    const eyeY = bounds.center.y + Math.max(0.5, bounds.span.y * 0.35) + lift;
+    w.noclip = true;
+    w.state = { ...w.state, x: bounds.center.x + fx * d, y: eyeY - 1.62, z: bounds.center.z + fz * d, vx: 0, vy: 0, vz: 0 };
+    w.prevState = w.state;
+    w.yaw = yaw + around + Math.PI;
+    w.pitch = -Math.atan2(eyeY - bounds.center.y, d);
+    const pin = [...w.entityGroup.children].find(obj => obj.geometry?.type === 'SphereGeometry'
+      && Math.abs(obj.position.x) < 1e-6 && Math.abs(obj.position.y - 0.18) < 1e-6 && Math.abs(obj.position.z) < 1e-6);
+    if (pin) pin.visible = false;
+    return { ok: true, bounds: { min: bounds.min, max: bounds.max, span: bounds.span }, distance: d, originPinHidden: !!pin };
+  };
+});
+
 if (mode === 'flyout') {
-  // Fly out so the shot shows the model, not the inside of a brick: free-fly,
-  // then rise and back off. A walk that opens at the player's eye height is
-  // standing inside the build.
-  await page.mouse.click(900, 430);
-  await page.keyboard.press('KeyF');
-  await page.waitForTimeout(300);
-  for (let i = 0; i < 40; i++) { await page.keyboard.press('Space'); await page.waitForTimeout(30); }
-  for (let i = 0; i < 150; i++) { await page.keyboard.press('KeyS'); await page.waitForTimeout(20); }
-  await page.keyboard.press('Escape');
+  const framed = await page.evaluate(() => {
+    const w = window.__addonWalk;
+    if (!w || w.model.cells.length) return null;
+    const candidates = w.model.entities
+      .map((entity, index) => ({ entity, index, bounds: w.__shotBounds(index) }))
+      .filter(({ bounds }) => bounds)
+      .sort((a, b) => b.bounds.diagonal - a.bounds.diagonal);
+    const target = candidates[0];
+    if (!target) return { ok: false, reason: 'vehicle-only pack has no rendered appearance entity' };
+    const result = w.__shotFrame({ index: target.index, view: 'three-quarter', distance: 0, lift: 0, isolate: false });
+    const hud = document.querySelector('.ap-hud');
+    if (hud instanceof HTMLElement) hud.style.display = 'none';
+    const reach = document.querySelector('[data-act="reach"]');
+    if (reach instanceof HTMLElement && reach.getAttribute('aria-pressed') === 'true') reach.click();
+    return { ...result, index: target.index, label: target.entity.label };
+  });
+  if (!framed) {
+    // Buildings still use the walk's establishing shot: free-fly, then rise
+    // and back off from the player spawn.
+    await page.mouse.click(900, 430);
+    await page.keyboard.press('KeyF');
+    await page.waitForTimeout(300);
+    for (let i = 0; i < 40; i++) { await page.keyboard.press('Space'); await page.waitForTimeout(30); }
+    for (let i = 0; i < 150; i++) { await page.keyboard.press('KeyS'); await page.waitForTimeout(20); }
+    await page.keyboard.press('Escape');
+  } else if (!framed.ok) {
+    console.log(JSON.stringify({ pack: packPath, out: outPath, framed, errors: errors.slice(0, 5) }, null, 1));
+    await browser.close();
+    process.exit(1);
+  }
   await page.waitForTimeout(1200);
 
   const state = await readState();
   await page.screenshot({ path: outPath });
-  console.log(JSON.stringify({ pack: packPath, out: outPath, ...state, errors: errors.slice(0, 5) }, null, 1));
+  console.log(JSON.stringify({ pack: packPath, out: outPath, framed, ...state, errors: errors.slice(0, 5) }, null, 1));
   await browser.close();
 } else if (mode === 'figures') {
   // Close up on the first FIGURE marker, via the same DEV-only `window.__addonWalk`
@@ -189,7 +289,7 @@ if (mode === 'flyout') {
 
   const which = flags.get('figure') ?? '0';
   const view = ['back', 'left', 'right'].includes(flags.get('view')) ? flags.get('view') : 'front';
-  const distance = Number(flags.get('distance') ?? 2.4);
+  const distance = Number(flags.get('distance') ?? 0);
   // `--kind=car` (or any marker kind) frames that entity the same way: a
   // coaster car's posed riders are part of the car, not figure markers.
   const kind = flags.get('kind') ?? 'figure';
@@ -212,75 +312,20 @@ if (mode === 'flyout') {
         ? appearances[Number(which)]
         : appearances.find(({ entity }) => (entity.label ?? '').includes(which));
       if (!target) return { ok: false, reason: `no appearance entity "${which}" in this pack (${appearances.length} entities with geometry)` };
-
-      const Vector3 = w.camera.position.constructor;
-      const Matrix4 = w.camera.matrixWorld.constructor;
-      const instance = new Matrix4();
-      const corner = new Vector3();
-      let minX = Infinity, minY = Infinity, minZ = Infinity;
-      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
-      target.holder.updateWorldMatrix(true, true);
-      target.holder.traverse(obj => {
-        if (!obj.isInstancedMesh) return;
-        obj.geometry.computeBoundingBox();
-        const box = obj.geometry.boundingBox;
-        if (!box) return;
-        obj.updateWorldMatrix(true, false);
-        for (let i = 0; i < obj.count; i++) {
-          obj.getMatrixAt(i, instance);
-          for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
-            corner.set(x, y, z).applyMatrix4(instance).applyMatrix4(obj.matrixWorld);
-            minX = Math.min(minX, corner.x); minY = Math.min(minY, corner.y); minZ = Math.min(minZ, corner.z);
-            maxX = Math.max(maxX, corner.x); maxY = Math.max(maxY, corner.y); maxZ = Math.max(maxZ, corner.z);
-          }
-        }
-      });
-      if (!Number.isFinite(minX)) return { ok: false, reason: `appearance entity "${which}" has no rendered cube instances` };
-
-      if (isolate) for (const [i, holder] of w.entityHolders) holder.visible = i === target.index;
-      const center = { x: (minX + maxX) / 2, y: (minY + maxY) / 2, z: (minZ + maxZ) / 2 };
-      const span = { x: maxX - minX, y: maxY - minY, z: maxZ - minZ };
-      const fitDistance = Math.max(span.x, span.y, span.z) * 1.35;
-      const d = distance > 0 ? distance : fitDistance;
-      const yaw = ((target.entity.yaw ?? 0) + (w.rotation ?? 0)) * Math.PI / 180;
-      const around = view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : -Math.PI / 2;
-      const fx = -Math.sin(yaw + around), fz = -Math.cos(yaw + around);
-      const eyeY = center.y + Math.max(0.5, span.y * 0.35) + lift;
-      w.noclip = true;
-      w.state = { ...w.state, x: center.x + fx * d, y: eyeY - 1.62, z: center.z + fz * d, vx: 0, vy: 0, vz: 0 };
-      w.prevState = w.state;
-      w.yaw = yaw + around + Math.PI;
-      w.pitch = -Math.atan2(eyeY - center.y, d);
+      const framed = w.__shotFrame({ index: target.index, view, distance, lift, isolate });
       return {
-        ok: true, label: target.entity.label, view, hasRealGeometry: true,
-        bounds: { min: { x: minX, y: minY, z: minZ }, max: { x: maxX, y: maxY, z: maxZ }, span },
-        distance: d, appearances: appearances.length,
+        ...framed, label: target.entity.label, view, hasRealGeometry: true,
+        appearances: appearances.length,
       };
     }
     const figures = w.markers.filter(m => m.entity.kind === kind);
     const marker = /^\d+$/.test(which) ? figures[Number(which)] : figures.find(m => (m.entity.label ?? '').includes(which));
     if (!marker) return { ok: false, reason: `no ${kind} marker "${which}" in this pack (${figures.length} of that kind)` };
-    if (isolate) {
-      const index = w.model.entities.indexOf(marker.entity);
-      for (const [i, holder] of w.entityHolders) holder.visible = i === index;
-    }
+    const index = w.model.entities.indexOf(marker.entity);
+    if (index < 0 || !marker.hasRealGeometry) return { ok: false, reason: `${kind} marker "${which}" has no rendered entity geometry` };
     const at = marker.at;
-    // The entity's forward is -Z turned by its yaw (plus the placement's
-    // quarter turns, as the walk applies to its holder); "front" puts the
-    // camera 2.4 blocks along that forward and looks back at the figure, so
-    // the face and the prints are in view. This codebase's camera yaw 0 looks
-    // down -Z, so looking back along the forward is the entity yaw plus a
-    // half turn.
-    const yaw = ((marker.entity.yaw ?? 0) + (w.rotation ?? 0)) * Math.PI / 180;
-    // "left"/"right" stand the camera a quarter turn round from "front" (a
-    // coaster car's riders face along the track, not along the car's marker).
-    const around = view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : -Math.PI / 2;
-    const fx = -Math.sin(yaw + around), fz = -Math.cos(yaw + around);
-    w.state = { ...w.state, x: at.x + fx * distance, y: at.y + 0.9 * (distance / 2.4) + lift, z: at.z + fz * distance, vx: 0, vy: 0, vz: 0 };
-    w.prevState = w.state;
-    w.yaw = yaw + around + Math.PI;
-    w.pitch = -0.15;
-    return { ok: true, label: marker.entity.label, view, hasRealGeometry: marker.hasRealGeometry, at: { x: at.x, y: at.y, z: at.z }, figures: figures.length };
+    const framed = w.__shotFrame({ index, view, distance, lift, isolate });
+    return { ...framed, label: marker.entity.label, view, hasRealGeometry: true, at: { x: at.x, y: at.y, z: at.z }, figures: figures.length };
   }, { which, view, distance, kind, isolate, lift });
   await page.waitForTimeout(400);
   await page.screenshot({ path: outPath });

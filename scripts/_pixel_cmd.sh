@@ -1,11 +1,17 @@
 #!/bin/bash
 # Android QA: type one chat command into Minecraft Bedrock on a connected device.
 #   ANDROID_SERIAL=<serial> scripts/_pixel_cmd.sh "/summon craftmatic:timemachine_car ~ ~ ~5"
+#   ANDROID_SERIAL=<serial> scripts/_pixel_cmd.sh --field-only "/say ready"
 # Saga ignores plain input taps and corrupts bulk `input text`, so it needs the
-# measured one-character-at-a-time path from _saga_chat.sh.
+# measured one-character-at-a-time path below (_saga_chat.sh delegates here).
 set -euo pipefail
 export MSYS_NO_PATHCONV=1
-command="${1:?usage: _pixel_cmd.sh \"/command\"}"
+field_only=false
+if [[ "${1:-}" == '--field-only' ]]; then
+  field_only=true
+  shift
+fi
+command="${1:?usage: _pixel_cmd.sh [--field-only] \"/command\"}"
 serial_args=()
 if [[ -n "${ANDROID_SERIAL:-}" ]]; then serial_args=(-s "$ANDROID_SERIAL"); fi
 tap() { adb "${serial_args[@]}" shell input swipe "$1" "$2" "$1" "$2" 90; }
@@ -26,16 +32,23 @@ if [[ "${device_model,,}" == *saga* ]]; then
   chat_x=1195
 fi
 
-tap "$chat_x" 39;       sleep 1.2   # chat icon
-tap 1100 954;            sleep 0.6   # text field
+if ! $field_only; then
+  tap "$chat_x" 39;       sleep 1.2   # chat icon
+  tap 1100 954                          # text field
+  if $is_saga; then sleep 2; else sleep 0.6; fi
+fi
 
 if $is_saga; then
   # Bulk input drops/reorders characters on Saga. Clear with both delete
-  # directions, type the body one character at a time, then add the slash with
-  # its key event; `input text '/'` is ignored by the current Gboard.
+  # directions, insert the slash key event to establish the editor state, then
+  # type the body one character at a time; `input text '/'` is ignored by the
+  # current Gboard.
   body="${command#/}"
   adb "${serial_args[@]}" shell 'for i in $(seq 1 60); do input keyevent 67; done; for i in $(seq 1 30); do input keyevent 112; done'
-  sleep 1
+  # The key-event queue remains busy after the 90 deletes; starting sooner can
+  # silently drop the first several characters ("function" became "on").
+  sleep 5
+  adb "${serial_args[@]}" shell "input keyevent 76; sleep 0.5"
   remote_script=''
   text="$body"
   for ((i = 0; i < ${#text}; i++)); do
@@ -44,7 +57,6 @@ if $is_saga; then
     remote_script+="input text $(remote_quote "$char"); sleep 0.15; "
   done
   adb "${serial_args[@]}" shell "$remote_script"
-  adb "${serial_args[@]}" shell "input keyevent 122; sleep 0.3; input keyevent 76; sleep 0.3; input keyevent 123"
 else
   txt="${command// /%s}"
   adb "${serial_args[@]}" shell input keycombination 113 29; sleep 0.2
@@ -52,5 +64,7 @@ else
   adb "${serial_args[@]}" shell "input text $(remote_quote "$txt")"; sleep 0.6
 fi
 
-adb "${serial_args[@]}" shell input keyevent 66;  sleep 1.2
-tap 45 39;               sleep 0.6   # Exit (chat sometimes stays open)
+if ! $field_only; then
+  adb "${serial_args[@]}" shell input keyevent 66;  sleep 1.2
+  tap 45 39;               sleep 0.6   # Exit (chat sometimes stays open)
+fi

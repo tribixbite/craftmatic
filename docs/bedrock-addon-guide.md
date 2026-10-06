@@ -12,6 +12,17 @@ compiled from REAL part geometry (`engine/ldraw-part-geometry.ts` →
 `ldraw-part-prototype.ts` → `ldraw-entity-compiler.ts`), colours are LDraw RGB
 (`ldraw-entity-materials.ts`, classes generated from LDConfig), and each entity
 ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
+- PBR files alone do not establish the phone's lighting mode. Check Video →
+  Graphics Mode when judging gloss, shadows or plastic appearance, and record
+  it with the screenshot. Microsoft's [Vibrant Visuals resource-pack guide](https://learn.microsoft.com/en-us/minecraft/creator/documents/vibrantvisuals/vvresourcepacks?view=minecraft-bedrock-stable)
+  supports entity texture sets and requires `pbr` plus engine ≥1.21.120;
+  our packs already declare 1.26.40. Geometry/culling checks still apply in
+  either graphics mode.
+- Derive the RP's PBR capability from its finished texture-set files, not
+  the initial component list: generated coaster actors are compiled later.
+  Printed face atlases keep their exact RGBA/alpha-test path and declare
+  uniform ABS MER `[0,0,92]` in a texture set, without a redundant normal map.
+  `_mcaddon_check.py` checks the capability and referenced PBR image files.
 - **Bedrock's entity frame is left-handed.** Compile in a right-handed render
   frame (Y up, nose −Z, right +X; LDraw→render is a proper rotation `A`) and
   mirror ONLY at the JSON step: `origin.x = −max.x`, `pivot.x = −pivot.x`,
@@ -57,6 +68,14 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   above" was the camera pitched into the grass at ground level. For an exact
   viewpoint use `/camera @s set minecraft:free pos X Y Z facing X Y Z`, then
   `/camera @s clear`, and check the Position readout.
+- **Undo must outlive an unloaded vehicle.** A flown/driven actor can be
+  outside both the placement box and the loaded area. Retire its exact
+  placement tag and missing IDs in world dynamic properties before dropping
+  the player's Undo record; remove it on `entityLoad`, and sweep loaded actors
+  after a script reload. Read saved world state on the first tick, not at
+  module evaluation ([Script API startup privileges](https://learn.microsoft.com/en-us/minecraft/creator/documents/scripting/v2-overview?view=minecraft-bedrock-stable)).
+  Active placement tags must survive both paths. The child-play Undo check
+  must actually load escaped actors' chunks before judging deferred removal.
 - **Riding facts measured 2026-09-15 (Pixel, 1.26.45)**: a first-person rider
   sits inside the entity's cuboids. A rider-driven ground vehicle is
   client-authoritative: `getVelocity()` reads ~0 while it visibly drives (planes

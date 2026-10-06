@@ -667,6 +667,8 @@ describe('playable add-on — brick-compiled entities', () => {
   const LIB: Record<string, string> = {
     '3001': ['0 Brick 2 x 4', ...box6(-40, 40, -24, 0, -20, 20), '1 16 -30 -24 -10 1 0 0 0 1 0 0 0 1 stud.dat'].join('\n'),
     '3823': ['0 Windscreen', ...box6(-20, 20, -40, 0, -2, 2)].join('\n'),
+    '3626c': ['0 Minifig Head', ...box6(-13, 13, 0, 24, -13, 13)].join('\n'),
+    '3626cp01': ['0 Minifig Head with Standard Grin Pattern', ...box6(-13, 13, 0, 24, -13, 13), '4 0 -4 8 -13.01 4 8 -13.01 4 10 -13.01 -4 10 -13.01'].join('\n'),
   };
   const providerFor = async () => {
     const { createPartGeometryProvider } = await import('../web/src/engine/ldraw-part-geometry.js');
@@ -763,6 +765,57 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(entries.some(e => e.endsWith('_mer.png') || e.endsWith('.texture_set.json'))).toBe(false);
     const rpManifest = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_plain_RP/manifest.json')));
     expect(rpManifest.capabilities).toBeUndefined();
+  });
+
+  it('declares PBR from texture sets emitted by a coaster car, not only initial components', async () => {
+    const provider = await providerFor();
+    const points = Array.from({ length: 41 }, (_, i) => [i / 2, 1, 0] as [number, number, number]);
+    const route: CoasterRoute = {
+      label: 'Generated train', points, closed: false, maxSegmentLength: 0.5,
+      vehicles: [{
+        chassis: '3001.dat', sourceIndices: [], bricks: [bricks[0]!], rider: [],
+        datumPoint: [10, 1, 0], heading: 1, seatLdu: [0, -20, 0],
+      }],
+    };
+    const grid = new BlockGrid(1, 1, 1); grid.set(0, 0, 0, 'minecraft:stone');
+    const build = (pbr: boolean) => buildPlayableAddon(grid, {
+      stem: pbr ? 'pbr-coaster' : 'classic-coaster', coasterRoutes: [route],
+      partGeometry: provider, pbr,
+    });
+
+    const pbrPack = await build(true), pbrZip = ab(pbrPack.bytes), pbrEntries = listZipEntries(pbrZip);
+    expect(pbrEntries.some(name => name.includes('/textures/entity/craftmatic_swatch_') && name.endsWith('.texture_set.json'))).toBe(true);
+    const pbrManifest = JSON.parse(new TextDecoder().decode(await extractFile(pbrZip, pbrEntries.find(name => name.endsWith('_RP/manifest.json'))!)));
+    expect(pbrManifest.capabilities).toEqual(['pbr']);
+
+    const classicPack = await build(false), classicZip = ab(classicPack.bytes), classicEntries = listZipEntries(classicZip);
+    expect(classicEntries.some(name => name.endsWith('.texture_set.json'))).toBe(false);
+    const classicManifest = JSON.parse(new TextDecoder().decode(await extractFile(classicZip, classicEntries.find(name => name.endsWith('_RP/manifest.json'))!)));
+    expect(classicManifest.capabilities).toBeUndefined();
+  });
+
+  it('gives a printed face atlas uniform ABS PBR without changing its pixels or inventing a normal map', async () => {
+    const provider = await providerFor();
+    const grid = new BlockGrid(1, 1, 1);
+    const figure = { bricks: [{ part: '3626cp01.dat', color: 14, x: 0, y: 0, z: 0 }], x: 0, y: 0, z: 0, facingLdu: [0, -1] as [number, number] };
+    const build = (pbr: boolean) => buildPlayableAddon(grid, { stem: pbr ? 'pbr-face' : 'classic-face', figures: [figure], partGeometry: provider, pbr });
+
+    const pbrPack = await build(true), pbrZip = ab(pbrPack.bytes), pbrEntries = listZipEntries(pbrZip);
+    const pbrFacePath = pbrEntries.find(name => name.endsWith('_faces.png'))!;
+    expect(pbrFacePath).toBeDefined();
+    const pbrFace = new Uint8Array(await extractFile(pbrZip, pbrFacePath));
+    const pbrFaceStem = pbrFacePath.slice(pbrFacePath.lastIndexOf('/') + 1, -4);
+    const textureSet = JSON.parse(new TextDecoder().decode(await extractFile(pbrZip, pbrFacePath.replace(/\.png$/, '.texture_set.json'))));
+    expect(textureSet['minecraft:texture_set']).toEqual({ color: pbrFaceStem, metalness_emissive_roughness: [0, 0, 92] });
+    expect(pbrEntries).not.toContain(pbrFacePath.replace(/\.png$/, '_normal.png'));
+    expect(pbrEntries).not.toContain(pbrFacePath.replace(/\.png$/, '_mer.png'));
+
+    const classicPack = await build(false), classicZip = ab(classicPack.bytes), classicEntries = listZipEntries(classicZip);
+    const classicFacePath = classicEntries.find(name => name.endsWith('_faces.png'))!;
+    expect(classicFacePath).toBeDefined();
+    const classicFace = new Uint8Array(await extractFile(classicZip, classicFacePath));
+    expect(classicEntries).not.toContain(classicFacePath.replace(/\.png$/, '.texture_set.json'));
+    expect(classicFace).toEqual(pbrFace);
   });
 
   it('threads figureCollisionHeight into a scene figure NPC\'s collision box, bypassing the default 1.0-1.8 clamp (device-919 roaming experiment)', async () => {

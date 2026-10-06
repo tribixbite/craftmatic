@@ -27,7 +27,7 @@ import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type 
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
-import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
+import { MATERIAL_PBR, resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
@@ -2223,11 +2223,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const identity = packIdentity(options.stem, options.label);
     const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${identity}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${identity}`);
     files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable', pipelineStamp), description: `Place with /function ${shortAlias}; ride vehicles and use computer screens. ${provenanceSentence(pipelineStamp, source)}`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${identity}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${identity}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
-    // Vibrant Visuals texture sets are emitted for brick-compiled entities; the
-    // manifest must declare the capability or the game ignores the MER/normal maps.
     const pbr = options.pbr ?? true;
-    const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    const rpManifest = { format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }] };
+    const rpManifestFile = { name: rp + 'manifest.json', data: json(rpManifest) };
+    files.push(rpManifestFile);
     files.push({ name: `${bp}craftmatic-provenance.json`, data: json(provenance) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
     /** Cuboids of the BlockGrid-fallback entities, which have no `LegoGeometryDiagnostics` to carry them. */
@@ -2316,7 +2315,26 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             translucent: m.translucent,
             ...(m.faceAtlas ? { alphaTest: true } : {}),
         }));
-        for (const m of geo.meshes) if (m.faceAtlas) files.push({ name: `${rp}textures/entity/${ecid}_faces.png`, data: m.faceAtlas.png });
+        for (const m of geo.meshes) if (m.faceAtlas) {
+            const name = `${ecid}_faces`;
+            files.push({ name: `${rp}textures/entity/${name}.png`, data: m.faceAtlas.png });
+            if (pbr) {
+                // Printed ink remains the compiler's exact RGBA atlas. It is
+                // plastic too, so only declare the same uniform ABS surface
+                // response as the head below it. Microsoft permits an inline
+                // MER value and an omitted normal; that avoids a differently
+                // sized companion image and preserves the deliberately flat
+                // face layer.
+                const abs = MATERIAL_PBR.abs;
+                files.push({ name: `${rp}textures/entity/${name}.texture_set.json`, data: json({
+                    format_version: '1.16.100',
+                    'minecraft:texture_set': {
+                        color: name,
+                        metalness_emissive_roughness: [abs.metalness, abs.emissive, abs.roughness].map(value => Math.round(value * 255)),
+                    },
+                }) });
+            }
+        }
         // Distance LOD (opt-in): a per-colour surface hull of the cubes that were
         // just emitted, bound after the full-detail geometries and selected by
         // camera distance in the render controllers. A figure is never hulled -
@@ -3541,6 +3559,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
     const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. It hovers in place when you let go. Dismount (sneak) leaves you where you are - in the air you float gently down - and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse; stopped, LEFT and RIGHT turn the car on the spot; press Jump for a short boost; the Dismount (sneak) button gets you out. A car does not get stuck: it slides along a wall it brushes, steps round a tree it clips and scrambles up a kerb or out of a pit up to two blocks high; a higher wall stops it - back up or turn. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships fly like a spaceship: push the joystick forward to fly forward and back to fly straight BACKWARDS, LEFT and RIGHT to turn (even standing still); Jump goes straight UP; hold Jump with the joystick pulled back - or drag the view to look down and then press Jump - to go straight DOWN; let go of everything and it stops and hovers in the air. Fly it into a hill or a wall and it lifts itself over. Get out in the air and it floats gently down to the ground and waits there. Every car, boat and ship: drag the screen to look around; let go and, while you are moving, the view swings back behind you after a second. Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (drag to look around; hotbar slot 9 is the view from the seat); it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    // Derive the capability from the completed resource pack. Coaster cars,
+    // lift platforms and other generated actors are not necessarily present in
+    // the initial component list, but their emitted texture sets still require
+    // the manifest opt-in for Vibrant Visuals.
+    const emitsPbr = pbr && files.some(file => file.name.startsWith(`${rp}textures/`) && file.name.endsWith('.texture_set.json'));
+    rpManifestFile.data = json({ ...rpManifest, ...(emitsPbr ? { capabilities: ['pbr'] } : {}) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}), ...(options.accessMargin ? { accessMarginUsed } : {}) };
