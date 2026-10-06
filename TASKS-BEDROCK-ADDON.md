@@ -57,6 +57,8 @@ and level metadata may change normally after loading the restored world.
 Root verified the snapshot's twelve saved files against its manifest with
 zero mismatches and verified the tar SHA256. The project entry guide links
 directly here; the testing guide preserves snapshot and input-routing lessons.
+The add-on guide uses the measured absent-distance bracket for native camera
+acceptance, rather than treating the estimated 70-block cap as exact.
 
 Acceptance measured:
 - Clean 278adbf5 exports: structural 8/8, nonquick child play 40/40,

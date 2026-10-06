@@ -633,8 +633,10 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   Measured 200-percent actor counts for 10261/10326/76417/
   910004 are 4/1/2/1; imposing a 400-percent target would require 56/8/63/3 actors
   and introduce buried roots and oversized singletons. Native acceptance remains
-  pending: test nearby ground-level geometry more than 70 blocks from the old
-  whole-shell root, plus station alignment, lighting and complete Undo. An old
+  pending: test nearby ground-level geometry beyond the old observed absence
+  distance of 75.82 blocks from the whole-shell root, or perform exact baseline
+  A/B at the same camera; the estimated 70-block cap alone is not decisive.
+  Also check station alignment, lighting and complete Undo. An old
   distant free-camera view may remain beyond every new root and is insufficient
   alone to judge the improvement.
   Measurement evidence is in main checkout
