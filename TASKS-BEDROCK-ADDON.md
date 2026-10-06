@@ -71,10 +71,16 @@ Open acceptance work:
   both clean packs passed). Saga claimed by audit_device_qa
   at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
   captured baseline before input; clean89210261 is now installed, deviceMutation=true,
-  world925 bindings2610.614.624. Current UI is PLAY/worldselect with925 visible,
-  NOT yet loaded; screenshots007 etc are failed input-routing attempts, despite
-  filenames saying loaded. Owner will use proven protocol-B event4 physical
-  tap(800,1950) for portraitinputbehindlandscape, no more randomDPAD. Native
+  world925 bindings2610.614.624. Full protocol-B event4 tap including BTN_TOUCH
+  loaded925 at unchanged HUD5822,-60,5760 (012-protocolb-full-world-load.png).
+  Screenshots007 etc were failed input-routing attempts, despite filenames.
+  Owner then Save & Quit before ANY chat/placement and took a complete closed
+  world snapshot; existing histories/fixtures are protected from auto-retirement
+  by the new placement. Snapshot is in the native evidence directory:
+  world-snapshot-before-place-002.tar SHA7d280668e394813ef4c7b143fa3145f1e8e0675e1a69633ae15cb03261b33804,
+  12files/2484877bytes; manifest SHA9a0c74c8fb425d7d78ea081fb4ed0ac277721168ca07b06b6c6fe9d89ba7cd56.
+  native-progress.json has exact world restore steps; restore captured original
+  bindings separately because snapshot was taken after candidate binding. Native
   visual/interaction/Undo acceptance remains PENDING. Fresh touched-pack backup:
   AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261006-100930/.
   native-progress.json now embeds deploy command/stagingdir/currentbindings,
@@ -104,11 +110,15 @@ Open acceptance work:
   regression passes51/51 including original assets retained/current actors only
   and increased shipped cube/entity budgets. Both typechecks,154 focused tests,
   and web build(6.69s) passed; logs spatial-shell-legacy-{focused-tests,build}.log
-  in main evidence. Walker200-percent full/station A/B passed bothsets:
-  four/two shell holders, all29/24holders read, no browser errors or visible
-  seams/material/UV/print changes; baseline comparisons99.9052–99.9892% identical.
-  Main walker-spatial-8e261f39/run-stamp.json and clean PNGs/logs hold evidence;
-  owned4023 stopped,4000 preserved. Browser evidence does not prove native.
+  in main evidence. Initial Walker A/B proved expected4/2shells/all29/24holders,
+  but its model-only layer claim is SUPERSEDED: probe iterated detached NodeList
+  buttons after HUD rerender, leaving track overlay enabled (yellow stationbeam).
+  Source routeGroup visibility is correct; this was a test-harness bug, unrelated
+  to native glyph lines. facet_gate now corrects existing probe and reruns final892
+  vs278 at200percent with live selectors and assertedlegend/routeGroup state;
+  outputs main walker-spatial-8929007e-corrected/. Previous8e pixelmetrics are not
+  final model-only acceptance. Owned4023 stopped; preserve4000. Native remains
+  independent of browser evidence.
   # TODO(shell-migration): old saved placements keep old culling limitation;
   future migration needs authoritative transforms persisted before upgrading.
   Native8e is paused (no deployment); newpack/archive hash gates required even

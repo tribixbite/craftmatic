@@ -18,6 +18,14 @@ lighting; those require a camera near geometry but beyond the old shell root's
 draw range, station lighting/alignment, and complete native Undo. Evidence:
 main `output/fidelity-audit-20261005/spatial-shell-{focused-tests,full-tests,build}.log`.
 
+Walker HUD toggles rebuild their DOM. Do not capture a NodeList and click its
+nodes repeatedly: after the first toggle, later nodes are detached and their
+clicks silently miss the delegated listener. Capture kind strings, re-query a
+live selector before each click, and assert the actual `legend` flags plus
+`routeGroup.visible` before claiming a model-only screenshot. A yellow station
+beam is a route overlay, not shipped geometry. The first spatial A/B captures
+had this harness error; corrected captures must supersede their layer claims.
+
 Answer a question at the cheapest tier that can answer it:
 
 1. **Validators** (seconds): `python scripts/_mcaddon_check.py <pack>`,
