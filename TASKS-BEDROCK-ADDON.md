@@ -34,9 +34,10 @@ the sole driver `/root/audit_device_qa`. Do not infer successful loading or
 acceptance from screenshot filenames. The directory name is historical;
 the installed candidate is **8929007e**, not 8e261f39.
 
-At the latest handoff check, world 925 is loaded, the wand is set to 200 percent
-and turn 0, and the owner is re-pinning before placement. The displayed pin
-7422,-60,7401 is provisional; target origin is 7379,-60,7390. Placement,
+At the 2026-10-06 10:33 EDT handoff check, world 925 is loaded, the wand is
+set to 200 percent and turn 0, and exact origin 7379,-60,7390 is confirmed
+in `036-size200-pin-proof2.png` (root independently reviewed). Player is
+7422,-60,7411 with the wand form open, before Place. Placement,
 native culling/interaction/Undo acceptance, and final restoration are still
 pending. Device pack files and bindings have already changed. If interrupted,
 resume through the owner/checkpoint; do not leave the device in this state.
