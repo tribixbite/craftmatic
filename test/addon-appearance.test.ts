@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, swatchColorId } from '../web/src/ui/addon-appearance.js';
+import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, readAppearancePbrMaterials, swatchColorId } from '../web/src/ui/addon-appearance.js';
 import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.js';
+import { encodePngRgba } from '../web/src/engine/lego-resource-pack.js';
+import { addonAppearanceMaterial } from '../web/src/ui/addon-preview.js';
+import { decodePngRgb8 } from '../web/src/engine/png-rgb8.js';
+import * as THREE from 'three';
 
 /**
  * The preview's model layer is read back out of a built pack, so it can only be
@@ -70,8 +74,108 @@ describe('APPEARANCE_FILE_PATTERN', () => {
     expect(APPEARANCE_FILE_PATTERN.test('X_RP/entity/a.entity.json')).toBe(true);
     expect(APPEARANCE_FILE_PATTERN.test('X_RP/render_controllers/a.render_controllers.json')).toBe(true);
     expect(APPEARANCE_FILE_PATTERN.test('X_RP/models/entity/a.geo.json')).toBe(true);
+    expect(APPEARANCE_FILE_PATTERN.test('X_RP/manifest.json')).toBe(true);
+    expect(APPEARANCE_FILE_PATTERN.test('X_RP/textures/entity/a.texture_set.json')).toBe(true);
     expect(APPEARANCE_FILE_PATTERN.test('X_BP/scripts/placement.js')).toBe(false);
     expect(APPEARANCE_FILE_PATTERN.test('X_RP/textures/entity/craftmatic_swatch_4.png')).toBe(false);
+  });
+});
+
+const rpManifest = (pbr: boolean): string => JSON.stringify({
+  modules: [{ type: 'resources' }], ...(pbr ? { capabilities: ['pbr'] } : {}),
+});
+const textureSet = (mer: unknown): string => JSON.stringify({
+  format_version: '1.16.100', 'minecraft:texture_set': { color: 'ignored', metalness_emissive_roughness: mer },
+});
+const uniformPng = (rgb: readonly [number, number, number]): Uint8Array => {
+  const data = new Uint8Array(2 * 2 * 4);
+  for (let p = 0; p < data.length; p += 4) data.set([...rgb, 255], p);
+  return encodePngRgba(2, 2, data);
+};
+
+describe('pack-authored PBR material response', () => {
+  it('rejects malformed PNG framing before material parsing', async () => {
+    const valid = uniformPng([0, 0, 92]);
+    expect(await decodePngRgb8(valid)).toMatchObject({ width: 2, height: 2, channels: 4 });
+    await expect(decodePngRgb8(valid.slice(0, -12))).rejects.toThrow(/IEND/);
+    const trailing = new Uint8Array(valid.length + 1); trailing.set(valid); trailing[valid.length] = 1;
+    await expect(decodePngRgb8(trailing)).rejects.toThrow(/trailing bytes/);
+  });
+
+  it('reads inline MER exactly and requires the resource manifest PBR flag', async () => {
+    const withFlag = sources();
+    withFlag.set('Craftmatic_RP/manifest.json', rpManifest(true));
+    withFlag.set('Craftmatic_RP/textures/entity/craftmatic_swatch_4.texture_set.json', textureSet([201, 7, 44]));
+    const pbr = await readAppearancePbrMaterials(withFlag, new Map());
+    const pbrAppearance = buildAddonAppearance(withFlag, pbr);
+    const red = pbrAppearance.byType.get('craftmatic:b_shell')!.groups[0]!;
+    expect(red.surface).toEqual({ metalness: 201 / 255, emissive: 7 / 255, roughness: 44 / 255, source: 'texture-set-inline' });
+    expect(pbrAppearance.byType.get('craftmatic:b_shell')!.groups[1]!.surface).toBeUndefined();
+    expect(pbrAppearance.notes.join(' ')).toMatch(/swatch_2.*classic diffuse fallback/);
+
+    const withoutFlag = new Map(withFlag);
+    withoutFlag.set('Craftmatic_RP/manifest.json', rpManifest(false));
+    const classic = await readAppearancePbrMaterials(withoutFlag, new Map());
+    expect(classic.enabled).toBe(false);
+    expect(buildAddonAppearance(withoutFlag, classic).byType.get('craftmatic:b_shell')!.groups[0]!.surface).toBeUndefined();
+
+    const malformed = new Map(withFlag);
+    malformed.set('Craftmatic_RP/textures/entity/craftmatic_swatch_4.texture_set.json', textureSet([256, 0, 0]));
+    const rejected = await readAppearancePbrMaterials(malformed, new Map());
+    expect(rejected.byTexture.has('textures/entity/craftmatic_swatch_4')).toBe(false);
+    expect(rejected.notes.join(' ')).toMatch(/no supported uniform MER/);
+  });
+
+  it('decodes edited uniform RGB8/RGBA8 MER pixels without treating them as sRGB', async () => {
+    const input = sources();
+    input.set('Craftmatic_RP/manifest.json', rpManifest(true));
+    input.set('Craftmatic_RP/textures/entity/craftmatic_swatch_4.texture_set.json', textureSet('edited_mer'));
+    const pngs = new Map([['Craftmatic_RP/textures/entity/edited_mer.png', uniformPng([17, 91, 233])]]);
+    const pbr = await readAppearancePbrMaterials(input, pngs);
+    expect(pbr.byTexture.get('textures/entity/craftmatic_swatch_4')).toEqual({
+      metalness: 17 / 255, emissive: 91 / 255, roughness: 233 / 255, source: 'texture-set-mer-png',
+    });
+  });
+
+  it('reports missing, corrupt and non-uniform MER assets and uses no guessed surface', async () => {
+    const input = sources();
+    input.set('Craftmatic_RP/manifest.json', rpManifest(true));
+    input.set('Craftmatic_RP/textures/entity/craftmatic_swatch_4.texture_set.json', textureSet('bad_mer'));
+    input.set('Craftmatic_RP/textures/entity/craftmatic_swatch_2.texture_set.json', textureSet('varied_mer'));
+    const varied = new Uint8Array(2 * 1 * 4);
+    varied.set([0, 0, 92, 255, 1, 0, 92, 255]);
+    const crcBroken = uniformPng([0, 0, 92]);
+    crcBroken[45] = crcBroken[45]! ^ 1;
+    const pbr = await readAppearancePbrMaterials(input, new Map([
+      ['Craftmatic_RP/textures/entity/bad_mer.png', crcBroken],
+      ['Craftmatic_RP/textures/entity/varied_mer.png', encodePngRgba(2, 1, varied)],
+    ]));
+    expect(pbr.byTexture.size).toBe(0);
+    expect(pbr.notes.join(' ')).toMatch(/unsupported or corrupt/);
+    expect(pbr.notes.join(' ')).toMatch(/invalid CRC/);
+    expect(pbr.notes.join(' ')).toMatch(/non-uniform/);
+    const app = buildAddonAppearance(input, pbr);
+    expect(app.byType.get('craftmatic:b_shell')!.groups.every(g => g.surface === undefined)).toBe(true);
+    expect(app.notes.join(' ')).toMatch(/classic diffuse fallback/);
+  });
+
+  it('maps actual surfaces to Standard materials and classic fallback to Lambert without tinting a face atlas', () => {
+    const surface = { metalness: 0.8, emissive: 0.25, roughness: 0.1, source: 'texture-set-inline' as const };
+    const pbr = addonAppearanceMaterial({ colorHex: 0x123456, alpha: 0.5, surface }) as THREE.MeshStandardMaterial;
+    expect(pbr.isMeshStandardMaterial).toBe(true);
+    expect([pbr.metalness, pbr.roughness, pbr.emissiveIntensity, pbr.transparent, pbr.opacity]).toEqual([0.8, 0.1, 0.25, true, 0.5]);
+    expect(pbr.emissive.getHex()).toBe(0x123456);
+    const classic = addonAppearanceMaterial({ colorHex: 0x123456, alpha: 1 }) as THREE.MeshLambertMaterial;
+    expect(classic.isMeshLambertMaterial).toBe(true);
+    const faintClassic = addonAppearanceMaterial({ colorHex: 0x123456, alpha: 0.1 }) as THREE.MeshLambertMaterial;
+    const faintPbr = addonAppearanceMaterial({ colorHex: 0x123456, alpha: 0.1, surface }) as THREE.MeshStandardMaterial;
+    expect([faintClassic.opacity, faintPbr.opacity]).toEqual([0.1, 0.1]);
+    const atlas = new THREE.Texture();
+    const face = addonAppearanceMaterial({ colorHex: 0xb0b8c4, alpha: 1, surface }, atlas) as THREE.MeshStandardMaterial;
+    expect(face.color.getHex()).toBe(0xffffff);
+    expect(face.map).toBe(atlas);
+    expect(face.emissiveMap).toBe(atlas);
+    expect(face.alphaTest).toBe(0.5);
   });
 });
 

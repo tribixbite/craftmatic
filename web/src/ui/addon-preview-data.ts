@@ -41,7 +41,7 @@ import type { CoasterRiderViewConfig } from '@engine/bedrock-coaster.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
 import { COLLIDER_KIT, type Box16, type ColliderForm } from '@engine/collider-form.js';
 import type { InteractiveRuntimeConfig } from '@engine/bedrock-interactives.js';
-import { APPEARANCE_FILE_PATTERN, buildAddonAppearance, type AddonAppearance } from './addon-appearance.js';
+import { APPEARANCE_FILE_PATTERN, appearancePbrPngPaths, buildAddonAppearance, readAppearancePbrMaterials, type AddonAppearance, type AppearancePbrMaterials } from './addon-appearance.js';
 
 // ─── Model ───────────────────────────────────────────────────────────────────
 
@@ -181,6 +181,8 @@ export interface AddonPreviewFiles {
   treadsJson?: string;
   /** Resource-pack geometry, entity and controller files, keyed by archive path. */
   appearanceSources?: Map<string, string>;
+  /** Manifest-gated PBR values decoded from the pack's texture sets and uniform MER images. */
+  appearancePbr?: AppearancePbrMaterials;
   /** Behaviour-pack `entities/<id>.json` files, keyed by archive path — read for
    * `minecraft:collision_box` / `minecraft:physics.has_collision` (`entityCollisionFromSources`). */
   behaviorEntitySources?: Map<string, string>;
@@ -212,6 +214,14 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
   for (const [name, data] of found) if (BEHAVIOR_ENTITY_FILE_PATTERN.test(name)) behaviorEntitySources.set(name, utf8.decode(data));
   const faceTextures = new Map<string, Uint8Array>();
   for (const [name, data] of found) { const m = FACE_TEXTURE_PATTERN.exec(name); if (m) faceTextures.set(m[2]!, new Uint8Array(data)); }
+  // Texture-set image references are arbitrary names. Resolve the JSON first,
+  // then extract exactly those images in a second ZIP pass.
+  const pbrPaths = appearancePbrPngPaths(appearanceSources);
+  const pbrPngs = new Map<string, Uint8Array>();
+  if (pbrPaths.size) {
+    for (const [name, data] of await extractMatching(mcaddon, candidate => pbrPaths.has(candidate))) pbrPngs.set(name, new Uint8Array(data));
+  }
+  const appearancePbr = await readAppearancePbrMaterials(appearanceSources, pbrPngs);
   return {
     placementScript: text(/scripts\/placement\.js$/),
     coasterScript: text(/scripts\/coaster\.js$/),
@@ -220,6 +230,7 @@ export async function readAddonPreviewFiles(mcaddon: ArrayBuffer): Promise<Addon
     diagnosticsJson: text(/craftmatic-diagnostics\.json$/),
     treadsJson: text(/craftmatic-treads\.json$/),
     appearanceSources,
+    appearancePbr,
     behaviorEntitySources,
     faceTextures,
   };
@@ -437,7 +448,7 @@ export function buildAddonPreviewModel(files: AddonPreviewFiles): AddonPreviewMo
   // says so rather than showing an empty world as if that were the model.
   let appearance: AddonAppearance | null = null;
   if (files.appearanceSources?.size) {
-    appearance = buildAddonAppearance(files.appearanceSources);
+    appearance = buildAddonAppearance(files.appearanceSources, files.appearancePbr);
     notes.push(...appearance.notes);
     if (!appearance.cubeCount) { notes.push('The pack ships geometry the preview could not read: no model layer.'); appearance = null; }
   }

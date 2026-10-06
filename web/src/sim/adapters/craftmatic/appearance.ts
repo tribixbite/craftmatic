@@ -28,6 +28,22 @@
  */
 import { resolveLdrawEntityMaterial } from '../../../engine/ldraw-entity-materials.js';
 import { drawnCubeBox } from '../../../engine/bedrock-geometry-faces.js';
+import { decodePngRgb8, uniformPngRgb } from '../../../engine/png-rgb8.js';
+
+export interface AppearanceSurface {
+  metalness: number;
+  emissive: number;
+  roughness: number;
+  /** Values read from this pack, not inferred from an LDraw colour id. */
+  source: 'texture-set-inline' | 'texture-set-mer-png';
+}
+
+export interface AppearancePbrMaterials {
+  /** The resource-pack manifest explicitly opts in to Bedrock PBR assets. */
+  enabled: boolean;
+  byTexture: Map<string, AppearanceSurface>;
+  notes: string[];
+}
 
 /** A bone, as the geometry declares it. Pivot and rotation are in model units/degrees. */
 export interface AppearanceBone {
@@ -78,6 +94,8 @@ export interface AppearanceGroup {
    * path without extension and its size in texels, for cubes with `faceUv`.
    */
   texture?: { path: string; width: number; height: number };
+  /** Actual uniform MER values shipped for this texture; absent means classic diffuse fallback. */
+  surface?: AppearanceSurface;
 }
 
 export interface AddonAppearanceEntry {
@@ -91,6 +109,8 @@ export interface AddonAppearance {
   /** Keyed by the FULL entity identifier (`craftmatic:b_10303_10303_shell`). */
   byType: Map<string, AddonAppearanceEntry>;
   cubeCount: number;
+  /** Asset mode selected by the RP manifest; this does not claim native Vibrant Visuals equivalence. */
+  materialMode: 'pbr-assets' | 'classic';
   /** Anything that could not be read, said rather than dropped. */
   notes: string[];
 }
@@ -100,7 +120,81 @@ export type AppearanceSources = ReadonlyMap<string, string>;
 
 /** Paths worth pulling out of the archive for `buildAddonAppearance`. */
 export const APPEARANCE_FILE_PATTERN =
-  /(^|\/)(entity\/[^/]+\.entity\.json|render_controllers\/[^/]+\.render_controllers\.json|models\/entity\/[^/]+\.geo\.json)$/;
+  /(^|\/)(manifest\.json|entity\/[^/]+\.entity\.json|render_controllers\/[^/]+\.render_controllers\.json|models\/entity\/[^/]+\.geo\.json|textures\/.+\.texture_set\.json)$/;
+
+const resourcePath = (archivePath: string): string | null => /(^|\/)(textures\/.*)$/.exec(archivePath)?.[2] ?? null;
+const textureSetStem = (archivePath: string): string | null => resourcePath(archivePath)?.replace(/\.texture_set\.json$/, '') ?? null;
+const manifestPrefix = (archivePath: string): string => archivePath.slice(0, archivePath.lastIndexOf('/') + 1);
+const byteUnit = (v: number): number => v / 255;
+
+/** Exact archive paths of image-backed MER layers referenced by texture sets. */
+export function appearancePbrPngPaths(sources: AppearanceSources): Set<string> {
+  const paths = new Set<string>();
+  for (const [path, text] of sources) {
+    if (!textureSetStem(path)) continue;
+    try {
+      const value = (JSON.parse(text) as { 'minecraft:texture_set'?: { metalness_emissive_roughness?: unknown } })['minecraft:texture_set']?.metalness_emissive_roughness;
+      if (typeof value === 'string' && !value.startsWith('#')) paths.add(`${path.slice(0, path.lastIndexOf('/') + 1)}${value}.png`);
+    } catch { /* The material reader reports malformed JSON with its path. */ }
+  }
+  return paths;
+}
+
+/** Read actual uniform MER values, gated by the resource manifest's PBR capability. */
+export async function readAppearancePbrMaterials(
+  sources: AppearanceSources,
+  pngs: ReadonlyMap<string, Uint8Array>,
+): Promise<AppearancePbrMaterials> {
+  const notes: string[] = [];
+  const resourceManifests: Array<{ prefix: string; pbr: boolean }> = [];
+  for (const [path, text] of sources) {
+    if (!/(^|\/)manifest\.json$/.test(path)) continue;
+    try {
+      const manifest = JSON.parse(text) as { modules?: Array<{ type?: string }>; capabilities?: unknown };
+      if (manifest.modules?.some(m => m.type === 'resources')) resourceManifests.push({ prefix: manifestPrefix(path), pbr: Array.isArray(manifest.capabilities) && manifest.capabilities.includes('pbr') });
+    } catch { notes.push(`${path}: not valid JSON; PBR capability could not be read.`); }
+  }
+  if (resourceManifests.length > 1) {
+    notes.push('Multiple resource packs are present; their texture namespaces are ambiguous, so the preview uses classic diffuse materials.');
+    return { enabled: false, byTexture: new Map(), notes };
+  }
+  const resourceManifest = resourceManifests[0];
+  const enabled = resourceManifest?.pbr === true;
+  const byTexture = new Map<string, AppearanceSurface>();
+  if (!enabled) return { enabled, byTexture, notes };
+  for (const [path, text] of sources) {
+    if (!path.startsWith(resourceManifest.prefix)) continue;
+    const texture = textureSetStem(path);
+    if (!texture) continue;
+    let value: unknown;
+    try { value = (JSON.parse(text) as { 'minecraft:texture_set'?: { metalness_emissive_roughness?: unknown } })['minecraft:texture_set']?.metalness_emissive_roughness; }
+    catch { notes.push(`${path}: not valid JSON; classic diffuse fallback.`); continue; }
+    let rgb: [number, number, number] | null = null;
+    let source: AppearanceSurface['source'] = 'texture-set-inline';
+    if (Array.isArray(value) && value.length === 3 && value.every(v => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 255)) {
+      rgb = [value[0] as number, value[1] as number, value[2] as number];
+    } else if (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value)) {
+      rgb = [parseInt(value.slice(1, 3), 16), parseInt(value.slice(3, 5), 16), parseInt(value.slice(5, 7), 16)];
+    } else if (typeof value === 'string') {
+      source = 'texture-set-mer-png';
+      const directory = path.slice(0, path.lastIndexOf('/') + 1), pngPath = `${directory}${value}.png`;
+      const bytes = pngs.get(pngPath);
+      if (!bytes) { notes.push(`${path}: MER image ${pngPath} is missing; classic diffuse fallback.`); continue; }
+      try {
+        rgb = uniformPngRgb(await decodePngRgb8(bytes));
+        if (!rgb) { notes.push(`${path}: MER image is non-uniform; the preview supports uniform MER only, so it uses classic diffuse fallback.`); continue; }
+      } catch (error) {
+        notes.push(`${path}: MER image is unsupported or corrupt (${error instanceof Error ? error.message : String(error)}); classic diffuse fallback.`);
+        continue;
+      }
+    } else {
+      notes.push(`${path}: no supported uniform MER value; classic diffuse fallback.`);
+      continue;
+    }
+    byTexture.set(texture, { metalness: byteUnit(rgb[0]), emissive: byteUnit(rgb[1]), roughness: byteUnit(rgb[2]), source });
+  }
+  return { enabled, byTexture, notes };
+}
 
 /**
  * Render controllers Minecraft itself provides, which a pack references but
@@ -280,8 +374,8 @@ function indexControllers(sources: AppearanceSources, notes: string[]): Map<stri
  * reported in `notes` and skipped, so a pack the preview cannot fully draw says
  * so instead of quietly drawing less than it ships.
  */
-export function buildAddonAppearance(sources: AppearanceSources): AddonAppearance {
-  const notes: string[] = [];
+export function buildAddonAppearance(sources: AppearanceSources, pbr?: AppearancePbrMaterials): AddonAppearance {
+  const notes: string[] = [...(pbr?.notes ?? [])];
   const geometries = indexGeometries(sources, notes);
   const controllers = indexControllers(sources, notes);
   const byType = new Map<string, AddonAppearanceEntry>();
@@ -336,7 +430,9 @@ export function buildAddonAppearance(sources: AppearanceSources): AddonAppearanc
         : undefined;
       const far = controller ? drawnOnlyFar(controller) : false;
       if (geo.cubes.length) {
-        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}), ...(far ? { far } : {}) });
+        const surface = pbr?.enabled && texPath ? pbr.byTexture.get(texPath) : undefined;
+        if (pbr?.enabled && texPath && !surface) notes.push(`${typeId}: texture ${texPath} has no supported PBR surface; classic diffuse fallback.`);
+        groups.push({ colorHex, alpha, ldrawColor, cubes: geo.cubes, ...(texture ? { texture } : {}), ...(surface ? { surface } : {}), ...(far ? { far } : {}) });
         cubeCount += geo.cubes.length;
       }
     }
@@ -344,5 +440,5 @@ export function buildAddonAppearance(sources: AppearanceSources): AddonAppearanc
     if (groups.length) byType.set(typeId, { typeId, groups, bones: [...bones.values()], cubeCount: groups.reduce((n, g) => n + g.cubes.length, 0) });
   }
 
-  return { byType, cubeCount, notes };
+  return { byType, cubeCount, materialMode: pbr?.enabled ? 'pbr-assets' : 'classic', notes };
 }

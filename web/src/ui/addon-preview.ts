@@ -54,7 +54,7 @@ import {
   type CoasterPreviewCarFrame, type CoasterPreviewRouteInput, type CoasterPreviewState,
 } from '@engine/coaster-preview.js';
 import { MINIFIG_ANIMATIONS, MINIFIG_ANIMATION_IDS } from '@engine/minifig-rig.js';
-import type { AppearanceCube } from './addon-appearance.js';
+import type { AppearanceCube, AppearanceGroup } from './addon-appearance.js';
 import type { ReachWorkerRequest, ReachWorkerResponse } from './addon-reach-worker.js';
 import {
   columnBoxes, defaultLegendState, entitySpawnsAt, laidColliderBlocks, LEGEND_KINDS, LEGEND_LABELS, legendCounts, legendKindOf,
@@ -93,6 +93,29 @@ const LEGEND_COLOR: Record<LegendKind, number> = {
 };
 const COLOR_REACHED = 0x22c55e, COLOR_UNREACHED = 0xef4444, COLOR_STATION = 0xfde047, COLOR_CHAIN = 0xf97316;
 const hex = (c: number): string => `#${c.toString(16).padStart(6, '0')}`;
+
+/** Three.js material backed only by material evidence the loaded pack carries. */
+export function addonAppearanceMaterial(chunk: Pick<AppearanceGroup, 'colorHex' | 'alpha' | 'surface'>, texture?: THREE.Texture): THREE.Material {
+  const common = {
+    // A texture supplies its own RGB; multiplying it by the parser's neutral
+    // fallback grey would darken face artwork and alter its intended colour.
+    color: texture ? 0xffffff : chunk.colorHex,
+    flatShading: true,
+    ...(texture ? { map: texture, alphaTest: 0.5, side: THREE.DoubleSide } : {}),
+    ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0, Math.min(1, chunk.alpha)) } : {}),
+  };
+  if (!chunk.surface) return new THREE.MeshLambertMaterial(common);
+  return new THREE.MeshStandardMaterial({
+    ...common,
+    metalness: chunk.surface.metalness,
+    roughness: chunk.surface.roughness,
+    ...(chunk.surface.emissive > 0 ? {
+      emissive: texture ? 0xffffff : chunk.colorHex,
+      emissiveIntensity: chunk.surface.emissive,
+      ...(texture ? { emissiveMap: texture } : {}),
+    } : {}),
+  });
+}
 
 /** The pack's own sit pose (`MINIFIG_ANIMATIONS`'s `sit` animation, legs -90°),
  * read out as a bone-name -> rotation-degrees overlay for `buildModel`'s
@@ -314,6 +337,10 @@ class AddonWalk implements AddonPreviewHandle {
 
     this.scene.background = new THREE.Color(0x0b0d14);
     this.scene.fog = new THREE.Fog(0x0b0d14, 60, 220);
+    // Share the viewer's studio reflections. Without an environment, chrome
+    // has almost nothing to reflect and reads black despite correct MER data.
+    this.scene.environment = viewer.scene.environment;
+    this.scene.environmentIntensity = viewer.scene.environmentIntensity;
     const hemi = new THREE.HemisphereLight(0xdfe8ff, 0x1a1d2b, 1.1);
     const sun = new THREE.DirectionalLight(0xffffff, 1.6);
     sun.position.set(0.6, 1, 0.35);
@@ -590,14 +617,11 @@ class AddonWalk implements AddonPreviewHandle {
         if (!cubes.length) continue;
         if (chunk.texture) {
           // A face atlas: each decal cube draws ONE textured face, nothing else.
-          const faces = this.faceDecalMesh(chunk.texture, cubes, bones);
+          const faces = this.faceDecalMesh(chunk, cubes, bones);
           if (faces) holder.add(faces);
           continue;
         }
-        const material = new THREE.MeshStandardMaterial({
-          color: chunk.colorHex, roughness: 0.62, metalness: 0.04, flatShading: true,
-          ...(chunk.alpha < 1 ? { transparent: true, opacity: Math.max(0.25, chunk.alpha) } : {}),
-        });
+        const material = addonAppearanceMaterial(chunk);
         this.disposables.push(material);
         const mesh = new THREE.InstancedMesh(this.unitBox, material, cubes.length);
         cubes.forEach((c, i) => {
@@ -660,7 +684,8 @@ class AddonWalk implements AddonPreviewHandle {
    * atlas out by, in geometry-JSON terms: north u → +X, south u → −X,
    * east u → +Z, west u → −Z, v → −Y (see `orientFace`).
    */
-  private faceDecalMesh(tex: { path: string; width: number; height: number }, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
+  private faceDecalMesh(group: AppearanceGroup, cubes: ReadonlyArray<AppearanceCube>, bones: Map<string, THREE.Matrix4>): THREE.Mesh | null {
+    const tex = group.texture!;
     const texture = this.faceTexture(tex.path);
     if (!texture) return null;
     const positions: number[] = [], uvs: number[] = [];
@@ -691,7 +716,7 @@ class AddonWalk implements AddonPreviewHandle {
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
     geometry.computeVertexNormals();
-    const material = new THREE.MeshStandardMaterial({ map: texture, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.62, metalness: 0.04 });
+    const material = addonAppearanceMaterial(group, texture);
     this.disposables.push(material);
     const mesh = new THREE.Mesh(geometry, material);
     mesh.frustumCulled = false;
@@ -1693,11 +1718,14 @@ class AddonWalk implements AddonPreviewHandle {
     ensureStyles();
     const root = document.createElement('div');
     root.className = 'ap-root';
+    const materialEvidence = this.model.appearance?.materialMode === 'pbr-assets'
+      ? 'Preview uses the pack\'s material values; lighting differs from Minecraft.'
+      : 'Preview uses classic diffuse shading because the pack has no enabled, supported uniform PBR assets.';
     root.innerHTML = `
       <div class="ap-look" tabindex="0" aria-label="Add-on walk view"></div>
       <div class="ap-labels"></div>
       <div class="ap-crosshair"></div>
-      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn: unreachable here is unreachable in game. It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
+      <div class="ap-banner">Walks the <b>exact collider blocks</b> this pack lays at the chosen size and turn: unreachable here is unreachable in game. ${materialEvidence} It does <b>not</b> prove Bedrock's rendering, entity culling, form text, ride physics or memory — a device round still decides those.</div>
       <div class="ap-interact"></div>
       <div class="ap-hud">
         <div class="ap-panel ap-legend"></div>

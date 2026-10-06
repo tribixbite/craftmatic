@@ -24,18 +24,25 @@ independently checked, not treated as device-proven. Evidence logs are in
   3-D root distance and the shared collision-box cutoff; two raster tests fail
   before the fix, all 40 sim-engine tests pass after (both typechecks pass).
   Web build after the collision follow-up passed (existing large-chunk warning).
+  Latest material/slide/replay revision: full suite 2,969 passed, 34 skipped;
+  181 files passed, one skipped. Both typechecks, physics spec and web build
+  pass. Main logs: `output/fidelity-audit-final-{tests,build}.log`.
 - Walker QA harness now fails missing targets, and `figures --kind=appearance
   --distance=0 --hide-panels` frames actual rendered bounds for vehicle-only
   packs. McLaren front/left/back show the complete body; evidence in main
   `output/fidelity-audit-20261005/walker/42172-appearance-*.png`.
 - Full 11-pack audit now available at main
   `output/fidelity-audit-20261005/a116-all-{childplay,regressions-detailed}.*`:
-  54/55 child-play scenarios pass. Three regression failures are under repair:
+  54/55 child-play scenarios pass. Three regression corrections now await
+  clean rebuilt-pack acceptance:
   10797 slide dismount intersects a phantom collider (no drawn geometry);
   10788 replay targets an invisible seat instead of the car; 10326 replay
   starts inside real geometry and needs a legal pose in the recorded HUD cell.
   The old 10797 overhang fall remains unreproduced and is now NOT TESTED,
   nonzero exit, rather than a successful regression run.
+  The 10797 compiler probe tightens only cell `(22,2,4)` from full form 0 to
+  source-cover form 5, height 0..7/16, preserving floor/source/leak guards.
+  Focused collider/simulator tests: 58 passed; both typechecks/spec pass.
 - Doorway audit: all 11 packs, 17 doors, 170 size/turn rows (100/150/200/300/400,
   0/90): zero FAIL, 96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short approaches.
   Main `a116-passability.{json,log}` records model limits rather than hiding them.
@@ -49,10 +56,13 @@ independently checked, not treated as device-proven. Evidence logs are in
   ignores `input text '/'`). One implementation backs both helper contracts;
   field-only mode is verified before and after manual Enter (captures 44/45).
 - # TODO(device-audit): finish isolated 10261 figure/car close views, 200% view,
-  material graphics-mode check and Milano telemetry/controls. Canonical
+  Milano telemetry/controls. Canonical
   McLaren and full coaster shell now render in Saga captures 39 and 54/55
   under worktree `output/device-zero-plane-20261005/`. Capture 49's absent
   shell is not a reproducible measured cutoff: later 64–66-block views render.
+  Final `a116cdf6` pack McLaren also renders in Vibrant Visuals (capture 73);
+  UI capture 69 proves the mode and 78 proves Fancy restored. Both option
+  fields returned to 1 (Vibrant Visuals was 2).
 - Course audit of clean `880a7195` packs: 42172 hill clips 1 tick; 7140 tree
   while climbing clips 3; 76286 tree clips 28. Fixed simultaneous vertical
   movement checking and adaptive height spacing; five new regression tests
@@ -85,8 +95,11 @@ independently checked, not treated as device-proven. Evidence logs are in
   still takes precedence over LDConfig RGB; palette migration remains a
   deliberate, separately measured fidelity choice. Flat normal maps avoid
   embossing the cuboid decomposition and should not receive invented seams.
-  Walker material work is in progress: read actual manifest-gated MER assets,
-  preserve print pixels, share reflection lighting and report unsupported maps.
+  Walker now reads actual manifest-gated uniform MER assets, preserves print
+  pixels/alpha and shares reflection lighting. Unsupported maps report diffuse
+  fallback. Decoder checks CRC, framing, filters and bounded decompression;
+  tests cover custom filenames, inline/image values and malformed assets.
+  # TODO: finish isolated Chrome visual acceptance and full-suite/rebuild gates.
 - Walker now frames from rendered bounds and live holder yaw; figure-marker
   and appearance views at 200%/90° are byte-identical. Station reachability
   passes both walk models at 100%/200%, four turns each; whole-grid agreement

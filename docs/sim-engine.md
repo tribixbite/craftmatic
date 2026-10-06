@@ -402,6 +402,17 @@ a new refusal the log shows becomes a check there.
 
 ## Acceptance: the 2026-09-29 regression set
 
+Replay corrections (2026-10-05): `gabby-lift-cap` targets the visible lift
+car, as normal child-play does; its invisible internal seat is not a legal
+touch target. The old pack still fails boarding and the new car carries all
+three trips. `door3-tap-10326` reconstructs the nearest legal standing pose
+within the recorded HUD block cell, preserving the original aim point; the
+former guessed fractional pose intersected real geometry in the newer
+pack. The chosen pose is recorded in the result. If no legal pose exists,
+the original supplied point remains the replay. Neither change suppresses
+the player-in-solid or tap invariants. An unreproduced old symptom is NOT
+TESTED and makes the CLI exit nonzero, regardless of the new pack's result.
+
 `bun scripts/sim.ts --scenario=regressions --new=<current builds>`, run at
 `671f0f3c` over packs built from `449abd0e` (`output/sim-regress-449abd0e/`):
 

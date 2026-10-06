@@ -84,6 +84,14 @@ are wired but unexercised.
 ### The walkable add-on preview (LEGO tab → "Walk add-on")
 
 A first-person walk over a generated pack, borrowing the viewer's renderer.
+Its material preview reads the resource manifest's `pbr` capability and the
+actual texture-set MER values (inline bytes or uniform RGB8/RGBA8 PNG), with
+the viewer's studio reflections. ABS, rubber, pearl and metal therefore keep
+their separate roughness/metalness; printed faces retain their RGB and alpha.
+Missing, corrupt, non-uniform or unsupported maps use diffuse shading with a
+note. This is browser lighting, not a Vibrant Visuals reference image. Native
+graphics mode must be recorded separately; Saga's Fancy and Vibrant Visuals
+modes were both exercised in the October 5 audit.
 It is worth trusting because it collides against **the exact blocks the pack
 ships**: `web/src/engine/addon-walk.ts` over the runtime's own re-laid collider
 grid and the wand's own tread plan, at 20 Hz with Minecraft's numbers — a

@@ -30,6 +30,8 @@
 
 import type { BlockGrid } from '@craft/schem/types.js';
 import { COLLIDER_KIT, type Box16, type ColliderForm } from './collider-form.js';
+import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
+import { PLAYER_HEIGHT_BLOCKS } from './lego-scale.js';
 
 /** Per cell, 16 layer footprints (one per sixteenth of height): [x0, x1, z0, z1] at 4·level; x0 = 255 marks an empty layer. */
 export type CellLayers = Map<number, Uint8Array>;
@@ -112,6 +114,8 @@ export interface ClearanceInput {
    * sixteenths). Rule 4's second exception reads them.
    */
   approaches?: ReadonlyArray<{ columns: ReadonlyArray<readonly [number, number]>; floor16: number }>;
+  /** Planned ride terminal poses whose player body must not be occupied by collider volume unsupported by source geometry. */
+  rideSetDowns?: ReadonlyArray<{ x: number; y: number; z: number }>;
 }
 
 /** One proposal's fate: the cell, what was proposed, and why it was refused (absent when applied). */
@@ -128,6 +132,8 @@ export interface ClearanceReport {
   wallTops: number;
   /** Standing surfaces rule 4 let through because they stand in a doorway's approach at body height (`approachTop`). */
   approachTops: number;
+  /** Standing surfaces rule 4 let through only where their phantom volume occupied a planned ride set-down body. */
+  rideSetDownTops: number;
   applied: { wall: number; ceiling: number };
   refused: Record<ClearanceRefusal, number>;
   /** Block volume freed (blocks cubed at 100 %). */
@@ -210,7 +216,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
   const idx = (x: number, y: number, z: number): number => (x * H + y) * L + z;
   const refused: Record<ClearanceRefusal, number> = { 'door-leaf': 0, 'door-cut': 0, 'walkable-top': 0, leak: 0, unverifiable: 0 };
   const entries: ClearanceEntry[] = [];
-  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
+  const report: ClearanceReport = { cells: 0, alreadyTight: 0, wallTops: 0, approachTops: 0, rideSetDownTops: 0, applied: { wall: 0, ceiling: 0 }, refused, freedBlocks: 0, leakRounds: [], leaks: [], voxels: 0, millis: 0, verified: true, entries };
 
   /** The collider form the grid holds at a cell (pristine full form after the cut), or null. */
   const formAt = (x: number, y: number, z: number): ColliderForm | null => parseFormState(grid.get(x, y, z));
@@ -370,6 +376,22 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
     return y * 16 + built.hi > floor16 + APPROACH_STEP16 && y * 16 + built.lo < floor16 + APPROACH_STEP16 + STAND_NEED16;
   };
 
+  /**
+   * A planned ride terminal may occupy a full cell's phantom rim even though the source geometry does not.
+   * Let that cell shrink to its ordinary source-geometry cover only when the old form intersects the player's
+   * standing body and the proposed form does not. The proposal still contains every source layer and still goes
+   * through the closed-leaf and leak gates; this exception cannot erase real geometry or bypass enclosure checks.
+   */
+  const rideSetDownTop = (x: number, y: number, z: number, built: ColliderForm, to: ColliderForm): boolean => {
+    const half = PLAYER_WIDTH_BLOCKS / 2;
+    const intersects = (form: ColliderForm, q: { x: number; y: number; z: number }): boolean => {
+      const px0 = q.x - half, px1 = q.x + half, py0 = q.y + 0.01, py1 = q.y + PLAYER_HEIGHT_BLOCKS, pz0 = q.z - half, pz1 = q.z + half;
+      return COLLIDER_KIT.formBoxes(form.v, form.lo, form.hi).some(b => x + b[1] / 16 > px0 && x + b[0] / 16 < px1
+        && y + b[3] / 16 > py0 && y + b[2] / 16 < py1 && z + b[5] / 16 > pz0 && z + b[4] / 16 < pz1);
+    };
+    return (input.rideSetDowns ?? []).some(q => intersects(built, q) && !intersects(to, q));
+  };
+
   // ── Wall proposals.
   type Proposal = { i: number; x: number; y: number; z: number; rule: 'wall' | 'ceiling'; from: ColliderForm; to: ColliderForm };
   const proposals: Proposal[] = [];
@@ -396,6 +418,7 @@ export function applyColliderClearance(input: ClearanceInput): ClearanceReport {
       const top = COLLIDER_KIT.formBoxes(to.v, to.lo, to.hi).filter(b => b[3] === built.hi);
       if (!top.some(b => b[0] === 0 && b[1] === 16 && b[4] === 0 && b[5] === 16)) {
         if (approachTop(x, y, z, built)) report.approachTops++;
+        else if (rideSetDownTop(x, y, z, built, to)) report.rideSetDownTops++;
         else if (!wallTopRim(x, y, z, to, built)) { refuse(p, 'walkable-top'); continue; }
         else report.wallTops++;
       }

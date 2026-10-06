@@ -58,7 +58,7 @@ export const REGRESSIONS: RegressionCase[] = [
     id: 'gabby-lift-cap', title: '10788 lift: the "car" is the shaft\'s back-wall cap and never carries the rider past the floors',
     evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; add-on guide "The lift\'s car was the wrong assembly" (stops a third of a block low); rec/lift10788_a-big-1-8.jpg; fix 377850a5',
     oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',
-    scenario: pack => ({ name: 'gabby-lift-cap', steps: [...place, { kind: 'rideLift', index: rideIndex(pack, 'lift'), trips: 3, board: 'hold', on: 'seat' }], allowLines: allow }),
+    scenario: pack => ({ name: 'gabby-lift-cap', steps: [...place, { kind: 'rideLift', index: rideIndex(pack, 'lift'), trips: 3, board: 'hold', on: 'car' }], allowLines: allow }),
     // Set down inside the floor (the device's "stops a third of a block low") shows as the player
     // left inside a collider. Until the x mirror of block collision boxes was measured (quirk
     // block-collision-x-mirrored, 2026-09-30) the simulator read the old pack's ceiling forms on the
@@ -152,7 +152,10 @@ export const REGRESSIONS: RegressionCase[] = [
     // centre 5386.5,-58.8,5382.35. The spot is inside the collider band (`collider_w10`, z 2..2.75 over y 1..2)
     // that a tilted handrail's bounding box leaves at head height; the device let the player stand there
     // (its Position read 5384,-60,5382), and every line of sight started inside it.
-    scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 } }], allowLines: allow }),
+    // The HUD gives a block cell, not the fractional pose. Reconstruct a legal standing point within the recorded
+    // x/y/z cell on a newer collider while preserving the exact historical aim; the old pack has no such point and
+    // therefore replays the supplied point and refusal.
+    scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 }, recordedCell: true }], allowLines: allow }),
     judge: r => { const v = violated(r, 'tap-in-plain-view'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note') }; },
   },
   {
