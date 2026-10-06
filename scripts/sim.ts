@@ -79,7 +79,13 @@ if (mode === 'regressions') {
       if (r.status === 'unknown' || r.status === 'error' || failedSteps.length) {
         return { error: `${file}: ${r.status}${failedSteps.length ? `; ${failedSteps.join('; ')}` : ''}${r.unmodelled.length ? `; unmodelled ${r.unmodelled.map(u => u.member).join(', ')}` : ''}` };
       }
-      return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), evidence: `${j.evidence}${failedSteps.length ? ` [step error: ${failedSteps.join('; ')}]` : ''}`, status: r.status, ms: r.ms };
+      // A targeted symptom can be fixed while another invariant fails. Put
+      // that failure first so a red verdict never prints only success text.
+      const otherFailures = r.status === 'fail' && !j.reproduced
+        ? r.violations.map(v => `[${v.invariant}] ${v.message}`).join('; ')
+        : '';
+      const evidence = otherFailures ? `${otherFailures}; targeted check: ${j.evidence}` : j.evidence;
+      return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), evidence, status: r.status, ms: r.ms };
     };
     const oldR = await run(c.oldPack), newR = await run(resolve(newDir, `${c.newStem}.mcaddon`));
     const unavailable = [['old', oldR], ['new', newR]].filter((x): x is [string, { error: string }] => 'error' in x[1]);
@@ -87,7 +93,7 @@ if (mode === 'regressions') {
     const newOk = !('error' in newR) && (c.expectNew === 'pass' ? newR.status === 'pass' && !newR.reproduced : newR.reproduced && newR.attribution === 'model');
     const verdict = unavailable.length
       ? `NOT TESTED (${unavailable.map(([side, result]) => `${side}: ${result.error}`).join('; ')})`
-      : !oldOk ? `NOT REPRODUCED on the old pack${c.limits ? ` (${c.limits})` : ''}`
+      : !oldOk ? `NOT TESTED (not reproduced on the old pack${c.limits ? `; ${c.limits}` : ''})`
         : newOk ? 'OK' : 'FAIL';
     if (verdict === 'FAIL' || verdict.startsWith('NOT TESTED')) failed++;
     if (verdict.startsWith('NOT TESTED')) notTested++;
@@ -114,7 +120,7 @@ if (mode === 'hop') {
     if (only && !c.scenario.name.includes(only)) continue;
     const r = await runScenario(c.scenario, c.addons, { handlers: c.handlers });
     report.results.push(r);
-    if (r.status === 'fail' || r.status === 'error') failed++;
+    if (r.status !== 'pass') failed++;
     console.log(statusLine(r));
     for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 220)}`);
     for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
@@ -123,7 +129,8 @@ if (mode === 'hop') {
   report.ms = Math.round(performance.now() - t0);
   if (flag('md')) writeFileSync(flag('md')!, markdownReport([report]));
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify([report], null, 1));
-  process.exit(failed ? 1 : 0);
+  if (!report.results.length) console.error('hop: NOT TESTED — no scenarios matched');
+  process.exit(failed || !report.results.length ? 1 : 0);
 }
 
 if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>]'); process.exit(2); }

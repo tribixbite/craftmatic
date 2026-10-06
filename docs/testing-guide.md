@@ -26,6 +26,9 @@ Answer a question at the cheapest tier that can answer it:
    `NOT TESTED`; selected regressions missing either pack do the same. Use
    `--only` for an intentional subset and report that subset. Render-fault
    audit output is a measurement of remaining overlaps, not a green gate.
+   An old regression pack that does not reproduce its recorded symptom is
+   also NOT TESTED, even when the new pack passes. Hop scenarios reject an
+   empty selection and unmodelled execution just like child-play and courses.
    Unreadable packs and unmodelled/error scenarios also make the CLI fail,
    even when another pack in the same command passed.
    The runtime unit tests use the same engine: `test/_sim-host.ts`

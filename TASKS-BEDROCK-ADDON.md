@@ -28,8 +28,19 @@ independently checked, not treated as device-proven. Evidence logs are in
   --distance=0 --hide-panels` frames actual rendered bounds for vehicle-only
   packs. McLaren front/left/back show the complete body; evidence in main
   `output/fidelity-audit-20261005/walker/42172-appearance-*.png`.
-- Targeted historical regressions reproduce on their old packs and pass on
-  `880a7195`: `retake-no-seat-10261`, `cockpit-in-hull-76286` (2 of 15 cases).
+- Full 11-pack audit now available at main
+  `output/fidelity-audit-20261005/a116-all-{childplay,regressions-detailed}.*`:
+  54/55 child-play scenarios pass. Three regression failures are under repair:
+  10797 slide dismount intersects a phantom collider (no drawn geometry);
+  10788 replay targets an invisible seat instead of the car; 10326 replay
+  starts inside real geometry and needs a legal pose in the recorded HUD cell.
+  The old 10797 overhang fall remains unreproduced and is now NOT TESTED,
+  nonzero exit, rather than a successful regression run.
+- Doorway audit: all 11 packs, 17 doors, 170 size/turn rows (100/150/200/300/400,
+  0/90): zero FAIL, 96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short approaches.
+  Main `a116-passability.{json,log}` records model limits rather than hiding them.
+  Three cross-pack hop scenarios pass (`a116-hop.*`); 10788's slide transfers
+  into the car but that upper-floor car cannot drive away (existing limit).
 - Controlled Saga probe: UV-padded zero-thickness faces render from both sides
   (red=0, yellow=.01, green=.25, blue=1). Worktree
   `output/device-zero-plane-20261005/{build-probe.ts,10-front.png,11-back.png}`.
@@ -37,9 +48,11 @@ independently checked, not treated as device-proven. Evidence logs are in
   keyevent 76, then type the body without a sacrificial `x` (current Gboard
   ignores `input text '/'`). One implementation backs both helper contracts;
   field-only mode is verified before and after manual Enter (captures 44/45).
-- # TODO(device-audit): fresh canonical 10261 shell/car and 42172 device views.
-  The Oct 2 figure screenshot does
-  not establish full-shell rendering, culling, or the original missing-body fix.
+- # TODO(device-audit): finish isolated 10261 figure/car close views, 200% view,
+  material graphics-mode check and Milano telemetry/controls. Canonical
+  McLaren and full coaster shell now render in Saga captures 39 and 54/55
+  under worktree `output/device-zero-plane-20261005/`. Capture 49's absent
+  shell is not a reproducible measured cutoff: later 64–66-block views render.
 - Course audit of clean `880a7195` packs: 42172 hill clips 1 tick; 7140 tree
   while climbing clips 3; 76286 tree clips 28. Fixed simultaneous vertical
   movement checking and adaptive height spacing; five new regression tests
@@ -72,6 +85,8 @@ independently checked, not treated as device-proven. Evidence logs are in
   still takes precedence over LDConfig RGB; palette migration remains a
   deliberate, separately measured fidelity choice. Flat normal maps avoid
   embossing the cuboid decomposition and should not receive invented seams.
+  Walker material work is in progress: read actual manifest-gated MER assets,
+  preserve print pixels, share reflection lighting and report unsupported maps.
 - Walker now frames from rendered bounds and live holder yaw; figure-marker
   and appearance views at 200%/90° are byte-identical. Station reachability
   passes both walk models at 100%/200%, four turns each; whole-grid agreement
@@ -86,29 +101,15 @@ independently checked, not treated as device-proven. Evidence logs are in
   # TODO(facets): silhouette IoU alone cannot preserve hollow topology,
   prints/materials, or rotated collider/exposure boxes; integration stays gated.
 
-### Handoff (2026-10-01, main `bcfae5bc`; agents stopped on the monthly spend limit)
-Merged on main but in NO round yet (last round sent = 30i `fd91cf23`):
-yaw-turned collider corners + drop guards (76417 Gate 1), box-UV-safe cubes
-on EVERY entity (McLaren streaks: 22 % of its surface undrawn), brick
-separators dropped from exports, no floating name tags, and the spaceship
-controls / never-stuck / free look (section below). All gates green on
-`bcfae5bc` (2,964 tests, both typechecks, physics spec).
-Next, in order:
-1. Build round 30j: `mkdir output/device-round-2026-10-01j`, copy
-   `output/device-round-2026-09-30i/{build.sh,check.py}` with the folder names
-   changed (check.py REF = 30i `packs-fd91cf23`/`creator-fd91cf23`), run
-   `bash .../build.sh` from the clean tree, then `python .../check.py <packs> <creator>`
-   (expect parts to DIFFER: separators gone; uuids equal), then
-   `bun scripts/sim.ts --scenario=regressions --new=<packs>`, `--scenario=hop`
-   (needs `--coaster= --flyer= --slide= --car=`), and
-   `bun scripts/sim.ts <7140 76286 42172 packs> --scenario=vehicles` (the controls' course: NEVER RUN on built packs - the
-   agent died before building; record before/after numbers).
-2. Zip (`craftmatic-packs-<sha>.zip` + sha256 + pack-hashes.tsv, same as 30i)
-   and send.
-3. Device round: the "Spaceship controls" checklist below + McLaren body
-   solid + no name tags + 76417 Gate 1 stops you in the doorway + 10261
-   lift-hill route at 200 %. Saga reachable (192.168.1.243:5555); the PIXEL
-   needs the user (wireless debugging re-pair) and holds `output/.phone-lock`.
+### Next acceptance gates
+
+Finish the three current audit fixes, commit, then export affected packs from
+that clean revision and rerun full child-play, all historical regressions,
+vehicle courses and doorway checks. Keep the unreproduced historical overhang
+case explicitly NOT TESTED. Complete native-only checks below on Saga;
+Pixel is connected but secure-locked. Do not distribute or publish this branch
+without an explicit request. The earlier "30j never built / course never run"
+handoff is superseded by the audit evidence above.
 
 
 | surface | command | URL |
