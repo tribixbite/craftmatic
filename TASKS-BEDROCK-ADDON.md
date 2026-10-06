@@ -40,8 +40,13 @@ At the 2026-10-06 10:43 EDT handoff check, coaster placement is complete at
 Player remains7422,-60,7411 while a free camera captures nearby geometry.
 Root reviewed043/044: nearby track/support/base geometry remains drawn at
 the farther camera, old-root distance77.046 versus prior absent75.82 bracket.
-This is a native improvement observation; station/census/interaction/Undo
-acceptance and final restoration are still pending. Device pack files and
+Root also reviewed045/046 station alignment,047 chat showing each expected
+chunk once, and050 standing-worker face with readable print/no tall streak.
+The torso-front close-up remains open; exact packed-actor camera is
+`/camera @s set minecraft:free pos 7408.045394 -50.15 7422.542193 facing 7408.045394 -50.15 7419.30`
+for `roller_10261_fig4` (printed face outward+Z).
+These are observations; full interaction/Undo acceptance, Gringotts testing
+and final restoration are still pending. Device pack files and
 bindings have already changed. If interrupted,
 resume through the owner/checkpoint; do not leave the device in this state.
 The complete pre-placement world snapshot protects retained fixtures from
