@@ -13,8 +13,10 @@ Parallel agents append ONE section each at the end of this file.
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Current product source: 8e261f398a9c21be006f90f29bb2659764d4d0d5
-(`fix(bedrock): locally root large static shells`, signed GPT-6).
+Current product source: 8929007e773123ed9ecc8eca009c1c77386d7f0a
+(`fix(bedrock): preserve legacy shells across pack upgrades`, signed GPT-6).
+Spatial geometry was introduced in8e261f39; its exports are superseded for
+native deployment because they omitted saved-placement compatibility assets.
 Last native-accepted export baseline: 278adbf5. Clean affected exports packs-278adbf5:
 10261, 10326, 10796, 10797, 31084, 42639, 76417, 910004; unchanged core
 remainder stays in packs-62fe6c26. Main evidence root:
@@ -53,16 +55,19 @@ Acceptance measured:
 
 Open acceptance work:
 - Active round (2026-10-06): implementation and source checks complete;
-  clean exports/offline gates COMPLETE, native acceptance PENDING. Product
-  committed as 8e261f39. Detached .worktrees/fidelity-export-8e261f39 stays
+  8e clean exports/offline gates COMPLETE, native acceptance PENDING. Product
+  compatibility fix committed8929007e; audit_sim_gates owns new sequential
+  exports/gates in .worktrees/fidelity-export-8929007e to main
+  output/fidelity-audit-20261005/packs-8929007e/. Do not launch duplicate writers.
+  Detached .worktrees/fidelity-export-8e261f39 stays
   clean, pipeline b3bfade8802e, dirty=false; outputs in main
   output/fidelity-audit-20261005/packs-8e261f39/. audit_sim_gates finished.
   facet_gate owns Walker visual checks; audit_device_qa completed world geometry
   audit and is authorized to claim/capture Saga then run native QA. Consult its
   live mailbox and audit-worktree output/bedrock-entity-qa/8e261f39-spatial-native/
   progress checkpoint before touching the device; do not start a second driver.
-  audit_sim_gates finished upgrade investigation; root implemented a compatibility
-  fix (pending checks/commit/new clean exports). Saga claimed by audit_device_qa
+  Upgrade investigation and compatibility fix complete (checks/commit passed,
+  new clean exports pending). Saga claimed by audit_device_qa
   at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
   no deployment/input yet. Hold native deployment until new committed packs.
   Main remains untouched. UI wording change committed951fe974
@@ -168,14 +173,20 @@ No push/tag/release.
 ### Resume this round without transcript context
 
 1. Integrate product/docs only in the fidelity-audit worktree; inspect `git status --short`
-   and `git log -3`. Product commit 8e261f39 is verified; exporter follow-up
+   and `git log -3`. Product commit8929007e is verified; exporter follow-up
    `bun run test test/playable-addon.test.ts` passed 51/51. Both typechecks/full suite/build have
    already passed; do not repeat them absent a relevant change or failure.
-2. Clean exports are completed: reconcile evidence in the existing clean detached
-   `.worktrees/fidelity-export-8e261f39` and main `packs-8e261f39/` before
+2. New compatibility exports are active: reconcile agent/progress/evidence in
+   `.worktrees/fidelity-export-8929007e` and main `packs-8929007e/` before
    continuing any export work. Do not launch a second writer. If a run is conclusively
    abandoned, retain its files and use a NEW directory name for any new run.
    Exports run only from a clean committed revision, separate from integration.
+   Do not deploy8e packs. Saga baseline/claim checkpoint remains at audit-worktree
+   output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json (directory
+   name records when capture began; actual candidate must be8929007e).
+   Fresh captured hashes: options4416d2096f29218d381160e337c896ff23dcf7fd07c7d209e6caacfe871cfa40,
+   BP2d3eb129d7cc35227941e92c0a54a527e75a3cdd1bb25bf9873f752d04cbf971,
+   RP5e15d3bdb3f3d54351ad7424e1b77f06a0de7d11538812f5ff42bad3c74388ae.
    Sequential coaster recipe from the clean worktree:
    `bun scripts/_playable_ref.ts "C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd" "C:/git/craftmatic/output/fidelity-audit-20261005/packs-<hash>/10261-roller-coaster.mcaddon" "--label=Roller Coaster 10261" --quality=balanced --mode=auto --buildings=bricks --mirror=http://localhost:4000/ldraw-parts --faces=C:/git/craftmatic/output/faces-art-0926`.
    Gringotts source `C:/git/clego/lego_sets/DbixConvV3/76417.ldr`, label
