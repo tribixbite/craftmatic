@@ -131,8 +131,11 @@ Open acceptance work:
   Actual coaster world-face comparison:254326 faces at yaw0/90 × scale1/2;
   zero non-numeric/material/UV mismatches, maximum drift2.9996e-12 <1e-8.
   Main shell-spatial-pack-audit-8e261f39.{ts,json} contains replay and roots.
-  Refined decisive camera7370.0755,-58.38,7429: oldroot74.244, chunk1root49.477,
-  chunk2root61.118, nearest exact face15.702 blocks. Recalculate if pin differs.
+  Near-geometry camera7370.0755,-58.38,7429: oldroot74.244, chunk1root49.477,
+  chunk2root61.118, nearest exact face15.702 blocks. This lies inside the old
+  visible/absent bracket and is not decisive alone. Also capture camera
+  7366.0755,-58.38,7429: oldroot77.046, nearest geometry19.646 blocks;
+  compare against the old measured absent distance75.82. Recalculate if pin differs.
   Upgrade audit proved old Undo records lack anchor/turn/size and no automatic
   rebuild exists. New fix retains original monolith BP/client/geo/render assets
   but never spawns them in new placement CONFIG. spatialShell.legacy labels and
@@ -286,9 +289,11 @@ No push/tag/release.
    historical only. Recapture a fresh baseline before any subsequent round.
    Candidate coaster anchor 7379,-60,7390, turn 0, 200 percent; read actual
    placement origin/roots after placing. Approximate old root 7421.0755,-8,
-   7409.6875. Refined lower-corner camera 7370.0755,-58.38,7429 is
-   74.244 blocks from the old root but 15.702 from nearby geometry; recalculate from
-   the actual pack. Keep the player nearby to load chunks. Confirm nearby
+   7409.6875. Lower-corner camera 7370.0755,-58.38,7429 is
+   74.244 blocks from the old root and 15.702 from nearby geometry; it is inside
+   the old culling bracket, so also capture 7366.0755,-58.38,7429 (oldroot77.046,
+   nearestgeometry19.646) or perform exact baseline A/B at the same camera.
+   Recalculate from the actual pack. Keep the player nearby to load chunks. Confirm nearby
    local chunk draws, alignment and lighting at near/station views, natural
    mount/Sneak/walk, exact one entity per chunk, then complete Undo/collider
    restoration. Far camera 7422,5,7335 alone is not a decisive test.
