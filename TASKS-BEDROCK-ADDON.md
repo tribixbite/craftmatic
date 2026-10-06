@@ -12,7 +12,8 @@ Parallel agents append ONE section each at the end of this file.
 ### Fidelity audit hand-off (2026-10-06)
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
-fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
+fix/fidelity-audit-20261005, based on b9966287. Main tracked source is untouched;
+main `output/` contains this round's ignored evidence.
 Current product source: 8929007e773123ed9ecc8eca009c1c77386d7f0a
 (`fix(bedrock): preserve legacy shells across pack upgrades`, signed GPT-6).
 Spatial geometry was introduced in 8e261f39; its exports are superseded for
@@ -75,7 +76,8 @@ Acceptance measured:
 
 Open acceptance work:
 - Active round (2026-10-06): implementation and source checks complete;
-  8e clean exports/offline gates COMPLETE, native acceptance PENDING. Product
+  8e clean exports/offline gates COMPLETE (historical evidence only).
+  Final 892 native acceptance PENDING. Product
   compatibility fix committed8929007e; both new clean exports/gates COMPLETE.
   .worktrees/fidelity-export-8929007e is clean; main
   output/fidelity-audit-20261005/packs-8929007e/ owns final packs and reports.
@@ -105,7 +107,7 @@ Open acceptance work:
   AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261006-100930/.
   native-progress.json now embeds deploy command/stagingdir/currentbindings,
   exact backup/restore hashes and nextaction; confirm live phase before acting.
-  Main remains untouched. UI wording change committed951fe974
+  Main tracked source remains untouched. UI wording change committed951fe974
   clarifies simulated reachability needs Minecraft confirmation; web typecheck
   passed. This does not change exported pack geometry/runtime.
   Superseded 8e exports remain historical geometry-comparison evidence;
@@ -114,8 +116,10 @@ Open acceptance work:
   Expected spatial actor counts4/2, no buried/rejected/oversized warning.
   Aggregate body cube counts42391/47862, opaque/translucent counts, mesh totals
   and material/PBR cube multisets exactly conserved against278adbf5; Gringotts
-  has two extra face decals. Evidence: 8e-spatial-shell-evidence.json,
-  8e-pack-sha256.txt and per-pack structural/sim/passability logs in new pack dir.
+  has two extra face decals. Historical evidence: main
+  packs-8e261f39/{8e-spatial-shell-evidence.json,8e-pack-sha256.txt} under the
+  fidelity evidence root. Final evidence: packs-8929007e/892-legacy-shell-evidence.json,
+  892-pack-sha256.txt, 892-offline-summary.txt and per-pack gate logs.
   Actual coaster world-face comparison:254326 faces at yaw0/90 × scale1/2;
   zero non-numeric/material/UV mismatches, maximum drift2.9996e-12 <1e-8.
   Main shell-spatial-pack-audit-8e261f39.{ts,json} contains replay and roots.
@@ -265,10 +269,13 @@ No push/tag/release.
    the current sole device owner and checkpoint above; do not claim/drive it
    concurrently. For a future round, capture fresh bindings/options/position/
    focus and claim output/.saga-lock before input.
-   World 925 folder is `q-TUD3f7W6M=` (trailing = essential). Restored baseline
-   position is 5822,-60,5760, Creative/Fancy, empty hotbar, in-world focus;
-   recapture rather than assume it persists. Backup reference:
-   AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261005-224548/.
+   World 925 folder is `q-TUD3f7W6M=` (trailing = essential). This round's
+   target baseline to restore is 5822,-60,5760, Creative/Fancy, empty selected
+   slot, in-world focus; it is not the live state. Active restore source:
+   AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261006-100930/
+   plus 8e261f39-spatial-native/world-snapshot-before-place-002* and the captured
+   options/binding files in that native directory. The October 5 backup is
+   historical only. Recapture a fresh baseline before any subsequent round.
    Candidate coaster anchor 7379,-60,7390, turn 0, 200 percent; read actual
    placement origin/roots after placing. Approximate old root 7421.0755,-8,
    7409.6875. Refined lower-corner camera 7370.0755,-58.38,7429 is
@@ -1115,7 +1122,10 @@ App: `mergeIndexSets` (catalog topped up from the index) and `?tab=lego&set=N`
   emitted (constraints in `ldraw-entity-compiler.ts`: `worldBoxes` and
   `renderCuboids` are parallel; facets must not be `aligned`). Budget `high`
   was measured and not taken (2x memory).
-- [ ] Cull above 100 %: the LOD plan caps at ~72 blocks (`TODO(cull)`); 200-400 % unmeasured.
+- [ ] Native draw limits: old 200-percent coaster root-distance bracket measured
+  visible at 50.34 / absent at 75.82 blocks. Final 892 local-root native
+  acceptance is pending in the active round above; 300/400 percent remains
+  unmeasured. Geometry bounds do not override the native draw cap.
 - [ ] Walk preview: `world.simulated()`/`compareReach` not on the HUD; second
   train renders parked; car bank not animated; `three` chunk cost re-measure.
   The Z-mirror/rotation fix is verified in Chrome (2026-09-26: 76457 Door 1
