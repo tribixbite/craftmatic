@@ -17,10 +17,13 @@ Current product source: 8e261f398a9c21be006f90f29bb2659764d4d0d5
 (`fix(bedrock): locally root large static shells`, signed GPT-6).
 Last native-accepted export baseline: 278adbf5. Clean affected exports packs-278adbf5:
 10261, 10326, 10796, 10797, 31084, 42639, 76417, 910004; unchanged core
-remainder stays in packs-62fe6c26. Evidence root:
-C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
-worktree output/device-zero-plane-20261005/ (earlier rounds) and
-output/bedrock-entity-qa/278adbf5-native/ (current seat acceptance).
+remainder stays in packs-62fe6c26. Main evidence root:
+C:/git/craftmatic/output/fidelity-audit-20261005/ (packs/reports/probes/logs).
+Audit-worktree evidence root:
+C:/git/craftmatic/.worktrees/fidelity-audit-20261005/output/;
+it owns device-zero-plane-20261005/ (earlier native rounds),
+bedrock-entity-qa/278adbf5-native/ (seat acceptance),
+bedrock-entity-qa/device-backups/20261005-224548/ and round-facet-yield/.
 
 Acceptance measured:
 - Clean 278adbf5 exports: structural 8/8, nonquick child play 40/40,
@@ -38,10 +41,11 @@ Acceptance measured:
   their older exports; there are sixteen distinct sets including 31084.
 - Both clean Gabby natural-seat exits pass in explicit Survival on Saga;
   independently reviewed root-review1079{6,7}-survival-contact.png and videos
-  are in the current evidence directory. Installed runtime hashes match
+  are in audit-worktree output/bedrock-entity-qa/278adbf5-native/. Installed runtime hashes match
   the clean archives. Exact origins/turns and rejected controls are in the guide.
-  Final restoration report: current evidence directory final-restoration-report.json.
-  Baseline bindings and six pack folders match 20261005-224548; Creative,
+  Final restoration report: that same native directory's final-restoration-report.json.
+  Baseline bindings and six pack folders match audit-worktree
+  output/bedrock-entity-qa/device-backups/20261005-224548/; Creative,
   Fancy, logging off, camera/effects/telemetry and recorded world 925 focus
   restored; own claim released. New Gabby folders remain unbound and QA
   placements retained. Blank(1)'s position before the accidental teleport
@@ -123,12 +127,15 @@ No push/tag/release.
 
 ### Resume this round without transcript context
 
-1. Work only in the fidelity-audit worktree above; inspect `git status --short`
+1. Integrate product/docs only in the fidelity-audit worktree; inspect `git status --short`
    and `git log -3`. Product commit 8e261f39 is verified; exporter follow-up
    `bun run test test/playable-addon.test.ts` passed 51/51. Both typechecks/full suite/build have
    already passed; do not repeat them absent a relevant change or failure.
-2. Export from a NEW clean detached worktree at that product commit (retain all
-   existing worktrees). Create a new main evidence directory `packs-<hash>`.
+2. Reconcile audit_sim_gates and the existing clean detached
+   `.worktrees/fidelity-export-8e261f39` and main `packs-8e261f39/` before
+   continuing exports. Do not launch a second writer. If the run is conclusively
+   abandoned, retain its files and use a NEW directory name for any new run.
+   Exports run only from a clean committed revision, separate from integration.
    Sequential coaster recipe from the clean worktree:
    `bun scripts/_playable_ref.ts "C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd" "C:/git/craftmatic/output/fidelity-audit-20261005/packs-<hash>/10261-roller-coaster.mcaddon" "--label=Roller Coaster 10261" --quality=balanced --mode=auto --buildings=bricks --mirror=http://localhost:4000/ldraw-parts --faces=C:/git/craftmatic/output/faces-art-0926`.
    Gringotts source `C:/git/clego/lego_sets/DbixConvV3/76417.ldr`, label
@@ -148,7 +155,7 @@ No push/tag/release.
    World 925 folder is `q-TUD3f7W6M=` (trailing = essential). Restored baseline
    position is 5822,-60,5760, Creative/Fancy, empty hotbar, in-world focus;
    recapture rather than assume it persists. Backup reference:
-   main output/bedrock-entity-qa/device-backups/20261005-224548/.
+   AUDIT WORKTREE output/bedrock-entity-qa/device-backups/20261005-224548/.
    Candidate coaster anchor 7379,-60,7390, turn 0, 200 percent; read actual
    placement origin/roots after placing. Approximate old root 7421.0755,-8,
    7409.6875. Decisive lower-corner camera 7366.0755,-58.38,7429 is about
@@ -180,7 +187,7 @@ Main mirror server 4000 must be preserved. No audit-owned server is running.
 | Operator console (every runnable operation) | `bun run console` | http://localhost:4600 |
 
 A killed background server does NOT free its port (children re-parent):
-`netstat -ano | grep LISTENING | grep -E ':(4000|4600)'`, kill the owner PID
+PowerShell: `netstat -ano | Select-String ':(4000|4600)'`, kill only an owned PID
 before restarting. Neither surface proves Bedrock rendering, culling, form
 text or ride physics — those stay on the device.
 

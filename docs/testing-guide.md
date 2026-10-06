@@ -7,6 +7,17 @@ Read before validating renderer, resolver, alignment, or exporter changes. PDF-s
 - Build: `bun run build:web`. Tests: `bun run test` (Vitest; bare `bun test` invokes a different runner). LEGO unit tests are **offline + deterministic** — `test/ldraw-parser.test.ts` (transforms/steps/primitives), `test/io-zip.test.ts` (ZipCrypto + WinZip-AES decrypt, validated against Node's own crypto as an oracle — no large `.io` fixtures), `test/lego-colors.test.ts` (the don't-conflate-colour-systems invariant), and `test/ldraw-geometry.test.ts` (**geometry regression**: `resolvePartGeometry` triangle/edge/winding/transform signature, GPU-free via a mocked `fetch` serving synthetic `.dat` — the de-risked stand-in for visual regression), and `test/ldraw-frame.test.ts` (**the LDraw → scene/grid frame is a ROTATION**: `det = +scale³·det(R)` on the viewer's instance matrix, a printed-glyph winding check from the printed side, a baked STL's facets all outward, and the grid, `SHELL_FRAME`, `yawForFacing`, Java display entities and stair facings on the same half turn about X — the reflection that mirrored every model until 2026-09-22 cannot return silently). Export-side offline suites: `test/schem-pipeline.test.ts` (the shared export module's grid path — byte-identical to a direct encode, no re-voxelization), `test/schem-settings.test.ts` (resolution planning vs the legacy ladder as an oracle), `test/light-fill.test.ts` (sealed room lit / open porch untouched), `test/palette-lint.test.ts` (every emitted block id is a real Minecraft block), `test/schem-seeded-geometry.test.ts` (the seeded resolver short-circuits fetch and matches the networked bytes; per-part progress advances; geometry is independent of fetch timing). Prefer this pattern over the network-fetching `test/lego-pipeline.test.ts` (and the flaky live-API `test/import-*` tests). Two more from the 2026-09-08 audit: `test/part-cache-revision.test.ts` (persistent-cache identity + transitive geometry invalidation, over a fake IndexedDB that survives `vi.resetModules()` — the WARM-browser path, not an incognito one) and `test/schem-real-set.test.ts` (real set through the real export pipeline; skips without the local corpus).
 ## The tiers of evidence for a Bedrock pack (2026-09-30)
 
+For spatial-shell/export changes, the focused source gate is
+`bun run test test/bedrock-building-shell.test.ts test/playable-addon.test.ts test/bedrock-placement-size.test.ts test/bedrock-placement-undo-reload.test.ts test/sim-engine.test.ts test/ldraw-round-facets.test.ts`.
+It checks cube/material/UV conservation, rotated/inflated local rebasing,
+normal size/placement and persistent Undo/reload, actual actor scale in
+snapshots, and conservative facet selection. Inspect the exported pack's
+`spatialShell` diagnostics for actual IDs/counts/radii and compare its world
+geometry against the baseline. These gates do not prove native culling or
+lighting; those require a camera near geometry but beyond the old shell root's
+draw range, station lighting/alignment, and complete native Undo. Evidence:
+main `output/fidelity-audit-20261005/spatial-shell-{focused-tests,full-tests,build}.log`.
+
 Answer a question at the cheapest tier that can answer it:
 
 1. **Validators** (seconds): `python scripts/_mcaddon_check.py <pack>`,

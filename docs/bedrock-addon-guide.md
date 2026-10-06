@@ -110,13 +110,14 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   independently checked before these tests; world 925 binds versions
   `2610.611.3249` and `2610.611.3324` respectively.
   After acceptance, world 925's BP/RP bindings were restored byte-for-byte
-  from `output/bedrock-entity-qa/device-backups/20261005-224548/`; all 698
+  from audit-worktree `output/bedrock-entity-qa/device-backups/20261005-224548/`; all 698
   files across its six baseline development-pack folders match that backup,
   with no missing or extra files. Eleven newer coaster RP files were removed
-  individually. The current evidence directory's `restoration-verification.json`
+  individually. Audit-worktree `output/bedrock-entity-qa/278adbf5-native/restoration-verification.json`
   records those comparisons. New Gabby development packs remain unbound and
   fresh placements remain as QA fixtures; this is not a production deployment.
-  Final Survival-repeat cleanup is captured in `final-restoration-report.json`:
+  Final Survival-repeat cleanup is captured in the same audit-worktree native
+  directory's `final-restoration-report.json`:
   Creative, Fancy, logging off, camera/effects cleared, telemetry off, world
   925 at `(5822,-60,5760)` with empty slot, and own device claim released.
   After relaunch the options differ only by `app_launched_count:58→59`.
@@ -629,10 +630,15 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   whole-shell root, plus station alignment, lighting and complete Undo. An old
   distant free-camera view may remain beyond every new root and is insufficient
   alone to judge the improvement.
+  Measurement evidence is in main checkout
+  `output/fidelity-audit-20261005/shell-spatial-actor-{probe.ts,report.json}`
+  (report SHA `799af9855e4be55f4508c616e0e40d4757ff5300a411bd0482615e96aa11ed1e`);
+  source checks are `spatial-shell-{focused-tests,full-tests,build}.log` there.
 - **Round facets remain a conservative preflight, not a compiler replacement.**
   The shared selector rejects preserved fine-grain interior air, explicit triangle
-  colours, transparency, surface/print fallback, non-saving candidates and any
-  of six silhouette views that regress. Its finite raster and caller-supplied
+  colours, transparency, caller-supplied surface-preserving mode, print fallback,
+  AABB/empty fallback, non-saving candidates and any of six silhouette views
+  that regress; at least one view must strictly improve. Its finite raster and caller-supplied
   surface policy are not universal topology or print proofs. Corrected 10303
   preflight accepts four opaque 98138 placements and saves four hypothetical
   cubes out of 156242 (0.00256 percent); broad integration is not justified.
@@ -2007,13 +2013,16 @@ What follows from it, and what changed:
   rejected.
 - **The needle stays.** At 100 % it buys nothing, but it costs nothing (0.1
   wide, above the roof, intercepts no taps), and the size groups scale it with
-  the wand: whether a 200-400 % box lifts the ceiling is unmeasured
-  (`TODO(cull)` in `bedrock-building-shell.ts`). `actorCullDistance` reports the
+  the wand. A 200-percent shell was visible at root distance 50.34 and absent
+  at 75.82 on Saga; that bracket is not an exact cutoff. The 300/400-percent
+  ceiling remains unmeasured (`TODO(cull)` in `bedrock-building-shell.ts`). `actorCullDistance` reports the
   capped value; `actorCullFit` is the fit the needle is sized for.
-- **What it means in play.** A placed model and every actor of it pop out
-  together at ~72 blocks, as vanilla mobs do; the collider blocks (terrain)
-  keep drawing nothing, being invisible. There is no pack-side lever for this
-  known today.
+- **What it means in play.** The pre-partition monolithic shell could disappear
+  while independently rooted cars remained. Each actor is culled relative to
+  its own root; the local-root shells described above can therefore disappear
+  independently. Collider blocks remain invisible terrain. Partitioning can
+  keep nearby geometry close to a drawing root; it does not remove the native
+  per-actor ceiling. Native acceptance of the new partition remains pending.
 
 #### Every rideable needs its dismount hint (round 2026-09-26a)
 
