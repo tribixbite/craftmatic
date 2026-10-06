@@ -114,11 +114,16 @@ Open acceptance work:
   but its model-only layer claim is SUPERSEDED: probe iterated detached NodeList
   buttons after HUD rerender, leaving track overlay enabled (yellow stationbeam).
   Source routeGroup visibility is correct; this was a test-harness bug, unrelated
-  to native glyph lines. facet_gate now corrects existing probe and reruns final892
-  vs278 at200percent with live selectors and assertedlegend/routeGroup state;
-  outputs main walker-spatial-8929007e-corrected/. Previous8e pixelmetrics are not
-  final model-only acceptance. Owned4023 stopped; preserve4000. Native remains
-  independent of browser evidence.
+  to native glyph lines. Corrected final892 vs278200-percent Walker A/B COMPLETE:
+  effectivelegend model:on/all7others:off, routeGroup/reachGroup false, all29/24
+  holders read, shell counts4/2 and42391/47862 cubes; dormant legacytypes absent
+  from holders,19/14transparentmaterialmeshes. Root reviewed fullmodel captures:
+  true colours, aligned geometry and no visible seams. Pixelidentity full/station
+  10261:99.9582/99.9274%,76417:99.9176/99.9076%; no browser errors. Authoritative
+  main walker-spatial-8929007e-corrected/run-stamp.json includes effectiveflags,
+  hashes/dimensions and supersedes8e layerclaims. Node/Chrome source892/ea70d3e0c2cd;
+  all12PNGs <=1440x1000/358KB; owned4025/4023 stopped,4000 preserved. Native
+  remains independent of browser evidence.
   # TODO(shell-migration): old saved placements keep old culling limitation;
   future migration needs authoritative transforms persisted before upgrading.
   Native8e is paused (no deployment); newpack/archive hash gates required even
