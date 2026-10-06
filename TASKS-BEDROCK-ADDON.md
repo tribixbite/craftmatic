@@ -13,7 +13,9 @@ Parallel agents append ONE section each at the end of this file.
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Current source baseline: 278adbf5. Clean affected exports packs-278adbf5:
+Current product source: 8e261f398a9c21be006f90f29bb2659764d4d0d5
+(`fix(bedrock): locally root large static shells`, signed GPT-6).
+Last native-accepted export baseline: 278adbf5. Clean affected exports packs-278adbf5:
 10261, 10326, 10796, 10797, 31084, 42639, 76417, 910004; unchanged core
 remainder stays in packs-62fe6c26. Evidence root:
 C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
@@ -47,10 +49,12 @@ Acceptance measured:
 
 Open acceptance work:
 - Active round (2026-10-06): implementation and source checks complete;
-  clean exports and native acceptance PENDING. Product changes currently
-  uncommitted above docs checkpoint e558e948; next commit records the files
-  listed by `git status --short`. All four audit agents have finished, with
-  no active device claim or new device input. Main remains untouched.
+  clean exports and native acceptance PENDING. Product committed as 8e261f39.
+  audit_sim_gates now owns sequential clean exports/offline gates in new
+  detached worktree .worktrees/fidelity-export-8e261f39, with outputs in main
+  output/fidelity-audit-20261005/packs-8e261f39/. facet_gate is doing a read-only
+  handoff-doc audit. audit_device_qa is idle; no active device claim or new
+  device input. Main remains untouched.
   `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
   one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
   PlacementActors with translated cube/bone pivots and local roots. No
@@ -120,9 +124,8 @@ No push/tag/release.
 ### Resume this round without transcript context
 
 1. Work only in the fidelity-audit worktree above; inspect `git status --short`
-   and `git log -3`. Exporter follow-up `bun run test test/playable-addon.test.ts`
-   passed 51/51. Inspect the staged diff and sign
-   the conventional commit with `— GPT-6`. Both typechecks/full suite/build have
+   and `git log -3`. Product commit 8e261f39 is verified; exporter follow-up
+   `bun run test test/playable-addon.test.ts` passed 51/51. Both typechecks/full suite/build have
    already passed; do not repeat them absent a relevant change or failure.
 2. Export from a NEW clean detached worktree at that product commit (retain all
    existing worktrees). Create a new main evidence directory `packs-<hash>`.
