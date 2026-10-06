@@ -46,6 +46,31 @@ Acceptance measured:
   was uncaptured and remains changed; do not invent a restoration position.
 
 Open acceptance work:
+- Active next round (2026-10-06, after ee240e3e): static-shell spatial
+  actors are under investigation; no product changes or new acceptance yet.
+  Existing compiler mesh chunks share one root and cannot fix distant-root
+  culling. PlacementActor arrays already supply scaled/rotated placement,
+  persistent ownership, replace/Undo/reload cleanup; Walker and simulator
+  consume all actors. Proposed integration: partition final static shell
+  cuboids AFTER the one global grain/cull/merge/coplanar budget plan, then
+  translate cube origins, cube pivots and every bone pivot together to local
+  roots. Recompiling source subsets multiplies per-model cuboid budgets and
+  silently increases detail/pack cost; current options cannot preserve the
+  global plan. Keep original aggregate collider boxes and diagnostics.
+  Preserve the single-shell path for small models.
+  Validate drawn reach against the measured 70-block ceiling and 16-block
+  LOD margin, including 400-percent wand size and the above-roof light root.
+  Never discard an oversized indivisible source part; diagnose it. Measure
+  actor overhead and lost cross-group cube merging before defaulting.
+  Likely files: ldraw-entity-compiler.ts, bedrock-building-shell.ts and
+  playable-addon.ts; tests must
+  prove source conservation, reconstructed geometry, local-root culling,
+  scaled/rotated placement and persistent Undo. Read-only agents
+  audit_sim_gates (architecture review returned) and audit_facet_measurement
+  (hollow/print/material integration review pending) hold no device claims.
+  Both checkouts are clean; Saga remains restored, unclaimed, with no new
+  device input. No supported client-entity render-distance override exists
+  in the reviewed official schema; do not invent one.
 - # TODO(facet-integration): broad curved-part integration remains gated on
   hollow topology, prints/materials and rotated colliders. Corrected 10303
   2-LDU measurement saves 472 hypothetical cubes (0.30%, 51 placements),
