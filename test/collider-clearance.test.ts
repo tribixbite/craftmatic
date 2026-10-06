@@ -250,45 +250,6 @@ describe('applyColliderClearance', () => {
     expect(r.refused['walkable-top']).toBe(1);
   });
 
-  it('clears only source-unsupported phantom volume from a ride set-down body and preserves its floor', () => {
-    const phantom = scene(3, 4, 3);
-    phantom.full(1, 0, 1); // the real floor stays a full standing surface
-    phantom.solid(1, 1, 1, [[0, 4, 0, 16, 0, 16]]); // thin source wall; its full-cell collider occupies the body
-    phantom.full(2, 1, 1); // prevents the ordinary open-air wall-rim exception; only the ride policy can trim
-    const setDown = { x: 1.6, y: 1.05, z: 1.5 };
-    const before = applyColliderClearance(phantom.input());
-    expect(before.refused['walkable-top']).toBe(1);
-    expect(phantom.form(1, 1, 1)).toEqual({ v: 0, lo: 0, hi: 16 });
-
-    const cleared = scene(3, 4, 3);
-    cleared.full(1, 0, 1);
-    cleared.solid(1, 1, 1, [[0, 4, 0, 16, 0, 16]]);
-    cleared.full(2, 1, 1);
-    const report = applyColliderClearance(cleared.input({ rideSetDowns: [setDown] }));
-    expect(report.rideSetDownTops).toBe(1);
-    expect(cleared.form(1, 1, 1)!.v).not.toBe(0);
-    expect(formContains(cleared.form(1, 1, 1)!, layerBoxes(cleared.layers.get(cleared.idx(1, 1, 1))!))).toBe(true);
-    expect(cleared.form(1, 0, 1)).toEqual({ v: 0, lo: 0, hi: 16 });
-    expect(report.verified).toBe(true);
-
-    const real = scene(3, 4, 3);
-    real.full(1, 0, 1);
-    real.solid(1, 1, 1, [[6, 10, 0, 16, 0, 16]]); // actual source geometry crosses the body
-    real.full(2, 1, 1);
-    const realReport = applyColliderClearance(real.input({ rideSetDowns: [{ x: 1.5, y: 1.05, z: 1.5 }] }));
-    expect(realReport.rideSetDownTops).toBe(0);
-    expect(real.form(1, 1, 1)).toEqual({ v: 0, lo: 0, hi: 16 });
-
-    const underFloor = scene(3, 4, 3);
-    underFloor.full(1, 0, 1);
-    underFloor.solid(1, 1, 1, [[0, 16, 0, 4, 0, 16]]); // a real walkable plate directly over the terminal
-    underFloor.full(2, 1, 1);
-    const floorReport = applyColliderClearance(underFloor.input({ rideSetDowns: [{ x: 1.5, y: 1.1, z: 1.5 }] }));
-    expect(floorReport.rideSetDownTops).toBe(0);
-    expect(underFloor.form(1, 1, 1)).toEqual({ v: 0, lo: 0, hi: 4 });
-    expect(formContains(underFloor.form(1, 1, 1)!, layerBoxes(underFloor.layers.get(underFloor.idx(1, 1, 1))!))).toBe(true);
-  });
-
   /**
    * 76457's sweet stand in front of Doors 1-2 (device round 2026-09-26a): a
    * display ~2 blocks tall whose top row holds geometry only along the -z half

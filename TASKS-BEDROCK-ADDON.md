@@ -35,17 +35,19 @@ independently checked, not treated as device-proven. Evidence logs are in
   `output/fidelity-audit-20261005/a116-all-{childplay,regressions-detailed}.*`:
   54/55 child-play scenarios pass. Three regression corrections now await
   clean rebuilt-pack acceptance:
-  10797 slide dismount intersects a phantom collider (no drawn geometry);
+  10797 slide dismount has no free standing pose inside its 1.5-block search;
   10788 replay targets an invisible seat instead of the car; 10326 replay
   starts inside real geometry and needs a legal pose in the recorded HUD cell.
   The old 10797 overhang fall remains unreproduced and is now NOT TESTED,
   nonzero exit, rather than a successful regression run.
-  **Clean `e12e90cb` 10797 still fails both landing collisions.** The probe
-  tightened cell `(22,2,4)` from full form 0 to source-cover form 5, height
-  0..7/16, but its intersection calculation did not account for the runtime
-  X-mirrored collision frame. Broader exports are paused while this is fixed;
-  never cite the passing synthetic test as real-pack acceptance. Main
-  `e12e-10797-childplay.*` is the failing evidence.
+  The compiler trim in `e12e90cb` did not fix the landing and was removed.
+  A faithful substitution of the old runtime's literal search radius 1.5→2
+  passes all five 10797 scenarios without changing colliders. The runtime
+  now searches two blocks; its floor/body guards stay intact. A meaningful
+  obstructed-landing runtime test passes, as do rides/clearance 33/33 tests,
+  physics spec and both typechecks. Clean rebuilt-pack acceptance is next.
+  Do not use the first `a116-reach2` config-only substitution as evidence:
+  a116 used a literal 1.5, so that substitution changed nothing.
 - Doorway audit: all 11 packs, 17 doors, 170 size/turn rows (100/150/200/300/400,
   0/90): zero FAIL, 96 OK, 10 STEP, 60 SEALED, 4 ONE-WAY; six short approaches.
   Main `a116-passability.{json,log}` records model limits rather than hiding them.
@@ -106,8 +108,11 @@ independently checked, not treated as device-proven. Evidence logs are in
   console/page errors empty, `walker-chrome-*-a116.png` in main evidence dir.
   Three additional PNG tests pass with precomputed filtered RGB bytes
   (including all Paeth choices), oversized dimensions and inflate overrun.
-  # TODO: resolve real-pack landing failure, rebuild acceptance, and inspect
-  thin bright lower-body seams in the Walker figure close view.
+  Thin bright lower-body seams were inspected: both legs have zero zero-sized
+  axes, volume overlaps or overlapping coplanar front/back faces. The same
+  lines persist in an identical no-PBR/Lambert view; these are emitted cuboid
+  boundaries, not a Walker depth/material regression (`leg-seams-{0,1}.png`).
+  # TODO: resolve real-pack landing failure and rebuild acceptance.
 - Walker now frames from rendered bounds and live holder yaw; figure-marker
   and appearance views at 200%/90° are byte-identical. Station reachability
   passes both walk models at 100%/200%, four turns each; whole-grid agreement

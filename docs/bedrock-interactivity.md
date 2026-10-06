@@ -277,16 +277,14 @@ Walk add-on's legend says how many are passable at the chosen size.
 
 ## Clearance: colliders pulled back to the geometry
 
-Ride terminal clearance (2026-10-05): a slide's planned set-down body can
-intersect a full-cell collider even when no source geometry reaches it.
-`rideSetDownTop` permits the normal source-containing cover to replace that
-cell only when the old form intersects the player's body and the new one
-does not. Source containment, floor below the feet, closed leaves and the
-global leak check retain their protections. The compiler uses the same
-`RIDE.SETDOWN_LIFT_BLOCKS` as the runtime; it does not carve a generic empty
-landing pad or move the rider through real geometry. This addresses 10797's
-slide terminal, where all ordinary dismount candidates were obstructed by
-excess collider volume.
+Ride set-down search (2026-10-05): 10797's slide terminal has no legal
+standing pose within the former 1.5-block search. The runtime now searches
+up to `RIDE.SETDOWN_REACH_BLOCKS = 2` (scaled with the ride, minimum 100%),
+retaining the existing collision-free body and three-block maximum floor
+drop requirements. A faithful substitution of only the old runtime's search
+radius fixes both child-play collisions. The initially proposed compiler
+landing trim was unnecessary and was removed; source geometry and collider
+clearance policy remain unchanged.
 
 The user's brief (2026-09-25): *"at minifig = player height scale most
 hallways and rooms are too narrow or low for the player to fit … offset

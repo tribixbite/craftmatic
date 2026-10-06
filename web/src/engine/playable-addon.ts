@@ -2657,14 +2657,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
                     return { c: c0, a: [ca[0] - c0[0], ca[1] - c0[1], ca[2] - c0[2]], u: [cu[0] - c0[0], cu[1] - c0[1], cu[2] - c0[2]] };
                 });
                 const approaches = ixPlans.flatMap(pl => pl?.approach.length ? [{ columns: pl.approach, floor16: pl.floor16 }] : []);
-                // Slides set a player down at their terminal path point. Clearance may pull back only the ordinary
-                // source-unsupported cover occupying that body; source geometry, floors, closed leaves and the leak
-                // gate retain their normal protections in `applyColliderClearance`.
-                const rideSetDowns = (options.rides?.items ?? []).filter(r => r.kind === 'slide').map(r => {
-                    const q = r.path[r.path.length - 1]!;
-                    return { x: q[0], y: q[1] + RIDE.SETDOWN_LIFT_BLOCKS, z: q[2] };
-                });
-                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches, rideSetDowns });
+                clearanceReport = applyColliderClearance({ grid: colliders.grid, layers: colliders.layers, leaves, leafPlanes, closedCells: ixPlans.flatMap(pl => pl?.blocking ?? []), approaches });
                 captureDoorwayNeighbours(colliders.grid, ixPlans);
                 const r = clearanceReport;
                 warnings.push(`${label}: clearance - ${r.applied.wall} collider${r.applied.wall === 1 ? '' : 's'} pulled back to the walls' own geometry and ${r.applied.ceiling} low ceiling${r.applied.ceiling === 1 ? '' : 's'} raised to standing height (${r.freedBlocks} blocks freed); refused where not certain: ${CLEARANCE_REFUSALS.filter(k => r.refused[k]).map(k => `${r.refused[k]} ${k}`).join(', ') || 'none'}${r.verified ? '' : ' (the leak check could not run on a grid this size: nothing trimmed)'}.`);

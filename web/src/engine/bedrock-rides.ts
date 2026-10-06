@@ -79,7 +79,7 @@ export const RIDE = {
   /** A ride's planned terminal point is lifted this far before finding a free standing spot, blocks. */
   SETDOWN_LIFT_BLOCKS: 0.05,
   /** How far sideways a ride set-down searches for a free standing spot, blocks at 100 %. */
-  SETDOWN_REACH_BLOCKS: 1.5,
+  SETDOWN_REACH_BLOCKS: 2,
   /** How far below a ride terminal its set-down may find a floor, blocks. */
   SETDOWN_DROP_BLOCKS: 3,
   /** A top-surface cell with a cell at least this much lower nearby is a chute's rim, not its bed, LDU (10788's rails stand 30-38 over the bed). */
@@ -622,9 +622,9 @@ function ridesRuntime(config: RideRuntimeConfig, body?: ColliderBodyProbe, hop?:
     const last = run.path[run.path.length - 1]!;
     const off = run.kind === 'lift' && run.exit ? run.exit : last;
     // Set down where the body FITS: the planned point lifted out of a floor it sits in, else the nearest free
-    // standing spot within a block (times the size). The planned points had put riders 0.2-0.34 inside floor
+    // standing spot within the bounded search (times the size). The planned points had put riders 0.2-0.34 inside floor
     // slabs (10788's lift exits, 41703's and 42652's slide feet) and the player then fell through (simulator
-    // triage 2026-09-30). Without a probe (a test host) the planned point stands. The search reaches 1.5 blocks
+    // triage 2026-09-30). Without a probe (a test host) the planned point stands. The search reaches 2 blocks
     // (times the size) aside and a floor up to 3 blocks down - the most a player falls unhurt: 41395's slide foot
     // ends against the bus's bodywork, and the nearest room to stand is 1.25 blocks aside, at the foot's level.
     let at = { x: off.x, y: off.y + R.SETDOWN_LIFT_BLOCKS, z: off.z };
