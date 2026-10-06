@@ -59,6 +59,44 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   Clear test-only movement effects and free-camera overrides before judging
   native player physics. `approachSpots` can supply a supported boarding pose;
   an airborne teleport followed by a delayed screenshot cannot.
+- **A blocked native dismount does not prove the recovery branch ran.**
+  In the isolated 10796 stone-cage test, physical Sneak left the player
+  mounted; clearing the cage allowed dismount and supported walking.
+  Minecraft itself may have refused the first exit: no custom recovery
+  message was observed. Keep that outcome separate from the simulator's
+  verified body/floor search and remount tests. The natural 10797 stool
+  exit and both 10796/10797 slides have continuous physical-input recordings
+  in fidelity-audit `output/device-zero-plane-20261005/` (192/219/226).
+- **A body-free landing can still trap the player.** Natural 10796 Sneak
+  chose `(6024.385723,-58.5625,6002.698223)`, a sealed pocket with only
+  0.0125 blocks above a standing player's head. Native movement in contacts
+  247–249 stays in the same HUD cell; the real-pack simulator reproduces
+  that position. Scenery-seat recovery now requires a supported one-block
+  walking path, sampled through intervening collider boxes, and skips
+  trapped settlement candidates. Ride/door settlement retains its default
+  policy. The regression checks a full block of actual walking: shipped
+  runtime permits only 0.507 blocks of shuffling, regenerated runtime 3.92.
+  A half-block diagonal can fit wholly inside a sealed one-cell pocket from
+  an off-centre start; the always-offline runtime regression guards this too.
+  Keep native acceptance pending until the clean fixed pack is tested.
+- **Keep native regression proof separate from simulator coverage.** Saga
+  26.52 reproduces the archived f37227ad 10797 car fall with a fresh placement
+  at `(6985,-60,7012)`, 100 percent/turn zero: forward three seconds, release
+  0.3 seconds, forward/right 2.5 seconds. Mounted HUD `(6986,-60,7017)` moves
+  briefly, then stays at `(6989,-66,7020)` below the floor. Clean 9ed44be0
+  with the same gesture at anchor `(6200,-60,6200)` drives to
+  `(6309,-59,6286)`, reaches 43 mph and stops on the ground. Recordings:
+  `10797-archive-car-route.mp4`/contact 243 and
+  `10797-current-car-route.mp4`/contact 228 in the same evidence directory.
+  This establishes the native fix; an offline replay that still cannot
+  reproduce the old fall must retain NOT TESTED and its nonzero exit.
+  The ideal `60/6/50`-tick replay drives the old car 24.45 blocks in its first
+  phase; native old moved about one. A diagnostic ten-tick phase moves 0.963
+  blocks, but varying the turn duration still neither matches the route nor
+  reproduces the fall. Native processed intervals/stick samples remain
+  unmeasured; do not tune inferred ticks or teleport through rounded rider
+  HUD positions to manufacture a reproduction. Probe evidence:
+  main `output/fidelity-audit-20261005/native-cadence-probe-20261006.json`.
 - **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
   to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
   set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into

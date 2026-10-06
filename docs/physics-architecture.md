@@ -669,11 +669,17 @@ no forces: nothing is pushed, the player changes mount.
   the size, at least 1) for a mountable's box; the rider is boarded onto the
   nearest (front-most of its train) instead of being set down.
 - **A scenery seat's set-down** (`figureLifeRuntime` with the same body probe):
-  a native dismount that already fits is left alone. If Bedrock's fallback when
-  every neighboring spot is blocked put the player inside the shell, the runtime searches from
-  the remembered seat with `RIDE.SETDOWN_*`, and accepts only a body-free point
-  supported by a measured floor. With no such point it restores the still-free
-  seat; a transfer to another mount or dimension is never pulled back.
+  a native dismount is left alone only when it has a walk exit. `ColliderBodyProbe.hasWalkExit`
+  requires a body-free point on a floor within one collider sixteenth, then a supported one-block
+  route in one of the eight compass directions. The route is sampled every 0.125 block; each sample
+  must fit the body and may step no more than the ordinary 9/16-block step up or down. A half-block
+  diagonal can still fit inside a sealed one-cell pocket, so egress requires a full cell. Thus a clear
+  endpoint beyond a thin wall, an unsupported gap, and the body-free pocket under 10796's slide are
+  not safe dismounts. If Bedrock's fallback has no exit, the runtime searches from the remembered
+  seat with `RIDE.SETDOWN_*`; `settle`'s optional acceptance predicate filters each candidate by the
+  same egress rule, while omitted predicates preserve ride and doorway settling exactly. With no
+  accepted point it restores the still-free seat; a transfer to another mount or dimension is never
+  pulled back.
 - **The new mount's runtime** sees the rider as it sees any boarding: the
   coaster starts its camera on the first tick a car reports a rider
   (`aimRider` creates the viewer, the loop animation is planned at the next

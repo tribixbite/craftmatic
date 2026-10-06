@@ -13,7 +13,7 @@ Parallel agents append ONE section each at the end of this file.
 
 Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
-Current product baseline: c8b869bd; clean affected exports packs-c8b869bd
+Previous accepted pack baseline: c8b869bd; clean affected exports packs-c8b869bd
 (10261/31084), with the unchanged remainder in packs-62fe6c26. Evidence root:
 C:/git/craftmatic/output/fidelity-audit-20261005/; native captures:
 worktree output/device-zero-plane-20261005/.
@@ -58,8 +58,30 @@ Acceptance measured:
   on hollow topology, prints/materials and rotated collider correctness.
 
 Open acceptance work:
-- # TODO(native-landing): finish clean 9ed44be0 10797 slide and blocked
-  scenery-seat exits on Saga. 10796 physical boarding/travel/setdown/walking
+- # TODO(native-landing): verify the committed scenery-seat egress fix on Saga.
+  Current 9ed physical Sneak dismounts from HUD (6024,-60,6002) to
+  (6024,-59,6002) under purple overhead, then forward/jump and both side
+  directions cannot move for over twenty seconds. This is a failed native
+  acceptance, not a supported walk-away: videos 10796-natural-seat*.mp4,
+  contacts 247–249. Exact-pack simulation matches the sealed body-free
+  pocket; the watcher/config are correct. Fix requires a supported sampled
+  walking exit and makes settlement skip trapped candidates. Focused suite
+  40/40: old real-pack runtime physically shuffles 0.507 blocks, current
+  regenerated runtime walks 3.92 blocks. No native diagnostic mutation is
+  needed. Clean exports/gates/native repetition remain pending.
+  Final source checks: 2,996 passed/31 skipped, both typechecks, physics spec
+  and web build pass; main output/fidelity-audit-seat-egress-final-{tests,build}.log.
+  The added always-offline runtime test rejects a diagonal wholly inside a
+  sealed one-cell pocket; egress therefore requires one full block.
+  Clean 9ed44be0 10797 physical slide boarding/travel/setdown/walking passes
+  in 10797-slide-final.mp4, contact 219 and frames 220–224, anchor
+  (6200,-60,6200), 100 percent/turn zero. Natural stool physical Sneak exit
+  and supported walking pass in 10797-seat-exit.mp4/contact 226.
+  The isolated blocked 10796 seat stays mounted after Sneak, then exits and
+  walks after the cage is cleared (200/202). Native refusal may explain the
+  blocked result; the runtime's remount/message branch is not established.
+  Restore the original grass under the bounded test cage if still needed.
+  10796 physical boarding/travel/setdown/walking
   passes in 10796-slide-final.mp4, frames 192–197, anchor (6000,-60,6000),
   100 percent/turn zero. Both added movement effects were cleared. Earlier
   10796-slide2.mp4 ends before input and is NOT evidence of a ride.
@@ -78,8 +100,18 @@ Open acceptance work:
   Milano controls/telemetry are captured; msPerTick is a rolling window
   mean, not individual tick latency. Open-air controls do not establish
   worst-case obstacle cost.
-- # TODO(regression): recovered historical 10797 overhang route still
-  does not reproduce the old device fall; keep NOT TESTED and nonzero exit.
+- # TODO(sim-regression): recovered historical 10797 overhang route still
+  does not reproduce the old fall offline; keep NOT TESTED and nonzero exit.
+  Native A/B is now verified on Saga 26.52: fresh archived f37227ad at
+  (6985,-60,7012) falls to HUD (6989,-66,7020); clean 9ed at (6200,-60,6200)
+  drives to (6309,-59,6286), reaches 43 mph and stops on supported ground.
+  Same forward 3s/release 0.3s/forward-right 2.5s gesture; videos
+  10797-{archive,current}-car-route.mp4 and independently reviewed 243/228.
+  Ideal replay ticks (60/6/50) differ materially from archived native travel;
+  a shorter diagnostic probe matches initial displacement but not turn/fall.
+  Native intervals/stick samples remain unmeasured. Probe parameters/results:
+  main output/fidelity-audit-20261005/native-cadence-probe-20261006.json.
+  Do not tune inferred cadence solely to force this gate green.
   Archive: main .claude/worktrees/agent-a743597866bba6650/output/gabby-play-0929/.
   Exact transcript/route and cadence limits are in the regression case.
 - Pixel remains secure-locked, unlock request pending. World 924 bindings

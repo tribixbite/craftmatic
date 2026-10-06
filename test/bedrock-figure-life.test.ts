@@ -5,15 +5,25 @@
  * ceiling (the Winter Chalet case where vanilla mob AI never moved), walls,
  * a drop, a doorway leaf, seats, and a figure pushed out of its area.
  */
+import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import type { SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { host } from './_placement-host.js';
 import { simHost, solidBelow } from './_sim-host.js';
-import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
+import { blockSpan, exploreWalkable, FIGURE_SEATING_GRACE_MS, FIGURE_SEATING_PROPERTY, FIGURE_TUNING, figureLifeScript, pathTo, resolveFigureSpawn, separateFigureSpawns, spawnLift, standFeetAt, type FigureLifeConfig, type SpanLookup } from '../web/src/engine/bedrock-figure-life.js';
 import { simulateFigureLife, type SimWorld } from '../web/src/sim/adapters/craftmatic/figure-life.js';
 import { seatBehavior } from '../web/src/engine/playable-addon.js';
 import { RIDE } from '../web/src/engine/bedrock-rides.js';
 import { COLLIDER_BLOCK_ID, COLLIDER_HI_STATE, COLLIDER_LO_STATE } from '../web/src/engine/bedrock-building-shell.js';
+import { COLLIDER_KIT, colliderBodyProbe, type Box16 } from '../web/src/engine/collider-form.js';
+import { packText, readAddon, type Addon } from '../web/src/sim/pack/pack.js';
+import { extractJsonAfter } from '../web/src/sim/pack/script-config.js';
+import { runScenario } from '../web/src/sim/scenario/runner.js';
+import type { StepHandler } from '../web/src/sim/scenario/types.js';
+import { CRAFTMATIC_ALLOWED_LINES, CRAFTMATIC_YIELDING_LINES, craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+
+const BODY_PROBE = colliderBodyProbe(COLLIDER_KIT, COLLIDER_LO_STATE, COLLIDER_HI_STATE);
 
 const spansOf = (cells: SourceCell[], ground = 0): SpanLookup => {
   const m = new Map(cells.map(c => [`${c.x},${c.y},${c.z}`, c]));
@@ -153,6 +163,64 @@ describe('spawn resolution (resolveFigureSpawn, at export)', () => {
   });
 });
 
+describe('collider body walk exits', () => {
+  const shapedProbe = (boxes: Box16[]) => colliderBodyProbe({
+    ...COLLIDER_KIT,
+    formBoxes: () => boxes,
+  }, COLLIDER_LO_STATE, COLLIDER_HI_STATE);
+
+  it('accepts an open supported one-block exit and rejects a body-free sealed pocket', () => {
+    const open = simHost({ colliders: true, terrain: solidBelow(0) });
+    expect(BODY_PROBE.hasWalkExit(open.dimension(), { x: 0.5, y: 0, z: 0.5 })).toBe(true);
+
+    const sealed = simHost({ colliders: true, terrain: solidBelow(0) });
+    for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
+      if (x || z) sealed.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+    }
+    const pocket = { x: 0.5, y: 0, z: 0.5 };
+    expect(BODY_PROBE.bodyFree(sealed.dimension(), pocket)).toBe(true);
+    expect(BODY_PROBE.hasWalkExit(sealed.dimension(), pocket)).toBe(false);
+  });
+
+  it('rejects a supported start whose eight one-block routes cross a gap', () => {
+    const h = simHost({ colliders: true });
+    h.setBlock(0, -1, 0, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 16 });
+    const pinFloor: Box16[] = [[7.5, 8.5, 0, 16, 7.5, 8.5]];
+    const q = { x: 0.5, y: 0, z: 0.5 };
+    const narrow = shapedProbe(pinFloor);
+    expect(narrow.bodyFree(h.dimension(), q)).toBe(true);
+    expect(narrow.floorTop(h.dimension(), q.x, q.z, 1 / 16, 1 / 8)).toBe(0);
+    expect(narrow.hasWalkExit(h.dimension(), q)).toBe(false);
+  });
+
+  it('samples the swept route instead of accepting a clear diagonal endpoint through a thin wall', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    h.setBlock(0, 0, 0, COLLIDER_BLOCK_ID, { [COLLIDER_LO_STATE]: 0, [COLLIDER_HI_STATE]: 16 });
+    // Six posts block W/N/S routes and their diagonals. The seventh at
+    // (+x, centre-z) closes E and only the middle of the NE diagonal: its NE
+    // endpoint remains body-free, so endpoint-only validation would accept it.
+    const post = (x: number, z: number): Box16 => [(x - 0.01) * 16, (x + 0.01) * 16, 0, 16, (z - 0.01) * 16, (z + 0.01) * 16];
+    const walls = shapedProbe([
+      post(0.9, 0.5), post(0.1, 0.5), post(0.5, 0.9), post(0.5, 0.1),
+      post(0.1, 0.9), post(0.9, 0.1), post(0.1, 0.1),
+    ]);
+    const q = { x: 0.5, y: 0, z: 0.5 };
+    const diagonalEnd = { x: q.x + Math.SQRT1_2, y: 0, z: q.z + Math.SQRT1_2 };
+    expect(walls.bodyFree(h.dimension(), q)).toBe(true);
+    expect(walls.bodyFree(h.dimension(), diagonalEnd)).toBe(true);
+    expect(walls.hasWalkExit(h.dimension(), q)).toBe(false);
+  });
+
+  it('lets settle reject a nearer trapped point without changing its default choice', () => {
+    const h = simHost({ colliders: true, terrain: solidBelow(0) });
+    const at = { x: 0.5, y: 0, z: 0.5 };
+    const ordinary = BODY_PROBE.settle(h.dimension(), at, 2, 3);
+    const accepted = BODY_PROBE.settle(h.dimension(), at, 2, 3, q => q.x >= 1);
+    expect(ordinary).toEqual(at);
+    expect(accepted.x).toBeGreaterThanOrEqual(1);
+  });
+});
+
 describe('the serialised runtime', () => {
   const config = { figureTypes: ['craftmatic:a_fig1', 'craftmatic:a_fig2', 'craftmatic:a_fig3'], seatTypes: ['craftmatic:a_seat'], bodyHeights: {}, bodyHeight: 1.8, tuning: FIGURE_TUNING };
   it('serialises without references outside itself', () => {
@@ -195,6 +263,25 @@ describe('the serialised runtime', () => {
     expect(player.ridingOn).toBeUndefined();
     expect(player.location).toMatchObject({ x: 5.5, y: 0, z: 4.5 });
     expect(h.lines('actionbar', 'Rider')).toEqual([]);
+  });
+
+  it('searches past a body-free but sealed native scenery-seat fallback', () => {
+    const h = seatSafetyHost();
+    // Unlike the occupied-body fixture above, the centre fits a standing
+    // player. Its surrounding walls still prevent walking out of that cell.
+    for (let x = -1; x <= 1; x++) for (let z = -1; z <= 1; z++) {
+      if (x || z) h.fill({ x, y: 0, z }, { x, y: 1, z }, COLLIDER_BLOCK_ID);
+    }
+    const seat = h.spawn('craftmatic:a_seat', { x: 0.5, y: 0, z: 0.5 });
+    const player = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    expect(BODY_PROBE.bodyFree(h.dimension(), player.location)).toBe(true);
+    h.seat(player, seat); h.run(1);
+    h.controls(player, { sneak: true }); h.run(1); h.controls(player, { sneak: false });
+    expect(player.ridingOn).toBeUndefined();
+    expect(player.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+    player.rotation.y = -90; // walk farther east, away from the ring
+    h.controls(player, { forward: 1 }); h.run(20);
+    expect(player.location.x).toBeGreaterThan(3.5);
   });
 
   it('re-seats when no bounded safe floor exists, and leaves a transfer to another mount alone', () => {
@@ -473,6 +560,77 @@ describe('the serialised runtime', () => {
     const [t] = simulateFigureLife(w, config, 600, 2);
     const last = t![t!.length - 1]!;
     expect(last.x).toBeLessThanOrEqual(6.5);
+  });
+});
+
+const GABBY_10796_PACK = 'C:/git/craftmatic/output/fidelity-audit-20261005/packs-9ed44be0/10796-gabbys-kitty-care-ear.mcaddon';
+describe.skipIf(!existsSync(GABBY_10796_PACK))('10796 shipped scenery-seat exit', () => {
+  it('directly mounts, Sneaks off, and can physically walk a block from the recovered landing', async () => {
+    const bytes = readFileSync(GABBY_10796_PACK);
+    const source = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+    const load = async (currentRuntime: boolean): Promise<Addon> => {
+      const addon = await readAddon(source, `${GABBY_10796_PACK}${currentRuntime ? '#current-runtime' : '#shipped'}`);
+      if (currentRuntime) {
+        const pack = readCraftmaticPack(addon)!.pack;
+        const config = extractJsonAfter(packText(pack, 'scripts/figures.js')!, 'const CONFIG') as unknown as FigureLifeConfig;
+        pack.files.set('scripts/figures.js', new TextEncoder().encode(figureLifeScript(config)));
+      }
+      return addon;
+    };
+    const exercise = async (addon: Addon) => {
+      const pack = readCraftmaticPack(addon)!;
+      const directMount: StepHandler = async (_step, ctx) => {
+        const seat = ctx.find({ type: 'craftmatic:gabbyskitty_10796_seat' });
+        if (!seat) throw new Error('the placed source seat was not spawned');
+        const mounted = seat.addRider(ctx.player, ctx.sim.engine.tick);
+        if (!mounted.ok) throw new Error(`the source seat refused the rider: ${mounted.why}`);
+        await ctx.run(1); // figures.js records the occupied scenery seat before Sneak
+      };
+      const proveMobility: StepHandler = async (_step, ctx) => {
+        if (ctx.player.ridingOn) throw new Error('Sneak did not dismount the scenery seat');
+        const landing = { ...ctx.player.location };
+        const hasExit = BODY_PROBE.hasWalkExit(ctx.sim.host.dimensionApi(ctx.player.dimension), landing);
+        let farthest = 0;
+        for (let yaw = 0; yaw < 360; yaw += 45) {
+          ctx.player.location = { ...landing };
+          ctx.player.velocity = { x: 0, y: 0, z: 0 };
+          ctx.player.onGround = true;
+          ctx.player.rotation.y = yaw;
+          ctx.sim.controls.set(ctx.player.id, { forward: 1, strafe: 0, jump: false });
+          await ctx.run(20);
+          farthest = Math.max(farthest, Math.hypot(ctx.player.location.x - landing.x, ctx.player.location.z - landing.z));
+        }
+        ctx.sim.controls.set(ctx.player.id, { forward: 0, strafe: 0, jump: false });
+        ctx.state['10796SeatExit'] = { landing, hasExit, farthest };
+        // A full block of actual travel distinguishes walking away from the
+        // sub-block shuffling possible inside the native trapped pocket.
+        if (!hasExit || farthest < 1) ctx.violate({ invariant: 'scenery-seat-walk-exit', message: `10796 scenery-seat landing hasExit=${hasExit}, farthest=${farthest.toFixed(3)} blocks`, evidence: { landing, hasExit, farthest } });
+      };
+      return runScenario({
+        name: '10796-source-seat-exit',
+        start: { x: 0.5, y: -60, z: 0.5 },
+        items: [pack.placement.itemId],
+        invariants: [],
+        allowLines: [...CRAFTMATIC_ALLOWED_LINES],
+        yieldingLines: [...CRAFTMATIC_YIELDING_LINES],
+        steps: [
+          { kind: 'place', size: 100, rotation: 0 },
+          { kind: 'wait', ticks: 40 },
+          { kind: 'directMount' },
+          { kind: 'sneak' },
+          { kind: 'proveMobility' },
+        ],
+      }, [addon], { handlers: { ...craftmaticHandlers(pack, addon), directMount, proveMobility } });
+    };
+    const shipped = await exercise(await load(false));
+    expect(shipped.status, JSON.stringify({ violations: shipped.violations, steps: shipped.steps, state: shipped.state }, null, 2)).toBe('fail');
+    expect((shipped.state['10796SeatExit'] as { hasExit: boolean }).hasExit).toBe(false);
+    expect((shipped.state['10796SeatExit'] as { farthest: number }).farthest).toBeLessThan(1);
+
+    const current = await exercise(await load(true));
+    expect(current.status, JSON.stringify({ violations: current.violations, steps: current.steps, state: current.state }, null, 2)).toBe('pass');
+    expect(current.state['10796SeatExit']).toMatchObject({ hasExit: true });
+    expect((current.state['10796SeatExit'] as { farthest: number }).farthest).toBeGreaterThanOrEqual(1);
   });
 });
 

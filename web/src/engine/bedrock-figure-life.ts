@@ -515,16 +515,12 @@ export function figureLifeRuntime(mc: { world: any; system: any }, config: Figur
       if (player.dimension?.id !== left.dimension?.id) continue;
       let current: { x: number; y: number; z: number };
       try { current = player.location; } catch { continue; }
-      try { if (body.bodyFree(player.dimension, current)) continue; } catch { /* search from the remembered seat */ }
+      try { if (body.hasWalkExit(player.dimension, current)) continue; } catch { /* search from the remembered seat */ }
       const planned = { x: left.at.x, y: left.at.y + S.lift, z: left.at.z };
       let safe = planned;
-      try { safe = body.settle(player.dimension, planned, S.reach, S.drop); } catch { safe = planned; }
+      try { safe = body.settle(player.dimension, planned, S.reach, S.drop, q => body.hasWalkExit(player.dimension, q)); } catch { safe = planned; }
       let fits = false;
-      try {
-        const tolerance = 1 / 16; // collider forms and their floor tops are quantised to sixteenths
-        const floor = body.floorTop(player.dimension, safe.x, safe.z, safe.y + tolerance, tolerance * 2);
-        fits = floor !== undefined && Math.abs(floor - safe.y) <= tolerance && body.bodyFree(player.dimension, safe);
-      } catch { fits = false; }
+      try { fits = body.hasWalkExit(player.dimension, safe); } catch { fits = false; }
       if (fits) {
         let moved = false;
         try { moved = player.tryTeleport(safe, { dimension: player.dimension, checkForBlocks: true, keepVelocity: false }) === true; } catch { moved = false; }
