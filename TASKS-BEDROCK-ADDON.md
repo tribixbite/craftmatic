@@ -15,7 +15,7 @@ Worktree C:/git/craftmatic/.worktrees/fidelity-audit-20261005, branch
 fix/fidelity-audit-20261005, based on b9966287. Main checkout is untouched.
 Current product source: 8929007e773123ed9ecc8eca009c1c77386d7f0a
 (`fix(bedrock): preserve legacy shells across pack upgrades`, signed GPT-6).
-Spatial geometry was introduced in8e261f39; its exports are superseded for
+Spatial geometry was introduced in 8e261f39; its exports are superseded for
 native deployment because they omitted saved-placement compatibility assets.
 Last native-accepted export baseline: 278adbf5. Clean affected exports packs-278adbf5:
 10261, 10326, 10796, 10797, 31084, 42639, 76417, 910004; unchanged core
@@ -26,6 +26,25 @@ C:/git/craftmatic/.worktrees/fidelity-audit-20261005/output/;
 it owns device-zero-plane-20261005/ (earlier native rounds),
 bedrock-entity-qa/278adbf5-native/ (seat acceptance),
 bedrock-entity-qa/device-backups/20261005-224548/ and round-facet-yield/.
+
+**Live device state takes precedence over this committed checkpoint.** Before
+resuming, read audit-worktree
+`output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json` and contact
+the sole driver `/root/audit_device_qa`. Do not infer successful loading or
+acceptance from screenshot filenames. The directory name is historical;
+the installed candidate is **8929007e**, not 8e261f39.
+
+At the latest handoff check, world 925 is loaded, the wand is set to 200 percent
+and turn 0, and the owner is re-pinning before placement. The displayed pin
+7422,-60,7401 is provisional; target origin is 7379,-60,7390. Placement,
+native culling/interaction/Undo acceptance, and final restoration are still
+pending. Device pack files and bindings have already changed. If interrupted,
+resume through the owner/checkpoint; do not leave the device in this state.
+The complete pre-placement world snapshot protects retained fixtures from
+the new placement's automatic retirement of the prior placement history.
+Restore it while Minecraft is closed, then restore the separately captured
+original pack bytes, bindings and options. Exact paths/hashes/steps follow
+below and are embedded in `native-progress.json`.
 
 Acceptance measured:
 - Clean 278adbf5 exports: structural 8/8, nonquick child play 40/40,
@@ -88,11 +107,9 @@ Open acceptance work:
   Main remains untouched. UI wording change committed951fe974
   clarifies simulated reachability needs Minecraft confirmation; web typecheck
   passed. This does not change exported pack geometry/runtime.
-  Clean 10261 SHA b9467f08457da63793bd503f12307d51f702ae52c105ab1fd1cb0ac056f70b02
-  (1,202,002 bytes); 76417 SHA ec67b41ea1b5e9b1dd400f3d7b9f1b69224d5632e5dbd403806be899d339cb8f
-  (1,131,244 bytes). Structural 2/2, nonquick child play 10/10, no unmodelled
-  API/violations. Passability: coaster zero doorways (no doorway acceptance);
-  Gringotts 40 rows, 34 OK/2 SEALED/4 ONE-WAY, zero FAIL, sizes100–400/turns0,90.
+  Superseded 8e exports remain historical geometry-comparison evidence;
+  deploy only the final 892 packs identified below. Coaster has no doorway
+  acceptance; Gringotts has 40 rows, 34 OK/2 SEALED/4 ONE-WAY, zero FAIL.
   Expected spatial actor counts4/2, no buried/rejected/oversized warning.
   Aggregate body cube counts42391/47862, opaque/translucent counts, mesh totals
   and material/PBR cube multisets exactly conserved against278adbf5; Gringotts
@@ -126,8 +143,8 @@ Open acceptance work:
   remains independent of browser evidence.
   # TODO(shell-migration): old saved placements keep old culling limitation;
   future migration needs authoritative transforms persisted before upgrading.
-  Native8e is paused (no deployment); newpack/archive hash gates required even
-  though previously compared active world geometry remains unchanged.
+  No 8e pack was deployed. Final 892 clean-pack/archive gates are complete;
+  native acceptance is independent of the conserved active geometry proof.
   Clean89210261 ready: SHA7d1f3967ecf1db7dcfaf574daf2cd3a21c2011db2b1694b801c6a079f5a6aa42,
   1511238 bytes, pipelineea70d3e0c2cd, dirty=false. Structural1/1, nonquick5/5,
   passabilityzero doorways/FAIL. All18activechunkfiles and204material/texture/UV

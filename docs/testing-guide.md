@@ -26,6 +26,27 @@ live selector before each click, and assert the actual `legend` flags plus
 beam is a route overlay, not shipped geometry. The first spatial A/B captures
 had this harness error; corrected captures must supersede their layer claims.
 
+Native placement QA can retire the player's previous placement even at a
+fresh anchor. Before testing Place in a retained world, Save & Quit and take
+a complete closed-world snapshot, including the database and placement
+history. A pack/options backup alone cannot restore retired fixtures; old
+Undo records do not contain enough transforms to reconstruct them. Exercise
+the candidate's Undo first, then restore the snapshot while Minecraft is
+closed and restore original bindings separately if the snapshot was taken
+after binding the candidate. Verify file manifests/hashes and remove only
+individually identified test-created files. Never recursively delete.
+
+Saga world-list input can be blocked by a rotated ActivityRecordInputSink.
+In the October 6 round, a root protocol-B event4 tap including `BTN_TOUCH`
+loaded the world; a partial sequence without `BTN_TOUCH` and ordinary mouse/
+touch taps did not. The validated panel point was 800,1950, with landscape
+mapping `(x,y) -> (y,2400-x)` on that captured 2400x1080 layout. Reconfirm
+the layout before reuse. A screenshot named "loaded" is not loading evidence:
+inspect the actual in-world HUD. Current owner, snapshot, baseline hashes and
+restore steps are recorded in the audit worktree's
+`output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json`;
+consult [the tracker](../TASKS-BEDROCK-ADDON.md) before driving a device.
+
 Answer a question at the cheapest tier that can answer it:
 
 1. **Validators** (seconds): `python scripts/_mcaddon_check.py <pack>`,
