@@ -61,15 +61,16 @@ Open acceptance work:
   output/fidelity-audit-20261005/packs-8929007e/. Do not launch duplicate writers.
   Detached .worktrees/fidelity-export-8e261f39 stays
   clean, pipeline b3bfade8802e, dirty=false; outputs in main
-  output/fidelity-audit-20261005/packs-8e261f39/. audit_sim_gates finished.
-  facet_gate owns Walker visual checks; audit_device_qa completed world geometry
-  audit and is authorized to claim/capture Saga then run native QA. Consult its
+  output/fidelity-audit-20261005/packs-8e261f39/.
+  Walker visual checks complete; audit_device_qa completed world geometry
+  audit and owns the active Saga claim/native round. Consult its
   live mailbox and audit-worktree output/bedrock-entity-qa/8e261f39-spatial-native/
   progress checkpoint before touching the device; do not start a second driver.
   Upgrade investigation and compatibility fix complete (checks/commit passed,
-  new clean exports pending). Saga claimed by audit_device_qa
+  new clean10261 passed,76417 export pending). Saga claimed by audit_device_qa
   at10:02:26-04:00; captured baselinefocus HUD5822,-60,5760 and original bindings,
-  no deployment/input yet. Hold native deployment until new committed packs.
+  captured baseline without input; now authorized to deploy clean89210261.
+  Confirm current mutation/restoration phase in native-progress.json.
   Main remains untouched. UI wording change committed951fe974
   clarifies simulated reachability needs Minecraft confirmation; web typecheck
   passed. This does not change exported pack geometry/runtime.
@@ -104,6 +105,12 @@ Open acceptance work:
   future migration needs authoritative transforms persisted before upgrading.
   Native8e is paused (no deployment); newpack/archive hash gates required even
   though previously compared active world geometry remains unchanged.
+  Clean89210261 ready: SHA7d1f3967ecf1db7dcfaf574daf2cd3a21c2011db2b1694b801c6a079f5a6aa42,
+  1511238 bytes, pipelineea70d3e0c2cd, dirty=false. Structural1/1, nonquick5/5,
+  passabilityzero doorways/FAIL. All18activechunkfiles and204material/texture/UV
+  assets byte-identical to8e; original4BP/client/geo/controllerassets byte-identical
+  to278. CONFIG onlychunks1–4. Shippedbudget99703 =57312active+42391legacy,
+  entities24 =23previous+1legacy. Evidence newpackdir892-legacy-shell-evidence.json.
   `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
   one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
   PlacementActors with translated cube/bone pivots and local roots. No
