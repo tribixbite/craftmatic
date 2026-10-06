@@ -39,6 +39,13 @@ quirk marked `device-only`, an `unknown` scenario) is what the GameTest or
 the tap round is for, and the round's findings come back as quirks and
 regression scenarios (below).
 
+First-person raster snapshots use the exporter's measured collision-box
+draw-distance policy and full 3-D eye-to-actor-root distance. Horizontal
+distance alone is wrong for tall shells whose roots sit above their roofs.
+This policy remains an estimate from the documented 100% device measurements;
+it does not prove scaled actor visibility or reproduce every graphics setting.
+The interactive Walker's full model view is a separate rendering surface.
+
 ## Architecture
 
 ```

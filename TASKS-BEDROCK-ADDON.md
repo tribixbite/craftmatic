@@ -19,9 +19,10 @@ independently checked, not treated as device-proven. Evidence logs are in
   dimension below 0.25 after coplanar separation, not just exact-zero faces.
   Five regression cases fail before the correction and pass after; a real
   minifig's emitted face corners agree with UV padding disabled.
-- Current checks: 2,956 tests passed, 34 skipped after deferred Undo cleanup;
-  both typechecks passed. Subsequent PBR/face changes pass 73 targeted tests;
-  startup-read regression passes the five Undo/reload tests.
+- Current checks on `a116cdf6`: 2,961 tests passed, 31 skipped; both
+  typechecks and web build passed. First-person snapshot culling then gained
+  3-D root distance and the shared collision-box cutoff; two raster tests fail
+  before the fix, all 40 sim-engine tests pass after (both typechecks pass).
   Web build after the collision follow-up passed (existing large-chunk warning).
 - Walker QA harness now fails missing targets, and `figures --kind=appearance
   --distance=0 --hide-panels` frames actual rendered bounds for vehicle-only
@@ -58,12 +59,15 @@ independently checked, not treated as device-proven. Evidence logs are in
   `880a7195`, so this is pre-existing. Persistent retired-actor cleanup now
   passes reload, replacement-survival and 2,600-actor chunked-storage tests.
   The updated child-play loads remote chunks and still rejects old Milano.
-  # TODO: rebuild and repeat child-play on the final packs.
+  Final `packs-a116cdf6` pass 20/20 child-play scenarios and 3/3 vehicle
+  courses; 4/4 archives pass the strengthened structural gate. Geometry and
+  face pixels match `880a7195` byte-for-byte (`a116-geometry-identity.json`).
 - Material audit: old 10261 ships 45 texture sets but lacks RP `pbr` capability;
   printed face atlases also lacked explicit ABS roughness. Export now derives
   capability from completed output and emits inline ABS MER for faces while
   preserving their pixels. Structural gate rejects the old coaster and checks
-  image references. # TODO: verify rebuilt archives. Existing swatch MER channels,
+  image references. Rebuilt 10261 has the capability and 56 texture sets
+  (45 swatches + 11 face atlases). Existing swatch MER channels,
   references and full-detail transparency are correct. Legacy viewer RGB
   still takes precedence over LDConfig RGB; palette migration remains a
   deliberate, separately measured fidelity choice. Flat normal maps avoid
