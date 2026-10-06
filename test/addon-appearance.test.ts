@@ -242,6 +242,24 @@ describe('faceDecalGeometry', () => {
     }
   });
 
+  it('applies a decal cube rotation about its pivot before the parent transform', () => {
+    const bone = new THREE.Matrix4().makeTranslation(10, 20, 30);
+    const geometry = faceDecalGeometry({ width: 8, height: 8 }, [{
+      bone: 'body', origin: [1, 2, 3], size: [4, 5, 6],
+      rotation: [0, 90, 0], pivot: [1, 2, 3],
+      faceUv: { face: 'north', uv: [0, 0], size: [8, 8] },
+    }], new Map([['body', bone]]))!;
+    // +90 JSON Y rotates each +X offset to -Z. The nonzero pivot stays put
+    // before the parent's translation; ignoring the cube rotation drew the
+    // print on a different plane from its rotated host cube.
+    const expected = [[11, 22, 33], [11, 27, 33], [11, 27, 29], [11, 22, 29]];
+    const position = geometry.getAttribute('position');
+    [0, 1, 2, 5].forEach((vertex, i) => {
+      expect([position.getX(vertex), position.getY(vertex), position.getZ(vertex)]).toEqual(expected[i]);
+    });
+    expect(bone.elements).toEqual(new THREE.Matrix4().makeTranslation(10, 20, 30).elements);
+  });
+
   it('transforms a north-face normal outward through the preview holder Z mirror', () => {
     const geometry = faceDecalGeometry({ width: 8, height: 8 }, [{
       bone: 'body', origin: [0, 0, 0], size: [4, 5, 6],

@@ -62,8 +62,11 @@ Open acceptance work:
   101 resolves the standing figure view. Car1 in 102 has a blank face in
   Minecraft despite a readable face in Walker. Native 138 resolves it:
   original full car + only west→east decal key has a readable face; 139's
-  rear remains normal. Compiler and Walker/audit convention fix is being
-  checked before clean export. Thin-X padding alone failed (131, control
+  rear remains normal. Compiler and Walker/audit convention fix is committed
+  as 62fe6c26; clean exports and native pack acceptance are running. A further
+  Walker fix applies per-decal cube rotation before its parent, matching the
+  already-correct box-UV path (independent rotated-corner test failed before).
+  Thin-X padding alone failed (131, control
   geometry visibly loaded); cutout alone renders both sides (136/137).
   Walker's inward decal-quad normals were a separate issue masked by
   DoubleSide. Outward winding now passes independent four-face normal

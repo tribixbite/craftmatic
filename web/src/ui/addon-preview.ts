@@ -134,13 +134,16 @@ export function faceDecalGeometry(
     for (let i = 0; i < 8; i++) cubeCorners.push([i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0]);
     const faceCorners = BEDROCK_FACE_CORNERS[f.face];
     const bone = bones.get(c.bone) ?? new THREE.Matrix4();
+    // Per-face cubes may carry their own pose, just like box-UV cubes. Apply
+    // it before the parent without mutating the shared bone matrix.
+    const transform = c.rotation && c.pivot ? bone.clone().multiply(bedrockTurn(...c.rotation, ...c.pivot)) : bone;
     // Shared geometry-JSON order is CCW from outside the cube: north -Z,
     // south +Z, east -X and west +X. The holder's Z mirror has a negative
     // determinant; Three.js accounts for that when choosing WebGL winding and
     // transforming normals.
     for (const k of [0, 1, 2, 0, 2, 3]) {
       const corner = faceCorners[k]!;
-      v.set(...cubeCorners[corner]!).applyMatrix4(bone);
+      v.set(...cubeCorners[corner]!).applyMatrix4(transform);
       positions.push(v.x, v.y, v.z);
       const uv = bedrockFaceUv(f, corner);
       uvs.push(uv[0] / tex.width, uv[1] / tex.height);

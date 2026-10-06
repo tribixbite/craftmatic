@@ -3035,6 +3035,8 @@ The original cutout decal rendered from both sides when the head was hidden
 occluded in the full model. The audit and Walker now share physical corner
 and UV definitions (`BEDROCK_FACE_CORNERS`, `bedrockFaceUv`), rather than
 separately implementing contradictory mappings. North/south stay unchanged.
+Walker applies a decal cube's own rotation about its pivot before its parent
+bone, just as it does for box-UV cubes; imported per-face cubes can use either.
 
 For native diagnostics, a screenshot filename is not a camera-pose check:
 verify the car nose/limbs actually face the camera. Prove a changed resource
