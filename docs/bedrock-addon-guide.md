@@ -612,6 +612,30 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   found no supported model render-distance override. Do not emit a speculative
   `render_distance_multiplier`: visible bounds control bounds, while similarly
   named camera/nameplate/debug/ticking fields do not override entity model culling.
+- **Large static shells now use local actor roots.** `splitStaticShell` partitions
+  finished emitted cubes after the single global grain/cull/merge/coplanar plan;
+  it translates cube origins, cube pivots and all bone pivots together, preserving
+  UVs, inflate, materials and world geometry. Colliders and aggregate diagnostics
+  stay on the original model; `spatialShell` diagnostics map actual actor IDs,
+  roots, radii, meshes and oversized cubes. Small shells retain the exact original
+  output. The target is 54 blocks of drawn reach through 200 percent size
+  (70-block estimated ceiling minus 16-block LOD margin). An indivisible oversized
+  cube is retained and warned; a candidate root inside another chunk's drawn cube
+  AABB rejects the partition and retains the original shell to avoid buried-root
+  lighting regressions. Measured 200-percent actor counts for 10261/10326/76417/
+  910004 are 4/1/2/1; imposing a 400-percent target would require 56/8/63/3 actors
+  and introduce buried roots and oversized singletons. Native acceptance remains
+  pending: test nearby ground-level geometry more than 70 blocks from the old
+  whole-shell root, plus station alignment, lighting and complete Undo. An old
+  distant free-camera view may remain beyond every new root and is insufficient
+  alone to judge the improvement.
+- **Round facets remain a conservative preflight, not a compiler replacement.**
+  The shared selector rejects preserved fine-grain interior air, explicit triangle
+  colours, transparency, surface/print fallback, non-saving candidates and any
+  of six silhouette views that regress. Its finite raster and caller-supplied
+  surface policy are not universal topology or print proofs. Corrected 10303
+  preflight accepts four opaque 98138 placements and saves four hypothetical
+  cubes out of 156242 (0.00256 percent); broad integration is not justified.
 - **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
   only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
   so a vehicle parked in a scenery build falls back to the road-wheel heuristic

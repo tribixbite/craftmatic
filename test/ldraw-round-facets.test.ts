@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { LdrawPartMesh, LdrawTriangle, Vec3 } from '../web/src/engine/ldraw-part-geometry.js';
-import { facetScale, fitRoundProfile, roundFacetBoxes, roundFacetIoU } from '../web/src/engine/ldraw-round-facets.js';
+import { compilePartPrototype, resolveEntityQuality, type CompiledPartPrototype, type PartCuboid } from '../web/src/engine/ldraw-part-prototype.js';
+import { facetScale, fitRoundProfile, roundFacetBoxes, roundFacetIoU, selectRoundFacetCandidate } from '../web/src/engine/ldraw-round-facets.js';
 
 /**
  * A cylinder voxelised on an axis-aligned lattice reads as a square up close
@@ -9,7 +10,8 @@ import { facetScale, fitRoundProfile, roundFacetBoxes, roundFacetIoU } from '../
  * the construction beats the lattice on a genuine cylinder (3062b: 44 cuboids
  * at IoU 0.931 against 4 at 0.947) and collapses on a compound part (24869
  * Wheels: 100 at 0.866 against 4 at 0.629). Letting a compound part through
- * would wreck it, so every rejection below is load-bearing.
+ * would wreck it. `fitRoundProfile` remains an outer-envelope profiler; the
+ * selector below supplies the production-safe replacement decision.
  */
 
 const tri = (a: Vec3, b: Vec3, c: Vec3): LdrawTriangle => ({ a, b, c, color: 16 });
@@ -39,6 +41,24 @@ function cylinderY(r: number, y0: number, y1: number, segments = 32, cx = 0, cz 
   }
   return out;
 }
+
+/** An open-top tube: production's top/side flood must preserve its central air. */
+function openTubeY(outer: number, inner: number, y0: number, y1: number, segments = 32): LdrawTriangle[] {
+  const out: LdrawTriangle[] = [];
+  const p = (r: number, k: number, y: number): Vec3 => {
+    const a = k / segments * Math.PI * 2;
+    return [r * Math.cos(a), y, r * Math.sin(a)];
+  };
+  for (let k = 0; k < segments; k++) {
+    out.push(...quad(p(outer, k, y0), p(outer, k + 1, y0), p(outer, k + 1, y1), p(outer, k, y1)));
+    out.push(...quad(p(inner, k, y0), p(inner, k, y1), p(inner, k + 1, y1), p(inner, k + 1, y0)));
+    out.push(...quad(p(inner, k, y1), p(inner, k + 1, y1), p(outer, k + 1, y1), p(outer, k, y1)));
+  }
+  return out;
+}
+
+const prototypeOf = (mesh: LdrawPartMesh, hollow = false): CompiledPartPrototype =>
+  compilePartPrototype(mesh, resolveEntityQuality({ microcellLdu: 2 }), { hollow, decomposition: 'best-of' });
 
 function boxTris(min: Vec3, max: Vec3): LdrawTriangle[] {
   const [x0, y0, z0] = min, [x1, y1, z1] = max;
@@ -133,5 +153,72 @@ describe('roundFacetBoxes', () => {
     const mesh = meshOf('cyl', cylinderY(10, 0, 20));
     const profile = fitRoundProfile(mesh, 2)!;
     expect(roundFacetIoU(mesh, profile, 4)).toBeGreaterThan(0.9);
+  });
+});
+
+describe('selectRoundFacetCandidate', () => {
+  it('accepts a cheaper solid cylinder and leaves the source mesh and prototype unchanged', () => {
+    const mesh = meshOf('solid-cylinder', cylinderY(10, 0, 20));
+    const prototype = prototypeOf(mesh);
+    const meshBefore = structuredClone(mesh);
+    const prototypeBefore = structuredClone(prototype);
+
+    const decision = selectRoundFacetCandidate(mesh, prototype, { facets: 4 });
+
+    expect(decision.accepted).toBe(true);
+    if (decision.accepted) {
+      expect(decision.measurement!.cuboidsSaved).toBeGreaterThan(0);
+      expect(decision.measurement!.candidateViewIoU.every((value, view) => value >= decision.measurement!.sourceViewIoU[view]!)).toBe(true);
+      expect(decision.measurement!.candidateViewIoU.some((value, view) => value > decision.measurement!.sourceViewIoU[view]!)).toBe(true);
+    }
+    expect(mesh).toEqual(meshBefore);
+    expect(prototype).toEqual(prototypeBefore);
+  });
+
+  it('rejects hollow and open-stud geometry whose production fill preserves interior air', () => {
+    const mesh = meshOf('open-stud', openTubeY(10, 5, 0, 20));
+    const decision = selectRoundFacetCandidate(mesh, prototypeOf(mesh), { facets: 4 });
+    expect(decision.accepted).toBe(false);
+    expect(decision.reasons).toContain('preserved-interior-air');
+
+    const transparent = selectRoundFacetCandidate(meshOf('glass', cylinderY(10, 0, 20)), prototypeOf(meshOf('glass', cylinderY(10, 0, 20)), true), { facets: 4 });
+    expect(transparent.reasons).toContain('transparent-prototype');
+  });
+
+  it('rejects a notched round outline before candidate scoring', () => {
+    const triangles = cylinderY(10, 0, 20);
+    triangles.splice(0, 2); // remove one outer-wall sector while leaving the end caps
+    const mesh = meshOf('notched', triangles);
+    const decision = selectRoundFacetCandidate(mesh, prototypeOf(mesh), { facets: 4 });
+    expect(decision.accepted).toBe(false);
+    expect(decision.reasons).toContain('preserved-interior-air');
+  });
+
+  it('rejects explicit print colour, print fallback, and surface-preserving prototypes', () => {
+    const mesh = meshOf('printed', cylinderY(10, 0, 20));
+    mesh.triangles[0] = { ...mesh.triangles[0]!, color: 4 };
+    mesh.printFallback = 'printed';
+    const decision = selectRoundFacetCandidate(mesh, prototypeOf(mesh), { facets: 4, preserveSurface: true });
+    expect(decision.accepted).toBe(false);
+    expect(decision.reasons).toEqual(expect.arrayContaining([
+      'explicit-triangle-colour', 'print-fallback', 'surface-preserving-prototype',
+    ]));
+  });
+
+  it('rejects a candidate whose improved mean hides a regression in an end view', () => {
+    const mesh = meshOf('per-view-regression', cylinderY(10, 0, 20));
+    const strips: PartCuboid[] = Array.from({ length: 40 }, (_, row) => {
+      const z0 = -10 + row / 2, z1 = z0 + 0.5;
+      const halfWidth = Math.sqrt(100 - ((z0 + z1) / 2) ** 2);
+      return { min: [-halfWidth, 5, z0], max: [halfWidth, 15, z1], color: 16 };
+    });
+    const prototype: CompiledPartPrototype = { ...prototypeOf(mesh), cuboids: strips };
+    const decision = selectRoundFacetCandidate(mesh, prototype, { facets: 4 });
+    expect(decision.accepted).toBe(false);
+    expect(decision.reasons).toContain('silhouette-view-regression');
+    expect(decision.measurement).toBeDefined();
+    const sourceMean = decision.measurement!.sourceViewIoU.reduce((a, b) => a + b) / 6;
+    const candidateMean = decision.measurement!.candidateViewIoU.reduce((a, b) => a + b) / 6;
+    expect(candidateMean).toBeGreaterThan(sourceMean);
   });
 });

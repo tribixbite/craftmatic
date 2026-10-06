@@ -243,6 +243,8 @@ export interface AuditActor {
   at: { x: number; y: number; z: number };
   /** The actor's BEDROCK yaw, degrees (0 faces +Z, 90 faces -X): what the placement sets (`actor.yaw + rotation`). */
   yawDeg: number;
+  /** Uniform actor size; applies to geometry and bone/cube pivots, not placement. */
+  scale?: number;
   overlay?: ReadonlyMap<string, readonly [number, number, number]>;
   /** Bones not drawn (a coaster car's inactive rider variants). */
   hideBone?: (bone: string) => boolean;
@@ -272,7 +274,8 @@ export function worldFaces(actors: readonly AuditActor[], options: { far?: boole
     const y = -a.yawDeg * DEG, cy = Math.cos(y), sy = Math.sin(y);
     // Geometry JSON → world: the game's world is the JSON frame with Z
     // mirrored (`Sz`), then the actor's yaw about +Y, then its placement.
-    const place: Affine = [cy, 0, -sy, a.at.x * 16, 0, 1, 0, a.at.y * 16, -sy, 0, -cy, a.at.z * 16];
+    const scale = a.scale ?? 1;
+    const place: Affine = [cy * scale, 0, -sy * scale, a.at.x * 16, 0, scale, 0, a.at.y * 16, -sy * scale, 0, -cy * scale, a.at.z * 16];
     a.entry.groups.forEach((g, group) => {
       if (!!g.far !== !!options.far) return;
       const colour = groupColourKey(g);

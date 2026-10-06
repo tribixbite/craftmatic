@@ -47,9 +47,7 @@ export function firstPersonSnapshot(engine: SimEngine, appearance: AddonAppearan
     // measured 70-block ceiling; geometry and visible_bounds do not extend it.
     const rootDistance = Math.hypot(e.location.x - eye.x, e.location.y - eye.y, e.location.z - eye.z);
     if (!entry || rootDistance > entityRenderCullBlocks(e.collisionSize())) continue;
-    // # TODO(sim-render): `worldFaces` places an actor at scale 1; a resized entity (`minecraft:scale`) draws at 100 %.
-    // `worldFaces` turns the other way from Bedrock's yaw (see `drawnBoxes`).
-    actors.push({ typeId: e.typeId, kind: 'entity', entry, at: e.location, yawDeg: e.rotation.y });
+    actors.push({ typeId: e.typeId, kind: 'entity', entry, at: e.location, yawDeg: e.rotation.y, scale: e.scale() });
   }
   const d = viewDirection(player.rotation.y, player.rotation.x);
   const faces = worldFaces(actors);

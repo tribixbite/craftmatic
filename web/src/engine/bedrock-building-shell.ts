@@ -29,10 +29,10 @@
  * mapped through the voxelizer's grid origin like every figure and seat.
  */
 
-import { withSizeGroups } from './bedrock-placement-pack.js';
+import { visibleBoundsForSizeSteps, withSizeGroups } from './bedrock-placement-pack.js';
 import { BlockGrid } from '@craft/schem/types.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
-import type { OrientedBoxLdu } from './ldraw-entity-compiler.js';
+import type { CompiledLdrawGeometry, CompiledMesh, OrientedBoxLdu } from './ldraw-entity-compiler.js';
 import { clipParallelepiped, isAxisAligned, parallelepiped, type Parallelepiped } from './oriented-box.js';
 
 export { clipParallelepiped } from './oriented-box.js';
@@ -42,7 +42,8 @@ import { PACK_NAMESPACE } from './mcpack.js';
 import type { LegoEntityQuality } from './ldraw-part-prototype.js';
 import { COLLIDER_KIT, COLLIDER_STATES } from './collider-form.js';
 import { addLayerBox, newCellLayers, type CellLayers } from './collider-clearance.js';
-import { ACTOR_DRAW_CEILING_BLOCKS } from './bedrock-lod-hull.js';
+import { ACTOR_DRAW_CEILING_BLOCKS, LOD_CULL_MARGIN_BLOCKS } from './bedrock-lod-hull.js';
+import { boneTransforms, cubeCorners, drawnCubeBox, type GeoCubeLike } from './bedrock-geometry-faces.js';
 import { JUMP_HEIGHT_BLOCKS } from './addon-scale.js';
 
 /** The custom collider block and its two sixteenth states. */
@@ -54,6 +55,251 @@ export const colliderState = (lo: number, hi: number): string => `${COLLIDER_BLO
 
 /** The LDraw → render matrix for a building shell at yaw 0: a −Z nose, det +1 (see the header). */
 export const SHELL_FRAME: readonly number[] = ldrawToRenderRotation('-z');
+
+/** Largest supported wand factor for which spatial shell roots are planned. */
+export const STATIC_SHELL_CULL_MAX_SCALE = 2;
+/** Root-to-corner reach left after the same safety margin used by the LOD planner. */
+export const STATIC_SHELL_RADIUS_LIMIT_BLOCKS = ACTOR_DRAW_CEILING_BLOCKS - LOD_CULL_MARGIN_BLOCKS;
+
+export interface StaticShellChunk {
+  /** Entity id stem; geometry identifiers use the same stem. */
+  id: string;
+  /** Finished geometry rebased to this chunk's local actor root. */
+  geo: CompiledLdrawGeometry;
+  /** World-frame offset from the original shell actor at yaw 0 (blocks). */
+  offsetBlocks: [number, number, number];
+  /** Farthest drawn corner from the chunk root at 100 %. */
+  radiusBlocks: number;
+  /** Final cubes which individually remain past the target at 2x; retained, never dropped. */
+  oversizedCubes: number;
+  /** Other chunks' transformed cube AABBs which conservatively contain this root. */
+  buriedRootCubes: number;
+}
+
+export interface StaticShellSplitResult {
+  chunks: StaticShellChunk[];
+  warnings: string[];
+}
+
+interface ShellJsonCube extends Record<string, unknown> {
+  origin: [number, number, number];
+  size: [number, number, number];
+  inflate?: number;
+  rotation?: [number, number, number];
+  pivot?: [number, number, number];
+}
+
+interface ShellJsonBone extends Record<string, unknown> {
+  name: string;
+  parent?: string;
+  pivot?: [number, number, number];
+  rotation?: [number, number, number];
+  cubes?: ShellJsonCube[];
+}
+
+interface ShellJsonGeometry extends Record<string, unknown> {
+  description: Record<string, unknown> & { identifier: string };
+  bones: ShellJsonBone[];
+}
+
+interface ShellJsonDocument extends Record<string, unknown> {
+  'minecraft:geometry': ShellJsonGeometry[];
+}
+
+interface ShellCubeRecord {
+  order: number;
+  geometry: number;
+  bone: number;
+  cube: number;
+  center: Vec3;
+  corners: Vec3[];
+}
+
+const shellBounds = (records: readonly ShellCubeRecord[]): { min: Vec3; max: Vec3 } => {
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity];
+  for (const record of records) for (const p of record.corners) for (let axis = 0; axis < 3; axis++) {
+    min[axis] = Math.min(min[axis]!, p[axis]!);
+    max[axis] = Math.max(max[axis]!, p[axis]!);
+  }
+  if (!records.length) return { min: [0, 0, 0], max: [0, 0, 0] };
+  return { min, max };
+};
+
+/** A shell chunk attempts the compiler's open-sky lighting rule in its own local bounds. */
+const shellRoot = (records: readonly ShellCubeRecord[]): Vec3 => {
+  const { min, max } = shellBounds(records);
+  return [(min[0] + max[0]) / 2, min[1] + Math.ceil(max[1] - min[1]) + 1, (min[2] + max[2]) / 2];
+};
+
+const shellRadius = (records: readonly ShellCubeRecord[], root: Vec3): number => {
+  let radius = 0;
+  for (const record of records) for (const p of record.corners)
+    radius = Math.max(radius, Math.hypot(p[0] - root[0], p[1] - root[1], p[2] - root[2]));
+  return radius;
+};
+
+const partitionShellRecords = (records: ShellCubeRecord[]): ShellCubeRecord[][] => {
+  const root = shellRoot(records);
+  if (records.length <= 1 || shellRadius(records, root) * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9) return [records];
+  // Do not spread a shell's 40k-160k final cube centres into Math.max/min:
+  // V8's argument limit is smaller than an ultra shell.
+  const spans = [0, 1, 2].map(axis => {
+    let lo = Infinity, hi = -Infinity;
+    for (const record of records) { lo = Math.min(lo, record.center[axis]!); hi = Math.max(hi, record.center[axis]!); }
+    return hi - lo;
+  });
+  const axis = spans.indexOf(Math.max(...spans));
+  const sorted = [...records].sort((a, b) => a.center[axis]! - b.center[axis]! || a.order - b.order);
+  const middle = Math.floor(sorted.length / 2);
+  return [...partitionShellRecords(sorted.slice(0, middle)), ...partitionShellRecords(sorted.slice(middle))];
+};
+
+const shifted = (v: readonly number[] | undefined, delta: Vec3): [number, number, number] => [
+  (v?.[0] ?? 0) - delta[0], (v?.[1] ?? 0) - delta[1], (v?.[2] ?? 0) - delta[2],
+];
+
+/**
+ * Split an already-finished static shell into locally rooted actors.
+ *
+ * This operates after the compiler's global grain plan, hidden-face cull,
+ * merge, UV inflation and coplanar separation. It never recompiles a part or
+ * changes a final cube. Every JSON origin and pivot is translated together;
+ * `offsetBlocks` is the sole placement delta from the original actor root.
+ */
+export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): StaticShellSplitResult {
+  const document = geo.value as ShellJsonDocument;
+  const geometries = document?.['minecraft:geometry'];
+  if (!Array.isArray(geometries) || geometries.length !== geo.meshes.length)
+    throw new Error(`${shellId}: compiled shell geometry/mesh counts do not match (${geometries?.length ?? 0}/${geo.meshes.length}).`);
+
+  const records: ShellCubeRecord[] = [];
+  let order = 0;
+  geometries.forEach((geometry, geometryIndex) => {
+    const bones = geometry.bones ?? [];
+    const transforms = boneTransforms(bones.map(bone => ({
+      name: bone.name, pivot: bone.pivot ?? [0, 0, 0],
+      ...(bone.rotation ? { rotation: bone.rotation } : {}),
+      ...(bone.parent ? { parent: bone.parent } : {}),
+    })));
+    bones.forEach((bone, boneIndex) => (bone.cubes ?? []).forEach((cube, cubeIndex) => {
+      const drawn = drawnCubeBox(cube);
+      const shape: GeoCubeLike = {
+        bone: bone.name, origin: drawn.origin, size: drawn.size,
+        ...(cube.rotation ? { rotation: cube.rotation } : {}),
+        ...(cube.pivot ? { pivot: cube.pivot } : {}),
+      };
+      const corners = cubeCorners(shape, transforms.get(bone.name)!).map(p => p.map(value => value / 16) as Vec3);
+      const center = [0, 1, 2].map(axis => corners.reduce((sum, p) => sum + p[axis]!, 0) / corners.length) as Vec3;
+      records.push({ order: order++, geometry: geometryIndex, bone: boneIndex, cube: cubeIndex, center, corners });
+    }));
+  });
+
+  const originalRadius = shellRadius(records, [0, 0, 0]);
+  if (originalRadius * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9) {
+    return { chunks: [{ id: shellId, geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0 }], warnings: [] };
+  }
+
+  const partitions = partitionShellRecords(records);
+  const warnings: string[] = [];
+  const chunks = partitions.map((partition, chunkIndex): StaticShellChunk => {
+    const id = `${shellId}_chunk_${chunkIndex + 1}`;
+    const root = shellRoot(partition);
+    const delta: Vec3 = root.map(value => value * 16) as Vec3;
+    const radiusBlocks = shellRadius(partition, root);
+    const selected = new Set(partition.map(record => `${record.geometry}:${record.bone}:${record.cube}`));
+    const chunkGeometries: ShellJsonGeometry[] = [];
+    const chunkMeshes: CompiledMesh[] = [];
+    let nonDecalCubes = 0, opaqueCubes = 0, translucentCubes = 0;
+    const localBounds = shellBounds(partition);
+    const extent = {
+      min: [localBounds.min[0] - root[0], localBounds.min[1] - root[1], localBounds.min[2] - root[2]] as [number, number, number],
+      max: [localBounds.max[0] - root[0], localBounds.max[1] - root[1], localBounds.max[2] - root[2]] as [number, number, number],
+    };
+    const visible = visibleBoundsForSizeSteps(extent, 2);
+
+    geometries.forEach((geometry, geometryIndex) => {
+      let kept = 0;
+      const bones = geometry.bones.map((bone, boneIndex): ShellJsonBone => {
+        const cubes = (bone.cubes ?? []).flatMap((cube, cubeIndex) => {
+          if (!selected.has(`${geometryIndex}:${boneIndex}:${cubeIndex}`)) return [];
+          kept++;
+          return [{
+            ...cube,
+            origin: shifted(cube.origin, delta),
+            ...(cube.pivot ? { pivot: shifted(cube.pivot, delta) } : cube.rotation ? { pivot: shifted(undefined, delta) } : {}),
+          }];
+        });
+        return {
+          ...bone,
+          pivot: shifted(bone.pivot, delta),
+          ...(bone.cubes ? { cubes } : {}),
+        };
+      });
+      if (!kept) return;
+      const meshIndex = chunkMeshes.length;
+      const meshId = `geometry.${PACK_NAMESPACE}.${id}_mesh_${meshIndex}`;
+      const mesh = geo.meshes[geometryIndex]!;
+      chunkMeshes.push({ ...mesh, id: meshId });
+      if (!mesh.faceAtlas) {
+        nonDecalCubes += kept;
+        if (mesh.translucent) translucentCubes += kept; else opaqueCubes += kept;
+      }
+      chunkGeometries.push({
+        ...geometry,
+        description: { ...geometry.description, identifier: meshId, ...visible },
+        bones,
+      });
+    });
+
+    const oversizedCubes = partition.length === 1 && radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE > STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9 ? 1 : 0;
+    if (oversizedCubes) warnings.push(`${id}: one indivisible final cube reaches ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from its local root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block target; it was retained whole.`);
+    const own = new Set(partition.map(record => record.order));
+    let buriedRootCubes = 0;
+    for (const record of records) {
+      if (own.has(record.order)) continue;
+      const box = shellBounds([record]);
+      if ([0, 1, 2].every(axis => root[axis]! >= box.min[axis]! - 1e-9 && root[axis]! <= box.max[axis]! + 1e-9)) buriedRootCubes++;
+    }
+    if (buriedRootCubes) warnings.push(`${id}: its candidate local lighting root is inside the transformed AABB of ${buriedRootCubes} final cube${buriedRootCubes === 1 ? '' : 's'} owned by another chunk.`);
+    const { partBoxesLdu: _partBoxes, ...withoutColliderBoxes } = geo;
+    const chunkGeo: CompiledLdrawGeometry = {
+      ...withoutColliderBoxes,
+      value: { ...document, 'minecraft:geometry': chunkGeometries },
+      meshes: chunkMeshes,
+      meshIds: chunkMeshes.map(mesh => mesh.id),
+      sizeBlocks: {
+        width: localBounds.max[0] - localBounds.min[0],
+        height: localBounds.max[1] - localBounds.min[1],
+        length: localBounds.max[2] - localBounds.min[2],
+      },
+      diagnostics: {
+        ...geo.diagnostics,
+        cubeCount: nonDecalCubes,
+        opaqueCubeCount: opaqueCubes,
+        translucentCubeCount: translucentCubes,
+        meshCount: chunkMeshes.length,
+      },
+      warnings: [],
+    };
+    return {
+      id, geo: chunkGeo,
+      offsetBlocks: [root[0], root[1], -root[2]],
+      radiusBlocks, oversizedCubes, buriedRootCubes,
+    };
+  });
+  const buriedCandidates = chunks.filter(chunk => chunk.buriedRootCubes > 0);
+  if (buriedCandidates.length) {
+    warnings.push(`${shellId}: rejected the spatial partition because ${buriedCandidates.length} candidate lighting root${buriedCandidates.length === 1 ? '' : 's'} may be enclosed; the exact original actor was retained, so its ${(originalRadius * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)}-block reach at ${STATIC_SHELL_CULL_MAX_SCALE}x remains subject to the whole-actor culling limit.`);
+    return {
+      chunks: [{
+        id: shellId, geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius,
+        oversizedCubes: chunks.reduce((count, chunk) => count + chunk.oversizedCubes, 0), buriedRootCubes: 0,
+      }],
+      warnings,
+    };
+  }
+  return { chunks, warnings };
+}
 
 /**
  * Cuboid budgets for a building shell - a whole building is many times a

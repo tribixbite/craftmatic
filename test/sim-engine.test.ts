@@ -158,6 +158,36 @@ describe('first-person entity snapshots use the device draw cull', () => {
     expect((await picture({ width: 3.5, height: 2.5 }, { x: 0, y, z: 69 })).drawn).toBe(true);
     expect((await picture({ width: 3.5, height: 2.5 }, { x: 0, y, z: 71 })).drawn).toBe(false);
   });
+
+  it('renders the actual actor scale while keeping its placement and camera-to-root culling fixed', async () => {
+    const render = async (scale: number, geometryScale: number) => {
+      const sim = new Simulation();
+      sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'box.json': entityJson('x:box', {
+        'minecraft:collision_box': { width: 3.5, height: 2.5 }, 'minecraft:scale': { value: scale },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+      }) }), 'scaled-snapshot'));
+      const player = sim.addPlayer('Camera', { x: 0, y: 0, z: 0 });
+      const at = { x: 1, y: 3, z: 12 };
+      const entity = sim.engine.spawnEntity('x:box', 'overworld', at);
+      entity.rotation.y = 90;
+      lookAt(player, at);
+      const base = appearance.byType.get('x:box')!;
+      const imageAppearance: AddonAppearance = { ...appearance, byType: new Map([['x:box', {
+        ...base,
+        bones: [{ name: 'body', pivot: [8 * geometryScale, 0, 0], rotation: [12, 7, 18] }],
+        groups: base.groups.map(group => ({ ...group, cubes: group.cubes.map(cube => ({
+          ...cube,
+          origin: cube.origin.map(v => v * geometryScale) as [number, number, number],
+          size: cube.size.map(v => v * geometryScale) as [number, number, number],
+          rotation: [5, -11, 8] as [number, number, number], pivot: [0, 8 * geometryScale, 0] as [number, number, number],
+        })) })),
+      }]]) };
+      return firstPersonSnapshot(sim.engine, imageAppearance, player, { width: 64, height: 64 });
+    };
+    const scaledActor = await render(2, 1);
+    expect(scaledActor).toEqual(await render(1, 2));
+    expect(scaledActor).not.toEqual(await render(1, 1));
+  });
 });
 
 describe('the script host', () => {

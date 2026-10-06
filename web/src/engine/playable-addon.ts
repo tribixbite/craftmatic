@@ -22,7 +22,7 @@ import { minifigFromSpec } from './minifig-rig.js';
 import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CULL_MAX_SCALE, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
@@ -2261,6 +2261,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     /** Collision height of every figure NPC type, for scripts/figures.js (bedrock-figure-life.ts). */
     const figureBodies: Record<string, number> = {};
     const extraComponents: PlayableAddonResult['components'] = [];
+    /** One global shell compile, potentially drawn by several locally rooted actors. */
+    let spatialShell: { aggregateId: string; maxScale: number; actors: Array<{ id: string; cubes: number; meshes: number; radiusBlocks: number; offsetBlocks: [number, number, number]; oversizedCubes: number }> } | undefined;
     const vehicleSeats: VehicleSeatReport[] = [];
     /**
      * Every entity this pack declares gets a `texts/en_US.lang` name (and, if
@@ -2559,11 +2561,25 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             });
             diagnostics[shellId] = sgeo.diagnostics;
             warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId, sgeo.sizeBlocks), undefined, true);
-            addEntityName(`${PACK_NAMESPACE}:${shellId}`, `${label} bricks`, false);
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
-            actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
-            extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
+            // Split the FINISHED geometry, not its input parts: the grain,
+            // hidden-face, merge and coplanar plans still run exactly once.
+            // Original collider boxes and aggregate diagnostics remain below.
+            const split = splitStaticShell(shellId, sgeo);
+            warnings.push(...split.warnings);
+            for (const [index, chunk] of split.chunks.entries()) {
+                const chunkLabel = split.chunks.length === 1 ? `${label} bricks` : `${label} bricks ${index + 1}`;
+                emitCompiledEntity(chunk.id, chunk.geo, shellBehavior(chunk.id, chunk.geo.sizeBlocks), undefined, true);
+                addEntityName(`${PACK_NAMESPACE}:${chunk.id}`, chunkLabel, false);
+                actors.push({ typeId: `${PACK_NAMESPACE}:${chunk.id}`, label: chunkLabel,
+                    x: at[0] + chunk.offsetBlocks[0], y: at[1] + sgeo.originLiftBlocks + chunk.offsetBlocks[1], z: at[2] + chunk.offsetBlocks[2], yaw: 0 });
+                extraComponents.push({ id: chunk.id, label: chunkLabel, kind: 'shell', provenance: split.chunks.length === 1
+                    ? `${options.shell.bricks.length} parts compiled as the building's visible geometry`
+                    : `spatial shell ${index + 1}/${split.chunks.length}, partitioned from one ${options.shell.bricks.length}-part global compile` });
+            }
+            if (split.chunks.some(chunk => chunk.id !== shellId)) spatialShell = { aggregateId: shellId, maxScale: STATIC_SHELL_CULL_MAX_SCALE,
+                actors: split.chunks.map(chunk => ({ id: chunk.id, cubes: chunk.geo.diagnostics.cubeCount, meshes: chunk.geo.meshes.length,
+                    radiusBlocks: chunk.radiusBlocks, offsetBlocks: chunk.offsetBlocks, oversizedCubes: chunk.oversizedCubes })) };
             // The model's moving parts, each its own hinged entity on the
             // shell's frame (bedrock-interactives.ts). A part that is not a
             // doorway keeps its closed geometry in the colliders (a cupboard,
@@ -3368,7 +3384,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // definition-side), so they count against the device budget like any other.
     const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
     const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
-    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
+    const entityCount = Object.keys(diagnostics).length + (spatialShell ? spatialShell.actors.length - 1 : 0) + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
@@ -3414,6 +3430,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // The grid widened past the model for access stairs (blocks per side), when it was.
         ...(options.accessMargin ? { accessMargin: { ...options.accessMargin, used: accessMarginUsed } } : {}),
         entities: diagnostics,
+        ...(spatialShell ? { spatialShell } : {}),
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
         // The moving parts: class, hinge angle, the opening a player passes and
         // the smallest wand size at which it can (0 = none), the collider cells

@@ -4,27 +4,26 @@
  * `scripts/_round_facet_probe.ts` shows the construction wins on a genuine
  * cylinder and loses on a compound part. This answers the question that
  * decides whether to wire it into the compiler at all: over a real model, how
- * many PLACEMENTS have a part that fits a round profile AND measures better
- * than its requested-grain lattice prototype, and how many cuboids would that
- * recover?  Coarser planner rungs are reported separately: beating one of
+ * many PLACEMENTS pass the shared production preflight against their requested-
+ * grain lattice prototype, and how many cuboids would that recover? Coarser
+ * planner rungs are reported separately: passing against one of
  * those is an opportunity if the planner already chose that rung, not licence
  * to replace the requested-grain prototype.
  *
  * Cuboids are counted per placement (Bedrock has no in-entity instancing), so
  * the saving is (lattice cuboids - facets) * placements.
  *
- * Usage: bun scripts/_round_facet_yield.ts <model…> [--facets 4] [--grain 2]
- * Output: output/round-facet-yield/<stem>.json (gitignored `output/`).
+ * Usage: bun scripts/_round_facet_yield.ts <model…> [--facets 4] [--grain 2] [--report-suffix name]
+ * Output: output/round-facet-yield/<stem>[-<suffix>].json (gitignored `output/`).
  */
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { parseLDrawDocument } from '../web/src/engine/ldraw-parser.ts';
 import { setLDrawRoot } from '../web/src/engine/ldraw-geometry.ts';
 import { createPartGeometryProvider, type LdrawPartMesh } from '../web/src/engine/ldraw-part-geometry.ts';
-import {
-  createPrototypeCache, resolveEntityQuality, silhouetteIoU, silhouetteReference,
-} from '../web/src/engine/ldraw-part-prototype.ts';
-import { fitRoundProfile, roundFacetIoU } from '../web/src/engine/ldraw-round-facets.ts';
+import { resolveLdrawEntityMaterial } from '../web/src/engine/ldraw-entity-materials.ts';
+import { createPrototypeCache, resolveEntityQuality } from '../web/src/engine/ldraw-part-prototype.ts';
+import { selectRoundFacetCandidate, type RoundFacetRejectionReason } from '../web/src/engine/ldraw-round-facets.ts';
 
 setLDrawRoot('C:/git/clego/extracted/studio_release/app/ldraw');
 
@@ -35,6 +34,9 @@ const num = (flag: string, fallback: number): number => {
 };
 const FACETS = num('--facets', 4);
 const GRAIN = num('--grain', 2);
+const suffixIndex = argv.indexOf('--report-suffix');
+const reportSuffix = suffixIndex >= 0 ? argv[suffixIndex + 1]?.replace(/[^a-z0-9_-]+/gi, '-') : undefined;
+if (suffixIndex >= 0 && !reportSuffix) { console.error('--report-suffix requires a non-empty name'); process.exit(2); }
 /** The rungs the planner may coarsen onto; they are not the requested-grain baseline. */
 const COARSE_GRAINS = [GRAIN * 2, GRAIN * 4];
 const files = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && argv[i - 1]!.startsWith('--')));
@@ -47,13 +49,18 @@ for (const file of files) {
   const provider = createPartGeometryProvider({ document: doc });
   const cache = createPrototypeCache();
 
-  const placements = new Map<string, number>();
-  for (const brick of doc.bricks) placements.set(brick.part, (placements.get(brick.part) ?? 0) + 1);
+  const placements = new Map<string, { part: string; hollow: boolean; count: number }>();
+  for (const brick of doc.bricks) {
+    const hollow = resolveLdrawEntityMaterial(brick.color).alpha < 1;
+    const key = `${brick.part}|${hollow ? 'h' : 's'}`;
+    const entry = placements.get(key);
+    if (entry) entry.count++; else placements.set(key, { part: brick.part, hollow, count: 1 });
+  }
 
   interface PartRow {
     part: string; placements: number; latticeCuboids: number; latticeIoU: number;
     facets: number; facetIoU: number; axis: number; radiusLdu: number; discAgreement: number;
-    requestedGrainDominated: boolean; requestedGrainCuboidsSaved: number;
+    requestedGrainDominated: boolean; requestedGrainCuboidsSaved: number; rejectionReasons: RoundFacetRejectionReason[];
     coarseRungs: Array<{
       grainLdu: number; cuboids: number; iou: number;
       silhouetteDominated: boolean; potentialCuboidsSaved: number;
@@ -62,33 +69,35 @@ for (const file of files) {
   const rows: PartRow[] = [];
   let totalLattice = 0, requestedAfter = 0, roundPlacements = 0;
 
-  for (const [part, count] of placements) {
+  for (const { part, hollow, count } of placements.values()) {
     const mesh: LdrawPartMesh | null = await provider.getPartMesh(part);
     if (!mesh?.triangles.length) continue;
-    const proto = cache.get(mesh, { ...quality, microcellLdu: GRAIN }, { hollow: false, decomposition: 'best-of' });
+    const proto = cache.get(mesh, { ...quality, microcellLdu: GRAIN }, { hollow, decomposition: 'best-of' });
     totalLattice += proto.cuboids.length * count;
 
-    const profile = fitRoundProfile(mesh, GRAIN);
+    const decision = selectRoundFacetCandidate(mesh, proto, { facets: FACETS });
+    const profile = decision.measurement?.profile;
     if (!profile) { requestedAfter += proto.cuboids.length * count; continue; }
     roundPlacements += count;
 
-    const ref = silhouetteReference(mesh);
-    const latticeIoU = proto.source === 'empty' ? 0 : silhouetteIoU(ref, proto.cuboids);
-    const facetIoU = roundFacetIoU(mesh, profile, FACETS);
+    const latticeIoU = decision.measurement!.sourceViewIoU.reduce((sum, value) => sum + value, 0) / decision.measurement!.sourceViewIoU.length;
+    const facetIoU = decision.measurement!.candidateViewIoU.reduce((sum, value) => sum + value, 0) / decision.measurement!.candidateViewIoU.length;
 
     // A facet candidate dominates a baseline only when it is at least as
     // faithful by this silhouette metric and uses fewer cuboids.  Requested
     // grain and coarser planner rungs are deliberately independent claims.
-    const requestedGrainDominated = facetIoU >= latticeIoU && FACETS < proto.cuboids.length;
+    const requestedGrainDominated = decision.accepted;
     const requestedGrainCuboidsSaved = requestedGrainDominated
       ? (proto.cuboids.length - FACETS) * count
       : 0;
     requestedAfter += (requestedGrainDominated ? FACETS : proto.cuboids.length) * count;
 
     const coarseRungs = COARSE_GRAINS.map(g => {
-      const rp = cache.get(mesh, { ...quality, microcellLdu: g }, { hollow: false, decomposition: 'best-of' });
-      const iou = rp.source === 'empty' ? 0 : silhouetteIoU(ref, rp.cuboids);
-      const silhouetteDominated = facetIoU >= iou && FACETS < rp.cuboids.length;
+      const rp = cache.get(mesh, { ...quality, microcellLdu: g }, { hollow, decomposition: 'best-of' });
+      const rungDecision = selectRoundFacetCandidate(mesh, rp, { facets: FACETS });
+      const views = rungDecision.measurement?.sourceViewIoU ?? [];
+      const iou = views.length ? views.reduce((sum, value) => sum + value, 0) / views.length : 0;
+      const silhouetteDominated = rungDecision.accepted;
       return {
         grainLdu: g,
         cuboids: rp.cuboids.length,
@@ -104,7 +113,7 @@ for (const file of files) {
       facets: FACETS, facetIoU: Math.round(facetIoU * 10000) / 10000,
       axis: profile.axis, radiusLdu: Math.round(profile.radiusLdu * 10) / 10,
       discAgreement: profile.discAgreement, requestedGrainDominated,
-      requestedGrainCuboidsSaved, coarseRungs,
+      requestedGrainCuboidsSaved, rejectionReasons: [...decision.reasons], coarseRungs,
     });
   }
 
@@ -134,9 +143,11 @@ for (const file of files) {
   const requestedSavings = totalLattice - requestedAfter;
   const stem = basename(file).replace(/\.(ldr|mpd|io|lxf)$/i, '');
   mkdirSync('output/round-facet-yield', { recursive: true });
-  writeFileSync(`output/round-facet-yield/${stem}.json`, JSON.stringify({
+  const reportName = `${stem}${reportSuffix ? `-${reportSuffix}` : ''}.json`;
+  const reportPath = `output/round-facet-yield/${reportName}`;
+  writeFileSync(reportPath, JSON.stringify({
     file, facets: FACETS, grainLdu: GRAIN,
-    caveat: 'Silhouette-only candidates; topology and colour/material preservation are not validated.',
+    gate: 'Conservative raster preflight: candidates preserve detected interior air and checked colour/fallback modes, reduce cuboids, do not regress any of six source views, and strictly improve at least one. preserveSurface is caller-supplied; this is not a universal topology/material proof.',
     totalPlacements: doc.bricks.length, roundPlacements,
     requestedGrain: {
       candidateParts: requestedCandidates.length,
@@ -156,16 +167,17 @@ for (const file of files) {
 
   console.log(`${stem}  (${doc.bricks.length} placements, ${FACETS} facets at ${GRAIN} LDU)`);
   console.log(`  round-profile placements: ${roundPlacements}`);
-  console.log(`  requested-grain silhouette dominance: ${requestedCandidates.length} parts, ${requestedCandidates.reduce((sum, row) => sum + row.placements, 0)} placements`);
+  console.log(`  requested-grain accepted candidates: ${requestedCandidates.length} parts, ${requestedCandidates.reduce((sum, row) => sum + row.placements, 0)} placements`);
   console.log(`  requested-grain hypothetical cuboids ${totalLattice} -> ${requestedAfter}  (potential ${requestedSavings}, ${(100 * requestedSavings / Math.max(1, totalLattice)).toFixed(2)}%)`);
   console.log('  coarse-rung potential (candidate subset only; not comparable to the requested-grain total):');
   for (const rung of coarseRungSummary) {
     console.log(`    ${rung.grainLdu} LDU: ${rung.candidateParts} parts, ${rung.candidatePlacements} placements, candidate cuboids ${rung.candidateCuboidsBefore} -> ${rung.candidateCuboidsAfter} (potential ${rung.potentialSavings})`);
   }
-  console.log('  CAVEAT: silhouette only; topology and colour/material preservation are not validated.');
   for (const r of rows.slice(0, 8)) {
     const rung = r.coarseRungs.map(x => `${x.grainLdu}LDU ${x.cuboids}@${x.iou.toFixed(3)}${x.silhouetteDominated ? ` (-${x.potentialCuboidsSaved})` : ''}`).join('  ');
     const verdict = r.requestedGrainDominated ? 'fine-dom' : r.coarseRungs.some(x => x.silhouetteDominated) ? 'coarse-only' : 'no-dom';
-    console.log(`    ${verdict.padEnd(11)} ${r.part.padEnd(24)} x${String(r.placements).padStart(4)}  requested ${String(r.latticeCuboids).padStart(4)}@${r.latticeIoU.toFixed(3)}  facets ${r.facets}@${r.facetIoU.toFixed(3)}  saved ${r.requestedGrainCuboidsSaved}  | ${rung}`);
+    const why = r.rejectionReasons.length ? ` reject=${r.rejectionReasons.join(',')}` : '';
+    console.log(`    ${verdict.padEnd(11)} ${r.part.padEnd(24)} x${String(r.placements).padStart(4)}  requested ${String(r.latticeCuboids).padStart(4)}@${r.latticeIoU.toFixed(3)}  facets ${r.facets}@${r.facetIoU.toFixed(3)}  saved ${r.requestedGrainCuboidsSaved}  | ${rung}${why}`);
   }
+  console.log(`  wrote ${reportPath}`);
 }

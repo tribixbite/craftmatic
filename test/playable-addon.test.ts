@@ -894,6 +894,47 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(lang).toContain('entity.craftmatic:shed_manual_seat.name=Shed Seat');
     expect(lang).toContain('item.spawn_egg.entity.craftmatic:shed_manual_seat.name=Shed Seat Spawn Egg');
   });
+
+  it('places locally rooted shells and counts their actors without multiplying the global cube budget', async () => {
+    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const grid = new BlockGrid(83, 2, 3);
+    grid.set(1, 0, 1, 'minecraft:red_concrete');
+    grid.set(81, 0, 1, 'minecraft:red_concrete');
+    const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
+    const result = await buildPlayableAddon(grid, {
+      stem: 'long-shell', partGeometry: await providerFor(), pbr: false,
+      shell: { bricks: [1, 81].map(x => ({ part: '3001.dat', color: 4, x: x * C, y: 0, z: -C, rot: I })), frame },
+    });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/craftmatic-diagnostics.json'))) as {
+      pack: { cuboids: number; entities: number }; spatialShell: { aggregateId: string; maxScale: number; actors: Array<{ id: string; cubes: number; radiusBlocks: number }> };
+    };
+    expect(diag.spatialShell.aggregateId).toBe('long_shell_shell');
+    expect(diag.spatialShell.maxScale).toBe(2);
+    expect(diag.spatialShell.actors).toHaveLength(2);
+    const globalCubes = result.diagnostics.long_shell_shell!.cubeCount;
+    expect(diag.pack.cuboids).toBe(globalCubes);
+    expect(diag.spatialShell.actors.reduce((sum, actor) => sum + actor.cubes, 0)).toBe(globalCubes);
+    expect(diag.pack.entities).toBe(2);
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/scripts/placement.js'));
+    const placed = diag.spatialShell.actors.map(chunk => {
+      expect(entries).toContain(`Craftmatic_long_shell_BP/entities/${chunk.id}.json`);
+      expect(entries).toContain(`Craftmatic_long_shell_RP/models/entity/${chunk.id}.geo.json`);
+      expect(chunk.radiusBlocks * 2).toBeLessThanOrEqual(54);
+      return JSON.parse(new RegExp(`\\{"typeId":"craftmatic:${chunk.id}"[^}]*\\}`).exec(placement)![0]) as { x: number; y: number; z: number; yaw: number };
+    });
+    const xs = placed.map(actor => actor.x).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(1, 4);
+    expect(xs[1]).toBeCloseTo(81, 4);
+    for (const actor of placed) {
+      expect(actor.y).toBeCloseTo(2, 4);
+      expect(actor.z).toBeCloseTo(1, 4);
+      expect(actor.yaw).toBe(0);
+    }
+    // The old single root was forty blocks away from either visible island:
+    // at 200 percent it could cull while the player stood on that island.
+    expect(Math.abs(placed[1]!.x - placed[0]!.x)).toBeCloseTo(80, 4);
+  });
 });
 
 describe('pack identity — two models must never share a manifest uuid', () => {

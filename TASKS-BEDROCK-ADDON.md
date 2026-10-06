@@ -46,51 +46,52 @@ Acceptance measured:
   was uncaptured and remains changed; do not invent a restoration position.
 
 Open acceptance work:
-- Active next round (2026-10-06, after ee240e3e): static-shell spatial
-  actors are being implemented; no new product acceptance yet. Root owns
-  playable-addon integration and guides; audit_sim_gates owns the pure
-  splitter/tests in bedrock-building-shell; facet_gate owns the conservative
-  candidate gate/probes/tests. No agent currently owns a device claim.
-  Existing compiler mesh chunks share one root and cannot fix distant-root
-  culling. PlacementActor arrays already supply scaled/rotated placement,
-  persistent ownership, replace/Undo/reload cleanup; Walker and simulator
-  consume all actors. Proposed integration: partition final static shell
-  cuboids AFTER the one global grain/cull/merge/coplanar budget plan, then
-  translate cube origins, cube pivots and every bone pivot together to local
-  roots. Recompiling source subsets multiplies per-model cuboid budgets and
-  silently increases detail/pack cost; current options cannot preserve the
-  global plan. Keep original aggregate collider boxes and diagnostics.
-  Preserve the single-shell path for small models.
-  Validate drawn reach against the measured 70-block ceiling and 16-block
-  LOD margin through 200-percent wand size and the above-roof light root.
-  Final-cube measurement: actor counts at 100/200/400 percent are 10261
-  1/4/56, 10326 1/1/8, 76417 1/2/63, 910004 1/1/3. At 200 percent no
-  roots are inside other geometry; at 400 percent 76417 has 30 buried roots
-  and four indivisible tall cubes exceed the target. Two long 10261 cubes
-  also exceed it. Do not impose a 400-percent partition on all placements.
-  Main evidence root shell-spatial-actor-{probe.ts,report.json}, report SHA
+- Active round (2026-10-06): implementation and source checks complete;
+  clean exports and native acceptance PENDING. Product changes currently
+  uncommitted above docs checkpoint e558e948; next commit records the files
+  listed by `git status --short`. All four audit agents have finished, with
+  no active device claim or new device input. Main remains untouched.
+  `bedrock-building-shell.ts` now partitions finished emitted cuboids AFTER
+  one global grain/cull/merge/coplanar plan; `playable-addon.ts` emits normal
+  PlacementActors with translated cube/bone pivots and local roots. No
+  compiler recompile or lifecycle fork. Aggregate colliders/budgets remain
+  original; actual entity counts and spatialShell diagnostics include chunks.
+  Small shells retain exact original output. Reach target is 54 blocks at
+  200 percent; oversized cubes are retained/warned and roots buried in other
+  chunks' drawn AABBs reject the partition in favour of the original shell.
+  Tests prove conservation, rotated/inflated geometry, UV/material identity,
+  100/200-percent placement and normal persistent Undo/reload pathways.
+  Simulator snapshots now apply actor scale to the complete rotated bone/cube
+  affine; a pixel comparison against an explicitly doubled model catches the
+  former always-100-percent rendering bug. Facet gate/probes share one selector;
+  they do not modify compiler output. Updated guide: docs/bedrock-addon-guide.md;
+  snapshot semantics: docs/sim-engine.md.
+  Checks: 3,008 passed/31 skipped (182 files passed/1 skipped), both typechecks,
+  physics spec and web build passed. Main evidence root:
+  spatial-shell-{full-tests,focused-tests,build}.log. Full suite 129.44 s;
+  build 8.36 s, existing bundle-size warning only. Latest diagnostic metadata
+  addition passed web typecheck and all 51 exporter tests before committing.
+  Final-cube measurement: 100/200/400-percent actor counts are 10261 1/4/56,
+  10326 1/1/8, 76417 1/2/63, 910004 1/1/3. At 200 percent no buried roots;
+  400-percent partitions introduce buried roots/oversized singletons, so are
+  not imposed. 300/400-percent native culling remains limited. Evidence:
+  shell-spatial-actor-{probe.ts,report.json}, report SHA
   799af9855e4be55f4508c616e0e40d4757ff5300a411bd0482615e96aa11ed1e.
-  Retain oversized cubes and diagnose them; 300/400-percent culling remains
-  limited. Final-cube partition preserves existing cube merging and budget.
-  Likely files: ldraw-entity-compiler.ts, bedrock-building-shell.ts and
-  playable-addon.ts; tests must
-  prove source conservation, reconstructed geometry, local-root culling,
-  scaled/rotated placement and persistent Undo. Read-only agents
-  audit_sim_gates (architecture review returned) and audit_facet_measurement
-  (hollow/print/material integration review pending) hold no device claims.
-  Main remains untouched; our changes are in progress. Saga is restored,
-  unclaimed, with no new
-  device input. No supported client-entity render-distance override exists
-  in the reviewed official schema; do not invent one.
+  No supported client-entity render-distance override exists; do not invent one.
 - # TODO(facet-integration): broad curved-part integration remains gated on
   hollow topology, prints/materials and rotated colliders. Corrected 10303
   2-LDU measurement saves 472 hypothetical cubes (0.30%, 51 placements),
   not 10.7%; worktree output/round-facet-yield/10303.json.
   Audit rejects the current whole-disc generator for hollow 85861, printed
   98138pb177 and per-view-regressing 24866 despite mean silhouette wins.
-  4073/3062b/98138 are provisional only: topology/color/per-view gates must
-  pass before any render integration. facet_gate is implementing those gates
-  in the shared probe path, not enabling new compiler geometry yet.
+  Shared conservative preflight now also rejects 4073/3062b for fine-grain
+  preserved air. New worktree output/round-facet-yield/
+  10303-preflight-20261006.json accepts four opaque 98138 placements, saving
+  only four hypothetical cubes (156242 to 156238, 0.00256 percent); no coarse
+  rung passes. Historical 10303.json remains unchanged. This is not compiler
+  integration or native facet acceptance. The gate's raster resolution is
+  finite and preserveSurface is caller-supplied; do not claim universal
+  topology/print preservation. Broad facet replacement remains unjustified.
 - # TODO(render-distance): the 200 percent coaster shell is visible at
   root distance 50.34 and absent at 75.82 while its cars remain. This is a
   bracket, not an exact cutoff; guide records camera/player-distance limits.
@@ -115,6 +116,60 @@ For further fixes, export affected packs from a clean committed revision and
 rerun applicable gates. Native world 925 folder q-TUD3f7W6M=; no active claim.
 Owned Vite servers on 4015/4017/4019/4021 are stopped; preserve main server 4000.
 No push/tag/release.
+
+### Resume this round without transcript context
+
+1. Work only in the fidelity-audit worktree above; inspect `git status --short`
+   and `git log -3`. Exporter follow-up `bun run test test/playable-addon.test.ts`
+   passed 51/51. Inspect the staged diff and sign
+   the conventional commit with `— GPT-6`. Both typechecks/full suite/build have
+   already passed; do not repeat them absent a relevant change or failure.
+2. Export from a NEW clean detached worktree at that product commit (retain all
+   existing worktrees). Create a new main evidence directory `packs-<hash>`.
+   Sequential coaster recipe from the clean worktree:
+   `bun scripts/_playable_ref.ts "C:/git/clego/lego_sets/LDR/10261 Roller Coaster.mpd" "C:/git/craftmatic/output/fidelity-audit-20261005/packs-<hash>/10261-roller-coaster.mcaddon" "--label=Roller Coaster 10261" --quality=balanced --mode=auto --buildings=bricks --mirror=http://localhost:4000/ldraw-parts --faces=C:/git/craftmatic/output/faces-art-0926`.
+   Gringotts source `C:/git/clego/lego_sets/DbixConvV3/76417.ldr`, label
+   `Gringotts Wizarding Bank  Collectors Edition 76417`, same options; preserve
+   the two spaces before Collectors. Other canonical inputs/options are in
+   packs-278adbf5/*.log. Check provenance dirty=false and source revision.
+   Expected shell counts: coaster four, Gringotts two, museum/chalet unchanged.
+3. For each new pack: `python scripts/_mcaddon_check.py <pack>`;
+   `bun scripts/sim.ts <pack> --json=<new-report.json> --md=<new-report.md>`
+   (nonquick child play);
+   `bun scripts/_ix_passability.ts <pack> --sizes=100,150,200,300,400 --rotations=0,90`.
+   Verify actual chunk IDs/roots, conserved aggregate cube counts and materials
+   against baseline; use Node/Chrome Walker for visual alignment and 200-percent
+   snapshots. Snapshot scale is fixed; native culling remains an estimate.
+4. Native Saga acceptance only after clean-pack/offline gates. Capture fresh
+   bindings/options/position/focus and claim output/.saga-lock before input.
+   World 925 folder is `q-TUD3f7W6M=` (trailing = essential). Restored baseline
+   position is 5822,-60,5760, Creative/Fancy, empty hotbar, in-world focus;
+   recapture rather than assume it persists. Backup reference:
+   main output/bedrock-entity-qa/device-backups/20261005-224548/.
+   Candidate coaster anchor 7379,-60,7390, turn 0, 200 percent; read actual
+   placement origin/roots after placing. Approximate old root 7421.0755,-8,
+   7409.6875. Decisive lower-corner camera 7366.0755,-58.38,7429 is about
+   77 blocks from the old root but 14 from nearby geometry; recalculate from
+   the actual pack. Keep the player nearby to load chunks. Confirm nearby
+   local chunk draws, alignment and lighting at near/station views, natural
+   mount/Sneak/walk, exact one entity per chunk, then complete Undo/collider
+   restoration. Far camera 7422,5,7335 alone is not a decisive test.
+   Save/quit before file restoration; app-only force-stop/relaunch allowed.
+   Restore captured bindings, baseline pack bytes, options, camera/effects,
+   telemetry/logging, position and focus; verify hashes and release own claim.
+   No reboot/framework restart/data clear/recursive delete. Pixel is locked.
+5. Update/prune this tracker with exact new pack hashes, report paths, native
+   results and restoration. Commit documentation and verify its hash. Retain
+   explicit open limits: 300/400-percent draw ceiling, historical offline 10797
+   NOT TESTED, facet compiler integration unjustified, Pixel secure lock.
+
+Device tooling: `_pixel_dev_deploy.py` Adb.read_bytes/write_in_place/fs handles
+root quoting and metadata; avoid PowerShell su/redirection. `_pixel_cmd.sh` via
+Git Bash needs ANDROID_SERIAL and MSYS_NO_PATHCONV=1. Saga taps use a stationary
+90 ms swipe; chat clears with MOVE_END plus 512 Backspaces (Gboard Ctrl+A fails).
+Node Playwright/CDP with Chrome is the browser lane; Bun WebSocket stalls.
+Resize screenshots below 2000 pixels in BOTH dimensions and 4 MB before viewing.
+Main mirror server 4000 must be preserved. No audit-owned server is running.
 
 | surface | command | URL |
 |---|---|---|

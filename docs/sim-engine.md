@@ -45,6 +45,12 @@ distance alone is wrong for tall shells whose roots sit above their roofs.
 This policy remains an estimate from the documented 100% device measurements;
 it does not prove scaled actor visibility or reproduce every graphics setting.
 The interactive Walker's full model view is a separate rendering surface.
+Snapshots apply each entity's `minecraft:scale` to its final cubes and
+bone/cube pivots through the shared `worldFaces` actor transform. Placement
+and camera-to-root distance stay in world blocks. A rotated 200-percent
+actor matches a model with doubled dimensions in the regression test;
+this corrects the old snapshot-only 100-percent geometry limitation without
+establishing native scaled culling.
 
 ## Architecture
 
