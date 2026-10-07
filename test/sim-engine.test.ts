@@ -363,8 +363,14 @@ describe('historical regression replay inputs', () => {
     const liftStep = lift.scenario({ rides: { rides: [{ index: 0, kind: 'lift' }] } } as never).steps.find(s => s.kind === 'rideLift');
     expect(liftStep).toMatchObject({ kind: 'rideLift', on: 'car' });
 
+    // 10326 Door 3 (30h) is replayed at the /tp echo exactly, inside the corridor's floor collider as the device
+    // stood: no HUD-cell reconstruction (none of that cell's legal spots is at its height in any pack).
     const door = REGRESSIONS.find(c => c.id === 'door3-tap-10326')!;
-    expect(door.scenario({} as never).steps.find(s => s.kind === 'tapPartFrom')).toMatchObject({ recordedCell: true, at: { x: 6.5, y: 1.2, z: 2.35 } });
+    const doorScenario = door.scenario({} as never);
+    const doorTap = doorScenario.steps.find(s => s.kind === 'tapPartFrom');
+    expect(doorTap).toMatchObject({ feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 } });
+    expect((doorTap as { recordedCell?: boolean }).recordedCell).toBeUndefined();
+    expect(doorScenario.invariants).not.toContain('player-not-in-solid');
 
     const recorded = { x: 10.6, y: -59.8, z: -3.6 };
     const spot = (x: number, y: number, z: number) => ({ feet: { x, y, z }, aim: { x: 12, y: -58, z: -3 }, distance: 2 });

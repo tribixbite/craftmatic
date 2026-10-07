@@ -709,6 +709,8 @@ export interface InteractiveColliderPlan {
   passageCleared: number;
   /** Half-way treads laid beside a raised threshold (a rise past the auto-step), both sides. */
   treads: number;
+  /** Doorway columns whose sunken sill was raised to a half-way tread between the floors either side (`fillSunkenSills`). */
+  sillTreads: number;
   /** Collider cells of the invisible stairs up to a threshold higher than two auto-steps (`planThresholdStairs`). */
   stairTreads: number;
   /** Every stair considered for this doorway: the leaf column, the side, and what happened (`laid N` or the refusal). */
@@ -772,6 +774,90 @@ export function standingTop16(grid: BlockGrid, layers: CellLayers | undefined, x
   return y * 16 + Math.min(f.hi, cover.hi);
 }
 
+/** Headroom a sunken-sill tread keeps over its top in the doorway's own column and on each side's floor (sixteenths: a standing player, 1.8 blocks). */
+const SILL_HEAD16 = 29;
+
+/**
+ * A SUNKEN sill: a doorway column whose floor lies more than the 9/16
+ * auto-step below the floor on at least one side, between two floors the
+ * player stands on. 10326's Door 3 is one: the frame's sill at 3/16 between
+ * the corridor's tiles at 14/16 and the WC's at 15/16, a 0.69-block gutter
+ * 0.9 block wide (Pixel round 2026-10-07j). A walking player crosses it in
+ * stride, but a SNEAKING one never steps off the corridor's edge into it
+ * (Minecraft's sneak guard refuses a drop past the step) and stops 0.24
+ * before the leaf on every line - the touch sneak button is a TOGGLE, left on
+ * after a seat's "sneak to get off", so a child meets this - and a slow walk
+ * that does drop in faces a 0.75 riser out, past the step, that only a jump
+ * climbs.
+ *
+ * The sill is raised to a half-way tread: half a block (`STAIR_RISE16`) under
+ * the higher side, so each side is within the step of it both ways. Only
+ * where that is CERTAIN to help and harm nothing: both sides are floors with
+ * a standing player's headroom over them, both within the step of the tread,
+ * and the doorway's own column keeps that headroom over the tread. The cell is
+ * one of the closed leaf's (clearance protects it) and the open state restores
+ * it raised (`captureDoorwayNeighbours` reads the static grid). Returns the
+ * columns raised.
+ */
+function fillSunkenSills(grid: BlockGrid, layers: CellLayers | undefined, columns: ReadonlyMap<string, [number, number]>, columnFloor: ReadonlyMap<string, number>, gn: readonly number[]): number {
+  const inGrid = (x: number, y: number, z: number): boolean => x >= 0 && y >= 0 && z >= 0 && x < grid.width && y < grid.height && z < grid.length;
+  const spanOf = (x: number, y: number, z: number): [number, number] | null => {
+    if (!inGrid(x, y, z)) return null;
+    const state = grid.get(x, y, z), f = parseFormState(state);
+    // A collider written without states is a whole block (the doorway cut reads it the same way).
+    return f ? [f.lo, f.hi] : state === COLLIDER_BLOCK_ID ? [0, 16] : null;
+  };
+  /** Whether any collider of column (x, z) reaches into (lo16, hi16), absolute sixteenths. */
+  const blocked = (x: number, z: number, lo16: number, hi16: number): boolean => {
+    for (let y = Math.max(0, Math.floor(lo16 / 16)); y < grid.height && y * 16 < hi16; y++) {
+      const s = spanOf(x, y, z);
+      if (s && y * 16 + s[0] < hi16 && y * 16 + s[1] > lo16) return true;
+    }
+    return false;
+  };
+  let raised = 0;
+  for (const [key, [cx, cz]] of columns) {
+    const door16 = Math.round((columnFloor.get(key) ?? 0) * 16);
+    // The sill: the highest collider top in the doorway column at or under the leaf's foot (the ground, row 0's bottom, when none).
+    let sill16 = -1;
+    for (let y = Math.min(grid.height - 1, Math.floor(door16 / 16)); y >= Math.max(0, Math.floor(door16 / 16) - 1) && sill16 < 0; y--) {
+      const s = spanOf(cx, y, cz);
+      if (s && y * 16 + s[1] <= door16 + 1) sill16 = y * 16 + s[1];
+    }
+    if (sill16 < 0) { if (door16 > 16) continue; sill16 = 0; }
+    // Each side's floor: the highest standing top (`standingTop16`, never a wall's rim) within a riser the tread can serve.
+    const sides: number[] = [];
+    for (const dir of [1, -1]) {
+      const x = Math.floor(cx + 0.5 + gn[0]! * dir), z = Math.floor(cz + 0.5 + gn[2]! * dir);
+      if (!inGrid(x, 0, z) || columns.has(`${x},${z}`)) break;
+      let top = -1;
+      const reach16 = sill16 + PASSAGE_STEP16 + STAIR_RISE16 + PASSAGE_STEP16;
+      for (let y = Math.min(grid.height - 1, Math.floor(reach16 / 16)); y >= Math.max(0, Math.floor(sill16 / 16) - 1); y--) {
+        const st = standingTop16(grid, layers, x, y, z);
+        if (st !== null && st <= reach16) { top = st; break; }
+      }
+      if (top < 0 && sill16 <= PASSAGE_STEP16) top = 0;
+      // A floor nobody stands on (a shelf under a wall) is no side.
+      if (top < 0 || blocked(x, z, top, top + SILL_HEAD16)) break;
+      sides.push(top);
+    }
+    if (sides.length !== 2) continue;
+    const hi16 = Math.max(...sides), lo16 = Math.min(...sides);
+    if (hi16 - sill16 <= PASSAGE_STEP16) continue;
+    const tread16 = hi16 - STAIR_RISE16;
+    // Both sides within the step of the tread (a riser either way the player walks), and the tread over the sill.
+    if (tread16 <= sill16 || lo16 < tread16 - PASSAGE_STEP16 || lo16 > tread16 + PASSAGE_STEP16) continue;
+    if (blocked(cx, cz, tread16, tread16 + SILL_HEAD16)) continue;
+    for (let y = Math.max(0, Math.floor(sill16 / 16)); y * 16 < tread16; y++) {
+      const s = spanOf(cx, y, cz);
+      const hi = Math.min(16, tread16 - y * 16);
+      grid.set(cx, y, cz, colliderState(s ? Math.min(s[0], hi - 1) : 0, Math.max(s ? s[1] : 0, hi)));
+    }
+    raised++;
+  }
+  return raised;
+}
+
 /**
  * Cut every passage interactive's doorway into the COLLIDER grid (not the
  * voxel grid, which is half a block off the entity world - CLAUDE.md) and
@@ -821,7 +907,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
     }
     for (const key of columns.keys()) leafColumnsAll.set(key, plans.length);
     const blocking: IxCell[] = [];
-    let cleared = 0, passageCleared = 0, treads = 0;
+    let cleared = 0, passageCleared = 0, treads = 0, sillTreads = 0;
     /** A static collider cell's span, or null. */
     const staticSpan = (x: number, y: number, z: number): [number, number] | null => {
       if (!isCollider(x, y, z)) return null;
@@ -988,6 +1074,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
         grid.set(x, row, z, colliderState(Math.min(s ? s[0] : lo, lo, hi - 1), Math.max(s ? s[1] : hi, hi)));
         treads++;
       }
+      sillTreads += fillSunkenSills(grid, layers, columns, columnFloor, gn);
     }
     blockingAll.push(blocking);
     // The approach: every column the leaf's normal crosses within the passage's reach, both ways.
@@ -1001,7 +1088,7 @@ export function planInteractiveColliders(grid: BlockGrid, items: readonly SceneI
       }
     }
     const floor16 = blocking.length ? Math.min(...blocking.map(c => c[1] * 16 + c[3])) : 0;
-    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, stairTreads: 0, stairs: [], approach: [...approach.values()], floor16 });
+    plans.push({ blocking, neighbours: [], cleared, passageCleared, treads, sillTreads, stairTreads: 0, stairs: [], approach: [...approach.values()], floor16 });
   }
   if (stairCandidates.length) planThresholdStairs(grid, plans, stairCandidates, leafColumnsAll, layers, avoid);
   // After the stairs: a side a stair now serves walks down it, and only a drop nothing serves is guarded.

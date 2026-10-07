@@ -102,7 +102,7 @@ function withPlan(cells: readonly SourceCell[], dims: GridDims, pct: number, r: 
  * bare grid and the grid with the plan's blocks; every surface reached bare
  * must be reached assisted, unless a tread now stands on that floor block.
  */
-function assertNeverBlocks(cells: readonly SourceCell[], dims: GridDims, plan: TreadPlan): { bare: number; assisted: number } {
+function assertNeverBlocks(cells: readonly SourceCell[], dims: GridDims, plan: TreadPlan, addsSurfaces = true): { bare: number; assisted: number } {
   const r = plan.rotation, f = plan.sizePct / 100;
   const bare = new ScaledColliderGrid(cells, dims, f, r), assisted = withPlan(cells, dims, plan.sizePct, r, plan.blocks);
   const before = walkScaledColliders(bare), after = walkScaledColliders(assisted);
@@ -115,7 +115,9 @@ function assertNeverBlocks(cells: readonly SourceCell[], dims: GridDims, plan: T
   for (const run of plan.runs) expect(after.visited.has(assisted.key(run.to.x, run.to.z, run.to.t)), `restored surface ${run.to.x},${run.to.z}@${run.to.t} must be reachable`).toBe(true);
   // A refused edge is allowed only when its target is reached all the same (a parallel column of the same riser served it).
   for (const e of plan.refused) expect(after.visited.has(assisted.key(e.to.x, e.to.z, e.to.t)), `refused ${e.reason} edge to ${e.to.x},${e.to.z}@${e.to.t} left it unreachable`).toBe(true);
-  if (plan.blocks.length) expect(after.surfaces).toBeGreaterThan(before.surfaces);
+  // `addsSurfaces` false: treads that give a second way onto surfaces already reached (the ground-edge sweep).
+  if (plan.blocks.length && addsSurfaces) expect(after.surfaces).toBeGreaterThan(before.surfaces);
+  else if (plan.blocks.length) expect(after.surfaces).toBeGreaterThanOrEqual(before.surfaces);
   else expect(after.surfaces).toBe(before.surfaces);
   return { bare: before.surfaces, assisted: after.surfaces };
 }
@@ -262,6 +264,52 @@ describe('the rule: treads only where the 100 % grid allows the move, and only o
       assertNeverBlocks(pc, p.dims, plan);
     }
   });
+
+  /**
+   * A base whose rim a player jumps onto at 100 % (12/16), reached at every
+   * size by a gentle ramp on its east side: the main rule restores nothing
+   * (the base is reached), and before 2026-10-07 the west, north and south
+   * rims stayed walls at 200 % - 10261's base, which the Pixel player could
+   * not climb from the west (round 2026-10-07j). The late pass's ground-edge
+   * sweep lays a run from the ground on every side.
+   */
+  function rampedBase(): { dims: GridDims; runs: string; top16: number } {
+    const dims = { width: 14, height: 3, length: 10 };
+    const g = new BlockGrid(dims.width, dims.height, dims.length);
+    for (let x = 4; x <= 9; x++) for (let z = 2; z <= 7; z++) solidTo(g, x, z, 12);
+    // The ramp, east of the base along z 4..5: 3/16 risers from the ground up to the base.
+    for (const [x, t] of [[13, 3], [12, 6], [11, 9], [10, 12]] as const) for (const z of [4, 5]) solidTo(g, x, z, t);
+    return { dims, runs: encodeColliderRuns(g, COLLIDER_BLOCK_ID).runs, top16: 12 };
+  }
+  /** Walk a straight lane over the grid with the plan laid - from the ring, each step to the highest surface it can move to - and return the highest top it stood on. */
+  function laneTop(cells: SourceCell[], dims: GridDims, plan: TreadPlan, from: { x: number; z: number }, d: { x: number; z: number }, steps: number): number {
+    const grid = new ScaledColliderGrid(cells, dims, plan.sizePct / 100, plan.rotation);
+    for (const b of plan.blocks) grid.write(b.x, b.z, { row: b.y, lo: b.lo, hi: b.hi, src16: 0 });
+    let s = { x: from.x, z: from.z, t: 0 }, best = 0;
+    for (let k = 0; k < steps; k++) {
+      const nx = s.x + d.x, nz = s.z + d.z;
+      const next = grid.surfaces(nx, nz).filter(t => grid.canMove(s.x, s.z, s.t, nx, nz, t));
+      if (!next.length) break;
+      s = { x: nx, z: nz, t: Math.max(...next) };
+      best = Math.max(best, s.t);
+    }
+    return best;
+  }
+
+  it('a base reached round a ramp still gets a way up from the ground on every side (10261, Pixel 30j)', () => {
+    const p = rampedBase();
+    const pc = colliderSourceCells({ ...p.dims, runs: p.runs });
+    const plan = planColliderTreads(pc, p.dims, 200, 0);
+    const top = p.top16 * 2;
+    expect(plan.verified).toBe(true);
+    // Reached bare by the ramp: the old rule laid nothing anywhere.
+    expect(plan.before.highest16).toBe(top);
+    // From the west, the north and the south, straight at the base's middle.
+    expect(laneTop(pc, p.dims, plan, { x: -1, z: 9 }, { x: 1, z: 0 }, 20), 'west').toBe(top);
+    expect(laneTop(pc, p.dims, plan, { x: 13, z: -1 }, { x: 0, z: 1 }, 20), 'north').toBe(top);
+    expect(laneTop(pc, p.dims, plan, { x: 13, z: 20 }, { x: 0, z: -1 }, 20), 'south').toBe(top);
+    assertNeverBlocks(pc, p.dims, plan, false);
+  });
 });
 
 describe('the pack ships the treads and the runtime lays them', () => {
@@ -385,4 +433,40 @@ describe.skipIf(!HAVE_CORPUS)('treads on a real set (910004 Winter Chalet)', () 
     }
     console.log(`treads on 910004 (${config.colliders.width}×${config.colliders.height}×${config.colliders.length} cells):\n${lines.join('\n')}`);
   }, 600_000);
+});
+
+/**
+ * 10261's lift hill at 200 % (Pixel round 2026-10-07j: the player climbing
+ * it stopped on every try). Planned from the colliders of the pack the device
+ * ran, read as `withColliderTreads` reads them (a clearance form as its whole
+ * cell). Before the late pass the plan's reach topped out at 32.6 blocks at
+ * the riser x 53 -> 54 (its key shared with the platform level below, so it
+ * was never tried); with it the top of the lift (43.6) is reached. Local
+ * only: the pack is a device round's output, not in the repository.
+ */
+const LIFT_PACK = 'C:/git/craftmatic/output/device-round-2026-10-07j/packs-f200ddc7/10261-roller-coaster.mcaddon';
+describe.skipIf(!existsSync(LIFT_PACK))('10261\'s lift hill at 200 % (Pixel 30j)', () => {
+  it('the plan reaches the top of the lift, and every reach without treads stays', async () => {
+    const { loadAddonPreviewModel } = await import('../web/src/ui/addon-preview-data.js');
+    const { COLLIDER_KIT } = await import('../web/src/engine/collider-form.js');
+    const bytes = readFileSync(LIFT_PACK);
+    const model = await loadAddonPreviewModel(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
+    const cells: SourceCell[] = model.cells.map(c => {
+      if (!c.v) return c;
+      const boxes = COLLIDER_KIT.formBoxes(c.v, c.lo, c.hi);
+      return { x: c.x, y: c.y, z: c.z, lo: Math.min(...boxes.map(q => q[2])), hi: Math.max(...boxes.map(q => q[3])) };
+    });
+    const doorCells = (model.interactives?.items ?? []).flatMap(it => it.blocking);
+    const plan = planColliderTreads(cells, model.dims, 200, 0, [], doorCells);
+    expect(plan.verified).toBe(true);
+    expect(plan.after.highest16 / 16).toBeGreaterThanOrEqual(43.6);
+    // Never block (`assertNeverBlocks`'s first half; a real set keeps refused edges whose targets nothing reaches).
+    const bare = new ScaledColliderGrid(cells, model.dims, 2, 0), assisted = withPlan(cells, model.dims, 200, 0, plan.blocks);
+    const before = walkScaledColliders(bare), after = walkScaledColliders(assisted);
+    const replaced = new Set<number>();
+    for (const run of plan.runs) for (const c of run.columns) replaced.add(bare.key(c.x, c.z, c.floor16));
+    const lost = [...before.visited].filter(k => !after.visited.has(k) && !replaced.has(k));
+    expect(lost.length).toBe(0);
+    for (const run of plan.runs) expect(after.visited.has(assisted.key(run.to.x, run.to.z, run.to.t))).toBe(true);
+  }, 120_000);
 });

@@ -25,7 +25,7 @@ function tower(top: number): BlockGrid {
 
 /** A door at column (3, 5) facing +x, its closed cells over the tower's top. */
 function doorPlan(door: number): InteractiveColliderPlan {
-  return { blocking: [[3, door, 5, 0, 16], [3, door + 1, 5, 0, 16], [3, door + 2, 5, 0, 8]], neighbours: [], cleared: 0, passageCleared: 0, treads: 0, stairTreads: 0, stairs: [], approach: [], floor16: door * 16 };
+  return { blocking: [[3, door, 5, 0, 16], [3, door + 1, 5, 0, 16], [3, door + 2, 5, 0, 8]], neighbours: [], cleared: 0, passageCleared: 0, treads: 0, sillTreads: 0, stairTreads: 0, stairs: [], approach: [], floor16: door * 16 };
 }
 
 const side = (dir: 1 | -1, door: number): StairCandidate => ({ item: 0, cx: 3, cz: 5, gn: [1, 0], dir, door });

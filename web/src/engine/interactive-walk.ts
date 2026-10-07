@@ -19,7 +19,7 @@
 import { ixClosedBlocks, ixWorldBlocks, type InteractiveRuntimeConfig } from './bedrock-interactives.js';
 import { COLLIDER_KIT } from './collider-form.js';
 import { PLAYER_WIDTH_BLOCKS } from './addon-scale.js';
-import { NO_INPUT, STEP_HEIGHT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type Box, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
+import { NO_INPUT, SNEAK_FACTOR, STEP_HEIGHT, WalkWorld, modelPointToWorld, playerBox, tickPlayer, type Box, type PlayerState, type SolidBox, type WalkWorldOptions } from './addon-walk.js';
 import type { SolidQuery } from '../sim/physics/body.js';
 import type { QuarterTurn, SourceCell, TreadBlock } from './bedrock-collider-scale.js';
 
@@ -817,8 +817,18 @@ export interface DoorwayColumnLine {
  * blocks down at the threshold, both ways, x 10.67 where the walk had
  * stood at x 11.5). A `drop` past the jump on an OK doorway is a HOLE the
  * verdict did not see; `scripts/_ix_passability.ts` prints it.
+ *
+ * `sneak`: the same lines walked SNEAKING (Minecraft's sneak guard: the feet
+ * never step off an edge deeper than the step). The touch sneak button is a
+ * toggle, and a child leaves it on after a seat's "sneak to get off": on the
+ * Pixel (round 2026-10-07j) a sneaking player stopped 0.24 before 10326's
+ * Door 3 on every line, at the edge of the frame's sunken sill, where a
+ * walking one crosses (`doorwaySneakStops`).
  */
-export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn): DoorwayColumnLine[] {
+export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct: number, rotation: QuarterTurn, how: { sneak?: boolean } = {}): DoorwayColumnLine[] {
+  const sneak = how.sneak === true;
+  // A sneaking player walks at 0.3 of the speed: the same line gets the ticks that covers.
+  const maxTicks = sneak ? Math.ceil(MAX_TICKS / SNEAK_FACTOR) : MAX_TICKS;
   const cfg = pack.interactives, item = cfg.items[index]!;
   const f = sizePct / 100, k = Math.max(1, f);
   const group = new Set([index, ...(item.pairs ?? [])]);
@@ -849,8 +859,8 @@ export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct
     let s: PlayerState = settled ?? { x: sx, y: centre.y + 0.01, z: sz, vx: 0, vy: 0, vz: 0, onGround: false, sneaking: false, tick: 0 };
     // A start that found no floor within `MAX_DROP` is a pit at least that deep.
     let lowest = settled ? s.y : centre.y - MAX_DROP * k, lowestNear = centre.y, best = -Infinity, jump = false, stall = 0, last = -Infinity;
-    if (settled) for (let t = 0; t < MAX_TICKS; t++) {
-      const r = tickPlayer(world, s, { move: { x: -from * n.x, z: -from * n.z }, jump, sneak: false });
+    if (settled) for (let t = 0; t < maxTicks; t++) {
+      const r = tickPlayer(world, s, { move: { x: -from * n.x, z: -from * n.z }, jump, sneak });
       s = r.state;
       jump = (r.collided.x || r.collided.z) && s.onGround && jumpHelps(world, s, -from * n.x, -from * n.z);
       lowest = Math.min(lowest, s.y);
@@ -863,6 +873,21 @@ export function doorwayColumnLines(pack: DoorwayWalkPack, index: number, sizePct
     out.push({ column, from, start: settled ? { x: r2(settled.x), y: r2(settled.y), z: r2(settled.z) } : null, end: { x: r2(s.x), y: r2(s.y), z: r2(s.z) }, lowest: r2(lowest), drop: r2(centre.y - lowest), dropNear: r2(centre.y - lowestNear), crossed: best >= CROSS_MARGIN });
   }
   return out;
+}
+
+/**
+ * The SNEAKING lines (`doorwayColumnLines(..., { sneak: true })`) that never
+ * crossed the leaf where the same line WALKED (`walking`, same order) did: a
+ * sneaking player stops at an edge on the way (a sunken sill, a step down)
+ * that a walking one takes in stride. A line the walk does not get through
+ * either (a display case beyond the leaf, a pit at the start) is the
+ * verdict's and the HOLE check's business, not this one's.
+ */
+export function doorwaySneakStops(walking: readonly DoorwayColumnLine[], sneaking: readonly DoorwayColumnLine[]): DoorwayColumnLine[] {
+  return sneaking.filter(l => {
+    const w = walking.find(v => v.column.x === l.column.x && v.column.z === l.column.z && v.from === l.from);
+    return !!w && w.crossed && l.start !== null && !l.crossed;
+  });
 }
 
 /** The lines of an OK doorway whose feet fell past the jump within `HOLE_REACH` of the leaf: holes the verdict walk did not stand over. */

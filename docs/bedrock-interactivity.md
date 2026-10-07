@@ -253,6 +253,22 @@ and a 20 LDU frame straddling a cell boundary fills whole cells. So:
    on the floor beside it, both ways (`thresholdTreads` in the diagnostics), and
    the passability test now requires every OK doorway at 100 % to be walked
    through without a jump.
+6. **A sunken sill gets a tread too** (`fillSunkenSills`, 2026-10-07). A
+   leaf whose frame's sill lies more than the step below the floor on a side
+   is a gutter: 10326's Door 3 has its sill at 3/16 between the corridor's
+   tiles at 14/16 and the WC's at 15/16. A walking player crosses it in
+   stride (Saga 30i), but a SNEAKING one never steps off the corridor's edge
+   (Minecraft's sneak guard refuses a drop past the step) and stopped 0.24
+   before the leaf on every line (Pixel 30j; the tester's HUD sneak button
+   was lit from a seat exit on - the touch sneak button is a toggle, and a
+   seat says "sneak to get off"); a slow walk that does drop in meets a 0.75
+   riser out. The sill column is raised to half a block under the higher
+   floor, only where both sides are floors with headroom, both within the
+   step of the tread, and the doorway keeps 1.8 blocks over it. The cell is
+   the closed leaf's (clearance leaves it), and the open state restores it
+   raised. `_ix_passability.ts` walks each OK doorway's lines SNEAKING at
+   100 % and prints `SNEAK-STOP` where a line the walk crosses stops; the
+   regression `door3-sneak-10326` replays the Pixel's walk.
 
 Windows, cabinets, levers and turnables are not passages: their closed part
 boxes stay in the static colliders, so a closed-up window is still a wall.
@@ -914,6 +930,29 @@ back, its front ledge lost its treads at 150-200 % and the door read ONE-WAY.
 after its main plan, restores every blocked rise from a reached surface into a
 threshold column by the same rule, each run verified never to block
 (`test/doorway-threshold-treads.test.ts`).
+
+**The late tread pass** (2026-10-07, `latePass` in bedrock-collider-scale.ts).
+The main rule restores only a surface the grid walk reaches by no route, and
+that walk takes any drop and any detour: 10261 at 200 % kept a 1.5-block rim
+along its west side (reached round the corner) and a riser on its lift hill
+(reached by dropping 10 blocks off the track, and its edge key shared with
+the platform level under it, so never tried) - the Pixel player stopped at
+both (round 2026-10-07j). After the main plan and the doorway pass the laying
+walk runs again with "reached" meaning reached without a drop past 3 blocks,
+refused edges keyed exactly, a tread-holding column a target at another level,
+and a run laid from the GROUND onto the model wherever the 100 % grid walks
+onto it (`edgeSweep`; only from the ground, where the planner's full-cell
+reading of a clearance form and the device agree). Every late run is verified
+never to block. Measured on 10261 at 200 % / 0: the plan's reach rose from
+32.6 to 43.6 blocks (the top of the lift); walking straight up lanes z 4.8-5.6
+of the hill goes from x 25.7 to 39.7 (jumping), and from the west lanes z
+22-24 now climb onto the base. Not done: a straight walk up the lift past x
+39.7 (each lane of the hill rises 1.75 every second column at 200 %; the
+planner reaches the top from the next lane, a player holding a straight line
+does not) - `TODO(tilted-colliders)`. A "slope sweep" (a run at every such
+riser between reached surfaces) was tried and dropped: planned over full cells
+it raised a lane where the shipped forms are lower and stopped the same walk
+at x 30.7.
 
 **Results over the 40 favourites** (sweeps `output/access-steps-0930/sweep-base2`
 at `dc699e3e`, built from an archive of the base tree: the sweep spawns one

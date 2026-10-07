@@ -31,7 +31,7 @@ function raisedBase(baseHi16: number): BlockGrid {
 /** A door at column (3, 5) facing +x, its closed cells on the base. */
 function doorPlan(door: number): InteractiveColliderPlan {
   const floorRow = Math.floor(door), lo = Math.round((door - floorRow) * 16);
-  return { blocking: [[3, floorRow, 5, lo, 16], [3, floorRow + 1, 5, 0, 16], [3, floorRow + 2, 5, 0, 8]], neighbours: [], cleared: 0, passageCleared: 0, treads: 0, stairTreads: 0, stairs: [], approach: [], floor16: floorRow * 16 + lo };
+  return { blocking: [[3, floorRow, 5, lo, 16], [3, floorRow + 1, 5, 0, 16], [3, floorRow + 2, 5, 0, 8]], neighbours: [], cleared: 0, passageCleared: 0, treads: 0, sillTreads: 0, stairTreads: 0, stairs: [], approach: [], floor16: floorRow * 16 + lo };
 }
 
 /** The top (sixteenths, absolute) of the collider column at (x, z), or 0 for the ground. */
