@@ -18,16 +18,30 @@ import { behaviorPacks, packText, type Addon } from '../../pack/pack.js';
 import { extractJsonAfter } from '../../pack/script-config.js';
 import { figureLifeScript, type FigureLifeConfig } from '../../../engine/bedrock-figure-life.js';
 import { ridesScript, type RideRuntimeConfig } from '../../../engine/bedrock-rides.js';
-import { scriptedVehicleScript, type ScriptedVehicleConfig } from '../../../engine/bedrock-vehicle.js';
+import { BOAT, CAR, FLIGHT, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, scriptedVehicleScript, type ScriptedVehicleConfig } from '../../../engine/bedrock-vehicle.js';
 
 /** One swappable script: where its CONFIG sits in the shipped text and the tree's builder. */
 interface Swap { path: string; read: (text: string) => unknown; build: (config: never) => string }
+
+/**
+ * A vehicle CONFIG's constant sections topped up with this tree's constants for every key the pack
+ * predates (the pack's own values stay). The runtime reads its constants from the CONFIG, so a key
+ * it did not ship is `undefined` there: `MOVE.NARROW_CELLS` was, and `seen.size > undefined` never
+ * held, so the swapped X-wing still deflected along the oblique hill the harness rose at (2026-10-07).
+ */
+function vehicleConfigWithTreeDefaults(c: ScriptedVehicleConfig): ScriptedVehicleConfig {
+  return {
+    ...c,
+    flight: { ...FLIGHT, ...c.flight }, boat: { ...BOAT, ...c.boat }, car: { ...CAR, ...c.car }, hover: { ...HOVER, ...c.hover },
+    footprint: { ...FOOTPRINT, ...c.footprint }, move: { ...MOVE, ...c.move }, headlights: { ...HEADLIGHTS, ...c.headlights },
+  };
+}
 
 const SWAPS: readonly Swap[] = [
   { path: 'scripts/figures.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: FigureLifeConfig) => figureLifeScript(c) },
   { path: 'scripts/rides.js', read: t => extractJsonAfter(t, 'const CONFIG'), build: (c: RideRuntimeConfig) => ridesScript(c) },
   // vehicles.js passes its CONFIG inline as the runtime's first argument: `(function ...)({"types": ...}, ...)`.
-  { path: 'scripts/vehicles.js', read: t => { const at = t.indexOf('({"types":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: ScriptedVehicleConfig) => scriptedVehicleScript(c) },
+  { path: 'scripts/vehicles.js', read: t => { const at = t.indexOf('({"types":'); return at < 0 ? undefined : extractJsonAfter(t.slice(at), '('); }, build: (c: ScriptedVehicleConfig) => scriptedVehicleScript(vehicleConfigWithTreeDefaults(c)) },
 ];
 
 const encoder = new TextEncoder();

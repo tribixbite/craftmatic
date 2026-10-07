@@ -430,7 +430,11 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   is the dismount and no other touch input is free. It settles on the
   ground or water under it and glides over a block's rise there; off an
   edge it hovers. With nobody aboard it brakes and sinks gently
-  (`IDLE_SINK`) to the ground and parks; a hop's hold keeps it hovering
+  (`IDLE_SINK`) to the ground and parks - never onto a player under its
+  footprint: it holds `PARK_CLEARANCE` over the highest head under it
+  (`PLAYER_HEIGHT` tall), level, and sinks on when they walk out (the rider
+  who sneaked off in the air fell straight under the X-wing and it parked ON
+  the child, Saga 30j s79, CMVT 15:28:07-11); a hop's hold keeps it hovering
   (§4.8). The body pitches with its climb and dive and banks into a turn
   (attitude only). The flight model it replaced (throttle on Jump, elevator
   on the stick, stall below 7 blocks/s, a 10-blocks/s take-off run) is in
@@ -486,18 +490,33 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   footprint - left or right of the centre line, each swept on its own - meets
   the block: a trunk met with a corner, a post with a wingtip; the move
   stepped sideways away from it by `DEFLECT_SHARE` of its length, at least
-  `MIN_SIDESTEP`, forward kept, or the sidestep alone); SLIDE (one world axis
+  `MIN_SIDESTEP`, forward kept, or the sidestep alone; a SHIP deflects only
+  when the block is NARROW - the solid cells joined to the hit cell in its own
+  plane, 8-connected, at most `NARROW_CELLS` - and lifts over everything else:
+  a wall met 19 degrees off square meets one half first, and the X-wing
+  "deflected" 13-50 blocks along a hill and a wall, never lifting, Saga 30j
+  2026-10-07, CMVT 15:19:25-31 / 15:21:04-09 / 15:22:15-17, while the course
+  met every wall square-on and passed; a ground vehicle has no lift and its
+  sidestep along a wall met at an angle is its way along, so it keeps the
+  halves' rule); SLIDE (one world axis
   of the move - Minecraft's walls run along the axes - or, where one EDGE of
   the footprint has more room ahead than the other (a slanted wall of
   blocks), the move turned toward it up to `GLANCE_MAX_DEG` and shortened by
   the cosine, or edged sideways off a stair corner; the speed scaled by the
   share kept: along a wall met at an angle); RISE (straight up by the climb
-  allowance where it stands: the face of a wall); else BLOCKED, keeping the
+  allowance where it stands: the face of a wall - only while the move
+  PUSHES, `MIN_PROGRESS` of travel: until 2026-10-07 a turn on the spot rose
+  too, and the X-wing turned with its tail against a post climbed 4-6 blocks
+  to its top, Saga 30j CMVT 15:17:11 / 15:22:49); PIVOT (a turn on the spot
+  whose swing meets a block turns instead about the END that met it - the
+  tail against a post stays and the nose swings); else BLOCKED, keeping the
   turn and the vertical move where they are clear on their own, a
   `blocked` / `beached` event (a soft sound once per contact; the ship's old
-  `crash` explosion is gone). The order: a ship climb, deflect, rise, slide
-  (over a hill or a slanted wall rather than along it); a car or hover craft
-  deflect, slide, climb, rise. A car or hover craft has a climb allowance
+  `crash` explosion is gone). The order: a ship climb, deflect, rise, slide,
+  pivot (over a hill or a slanted wall rather than along it); a car or hover
+  craft deflect, slide, climb, rise, pivot. The HUD's "LIFTING OVER" /
+  "CLIMBING" stays for 8 ticks after a climb or rise (it is written every 4;
+  a rise alternating with a creep was sampled away). A car or hover craft has a climb allowance
   while the stick pushes, up to `RISE_MAX` over where its climb began, once
   per push (`climbSpent`); after a climb it HOLDS that height for up to
   `CLIMB_HOLD_TICKS` while it drives on, until its wheels find the top - so it
@@ -971,7 +990,9 @@ literal inside a function body (`§` marks the number).
 | `FLIGHT.DESCEND_SPEED` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | Straight down on back + Jump, or a Jump pressed while the view looks down. |
 | `FLIGHT.VERTICAL_ACCEL` | `web/src/engine/bedrock-vehicle.ts` | 24 | blocks/s² | Up or down reaches its speed in a third of a second and stops as fast. |
 | `FLIGHT.IDLE_SINK` | `web/src/engine/bedrock-vehicle.ts` | 3 | blocks/s | Nobody aboard (a sneak off in the air): it sinks gently to the ground and parks, within reach of the child who left it. |
-| `FLIGHT.AUTO_CLIMB` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | A ship pushed into a hill or a wall lifts itself over it at this rate (`resolveMove` `climb` / `rise`). |
+| `FLIGHT.AUTO_CLIMB` | `web/src/engine/bedrock-vehicle.ts` | 8 | blocks/s | A ship pushed into a hill or a wall lifts itself over it at this rate (`resolveMove` `climb` / `rise`); a rise zeroes the speed, so the next tick's creep is clear and the face is met again - about 6 blocks/s net. |
+| `FLIGHT.PLAYER_HEIGHT` | `web/src/engine/bedrock-vehicle.ts` | 1.8 | blocks | A Bedrock player's height, for the head an empty ship must stay over. |
+| `FLIGHT.PARK_CLEARANCE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | An empty ship sinking to park holds this far over the head of anyone under its footprint, and sinks on when they walk out: over a standing jump's 1.25, so the child under it is never hit (the X-wing parked ON the child who sneaked off it, Saga 30j s79). |
 | `FLIGHT.STEP_UP` | `web/src/engine/bedrock-vehicle.ts` | 1 | blocks | Resting on the ground, it glides over a rise of a block; aloft the whole airframe must clear. |
 | `FLIGHT.PITCH_MAX` | `web/src/engine/bedrock-vehicle.ts` | 20 | degrees | Most the body tips (nose up climbing, down diving or accelerating): attitude only, drawn by the animation. |
 | `FLIGHT.DIVE_PITCH_DEG` | `web/src/engine/bedrock-vehicle.ts` | 25 | degrees (view pitch, + = down) | A Jump PRESSED while the rider's view looks down past this goes down until Jump is let go - the Nimbus's `FLYER.DIVE_PITCH_DEG`, the same 25 (a chase camera's line of sight is not a dive, a deliberate drag down is). |
@@ -1022,6 +1043,7 @@ literal inside a function body (`§` marks the number).
 | `MOVE.GLANCE_STEP_DEG` | `web/src/engine/bedrock-vehicle.ts` | 20 | degrees | A slanted wall across the way (a diagonal of blocks): the move is turned toward the roomier edge in these steps. |
 | `MOVE.GLANCE_MAX_DEG` | `web/src/engine/bedrock-vehicle.ts` | 60 | degrees | The most it turns (keeping cos 60 = half the push); pinned by a stair corner past that, it edges sideways by the sidestep. A wall at 30 degrees off square across a car's way stopped 10797's and 60380's cars dead until this (simulator vehicle course, 2026-09-30). |
 | `MOVE.GLANCE_PROBE` | `web/src/engine/bedrock-vehicle.ts` | 1.5 | blocks | How far ahead each edge's room is probed (in quarters): a square wall leaves both edges the same room, so a car nosed into one does not crawl sideways along it. |
+| `MOVE.NARROW_CELLS` | `web/src/engine/bedrock-vehicle.ts` | 12 | cells | The most solid cells joined to the hit cell (8-connected, in its own horizontal plane) a block may have for a SHIP to step round it instead of lifting over: a trunk (1), a 2x2 pillar, a 3x3 crown (9) are narrow; a wall or a hill of any shape or angle is not. Cell reads only (cached per tick), no sweep. |
 | `FREE_LOOK.SEAT_LOCK_DEG` | `web/src/engine/vehicle-free-look.ts` | 181 | degrees | A scripted vehicle seat's `lock_rider_rotation`: the component's documented default and "no limit"; the coaster's seats have it and their riders look round. Was 0 (yaw held to the seat). |
 | `FREE_LOOK.IDLE_TICKS` | `web/src/engine/vehicle-free-look.ts` | 20 | ticks | One second with no drag before the view starts back to the nose ("semi gradually"): a child lifting a thumb to drag again is not fought. |
 | `FREE_LOOK.RECENTRE_SECONDS` | `web/src/engine/vehicle-free-look.ts` | 0.6 | s | The ease back's time constant: 63 % in 0.6 s, 95 % in 1.8 s - inside the 1-2 s the brief asked for. |
@@ -1191,7 +1213,11 @@ an earlier "~5 forward" was read off a ramped touch stick).
   full blocks here (only the base collider's `lo`/`hi` are read), so a
   thinned wall is a full one to a vehicle. Boats only deflect and slide (no
   climb; they beach). # TODO(colliders): read every form's boxes (the kit's
-  `formBoxes`) in `spanOf`.
+  `formBoxes`) in `spanOf`. A car never climbs a kerb it meets OFF square:
+  its deflect and slide come before its climb, so it runs along the kerb
+  (the course's `oblique` lane measures it, 62 blocks across in 10 s); only
+  a square-on kerb is climbed. Device-passed as is (Saga 30j kerb, wall,
+  slide-along), so left: # TODO(car-oblique-kerb).
 - **Footprint sampling is not exact volume collision.** Vertical spacing now
   covers full-block crowns at every height (October 5 audit reproduced the
   old Milano's 28 clipped ticks and X-wing's 3), but sub-block slabs can still

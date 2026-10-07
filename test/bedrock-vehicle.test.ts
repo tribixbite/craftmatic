@@ -341,7 +341,7 @@ function vehicleHost(o: HostOptions) {
   const player = h.addPlayer('Driver', o.at);
   h.seat(player, vehicle);
   return {
-    entity, poses, placed, dynamic: vehicle.dynamic,
+    entity, poses, placed, dynamic: vehicle.dynamic, player, vehicle,
     /** Every action-bar line the driver was shown. */
     get bars(): string[] { return h.lines('actionbar', 'Driver'); },
     set: (x: number, y: number, j = false) => { h.controls(player, { strafe: x, forward: y, jump: j }); },
@@ -553,6 +553,58 @@ describe('the collision response (resolveMove): never stuck', () => {
     expect(r.how).toBe('blocked');
     expect(r.pose).toMatchObject({ x: -0.5, z: 0.5, yaw: -80 });
   });
+  it('a ship never deflects along a wall met off square (one half meets it first): it rises at it; a car, with no lift, steps along it (Saga 30j, VEH-08)', () => {
+    // A one-high wall at x = 2 across every z; the move 19 degrees off square (yaw -71 heads +x and a little +z),
+    // so the +z half of the nose reaches the wall first. The halves alone read that as "a post met with a corner".
+    const wall = (x: number, y: number): boolean => Math.floor(x) === 2 && Math.floor(y) === 64;
+    const f = { x: -0.5, y: 64, z: 0.5, yaw: -71, pitch: 0 }, r0 = -71 * Math.PI / 180;
+    const t = { ...f, x: f.x - Math.sin(r0) * 0.6, z: f.z + Math.cos(r0) * 0.6 };
+    const ship = resolveMove(f, t, { ...fp, lo: 0.1 }, wall, FOOTPRINT, MOVE, { climb: 0.4, climbFirst: true }, sweepFootprint);
+    expect(ship.how).toBe('rise');
+    expect(ship.pose).toMatchObject({ x: -0.5, z: 0.5 });
+    expect(ship.pose.y).toBeCloseTo(64.4, 9);
+    // A car keeps the halves' rule: the sidestep along the wall is its way along (the McLaren's device slide-along).
+    const road = resolveMove(f, t, fp, wall, FOOTPRINT, MOVE, car, sweepFootprint);
+    expect(road.how).toBe('deflect');
+    expect(road.pose.x).toBeLessThanOrEqual(f.x + 1e-9);
+    expect(road.pose.z).toBeGreaterThan(0.5);
+  });
+  it('a ship deflects only round a NARROW block (at most NARROW_CELLS joined cells in its plane): a post or a crown, never a wall of any shape', () => {
+    const ship = { climb: 0.4, climbFirst: true }, shipFp = { ...fp, lo: 0.1 };
+    const f = { ...from, z: 0.1 }, t = { ...f, x: 0.1 };
+    // A single post, a 2x2 pillar and a 3x3 crown at the +z corner, taller than one climb: stepped round.
+    const column = (cx: number, cz: number): string[] => [64, 65, 66].map(y => `${cx},${y},${cz}`);
+    for (const cells of [column(2, 1), [...column(2, 1), ...column(3, 1), ...column(2, 2), ...column(3, 2)], [2, 3, 4].flatMap(cx => [1, 2, 3].flatMap(cz => column(cx, cz)))]) {
+      const solid = (x: number, y: number, z: number): boolean => cells.includes(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`);
+      expect(resolveMove(f, t, shipFp, solid, FOOTPRINT, MOVE, ship, sweepFootprint).how).toBe('deflect');
+    }
+    // A diagonal of NARROW_CELLS + 1 cells through the same corner (8-connected: one wall): no deflect, it rises.
+    const diag = new Set<string>();
+    for (let k = 0; k <= MOVE.NARROW_CELLS; k++) for (const y of [64, 65, 66]) diag.add(`${2 + k},${y},${1 + k}`);
+    const wallish = (x: number, y: number, z: number): boolean => diag.has(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`);
+    const r = resolveMove(f, t, shipFp, wallish, FOOTPRINT, MOVE, ship, sweepFootprint);
+    expect(r.how).toBe('rise');
+  });
+  it('a turn on the spot never rises: with its tail against a post it pivots about the tail, or is blocked (Saga 30j: lifted 4-6 blocks)', () => {
+    const ship = { climb: 0.4, climbFirst: true };
+    // Heading +x, turning right (yaw -90 -> -80): the nose swings to +z, the tail to -z. The tail's -z corner
+    // (x -2.5, z -0.7) swings into cell (-3, 64, -2), a post there.
+    const post = cells(['-3,64,-2']);
+    const turn = { ...from, yaw: -80 };
+    const r = resolveMove(from, turn, fp, post, FOOTPRINT, MOVE, ship, sweepFootprint);
+    expect(r.how).toBe('pivot');
+    expect(r.pose.y).toBe(64);
+    expect(r.pose.yaw).toBe(-80);
+    // The tail point stays where it was: centre - L * heading.
+    const r1 = -80 * Math.PI / 180;
+    expect(r.pose.x - fp.halfLength * -Math.sin(r1)).toBeCloseTo(from.x - fp.halfLength, 6);
+    expect(r.pose.z - fp.halfLength * Math.cos(r1)).toBeCloseTo(from.z, 6);
+    // Both ends against posts (the nose's +z corner, x 1.5 z 1.7, swings into cell (1, 64, 2)): blocked, still not lifted.
+    const both = cells(['-3,64,-2', '1,64,2']);
+    const b = resolveMove(from, turn, fp, both, FOOTPRINT, MOVE, ship, sweepFootprint);
+    expect(b.how).toBe('blocked');
+    expect(b.pose.y).toBe(64);
+  });
 });
 
 describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulator)', () => {
@@ -600,6 +652,69 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
     expect(Math.max(...host.poses.map(p => p.y))).toBeGreaterThanOrEqual(70 - 1e-6);
     expect(host.poses.filter(p => p.y < 70 - 1e-6 && overlapsCell(p, { l: plane.noseReach, w: plane.halfWidth }, 10, 0))).toEqual([]);
   });
+  // The X-wing as 7140's pack ships it (packs-f200ddc7 vehicles.js config).
+  const xwing: ScriptedVehicleType = { mode: 'plane', noseReach: 6.36, halfWidth: 5.82, height: 4.26 };
+  it('lifts a ship over a hill it is flown into 19 degrees off square instead of sliding along it (Saga 30j, VEH-08)', () => {
+    // A two-high hill across the way at x = 20, long toward +z (the side a sidestep runs to): yaw -71 heads +x and a
+    // little +z. The device's X-wing met its 2-high hill and 10-high wall at yaw -19 to an axis-aligned face and
+    // "deflected" 13-50 blocks along it, never lifting (CMVT 15:19:25-31, 15:21:04-09, 15:22:15-17).
+    const host = vehicleHost({ type: xwing, at: { x: 0.5, y: 64, z: 0.5 }, yaw: -71, fills: [{ from: [20, 64, -12], to: [21, 65, 120], id: 'minecraft:stone' }] });
+    // A hundred ticks aboard first, so the HUD shows what the runtime does instead of the controls hint.
+    host.run(100);
+    host.set(0, 1);
+    host.run(200);
+    /** Whether a pose's TURNED footprint rectangle reaches into cell (cx, cz). */
+    const turnedInto = (p: { x: number; z: number; yaw: number }, cx: number, cz: number): boolean => {
+      const r = p.yaw * Math.PI / 180, fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
+      for (const [px, pz] of [[cx + 0.5, cz + 0.5], [cx + 0.05, cz + 0.05], [cx + 0.95, cz + 0.05], [cx + 0.05, cz + 0.95], [cx + 0.95, cz + 0.95]]) {
+        const dx = px! - p.x, dz = pz! - p.z;
+        if (Math.abs(dx * fx + dz * fz) < xwing.noseReach - 0.05 && Math.abs(dx * rx + dz * rz) < xwing.halfWidth - 0.05) return true;
+      }
+      return false;
+    };
+    // It got past, over the top (the band's bottom, y + 0.1, above 66), with no pose at the hill's height inside it ...
+    expect(host.entity.location.x).toBeGreaterThan(22 + xwing.noseReach);
+    expect(Math.max(...host.poses.map(p => p.y))).toBeGreaterThanOrEqual(66 - 0.1 - 1e-6);
+    const low = host.poses.filter(p => p.y + 0.1 < 66 - 1e-6);
+    const inside = low.filter(p => [20, 21].some(cx => { for (let cz = -12; cz <= 120; cz++) if (turnedInto(p, cx, cz)) return true; return false; }));
+    expect(inside).toEqual([]);
+    // ... and it did not run along the hill: where it crossed, its drift across is the heading's own (tan 19 degrees
+    // of its progress), not a sidestep's 12 blocks/s (the device's 13-50 blocks along the face).
+    const crossed = host.poses.find(p => p.x - xwing.noseReach > 22)!;
+    expect(crossed.z - 0.5).toBeLessThan((crossed.x - 0.5) * Math.tan(19 * Math.PI / 180) + 3);
+    expect(host.bars.some(b => /LIFTING OVER/.test(b))).toBe(true);
+  });
+  it('a turn on the spot with the tail against a post neither climbs it nor passes through it: it pivots (Saga 30j: rose 4-6 blocks)', () => {
+    // Heading +x on the ground; turning right swings the tail to -z. The tail's -z corner (x -5.86, z -5.32)
+    // meets a post column at cell (-6, -7) after a few degrees; the post spans the airframe's height.
+    const host = vehicleHost({ type: xwing, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [-6, 64, -7], to: [-6, 69, -7], id: 'minecraft:oak_log' }] });
+    const yaw0 = host.vehicle.rotation.y;
+    host.set(FLIGHT.STICK_X_RIGHT, 0);
+    host.run(40);
+    expect(host.entity.location.y).toBeCloseTo(64, 6);
+    expect(Math.max(...host.poses.map(p => p.y))).toBeCloseTo(64, 6);
+    // It still turned (about its tail), and never put its body into the post's cell.
+    const turned = ((host.vehicle.rotation.y - yaw0 + 540) % 360) - 180;
+    expect(turned).toBeGreaterThan(20);
+    expect(host.poses.filter(p => Math.hypot(p.x - (-5.5), p.z - (-6.5)) < 0.5)).toEqual([]);
+  });
+  it('an empty ship sinking to park holds over a player under it and sinks on when they walk out (Saga 30j s79: parked ON the child)', () => {
+    const host = vehicleHost({ type: xwing, at: { x: 0.5, y: 64, z: 0.5 } });
+    host.set(0, 0, true);
+    host.run(40);
+    expect(host.entity.location.y).toBeGreaterThan(70);
+    host.set(0, 0);
+    host.dismount();
+    // The rider falls straight under the hull; the ship sinks after it and must stop over the rider's head.
+    host.run(200);
+    const feet = host.player.location.y;
+    expect(feet).toBeCloseTo(64, 1);
+    expect(host.entity.location.y).toBeCloseTo(feet + FLIGHT.PLAYER_HEIGHT + FLIGHT.PARK_CLEARANCE, 2);
+    // Out from under it: it parks on the ground.
+    host.player.location = { x: host.player.location.x + 2 * xwing.noseReach + 4, y: feet, z: host.player.location.z };
+    host.run(200);
+    expect(host.entity.location.y).toBeCloseTo(64, 5);
+  });
   it('stops a ship going straight up under a roof instead of passing through it', () => {
     const plane: ScriptedVehicleType = { mode: 'plane', noseReach: 2, halfWidth: 1.5, height: 1.5 };
     const host = vehicleHost({ type: plane, at: { x: 0.5, y: 64, z: 0.5 }, fills: [{ from: [-5, 70, -5], to: [5, 70, 5], id: 'minecraft:stone' }] });
@@ -615,6 +730,9 @@ describe('the vehicle runtime against blocks (scripts/vehicles.js on the simulat
     host.run(40);
     expect(host.entity.location.y).toBeGreaterThan(68);
     host.dismount();
+    // The rider falls under it and walks out (an empty ship never parks on a player: the test above).
+    host.run(20);
+    host.player.location = { x: host.player.location.x + 10, y: 64, z: host.player.location.z };
     host.run(200);
     expect(host.entity.location.y).toBeCloseTo(64, 5);
   });
