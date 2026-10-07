@@ -19,8 +19,12 @@ function crc32byte(crc: number, byte: number): number {
   return (CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)) >>> 0;
 }
 
-/** Standard CRC-32 of a whole buffer (ZIP entry checksum). */
-function crc32(data: Uint8Array): number {
+/**
+ * Standard CRC-32 (IEEE 802.3, reflected 0xEDB88320) of a whole buffer: the ZIP
+ * entry checksum and the PNG chunk checksum alike. The ONE table in the repo;
+ * PNG writers and readers import this rather than building their own.
+ */
+export function crc32(data: Uint8Array): number {
   let crc = 0xffffffff;
   for (let i = 0; i < data.length; i++) crc = crc32byte(crc, data[i]);
   return (crc ^ 0xffffffff) >>> 0;

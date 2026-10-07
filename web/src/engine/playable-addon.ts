@@ -2137,7 +2137,7 @@ function blockAlpha(state: string): number {
     const id = state.split('[', 1)[0]!;
     return id === 'minecraft:glass' || id === 'minecraft:glass_pane' || /_stained_glass(?:_pane)?$/.test(id) ? 96 : 255;
 }
-const PNG_CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) {
+const PNG_CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { // TODO(dry-crc): use zip-utils crc32
     let c = n;
     for (let k = 0; k < 8; k++)
         c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;

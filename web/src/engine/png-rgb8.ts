@@ -1,3 +1,5 @@
+import { crc32 } from './zip-utils.js';
+
 /** A decoded, non-interlaced 8-bit RGB or RGBA PNG. */
 export interface PngRgb8 {
   width: number;
@@ -9,20 +11,6 @@ export interface PngRgb8 {
 const signature = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
 const MAX_DECODED_BYTES = 64 * 1024 * 1024;
 const u32 = (b: Uint8Array, p: number): number => (((b[p]! << 24) | (b[p + 1]! << 16) | (b[p + 2]! << 8) | b[p + 3]!) >>> 0);
-const crcTable = (() => {
-  const table = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
-  }
-  return table;
-})();
-const crc32 = (bytes: Uint8Array): number => {
-  let c = 0xffffffff;
-  for (const b of bytes) c = crcTable[(c ^ b) & 255]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-};
 const paeth = (a: number, b: number, c: number): number => {
   const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
   return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;

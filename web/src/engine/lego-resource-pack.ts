@@ -6,7 +6,7 @@
  * embossed top-face LEGO studs, and beveled ambient-occlusion brick seams.
  */
 
-import { createZip, type ZipInputFile } from './zip-utils.js';
+import { crc32, createZip, type ZipInputFile } from './zip-utils.js';
 
 export const CONCRETE_COLORS: Record<string, [number, number, number]> = {
   white: [238, 238, 238],
@@ -27,22 +27,6 @@ export const CONCRETE_COLORS: Record<string, [number, number, number]> = {
   black: [20, 20, 24],
 };
 
-const PNG_CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    t[n] = c >>> 0;
-  }
-  return t;
-})();
-
-function pngCrc(data: Uint8Array): number {
-  let c = 0xffffffff;
-  for (const b of data) c = PNG_CRC_TABLE[(c ^ b) & 255]! ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
-}
-
 function u32(n: number): Uint8Array {
   return Uint8Array.of((n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255);
 }
@@ -61,7 +45,7 @@ const enc = new TextEncoder();
 function pngChunk(name: string, data: Uint8Array): Uint8Array {
   const n = enc.encode(name);
   const body = concat(n, data);
-  return concat(u32(data.length), body, u32(pngCrc(body)));
+  return concat(u32(data.length), body, u32(crc32(body)));
 }
 
 /** zlib stream of stored (uncompressed) deflate blocks with the Adler-32 trailer. */
