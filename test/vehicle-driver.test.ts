@@ -7,8 +7,8 @@
  * because a client-driven mount's server position moves in bursts.
  */
 import { describe, expect, it } from 'vitest';
-import { AIRCRAFT_CLIMB_GROUP, AIRCRAFT_DESCEND_GROUP, AIRCRAFT_DESCEND_OFF, AIRCRAFT_DESCEND_ON, DRIVER_SPEED_WINDOW_TICKS, vehicleDriverConfig, vehicleDriverScript } from '../web/src/engine/playable-addon.js';
-import { simHost } from './_sim-host.js';
+import { AIRCRAFT_CLIMB_GROUP, AIRCRAFT_DESCEND_GROUP, AIRCRAFT_DESCEND_OFF, AIRCRAFT_DESCEND_ON, DRIVER_ALT_SCAN_BLOCKS, DRIVER_SPEED_WINDOW_TICKS, vehicleDriverConfig, vehicleDriverScript } from '../web/src/engine/playable-addon.js';
+import { simHost, solidBelow } from './_sim-host.js';
 import { FLYER } from '../web/src/engine/bedrock-flyer.js';
 
 const CLOUD = 'craftmatic:t_cloud';
@@ -40,6 +40,8 @@ function driverWorld(vehicle: { kind: 'plane' | 'car'; motion?: 'flyer' | 'rotor
   const h = simHost({
     script: vehicleDriverScript(vehicleDriverConfig([{ typeId: CLOUD, kind: vehicle.kind, label: 'Nimbus', ...(vehicle.motion ? { motion: vehicle.motion } : {}), ...(vehicle.hud ? { hud: vehicle.hud } : {}) }])),
     entities: { [CLOUD]: CLOUD_TYPE },
+    // The ground: solid up to y 63, the cloud standing on it at 64.
+    terrain: solidBelow(64),
   });
   const cloud = h.spawn(CLOUD, { x: 0, y: 64, z: 0 });
   const events: string[] = [];
@@ -123,7 +125,20 @@ describe('the driver: the ride opens with the mount\'s name and hint', () => {
     expect(w.hud().length).toBeGreaterThan(0);
     for (const line of w.hud()) expect(line).toMatch(/^§eNIMBUS!§r Jump climbs, look down \+ Jump dives, sneak gets off$/);
     w.run(4);
-    expect(w.lastHud()).toMatch(/^§lNIMBUS§r §e0\.0 mph§r · §bALT 64§r · §a\[STICK: TURN · JUMP: CLIMB · LOOK DOWN \+ JUMP: DIVE\]§r$/);
+    expect(w.lastHud()).toMatch(/^§lNIMBUS§r §e0\.0 mph§r · §bALT 0§r · §a\[STICK: TURN · JUMP: CLIMB · LOOK DOWN \+ JUMP: DIVE\]§r$/);
+  });
+
+  it('shows ALT as the height over the ground, as a ship does, not the world y (Saga 30j: ALT -59 on the ground)', () => {
+    const w = driverWorld();
+    w.run(FLYER.RIDE_HINT_TICKS + 4);
+    expect(w.lastHud()).toContain('ALT 0§r');
+    w.cloud.location = { x: 0, y: 74.4, z: 0 };
+    w.run(8);
+    expect(w.lastHud()).toContain('ALT 10§r');
+    // Past the scan (nothing solid within DRIVER_ALT_SCAN_BLOCKS under it): no number is better than a wrong one.
+    w.cloud.location = { x: 0, y: 64 + DRIVER_ALT_SCAN_BLOCKS + 3, z: 0 };
+    w.run(8);
+    expect(w.lastHud()).toContain('ALT --§r');
   });
 
   it('the same player back on the same cloud gets the hint again (the Pixel went straight to "[JUMP: DESCEND]" on a remount)', () => {

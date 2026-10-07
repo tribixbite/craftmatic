@@ -653,9 +653,10 @@ describe('playable Bedrock add-on',()=>{
     // The helicopter (a rotor) keeps flying_speed 0.3; the flyer's slower cruise is the fixture test's.
     const heliEntity = JSON.parse(new TextDecoder().decode(await extractFile(ab(heli.bytes), 'Craftmatic_rescue_helicopter_BP/entities/rescue_helicopter_rescue_helicopter.json')));
     expect(heliEntity['minecraft:entity'].components['minecraft:flying_speed']).toEqual({ value: 0.3 });
-    // A native mount flies where its rider looks: its seat still holds the rider (free look is the scripted vehicles').
+    // A native mount flies where its rider looks, and its rider looks round by a drag too: a seat at 0 held the
+    // look (Saga 30j: a drag on the Nimbus moved nothing, its "LOOK DOWN + JUMP: DIVE" could not be done; quirk native-mount-locked-look).
     const heliSeats = heliEntity['minecraft:entity'].components['minecraft:rideable'].seats;
-    for (const s of Array.isArray(heliSeats) ? heliSeats : [heliSeats]) expect(s.lock_rider_rotation).toBe(0);
+    for (const s of Array.isArray(heliSeats) ? heliSeats : [heliSeats]) expect(s.lock_rider_rotation).toBe(FREE_LOOK.SEAT_LOCK_DEG);
   });
 
   it('flySoundEvents writes vanilla\'s interactive `normal` block sounds verbatim + `fly: ""` for ANY pack with an entity (not only hovering ones), and is null without one', () => {

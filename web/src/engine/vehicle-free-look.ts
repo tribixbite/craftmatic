@@ -30,11 +30,18 @@
  *     stays where the child left it. A new drag stops the ease at once.
  *
  * The offsets are the CAMERA's, not the player's: nothing here moves the
- * player, so the ease cannot fight the client over the rider's rotation. The
- * cockpit view (hotbar slot 9, the rider's own first person) has no camera to
- * offset; there the runtime eases the rider's own yaw with `setRotation`
- * (pinball measured it applies yaw, not pitch, on a seated player) and
- * reports the yaw it set as `selfYaw`, so its own turn is not read as a drag.
+ * player, so the ease cannot fight the client over the rider's rotation.
+ *
+ * The cockpit view (hotbar slot 9) is a camera too (`cockpitCamera`), since
+ * 2026-10-07: a free camera at the driver's eye, looking along the vehicle's
+ * heading and nose turned by the same offsets, so a drag looks round and the
+ * view eases back to the front (yaw AND pitch) exactly as the chase camera
+ * does. It used to be the rider's own first person, its yaw eased with
+ * `setRotation` - and on the Saga (26.52, round 30j) `setRotation` on a rider
+ * of a lock-181 seat did nothing: CMCAM `riderYaw` held 11.9 through every
+ * ease, the McLaren's view stayed 56 degrees off its nose and the X-wing's
+ * kept the pitch it had (quirk `rider-free-look`). Entering either view
+ * starts aligned with the nose (the runtime restarts the free look).
  */
 
 /** Every free-look number (physics spec §9). */
@@ -57,6 +64,25 @@ export const FREE_LOOK = {
   PITCH_DOWN_MAX: 70,
   /** Ticks a carried rider's reported yaw trails its vehicle (quirk `rider-yaw-lag`). */
   RIDER_YAW_LAG_TICKS: 6,
+  /**
+   * Ticks the cockpit camera's pose trails the server's vehicle: the client
+   * draws a script-moved entity behind the server, and a camera on the
+   * server's own schedule rides AHEAD of the drawn seat (1.7 blocks at 10
+   * blocks/s). The coaster's per-tick camera measured 1.5 with a 0.1 s ease
+   * (`COASTER_RIDER_VIEW.tickLag`, Pixel 2026-09-25, marker probe); a
+   * scripted vehicle is moved by the same per-tick teleport.
+   */
+  COCKPIT_TICK_LAG: 1.5,
+  /** The cockpit camera's ease, seconds (the coaster's measured `COASTER_RIDER_VIEW.ease`). */
+  COCKPIT_EASE_SECONDS: 0.1,
+  /** Poses of the vehicle kept per rider for the cockpit camera's lag (ticks; more than `COCKPIT_TICK_LAG` + 1). */
+  COCKPIT_HISTORY: 4,
+  /** The cockpit camera's pitch is kept inside this (degrees): `setCamera` throws past ±90 (Pixel 26.51). */
+  COCKPIT_PITCH_MAX: 89,
+  /** The chase camera's wall test marches the line from the vehicle's pivot in steps of this, blocks. */
+  CHASE_WALL_STEP: 0.25,
+  /** A wall on that line pulls the camera in to this short of it, blocks (the near plane stays out of the texture). */
+  CHASE_WALL_MARGIN: 0.3,
 } as const;
 export type FreeLookParams = { readonly [K in keyof typeof FREE_LOOK]: number };
 
@@ -67,12 +93,8 @@ export interface FreeLookState {
   /** The vehicle's yaw over the last `RIDER_YAW_LAG_TICKS` + 1 ticks, oldest first. */
   vehicleYaws: number[];
 }
-/**
- * One tick's reading: the rider's reported look, the vehicle's yaw and speed,
- * and `selfYaw`, the yaw change this runtime itself put on the rider last
- * tick (the cockpit view's ease), which is not a drag.
- */
-export interface FreeLookInput { playerYaw: number; playerPitch: number; vehicleYaw: number; speed: number; selfYaw?: number }
+/** One tick's reading: the rider's reported look and the vehicle's yaw and speed. */
+export interface FreeLookInput { playerYaw: number; playerPitch: number; vehicleYaw: number; speed: number }
 
 /** A fresh free look: centred, idle. */
 export function freeLookStart(): FreeLookState { return { yaw: 0, pitch: 0, idle: 0, vehicleYaws: [] }; }
@@ -91,12 +113,11 @@ export function freeLookStep(s: FreeLookState, input: FreeLookInput, P: FreeLook
   if (s.lastPlayerYaw === undefined || s.lastPlayerPitch === undefined || s.lastRel === undefined) {
     return { state: { ...s, vehicleYaws: yaws, lastPlayerYaw: input.playerYaw, lastPlayerPitch: input.playerPitch, lastRel: rel }, dragging: false, recentring: false };
   }
-  const self = input.selfYaw ?? 0;
   // The rider's look changed by `dAbs` in the world and by `dRel` against the (lagged) vehicle: if the
   // device carries the rider round with the vehicle a turn moves dAbs and not dRel, if it does not a turn
   // moves dRel and not dAbs - the smaller is what the finger did.
-  const dAbs = wrap(input.playerYaw - s.lastPlayerYaw - self);
-  const dRel = wrap(rel - s.lastRel - self);
+  const dAbs = wrap(input.playerYaw - s.lastPlayerYaw);
+  const dRel = wrap(rel - s.lastRel);
   const dYaw = Math.abs(dRel) < Math.abs(dAbs) ? dRel : dAbs;
   const dPitch = input.playerPitch - s.lastPlayerPitch;
   const dragYaw = Math.abs(dYaw) > P.DRAG_EPS_DEG, dragPitch = Math.abs(dPitch) > P.DRAG_EPS_DEG;
@@ -118,5 +139,41 @@ export function freeLookStep(s: FreeLookState, input: FreeLookInput, P: FreeLook
   return {
     state: { yaw, pitch, idle, vehicleYaws: yaws, lastPlayerYaw: input.playerYaw, lastPlayerPitch: input.playerPitch, lastRel: rel },
     dragging: dragYaw || dragPitch, recentring,
+  };
+}
+
+/** One tick of the vehicle as the cockpit camera reads it: position (blocks), yaw (Bedrock) and nose pitch (degrees, + = down, the camera's sign). */
+export interface CockpitPose { x: number; y: number; z: number; yaw: number; pitch: number }
+
+/**
+ * The cockpit view's camera (hotbar slot 9): a free camera at the driver's
+ * eye, looking along the vehicle's heading and nose turned by the free-look
+ * offsets. Pure (serialised into the camera runtime).
+ *
+ * `poses` are the vehicle's last ticks, oldest first; the camera shows the
+ * pose `lag` ticks back (fractions interpolated, yaw the short way round;
+ * fewer poses than that: the oldest), because the client draws the vehicle
+ * behind the server (`COCKPIT_TICK_LAG`). `eye` is the driver's eye in the
+ * vehicle's frame at 100 % (x across, y up, z toward the nose - the
+ * rideable seat's frame), scaled by the vehicle's `size` as the seat is
+ * (cockpit-seat.ts `seatPositionAt`: the eye stays on the scaled driver's
+ * eye). The pitch is clamped to `pitchMax` (`setCamera` refuses past 90).
+ * TODO(cockpit-pitch): the eye is carried by the heading only; a pitched
+ * ship's drawn cockpit turns about its bone pivot, which this does not know.
+ */
+export function cockpitCamera(poses: readonly CockpitPose[], lag: number, eye: readonly [number, number, number], size: number, offset: { yaw: number; pitch: number }, pitchMax: number): { location: { x: number; y: number; z: number }; rotation: { x: number; y: number } } | null {
+  if (!poses.length) return null;
+  const wrap = (a: number): number => ((a + 180) % 360 + 360) % 360 - 180;
+  const t = Math.max(0, poses.length - 1 - Math.max(0, lag));
+  const i = Math.floor(t), j = Math.min(poses.length - 1, i + 1), f = t - i;
+  const a = poses[i]!, b = poses[j]!;
+  const yaw = a.yaw + wrap(b.yaw - a.yaw) * f;
+  const pose = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f, z: a.z + (b.z - a.z) * f, pitch: a.pitch + (b.pitch - a.pitch) * f };
+  // The seat frame turned by the yaw: Bedrock yaw 0 faces +z, its forward is (-sin, cos), its x axis (cos, sin).
+  const r = yaw * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r);
+  const ex = eye[0] * size, ey = eye[1] * size, ez = eye[2] * size;
+  return {
+    location: { x: pose.x + ex * c - ez * sn, y: pose.y + ey, z: pose.z + ex * sn + ez * c },
+    rotation: { x: Math.max(-pitchMax, Math.min(pitchMax, pose.pitch + offset.pitch)), y: wrap(yaw + offset.yaw) },
   };
 }

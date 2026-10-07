@@ -86,9 +86,15 @@ export type HopParams = typeof HOP;
  * pack is a target for a plane of another.
  *   claim `craftmatic_hop:<tick>:<id of the mount left>` on the player;
  *   train `craftmatic_train:<key>` and rank `craftmatic_rank:<n>` (0 the front
- *   car in the direction of travel) on each car of a coaster train.
+ *   car in the direction of travel) on each car of a coaster train;
+ *   hidden `craftmatic_camera_hidden` on a player the source pack's camera
+ *   (vehicle-camera.js) made invisible: the hop lifts that invisibility the
+ *   moment it boards, before the new mount's runtime sees the rider, so the
+ *   new mount's own (a coaster's camera at the eye hides its rider) is the
+ *   only one left. The camera script removing it a tick later instead wiped
+ *   the coaster's, and the rider's own head filled the view (Saga 30j).
  */
-export const HOP_TAGS = { claim: 'craftmatic_hop:', train: 'craftmatic_train:', rank: 'craftmatic_rank:' } as const;
+export const HOP_TAGS = { claim: 'craftmatic_hop:', train: 'craftmatic_train:', rank: 'craftmatic_rank:', hidden: 'craftmatic_camera_hidden' } as const;
 
 /** How a vehicle waits once its rider hopped off: hover in place (scripted aircraft), stop (scripted ground and water craft), or as Bedrock holds it (a native hover mount). */
 export type HopVacate = 'hover' | 'stop' | 'native';
@@ -349,8 +355,10 @@ function hopRuntime(config: HopRuntimeConfig, makeKit: typeof hopKit, contact: t
       vacate(v, src);
       // The chase camera and control scheme are this pack's (scripts/vehicle-camera.js); hand the view back
       // now, so the new mount's own camera (a coaster's, a car's) is the one that follows. The camera script
-      // reads the claim and does not clear it again over the new mount's camera.
+      // reads the claim and does not clear it again over the new mount's camera, nor touch the invisibility
+      // it gave the rider: that is lifted HERE, before the new mount's runtime sees the rider (`HOP_TAGS.hidden`).
       try { p.camera.clear(); } catch { /* no camera */ }
+      try { if (p.hasTag(config.kit.tags.hidden)) { p.removeEffect('invisibility'); p.removeTag(config.kit.tags.hidden); } } catch { /* not hidden */ }
       try { p.runCommand('controlscheme @s clear'); } catch { /* no scheme */ }
       try { target.dimension.playSound(config.sound, target.location, { volume: 0.8, pitch: 1.3 }); } catch { /* no sound */ }
       recs.delete(pid);

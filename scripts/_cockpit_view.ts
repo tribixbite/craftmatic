@@ -13,6 +13,7 @@
  *
  * Usage: bun scripts/_cockpit_view.ts <pack.mcaddon>... --out=<dir> [--size=100] [--rotation=0]
  *          [--pitch=0]   look down (+) or up (-) from level, degrees (Bedrock's pitch sign)
+ *          [--yaw=0]     turn the picture's view from the nose, degrees (Bedrock's yaw sign: + turns toward -x); the judged rays stay the nose's
  *          [--shift=x,y,z]   move the eye from where the seat put it (vehicle frame, +z the nose) to compare a candidate
  *          [--tag=cockpit]   the picture's name suffix
  *
@@ -38,7 +39,7 @@ const outDir = flag('out') ?? (outAt >= 0 ? args[outAt + 1] : undefined);
 const files = args.filter((a, i) => !a.startsWith('--') && !(outAt >= 0 && i === outAt + 1));
 if (!files.length || !outDir) { console.error('usage: bun scripts/_cockpit_view.ts <pack.mcaddon>... --out=<dir> [--size=100] [--rotation=0] [--pitch=0]'); process.exit(2); }
 mkdirSync(outDir, { recursive: true });
-const size = Number(flag('size') ?? 100), rotation = Number(flag('rotation') ?? 0) as 0 | 90, pitch = Number(flag('pitch') ?? 0);
+const size = Number(flag('size') ?? 100), rotation = Number(flag('rotation') ?? 0) as 0 | 90, pitch = Number(flag('pitch') ?? 0), yawOff = Number(flag('yaw') ?? 0);
 const shift = (flag('shift') ?? '0,0,0').split(',').map(Number);
 const tag = flag('tag') ?? 'cockpit';
 const r3 = (v: number): number => Math.round(v * 1000) / 1000;
@@ -58,7 +59,7 @@ for (const file of files) {
       async cockpit(_step: unknown, ctx: StepContext) {
         const v = ctx.player.ridingOn;
         if (!v) { ctx.note('not riding'); return; }
-        ctx.player.rotation.y = v.rotation.y;
+        ctx.player.rotation.y = v.rotation.y + yawOff;
         ctx.player.rotation.x = pitch;
         await ctx.run(1);
         if (shift.some(s => s !== 0)) {
