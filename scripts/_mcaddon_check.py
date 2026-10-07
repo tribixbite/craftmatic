@@ -29,6 +29,18 @@ from pathlib import Path
 DROPPED_COMPONENTS = ('minecraft:pushable',)
 UUID = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
 
+def pack_root(manifest):
+    """The folder prefix a manifest's pack occupies ('' when it sits at the archive root)."""
+    return manifest.rsplit('manifest.json', 1)[0]
+
+def owned_by(name, root, roots):
+    """True when `name` belongs to the pack at `root`: the DEEPEST pack root that
+    prefixes it. A plain startswith(root) is wrong for a pack at the archive
+    root (root ''), which would also claim every file of the other pack."""
+    if not name.startswith(root):
+        return False
+    return not any(len(other) > len(root) and name.startswith(other) for other in roots)
+
 def check(path):
     z = zipfile.ZipFile(path)
     names = z.namelist()
@@ -56,9 +68,10 @@ def check(path):
     # Check the emitted assets, not the exporter's prediction of which actor
     # branches use PBR. Coaster-only packs previously shipped all their maps
     # but omitted this flag because their actors were compiled later.
+    roots = [pack_root(m) for m in manifests]
     for manifest in rp:
-        root = manifest.rsplit('manifest.json', 1)[0]
-        sets = [n for n in names if n.startswith(root) and n.endswith('.texture_set.json')]
+        root = pack_root(manifest)
+        sets = [n for n in names if n.endswith('.texture_set.json') and owned_by(n, root, roots)]
         if sets and 'pbr' not in mans[manifest][2].get('capabilities', []):
             problems.append(f'{manifest}: {len(sets)} texture sets but no pbr capability')
         for texture_set in sets:

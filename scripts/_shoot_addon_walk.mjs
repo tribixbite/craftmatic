@@ -217,6 +217,12 @@ await page.evaluate(() => {
     // animation. A coaster car's serialized yaw stays at its spawn value while
     // this rotation follows the track. Figure/car geometry faces opposite the
     // root-frame convention used by static shell appearances.
+    // TODO(walk-shot-yaw): both the half turn for figures/cars and reading the
+    // yaw from the holder's three.js rotation (the NEGATED Bedrock yaw, see
+    // CLAUDE.md "An actor's yaw is Bedrock's") are unverified on an actor
+    // turned 90 (or 270), the case where a yaw sign error shows: a 'left'
+    // shot could frame the right side. Verify on an actor placed at 90 before
+    // trusting a side view.
     const yaw = w.entityHolders.get(index).rotation.y;
     const kindOffset = entity.kind === 'figure' || entity.kind === 'car' ? Math.PI : 0;
     const around = (view === 'front' ? 0 : view === 'back' ? Math.PI : view === 'left' ? Math.PI / 2 : view === 'three-quarter' ? Math.PI / 4 : -Math.PI / 2) + kindOffset;

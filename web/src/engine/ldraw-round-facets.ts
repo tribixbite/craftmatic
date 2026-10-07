@@ -337,6 +337,15 @@ function hasPreservedInteriorAir(
  * material-mode, count and per-view checks. This is a bounded preflight, not a
  * universal topology/material proof; callers must supply `preserveSurface`
  * accurately and keep the original prototype unless `accepted` is true.
+ *
+ * RESEARCH-ONLY: no export path calls this. Its only callers are the probes
+ * `scripts/_round_facet_probe.ts` / `_round_facet_yield.ts` and its unit test.
+ * Measured on 10303 (the corrected preflight): it accepts four opaque 98138
+ * placements and would save 4 of 156,242 cubes (0.00256 %), so wiring it into
+ * the compiler buys nothing measurable for the risk of a new geometry path.
+ * TODO(facet-integration): integrate only if a model is found where the
+ * measured saving is material (a shell near its budget whose cost is round
+ * parts the gate accepts); re-run `_round_facet_yield.ts` on it first.
  */
 export function selectRoundFacetCandidate(
   mesh: LdrawPartMesh,
