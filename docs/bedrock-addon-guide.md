@@ -3827,6 +3827,13 @@ while it is theirs; a switch of view restarts the free look on the nose. The
 eye is the seat plan's (`VehicleCameraConfig.eye`), so the cockpit view and
 `_cockpit_view.ts` show the same point.
 
+The chase camera no longer ends behind a wall (Saga 30j `s68`: a ship parked
+tail-first by a wall, the wall's texture filling the view): the line from the
+vehicle's pivot to the camera is marched every 0.25 block and the first solid
+block pulls the camera in to 0.3 short of it, plants, the headlight's light
+block, rails, carpets and the like seen through (`CHASE_PASSABLE_BLOCKS`).
+The pull is eased like every chase move (0.15 s).
+
 The Nimbus (a native hover mount) ignored drags while ridden, so its HUD's
 "LOOK DOWN + JUMP: DIVE" could not be done: its seat held the rider at
 `lock_rider_rotation` 0. Every vehicle seat is 181 now (quirk

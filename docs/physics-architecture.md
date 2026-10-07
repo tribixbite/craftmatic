@@ -546,7 +546,11 @@ Pixel, 2026-09-25; `docs/bedrock-addon-guide.md` "Vehicle operation"):
   round and the view eases back to the front in yaw AND pitch. The rider is
   made invisible while it is theirs (the camera stands in its head), and a
   switch between the views restarts the free look, so each starts on the
-  nose. Until then the cockpit view was the rider's own first person with its
+  nose. The chase camera never sits behind a wall: the first solid block on
+  the line from the vehicle's pivot pulls it in to `CHASE_WALL_MARGIN` short
+  of it (Saga 30j s68; plants, the headlight's light block, rails and the
+  like are seen through, `CHASE_PASSABLE_BLOCKS`). Until then the cockpit
+  view was the rider's own first person with its
   yaw eased by `setRotation`, which on the Saga (round 30j) did nothing on a
   lock-181 seat: the McLaren's view stayed 56 degrees off the nose, the
   X-wing's kept its pitch, and the chase camera came back where the cockpit's
@@ -1067,6 +1071,8 @@ literal inside a function body (`§` marks the number).
 | `FREE_LOOK.COCKPIT_EASE_SECONDS` | `web/src/engine/vehicle-free-look.ts` | 0.1 | s | The cockpit camera's ease, the coaster's measured per-tick ease. |
 | `FREE_LOOK.COCKPIT_HISTORY` | `web/src/engine/vehicle-free-look.ts` | 4 | ticks | Vehicle poses kept per rider for the lag (more than `COCKPIT_TICK_LAG` + 1). |
 | `FREE_LOOK.COCKPIT_PITCH_MAX` | `web/src/engine/vehicle-free-look.ts` | 89 | degrees | The cockpit camera's pitch bound: `setCamera` throws past ±90 (quirk `camera-pitch-limit`). |
+| `FREE_LOOK.CHASE_WALL_STEP` | `web/src/engine/vehicle-free-look.ts` | 0.25 | blocks | The chase camera marches the line from the vehicle's pivot to itself in these steps; the first solid block (not air, liquid or `CHASE_PASSABLE_BLOCKS`) pulls it in. |
+| `FREE_LOOK.CHASE_WALL_MARGIN` | `web/src/engine/vehicle-free-look.ts` | 0.3 | blocks | How far short of that block the camera stops, so the near plane stays out of the wall: a ship parked tail-first by a wall put the camera behind it, the wall's texture filling the view (Saga 30j s68). |
 | `HEADLIGHTS.LEVEL` | `web/src/engine/bedrock-vehicle.ts` | 14 | light level | One `minecraft:light_block_14`: bright enough to read the road ahead at night. |
 | `HEADLIGHTS.AHEAD` | `web/src/engine/bedrock-vehicle.ts` | 2 | blocks | Past the nose, along the heading. |
 | `HEADLIGHTS.PARK_TICKS` | `web/src/engine/bedrock-vehicle.ts` | 100 | ticks | A light switches off after 5 s parked. |

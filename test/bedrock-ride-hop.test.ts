@@ -14,7 +14,7 @@ import { bedrockJsonText } from '../web/src/engine/bedrock-json.js';
 import { HOP, HOP_TAGS, hopContact, hopKitConfig, hopRuntimeConfig, hopScript, type HopShape, type HopSource } from '../web/src/engine/bedrock-ride-hop.js';
 import { BOAT, CAR, FLIGHT, FLIGHT_INPUT_EVENT, FLIGHT_PROPS, FOOTPRINT, HEADLIGHTS, HOVER, MOVE, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties, scriptedVehicleScript } from '../web/src/engine/bedrock-vehicle.js';
 import { RIDE, ridesScript } from '../web/src/engine/bedrock-rides.js';
-import { vehicleCameraScript } from '../web/src/engine/playable-addon.js';
+import { CHASE_PASSABLE_BLOCKS, vehicleCameraScript } from '../web/src/engine/playable-addon.js';
 import { FREE_LOOK } from '../web/src/engine/vehicle-free-look.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
 import { readAddon, type Addon } from '../web/src/sim/pack/pack.js';
@@ -264,7 +264,7 @@ describe('the hop runtime, serialised, in the simulator', () => {
     const camera = vehicleCameraScript({
       vehicles: [{ typeId: PLANE, preset: 'craftmatic:test_plane_chase', kind: 'plane', radius: 6, height: 2, pivotY: 0.5, scripted: true, riderVisibleSizes: [] }],
       pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden },
-      freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT,
+      freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS,
     });
     const coaster = `import { world, system } from '@minecraft/server';
 const seen = new Set();

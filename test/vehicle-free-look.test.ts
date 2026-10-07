@@ -9,7 +9,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { FREE_LOOK, cockpitCamera, freeLookStart, freeLookStep, type CockpitPose, type FreeLookState } from '../web/src/engine/vehicle-free-look.js';
-import { vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
+import { CHASE_PASSABLE_BLOCKS, vehicleCameraScript, type VehicleCameraConfig } from '../web/src/engine/playable-addon.js';
 import { FLIGHT_PROPS, VEHICLE_DYNAMIC, VEHICLE_TELEMETRY_EVENT, flightProperties } from '../web/src/engine/bedrock-vehicle.js';
 import { simHost, solidBelow } from './_sim-host.js';
 import type { SimEntity } from '../web/src/sim/entity/entity.js';
@@ -97,14 +97,14 @@ describe('cockpitCamera (pure)', () => {
 
 const CAR = 'craftmatic:t_car';
 const cameraCfg: VehicleCameraConfig = { typeId: CAR, preset: 'craftmatic:t_car_chase', kind: 'car', radius: 6, height: 2.6, pivotY: 0.75, scripted: true, riderVisibleSizes: null, eye: [0, 1.62, -0.4] };
-function cameraHost(cfg: VehicleCameraConfig = cameraCfg) {
+function cameraHost(cfg: VehicleCameraConfig = cameraCfg, terrain = solidBelow(64)) {
   const h = simHost({
-    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT }),
+    script: vehicleCameraScript({ vehicles: [cfg], pitchProperty: FLIGHT_PROPS.pitch, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS }),
     entities: { [CAR]: { properties: flightProperties() as Record<string, Record<string, unknown>>, components: {
       'minecraft:type_family': { family: ['craftmatic_vehicle', 'car'] },
       'minecraft:rideable': { seat_count: 1, family_types: ['player'], seats: [{ position: [0, 0.5, 0], lock_rider_rotation: FREE_LOOK.SEAT_LOCK_DEG }] },
     } } },
-    terrain: solidBelow(64),
+    terrain,
   });
   const car = h.spawn(CAR, { x: 0.5, y: 64, z: 0.5 }, { yaw: 0 });
   const rider = h.addPlayer('Driver', { x: 0.5, y: 64, z: 0.5 });
@@ -213,6 +213,21 @@ describe('the camera runtime with free look (scripts/vehicle-camera.js on the si
     h.host.playerState(rider).selectedSlot = 8;
     drive(2, 0);
     expect(Math.abs(wrap(h.host.playerState(rider).camera.rotation!.y - car.rotation.y))).toBeLessThan(1);
+  });
+  it('never sits behind a wall: a wall between the vehicle and the chase camera pulls it in front of the wall, and a plant does not (Saga 30j s68)', () => {
+    // A stone wall two blocks behind the car (it faces +z, the camera trails toward -z), three high; a tall grass row in front of it.
+    const wallZ = -2, terrain = (_x: number, y: number, z: number) =>
+      ({ typeId: y < 64 ? 'minecraft:stone' : z === wallZ && y < 67 ? 'minecraft:stone' : z === wallZ + 1 && y === 64 ? 'minecraft:tall_grass' : 'minecraft:air' });
+    const { h, rider, drive } = cameraHost(cameraCfg, terrain);
+    drive(2, 0);
+    const c = h.host.playerState(rider).camera;
+    // In front of the wall's face (z -1), not behind it, still on the trailing side of the car.
+    expect(c.location!.z).toBeGreaterThan(wallZ + 1);
+    expect(c.location!.z).toBeLessThan(0.5);
+    // Without the wall the camera trails the full boom.
+    const open = cameraHost(cameraCfg, (_x: number, y: number, z: number) => ({ typeId: y < 64 ? 'minecraft:stone' : z === -1 && y === 64 ? 'minecraft:tall_grass' : 'minecraft:air' }));
+    open.drive(2, 0);
+    expect(open.h.host.playerState(open.rider).camera.location!.z).toBeLessThan(wallZ);
   });
   it('logs a CMCAM line per rider with telemetry on (the device probe reads the drag and the ease from it)', () => {
     const { h, drive, drag } = cameraHost();

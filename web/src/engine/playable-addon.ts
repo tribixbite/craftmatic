@@ -1938,7 +1938,15 @@ export interface VehicleCameraRuntimeConfig {
     lookPitchProperty: string;
     /** `/scriptevent craftmatic:vehicle_telemetry on|fast|off`: a `CMCAM` content-log line per rider. */
     telemetryEvent: string;
+    /** A regular expression (source) of block ids the chase camera sees through besides air and liquids (`CHASE_PASSABLE_BLOCKS`). */
+    passableBlocks: string;
 }
+
+/**
+ * Blocks the chase camera's line of sight passes through besides air and liquids: plants, the headlight's
+ * light block, rails, carpets, snow layers, torches, signs, buttons. Anything else pulls the camera in.
+ */
+export const CHASE_PASSABLE_BLOCKS = '(short_grass|tall_grass|^minecraft:grass$|fern|flower|tulip|poppy|dandelion|orchid|allium|bluet|daisy|cornflower|lily|rose|sapling|dead_bush|vine|seagrass|kelp|sugar_cane|bamboo_sapling|light_block|rail|carpet|snow_layer|torch|sign|button|lever|pressure_plate|tripwire|web|redstone_wire|cave_air|structure_void)';
 
 /**
  * Runs in the pack. Measured on the Pixel (1.26.45, 2026-09-15): a camera
@@ -2000,6 +2008,35 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
   // camel car's tuning hooks (`craftmatic:vehicle_scheme`, `vehicle_camera`)
   // went with the camel.
   const NATIVE_SCHEME = 'player_relative';
+  const passable = new RegExp(config.passableBlocks);
+  /** Whether the block at `p` lets the camera's line through: air, liquid, an unloaded block, or a plant/light/carpet (`passableBlocks`). */
+  const seeThrough = (dim: any, p: { x: number; y: number; z: number }): boolean => {
+    let b: any;
+    try { b = dim.getBlock({ x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }); } catch { return true; }
+    if (!b || b.isAir || b.isLiquid) return true;
+    return passable.test(String(b.typeId));
+  };
+  /**
+   * The camera point `to`, pulled toward `from` (the vehicle's pivot) to `CHASE_WALL_MARGIN` short of the first
+   * solid block on the line between them, marched in `CHASE_WALL_STEP`s. A pivot that starts inside a block (a
+   * hull sunk into a slope) is not a wall: the march looks for solid only once it has been in the clear.
+   */
+  const inFrontOfWalls = (vehicle: any, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): { x: number; y: number; z: number } => {
+    let dim: any;
+    try { dim = vehicle.dimension; } catch { return to; }
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z, len = Math.hypot(dx, dy, dz);
+    if (!dim || len < 1e-6) return to;
+    const n = Math.max(1, Math.ceil(len / config.freeLook.CHASE_WALL_STEP));
+    let open = false;
+    for (let k = 0; k <= n; k++) {
+      const d = len * k / n, p = { x: from.x + dx * k / n, y: from.y + dy * k / n, z: from.z + dz * k / n };
+      if (seeThrough(dim, p)) { open = true; continue; }
+      if (!open) continue;
+      const keep = Math.max(0, d - config.freeLook.CHASE_WALL_MARGIN) / len;
+      return { x: from.x + dx * keep, y: from.y + dy * keep, z: from.z + dz * keep };
+    }
+    return to;
+  };
   /** A seated player's head top over its eye, and the clearance the chase camera's line of sight keeps over it, blocks. */
   const HEAD_ABOVE_EYE = 0.22, HEAD_CLEAR = 0.25;
   const chase = (player: any, vehicle: any, cfg: any, size: number, drawn: boolean, offset: { yaw: number; pitch: number }): boolean => {
@@ -2044,6 +2081,12 @@ function vehicleCameraRuntime(config: VehicleCameraRuntimeConfig, look: typeof f
     } else {
       facingLocation = { x: v.x, y: v.y + cfg.pivotY, z: v.z };
     }
+    // Never behind a wall: the first solid block on the line from the vehicle's pivot to the camera pulls the
+    // camera in to `CHASE_WALL_MARGIN` short of it (Saga 30j s68: a ship parked tail-first by a wall put the
+    // chase camera behind it, the wall's texture filling the view). A native plane's view keeps its direction.
+    const pulled = inFrontOfWalls(vehicle, { x: v.x, y: v.y + cfg.pivotY, z: v.z }, location);
+    if (cfg.kind === 'plane' && !cfg.scripted) facingLocation = { x: facingLocation.x + pulled.x - location.x, y: facingLocation.y + pulled.y - location.y, z: facingLocation.z + pulled.z - location.z };
+    location = pulled;
     try { player.camera.setCamera('minecraft:free', { location, facingLocation, easeOptions: { easeTime: 0.15, easeType: 'Linear' } }); return true; } catch { return false; }
   };
   // Measured on the Pixel 2026-09-16: `/controlscheme @s set player_relative`
@@ -3620,7 +3663,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (timeMachineConfig) files.push({ name: `${bp}scripts/time-machine.js`, data: text(timeMachineScript(timeMachineConfig)) });
     if (driverVehicles.length) files.push({ name: `${bp}scripts/vehicle-driver.js`, data: text(vehicleDriverScript(vehicleDriverConfig(driverVehicles))) });
     if (flyerConfig) files.push({ name: `${bp}scripts/flyer.js`, data: text(flyerScript(flyerConfig)) });
-    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT })) });
+    if (cameraVehicles.length) files.push({ name: `${bp}scripts/vehicle-camera.js`, data: text(vehicleCameraScript({ vehicles: cameraVehicles, pitchProperty: FLIGHT_PROPS.pitch, hop: { claimTag: HOP_TAGS.claim, graceTicks: HOP.BOARD_GRACE_TICKS, hiddenTag: HOP_TAGS.hidden }, freeLook: FREE_LOOK, lookPitchProperty: VEHICLE_DYNAMIC.lookPitch, telemetryEvent: VEHICLE_TELEMETRY_EVENT, passableBlocks: CHASE_PASSABLE_BLOCKS })) });
     // HOP (bedrock-ride-hop.ts): fly or drive one of this pack's driveables into another mountable and ride that.
     const hopSources: Record<string, HopSource> = { ...nativeHopSources, ...Object.fromEntries(Object.entries(scriptedTypes).map(([t, v]) => [t, scriptedHopSource(v)])) };
     const hasHop = Object.keys(hopSources).length > 0;

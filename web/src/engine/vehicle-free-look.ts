@@ -79,6 +79,10 @@ export const FREE_LOOK = {
   COCKPIT_HISTORY: 4,
   /** The cockpit camera's pitch is kept inside this (degrees): `setCamera` throws past ±90 (Pixel 26.51). */
   COCKPIT_PITCH_MAX: 89,
+  /** The chase camera's wall test marches the line from the vehicle's pivot in steps of this, blocks. */
+  CHASE_WALL_STEP: 0.25,
+  /** A wall on that line pulls the camera in to this short of it, blocks (the near plane stays out of the texture). */
+  CHASE_WALL_MARGIN: 0.3,
 } as const;
 export type FreeLookParams = { readonly [K in keyof typeof FREE_LOOK]: number };
 
