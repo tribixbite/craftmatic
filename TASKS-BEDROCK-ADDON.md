@@ -72,19 +72,24 @@ kerb/hole/wall/slide; chase free look on 4 vehicles (no twitch, eases back);
 never inside geometry; no name tags; McLaren body solid; 10261 at 200 % = 12
 chunks + base, no seams, drawn from 78-83 blocks; Undo; 76417 Gate 1; 6/6
 seat exits; 10326 Door 1; 10788 slide; Gringotts faces/hair; Milano cruise
-770 checks = 14.5 ms/tick (Pixel). FAIL / open, being fixed:
-1. Ships SLIDE along hills/walls instead of lifting over (sim said 8/8 - the
-   sim disagrees with the device); a turn against a wall lifts the ship 4-6
-   blocks; a ship left in the air parks ON the player; chase camera ends up
-   behind a wall.
-2. Slot-9 cockpit view never recentres and keeps its pitch; slot 1 resumes
-   the dragged yaw; the Nimbus ignores drags (its HUD ALT is world y);
-   player's own head fills the view ~6 s after a hop into 10261.
-3. 10326 Door 3: opens, but the walk stops 0.24 short of the leaf
-   ("Something is standing in the door 3") - REGRESSED since Saga 30i;
-   10261 at 200 % lift-hill step (TODO(tilted-colliders)), base unclimbable
-   from the west.
-4. Milano eye on top of the spine, not the cockpit (SEAT-01).
+770 checks = 14.5 ms/tick (Pixel). The failures, fixed OFFLINE on main
+2026-10-07 (merges `c844e8cd` vehicles, `cf0b2c4b` cameras, `13606fc2` colliders):
+1. Ships slid along off-square walls: the course only met walls square-on and
+   `--runtime=tree` ran old constants; ships now lift over (`MOVE.NARROW_CELLS`
+   deflect gate), turns pivot, a parking ship holds over a player. Course 9/9
+   (new `oblique` lane); regressions `xwing-*-30j`.
+2. Cockpit view = a script camera (`cockpitCamera`) that recentres yaw+pitch;
+   views start on the nose; native seats lock 181 (Nimbus takes drags; ALT over
+   ground); hop keeps the rider hidden (`HOP_TAGS.hidden`); chase camera pulled
+   in front of walls; Milano eye in the front cabin (`AHEAD_CABIN`).
+3. 10326 Door 3 was the SNEAK toggle on a 0.69 sill gutter (not a regression);
+   sills filled (`fillSunkenSills`), `SNEAK-STOP` in `_ix_passability.ts`.
+   10261 at 200 %: late tread pass - straight lift walk 25.7 -> 39.7 (still
+   stops, `TODO(tilted-colliders)`), west lanes z 22-24 climbable.
+Next: round 30k (fresh exports carry the new runtimes) and its device
+checklist - each fix agent's list is folded in below under "Round 30k".
+Open: `TODO(car-oblique-kerb)` (McLaren slides 62 along an oblique kerb);
+11 other hull-leaving cockpit eyes not re-audited for `AHEAD_CABIN`.
 - # TODO(seat-sweep-memory): `_seat_egress_sweep.ts` on 76457 at 300/400 %
   (and on a whole pack directory) grows to 64 GB and crashes Bun; run it per
   pack and per size until fixed. 76457 at 100/200 %: 9 seats, 0 trapped.

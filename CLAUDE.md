@@ -356,6 +356,22 @@ Generate · Import · Upload · Gallery · Comparison · Map · Tiles · **LEGO*
   and does not turn the vehicle is ASSUMED (quirk `rider-free-look`); the
   device checklist is TASKS "Spaceship controls". Offline:
   `bun scripts/sim.ts <packs> --scenario=vehicles`.
+- **`setRotation` on a rider of a `lock_rider_rotation: 181` seat does nothing**
+  (Saga 26.52, round 30j): a script that turns the player's own view under
+  such a seat reads its own unapplied turn as a drag the other way, and the
+  view never recentres. A view that must turn under the player is a SCRIPT
+  camera (`cockpitCamera`, vehicle-free-look.ts), never the player's own
+  first person. **Invisibility is one effect per player shared by every
+  pack**: never remove one that another runtime may have set since (the
+  X-wing camera cleared the coaster's after a hop and the rider's head
+  filled the view; `HOP_TAGS.hidden`).
+- **The touch Sneak button is a TOGGLE.** After a seat's "Sneak to get off"
+  it stays on, and a sneaking player never steps off a drop deeper than the
+  step height. A Pixel round (30j) reported 10326 Door 3 as REGRESSED: the
+  tester was sneaking and the door's sill was a 0.69-block gutter. Check the
+  HUD sneak button in device shots before calling a doorway stop a
+  regression. Sunken sills are now filled (`fillSunkenSills`), and
+  `_ix_passability.ts` prints `SNEAK-STOP`.
 - **Bedrock's form renderer deletes a bare `%`** — in-game strings spell
   "percent" (`bedrockInGameText`); the diagnostics keep the real sign.
 - **A Bedrock entity identifier may not begin with a digit** (`craftmatic:10303_cart`
