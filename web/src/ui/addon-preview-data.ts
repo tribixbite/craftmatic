@@ -36,6 +36,7 @@ import {
   type GridDims, type QuarterTurn, type ReachResult, type SourceCell, type TreadBlock,
 } from '@engine/bedrock-collider-scale.js';
 import type { AccessScaleRecommendation } from '@engine/bedrock-scene-actors.js';
+import { isShellEntityId } from '@engine/bedrock-building-shell.js';
 import type { PinballMap, PinballRuntimeConfig } from '@engine/bedrock-pinball.js';
 import type { CoasterRiderViewConfig } from '@engine/bedrock-coaster.js';
 import { extractMatching, listZipEntries } from '@engine/zip-utils.js';
@@ -286,7 +287,8 @@ export function classifyAddonEntity(typeId: string, actor: Partial<PlacementActo
   if (role === 'platform') return 'lift';
   if (role === 'counterweight') return 'counterweight';
   if (role === 'car' || actor.coasterRouteIndex !== undefined || /_coaster_(vehicle|cart)(_\d+)?$/.test(id)) return 'car';
-  if (/_shell$/.test(id)) return 'shell';
+  // The whole-model shell or one of its lattice chunks (`…_shell_c<ix>_<iy>_<iz>`): one classifier, shared with the audits.
+  if (isShellEntityId(id)) return 'shell';
   if (/_fig\d+$/.test(id) || /^f_/.test(id)) return 'figure';
   // Every moving part (door, window, hatch, lever, turnable) is on the legend's door row; its class is in `interactives`.
   if (actor.interactive !== undefined || /_door_leaf_\d+$/.test(id) || actor.doorCandidateIndex !== undefined) return 'door';

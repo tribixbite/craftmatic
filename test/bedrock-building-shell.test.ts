@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BlockGrid } from '../src/schem/types.js';
 import {
-  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isTiltedBox, shellBehavior, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
+  ACTOR_CULL_FLOOR_BLOCKS, COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, SHELL_BOX_WIDTH, SHELL_FRAME, STATIC_SHELL_CELL_BLOCKS, STATIC_SHELL_CULL_MAX_SCALE, STATIC_SHELL_RADIUS_LIMIT_BLOCKS, actorCullDistance, actorCullFit, buildColliderGrid, clipParallelepiped, colliderBlockDefinition, colliderCellIndex, colliderState, gridParallelepiped, isSceneBlock, isShellEntityId, isTiltedBox, shellBehavior, shellChunkCell, shellChunkId, shellCollisionBox, splitStaticShell, yawStepKept, YAW_STEP_MAX_BLOCKS,
 } from '../web/src/engine/bedrock-building-shell.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { BlockTypes } from '../web/src/sim/world/block-types.js';
@@ -500,43 +500,112 @@ describe('splitStaticShell', () => {
     }
   });
 
-  it('splits a tall finished shell and locally roots each piece above its own top', async () => {
+  it('splits a tall finished shell on the lattice and roots each piece at the top of its own cell', async () => {
+    const S = STATIC_SHELL_CELL_BLOCKS;
     const tall = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.tall_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
       { origin: [-8, -608, -8], size: [16, 16, 16] }, { origin: [-8, 592, -8], size: [16, 16, 16] },
     ] }] }], [{ color: 4 }]);
     const result = splitStaticShell('tall', tall);
     expect(result.chunks).toHaveLength(2);
-    expect(result.chunks.map(chunk => chunk.offsetBlocks[1]).sort((a, b) => a - b)).toEqual([-36, 39]);
+    // Cube centres at y = -37.5 and 37.5 blocks: the cell holding each, and its top plane.
+    const cells = [Math.floor(-37.5 / S), Math.floor(37.5 / S)];
+    expect(result.chunks.map(chunk => chunk.id).sort()).toEqual(cells.map(iy => shellChunkId('tall', [0, iy, 0])).sort());
+    expect(result.chunks.map(chunk => chunk.offsetBlocks[1]).sort((a, b) => a - b)).toEqual(cells.map(iy => (iy + 1) * S));
     expect(result.chunks.every(chunk => chunk.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS)).toBe(true);
+    expect(result.chunks.every(chunk => shellChunkCell(chunk.id)!.join() === chunk.cell.join())).toBe(true);
   });
 
-  it('retains and diagnoses an indivisible oversized final cube', async () => {
+  it('retains and diagnoses a cube that straddles its cell past the reach target', async () => {
     const huge = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.huge_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [{ origin: [-500, -8, -8], size: [1000, 16, 16] }] }] }], [{ color: 4 }]);
     const result = splitStaticShell('huge', huge);
     expect(result.chunks).toHaveLength(1);
-    expect(result.chunks[0]!.id).toBe('huge_chunk_1');
+    expect(result.chunks[0]!.id).toBe('huge_c0_0_0');
     expect(result.chunks[0]!.oversizedCubes).toBe(1);
     expect(result.chunks[0]!.radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toBeGreaterThan(STATIC_SHELL_RADIUS_LIMIT_BLOCKS);
-    expect(result.warnings).toEqual([expect.stringMatching(/indivisible final cube.*retained whole/)]);
+    expect(result.warnings).toEqual([expect.stringMatching(/1 final cube reaches .* past the .*-block target; retained whole/)]);
     expect((result.chunks[0]!.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'][0]!.bones[0]!.cubes).toHaveLength(1);
   });
 
-  it('rejects a partition whose local root is conservatively enclosed by another chunk geometry', async () => {
+  it('keeps a cell root that lies inside a drawn cube, reporting it instead of rejecting the split', async () => {
+    const S = STATIC_SHELL_CELL_BLOCKS * 16;
     const buried = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.buried_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
-      { origin: [-528, -16, -8], size: [16, 16, 16] },
-      // Its centre is at zero, so the median split owns it separately, while its transformed AABB covers the left root.
-      { origin: [-600, -32, -32], size: [1200, 64, 64] },
-      { origin: [512, -16, -8], size: [16, 16, 16] },
+      // A slab across cell (0,1,0)'s bottom: its AABB contains cell (0,0,0)'s root (the centre of that cell's top face).
+      { origin: [0, S - 20, 0], size: [S, 40, S] },
+      { origin: [8, 8, 8], size: [16, 16, 16] },
+      // Far enough that the whole shell cannot keep one root.
+      { origin: [3 * S, 8, 8], size: [16, 16, 16] },
     ] }] }], [{ color: 4 }]);
     const result = splitStaticShell('buried', buried);
-    expect(result.chunks).toHaveLength(1);
-    expect(result.chunks[0]).toMatchObject({ id: 'buried', offsetBlocks: [0, 0, 0] });
-    expect(result.chunks[0]!.geo).toBe(buried);
-    const rawCubeCount = (result.chunks[0]!.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry']
-      .reduce((n, geometry) => n + geometry.bones.reduce((m, bone) => m + (bone.cubes?.length ?? 0), 0), 0);
+    expect(result.chunks.map(chunk => chunk.id).sort()).toEqual(['buried_c0_0_0', 'buried_c0_1_0', 'buried_c3_0_0']);
+    const low = result.chunks.find(chunk => chunk.id === 'buried_c0_0_0')!;
+    expect(low.buriedRootCubes).toBe(1);
+    expect(low.offsetBlocks).toEqual([STATIC_SHELL_CELL_BLOCKS / 2, STATIC_SHELL_CELL_BLOCKS, -STATIC_SHELL_CELL_BLOCKS / 2]);
+    const rawCubeCount = result.chunks.reduce((n, chunk) => n + (chunk.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry']
+      .reduce((m, geometry) => m + geometry.bones.reduce((k, bone) => k + (bone.cubes?.length ?? 0), 0), 0), 0);
     expect(rawCubeCount).toBe(3);
-    expect(result.warnings.some(warning => /candidate local lighting root is inside the transformed AABB/.test(warning))).toBe(true);
-    expect(result.warnings.some(warning => /rejected the spatial partition.*exact original actor was retained.*culling limit/.test(warning))).toBe(true);
+    expect(result.warnings).toEqual([expect.stringMatching(/buried_c0_0_0: its cell root is inside the transformed AABB of 1 final cube; kept/)]);
+  });
+
+  it('keeps every other chunk\'s id and root when one more cube is compiled', async () => {
+    const base = await fixture();
+    const grown = await fixture();
+    const body = (grown.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'][0]!.bones[0]!;
+    body.cubes!.push({ origin: [-540, -70, -10], size: [8, 8, 8] });
+    const a = splitStaticShell('shell', base), b = splitStaticShell('shell', grown);
+    const key = (chunk: { id: string; offsetBlocks: number[] }) => `${chunk.id}@${chunk.offsetBlocks.join(',')}`;
+    expect(b.chunks.map(key)).toEqual(a.chunks.map(key));
+    expect(b.chunks.reduce((n, chunk) => n + chunk.geo.diagnostics.cubeCount, 0)).toBe(a.chunks.reduce((n, chunk) => n + chunk.geo.diagnostics.cubeCount, 0) + 1);
+    // The extra cube landed beside the -560 cube (the same cell once the body's 8-degree turn is applied), and only that chunk changed.
+    const changed = b.chunks.filter((chunk, i) => chunk.geo.diagnostics.cubeCount !== a.chunks[i]!.geo.diagnostics.cubeCount);
+    expect(changed).toHaveLength(1);
+    expect(changed[0]!.cell).toEqual([...a.chunks].sort((p, q) => p.cell[0] - q.cell[0])[0]!.cell);
+    expect(changed[0]!.id).toBe(shellChunkId('shell', changed[0]!.cell));
+  });
+
+  it('drops the bones a chunk draws nothing with, keeps the ancestors of those it does, and rounds every number to the compiler\'s two decimals', async () => {
+    const rig = await compiledFixture([{
+      description: { identifier: 'geometry.craftmatic.rig_mesh_0', texture_width: 16, texture_height: 16 },
+      bones: [
+        { name: 'root', pivot: [0.37, -1.5, 2.25], rotation: [0, 8, 0] },
+        { name: 'left', parent: 'root', pivot: [-540.13, -60, 0], rotation: [12, -17, 8], cubes: [{ origin: [-559.37, -80.25, -20.5], size: [40, 40, 40], rotation: [5, 9, -4], pivot: [-540.13, -60, 0] }] },
+        { name: 'right', parent: 'root', pivot: [540, -60, 0], cubes: [{ origin: [520.01, -80, -20], size: [40, 40, 40] }] },
+        { name: 'loose', pivot: [1, 2, 3] },
+      ],
+    }], [{ color: 4 }]);
+    const result = splitStaticShell('rig', rig);
+    expect(result.chunks).toHaveLength(2);
+    const bonesOf = (chunk: typeof result.chunks[number]) => (chunk.geo.value as { 'minecraft:geometry': TestGeometry[] })['minecraft:geometry'][0]!.bones;
+    const left = result.chunks.find(chunk => bonesOf(chunk).some(bone => bone.name === 'left'))!, right = result.chunks.find(chunk => bonesOf(chunk).some(bone => bone.name === 'right'))!;
+    expect(bonesOf(left).map(bone => bone.name)).toEqual(['root', 'left']);
+    expect(bonesOf(right).map(bone => bone.name)).toEqual(['root', 'right']);
+    expect(bonesOf(left)[0]).not.toHaveProperty('cubes');
+    expect(left.bones).toBe(2);
+    for (const chunk of result.chunks) {
+      // A whole-unit root keeps the compiler's precision: no float noise like -259.70000000000005.
+      expect(JSON.stringify(chunk.geo.value)).not.toMatch(/\d\.\d{3,}/);
+      expect(JSON.stringify(chunk.geo.value)).not.toContain('-0,');
+      expect(Number.isInteger(chunk.offsetBlocks[0] * 16) && Number.isInteger(chunk.offsetBlocks[1] * 16) && Number.isInteger(chunk.offsetBlocks[2] * 16)).toBe(true);
+    }
+    // The rotated cube's pivot moved with its origin, by the same whole-unit root.
+    const cube = bonesOf(left)[1]!.cubes![0]!;
+    expect(cube.pivot![0] - cube.origin[0]).toBeCloseTo(-540.13 + 559.37, 6);
+    expect(bonesOf(left)[1]!.pivot![0] - cube.origin[0]).toBeCloseTo(-540.13 + 559.37, 6);
+  });
+
+  it('refuses a rotated cube without a pivot, which the compiler never writes', async () => {
+    const bad = await compiledFixture([{ description: { identifier: 'geometry.craftmatic.bad_mesh_0' }, bones: [{ name: 'body', pivot: [0, 0, 0], cubes: [
+      { origin: [-560, -8, -8], size: [16, 16, 16], rotation: [0, 10, 0] }, { origin: [540, -8, -8], size: [16, 16, 16] },
+    ] }] }], [{ color: 4 }]);
+    expect(() => splitStaticShell('bad', bad)).toThrow(/rotated but carries no pivot/);
+  });
+
+  it('names a chunk by its cell and classifies both id forms as a shell', () => {
+    expect(shellChunkId('b_10261_shell', [1, -2, 0])).toBe('b_10261_shell_c1_n2_0');
+    expect(shellChunkCell('craftmatic:b_10261_shell_c1_n2_0')).toEqual([1, -2, 0]);
+    expect(shellChunkCell('craftmatic:b_10261_shell')).toBeUndefined();
+    expect(shellChunkCell('craftmatic:b_10261_shell_chunk_1')).toBeUndefined();
+    for (const id of ['craftmatic:b_10261_shell', 'b_10261_shell', 'craftmatic:b_10261_shell_c1_n2_0', 'craftmatic:b_10261_shell_cn3_0_12']) expect(isShellEntityId(id)).toBe(true);
+    for (const id of ['craftmatic:b_10261_shell_chunk_1', 'craftmatic:f_10261_fig3', 'craftmatic:b_10261_shell_door_leaf_1', 'craftmatic:b_10261_shellfish']) expect(isShellEntityId(id)).toBe(false);
   });
 });
 

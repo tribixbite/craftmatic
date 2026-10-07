@@ -60,20 +60,76 @@ export const SHELL_FRAME: readonly number[] = ldrawToRenderRotation('-z');
 export const STATIC_SHELL_CULL_MAX_SCALE = 2;
 /** Root-to-corner reach left after the same safety margin used by the LOD planner. */
 export const STATIC_SHELL_RADIUS_LIMIT_BLOCKS = ACTOR_DRAW_CEILING_BLOCKS - LOD_CULL_MARGIN_BLOCKS;
+/**
+ * Reach held back for a cube whose CENTRE is in a cell but whose box crosses
+ * the cell's boundary (a baseplate, a long beam): it is drawn by that cell's
+ * actor and reaches past the cell's own corner by up to half its extent.
+ */
+export const STATIC_SHELL_STRADDLE_MARGIN_BLOCKS = 2;
+/**
+ * Edge of a lattice cell, blocks at 100 %. A cell's root sits at the centre
+ * of its TOP face, so its farthest own corner is `sqrt(0.5² + 0.5² + 1²)·S`
+ * = `sqrt(1.5)·S` away; at the largest planned wand factor that reach, plus
+ * the straddle margin, must stay under the draw limit. 20 blocks today.
+ */
+export const STATIC_SHELL_CELL_BLOCKS = Math.floor((STATIC_SHELL_RADIUS_LIMIT_BLOCKS / STATIC_SHELL_CULL_MAX_SCALE - STATIC_SHELL_STRADDLE_MARGIN_BLOCKS) / Math.sqrt(1.5));
+
+/** A lattice cell's integer index on each axis (JSON frame, `STATIC_SHELL_CELL_BLOCKS` per step). */
+export type ShellCell = readonly [number, number, number];
+
+/**
+ * A chunk's entity id stem from its cell: `<shell>_c<ix>_<iy>_<iz>`, a
+ * negative index spelt `n<k>` (an entity identifier cannot carry `-`).
+ * The id names the CELL, never a list position, so a compile that adds or
+ * removes a cube elsewhere leaves every other chunk's id and root alone.
+ */
+export function shellChunkId(shellId: string, cell: ShellCell): string {
+  const part = (n: number): string => (n < 0 ? `n${-n}` : `${n}`);
+  return `${shellId}_c${part(cell[0])}_${part(cell[1])}_${part(cell[2])}`;
+}
+
+/**
+ * A building shell's id, with or without its namespace: the whole-model actor
+ * (`…_shell`) or one of its lattice chunks (`…_shell_c<ix>_<iy>_<iz>`, the
+ * three signed cell indices captured). The ONE pattern every reader of a
+ * pack's actor list uses (the Walk preview, the geometry audit, the reports),
+ * so a chunk is never mistaken for a prop with its own marker and label.
+ */
+export const SHELL_ENTITY_ID_PATTERN = /_shell(?:_c(n?\d+)_(n?\d+)_(n?\d+))?$/;
+
+/** Whether an entity id names a building shell or one of its chunks (`SHELL_ENTITY_ID_PATTERN`). */
+export function isShellEntityId(typeId: string): boolean {
+  return SHELL_ENTITY_ID_PATTERN.test(typeId.replace(/^[^:]*:/, ''));
+}
+
+/** The cell suffix `shellChunkId` writes, on any stem (a test splits a shell it did not name `…_shell`). */
+const SHELL_CHUNK_SUFFIX = /_c(n?\d+)_(n?\d+)_(n?\d+)$/;
+
+/** The lattice cell a chunk id names, or undefined for a whole-model shell or any other id. */
+export function shellChunkCell(typeId: string): ShellCell | undefined {
+  const m = SHELL_CHUNK_SUFFIX.exec(typeId.replace(/^[^:]*:/, ''));
+  if (!m) return undefined;
+  const n = (s: string): number => (s.startsWith('n') ? -Number(s.slice(1)) : Number(s));
+  return [n(m[1]!), n(m[2]!), n(m[3]!)];
+}
 
 export interface StaticShellChunk {
   /** Entity id stem; geometry identifiers use the same stem. */
   id: string;
+  /** The lattice cell this chunk draws (`shellChunkId`); `[0, 0, 0]` for an unsplit shell. */
+  cell: ShellCell;
   /** Finished geometry rebased to this chunk's local actor root. */
   geo: CompiledLdrawGeometry;
-  /** World-frame offset from the original shell actor at yaw 0 (blocks). */
+  /** World-frame offset from the original shell actor at yaw 0 and 100 % (blocks). */
   offsetBlocks: [number, number, number];
   /** Farthest drawn corner from the chunk root at 100 %. */
   radiusBlocks: number;
-  /** Final cubes which individually remain past the target at 2x; retained, never dropped. */
+  /** Final cubes which individually reach past the target from this root at the max scale; retained, never dropped. */
   oversizedCubes: number;
-  /** Other chunks' transformed cube AABBs which conservatively contain this root. */
+  /** Drawn cube AABBs (this chunk's or another's) that contain the root: reported, since entity cubes dampen no light. */
   buriedRootCubes: number;
+  /** Bones this chunk kept: those with a cube here and their ancestors. */
+  bones: number;
 }
 
 export interface StaticShellSplitResult {
@@ -111,6 +167,7 @@ interface ShellCubeRecord {
   geometry: number;
   bone: number;
   cube: number;
+  /** Drawn centre and corners, blocks in the JSON frame. */
   center: Vec3;
   corners: Vec3[];
 }
@@ -125,46 +182,71 @@ const shellBounds = (records: readonly ShellCubeRecord[]): { min: Vec3; max: Vec
   return { min, max };
 };
 
-/** A shell chunk attempts the compiler's open-sky lighting rule in its own local bounds. */
-const shellRoot = (records: readonly ShellCubeRecord[]): Vec3 => {
-  const { min, max } = shellBounds(records);
-  return [(min[0] + max[0]) / 2, min[1] + Math.ceil(max[1] - min[1]) + 1, (min[2] + max[2]) / 2];
-};
-
+/** The farthest drawn corner of `records` from `root`, blocks. */
 const shellRadius = (records: readonly ShellCubeRecord[], root: Vec3): number => {
   let radius = 0;
-  for (const record of records) for (const p of record.corners)
-    radius = Math.max(radius, Math.hypot(p[0] - root[0], p[1] - root[1], p[2] - root[2]));
+  for (const record of records) radius = Math.max(radius, cubeReach(record, root));
   return radius;
 };
 
-const partitionShellRecords = (records: ShellCubeRecord[]): ShellCubeRecord[][] => {
-  const root = shellRoot(records);
-  if (records.length <= 1 || shellRadius(records, root) * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9) return [records];
-  // Do not spread a shell's 40k-160k final cube centres into Math.max/min:
-  // V8's argument limit is smaller than an ultra shell.
-  const spans = [0, 1, 2].map(axis => {
-    let lo = Infinity, hi = -Infinity;
-    for (const record of records) { lo = Math.min(lo, record.center[axis]!); hi = Math.max(hi, record.center[axis]!); }
-    return hi - lo;
-  });
-  const axis = spans.indexOf(Math.max(...spans));
-  const sorted = [...records].sort((a, b) => a.center[axis]! - b.center[axis]! || a.order - b.order);
-  const middle = Math.floor(sorted.length / 2);
-  return [...partitionShellRecords(sorted.slice(0, middle)), ...partitionShellRecords(sorted.slice(middle))];
+/** One cube's farthest corner from `root`, blocks. */
+const cubeReach = (record: ShellCubeRecord, root: Vec3): number => {
+  let reach = 0;
+  for (const p of record.corners) reach = Math.max(reach, Math.hypot(p[0] - root[0], p[1] - root[1], p[2] - root[2]));
+  return reach;
 };
 
+/** The compiler's own precision (ldraw-entity-compiler.ts `round`): two decimals, never `-0`. */
+const round2 = (v: number): number => { const r = Math.round(v * 100) / 100; return r === 0 ? 0 : r; };
+
+/**
+ * A JSON point moved into a chunk's frame. `delta` is the chunk root in
+ * whole units, so the subtraction cannot create digits the compiler's
+ * two-decimal output did not have; rounding only removes float noise
+ * (`-259.70000000000005`, 68,971 such literals in one 76417 chunk before).
+ */
 const shifted = (v: readonly number[] | undefined, delta: Vec3): [number, number, number] => [
-  (v?.[0] ?? 0) - delta[0], (v?.[1] ?? 0) - delta[1], (v?.[2] ?? 0) - delta[2],
+  round2((v?.[0] ?? 0) - delta[0]), round2((v?.[1] ?? 0) - delta[1]), round2((v?.[2] ?? 0) - delta[2]),
+];
+
+/** The lattice cell holding a drawn centre (blocks). */
+const cellOf = (center: Vec3): ShellCell => [
+  Math.floor(center[0] / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[1] / STATIC_SHELL_CELL_BLOCKS), Math.floor(center[2] / STATIC_SHELL_CELL_BLOCKS),
 ];
 
 /**
- * Split an already-finished static shell into locally rooted actors.
+ * A cell's root: the centre of its TOP face, blocks in the JSON frame. Fixed
+ * by the cell alone, so it never moves with the cubes the cell holds. The
+ * compiler puts the whole shell's root a block above its roof, in open sky,
+ * because an entity is lit by the WORLD block at its root; the lattice keeps
+ * the top cells' roots there and a lower cell's at its own top plane - always
+ * above the model's floor (the floor is a whole number of blocks below the
+ * JSON origin, so it never coincides with a cell's top plane), and so in the
+ * air the colliders leave lit (`light_dampening: 0`). Entity cubes are not
+ * blocks and dampen nothing, so a root inside a drawn cube is reported, not
+ * avoided (`buriedRootCubes`).
+ */
+const cellRoot = (cell: ShellCell): Vec3 => [
+  (cell[0] + 0.5) * STATIC_SHELL_CELL_BLOCKS, (cell[1] + 1) * STATIC_SHELL_CELL_BLOCKS, (cell[2] + 0.5) * STATIC_SHELL_CELL_BLOCKS,
+];
+
+/**
+ * Split an already-finished static shell into locally rooted actors on a
+ * fixed lattice.
  *
  * This operates after the compiler's global grain plan, hidden-face cull,
  * merge, UV inflation and coplanar separation. It never recompiles a part or
- * changes a final cube. Every JSON origin and pivot is translated together;
- * `offsetBlocks` is the sole placement delta from the original actor root.
+ * changes a final cube: every cube goes to the cell holding its drawn centre,
+ * every JSON origin and pivot in a chunk is translated by the same whole-unit
+ * root, and `offsetBlocks` is the sole placement delta from the original
+ * actor root. Chunk ids and roots depend only on the lattice, so a later
+ * compile of the same model (one cube more or less) keeps every placed chunk
+ * where it is - which is what lets the placement runtime migrate an old
+ * whole-shell actor into chunks (`shellMigrations`, bedrock-placement-pack.ts).
+ *
+ * A bone with no cube in a chunk is dropped unless it is an ancestor of one
+ * that has (the parent chain sets a cube's transform); a rotated cube must
+ * carry its pivot, as the compiler always writes both.
  */
 export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): StaticShellSplitResult {
   const document = geo.value as ShellJsonDocument;
@@ -182,6 +264,7 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
       ...(bone.parent ? { parent: bone.parent } : {}),
     })));
     bones.forEach((bone, boneIndex) => (bone.cubes ?? []).forEach((cube, cubeIndex) => {
+      if (cube.rotation && !cube.pivot) throw new Error(`${shellId}: geometry ${geometryIndex} bone ${bone.name} cube ${cubeIndex} is rotated but carries no pivot; the compiler writes both, so this is not its output.`);
       const drawn = drawnCubeBox(cube);
       const shape: GeoCubeLike = {
         bone: bone.name, origin: drawn.origin, size: drawn.size,
@@ -195,15 +278,25 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
   });
 
   const originalRadius = shellRadius(records, [0, 0, 0]);
+  const bonesOf = (g: ShellJsonGeometry[]): number => g.reduce((n, geometry) => n + geometry.bones.length, 0);
   if (originalRadius * STATIC_SHELL_CULL_MAX_SCALE <= STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9) {
-    return { chunks: [{ id: shellId, geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0 }], warnings: [] };
+    return { chunks: [{ id: shellId, cell: [0, 0, 0], geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius, oversizedCubes: 0, buriedRootCubes: 0, bones: bonesOf(geometries) }], warnings: [] };
   }
 
-  const partitions = partitionShellRecords(records);
+  // Cells in a fixed order (x, then y, then z), so the chunk list - and with it
+  // every per-chunk warning and diagnostic - reads the same from one build to the next.
+  const partitions = new Map<string, { cell: ShellCell; records: ShellCubeRecord[] }>();
+  for (const record of records) {
+    const cell = cellOf(record.center), key = cell.join(',');
+    const hit = partitions.get(key);
+    if (hit) hit.records.push(record); else partitions.set(key, { cell, records: [record] });
+  }
+  const ordered = [...partitions.values()].sort((a, b) => a.cell[0] - b.cell[0] || a.cell[1] - b.cell[1] || a.cell[2] - b.cell[2]);
+
   const warnings: string[] = [];
-  const chunks = partitions.map((partition, chunkIndex): StaticShellChunk => {
-    const id = `${shellId}_chunk_${chunkIndex + 1}`;
-    const root = shellRoot(partition);
+  const chunks = ordered.map(({ cell, records: partition }): StaticShellChunk => {
+    const id = shellChunkId(shellId, cell);
+    const root = cellRoot(cell);
     const delta: Vec3 = root.map(value => value * 16) as Vec3;
     const radiusBlocks = shellRadius(partition, root);
     const selected = new Set(partition.map(record => `${record.geometry}:${record.bone}:${record.cube}`));
@@ -219,23 +312,30 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
 
     geometries.forEach((geometry, geometryIndex) => {
       let kept = 0;
-      const bones = geometry.bones.map((bone, boneIndex): ShellJsonBone => {
+      const byName = new Map(geometry.bones.map(bone => [bone.name, bone]));
+      // Bones that draw here, then every ancestor of one (its transform chain).
+      const keep = new Set<string>();
+      const cubesOf = new Map<string, ShellJsonCube[]>();
+      geometry.bones.forEach((bone, boneIndex) => {
         const cubes = (bone.cubes ?? []).flatMap((cube, cubeIndex) => {
           if (!selected.has(`${geometryIndex}:${boneIndex}:${cubeIndex}`)) return [];
           kept++;
           return [{
             ...cube,
             origin: shifted(cube.origin, delta),
-            ...(cube.pivot ? { pivot: shifted(cube.pivot, delta) } : cube.rotation ? { pivot: shifted(undefined, delta) } : {}),
+            ...(cube.pivot ? { pivot: shifted(cube.pivot, delta) } : {}),
           }];
         });
-        return {
-          ...bone,
-          pivot: shifted(bone.pivot, delta),
-          ...(bone.cubes ? { cubes } : {}),
-        };
+        if (!cubes.length) return;
+        cubesOf.set(bone.name, cubes);
+        for (let b: ShellJsonBone | undefined = bone, guard = 0; b && guard < geometry.bones.length; guard++, b = b.parent ? byName.get(b.parent) : undefined) keep.add(b.name);
       });
       if (!kept) return;
+      const bones = geometry.bones.filter(bone => keep.has(bone.name)).map((bone): ShellJsonBone => {
+        const { cubes: _dropped, ...rest } = bone;
+        const cubes = cubesOf.get(bone.name);
+        return { ...rest, pivot: shifted(bone.pivot, delta), ...(cubes ? { cubes } : {}) };
+      });
       const meshIndex = chunkMeshes.length;
       const meshId = `geometry.${PACK_NAMESPACE}.${id}_mesh_${meshIndex}`;
       const mesh = geo.meshes[geometryIndex]!;
@@ -251,16 +351,16 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
       });
     });
 
-    const oversizedCubes = partition.length === 1 && radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE > STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9 ? 1 : 0;
-    if (oversizedCubes) warnings.push(`${id}: one indivisible final cube reaches ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from its local root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block target; it was retained whole.`);
-    const own = new Set(partition.map(record => record.order));
+    // A cube that straddles the cell is drawn from this root all the same; one
+    // that still reaches past the target at the max scale is counted and named.
+    const oversizedCubes = partition.filter(record => cubeReach(record, root) * STATIC_SHELL_CULL_MAX_SCALE > STATIC_SHELL_RADIUS_LIMIT_BLOCKS + 1e-9).length;
+    if (oversizedCubes) warnings.push(`${id}: ${oversizedCubes} final cube${oversizedCubes === 1 ? '' : 's'} reach${oversizedCubes === 1 ? 'es' : ''} up to ${(radiusBlocks * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)} blocks from the cell root at ${STATIC_SHELL_CULL_MAX_SCALE}x, past the ${STATIC_SHELL_RADIUS_LIMIT_BLOCKS}-block target; retained whole (a cube straddling the ${STATIC_SHELL_CELL_BLOCKS}-block lattice by more than ${STATIC_SHELL_STRADDLE_MARGIN_BLOCKS} blocks).`);
     let buriedRootCubes = 0;
     for (const record of records) {
-      if (own.has(record.order)) continue;
       const box = shellBounds([record]);
       if ([0, 1, 2].every(axis => root[axis]! >= box.min[axis]! - 1e-9 && root[axis]! <= box.max[axis]! + 1e-9)) buriedRootCubes++;
     }
-    if (buriedRootCubes) warnings.push(`${id}: its candidate local lighting root is inside the transformed AABB of ${buriedRootCubes} final cube${buriedRootCubes === 1 ? '' : 's'} owned by another chunk.`);
+    if (buriedRootCubes) warnings.push(`${id}: its cell root is inside the transformed AABB of ${buriedRootCubes} final cube${buriedRootCubes === 1 ? '' : 's'}; kept (entity cubes are not blocks and dampen no light, so the root is lit like the air around it).`);
     const { partBoxesLdu: _partBoxes, ...withoutColliderBoxes } = geo;
     const chunkGeo: CompiledLdrawGeometry = {
       ...withoutColliderBoxes,
@@ -282,22 +382,12 @@ export function splitStaticShell(shellId: string, geo: CompiledLdrawGeometry): S
       warnings: [],
     };
     return {
-      id, geo: chunkGeo,
+      id, cell, geo: chunkGeo,
+      // The world is the JSON frame mirrored in Z (bedrock-geometry-faces.ts).
       offsetBlocks: [root[0], root[1], -root[2]],
-      radiusBlocks, oversizedCubes, buriedRootCubes,
+      radiusBlocks, oversizedCubes, buriedRootCubes, bones: bonesOf(chunkGeometries),
     };
   });
-  const buriedCandidates = chunks.filter(chunk => chunk.buriedRootCubes > 0);
-  if (buriedCandidates.length) {
-    warnings.push(`${shellId}: rejected the spatial partition because ${buriedCandidates.length} candidate lighting root${buriedCandidates.length === 1 ? '' : 's'} may be enclosed; the exact original actor was retained, so its ${(originalRadius * STATIC_SHELL_CULL_MAX_SCALE).toFixed(2)}-block reach at ${STATIC_SHELL_CULL_MAX_SCALE}x remains subject to the whole-actor culling limit.`);
-    return {
-      chunks: [{
-        id: shellId, geo, offsetBlocks: [0, 0, 0], radiusBlocks: originalRadius,
-        oversizedCubes: chunks.reduce((count, chunk) => count + chunk.oversizedCubes, 0), buriedRootCubes: 0,
-      }],
-      warnings,
-    };
-  }
   return { chunks, warnings };
 }
 
