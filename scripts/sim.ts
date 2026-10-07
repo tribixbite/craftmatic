@@ -25,7 +25,8 @@
  *   --shots      child-play also takes first-person pictures (after placing, after
  *                the figures lived) and writes them there as PNG.
  *
- * Exit 1 when a scenario fails (child-play, files) or a regression's verdict is FAIL.
+ * Exit 1 for a failed, errored or unmodelled scenario, an unreadable pack,
+ * a regression verdict FAIL / NOT TESTED, or no applicable selected cases.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import sharp from 'sharp';
@@ -61,9 +62,12 @@ let failed = 0;
 if (mode === 'regressions') {
   const newDir = flag('new');
   if (!newDir) { console.error('--scenario=regressions needs --new=<dir> (the current tree\'s packs)'); process.exit(2); }
+  const selected = REGRESSIONS.filter(c => !only || c.id.includes(only));
+  if (!selected.length) { console.error(`--scenario=regressions selected no cases${only ? ` for --only=${only}` : ''}`); process.exit(2); }
+  console.log(`Regression selection: ${selected.length}/${REGRESSIONS.length} case(s)${only ? ` (--only=${only})` : ''}`);
   const rows: RegressionRow[] = [];
-  for (const c of REGRESSIONS) {
-    if (only && !c.id.includes(only)) continue;
+  let notTested = 0;
+  for (const c of selected) {
     const run = async (file: string): Promise<RegressionRow['old']> => {
       if (!existsSync(file)) return { error: `missing ${file}` };
       const addon = await load(file);
@@ -72,13 +76,27 @@ if (mode === 'regressions') {
       const r = await runScenario(c.scenario(pack), [addon], { handlers: craftmaticHandlers(pack, addon) });
       const j = c.judge(r, pack);
       const failedSteps = r.steps.filter(s => !s.ok).map(s => `${s.label}: ${s.error}`);
-      return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), evidence: `${j.evidence}${failedSteps.length ? ` [step error: ${failedSteps.join('; ')}]` : ''}`, status: r.status, ms: r.ms };
+      if (r.status === 'unknown' || r.status === 'error' || failedSteps.length) {
+        return { error: `${file}: ${r.status}${failedSteps.length ? `; ${failedSteps.join('; ')}` : ''}${r.unmodelled.length ? `; unmodelled ${r.unmodelled.map(u => u.member).join(', ')}` : ''}` };
+      }
+      // A targeted symptom can be fixed while another invariant fails. Put
+      // that failure first so a red verdict never prints only success text.
+      const otherFailures = r.status === 'fail' && !j.reproduced
+        ? r.violations.map(v => `[${v.invariant}] ${v.message}`).join('; ')
+        : '';
+      const evidence = otherFailures ? `${otherFailures}; targeted check: ${j.evidence}` : j.evidence;
+      return { reproduced: j.reproduced, ...(j.attribution ? { attribution: j.attribution } : {}), evidence, status: r.status, ms: r.ms };
     };
     const oldR = await run(c.oldPack), newR = await run(resolve(newDir, `${c.newStem}.mcaddon`));
+    const unavailable = [['old', oldR], ['new', newR]].filter((x): x is [string, { error: string }] => 'error' in x[1]);
     const oldOk = !('error' in oldR) && oldR.reproduced;
-    const newOk = !('error' in newR) && (c.expectNew === 'pass' ? !newR.reproduced : newR.reproduced && newR.attribution === 'model');
-    const verdict = !oldOk ? `NOT REPRODUCED on the old pack${c.limits ? ` (${c.limits})` : ''}` : newOk ? 'OK' : 'FAIL';
-    if (verdict === 'FAIL') failed++;
+    const newOk = !('error' in newR) && (c.expectNew === 'pass' ? newR.status === 'pass' && !newR.reproduced : newR.reproduced && newR.attribution === 'model');
+    const verdict = unavailable.length
+      ? `NOT TESTED (${unavailable.map(([side, result]) => `${side}: ${result.error}`).join('; ')})`
+      : !oldOk ? `NOT TESTED (not reproduced on the old pack${c.limits ? `; ${c.limits}` : ''})`
+        : newOk ? 'OK' : 'FAIL';
+    if (verdict === 'FAIL' || verdict.startsWith('NOT TESTED')) failed++;
+    if (verdict.startsWith('NOT TESTED')) notTested++;
     rows.push({ id: c.id, title: c.title, evidence: c.evidence, expectNew: c.expectNew, old: oldR, new: newR, verdict, ...(c.limits ? { limits: c.limits } : {}) });
     console.log(`${c.id}: old ${'error' in oldR ? oldR.error : oldR.reproduced ? `REPRODUCED${oldR.attribution ? ` (${oldR.attribution})` : ''}` : 'not reproduced'}; new ${'error' in newR ? newR.error : newR.reproduced ? `REPRODUCED${newR.attribution ? ` (${newR.attribution})` : ''}` : 'not reproduced'} -> ${verdict}`);
     for (const [k, x] of [['old', oldR], ['new', newR]] as const) if (!('error' in x)) console.log(`    ${k}: ${x.evidence.slice(0, 300)}`);
@@ -86,6 +104,7 @@ if (mode === 'regressions') {
   const md = regressionMarkdown(rows);
   if (flag('md')) writeFileSync(flag('md')!, md);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(rows, null, 1));
+  console.log(`\n${rows.length} selected regression(s); ${failed - notTested} failed; ${notTested} not tested.`);
   process.exit(failed ? 1 : 0);
 }
 
@@ -101,7 +120,7 @@ if (mode === 'hop') {
     if (only && !c.scenario.name.includes(only)) continue;
     const r = await runScenario(c.scenario, c.addons, { handlers: c.handlers });
     report.results.push(r);
-    if (r.status === 'fail' || r.status === 'error') failed++;
+    if (r.status !== 'pass') failed++;
     console.log(statusLine(r));
     for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 220)}`);
     for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
@@ -110,22 +129,25 @@ if (mode === 'hop') {
   report.ms = Math.round(performance.now() - t0);
   if (flag('md')) writeFileSync(flag('md')!, markdownReport([report]));
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify([report], null, 1));
-  process.exit(failed ? 1 : 0);
+  if (!report.results.length) console.error('hop: NOT TESTED — no scenarios matched');
+  process.exit(failed || !report.results.length ? 1 : 0);
 }
 
 if (!packs.length) { console.error('usage: bun scripts/sim.ts <pack.mcaddon | dir>… [--scenario=child-play|regressions|vehicles|<file.ts>] [--json=] [--md=] [--quick] [--only=] [--new=<dir>]'); process.exit(2); }
 
 if (mode === 'vehicles') {
   const reports: PackReport[] = [], rows: CourseRow[] = [];
+  let selected = 0;
   for (const file of packs) {
     const t0 = performance.now();
     const report: PackReport = { pack: basename(file), results: [], ms: 0 };
     try {
       const addon = await load(file);
       const pack = readCraftmaticPack(addon);
-      if (!pack) { report.error = 'not a craftmatic pack'; reports.push(report); continue; }
+      if (!pack) { report.error = 'not a craftmatic pack'; failed++; reports.push(report); continue; }
       report.label = pack.placement.label;
       const scenarios = vehicleScenarios(pack).filter(s => !only || s.name.includes(only));
+      selected += scenarios.length;
       console.log(`${report.pack}: ${scenarios.length} scripted vehicle(s)`);
       for (const s of scenarios) {
         const fresh = await load(file);
@@ -133,13 +155,13 @@ if (mode === 'vehicles') {
         const r = await runScenario(s, [fresh], { handlers: { ...craftmaticHandlers(p, fresh), ...vehicleCourseHandlers(p) } });
         report.results.push(r);
         rows.push(...((r.state['course'] as CourseRow[] | undefined) ?? []));
-        if (r.status === 'fail' || r.status === 'error') failed++;
+        if (r.status !== 'pass') failed++;
         console.log(statusLine(r));
         for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 220)}`);
         for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
         for (const n of r.notes) console.log(`      ${n.slice(0, 400)}`);
       }
-    } catch (e) { report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
+    } catch (e) { failed++; report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
     report.ms = Math.round(performance.now() - t0);
     reports.push(report);
   }
@@ -147,6 +169,10 @@ if (mode === 'vehicles') {
   console.log(`\n${table}`);
   if (flag('md')) writeFileSync(flag('md')!, `${table}\n${markdownReport(reports)}`);
   if (flag('json')) writeFileSync(flag('json')!, JSON.stringify({ course: rows, reports }, null, 1));
+  if (!selected) {
+    console.error(`vehicles: NOT TESTED — no scripted vehicles matched${only ? ` --only=${only}` : ''} in ${reports.length} pack(s)`);
+    process.exit(1);
+  }
   process.exit(failed ? 1 : 0);
 }
 
@@ -164,7 +190,7 @@ for (const file of packs) {
   try {
     const addon = await load(file);
     const cp = childPlay(addon, { quick, shots: !!shotsDir });
-    if (!cp) { report.error = 'not a craftmatic pack (no scripts/placement.js)'; reports.push(report); console.log(`${report.pack}: ${report.error}`); continue; }
+    if (!cp) { failed++; report.error = 'not a craftmatic pack (no scripts/placement.js)'; reports.push(report); console.log(`${report.pack}: ${report.error}`); continue; }
     report.label = cp.pack.placement.label;
     const scenarios = (custom ? custom(cp.pack) : cp.scenarios).filter(s => !only || s.name.includes(only));
     console.log(`${report.pack}: ${scenarios.length} scenarios`);
@@ -179,12 +205,12 @@ for (const file of packs) {
       }
       r.state['snapshots'] = shots.map(sh => sh.name);
       report.results.push(r);
-      if (r.status === 'fail') failed++;
+      if (r.status !== 'pass') failed++;
       console.log(statusLine(r));
       for (const v of r.violations) console.log(`      [${v.invariant}] ${v.message.slice(0, 220)}`);
       for (const st of r.steps.filter(x => !x.ok)) console.log(`      step ${st.label} ERROR: ${st.error}`);
     }
-  } catch (e) { report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
+  } catch (e) { failed++; report.error = (e as Error).message; console.log(`${report.pack}: ERROR ${report.error}`); }
   report.ms = Math.round(performance.now() - t0);
   reports.push(report);
 }
@@ -192,4 +218,5 @@ const ranking = unmodelledTotals(reports.flatMap(r => r.results));
 console.log(`\n${reports.length} packs; ${reports.flatMap(r => r.results).length} scenarios; ${failed} failed. Unmodelled: ${ranking.length ? ranking.map(u => `${u.member} x${u.count}`).join(', ') : 'none'}`);
 if (flag('md')) writeFileSync(flag('md')!, markdownReport(reports));
 if (flag('json')) writeFileSync(flag('json')!, JSON.stringify(reports, null, 1));
-process.exit(failed ? 1 : 0);
+if (!reports.some(r => r.results.length)) console.error(`${mode}: NOT TESTED — no scenarios ran`);
+process.exit(failed || !reports.some(r => r.results.length) ? 1 : 0);

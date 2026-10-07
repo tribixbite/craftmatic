@@ -277,6 +277,15 @@ Walk add-on's legend says how many are passable at the chosen size.
 
 ## Clearance: colliders pulled back to the geometry
 
+Ride set-down search (2026-10-05): 10797's slide terminal has no legal
+standing pose within the former 1.5-block search. The runtime now searches
+up to `RIDE.SETDOWN_REACH_BLOCKS = 2` (scaled with the ride, minimum 100%),
+retaining the existing collision-free body and three-block maximum floor
+drop requirements. A faithful substitution of only the old runtime's search
+radius fixes both child-play collisions. The initially proposed compiler
+landing trim was unnecessary and was removed; source geometry and collider
+clearance policy remain unchanged.
+
 The user's brief (2026-09-25): *"at minifig = player height scale most
 hallways and rooms are too narrow or low for the player to fit … offset
 virtual boundaries by maybe 1/4 to 1/2 block … it must never be applied

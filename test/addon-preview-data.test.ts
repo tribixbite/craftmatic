@@ -10,12 +10,14 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   buildAddonPreviewModel, classifyAddonEntity, columnBoxes, defaultLegendState, entityCollisionFromSources, entitySpawnsAt, extractJsonAfter,
   laidColliderBlocks, legendCounts, loadAddonPreviewModel, pinballPlanePoint, pinballRuntimeWorldPoint, placedDirection, placedPoint,
-  reachOverlay, recommendedSize, toggleLegend, treadBlocksAt,
+  reachOverlay, readAddonPreviewFiles, recommendedSize, toggleLegend, treadBlocksAt,
   type AddonPreviewModel,
 } from '../web/src/ui/addon-preview-data.js';
 import { ScaledColliderGrid, type SourceCell } from '../web/src/engine/bedrock-collider-scale.js';
 import { encodeColliderRuns, encodeTreadPlan } from '../web/src/engine/bedrock-placement-pack.js';
 import type { PinballMap } from '../web/src/engine/bedrock-pinball.js';
+import { createZip } from '../web/src/engine/zip-utils.js';
+import { encodePngRgba } from '../web/src/engine/lego-resource-pack.js';
 
 const PACK_10303 = 'output/bedrock-entity-qa/10303-owncars.mcaddon';
 const PACK_10261 = 'output/bedrock-entity-qa/10261-owncars.mcaddon';
@@ -34,6 +36,24 @@ describe('extractJsonAfter', () => {
     expect(extractJsonAfter(src, 'const CONFIG')).toEqual({ a: '}{][', b: [1, { c: '"}' }], d: { e: 1 } });
     expect(extractJsonAfter(src, 'const other')).toEqual({ z: 1 });
     expect(extractJsonAfter(src, 'const missing')).toBeUndefined();
+  });
+});
+
+describe('readAddonPreviewFiles material assets', () => {
+  it('extracts the RP manifest, texture set and actual uniform MER bytes', async () => {
+    const mer = new Uint8Array([31, 17, 219, 255]);
+    const pack = await createZip([
+      { name: 'X_BP/scripts/placement.js', data: new TextEncoder().encode('const CONFIG = {"id":"x","width":1,"height":1,"length":1,"actors":[]};') },
+      { name: 'X_RP/manifest.json', data: new TextEncoder().encode(JSON.stringify({ modules: [{ type: 'resources' }], capabilities: ['pbr'] })) },
+      { name: 'X_RP/textures/entity/s.texture_set.json', data: new TextEncoder().encode(JSON.stringify({ 'minecraft:texture_set': { metalness_emissive_roughness: 'physically_authored_values' } })) },
+      { name: 'X_RP/textures/entity/physically_authored_values.png', data: encodePngRgba(1, 1, mer) },
+    ]);
+    const files = await readAddonPreviewFiles(pack.buffer.slice(pack.byteOffset, pack.byteOffset + pack.byteLength) as ArrayBuffer);
+    expect(files.appearanceSources?.has('X_RP/manifest.json')).toBe(true);
+    expect(files.appearancePbr?.enabled).toBe(true);
+    expect(files.appearancePbr?.byTexture.get('textures/entity/s')).toEqual({
+      metalness: 31 / 255, emissive: 17 / 255, roughness: 219 / 255, source: 'texture-set-mer-png',
+    });
   });
 });
 

@@ -381,10 +381,12 @@ const snapAxis = (v: Vec3): Vec3 | null => {
  * the game is a proper rotation away (`world = (−x, y, −z)` at yaw 0, proven
  * on the Pixel): a texture must therefore read UNMIRRORED from outside in
  * this frame, with the image's right along `(−n) × up` and its down along
- * −Y. Bedrock's JSON mirrors X, so a render normal of +X is the JSON `west`
- * face and −X is `east`. A player skin's face on its head's `north` face
- * agrees: in JSON terms north runs u → +X, south u → −X, east u → +Z,
- * west u → −Z, and v → −Y on all four.
+ * −Y. The Bedrock codec mirrors cube X coordinates but PRESERVES face keys:
+ * render +X stays `east`, −X stays `west` (Blockbench compileCube). Thus east
+ * occupies the numeric minimum-X side in the emitted JSON, west maximum-X.
+ * Swapping their names a second time hid 10261's coaster face inside its
+ * head on Saga (2026-10-06). In numeric JSON coordinates north runs u → +X,
+ * south u → −X, east u → −Z, west u → +Z, and v → −Y on all four.
  *
  * `normal`, `right` and `down` are where the image's outward normal, +column
  * and +row point in the render frame. Null when the face does not look along
@@ -397,7 +399,7 @@ export function orientFace(img: FaceImage, normal: Vec3, right: Vec3, down: Vec3
   const m: Vec3 = [-n[0], -n[1], -n[2]];
   const rc: Vec3 = [m[1] * up[2] - m[2] * up[1], m[2] * up[0] - m[0] * up[2], m[0] * up[1] - m[1] * up[0]];
   const dc: Vec3 = [0, -1, 0];
-  const face: BedrockFaceName = n[2] === -1 ? 'north' : n[2] === 1 ? 'south' : n[0] === 1 ? 'west' : 'east';
+  const face: BedrockFaceName = n[2] === -1 ? 'north' : n[2] === 1 ? 'south' : n[0] === 1 ? 'east' : 'west';
   // Output column runs along rc, output row along dc; find each in the source.
   const colFromCol = dot(rc, r), colFromRow = dot(rc, d);
   const rowFromCol = dot(dc, r), rowFromRow = dot(dc, d);

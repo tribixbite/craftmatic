@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { BOX_UV_MIN_DRAWN_SIZE, boxUvSafeCube, compileLdrawEntityGeometry, cullHiddenCuboids } from '../web/src/engine/ldraw-entity-compiler.js';
+import { boxUvSafeCube, compileLdrawEntityGeometry, cullHiddenCuboids } from '../web/src/engine/ldraw-entity-compiler.js';
 import { boxUvFaceDrawn, droppedVisibleArea, entryFromCompiled, figureHoles, figureReferenceSurfaces } from '../web/src/engine/figure-holes.js';
 import { buildAddonAppearance } from '../web/src/ui/addon-appearance.js';
 import { worldFaces } from '../web/src/engine/bedrock-geometry-faces.js';
@@ -67,14 +67,24 @@ describe('box UV floor: what the device drops, and the declared-size fix', () =>
     expect(boxUvSafeCube(decal)).toBe(false);
   });
 
-  it('gives an exact planar cube a tiny positive drawn extent without moving its centre', () => {
-    const cube = { origin: [10, 20, 30] as Vec3, size: [4, 0, 6] as Vec3, uv: [0, 0] as [number, number] };
-    expect(boxUvSafeCube(cube)).toBe(true);
-    expect(cube.inflate).toBe(-1);
-    expect(cube.size).toEqual([6, 2 + BOX_UV_MIN_DRAWN_SIZE, 8]);
-    expect(cube.origin[0]).toBe(9);
-    expect(cube.origin[1]).toBeCloseTo(19 - BOX_UV_MIN_DRAWN_SIZE / 2, 2);
-    expect(cube.origin[2]).toBe(29);
+  it.each([0, 0.01, 0.02, 0.1, 0.24, 0.25, 0.99, 1])('preserves drawn extents of %s units on every axis', extent => {
+    // A UV repair is not a geometry repair: even a planar face must stay on
+    // its source plane. The old 0.25-unit clamp also enlarged nonzero details
+    // AFTER coplanar separation, undoing the separation's work.
+    for (let axis = 0; axis < 3; axis++) {
+      const size: Vec3 = [4, 6, 8]; size[axis] = extent;
+      const origin: Vec3 = [-10.25, 20.01, -30.99];
+      const cube = { origin: [...origin] as Vec3, size: [...size] as Vec3, uv: [0, 0] as [number, number], inflate: undefined as number | undefined };
+      expect(boxUvSafeCube(cube)).toBe(extent < 1);
+      const inflate = cube.inflate ?? 0;
+      for (let a = 0; a < 3; a++) {
+        expect(cube.origin[a]! - inflate).toBeCloseTo(origin[a]!, 10);
+        expect(cube.size[a]! + 2 * inflate).toBeCloseTo(size[a]!, 10);
+      }
+      const once = structuredClone(cube);
+      expect(boxUvSafeCube(cube)).toBe(false);
+      expect(cube).toEqual(once);
+    }
   });
 
   it('reads an inflated cube back as the box it draws (pack reader), keeping the declared size for the UV', () => {
@@ -135,6 +145,18 @@ describe.skipIf(!existsSync(ROOT))('figures on the real library: no face the dev
     const before = await compileLdrawEntityGeometry('before', 'figure', figure.bricks, { partGeometry: provider, boxUvFloorSafe: false });
     const after = await compileLdrawEntityGeometry('after', 'figure', figure.bricks, { partGeometry: provider });
     const eb = entryFromCompiled(before), ea = entryFromCompiled(after);
+    // Read the emitted JSON back through the same path as the Walker. UV
+    // padding must preserve every face after export transforms and overlap
+    // separation, including thin details the old probe card never exercised.
+    const facesOf = (entry: typeof ea) => worldFaces([{ typeId: 'figure', kind: 'figure', entry, at: { x: 0, y: 0, z: 0 }, yawDeg: 0 }]);
+    const beforeFaces = facesOf(eb), afterFaces = facesOf(ea);
+    expect(afterFaces).toHaveLength(beforeFaces.length);
+    for (let i = 0; i < beforeFaces.length; i++) {
+      const beforeCorners = beforeFaces[i]!.corners, afterCorners = afterFaces[i]!.corners;
+      for (let c = 0; c < beforeCorners.length; c++) for (let a = 0; a < 3; a++) {
+        expect(afterCorners[c]![a]).toBeCloseTo(beforeCorners[c]![a]!, 8);
+      }
+    }
     const views = ['+x', '-x', '+y', '-y', '+z', '-z'];
     expect(droppedVisibleArea(eb, 'v', { views }).share).toBeGreaterThan(0.05);
     expect(droppedVisibleArea(ea, 'v', { views }).area).toBe(0);

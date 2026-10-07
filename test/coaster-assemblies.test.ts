@@ -150,6 +150,40 @@ describe('coaster assemblies: ride cars', () => {
     expect(result.strays).toEqual([]);
   });
 
+  it('uses MPD assembly provenance to keep station pieces out while preserving nested bodies, rider props and repeated car instances', () => {
+    const path = (...sourcePath: string[]) => (b: ParsedBrick, step: number): ParsedBrick => ({ ...b, sourcePath, step });
+    const authoredCar = (x: number, withRider: boolean): ParsedBrick[] => {
+      const parts = carAt(x, 0, withRider);
+      return parts.map((part, index) => {
+        if (index <= 2) return path('main.ldr', 'ride.ldr', 'train.ldr', 'chassis.ldr')(part, 20);
+        // Nested STEP directives advance independently, so body/chassis step
+        // equality is deliberately not part of the ownership evidence.
+        if (index === 3) return path('main.ldr', 'ride.ldr', 'train.ldr', 'body.ldr')(part, 23);
+        return path('main.ldr', 'ride.ldr', 'rider.ldr')(part, 21);
+      });
+    };
+    const route = STRAIGHT_ROUTE.map(part => path('main.ldr', 'ride.ldr', 'track.ldr')(part, 2));
+    const first = authoredCar(-20, true);
+    const second = authoredCar(106, false);
+    const nestedTrim = path('main.ldr', 'ride.ldr', 'train.ldr', 'body.ldr', 'trim.ldr')(brick('3023.dat', -18, -62, 0), 24);
+    const riderProp = path('main.ldr', 'ride.ldr', 'rider.ldr')(brick('3023.dat', -38, -60, 8), 21);
+    // Its origin is inside the first chassis footprint, just like 10261's
+    // boarding-platform stripe, but it belongs to an earlier station build.
+    const stationStripe = path('main.ldr', 'ride.ldr', 'station.ldr')(brick('3023.dat', -16, -54, 36), 5);
+    // The second car has no rider provenance. An empty rider-path list must
+    // not reopen the gate for another station piece beside that car.
+    const stationStripe2 = path('main.ldr', 'ride.ldr', 'station.ldr')(brick('3023.dat', 110, -54, 36), 5);
+    const result = run([...route, ...first, ...second, nestedTrim, riderProp, stationStripe, stationStripe2]);
+    const cars = result.cars.filter(car => car.route).sort((a, b) => a.frame.originLdu[0] - b.frame.originLdu[0]);
+
+    expect(cars).toHaveLength(2);
+    // The first keeps chassis, mounted wheels, sibling body, nested trim and
+    // the seated rider's prop. The second repeated `train.ldr` instance keeps
+    // its own four parts; nearest-chassis scoring still separates instances.
+    expect(cars[0]!.bricks).toEqual([2, 3, 4, 5, 14, 15]);
+    expect(cars[1]!.bricks).toEqual([10, 11, 12, 13]);
+  });
+
   it('accepts a composite chassis by its own description, copies a ridden sibling seat, and measures the train pitch', () => {
     const composite = (x: number, withRider: boolean): ParsedBrick[] => carAt(x, 0, withRider).filter(b => b.part !== '24869.dat').map(b => b.part === '26021.dat' ? { ...b, part: '26021c01.dat' } : b);
     const result = run([...STRAIGHT_ROUTE, ...composite(-20, true), ...composite(106, false)]);
@@ -445,9 +479,21 @@ describe.skipIf(!HAVE_CORPUS)('10261 Roller Coaster (IOModel2V2 source)', () => 
  */
 describe.skipIf(!HAVE_EMBEDDED)('10261 Roller Coaster (embedded-part MPD source)', () => {
   it('finds the six cars, both trains and the chain lift through the set prefix', async () => {
-    const { result } = await detectFile(EMBEDDED_10261);
+    const { bricks, result } = await detectFile(EMBEDDED_10261);
     const ride = result.cars.filter(car => car.route);
     expect(ride).toHaveLength(6);
+
+    // The first train is parked beside the station. Spatial membership alone
+    // used to carry four station tiles away with its front car (including the
+    // 1 x 8 tan boarding stripe seen as a 48-unit panel in the native pack).
+    expect(ride.map(car => car.bricks.length)).toEqual([16, 13, 14, 13, 13, 16]);
+    const front = ride.find(car => car.chassis.index === 4094)!;
+    expect(front.bricks).toEqual(Array.from({ length: 16 }, (_, index) => 4094 + index));
+    expect(front.bricks.some(index => [1231, 1232, 1233, 1302].includes(index))).toBe(false);
+    // The third car's held ticket shares its seated rider's authored branch,
+    // so filtering unrelated scenery must not strand that prop in the shell.
+    expect(ride.find(car => car.chassis.index === 4123)!.bricks).toContain(4198);
+    expect(bricks[4198]!.part).toBe('3069bp82.dat');
 
     // The placed id still carries the document's set number, as authored...
     expect(new Set(ride.map(car => car.chassis.part))).toEqual(new Set(['10261 - 26021.dat']));

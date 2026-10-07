@@ -53,6 +53,24 @@ def check(path):
         deps = [str(x.get('uuid')) for x in mans[bp[0]][2].get('dependencies', [])]
         if mans[rp[0]][0] not in deps:
             problems.append('behaviour pack does not depend on the resource pack uuid')
+    # Check the emitted assets, not the exporter's prediction of which actor
+    # branches use PBR. Coaster-only packs previously shipped all their maps
+    # but omitted this flag because their actors were compiled later.
+    for manifest in rp:
+        root = manifest.rsplit('manifest.json', 1)[0]
+        sets = [n for n in names if n.startswith(root) and n.endswith('.texture_set.json')]
+        if sets and 'pbr' not in mans[manifest][2].get('capabilities', []):
+            problems.append(f'{manifest}: {len(sets)} texture sets but no pbr capability')
+        for texture_set in sets:
+            channels = json.loads(z.read(texture_set).decode('utf-8-sig')).get('minecraft:texture_set', {})
+            folder = texture_set.rsplit('/', 1)[0] + '/'
+            for channel in ('color', 'metalness_emissive_roughness', 'normal', 'heightmap'):
+                value = channels.get(channel)
+                # Uniform channel values are valid; image references are
+                # relative to the texture set's folder, without an extension.
+                if isinstance(value, str) and not any(folder + value + ext in names for ext in ('.png', '.tga')):
+                    problems.append(f'{texture_set}: {channel} image {value!r} has no file')
+        if sets: notes.append(f'{len(sets)} PBR texture sets, capability and image references checked')
     # scripts
     for m, (_u, kinds, d) in mans.items():
         for mo in d.get('modules', []):

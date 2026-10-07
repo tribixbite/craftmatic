@@ -148,9 +148,27 @@ export function wandHandlers(pack: CraftmaticPack): Record<string, StepHandler> 
       // The placement tags every entity it spawns (`cmu_...`); one still standing is a leftover. The pack's other
       // entities (a summoned cloud, which fades by itself) are noted, not failed.
       const ours = new Set(ctx.sim.engine.definitions.all().map(d => d.identifier));
+      const placementActors = () => [...ctx.sim.engine.entities.values()].filter(e => e.valid && ours.has(e.typeId) && [...e.tags].some(t => t.startsWith('cmu_')));
+      const remote = placementActors().filter(e => !ctx.sim.engine.isEntityLoaded(e));
+      // Undo deliberately defers a driven/flown actor outside the placement box
+      // until its chunk loads. Load every surviving actor's actual chunk and
+      // require the runtime's entityLoad cleanup to finish; a loaded leftover
+      // still fails the same invariant below.
+      const auditAreas: string[] = [];
+      for (const [i, e] of remote.entries()) {
+        const name = `cm_undo_audit_${ctx.sim.engine.tick}_${i}`, x = Math.floor(e.location.x) & ~15, z = Math.floor(e.location.z) & ~15;
+        ctx.sim.engine.tickingAreas.set(name, { name, dimension: e.dimension, x0: x, z0: z, x1: x + 15, z1: z + 15 });
+        auditAreas.push(name);
+      }
+      if (auditAreas.length) {
+        await ctx.run(2);
+        for (const name of auditAreas) ctx.sim.engine.tickingAreas.delete(name);
+        await ctx.run(1);
+      }
       const alive = [...ctx.sim.engine.entities.values()].filter(e => e.valid && ours.has(e.typeId));
       const left = alive.filter(e => [...e.tags].some(t => t.startsWith('cmu_')));
       const others = alive.filter(e => !left.includes(e));
+      if (remote.length && !left.length) ctx.note(`after Undo, loaded ${remote.length} remote placement actor chunk${remote.length === 1 ? '' : 's'}; deferred cleanup removed every actor`);
       if (others.length) ctx.note(`after Undo, ${others.length} entit${others.length === 1 ? 'y' : 'ies'} the placement did not spawn remain: ${[...new Set(others.map(e => e.typeId))].join(', ')}`);
       if (left.length) ctx.violate({ invariant: 'nothing-left-after-undo', message: `${left.length} entit${left.length === 1 ? 'y' : 'ies'} left after Undo: ${[...new Set(left.map(e => e.typeId))].slice(0, 6).join(', ')}`, evidence: { entities: left.slice(0, 10).map(e => ({ type: e.typeId, at: e.location })) } });
       const snap = ctx.state[SNAPSHOT_KEY] as { origin: { x: number; y: number; z: number }; dims: { w: number; h: number; l: number }; ids: number[] } | undefined;

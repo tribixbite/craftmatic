@@ -495,16 +495,16 @@ export type HoverParams = CarParams & { readonly RIDE_HEIGHT: number };
  * under the vehicle and one block ahead of its nose), so a wingtip, a wide
  * hull or a car's corner passed straight through a tree trunk or a pier.
  *
- *   - `SPACING`: the most two probe points on the perimeter are apart, blocks.
- *     Under one block, so a one-block trunk cannot slip between two probes.
+ *   - `SPACING`: the most two probe points on the perimeter or vertically
+ *     through the clear band are apart, blocks. Under one block, so a trunk
+ *     or a one-block tree crown cannot slip between two probes.
  *   - `MAX_POINTS`: perimeter probes at most; a bigger vehicle spreads them
  *     (a 36-block barge's 100-block perimeter still gets 0.9 spacing).
- *   - `MAX_LEVELS`: heights tested between the footprint's `lo` and `hi`.
  *   - `SWEEP_STEP`: the most a probe point travels between two tested poses,
  *     blocks, so a 32 blocks/s aircraft (1.6 blocks a tick) cannot jump a trunk.
  *   - `MAX_SUBSTEPS`: poses tested per tick at most.
  */
-export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, MAX_LEVELS: 4, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4 } as const;
+export const FOOTPRINT = { SPACING: 0.9, MAX_POINTS: 128, SWEEP_STEP: 0.8, MAX_SUBSTEPS: 4 } as const;
 export type FootprintParams = { readonly [K in keyof typeof FOOTPRINT]: number };
 
 /** Where a vehicle is for the footprint test: its reference point (the model's base centre), heading and nose-up pitch, degrees (Bedrock yaw). */
@@ -542,21 +542,22 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   while (dyaw > 180) dyaw -= 360;
   while (dyaw < -180) dyaw += 360;
   // Perimeter probes as (along, side) offsets, each edge at <= SPACING, with the
-  // edge's outward normal. Only the LEADING boundary is probed: a point moving
-  // inward (or along its edge) sweeps space the vehicle itself covered, which
-  // was clear, so straight ahead that is the front edge alone, and in a turn
-  // the half of the perimeter that swings outward. A 36-block barge probed
+  // edge's outward normal. At constant height/pitch only the LEADING boundary
+  // is probed: a point moving inward (or along its edge) sweeps space the
+  // vehicle itself covered, which was clear: straight ahead that is the front
+  // edge alone; in a turn, the half of the perimeter that swings outward. A 36-block barge probed
   // its whole perimeter at 890 checks and 20-24 ms a tick on the Pixel
   // (world 924, 2026-09-25); its bow alone is a sixth of that.
   const perimeter = 4 * (L + W);
   const spacing = Math.max(P.SPACING, perimeter / P.MAX_POINTS);
-  const moveX = to.x - from.x, moveZ = to.z - from.z;
-  const vertical = Math.abs(to.y - from.y) > 0.01 && Math.hypot(moveX, moveZ) < 0.01 && Math.abs(dyaw) < 1e-3;
   const offsets: Array<[number, number]> = [];
   /** Whether the boundary point (a, s) with outward normal (na, ns) moves outward between the poses. */
   const outward = (a: number, s: number, na: number, ns: number): boolean => {
-    if (vertical) return true; // a straight lift or drop: every point meets new space above or below
     const p0 = pointAt(from, a, s, 0), p1 = pointAt(to, a, s, 0);
+    // A falling/rising or pitching edge meets new vertical space even while
+    // moving inward horizontally. Skipping the tail here let a car descending
+    // a hill drop its rear band into the ledge behind it (42172 course).
+    if (Math.abs(p1[1] - p0[1]) > 1e-6) return true;
     const r = rad(from.yaw), fx = -Math.sin(r), fz = Math.cos(r), rx = -Math.cos(r), rz = -Math.sin(r);
     const nx = fx * na + rx * ns, nz = fz * na + rz * ns;
     return (p1[0] - p0[0]) * nx + (p1[2] - p0[2]) * nz > 1e-6;
@@ -571,11 +572,27 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
   edge(L, -W, L, W, 1, 0); edge(L, W, -L, W, 0, 1); edge(-L, W, -L, -W, -1, 0); edge(-L, -W, L, -W, 0, -1);
   const span = Math.max(0, fp.hi - fp.lo);
   const levels: number[] = [];
-  const nLevels = Math.min(P.MAX_LEVELS, Math.max(1, Math.ceil(span) + 1));
+  // Four samples over a tall ship left multi-block gaps (the Milano crossed
+  // a tree crown for 28 ticks). Keep height spacing independent of hull size.
+  const nLevels = Math.max(1, Math.ceil(span / P.SPACING) + 1);
   for (let k = 0; k < nLevels; k++) levels.push(fp.lo + (nLevels === 1 ? 0 : span * k / (nLevels - 1)));
   const travel = Math.hypot(to.x - from.x, to.y - from.y, to.z - from.z) + Math.abs(rad(dyaw)) * Math.hypot(L, W);
   const steps = Math.min(P.MAX_SUBSTEPS, Math.max(1, Math.ceil(travel / P.SWEEP_STEP)));
+  // `checks` is the number of target boundary samples tested. It intentionally
+  // does not count the old-pose confirmation or the lazy occupancy-cache
+  // lookups, so telemetry remains comparable across overlap outcomes.
   let checks = 0;
+  let occupiedAtFrom: Set<string> | undefined;
+  const cellKey = (p: readonly number[]): string => `${Math.floor(p[0]!)}:${Math.floor(p[1]!)}:${Math.floor(p[2]!)}`;
+  const originalOccupiedCells = (): Set<string> => {
+    if (occupiedAtFrom) return occupiedAtFrom;
+    occupiedAtFrom = new Set<string>();
+    for (const [a, s] of offsets) for (const h of levels) {
+      const p = pointAt(from, a, s, h);
+      if (solid(p[0], p[1], p[2])) occupiedAtFrom.add(cellKey(p));
+    }
+    return occupiedAtFrom;
+  };
   for (let k = 1; k <= steps; k++) {
     const t = k / steps;
     const pose: FootprintPose = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t, z: from.z + (to.z - from.z) * t, yaw: from.yaw + dyaw * t, pitch: from.pitch + (to.pitch - from.pitch) * t };
@@ -585,6 +602,11 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
       if (!solid(p[0], p[1], p[2])) continue;
       const q = pointAt(from, a, s, h);
       if (solid(q[0], q[1], q[2])) continue;
+      // A source-placed vehicle may start partly inside the model it was
+      // extracted from. While it rises and moves out, a trailing point may
+      // enter a voxel another part of the original boundary already occupied.
+      // Permit no new occupied voxel: a new crown or ceiling still blocks.
+      if (p[1] > q[1] + 1e-6 && originalOccupiedCells().has(cellKey(p))) continue;
       return { blocked: true, checks, at: p };
     }
   }

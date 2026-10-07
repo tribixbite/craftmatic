@@ -22,12 +22,12 @@ import { minifigFromSpec } from './minifig-rig.js';
 import { creatorFigureBehavior, minifigWandScript } from './bedrock-minifig-wand.js';
 import { MAX_PRINT_LAYERS, MINIFIG_CREATOR_COLOURS, POSE_PROPERTY, type MinifigLibrarySpec, type MinifigCreatorConfig, type CreatorSlot } from './minifig-creator-types.js';
 import { CREATOR_POSES, creatorPoseAnimations, ldrawColourName } from './minifig-creator.js';
-import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior } from './bedrock-building-shell.js';
+import { COLLIDER_BLOCK_ID, COLLIDER_BLOCK_IDS, COLLIDER_BLOCKS_JSON, COLLIDER_HI_STATE, COLLIDER_LO_STATE, COLLIDER_TERRAIN_TEXTURE, LEGO_SHELL_QUALITY, SHELL_FRAME, STATIC_SHELL_CULL_MAX_SCALE, buildColliderGrid, colliderBlockDefinition, colliderBlockFile, shellBehavior, splitStaticShell } from './bedrock-building-shell.js';
 import { CLEARANCE_REFUSALS, applyColliderClearance, type ClearanceReport, type GridBox } from './collider-clearance.js';
 import type { NoseDirection } from './vehicle-facing.js';
 import type { Vec3 } from './ldraw-part-geometry.js';
 import { generateLegoMaterialSwatch, legoMaterialSwatchName } from './ldraw-entity-atlas.js';
-import { resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
+import { MATERIAL_PBR, resolveLdrawEntityMaterial } from './ldraw-entity-materials.js';
 import { buildLodHull, DEFAULT_HULL_CELL_BLOCKS, LOD_CULL_MARGIN_BLOCKS, LOD_EMPTY_GEOMETRY, LOD_EMPTY_GEOMETRY_ID, MIN_LOD_NEAREST_CUBE_BLOCKS, planLodSwitch, RENDER_CULL_BLOCKS_PER_UNIT, RENDER_CULL_MIN_UNITS, type CollisionBox } from './bedrock-lod-hull.js';
 import type { PartGeometryProvider } from './ldraw-part-geometry.js';
 import type { LegoEntityQualityName } from './ldraw-part-prototype.js';
@@ -2223,11 +2223,10 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     const identity = packIdentity(options.stem, options.label);
     const bpHeader = deterministicUuid(`craftmatic.addon.bp.header:${identity}`), rpHeader = deterministicUuid(`craftmatic.addon.rp.header:${identity}`);
     files.push({ name: bp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable', pipelineStamp), description: `Place with /function ${shortAlias}; ride vehicles and use computer screens. ${provenanceSentence(pipelineStamp, source)}`, uuid: bpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'data', uuid: deterministicUuid(`craftmatic.addon.bp.data:${identity}`), version }, { type: 'script', language: 'javascript', entry: 'scripts/main.js', uuid: deterministicUuid(`craftmatic.addon.bp.script:${identity}`), version }], dependencies: [{ uuid: rpHeader, version }, { module_name: '@minecraft/server', version: '2.9.0' }, { module_name: '@minecraft/server-ui', version: '2.1.0' }] }) });
-    // Vibrant Visuals texture sets are emitted for brick-compiled entities; the
-    // manifest must declare the capability or the game ignores the MER/normal maps.
     const pbr = options.pbr ?? true;
-    const emitsPbr = pbr && components.some(c => c.bricks && c.bricks.length > 0);
-    files.push({ name: rp + 'manifest.json', data: json({ format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }], ...(emitsPbr ? { capabilities: ['pbr'] } : {}) }) });
+    const rpManifest = { format_version: 2, header: { name: packDisplayName(label, 'Playable Resources', pipelineStamp), description: `Brick geometry from the LDraw parts, one flat 16x16 colour swatch per LEGO colour; printed faces are the only images. ${provenanceSentence(pipelineStamp, source)}`, uuid: rpHeader, version, min_engine_version: [1, 26, 40] }, modules: [{ type: 'resources', uuid: deterministicUuid(`craftmatic.addon.rp.resources:${identity}`), version }] };
+    const rpManifestFile = { name: rp + 'manifest.json', data: json(rpManifest) };
+    files.push(rpManifestFile);
     files.push({ name: `${bp}craftmatic-provenance.json`, data: json(provenance) });
     const diagnostics: Record<string, LegoGeometryDiagnostics> = {};
     /** Cuboids of the BlockGrid-fallback entities, which have no `LegoGeometryDiagnostics` to carry them. */
@@ -2262,6 +2261,8 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     /** Collision height of every figure NPC type, for scripts/figures.js (bedrock-figure-life.ts). */
     const figureBodies: Record<string, number> = {};
     const extraComponents: PlayableAddonResult['components'] = [];
+    /** One global shell compile, potentially drawn by several locally rooted actors. */
+    let spatialShell: { aggregateId: string; maxScale: number; legacy: { id: string; cubes: number; meshes: number; reason: string }; actors: Array<{ id: string; cubes: number; meshes: number; radiusBlocks: number; offsetBlocks: [number, number, number]; oversizedCubes: number }> } | undefined;
     const vehicleSeats: VehicleSeatReport[] = [];
     /**
      * Every entity this pack declares gets a `texts/en_US.lang` name (and, if
@@ -2316,7 +2317,26 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             translucent: m.translucent,
             ...(m.faceAtlas ? { alphaTest: true } : {}),
         }));
-        for (const m of geo.meshes) if (m.faceAtlas) files.push({ name: `${rp}textures/entity/${ecid}_faces.png`, data: m.faceAtlas.png });
+        for (const m of geo.meshes) if (m.faceAtlas) {
+            const name = `${ecid}_faces`;
+            files.push({ name: `${rp}textures/entity/${name}.png`, data: m.faceAtlas.png });
+            if (pbr) {
+                // Printed ink remains the compiler's exact RGBA atlas. It is
+                // plastic too, so only declare the same uniform ABS surface
+                // response as the head below it. Microsoft permits an inline
+                // MER value and an omitted normal; that avoids a differently
+                // sized companion image and preserves the deliberately flat
+                // face layer.
+                const abs = MATERIAL_PBR.abs;
+                files.push({ name: `${rp}textures/entity/${name}.texture_set.json`, data: json({
+                    format_version: '1.16.100',
+                    'minecraft:texture_set': {
+                        color: name,
+                        metalness_emissive_roughness: [abs.metalness, abs.emissive, abs.roughness].map(value => Math.round(value * 255)),
+                    },
+                }) });
+            }
+        }
         // Distance LOD (opt-in): a per-colour surface hull of the cubes that were
         // just emitted, bound after the full-detail geometries and selected by
         // camera distance in the render controllers. A figure is never hulled -
@@ -2541,11 +2561,37 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
             });
             diagnostics[shellId] = sgeo.diagnostics;
             warnings.push(...sgeo.warnings.filter(w => !/front\/rear direction/.test(w)));
-            emitCompiledEntity(shellId, sgeo, shellBehavior(shellId, sgeo.sizeBlocks), undefined, true);
-            addEntityName(`${PACK_NAMESPACE}:${shellId}`, `${label} bricks`, false);
             const at = sceneGridPoint(options.shell.frame, sgeo.originLdu);
-            actors.push({ typeId: `${PACK_NAMESPACE}:${shellId}`, label: `${label} bricks`, x: at[0], y: at[1] + sgeo.originLiftBlocks, z: at[2], yaw: 0 });
-            extraComponents.push({ id: shellId, label: `${label} bricks`, kind: 'shell', provenance: `${options.shell.bricks.length} parts compiled as the building's visible geometry` });
+            // Split the FINISHED geometry, not its input parts: the grain,
+            // hidden-face, merge and coplanar plans still run exactly once.
+            // Original collider boxes and aggregate diagnostics remain below.
+            const split = splitStaticShell(shellId, sgeo);
+            warnings.push(...split.warnings);
+            for (const [index, chunk] of split.chunks.entries()) {
+                const chunkLabel = split.chunks.length === 1 ? `${label} bricks` : `${label} bricks ${index + 1}`;
+                emitCompiledEntity(chunk.id, chunk.geo, shellBehavior(chunk.id, chunk.geo.sizeBlocks), undefined, true);
+                addEntityName(`${PACK_NAMESPACE}:${chunk.id}`, chunkLabel, false);
+                actors.push({ typeId: `${PACK_NAMESPACE}:${chunk.id}`, label: chunkLabel,
+                    x: at[0] + chunk.offsetBlocks[0], y: at[1] + sgeo.originLiftBlocks + chunk.offsetBlocks[1], z: at[2] + chunk.offsetBlocks[2], yaw: 0 });
+                extraComponents.push({ id: chunk.id, label: chunkLabel, kind: 'shell', provenance: split.chunks.length === 1
+                    ? `${options.shell.bricks.length} parts compiled as the building's visible geometry`
+                    : `spatial shell ${index + 1}/${split.chunks.length}, partitioned from one ${options.shell.bricks.length}-part global compile` });
+            }
+            if (split.chunks.some(chunk => chunk.id !== shellId)) {
+                // Existing saves carry the original entity type and only Undo
+                // metadata, not an authoritative placement transform. Retain
+                // its finished geometry so a pack upgrade cannot erase an old
+                // shell. New placement CONFIG contains only the local chunks.
+                // # TODO(shell-migration): persist placement transforms before
+                // attempting automatic migration of legacy monolith actors.
+                emitCompiledEntity(shellId, sgeo, shellBehavior(shellId, sgeo.sizeBlocks), undefined, true);
+                addEntityName(`${PACK_NAMESPACE}:${shellId}`, `${label} bricks`, false);
+                spatialShell = { aggregateId: shellId, maxScale: STATIC_SHELL_CULL_MAX_SCALE,
+                    legacy: { id: shellId, cubes: sgeo.diagnostics.cubeCount, meshes: sgeo.meshes.length,
+                        reason: 'Dormant original shell assets preserve saved placements; new placements spawn only local chunks.' },
+                    actors: split.chunks.map(chunk => ({ id: chunk.id, cubes: chunk.geo.diagnostics.cubeCount, meshes: chunk.geo.meshes.length,
+                        radiusBlocks: chunk.radiusBlocks, offsetBlocks: chunk.offsetBlocks, oversizedCubes: chunk.oversizedCubes })) };
+            }
             // The model's moving parts, each its own hinged entity on the
             // shell's frame (bedrock-interactives.ts). A part that is not a
             // doorway keeps its closed geometry in the colliders (a cupboard,
@@ -3349,8 +3395,11 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     // Hull cuboids are RESIDENT beside the full model (add-on memory is
     // definition-side), so they count against the device budget like any other.
     const lodCuboids = Object.values(lodHulls).reduce((n, h) => n + h.cuboids, 0);
-    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + fallbackCuboids + lodCuboids + coasterCuboids;
-    const entityCount = Object.keys(diagnostics).length + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
+    // The aggregate diagnostics account for the chunks once. The retained
+    // legacy definition is additional shipped geometry, even though new
+    // placements never spawn it, and must not disappear from pack budgets.
+    const packCuboids = Object.values(diagnostics).reduce((n, d) => n + d.cubeCount, 0) + (spatialShell?.legacy.cubes ?? 0) + fallbackCuboids + lodCuboids + coasterCuboids;
+    const entityCount = Object.keys(diagnostics).length + (spatialShell ? spatialShell.actors.length : 0) + (fallbackCuboids ? 1 : 0) + (coasterRide?.cartTypeUsed ? 1 : 0);
     const budget = packCuboidBudget(label, packCuboids, entityCount);
     if (budget.warning) warnings.push(budget.warning);
     if (lodCuboids) {
@@ -3396,6 +3445,7 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         // The grid widened past the model for access stairs (blocks per side), when it was.
         ...(options.accessMargin ? { accessMargin: { ...options.accessMargin, used: accessMarginUsed } } : {}),
         entities: diagnostics,
+        ...(spatialShell ? { spatialShell } : {}),
         ...(coasterConfig && coasterRide ? { coaster: coasterDiagnostics(coasterConfig, coasterRide) } : {}),
         // The moving parts: class, hinge angle, the opening a player passes and
         // the smallest wand size at which it can (0 = none), the collider cells
@@ -3489,10 +3539,12 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
     if (ridesConfig) files.push({ name: `${bp}scripts/rides.js`, data: text(ridesScript(ridesConfig)) });
     // Figure life (bedrock-figure-life.ts): where every figure NPC walks, pauses and sits.
     const figureTypes = Object.keys(figureBodies);
-    if (figureTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
+    const scenerySeatTypes = [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))];
+    if (figureTypes.length || scenerySeatTypes.length) files.push({ name: `${bp}scripts/figures.js`, data: text(figureLifeScript({
         figureTypes, bodyHeights: figureBodies, bodyHeight: 1.8,
         ...(creatorConfig ? { draftTypes: [creatorConfig.figureType] } : {}),
-        seatTypes: [...new Set(actors.filter(a => /_seat$/.test(a.typeId)).map(a => a.typeId))],
+        seatTypes: scenerySeatTypes,
+        ...(scenerySeatTypes.length ? { seatSafety: { lift: RIDE.SETDOWN_LIFT_BLOCKS, reach: RIDE.SETDOWN_REACH_BLOCKS, drop: RIDE.SETDOWN_DROP_BLOCKS } } : {}),
         interactiveFamily: INTERACTIVE_FAMILY,
         colliders: placementColliders ? { block: placementColliders.block, loState: placementColliders.loState, hiState: placementColliders.hiState } : undefined,
         tuning: FIGURE_TUNING,
@@ -3536,11 +3588,17 @@ export async function buildPlayableAddon(grid: BlockGrid, options: PlayableAddon
         ...(ridesConfig ? ["import './rides.js';"] : []),
         ...(flyerConfig ? ["import './flyer.js';"] : []),
         ...(hasHop ? ["import './hop.js';"] : []),
-        ...(figureTypes.length ? ["import './figures.js';"] : []),
+        ...(figureTypes.length || scenerySeatTypes.length ? ["import './figures.js';"] : []),
     ].join('\n');
     // The README's flying-cloud paragraph, in the helicopter paragraph's voice, only for a pack that has a mount.
     const flyerReadme = flyerMounts.length ? ` Flying ${flyerMounts.map(m => m.label).join(' and ')}: tap the figure riding it (or the cloud under them) and a cloud of your own puffs into being beside you, with you on it. Push the joystick to fly where you look; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. It hovers in place when you let go. Dismount (sneak) leaves you where you are - in the air you float gently down - and the cloud waits there for you; an empty cloud fades away after a minute, and only a few can be about at once. The figure keeps its own cloud and flies a lap round the set on it.` : '';
     files.push({ name: `${bp}scripts/main.js`, data: text(`${mainImports}\nconst SCREEN_TYPE = ${JSON.stringify(PACK_NAMESPACE + ':' + screenId)};\n${SCREEN_SCRIPT}`) }, { name: `${bp}README.txt`, data: text(`${label}\n\nImport this .mcaddon, activate both packs, rejoin the world. Find '${label} Brick Wand' in Creative inventory or run /function ${placement.shortAlias}. Select the wand in your hotbar: the first time, the preview follows wherever you look (no menu). Use the wand again, or switch away and back, for the menu - Place is at the top - to pin a position, rotate, resize or place; "View preview in world" shows a translucent ghost of the whole build standing at the pin, turned to the chosen rotation and size; rotate (90 degree steps for a build with blocks, 15 degree steps for a vehicle or figure alone), pick a size from 25% to 400%, place, and undo if needed. At another size the building, its vehicles and props take that size and a brick-accurate building's invisible walkable blocks are re-laid to match (its vanilla doors and lights are left out); the set's figures stay player-sized above 100% (a minifig is never a giant) and only shrink with a size below 100%; a coloured-block export keeps its blocks at 100%. Placement shows a progress bar above the hotbar.\nCars, hover craft and boats: interact to ride. Push the joystick (or A/D) LEFT and RIGHT to steer, forward and back to drive, brake and reverse; stopped, LEFT and RIGHT turn the car on the spot; press Jump for a short boost; the Dismount (sneak) button gets you out. A car does not get stuck: it slides along a wall it brushes, steps round a tree it clips and scrambles up a kerb or out of a pit up to two blocks high; a higher wall stops it - back up or turn. A hover craft floats over land and water alike. At night a light runs ahead of the nose. Planes and spaceships fly like a spaceship: push the joystick forward to fly forward and back to fly straight BACKWARDS, LEFT and RIGHT to turn (even standing still); Jump goes straight UP; hold Jump with the joystick pulled back - or drag the view to look down and then press Jump - to go straight DOWN; let go of everything and it stops and hovers in the air. Fly it into a hill or a wall and it lifts itself over. Get out in the air and it floats gently down to the ground and waits there. Every car, boat and ship: drag the screen to look around; let go and, while you are moving, the view swings back behind you after a second. Helicopters: push the joystick LEFT and RIGHT to turn and forward to fly; Jump climbs straight up; pull the joystick BACK while holding Jump, or look down while holding Jump, to descend. Dismount (sneak) exits. Figures from the set walk about on their own; a second vehicle in the set is rideable too (export with "main vehicle only" to leave them out). Vehicles resist damage. While you ride, a chase camera sized to the vehicle follows you (drag to look around; hotbar slot 9 is the view from the seat); it clears when you dismount.${hasHop ? ' Drive or fly into something you can sit in - a chair, a roller-coaster car (even a moving one), a slide, another vehicle - with a free seat, and you hop straight onto it (onto the front-most free car of a coaster train); the one you left waits where you left it (a plane hovers in the air until you come back).' : ''}${ridesConfig?.rides.some(r => r.kind === 'slide') ? ' A slide whose foot has a car (or a coaster car, or a chair) with a free seat parked at it drops you straight into that seat.' : ''}${isTimeMachine ? ' 10300 Time Machine: use DeLorean controls on the Brick Wand to set destination coordinates and a teleport speed (88 mph by default).' : ''}${flyerReadme} Buildings: the set's figures walk about on their own; its doors, gates, trap doors, opening windows and cupboards are the set's own LEGO parts and swing open and shut when you tap them (a doorway you can walk through once it is open, when a minifig would fit it at the size you placed it - smaller ones open but stay blocked, and the message says which size to use); tap a turntable, a steering wheel or a rotor to turn it and a lever to flip it; its chairs and benches can be sat on (interact, sneak to get up); open doors stay open after a reload. A brick-accurate building is drawn by one entity standing on invisible blocks that follow the LEGO floors and walls; undo removes both. Computer screens: interact for lights, doors, scanner vision, and vehicle locations.\n`) });
+    // Derive the capability from the completed resource pack. Coaster cars,
+    // lift platforms and other generated actors are not necessarily present in
+    // the initial component list, but their emitted texture sets still require
+    // the manifest opt-in for Vibrant Visuals.
+    const emitsPbr = pbr && files.some(file => file.name.startsWith(`${rp}textures/`) && file.name.endsWith('.texture_set.json'));
+    rpManifestFile.data = json({ ...rpManifest, ...(emitsPbr ? { capabilities: ['pbr'] } : {}) });
     options.onProgress?.('packaging playable .mcaddon', 90);
     const bytes = await createZip(files, { alwaysDeflate: true });
     return { bytes, functionCommand: `/function ${placement.shortAlias}`, tileCount: plan.length, components: [...components.map(c => ({ id: c.id, label: c.label, kind: c.kind, provenance: c.provenance })), ...extraComponents, ...screens.map(s => ({ id: s.id, label: s.label, kind: 'screen' as const, provenance: 'source-aligned interaction anchor' }))], warnings, diagnostics, provenance, vehicleSeats, ...(mountReport ? { mounts: mountReport } : {}), ...(options.accessMargin ? { accessMarginUsed } : {}) };

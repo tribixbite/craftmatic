@@ -10,9 +10,9 @@
  */
 
 import { worldFaces, type AuditActor, type WorldFace } from '../../../engine/bedrock-geometry-faces.js';
+import { entityRenderCullBlocks } from '../../../engine/bedrock-lod-hull.js';
 import { resolveLdrawEntityMaterial } from '../../../engine/ldraw-entity-materials.js';
 import { rasterize, type RasterPaint, type RasterTexture, type V3 } from '../../render/rasterizer.js';
-import { quirkValue } from '../../quirks/registry.js';
 import type { AddonAppearance } from './appearance.js';
 import type { SimEngine } from '../../core/engine.js';
 import type { SimEntity } from '../../entity/entity.js';
@@ -37,15 +37,17 @@ export function renderActors(actors: readonly AuditActor[], faces: readonly Worl
 
 /** A first-person picture from a player's eye: every entity the pack draws within the draw ceiling. */
 export function firstPersonSnapshot(engine: SimEngine, appearance: AddonAppearance, player: SimEntity, size = { width: 480, height: 270 }, fovDeg = 70): Uint8Array {
-  const eye = player.headLocation(), ceiling = quirkValue('actor-draw-ceiling', 'blocks');
+  const eye = player.headLocation();
   const actors: AuditActor[] = [];
   for (const e of engine.loadedEntities(player.dimension)) {
     if (e.isPlayer) continue;
     const entry = appearance.byType.get(e.typeId);
-    if (!entry || Math.hypot(e.location.x - eye.x, e.location.z - eye.z) > ceiling) continue;
-    // # TODO(sim-render): `worldFaces` places an actor at scale 1; a resized entity (`minecraft:scale`) draws at 100 %.
-    // `worldFaces` turns the other way from Bedrock's yaw (see `drawnBoxes`).
-    actors.push({ typeId: e.typeId, kind: 'entity', entry, at: e.location, yawDeg: e.rotation.y });
+    // Device evidence is camera-to-entity-ROOT distance in all three axes. At
+    // 100 %, a small box uses the 64-block floor and no actor exceeds the
+    // measured 70-block ceiling; geometry and visible_bounds do not extend it.
+    const rootDistance = Math.hypot(e.location.x - eye.x, e.location.y - eye.y, e.location.z - eye.z);
+    if (!entry || rootDistance > entityRenderCullBlocks(e.collisionSize())) continue;
+    actors.push({ typeId: e.typeId, kind: 'entity', entry, at: e.location, yawDeg: e.rotation.y, scale: e.scale() });
   }
   const d = viewDirection(player.rotation.y, player.rotation.x);
   const faces = worldFaces(actors);

@@ -12,6 +12,23 @@ compiled from REAL part geometry (`engine/ldraw-part-geometry.ts` →
 `ldraw-part-prototype.ts` → `ldraw-entity-compiler.ts`), colours are LDraw RGB
 (`ldraw-entity-materials.ts`, classes generated from LDConfig), and each entity
 ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
+- PBR files alone do not establish the phone's lighting mode. Check Video →
+  Graphics Mode when judging gloss, shadows or plastic appearance, and record
+  it with the screenshot. Microsoft's [Vibrant Visuals resource-pack guide](https://learn.microsoft.com/en-us/minecraft/creator/documents/vibrantvisuals/vvresourcepacks?view=minecraft-bedrock-stable)
+  supports entity texture sets and requires `pbr` plus engine ≥1.21.120;
+  our packs already declare 1.26.40. Geometry/culling checks still apply in
+  either graphics mode.
+  Saga world 925 matched ground-level coaster views 258/265 show readable
+  geometry in Vibrant Visuals and Fancy respectively; Video UI 263/264
+  verifies the modes (`output/device-zero-plane-20261005/` in the fidelity
+  worktree). Fancy appears sharper/brighter and Vibrant Visuals softer/hazier.
+  These are not an elevated free-camera pair: entering Settings cleared that
+  camera. They do not establish improved gloss or photorealistic materials.
+- Derive the RP's PBR capability from its finished texture-set files, not
+  the initial component list: generated coaster actors are compiled later.
+  Printed face atlases keep their exact RGBA/alpha-test path and declare
+  uniform ABS MER `[0,0,92]` in a texture set, without a redundant normal map.
+  `_mcaddon_check.py` checks the capability and referenced PBR image files.
 - **Bedrock's entity frame is left-handed.** Compile in a right-handed render
   frame (Y up, nose −Z, right +X; LDraw→render is a proper rotation `A`) and
   mirror ONLY at the JSON step: `origin.x = −max.x`, `pivot.x = −pivot.x`,
@@ -28,6 +45,112 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   X-wing at 4 LDU and a 1,906-part DeLorean at 8 LDU, both ≥ 0.95 six-view
   silhouette IoU (`scripts/_entity_silhouette.ts`); the spec's 4,096 pushed
   them to 8/16 LDU. `scripts/_playable_ref.ts` is the CLI export gate.
+- **Saga command-field clearing must be tested before submission.** Gboard
+  ignores injected Ctrl+A in an already-focused Minecraft field. The helper
+  sends MOVE_END plus 512 Backspaces in one `input keyevent` process, waits
+  for its queue to drain, then types the slash and body. This clears up to
+  512 characters regardless of cursor position. Verify an existing long,
+  unsubmitted buffer becomes exactly the new command; sending two commands
+  in succession proves nothing because Enter clears the field itself.
+  Native proof: fidelity-audit worktree `output/device-zero-plane-20261005/`
+  `helper-batch-long-buffer-raw.png` and `helper-batch-short-before-submit.png`.
+- **Record the input, not just the setup.** A foreground `screenrecord`
+  invocation can consume its whole recording window before the next tool call
+  sends the tap. Start the recorder in a background process (on Windows,
+  `Start-Process -WindowStyle Hidden`), then send input in the same host
+  sequence. Check actual HUD changes before naming extracted frames
+  "transit" or "landing". Saga `10796-slide2.mp4` is explicitly unusable:
+  all 19.855 seconds precede the tap. `10796-slide-final.mp4` records the
+  physical press, travel, setdown and subsequent walking instead.
+  Clear test-only movement effects and free-camera overrides before judging
+  native player physics. `approachSpots` can supply a supported boarding pose;
+  an airborne teleport followed by a delayed screenshot cannot.
+- **A blocked native dismount does not prove the recovery branch ran.**
+  In the isolated 10796 stone-cage test, physical Sneak left the player
+  mounted; clearing the cage allowed dismount and supported walking.
+  Minecraft itself may have refused the first exit: no custom recovery
+  message was observed. Keep that outcome separate from the simulator's
+  verified body/floor search and remount tests. The natural 10797 stool
+  exit and both 10796/10797 slides have continuous physical-input recordings
+  in fidelity-audit `output/device-zero-plane-20261005/` (192/219/226).
+- **A body-free landing can still trap the player.** Natural 10796 Sneak
+  leaves the native player in HUD cell `(6024,-59,6002)`; movement in contacts
+  247–249 cannot leave it. The real-pack simulator chooses the exact fallback
+  `(6024.385723,-58.5625,6002.698223)`, a sealed pocket with only 0.0125 blocks
+  above a standing player's head. Scenery-seat recovery requires a supported
+  one-block walking path, sampled through intervening collider boxes, and skips
+  trapped settlement candidates. Ride/door settlement retains its default
+  policy. The headless regression checks a full block of simulated walking:
+  shipped runtime permits 0.507 blocks of shuffling, regenerated runtime 3.92.
+  A half-block diagonal can fit wholly inside a sealed one-cell pocket from
+  an off-centre start; the always-offline runtime regression guards this too.
+  Clean `278adbf5` Creative collision-escape recording uses a fresh placement at
+  `(6386,-60,6404)`, 100 percent/turn zero: approach shows the shell, mount
+  at HUD `(6410,-60,6406)`, physical Sneak exits to `(6410,-60,6408)`, then
+  walking reaches `(6410,-60,6415)` and remains at ground-level Y. Continuous proof:
+  fidelity-audit worktree `output/bedrock-entity-qa/278adbf5-native/`
+  `10796-fixed-fullscene.mp4` and `root-review10796-contact.png` (0–28.5 s).
+  Earlier `10796-fixed-seat.mp4`/291–293 is an isolated-seat control only;
+  its absent shell cannot establish the natural-seat regression.
+  Clean 10797 Creative also escapes in a fresh placement at `(6585,-60,6599)`,
+  100 percent/turn -90 degrees: physical mount/Sneak/walk reaches HUD
+  `(6580,-60,6607)` and stays at that Y through 28.5 seconds. The intermediate
+  exit screenshot 318 at Y -57 is not an already-settled ground landing;
+  continuous `10797-fixed-fullscene.mp4`/`root-review10797-contact.png`
+  records the transition and walking in the same evidence directory.
+  Flying state was not captured in these Creative recordings; they establish
+  collision escape/movement, not independent native gravity/floor acceptance.
+  Controlled Survival repetition passes for both preserved full scenes,
+  with health/hunger visible throughout and no camera/movement effects:
+  `10796-survival-seat.mp4`/332–335 repeats the seven-block ground walk;
+  `10797-survival-seat.mp4`/337–340 reaches `(6580,-60,6607)` after exit.
+  Independently reviewed `root-review1079{6,7}-survival-contact.png` shows
+  stable final ground positions for 18 and 16.5 seconds respectively.
+  The installed `figures.js` SHA-256 matches each clean `278adbf5` archive,
+  independently checked before these tests; world 925 binds versions
+  `2610.611.3249` and `2610.611.3324` respectively.
+  After acceptance, world 925's BP/RP bindings were restored byte-for-byte
+  from audit-worktree `output/bedrock-entity-qa/device-backups/20261005-224548/`; all 698
+  files across its six baseline development-pack folders match that backup,
+  with no missing or extra files. Eleven newer coaster RP files were removed
+  individually. Audit-worktree `output/bedrock-entity-qa/278adbf5-native/restoration-verification.json`
+  records those comparisons. New Gabby development packs remain unbound and
+  fresh placements remain as QA fixtures; this is not a production deployment.
+  Final Survival-repeat cleanup is captured in the same audit-worktree native
+  directory's `final-restoration-report.json`:
+  Creative, Fancy, logging off, camera/effects cleared, telemetry off, world
+  925 at `(5822,-60,5760)` with empty slot, and own device claim released.
+  After relaunch the options differ only by `app_launched_count:58→59`.
+  Blank(1)'s pre-teleport position was not captured; its accidental move to
+  `(6400,-60,6400)` remains, rather than guessing a previous position.
+- **Keep native regression proof separate from simulator coverage.** Saga
+  26.52 reproduces the archived f37227ad 10797 car fall with a fresh placement
+  at `(6985,-60,7012)`, 100 percent/turn zero: forward three seconds, release
+  0.3 seconds, forward/right 2.5 seconds. Mounted HUD `(6986,-60,7017)` moves
+  briefly, then stays at `(6989,-66,7020)` below the floor. Clean 9ed44be0
+  with the same gesture at anchor `(6200,-60,6200)` drives to
+  `(6309,-59,6286)`, reaches 43 mph and stops on the ground. Recordings:
+  `10797-archive-car-route.mp4`/contact 243 and
+  `10797-current-car-route.mp4`/contact 228 in the same evidence directory.
+  This establishes the native fix; an offline replay that still cannot
+  reproduce the old fall must retain NOT TESTED and its nonzero exit.
+  The ideal `60/6/50`-tick replay drives the old car 24.45 blocks in its first
+  phase; native old moved about one. A diagnostic ten-tick phase moves 0.963
+  blocks, but varying the turn duration still neither matches the route nor
+  reproduces the fall. Native processed intervals/stick samples remain
+  unmeasured; do not tune inferred ticks or teleport through rounded rider
+  HUD positions to manufacture a reproduction. Probe evidence:
+  main `output/fidelity-audit-20261005/native-cadence-probe-20261006.json`.
+- **Verify the loaded world after every reload.** Correct on-disk bindings
+  do not prove the world selected by the UI: Saga's rotated input selected
+  Blank(1) while 925's files and manifests were correct. Confirm a known
+  pack function or entity resolves before placing or interpreting an empty
+  scene as a load/spawn defect. Preserve a screenshot of the selected world
+  and the actual preflight result; restore unintended changes to other worlds
+  from captured original state, without inventing a previous position.
+  For byte-exact restoration, reuse `_pixel_dev_deploy.py`'s
+  `Adb.write_in_place`/`read_bytes`; its subprocess arguments and root quoting
+  avoid PowerShell splitting `su -c` redirection and retain file metadata.
 - **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
   to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
   set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into
@@ -57,6 +180,14 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   above" was the camera pitched into the grass at ground level. For an exact
   viewpoint use `/camera @s set minecraft:free pos X Y Z facing X Y Z`, then
   `/camera @s clear`, and check the Position readout.
+- **Undo must outlive an unloaded vehicle.** A flown/driven actor can be
+  outside both the placement box and the loaded area. Retire its exact
+  placement tag and missing IDs in world dynamic properties before dropping
+  the player's Undo record; remove it on `entityLoad`, and sweep loaded actors
+  after a script reload. Read saved world state on the first tick, not at
+  module evaluation ([Script API startup privileges](https://learn.microsoft.com/en-us/minecraft/creator/documents/scripting/v2-overview?view=minecraft-bedrock-stable)).
+  Active placement tags must survive both paths. The child-play Undo check
+  must actually load escaped actors' chunks before judging deferred removal.
 - **Riding facts measured 2026-09-15 (Pixel, 1.26.45)**: a first-person rider
   sits inside the entity's cuboids. A rider-driven ground vehicle is
   client-authoritative: `getVelocity()` reads ~0 while it visibly drives (planes
@@ -452,6 +583,74 @@ arms are present but flung (median 276 LDU from a torso, 0 % within 25), so they
 fall outside `groupFigures`' 40 LDU horizontal radius and the rig supplies
 standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
 
+- **Coaster car footprints are not ownership proof.** In 10261's embedded MPD,
+  four station pieces had origins inside the front car's footprint, including
+  a 160-LDU boarding stripe that projected out of the moving car. Ordinary
+  coaster membership now consults MPD ancestry: retain chassis descendants
+  and seated-rider props; admit sibling body subassemblies only inside a
+  shared subtree without track moulds. Spatial scoring still separates
+  repeated instances because `sourcePath` contains names, not instance IDs.
+  STEP is not identity either: nested STEP directives advance the shared
+  counter. Flat/unstructured sources retain the spatial fallback, and a
+  track-free shared subtree remains a heuristic, not a connectivity proof.
+  The six 10261 bodies contain 16/13/14/13/13/16 parts; the third includes
+  the rider's ticket. 31084's front car retains its eleven nested shark-nose
+  parts. Corpus and synthetic regressions check actual membership, not just
+  the number of detected cars.
+- **A 200 percent shell still has a finite native draw distance.** Saga 26.52,
+  clean 62fe6c26 10261, anchor `(5779,-60,5790)`, rotation zero: the shell
+  root is `(5821.0755,-8,5809.6875)`. A free camera at `(5822,0,5760)`
+  (50.34 blocks from that root) draws the shell; `(5822,5,5735)` (75.82)
+  does not, including after eight seconds. Independent cars can remain.
+  These two samples bracket the transition; they do not measure an exact
+  70-block cutoff. Close station views from both sides draw shell, cars,
+  riders and platform together. Player distance stayed about 71.94 while
+  the nearer camera drew the shell, distinguishing camera from player culling.
+  Evidence: fidelity-audit worktree `output/device-zero-plane-20261005/`
+  captures 160–164. This is whole-shell distance culling, not partial spawning.
+  October 6 review of Mojang's [official schemas](https://github.com/Mojang/bedrock-samples/blob/main/documentation/Schemas.html)
+  and Microsoft's [client-entity documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/cliententitydocumentation/cliententitydocumentationintroduction?view=minecraft-bedrock-stable)
+  found no supported model render-distance override. Do not emit a speculative
+  `render_distance_multiplier`: visible bounds control bounds, while similarly
+  named camera/nameplate/debug/ticking fields do not override entity model culling.
+- **Large static shells now use local actor roots.** `splitStaticShell` partitions
+  finished emitted cubes after the single global grain/cull/merge/coplanar plan;
+  it translates cube origins, cube pivots and all bone pivots together, preserving
+  UVs, inflate, materials and world geometry. Colliders and aggregate diagnostics
+  stay on the original model; `spatialShell` diagnostics map actual actor IDs,
+  roots, radii, meshes and oversized cubes. Small shells retain the exact original
+  output. The target is 54 blocks of drawn reach through 200 percent size
+  (70-block estimated ceiling minus 16-block LOD margin). An indivisible oversized
+  cube is retained and warned; a candidate root inside another chunk's drawn cube
+  AABB rejects the partition and retains the original shell to avoid buried-root
+  lighting regressions. Split exports also retain the original monolith behavior,
+  client, geometry and render assets as dormant compatibility definitions:
+  existing saves reference that type, and old Undo records lack anchor/size/turn
+  needed to migrate safely. New placement CONFIG spawns only chunks. Old saved
+  placements retain their old culling limitation; placing again uses local roots.
+  `spatialShell.legacy` identifies the retained geometry, which counts in shipped
+  cube/entity budgets in addition to the unchanged active shell compile.
+  Measured 200-percent actor counts for 10261/10326/76417/
+  910004 are 4/1/2/1; imposing a 400-percent target would require 56/8/63/3 actors
+  and introduce buried roots and oversized singletons. Native acceptance remains
+  pending: test nearby ground-level geometry beyond the old observed absence
+  distance of 75.82 blocks from the whole-shell root, or perform exact baseline
+  A/B at the same camera; the estimated 70-block cap alone is not decisive.
+  Also check station alignment, lighting and complete Undo. An old
+  distant free-camera view may remain beyond every new root and is insufficient
+  alone to judge the improvement.
+  Measurement evidence is in main checkout
+  `output/fidelity-audit-20261005/shell-spatial-actor-{probe.ts,report.json}`
+  (report SHA `799af9855e4be55f4508c616e0e40d4757ff5300a411bd0482615e96aa11ed1e`);
+  source checks are `spatial-shell-{focused-tests,full-tests,build}.log` there.
+- **Round facets remain a conservative preflight, not a compiler replacement.**
+  The shared selector rejects preserved fine-grain interior air, explicit triangle
+  colours, transparency, caller-supplied surface-preserving mode, print fallback,
+  AABB/empty fallback, non-saving candidates and any of six silhouette views
+  that regress; at least one view must strictly improve. Its finite raster and caller-supplied
+  surface policy are not universal topology or print proofs. Corrected 10303
+  preflight accepts four opaque 98138 placements and saves four hypothetical
+  cubes out of 156242 (0.00256 percent); broad integration is not justified.
 - **Vehicle-inside-scenery isolation needs named submodels** (`sourcePath`, set
   only from MPD `0 FILE` sections). `.lxf` and the converted corpora are flat,
   so a vehicle parked in a scenery build falls back to the road-wheel heuristic
@@ -1823,13 +2022,16 @@ What follows from it, and what changed:
   rejected.
 - **The needle stays.** At 100 % it buys nothing, but it costs nothing (0.1
   wide, above the roof, intercepts no taps), and the size groups scale it with
-  the wand: whether a 200-400 % box lifts the ceiling is unmeasured
-  (`TODO(cull)` in `bedrock-building-shell.ts`). `actorCullDistance` reports the
+  the wand. A 200-percent shell was visible at root distance 50.34 and absent
+  at 75.82 on Saga; that bracket is not an exact cutoff. The 300/400-percent
+  ceiling remains unmeasured (`TODO(cull)` in `bedrock-building-shell.ts`). `actorCullDistance` reports the
   capped value; `actorCullFit` is the fit the needle is sized for.
-- **What it means in play.** A placed model and every actor of it pop out
-  together at ~72 blocks, as vanilla mobs do; the collider blocks (terrain)
-  keep drawing nothing, being invisible. There is no pack-side lever for this
-  known today.
+- **What it means in play.** The pre-partition monolithic shell could disappear
+  while independently rooted cars remained. Each actor is culled relative to
+  its own root; the local-root shells described above can therefore disappear
+  independently. Collider blocks remain invisible terrain. Partitioning can
+  keep nearby geometry close to a drawing root; it does not remove the native
+  per-actor ceiling. Native acceptance of the new partition remains pending.
 
 #### Every rideable needs its dismount hint (round 2026-09-26a)
 
@@ -2657,6 +2859,12 @@ on the ground beside the model, feet at LDraw y 8 = the underside) came out at
 the tile/plate tops under them, to the LDU). Doors keep `sceneGridPoint`: they
 are cut into the block grid and were device-verified.
 
+The same distinction applies to rides: a slide's running line is fixed to its
+rendered chute, so it uses `sceneGridPoint`; lifts, figures, and other actors
+use `sceneFloorPoint`. Row-zero voxel rounding can put the model underside a
+fraction of a block away from the shell grid, which is enough to make a slide
+seat visibly float even though both mappings start from the same LDraw point.
+
 **Not wired yet** (the pipeline, the pack diagnostics and the UI are other
 agents' files): `schem-pipeline.ts` should call `measureSceneAccess` +
 `recommendAccessScale` after `discoverSceneActors`, map figures and seats
@@ -2985,13 +3193,39 @@ only the face it looks out of, into one alpha-tested atlas per entity
 other cube. Orientation: the Pixel-proven frame is `world = (−x, y, −z)` of
 the render frame, a proper rotation, so a texture must read unmirrored from
 outside in the render frame - image right = `(−n) × up`; through the JSON's
-X mirror that is north u → +X, south u → −X, east u → +Z, west u → −Z,
+X mirror that is north u → +X, south u → −X, east u → −Z, west u → +Z,
 v → −Y (a player skin's face on its head's `north` face agrees). A face
 that looks up/down keeps its cuboid print. The Walk add-on reads the atlas
 and per-face UVs back and draws them; 42703's `92198p27` lopsided smile has
 the same handedness there as in the web viewer. The minifig creator opts
 out (`faceTextures: false`; its slots carry print layers). Diagnostics:
 `faceTextures: {printed, art, atlas}` per entity.
+
+**Native east/west convention (Saga, 2026-10-06).** Mirroring the cube's
+numeric X coordinates does not exchange face keys: render/editor +X remains
+`east`, −X remains `west`. After serialization, east is the numeric minimum-X
+plane and west the maximum-X plane. This follows Blockbench's
+[cube face coordinates](https://github.com/JannisX11/blockbench/blob/master/js/outliner/types/cube.js)
+and [Bedrock codec](https://github.com/JannisX11/blockbench/blob/master/js/formats/bedrock/bedrock.js):
+`compileCube` mirrors `origin[0]` while preserving each UV key. Treating the
+schema's cardinal direction prose as numeric serialized coordinates gave
+10261's coaster riders a blank face. Changing only the original decal's
+`west` key to `east` restored the face over the full head; padding its thin
+axis and changing material did not. Evidence: fidelity-audit-20261005 worktree
+`output/device-zero-plane-20261005/138-east-fullcar-front.png` and rear 139.
+The original cutout decal rendered from both sides when the head was hidden
+(136/137), so retain double-sided cutout behavior; the faulty surface was
+occluded in the full model. The audit and Walker now share physical corner
+and UV definitions (`BEDROCK_FACE_CORNERS`, `bedrockFaceUv`), rather than
+separately implementing contradictory mappings. North/south stay unchanged.
+Walker applies a decal cube's own rotation about its pivot before its parent
+bone, just as it does for box-UV cubes; imported per-face cubes can use either.
+
+For native diagnostics, a screenshot filename is not a camera-pose check:
+verify the car nose/limbs actually face the camera. Prove a changed resource
+loaded with an unmistakable geometry control before interpreting a negative
+result. Isolating a decal, then viewing it from both sides, separates missing
+resources from wrong-surface occlusion.
 
 **Found on the way:** a CLI build asked the local (2020) library's alias
 ladder BEFORE the prod mirror for the exact name, so `3626cp1t` - upstream
@@ -3057,12 +3291,24 @@ and look poses.
 emission, after the coplanar separation): a box-UV cube declared under one
 unit on any axis is written as `origin - 1`, `size + 2`, `inflate: -1`. The
 drawn box is identical and the cube count unchanged; the UV is laid out from a
-size of at least 2. On by default for FIGURES (`boxUvFloorSafe`; the creator's
-slots are figures too). Readers: `addon-appearance.ts` reads an inflated cube
+size of at least 2. On by default for every entity (`boxUvFloorSafe`; the
+creator's slots are figures too). Do not clamp the drawn thickness here:
+this pass runs after coplanar separation, so enlarging even a thin nonzero
+detail can recreate overlaps. The October 5 regression checks preserve
+every emitted face corner with padding enabled versus disabled. Readers:
+`addon-appearance.ts` reads an inflated cube
 as the box it draws and keeps the declared size as `uvSize`; anything else that
 reads `.geo.json` cubes must subtract the inflate (the creator's slot-bounds
-test did not). `_mcaddon_check.py` fails a pack whose figure geometry declares
+test did not). `_mcaddon_check.py` fails a pack whose geometry declares
 a box-UV cube under one unit and counts the rest.
+
+**Exact-zero control (Saga, 2026-10-05).** Four solid-colour panels using
+`inflate: -1`, declared Z sizes 2/2.01/2.25/3 (effective 0/.01/.25/1), all
+rendered from both sides. A zero plane therefore does not need artificial
+thickness for UV padding to work. Reproduction and views: worktree
+`fidelity-audit-20261005/output/device-zero-plane-20261005/` (`build-probe.ts`,
+`10-front.png`, `11-back.png`). This is independent of whether a complete
+model has missing source parts or cross-actor coplanar surfaces.
 
 **Also found: the hidden-cube cull across bones.** `cullHiddenCuboids` let a
 cuboid be hidden by cuboids of ANOTHER animated bone; 7140's pilot showed the
@@ -3608,22 +3854,20 @@ gone (a child bumps into things all the time): a soft thud.
   the ease cannot fight the client. The camera writes the view's pitch to the
   vehicle (`craftmatic:look_pitch`) for the ship's look-down + Jump.
 
-### Assumed, not measured (quirk `rider-free-look`)
+### Native evidence and remaining assumptions (quirk `rider-free-look`)
 
-1. A drag on a scripted vehicle's seat with lock 181 turns the rider's yaw
-   (pinball measured the PITCH a drag reports on a lock-0 seat; nobody has
-   dragged a scripted vehicle's seat).
-2. The engine does NOT turn the zero-speed scripted vehicle toward the
-   rider's look (`player_ride_tamed` turns a horse that way). If it does,
-   the script's per-tick teleport snaps it back: visible jitter while
-   dragging. Fallback if seen: set the seat back to 0 for that class and
-   take the drag from the pitch only.
-3. `setRotation` on the seated rider applies its yaw in the cockpit view
-   (measured in pinball for a lock-0 seat).
+Saga's Milano chase-view test on a lock-181 seat records horizontal drag:
+`yawOff` changes 32.2 to -66.4 degrees while vehicle yaw stays 150.8.
+The released offset holds at rest; moving then enables `recentring` and
+reduces the offset toward zero. Evidence in the fidelity worktree:
+`output/device-zero-plane-20261005/ContentLog-milano-controls.txt` and
+`craftmatic-milano-controls.mp4`. This settles orbit/hold/recenter and the
+stationary vehicle heading for that class/view only. Pitch drag, turning
+rider-yaw lag, other vehicle classes and cockpit `setRotation` remain
+unmeasured; pinball's lock-0 yaw result is not a lock-181 cockpit test.
 
-The simulator cannot settle any of these (a simulated player's look is not
-touch input, so no GameTest can drag); the device checklist in
-`TASKS-BEDROCK-ADDON.md` "Spaceship controls" does, with
+The simulator cannot supply touch-input proof (a simulated player's look is
+not a drag). Use a native recording plus telemetry for the remaining cases:
 `/scriptevent craftmatic:vehicle_telemetry fast` (`CMCAM` lines: `riderYaw`,
 `yawOff`, `pitchOff`, `dragging`, `recentring`; `CMVT` lines: the vehicle's
 `yaw`, `how` = the collision response).
@@ -4105,11 +4349,11 @@ the body at the helm) would avoid it, but the only client-side camera that
 follows without the ~3.5-tick server lag is the first person; untested on
 the device.
 
-**Device-only still:** what the cockpit view looks like with Bedrock's
-lighting and the near-plane (the offline picture has no ground); the
-cockpit's look is FIXED to the car's heading on every compiled seat
-(`lock_rider_rotation: 0`; the device notes' "look drags do not move it") -
-unchanged and not judged here.
+**Device-only still:** cockpit lighting, near-plane and look behavior (the
+offline picture has no ground). At this historical cockpit-fallback round
+the compiled seat used `lock_rider_rotation: 0` and look was fixed to the car.
+Current scripted seats use 181 with free-look handling; Milano chase is
+measured above, but that does not close native cockpit acceptance.
 
 ### Traps found this round
 

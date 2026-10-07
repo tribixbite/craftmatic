@@ -224,12 +224,20 @@ export interface ColliderBodyProbe {
   bodyFree(dim: any, q: { x: number; y: number; z: number }): boolean;
   /** The highest collision top under the body's footprint at (x, z), at most `fromY` and at least `fromY - depth`; undefined for none. */
   floorTop(dim: any, x: number, z: number, fromY: number, depth: number): number | undefined;
+  /** Whether `q` is a supported, body-free standing point with a swept one-block walking exit in one of the eight compass directions. */
+  hasWalkExit(dim: any, q: { x: number; y: number; z: number }): boolean;
   /**
    * The nearest spot to `at` where a body stands FREE on a floor: the point itself lifted within a step
    * (9/16) out of a floor it sits in, else the nearest point on rings out to `reach` blocks (a floor within a
    * step over `at` down to `drop` under it). `at` itself when there is none.
    */
-  settle(dim: any, at: { x: number; y: number; z: number }, reach: number, drop: number): { x: number; y: number; z: number };
+  settle(
+    dim: any,
+    at: { x: number; y: number; z: number },
+    reach: number,
+    drop: number,
+    accept?: (q: { x: number; y: number; z: number }) => boolean,
+  ): { x: number; y: number; z: number };
 }
 
 /**
@@ -240,6 +248,9 @@ export interface ColliderBodyProbe {
  */
 export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState: string): ColliderBodyProbe {
   const HALF = 0.3, HEIGHT = 1.8, STEP = 9 / 16;
+  // A half-block diagonal fits inside a sealed one-cell pocket when the
+  // starting point is near a corner. Require a whole cell of actual egress.
+  const FLOOR_TOLERANCE = 1 / 16, EXIT_DISTANCE = 1, EXIT_SAMPLE = 0.125;
   /** The world boxes of the block at (bx, by, bz): a collider's form boxes, a full box for any other non-air block, [] for air; undefined when unloaded. */
   const boxesAt = (dim: any, bx: number, by: number, bz: number): Array<[number, number, number, number, number, number]> | undefined => {
     let b: any;
@@ -273,12 +284,38 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
     }
     return top;
   };
-  const settle = (dim: any, at: { x: number; y: number; z: number }, reach: number, drop: number): { x: number; y: number; z: number } => {
+  const hasWalkExit = (dim: any, q: { x: number; y: number; z: number }): boolean => {
+    if (!bodyFree(dim, q)) return false;
+    const support = floorTop(dim, q.x, q.z, q.y + FLOOR_TOLERANCE, FLOOR_TOLERANCE * 2);
+    if (support === undefined || Math.abs(support - q.y) > FLOOR_TOLERANCE) return false;
+    const directions = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const samples = Math.ceil(EXIT_DISTANCE / EXIT_SAMPLE);
+    for (const d of directions) {
+      const n = Math.hypot(d[0]!, d[1]!);
+      let y = q.y, open = true;
+      for (let i = 1; i <= samples; i++) {
+        const distance = Math.min(EXIT_DISTANCE, i * EXIT_SAMPLE);
+        const x = q.x + d[0]! / n * distance, z = q.z + d[1]! / n * distance;
+        const floor = floorTop(dim, x, z, y + STEP, STEP * 2);
+        if (floor === undefined || Math.abs(floor - y) > STEP || !bodyFree(dim, { x, y: floor, z })) { open = false; break; }
+        y = floor;
+      }
+      if (open) return true;
+    }
+    return false;
+  };
+  const settle = (
+    dim: any,
+    at: { x: number; y: number; z: number },
+    reach: number,
+    drop: number,
+    accept?: (q: { x: number; y: number; z: number }) => boolean,
+  ): { x: number; y: number; z: number } => {
     const standAt = (x: number, z: number): { x: number; y: number; z: number } | undefined => {
       const t = floorTop(dim, x, z, at.y + STEP, STEP + drop);
       if (t === undefined) return undefined;
       const q = { x, y: t, z };
-      return bodyFree(dim, q) ? q : undefined;
+      return bodyFree(dim, q) && (!accept || accept(q)) ? q : undefined;
     };
     const here = standAt(at.x, at.z);
     if (here) return here;
@@ -291,7 +328,7 @@ export function colliderBodyProbe(kit: ColliderFormKit, loState: string, hiState
     }
     return at;
   };
-  return { bodyFree, floorTop, settle };
+  return { bodyFree, floorTop, hasWalkExit, settle };
 }
 
 // ─── The blocks' definitions (the pack's `blocks/*.json`) ─────────────────────

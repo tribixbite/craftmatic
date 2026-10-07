@@ -39,6 +39,7 @@ const allow = [...CRAFTMATIC_ALLOWED_LINES];
 const place: Step[] = [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }];
 const rideIndex = (pack: CraftmaticPack, kind: string): number => pack.rides?.rides.find(r => r.kind === kind)?.index ?? -1;
 const doorIndex = (pack: CraftmaticPack, label: string): number => pack.interactives?.items.findIndex(it => it.label === label) ?? -1;
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
 const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string | undefined => {
   const v = r.violations.find(x => x.invariant === invariant && (!text || text.test(x.message)));
   return v ? `${v.invariant}: ${v.message}` : undefined;
@@ -58,7 +59,7 @@ export const REGRESSIONS: RegressionCase[] = [
     id: 'gabby-lift-cap', title: '10788 lift: the "car" is the shaft\'s back-wall cap and never carries the rider past the floors',
     evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; add-on guide "The lift\'s car was the wrong assembly" (stops a third of a block low); rec/lift10788_a-big-1-8.jpg; fix 377850a5',
     oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10788-gabbys-dollhouse.mcaddon`, newStem: '10788-gabbys-dollhouse', expectNew: 'pass',
-    scenario: pack => ({ name: 'gabby-lift-cap', steps: [...place, { kind: 'rideLift', index: rideIndex(pack, 'lift'), trips: 3, board: 'hold', on: 'seat' }], allowLines: allow }),
+    scenario: pack => ({ name: 'gabby-lift-cap', steps: [...place, { kind: 'rideLift', index: rideIndex(pack, 'lift'), trips: 3, board: 'hold', on: 'car' }], allowLines: allow }),
     // Set down inside the floor (the device's "stops a third of a block low") shows as the player
     // left inside a collider. Until the x mirror of block collision boxes was measured (quirk
     // block-collision-x-mirrored, 2026-09-30) the simulator read the old pack's ceiling forms on the
@@ -68,11 +69,70 @@ export const REGRESSIONS: RegressionCase[] = [
   },
   {
     id: 'gabby-car-overhang', title: '10797 car driven under an overhang falls through the world (Saga: y -104)',
-    evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; `output/gabby-play-0929/saga/s43-s46` (worktree agent-a743597866bba6650); host test "drives a low car under an overhang" (377850a5)',
+    evidence: 'TASKS-BEDROCK-ADDON.md "User report 2026-09-29"; `C:/git/craftmatic/.claude/worktrees/agent-a743597866bba6650/output/gabby-play-0929/rec/car10797_drive-frames/f001-f012.jpg` and `saga/s42-s46`; transcript `C:/Users/wills/.claude/projects/C--git-craftmatic/134edabc-3baa-4b8d-b18e-4fe662d1ba37/subagents/agent-a743597866bba6650.jsonl` lines 1110-1188; host test "drives a low car under an overhang" (377850a5)',
     oldPack: `${ROUND}/device-round-2026-09-29b/packs-f37227ad/10797-gabbys-party-room.mcaddon`, newStem: '10797-gabbys-party-room', expectNew: 'pass',
-    scenario: pack => ({ name: 'gabby-car-overhang', steps: [...place, { kind: 'driveVehicle', type: pack.vehicleTypes[0] ?? '-', ticks: 400 }, { kind: 'driveUnderFixture', type: pack.vehicleTypes[0] ?? '-' }], allowLines: allow }),
-    judge: r => { const v = violated(r, 'nothing-below-ground'); return { reproduced: !!v, evidence: v ?? r.notes.filter(n => /overhang|fixture|drove/.test(n)).slice(-2).join(' / ') }; },
-    limits: 'where the Saga\'s car met its overhang is not recorded; the course drives under the model\'s own overhangs and under a fixture with the host test\'s geometry',
+    // Device HUD coordinates and the pack's actor point imply the horizontal anchor (6985,7012): the car's
+    // local x/z (1.5,5) becomes (6986.5,7017), displayed as 6986,7017 in f001. The vertical anchor is
+    // not inferred: that HUD is the mounted PLAYER, whose position differs from the car root by its seat.
+    // Translation and a quarter-turn do not change the collision on flat ground, so the simulator uses
+    // its normal ground placement and replays from that same fixed pack-local actor point. The Saga's
+    // swipes were full forward for 3 s, release 0.3 s, then (110 right,142 forward) for 2.5 s.
+    // The diagonal exceeds the straight swipe's 172-pixel radius, so this maps it to a unit vector;
+    // an unclamped 110/172,142/172 replay was also tried and likewise did not reproduce the fall.
+    // The 3 s hold is 60 ideal ticks. A 10-tick hold, which matches the device's observed +1 Z
+    // displacement under load, also stayed supported; cadence remains an explicit limitation below.
+    scenario: pack => ({
+      name: 'gabby-car-overhang',
+      description: 'Replay the Saga route from the archived pack\'s car actor through its own 31x6x9 collider structure',
+      evidence: 'Saga f001-f012: 6986,-60,7017 -> 6986,-61,7018 -> 6986,-63,7018 -> 6990,-63,7020 -> 6992,-63,7022; car later at 6992,-104,7021',
+      start: { x: 7000.5, y: -60, z: 7000.5 },
+      steps: [
+        ...place,
+        { kind: 'hold', target: { type: pack.vehicleTypes[0] ?? '-', label: pack.vehicleTypes[0] ?? '-' } },
+        {
+          kind: 'expect', label: 'record the archived-route start', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route has no car entity';
+            ctx.note(`archived 10797 route started at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}; vehicle yaw ${r3(v.rotation.y)}, rider yaw ${r3(ctx.player.rotation.y)}`);
+            // A mounted Bedrock stick is relative to the vehicle's forward axis. The generic hold
+            // approaches from the side and leaves the simulated rider looking back at that approach.
+            ctx.player.rotation.y = v.rotation.y;
+            return undefined;
+          },
+        },
+        { kind: 'drive', hold: { forward: 1, strafe: 0, ticks: 60 }, label: 'recorded 3 s forward swipe' },
+        {
+          kind: 'expect', label: 'record the first archived-route phase', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route lost its car after the forward phase';
+            ctx.note(`archived 10797 forward phase ended at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}; vehicle yaw ${r3(v.rotation.y)}`);
+            return undefined;
+          },
+        },
+        { kind: 'wait', ticks: 6, label: 'recorded 0.3 s stick release' },
+        { kind: 'drive', hold: { forward: 142 / Math.hypot(110, 142), strafe: 110 / Math.hypot(110, 142), ticks: 50 }, label: 'recorded 2.5 s forward-right swipe' },
+        {
+          kind: 'expect', label: 'record the diagonal archived-route phase', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route lost its car after the diagonal phase';
+            ctx.note(`archived 10797 diagonal phase ended at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}; vehicle yaw ${r3(v.rotation.y)}`);
+            return undefined;
+          },
+        },
+        { kind: 'wait', ticks: 120, label: 'let the unsupported car finish falling' },
+        {
+          kind: 'expect', label: 'record the archived-route endpoint', check: ctx => {
+            const v = ctx.find({ type: pack.vehicleTypes[0] ?? '-' });
+            if (!v) return 'the archived route lost its car entity';
+            ctx.note(`archived 10797 route ended at ${JSON.stringify({ x: r3(v.location.x), y: r3(v.location.y), z: r3(v.location.z) })}`);
+            return undefined;
+          },
+        },
+      ],
+      allowLines: allow,
+    }),
+    judge: r => { const v = violated(r, 'nothing-below-ground'); return { reproduced: !!v, evidence: v ?? (r.notes.filter(n => /archived 10797 (route|forward|diagonal)/.test(n)).join(' / ') || 'the archived route produced no below-ground violation') }; },
+    limits: 'the archived pack replay uses the recovered route, but the simulator does not reproduce the Saga fall; the native mounted-player pose and native tick cadence under device load were not recorded',
   },
   {
     id: 'gabby-car-eye', title: '10797 car: the driver\'s eye is inside the bodywork (0 of 15 forward rays clear)',
@@ -152,7 +212,10 @@ export const REGRESSIONS: RegressionCase[] = [
     // centre 5386.5,-58.8,5382.35. The spot is inside the collider band (`collider_w10`, z 2..2.75 over y 1..2)
     // that a tilted handrail's bounding box leaves at head height; the device let the player stand there
     // (its Position read 5384,-60,5382), and every line of sight started inside it.
-    scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 } }], allowLines: allow }),
+    // The HUD gives a block cell, not the fractional pose. Reconstruct a legal standing point within the recorded
+    // x/y/z cell on a newer collider while preserving the exact historical aim; the old pack has no such point and
+    // therefore replays the supplied point and refusal.
+    scenario: () => ({ name: 'door3-tap-10326', steps: [...place, { kind: 'tapPartFrom', label: 'Door 3', feet: { x: 4.6, y: 0.2, z: 2.4 }, at: { x: 6.5, y: 1.2, z: 2.35 }, recordedCell: true }], allowLines: allow }),
     judge: r => { const v = violated(r, 'tap-in-plain-view'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /Door 3: the tap/.test(n)) ?? 'no tap note') }; },
   },
   {

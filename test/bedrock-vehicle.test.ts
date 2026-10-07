@@ -369,6 +369,31 @@ describe('swept footprint (sweepFootprint)', () => {
     const hit = sweepFootprint({ x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { x: 1.1, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { ...fp, halfWidth: 0.3 }, solidCells(['2,64,0']), FOOTPRINT);
     expect(hit.blocked).toBe(true);
   });
+  it.each([-0.3, 0.3])('checks the trailing edge during a simultaneous horizontal and %s vertical move', dy => {
+    // The nose is past a ledge but the tail is still over/under it. Leading
+    // horizontal edges alone miss the tail entering it while falling/rising.
+    const from = { x: 0, y: 64, z: 0.5, yaw: -90, pitch: 0 };
+    const to = { ...from, x: 0.3, y: from.y + dy };
+    const band = { halfLength: 2, halfWidth: 0.3, lo: 0.2, hi: 0.8 };
+    const ledge = solidCells([`-2,${dy < 0 ? 63 : 65},0`]);
+    expect(sweepFootprint(from, to, band, ledge, FOOTPRINT).blocked).toBe(true);
+    expect(sweepFootprint(from, { ...to, y: from.y }, band, ledge, FOOTPRINT).blocked).toBe(false);
+  });
+  it('lets an embedded hull rise out along a solid layer, but does not enter a new obstacle above it', () => {
+    // 10786's source-placed boat begins with several boundary samples in this
+    // voxel. On its first forward/rising tick another sample enters the same
+    // voxel; the old all-edge test treated that as a new obstruction.
+    const from = { x: 23, y: -60, z: 0, yaw: 0, pitch: -1.5 };
+    const to = { x: 23, y: -59.125, z: -0.03, yaw: 0, pitch: -2 };
+    const band = { halfLength: 3.47, halfWidth: 2.48, lo: 0.41, hi: 2.97 };
+    const embedded = solidCells(['23,-59,3']);
+    expect(sweepFootprint(from, to, band, embedded, FOOTPRINT).blocked).toBe(false);
+    const ceiling = solidCells(['23,-57,3']);
+    expect(sweepFootprint(from, to, band, ceiling, FOOTPRINT).blocked).toBe(true);
+    // Existing low penetration does not license an unrelated higher voxel.
+    const embeddedFloorAndCeiling = solidCells(['23,-59,3', '23,-57,3']);
+    expect(sweepFootprint(from, to, band, embeddedFloorAndCeiling, FOOTPRINT).blocked).toBe(true);
+  });
   it('tilts the band with the pitch: a nose-up climb clears a low block the level nose would hit', () => {
     const low = solidCells(['2,64,0']);
     const level = sweepFootprint({ x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { x: 0.3, y: 64, z: 0.5, yaw: -90, pitch: 0 }, { ...fp, halfWidth: 0.3 }, low, FOOTPRINT);
@@ -376,12 +401,21 @@ describe('swept footprint (sweepFootprint)', () => {
     expect(level.blocked).toBe(true);
     expect(climbing.blocked).toBe(false);
   });
+  it.each([1, 2, 4])('detects a one-block crown throughout a tall band at scale %s', scale => {
+    const band = { halfLength: 2, halfWidth: 0.3, lo: 0.1, hi: 8.7 * scale };
+    const from = { x: -0.5, y: 64, z: 0.5, yaw: -90, pitch: 0 };
+    for (let height = 0; height < Math.floor(band.hi); height++) {
+      const crown = solidCells([`2,${64 + height},0`]);
+      expect(sweepFootprint(from, { ...from, x: 0.3 }, band, crown, FOOTPRINT).blocked, `crown at ${height}`).toBe(true);
+    }
+  });
   it('probes only the leading boundary: the bow going ahead, the stern backing up, the outward-swinging half in a turn', () => {
     const barge = { halfLength: 18, halfWidth: 7, lo: 0.6, hi: 13 };
     const none = (): boolean => false;
     const ahead = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.6, yaw: 0, pitch: 0 }, barge, none, FOOTPRINT);
-    // The bow: 14 blocks at <= 0.9 spacing (17 points with both corners) at 4 heights.
-    expect(ahead.checks).toBe(17 * FOOTPRINT.MAX_LEVELS);
+    // Only the bow: 14 blocks at <= 0.9 spacing (17 points with both corners).
+    const heights = Math.ceil((barge.hi - barge.lo) / FOOTPRINT.SPACING) + 1;
+    expect(ahead.checks).toBe(17 * heights);
     const turning = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.6, yaw: 3.5, pitch: 0 }, barge, none, FOOTPRINT);
     expect(turning.checks).toBeGreaterThan(ahead.checks);
     // A stump just behind the stern stops it backing up, and nothing ahead of the bow does.
@@ -396,9 +430,10 @@ describe('swept footprint (sweepFootprint)', () => {
     const r = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 7 }, { x: 0, y: 64, z: 0.5, yaw: 1, pitch: 8.5 }, { halfLength: 8, halfWidth: 15, lo: 1.05, hi: 8.7 }, runway, FOOTPRINT);
     expect(r.blocked).toBe(false);
   });
-  it('keeps a big hull to at most MAX_POINTS perimeter probes and MAX_LEVELS heights per pose', () => {
+  it('keeps horizontal probes bounded while covering the full height of a big hull', () => {
     const r = sweepFootprint({ x: 0, y: 64, z: 0, yaw: 0, pitch: 0 }, { x: 0, y: 64, z: 0.1, yaw: 0, pitch: 0 }, { halfLength: 18, halfWidth: 7, lo: 0.1, hi: 13 }, () => false, FOOTPRINT);
-    expect(r.checks).toBeLessThanOrEqual(FOOTPRINT.MAX_POINTS * FOOTPRINT.MAX_LEVELS + 8);
+    const heights = Math.ceil((13 - 0.1) / FOOTPRINT.SPACING) + 1;
+    expect(r.checks).toBeLessThanOrEqual((FOOTPRINT.MAX_POINTS + 8) * heights);
   });
 });
 

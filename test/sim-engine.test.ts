@@ -15,7 +15,7 @@ import { BlockTypes } from '../web/src/sim/world/block-types.js';
 import { rewriteModule } from '../web/src/sim/script-host/module-loader.js';
 import { Simulation } from '../web/src/sim/core/simulation.js';
 import { readAddon } from '../web/src/sim/pack/pack.js';
-import { tap } from '../web/src/sim/input/touch.js';
+import { lookAt, tap } from '../web/src/sim/input/touch.js';
 import { runScenario } from '../web/src/sim/scenario/runner.js';
 import { allQuirks, quirk, quirkValue } from '../web/src/sim/quirks/registry.js';
 import { PLAYER_HEIGHT as SIM_PLAYER_HEIGHT, PLAYER_WIDTH as SIM_PLAYER_WIDTH, STEP_HEIGHT as SIM_STEP_HEIGHT, tickPlayer, NO_INPUT } from '../web/src/sim/physics/body.js';
@@ -25,10 +25,12 @@ import { STEP16 } from '../web/src/engine/bedrock-collider-scale.js';
 import { FLAT_GROUND_Y } from '../web/src/sim/world/voxel-world.js';
 import { REGRESSIONS } from '../web/src/sim/adapters/craftmatic/regressions.js';
 import { craftmaticHandlers, figureMode } from '../web/src/sim/adapters/craftmatic/child-play.js';
-import { judgeSide, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
+import { judgeSide, nearestInRecordedCell, onRunout } from '../web/src/sim/adapters/craftmatic/play.js';
 import { relayRounding } from '../web/src/engine/bedrock-collider-scale.js';
 import { findApproach } from '../web/src/sim/scenario/approach.js';
 import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { firstPersonSnapshot } from '../web/src/sim/adapters/craftmatic/snapshot.js';
+import type { AddonAppearance } from '../web/src/sim/adapters/craftmatic/appearance.js';
 
 const enc = new TextEncoder();
 const entityJson = (identifier: string, components: Record<string, unknown>, extra: Record<string, unknown> = {}): string =>
@@ -117,6 +119,74 @@ describe('entities load as the game loads them', () => {
     // Yaw 90 faces -X: the nose offset (z 1) lands at x -1; the eye 1.12 over the seat is the feet 1.12 - 1.62 lower.
     expect(p.location.x).toBeCloseTo(-1, 9);
     expect(p.location.y).toBeCloseTo(0.5 + quirkValue('rider-eye-above-seat', 'eyeAboveSeatBlocks') - 1.62, 9);
+  });
+});
+
+describe('first-person entity snapshots use the device draw cull', () => {
+  const appearance: AddonAppearance = {
+    byType: new Map([['x:box', {
+      typeId: 'x:box', cubeCount: 1,
+      bones: [{ name: 'body', pivot: [0, 0, 0] }],
+      groups: [{ colorHex: 0xff0000, alpha: 1, ldrawColor: 4, cubes: [{ bone: 'body', origin: [-32, -32, -32], size: [64, 64, 64] }] }],
+    }]]),
+    cubeCount: 1, materialMode: 'classic', notes: [],
+  };
+  const picture = async (box: { width: number; height: number }, at: { x: number; y: number; z: number }) => {
+    const sim = new Simulation();
+    sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'box.json': entityJson('x:box', { 'minecraft:collision_box': box, 'minecraft:physics': { has_gravity: false, has_collision: false } }) }), 'snapshot'));
+    const player = sim.addPlayer('Camera', { x: 0, y: 0, z: 0 });
+    sim.engine.spawnEntity('x:box', 'overworld', at);
+    lookAt(player, { x: at.x, y: at.y, z: at.z });
+    const withActor = firstPersonSnapshot(sim.engine, appearance, player, { width: 32, height: 32 });
+    const empty = firstPersonSnapshot(sim.engine, { ...appearance, byType: new Map() }, player, { width: 32, height: 32 });
+    return { drawn: withActor.some((v, i) => v !== empty[i]), eye: player.headLocation() };
+  };
+
+  it('draws a small-box actor through 64 blocks from the camera to its root, then culls it', async () => {
+    const y = SIM_PLAYER_HEIGHT * 0.9;
+    expect((await picture({ width: 0.1, height: 0.1 }, { x: 0, y, z: 63 })).drawn).toBe(true);
+    expect((await picture({ width: 0.1, height: 0.1 }, { x: 0, y, z: 65 })).drawn).toBe(false);
+  });
+
+  it('uses full 3-D camera-to-root distance, including height', async () => {
+    const first = await picture({ width: 0.1, height: 0.1 }, { x: 0, y: 0, z: 1 });
+    expect((await picture({ width: 0.1, height: 0.1 }, { x: 0, y: first.eye.y + 65, z: 1 })).drawn).toBe(false);
+  });
+
+  it('caps a large collision box at the measured 70-block actor ceiling', async () => {
+    const y = SIM_PLAYER_HEIGHT * 0.9;
+    expect((await picture({ width: 3.5, height: 2.5 }, { x: 0, y, z: 69 })).drawn).toBe(true);
+    expect((await picture({ width: 3.5, height: 2.5 }, { x: 0, y, z: 71 })).drawn).toBe(false);
+  });
+
+  it('renders the actual actor scale while keeping its placement and camera-to-root culling fixed', async () => {
+    const render = async (scale: number, geometryScale: number) => {
+      const sim = new Simulation();
+      sim.loadAddon(await readAddon(await miniAddon({ 'main.js': '' }, { 'box.json': entityJson('x:box', {
+        'minecraft:collision_box': { width: 3.5, height: 2.5 }, 'minecraft:scale': { value: scale },
+        'minecraft:physics': { has_gravity: false, has_collision: false },
+      }) }), 'scaled-snapshot'));
+      const player = sim.addPlayer('Camera', { x: 0, y: 0, z: 0 });
+      const at = { x: 1, y: 3, z: 12 };
+      const entity = sim.engine.spawnEntity('x:box', 'overworld', at);
+      entity.rotation.y = 90;
+      lookAt(player, at);
+      const base = appearance.byType.get('x:box')!;
+      const imageAppearance: AddonAppearance = { ...appearance, byType: new Map([['x:box', {
+        ...base,
+        bones: [{ name: 'body', pivot: [8 * geometryScale, 0, 0], rotation: [12, 7, 18] }],
+        groups: base.groups.map(group => ({ ...group, cubes: group.cubes.map(cube => ({
+          ...cube,
+          origin: cube.origin.map(v => v * geometryScale) as [number, number, number],
+          size: cube.size.map(v => v * geometryScale) as [number, number, number],
+          rotation: [5, -11, 8] as [number, number, number], pivot: [0, 8 * geometryScale, 0] as [number, number, number],
+        })) })),
+      }]]) };
+      return firstPersonSnapshot(sim.engine, imageAppearance, player, { width: 64, height: 64 });
+    };
+    const scaledActor = await render(2, 1);
+    expect(scaledActor).toEqual(await render(1, 2));
+    expect(scaledActor).not.toEqual(await render(1, 1));
   });
 });
 
@@ -283,6 +353,29 @@ describe('the quirk registry', () => {
 
 // The device-bug regression set, where this machine has the packs the device ran (the output folders are local).
 const regressionPacks = REGRESSIONS.every(c => existsSync(c.oldPack));
+
+describe('historical regression replay inputs', () => {
+  it('boards the lift car and reconstructs a legal tap pose only inside the recorded HUD cell', () => {
+    const lift = REGRESSIONS.find(c => c.id === 'gabby-lift-cap')!;
+    const liftStep = lift.scenario({ rides: { rides: [{ index: 0, kind: 'lift' }] } } as never).steps.find(s => s.kind === 'rideLift');
+    expect(liftStep).toMatchObject({ kind: 'rideLift', on: 'car' });
+
+    const door = REGRESSIONS.find(c => c.id === 'door3-tap-10326')!;
+    expect(door.scenario({} as never).steps.find(s => s.kind === 'tapPartFrom')).toMatchObject({ recordedCell: true, at: { x: 6.5, y: 1.2, z: 2.35 } });
+
+    const recorded = { x: 10.6, y: -59.8, z: -3.6 };
+    const spot = (x: number, y: number, z: number) => ({ feet: { x, y, z }, aim: { x: 12, y: -58, z: -3 }, distance: 2 });
+    const nearest = nearestInRecordedCell([
+      spot(11.01, -59.2, -3.4), // adjacent x cell: never a reconstruction of this HUD cell
+      spot(10.65, -58.99, -3.55), // a different vertical block cell is a different floor
+      spot(10.9, -59.1, -3.1),
+      spot(10.7, -59.7, -3.5),
+    ], recorded);
+    expect(nearest?.feet).toEqual({ x: 10.7, y: -59.7, z: -3.5 });
+    expect(nearestInRecordedCell([spot(11.01, -59.2, -3.4)], recorded)).toBeUndefined();
+  });
+});
+
 describe.skipIf(!regressionPacks)('the 2026-09-29 regression set reproduces on the packs the device ran', () => {
   for (const c of REGRESSIONS) {
     it(`${c.id}${c.limits ? ' (known not reproduced)' : ''}`, async () => {

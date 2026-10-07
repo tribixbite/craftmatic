@@ -27,6 +27,8 @@ import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import { extractFile, listZipEntries } from '../web/src/engine/zip-utils.js';
 import { bedrockInGameText } from '../web/src/engine/playable-addon.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
+import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
+import { slidePathLdu } from '../web/src/engine/bedrock-rides.js';
 
 /** Hollow stone box (sealed interior) inside a 1-cell air margin. */
 function hollowBox(): BlockGrid {
@@ -198,6 +200,7 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     // player's two-block passage needs 150 % — a recommendation that is NOT
     // the exported size, which is the case worth pinning.
     '60623': ['0 Door  1 x  4 x  6 with 4 Panes and Stud Handle', ...box6(0, 80, -96, 0, -3, 3)].join('\n'),
+    'slide_test': ['0 Slide Test', ...Array.from({ length: 10 }, (_, i) => box6(i * 16, (i + 1) * 16, -96 + i * 9.6, 0, 0, 40)).flat()].join('\n'),
   };
   const I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   /** A minifig whose FEET are at `footLdu` (its legs reach 64 LDU below the placement origin). */
@@ -268,6 +271,28 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     expect(sceneFloorPoint(frame, PLATE_BOTTOM_LDU, [0, PLATE_TOP_LDU, 0])[1]).toBeCloseTo(plate, 6);
     expect(figs[0]!.y).toBeCloseTo(sceneGridPoint(frame, [0, PLATE_TOP_LDU, 0])[1], 6);
     expect(figs[0]!.y).toBeCloseTo(0, 6);
+  }, 120_000);
+
+  it('keeps a slide running line in the shell grid frame when row-zero rounding differs from the model underside', async () => {
+    seedDatTexts(Object.entries(PARTS).map(([id, t]) => [`${id}.dat`, t] as const));
+    const slide: ParsedBrick = { part: 'slide_test.dat', color: 2, x: 0, y: 0, z: 0, rot: I };
+    const bricks: ParsedBrick[] = [{ part: '3029.dat', color: 2, x: 0, y: PLATE_BOTTOM_LDU, z: 0, rot: I }, slide];
+    const guide = await runSchemPipeline(brickInput(bricks, 'guide'));
+    const frame = guide.gridOrigin!;
+    const mesh = await createPartGeometryProvider().getPartMesh(slide.part);
+    expect(mesh?.description).toMatch(/^Slide /);
+    const sourcePath = slidePathLdu(slide, mesh!);
+    if (!sourcePath) throw new Error('the synthetic mould has no descending chute');
+    const grounded = sceneFloorPoint(frame, PLATE_BOTTOM_LDU, sourcePath[0]!);
+    const inShell = sceneGridPoint(frame, sourcePath[0]!);
+    expect(Math.abs(grounded[1] - inShell[1])).toBeGreaterThan(0.1);
+
+    const result = await runSchemPipeline(brickInput(bricks, 'mcaddon'));
+    const config = await placementConfig(result.bytes!);
+    const ride = config.actors.find((a: any) => a.ridePath);
+    expect(ride, 'the synthetic slide becomes a ride').toBeTruthy();
+    expect(ride.ridePath[0]).toEqual(inShell);
+    expect(ride.y).toBe(inShell[1]);
   }, 120_000);
 
   it('measures the walk-through size and carries it to the summary, the diagnostics and the wand', async () => {

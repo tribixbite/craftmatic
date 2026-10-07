@@ -10,10 +10,11 @@ import { provenanceSentence, unstampedPipeline, type PipelineStamp, type SourceP
 import type { CoasterRoute } from '../web/src/engine/bedrock-coaster.js';
 import { SIZE_STEPS } from '../web/src/engine/bedrock-placement-pack.js';
 import { readAddon } from '../web/src/sim/pack/pack.js';
-import { simHost } from './_sim-host.js';
+import { simHost, solidBelow } from './_sim-host.js';
 import { CREATOR_POSES, minifigCreatorLibrary } from '../web/src/engine/minifig-creator.js';
 import { LDU_PER_BLOCK } from '../web/src/engine/lego-scale.js';
 import type { SceneGridFrame } from '../web/src/engine/bedrock-scene-actors.js';
+import { RIDE } from '../web/src/engine/bedrock-rides.js';
 
 const ab = (bytes: Uint8Array) => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
 const model = () => { const g=new BlockGrid(6,3,4);g.fill(0,0,0,5,0,3,'minecraft:black_concrete');g.fill(1,1,1,4,1,2,'minecraft:red_concrete');return g; };
@@ -34,6 +35,32 @@ const pngAlphas = (bytes: ArrayBuffer | Uint8Array): number[] => {
 };
 
 describe('playable Bedrock add-on',()=>{
+  it('emits scenery-seat safety even when a pack has no figures', async () => {
+    const result = await buildPlayableAddon(model(), { stem: 'Seat Only', seats: [{ x: 0.5, y: 0.5, z: 0.5, yaw: 0, label: 'Chair' }] });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    expect(entries).toContain('Craftmatic_seat_only_BP/scripts/figures.js');
+    const figures = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_seat_only_BP/scripts/figures.js'));
+    const config = JSON.parse(/const CONFIG = (.*);\n/.exec(figures)![1]!) as { figureTypes: string[]; seatTypes: string[]; seatSafety: { reach: number }; colliders?: unknown };
+    expect(config.figureTypes).toEqual([]);
+    expect(config.seatTypes).toEqual(['craftmatic:seat_only_seat']);
+    expect(config.seatSafety.reach).toBe(RIDE.SETDOWN_REACH_BLOCKS);
+    expect(config.colliders).toBeUndefined();
+    expect(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_seat_only_BP/scripts/main.js'))).toContain("import './figures.js';");
+
+    // Run the exact exported script and entity without the optional custom
+    // collider kit: vanilla blocks must still get the rider safely outside.
+    const pack = (await readAddon(result.bytes)).packs.find(p => p.kind === 'behavior')!;
+    const seatFile = [...pack.files].find(([p]) => p === 'entities/seat_only_seat.json')!;
+    const h = simHost({ script: figures, entry: 'scripts/figures.js', files: { [seatFile[0]]: seatFile[1] }, terrain: solidBelow(0) });
+    h.fill({ x: -1, y: 0, z: -1 }, { x: 1, y: 2, z: 1 }, 'minecraft:stone');
+    const seat = h.spawn('craftmatic:seat_only_seat', { x: 0.5, y: 0, z: 0.5 });
+    const rider = h.addPlayer('Rider', { x: 0.5, y: 0, z: 0.5 });
+    h.seat(rider, seat); h.run(1);
+    h.controls(rider, { sneak: true }); h.run(1);
+    expect(rider.ridingOn).toBeUndefined();
+    expect(rider.location).toMatchObject({ x: 2.5, y: 0, z: 0.5 });
+  });
+
   it('emits a standalone minifig creator entity, property-driven controller, wand and runtime', async () => {
     const provider = { getPartMesh: async (part: string) => ({ partId: part, resolvedAs: part, description: part === '973' ? 'Minifig Torso' : 'Minifig Head', triangles: [{ a: [0, 0, 0], b: [20, 0, 0], c: [0, 24, 0], color: 16 }], studs: [], bounds: { min: [0, 0, 0], max: [20, 24, 4] }, unresolvedRefs: [] }), report: () => ({ unresolved: [], printFallbacks: [], substitutions: [] }) };
     const library = minifigCreatorLibrary('starter');
@@ -667,6 +694,8 @@ describe('playable add-on — brick-compiled entities', () => {
   const LIB: Record<string, string> = {
     '3001': ['0 Brick 2 x 4', ...box6(-40, 40, -24, 0, -20, 20), '1 16 -30 -24 -10 1 0 0 0 1 0 0 0 1 stud.dat'].join('\n'),
     '3823': ['0 Windscreen', ...box6(-20, 20, -40, 0, -2, 2)].join('\n'),
+    '3626c': ['0 Minifig Head', ...box6(-13, 13, 0, 24, -13, 13)].join('\n'),
+    '3626cp01': ['0 Minifig Head with Standard Grin Pattern', ...box6(-13, 13, 0, 24, -13, 13), '4 0 -4 8 -13.01 4 8 -13.01 4 10 -13.01 -4 10 -13.01'].join('\n'),
   };
   const providerFor = async () => {
     const { createPartGeometryProvider } = await import('../web/src/engine/ldraw-part-geometry.js');
@@ -765,6 +794,57 @@ describe('playable add-on — brick-compiled entities', () => {
     expect(rpManifest.capabilities).toBeUndefined();
   });
 
+  it('declares PBR from texture sets emitted by a coaster car, not only initial components', async () => {
+    const provider = await providerFor();
+    const points = Array.from({ length: 41 }, (_, i) => [i / 2, 1, 0] as [number, number, number]);
+    const route: CoasterRoute = {
+      label: 'Generated train', points, closed: false, maxSegmentLength: 0.5,
+      vehicles: [{
+        chassis: '3001.dat', sourceIndices: [], bricks: [bricks[0]!], rider: [],
+        datumPoint: [10, 1, 0], heading: 1, seatLdu: [0, -20, 0],
+      }],
+    };
+    const grid = new BlockGrid(1, 1, 1); grid.set(0, 0, 0, 'minecraft:stone');
+    const build = (pbr: boolean) => buildPlayableAddon(grid, {
+      stem: pbr ? 'pbr-coaster' : 'classic-coaster', coasterRoutes: [route],
+      partGeometry: provider, pbr,
+    });
+
+    const pbrPack = await build(true), pbrZip = ab(pbrPack.bytes), pbrEntries = listZipEntries(pbrZip);
+    expect(pbrEntries.some(name => name.includes('/textures/entity/craftmatic_swatch_') && name.endsWith('.texture_set.json'))).toBe(true);
+    const pbrManifest = JSON.parse(new TextDecoder().decode(await extractFile(pbrZip, pbrEntries.find(name => name.endsWith('_RP/manifest.json'))!)));
+    expect(pbrManifest.capabilities).toEqual(['pbr']);
+
+    const classicPack = await build(false), classicZip = ab(classicPack.bytes), classicEntries = listZipEntries(classicZip);
+    expect(classicEntries.some(name => name.endsWith('.texture_set.json'))).toBe(false);
+    const classicManifest = JSON.parse(new TextDecoder().decode(await extractFile(classicZip, classicEntries.find(name => name.endsWith('_RP/manifest.json'))!)));
+    expect(classicManifest.capabilities).toBeUndefined();
+  });
+
+  it('gives a printed face atlas uniform ABS PBR without changing its pixels or inventing a normal map', async () => {
+    const provider = await providerFor();
+    const grid = new BlockGrid(1, 1, 1);
+    const figure = { bricks: [{ part: '3626cp01.dat', color: 14, x: 0, y: 0, z: 0 }], x: 0, y: 0, z: 0, facingLdu: [0, -1] as [number, number] };
+    const build = (pbr: boolean) => buildPlayableAddon(grid, { stem: pbr ? 'pbr-face' : 'classic-face', figures: [figure], partGeometry: provider, pbr });
+
+    const pbrPack = await build(true), pbrZip = ab(pbrPack.bytes), pbrEntries = listZipEntries(pbrZip);
+    const pbrFacePath = pbrEntries.find(name => name.endsWith('_faces.png'))!;
+    expect(pbrFacePath).toBeDefined();
+    const pbrFace = new Uint8Array(await extractFile(pbrZip, pbrFacePath));
+    const pbrFaceStem = pbrFacePath.slice(pbrFacePath.lastIndexOf('/') + 1, -4);
+    const textureSet = JSON.parse(new TextDecoder().decode(await extractFile(pbrZip, pbrFacePath.replace(/\.png$/, '.texture_set.json'))));
+    expect(textureSet['minecraft:texture_set']).toEqual({ color: pbrFaceStem, metalness_emissive_roughness: [0, 0, 92] });
+    expect(pbrEntries).not.toContain(pbrFacePath.replace(/\.png$/, '_normal.png'));
+    expect(pbrEntries).not.toContain(pbrFacePath.replace(/\.png$/, '_mer.png'));
+
+    const classicPack = await build(false), classicZip = ab(classicPack.bytes), classicEntries = listZipEntries(classicZip);
+    const classicFacePath = classicEntries.find(name => name.endsWith('_faces.png'))!;
+    expect(classicFacePath).toBeDefined();
+    const classicFace = new Uint8Array(await extractFile(classicZip, classicFacePath));
+    expect(classicEntries).not.toContain(classicFacePath.replace(/\.png$/, '.texture_set.json'));
+    expect(classicFace).toEqual(pbrFace);
+  });
+
   it('threads figureCollisionHeight into a scene figure NPC\'s collision box, bypassing the default 1.0-1.8 clamp (device-919 roaming experiment)', async () => {
     const grid = new BlockGrid(3, 2, 3);
     grid.set(0, 0, 0, 'minecraft:white_concrete');
@@ -813,6 +893,53 @@ describe('playable add-on — brick-compiled entities', () => {
     // The manual-seat helper is is_spawnable: true — name AND spawn egg.
     expect(lang).toContain('entity.craftmatic:shed_manual_seat.name=Shed Seat');
     expect(lang).toContain('item.spawn_egg.entity.craftmatic:shed_manual_seat.name=Shed Seat Spawn Egg');
+  });
+
+  it('places locally rooted shells and retains budgeted legacy assets for saved placements', async () => {
+    const C = LDU_PER_BLOCK, I = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    const grid = new BlockGrid(83, 2, 3);
+    grid.set(1, 0, 1, 'minecraft:red_concrete');
+    grid.set(81, 0, 1, 'minecraft:red_concrete');
+    const frame: SceneGridFrame = { x: 0, y: 0, z: 0, scale: 1, cellXZ: C, cellY: C };
+    const result = await buildPlayableAddon(grid, {
+      stem: 'long-shell', partGeometry: await providerFor(), pbr: false,
+      shell: { bricks: [1, 81].map(x => ({ part: '3001.dat', color: 4, x: x * C, y: 0, z: -C, rot: I })), frame },
+    });
+    const buffer = ab(result.bytes), entries = listZipEntries(buffer);
+    const diag = JSON.parse(new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/craftmatic-diagnostics.json'))) as {
+      pack: { cuboids: number; entities: number }; spatialShell: { aggregateId: string; maxScale: number; legacy: { id: string; cubes: number; meshes: number }; actors: Array<{ id: string; cubes: number; radiusBlocks: number }> };
+    };
+    expect(diag.spatialShell.aggregateId).toBe('long_shell_shell');
+    expect(diag.spatialShell.maxScale).toBe(2);
+    expect(diag.spatialShell.actors).toHaveLength(2);
+    const globalCubes = result.diagnostics.long_shell_shell!.cubeCount;
+    expect(diag.spatialShell.legacy).toMatchObject({ id: 'long_shell_shell', cubes: globalCubes });
+    expect(diag.pack.cuboids).toBe(globalCubes * 2);
+    expect(diag.spatialShell.actors.reduce((sum, actor) => sum + actor.cubes, 0)).toBe(globalCubes);
+    expect(diag.pack.entities).toBe(3);
+    const placement = new TextDecoder().decode(await extractFile(buffer, 'Craftmatic_long_shell_BP/scripts/placement.js'));
+    expect(placement).not.toContain('"typeId":"craftmatic:long_shell_shell"');
+    expect(entries).toContain('Craftmatic_long_shell_BP/entities/long_shell_shell.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/entity/long_shell_shell.entity.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/models/entity/long_shell_shell.geo.json');
+    expect(entries).toContain('Craftmatic_long_shell_RP/render_controllers/long_shell_shell.render_controllers.json');
+    const placed = diag.spatialShell.actors.map(chunk => {
+      expect(entries).toContain(`Craftmatic_long_shell_BP/entities/${chunk.id}.json`);
+      expect(entries).toContain(`Craftmatic_long_shell_RP/models/entity/${chunk.id}.geo.json`);
+      expect(chunk.radiusBlocks * 2).toBeLessThanOrEqual(54);
+      return JSON.parse(new RegExp(`\\{"typeId":"craftmatic:${chunk.id}"[^}]*\\}`).exec(placement)![0]) as { x: number; y: number; z: number; yaw: number };
+    });
+    const xs = placed.map(actor => actor.x).sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(1, 4);
+    expect(xs[1]).toBeCloseTo(81, 4);
+    for (const actor of placed) {
+      expect(actor.y).toBeCloseTo(2, 4);
+      expect(actor.z).toBeCloseTo(1, 4);
+      expect(actor.yaw).toBe(0);
+    }
+    // The old single root was forty blocks away from either visible island:
+    // at 200 percent it could cull while the player stood on that island.
+    expect(Math.abs(placed[1]!.x - placed[0]!.x)).toBeCloseTo(80, 4);
   });
 });
 
