@@ -189,6 +189,13 @@ export const FLIGHT = {
   TURN_RATE: 80,
   CLIMB_SPEED: 8, DESCEND_SPEED: 8, VERTICAL_ACCEL: 24, IDLE_SINK: 3,
   AUTO_CLIMB: 8, STEP_UP: 1,
+  /**
+   * An empty ship sinking to park never comes down onto a player under its footprint (the rider who
+   * just sneaked off and fell under it: the X-wing parked ON the child, Saga 30j s79, CMVT 15:28:07-11).
+   * It holds `PARK_CLEARANCE` blocks over the head of anyone under it (a player is `PLAYER_HEIGHT`
+   * tall, Minecraft's 1.8; the clearance is over a standing jump's 1.25) and sinks on when they walk out.
+   */
+  PLAYER_HEIGHT: 1.8, PARK_CLEARANCE: 1.5,
   PITCH_PER_CLIMB: 2.5, PITCH_PER_ACCEL: 0.8, PITCH_MAX: 20, BANK_PER_TURN: 0.25, BANK_MAX: 25, ATTITUDE_RATE: 60,
   /** Stick back past this (with Jump held) goes down instead of up. */
   DESCEND_STICK: -0.5,
@@ -636,30 +643,50 @@ export function sweepFootprint(from: FootprintPose, to: FootprintPose, fp: Vehic
  *     kerb), forward progress kept;
  *   - `deflect`: when only ONE half of the footprint (left or right of the
  *     centre line, each swept on its own) meets the block - a trunk or a post
- *     met with a corner or a wingtip, not a wall across the way - the move
- *     stepped sideways away from it by `DEFLECT_SHARE` of its length (at
- *     least `MIN_SIDESTEP`), forward progress kept, or that sidestep alone
- *     where the forward part is still blocked;
+ *     met with a corner or a wingtip - the move stepped sideways away from it
+ *     by `DEFLECT_SHARE` of its length (at least `MIN_SIDESTEP`), forward
+ *     progress kept, or that sidestep alone where the forward part is still
+ *     blocked. A SHIP (`climbFirst`) deflects only when the block is NARROW -
+ *     the solid cells joined to the hit cell in its own horizontal plane
+ *     (8-connected) number at most `NARROW_CELLS`: a trunk, a post, a pole, a
+ *     tree's crown, never a wall or a hill of any shape - and lifts over
+ *     everything else. Until 2026-10-07 the halves alone decided, and a wall
+ *     met 19 degrees off square meets one half first: the X-wing flown into a
+ *     2-high hill or a 10-high wall "deflected" sideways along it, 0.63 blocks
+ *     a tick, for 13-50 blocks and never lifted (Saga 30j, CMVT 15:19:25-31,
+ *     15:21:04-09, 15:22:15-17); the simulator's course met every wall
+ *     square-on, where both halves block, and passed. A ground vehicle has
+ *     no lift, and a sidestep along a wall met at an angle is its way along
+ *     (the McLaren's slide-along, Saga 30j): it keeps the halves' rule;
  *   - `slide`: one world axis of the move only (Minecraft's walls run along
  *     the axes), else the move turned up to `GLANCE_MAX_DEG` toward a slanted
  *     wall's line and shortened by the cosine; the speed scaled by the share
  *     of the move it keeps - along a wall met at an angle;
  *   - `rise`: straight up by the climb allowance where it stands (the face of
- *     a wall too high to climb in one move);
+ *     a wall too high to climb in one move) - only while the move PUSHES
+ *     (`MIN_PROGRESS` of horizontal travel): a turn on the spot never rises.
+ *     Until 2026-10-07 it did, so the X-wing turned with its tail against a
+ *     post climbed 4-6 blocks to the post's top (Saga 30j, CMVT 15:17:11,
+ *     15:22:49);
+ *   - `pivot`: a turn on the spot whose swing meets a block turns instead
+ *     about the END that met it (the hit's side of the centre: the tail
+ *     against a post stays put and the nose swings; a nose against a wall,
+ *     the tail), so a ship parked against something can still be turned;
  *   - `blocked`: none is clear. The vertical move and the turn are kept when
  *     they are clear on their own, so a vehicle against a wall still turns
  *     away and still comes down.
  *
  * `climbFirst` orders a ship's tries climb, deflect, rise, slide (over a
  * hill or a slanted wall rather than along it, round a trunk); a ground
- * vehicle deflects and slides first, then climbs and rises. A candidate
- * that moves less than `MIN_PROGRESS` is skipped. Pure, serialised; `sweep`
- * is `sweepFootprint`, passed in (a serialised function references nothing
+ * vehicle deflects and slides first, then climbs and rises; the pivot comes
+ * last in either (nothing else applies to a pure turn). A candidate that
+ * moves less than `MIN_PROGRESS` is skipped. Pure, serialised; `sweep` is
+ * `sweepFootprint`, passed in (a serialised function references nothing
  * outside itself).
  */
-export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5 } as const;
+export const MOVE = { DEFLECT_SHARE: 0.7, MIN_SIDESTEP: 0.1, MIN_PROGRESS: 0.002, GLANCE_STEP_DEG: 20, GLANCE_MAX_DEG: 60, GLANCE_PROBE: 1.5, NARROW_CELLS: 12 } as const;
 export type MoveParams = { readonly [K in keyof typeof MOVE]: number };
-export type MoveResolution = 'clear' | 'climb' | 'deflect' | 'slide' | 'rise' | 'blocked';
+export type MoveResolution = 'clear' | 'climb' | 'deflect' | 'slide' | 'rise' | 'pivot' | 'blocked';
 
 export function resolveMove(
   from: FootprintPose, to: FootprintPose, fp: VehicleFootprint, solid: (x: number, y: number, z: number) => boolean,
@@ -675,6 +702,9 @@ export function resolveMove(
   if (first.ok) return { pose: to, how: 'clear', kept: 1, checks };
   const at = first.at;
   const dx = to.x - from.x, dz = to.z - from.z, len = Math.hypot(dx, dz);
+  let dyaw = to.yaw - from.yaw;
+  while (dyaw > 180) dyaw -= 360;
+  while (dyaw < -180) dyaw += 360;
   const progress = (p: FootprintPose): number => (len > 1e-9 ? ((p.x - from.x) * dx + (p.z - from.z) * dz) / (len * len) : 0);
   const tryClimb = (): FootprintPose | undefined => {
     if (!(opts.climb > 0) || len < M.MIN_PROGRESS) return undefined;
@@ -686,8 +716,34 @@ export function resolveMove(
     const r = p.yaw * Math.PI / 180;
     return { ...p, x: p.x - Math.cos(r) * s, z: p.z - Math.sin(r) * s };
   };
+  /**
+   * Whether the block met is NARROW: the solid cells joined to the hit cell in its own horizontal
+   * plane (8-connected, so a diagonal of blocks is one wall) number at most `NARROW_CELLS`. A trunk
+   * (1), a 2x2 pillar, a 3x3 crown are; a wall or a hill of any shape or angle is not. Cell reads
+   * only, no sweep: the runtime caches a tick's block lookups.
+   */
+  const narrow = (): boolean => {
+    if (!at) return false;
+    const y = at[1];
+    const seen = new Set<string>([`${Math.floor(at[0])},${Math.floor(at[2])}`]);
+    const queue: Array<[number, number]> = [[Math.floor(at[0]), Math.floor(at[2])]];
+    while (queue.length) {
+      const [cx, cz] = queue.pop()!;
+      for (let ddx = -1; ddx <= 1; ddx++) for (let ddz = -1; ddz <= 1; ddz++) {
+        if (!ddx && !ddz) continue;
+        const nx = cx + ddx, nz = cz + ddz, key = `${nx},${nz}`;
+        if (seen.has(key) || !solid(nx + 0.5, y, nz + 0.5)) continue;
+        seen.add(key);
+        if (seen.size > M.NARROW_CELLS) return false;
+        queue.push([nx, nz]);
+      }
+    }
+    return true;
+  };
   const tryDeflect = (): FootprintPose | undefined => {
-    if (len < M.MIN_PROGRESS) return undefined;
+    // A ship steps round a NARROW block only (it lifts over everything else); a ground vehicle has no lift,
+    // and a sidestep along a wall met at an angle is its way along (the McLaren's slide-along, Saga 30j).
+    if (len < M.MIN_PROGRESS || (opts.climbFirst && !narrow())) return undefined;
     // Which half meets the block: each half of the footprint swept on its own (centred a quarter width out).
     const halfFp = { ...fp, halfWidth: fp.halfWidth / 2 }, q = fp.halfWidth / 2;
     const blockedHalf = (s: number): boolean => { const r = sweep(aside(from, s), aside(to, s), halfFp, solid, P); checks += r.checks; return r.blocked; };
@@ -743,18 +799,31 @@ export function resolveMove(
     return clear(side).ok ? side : undefined;
   };
   const tryRise = (): FootprintPose | undefined => {
-    if (!(opts.climb > 0)) return undefined;
+    // Only a PUSH rises (the face of a wall ahead): a turn on the spot against a post is not a reason to go up.
+    if (!(opts.climb > 0) || len < M.MIN_PROGRESS) return undefined;
     const p = { x: from.x, y: from.y + opts.climb, z: from.z, yaw: from.yaw, pitch: to.pitch };
+    return clear(p).ok ? p : undefined;
+  };
+  const tryPivot = (): FootprintPose | undefined => {
+    if (len >= M.MIN_PROGRESS || Math.abs(dyaw) < 1e-3 || !at) return undefined;
+    // Which end met the block: the hit's offset along the heading. The turn is retried about that end
+    // (it stays where it is; the other end swings), i.e. the centre moves from end + L·f0 to end + L·f1.
+    const r0 = from.yaw * Math.PI / 180, r1 = to.yaw * Math.PI / 180;
+    const f0x = -Math.sin(r0), f0z = Math.cos(r0), f1x = -Math.sin(r1), f1z = Math.cos(r1);
+    const end = (at[0] - from.x) * f0x + (at[2] - from.z) * f0z < 0 ? -1 : 1;
+    const L = Math.max(0.05, fp.halfLength);
+    const p = { ...to, x: from.x + end * L * (f0x - f1x), z: from.z + end * L * (f0z - f1z) };
     return clear(p).ok ? p : undefined;
   };
   // A ship goes OVER what it meets (climb, then up the face) before it scrapes along it; a trunk met with a
   // wingtip is still stepped round first. A ground vehicle steps round and slides before it scrambles up.
+  // A pure turn reaches none of those (each needs a push) and pivots.
   const order: Array<[MoveResolution, () => FootprintPose | undefined]> = opts.climbFirst
-    ? [['climb', tryClimb], ['deflect', tryDeflect], ['rise', tryRise], ['slide', trySlide]]
-    : [['deflect', tryDeflect], ['slide', trySlide], ['climb', tryClimb], ['rise', tryRise]];
+    ? [['climb', tryClimb], ['deflect', tryDeflect], ['rise', tryRise], ['slide', trySlide], ['pivot', tryPivot]]
+    : [['deflect', tryDeflect], ['slide', trySlide], ['climb', tryClimb], ['rise', tryRise], ['pivot', tryPivot]];
   for (const [how, attempt] of order) {
     const p = attempt();
-    if (p) return { pose: p, how, kept: how === 'slide' ? Math.max(0, Math.min(1, progress(p))) : how === 'rise' ? 0 : 1, checks, ...(at ? { at } : {}) };
+    if (p) return { pose: p, how, kept: how === 'slide' ? Math.max(0, Math.min(1, progress(p))) : how === 'rise' || how === 'pivot' ? 0 : 1, checks, ...(at ? { at } : {}) };
   }
   // Blocked: keep the turn and the vertical move where they are clear on their own.
   const fallbacks: FootprintPose[] = [
@@ -892,6 +961,8 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
   const MPH = 2.236936;
   /** Ticks a new driver sees the controls hint in the action bar (5 s); then only the speed and any warning. */
   const HUD_HINT_TICKS = 100;
+  /** Ticks after a climb or a rise the HUD still says the vehicle is lifting over (two of its 4-tick writes). */
+  const HUD_LIFT_TICKS = 8;
   const dims = (): any[] => ['overworld', 'nether', 'the_end'].flatMap(id => { try { return [world.getDimension(id)]; } catch { return []; } });
   // Plants, torches, snow layers and light blocks are passed through; everything else solid is ground.
   const PASSABLE = /(^|:)(air|cave_air|void_air|light_block.*|short_grass|tall_grass|grass|fern|large_fern|.*_flower|dandelion|poppy|torch|.*_torch|snow_layer|vine|seagrass|kelp|kelp_plant|lily_pad)$/;
@@ -1119,6 +1190,29 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
           if (!input.rider && st.onGround && Math.abs(st.speed) < 0.05) { states.set(e.id, st); continue; }
           ground = groundUnder(dim, st.x, st.z, st.y, F.STEP_UP, st.onGround ? 3 : 48, true);
           r = flight(st, input, { ground }, F, 0.05);
+          // Nobody aboard and sinking to park: never down onto a player under its footprint (the rider who
+          // just sneaked off fell straight under it and the X-wing parked ON the child, Saga 30j s79). It
+          // holds `PARK_CLEARANCE` over the highest head under it, level, and sinks on when they walk out.
+          if (!input.rider && r.state.y < st.y) {
+            let players: any[] = [];
+            try { players = dim.getPlayers(); } catch { /* none */ }
+            const L = noseReach, W = kind.halfWidth * k, rx = -Math.cos(rad), rz = -Math.sin(rad);
+            let floor: number | null = null;
+            for (const p of players) {
+              let pl: any;
+              try { pl = p.location; } catch { continue; }
+              const dx = pl.x - st.x, dz = pl.z - st.z;
+              // Under the hull: within the footprint (a step of margin) and below the base. Standing on it is not under it.
+              if (Math.abs(dx * fx + dz * fz) > L + 0.5 || Math.abs(dx * rx + dz * rz) > W + 0.5 || pl.y >= st.y) continue;
+              const top = pl.y + F.PLAYER_HEIGHT + F.PARK_CLEARANCE;
+              floor = floor === null ? top : Math.max(floor, top);
+            }
+            if (floor !== null && r.state.y < floor) {
+              // Hold where it is (never lifted by someone walking under a lower hull), level, still to sink.
+              r.state.y = Math.min(st.y, floor); r.state.vy = 0; r.state.onGround = false;
+              r.state.pitch = st.pitch < 0 ? Math.min(0, st.pitch + F.ATTITUDE_RATE * 0.05) : Math.max(0, st.pitch - F.ATTITUDE_RATE * 0.05);
+            }
+          }
           r.state.wheel = st.wheel + (r.state.onGround ? r.state.speed * 0.05 * 57.2958 : 0);
           // The whole airframe must clear, on the ground too: a ship lifts itself over a step (`resolveMove`'s climb)
           // rather than sliding its hull through it. A band that skipped the step's height on the ground let half the
@@ -1221,6 +1315,10 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
         }
         states.set(e.id, ns);
         ns.light = st.light; ns.parked = st.parked; ns.scale = st.scale; ns.how = how;
+        // The last tick it climbed or rose: the HUD (written every 4 ticks) shows "LIFTING OVER" for the
+        // `HUD_LIFT_TICKS` after one, so a rise that alternates with a creep is not sampled away (the X-wing lifted
+        // over a hill with no hint drawn once, simulator 2026-10-07).
+        ns.lifting = how === 'climb' || how === 'rise' ? tick : st.lifting;
         // Ticks the current driver has been aboard (the controls hint shows only at first).
         ns.aboard = driver ? (st.aboard || 0) + 1 : 0;
         // A boat rides a gentle swell and a hover craft bobs on its cushion (drawn only: the state keeps the calm line).
@@ -1262,12 +1360,12 @@ export function scriptedVehicleRuntime(config: ScriptedVehicleConfig, flight: ty
             // The controls hint only at first (the bar covers the middle of a phone's screen); then what it is doing.
             const going = ns.vy > 0.5 ? ' §a[UP]§r' : ns.vy < -0.5 && input.rider ? ' §a[DOWN]§r' : '';
             const hint = ns.aboard < HUD_HINT_TICKS ? '§7[STICK: FLY + TURN · JUMP: UP · BACK + JUMP: DOWN · DRAG: LOOK]§r'
-              : r.event === 'blocked' ? '§c[BLOCKED: TURN OR BACK UP]§r' : how === 'climb' || how === 'rise' ? '§e[LIFTING OVER]§r' : '';
+              : r.event === 'blocked' ? '§c[BLOCKED: TURN OR BACK UP]§r' : tick - (ns.lifting ?? -HUD_LIFT_TICKS) < HUD_LIFT_TICKS ? '§e[LIFTING OVER]§r' : '';
             hud = `§lFLY§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[BACK]' : ''}§r · §bALT ${alt}§r${going}${hint ? ` · ${hint}` : ''}`;
           } else if (kind.mode === 'car' || kind.mode === 'hover') {
             // The controls hint only for the first `HUD_HINT_TICKS` aboard: the bar sits across the middle
             // of a phone's screen, over the car the chase camera frames (Gabby's doll cars, Saga 2026-09-29).
-            const hint = r.event === 'blocked' ? '§c[BLOCKED: TURN OR BACK UP]§r' : how === 'climb' || how === 'rise' ? '§e[CLIMBING]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: DRIVE + STEER · JUMP: BOOST · DRAG: LOOK]§r' : '';
+            const hint = r.event === 'blocked' ? '§c[BLOCKED: TURN OR BACK UP]§r' : tick - (ns.lifting ?? -HUD_LIFT_TICKS) < HUD_LIFT_TICKS ? '§e[CLIMBING]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: DRIVE + STEER · JUMP: BOOST · DRAG: LOOK]§r' : '';
             hud = `§l${kind.mode === 'hover' ? 'HOVER' : 'CAR'}§r §e${(Math.abs(ns.speed) * MPH).toFixed(0)} mph${ns.speed < -0.1 ? ' §c[REV]' : ''}§r${hint ? ` · ${hint}` : ''}`;
           } else {
             const hint = !ns.afloat ? '§c[AGROUND: STICK BACK]§r' : r.event === 'beached' || ns.speed === 0 && input.y > 0.15 ? '§c[SHORE AHEAD]§r' : ns.boost > 0 ? '§a[BOOST]§r' : ns.cooldown > 0 ? `§8[BOOST ${ns.cooldown.toFixed(1)}s]§r` : ns.aboard < HUD_HINT_TICKS ? '§7[STICK: THROTTLE + RUDDER · JUMP: BOOST · DRAG: LOOK]§r' : '';
