@@ -56,16 +56,21 @@ export function markdownReport(reports: readonly PackReport[], title = 'Simulato
 /** A regression row: the case, what the old pack did, what the new one did. */
 export interface RegressionRow {
   id: string; title: string; evidence: string; expectNew: string;
-  old: { reproduced: boolean; attribution?: string; evidence: string; status: string; ms: number } | { error: string };
-  new: { reproduced: boolean; attribution?: string; evidence: string; status: string; ms: number } | { error: string };
+  old: { reproduced: boolean; attribution?: string; evidence: string; status: string; ms: number; untested?: string } | { error: string };
+  new: { reproduced: boolean; attribution?: string; evidence: string; status: string; ms: number; untested?: string } | { error: string };
   verdict: string;
   limits?: string;
 }
 
 /** The regression table in markdown. */
 export function regressionMarkdown(rows: readonly RegressionRow[]): string {
-  const cell = (x: RegressionRow['old']): string => ('error' in x ? `ERROR ${esc(x.error)}` : `${x.reproduced ? 'REPRODUCED' : 'not reproduced'}${x.attribution ? ` (${x.attribution}'s)` : ''} - ${esc(x.evidence)}`);
-  const lines = ['# Regression set', '', '| case | old pack (device) | current tree | expected now | verdict |', '|---|---|---|---|---|'];
+  const cell = (x: RegressionRow['old']): string => ('error' in x ? `ERROR ${esc(x.error)}` : `${x.reproduced ? 'REPRODUCED' : 'not reproduced'}${x.attribution ? ` (${x.attribution}'s)` : ''}${x.untested ? ` (UNTESTED: ${esc(x.untested)})` : ''} - ${esc(x.evidence)}`);
+  const lines = ['# Regression set', ''];
+  // Cases the simulator is KNOWN not to reproduce pass only their new-pack check: say so before the table, so a
+  // green run is never read as "every device bug reproduces".
+  const known = rows.filter(r => r.verdict.startsWith('KNOWN-UNREPRODUCED'));
+  if (known.length) lines.push(`**${known.length} known-unreproduced case(s)** (the old pack does not show the device bug here; only the current pack's check ran): ${known.map(r => `\`${r.id}\``).join(', ')}`, '');
+  lines.push('| case | old pack (device) | current tree | expected now | verdict |', '|---|---|---|---|---|');
   for (const r of rows) lines.push(`| ${esc(r.title)} | ${cell(r.old)} | ${cell(r.new)} | ${r.expectNew} | ${r.verdict} |`);
   lines.push('', '## Evidence', '');
   for (const r of rows) lines.push(`- \`${r.id}\`: ${esc(r.evidence)}${r.limits ? ` Limits: ${esc(r.limits)}` : ''}`);

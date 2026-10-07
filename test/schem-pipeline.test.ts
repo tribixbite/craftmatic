@@ -29,6 +29,11 @@ import { bedrockInGameText } from '../web/src/engine/playable-addon.js';
 import type { ParsedBrick } from '../web/src/engine/ldraw-parser.js';
 import { createPartGeometryProvider } from '../web/src/engine/ldraw-part-geometry.js';
 import { slidePathLdu } from '../web/src/engine/bedrock-rides.js';
+import { readAddon } from '../web/src/sim/pack/pack.js';
+import { readCraftmaticPack } from '../web/src/sim/adapters/craftmatic/pack-facts.js';
+import { craftmaticHandlers } from '../web/src/sim/adapters/craftmatic/child-play.js';
+import { SLIDE_SEAT_OVER_DRAWN } from '../web/src/sim/adapters/craftmatic/play.js';
+import { runScenario } from '../web/src/sim/scenario/runner.js';
 
 /** Hollow stone box (sealed interior) inside a 1-cell air margin. */
 function hollowBox(): BlockGrid {
@@ -273,7 +278,7 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     expect(figs[0]!.y).toBeCloseTo(0, 6);
   }, 120_000);
 
-  it('keeps a slide running line in the shell grid frame when row-zero rounding differs from the model underside', async () => {
+  it('runs a slide\'s rider IN the chute it draws when row-zero rounding differs from the model underside', async () => {
     seedDatTexts(Object.entries(PARTS).map(([id, t]) => [`${id}.dat`, t] as const));
     const slide: ParsedBrick = { part: 'slide_test.dat', color: 2, x: 0, y: 0, z: 0, rot: I };
     const bricks: ParsedBrick[] = [{ part: '3029.dat', color: 2, x: 0, y: PLATE_BOTTOM_LDU, z: 0, rot: I }, slide];
@@ -283,16 +288,30 @@ describe('runSchemPipeline — bricks source, playable add-on', () => {
     expect(mesh?.description).toMatch(/^Slide /);
     const sourcePath = slidePathLdu(slide, mesh!);
     if (!sourcePath) throw new Error('the synthetic mould has no descending chute');
+    // The fixture is one where the two frames DISAGREE (the model's underside against the shell's rounded row 0):
+    // a running line measured in the wrong one rides that much off the chute the pack draws.
     const grounded = sceneFloorPoint(frame, PLATE_BOTTOM_LDU, sourcePath[0]!);
     const inShell = sceneGridPoint(frame, sourcePath[0]!);
-    expect(Math.abs(grounded[1] - inShell[1])).toBeGreaterThan(0.1);
+    const disagreement = Math.abs(grounded[1] - inShell[1]);
+    expect(disagreement).toBeGreaterThan(0.1);
 
+    // Behaviour, not the frame: the exported pack on the headless simulator, the slide boarded and ridden to its
+    // foot (`rideSlide`, the 10788 rails regression's check). The seat must run within the drawn geometry's grain
+    // of the chute the pack DRAWS under it, and closer to it than half the frames' disagreement - measured
+    // 2026-10-07: 0.046 over the drawn chute in the shell's frame, 0.196 in the underside's (0.15 apart), both
+    // under the 0.2 grain, so the grain alone could not tell them apart.
     const result = await runSchemPipeline(brickInput(bricks, 'mcaddon'));
-    const config = await placementConfig(result.bytes!);
-    const ride = config.actors.find((a: any) => a.ridePath);
-    expect(ride, 'the synthetic slide becomes a ride').toBeTruthy();
-    expect(ride.ridePath[0]).toEqual(inShell);
-    expect(ride.y).toBe(inShell[1]);
+    const addon = await readAddon(result.bytes!, 'slide-test');
+    const pack = readCraftmaticPack(addon)!;
+    expect(pack.rides?.rides.map(r => r.kind), 'the synthetic slide becomes a ride').toContain('slide');
+    const index = pack.rides!.rides.findIndex(r => r.kind === 'slide');
+    const r = await runScenario({ name: 'slide-frame', steps: [{ kind: 'place', size: 100, rotation: 0 }, { kind: 'wait', ticks: 40 }, { kind: 'rideSlide', index, board: 'hold' }], invariants: [] },
+      [addon], { handlers: craftmaticHandlers(pack, addon) });
+    expect(r.steps.filter(s => !s.ok).map(s => s.error)).toEqual([]);
+    expect(r.violations.map(v => v.message)).toEqual([]);
+    const ran = r.state['slideWorstOverDrawn'] as { worst: number } | undefined;
+    expect(Number.isFinite(ran?.worst), 'the seat ran over the drawn chute at all').toBe(true);
+    expect(Math.abs(ran!.worst)).toBeLessThanOrEqual(Math.min(SLIDE_SEAT_OVER_DRAWN, disagreement / 2));
   }, 120_000);
 
   it('measures the walk-through size and carries it to the summary, the diagnostics and the wand', async () => {
