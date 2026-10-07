@@ -17,6 +17,8 @@
  * `quirk(<id>)`. See docs/sim-engine.md "The quirk registry".
  */
 
+import { ACTOR_DRAW_CEILING_BLOCKS, RENDER_CULL_BLOCKS_PER_UNIT } from '../../engine/bedrock-lod-hull.js';
+
 /** The engine module a quirk bears on. */
 export type QuirkArea = 'world' | 'entity' | 'physics' | 'script-host' | 'input' | 'render' | 'camera' | 'ui' | 'commands' | 'sound';
 
@@ -69,8 +71,11 @@ const QUIRKS: readonly Quirk[] = [
   { id: 'camera-roll-animation-only', rule: 'Roll exists only as a `playAnimation` keyframe; keyframes >0.05 s apart, a re-issued animation is never drawn, Euler keys interpolate linearly.', evidence: 'CLAUDE.md camera gotcha (2026-09-24..29, `camprobe`)', appliesTo: ['camera', 'render'], simulated: 'device-only' },
   { id: 'client-entity-lag', rule: 'The client draws entities ~3.5 ticks behind the server.', evidence: 'CLAUDE.md (marker-measured, `camprobe`, `animLag` 3.5)', appliesTo: ['render', 'camera'], simulated: 'device-only', values: { ticks: 3.5 } },
   { id: 'rider-yaw-lag', rule: 'A rider\'s reported yaw is the client\'s and trails its vehicle ~6 ticks.', evidence: 'CLAUDE.md camera gotcha', appliesTo: ['camera', 'input'], simulated: 'device-only', values: { ticks: 6 } },
-  { id: 'actor-draw-ceiling', rule: 'On 26.51/26.52 no actor draws past ~70-72 blocks, whatever its collision box.', evidence: 'round 2026-09-26a, `output/device-round-2026-09-26a/pixel/cull_*.png` (CLAUDE.md)', appliesTo: ['render'], simulated: 'modelled', values: { blocks: 70 } },
-  { id: 'cull-by-collision-box', rule: 'Below the ceiling an actor culls at ≈ 64 × max(1, collision box diagonal) blocks.', evidence: 'CLAUDE.md (2026-09-22)', appliesTo: ['render'], simulated: 'modelled', values: { blocksPerDiagonal: 64 } },
+  // The two cull rows read their numbers FROM the engine constants the LOD plan
+  // and the snapshot's `entityRenderCullBlocks` apply, so the registry and the
+  // code cannot drift: re-measuring the ceiling changes bedrock-lod-hull.ts.
+  { id: 'actor-draw-ceiling', rule: 'On 26.51/26.52 no actor draws past ~70-72 blocks, whatever its collision box.', evidence: 'round 2026-09-26a, `output/device-round-2026-09-26a/pixel/cull_*.png` (CLAUDE.md); applied through `entityRenderCullBlocks` (bedrock-lod-hull.ts) by the snapshot', appliesTo: ['render'], simulated: 'modelled', values: { blocks: ACTOR_DRAW_CEILING_BLOCKS } },
+  { id: 'cull-by-collision-box', rule: 'Below the ceiling an actor culls at ≈ 64 × max(1, collision box diagonal) blocks.', evidence: 'CLAUDE.md (2026-09-22); applied through `entityRenderCullBlocks` (bedrock-lod-hull.ts) by the snapshot', appliesTo: ['render'], simulated: 'modelled', values: { blocksPerDiagonal: RENDER_CULL_BLOCKS_PER_UNIT } },
   { id: 'box-uv-sub-unit-faces', rule: 'Bedrock floors a box-UV cube\'s DECLARED size and does not draw a side face whose height floors to 0.', evidence: 'Pixel probe 2026-09-29 (CLAUDE.md; `UvFloorModel`, `_figure_compile_holes.ts`)', appliesTo: ['render'], simulated: 'device-only', gap: 'the snapshot rasteriser draws every face' },
   { id: 'coplanar-hatching', rule: 'Two colours on one plane hatch (z-fight) on the device.', evidence: 'CLAUDE.md "Two colours on one plane hatch on the device" (`_render_fault_audit.ts`)', appliesTo: ['render'], simulated: 'device-only' },
   { id: 'slow-falling-gravity', rule: 'Slow falling lowers gravity to 0.01 blocks/tick² while falling and prevents fall damage.', evidence: 'Pixel 2026-09-29 float-down 89 blocks in 11 s, unharmed (`output/nimbus-pixel-0929/`)', appliesTo: ['physics'], simulated: 'modelled', values: { gravity: 0.01 } },

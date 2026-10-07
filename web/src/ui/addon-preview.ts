@@ -27,7 +27,7 @@
 
 import * as THREE from 'three';
 import type { LDrawViewer } from '@viewer/ldraw/index.js';
-import { BEDROCK_FACE_CORNERS, bedrockFaceUv, pivotRotation } from '@engine/bedrock-geometry-faces.js';
+import { BEDROCK_FACE_CORNERS, IDENTITY, bedrockFaceUv, cubeCorners, pivotRotation } from '@engine/bedrock-geometry-faces.js';
 
 /**
  * A geometry rotation (JSON degrees) about `pivot` as a three.js matrix: the
@@ -129,22 +129,20 @@ export function faceDecalGeometry(
   for (const c of cubes) {
     const f = c.faceUv;
     if (!f || f.face === 'up' || f.face === 'down') continue;
-    const [ox, oy, oz] = c.origin, [sx, sy, sz] = c.size;
-    const x0 = ox, x1 = ox + sx, y0 = oy, y1 = oy + sy, z0 = oz, z1 = oz + sz;
-    const cubeCorners: Array<[number, number, number]> = [];
-    for (let i = 0; i < 8; i++) cubeCorners.push([i & 1 ? x1 : x0, i & 2 ? y1 : y0, i & 4 ? z1 : z0]);
+    // The shared corner order (bit 0 = +x, bit 1 = +y, bit 2 = +z), with the
+    // cube's own pivot rotation already applied (`cubeCorners`, the same call
+    // the offline renderer and audits make): a per-face cube carries its own
+    // pose like a box-UV cube, turned about its pivot BEFORE the bone.
+    const corners = cubeCorners(c, IDENTITY);
     const faceCorners = BEDROCK_FACE_CORNERS[f.face];
     const bone = bones.get(c.bone) ?? new THREE.Matrix4();
-    // Per-face cubes may carry their own pose, just like box-UV cubes. Apply
-    // it before the parent without mutating the shared bone matrix.
-    const transform = c.rotation && c.pivot ? bone.clone().multiply(bedrockTurn(...c.rotation, ...c.pivot)) : bone;
     // Shared geometry-JSON order is CCW from outside the cube: north -Z,
     // south +Z, east -X and west +X. The holder's Z mirror has a negative
     // determinant; Three.js accounts for that when choosing WebGL winding and
     // transforming normals.
     for (const k of [0, 1, 2, 0, 2, 3]) {
       const corner = faceCorners[k]!;
-      v.set(...cubeCorners[corner]!).applyMatrix4(transform);
+      v.set(...corners[corner]!).applyMatrix4(bone);
       positions.push(v.x, v.y, v.z);
       const uv = bedrockFaceUv(f, corner);
       uvs.push(uv[0] / tex.width, uv[1] / tex.height);

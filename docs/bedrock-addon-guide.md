@@ -12,23 +12,19 @@ compiled from REAL part geometry (`engine/ldraw-part-geometry.ts` →
 `ldraw-part-prototype.ts` → `ldraw-entity-compiler.ts`), colours are LDraw RGB
 (`ldraw-entity-materials.ts`, classes generated from LDConfig), and each entity
 ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
-- PBR files alone do not establish the phone's lighting mode. Check Video →
-  Graphics Mode when judging gloss, shadows or plastic appearance, and record
-  it with the screenshot. Microsoft's [Vibrant Visuals resource-pack guide](https://learn.microsoft.com/en-us/minecraft/creator/documents/vibrantvisuals/vvresourcepacks?view=minecraft-bedrock-stable)
-  supports entity texture sets and requires `pbr` plus engine ≥1.21.120;
-  our packs already declare 1.26.40. Geometry/culling checks still apply in
-  either graphics mode.
-  Saga world 925 matched ground-level coaster views 258/265 show readable
-  geometry in Vibrant Visuals and Fancy respectively; Video UI 263/264
-  verifies the modes (`output/device-zero-plane-20261005/` in the fidelity
-  worktree). Fancy appears sharper/brighter and Vibrant Visuals softer/hazier.
-  These are not an elevated free-camera pair: entering Settings cleared that
-  camera. They do not establish improved gloss or photorealistic materials.
-- Derive the RP's PBR capability from its finished texture-set files, not
-  the initial component list: generated coaster actors are compiled later.
-  Printed face atlases keep their exact RGBA/alpha-test path and declare
-  uniform ABS MER `[0,0,92]` in a texture set, without a redundant normal map.
-  `_mcaddon_check.py` checks the capability and referenced PBR image files.
+- **Derive the RP's `pbr` capability from its FINISHED texture-set files**,
+  not the initial component list: coaster actors are compiled later and once
+  shipped their maps without the flag. Printed face atlases keep their exact
+  RGBA/alpha-test path and declare uniform ABS MER `[0,0,92]` in a texture set,
+  without a normal map. `_mcaddon_check.py` checks the capability and every
+  referenced PBR image. PBR files alone do not set the phone's lighting:
+  Vibrant Visuals needs `pbr` (and engine >= 1.21.120, [Microsoft's
+  guide](https://learn.microsoft.com/en-us/minecraft/creator/documents/vibrantvisuals/vvresourcepacks?view=minecraft-bedrock-stable);
+  our packs declare 1.26.40), so record Video -> Graphics Mode with any
+  judgement of gloss, shadows or plastic. Saga (fidelity audit, 2026-10-05/06): matched ground-level
+  coaster views in Fancy and Vibrant Visuals both drew readable geometry
+  (Fancy sharper, Vibrant softer); that pair proves the mode change, not
+  improved gloss.
 - **Bedrock's entity frame is left-handed.** Compile in a right-handed render
   frame (Y up, nose −Z, right +X; LDraw→render is a proper rotation `A`) and
   mirror ONLY at the JSON step: `origin.x = −max.x`, `pivot.x = −pivot.x`,
@@ -45,112 +41,46 @@ ships MER/normal texture sets with `capabilities:["pbr"]`. Hard-won facts:
   X-wing at 4 LDU and a 1,906-part DeLorean at 8 LDU, both ≥ 0.95 six-view
   silhouette IoU (`scripts/_entity_silhouette.ts`); the spec's 4,096 pushed
   them to 8/16 LDU. `scripts/_playable_ref.ts` is the CLI export gate.
-- **Saga command-field clearing must be tested before submission.** Gboard
-  ignores injected Ctrl+A in an already-focused Minecraft field. The helper
-  sends MOVE_END plus 512 Backspaces in one `input keyevent` process, waits
-  for its queue to drain, then types the slash and body. This clears up to
-  512 characters regardless of cursor position. Verify an existing long,
-  unsubmitted buffer becomes exactly the new command; sending two commands
-  in succession proves nothing because Enter clears the field itself.
-  Native proof: fidelity-audit worktree `output/device-zero-plane-20261005/`
-  `helper-batch-long-buffer-raw.png` and `helper-batch-short-before-submit.png`.
-- **Record the input, not just the setup.** A foreground `screenrecord`
-  invocation can consume its whole recording window before the next tool call
-  sends the tap. Start the recorder in a background process (on Windows,
-  `Start-Process -WindowStyle Hidden`), then send input in the same host
-  sequence. Check actual HUD changes before naming extracted frames
-  "transit" or "landing". Saga `10796-slide2.mp4` is explicitly unusable:
-  all 19.855 seconds precede the tap. `10796-slide-final.mp4` records the
-  physical press, travel, setdown and subsequent walking instead.
-  Clear test-only movement effects and free-camera overrides before judging
-  native player physics. `approachSpots` can supply a supported boarding pose;
-  an airborne teleport followed by a delayed screenshot cannot.
-- **A blocked native dismount does not prove the recovery branch ran.**
-  In the isolated 10796 stone-cage test, physical Sneak left the player
-  mounted; clearing the cage allowed dismount and supported walking.
-  Minecraft itself may have refused the first exit: no custom recovery
-  message was observed. Keep that outcome separate from the simulator's
-  verified body/floor search and remount tests. The natural 10797 stool
-  exit and both 10796/10797 slides have continuous physical-input recordings
-  in fidelity-audit `output/device-zero-plane-20261005/` (192/219/226).
-- **A body-free landing can still trap the player.** Natural 10796 Sneak
-  leaves the native player in HUD cell `(6024,-59,6002)`; movement in contacts
-  247–249 cannot leave it. The real-pack simulator chooses the exact fallback
-  `(6024.385723,-58.5625,6002.698223)`, a sealed pocket with only 0.0125 blocks
-  above a standing player's head. Scenery-seat recovery requires a supported
-  one-block walking path, sampled through intervening collider boxes, and skips
-  trapped settlement candidates. Ride/door settlement retains its default
-  policy. The headless regression checks a full block of simulated walking:
-  shipped runtime permits 0.507 blocks of shuffling, regenerated runtime 3.92.
-  A half-block diagonal can fit wholly inside a sealed one-cell pocket from
-  an off-centre start; the always-offline runtime regression guards this too.
-  Clean `278adbf5` Creative collision-escape recording uses a fresh placement at
-  `(6386,-60,6404)`, 100 percent/turn zero: approach shows the shell, mount
-  at HUD `(6410,-60,6406)`, physical Sneak exits to `(6410,-60,6408)`, then
-  walking reaches `(6410,-60,6415)` and remains at ground-level Y. Continuous proof:
-  fidelity-audit worktree `output/bedrock-entity-qa/278adbf5-native/`
-  `10796-fixed-fullscene.mp4` and `root-review10796-contact.png` (0–28.5 s).
-  Earlier `10796-fixed-seat.mp4`/291–293 is an isolated-seat control only;
-  its absent shell cannot establish the natural-seat regression.
-  Clean 10797 Creative also escapes in a fresh placement at `(6585,-60,6599)`,
-  100 percent/turn -90 degrees: physical mount/Sneak/walk reaches HUD
-  `(6580,-60,6607)` and stays at that Y through 28.5 seconds. The intermediate
-  exit screenshot 318 at Y -57 is not an already-settled ground landing;
-  continuous `10797-fixed-fullscene.mp4`/`root-review10797-contact.png`
-  records the transition and walking in the same evidence directory.
-  Flying state was not captured in these Creative recordings; they establish
-  collision escape/movement, not independent native gravity/floor acceptance.
-  Controlled Survival repetition passes for both preserved full scenes,
-  with health/hunger visible throughout and no camera/movement effects:
-  `10796-survival-seat.mp4`/332–335 repeats the seven-block ground walk;
-  `10797-survival-seat.mp4`/337–340 reaches `(6580,-60,6607)` after exit.
-  Independently reviewed `root-review1079{6,7}-survival-contact.png` shows
-  stable final ground positions for 18 and 16.5 seconds respectively.
-  The installed `figures.js` SHA-256 matches each clean `278adbf5` archive,
-  independently checked before these tests; world 925 binds versions
-  `2610.611.3249` and `2610.611.3324` respectively.
-  After acceptance, world 925's BP/RP bindings were restored byte-for-byte
-  from audit-worktree `output/bedrock-entity-qa/device-backups/20261005-224548/`; all 698
-  files across its six baseline development-pack folders match that backup,
-  with no missing or extra files. Eleven newer coaster RP files were removed
-  individually. Audit-worktree `output/bedrock-entity-qa/278adbf5-native/restoration-verification.json`
-  records those comparisons. New Gabby development packs remain unbound and
-  fresh placements remain as QA fixtures; this is not a production deployment.
-  Final Survival-repeat cleanup is captured in the same audit-worktree native
-  directory's `final-restoration-report.json`:
-  Creative, Fancy, logging off, camera/effects cleared, telemetry off, world
-  925 at `(5822,-60,5760)` with empty slot, and own device claim released.
-  After relaunch the options differ only by `app_launched_count:58→59`.
-  Blank(1)'s pre-teleport position was not captured; its accidental move to
-  `(6400,-60,6400)` remains, rather than guessing a previous position.
-- **Keep native regression proof separate from simulator coverage.** Saga
-  26.52 reproduces the archived f37227ad 10797 car fall with a fresh placement
-  at `(6985,-60,7012)`, 100 percent/turn zero: forward three seconds, release
-  0.3 seconds, forward/right 2.5 seconds. Mounted HUD `(6986,-60,7017)` moves
-  briefly, then stays at `(6989,-66,7020)` below the floor. Clean 9ed44be0
-  with the same gesture at anchor `(6200,-60,6200)` drives to
-  `(6309,-59,6286)`, reaches 43 mph and stops on the ground. Recordings:
-  `10797-archive-car-route.mp4`/contact 243 and
-  `10797-current-car-route.mp4`/contact 228 in the same evidence directory.
-  This establishes the native fix; an offline replay that still cannot
-  reproduce the old fall must retain NOT TESTED and its nonzero exit.
-  The ideal `60/6/50`-tick replay drives the old car 24.45 blocks in its first
-  phase; native old moved about one. A diagnostic ten-tick phase moves 0.963
-  blocks, but varying the turn duration still neither matches the route nor
-  reproduces the fall. Native processed intervals/stick samples remain
-  unmeasured; do not tune inferred ticks or teleport through rounded rider
-  HUD positions to manufacture a reproduction. Probe evidence:
-  main `output/fidelity-audit-20261005/native-cadence-probe-20261006.json`.
-- **Verify the loaded world after every reload.** Correct on-disk bindings
-  do not prove the world selected by the UI: Saga's rotated input selected
-  Blank(1) while 925's files and manifests were correct. Confirm a known
-  pack function or entity resolves before placing or interpreting an empty
-  scene as a load/spawn defect. Preserve a screenshot of the selected world
-  and the actual preflight result; restore unintended changes to other worlds
-  from captured original state, without inventing a previous position.
-  For byte-exact restoration, reuse `_pixel_dev_deploy.py`'s
-  `Adb.write_in_place`/`read_bytes`; its subprocess arguments and root quoting
-  avoid PowerShell splitting `su -c` redirection and retain file metadata.
+- **Saga input and recording** (clearing the chat field, the world-list tap,
+  `screenrecord`): the [testing guide](testing-guide.md), "Saga input".
+- **A blocked native dismount does not prove the recovery branch ran.** In an
+  isolated 10796 stone-cage test, physical Sneak left the player mounted and
+  no recovery message appeared: Minecraft itself may refuse the exit. Keep
+  that separate from the simulator's body/floor search and remount tests.
+- **A scenery-seat landing that fits the body can still trap it** (10796,
+  fidelity audit 2026-10-05/06): natural Sneak set the player into a sealed one-cell pocket
+  (0.0125 block of headroom) it could not walk out of. Scenery-seat recovery
+  now requires a supported one-block walking path, sampled through the
+  collider boxes in between, and skips trapped candidates; ride and door
+  set-downs keep their default policy. A half-block diagonal can fit inside a
+  sealed pocket from an off-centre start, so the regression
+  (`test/bedrock-figure-life.test.ts`) walks a full block. Clean packs of
+  10796 and 10797 then exited and walked on the Saga in Creative and in
+  explicit Survival (health/hunger HUD visible); a Creative recording with
+  uncaptured flight state proves collision escape, not gravity.
+- **Keep native regression proof separate from simulator coverage.** The Saga
+  reproduces the archived 10797 car fall (forward 3 s, release 0.3 s,
+  forward-right 2.5 s: the car ends six blocks under the floor) and the
+  current pack drives the same gesture on the ground: the native fix is
+  proved. The offline replay of the old pack still does not reproduce the
+  fall (its ideal 60/6/50-tick phases drive 24 blocks where the device moved
+  about one; the device's processed input intervals are unmeasured), so that
+  case stays NOT TESTED with a nonzero exit. An old regression pack that does
+  not reproduce its recorded symptom is NOT TESTED, whatever the new pack
+  does; never tune inferred ticks, or teleport through rounded HUD
+  positions, to manufacture a reproduction.
+- **Verify the loaded world after every reload.** Correct on-disk bindings do
+  not prove the world the UI opened: the Saga's rotated input selected
+  Blank(1) while 925's files were correct. Confirm a known pack function or
+  entity resolves before placing, or before reading an empty scene as a
+  load/spawn defect, and restore unintended changes to other worlds only
+  from captured state (never an invented position). For byte-exact
+  restoration reuse `_pixel_dev_deploy.py`'s `Adb.write_in_place` /
+  `read_bytes`: they keep file metadata and avoid PowerShell splitting
+  `su -c` redirection.
+- **Placing in a retained world retires the previous placement**, even at a
+  fresh anchor. Take a complete closed-world snapshot (Save & Quit first)
+  before testing Place; the testing guide has the procedure.
 - **Pixel QA mechanics** (helpers: `scripts/_pixel_shot.sh <name>` screenshots
   to a ≤1999 px jpg, `scripts/_pixel_cmd.sh "/cmd"` types one chat command; both
   set `MSYS_NO_PATHCONV=1`, without which Git Bash rewrites `/tp …` into
@@ -597,22 +527,19 @@ standard moulds. That is a corpus defect, not an add-on one. Two limits stay:
   the rider's ticket. 31084's front car retains its eleven nested shark-nose
   parts. Corpus and synthetic regressions check actual membership, not just
   the number of detected cars.
-- **A 200 percent shell still has a finite native draw distance.** Saga 26.52,
-  clean 62fe6c26 10261, anchor `(5779,-60,5790)`, rotation zero: the shell
-  root is `(5821.0755,-8,5809.6875)`. A free camera at `(5822,0,5760)`
-  (50.34 blocks from that root) draws the shell; `(5822,5,5735)` (75.82)
-  does not, including after eight seconds. Independent cars can remain.
-  These two samples bracket the transition; they do not measure an exact
-  70-block cutoff. Close station views from both sides draw shell, cars,
-  riders and platform together. Player distance stayed about 71.94 while
-  the nearer camera drew the shell, distinguishing camera from player culling.
-  Evidence: fidelity-audit worktree `output/device-zero-plane-20261005/`
-  captures 160–164. This is whole-shell distance culling, not partial spawning.
-  October 6 review of Mojang's [official schemas](https://github.com/Mojang/bedrock-samples/blob/main/documentation/Schemas.html)
-  and Microsoft's [client-entity documentation](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/cliententitydocumentation/cliententitydocumentationintroduction?view=minecraft-bedrock-stable)
-  found no supported model render-distance override. Do not emit a speculative
-  `render_distance_multiplier`: visible bounds control bounds, while similarly
-  named camera/nameplate/debug/ticking fields do not override entity model culling.
+- **A 200 percent shell still has a finite native draw distance**, and the
+  cull follows the CAMERA, not the player (Saga 26.52, clean 10261 at 200 %,
+  fidelity audit 2026-10-05/06): a free camera 50.34 blocks from the shell's root drew it, one
+  75.82 away did not (still gone after 8 s) while the player stood ~72 away
+  throughout; the independently rooted cars could remain. Two samples bracket
+  the transition; they do not measure a cutoff, nor separate 3D from
+  horizontal distance (`TODO(cull)`). The whole shell goes at once; nothing
+  is spawned partially. No supported entity render-distance override exists
+  (Mojang's [schemas](https://github.com/Mojang/bedrock-samples/blob/main/documentation/Schemas.html)
+  and the [client-entity docs](https://learn.microsoft.com/en-us/minecraft/creator/reference/content/entityreference/examples/cliententitydocumentation/cliententitydocumentationintroduction?view=minecraft-bedrock-stable),
+  reviewed 2026-10-06): do not emit a speculative `render_distance_multiplier`;
+  `visible_bounds` and the similarly named camera/nameplate/debug/ticking
+  fields do not change model culling.
 - **Large static shells now use local actor roots.** `splitStaticShell` partitions
   finished emitted cubes after the single global grain/cull/merge/coplanar plan;
   it translates cube origins, cube pivots and all bone pivots together, preserving
@@ -3201,25 +3128,27 @@ the same handedness there as in the web viewer. The minifig creator opts
 out (`faceTextures: false`; its slots carry print layers). Diagnostics:
 `faceTextures: {printed, art, atlas}` per entity.
 
-**Native east/west convention (Saga, 2026-10-06).** Mirroring the cube's
-numeric X coordinates does not exchange face keys: render/editor +X remains
-`east`, −X remains `west`. After serialization, east is the numeric minimum-X
-plane and west the maximum-X plane. This follows Blockbench's
+**Native east/west convention (Saga, 2026-10-06).** Blockbench's Bedrock
+export mirrors a cube's X but KEEPS its face keys, so in the serialized JSON
+`east` is the numeric minimum-X plane and `west` the maximum-X plane; per-face
+UV runs north u -> +X, south u -> −X, east u -> −Z, west u -> +Z, and v -> −Y
+on all four. Render/editor +X remains `east`, −X remains `west`. This follows Blockbench's
 [cube face coordinates](https://github.com/JannisX11/blockbench/blob/master/js/outliner/types/cube.js)
 and [Bedrock codec](https://github.com/JannisX11/blockbench/blob/master/js/formats/bedrock/bedrock.js):
 `compileCube` mirrors `origin[0]` while preserving each UV key. Treating the
 schema's cardinal direction prose as numeric serialized coordinates gave
 10261's coaster riders a blank face. Changing only the original decal's
 `west` key to `east` restored the face over the full head; padding its thin
-axis and changing material did not. Evidence: fidelity-audit-20261005 worktree
-`output/device-zero-plane-20261005/138-east-fullcar-front.png` and rear 139.
-The original cutout decal rendered from both sides when the head was hidden
-(136/137), so retain double-sided cutout behavior; the faulty surface was
+axis and changing material did not (evidence: the fidelity-audit worktree's
+`output/device-zero-plane-20261005/`, ignored local evidence, may be gone).
+The original cutout decal rendered from both sides when the head was hidden,
+so retain double-sided cutout behavior; the faulty surface was
 occluded in the full model. The audit and Walker now share physical corner
 and UV definitions (`BEDROCK_FACE_CORNERS`, `bedrockFaceUv`), rather than
 separately implementing contradictory mappings. North/south stay unchanged.
-Walker applies a decal cube's own rotation about its pivot before its parent
-bone, just as it does for box-UV cubes; imported per-face cubes can use either.
+A per-face decal cube's own rotation applies about its pivot BEFORE the bone
+transform, as for a box-UV cube; the Walker's decal quads take their corners
+from the shared `cubeCorners` (bedrock-geometry-faces.ts), which does this.
 
 For native diagnostics, a screenshot filename is not a camera-pose check:
 verify the car nose/limbs actually face the camera. Prove a changed resource
@@ -3303,11 +3232,12 @@ test did not). `_mcaddon_check.py` fails a pack whose geometry declares
 a box-UV cube under one unit and counts the rest.
 
 **Exact-zero control (Saga, 2026-10-05).** Four solid-colour panels using
-`inflate: -1`, declared Z sizes 2/2.01/2.25/3 (effective 0/.01/.25/1), all
-rendered from both sides. A zero plane therefore does not need artificial
-thickness for UV padding to work. Reproduction and views: worktree
-`fidelity-audit-20261005/output/device-zero-plane-20261005/` (`build-probe.ts`,
-`10-front.png`, `11-back.png`). This is independent of whether a complete
+`inflate: -1`, declared Z sizes 2/2.01/2.25/3 (drawn 0/0.01/0.25/1), all
+rendered from both sides. A zero plane therefore needs no artificial
+thickness, and `boxUvSafeCube` must never change drawn extents (an Oct 2
+0.25-unit "hair" for exact-zero cubes was reverted). Probe: the fidelity-audit
+worktree's `output/device-zero-plane-20261005/build-probe.ts` (ignored local
+evidence, may be gone). This is independent of whether a complete
 model has missing source parts or cross-actor coplanar surfaces.
 
 **Also found: the hidden-cube cull across bones.** `cullHiddenCuboids` let a
@@ -3859,9 +3789,9 @@ gone (a child bumps into things all the time): a soft thud.
 Saga's Milano chase-view test on a lock-181 seat records horizontal drag:
 `yawOff` changes 32.2 to -66.4 degrees while vehicle yaw stays 150.8.
 The released offset holds at rest; moving then enables `recentring` and
-reduces the offset toward zero. Evidence in the fidelity worktree:
-`output/device-zero-plane-20261005/ContentLog-milano-controls.txt` and
-`craftmatic-milano-controls.mp4`. This settles orbit/hold/recenter and the
+reduces the offset toward zero (content log + recording in the fidelity-audit
+worktree's `output/device-zero-plane-20261005/`, ignored local evidence, may
+be gone). This settles orbit/hold/recenter and the
 stationary vehicle heading for that class/view only. Pitch drag, turning
 rider-yaw lag, other vehicle classes and cockpit `setRotation` remain
 unmeasured; pinball's lock-0 yaw result is not a lock-181 cockpit test.

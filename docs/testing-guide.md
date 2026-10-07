@@ -15,41 +15,7 @@ snapshots, and conservative facet selection. Inspect the exported pack's
 `spatialShell` diagnostics for actual IDs/counts/radii and compare its world
 geometry against the baseline. These gates do not prove native culling or
 lighting; those require a camera near geometry but beyond the old shell root's
-draw range, station lighting/alignment, and complete native Undo. Evidence:
-main `output/fidelity-audit-20261005/spatial-shell-{focused-tests,full-tests,build}.log`.
-
-Walker HUD toggles rebuild their DOM. Do not capture a NodeList and click its
-nodes repeatedly: after the first toggle, later nodes are detached and their
-clicks silently miss the delegated listener. Capture kind strings, re-query a
-live selector before each click, and assert the actual `legend` flags plus
-`routeGroup.visible` before claiming a model-only screenshot. A yellow station
-beam is a route overlay, not shipped geometry. The first spatial A/B captures
-had this harness error; corrected captures must supersede their layer claims.
-
-Native placement QA can retire the player's previous placement even at a
-fresh anchor. Before testing Place in a retained world, Save & Quit and take
-a complete closed-world snapshot, including the database and placement
-history. A pack/options backup alone cannot restore retired fixtures; old
-Undo records do not contain enough transforms to reconstruct them. Exercise
-the candidate's Undo first, then restore the snapshot while Minecraft is
-closed and restore original bindings separately if the snapshot was taken
-after binding the candidate. Verify the complete snapshot manifest before
-overwriting its candidate bindings, then verify the final closed-world files
-against the snapshot with only the original binding hashes substituted.
-Save the report before relaunch, which can legitimately update world files.
-Verify pack/options hashes and remove only
-individually identified test-created files. Never recursively delete.
-
-Saga world-list input can be blocked by a rotated ActivityRecordInputSink.
-In the October 6 round, a root protocol-B event4 tap including `BTN_TOUCH`
-loaded the world; a partial sequence without `BTN_TOUCH` and ordinary mouse/
-touch taps did not. The validated panel point was 800,1950, with landscape
-mapping `(x,y) -> (y,2400-x)` on that captured 2400x1080 layout. Reconfirm
-the layout before reuse. A screenshot named "loaded" is not loading evidence:
-inspect the actual in-world HUD. Current owner, snapshot, baseline hashes and
-restore steps are recorded in the audit worktree's
-`output/bedrock-entity-qa/8e261f39-spatial-native/native-progress.json`;
-consult [the tracker](../TASKS-BEDROCK-ADDON.md) before driving a device.
+draw range, station lighting/alignment, and complete native Undo.
 
 Answer a question at the cheapest tier that can answer it:
 
@@ -100,10 +66,8 @@ for that question. The 10796 regression in `test/bedrock-figure-life.test.ts` ca
 a landing that fits the body but traps it in a small pocket; static overlap
 checks and ordinary child-play alone missed it. An always-offline runtime
 fixture also guards the recovery policy when the source pack is unavailable.
-For native gravity/floor acceptance, explicitly set Survival and capture its
-health/hunger HUD. Saga's up/down arrow controls also appear in Survival;
-their shape alone does not identify Creative flying state. A Creative motion
-recording with uncaptured flight state proves collision escape, not gravity.
+A Creative recording with uncaptured flight state proves collision escape,
+not gravity (native physics checks: "Saga input" below).
 
 ### The operator console — `bun run console` (`tools/console/`)
 
@@ -162,6 +126,14 @@ each with show and highlight toggles for markers and perimeter boxes, alongside
 the coaster route, station, lift travel and the reachable/unreachable overlay —
 that last one is what keeps costing device time. A size selector re-lays
 colliders and treads so scaling's effect on walkability is visible at once.
+
+Walker HUD toggles rebuild their DOM. Do not capture a NodeList and click its
+nodes repeatedly: after the first toggle, later nodes are detached and their
+clicks silently miss the delegated listener. Capture kind strings, re-query a
+live selector before each click, and assert the actual `legend` flags plus
+`routeGroup.visible` before claiming a model-only screenshot. A yellow station
+beam is a route overlay, not shipped geometry. The first spatial A/B captures
+had this harness error (2026-10-06); only re-queried captures count.
 
 Below 100 % the walk module refuses by design (`ScaledColliderGrid` is defined
 for f >= 1); the preview falls back to free-fly and says why.
@@ -372,6 +344,60 @@ path or the exporters. Each drives the REAL app in headless Chrome against
   Measured on a 10303 prod load: 91 of 200 individual part fetches returned 503
   and the model still rendered all 3,808 placements. Dev serves those from disk,
   so a dev run never sees them.
+
+## Native device QA on the phones
+
+Device ownership, current world state and the restore sources for an
+unfinished round live in [the tracker](../TASKS-BEDROCK-ADDON.md) "Start
+here"; read it before driving a device.
+
+### Placing in a retained world retires the previous placement
+
+Native placement can retire the player's previous placement even at a fresh
+anchor, and old Undo records hold too few transforms to rebuild what it
+removed. So before testing Place in a world that keeps fixtures:
+
+1. Save & Quit and take a complete closed-world snapshot (database, level
+   files and placement history), with a manifest of hashes. A pack/options
+   backup alone cannot restore retired fixtures.
+2. Test the candidate, exercising its Undo first.
+3. With Minecraft closed, verify the snapshot against its manifest, then
+   restore it. If the snapshot was taken AFTER binding the candidate, restore
+   the original pack bindings separately from their own capture.
+4. Verify the closed-world files against the snapshot (the binding JSONs
+   against the original binding hashes) and save that report BEFORE
+   relaunching: loading the world legitimately rewrites files.
+5. Verify pack/options hashes and remove only individually identified
+   test-created files. Never delete recursively.
+
+### Saga input
+
+- **Clearing the chat field.** Saga's Gboard ignores an injected Ctrl+A in an
+  already-focused Minecraft field, and a bulk `input text` drops or reorders
+  characters. `scripts/_pixel_cmd.sh` (via `_saga_chat.sh`) sends MOVE_END
+  plus 512 DEL in ONE `input keyevent` process, waits ~5 s for the key queue
+  to drain (sooner, the first characters are lost: "function" became "on"),
+  then types `/` as a key event and the body one character at a time. Test a
+  change to it on an existing long, unsubmitted buffer: two commands in a row
+  prove nothing, because Enter clears the field itself.
+- **The world list.** A rotated `ActivityRecordInputSink` can swallow
+  ordinary taps there. A root protocol-B tap on `/dev/input/event4` INCLUDING
+  `BTN_TOUCH` loaded the world (2026-10-06, panel point 800,1950 on a
+  2400 x 1080 layout, landscape `(x, y) -> (y, 2400 - x)`); a partial
+  sequence without `BTN_TOUCH`, and plain taps, did not. Reconfirm the layout
+  before reuse. A screenshot named "loaded" is not evidence of loading: read
+  the in-world HUD, and confirm a pack function or entity resolves (the
+  input once opened another world while 925's files were correct).
+- **Record the input, not just the setup.** A foreground `screenrecord` can
+  use up its whole window before the next tool call sends the tap (one
+  20-second recording held nothing but the wait). Start it in the
+  background (PowerShell `Start-Process -WindowStyle Hidden`), then send the
+  input in the same sequence, and name extracted frames only after checking
+  the HUD changed.
+- **Judging player physics.** Clear test-only movement effects and free-camera
+  overrides first. For gravity/floor acceptance set Survival explicitly and
+  keep the health/hunger HUD in frame: the Saga shows its up/down arrows in
+  Survival too, so their shape does not reveal Creative flight.
 
 ## In-game automated tests (GameTest)
 

@@ -12,9 +12,9 @@ if [[ "${1:-}" == '--field-only' ]]; then
   shift
 fi
 command="${1:?usage: _pixel_cmd.sh [--field-only] \"/command\"}"
-serial_args=()
-if [[ -n "${ANDROID_SERIAL:-}" ]]; then serial_args=(-s "$ANDROID_SERIAL"); fi
-tap() { adb "${serial_args[@]}" shell input swipe "$1" "$2" "$1" "$2" 90; }
+# adb itself reads ANDROID_SERIAL when no -s is given, so every call below
+# targets that device without passing it again.
+tap() { adb shell input swipe "$1" "$2" "$1" "$2" 90; }
 
 # Quote one argument for the device's POSIX shell. adb joins arguments into a
 # remote command line, so passing untrusted chat text as a host-side argv item
@@ -24,7 +24,7 @@ remote_quote() {
   printf "'%s'" "$value"
 }
 
-device_model="$(adb "${serial_args[@]}" shell getprop ro.product.model | tr -d '\r')"
+device_model="$(adb shell getprop ro.product.model | tr -d '\r')"
 is_saga=false
 chat_x=1120
 if [[ "${device_model,,}" == *saga* ]]; then
@@ -49,11 +49,11 @@ if $is_saga; then
   # relying on the cursor position or a short fixed window.
   clear_keys=(123)
   for ((i = 0; i < 512; i++)); do clear_keys+=(67); done
-  adb "${serial_args[@]}" shell input keyevent "${clear_keys[@]}"
+  adb shell input keyevent "${clear_keys[@]}"
   # The key-event queue remains busy after clearing; starting sooner can
   # silently drop the first several characters ("function" became "on").
   sleep 5
-  adb "${serial_args[@]}" shell "input keyevent 76; sleep 0.5"
+  adb shell "input keyevent 76; sleep 0.5"
   remote_script=''
   text="$body"
   for ((i = 0; i < ${#text}; i++)); do
@@ -61,15 +61,15 @@ if $is_saga; then
     [[ "$char" == ' ' ]] && char='%s'
     remote_script+="input text $(remote_quote "$char"); sleep 0.15; "
   done
-  adb "${serial_args[@]}" shell "$remote_script"
+  adb shell "$remote_script"
 else
   txt="${command// /%s}"
-  adb "${serial_args[@]}" shell input keycombination 113 29; sleep 0.2
-  adb "${serial_args[@]}" shell input keyevent 67;  sleep 0.2
-  adb "${serial_args[@]}" shell "input text $(remote_quote "$txt")"; sleep 0.6
+  adb shell input keycombination 113 29; sleep 0.2
+  adb shell input keyevent 67;  sleep 0.2
+  adb shell "input text $(remote_quote "$txt")"; sleep 0.6
 fi
 
 if ! $field_only; then
-  adb "${serial_args[@]}" shell input keyevent 66;  sleep 1.2
+  adb shell input keyevent 66;  sleep 1.2
   tap 45 39;               sleep 0.6   # Exit (chat sometimes stays open)
 fi
