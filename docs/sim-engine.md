@@ -365,21 +365,43 @@ its own lane, holding the stick FORWARD and nothing else for up to 10 s - a
 one-block step, a hill (a block every two, four high), a two-block kerb, a
 three-block wall, a trunk met with the footprint's corner, a three-block
 wall at 30 degrees, a two-deep and a three-deep pit (2026-09-30, "it's too
-easy to get fully stuck in place by hills / blocks"). A ship runs the course
-a second time holding Jump too (the old flight model's throttle; the new
-one's "up"). Per obstacle: passed, ticks, ticks pushing without moving, the
-height reached, ticks the vehicle's clear band went INTO a block (the band
-the runtime sweeps: over a car's step, a ship's whole airframe; 0.1 block of
-slack, `CLIP_SLACK`), and after a stop whether backing off, turning on the
-spot and driving away moved it 3 blocks. Then `shipControls` (straight up,
-hover, forward, straight back, a turn on the spot, back + Jump down, a drag
-down then Jump down) and `cameraRecentre` (a 90-degree drag at rest, 2 s at
-rest, 3 s driving: the camera's offset from the nose, read from the free
-camera's location and facing point).
+easy to get fully stuck in place by hills / blocks"), and - since the Saga's
+round 30j (2026-10-07) - the `oblique` lane: a two-high hill met 19 degrees
+off square (`OBSTACLE_SKEW_DEG`), long toward the side a sidestep runs to.
+Every other lane meets its wall square-on, where both halves of the
+footprint block and the response rises; off square one half meets it first,
+and the device's X-wing "deflected" 13-50 blocks along a hill and a wall
+and never lifted while the course said 8/8. A lane's obstacle starts 4
+blocks past the TURNED footprint's reach (a wide ship's near corner reaches
+past its nose: the Milano was spawned a block into the hill before that).
+A ship runs the course a second time holding Jump too (the old flight
+model's throttle; the new one's "up"). Per obstacle: passed, ticks, ticks
+pushing without moving, the height reached, ticks the vehicle's clear band
+went INTO a block (the band the runtime sweeps: over a car's step, a ship's
+whole airframe; 0.1 block of slack, `CLIP_SLACK`), how far it went ACROSS
+the lane beyond its heading's own drift (`side`: a run along a wall shows
+here), and after a stop whether backing off, turning on the spot and
+driving away moved it 3 blocks. Then `shipControls` (straight up, hover,
+forward, straight back, a turn on the spot, back + Jump down, a drag down
+then Jump down), `cameraRecentre` (a 90-degree drag at rest, 2 s at rest,
+3 s driving: the camera's offset from the nose, read from the free camera's
+location and facing point), and the two 30j checks: `turnAgainstPost` (the
+ship parked with its tail against a post, the stick held right 2 s: it must
+not rise, may pivot, never enters the post) and `parkOverRider` (Jump 2 s,
+sneak off: the child falls straight under the hull; the empty ship must
+hold over the child's head and park once the child walks out).
 
 Violations: `vehicle-not-stuck` (a ship must pass everything; a car or hover
-craft all but the three-block wall and the three-deep pit), `vehicle-escapes`,
-`vehicle-no-clip`, `ship-controls`, `free-look`. The course quiets
+craft all but the three-block wall, the three-deep pit and the oblique
+kerb - a car's deflect and slide come before its climb, so it runs along a
+kerb met off square: measured, `TODO(car-oblique-kerb)`), `vehicle-escapes`,
+`vehicle-no-clip`, `ship-slides-along` (a ship ran 10+ blocks across a lane
+along an obstacle's face instead of lifting over it, passed or not: the
+old pack "passed" the oblique lane by running 84 blocks round the hill's
+end), `ship-turn-climbs`, `ship-parks-on-player`, `ship-parks`,
+`ship-controls`, `free-look`. `bun scripts/_course_trace.ts <pack>
+--obstacle=<lane> [--runtime=tree] [--every=4]` prints one lane's per-tick
+positions relative to the obstacle, for a diagnosis. The course quiets
 `player-not-in-solid` and `nothing-below-ground` while the child rides (a low
 car's seated rider has its feet under the road; the pits are dug under the
 flat world on purpose) and judges the vehicle by its own band instead.
@@ -439,7 +461,13 @@ as this tree builds them from the pack's own CONFIG
 (`adapters/craftmatic/runtime-swap.ts`); the old side always runs as the
 device ran it. It measures a runtime fix on the packs a round used without
 re-exporting them (which changes the world too); a fix in the export
-pipeline still needs fresh packs.
+pipeline still needs fresh packs. A vehicle CONFIG's constant sections
+(`flight`, `boat`, `car`, `hover`, `footprint`, `move`, `headlights`) are
+topped up with this tree's constants for every key the pack predates (the
+pack's own values stay): the runtime reads its constants from the CONFIG,
+so a new key is `undefined` in an old pack's - `MOVE.NARROW_CELLS` was, and
+the swapped X-wing still ran along the oblique hill the unit-test harness
+(whose config is the tree's) rose at, until the top-up (2026-10-07).
 
 `bun scripts/sim.ts --scenario=regressions --new=<current builds>`, run at
 `671f0f3c` over packs built from `449abd0e` (`output/sim-regress-449abd0e/`):
@@ -460,6 +488,9 @@ pipeline still needs fresh packs.
 | 910004 Door 3 walk-out stops before the doorway (29d) | reproduced, the MODEL's | reproduced, the model's (as expected) |
 | 10326 Door 3 tap from 1.9 blocks refused "behind a wall" (30h) | reproduced: the line cut in the eyes' own cell, `collider_w10` (a tilted handrail's bounding box) | passes (`99f5090d`: a form the player stands in is not between) |
 | 10261 spurious FIGURE_RETAKE_NO_SEAT during placement (29d) | reproduced | passes |
+| 7140 X-wing slides along a 2-high hill met 19 degrees off square, never lifts (30j, VEH-08) | reproduced: `ship-slides-along`, 83.7 blocks across, rose 0, "passed" round the hill's end in 162 ticks | passes (`--runtime=tree` on the same pack): rose 2, 0 across, over in 57 ticks (`output/vehicle-fix-20261007/`) |
+| 7140 X-wing turning on the spot with its tail against a post rises 4-6 blocks (30j) | reproduced: rose 6 | passes: rose 0, pivoted 88 degrees, 0 ticks in the post |
+| 7140 X-wing: sneak off in the air, the empty ship parks ON the child under it (30j) | reproduced: hull base at the child's feet (-1.8 over the head) | passes: holds 1.5 over the child's head, parks on the ground once the child walks out |
 
 **The driver's view** (`driveVehicle`'s `driver-sees-ahead`) is the
 compiler's own seat rule, `driverSeesOut` in `cockpit-seat.ts`: the level

@@ -191,8 +191,9 @@ describe('the hop runtime, serialised, in the simulator', () => {
     plane.removeRider(child);
     const y0 = plane.location.y, z0 = plane.location.z;
     // Nobody aboard: it brakes to a stop and sinks gently to the ground, where it parks.
-    // The child follows on the ground: a ship past the loaded area holds still (an unloaded block is not air).
-    for (let t = 0; t < 400; t++) { child.location = { x: plane.location.x, y: FLAT_GROUND_Y, z: plane.location.z }; await sim.run(1); }
+    // The child follows on the ground BESIDE it (an empty ship never sinks onto a player under its footprint,
+    // bedrock-vehicle.ts `PARK_CLEARANCE`): a ship past the loaded area holds still (an unloaded block is not air).
+    for (let t = 0; t < 400; t++) { child.location = { x: plane.location.x + 4, y: FLAT_GROUND_Y, z: plane.location.z }; await sim.run(1); }
     expect(plane.location.z).toBeGreaterThan(z0 + 3);
     expect(plane.location.y).toBeLessThan(y0);
     expect(plane.location.y).toBeCloseTo(FLAT_GROUND_Y, 5);

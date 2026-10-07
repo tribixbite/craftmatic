@@ -13,6 +13,7 @@ import type { RegressionRow } from '../../scenario/report.js';
 import type { CraftmaticPack } from './pack-facts.js';
 import { CRAFTMATIC_ALLOWED_LINES } from './child-play.js';
 import { doorwayFindings, tapPoseOf } from './play.js';
+import { scriptedVehicleTypes, type CourseRow } from './vehicle-course.js';
 
 /** What the current tree's pack should do. */
 export type Expectation = 'pass' | 'reproduce-as-model';
@@ -85,6 +86,11 @@ const violated = (r: ScenarioResult, invariant: string, text?: RegExp): string |
   const v = r.violations.find(x => x.invariant === invariant && (!text || text.test(x.message)));
   return v ? `${v.invariant}: ${v.message}` : undefined;
 };
+
+/** The lines a driven vehicle's HUD prints (the course's own allowance). */
+const vehicleAllow = [...allow, /CAR|HOVER|FLY|PLANE|BOAT|mph|Hotbar slot 9/];
+/** The pack's scripted ship type (the first `plane` in `scripts/vehicles.js`), or '-' so the step reports the miss. */
+const shipType = (pack: CraftmaticPack): string => scriptedVehicleTypes(pack).find(t => t.mode === 'plane')?.typeId ?? '-';
 
 /** The 2026-09-29 regression set. */
 export const REGRESSIONS: RegressionCase[] = [
@@ -299,7 +305,39 @@ export const REGRESSIONS: RegressionCase[] = [
     scenario: () => ({ name: 'retake-no-seat-10261', steps: [...place, { kind: 'figuresLive', ticks: 3000 }], allowLines: allow }),
     judge: r => { const v = violated(r, 'no-unexpected-line', /FIGURE_RETAKE_NO_SEAT/); return { reproduced: !!v, evidence: v ?? 'no FIGURE_RETAKE_NO_SEAT line' }; },
   },
+  // ─── Round 30j (Saga, 2026-10-07, packs-f200ddc7): the X-wing's collision responses ───
+  {
+    id: 'xwing-slides-along-hill-30j', title: '7140 X-wing flown into a 2-high hill 19 degrees off square slides sideways along it and never lifts over (VEH-08)',
+    evidence: '`output/device-round-2026-10-07j/saga/notes.md` + `ContentLog-30j-live.txt` CMVT 15:19:25-31 (deflect, x 8037->8075 at z 8129), 15:21:04-09 (deflect 50 blocks along the hill at z 8171), 15:22:15-17 (along a 10-high wall); no `climb`, no `[LIFTING OVER]`; the sim\'s course met every wall square-on (both halves block) and passed 8/8',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
+    // The course's `oblique` lane: the device's hill, met at its angle, long toward the side a sidestep runs to.
+    scenario: pack => ({ name: 'xwing-slides-along-hill-30j', steps: [{ kind: 'stuckCourse', type: shipType(pack), obstacles: ['oblique'] }], allowLines: vehicleAllow }),
+    // The device's hill ended after 50 blocks and so does the lane's: a ship that got past by running along the
+    // face to its end (`ship-slides-along`) reproduces the finding as much as one that never got past.
+    judge: r => {
+      const row = ((r.state['course'] as CourseRow[] | undefined) ?? []).find(x => x.obstacle === 'oblique');
+      if (!row) return { reproduced: false, evidence: 'no oblique course row' };
+      const slid = violated(r, 'ship-slides-along');
+      const evidence = `oblique hill: ${row.passed ? `passed in ${row.ticks} ticks` : `STOP after ${row.ticks} ticks`}, rose ${row.rose}, slid ${row.side} across, ${row.stuckTicks} stuck${slid ? ` (${slid})` : ''}`;
+      return { reproduced: !row.passed || !!slid, evidence };
+    },
+  },
+  {
+    id: 'xwing-turn-climbs-post-30j', title: '7140 X-wing turning on the spot with its tail against a post rises 4-6 blocks to the post\'s top',
+    evidence: '`output/device-round-2026-10-07j/saga/ContentLog-30j-live.txt` CMVT 15:17:11 (y -53.92 -> -48.72, `how: rise`, stick x -0.86, y 0.01) and 15:22:49 (y -56 -> -50 against the 10-high wall); notes.md',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
+    scenario: pack => ({ name: 'xwing-turn-climbs-post-30j', steps: [{ kind: 'turnAgainstPost', type: shipType(pack) }], allowLines: vehicleAllow }),
+    judge: r => { const v = violated(r, 'ship-turn-climbs'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /tail against a post/.test(n)) ?? 'no turn note') }; },
+  },
+  {
+    id: 'xwing-parks-on-rider-30j', title: '7140 X-wing: sneak off in the air and the empty ship sinks and parks ON the child standing under it',
+    evidence: '`output/device-round-2026-10-07j/saga/s77-xwing-dismounted-air.jpg`, `s78-xwing-floating.jpg`, `s79-xwing-parked.jpg`; CMVT 15:28:07-11 (rider false, vy -3, y -46 -> -58 straight down to the ground at -60)',
+    oldPack: `${ROUND}/device-round-2026-10-07j/packs-f200ddc7/7140-xwing-fighter.mcaddon`, newStem: '7140-xwing-fighter', expectNew: 'pass',
+    scenario: pack => ({ name: 'xwing-parks-on-rider-30j', steps: [{ kind: 'parkOverRider', type: shipType(pack) }], allowLines: vehicleAllow }),
+    judge: r => { const v = violated(r, 'ship-parks-on-player'); return { reproduced: !!v, evidence: v ?? (r.notes.find(n => /after a sneak off/.test(n)) ?? 'no park note') }; },
+  },
 ];
+
 
 /** A doorway case: reproduced when the door's device lines found the fault kind; attributed as the lines said. */
 function doorJudge(r: ScenarioResult, label: string, kind: 'HOLE' | 'STOP'): { reproduced: boolean; attribution?: 'model' | 'pack'; evidence: string } {
